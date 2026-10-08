@@ -13,6 +13,7 @@ import {
   executionContextAssignmentSchema,
   openMeldSpaceEgressActionSchema,
   organizationSkillRuntimeReleaseSelectionSchema,
+  runtimeCoordinatorExecutionTokenEchoSchema,
   spaceMemberDirectoryEntrySchema,
 } from "@openmeld/schemas";
 import type {
@@ -85,6 +86,9 @@ export type DispatchSpaceActionSendTargetReference =
     };
 
 export type DispatchSpaceActionContext = {
+  executionTokenEcho?: ReturnType<
+    typeof runtimeCoordinatorExecutionTokenEchoSchema.parse
+  >;
   organizationSkillReleases?: OrganizationSkillRuntimeReleaseSelection[];
   projectShell?: {
     boundaryRoot: string;
@@ -140,6 +144,7 @@ export type DispatchSpaceActionRecordReadResult =
     };
 
 export function createDispatchSpaceActionContext(input: {
+  executionTokenEcho?: DispatchSpaceActionContext["executionTokenEcho"];
   organizationSkillReleases?: OrganizationSkillRuntimeReleaseSelection[];
   projectShell?: DispatchSpaceActionContext["projectShell"];
   workingCopyId?: string;
@@ -175,6 +180,13 @@ export function createDispatchSpaceActionContext(input: {
   const contextPath = join(contextDir, "context.json");
   const actionRecordPath = join(contextDir, "action.json");
   const context: DispatchSpaceActionContext = {
+    ...(input.executionTokenEcho
+      ? {
+          executionTokenEcho: runtimeCoordinatorExecutionTokenEchoSchema.parse(
+            input.executionTokenEcho
+          ),
+        }
+      : {}),
     ...(input.organizationSkillReleases
       ? { organizationSkillReleases: input.organizationSkillReleases }
       : {}),
@@ -371,6 +383,13 @@ function parseDispatchSpaceActionContext(
   return {
     ...(record.projectShell
       ? { projectShell: parseProjectShell(record.projectShell) }
+      : {}),
+    ...(record.executionTokenEcho
+      ? {
+          executionTokenEcho: runtimeCoordinatorExecutionTokenEchoSchema.parse(
+            record.executionTokenEcho
+          ),
+        }
       : {}),
     version,
     ...(record.organizationSkillReleases

@@ -1,3 +1,4 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   FEEDBACK_SUBMIT_DISABLED_ERROR_CODE,
   FEEDBACK_SUBMIT_INBOX_NOT_FOUND_ERROR_CODE,
@@ -8,13 +9,13 @@ import type {
   FeedbackIssueSubmitRpcRequest,
   SubmitFeedbackIssueResponse,
 } from "@openmeld/schemas/types";
-import { type CoreBindings, feedbackDb } from "../../../lib/bindings";
+import type { CoreBindings } from "../../../lib/bindings";
 import { createCoreRpcHttpError } from "../../../rpc/errors";
 import {
   createFeedbackIssueService,
   FeedbackIssueServiceError,
 } from "../../application/feedback-issue-service";
-import { createD1FeedbackIssueRepository } from "../../infrastructure/d1/feedback-issue-repo";
+import { createPostgresFeedbackIssueRepository } from "../../infrastructure/postgresql/feedback-issue-repo";
 
 export async function rpcSubmitFeedbackIssue(
   env: CoreBindings,
@@ -29,13 +30,13 @@ export async function rpcSubmitFeedbackIssue(
     });
   }
 
-  const db = feedbackDb(env);
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw new Error("Feedback D1 binding is unavailable");
   }
 
   const service = createFeedbackIssueService({
-    repository: createD1FeedbackIssueRepository({ db }),
+    repository: createPostgresFeedbackIssueRepository({ db }),
     generateIssueId: () => `feedback_issue_${crypto.randomUUID()}`,
   });
 

@@ -1,0 +1,55 @@
+---
+title: Fix a computer connection
+description: Recover the intended computer without resetting unrelated local state.
+---
+
+## The computer is disconnected
+
+Make sure the named computer is powered on, awake, and online. Open the app's **Search or run a command**, search for **Computers**, and inspect that computer.
+
+Use its reconnect or setup action. Run the new command on that machine, under the intended operating-system user.
+
+Do not connect a second machine and assume it repaired the first.
+
+## The setup command expired
+
+Return to the OpenMeld setup page and get a fresh command. Short-lived authorization is expected to expire.
+
+Do not paste someone else's command or reuse one from a screenshot.
+
+## The command is not found
+
+Open a new Terminal or PowerShell window after installation. Confirm you used the command for that operating system.
+
+If the problem continues, keep the exact error and follow the installer guidance. See [Terminal basics](/docs/start/terminal).
+
+## The computer connects but no Agent is ready
+
+Local tool discovery can continue after the computer connects. Open **Local agents** and inspect the tool you intend to use.
+
+Install or sign in to the underlying tool if required. An explicitly disabled tool stays disabled until you choose to enable it.
+
+Then check the Agent Profile's computer, tool, model, and folder.
+
+## Tools need an update
+
+Use the offered update action. A background update starting is not the same as completion. Check its final status before expecting a new capability.
+
+If the update reports a failure or restoration, preserve that message and follow the recovery action.
+
+## Read-only checks in the terminal
+
+If the CLI is installed, these commands can help identify the affected layer:
+
+```sh
+openmeld service status
+openmeld doctor --view agent
+```
+
+The default doctor path reports diagnostics. `--repair` is a different, mutating action; do not add it merely to collect a report.
+
+Do not publish raw diagnostic output without checking it for private information.
+
+## A folder is unavailable
+
+Open the [Project connection](/docs/work/projects). Confirm the folder still exists on the assigned computer and update the connection if it moved.

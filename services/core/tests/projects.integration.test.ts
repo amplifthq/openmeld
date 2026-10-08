@@ -1,82 +1,340 @@
 import { env } from "cloudflare:test";
+import type { QueryResult } from "@openmeld/db/postgresql";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import { buildRepositoryFingerprint } from "@openmeld/projects";
-import type { AgentActivityEvent } from "@openmeld/schemas/types";
+import type { AgentActivityEvent, SpaceTask } from "@openmeld/schemas/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { acceptAgentActivityEventRecord } from "../src/agent-activity/activity-event-repository";
 import type { CoreBindings } from "../src/lib/bindings";
+import { readActiveProjectIds } from "../src/projects/project-repository";
+import { rpcReadProjectRecentTasks } from "../src/projects/project-rpc";
 import { createProjectService } from "../src/projects/project-service";
 import {
   rpcCreateProject,
   rpcListProjects,
   rpcUpdateAgentProfileDefaultProject,
 } from "../src/rpc/methods";
+import { projectSpaceTaskProjectLinks } from "../src/space/infrastructure/postgresql/space-task-project-link-repo";
 
 const ownedOrganizationIds = new Set<string>();
 const ownedUserIds = new Set<string>();
 const ownedExecutionIds = new Set<string>();
-
 afterEach(async () => {
   for (const organizationId of ownedOrganizationIds) {
-    await env.OPENMELD_DB.batch([
-      env.OPENMELD_DB.prepare(
-        "DELETE FROM agent_activity_execution_links WHERE organization_id = ?"
-      ).bind(organizationId),
-      env.OPENMELD_DB.prepare(
-        "DELETE FROM agent_activity_daily_session_keys WHERE organization_id = ?"
-      ).bind(organizationId),
-      env.OPENMELD_DB.prepare(
-        "DELETE FROM agent_activity_daily_aggregates WHERE organization_id = ?"
-      ).bind(organizationId),
-      env.OPENMELD_DB.prepare(
-        "DELETE FROM agent_activity_digests WHERE organization_id = ?"
-      ).bind(organizationId),
-      env.OPENMELD_DB.prepare(
-        "DELETE FROM agent_activity_sessions WHERE organization_id = ?"
-      ).bind(organizationId),
-      env.OPENMELD_DB.prepare(
-        "DELETE FROM agent_activity_events WHERE organization_id = ?"
-      ).bind(organizationId),
-    ]);
-    await env.OPENMELD_DB.prepare(
-      "DELETE FROM projects WHERE organization_id = ?"
-    )
-      .bind(organizationId)
-      .run();
-    await env.OPENMELD_DB.prepare(
-      "DELETE FROM members WHERE organization_id = ?"
-    )
-      .bind(organizationId)
-      .run();
-    await env.OPENMELD_DB.prepare("DELETE FROM organizations WHERE id = ?")
-      .bind(organizationId)
-      .run();
+    await getPostgresDatabase(env).transaction(async (client) =>
+      (async () => {
+        const results: QueryResult[] = [];
+        for (const query of [
+          {
+            ...{
+              text: 'DELETE FROM "openmeld"."agent_activity_execution_links" WHERE organization_id = $1',
+              values: [],
+            },
+            values: [organizationId],
+          },
+          {
+            ...{
+              text: 'DELETE FROM "openmeld"."agent_activity_daily_session_keys" WHERE organization_id = $1',
+              values: [],
+            },
+            values: [organizationId],
+          },
+          {
+            ...{
+              text: 'DELETE FROM "openmeld"."agent_activity_daily_aggregates" WHERE organization_id = $1',
+              values: [],
+            },
+            values: [organizationId],
+          },
+          {
+            ...{
+              text: 'DELETE FROM "openmeld"."agent_activity_digests" WHERE organization_id = $1',
+              values: [],
+            },
+            values: [organizationId],
+          },
+          {
+            ...{
+              text: 'DELETE FROM "openmeld"."agent_activity_sessions" WHERE organization_id = $1',
+              values: [],
+            },
+            values: [organizationId],
+          },
+          {
+            ...{
+              text: 'DELETE FROM "openmeld"."agent_activity_events" WHERE organization_id = $1',
+              values: [],
+            },
+            values: [organizationId],
+          },
+        ]) {
+          results.push(await client.query(query));
+        }
+        return results;
+      })()
+    );
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'DELETE FROM "openmeld"."projects" WHERE organization_id = $1',
+        values: [],
+      },
+      values: [organizationId],
+    });
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'DELETE FROM "openmeld"."members" WHERE organization_id = $1',
+        values: [],
+      },
+      values: [organizationId],
+    });
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'DELETE FROM "openmeld"."organizations" WHERE id = $1',
+        values: [],
+      },
+      values: [organizationId],
+    });
   }
   for (const executionId of ownedExecutionIds) {
-    await env.OPENMELD_DB.prepare(
-      "DELETE FROM openMeldDaemon_runtime_coordinator_executions WHERE runtime_coordinator_execution_id = ?"
-    )
-      .bind(executionId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'DELETE FROM "openmeld"."openMeldDaemon_runtime_coordinator_executions" WHERE runtime_coordinator_execution_id = $1',
+        values: [],
+      },
+      values: [executionId],
+    });
   }
   for (const userId of ownedUserIds) {
-    await env.OPENMELD_DB.prepare(
-      "DELETE FROM openmeld_profiles WHERE owner_user_id = ?"
-    )
-      .bind(userId)
-      .run();
-    await env.OPENMELD_DB.prepare("DELETE FROM users WHERE id = ?")
-      .bind(userId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'DELETE FROM "openmeld"."openmeld_profiles" WHERE owner_user_id = $1',
+        values: [],
+      },
+      values: [userId],
+    });
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'DELETE FROM "openmeld"."users" WHERE id = $1',
+        values: [],
+      },
+      values: [userId],
+    });
   }
   ownedOrganizationIds.clear();
   ownedUserIds.clear();
   ownedExecutionIds.clear();
 });
-
 describe("Core Projects", () => {
+  it("shows only current Tasks in Spaces the human can access, and ignores stale projection replay", async () => {
+    const actor = await seedOrganizationActor("member");
+    const project = await createProjectService({
+      db: getPostgresDatabase(env),
+    }).create(
+      authority({
+        organizationId: actor.organizationId,
+        role: "member",
+        userId: actor.userId,
+      }),
+      { name: "Payments" }
+    );
+    const context = {
+      activeOrganizationId: actor.organizationId,
+      actorContext: {
+        callerPrincipalId: actor.userId,
+        profileKind: "human" as const,
+        requestId: `request_${crypto.randomUUID()}`,
+        openMeldProfileId: actor.profileId,
+      },
+    };
+    const actorSnapshot: SpaceTask["createdBy"] = {
+      ownerUserId: actor.userId,
+      profileId: actor.profileId,
+      profileKind: "human",
+      profileName: "Member",
+    };
+    const task = (spaceId: string, title: string, day: number): SpaceTask => ({
+      assignee: null,
+      automaticReworkRounds: 0,
+      completionConditions: [],
+      createdAt: `2026-09-${day}T00:00:00.000Z`,
+      createdBy: actorSnapshot,
+      description: null,
+      externalWorkItems: [],
+      needsHumanDecision: false,
+      phase: "to_do",
+      projectIds: [project.id],
+      requestedBy: actorSnapshot,
+      result: null,
+      review: null,
+      reviewer: null,
+      revision: 1,
+      sourceSignalId: null,
+      spaceId,
+      taskId: `tsk_${crypto.randomUUID()}`,
+      threadId: null,
+      title,
+      updatedAt: `2026-09-${day}T00:00:00.000Z`,
+    });
+    const privateTask = task("a".repeat(64), "Private Task", 29);
+    const staleTask = task("b".repeat(64), "Stale Task", 28);
+    const visibleTask = task("c".repeat(64), "Visible Task", 27);
+    for (const current of [privateTask, staleTask, visibleTask]) {
+      await projectSpaceTaskProjectLinks({
+        db: getPostgresDatabase(env),
+        organizationId: actor.organizationId,
+        task: current,
+      });
+    }
+    const taskBySpace = new Map<string, SpaceTask>([
+      [privateTask.spaceId, privateTask],
+      [staleTask.spaceId, { ...staleTask, projectIds: [] }],
+      [visibleTask.spaceId, visibleTask],
+    ]);
+    const spaces = {
+      idFromString: (spaceId: string) => spaceId,
+      get: (spaceId: string) => ({
+        rpcGetTask: () => {
+          if (spaceId === privateTask.spaceId) {
+            return Promise.reject(
+              new Error("HTTP 401: Space password required")
+            );
+          }
+          return Promise.resolve({
+            task: taskBySpace.get(spaceId),
+            events: [],
+          });
+        },
+      }),
+    } as unknown as CoreBindings["OPENMELD_SPACES"];
+    const coreEnv = { ...env, OPENMELD_SPACES: spaces } as CoreBindings;
+    await expect(
+      rpcReadProjectRecentTasks(coreEnv, { context, projectId: project.id })
+    ).resolves.toEqual({
+      tasks: [expect.objectContaining({ title: "Visible Task" })],
+    });
+
+    const removed = { ...visibleTask, projectIds: [], revision: 2 };
+    taskBySpace.set(visibleTask.spaceId, removed);
+    await projectSpaceTaskProjectLinks({
+      db: getPostgresDatabase(env),
+      organizationId: actor.organizationId,
+      task: removed,
+    });
+    await projectSpaceTaskProjectLinks({
+      db: getPostgresDatabase(env),
+      organizationId: actor.organizationId,
+      task: visibleTask,
+    });
+    await expect(
+      rpcReadProjectRecentTasks(coreEnv, { context, projectId: project.id })
+    ).resolves.toEqual({ tasks: [] });
+  });
+  it("configures shared repository associations and a versioned code default", async () => {
+    const organizationId = await seedOrganization();
+    const service = createProjectService({ db: getPostgresDatabase(env) });
+    const owner = authority({
+      organizationId,
+      role: "owner",
+      userId: "owner-1",
+    });
+    const project = await service.create(owner, {
+      name: "Payments",
+      repositoryUrl: "https://github.com/acme/payments",
+    });
+    const initial = await service.readRepositorySettings(owner, project.id);
+    expect(initial.repositories).toMatchObject([
+      { repositoryUrl: "https://github.com/acme/payments", isDefault: true },
+    ]);
+    const updated = await service.updateRepositorySettings(owner, project.id, {
+      defaultRepositoryUrl: "https://github.com/acme/sdk",
+      expectedRevision: initial.revision,
+      repositoryUrls: [
+        "https://github.com/acme/payments",
+        "https://github.com/acme/sdk",
+      ],
+    });
+    expect(updated.repositories).toMatchObject([
+      { repositoryUrl: "https://github.com/acme/sdk", isDefault: true },
+      { repositoryUrl: "https://github.com/acme/payments", isDefault: false },
+    ]);
+    expect((await service.read(owner, project.id)).repositoryUrl).toBe(
+      "https://github.com/acme/sdk"
+    );
+    await expect(
+      service.updateRepositorySettings(owner, project.id, {
+        defaultRepositoryUrl: null,
+        expectedRevision: initial.revision,
+        repositoryUrls: [],
+      })
+    ).rejects.toThrow("project.conflict");
+  });
+
+  it("keeps Common Agents independent of work history and Project edit authority", async () => {
+    const actor = await seedOrganizationActor("member");
+    const agentProfileId = `agt_${crypto.randomUUID()}`;
+    await getPostgresDatabase(env).query({
+      text: `INSERT INTO "openmeld"."openmeld_profiles" (
+        profile_id, profile_name, profile_handle, profile_kind, is_default,
+        status, organization_id, owner_user_id, created_by_user_id, source,
+        created_at, updated_at
+      ) VALUES ($1, 'Project Agent', $2, 'agent', 0, 'active', $3, $4, $5, 'cli_create', 1, 1)`,
+      values: [
+        agentProfileId,
+        `project-agent-${crypto.randomUUID()}`,
+        actor.organizationId,
+        actor.userId,
+        actor.userId,
+      ],
+    });
+    const service = createProjectService({ db: getPostgresDatabase(env) });
+    const manager = authority({
+      organizationId: actor.organizationId,
+      role: "member",
+      userId: actor.userId,
+    });
+    const project = await service.create(manager, { name: "Payments" });
+    const configured = await service.updateCommonAgents(manager, project.id, {
+      agentProfileIds: [agentProfileId],
+      expectedRevision: 0,
+    });
+    expect(configured.agentProfileIds).toEqual([agentProfileId]);
+    await expect(
+      service.updateCommonAgents(
+        { ...manager, userId: "other-member" },
+        project.id,
+        { agentProfileIds: [], expectedRevision: configured.revision }
+      )
+    ).rejects.toThrow("project.forbidden");
+  });
+
+  it("limits Task Project choices to active Projects in the owning Organization", async () => {
+    const organizationId = await seedOrganization();
+    const otherOrganizationId = await seedOrganization();
+    const service = createProjectService({ db: getPostgresDatabase(env) });
+    const ownProject = await service.create(
+      authority({ organizationId, role: "owner", userId: "owner-1" }),
+      { name: "Own work" }
+    );
+    const otherProject = await service.create(
+      authority({
+        organizationId: otherOrganizationId,
+        role: "owner",
+        userId: "owner-1",
+      }),
+      { name: "Other work" }
+    );
+    expect(
+      await readActiveProjectIds({
+        db: getPostgresDatabase(env),
+        organizationId,
+        projectIds: [ownProject.id, otherProject.id],
+      })
+    ).toEqual([ownProject.id]);
+  });
+
   it("replays concurrent creation retries and rejects changed input after later edits", async () => {
     const organizationId = await seedOrganization();
-    const service = createProjectService({ db: env.OPENMELD_DB });
+    const service = createProjectService({ db: getPostgresDatabase(env) });
     const owner = authority({
       organizationId,
       role: "owner",
@@ -96,9 +354,9 @@ describe("Core Projects", () => {
     ).rejects.toThrow("project.operation_conflict");
   });
 
-  it("prevents contextual creation from duplicating a repository across members", async () => {
+  it("allows one repository to belong to Projects created by different members", async () => {
     const organizationId = await seedOrganization();
-    const service = createProjectService({ db: env.OPENMELD_DB });
+    const service = createProjectService({ db: getPostgresDatabase(env) });
     const owner = authority({
       organizationId,
       role: "owner",
@@ -122,19 +380,13 @@ describe("Core Projects", () => {
         operationId: "member-create",
       }),
     ]);
-    expect(
-      results.filter((result) => result.status === "fulfilled")
-    ).toHaveLength(1);
-    expect((await service.list(owner)).projects).toHaveLength(1);
-    const rejected = results.find((result) => result.status === "rejected");
-    expect(
-      rejected?.status === "rejected" && String(rejected.reason)
-    ).toContain("project.repository_exists");
+    expect(results.every((result) => result.status === "fulfilled")).toBe(true);
+    expect((await service.list(owner)).projects).toHaveLength(2);
   });
   it("stores one safe repository URL with its matching fingerprint", async () => {
     const organizationId = await seedOrganization();
     const service = createProjectService({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       generateId: () => "project-repository",
       now: () => 100,
     });
@@ -146,7 +398,6 @@ describe("Core Projects", () => {
     const repositoryUrl = "https://github.com/amplifthq/openmeld";
     const repositoryFingerprint =
       await buildRepositoryFingerprint(repositoryUrl);
-
     await expect(
       service.create(owner, {
         name: "OpenMeld",
@@ -161,13 +412,12 @@ describe("Core Projects", () => {
       })
     ).rejects.toThrow("project.repository_identity_invalid");
   });
-
   it("separates all-member visibility from creator and administrator mutation authority", async () => {
     const organizationId = await seedOrganization();
     let nowMs = 100;
     let idSequence = 0;
     const service = createProjectService({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       generateId: () => {
         idSequence += 1;
         return `project-${idSequence}`;
@@ -187,7 +437,6 @@ describe("Core Projects", () => {
       role: "member",
       userId: "member-1",
     });
-
     const ownerProject = await service.create(owner, {
       name: "OpenMeld",
       slug: "openmeld",
@@ -196,7 +445,6 @@ describe("Core Projects", () => {
       name: "Agent Router",
       slug: "agent-router",
     });
-
     await expect(service.list(member)).resolves.toEqual({
       organizationId,
       projects: expect.arrayContaining([
@@ -212,7 +460,6 @@ describe("Core Projects", () => {
         }),
       ]),
     });
-
     await expect(
       service.update(member, ownerProject.id, { name: "Forbidden rename" })
     ).rejects.toThrow("project.forbidden");
@@ -232,11 +479,83 @@ describe("Core Projects", () => {
     });
   });
 
+  it("keeps issue routing under Project management and rejects stale competing changes", async () => {
+    const organizationId = await seedOrganization();
+    const service = createProjectService({ db: getPostgresDatabase(env) });
+    const owner = authority({
+      organizationId,
+      role: "owner",
+      userId: "owner-1",
+    });
+    const member = authority({
+      organizationId,
+      role: "member",
+      userId: "member-1",
+    });
+    const project = await service.create(owner, { name: "Payments" });
+    await expect(service.readIssueRouting(member, project.id)).resolves.toEqual(
+      {
+        destination: null,
+        projectId: project.id,
+        revision: 0,
+        updatedAtMs: null,
+        updatedByUserId: null,
+      }
+    );
+    await expect(
+      service.updateIssueRouting(member, project.id, {
+        destination: { provider: "github", owner: "acme", repo: "payments" },
+        expectedRevision: 0,
+      })
+    ).rejects.toThrow("project.forbidden");
+
+    const saved = await service.updateIssueRouting(owner, project.id, {
+      destination: { provider: "github", owner: "acme", repo: "payments" },
+      expectedRevision: 0,
+    });
+    expect(saved).toMatchObject({
+      destination: { provider: "github", owner: "acme", repo: "payments" },
+      revision: 1,
+      updatedByUserId: owner.userId,
+      updatedAtMs: expect.any(Number),
+    });
+    const competing = await Promise.allSettled([
+      service.updateIssueRouting(owner, project.id, {
+        destination: {
+          provider: "linear",
+          teamId: "11111111-1111-4111-8111-111111111111",
+        },
+        expectedRevision: 1,
+      }),
+      service.updateIssueRouting(owner, project.id, {
+        destination: null,
+        expectedRevision: 1,
+      }),
+    ]);
+    expect(
+      competing.filter((item) => item.status === "fulfilled")
+    ).toHaveLength(1);
+    expect(
+      competing.filter((item) => item.status === "rejected")
+    ).toMatchObject([
+      {
+        reason: expect.objectContaining({
+          message: expect.stringContaining("project.conflict"),
+        }),
+      },
+    ]);
+    expect((await service.readIssueRouting(owner, project.id)).revision).toBe(
+      2
+    );
+    expect((await service.list(owner)).projects[0]).not.toHaveProperty(
+      "issueDestination"
+    );
+  });
   it("scopes every Project read and mutation to the actor organization", async () => {
     const firstOrganizationId = await seedOrganization();
     const secondOrganizationId = await seedOrganization();
     const service = createProjectService({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       generateId: () => `project-${crypto.randomUUID()}`,
       now: () => 200,
     });
@@ -254,7 +573,6 @@ describe("Core Projects", () => {
       name: "Private Project",
       slug: "private-project",
     });
-
     await expect(service.list(secondOwner)).resolves.toEqual({
       organizationId: secondOrganizationId,
       projects: [],
@@ -263,7 +581,6 @@ describe("Core Projects", () => {
       service.update(secondOwner, project.id, { name: "Cross-org rename" })
     ).rejects.toThrow("project.not_found");
   });
-
   it("requires a verified active human member across the public Core RPC boundary", async () => {
     const actor = await seedOrganizationActor("member");
     const context = {
@@ -275,7 +592,6 @@ describe("Core Projects", () => {
         openMeldProfileId: actor.profileId,
       },
     };
-
     await expect(
       rpcCreateProject(env as CoreBindings, {
         context,
@@ -284,7 +600,6 @@ describe("Core Projects", () => {
         slug: "wrong-organization",
       })
     ).rejects.toThrow("project.organization_context_changed");
-
     const created = await rpcCreateProject(env as CoreBindings, {
       context,
       expectedOrganizationId: actor.organizationId,
@@ -302,37 +617,41 @@ describe("Core Projects", () => {
       organizationId: actor.organizationId,
       projects: [{ id: created.project.id }],
     });
-
-    await env.OPENMELD_DB.prepare("DELETE FROM members WHERE id = ?")
-      .bind(actor.memberId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'DELETE FROM "openmeld"."members" WHERE id = $1',
+        values: [],
+      },
+      values: [actor.memberId],
+    });
     await expect(
       rpcListProjects(env as CoreBindings, { context })
     ).rejects.toThrow("organization.membership_required");
   });
-
   it("validates the canonical Project before changing or clearing Default Project", async () => {
     const actor = await seedOrganizationActor("member");
     const agentProfileId = `agt_${crypto.randomUUID()}`;
-    await env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO openmeld_profiles (
+    await getPostgresDatabase(env).query({
+      ...{
+        text: `
+        INSERT INTO "openmeld"."openmeld_profiles" (
           profile_id, profile_name, profile_handle, profile_kind, is_default,
           status, organization_id, owner_user_id, created_by_user_id, source,
           created_at, updated_at
-        ) VALUES (?, 'Project Agent', ?, 'agent', 0, 'active', ?, ?, ?, 'cli_create', 1, 1)
-      `
-    )
-      .bind(
+        ) VALUES ($1, 'Project Agent', $2, 'agent', 0, 'active', $3, $4, $5, 'cli_create', 1, 1)
+      `,
+        values: [],
+      },
+      values: [
         agentProfileId,
         `project-agent-${crypto.randomUUID()}`,
         actor.organizationId,
         actor.userId,
-        actor.userId
-      )
-      .run();
+        actor.userId,
+      ],
+    });
     const project = await createProjectService({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       generateId: () => `project-${crypto.randomUUID()}`,
       now: () => 100,
     }).create(
@@ -408,7 +727,6 @@ describe("Core Projects", () => {
         openMeldProfileId: actor.profileId,
       },
     };
-
     await expect(
       rpcUpdateAgentProfileDefaultProject(coreEnv, {
         agentProfileId,
@@ -447,35 +765,36 @@ describe("Core Projects", () => {
       "release",
     ]);
   });
-
   it("atomically caps active Projects before the list contract can overflow", async () => {
     const actor = await seedOrganizationActor("owner");
-    await env.OPENMELD_DB.prepare(
-      `
+    await getPostgresDatabase(env).query({
+      ...{
+        text: `
         WITH RECURSIVE sequence(value) AS (
           SELECT 1
           UNION ALL
           SELECT value + 1 FROM sequence WHERE value < 500
         )
-        INSERT INTO projects (
+        INSERT INTO "openmeld"."projects" (
           id, organization_id, name, slug, repository_fingerprint,
           created_by_user_id, created_at_ms, updated_at_ms, archived_at_ms
         )
         SELECT
           'project_limit_' || value,
-          ?,
+          $1,
           'Project ' || value,
           'project-' || value,
           NULL,
-          ?,
+          $2,
           value,
           value,
           NULL
         FROM sequence
-      `
-    )
-      .bind(actor.organizationId, actor.userId)
-      .run();
+      `,
+        values: [],
+      },
+      values: [actor.organizationId, actor.userId],
+    });
     const context = {
       activeOrganizationId: actor.organizationId,
       actorContext: {
@@ -485,7 +804,6 @@ describe("Core Projects", () => {
         openMeldProfileId: actor.profileId,
       },
     };
-
     await expect(
       rpcListProjects(env as CoreBindings, { context })
     ).resolves.toMatchObject({ projects: expect.any(Array) });
@@ -498,7 +816,6 @@ describe("Core Projects", () => {
       })
     ).rejects.toThrow("project.limit_reached");
   });
-
   it.each([
     ["owner", "owner", "owner-actor", true],
     ["admin", "admin", "admin-actor", false],
@@ -507,7 +824,7 @@ describe("Core Projects", () => {
   ] as const)("enforces owner-only plus zero-Activity creator grace for %s", async (_label, actorRole, actorUserId, expectedArchive) => {
     const organizationId = await seedOrganization();
     const service = createProjectService({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       generateId: () => `project-${crypto.randomUUID()}`,
       now: () => Date.now(),
     });
@@ -525,7 +842,6 @@ describe("Core Projects", () => {
       role: actorRole,
       userId: actorUserId,
     });
-
     await expect(service.list(actor)).resolves.toMatchObject({
       projects: [{ canArchive: expectedArchive, id: project.id }],
     });
@@ -539,12 +855,11 @@ describe("Core Projects", () => {
       );
     }
   });
-
   it("allocates automatic slug conflicts through -99 and then stops", async () => {
     const organizationId = await seedOrganization();
     let idSequence = 0;
     const service = createProjectService({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       generateId: () => {
         idSequence += 1;
         return `slug-project-${idSequence}`;
@@ -560,38 +875,38 @@ describe("Core Projects", () => {
     await expect(
       service.create(owner, { name: "OpenMeld" })
     ).resolves.toMatchObject({ slug: "openmeld-2" });
-
-    await env.OPENMELD_DB.prepare(
-      `
+    await getPostgresDatabase(env).query({
+      ...{
+        text: `
         WITH RECURSIVE sequence(value) AS (
           SELECT 3
           UNION ALL
           SELECT value + 1 FROM sequence WHERE value < 99
         )
-        INSERT INTO projects (
+        INSERT INTO "openmeld"."projects" (
           id, organization_id, name, slug, repository_fingerprint,
           created_by_user_id, created_at_ms, updated_at_ms, archived_at_ms
         )
         SELECT
           'slug_limit_' || value,
-          ?,
+          $1,
           'OpenMeld ' || value,
           'openmeld-' || value,
           NULL,
-          ?,
+          $2,
           value,
           value,
           NULL
         FROM sequence
-      `
-    )
-      .bind(organizationId, owner.userId)
-      .run();
+      `,
+        values: [],
+      },
+      values: [organizationId, owner.userId],
+    });
     await expect(service.create(owner, { name: "OpenMeld" })).rejects.toThrow(
       "through the -99 suffix"
     );
   });
-
   it.each([
     "daily_aggregate",
     "daily_session_key",
@@ -603,7 +918,7 @@ describe("Core Projects", () => {
       userId: "member-1",
     });
     const service = createProjectService({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       generateId: () => `project-${crypto.randomUUID()}`,
       now: () => 100,
     });
@@ -615,7 +930,6 @@ describe("Core Projects", () => {
       organizationId,
       projectId: project.id,
     });
-
     await expect(service.list(member)).resolves.toMatchObject({
       projects: [{ canArchive: false, id: project.id }],
     });
@@ -623,7 +937,6 @@ describe("Core Projects", () => {
       "This Project already has Activity. Only the organization owner can remove it."
     );
   });
-
   it("blocks creator grace for an execution-link association", async () => {
     const organizationId = await seedOrganization();
     const member = authority({
@@ -632,7 +945,7 @@ describe("Core Projects", () => {
       userId: "member-1",
     });
     const service = createProjectService({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       generateId: () => `project-${crypto.randomUUID()}`,
       now: () => 100,
     });
@@ -641,17 +954,15 @@ describe("Core Projects", () => {
       acceptEventRecord({ organizationId, projectId: project.id })
     ).resolves.toBe("accepted");
     await seedExecutionLink({ organizationId, projectId: project.id });
-
     await expect(service.archive(member, project.id)).rejects.toThrow(
       "This Project already has Activity. Only the organization owner can remove it."
     );
   });
-
   it("orders archive and Activity ingestion deterministically in both directions", async () => {
     const organizationId = await seedOrganization();
     let nowMs = 100;
     const service = createProjectService({
-      db: env.OPENMELD_DB,
+      db: getPostgresDatabase(env),
       generateId: () => `project-${crypto.randomUUID()}`,
       now: () => {
         nowMs += 1;
@@ -668,7 +979,6 @@ describe("Core Projects", () => {
       role: "owner",
       userId: "owner-1",
     });
-
     const archiveFirst = await service.create(member, {
       name: "Archive First",
     });
@@ -676,7 +986,6 @@ describe("Core Projects", () => {
     await expect(
       acceptEventRecord({ organizationId, projectId: archiveFirst.id })
     ).resolves.toBe("project_archived");
-
     const eventFirst = await service.create(member, { name: "Event First" });
     await expect(
       acceptEventRecord({ organizationId, projectId: eventFirst.id })
@@ -694,22 +1003,32 @@ describe("Core Projects", () => {
         projectId: eventFirst.id,
       })
     ).resolves.toBe("project_archived");
-
-    const counts = await env.OPENMELD_DB.prepare(
-      `
+    const counts = await getPostgresDatabase(env)
+      .query<{
+        events: number;
+        sessions: number;
+      }>({
+        ...{
+          text: `
         SELECT
-          (SELECT count(*) FROM agent_activity_events
-            WHERE organization_id = ? AND project_id = ?) AS events,
-          (SELECT count(*) FROM agent_activity_sessions
-            WHERE organization_id = ? AND project_id = ?) AS sessions
-      `
-    )
-      .bind(organizationId, archiveFirst.id, organizationId, archiveFirst.id)
-      .first<{ events: number; sessions: number }>();
+          (SELECT count(*) FROM "openmeld"."agent_activity_events"
+            WHERE organization_id = $1 AND project_id = $2) AS events,
+          (SELECT count(*) FROM "openmeld"."agent_activity_sessions"
+            WHERE organization_id = $3 AND project_id = $4) AS sessions
+      `,
+          values: [],
+        },
+        values: [
+          organizationId,
+          archiveFirst.id,
+          organizationId,
+          archiveFirst.id,
+        ],
+      })
+      .then((result) => result.rows[0] ?? null);
     expect(counts).toEqual({ events: 0, sessions: 0 });
   });
 });
-
 function authority(input: {
   organizationId: string;
   role: "admin" | "member" | "owner";
@@ -717,24 +1036,24 @@ function authority(input: {
 }) {
   return input;
 }
-
 async function seedOrganization(): Promise<string> {
   const suffix = crypto.randomUUID();
   const organizationId = `org_agent_activity_${suffix}`;
   ownedOrganizationIds.add(organizationId);
-  await env.OPENMELD_DB.prepare(
-    "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, ?, ?, ?)"
-  )
-    .bind(
+  await getPostgresDatabase(env).query({
+    ...{
+      text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, $2, $3, $4)',
+      values: [],
+    },
+    values: [
       organizationId,
       "Agent Activity Test Organization",
       `agent-activity-${suffix}`,
-      1
-    )
-    .run();
+      1,
+    ],
+  });
   return organizationId;
 }
-
 async function seedOrganizationActor(role: "admin" | "member" | "owner") {
   const organizationId = await seedOrganization();
   const suffix = crypto.randomUUID();
@@ -742,121 +1061,164 @@ async function seedOrganizationActor(role: "admin" | "member" | "owner") {
   const profileId = crypto.randomUUID();
   const memberId = `member_agent_activity_${suffix}`;
   ownedUserIds.add(userId);
-  await env.OPENMELD_DB.batch([
-    env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO users (id, name, email, email_verified, created_at, updated_at)
-        VALUES (?, 'Agent Activity User', ?, 1, 1, 1)
-      `
-    ).bind(userId, `${userId}@example.com`),
-    env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO openmeld_profiles (
+  await getPostgresDatabase(env).transaction(async (client) =>
+    (async () => {
+      const results: QueryResult[] = [];
+      for (const query of [
+        {
+          ...{
+            text: `
+        INSERT INTO "openmeld"."users" (id, name, email, email_verified, created_at, updated_at)
+        VALUES ($1, 'Agent Activity User', $2, 1, 1, 1)
+      `,
+            values: [],
+          },
+          values: [userId, `${userId}@example.com`],
+        },
+        {
+          ...{
+            text: `
+        INSERT INTO "openmeld"."openmeld_profiles" (
           profile_id, profile_name, profile_handle, profile_kind, is_default,
           status, organization_id, owner_user_id, created_by_user_id, source,
           created_at, updated_at
-        ) VALUES (?, 'Agent Activity User', ?, 'human', 1, 'active', NULL, ?, ?, 'auth_bootstrap', 1, 1)
-      `
-    ).bind(profileId, `agent-activity-${suffix}`, userId, userId),
-    env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO members (id, organization_id, user_id, role, created_at)
-        VALUES (?, ?, ?, ?, 1)
-      `
-    ).bind(memberId, organizationId, userId, role),
-  ]);
+        ) VALUES ($1, 'Agent Activity User', $2, 'human', 1, 'active', NULL, $3, $4, 'auth_bootstrap', 1, 1)
+      `,
+            values: [],
+          },
+          values: [profileId, `agent-activity-${suffix}`, userId, userId],
+        },
+        {
+          ...{
+            text: `
+        INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at)
+        VALUES ($1, $2, $3, $4, 1)
+      `,
+            values: [],
+          },
+          values: [memberId, organizationId, userId, role],
+        },
+      ]) {
+        results.push(await client.query(query));
+      }
+      return results;
+    })()
+  );
   return { memberId, organizationId, profileId, userId };
 }
-
 async function seedStandaloneEvidence(input: {
   evidenceKind: "daily_aggregate" | "daily_session_key";
   organizationId: string;
   projectId: string;
 }): Promise<void> {
   if (input.evidenceKind === "daily_aggregate") {
-    await env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO agent_activity_daily_aggregates (
+    await getPostgresDatabase(env).query({
+      ...{
+        text: `
+        INSERT INTO "openmeld"."agent_activity_daily_aggregates" (
           id, organization_id, project_id, member_user_id, utc_date,
           session_count, event_count, first_observed_at_ms,
           last_observed_at_ms, provider_counts_json, updated_at_ms
-        ) VALUES (?, ?, ?, 'member-1', '2026-07-14', 0, 0, 100, 100, '{}', 100)
-      `
-    )
-      .bind(
+        ) VALUES ($1, $2, $3, 'member-1', '2026-07-14', 0, 0, 100, 100, '{}', 100)
+      `,
+        values: [],
+      },
+      values: [
         `daily-${crypto.randomUUID()}`,
         input.organizationId,
-        input.projectId
-      )
-      .run();
+        input.projectId,
+      ],
+    });
     return;
   }
-  await env.OPENMELD_DB.prepare(
-    `
-      INSERT INTO agent_activity_daily_session_keys (
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `
+      INSERT INTO "openmeld"."agent_activity_daily_session_keys" (
         daily_session_key, organization_id, project_id, member_user_id,
         utc_date, first_event_storage_id, created_at_ms, expires_at_ms
-      ) VALUES (?, ?, ?, 'member-1', '2026-07-14', 'event-storage-1', 100, 200)
-    `
-  )
-    .bind(`sha256:${"a".repeat(64)}`, input.organizationId, input.projectId)
-    .run();
+      ) VALUES ($1, $2, $3, 'member-1', '2026-07-14', 'event-storage-1', 100, 200)
+    `,
+      values: [],
+    },
+    values: [`sha256:${"a".repeat(64)}`, input.organizationId, input.projectId],
+  });
 }
-
 async function seedExecutionLink(input: {
   organizationId: string;
   projectId: string;
 }): Promise<void> {
-  const session = await env.OPENMELD_DB.prepare(
-    `
+  const session = await getPostgresDatabase(env)
+    .query<{
+      id: string;
+    }>({
+      ...{
+        text: `
       SELECT id
-      FROM agent_activity_sessions
-      WHERE organization_id = ? AND project_id = ?
+      FROM "openmeld"."agent_activity_sessions"
+      WHERE organization_id = $1 AND project_id = $2
       LIMIT 1
-    `
-  )
-    .bind(input.organizationId, input.projectId)
-    .first<{ id: string }>();
+    `,
+        values: [],
+      },
+      values: [input.organizationId, input.projectId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!session) {
     throw new Error("Expected an Activity session before linking execution.");
   }
   const executionId = `execution-${crypto.randomUUID()}`;
   ownedExecutionIds.add(executionId);
-  await env.OPENMELD_DB.batch([
-    env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO openMeldDaemon_runtime_coordinator_executions (
+  await getPostgresDatabase(env).transaction(async (client) =>
+    (async () => {
+      const results: QueryResult[] = [];
+      for (const query of [
+        {
+          ...{
+            text: `
+        INSERT INTO "openmeld"."openMeldDaemon_runtime_coordinator_executions" (
           runtime_coordinator_execution_id, model_version, space_id,
           dispatch_id, target_profile_id, openMeld_service_runtime_id_source,
           openmeld_service_runtime_id, binding_id, agent_controller_ref,
           status, created_at_ms, updated_at_ms
-        ) VALUES (?, 'v1', ?, ?, 'profile-1', 'runtime_registry_authority',
+        ) VALUES ($1, 'v1', $2, $3, 'profile-1', 'runtime_registry_authority',
           'runtime-1', 'binding-1', 'builtin:codex', 'accepted', 100, 100)
-      `
-    ).bind(
-      executionId,
-      `space-${crypto.randomUUID()}`,
-      `dispatch-${crypto.randomUUID()}`
-    ),
-    env.OPENMELD_DB.prepare(
-      `
-        INSERT INTO agent_activity_execution_links (
+      `,
+            values: [],
+          },
+          values: [
+            executionId,
+            `space-${crypto.randomUUID()}`,
+            `dispatch-${crypto.randomUUID()}`,
+          ],
+        },
+        {
+          ...{
+            text: `
+        INSERT INTO "openmeld"."agent_activity_execution_links" (
           id, organization_id, activity_session_id,
           runtime_coordinator_execution_id, device_id,
           openmeld_service_runtime_id, binding_id, agent_controller_ref,
           provider_conversation_id, created_at_ms
-        ) VALUES (?, ?, ?, ?, 'device-1', 'runtime-1', 'binding-1',
+        ) VALUES ($1, $2, $3, $4, 'device-1', 'runtime-1', 'binding-1',
           'builtin:codex', 'conversation-1', 100)
-      `
-    ).bind(
-      `link-${crypto.randomUUID()}`,
-      input.organizationId,
-      session.id,
-      executionId
-    ),
-  ]);
+      `,
+            values: [],
+          },
+          values: [
+            `link-${crypto.randomUUID()}`,
+            input.organizationId,
+            session.id,
+            executionId,
+          ],
+        },
+      ]) {
+        results.push(await client.query(query));
+      }
+      return results;
+    })()
+  );
 }
-
 async function acceptEventRecord(input: {
   eventId?: string;
   organizationId: string;
@@ -891,7 +1253,7 @@ async function acceptEventRecord(input: {
     title: "Project archive ordering",
   };
   return await acceptAgentActivityEventRecord({
-    db: env.OPENMELD_DB,
+    db: getPostgresDatabase(env),
     deviceId: "device-1",
     event,
     memberUserId: "member-1",

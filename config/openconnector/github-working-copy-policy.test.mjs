@@ -23,6 +23,27 @@ const reads = [
 ];
 
 describe("reviewed Git working-copy ingress", () => {
+  it("preserves upstream scheduled maintenance alongside the authenticated HTTP adapter", async () => {
+    const event = { cron: "* * * * *" };
+    const env = {};
+    const context = {
+      waitUntil: () => {
+        throw new Error("The HTTP adapter must not run scheduled work itself.");
+      },
+    };
+    let called = false;
+    const worker = withGitWorkingCopyPolicy({
+      scheduled(actualEvent, actualEnv, actualContext) {
+        assert.equal(actualEvent, event);
+        assert.equal(actualEnv, env);
+        assert.equal(actualContext, context);
+        called = true;
+      },
+      fetch: () => Response.json({ ok: true }),
+    });
+    await worker.scheduled(event, env, context);
+    assert.equal(called, true);
+  });
   it("admits only required repository reads and non-force task-branch writes", () => {
     for (const path of reads) {
       assert.equal(
@@ -148,6 +169,22 @@ describe("reviewed Git working-copy ingress", () => {
     assert.equal(calls[0].env.OOMOL_CONNECT_ALLOWED_PROXIES, "github");
     assert.equal(calls[0].env.OOMOL_CONNECT_BLOCKED_PROXIES, "");
     assert.equal(env.OOMOL_CONNECT_BLOCKED_PROXIES, "*");
+    for (const service of ["cloudflare_worker", "example_provider"]) {
+      const nativeRequest = new Request(
+        `https://connector.example/v1/openmeld/connections/${service}/request/accounts`,
+        {
+          headers: {
+            authorization: "Bearer wrong-token",
+            "x-oo-connector-alias": "selected",
+          },
+        }
+      );
+      const nativeResponse = await worker.fetch(nativeRequest, env, {});
+      assert.equal(nativeResponse.status, 401);
+      assert.equal(calls.at(-1).request, nativeRequest);
+      assert.equal(calls.at(-1).env.OOMOL_CONNECT_ALLOWED_PROXIES, service);
+      assert.equal(calls.at(-1).env.OOMOL_CONNECT_BLOCKED_PROXIES, "");
+    }
     for (const path of [
       "/v1/proxy/github",
       "/mcp",
@@ -160,6 +197,51 @@ describe("reviewed Git working-copy ingress", () => {
       );
       assert.equal(calls.at(-1).env, env);
     }
+  });
+  it("allows only Git read stream routes and preserves the body and upstream authentication", async () => {
+    const calls = [];
+    const worker = withGitWorkingCopyPolicy({
+      fetch: (request, env) => {
+        calls.push({ request, env });
+        return Promise.resolve(
+          new Response("upstream authentication required", {
+            status: 401,
+          })
+        );
+      },
+    });
+    const env = { OOMOL_CONNECT_BLOCKED_PROXIES: "*" };
+    const root =
+      "https://connector.example/v1/openmeld/git-connections/acme/private";
+    const request = new Request(`${root}/git-upload-pack`, {
+      method: "POST",
+      body: "0000",
+      headers: {
+        authorization: "Bearer wrong-token",
+        "content-type": "application/x-git-upload-pack-request",
+      },
+    });
+    assert.equal((await worker.fetch(request, env, {})).status, 401);
+    assert.equal(calls[0].request, request);
+    assert.equal(request.bodyUsed, false);
+    assert.equal(calls[0].env.OOMOL_CONNECT_ALLOWED_PROXIES, "github");
+    await worker.fetch(
+      new Request(`${root}/info/refs?service=git-upload-pack`),
+      env,
+      {}
+    );
+    assert.equal(calls.at(-1).env.OOMOL_CONNECT_ALLOWED_PROXIES, "github");
+    for (const [path, method] of [
+      ["/git-receive-pack", "POST"],
+      ["/info/refs?service=git-receive-pack", "GET"],
+      ["/info/refs?service=git-upload-pack&extra=1", "GET"],
+      ["/git-upload-pack", "GET"],
+      ["/git-upload-pack?extra=1", "POST"],
+    ]) {
+      await worker.fetch(new Request(`${root}${path}`, { method }), env, {});
+      assert.equal(calls.at(-1).env, env);
+    }
+    assert.equal(env.OOMOL_CONNECT_BLOCKED_PROXIES, "*");
   });
   it("rejects invalid requests before reaching the credential owner", async () => {
     let calls = 0;
@@ -184,7 +266,7 @@ describe("reviewed Git working-copy ingress", () => {
   it("pins the reviewed upstream contract and keeps the broad proxy block in both deploy configs", () => {
     assert.equal(
       OPENMELD_GIT_PROXY_UPSTREAM_SHA,
-      "31be0d205cfd3f2b0a8f9ab5e3a54558976ed500"
+      "a295f56bf6e533ffc5699efa66282b151e127d87"
     );
     for (const lane of ["staging", "production"]) {
       const config = JSON.parse(
@@ -193,6 +275,7 @@ describe("reviewed Git working-copy ingress", () => {
       assert.equal(config.main, ".openmeld-working-copy-worker.mjs");
       assert.equal(config.vars.OOMOL_CONNECT_BLOCKED_PROXIES, "*");
       assert.equal(config.vars.OOMOL_CONNECT_ALLOWED_PROXIES, undefined);
+      assert.deepEqual(config.triggers?.crons, ["* * * * *"]);
     }
   });
 });

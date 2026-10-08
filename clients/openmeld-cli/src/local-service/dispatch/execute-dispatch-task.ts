@@ -82,7 +82,6 @@ import type {
 import { resolveSpacePublicationRequirement } from "@openmeld/space-mesh";
 import { recordOpenMeldCreatedLocalAgentSession } from "../../agent-activity/session-inventory-origin-store";
 import { resolveBuiltinAgentControllerDefinition } from "../../agents/builtin-agent-controller-definitions";
-import { resolveBaseUrl } from "../../config/base-url";
 import { buildOpenMeldRequestContextFromProfileIdentity } from "../../config/openmeld-request-context";
 import { emitDaemonDispatchJournalEvent } from "../../local-service/dispatch/daemon-dispatch-journal";
 import {
@@ -109,11 +108,7 @@ import {
   createDispatchSpaceTools,
   type DispatchPublicProgressResult,
 } from "../../space/action-mcp-server";
-import {
-  readTaskDocuments,
-  readTaskSkillSelections,
-} from "../../space/dispatch-knowledge-read";
-import { fetchSpaceMeta } from "../../space/meta-api";
+import { readTaskKnowledge } from "../../space/dispatch-knowledge-read";
 import { resolveProviderRuntimeDispatchContinuation } from "../continuation/provider-runtime-continuation";
 import {
   resolveRecoveredLedgerConversation,
@@ -1196,6 +1191,8 @@ export async function handleDispatchDeliverFrame(input: {
         input.deliverRequest.payload,
         "defaultProjectId"
       ),
+      executionContext: parsedTask.executionContext,
+      ownerUserId: input.profileOwnerUserId,
       executionIdentity: parsedTask.executionIdentity,
       onCurrentWorkingFolderFactRejected:
         input.requestCurrentWorkingFolderFactRefresh,
@@ -1621,14 +1618,20 @@ export async function handleDispatchDeliverFrame(input: {
         });
       observedProviderConversationId = agentControllerConversationId;
       observedProviderConversation = agentControllerConversation;
-      if (
-        contextIdForDispatch === null &&
-        recordedOpenMeldCreatedSessionId !== agentControllerConversationId
-      ) {
+      if (recordedOpenMeldCreatedSessionId !== agentControllerConversationId) {
         recordedOpenMeldCreatedSessionId = agentControllerConversationId;
         recordOpenMeldCreatedLocalAgentSession({
           agentControllerRef: parsedTask.agentControllerRef,
           nativeSessionId: agentControllerConversationId,
+          ...(parsedTask.executionContext?.projectWork
+            ? {
+                projectAttribution: {
+                  organizationId:
+                    parsedTask.executionContext.scope.organizationId,
+                  ...parsedTask.executionContext.projectWork,
+                },
+              }
+            : {}),
         }).catch((error) => {
           emitRunLine({
             presenter: input.presenter,
@@ -2736,21 +2739,6 @@ type DispatchBootstrapContext = {
   targetProfileRole: string | null;
 };
 
-type DispatchSpaceMetaLoadResult =
-  | {
-      status: "loaded";
-      spaceGuide: string | null;
-      spaceName: string | null;
-      spacePurpose: string | null;
-    }
-  | {
-      status: "failed";
-      errorMessage: string;
-      spaceGuide: null;
-      spaceName: null;
-      spacePurpose: null;
-    };
-
 async function resolveDispatchBootstrapContext(input: {
   onPhase?: (
     phase: DispatchBootstrapContextPhase,
@@ -2760,29 +2748,11 @@ async function resolveDispatchBootstrapContext(input: {
   profileOwnerUserId: string;
   parsedTask: ParsedDispatchTask;
 }): Promise<DispatchBootstrapContext> {
-  const knowledgeScope = {
-    spaceId: input.parsedTask.spaceId,
-    targetProfileId: input.parsedTask.targetProfileId,
-  };
-  const [taskDocuments, organizationSkillReleases] = await Promise.all([
-    readTaskDocuments(knowledgeScope)
-      .then((result) => ("documents" in result ? result.documents : null))
-      .catch(() => null),
-    input.parsedTask.workHandoff
-      ? Promise.resolve(input.parsedTask.workHandoff.skills)
-      : readTaskSkillSelections(knowledgeScope).catch(() => null),
-  ]);
-  const taskKnowledgeIndex = renderTaskKnowledgeIndex({
-    documents: taskDocuments,
-    skills: organizationSkillReleases,
-    readHint:
-      "Use read_documents without documentId for the full directory, or with documentId for the current approved body. Use read_skills without name for all selected Skills, including omitted entries, or with name for the pinned instructions and resources. Handoff Skills use the existing task materializer. Never replace a selected release with latest or install knowledge into global Skills or repository AGENTS.md.",
-  });
   const [
     spaceOwnerProfileId,
     targetProfileContext,
     mentionSourceContext,
-    spaceMetaContext,
+    knowledge,
   ] = await Promise.all([
     resolveBootstrapSpaceOwnerProfileId({
       spaceId: input.parsedTask.spaceId,
@@ -2799,12 +2769,37 @@ async function resolveDispatchBootstrapContext(input: {
       mentionSourceProfileId: input.parsedTask.mentionSourceProfileId,
       preferredMentionLabel: input.parsedTask.mentionSourceProfileMentionLabel,
     }),
-    resolveDispatchSpaceMetaContext({
-      parsedTask: input.parsedTask,
-      profileOwnerName: input.profileOwnerName,
-      profileOwnerUserId: input.profileOwnerUserId,
-    }),
+    readTaskKnowledge({
+      spaceId: input.parsedTask.spaceId,
+      targetProfileId: input.parsedTask.targetProfileId,
+      ...(input.parsedTask.spacePassword
+        ? { spacePassword: input.parsedTask.spacePassword }
+        : {}),
+      ...(input.parsedTask.workHandoff
+        ? { skillSelections: input.parsedTask.workHandoff.skills }
+        : {}),
+      onRead: (read) => input.onPhase?.("bootstrap_read_completed", read),
+    })
+      .then((result) => ({ ...result, errorMessage: null }))
+      .catch((error: unknown) => ({
+        documents: null,
+        skills: input.parsedTask.workHandoff?.skills ?? null,
+        spaceMeta: null,
+        errorMessage: toErrorMessage(error),
+      })),
   ]);
+  const organizationSkillReleases = knowledge.skills;
+  const taskKnowledgeIndex = renderTaskKnowledgeIndex({
+    documents: knowledge.documents,
+    skills: organizationSkillReleases,
+    readHint:
+      "Use read_documents without documentId for the full directory, or with documentId for the current approved body. Use read_skills without name for all selected Skills, including omitted entries, or with name for the pinned instructions and resources. Handoff Skills use the existing task materializer. Never replace a selected release with latest or install knowledge into global Skills or repository AGENTS.md.",
+  });
+  const spaceMetaContext = {
+    spaceGuide: normalizeOptionalText(knowledge.spaceMeta?.guide),
+    spaceName: normalizeOptionalText(knowledge.spaceMeta?.name),
+    spacePurpose: normalizeOptionalText(knowledge.spaceMeta?.purpose),
+  };
   input.onPhase?.("bootstrap_context_ready", {
     mentionSourceMentionLabelPresent:
       mentionSourceContext.mentionSourceMentionLabel !== null,
@@ -2812,11 +2807,8 @@ async function resolveDispatchBootstrapContext(input: {
       mentionSourceContext.mentionSourceProfileName !== null,
     source: "dispatch_bootstrap_context",
     spaceGuidePresent: spaceMetaContext.spaceGuide !== null,
-    spaceMetaError:
-      spaceMetaContext.status === "failed"
-        ? spaceMetaContext.errorMessage
-        : null,
-    spaceMetaStatus: spaceMetaContext.status,
+    spaceMetaError: knowledge.errorMessage,
+    spaceMetaStatus: knowledge.spaceMeta ? "loaded" : "failed",
     spaceNamePresent: spaceMetaContext.spaceName !== null,
     spaceOwnerProfilePresent: spaceOwnerProfileId !== null,
     spacePurposePresent: spaceMetaContext.spacePurpose !== null,
@@ -2884,52 +2876,6 @@ async function resolveDispatchBootstrapContext(input: {
   };
 }
 
-async function resolveDispatchSpaceMetaContext(input: {
-  parsedTask: ParsedDispatchTask;
-  profileOwnerName: string | null;
-  profileOwnerUserId: string;
-}): Promise<DispatchSpaceMetaLoadResult> {
-  try {
-    const baseUrl = await resolveBaseUrl();
-    const requestContext = buildOpenMeldRequestContextFromProfileIdentity({
-      profileIdentity: {
-        openMeldProfileId: input.parsedTask.targetProfileId,
-        profileKind: "agent",
-        ownerUserId: input.profileOwnerUserId,
-        ...(input.profileOwnerName
-          ? { ownerName: input.profileOwnerName }
-          : {}),
-        profileName:
-          input.parsedTask.targetProfileName ??
-          input.parsedTask.targetProfileMentionLabel ??
-          input.parsedTask.targetProfileId,
-      },
-    });
-    const meta = await fetchSpaceMeta({
-      baseUrl,
-      requestContext,
-      space: input.parsedTask.spaceId,
-      ...(input.parsedTask.spacePassword
-        ? { password: input.parsedTask.spacePassword }
-        : {}),
-    });
-    return {
-      status: "loaded",
-      spaceGuide: normalizeOptionalText(meta.guide),
-      spaceName: normalizeOptionalText(meta.name),
-      spacePurpose: normalizeOptionalText(meta.purpose),
-    };
-  } catch (error) {
-    return {
-      status: "failed",
-      errorMessage: toErrorMessage(error),
-      spaceGuide: null,
-      spaceName: null,
-      spacePurpose: null,
-    };
-  }
-}
-
 function buildDispatchRuntimePrompt(input: {
   bootstrapContext: DispatchBootstrapContext;
   imageAttachmentPreparation: DispatchImageAttachmentPreparation;
@@ -2942,7 +2888,9 @@ function buildDispatchRuntimePrompt(input: {
 }): DispatchPromptPlan {
   return buildDispatchPromptPlan({
     executionContextAccess: input.parsedTask.executionContext?.access,
+    projectWork: input.parsedTask.executionContext?.projectWork,
     callerContext: input.parsedTask.callerContext,
+    requesterIsAgentOwner: input.parsedTask.requesterIsAgentOwner,
     shouldInjectBootstrap: input.shouldInjectBootstrap,
     shouldInjectCenterAgentRoleTemplate:
       input.parsedTask.targetProfileIsCenterAgent,
@@ -3028,6 +2976,7 @@ async function prepareDispatchClaudeProjectContainer(input: {
   const context = input.parsedTask.executionContext;
   if (
     input.parsedTask.agentControllerRef !== "builtin:claude-code" ||
+    context?.permissionSource === "agent_settings" ||
     context?.access !== "workspace" ||
     context.workspace !== "isolated"
   ) {
@@ -3159,7 +3108,10 @@ async function resolveDispatchComputerFileAccess(input: {
   const verifier =
     input.runtimeControllerSupport.localAdapterEntry.adapter
       .verifyComputerFileAccessBoundary;
-  if (input.parsedTask.executionContext) {
+  if (
+    input.parsedTask.executionContext &&
+    input.parsedTask.executionContext.permissionSource !== "agent_settings"
+  ) {
     const context = input.parsedTask.executionContext;
     if (
       input.parsedTask.agentControllerRef === "builtin:claude-code" &&
@@ -3271,6 +3223,7 @@ function createDispatchSpaceActionRuntimeContext(input: {
   runtimeEnvOverrides: Record<string, string | undefined> | undefined;
 } {
   const contextResult = createDispatchSpaceActionContext({
+    executionTokenEcho: input.parsedTask.executionTokenEcho,
     organizationSkillReleases: input.bootstrapContext.organizationSkillReleases,
     ...(input.claudeProjectRuntime && input.parsedTask.executionContext
       ? {
@@ -5621,6 +5574,9 @@ async function requestDispatchAgentInteraction(input: {
   const requestedAtMs = Date.now();
   const interactionCandidate: AgentInteractionRequest = {
     ...input.request,
+    ...(input.request.kind === "permission"
+      ? { supportsPermissionModeUpdate: true }
+      : {}),
     v: AGENT_INTERACTION_SCHEMA_VERSION,
     interactionId: randomUUID(),
     requestedAtMs,

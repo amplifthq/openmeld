@@ -76,6 +76,7 @@ export type {
   OpenMeldApiClientRequestOptions,
 } from "./client";
 export { createOpenMeldApiClient } from "./client";
+export { createCloudComputerApi } from "./cloud-computer";
 export { createComputerAuthorizationGrant } from "./computer-authorization";
 export { createComputerFileAccessApi } from "./computer-file-access/api";
 export {
@@ -139,6 +140,7 @@ export type {
 } from "./feedback/types";
 export type { FileRootLocation } from "./file-root/api";
 export { createFileRootApi } from "./file-root/api";
+export { createFirstWorkApi } from "./first-work";
 export { createInboxApi } from "./inbox/api";
 export { isInboxItemInOrganizationScope } from "./inbox/item-scope";
 export {
@@ -302,7 +304,13 @@ export type {
   UpdateAgentProfileDefaultProjectInput,
 } from "./profiles/types";
 export { createProjectsApi } from "./projects/api";
-export { buildProjectPath, buildProjectsPath } from "./projects/routes";
+export {
+  buildProjectCommonAgentsPath,
+  buildProjectIssueRoutingPath,
+  buildProjectPath,
+  buildProjectRepositoriesPath,
+  buildProjectsPath,
+} from "./projects/routes";
 export type {
   ArchiveProjectInput,
   CreateProjectInput,
@@ -310,7 +318,13 @@ export type {
   ListProjectsInput,
   ProjectRequestInput,
   ProjectsApi,
+  ReadProjectCommonAgentsInput,
+  ReadProjectIssueRoutingInput,
+  ReadProjectRepositorySettingsInput,
+  UpdateProjectCommonAgentsInput,
   UpdateProjectInput,
+  UpdateProjectIssueRoutingInput,
+  UpdateProjectRepositorySettingsInput,
 } from "./projects/types";
 export { publicSpaceUrls } from "./public-space-urls";
 export { createReasoningStreamApi } from "./reasoning-stream";
@@ -345,6 +359,7 @@ export type {
   SubmitRuntimeRegistrationInput,
 } from "./runtime-reporting/types";
 export { createServiceConnectionEvidenceApi } from "./service-connection-evidence/api";
+export { createSessionHistoryApi } from "./session-history/api";
 export type {
   AddSpaceMembersInput,
   CreateSpaceDiagnosticReportBody,

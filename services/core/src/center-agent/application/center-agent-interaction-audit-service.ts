@@ -1,9 +1,9 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { CenterAgentInteractionSource } from "@openmeld/schemas/types";
 import { insertCenterAgentAuditJournalEntryIfMissing } from "../center-agent-repository";
-
 export async function recordCenterAgentLocalAgentRequest(input: {
   actorProfileId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   deliveryId: string;
   nowMs: number;
   organizationId: string;

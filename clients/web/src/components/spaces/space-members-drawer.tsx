@@ -2,6 +2,7 @@
 
 import { Drawer } from "@base-ui/react/drawer";
 import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
+import { parseAgentControllerRef } from "@openmeld/agent-runtime";
 import type {
 	AuthProfileView,
 	ModelCatalog,
@@ -54,7 +55,10 @@ import {
 } from "react";
 import { toast } from "sonner";
 import type { AgentProfileEditDialogContext } from "#/components/agents/agent-profile-edit-dialog-controller";
-import { SpacePickerCreateAgent } from "#/components/profiles/space-picker-create-agent";
+import {
+	isActiveWalkthroughStep,
+	useWalkthrough,
+} from "#/components/onboarding/walkthrough/walkthrough-context";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { SPACE_PANEL_WIDTH_METRICS } from "#/lib/spaces/panel-width-storage";
 import {
@@ -66,6 +70,7 @@ import {
 	organizationQueryKeys,
 	organizationSpaceProfileCandidatesQueryOptions,
 } from "#/query/organizations/organization-directory";
+import { useSpaceMemberAddition } from "#/query/spaces/member-additions";
 import {
 	type SpaceMemberDirectoryDisplay,
 	spaceMemberDirectoryDisplayQueryOptions,
@@ -91,6 +96,7 @@ import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recover
 import { buildSpaceMemberDirectoryEntryByProfileId } from "./space-collaboration-profile";
 import { SpaceInlineSidePanel } from "./space-inline-side-panel";
 import { SpaceInvitationsSection } from "./space-invitations-section";
+import { SpaceMemberAdditions } from "./space-member-additions";
 import { isSameOwnerUserId } from "./space-member-ownership";
 import { SpaceMemberRow } from "./space-member-row";
 import {
@@ -106,6 +112,7 @@ import {
 	resolveSpaceWakeStatusTransientState,
 	type SpaceWakeStatusTransientState,
 } from "./space-wake-status-refresh";
+import { useCreatedPickerAgents } from "./use-created-picker-agents";
 import {
 	applyWakeAvailabilityDisplayOverride,
 	type WakeDisplayOverrideByProfileId,
@@ -229,6 +236,7 @@ export function SpaceMembersToggleButton(input: {
 
 export function SpaceMembersSidePanel(
 	input: SpaceMembersSurfaceProps & {
+		minPanelWidth?: string;
 		onOpenChange: (open: boolean) => void;
 		onPanelWidthChange: (width: string) => void;
 		open: boolean;
@@ -244,7 +252,7 @@ export function SpaceMembersSidePanel(
 			className="hidden xl:flex"
 			id="space-members-panel"
 			maxWidth={widthMetrics.maxWidth}
-			minWidth={widthMetrics.minWidth}
+			minWidth={input.minPanelWidth ?? widthMetrics.minWidth}
 			onWidthChange={input.onPanelWidthChange}
 			open={input.open}
 			resizeHandleLabel="Resize Members panel"
@@ -756,6 +764,10 @@ function SpaceMembersBody(input: SpaceMembersBodyProps) {
 							query={input.query}
 						/>
 
+						<SpaceMemberAdditions
+							profileId={input.currentProfileId}
+							spaceId={input.spaceId ?? ""}
+						/>
 						<SpaceMembersList
 							activeWakeDisplayTargetProfileIds={
 								input.activeWakeDisplayTargetProfileIds
@@ -898,6 +910,15 @@ function SpaceAddProfilesSection(input: SpaceAddProfilesSectionProps) {
 }
 
 function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
+	const walkthrough = useWalkthrough();
+	const preselectedRun = useRef<string | null>(null);
+	const submittedTutorialRun = useRef<string | null>(null);
+	const guidedRun =
+		(isActiveWalkthroughStep(walkthrough?.record, "add-center-agent") ||
+			isActiveWalkthroughStep(walkthrough?.record, "add-local-agent")) &&
+		walkthrough?.record?.spaceId === input.spaceId
+			? walkthrough?.record?.runId
+			: null;
 	const queryClient = useQueryClient();
 	const [selectedProfileIds, setSelectedProfileIds] = useState<
 		ReadonlySet<string>
@@ -969,7 +990,7 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 			}),
 		[directoryQuery.data, input.snapshot, organization?.name]
 	);
-	const candidateGroups = useMemo(
+	const baseCandidateGroups = useMemo(
 		() =>
 			usesOrganizationDirectory
 				? organizationDirectoryCandidates
@@ -987,6 +1008,13 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 			usesOrganizationDirectory,
 		]
 	);
+	const createdAgents = useCreatedPickerAgents({
+		groups: baseCandidateGroups,
+		organizationId: organization?.id ?? "",
+		directory: directoryQuery.data,
+		snapshot: input.snapshot,
+	});
+	const candidateGroups = createdAgents.groups;
 	const allCandidates = useMemo(
 		() => [
 			...candidateGroups.personGroups.flatMap((group) => [
@@ -998,6 +1026,34 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 		[candidateGroups]
 	);
 	const normalizedAddQuery = addQuery.trim().toLocaleLowerCase();
+	useEffect(() => {
+		if (!input.open) {
+			preselectedRun.current = null;
+			return;
+		}
+		if (!guidedRun || preselectedRun.current === guidedRun || !input.snapshot) {
+			return;
+		}
+		const center = allCandidates.find(
+			(candidate) =>
+				!candidate.alreadyMember &&
+				(walkthrough?.record?.step === "add-center-agent"
+					? candidate.isCenterAgent
+					: isOwnLocalAgent(candidate, input.currentOwnerUserId))
+		);
+		if (!center) {
+			return;
+		}
+		preselectedRun.current = guidedRun;
+		setSelectedProfileIds(new Set([center.profileId]));
+	}, [
+		input.open,
+		input.snapshot,
+		guidedRun,
+		allCandidates,
+		walkthrough?.record?.step,
+		input.currentOwnerUserId,
+	]);
 	useEffect(() => {
 		const scope = organizationContext?.storageScope;
 		if (!(input.open && scope && activeSpaceId && input.snapshot)) {
@@ -1049,15 +1105,30 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 		selectedProfileIds: activeSelectedProfileIds,
 	});
 	const selectedCount = effectiveSelectedProfileIds.size;
+	const addition = useSpaceMemberAddition({
+		organizationId: organization?.id ?? "",
+		profileId: input.currentProfileId,
+		showToast: true,
+		add: (request) =>
+			executeSpaceAddProfilesMutation({
+				allCandidates,
+				onAddOrganizationDirectoryProfiles:
+					input.onAddOrganizationDirectoryProfiles,
+				onAddProfiles: input.onAddProfiles,
+				profileIds: request.directoryProfileIds,
+				selectedProfileIds: new Set(request.directoryProfileIds),
+				usesOrganizationDirectory,
+			}),
+	});
 	const canRunAddMutation = usesOrganizationDirectory
 		? Boolean(input.onAddOrganizationDirectoryProfiles)
 		: Boolean(input.onAddProfiles);
 	const canSubmit =
 		canRunAddMutation &&
 		input.snapshot !== null &&
-		!(usesOrganizationDirectory && directoryQuery.isError) &&
 		selectedCount > 0 &&
-		!isSubmitting;
+		!isSubmitting &&
+		!addition.isPending;
 	const handleOpenChange = (open: boolean) => {
 		if (!open) {
 			setSelectedProfileIds(new Set());
@@ -1098,30 +1169,34 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 			});
 			return Promise.resolve();
 		}
-		setIsSubmitting(true);
-		setErrorMessage(null);
-		setSuccessMessage(null);
-		return executeSpaceAddProfilesMutation({
-			allCandidates,
-			onAddOrganizationDirectoryProfiles:
-				input.onAddOrganizationDirectoryProfiles,
-			onAddProfiles: input.onAddProfiles,
-			profileIds,
-			selectedProfileIds: activeSelectedProfileIds,
-			usesOrganizationDirectory,
-		})
-			.then((result) => {
-				setSuccessMessage(formatAddProfilesSuccess(result));
-				setSelectedProfileIds(new Set());
-				handleOpenChange(false);
-			})
-			.catch((error: unknown) => {
-				setErrorMessage(formatAddProfilesError(error));
-			})
-			.finally(() => {
-				setIsSubmitting(false);
-			});
+		const request = {
+			spaceId: activeSpaceId ?? "",
+			directoryProfileIds: profileIds,
+			members: allCandidates.filter((candidate) =>
+				effectiveSelectedProfileIds.has(candidate.profileId)
+			),
+		};
+		if (
+			guidedRun &&
+			request.members.some((candidate) =>
+				walkthrough?.record?.step === "add-center-agent"
+					? candidate.isCenterAgent
+					: isOwnLocalAgent(candidate, input.currentOwnerUserId)
+			)
+		) {
+			submittedTutorialRun.current = guidedRun;
+			return addition.mutateAsync(request).then(() => undefined);
+		}
+		addition.mutate(request);
+		handleOpenChange(false);
+		return Promise.resolve();
 	};
+	useEffect(() => {
+		if (addition.isSuccess && submittedTutorialRun.current && !guidedRun) {
+			submittedTutorialRun.current = null;
+			input.onOpenChange(false);
+		}
+	}, [addition.isSuccess, guidedRun, input.onOpenChange]);
 	const handleConfirmConversion = async (name: string) => {
 		if (!(conversionRequest && input.onConvertDirectMessageToSpace)) {
 			return;
@@ -1185,6 +1260,7 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 	};
 
 	return {
+		onAgentCreated: createdAgents.onCreated,
 		activeSelectedProfileIds,
 		effectiveSelectedProfileIds,
 		addQuery,
@@ -1198,7 +1274,10 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 		handleConfirmConversion,
 		handleOpenChange,
 		handleSubmit,
-		isSubmitting,
+		isSubmitting:
+			isSubmitting ||
+			addition.isPending ||
+			Boolean(submittedTutorialRun.current && addition.isSuccess),
 		organization,
 		organizationDirectoryCandidates,
 		personalProfilesPlan,
@@ -1247,19 +1326,12 @@ function SpaceAddProfilesSectionView({
 					model.setSelectedProfileIds(new Set());
 					model.clearMessages();
 				}}
-				onCreated={async (profileId) => {
-					try {
-						await model.directoryQuery.refetch({ throwOnError: true });
-						await input.onRefresh({ agentProfileIds: [profileId] });
-						model.setAddQuery("");
-						model.setSelectedProfileIds(
-							(current) => new Set([...current, profileId])
-						);
-					} catch (error) {
-						model.setErrorMessage(
-							`Agent created, but the member list could not refresh. Reopen this picker to select it. ${formatAddProfilesError(error)}`
-						);
-					}
+				onCreated={(agent) => {
+					model.onAgentCreated(agent);
+					model.setAddQuery("");
+					model.setSelectedProfileIds(
+						(current) => new Set([...current, agent.profileId])
+					);
 				}}
 				onOpenChange={model.handleOpenChange}
 				onRetryDirectory={() => {
@@ -1337,7 +1409,7 @@ async function executeSpaceAddProfilesMutation(input: {
 }
 
 type SpaceAddProfilesDialogProps = {
-	onCreated: (profileId: string) => Promise<void>;
+	onCreated: (agent: SpaceAddMembersCandidateSummary) => void;
 	addQuery: string;
 	canSubmit: boolean;
 	candidateGroups: SpaceAddMembersCandidateGroups;
@@ -1369,39 +1441,105 @@ type SpaceAddProfilesDialogProps = {
 	usesOrganizationDirectory: boolean;
 };
 
+function useWalkthroughPickerGuidance(
+	spaceId: string | undefined,
+	groups: SpaceAddMembersCandidateGroups,
+	selectedCount: number
+) {
+	const walkthrough = useWalkthrough();
+	const organization = useOptionalAppOrganization();
+	const record = walkthrough?.record;
+	if (
+		!(walkthrough && record) ||
+		record.spaceId !== spaceId ||
+		record.paused ||
+		!(record.step === "add-center-agent" || record.step === "add-local-agent")
+	) {
+		return null;
+	}
+	const hasLocalAgent = groups.personGroups.some((group) =>
+		group.agentCandidates.some(
+			(candidate) =>
+				!candidate.alreadyMember &&
+				isOwnLocalAgent(candidate, organization?.currentUserId)
+		)
+	);
+	return pickerTutorialCopy(record.step, selectedCount, hasLocalAgent);
+}
+
+function pickerTutorialCopy(
+	step: string,
+	selectedCount: number,
+	hasLocalAgent: boolean
+): { nextAction?: "create" | "select" | "submit"; description: string } {
+	if (step === "add-center-agent") {
+		return {
+			nextAction: selectedCount > 0 ? "submit" : "select",
+			description:
+				selectedCount > 0
+					? "Your Center Agent is selected. Add it to this Space."
+					: "Select your Center Agent, then select Add.",
+		};
+	}
+	if (selectedCount > 0) {
+		return {
+			nextAction: "submit",
+			description:
+				"Your agent is selected. Select Add to bring it into this Space.",
+		};
+	}
+	if (hasLocalAgent) {
+		return {
+			nextAction: "select",
+			description: "Choose your agent below, then select Add.",
+		};
+	}
+	return {
+		nextAction: "create",
+		description:
+			"Select New Agent. Connect your computer if needed, then create your agent.",
+	};
+}
+
+function isOwnLocalAgent(
+	candidate: SpaceAddMembersCandidateSummary,
+	userId: string | null | undefined
+) {
+	const kind = parseAgentControllerRef(candidate.agentControllerRef)?.kind;
+	return (
+		candidate.ownerUserId === userId &&
+		Boolean(userId) &&
+		(kind === "builtin" || kind === "custom")
+	);
+}
+
 function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
-	const [creating, setCreating] = useState(false);
-	const [busy, setBusy] = useState(false);
+	const guidance = useWalkthroughPickerGuidance(
+		input.spaceId,
+		input.candidateGroups,
+		input.selectedCount
+	);
 	const waitsForDirectory =
 		input.usesOrganizationDirectory && !input.directoryHasData;
 	return (
 		<PeopleAgentPickerDialog
 			actions={
-				input.spaceId ? (
-					<div className="flex flex-wrap items-center gap-2">
-						<Button
-							onClick={() => setCreating(true)}
-							size="xs"
-							variant="outline"
-						>
-							<PlusIcon aria-hidden="true" />
-							New Agent
-						</Button>
-						{input.usesOrganizationDirectory ? (
-							<SpaceInvitationsSection
-								spaceId={input.spaceId}
-								triggerLabel="Invite by email"
-							/>
-						) : null}
-					</div>
+				input.spaceId && input.usesOrganizationDirectory ? (
+					<SpaceInvitationsSection
+						spaceId={input.spaceId}
+						triggerLabel="Invite by email"
+					/>
 				) : null
 			}
 			candidateGroups={input.candidateGroups}
 			canSubmit={input.canSubmit}
 			description={
-				input.usesOrganizationDirectory
-					? `Select people or agents from ${input.organizationName} to add directly to this Space.`
-					: "Choose people and their agents to add to this Space."
+				input.isSubmitting
+					? "Adding selected members…"
+					: (guidance?.description ??
+						(input.usesOrganizationDirectory
+							? `Select people or agents from ${input.organizationName} to add directly to this Space.`
+							: "Choose people and their agents to add to this Space."))
 			}
 			emptyMessage={input.emptyMessage}
 			emptySelectionLabel="Select members to add"
@@ -1412,7 +1550,7 @@ function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 			isLoading={
 				!input.snapshot || (waitsForDirectory && input.directoryIsPending)
 			}
-			isSubmitting={busy || input.isSubmitting}
+			isSubmitting={input.isSubmitting}
 			notice={
 				<>
 					{input.usesOrganizationDirectory && input.directoryIsError ? (
@@ -1441,13 +1579,9 @@ function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 					) : null}
 				</>
 			}
+			onAgentCreated={input.spaceId ? input.onCreated : undefined}
 			onClear={input.onClear}
-			onOpenChange={(open) => {
-				if (!open) {
-					setCreating(false);
-				}
-				input.onOpenChange(open);
-			}}
+			onOpenChange={input.onOpenChange}
 			onQueryChange={input.onAddQueryChange}
 			onSubmit={() => {
 				input.onSubmit().catch(input.onSubmitError);
@@ -1458,15 +1592,8 @@ function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 			selectedProfileIds={input.selectedProfileIds}
 			submitLabel={resolveAddMembersSubmitLabel(input)}
 			title="Add People or Agents"
-		>
-			{creating ? (
-				<SpacePickerCreateAgent
-					onBack={() => setCreating(false)}
-					onBusyChange={setBusy}
-					onCreated={input.onCreated}
-				/>
-			) : undefined}
-		</PeopleAgentPickerDialog>
+			tutorialAction={guidance?.nextAction}
+		/>
 	);
 }
 

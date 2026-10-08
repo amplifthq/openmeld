@@ -1,16 +1,14 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { spaceDispatchTraceResponseSchema } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import { attachCenterAgentTurnRuntimeEvidence } from "../src/remote-agent/application/center-agent-turn-diagnostics";
-import { upsertRemoteAgentNativeDeliveryRecord } from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
-import { readSpaceDispatchTrace } from "../src/space/infrastructure/d1/space-dispatch-read-repo";
-import {
-  applyDrizzleMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+import { upsertRemoteAgentNativeDeliveryRecord } from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
+import { readSpaceDispatchTrace } from "../src/space/infrastructure/postgresql/space-dispatch-read-repo";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("native-only Space dispatch trace", () => {
   it("reads a continuation from its native ledger without creating a workstation dispatch", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await stage(harness.db);
       const response = await read(harness.db, 6);
@@ -44,12 +42,12 @@ describe("native-only Space dispatch trace", () => {
         expect(legacy.correlation.targetProfileId).toBeNull();
       }
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("keeps durable facts when frozen runtime identity is missing", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await stage(harness.db);
       const response = await readSpaceDispatchTrace({
@@ -78,12 +76,12 @@ describe("native-only Space dispatch trace", () => {
         true
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("refuses another Space, a non-Space conversation, and ambiguous identity", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     const visibleReader = vi.fn(() => ({
       finalVisibleMessage: null,
       finalVisibleMessageLinkage: null,
@@ -100,40 +98,30 @@ describe("native-only Space dispatch trace", () => {
       });
       expect(wrongSpace).not.toHaveProperty("nativeDeliveryTrace");
       expect(visibleReader).not.toHaveBeenCalled();
-      await harness.db
-        .prepare(
-          "UPDATE openMeldRemoteAgent_native_delivery_ledger SET conversation_kind = 'slack', slack_team_id = 'T1', slack_channel_id = 'D1', slack_thread_ts = '1.1'"
-        )
-        .run();
+      await harness.db.query(
+        `UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger" SET conversation_kind = 'slack', slack_team_id = 'T1', slack_channel_id = 'D1', slack_thread_ts = '1.1'`
+      );
       expect(await read(harness.db, 6)).not.toHaveProperty(
         "nativeDeliveryTrace"
       );
-      await harness.db
-        .prepare(
-          "UPDATE openMeldRemoteAgent_native_delivery_ledger SET conversation_kind = 'space'"
-        )
-        .run();
+      await harness.db.query(
+        `UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger" SET conversation_kind = 'space'`
+      );
       await stage(harness.db, "delivery_2");
       await expect(read(harness.db, 6)).rejects.toThrow(
         "execution_identity_ambiguous"
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
 
 function createHarness() {
-  const harness = createSqliteD1Harness();
-  applyDrizzleMigrationForTable(harness, "openMeldDaemon_dispatch_ledger");
-  applyDrizzleMigrationForTable(
-    harness,
-    "openMeldRemoteAgent_native_delivery_ledger"
-  );
-  return harness;
+  return createPostgresHarness();
 }
 
-function stage(db: D1Database, deliveryId = "delivery_1") {
+function stage(db: PostgresDatabase, deliveryId = "delivery_1") {
   return upsertRemoteAgentNativeDeliveryRecord({
     db,
     deliveryId,
@@ -152,7 +140,10 @@ function stage(db: D1Database, deliveryId = "delivery_1") {
   });
 }
 
-function read(db: D1Database, responseContractVersion: 2 | 3 | 4 | 5 | 6) {
+function read(
+  db: PostgresDatabase,
+  responseContractVersion: 2 | 3 | 4 | 5 | 6
+) {
   return readSpaceDispatchTrace({
     db,
     dispatchId: "continuation_1",

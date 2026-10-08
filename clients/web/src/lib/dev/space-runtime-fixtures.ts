@@ -3,6 +3,7 @@ import {
 	accountSpaceActiveWakeSummaryResponseSchema,
 	agentInteractionResolutionSchema,
 	postSpaceWakeStopResponseSchema,
+	spaceAgentStreamPresenceSchema,
 	wakeProgressItemSchema,
 } from "@openmeld/schemas";
 import type {
@@ -21,6 +22,7 @@ type Scenario = {
 	sourceSignalId: string;
 	scenario:
 		| "working"
+		| "recovery"
 		| "conversation_wait"
 		| "plan_review"
 		| "permission"
@@ -90,6 +92,7 @@ function fixture(spaceId: string, viewer?: string): WakeProgressItem | null {
 		};
 	} else if (
 		scenario.scenario !== "working" &&
+		scenario.scenario !== "recovery" &&
 		scenario.scenario !== "conversation_wait"
 	) {
 		request =
@@ -235,6 +238,53 @@ export function withLocalSpaceRuntimeFixtures(
 ): SpaceApi {
 	return {
 		...api,
+		async getBootstrap(input) {
+			const result = await api.getBootstrap(input);
+			const item = fixture(input.spaceId, viewer);
+			const scenario = currentFixtureManifest().spaces.find(
+				(entry) => entry.spaceId === input.spaceId
+			) as Scenario | undefined;
+			if (
+				!item ||
+				item.terminal ||
+				scenario?.scenario !== "recovery" ||
+				result.activeAgentStreams?.length ||
+				result.activeAgentStreamPresences?.length
+			) {
+				return result;
+			}
+			const now = Date.now();
+			const recovered =
+				new URLSearchParams(window.location.search).get("fixtureRecovery") ===
+				"recovered";
+			return {
+				...result,
+				activeAgentStreamPresences: [
+					spaceAgentStreamPresenceSchema.parse({
+						v: 1,
+						spaceId: input.spaceId,
+						streamId: `stream:${item.dispatchId}`,
+						dispatchId: item.dispatchId,
+						profileId: item.targetProfileId,
+						triggerMessageId: item.sourceSignalId,
+						replyThreadRootSignalId: null,
+						state: "streaming",
+						sequence: 3,
+						gapDetected: false,
+						createdAtMs: item.startedAtMs,
+						updatedAtMs: now,
+						expiresAtMs: now + 60_000,
+						recovery: {
+							type: "recovery",
+							state: recovered ? "recovered" : "waiting",
+							attempt: 3,
+							maxAttempts: 5,
+							nextRetryAtMs: recovered ? 0 : now + 12_000,
+						},
+					}),
+				],
+			};
+		},
 		async postWakeStop(input) {
 			const item = fixture(input.spaceId, viewer);
 			const target = input.body.target;

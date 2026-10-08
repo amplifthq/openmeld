@@ -6,23 +6,34 @@ import type {
 	SpaceMembersSnapshot,
 	SpaceTaskPhase,
 } from "@openmeld/schemas/types";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
 	createOrganizationScopedWebSpaceApi,
 	createUnscopedWebSpaceApi,
 } from "#/lib/spaces/api";
+import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
+import {
+	projectCommonAgentsQueryOptions,
+	projectsQueryOptions,
+} from "#/query/organizations/projects";
 import { baseQueryOptions } from "#/query/query-config";
 import { spaceTaskQueryKeys } from "#/query/spaces/space-tasks";
+import { spaceQueryKeys } from "#/query/spaces/status";
 import { mutateSpaceTaskWithConflictRefresh } from "./space-task-mutation";
 
 export type SpaceTasksPanelProps = {
+	canAddMembers?: boolean;
+	selectedTaskId?: string | null;
+	onSelectTask?: (taskId: string | null) => void;
 	membersSnapshot: SpaceMembersSnapshot | null;
 	onOpenThread?: (threadId: string) => void;
 	openMeldProfileId?: string;
+	organizationId?: string;
 	organizationSlug?: string;
 	spaceId: string;
+	spaceName?: string | null;
 };
 
 export function useSpaceTasksPanelController(
@@ -85,6 +96,53 @@ export function useSpaceTasksPanelController(
 			].filter((member) => member.status === "active"),
 		[input.membersSnapshot]
 	);
+	const projectQueriesEnabled = Boolean(
+		input.organizationId && input.openMeldProfileId
+	);
+	const projectsQuery = useQuery(
+		projectsQueryOptions({
+			enabled: projectQueriesEnabled,
+			organizationId: input.organizationId ?? "",
+		})
+	);
+	const profileDirectory = useQuery(
+		organizationProfileDirectoryQueryOptions({
+			enabled: projectQueriesEnabled,
+			organizationId: input.organizationId ?? "",
+		})
+	);
+	const selectedTask =
+		detailQuery.data?.task ??
+		tasksQuery.data?.tasks.find((task) => task.taskId === selection.taskId);
+	const commonAgentQueries = useQueries({
+		queries: (selectedTask?.projectIds ?? []).map((projectId) => ({
+			...projectCommonAgentsQueryOptions({
+				organizationId: input.organizationId ?? "",
+				projectId,
+			}),
+			enabled: projectQueriesEnabled,
+		})),
+	});
+	const commonAgentIds = new Set(
+		commonAgentQueries.flatMap(
+			(query) => query.data?.commonAgents.agentProfileIds ?? []
+		)
+	);
+	const outsideCommonAgents = (profileDirectory.data?.agentProfiles ?? [])
+		.filter(
+			(profile) =>
+				input.canAddMembers === true &&
+				profile.status === "active" &&
+				commonAgentIds.has(profile.profileId) &&
+				!members.some((member) => member.profileId === profile.profileId)
+		)
+		.map((profile) => ({
+			profileId: profile.profileId,
+			profileName: profile.profileName,
+			ownerName: profile.ownerUserId
+				? (profile.ownerName ?? "Agent owner")
+				: null,
+		}));
 
 	const mutateTask = async (
 		taskId: string,
@@ -123,11 +181,104 @@ export function useSpaceTasksPanelController(
 		}
 	};
 
+	const addAndAssignTask = async (
+		taskId: string,
+		agentProfileId: string,
+		expectedRevision: number
+	): Promise<{
+		membership: "confirmed" | "unknown";
+		assigned: boolean;
+		message: string | null;
+	}> => {
+		try {
+			await api.addOrganizationDirectoryProfilesToSpace({
+				directoryProfileIds: [agentProfileId],
+				spaceId: input.spaceId,
+			});
+		} catch (error) {
+			return {
+				membership: "unknown",
+				assigned: false,
+				message: `OpenMeld could not confirm the membership change: ${resolveSpaceTaskErrorMessage(error)} Refresh members before trying again.`,
+			};
+		}
+		const assigned = await mutateTask(taskId, {
+			action: "assign",
+			assigneeProfileId: agentProfileId,
+			expectedRevision,
+			operationId: crypto.randomUUID(),
+		});
+		let refreshFailed = false;
+		if (input.openMeldProfileId) {
+			try {
+				await Promise.all([
+					queryClient.invalidateQueries({
+						queryKey: spaceQueryKeys.members(
+							input.spaceId,
+							input.openMeldProfileId
+						),
+					}),
+					queryClient.invalidateQueries({
+						queryKey: spaceQueryKeys.status(
+							input.spaceId,
+							input.openMeldProfileId
+						),
+					}),
+				]);
+			} catch {
+				refreshFailed = true;
+			}
+		}
+		let message: string | null = null;
+		if (!assigned) {
+			message =
+				"Space membership was updated, but the Task assignment did not complete. Refresh the Task and try assignment again.";
+		} else if (refreshFailed) {
+			message =
+				"The Task was assigned, but Space members could not refresh. Reload the Space to see the latest membership.";
+		}
+		return {
+			membership: "confirmed",
+			assigned,
+			message,
+		};
+	};
+
 	return {
+		addAndAssignTask,
+		commonAgentIds,
+		createTask: async (
+			body: import("@openmeld/schemas/types").CreateSpaceTaskBody
+		) => {
+			try {
+				const receipt = await api.createTask({ spaceId: input.spaceId, body });
+				queryClient.setQueryData(
+					spaceTaskQueryKeys.detail(
+						input.spaceId,
+						receipt.task.taskId,
+						input.openMeldProfileId
+					),
+					receipt
+				);
+				await queryClient.invalidateQueries({
+					queryKey: spaceTaskQueryKeys.space(input.spaceId),
+				});
+				return receipt.task;
+			} catch (error) {
+				toast.error(
+					error instanceof Error
+						? error.message
+						: "Couldn't create task. Try again."
+				);
+				return null;
+			}
+		},
 		detailQuery,
 		members,
 		mutateTask,
+		outsideCommonAgents,
 		pendingTaskId,
+		projects: projectsQuery.data?.projects ?? [],
 		tasksQuery,
 	};
 }

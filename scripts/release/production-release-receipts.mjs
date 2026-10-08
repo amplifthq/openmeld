@@ -97,17 +97,21 @@ export function releaseComponentOperationKey(input) {
     .digest("hex");
 }
 
-export function describeGuardedReceiptRecoveryCandidate(source) {
+export function describeGuardedReceiptRecoveryCandidate(source, scope) {
   const receipt = productionComponentReceiptSchema.safeParse(source?.receipt);
+  const database = scope === "db" && isDatabaseRecoverySource(source);
+  const retry =
+    scope === "core" && readUnchangedCoreRetryBaseline(source, source?.sha);
   if (
     !(
       EXACT_SOURCE_SHA.test(source?.sha ?? "") &&
       receipt.success &&
       ["applied", "failed"].includes(receipt.data.status)
     ) ||
-    receipt.data.application !== "applied" ||
-    receipt.data.identity?.kind !== "worker-deployment" ||
-    receipt.data.identity.sourceSha !== source.sha
+    (!(retry || database) &&
+      (receipt.data.application !== "applied" ||
+        receipt.data.identity?.kind !== "worker-deployment" ||
+        receipt.data.identity.sourceSha !== source.sha))
   ) {
     return null;
   }
@@ -115,10 +119,57 @@ export function describeGuardedReceiptRecoveryCandidate(source) {
     admission: "candidate",
     attemptId: receipt.data.attemptId,
     componentIndex: receipt.data.componentIndex,
-    kind: "guarded-health-resume",
+    kind: retry ? "guarded-core-upload-retry" : "guarded-health-resume",
     operationKey: receipt.data.operationKey,
     sourceSha: source.sha,
   };
+}
+
+function isDatabaseRecoverySource(source) {
+  const receipt = productionComponentReceiptSchema.safeParse(source?.receipt);
+  return (
+    EXACT_SOURCE_SHA.test(source?.sha ?? "") &&
+    receipt.success &&
+    ["applied", "failed"].includes(receipt.data.status) &&
+    (!receipt.data.identity || receipt.data.identity.kind === "release-source")
+  );
+}
+
+function isNativeDatabaseOperation(group) {
+  return (
+    group.scope === "db" &&
+    group.steps.length === 3 &&
+    ["migrate", "grant-runtime", "verify"].every((command, index) => {
+      const step = group.steps[index];
+      return (
+        step.command === "node" &&
+        JSON.stringify(step.args) ===
+          JSON.stringify(["tooling/postgresql/cutover.mjs", command])
+      );
+    })
+  );
+}
+
+export function readUnchangedCoreRetryBaseline(source, sourceSha) {
+  const baseline = source?.verifiedHistoryBaseline;
+  const receipt = productionComponentReceiptSchema.safeParse(source?.receipt);
+  const prior = productionComponentReceiptSchema.safeParse(baseline?.receipt);
+  if (
+    source?.sha !== sourceSha ||
+    !receipt.success ||
+    receipt.data.status !== "failed" ||
+    receipt.data.application !== "unknown" ||
+    receipt.data.identity ||
+    !prior.success ||
+    prior.data.status !== "verified" ||
+    prior.data.identity?.kind !== "worker-deployment" ||
+    prior.data.identity.workerName !== "openmeld-core-prod" ||
+    prior.data.identity.sourceSha !== baseline.sha ||
+    !(Date.parse(baseline.recordedAt) <= Date.parse(receipt.data.startedAt))
+  ) {
+    return null;
+  }
+  return baseline;
 }
 
 export function selectGuardedReceiptRecovery(input, retained) {
@@ -135,6 +186,16 @@ export function selectGuardedReceiptRecovery(input, retained) {
     input.group.scope === "cli" ? "core" : input.group.scope
   );
   const workerIdentity = workerSource?.receipt?.identity;
+  if (
+    pending.length &&
+    isNativeDatabaseOperation(input.group) &&
+    isDatabaseRecoverySource(previous) &&
+    previous.sha === input.sourceSha &&
+    receipt.operationKey === input.operationKey &&
+    !input.redeploy
+  ) {
+    return { ...previous, databaseRecovery: true };
+  }
   const sameTarget =
     input.target &&
     previous?.sha === input.sourceSha &&
@@ -158,6 +219,21 @@ export function selectGuardedReceiptRecovery(input, retained) {
     ),
   });
   if (pending.length) {
+    const baseline =
+      input.group.scope === "core" &&
+      readUnchangedCoreRetryBaseline(previous, input.sourceSha);
+    if (
+      baseline &&
+      input.target?.workerName === "openmeld-core-prod" &&
+      receipt.operationKey === input.operationKey &&
+      !input.redeploy
+    ) {
+      return {
+        ...previous,
+        retry: true,
+        workerIdentity: baseline.receipt.identity,
+      };
+    }
     if (
       sameTarget &&
       ["applied", "failed"].includes(receipt.status) &&
@@ -176,6 +252,18 @@ export function selectGuardedReceiptRecovery(input, retained) {
 }
 
 async function verifyRetainedComponent(input, previous) {
+  if (previous.databaseRecovery) {
+    await input.executeSteps({
+      cwd: input.cwd,
+      env: input.env,
+      steps: input.group.steps.slice(2),
+      adapters: input.executionAdapters,
+      write: input.write,
+      beforeStep: input.beforeStep,
+      afterStep: input.afterStep,
+    });
+    return;
+  }
   if (input.group.scope === "cli") {
     const { readCompletedCliRelease } = await import(
       "./release-cli-resume.mjs"
@@ -194,11 +282,49 @@ async function verifyRetainedComponent(input, previous) {
       );
     }
   }
-  await verifyWorkerDeployment({ ...input, expected: previous.workerIdentity });
+  await verifyWorkerDeployment({
+    ...input,
+    ...(previous.retry
+      ? {
+          sourceSha: previous.workerIdentity.sourceSha,
+          target: {
+            ...input.target,
+            projectionTag: previous.workerIdentity.projectionTag,
+          },
+        }
+      : {}),
+    expected: previous.workerIdentity,
+  });
 }
 
 async function resumeComponent(input) {
   const receipt = input.previous.receipt;
+  if (input.previous.databaseRecovery) {
+    await (input.publishEvidence ?? publishGuardedLocalReleaseEvidence)({
+      cwd: input.cwd,
+      environment: input.env,
+      sourceSha: input.sourceSha,
+      scopes: ["db"],
+      receipts: {
+        db: {
+          ...receipt,
+          status: "verified",
+          application: "applied",
+          identity: { kind: "release-source" },
+        },
+      },
+      ...(input.now ? { now: input.now() } : {}),
+    });
+    return;
+  }
+  if (input.previous.retry) {
+    await executeComponent({
+      ...input,
+      attemptId: receipt.attemptId,
+      componentIndex: receipt.componentIndex,
+    });
+    return;
+  }
   if (receipt.status === "verified") {
     return;
   }
@@ -266,7 +392,9 @@ async function executeComponent(input) {
   const scopes = group.scope === "cli" ? ["cli", "core"] : [group.scope];
   let application = "unknown";
   let identities = new Map();
-  const startedAt = new Date().toISOString();
+  const startedAt = input.previous?.retry
+    ? input.previous.receipt.startedAt
+    : new Date().toISOString();
   const capture = input.target ? createWorkerDeploymentCapture(input) : null;
   const record = async (status) => {
     const receipts = Object.fromEntries(
@@ -319,7 +447,9 @@ async function executeComponent(input) {
           }
           await input.beforeStep?.(step);
           if (!started) {
-            await record("started");
+            if (!input.previous?.retry) {
+              await record("started");
+            }
             started = true;
           }
         },

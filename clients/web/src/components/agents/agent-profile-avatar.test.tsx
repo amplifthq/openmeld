@@ -20,11 +20,13 @@ import { CenterAgentChatAvatar } from "#/components/organizations/center-agent-c
 import { SpaceMemberAvatars } from "#/components/spaces/space-member-avatars";
 import { SpaceMessageProfileAvatar } from "#/components/spaces/space-message-profile-avatar";
 import { SpaceProfileIcon } from "#/components/spaces/space-profile-icon";
+import { writeBrowserPreference } from "#/lib/spaces/browser-preference-storage";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { applySavedAgentAvatarProfile } from "#/query/profiles/agent-avatar";
 import { AgentAvatarProfilesProvider } from "#/query/profiles/agent-avatar-context";
 import { AgentAvatarEditor } from "./agent-avatar-editor";
 import { AgentProfileControllerAvatar } from "./agent-profile-controller-avatar";
+import { CenterAgentAvatarEditor } from "./center-agent-avatar-editor";
 import { RemoteAgentAvatar } from "./remote-agent-avatar";
 
 const readDirectory = vi.hoisted(() => vi.fn());
@@ -36,11 +38,14 @@ vi.mock("#/lib/organizations/organization-directory", async (original) => ({
 }));
 
 vi.mock("@openmeld/ui/components/bot-avatar", () => ({
-	BotAvatar: ({ type }: { type: string }) => <canvas data-bot-avatar={type} />,
+	BotAvatar: ({ type, palette }: { type: string; palette?: string }) => (
+		<canvas data-bot-avatar={type} data-bot-palette={palette} />
+	),
 }));
 
 afterEach(() => {
 	cleanup();
+	localStorage.clear();
 	vi.restoreAllMocks();
 	vi.unstubAllGlobals();
 });
@@ -114,6 +119,22 @@ function seed(
 	);
 }
 
+function renderCenterEditor(client: QueryClient, onSave = vi.fn()) {
+	return render(
+		<QueryClientProvider client={client}>
+			<AgentAvatarProfilesProvider organizationId="org-1">
+				<CenterAgentAvatarEditor
+					canEdit
+					onSave={onSave}
+					profileId={PROFILE_ID}
+					profileName="Center"
+					saving={false}
+				/>
+			</AgentAvatarProfilesProvider>
+		</QueryClientProvider>
+	);
+}
+
 function buildDirectory(
 	avatarStyle?: AuthProfileView["avatarStyle"],
 	controller = "hosted:center-agent",
@@ -151,6 +172,105 @@ function buildDirectory(
 }
 
 describe("Agent avatar identity across entrances", () => {
+	it.each([
+		"soft",
+		"slate",
+		"sand",
+		"original",
+		"balanced",
+	])("previews inherited %s colors without claiming Original is saved", async (palette) => {
+		writeBrowserPreference("openmeld.appearance.bot-palette", palette);
+		const client = new QueryClient();
+		seed(client, "clover", "hosted:center-agent", { avatarOptions: null });
+		const entrances = renderEntrances(client);
+		const onSave = vi.fn().mockResolvedValue(undefined);
+		const view = renderCenterEditor(client, onSave);
+		fireEvent.click(view.getByRole("button", { name: "Edit avatar" }));
+		let dialog = view.getByRole("dialog", { name: "Choose an avatar" });
+		let original = dialog.querySelector('[aria-label="Original"]');
+		expect(original?.getAttribute("aria-pressed")).toBe("false");
+		let preview = dialog.querySelector(
+			'[aria-label="Animate Center\'s avatar"] canvas'
+		);
+		expect(preview?.getAttribute("data-bot-palette")).toBe(palette);
+		expect(
+			entrances.container.querySelectorAll(
+				`canvas[data-bot-palette="${palette}"]`
+			)
+		).toHaveLength(6);
+		expect(
+			view.getByRole("button", { name: "Save" }).hasAttribute("disabled")
+		).toBe(true);
+		fireEvent.click(dialog.querySelector('[aria-label="Flower"]') as Element);
+		expect(preview?.getAttribute("data-bot-palette")).toBe(palette);
+		expect(
+			view.getByRole("button", { name: "Save" }).hasAttribute("disabled")
+		).toBe(false);
+		fireEvent.click(view.getByRole("button", { name: "Save" }));
+		await waitFor(() =>
+			expect(onSave).toHaveBeenCalledWith({ avatarStyle: "flower" })
+		);
+		onSave.mockClear();
+		fireEvent.click(view.getByRole("button", { name: "Edit avatar" }));
+		dialog = view.getByRole("dialog", { name: "Choose an avatar" });
+		original = dialog.querySelector('[aria-label="Original"]');
+		preview = dialog.querySelector(
+			'[aria-label="Animate Center\'s avatar"] canvas'
+		);
+		fireEvent.click(original as Element);
+		expect(preview?.getAttribute("data-bot-palette")).toBe("original");
+		expect(
+			entrances.container.querySelectorAll(
+				`canvas[data-bot-palette="${palette}"]`
+			)
+		).toHaveLength(6);
+		fireEvent.click(view.getByRole("button", { name: "Save" }));
+		await waitFor(() =>
+			expect(onSave).toHaveBeenCalledWith({
+				avatar: {
+					kind: "bot",
+					type: "clover",
+					palette: "original",
+				},
+			})
+		);
+	});
+
+	it.each([
+		"original",
+		"balanced",
+		"soft",
+	] as const)("keeps saved %s colors ahead of Appearance", (palette) => {
+		writeBrowserPreference("openmeld.appearance.bot-palette", "slate");
+		const client = new QueryClient();
+		seed(client, "clover", "hosted:center-agent", {
+			avatarOptions: { palette },
+		});
+		const entrances = renderEntrances(client);
+		const view = renderCenterEditor(client);
+		fireEvent.click(view.getByRole("button", { name: "Edit avatar" }));
+		const dialog = view.getByRole("dialog", { name: "Choose an avatar" });
+		const label = palette[0].toUpperCase() + palette.slice(1);
+		expect(
+			dialog
+				.querySelector(`[aria-label="${label}"]`)
+				?.getAttribute("aria-pressed")
+		).toBe("true");
+		expect(
+			dialog
+				.querySelector('[aria-label="Animate Center\'s avatar"] canvas')
+				?.getAttribute("data-bot-palette")
+		).toBe(palette);
+		expect(
+			entrances.container.querySelectorAll(
+				`canvas[data-bot-palette="${palette}"]`
+			)
+		).toHaveLength(6);
+		expect(
+			view.getByRole("button", { name: "Save" }).hasAttribute("disabled")
+		).toBe(true);
+	});
+
 	it("refreshes another tab after save through real BroadcastChannel without crossing account or organization", async () => {
 		vi.stubGlobal("BroadcastChannel", NativeBroadcastChannel);
 		const sender = new QueryClient();
@@ -351,11 +471,13 @@ describe("Agent avatar identity across entrances", () => {
 		undefined,
 		null,
 		"automatic",
-	] as const)("does not invent a saved Center bot for missing or automatic style %s", (style) => {
+	] as const)("uses the Center Bot default for missing or automatic style %s", (style) => {
 		const client = new QueryClient();
 		seed(client, style);
 		const view = renderEntrances(client);
-		expect(view.container.querySelector("canvas[data-bot-avatar]")).toBeNull();
+		expect(
+			view.container.querySelectorAll('canvas[data-bot-avatar="clover"]')
+		).toHaveLength(6);
 		expect(
 			view.container.querySelectorAll('[data-avatar-icon="agent"]')
 		).toHaveLength(6);

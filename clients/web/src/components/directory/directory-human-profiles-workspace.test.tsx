@@ -50,7 +50,7 @@ afterEach(() => {
 
 vi.mock("#/lib/organizations/organization-context", () => ({
 	useAppOrganization: () => ({
-		currentOrganization: { id: "org-test" },
+		currentOrganization: { id: "org-test", slug: "org-test" },
 		currentUserId: "viewer",
 	}),
 }));
@@ -761,7 +761,11 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		expect(screen.getByRole("heading", { name: "Agents" })).toBeTruthy();
 		expect(screen.getByRole("link", { name: "Manage Agents" })).toBeTruthy();
 		const agentStrip = screen.getByLabelText("Felix's Agents");
-		expect(agentStrip.className).toContain("overflow-x-auto");
+		expect(
+			agentStrip
+				.closest('[data-slot="scroll-area-viewport"]')
+				?.getAttribute("data-orientation")
+		).toBe("horizontal");
 		expect(agentStrip.className).toContain("flex");
 		expect(
 			within(agentStrip)
@@ -776,8 +780,11 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 				?.getAttribute("href")
 		).toBe("/o/acme/agents?profileId=agent-default");
 		expect(
-			within(agentStrip).getAllByText("Codex · GPT-5.6 Sol · model default")
-		).toHaveLength(2);
+			within(agentStrip).getByText("Codex · GPT-5.6 Sol · model default")
+		).toBeTruthy();
+		expect(
+			within(agentStrip).getByText("Codex · Controller default")
+		).toBeTruthy();
 	});
 
 	it("makes Chat with the primary action for another member", () => {

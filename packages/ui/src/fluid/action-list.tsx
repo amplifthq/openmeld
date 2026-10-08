@@ -8,6 +8,7 @@ import {
   type HTMLAttributes,
   type ReactNode,
   use,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -28,7 +29,8 @@ type FluidActionListContextValue = {
 };
 
 type FluidActionListProps = HTMLAttributes<HTMLDivElement> & {
-  children: ReactNode;
+  axis?: UseFluidHoverOptions["axis"];
+  children?: ReactNode;
   focusIndicatorClassName?: string;
   hoverIndicatorClassName?: string;
   gapClick?: UseFluidHoverOptions["gapClick"];
@@ -60,6 +62,7 @@ function matchesFocusVisible(element: HTMLElement): boolean {
 }
 
 export function FluidActionList({
+  axis = "y",
   children,
   className,
   focusIndicatorClassName,
@@ -68,9 +71,28 @@ export function FluidActionList({
   ...props
 }: FluidActionListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const pointerFocus = useRef(false);
+  useEffect(() => {
+    const resetPointerFocus = (event: KeyboardEvent) => {
+      if (
+        !(
+          event.altKey ||
+          event.ctrlKey ||
+          event.metaKey ||
+          event.key === "Shift"
+        )
+      ) {
+        pointerFocus.current = false;
+      }
+    };
+    const document = containerRef.current?.ownerDocument;
+    document?.addEventListener("keydown", resetPointerFocus, true);
+    return () =>
+      document?.removeEventListener("keydown", resetPointerFocus, true);
+  }, []);
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
   const hover = useFluidHover(containerRef, {
-    axis: "y",
+    axis,
     gapClick,
     isItemDisabled: isDisabledItem,
   });
@@ -132,8 +154,36 @@ export function FluidActionList({
           const index = Number(indexAttribute);
           setActiveIndex(index);
           setFocusedIndex(
-            matchesFocusVisible(event.target as HTMLElement) ? index : null
+            !pointerFocus.current &&
+              matchesFocusVisible(event.target as HTMLElement)
+              ? index
+              : null
           );
+        }}
+        onKeyDownCapture={(event) => {
+          props.onKeyDownCapture?.(event);
+          if (
+            event.altKey ||
+            event.ctrlKey ||
+            event.metaKey ||
+            event.key === "Shift"
+          ) {
+            return;
+          }
+          pointerFocus.current = false;
+          const target = event.target as HTMLElement;
+          if (
+            target.closest('[data-slot="fluid-action-list"]') !==
+            event.currentTarget
+          ) {
+            return;
+          }
+          const index = target
+            .closest("[data-proximity-index]")
+            ?.getAttribute("data-proximity-index");
+          if (index != null) {
+            setFocusedIndex(Number(index));
+          }
         }}
         onMouseEnter={handlers.onMouseEnter}
         onMouseLeave={handlers.onMouseLeave}
@@ -147,6 +197,24 @@ export function FluidActionList({
             return;
           }
           handlers.onMouseMove(event);
+        }}
+        onPointerDownCapture={(event) => {
+          props.onPointerDownCapture?.(event);
+          pointerFocus.current = true;
+          setFocusedIndex(null);
+        }}
+        onPointerMoveCapture={(event) => {
+          props.onPointerMoveCapture?.(event);
+          // Base UI may focus hovered items. Clear the keyboard indicator
+          // before that focus event, even if the browser retains :focus-visible.
+          pointerFocus.current = true;
+          setFocusedIndex(null);
+        }}
+        onPointerOverCapture={(event) => {
+          props.onPointerOverCapture?.(event);
+          // Submenus can focus on entry before the first pointermove arrives.
+          pointerFocus.current = true;
+          setFocusedIndex(null);
         }}
         ref={containerRef}
         role={props.role ?? "group"}

@@ -519,8 +519,10 @@ stored on the Binding. It tells OpenMeld how to launch the selected Agent Contro
 for this Agent Profile using the controller's native permission model. Claude
 Code uses its `--permission-mode` values (`default`, `acceptEdits`, `plan`,
 `auto`, `dontAsk`, `bypassPermissions`). Codex uses its own permission modes
-(`Ask for approval`, `Approve for me`, `Full access`, and
-`Custom (config.toml)`) backed by sandbox, approval, and config settings. The
+(`Ask for approval`, `Approve for me`, and `Full access`) backed by sandbox
+and approval settings. Existing Custom bindings keep their native configuration
+and display as `Previous settings` until their owner selects a current mode;
+Custom is no longer offered in permission pickers. The
 labels and execution flags must stay controller-native, because Claude Code,
 Codex, Grok Build, and future controllers use different permission names and
 enforcement models. Grok Build uses its native `default`, `acceptEdits`, `plan`,
@@ -559,13 +561,38 @@ convergence after an accepted Binding write must not turn that saved write into
 a visible failure. Web shows the saved outcome, refreshes canonical Core
 readiness, and lets that readiness projection decide whether the Agent Profile
 is Available, Checking, Offline, or Unavailable.
+
+Codex app-server versions at or above `0.153.0-alpha.4` can switch the active
+turn's reviewer between Ask for approval and Approve for me. OpenMeld uses
+`turn/settings/update` and requires its `applied` acknowledgement. Full access
+changes the sandbox and approval policy; it remains a next-task setting. A
+running `turn/start` call does not replace that turn's sandbox. OpenMeld does
+not interrupt and replay commands to simulate a live sandbox change. Legacy
+Custom configurations also stay launch-only because their native policy is not
+known from the saved mode name. Claude SDK sessions permit an explicit owner
+switch to bypass permissions after launch, except in repair execution. Cursor
+ACP supports live Default, Ask, and Plan transitions; Auto review and Force
+remain launch-only on this transport.
+
+Pending approvals remain explicit decisions. On a Service that advertises
+permission-mode update sequencing, the owner can choose a mode in the approval
+card; Full access requires explicit confirmation. Web saves the canonical Binding
+before sending the selected approval with the Binding id and saved mode. Service
+waits briefly for the matching canonical route, attempts supported native updates,
+and then delivers the selected approval. It never treats response metadata as
+permission authority, never replaces a newer saved choice, and never claims
+native application from a successful save. Save failure leaves the approval
+pending. Native rejection or delayed catalog delivery retains the current mode
+and still delivers the owner's explicit approval. Older Service requests keep
+the ordinary approval controls without this additional mode selector.
+
 Changing or unbinding the Agent Controller and changing the local working folder
 are different because they change the execution target underneath future work
 and can interrupt an accepted Wake. Every maintenance surface must read the
 owner-sharded RuntimeCoordinator execution state, independent of the current
 Space. That read is advisory: before committing one of these changes, the writer
 must acquire a short-lived owner-shard execution-target mutation admission and
-hold it across the D1 or local Service mutation. RuntimeCoordinator serializes
+hold it across the PostgreSQL or local Service mutation. RuntimeCoordinator serializes
 that admission with new Wake-head acceptance in the same Durable Object storage
 transaction, so a Wake that arrives after admission waits instead of racing the
 execution-target change. An active execution blocks only the disruptive
@@ -601,7 +628,7 @@ implicitly or guess identity from a computer name. A runtime reconnect preserves
 the Binding settings that are current when Core
 accepts the write. Reconnect clients must omit controller settings instead of
 replaying a previously read Binding snapshot; only an explicit settings edit
-may carry those fields and its expected `configurationRevision`. The D1 writer
+may carry those fields and its expected `configurationRevision`. The PostgreSQL writer
 uses that revision as a compare-and-set fence and re-reads before a bounded
 retry when a settings write wins the race. Reconnecting must never overwrite a
 newer permission, model, reasoning, collaboration, conversation, or OpenCode
@@ -609,7 +636,7 @@ permission choice.
 
 An explicit settings edit is successful only when the fresh Binding projection
 contains the requested value. A changed value must be fenced by both the
-Binding id and `configurationRevision` that the writer read, and the D1 update
+Binding id and `configurationRevision` that the writer read, and the PostgreSQL update
 must change that row. If a Service reconnect or another settings edit replaces
 that write target, Core returns a settings conflict instead of accepting the
 new Binding's unchanged value. Web clients also compare an accepted response
@@ -624,9 +651,9 @@ within the Profile's canonical Organization remains the action and audit actor
 and must not become a second Binding owner. A personal Agent Profile write that
 discovers an older enabled Binding under another owner must acquire mutation admission from
 every affected owner shard before changing the Binding. Disabling admitted
-legacy Bindings and installing the Profile owner's target are one atomic D1
+legacy Bindings and installing the Profile owner's target are one atomic PostgreSQL
 write; any failed step leaves the previous enabled Bindings intact. Unavailable
-admission or an incomplete reconciliation fails closed. The D1 write boundary
+admission or an incomplete reconciliation fails closed. The PostgreSQL write boundary
 rejects a new or re-enabled primary Binding when its owner is not the Profile
 owner or another enabled primary Binding already exists for that Profile. The
 migration keeps pre-existing noncanonical rows available for explicit
@@ -717,6 +744,15 @@ controller-native permission mode. Neither setting can widen the other. Agent
 Profile UI must not copy the Computer policy or offer a profile-level override;
 the current Computer detail is its one management home. Direct user-launched
 controller sessions remain governed by the controller's own settings.
+
+Starting a new Codex task for its owner does not add a single-folder restriction.
+The same rule applies to a currently verified Center delegation from that owner.
+With no explicit task access choice, the new task uses the current Profile
+permission mode and Computer policy. The Task menu's **New task** starts a
+separate conversation without choosing a narrower file scope. Explicit project,
+read-only, and Space-only tasks keep their selected restrictions. Continuing or
+forking an older restricted task does not reinterpret that restriction as a
+default; the owner can start a new task to use their current settings.
 
 Grok Build's current controller sandbox is too coarse to prove
 `only_selected_folders` or `block_selected_folders`. Its adapter therefore
@@ -1073,6 +1109,16 @@ have not been published or admitted as Wakes yet. They remain editable pending
 Space input until ordinary publication or an explicit Steer consumes them.
 Different Agent Profiles remain independently admissible and may work in parallel.
 
+Composer follow-ups attach only to one confirmed active response started by the
+current author in the same discussion. Another member's request is published as
+independent work; it must not enter that author's pending-input queue or steer
+their turn. Send now applies an input to the exact running turn. It is disabled
+while that response is starting, queued, waiting for another app, or waiting for
+an interaction. It does not publish another Wake or grant scheduling priority.
+Provider occupancy is labeled `Waiting for another app`; Coordinator admission
+waiting keeps `Waiting for earlier tasks`. A conversation fork does not grant
+another requester access to its history or bypass a shared-folder writer lock.
+
 For migrated Profiles this replaces the former one-slot FIFO and Profile-wide
 native conversation model. The primary Binding still owns the connection and
 launch settings. Migration freezes a finite legacy boundary, preserves accepted
@@ -1096,13 +1142,15 @@ them; a thread alone does not opt an unsupported harness into the new protocol.
 This compatibility rule does not enable suspended controllers or bypass current
 connection, permissions, or readiness requirements.
 
-In parallel mode, an ordinary Claude Code Wake starts a new isolated Space-only
-context when no retained context has been selected. It does not require a Git
-repository or container engine. A Wake continuing a retained context keeps that
-context's access; select a new project task to work in a repository. Space-only
-tasks have no local code tools. Forks inherit the source context's access unless an
-explicit supported choice changes it. An ordinary Codex Wake with no retained
-context uses the Profile's effective working folder. Explicit task choices may
+New Codex and Claude tasks keep the Agent's native tools and permission mode,
+whether requested by the owner, a teammate, or another Agent. Projects select
+the starting folder; they do not restrict the Agent to that folder. In parallel
+mode, an ordinary Claude Wake starts an independent native context when no
+retained context has been selected. It needs neither Git nor a container engine.
+A Wake continuing a retained context keeps its existing access. Forks preserve
+the source restriction unless an explicit supported choice changes it.
+The Task menu makes New task the default choice and groups optional restrictions
+under Limit task access. Explicit task choices may
 instead select Space-only access, an independent project worktree, or read-only
 current-folder access. Codex App Server also supports independent
 project worktrees or read-only/current-folder access. The CLI options
@@ -1120,7 +1168,7 @@ commit; it does not discover a source by searching the computer.
 
 The task boundary confines project files and Git metadata. Codex retains its
 native runtime's platform temporary-directory rules; that is not a promise of
-complete temporary-directory isolation. Claude Code project tasks require a
+complete temporary-directory isolation. Explicit isolated Claude project tasks require a
 running Docker or Podman Linux-container engine on macOS, Linux, or Windows.
 The Service mounts only the task-owned repository and worktree, disables
 container networking, runs as a non-root user, and gives Claude restricted file
@@ -1250,6 +1298,54 @@ settings save before changing the preference; ordinary Wakes keep using the
 unchanged fast path.
 
 ## Agent Profile Operational Context
+
+The Space composer also consumes this existing owner projection for paused work
+in the current Space. It places the existing continuation/skip confirmation beside
+pending inputs in the same tray. Sorting, Send now, editing, and deletion retain
+their existing controls. The original requester can also skip their own paused
+work when the recovery gate contains only that requester's execution context.
+They can fork a read-only or Space-only context without inherited permission
+overrides. Mixed-context gates, legacy work without a verifiable requester,
+and shared write permissions retain owner-only recovery. The owner shard
+rechecks this scope when authorizing the operation. A task in another Space
+is not presented as this conversation's interrupted work.
+
+Text follow-ups to the sender's one active response enter the composer Queue,
+including while the first send is being confirmed. Queue intake can resolve
+the original client-message identity into the exact dispatch; it never invents
+a second execution. Send now requires a running execution and an acknowledged
+steering receipt. When multiple responses belong to the sender, Reply to the
+original request selects the target. Another person's request remains independent.
+In a shared Space, an explicit Agent mention or Reply to the original request
+selects the follow-up target; ordinary messages to people do not enter its Queue.
+Queue ordering and uncertain-delivery holds apply to the same task chain, not
+every task assigned to that Agent. A failed task cannot block another member's
+independent Queue.
+
+After the existing occupied-conversation waiting period, fresh available Usage
+reports may trigger one automatic native fork for Codex work that never began a
+turn. This is limited to automatically selected, explicitly read-only or
+Space-only contexts. Writable tasks, inherited unrestricted permissions,
+explicit source selections, and already forked contexts keep manual recovery.
+The continuation still waits for the original local attempt's withdrawal and
+uses the verified completed-history cutoff. Missing evidence never grants a retry.
+
+On fork continuation, untouched pending inputs from the original source author
+follow the replacement in their existing order. They keep their input identities.
+Claimed, delivered, rejected, or uncertain inputs retain their original delivery
+records; they are not replayed. Send now resolves a fresh execution binding before
+the first delivery to a successor. A continuation is not a file rollback or a
+promise that another app has stopped modifying shared files.
+After the branch succeeds, its follow-ups continue without a second confirmation
+when no unrelated work is held. Other held work still needs owner approval.
+
+Legacy Binding-only conversations without a retained per-Wake context offer Skip,
+not a fork that cannot verify its source. A previously authorized legacy fork
+that never acquired a context can also be skipped. A new task establishes the
+context required for later branch recovery. Continuations validate the original
+recipient against the retained dispatch and exact source-message identity.
+Implicitly addressed messages do not require an explicit Wake chip; the original
+recipient is not recomputed from current Space membership.
 
 Agent Profile Operational Context is the read projection that composes Agent
 Profile identity, Wakeability, current workload, applied execution settings,

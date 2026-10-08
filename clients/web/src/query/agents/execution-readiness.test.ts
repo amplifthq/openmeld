@@ -245,6 +245,9 @@ describe("refreshWebAgentReadinessFacts", () => {
 
 	it("refreshes Core-owned readiness facts without notifying route catalog sync", async () => {
 		const queryClient = createTestQueryClient();
+		const identityKey =
+			organizationQueryKeys.profileIdentityDirectory("org-acme");
+		queryClient.setQueryData(identityKey, { agentProfiles: [] });
 		const invalidateQueriesSpy = vi.spyOn(queryClient, "invalidateQueries");
 
 		await refreshWebAgentReadinessAfterCoreFactsChanged({
@@ -258,8 +261,10 @@ describe("refreshWebAgentReadinessFacts", () => {
 		expect(notifyAgentExecutionReadinessRefreshMock).not.toHaveBeenCalled();
 		expect(invalidateQueriesSpy).toHaveBeenCalledWith({
 			queryKey: organizationQueryKeys.profileDirectory("org-acme"),
+			exact: true,
 			refetchType: "active",
 		});
+		expect(queryClient.getQueryState(identityKey)?.isInvalidated).toBe(false);
 		expect(invalidateQueriesSpy).toHaveBeenCalledWith(
 			expect.objectContaining({
 				queryKey: expect.arrayContaining([
@@ -406,11 +411,33 @@ describe("readiness refresh ordering", () => {
 		queryClient.clear();
 	});
 
-	it("uses the authorized overview for another owner's Agent", async () => {
+	it.each([
+		"shared-agent",
+		"paused-work",
+	])("refreshes the full overview for %s", async (reason) => {
 		const { queryClient, stop } = setup();
-		queryClient.setQueryData(organizationQueryKeys.profileDirectory("org-1"), {
-			agentProfiles: [{ profileId: "agt_target", ownerUserId: "someone-else" }],
-		});
+		if (reason === "shared-agent") {
+			queryClient.setQueryData(
+				organizationQueryKeys.profileDirectory("org-1"),
+				{
+					agentProfiles: [
+						{ profileId: "agt_target", ownerUserId: "someone-else" },
+					],
+				}
+			);
+		} else {
+			readAgentExecutionReadinessBatchMock.mockResolvedValue({
+				items: [snapshot("latest").agentProfiles[0].readiness],
+			});
+			queryClient.setQueryData(key, {
+				agentProfiles: [
+					{
+						...snapshot("initial").agentProfiles[0],
+						operationalContext: { status: "paused" },
+					},
+				],
+			});
+		}
 		await refresh(queryClient);
 		expect(readAgentExecutionReadinessBatchMock).not.toHaveBeenCalled();
 		expect(queryClient.getQueryData(key)).toEqual(snapshot("full"));

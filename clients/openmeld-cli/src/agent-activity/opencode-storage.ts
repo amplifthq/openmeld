@@ -7,6 +7,14 @@ export async function readOpenCodeSessionRows(
 ): Promise<Record<string, unknown>[]> {
   const sql = `SELECT id, directory, title, time_created, time_updated, time_archived FROM session ${nativeSessionId === undefined ? "ORDER BY time_updated DESC, id ASC" : "WHERE id = ?"}`;
   const parameters = nativeSessionId === undefined ? [] : [nativeSessionId];
+  return await queryOpenCodeReadOnly(databasePath, sql, parameters);
+}
+
+export async function queryOpenCodeReadOnly(
+  databasePath: string,
+  sql: string,
+  parameters: string[]
+): Promise<Record<string, unknown>[]> {
   if (typeof process.versions.bun === "string") {
     // @ts-expect-error bun:sqlite exists only in the standalone Bun runtime.
     const bunSqlite = await import("bun:sqlite");

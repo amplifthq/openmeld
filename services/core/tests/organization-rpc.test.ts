@@ -1,4 +1,49 @@
+import { env as workerEnv } from "cloudflare:test";
+import type {
+  PostgreSQLBinding,
+  PostgresDatabase,
+  QueryConfig,
+} from "@openmeld/db/postgresql";
 import {
+  type ProjectSpaceIndexSnapshotInput,
+  projectActiveSpaceIndexSnapshot,
+} from "../src/space-index/space-index-projection-service";
+import { observePostgresDatabase } from "../test-support/postgresql-query.test-support";
+import { createWorkerPostgresFixture } from "./postgresql.test-support";
+
+const organizationPostgresObservers = vi.hoisted(
+  () => new WeakMap<PostgreSQLBinding, PostgresDatabase>()
+);
+const organizationFixtures = new WeakMap<
+  PostgreSQLBinding,
+  Awaited<ReturnType<typeof createOrganizationRpcDb>>
+>();
+vi.mock("@openmeld/db/postgresql", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@openmeld/db/postgresql")>();
+  return {
+    ...actual,
+    getPostgresDatabase: (bindings: {
+      OPENMELD_POSTGRESQL?: PostgreSQLBinding;
+    }) =>
+      (bindings.OPENMELD_POSTGRESQL &&
+        organizationPostgresObservers.get(bindings.OPENMELD_POSTGRESQL)) ??
+      actual.getPostgresDatabase(bindings),
+  };
+});
+function organizationFixture(env: CoreBindings) {
+  const fixture =
+    env.OPENMELD_POSTGRESQL &&
+    organizationFixtures.get(env.OPENMELD_POSTGRESQL);
+  if (!fixture) {
+    throw new Error("Expected an isolated native Organization fixture");
+  }
+  return fixture;
+}
+
+import {
+  agentProfileIdSchema,
+  authProfileViewSchema,
   CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
@@ -21,10 +66,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as agentProfileUsage from "../src/agent-execution/application/agent-profile-usage";
 // biome-ignore lint/performance/noNamespaceImport: Vitest spies on the shared batch read used by RPC readiness orchestration.
 import * as localRuntimeExpectedRoutesService from "../src/agent-profile-binding/application/local-runtime-expected-routes-service";
-import { MAX_ENABLED_PRIMARY_BINDING_OWNERS_PER_AGENT_PROFILE } from "../src/agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+import { MAX_ENABLED_PRIMARY_BINDING_OWNERS_PER_AGENT_PROFILE } from "../src/agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 // biome-ignore lint/performance/noNamespaceImport: Vitest must spy on the live ESM exports used by the RPC orchestration module.
 import * as centerAgentWakePublicationService from "../src/center-agent/application/center-agent-wake-publication-service";
-import type { CenterAgentWakePublicationRecord } from "../src/center-agent/infrastructure/d1/center-agent-wake-publication-repo";
+import type { CenterAgentWakePublicationRecord } from "../src/center-agent/infrastructure/postgresql/center-agent-wake-publication-repo";
 // biome-ignore lint/performance/noNamespaceImport: Vitest must spy on the live ESM export used by the RPC orchestration module.
 import * as runtimeTransportClient from "../src/dispatch/infrastructure/runtime-transport/runtime-transport-client";
 import { CenterAgentRpcEntrypoint } from "../src/index";
@@ -110,6 +155,14 @@ import {
 // biome-ignore lint/performance/noNamespaceImport: Vitest must spy on the live ESM export used by the RPC orchestration module.
 import * as currentDeviceTargetService from "../src/start/application/current-device-target-service";
 
+const MUTATION_QUERY_PATTERN = /\b(?:INSERT INTO|UPDATE|DELETE FROM)\s/iu;
+const BINDING_WRITE_PATTERN =
+  /\b(?:INSERT INTO|UPDATE|DELETE FROM)\s+"openmeld"\."openMeldDaemon_agent_profile_bindings"/iu;
+const DESIGNATION_INSERT_PATTERN =
+  /INSERT INTO\s+"openmeld"\."center_agent_designations"/iu;
+const DESIGNATION_READ_PATTERN =
+  /FROM\s+"openmeld"\."center_agent_designations"/iu;
+
 const HUMAN_PROFILE_ID = "00000000-0000-4000-8000-000000000001";
 const SECOND_HUMAN_PROFILE_ID = "00000000-0000-4000-8000-000000000010";
 const AGENT_PROFILE_ID = "agt_00000000-0000-4000-8000-000000000002";
@@ -126,6 +179,7 @@ const OTHER_ORG_PUBLIC_SPACE_ID =
   "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 const TEST_NOW_MS = Date.parse("2026-07-08T00:00:00.000Z");
 const CENTER_AGENT_WAKE_CLIENT_MESSAGE_ID_PATTERN = /^ca-wake:/;
+const EVIDENCE_VERSION_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 
 function createCenterAgentRpcEntrypoint(
   env: CoreBindings
@@ -143,13 +197,17 @@ afterEach(() => {
 });
 
 describe("organization Core RPC", () => {
-  it("rejects organization directory reads when the active user is not an organization member", async () => {
-    const env = buildEnv({
+  it.each([
+    false,
+    true,
+  ])("rejects organization directory reads when the active user is not an organization member (Center Agent only: %s)", async (centerAgentOnly) => {
+    const env = await buildEnv({
       members: [],
     });
 
     await expect(
       rpcGetCurrentOrganizationDirectory(env, {
+        centerAgentOnly,
         context: buildContext({
           activeOrganizationId: "org-a",
           userId: "user-a",
@@ -162,14 +220,14 @@ describe("organization Core RPC", () => {
   });
 
   it("defaults untouched Center Agent organization memory on", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [],
       members: [
         memberRow("member-a", "org-a", "user-a", "owner"),
         memberRow("member-b", "org-a", "user-b", "member"),
       ],
     });
-    const env = buildEnv({ db });
+    const env = await buildEnv({ db });
 
     await expect(
       rpcReadCenterAgentOrganizationMemoryPolicy(env, {
@@ -187,7 +245,7 @@ describe("organization Core RPC", () => {
   });
 
   it("preserves an explicit off choice and lets owners idempotently update it", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [],
       centerAgentMemoryPolicies: [
         {
@@ -201,7 +259,7 @@ describe("organization Core RPC", () => {
         memberRow("member-b", "org-a", "user-b", "member"),
       ],
     });
-    const env = buildEnv({ db });
+    const env = await buildEnv({ db });
 
     await expect(
       rpcReadCenterAgentOrganizationMemoryPolicy(env, {
@@ -241,12 +299,7 @@ describe("organization Core RPC", () => {
       organizationMemoryOptIn: true,
       updatedByUserId: "user-a",
     });
-    expect(db.centerAgentMemoryPolicyWrites).toEqual([
-      {
-        organizationId: "org-a",
-        organizationMemoryOptIn: true,
-        updatedByUserId: "user-a",
-      },
+    expect(await db.readMemoryPolicies()).toEqual([
       {
         organizationId: "org-a",
         organizationMemoryOptIn: true,
@@ -256,11 +309,11 @@ describe("organization Core RPC", () => {
   });
 
   it("rejects Center Agent organization memory policy writes from non-admin members", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [],
       members: [memberRow("member-a", "org-a", "user-a", "member")],
     });
-    const env = buildEnv({ db });
+    const env = await buildEnv({ db });
 
     await expect(
       rpcSetCenterAgentOrganizationMemoryPolicy(env, {
@@ -280,11 +333,11 @@ describe("organization Core RPC", () => {
       },
       status: 403,
     });
-    expect(db.centerAgentMemoryPolicyWrites).toEqual([]);
+    expect(await db.readMemoryPolicies()).toEqual([]);
   });
 
   it("lets only owners and admins read or update Organization information protection", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [],
       members: [
         memberRow("member-owner", "org-a", "user-owner", "owner"),
@@ -292,7 +345,7 @@ describe("organization Core RPC", () => {
         memberRow("member-member", "org-a", "user-member", "member"),
       ],
     });
-    const env = buildEnv({ db });
+    const env = await buildEnv({ db });
 
     await expect(
       rpcReadOrganizationInformationProtectionPolicy(env, {
@@ -317,7 +370,7 @@ describe("organization Core RPC", () => {
       code: "organization.role_required",
       status: 403,
     });
-    expect(db.informationProtectionPolicyWrites).toEqual([]);
+    expect(await db.readInformationPolicies()).toEqual([]);
 
     await expect(
       rpcSetOrganizationInformationProtectionPolicy(env, {
@@ -351,7 +404,7 @@ describe("organization Core RPC", () => {
   });
 
   it("lets an admin clear the additional Organization policy", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [],
       informationProtectionPolicies: [
         {
@@ -363,7 +416,7 @@ describe("organization Core RPC", () => {
       ],
       members: [memberRow("member-admin", "org-a", "user-admin", "admin")],
     });
-    const env = buildEnv({ db });
+    const env = await buildEnv({ db });
 
     await expect(
       rpcSetOrganizationInformationProtectionPolicy(env, {
@@ -378,17 +431,11 @@ describe("organization Core RPC", () => {
       protectedInformation: null,
       updatedByUserId: "user-admin",
     });
-    expect(db.informationProtectionPolicyWrites).toEqual([
-      {
-        organizationId: "org-a",
-        protectedInformation: null,
-        updatedByUserId: "user-admin",
-      },
-    ]);
+    expect(await db.readInformationPolicies()).toEqual([]);
   });
 
   it("filters the organization directory to the active Organization and reuses agent readiness projection", async () => {
-    const env = buildEnv({
+    const env = await buildEnv({
       agentProfiles: [
         {
           organizationId: "org-a",
@@ -448,7 +495,7 @@ describe("organization Core RPC", () => {
     "user-a",
     "user-b",
   ])("shows Controller branding to Organization member %s without private runtime reads", async (viewerUserId) => {
-    const env = buildEnv({
+    const env = await buildEnv({
       agentProfiles: [
         {
           organizationId: "org-a",
@@ -501,10 +548,8 @@ describe("organization Core RPC", () => {
     expect(lookupOwnerService).not.toHaveBeenCalled();
     expect(readOperationalContexts).not.toHaveBeenCalled();
     expect(response.agentProfiles[0]).not.toHaveProperty("modelSelection");
-    const db = env.OPENMELD_DB as unknown as ReturnType<
-      typeof createOrganizationRpcDb
-    >;
-    db.bindingRows.set(
+    const db = organizationFixture(env);
+    await db.bindingRows.set(
       "binding-model",
       agentProfileBindingTestRow({
         bindingId: "binding-model",
@@ -530,13 +575,9 @@ describe("organization Core RPC", () => {
     expect(lookupRoutes).not.toHaveBeenCalled();
     expect(lookupOwnerService).not.toHaveBeenCalled();
     expect(readOperationalContexts).not.toHaveBeenCalled();
-    const prepare = db.prepare.bind(db);
-    vi.spyOn(db, "prepare").mockImplementation((sql) => {
-      if (sql.includes("SELECT agent_profile_id, agent_controller_ref")) {
-        throw new Error("Binding summary unavailable");
-      }
-      return prepare(sql);
-    });
+    await db.fixture.operator.query(
+      'REVOKE SELECT ON "openmeld"."openMeldDaemon_agent_profile_bindings" FROM openmeld_pg_runtime'
+    );
     const unavailable = await rpcGetCurrentOrganizationProfileDirectory(env, {
       context: buildContext({
         activeOrganizationId: "org-a",
@@ -589,7 +630,7 @@ describe("organization Core RPC", () => {
         ),
       })
     );
-    const env = buildEnv({
+    const env = await buildEnv({
       agentProfiles: [
         {
           organizationId: "org-a",
@@ -652,14 +693,55 @@ describe("organization Core RPC", () => {
         },
       ],
     });
-
-    const response = await rpcGetCurrentOrganizationAgentRuntimeOverview(env, {
+    // A slow database preload must not delay independent Runtime Transport
+    // reads. Hold the native Binding query without replacing its SQL behavior.
+    let releaseBindingRead: () => void = () => undefined;
+    const bindingReadGate = new Promise<void>((resolve) => {
+      releaseBindingRead = resolve;
+    });
+    let markBindingReadStarted: () => void = () => undefined;
+    const bindingReadStarted = new Promise<void>((resolve) => {
+      markBindingReadStarted = resolve;
+    });
+    const fixture = organizationFixture(env);
+    organizationPostgresObservers.set(
+      fixture.binding,
+      observePostgresDatabase(fixture.db, (query) => {
+        if (
+          query.text.includes(
+            'FROM "openmeld"."openMeldDaemon_agent_profile_bindings"'
+          )
+        ) {
+          markBindingReadStarted();
+          return bindingReadGate;
+        }
+      })
+    );
+    const overview = rpcGetCurrentOrganizationAgentRuntimeOverview(env, {
       includeUsageLimits,
       context: buildContext({
         activeOrganizationId: "org-a",
         userId: "user-a",
       }),
     });
+    let response: Awaited<typeof overview>;
+    try {
+      await Promise.race([
+        bindingReadStarted,
+        overview.then(() => {
+          throw new Error("The expected native Binding preload did not start.");
+        }),
+      ]);
+      expect(lookupRoutes).toHaveBeenCalledOnce();
+      expect(lookupOwnerService).toHaveBeenCalledOnce();
+    } finally {
+      releaseBindingRead();
+      try {
+        response = await overview;
+      } finally {
+        organizationPostgresObservers.set(fixture.binding, fixture.db);
+      }
+    }
 
     expect(response.agentProfiles.map((profile) => profile.profileId)).toEqual([
       AGENT_PROFILE_ID,
@@ -710,12 +792,12 @@ describe("organization Core RPC", () => {
         status: "active" as const,
       },
     ];
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: profiles,
       members: [memberRow("member-a", "org-a", "user-a")],
     });
     for (const profile of profiles) {
-      db.bindingRows.set(
+      await db.bindingRows.set(
         bindingKey("owner_account", "user-a", profile.profileId),
         agentProfileBindingTestRow({
           agentProfileId: profile.profileId,
@@ -725,7 +807,7 @@ describe("organization Core RPC", () => {
         })
       );
     }
-    const env = buildEnv({ db, localStateDb: db });
+    const env = await buildEnv({ db });
     const localWakeRouteReport = {
       daemonSessionId: "daemon-session-1",
       deviceId: "device-1",
@@ -802,7 +884,7 @@ describe("organization Core RPC", () => {
   });
 
   it("keeps owner readiness details while sharing only the allowlisted Usage fact with another active member", async () => {
-    const env = buildEnv({
+    const env = await buildEnv({
       agentProfiles: [
         {
           organizationId: "org-a",
@@ -1135,7 +1217,7 @@ describe("organization Core RPC", () => {
         new Error("The narrow member list must not resolve Agent Profiles.")
       )
     );
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -1149,7 +1231,7 @@ describe("organization Core RPC", () => {
         memberRow("member-a", "org-a", "user-a", "owner"),
       ],
     });
-    const env = buildEnv({
+    const env = await buildEnv({
       authWorker: {
         resolveOrganizationDirectoryAgentProfiles: resolveAgentProfiles,
       },
@@ -1187,14 +1269,13 @@ describe("organization Core RPC", () => {
     ]);
     expect(secondPage.nextCursor).toBeNull();
     expect(resolveAgentProfiles).not.toHaveBeenCalled();
-    expect(db.centerAgentAuditRows.map((row) => row.action)).toEqual([
-      "read_org_directory",
-      "read_org_directory",
-    ]);
+    expect(
+      (await db.readCenterAgentAuditRows()).map((row) => row.action)
+    ).toEqual(["read_org_directory", "read_org_directory"]);
   });
 
   it("omits Organization member activity unless the caller opts in", async () => {
-    const env = buildEnv({
+    const env = await buildEnv({
       agentProfiles: [],
       members: [memberRow("member-a", "org-a", "user-a")],
       memberActivities: [
@@ -1224,12 +1305,12 @@ describe("organization Core RPC", () => {
       organizationId: string;
       userId: string;
     }> = [];
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [],
       memberActivities,
       members: [memberRow("member-a", "org-a", "user-a")],
     });
-    const env = buildEnv({ db });
+    const env = await buildEnv({ db });
     vi.spyOn(Date, "now").mockReturnValue(TEST_NOW_MS);
 
     const response = await rpcRecordCurrentOrganizationWebActivity(env, {
@@ -1244,7 +1325,7 @@ describe("organization Core RPC", () => {
       organizationId: "org-a",
       userId: "user-a",
     });
-    expect(memberActivities).toEqual([
+    expect(await organizationFixture(env).readMemberActivities()).toEqual([
       {
         humanProfileId: HUMAN_PROFILE_ID,
         lastActiveAtMs: TEST_NOW_MS,
@@ -1264,8 +1345,8 @@ describe("organization Core RPC", () => {
       organizationId: string;
       userId: string;
     }> = [];
-    const env = buildEnv({
-      db: createOrganizationRpcDb({
+    const env = await buildEnv({
+      db: await createOrganizationRpcDb({
         agentProfiles: [],
         memberActivities,
         members: [memberRow("member-a", "org-a", "user-a")],
@@ -1292,7 +1373,7 @@ describe("organization Core RPC", () => {
       code: "organization.context_required",
       status: 403,
     });
-    expect(memberActivities).toEqual([]);
+    expect(await organizationFixture(env).readMemberActivities()).toEqual([]);
   });
 
   it.each([
@@ -1305,8 +1386,8 @@ describe("organization Core RPC", () => {
       organizationId: string;
       userId: string;
     }> = [];
-    const env = buildEnv({
-      db: createOrganizationRpcDb({
+    const env = await buildEnv({
+      db: await createOrganizationRpcDb({
         agentProfiles: [],
         memberActivities,
         members: [memberRow("member-a", "org-a", "user-a")],
@@ -1333,12 +1414,12 @@ describe("organization Core RPC", () => {
       code: "organization.context_unavailable",
       status: 409,
     });
-    expect(memberActivities).toEqual([]);
+    expect(await organizationFixture(env).readMemberActivities()).toEqual([]);
   });
 
-  it("reads member activity from the identity store when local state is separate", async () => {
+  it("reads Auth-owned member activity from the single PostgreSQL database", async () => {
     const member = memberRow("member-a", "org-a", "user-a");
-    const identityDb = createOrganizationRpcDb({
+    const identityDb = await createOrganizationRpcDb({
       agentProfiles: [],
       memberActivities: [
         {
@@ -1350,15 +1431,9 @@ describe("organization Core RPC", () => {
       ],
       members: [member],
     });
-    const localStateDb = createOrganizationRpcDb({
-      agentProfiles: [],
-      memberActivities: [],
-      members: [],
-    });
-    const env = buildEnv({
+    const env = await buildEnv({
       agentProfiles: [],
       db: identityDb,
-      localStateDb,
       members: [member],
     });
 
@@ -1374,7 +1449,7 @@ describe("organization Core RPC", () => {
   });
 
   it("fails closed when the Auth-owned member projection is unavailable", async () => {
-    const env = buildEnv({
+    const env = await buildEnv({
       authWorker: { resolveOrganizationDirectoryMembers: undefined },
       members: [memberRow("member-a", "org-a", "user-a")],
     });
@@ -1392,8 +1467,62 @@ describe("organization Core RPC", () => {
     });
   });
 
+  it("reads only the designated Center Agent without member or unrelated runtime projections", async () => {
+    const db = await createOrganizationRpcDb({
+      agentProfiles: [
+        managedCenterAgentProfileRow(),
+        {
+          organizationId: "org-a",
+          ownerUserId: "user-a",
+          profileHandle: "other",
+          profileId: "agt_00000000-0000-4000-8000-000000000003",
+          profileName: "Other",
+          status: "active",
+        },
+      ],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "owner")],
+    });
+    const memberRead = vi.fn(() =>
+      Promise.reject(new Error("Settings must not read the member directory."))
+    );
+    const env = await buildEnv({
+      db,
+      authWorker: { resolveOrganizationDirectoryMembers: memberRead },
+    });
+    const operationalReads = vi.spyOn(
+      runtimeTransportClient,
+      "readRuntimeTransportAgentProfileOperationalContexts"
+    );
+    const response = await rpcGetCurrentOrganizationDirectory(env, {
+      centerAgentOnly: true,
+      includeMemberLastActiveAt: true,
+      context: buildContext({
+        activeOrganizationId: "org-a",
+        userId: "user-a",
+      }),
+    });
+    expect(response.members).toEqual([]);
+    expect(response.agentProfiles.map((profile) => profile.profileId)).toEqual([
+      AGENT_PROFILE_ID,
+    ]);
+    expect(response.agentProfiles[0]?.isCenterAgent).toBe(true);
+    expect(
+      response.agentProfiles[0]?.readiness.agentExecutionReadiness
+        .agentProfileId
+    ).toBe(AGENT_PROFILE_ID);
+    expect(memberRead).not.toHaveBeenCalled();
+    expect(operationalReads).not.toHaveBeenCalled();
+  });
+
   it("fails closed when Auth returns Directory identity for another Organization", async () => {
-    const env = buildEnv({
+    const env = await buildEnv({
       authWorker: {
         resolveOrganizationDirectoryMembers: vi.fn(async () => ({
           members: [],
@@ -1426,7 +1555,7 @@ describe("organization Core RPC", () => {
       profileName: "Rogue",
       status: "active" as const,
     };
-    const env = buildEnv({
+    const env = await buildEnv({
       authWorker: {
         resolveOrganizationDirectoryAgentProfiles: vi.fn(
           async (request: { organizationId: string }) => ({
@@ -1459,7 +1588,7 @@ describe("organization Core RPC", () => {
   });
 
   it("lets the designated Center Agent read one current member's coarse OpenMeld Service state", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -1474,7 +1603,7 @@ describe("organization Core RPC", () => {
       ],
     });
 
-    const env = buildEnv({ db });
+    const env = await buildEnv({ db });
     const lookupOwnerService = vi
       .spyOn(runtimeTransportClient, "lookupRuntimeTransportOwnerService")
       .mockResolvedValue({
@@ -1505,7 +1634,7 @@ describe("organization Core RPC", () => {
       env,
       ownerUserId: "user-b",
     });
-    expect(db.centerAgentAuditRows).toEqual([
+    expect(await db.readCenterAgentAuditRows()).toEqual([
       expect.objectContaining({
         action: "read_member_openmeld_service_status",
         actorProfileId: AGENT_PROFILE_ID,
@@ -1540,7 +1669,7 @@ describe("organization Core RPC", () => {
   });
 
   it("uses only the freshest session for each member device and lane", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -1564,45 +1693,44 @@ describe("organization Core RPC", () => {
         },
       ],
     });
-    const env = buildEnv({ db });
-    vi.spyOn(
-      runtimeTransportClient,
-      "lookupRuntimeTransportOwnerService"
-    ).mockResolvedValue({
-      online: true,
-      sessions: [
-        {
-          capabilities: {},
-          connectionGeneration: 2,
-          daemonSessionId: "session-current",
-          deviceId: "device-b",
-          executionCompatibility: {
-            expectedEpoch: "runtime-contract-v2",
-            observedEpoch: "runtime-contract-v1",
-            reasonCode: "daemon.runtime_contract.mismatch",
-            status: "update_required",
+    const env = await buildEnv({ db });
+    const lookupOwnerService = vi
+      .spyOn(runtimeTransportClient, "lookupRuntimeTransportOwnerService")
+      .mockResolvedValue({
+        online: true,
+        sessions: [
+          {
+            capabilities: {},
+            connectionGeneration: 2,
+            daemonSessionId: "session-current",
+            deviceId: "device-b",
+            executionCompatibility: {
+              expectedEpoch: "runtime-contract-v2",
+              observedEpoch: "runtime-contract-v1",
+              reasonCode: "daemon.runtime_contract.mismatch",
+              status: "update_required",
+            },
+            lane: "prod",
+            lastHeartbeatMs: 2000,
+            serviceVersion: "0.3.65",
           },
-          lane: "prod",
-          lastHeartbeatMs: 2000,
-          serviceVersion: "0.3.65",
-        },
-        {
-          capabilities: {},
-          connectionGeneration: 1,
-          daemonSessionId: "session-replaced",
-          deviceId: "device-b",
-          executionCompatibility: {
-            expectedEpoch: "runtime-contract-v1",
-            observedEpoch: "runtime-contract-v1",
-            reasonCode: "daemon.runtime_contract.compatible",
-            status: "compatible",
+          {
+            capabilities: {},
+            connectionGeneration: 1,
+            daemonSessionId: "session-replaced",
+            deviceId: "device-b",
+            executionCompatibility: {
+              expectedEpoch: "runtime-contract-v1",
+              observedEpoch: "runtime-contract-v1",
+              reasonCode: "daemon.runtime_contract.compatible",
+              status: "compatible",
+            },
+            lane: "prod",
+            lastHeartbeatMs: 1000,
+            serviceVersion: "0.3.64",
           },
-          lane: "prod",
-          lastHeartbeatMs: 1000,
-          serviceVersion: "0.3.64",
-        },
-      ],
-    });
+        ],
+      });
 
     await expect(
       rpcCenterAgentReadMemberOpenMeldServiceStatus(env, {
@@ -1640,10 +1768,15 @@ describe("organization Core RPC", () => {
       ],
       organizationId: "org-a",
     });
+    expect(
+      lookupOwnerService.mock.calls.every(
+        ([request]) => request.ownerUserId === "user-b"
+      )
+    ).toBe(true);
   });
 
   it("lists computer setup context for the verified represented member", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -1657,7 +1790,7 @@ describe("organization Core RPC", () => {
         memberRow("member-b", "org-a", "user-b"),
       ],
     });
-    const env = buildEnv({ db });
+    const env = await buildEnv({ db });
     const listLocalRuntimes = vi
       .spyOn(currentDeviceTargetService, "listLocalRuntimesUseCase")
       .mockResolvedValue({
@@ -1692,7 +1825,7 @@ describe("organization Core RPC", () => {
   });
 
   it("includes owner-only Computer diagnostics only when the verified requester asks for them", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -1706,7 +1839,7 @@ describe("organization Core RPC", () => {
         memberRow("member-b", "org-a", "user-b"),
       ],
     });
-    const env = buildEnv({ db });
+    const env = await buildEnv({ db });
     const localRuntimes = {
       currentConnectedComputerId: null,
       currentDeviceId: null,
@@ -1757,7 +1890,7 @@ describe("organization Core RPC", () => {
   });
 
   it("requires an explicit opt-in before owner diagnostics include usage limits", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -1768,7 +1901,7 @@ describe("organization Core RPC", () => {
       ],
       members: [memberRow("member-a", "org-a", "user-a", "owner")],
     });
-    const env = buildEnv({ db });
+    const env = await buildEnv({ db });
     vi.spyOn(
       currentDeviceTargetService,
       "listLocalRuntimesUseCase"
@@ -1811,7 +1944,7 @@ describe("organization Core RPC", () => {
   });
 
   it("reads one teammate's Computers through the existing team-safe projection", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -1825,7 +1958,7 @@ describe("organization Core RPC", () => {
         memberRow("member-b", "org-a", "user-b"),
       ],
     });
-    const env = buildEnv({ db });
+    const env = await buildEnv({ db });
     const listComputers = vi
       .spyOn(organizationComputersService, "listOrganizationComputers")
       .mockResolvedValue({
@@ -1915,7 +2048,7 @@ describe("organization Core RPC", () => {
     expect(listComputers).toHaveBeenCalledWith(
       expect.objectContaining({ memberUserIds: ["user-b"] })
     );
-    expect(db.centerAgentAuditRows).toEqual([
+    expect(await db.readCenterAgentAuditRows()).toEqual([
       expect.objectContaining({
         action: "read_member_computers",
         resourceId: "user-b",
@@ -1944,7 +2077,7 @@ describe("organization Core RPC", () => {
   });
 
   it("fails closed before listing computers for an unverified represented member", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -1955,7 +2088,7 @@ describe("organization Core RPC", () => {
       ],
       members: [memberRow("member-a", "org-a", "user-a", "owner")],
     });
-    const env = buildEnv({ db });
+    const env = await buildEnv({ db });
     const listLocalRuntimes = vi.spyOn(
       currentDeviceTargetService,
       "listLocalRuntimesUseCase"
@@ -1983,7 +2116,7 @@ describe("organization Core RPC", () => {
   });
 
   it("fails closed before reading Service state for a user outside the current Organization", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -1994,7 +2127,7 @@ describe("organization Core RPC", () => {
       ],
       members: [memberRow("member-a", "org-a", "user-a", "owner")],
     });
-    const env = buildEnv({ db });
+    const env = await buildEnv({ db });
     const lookupOwnerService = vi.spyOn(
       runtimeTransportClient,
       "lookupRuntimeTransportOwnerService"
@@ -2016,11 +2149,11 @@ describe("organization Core RPC", () => {
       status: 404,
     });
     expect(lookupOwnerService).not.toHaveBeenCalled();
-    expect(db.centerAgentAuditRows).toEqual([]);
+    expect(await db.readCenterAgentAuditRows()).toEqual([]);
   });
 
   it("fails closed before changing a Computer for a speaker outside the current Organization", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -2031,7 +2164,7 @@ describe("organization Core RPC", () => {
       ],
       members: [memberRow("member-a", "org-a", "user-a", "owner")],
     });
-    const env = buildEnv({ db });
+    const env = await buildEnv({ db });
     const controlOpenMeldTools = vi.spyOn(
       runtimeTransportClient,
       "controlRuntimeTransportOpenMeldTools"
@@ -2082,7 +2215,7 @@ describe("organization Core RPC", () => {
   });
 
   it("fails closed before reading Computers for a user outside the current Organization", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -2093,7 +2226,7 @@ describe("organization Core RPC", () => {
       ],
       members: [memberRow("member-a", "org-a", "user-a", "owner")],
     });
-    const env = buildEnv({ db });
+    const env = await buildEnv({ db });
     const listComputers = vi.spyOn(
       organizationComputersService,
       "listOrganizationComputers"
@@ -2115,11 +2248,11 @@ describe("organization Core RPC", () => {
       status: 404,
     });
     expect(listComputers).not.toHaveBeenCalled();
-    expect(db.centerAgentAuditRows).toEqual([]);
+    expect(await db.readCenterAgentAuditRows()).toEqual([]);
   });
 
   it("reports unknown instead of fabricating an offline state when the member Service lookup fails", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -2133,7 +2266,7 @@ describe("organization Core RPC", () => {
         memberRow("member-b", "org-a", "user-b"),
       ],
     });
-    const env = buildEnv({ db });
+    const env = await buildEnv({ db });
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     vi.spyOn(
       runtimeTransportClient,
@@ -2161,7 +2294,7 @@ describe("organization Core RPC", () => {
   });
 
   it("excludes personal Agent Profiles from another Organization even with legacy Wake Access", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           organizationId: "org-personal",
@@ -2206,7 +2339,7 @@ describe("organization Core RPC", () => {
       ],
       members: [memberRow("member-a", "org-a", "user-a", "owner")],
     });
-    const env = buildEnv({ db });
+    const env = await buildEnv({ db });
 
     const response = await rpcGetCurrentOrganizationDirectory(env, {
       context: buildContext({
@@ -2226,7 +2359,7 @@ describe("organization Core RPC", () => {
   });
 
   it("excludes all personal Agent Profiles from another Organization even with legacy Wake Access", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           organizationId: "org-personal",
@@ -2259,7 +2392,7 @@ describe("organization Core RPC", () => {
       ],
       members: [memberRow("member-a", "org-a", "user-a", "owner")],
     });
-    const env = buildEnv({ db });
+    const env = await buildEnv({ db });
 
     const response = await rpcGetCurrentOrganizationDirectory(env, {
       context: buildContext({
@@ -2272,7 +2405,7 @@ describe("organization Core RPC", () => {
   });
 
   it("falls back to readable names for organization directory members with empty auth names", async () => {
-    const env = buildEnv({
+    const env = await buildEnv({
       agentProfiles: [],
       members: [
         {
@@ -2326,7 +2459,7 @@ describe("organization Core RPC", () => {
         status: "active" as const,
       },
     ];
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles,
       members: [memberRow("member-a", "org-a", "user-a", "owner")],
     });
@@ -2383,7 +2516,7 @@ describe("organization Core RPC", () => {
         }
       ),
     };
-    const env = buildEnv({
+    const env = await buildEnv({
       authWorker,
       db,
       remoteAgentWorker: { submitConversationTurn: vi.fn() },
@@ -2414,7 +2547,7 @@ describe("organization Core RPC", () => {
       code: "center_agent.profile_invalid",
     });
 
-    expect([...db.centerAgentDesignations.values()]).toHaveLength(1);
+    expect([...(await db.centerAgentDesignations.values())]).toHaveLength(1);
     await expect(
       rpcGetCenterAgentDesignation(env, { context: ownerContext })
     ).resolves.toMatchObject({
@@ -2445,7 +2578,7 @@ describe("organization Core RPC", () => {
   });
 
   it("rejects direct local-agent-backed Center Agent designation while the hosted feature bar is pending", async () => {
-    const env = buildEnv({
+    const env = await buildEnv({
       agentProfiles: [managedCenterAgentProfileRow()],
       members: [memberRow("member-a", "org-a", "user-a", "owner")],
       remoteAgentRuntimeEnabled: "true",
@@ -2467,16 +2600,27 @@ describe("organization Core RPC", () => {
   });
 
   it("returns designation_not_ready when the written Center Agent designation is not visible to dispatch", async () => {
-    const db = createOrganizationRpcDb({
-      agentProfiles: [managedCenterAgentProfileRow()],
-      centerAgentDesignationReadbackOverride: centerAgentDesignationRow({
+    const db = await createOrganizationRpcDb({
+      agentProfiles: [
+        managedCenterAgentProfileRow(),
+        {
+          organizationId: "org-a",
+          ownerUserId: "user-b",
+          profileHandle: "other-agent",
+          profileId: SECOND_AGENT_PROFILE_ID,
+          profileName: "Other Agent",
+          status: "active",
+          hasBinding: false,
+        },
+      ],
+      centerAgentDesignationReadbackRace: centerAgentDesignationRow({
         agentProfileId: SECOND_AGENT_PROFILE_ID,
         designatedBy: "user-a",
         organizationId: "org-a",
       }),
       members: [memberRow("member-a", "org-a", "user-a", "owner")],
     });
-    const env = buildEnv({ db, remoteAgentRuntimeEnabled: "true" });
+    const env = await buildEnv({ db, remoteAgentRuntimeEnabled: "true" });
 
     await expect(
       rpcDesignateCenterAgent(env, {
@@ -2491,13 +2635,13 @@ describe("organization Core RPC", () => {
       code: "center_agent.designation_not_ready",
       status: 409,
     });
-    expect(db.centerAgentDesignations.get("org-a")?.agentProfileId).toBe(
-      AGENT_PROFILE_ID
-    );
+    expect(
+      (await db.centerAgentDesignations.get("org-a"))?.agentProfileId
+    ).toBe(SECOND_AGENT_PROFILE_ID);
   });
 
   it("rejects an ordinary Agent Profile with Organization Wake Access as Center Agent", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           organizationId: "org-personal",
@@ -2522,7 +2666,7 @@ describe("organization Core RPC", () => {
         memberRow("member-a", "org-a", "user-a", "owner"),
       ],
     });
-    const env = buildEnv({ db, remoteAgentRuntimeEnabled: "true" });
+    const env = await buildEnv({ db, remoteAgentRuntimeEnabled: "true" });
     const ownerContext = buildContext({
       activeOrganizationId: "org-a",
       userId: "user-a",
@@ -2540,7 +2684,7 @@ describe("organization Core RPC", () => {
   });
 
   it("projects Remote Agent runtime as selectable when the global switch is on", async () => {
-    const env = buildEnv({
+    const env = await buildEnv({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -2564,7 +2708,7 @@ describe("organization Core RPC", () => {
   });
 
   it("projects Remote Agent runtime as not selectable for blocked Organizations", async () => {
-    const env = buildEnv({
+    const env = await buildEnv({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -2592,7 +2736,7 @@ describe("organization Core RPC", () => {
   });
 
   it("projects Remote Agent runtime as not selectable when the global switch is off", async () => {
-    const env = buildEnv({
+    const env = await buildEnv({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -2619,7 +2763,7 @@ describe("organization Core RPC", () => {
   });
 
   it("fails closed when the Remote Agent runtime policy cannot be evaluated", async () => {
-    const env = buildEnv({
+    const env = await buildEnv({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -2660,7 +2804,7 @@ describe("organization Core RPC", () => {
   });
 
   it("designates Remote Agent by writing a hosted Binding without retired Wake authorization", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           organizationId: "org-a",
@@ -2674,7 +2818,7 @@ describe("organization Core RPC", () => {
       ],
       members: [memberRow("member-a", "org-a", "user-a", "owner")],
     });
-    const env = buildEnv({
+    const env = await buildEnv({
       db,
       remoteAgentRuntimeEnabled: "true",
     });
@@ -2695,7 +2839,7 @@ describe("organization Core RPC", () => {
       status: "designated",
     });
 
-    expect([...db.bindingRows.values()]).toEqual([
+    expect([...(await db.bindingRows.values())]).toEqual([
       expect.objectContaining({
         agentControllerConversationId: null,
         agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
@@ -2710,13 +2854,13 @@ describe("organization Core RPC", () => {
         openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
       }),
     ]);
-    expect(db.centerAgentAuditRows.map((row) => row.action)).toEqual([
-      "designate_remote_center_agent",
-    ]);
+    expect(
+      (await db.readCenterAgentAuditRows()).map((row) => row.action)
+    ).toEqual(["designate_remote_center_agent"]);
   });
 
   it("pauses only Remote Agent designation behind the rollout gate", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         managedCenterAgentProfileRow({ organizationId: "org-a" }),
       ],
@@ -2725,7 +2869,7 @@ describe("organization Core RPC", () => {
 
     await expect(
       rpcDesignateCenterAgent(
-        buildEnv({
+        await buildEnv({
           db,
           remoteAgentDesignationEnabled: "false",
           remoteAgentRuntimeEnabled: "true",
@@ -2744,11 +2888,11 @@ describe("organization Core RPC", () => {
       status: 503,
     });
     expect(db.bindingWriteEvents).toEqual([]);
-    expect(db.centerAgentAuditRows).toEqual([]);
+    expect(await db.readCenterAgentAuditRows()).toEqual([]);
   });
 
   it("does not let lazy Center Agent setup bypass the rollout gate", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         managedCenterAgentProfileRow({ organizationId: "org-a" }),
       ],
@@ -2767,7 +2911,7 @@ describe("organization Core RPC", () => {
 
     await expect(
       rpcOpenCenterAgentDirectMessageSpace(
-        buildEnv({
+        await buildEnv({
           db,
           remoteAgentDesignationEnabled: "false",
           remoteAgentRuntimeEnabled: "true",
@@ -2784,20 +2928,11 @@ describe("organization Core RPC", () => {
       status: 503,
     });
     expect(db.bindingWriteEvents).toEqual([]);
-    expect(db.centerAgentDesignations.size).toBe(0);
+    expect(await db.centerAgentDesignations.size()).toBe(0);
     expect(db.spaces).toEqual([]);
   });
 
   it("rejects unmigrated personal bindings without entering personal runtime admission", async () => {
-    const db = createOrganizationRpcDb({
-      agentProfiles: [
-        managedCenterAgentProfileRow({ organizationId: "org-a" }),
-      ],
-      members: [
-        memberRow("member-owner", "org-a", "owner-user", "owner"),
-        memberRow("member-admin", "org-a", "admin-user", "admin"),
-      ],
-    });
     const ownerBindingKey = bindingKey(
       "owner_account",
       "owner-user",
@@ -2825,7 +2960,16 @@ describe("organization Core RPC", () => {
       updatedAtMs: 1_700_000_000_000,
       openMeldServiceRuntimeId: "runtime-owner",
     };
-    db.bindingRows.set(ownerBindingKey, ownerBinding);
+    const db = await createOrganizationRpcDb({
+      agentProfiles: [
+        managedCenterAgentProfileRow({ organizationId: "org-a" }),
+      ],
+      legacyPersonalBindings: [ownerBinding],
+      members: [
+        memberRow("member-owner", "org-a", "owner-user", "owner"),
+        memberRow("member-admin", "org-a", "admin-user", "admin"),
+      ],
+    });
     const acquireMutation = vi
       .spyOn(
         runtimeTransportClient,
@@ -2835,7 +2979,7 @@ describe("organization Core RPC", () => {
         reasonCode: "runtime_coordinator.active_execution",
         status: "blocked",
       });
-    const env = buildEnv({ db, remoteAgentRuntimeEnabled: "true" });
+    const env = await buildEnv({ db, remoteAgentRuntimeEnabled: "true" });
 
     await expect(
       rpcDesignateCenterAgent(env, {
@@ -2851,12 +2995,14 @@ describe("organization Core RPC", () => {
       status: 409,
     });
     expect(acquireMutation).not.toHaveBeenCalled();
-    expect(db.bindingRows).toEqual(new Map([[ownerBindingKey, ownerBinding]]));
-    expect(db.centerAgentAuditRows).toEqual([]);
+    expect(await db.bindingRows.snapshot()).toEqual(
+      new Map([[ownerBindingKey, ownerBinding]])
+    );
+    expect(await db.readCenterAgentAuditRows()).toEqual([]);
   });
 
   it("keeps an already-hosted Remote Agent designation idempotent during active work", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           ...managedCenterAgentProfileRow({ organizationId: "org-a" }),
@@ -2865,7 +3011,7 @@ describe("organization Core RPC", () => {
       ],
       members: [memberRow("member-owner", "org-a", "owner-user", "owner")],
     });
-    db.bindingRows.set(
+    await db.bindingRows.set(
       bindingKey("organization", "org-a", AGENT_PROFILE_ID),
       agentProfileBindingTestRow({
         agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
@@ -2891,7 +3037,7 @@ describe("organization Core RPC", () => {
 
     await expect(
       rpcDesignateCenterAgent(
-        buildEnv({ db, remoteAgentRuntimeEnabled: "true" }),
+        await buildEnv({ db, remoteAgentRuntimeEnabled: "true" }),
         {
           agentProfileId: AGENT_PROFILE_ID,
           context: buildContext({
@@ -2907,7 +3053,7 @@ describe("organization Core RPC", () => {
   });
 
   it("does not treat a corrupted hosted identity as an active-work no-op", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           ...managedCenterAgentProfileRow({ organizationId: "org-a" }),
@@ -2916,7 +3062,7 @@ describe("organization Core RPC", () => {
       ],
       members: [memberRow("member-owner", "org-a", "owner-user", "owner")],
     });
-    db.bindingRows.set(
+    await db.bindingRows.set(
       bindingKey("organization", "org-a", AGENT_PROFILE_ID),
       agentProfileBindingTestRow({
         agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
@@ -2943,7 +3089,7 @@ describe("organization Core RPC", () => {
 
     await expect(
       rpcDesignateCenterAgent(
-        buildEnv({ db, remoteAgentRuntimeEnabled: "true" }),
+        await buildEnv({ db, remoteAgentRuntimeEnabled: "true" }),
         {
           agentProfileId: AGENT_PROFILE_ID,
           context: buildContext({
@@ -2963,7 +3109,17 @@ describe("organization Core RPC", () => {
 
   it("fails closed before admission or writes when Binding owner inventory exceeds the safety limit", async () => {
     const centerAgentAuditJournal: CenterAgentAuditJournalTestRow[] = [];
-    const db = createOrganizationRpcDb({
+    const legacyPersonalBindings = Array.from(
+      { length: MAX_ENABLED_PRIMARY_BINDING_OWNERS_PER_AGENT_PROFILE + 1 },
+      (_, index) => {
+        const ownerId = `legacy-owner-${index.toString().padStart(2, "0")}`;
+        return agentProfileBindingTestRow({
+          bindingId: `binding-${ownerId}`,
+          ownerId,
+        });
+      }
+    );
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           ...managedCenterAgentProfileRow({ organizationId: "org-a" }),
@@ -2971,27 +3127,17 @@ describe("organization Core RPC", () => {
         },
       ],
       centerAgentAuditJournal,
+      legacyPersonalBindings,
       members: [
         memberRow("member-owner", "org-a", "owner-user", "owner"),
         memberRow("member-admin", "org-a", "admin-user", "admin"),
       ],
     });
-    for (
-      let index = 0;
-      index < MAX_ENABLED_PRIMARY_BINDING_OWNERS_PER_AGENT_PROFILE + 1;
-      index += 1
-    ) {
-      const ownerId = `legacy-owner-${index.toString().padStart(2, "0")}`;
-      db.bindingRows.set(
-        bindingKey("owner_account", ownerId, AGENT_PROFILE_ID),
-        agentProfileBindingTestRow({
-          bindingId: `binding-${ownerId}`,
-          ownerId,
-        })
-      );
-    }
     const originalBindings = new Map(
-      [...db.bindingRows].map(([key, binding]) => [key, { ...binding }])
+      (await db.bindingRows.entries()).map(([key, binding]) => [
+        key,
+        { ...binding },
+      ])
     );
     const acquireMutation = vi
       .spyOn(
@@ -3006,7 +3152,7 @@ describe("organization Core RPC", () => {
 
     await expect(
       rpcDesignateCenterAgent(
-        buildEnv({ db, remoteAgentRuntimeEnabled: "true" }),
+        await buildEnv({ db, remoteAgentRuntimeEnabled: "true" }),
         {
           agentProfileId: AGENT_PROFILE_ID,
           context: buildContext({
@@ -3021,10 +3167,10 @@ describe("organization Core RPC", () => {
       status: 503,
     });
     expect(acquireMutation).not.toHaveBeenCalled();
-    expect(db.bindingRows).toEqual(originalBindings);
+    expect(await db.bindingRows.snapshot()).toEqual(originalBindings);
     expect(db.bindingWriteEvents).toEqual([]);
-    expect(db.authorizationRows.size).toBe(0);
-    expect(centerAgentAuditJournal).toEqual([]);
+    expect(await db.authorizationRows.size()).toBe(0);
+    expect(await db.readCenterAgentAuditRows()).toEqual([]);
   });
 
   it.each([
@@ -3046,7 +3192,7 @@ describe("organization Core RPC", () => {
     modelId,
     displayName,
   }) => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         managedCenterAgentProfileRow({ organizationId: "org-a" }),
       ],
@@ -3063,31 +3209,34 @@ describe("organization Core RPC", () => {
         memberRow("member-ordinary", "org-a", "member-user", "member"),
       ],
     });
-    db.bindingRows.set(bindingKey("organization", "org-a", AGENT_PROFILE_ID), {
-      agentControllerConversationId: null,
-      agentControllerPermissionMode: null,
-      agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
-      agentProfileId: AGENT_PROFILE_ID,
-      bindingId: "binding-center-agent",
-      bindingState: "enabled_primary",
-      configurationRevision: 4,
-      createdAtMs: 1_700_000_000_000,
-      createdByProfileId: HUMAN_PROFILE_ID,
-      disabledAtMs: null,
-      hostedRuntimeIdentityJson: JSON.stringify(
-        HOSTED_CENTER_AGENT_RUNTIME_IDENTITY
-      ),
-      modelId: null,
-      openCodePermission: null,
-      ownerId: "org-a",
-      ownerKind: "organization",
-      reasonCode: null,
-      reasoningLevel: null,
-      runtimeKind: "hosted_center_agent",
-      updatedAtMs: 1_700_000_000_000,
-      openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
-    });
-    const env = buildEnv({ db, remoteAgentRuntimeEnabled: "true" });
+    await db.bindingRows.set(
+      bindingKey("organization", "org-a", AGENT_PROFILE_ID),
+      {
+        agentControllerConversationId: null,
+        agentControllerPermissionMode: null,
+        agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+        agentProfileId: AGENT_PROFILE_ID,
+        bindingId: "binding-center-agent",
+        bindingState: "enabled_primary",
+        configurationRevision: 4,
+        createdAtMs: 1_700_000_000_000,
+        createdByProfileId: HUMAN_PROFILE_ID,
+        disabledAtMs: null,
+        hostedRuntimeIdentityJson: JSON.stringify(
+          HOSTED_CENTER_AGENT_RUNTIME_IDENTITY
+        ),
+        modelId: null,
+        openCodePermission: null,
+        ownerId: "org-a",
+        ownerKind: "organization",
+        reasonCode: null,
+        reasoningLevel: null,
+        runtimeKind: "hosted_center_agent",
+        updatedAtMs: 1_700_000_000_000,
+        openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
+      }
+    );
+    const env = await buildEnv({ db, remoteAgentRuntimeEnabled: "true" });
     const memberContext = buildContext({
       activeOrganizationId: "org-a",
       userId: "member-user",
@@ -3181,7 +3330,7 @@ describe("organization Core RPC", () => {
 
   it("does not carry legacy Organization authorization when replacing a hosted Center Agent Binding", async () => {
     const previousBindingId = `binding-${AGENT_PROFILE_ID}`;
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         managedCenterAgentProfileRow({ organizationId: "org-a" }),
       ],
@@ -3203,7 +3352,7 @@ describe("organization Core RPC", () => {
       ],
       members: [memberRow("member-a", "org-a", "user-a", "owner")],
     });
-    const env = buildEnv({
+    const env = await buildEnv({
       db,
       remoteAgentRuntimeEnabled: "true",
     });
@@ -3217,14 +3366,14 @@ describe("organization Core RPC", () => {
       runtime: "remote_agent",
     });
     expect(
-      db.centerAgentAuditRows
+      (await db.readCenterAgentAuditRows())
         .filter((row) => row.action === "carry_over_binding_authorization")
         .map((row) => row.organizationId)
     ).toEqual([]);
   });
 
   it("lets organization owners and admins update the Center Agent profile name through Auth", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -3259,7 +3408,7 @@ describe("organization Core RPC", () => {
         },
       })),
     };
-    const env = buildEnv({ authWorker, db });
+    const env = await buildEnv({ authWorker, db });
 
     await expect(
       rpcUpdateCenterAgentProfile(env, {
@@ -3295,6 +3444,80 @@ describe("organization Core RPC", () => {
       profileId: AGENT_PROFILE_ID,
       profileName: "Operations Center Agent",
     });
+    await rpcUpdateCenterAgentProfile(env, {
+      context: buildContext({
+        activeOrganizationId: "org-a",
+        userId: "user-a",
+      }),
+      avatar: { kind: "bot", type: "mech", palette: "balanced" },
+    });
+    expect(
+      authWorker.updateCenterAgentProfileInOrganization
+    ).toHaveBeenLastCalledWith({
+      organizationId: "org-a",
+      profileId: AGENT_PROFILE_ID,
+      avatarStyle: "mech",
+      avatarOptions: { palette: "balanced" },
+      expectedAvatarOptions: null,
+    });
+  });
+
+  it("rolls back a Center Agent profile image only after an explicit rejected save", async () => {
+    const update = vi.fn().mockResolvedValue({
+      ok: false,
+      code: "profile.validation_error",
+      message: "This avatar changed.",
+    });
+    const env = await buildEnv({
+      agentProfiles: [managedCenterAgentProfileRow()],
+      authWorker: { updateCenterAgentProfileInOrganization: update },
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "owner")],
+    });
+    const put = vi.fn().mockResolvedValue({});
+    const remove = vi.fn().mockResolvedValue(undefined);
+    env.OPENMELD_ACCOUNT_AVATARS = {
+      put,
+      delete: remove,
+    } as unknown as R2Bucket;
+    env.OPENMELD_GATEWAY_URL = "https://gateway.openmeld.invalid";
+    const input = {
+      context: buildContext({
+        activeOrganizationId: "org-a",
+        userId: "user-a",
+      }),
+      avatar: {
+        kind: "image" as const,
+        dataUrl: "data:image/webp;base64,UklGRgAAAABXRUJQ",
+      },
+    };
+    await expect(rpcUpdateCenterAgentProfile(env, input)).rejects.toMatchObject(
+      { status: 409 }
+    );
+    expect(put).toHaveBeenCalledTimes(1);
+    expect(remove).toHaveBeenCalledWith(put.mock.calls[0]?.[0]);
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        avatarStyle: "custom",
+        expectedAvatarOptions: null,
+        avatarOptions: {
+          imageUrl: expect.stringContaining(
+            "https://gateway.openmeld.invalid/"
+          ),
+        },
+      })
+    );
+    // A lost reply can follow a committed write. Do not delete that image.
+    update.mockRejectedValueOnce(new Error("reply lost"));
+    await expect(rpcUpdateCenterAgentProfile(env, input)).rejects.toThrow();
+    expect(put).toHaveBeenCalledTimes(2);
+    expect(remove).toHaveBeenCalledTimes(1);
   });
 
   it("maps an unavailable Auth profile-update RPC method to the stable Center Agent error", async () => {
@@ -3305,7 +3528,7 @@ describe("organization Core RPC", () => {
         )
       ),
     };
-    const env = buildEnv({
+    const env = await buildEnv({
       agentProfiles: [managedCenterAgentProfileRow()],
       authWorker,
       centerAgentDesignations: [
@@ -3340,7 +3563,7 @@ describe("organization Core RPC", () => {
     const authWorker = {
       updateCenterAgentProfileInOrganization: vi.fn(),
     };
-    const env = buildEnv({
+    const env = await buildEnv({
       agentProfiles: [managedCenterAgentProfileRow()],
       authWorker,
       centerAgentDesignations: [
@@ -3359,7 +3582,10 @@ describe("organization Core RPC", () => {
           activeOrganizationId: "org-a",
           userId: "user-a",
         }),
-        profileName: "Operations Center Agent",
+        avatar: {
+          kind: "image",
+          dataUrl: "data:image/webp;base64,UklGRgAAAABXRUJQ",
+        },
       })
     ).rejects.toMatchObject({
       code: "organization.role_required",
@@ -3372,7 +3598,7 @@ describe("organization Core RPC", () => {
 
   it("rejects non-designated callers and blocks Center Agent tools while paused", async () => {
     const spaceStub = createSpaceStub();
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           managedRole: "center_agent",
@@ -3401,7 +3627,7 @@ describe("organization Core RPC", () => {
       ],
       members: [memberRow("member-a", "org-a", "user-a", "owner")],
     });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
 
     await expect(
       rpcCenterAgentCreateSpace(env, {
@@ -3504,7 +3730,7 @@ describe("organization Core RPC", () => {
     ["admin", true],
     ["member", false],
   ] as const)("uses current %s membership for pause authority after the creator is gone", async (role, allowed) => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -3523,7 +3749,7 @@ describe("organization Core RPC", () => {
         },
       ],
     });
-    const env = buildEnv({ db });
+    const env = await buildEnv({ db });
     const context = buildContext({
       activeOrganizationId: "org-a",
       userId: "user-a",
@@ -3556,7 +3782,7 @@ describe("organization Core RPC", () => {
     ["missing", undefined],
     ["invalid", { profileId: SECOND_HUMAN_PROFILE_ID }],
   ])("rejects %s represented humans before writing", async (_case, onBehalfOf) => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -3569,7 +3795,7 @@ describe("organization Core RPC", () => {
     });
     const spaceStub = createSpaceStub();
     await expect(
-      rpcCenterAgentCreateSpace(buildEnv({ db, spaceStub }), {
+      rpcCenterAgentCreateSpace(await buildEnv({ db, spaceStub }), {
         context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           profileId: AGENT_PROFILE_ID,
@@ -3582,15 +3808,18 @@ describe("organization Core RPC", () => {
         visibility: "private",
       })
     ).rejects.toMatchObject({
-      code: "center_agent.represented_member_required",
-      status: 403,
+      code:
+        _case === "missing"
+          ? "center_agent.represented_member_required"
+          : "invalid_payload",
+      status: _case === "missing" ? 403 : 400,
     });
     expect(spaceStub.rpcPatchMeta).not.toHaveBeenCalled();
     expect(spaceStub.rpcPatchMetaWithPasswordAtomic).not.toHaveBeenCalled();
   });
 
   it("records Center Agent audit entries with on-behalf-of attribution", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           managedRole: "center_agent",
@@ -3612,7 +3841,7 @@ describe("organization Core RPC", () => {
       members: [memberRow("member-a", "org-a", "user-a", "owner")],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
     const agentContext = buildCenterAgentContext({
       activeOrganizationId: "org-a",
       profileId: AGENT_PROFILE_ID,
@@ -3681,7 +3910,7 @@ describe("organization Core RPC", () => {
   });
 
   it("creates Agent Profiles through the organization-scoped Auth RPC and records Center Agent audit", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           managedRole: "center_agent",
@@ -3719,14 +3948,14 @@ describe("organization Core RPC", () => {
           profileHandle: "release-agent",
           profileKind: "agent",
           profileName: "Release Agent",
-          source: "user_created",
+          source: "center_agent_create",
           status: "active",
           updatedAt: "2026-07-06T00:00:00.000Z",
           openMeldProfileId: SECOND_AGENT_PROFILE_ID,
         },
       })),
     };
-    const env = buildEnv({ authWorker, db });
+    const env = await buildEnv({ authWorker, db });
 
     await expect(
       rpcCenterAgentCreateAgentProfile(env, {
@@ -3758,7 +3987,7 @@ describe("organization Core RPC", () => {
       profileName: "Release Agent",
       source: "center_agent_create",
     });
-    expect(db.centerAgentAuditRows).toEqual([
+    expect(await db.readCenterAgentAuditRows()).toEqual([
       expect.objectContaining({
         action: "create_agent_profile",
         actorProfileId: AGENT_PROFILE_ID,
@@ -3770,7 +3999,7 @@ describe("organization Core RPC", () => {
   });
 
   it("maps an unavailable Auth profile-create RPC method to the stable Center Agent error", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           managedRole: "center_agent",
@@ -3800,7 +4029,7 @@ describe("organization Core RPC", () => {
     };
 
     await expect(
-      rpcCenterAgentCreateAgentProfile(buildEnv({ authWorker, db }), {
+      rpcCenterAgentCreateAgentProfile(await buildEnv({ authWorker, db }), {
         context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           profileId: AGENT_PROFILE_ID,
@@ -3820,11 +4049,11 @@ describe("organization Core RPC", () => {
         'HTTP 503: {"ok":false,"error":{"code":"center_agent.profile_create_unavailable","message":"Agent Profile creation is unavailable."}}',
       status: 503,
     });
-    expect(db.centerAgentAuditRows).toEqual([]);
+    expect(await db.readCenterAgentAuditRows()).toEqual([]);
   });
 
   it("adds Agent Profiles to Spaces through the Space member contract", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           managedRole: "center_agent",
@@ -3862,7 +4091,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
 
     await expect(
       rpcCenterAgentAddAgentProfilesToSpace(env, {
@@ -3911,7 +4140,7 @@ describe("organization Core RPC", () => {
         spaceId: JOINED_PRIVATE_SPACE_ID,
       })
     );
-    expect(db.centerAgentAuditRows).toEqual([
+    expect(await db.readCenterAgentAuditRows()).toEqual([
       expect.objectContaining({
         action: "add_agent_profiles_to_space",
         actorProfileId: AGENT_PROFILE_ID,
@@ -3924,7 +4153,7 @@ describe("organization Core RPC", () => {
   });
 
   it("creates a Space, adds Organization members and Agent Profiles, then wakes the Agent Profiles", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           managedRole: "center_agent",
@@ -3960,7 +4189,7 @@ describe("organization Core RPC", () => {
       enforceAddressingTargetMembership: true,
       spaces: db.spaces,
     });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
     const context = buildCenterAgentContext({
       activeOrganizationId: "org-a",
       agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
@@ -4056,7 +4285,7 @@ describe("organization Core RPC", () => {
         spaceId: created.spaceId,
       })
     );
-    expect(db.centerAgentAuditRows).toEqual([
+    expect(await db.readCenterAgentAuditRows()).toEqual([
       expect.objectContaining({ action: "create_space" }),
       expect.objectContaining({
         action: "add_members_to_space",
@@ -4096,7 +4325,7 @@ describe("organization Core RPC", () => {
   });
 
   it("rejects every non-member without writing Space membership", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -4116,7 +4345,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
 
     await expect(
       rpcCenterAgentAddMembersToSpace(env, {
@@ -4154,7 +4383,7 @@ describe("organization Core RPC", () => {
   });
 
   it("removes Agent Profiles from Spaces through the Space member contract", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           managedRole: "center_agent",
@@ -4184,7 +4413,7 @@ describe("organization Core RPC", () => {
       members: [memberRow("member-a", "org-a", "user-a", "owner")],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
 
     await expect(
       rpcCenterAgentRemoveAgentProfilesFromSpace(env, {
@@ -4220,7 +4449,7 @@ describe("organization Core RPC", () => {
       memberProfileIds: [SECOND_AGENT_PROFILE_ID],
       spaceId: JOINED_PRIVATE_SPACE_ID,
     });
-    expect(db.centerAgentAuditRows).toEqual([
+    expect(await db.readCenterAgentAuditRows()).toEqual([
       expect.objectContaining({
         action: "remove_agent_profiles_from_space",
         actorProfileId: AGENT_PROFILE_ID,
@@ -4233,7 +4462,7 @@ describe("organization Core RPC", () => {
   });
 
   it("updates Space settings through the Space owner contracts", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           managedRole: "center_agent",
@@ -4263,7 +4492,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
 
     await expect(
       rpcCenterAgentUpdateSpaceSettings(env, {
@@ -4316,7 +4545,7 @@ describe("organization Core RPC", () => {
         spaceId: JOINED_PRIVATE_SPACE_ID,
       })
     );
-    expect(db.centerAgentAuditRows).toEqual([
+    expect(await db.readCenterAgentAuditRows()).toEqual([
       expect.objectContaining({
         action: "update_space_settings",
         actorProfileId: AGENT_PROFILE_ID,
@@ -4329,7 +4558,7 @@ describe("organization Core RPC", () => {
   });
 
   it("advertises structured Reference support before posting a plain Space message", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           managedRole: "center_agent",
@@ -4365,7 +4594,7 @@ describe("organization Core RPC", () => {
       },
       spaces: db.spaces,
     });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
     const context = buildCenterAgentContext({
       activeOrganizationId: "org-a",
       profileId: AGENT_PROFILE_ID,
@@ -4437,7 +4666,7 @@ describe("organization Core RPC", () => {
         text: "I moved the launch notes into this Space.",
       })
     );
-    expect(db.centerAgentAuditRows).toEqual([
+    expect(await db.readCenterAgentAuditRows()).toEqual([
       expect.objectContaining({
         action: "post_space_message",
         actorProfileId: AGENT_PROFILE_ID,
@@ -4450,7 +4679,7 @@ describe("organization Core RPC", () => {
   });
 
   it("keeps an old Remote Agent compatible after Space normalizes a Human Reference into a Mention", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -4496,7 +4725,7 @@ describe("organization Core RPC", () => {
       type: "signal.text" as const,
       v: 1 as const,
     }));
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
     const context = buildCenterAgentContext({
       activeOrganizationId: "org-a",
       profileId: AGENT_PROFILE_ID,
@@ -4539,7 +4768,7 @@ describe("organization Core RPC", () => {
   });
 
   it("rejects a Center Agent plain post that References a non-member", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -4565,7 +4794,7 @@ describe("organization Core RPC", () => {
       },
       spaces: db.spaces,
     });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
 
     await expect(
       rpcCenterAgentPostSpaceMessage(env, {
@@ -4588,7 +4817,7 @@ describe("organization Core RPC", () => {
   });
 
   it("marks current Center Agent Space posts before target-kind validation", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -4615,7 +4844,7 @@ describe("organization Core RPC", () => {
       spaces: db.spaces,
     });
 
-    await rpcCenterAgentPostSpaceMessage(buildEnv({ db, spaceStub }), {
+    await rpcCenterAgentPostSpaceMessage(await buildEnv({ db, spaceStub }), {
       context: buildCenterAgentContext({
         activeOrganizationId: "org-a",
         profileId: AGENT_PROFILE_ID,
@@ -4633,7 +4862,7 @@ describe("organization Core RPC", () => {
   });
 
   it("posts ordered Slack messages with independent retry identities", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -4684,7 +4913,7 @@ describe("organization Core RPC", () => {
       throw new Error(`Unexpected Slack API request: ${pathname}`);
     });
     vi.stubGlobal("fetch", slackFetch);
-    const env = buildEnv({ db, slackBotToken: "xoxb-test" });
+    const env = await buildEnv({ db, slackBotToken: "xoxb-test" });
 
     const context = buildCenterAgentContext({
       activeOrganizationId: "org-a",
@@ -4815,7 +5044,7 @@ describe("organization Core RPC", () => {
           new URL(String(request)).pathname === "/api/chat.postMessage"
       )
     ).toHaveLength(2);
-    expect(db.centerAgentAuditRows).toEqual(
+    expect(await db.readCenterAgentAuditRows()).toEqual(
       Array.from({ length: 2 }, () =>
         expect.objectContaining({
           action: "post_slack_channel_message",
@@ -4849,7 +5078,7 @@ describe("organization Core RPC", () => {
   });
 
   it("distinguishes a retryable preparation failure from an ambiguous Slack outcome", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -4900,7 +5129,7 @@ describe("organization Core RPC", () => {
       throw new Error(`Unexpected Slack API request: ${pathname}`);
     });
     vi.stubGlobal("fetch", slackFetch);
-    const env = buildEnv({ db, slackBotToken: "xoxb-test" });
+    const env = await buildEnv({ db, slackBotToken: "xoxb-test" });
     const context = buildCenterAgentContext({
       activeOrganizationId: "org-a",
       agentControllerConversationId: "remote_agent_submission_release",
@@ -4939,7 +5168,7 @@ describe("organization Core RPC", () => {
           new URL(String(requestUrl)).pathname === "/api/chat.postMessage"
       )
     ).toHaveLength(0);
-    expect(db.centerAgentAuditRows).toHaveLength(0);
+    expect(await db.readCenterAgentAuditRows()).toHaveLength(0);
 
     await expect(
       rpcCenterAgentPostSlackChannelMessage(env, request)
@@ -4952,7 +5181,7 @@ describe("organization Core RPC", () => {
           new URL(String(requestUrl)).pathname === "/api/chat.postMessage"
       )
     ).toHaveLength(1);
-    expect(db.centerAgentAuditRows).toHaveLength(1);
+    expect(await db.readCenterAgentAuditRows()).toHaveLength(1);
 
     closeNextSlackRequest = true;
     const ambiguousRequest = {
@@ -4980,11 +5209,11 @@ describe("organization Core RPC", () => {
           new URL(String(requestUrl)).pathname === "/api/chat.postMessage"
       )
     ).toHaveLength(2);
-    expect(db.centerAgentAuditRows).toHaveLength(2);
+    expect(await db.readCenterAgentAuditRows()).toHaveLength(2);
   });
 
   it("posts and deduplicates an exact Slack thread separately from the channel", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -5068,7 +5297,7 @@ describe("organization Core RPC", () => {
       throw new Error(`Unexpected Slack API request: ${pathname}`);
     });
     vi.stubGlobal("fetch", slackFetch);
-    const env = buildEnv({ db, slackBotToken: "xoxb-test" });
+    const env = await buildEnv({ db, slackBotToken: "xoxb-test" });
     const request = {
       channelName: "ok8-okok",
       context: buildCenterAgentContext({
@@ -5127,7 +5356,7 @@ describe("organization Core RPC", () => {
       }),
     ]);
     expect(postedBodies[1]).not.toHaveProperty("thread_ts");
-    expect(db.centerAgentAuditRows).toEqual([
+    expect(await db.readCenterAgentAuditRows()).toEqual([
       expect.objectContaining({
         action: "post_slack_channel_message",
         resourceId: "C123:1786979718.343639",
@@ -5166,7 +5395,7 @@ describe("organization Core RPC", () => {
   });
 
   it("uploads and deduplicates a Slack file in the originating interactive thread", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -5255,7 +5484,7 @@ describe("organization Core RPC", () => {
       throw new Error(`Unexpected Slack API request: ${url.pathname}`);
     });
     vi.stubGlobal("fetch", slackFetch);
-    const env = buildEnv({ db, slackBotToken: "xoxb-test" });
+    const env = await buildEnv({ db, slackBotToken: "xoxb-test" });
     const request = {
       contentBase64: btoa(String.fromCharCode(...bytes)),
       contentSha256,
@@ -5301,7 +5530,7 @@ describe("organization Core RPC", () => {
         thread_ts: "1786979718.343639",
       },
     ]);
-    expect(db.centerAgentAuditRows).toEqual([
+    expect(await db.readCenterAgentAuditRows()).toEqual([
       expect.objectContaining({
         action: "post_slack_file",
         resourceType: "slack_file",
@@ -5329,7 +5558,7 @@ describe("organization Core RPC", () => {
   });
 
   it("allows an exact Slack publication retry when the audit write fails before sending", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentAuditWriteFailures: 1,
       centerAgentDesignations: [
@@ -5376,7 +5605,7 @@ describe("organization Core RPC", () => {
       throw new Error(`Unexpected Slack API request: ${pathname}`);
     });
     vi.stubGlobal("fetch", slackFetch);
-    const env = buildEnv({ db, slackBotToken: "xoxb-test" });
+    const env = await buildEnv({ db, slackBotToken: "xoxb-test" });
     const request = {
       channelName: "#Release",
       context: buildCenterAgentContext({
@@ -5419,7 +5648,7 @@ describe("organization Core RPC", () => {
   });
 
   it("returns a clear next step when Slack is not connected", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -5432,7 +5661,7 @@ describe("organization Core RPC", () => {
     });
 
     await expect(
-      rpcCenterAgentReadSlackWorkspaceDirectory(buildEnv({ db }), {
+      rpcCenterAgentReadSlackWorkspaceDirectory(await buildEnv({ db }), {
         context: buildCenterAgentContext({
           activeOrganizationId: "org-a",
           agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
@@ -5448,11 +5677,11 @@ describe("organization Core RPC", () => {
       reasonCode: "slack_not_connected",
       status: "unavailable",
     });
-    expect(db.centerAgentAuditRows).toEqual([]);
+    expect(await db.readCenterAgentAuditRows()).toEqual([]);
   });
 
   it("classifies Slack workspace membership by identity link before email", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -5529,7 +5758,7 @@ describe("organization Core RPC", () => {
       );
     });
     vi.stubGlobal("fetch", slackFetch);
-    const env = buildEnv({ db, slackBotToken: "xoxb-test" });
+    const env = await buildEnv({ db, slackBotToken: "xoxb-test" });
 
     await expect(
       rpcCenterAgentReadSlackWorkspaceDirectory(env, {
@@ -5575,7 +5804,7 @@ describe("organization Core RPC", () => {
       nextCursor: null,
       organizationId: "org-a",
     });
-    expect(db.centerAgentAuditRows).toEqual([
+    expect(await db.readCenterAgentAuditRows()).toEqual([
       expect.objectContaining({
         action: "read_slack_workspace_directory",
         actorProfileId: AGENT_PROFILE_ID,
@@ -5610,7 +5839,7 @@ describe("organization Core RPC", () => {
   });
 
   it("lists Slack channels with the Center Agent membership state", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -5648,7 +5877,7 @@ describe("organization Core RPC", () => {
       )
     );
     vi.stubGlobal("fetch", slackFetch);
-    const env = buildEnv({ db, slackBotToken: "xoxb-test" });
+    const env = await buildEnv({ db, slackBotToken: "xoxb-test" });
 
     await expect(
       rpcCenterAgentListSlackChannels(env, {
@@ -5673,7 +5902,7 @@ describe("organization Core RPC", () => {
       nextCursor: null,
       organizationId: "org-a",
     });
-    expect(db.centerAgentAuditRows).toEqual([
+    expect(await db.readCenterAgentAuditRows()).toEqual([
       expect.objectContaining({
         action: "list_slack_channels",
         actorProfileId: AGENT_PROFILE_ID,
@@ -5704,7 +5933,7 @@ describe("organization Core RPC", () => {
   });
 
   it("reads human members only after proving the Center Agent is in the Slack channel", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -5793,7 +6022,7 @@ describe("organization Core RPC", () => {
       throw new Error(`Unexpected Slack API request: ${url.pathname}`);
     });
     vi.stubGlobal("fetch", slackFetch);
-    const env = buildEnv({ db, slackBotToken: "xoxb-test" });
+    const env = await buildEnv({ db, slackBotToken: "xoxb-test" });
 
     await expect(
       rpcCenterAgentReadSlackChannelMembers(env, {
@@ -5830,7 +6059,7 @@ describe("organization Core RPC", () => {
           new URL(String(request)).pathname === "/api/conversations.join"
       )
     ).toBe(false);
-    expect(db.centerAgentAuditRows).toEqual([
+    expect(await db.readCenterAgentAuditRows()).toEqual([
       expect.objectContaining({
         action: "read_slack_channel_members",
         resourceId: "C_OK8",
@@ -5840,7 +6069,7 @@ describe("organization Core RPC", () => {
   });
 
   it("reads Slack history only after proving the Center Agent is in the channel", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -5935,7 +6164,7 @@ describe("organization Core RPC", () => {
       throw new Error(`Unexpected Slack API request: ${url.pathname}`);
     });
     vi.stubGlobal("fetch", slackFetch);
-    const env = buildEnv({ db, slackBotToken: "xoxb-test" });
+    const env = await buildEnv({ db, slackBotToken: "xoxb-test" });
 
     await expect(
       rpcCenterAgentReadSlackChannelHistory(env, {
@@ -6032,7 +6261,7 @@ describe("organization Core RPC", () => {
           new URL(String(request)).pathname === "/api/conversations.join"
       )
     ).toBe(false);
-    expect(db.centerAgentAuditRows).toEqual([
+    expect(await db.readCenterAgentAuditRows()).toEqual([
       expect.objectContaining({
         action: "read_slack_channel_history",
         resourceId: "C_OK8",
@@ -6047,7 +6276,7 @@ describe("organization Core RPC", () => {
   });
 
   it("downloads a Slack file only after Core confirms the connected channel owns it", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -6110,7 +6339,7 @@ describe("organization Core RPC", () => {
       throw new Error(`Unexpected Slack API request: ${url.pathname}`);
     });
     vi.stubGlobal("fetch", slackFetch);
-    const env = buildEnv({ db, slackBotToken: "xoxb-test" });
+    const env = await buildEnv({ db, slackBotToken: "xoxb-test" });
 
     await expect(
       rpcCenterAgentReadSlackFile(env, {
@@ -6161,7 +6390,7 @@ describe("organization Core RPC", () => {
       },
       organizationId: "org-a",
     });
-    expect(db.centerAgentAuditRows).toEqual([
+    expect(await db.readCenterAgentAuditRows()).toEqual([
       expect.objectContaining({
         action: "read_slack_file",
         resourceId: "F_RELEASE_NOTES",
@@ -6201,7 +6430,7 @@ describe("organization Core RPC", () => {
     "read_channel_file",
     "post_channel_file",
   ] as const)("keeps %s out of older client projections", async (action) => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -6212,7 +6441,7 @@ describe("organization Core RPC", () => {
       ],
       members: [memberRow("member-a", "org-a", "user-a", "owner")],
     });
-    const env = buildEnv({ db });
+    const env = await buildEnv({ db });
     await rpcRecordCenterAgentAudit(env, {
       context: buildCenterAgentContext({
         activeOrganizationId: "org-a",
@@ -6240,7 +6469,7 @@ describe("organization Core RPC", () => {
 
   it("searches public Slack messages with authorization bound to the requester", async () => {
     const cryptoKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -6310,7 +6539,7 @@ describe("organization Core RPC", () => {
       throw new Error(`Unexpected Slack API request: ${pathname}`);
     });
     vi.stubGlobal("fetch", slackFetch);
-    const env = buildEnv({
+    const env = await buildEnv({
       db,
       slackBotToken: "xoxb-test",
       slackTokenCryptoKey: cryptoKey,
@@ -6351,7 +6580,7 @@ describe("organization Core RPC", () => {
       status: "found",
     });
     expect(slackFetch).toHaveBeenCalledTimes(1);
-    expect(db.centerAgentAuditRows).toEqual([
+    expect(await db.readCenterAgentAuditRows()).toEqual([
       expect.objectContaining({
         action: "search_slack_messages",
         actorProfileId: AGENT_PROFILE_ID,
@@ -6412,7 +6641,7 @@ describe("organization Core RPC", () => {
 
     await expect(
       rpcCenterAgentSearchSlackMessages(
-        buildEnv({ db, slackTokenCryptoKey: cryptoKey }),
+        await buildEnv({ db, slackTokenCryptoKey: cryptoKey }),
         {
           context,
           includeBots: false,
@@ -6431,7 +6660,7 @@ describe("organization Core RPC", () => {
 
   it("returns a structured rate-limit result without leaking the Slack query into audit", async () => {
     const cryptoKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -6461,7 +6690,7 @@ describe("organization Core RPC", () => {
         )
       )
     );
-    const env = buildEnv({
+    const env = await buildEnv({
       db,
       slackBotToken: "xoxb-test",
       slackTokenCryptoKey: cryptoKey,
@@ -6500,14 +6729,14 @@ describe("organization Core RPC", () => {
       retryAfterSeconds: 30,
       status: "rate_limited",
     });
-    expect(JSON.stringify(db.centerAgentAuditRows)).not.toContain(
+    expect(JSON.stringify(await db.readCenterAgentAuditRows())).not.toContain(
       "private launch details"
     );
   });
 
   it("returns empty evidence without publishing a second Slack response", async () => {
     const cryptoKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -6540,7 +6769,7 @@ describe("organization Core RPC", () => {
       throw new Error(`Unexpected Slack API request: ${pathname}`);
     });
     vi.stubGlobal("fetch", slackFetch);
-    const env = buildEnv({
+    const env = await buildEnv({
       db,
       slackBotToken: "xoxb-test",
       slackTokenCryptoKey: cryptoKey,
@@ -6583,7 +6812,7 @@ describe("organization Core RPC", () => {
 
   it("records attributed connector write attempts and outcomes in Core", async () => {
     const connectionName = "github-user-a";
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -6602,7 +6831,7 @@ describe("organization Core RPC", () => {
       },
       members: [memberRow("member-a", "org-a", "user-a", "owner")],
     });
-    const env = buildEnv({ db });
+    const env = await buildEnv({ db });
     const context = buildCenterAgentContext({
       activeOrganizationId: "org-a",
       agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
@@ -6648,7 +6877,7 @@ describe("organization Core RPC", () => {
         },
         recorded: true,
       });
-      expect(db.centerAgentAuditRows.at(-1)).toMatchObject({
+      expect((await db.readCenterAgentAuditRows()).at(-1)).toMatchObject({
         action,
         actorProfileId: AGENT_PROFILE_ID,
         onBehalfOfProfileId: HUMAN_PROFILE_ID,
@@ -6690,7 +6919,7 @@ describe("organization Core RPC", () => {
   });
 
   it("wakes Agent Profiles in a Space as the Center Agent", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           managedRole: "center_agent",
@@ -6738,7 +6967,7 @@ describe("organization Core RPC", () => {
       },
       spaces: db.spaces,
     });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
 
     const wakeInput = {
       agentProfileIds: [SECOND_AGENT_PROFILE_ID],
@@ -6825,7 +7054,7 @@ describe("organization Core RPC", () => {
       2
     );
     expect(spaceStub.rpcPostSignal).toHaveBeenCalledTimes(1);
-    expect(db.centerAgentAuditRows).toEqual([
+    expect(await db.readCenterAgentAuditRows()).toEqual([
       expect.objectContaining({
         action: "wake_agent_profiles_in_space",
         actorProfileId: AGENT_PROFILE_ID,
@@ -6886,7 +7115,7 @@ describe("organization Core RPC", () => {
   });
 
   it("rejects a direct Center Agent Wake after a mentioned Human is removed", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         managedCenterAgentProfileRow(),
         {
@@ -6928,22 +7157,25 @@ describe("organization Core RPC", () => {
     });
 
     await expect(
-      rpcCenterAgentWakeAgentProfilesInSpace(buildEnv({ db, spaceStub }), {
-        agentProfileIds: [SECOND_AGENT_PROFILE_ID],
-        context: buildCenterAgentContext({
-          activeOrganizationId: "org-a",
-          profileId: AGENT_PROFILE_ID,
-          profileKind: "agent",
-          requestId:
-            "remote-agent-tool:openmeld_wake_agent_profiles_in_space:removed_reference",
-          userId: "user-a",
-        }),
-        mentionProfileIds: [HUMAN_PROFILE_ID],
-        onBehalfOf: { profileId: HUMAN_PROFILE_ID },
-        referenceProfileIds: [],
-        spaceId: JOINED_PRIVATE_SPACE_ID,
-        text: "Review with the removed member as context.",
-      })
+      rpcCenterAgentWakeAgentProfilesInSpace(
+        await buildEnv({ db, spaceStub }),
+        {
+          agentProfileIds: [SECOND_AGENT_PROFILE_ID],
+          context: buildCenterAgentContext({
+            activeOrganizationId: "org-a",
+            profileId: AGENT_PROFILE_ID,
+            profileKind: "agent",
+            requestId:
+              "remote-agent-tool:openmeld_wake_agent_profiles_in_space:removed_reference",
+            userId: "user-a",
+          }),
+          mentionProfileIds: [HUMAN_PROFILE_ID],
+          onBehalfOf: { profileId: HUMAN_PROFILE_ID },
+          referenceProfileIds: [],
+          spaceId: JOINED_PRIVATE_SPACE_ID,
+          text: "Review with the removed member as context.",
+        }
+      )
     ).rejects.toMatchObject({
       code: "space.addressing.target_invalid",
       status: 422,
@@ -6955,7 +7187,7 @@ describe("organization Core RPC", () => {
 
   it("preserves Human Mentions and Agent References through a delegated Center Agent Wake", async () => {
     const planningAgentProfileId = "agt_00000000-0000-4000-8000-000000000009";
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         managedCenterAgentProfileRow(),
         {
@@ -7003,7 +7235,7 @@ describe("organization Core RPC", () => {
       },
       spaces: db.spaces,
     });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
     const preparePublication = vi
       .spyOn(
         centerAgentWakePublicationService,
@@ -7116,7 +7348,7 @@ describe("organization Core RPC", () => {
         [JOINED_PRIVATE_SPACE_ID]: [HUMAN_PROFILE_ID, SECOND_AGENT_PROFILE_ID],
       },
     });
-    const env = buildEnv({ spaceStub });
+    const env = await buildEnv({ spaceStub });
 
     const publicationInput: Parameters<
       typeof rpcPostCenterAgentWakePublicationSignal
@@ -7216,7 +7448,7 @@ describe("organization Core RPC", () => {
   });
 
   it("rejects Center Agent Space wake attribution to the Center Agent itself", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           managedRole: "center_agent",
@@ -7254,7 +7486,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
 
     await expect(
       rpcCenterAgentWakeAgentProfilesInSpace(env, {
@@ -7274,11 +7506,11 @@ describe("organization Core RPC", () => {
       status: 400,
     });
     expect(spaceStub.rpcPostSignalOnceByClientMessageId).not.toHaveBeenCalled();
-    expect(db.centerAgentAuditRows).toEqual([]);
+    expect(await db.readCenterAgentAuditRows()).toEqual([]);
   });
 
   it("reads Space context through the Center Agent bootstrap contract", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           managedRole: "center_agent",
@@ -7308,7 +7540,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
 
     await expect(
       rpcCenterAgentReadSpaceContext(env, {
@@ -7337,7 +7569,7 @@ describe("organization Core RPC", () => {
         spaceId: JOINED_PRIVATE_SPACE_ID,
       })
     );
-    expect(db.centerAgentAuditRows).toEqual([
+    expect(await db.readCenterAgentAuditRows()).toEqual([
       expect.objectContaining({
         action: "read_space_context",
         actorProfileId: AGENT_PROFILE_ID,
@@ -7349,7 +7581,7 @@ describe("organization Core RPC", () => {
   });
 
   it("preserves Human Mentions for current Center Agent context reads without changing legacy reads", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -7385,7 +7617,7 @@ describe("organization Core RPC", () => {
         text,
       },
     };
-    const env = buildEnv({
+    const env = await buildEnv({
       db,
       spaceStub: createSpaceStub({
         initialSignals: [mentionedSignal],
@@ -7443,7 +7675,7 @@ describe("organization Core RPC", () => {
   });
 
   it("uses the Center Agent's own Space access when listing shared files", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           managedRole: "center_agent",
@@ -7473,7 +7705,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
 
     await expect(
       rpcCenterAgentListSpaceFiles(env, {
@@ -7512,7 +7744,7 @@ describe("organization Core RPC", () => {
   });
 
   it("projects Remote Agent file responses without display geometry and negotiates origin independently", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -7578,7 +7810,7 @@ describe("organization Core RPC", () => {
       spaceId: JOINED_PRIVATE_SPACE_ID,
       view: "active" as const,
     } as unknown as Awaited<ReturnType<typeof spaceStub.rpcListSpaceFiles>>);
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
     const context = buildCenterAgentContext({
       activeOrganizationId: "org-a",
       profileId: AGENT_PROFILE_ID,
@@ -7614,7 +7846,7 @@ describe("organization Core RPC", () => {
   });
 
   it("rejects Center Agent Space context reads outside the active Organization", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           managedRole: "center_agent",
@@ -7644,7 +7876,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
 
     await expect(
       rpcCenterAgentReadSpaceContext(env, {
@@ -7664,7 +7896,7 @@ describe("organization Core RPC", () => {
   });
 
   it("returns a bounded delta without loading the broad Space bootstrap", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           managedRole: "center_agent",
@@ -7694,7 +7926,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
 
     await expect(
       rpcCenterAgentReadSpaceContext(env, {
@@ -7730,7 +7962,7 @@ describe("organization Core RPC", () => {
   });
 
   it("keeps source, thread, and history reads exact, ordered, and explicit about truncation", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           managedRole: "center_agent",
@@ -7772,7 +8004,7 @@ describe("organization Core RPC", () => {
     });
     const latestReply = createTextSignal({
       id: "signal-reply-2",
-      text: "Latest reply",
+      text: `${"x".repeat(4000)}selected remainder`,
       ts: TEST_NOW_MS + 2,
     });
     const createdAt = new Date(TEST_NOW_MS).toISOString();
@@ -7824,12 +8056,72 @@ describe("organization Core RPC", () => {
       },
       spaces: db.spaces,
     });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
     const context = buildCenterAgentContext({
       activeOrganizationId: "org-a",
       profileId: AGENT_PROFILE_ID,
       profileKind: "agent",
       userId: "user-a",
+    });
+
+    const exactRequest = {
+      context,
+      scope: "source_evidence" as const,
+      sourceSignalId: latestReply.id,
+      spaceId: JOINED_PRIVATE_SPACE_ID,
+    };
+    const exact = await rpcCenterAgentReadSpaceContext(env, exactRequest);
+    if (!("context" in exact) || exact.context.scope !== "source_evidence") {
+      throw new Error("Expected an exact message page");
+    }
+    expect(exact.context.message.content.text).toBe("x".repeat(4000));
+    expect(exact.context.nextOffset).toBe(4000);
+    const version = exact.context.message.sourceRef.version;
+    expect(version).toMatch(EVIDENCE_VERSION_PATTERN);
+    await expect(
+      rpcCenterAgentReadSpaceContext(env, {
+        ...exactRequest,
+        version,
+        offset: 4000,
+      })
+    ).resolves.toMatchObject({
+      context: {
+        message: {
+          content: { text: "selected remainder" },
+          sourceRef: { version },
+        },
+        nextOffset: null,
+      },
+    });
+    await expect(
+      rpcCenterAgentReadSpaceContext(env, {
+        ...exactRequest,
+        version: `sha256:${"0".repeat(64)}`,
+      })
+    ).rejects.toThrow("space.evidence_version_unavailable");
+    await expect(
+      rpcCenterAgentReadSpaceContext(env, {
+        ...exactRequest,
+        offset: 4000,
+      })
+    ).rejects.toMatchObject({ code: "invalid_payload" });
+    await expect(
+      rpcCenterAgentReadSpaceContext(env, {
+        context,
+        scope: "thread_evidence",
+        threadId,
+        spaceId: JOINED_PRIVATE_SPACE_ID,
+      })
+    ).resolves.toMatchObject({
+      context: {
+        scope: "thread_evidence",
+        sourceRef: {
+          kind: "thread",
+          threadId,
+          version: expect.stringMatching(EVIDENCE_VERSION_PATTERN),
+        },
+        truncated: true,
+      },
     });
 
     await expect(
@@ -7906,7 +8198,7 @@ describe("organization Core RPC", () => {
   it("reads recent dispatch history for a Space, including errorCode and errorMessage for a failed dispatch", async () => {
     // Fixture mirrors the real 2026-07-10 dogfooding incident (W-CA-CAP1):
     // errorCode "runtime.turn.failed" with an OpenAI 400 JSON errorMessage.
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           managedRole: "center_agent",
@@ -7954,7 +8246,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
 
     const response = await rpcCenterAgentReadDispatchHistory(env, {
       context: buildCenterAgentContext({
@@ -7985,7 +8277,7 @@ describe("organization Core RPC", () => {
     expect(JSON.stringify(response)).not.toContain(
       "must-not-reach-center-agent"
     );
-    expect(db.centerAgentAuditRows).toEqual([
+    expect(await db.readCenterAgentAuditRows()).toEqual([
       expect.objectContaining({
         action: "read_dispatch_history",
         actorProfileId: AGENT_PROFILE_ID,
@@ -7997,7 +8289,7 @@ describe("organization Core RPC", () => {
   });
 
   it("rejects Center Agent dispatch history reads outside the active Organization", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           managedRole: "center_agent",
@@ -8027,7 +8319,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
 
     await expect(
       rpcCenterAgentReadDispatchHistory(env, {
@@ -8047,7 +8339,7 @@ describe("organization Core RPC", () => {
 
   it("opens the Center Agent DM as one lazy private Space", async () => {
     const writeDataPoint = vi.fn();
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           managedRole: "center_agent",
@@ -8076,7 +8368,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({
+    const env = await buildEnv({
       db,
       observability: { writeDataPoint },
       spaceStub,
@@ -8180,7 +8472,7 @@ describe("organization Core RPC", () => {
     const agentProfiles: Parameters<
       typeof createOrganizationRpcDb
     >[0]["agentProfiles"] = [];
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles,
       members: [
         memberRow("member-owner", "org-a", "owner-user", "owner"),
@@ -8219,7 +8511,7 @@ describe("organization Core RPC", () => {
       }),
     };
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({
+    const env = await buildEnv({
       authWorker,
       db,
       remoteAgentRuntimeEnabled: "true",
@@ -8267,8 +8559,8 @@ describe("organization Core RPC", () => {
       centerAgentProfileId: AGENT_PROFILE_ID,
       organizationId: "org-a",
     });
-    expect(db.centerAgentDesignations).toHaveLength(1);
-    expect([...db.bindingRows.values()]).toEqual([
+    expect(await db.centerAgentDesignations.size()).toBe(1);
+    expect([...(await db.bindingRows.values())]).toEqual([
       expect.objectContaining({
         agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
         agentProfileId: AGENT_PROFILE_ID,
@@ -8283,9 +8575,9 @@ describe("organization Core RPC", () => {
         openMeldServiceRuntimeId: HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
       }),
     ]);
-    expect(db.centerAgentAuditRows.map((row) => row.action)).toEqual([
-      "designate_remote_center_agent",
-    ]);
+    expect(
+      (await db.readCenterAgentAuditRows()).map((row) => row.action)
+    ).toEqual(["designate_remote_center_agent"]);
     expect(
       authWorker.ensureCenterAgentProfileInOrganization
     ).toHaveBeenCalledTimes(1);
@@ -8302,7 +8594,7 @@ describe("organization Core RPC", () => {
     const agentProfiles: Parameters<
       typeof createOrganizationRpcDb
     >[0]["agentProfiles"] = [];
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles,
       members: [memberRow("member-owner", "org-a", "owner-user", "owner")],
       organizations: [
@@ -8337,7 +8629,7 @@ describe("organization Core RPC", () => {
         };
       }),
     };
-    const env = buildEnv({
+    const env = await buildEnv({
       authWorker,
       db,
       remoteAgentRuntimeEnabled: "true",
@@ -8356,8 +8648,8 @@ describe("organization Core RPC", () => {
       created: true,
       organizationId: "org-a",
     });
-    expect(db.centerAgentDesignations).toHaveLength(1);
-    expect([...db.bindingRows.values()]).toEqual([
+    expect(await db.centerAgentDesignations.size()).toBe(1);
+    expect([...(await db.bindingRows.values())]).toEqual([
       expect.objectContaining({
         agentProfileId: AGENT_PROFILE_ID,
         createdByProfileId: HUMAN_PROFILE_ID,
@@ -8372,7 +8664,7 @@ describe("organization Core RPC", () => {
   });
 
   it("classifies an unavailable Auth bootstrap RPC during DM open", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [],
       members: [memberRow("member-owner", "org-a", "owner-user", "owner")],
       organizations: [
@@ -8390,7 +8682,7 @@ describe("organization Core RPC", () => {
         )
       ),
     };
-    const env = buildEnv({
+    const env = await buildEnv({
       authWorker,
       db,
       remoteAgentRuntimeEnabled: "true",
@@ -8432,7 +8724,7 @@ describe("organization Core RPC", () => {
   });
 
   it("rethrows an unrelated Auth bootstrap RPC rejection without changing its identity", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [],
       members: [memberRow("member-owner", "org-a", "owner-user", "owner")],
       organizations: [
@@ -8449,7 +8741,7 @@ describe("organization Core RPC", () => {
         Promise.reject(rejection)
       ),
     };
-    const env = buildEnv({
+    const env = await buildEnv({
       authWorker,
       db,
       remoteAgentRuntimeEnabled: "true",
@@ -8486,7 +8778,7 @@ describe("organization Core RPC", () => {
   });
 
   it("classifies an Auth bootstrap failure result while adding correlated diagnostics", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [],
       members: [memberRow("member-owner", "org-a", "owner-user", "owner")],
       organizations: [
@@ -8504,7 +8796,7 @@ describe("organization Core RPC", () => {
         ok: false,
       })),
     };
-    const env = buildEnv({
+    const env = await buildEnv({
       authWorker,
       db,
       remoteAgentRuntimeEnabled: "true",
@@ -8544,7 +8836,7 @@ describe("organization Core RPC", () => {
 
   it("preserves the Center Agent designation and DM while paused", async () => {
     const agentProfiles = [managedCenterAgentProfileRow({})];
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles,
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -8579,7 +8871,7 @@ describe("organization Core RPC", () => {
         },
       })),
     };
-    const env = buildEnv({
+    const env = await buildEnv({
       authWorker,
       db,
       remoteAgentRuntimeEnabled: "true",
@@ -8623,11 +8915,11 @@ describe("organization Core RPC", () => {
       organizationId: "org-a",
     });
 
-    expect(db.centerAgentDesignations).toHaveLength(1);
+    expect(await db.centerAgentDesignations.size()).toBe(1);
     expect(
       authWorker.ensureCenterAgentProfileInOrganization
     ).not.toHaveBeenCalled();
-    expect(db.centerAgentAuditRows).toEqual([
+    expect(await db.readCenterAgentAuditRows()).toEqual([
       expect.objectContaining({
         action: "pause_center_agent",
         actorProfileId: HUMAN_PROFILE_ID,
@@ -8639,7 +8931,7 @@ describe("organization Core RPC", () => {
   });
 
   it("opens and reuses the personal Center Agent DM without publishing messages", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           managedRole: "center_agent",
@@ -8669,7 +8961,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
     const memberContext = buildContext({
       activeOrganizationId: "org-personal",
       profileName: "Ava Example",
@@ -8689,7 +8981,7 @@ describe("organization Core RPC", () => {
   });
 
   it("opens one Center Agent DM per Organization member", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           managedRole: "center_agent",
@@ -8713,7 +9005,7 @@ describe("organization Core RPC", () => {
         memberRow("member-b", "org-a", "user-b", "member"),
       ],
     });
-    const env = buildEnv({
+    const env = await buildEnv({
       db,
       spaceStub: createSpaceStub({ spaces: db.spaces }),
     });
@@ -8750,7 +9042,7 @@ describe("organization Core RPC", () => {
       "1111111111111111111111111111111111111111111111111111111111111111";
     const centerAgentDirectMessageSpaceId =
       "2222222222222222222222222222222222222222222222222222222222222222";
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           managedRole: "center_agent",
@@ -8808,7 +9100,7 @@ describe("organization Core RPC", () => {
       activeOrganizationId: "org-a",
       userId: "user-a",
     });
-    const env = buildEnv({ db });
+    const env = await buildEnv({ db });
 
     await expect(
       rpcGetCenterAgentDirectMessageSpaceProjection(env, { context })
@@ -8835,7 +9127,7 @@ describe("organization Core RPC", () => {
     const agentProfiles: Parameters<
       typeof createOrganizationRpcDb
     >[0]["agentProfiles"] = [];
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles,
       members: [memberRow("member-owner", "org-a", "owner-user", "owner")],
       organizations: [
@@ -8870,7 +9162,7 @@ describe("organization Core RPC", () => {
         };
       }),
     };
-    const env = buildEnv({
+    const env = await buildEnv({
       authWorker,
       db,
       remoteAgentRuntimeEnabled: "true",
@@ -8897,9 +9189,11 @@ describe("organization Core RPC", () => {
       authWorker.ensureCenterAgentProfileInOrganization
     ).not.toHaveBeenCalled();
     expect(agentProfiles).toEqual([]);
-    expect(db.centerAgentDesignations).toHaveLength(0);
-    expect(db.bindingRows).toHaveLength(0);
-    expect(db.disallowedWrites).toEqual([]);
+    expect(await db.centerAgentDesignations.size()).toBe(0);
+    expect(await db.bindingRows.size()).toBe(0);
+    expect(
+      db.calls.filter((query) => MUTATION_QUERY_PATTERN.test(query.text))
+    ).toEqual([]);
   });
 
   it("rejects extra members in a Center Agent DM while ordinary DMs still forward member adds", async () => {
@@ -8907,7 +9201,7 @@ describe("organization Core RPC", () => {
       "3333333333333333333333333333333333333333333333333333333333333333";
     const ordinaryDirectMessageSpaceId =
       "4444444444444444444444444444444444444444444444444444444444444444";
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           managedRole: "center_agent",
@@ -8961,7 +9255,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
     const context = buildContext({
       activeOrganizationId: "org-a",
       userId: "user-a",
@@ -9019,7 +9313,7 @@ describe("organization Core RPC", () => {
       "abababababababababababababababababababababababababababababababab";
     const sameOrganizationAgentProfileId = AGENT_PROFILE_ID;
     const foreignAgentProfileId = SECOND_AGENT_PROFILE_ID;
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           organizationId: "org-a",
@@ -9058,7 +9352,7 @@ describe("organization Core RPC", () => {
         }),
       ],
     });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
     const context = buildContext({
       activeOrganizationId: "org-a",
       userId: "user-a",
@@ -9148,9 +9442,9 @@ describe("organization Core RPC", () => {
     });
     expect(spaceStub.rpcPostMembers).toHaveBeenCalledTimes(1);
 
-    db.prepare.mockImplementationOnce(() => {
-      throw new Error("canonical Agent Profile lookup failed");
-    });
+    await db.fixture.operator.query(
+      'REVOKE SELECT ON "openmeld"."openmeld_profiles" FROM openmeld_pg_runtime'
+    );
     await expect(
       rpcAddSpaceMembers(env, {
         context,
@@ -9167,7 +9461,7 @@ describe("organization Core RPC", () => {
   it("adds an ordinary Agent Profile and its owner Human Profile together", async () => {
     const spaceId =
       "acacacacacacacacacacacacacacacacacacacacacacacacacacacacacacacac";
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           organizationId: "org-a",
@@ -9192,7 +9486,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
     const context = buildContext({
       activeOrganizationId: "org-a",
       userId: "user-a",
@@ -9237,7 +9531,7 @@ describe("organization Core RPC", () => {
   it("does not expand managed Agent Profile membership to an owner Human", async () => {
     const spaceId =
       "adadadadadadadadadadadadadadadadadadadadadadadadadadadadadadadad";
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           managedRole: "center_agent",
@@ -9263,7 +9557,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
     const context = buildContext({
       activeOrganizationId: "org-a",
       userId: "user-a",
@@ -9294,7 +9588,7 @@ describe("organization Core RPC", () => {
   it("does not expand a designated Center Agent with legacy unmanaged identity", async () => {
     const spaceId =
       "aeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeaeae";
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           managedRole: null,
@@ -9327,7 +9621,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
     const context = buildContext({
       activeOrganizationId: "org-a",
       userId: "user-a",
@@ -9360,7 +9654,7 @@ describe("organization Core RPC", () => {
       "5555555555555555555555555555555555555555555555555555555555555555";
     const ordinaryDirectMessageSpaceId =
       "6666666666666666666666666666666666666666666666666666666666666666";
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           organizationId: "org-a",
@@ -9413,7 +9707,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
     const context = buildContext({
       activeOrganizationId: "org-a",
       userId: "user-a",
@@ -9590,7 +9884,7 @@ describe("organization Core RPC", () => {
   });
 
   it("opens a generic Direct Message Space idempotently", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           organizationId: "org-a",
@@ -9604,7 +9898,7 @@ describe("organization Core RPC", () => {
       members: [memberRow("member-a", "org-a", "user-a", "member")],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
     const context = buildContext({
       activeOrganizationId: "org-a",
       userId: "user-a",
@@ -9633,7 +9927,7 @@ describe("organization Core RPC", () => {
   });
 
   it("lets either owned Agent open the same DM without adding their Humans", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           organizationId: "org-a",
@@ -9658,7 +9952,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
     const first = await rpcOpenDirectMessageSpace(env, {
       context: buildContext({
         activeOrganizationId: "org-a",
@@ -9699,7 +9993,7 @@ describe("organization Core RPC", () => {
   });
 
   it("lets the Center create a fresh Human chat or delegate in an ordinary Agent DM", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         managedCenterAgentProfileRow(),
         {
@@ -9721,7 +10015,7 @@ describe("organization Core RPC", () => {
       members: [memberRow("member-a", "org-a", "user-a", "owner")],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
     const context = buildCenterAgentContext({
       activeOrganizationId: "org-a",
       userId: "user-a",
@@ -9800,7 +10094,7 @@ describe("organization Core RPC", () => {
   it("resolves Organization profiles before converting a Direct Message", async () => {
     const spaceId =
       "7777777777777777777777777777777777777777777777777777777777777777";
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           organizationId: "org-a",
@@ -9827,7 +10121,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
     const context = buildContext({
       activeOrganizationId: "org-a",
       userId: "user-a",
@@ -9882,7 +10176,7 @@ describe("organization Core RPC", () => {
   it("adds an existing Agent's owner when another member converts the Direct Message", async () => {
     const spaceId =
       "7878787878787878787878787878787878787878787878787878787878787878";
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           organizationId: "org-a",
@@ -9925,7 +10219,7 @@ describe("organization Core RPC", () => {
       },
       spaces: db.spaces,
     });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
     const context = buildContext({
       activeOrganizationId: "org-a",
       userId: "user-a",
@@ -9962,7 +10256,7 @@ describe("organization Core RPC", () => {
   it("repairs incomplete Direct Message membership without rewriting its origin", async () => {
     const pairKey = `${HUMAN_PROFILE_ID}:${AGENT_PROFILE_ID}`;
     const spaceId = resolveTestNamedSpaceId(`dm-v1:org-a:${pairKey}:0`);
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           organizationId: "org-a",
@@ -9989,7 +10283,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
 
     const response = await rpcOpenDirectMessageSpace(env, {
       context: buildContext({
@@ -10010,7 +10304,7 @@ describe("organization Core RPC", () => {
   });
 
   it("rejects self Direct Messages with a stable error code", async () => {
-    const env = buildEnv({
+    const env = await buildEnv({
       members: [memberRow("member-a", "org-a", "user-a", "member")],
     });
 
@@ -10031,7 +10325,7 @@ describe("organization Core RPC", () => {
   it("creates the next Direct Message generation after an origin Space degrades", async () => {
     const pairKey = `${HUMAN_PROFILE_ID}:${AGENT_PROFILE_ID}`;
     const degradedSpaceId = resolveTestNamedSpaceId(`dm-v1:org-a:${pairKey}:0`);
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           organizationId: "org-a",
@@ -10057,7 +10351,7 @@ describe("organization Core RPC", () => {
         }),
       ],
     });
-    const env = buildEnv({
+    const env = await buildEnv({
       db,
       spaceStub: createSpaceStub({ spaces: db.spaces }),
     });
@@ -10086,7 +10380,7 @@ describe("organization Core RPC", () => {
     const convertedSpaceId = resolveTestNamedSpaceId(
       `dm-v1:org-a:${pairKey}:0`
     );
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           organizationId: "org-a",
@@ -10113,7 +10407,7 @@ describe("organization Core RPC", () => {
         }),
       ],
     });
-    const env = buildEnv({
+    const env = await buildEnv({
       db,
       spaceStub: createSpaceStub({ spaces: db.spaces }),
     });
@@ -10132,7 +10426,7 @@ describe("organization Core RPC", () => {
   });
 
   it("converges concurrent Direct Message opens for the same generation", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           organizationId: "org-a",
@@ -10145,7 +10439,7 @@ describe("organization Core RPC", () => {
       ],
       members: [memberRow("member-a", "org-a", "user-a", "member")],
     });
-    const env = buildEnv({
+    const env = await buildEnv({
       db,
       spaceStub: createSpaceStub({ spaces: db.spaces }),
     });
@@ -10173,7 +10467,7 @@ describe("organization Core RPC", () => {
     const legacySpaceId = resolveTestNamedSpaceId(
       `center-agent-dm-v1:org-a:${HUMAN_PROFILE_ID}:${AGENT_PROFILE_ID}`
     );
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           organizationId: "org-a",
@@ -10205,7 +10499,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
 
     const response = await rpcOpenCenterAgentDirectMessageSpace(env, {
       context: buildContext({
@@ -10231,7 +10525,7 @@ describe("organization Core RPC", () => {
     const legacySpaceId = resolveTestNamedSpaceId(
       `center-agent-dm-v1:org-a:${HUMAN_PROFILE_ID}:${AGENT_PROFILE_ID}`
     );
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           organizationId: "org-a",
@@ -10262,7 +10556,7 @@ describe("organization Core RPC", () => {
         }),
       ],
     });
-    const env = buildEnv({
+    const env = await buildEnv({
       db,
       spaceStub: createSpaceStub({ spaces: db.spaces }),
     });
@@ -10280,7 +10574,7 @@ describe("organization Core RPC", () => {
   });
 
   it("rejects the Center Agent DM for a personal Agent Profile even with legacy Wake Access", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           managedRole: "center_agent",
@@ -10314,7 +10608,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
 
     await expect(
       rpcOpenCenterAgentDirectMessageSpace(env, {
@@ -10331,7 +10625,7 @@ describe("organization Core RPC", () => {
   });
 
   it("rejects the Center Agent DM for a personal Agent Profile without Organization Wake Access", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           managedRole: "center_agent",
@@ -10356,7 +10650,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
 
     await expect(
       rpcOpenCenterAgentDirectMessageSpace(env, {
@@ -10373,7 +10667,7 @@ describe("organization Core RPC", () => {
   });
 
   it("rejects organization Space directory reads when the active user is not an organization member", async () => {
-    const env = buildEnv({
+    const env = await buildEnv({
       members: [],
       spaces: [
         spaceRow({
@@ -10399,7 +10693,7 @@ describe("organization Core RPC", () => {
   });
 
   it("lists joined Organization Spaces plus unjoined public Spaces in the active Organization", async () => {
-    const env = buildEnv({
+    const env = await buildEnv({
       members: [memberRow("member-a", "org-a", "user-a")],
       spaces: [
         spaceRow({
@@ -10497,7 +10791,7 @@ describe("organization Core RPC", () => {
 
   it("joins a public Organization Space through the Space DO member write path", async () => {
     const spaceStub = createSpaceStub();
-    const env = buildEnv({
+    const env = await buildEnv({
       members: [memberRow("member-a", "org-a", "user-a")],
       spaceStub,
       spaces: [
@@ -10541,7 +10835,7 @@ describe("organization Core RPC", () => {
 
   it("rejects public-join requests for private Organization Spaces before member writes", async () => {
     const spaceStub = createSpaceStub();
-    const env = buildEnv({
+    const env = await buildEnv({
       members: [memberRow("member-a", "org-a", "user-a")],
       spaceStub,
       spaces: [
@@ -10570,7 +10864,7 @@ describe("organization Core RPC", () => {
   });
 
   it("atomically adds active human and agent profiles from the Organization Directory", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow({})],
       members: [
         memberRow("member-owner", "org-a", "owner-user", "owner"),
@@ -10586,7 +10880,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
 
     const response = await rpcAddOrganizationDirectoryProfilesToSpace(env, {
       context: buildContext({
@@ -10623,7 +10917,7 @@ describe("organization Core RPC", () => {
   });
 
   it("requires the caller to already be an active member of the target Space", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [],
       members: [memberRow("member-a", "org-a", "user-a", "member")],
       spaces: [
@@ -10639,7 +10933,7 @@ describe("organization Core RPC", () => {
       spaces: db.spaces,
       unjoinedSpaceIds: [UNJOINED_PUBLIC_SPACE_ID],
     });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
 
     await expect(
       rpcAddOrganizationDirectoryProfilesToSpace(env, {
@@ -10664,7 +10958,7 @@ describe("organization Core RPC", () => {
   });
 
   it("rejects a non-default Human Profile that is not exposed by the Organization Directory", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [],
       members: [memberRow("member-a", "org-a", "user-a", "member")],
       spaces: [
@@ -10677,7 +10971,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
 
     await expect(
       rpcAddOrganizationDirectoryProfilesToSpace(env, {
@@ -10696,7 +10990,7 @@ describe("organization Core RPC", () => {
   });
 
   it("rejects the whole Directory batch when one profile is outside the active Organization", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         managedCenterAgentProfileRow({
           organizationId: "org-b",
@@ -10714,7 +11008,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
 
     await expect(
       rpcAddOrganizationDirectoryProfilesToSpace(env, {
@@ -10733,7 +11027,7 @@ describe("organization Core RPC", () => {
   });
 
   it("rejects a Center Agent from another Organization even when its Binding has Wake Access", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         managedCenterAgentProfileRow({
           organizationId: "org-personal",
@@ -10760,7 +11054,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
 
     await expect(
       rpcAddOrganizationDirectoryProfilesToSpace(env, {
@@ -10779,7 +11073,7 @@ describe("organization Core RPC", () => {
   });
 
   it("rejects disabled Directory profiles before writing any Space members", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [
         {
           ...managedCenterAgentProfileRow({}),
@@ -10800,7 +11094,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
 
     await expect(
       rpcAddOrganizationDirectoryProfilesToSpace(env, {
@@ -10819,7 +11113,7 @@ describe("organization Core RPC", () => {
   });
 
   it("rejects stale Center Agent identity before adding a Directory batch", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow({})],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -10842,7 +11136,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
 
     await expect(
       rpcAddOrganizationDirectoryProfilesToSpace(env, {
@@ -10862,7 +11156,7 @@ describe("organization Core RPC", () => {
   });
 
   it("adds the designated Center Agent to an ordinary Space a member belongs to", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow({})],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -10885,7 +11179,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
 
     const response = await rpcAddCenterAgentToSpace(env, {
       context: buildContext({
@@ -10916,7 +11210,7 @@ describe("organization Core RPC", () => {
   });
 
   it("rejects a stale displayed Center Agent identity before writing Space membership", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow({})],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -10939,7 +11233,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
 
     await expect(
       rpcAddCenterAgentToSpace(env, {
@@ -10958,7 +11252,7 @@ describe("organization Core RPC", () => {
   });
 
   it("rejects adding the Center Agent to a Space in a different Organization", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow({})],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -10981,7 +11275,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
 
     await expect(
       rpcAddCenterAgentToSpace(env, {
@@ -11000,7 +11294,7 @@ describe("organization Core RPC", () => {
   });
 
   it("keeps Center Agent identity management available while paused", async () => {
-    const db = createOrganizationRpcDb({
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow({})],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -11023,7 +11317,7 @@ describe("organization Core RPC", () => {
       ],
     });
     const spaceStub = createSpaceStub({ spaces: db.spaces });
-    const env = buildEnv({ db, spaceStub });
+    const env = await buildEnv({ db, spaceStub });
 
     await expect(
       rpcUpdateCenterAgentOperatingState(env, {
@@ -11068,8 +11362,8 @@ describe("Center Agent Wake Stop delegation", () => {
       profileKind: "agent",
       userId: "user-a",
     });
-  const setup = (withDelivery: boolean) => {
-    const db = createOrganizationRpcDb({
+  const setup = async (withDelivery: boolean) => {
+    const db = await createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
       centerAgentDesignations: [
         centerAgentDesignationRow({
@@ -11123,11 +11417,11 @@ describe("Center Agent Wake Stop delegation", () => {
       }
     );
     Object.assign(spaceStub, { rpcPostWakeStop: stop });
-    return { env: buildEnv({ db, spaceStub }), spaceStub, stop };
+    return { env: await buildEnv({ db, spaceStub }), spaceStub, stop };
   };
 
   it("uses the same Space Stop RPC for a verified current requester", async () => {
-    const { env, stop } = setup(true);
+    const { env, stop } = await setup(true);
     await expect(
       rpcCenterAgentStopSpaceWake(env, {
         body: stopBody,
@@ -11153,7 +11447,7 @@ describe("Center Agent Wake Stop delegation", () => {
   });
 
   it("does not turn membership alone into Stop authority", async () => {
-    const { env, stop } = setup(false);
+    const { env, stop } = await setup(false);
     await expect(
       rpcCenterAgentStopSpaceWake(env, {
         body: stopBody,
@@ -11172,7 +11466,7 @@ describe("Center Agent Wake Stop delegation", () => {
   });
 
   it("does not call Space Stop across Organizations", async () => {
-    const { env, stop } = setup(true);
+    const { env, stop } = await setup(true);
     await expect(
       rpcCenterAgentStopSpaceWake(env, {
         body: stopBody,
@@ -11185,7 +11479,7 @@ describe("Center Agent Wake Stop delegation", () => {
   });
 
   it("keeps a Space-authorized self-Stop without requiring a Human requester", async () => {
-    const { env, stop } = setup(false);
+    const { env, stop } = await setup(false);
     stop.mockResolvedValueOnce({
       ok: true,
       runtimeCoordinatorExecutionId: null,
@@ -11212,7 +11506,7 @@ describe("Center Agent Wake Stop delegation", () => {
   });
 
   it("does not retry an uncertain self-Stop as a Human", async () => {
-    const { env, stop } = setup(true);
+    const { env, stop } = await setup(true);
     stop.mockRejectedValueOnce(
       Object.assign(new Error("Cancellation unavailable"), { status: 503 })
     );
@@ -11228,7 +11522,7 @@ describe("Center Agent Wake Stop delegation", () => {
   });
 
   it("does not replace a missing Center UUID with a Human early-Stop fence", async () => {
-    const { env, stop } = setup(true);
+    const { env, stop } = await setup(true);
     stop.mockResolvedValueOnce({
       ok: false,
       status: "not_found",
@@ -11262,7 +11556,7 @@ describe("Center Agent Wake Stop delegation", () => {
     false,
     true,
   ])("delegates a UUID only after resolving an existing source (found: %s)", async (found) => {
-    const { env, stop, spaceStub } = setup(true);
+    const { env, stop, spaceStub } = await setup(true);
     const lookup = vi.fn(async () => ({
       matches: found
         ? [
@@ -11303,7 +11597,7 @@ describe("Center Agent Wake Stop delegation", () => {
   });
 
   it("keeps the Center's own authorized Stop eligibility when the requester cannot read that Space", async () => {
-    const { env, spaceStub } = setup(true);
+    const { env, spaceStub } = await setup(true);
     const progress = {
       items: [
         {
@@ -11337,7 +11631,7 @@ describe("Center Agent Wake Stop delegation", () => {
   });
 
   it("shows a verified requester's Stop eligibility on the exact Wake", async () => {
-    const { env, spaceStub } = setup(true);
+    const { env, spaceStub } = await setup(true);
     const wake = {
       clientMessageId: "client-1",
       dispatchId: "dispatch-1",
@@ -11375,7 +11669,7 @@ describe("Center Agent Wake Stop delegation", () => {
   });
 });
 
-function buildEnv(
+async function buildEnv(
   input: Partial<Parameters<typeof createOrganizationRpcDb>[0]> & {
     authWorker?: {
       createAgentProfileInOrganization?: ReturnType<typeof vi.fn>;
@@ -11386,8 +11680,7 @@ function buildEnv(
       resolveProfilesByIds?: ReturnType<typeof vi.fn>;
       updateCenterAgentProfileInOrganization?: ReturnType<typeof vi.fn>;
     };
-    db?: ReturnType<typeof createOrganizationRpcDb>;
-    localStateDb?: ReturnType<typeof createOrganizationRpcDb>;
+    db?: Awaited<ReturnType<typeof createOrganizationRpcDb>>;
     remoteAgentBlockedOrganizationIds?: string;
     remoteAgentDesignationEnabled?: string;
     remoteAgentWorker?: CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"];
@@ -11398,10 +11691,10 @@ function buildEnv(
     spaceStub?: ReturnType<typeof createSpaceStub>;
     workerEnvironment?: string;
   }
-): CoreBindings {
+): Promise<CoreBindings> {
   const db =
     input.db ??
-    createOrganizationRpcDb({
+    (await createOrganizationRpcDb({
       agentProfiles: input.agentProfiles ?? [],
       authorizations: input.authorizations ?? [],
       centerAgentAuditJournal: input.centerAgentAuditJournal ?? [],
@@ -11415,7 +11708,67 @@ function buildEnv(
       slackWorkspaceBindings: input.slackWorkspaceBindings ?? [],
       spaceMemberships: input.spaceMemberships ?? [],
       spaces: input.spaces ?? [],
+    }));
+  organizationFixtures.set(db.binding, db);
+  const spaceStub = input.spaceStub ?? createSpaceStub({ spaces: db.spaces });
+  spaceStub.setProjectionWriter((snapshot) =>
+    projectActiveSpaceIndexSnapshot({ ...snapshot, db: db.db })
+  );
+  for (const operation of [
+    "createAgentProfileInOrganization",
+    "ensureCenterAgentProfileInOrganization",
+    "updateCenterAgentProfileInOrganization",
+  ] as const) {
+    const mock = input.authWorker?.[operation];
+    const implementation = mock?.getMockImplementation();
+    if (!(mock && implementation)) {
+      continue;
+    }
+    mock.mockImplementation(async (...args: unknown[]) => {
+      const result: unknown = await implementation(...args);
+      if (
+        !result ||
+        typeof result !== "object" ||
+        Reflect.get(result, "ok") !== true
+      ) {
+        return result;
+      }
+      const parsed = authProfileViewSchema.safeParse(
+        Reflect.get(result, "profile")
+      );
+      const request = args[0];
+      const organizationId =
+        request && typeof request === "object"
+          ? Reflect.get(request, "organizationId")
+          : undefined;
+      if (
+        parsed.success &&
+        parsed.data.profileKind === "agent" &&
+        agentProfileIdSchema.safeParse(parsed.data.openMeldProfileId).success &&
+        typeof organizationId === "string"
+      ) {
+        const profile = parsed.data;
+        await db.writeAgentProfile({
+          profileId: profile.openMeldProfileId,
+          profileHandle: profile.profileHandle,
+          profileName: profile.profileName,
+          organizationId: profile.organizationId ?? organizationId,
+          ownerUserId: profile.ownerUserId,
+          managedRole: profile.managedRole,
+          source: profile.source,
+          status: profile.status,
+          createdByUserId: profile.createdByUserId,
+          creatorProfileId: profile.creatorProfileId,
+          createdAt: Date.parse(profile.createdAt),
+          updatedAt: Date.parse(profile.updatedAt),
+          lastUsedAt: profile.lastUsedAt
+            ? Date.parse(profile.lastUsedAt)
+            : null,
+        });
+      }
+      return result;
     });
+  }
   return {
     OPENMELD_AUTH_WORKER: {
       ...buildOrganizationDirectoryAuthProjection({
@@ -11424,10 +11777,7 @@ function buildEnv(
       }),
       ...input.authWorker,
     },
-    OPENMELD_DB: db as unknown as D1Database,
-    OPENMELD_LOCAL_STATE_DB: input.localStateDb as unknown as
-      | D1Database
-      | undefined,
+    OPENMELD_POSTGRESQL: db.binding,
     OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS:
       input.remoteAgentBlockedOrganizationIds,
     OPENMELD_REMOTE_AGENT_DESIGNATION_ENABLED:
@@ -11452,9 +11802,7 @@ function buildEnv(
     SLACK_OPENMELD_BOT_TOKEN: input.slackBotToken,
     SLACK_OPENMELD_TOKEN_CRYPTO_KEY: input.slackTokenCryptoKey,
     OPENMELD_OBSERVABILITY: input.observability,
-    OPENMELD_SPACES: createSpaceNamespace(
-      input.spaceStub ?? createSpaceStub({ spaces: db.spaces })
-    ),
+    OPENMELD_SPACES: createSpaceNamespace(spaceStub),
     OPENMELD_WORKER_ENVIRONMENT: input.workerEnvironment,
   } as unknown as CoreBindings;
 }
@@ -11691,20 +12039,6 @@ function spaceMembershipRow(input: {
   };
 }
 
-function toDirectMessageSpaceIndexRow(space: ReturnType<typeof spaceRow>) {
-  return {
-    active_agent_count: space.activeAgentCount,
-    active_human_count: space.activeHumanCount,
-    active_member_count: space.activeMemberCount,
-    direct_message_converted_at_ms: space.directMessageConvertedAtMs,
-    direct_message_pair_key: space.directMessagePairKey,
-    organization_id: space.organizationId,
-    organization_visibility: space.visibility,
-    space_id: space.spaceId,
-    space_purpose: space.spacePurpose,
-  };
-}
-
 function authorizationRow(input: {
   agentProfileId: string;
   authorizedBy: string;
@@ -11766,29 +12100,6 @@ type CenterAgentAuditJournalTestRow = {
   resourceType: string | null;
   sourceNativeDeliveryId?: string | null;
   sourceSpaceId?: string | null;
-};
-
-type CenterAgentPublicationOperationTestRow = {
-  actor_profile_id: string;
-  claim_expires_at_ms: number | null;
-  claim_id: string | null;
-  created_at_ms: number;
-  destination_id: string;
-  destination_kind: "slack_channel" | "slack_file";
-  id: string;
-  organization_id: string;
-  operation_key: string;
-  represented_user_id: string;
-  request_signature: string;
-  response_json: string | null;
-  source_id: string;
-  source_kind:
-    | "organization_document"
-    | "remote_agent_execution"
-    | "routine_run";
-  source_revision: string;
-  status: "completed" | "failed" | "outcome_unknown" | "pending";
-  updated_at_ms: number;
 };
 
 // Fixture rows for the W-CA-CAP1 Center Agent dispatch history RPC. Fields
@@ -11951,7 +12262,7 @@ function nativeDeliveryLedgerRow(input: {
   };
 }
 
-function createOrganizationRpcDb(input: {
+async function createOrganizationRpcDb(input: {
   agentProfiles: Array<{
     createdAt?: number;
     createdByUserId?: string | null;
@@ -11970,9 +12281,10 @@ function createOrganizationRpcDb(input: {
     updatedAt?: number;
   }>;
   authorizations?: ReturnType<typeof authorizationRow>[];
+  legacyPersonalBindings?: AgentProfileBindingTestRow[];
   centerAgentAuditWriteFailures?: number;
   centerAgentDesignations?: ReturnType<typeof centerAgentDesignationRow>[];
-  centerAgentDesignationReadbackOverride?: ReturnType<
+  centerAgentDesignationReadbackRace?: ReturnType<
     typeof centerAgentDesignationRow
   > | null;
   centerAgentAuditJournal?: CenterAgentAuditJournalTestRow[];
@@ -12037,701 +12349,641 @@ function createOrganizationRpcDb(input: {
   spaceMemberships?: ReturnType<typeof spaceMembershipRow>[];
   spaces?: ReturnType<typeof spaceRow>[];
 }) {
-  const spaceRows = input.spaces ?? [];
-  const authorizationRows = new Map<
-    string,
-    ReturnType<typeof authorizationRow>
-  >();
-  for (const authorization of input.authorizations ?? []) {
-    authorizationRows.set(
-      authorizationKey(authorization.organizationId, authorization.bindingId),
-      authorization
+  const fixture = await createWorkerPostgresFixture(workerEnv, {
+    beforeOwnerGuards: Boolean(input.legacyPersonalBindings),
+  });
+  const orgIds = new Set<string>();
+  const userIds = new Set<string>();
+  const addOwner = (organizationId?: string | null, userId?: string | null) => {
+    if (organizationId) {
+      orgIds.add(organizationId);
+    }
+    if (userId) {
+      userIds.add(userId);
+    }
+  };
+  for (const member of input.members) {
+    addOwner(member.organizationId, member.userId);
+  }
+  for (const profile of input.agentProfiles) {
+    addOwner(profile.organizationId, profile.ownerUserId);
+    addOwner(null, profile.createdByUserId);
+  }
+  for (const org of input.organizations ?? []) {
+    addOwner(org.organizationId, org.createdByUserId);
+  }
+  for (const org of input.personalOrganizations ?? []) {
+    addOwner(org.organizationId, org.userId);
+  }
+  for (const row of input.centerAgentDesignations ?? []) {
+    addOwner(row.organizationId, row.designatedBy);
+    addOwner(null, row.pausedByUserId);
+  }
+  for (const row of input.centerAgentAuditJournal ?? []) {
+    addOwner(row.organizationId, row.onBehalfOfUserId);
+  }
+  for (const row of input.authorizations ?? []) {
+    addOwner(row.organizationId, row.authorizedBy);
+  }
+  for (const row of input.centerAgentMemoryPolicies ?? []) {
+    addOwner(row.organizationId, row.updatedByUserId);
+  }
+  for (const row of input.informationProtectionPolicies ?? []) {
+    addOwner(row.organizationId, row.updatedByUserId);
+  }
+  for (const row of input.memberActivities ?? []) {
+    addOwner(row.organizationId, row.userId);
+  }
+  if (input.connectorConnection) {
+    addOwner(
+      input.connectorConnection.organizationId,
+      input.connectorConnection.userId
     );
   }
-  const centerAgentDesignationRows = new Map<
-    string,
-    ReturnType<typeof centerAgentDesignationRow>
-  >();
-  for (const designation of input.centerAgentDesignations ?? []) {
-    centerAgentDesignationRows.set(designation.organizationId, designation);
+  for (const row of input.legacyPersonalBindings ?? []) {
+    addOwner(null, row.ownerId);
   }
-  const bindingRows = new Map<string, AgentProfileBindingTestRow>();
-  const pendingBindingTransitions = new Map<
-    string,
-    AgentProfileBindingTestRow
-  >();
-  const bindingWriteEvents: string[] = [];
-  const centerAgentAuditRows = [...(input.centerAgentAuditJournal ?? [])];
-  let remainingCenterAgentAuditWriteFailures =
-    input.centerAgentAuditWriteFailures ?? 0;
-  const centerAgentPublicationRows: CenterAgentPublicationOperationTestRow[] =
-    [];
-  const centerAgentMemoryPolicyRows = new Map<
-    string,
-    {
-      organizationId: string;
-      organizationMemoryOptIn: boolean;
-      updatedByUserId: string | null;
+  // Stable caller fixtures are real parents even when a test exercises a non-member denial.
+  userIds.add("user-a");
+  userIds.add("user-b");
+  orgIds.add("org-a");
+  for (const userId of userIds) {
+    const member = input.members.find((row) => row.userId === userId);
+    await fixture.writeRow(
+      "users",
+      {
+        id: userId,
+        name: member?.userName ?? userId,
+        email: member?.userEmail ?? `${userId}@example.com`,
+        image: member?.userImage ?? null,
+      },
+      ["id"]
+    );
+  }
+  for (const orgId of orgIds) {
+    const org = input.organizations?.find(
+      (row) => row.organizationId === orgId
+    );
+    const personal = input.personalOrganizations?.find(
+      (row) => row.organizationId === orgId
+    );
+    const creator =
+      org?.createdByUserId ??
+      personal?.userId ??
+      input.members.find(
+        (row) => row.organizationId === orgId && row.role === "owner"
+      )?.userId ??
+      null;
+    await fixture.writeRow(
+      "organizations",
+      {
+        id: orgId,
+        name: org?.name ?? "Test Organization",
+        slug: org?.slug ?? orgId,
+        metadata:
+          org?.metadata ??
+          (personal ? JSON.stringify({ personal: true }) : null),
+        created_by_user_id: creator,
+        created_at: TEST_NOW_MS,
+      },
+      ["id"]
+    );
+  }
+  for (const userId of ["user-a", "user-b"]) {
+    const human = organizationRpcHumanProfile(userId);
+    if (human) {
+      await fixture.writeRow(
+        "openmeld_profiles",
+        {
+          profile_id: human.profileId,
+          profile_name: human.profileName,
+          profile_handle: human.profileHandle,
+          profile_kind: "human",
+          is_default: 1,
+          status: "active",
+          owner_user_id: userId,
+          source: "auth_bootstrap",
+          last_used_at: human.lastUsedAt,
+        },
+        ["profile_id"]
+      );
     }
-  >();
-  for (const policy of input.centerAgentMemoryPolicies ?? []) {
-    centerAgentMemoryPolicyRows.set(policy.organizationId, policy);
   }
-  const centerAgentMemoryPolicyWrites: Array<{
-    organizationId: string;
-    organizationMemoryOptIn: boolean;
-    updatedByUserId: string | null;
-  }> = [];
-  const informationProtectionPolicyRows = new Map(
-    (input.informationProtectionPolicies ?? []).map((policy) => [
-      policy.organizationId,
-      policy,
-    ])
-  );
-  const informationProtectionPolicyWrites: Array<{
-    organizationId: string;
-    protectedInformation: string | null;
-    updatedByUserId: string;
-  }> = [];
-  const disallowedWrites: string[] = [];
-
-  const db = {
-    bindingRows,
-    centerAgentAuditRows,
-    centerAgentMemoryPolicyWrites,
-    informationProtectionPolicyWrites,
-    batch: vi.fn(async (statements: D1PreparedStatement[]) => {
-      const results: D1Result[] = [];
-      for (const statement of statements) {
-        if (Reflect.get(statement, "isSingleRowRead")) {
-          const row = await statement.first();
-          results.push({ ...createD1RunResult(0), results: row ? [row] : [] });
-        } else {
-          results.push(await statement.run());
-        }
+  async function writeAgentProfile(
+    profile: Parameters<
+      typeof createOrganizationRpcDb
+    >[0]["agentProfiles"][number]
+  ) {
+    const { owner_name: _projectionOnly, ...row } =
+      buildOrganizationDirectoryAgentProfileRow({
+        members: input.members,
+        profile,
+      });
+    await fixture.writeRow(
+      "openmeld_profiles",
+      {
+        ...row,
+        profile_kind: "agent",
+        source:
+          profile.source ??
+          (profile.managedRole === "center_agent" ? "migration" : "cli_create"),
+      },
+      ["profile_id"]
+    );
+  }
+  for (const profile of input.agentProfiles) {
+    await writeAgentProfile(profile);
+  }
+  for (const member of input.members) {
+    await fixture.writeRow(
+      "members",
+      {
+        id: member.memberId,
+        organization_id: member.organizationId,
+        user_id: member.userId,
+        role: member.role,
+        created_at: member.createdAt,
+      },
+      ["id"]
+    );
+  }
+  for (const profile of input.agentProfiles) {
+    if (profile.hasBinding === false || !profile.ownerUserId) {
+      continue;
+    }
+    await fixture.writeRow(
+      "openMeldDaemon_agent_profile_bindings",
+      mapAgentProfileBindingTestRow(
+        agentProfileBindingTestRow({
+          bindingId: `binding-${profile.profileId}`,
+          ownerId: profile.ownerUserId,
+          agentProfileId: profile.profileId,
+          configurationRevision: 0,
+          agentControllerPermissionMode: "codex:fullAccess",
+          modelId: null,
+          reasoningLevel: null,
+          reasonCode: null,
+        })
+      ),
+      ["binding_id"]
+    );
+  }
+  for (const row of input.legacyPersonalBindings ?? []) {
+    await fixture.writeRow(
+      "openMeldDaemon_agent_profile_bindings",
+      mapAgentProfileBindingTestRow(row),
+      ["binding_id"]
+    );
+  }
+  if (input.legacyPersonalBindings) {
+    const migrations = workerEnv.TEST_POSTGRESQL_OWNER_GUARDS_AND_LATER;
+    if (!migrations?.length) {
+      throw new Error("The immutable owner guard migrations are required");
+    }
+    for (const sql of migrations) {
+      await fixture.operator.query(sql);
+    }
+  }
+  for (const row of input.authorizations ?? []) {
+    if (
+      !(await fixture
+        .rows("openMeldDaemon_agent_profile_bindings", ["binding_id"])
+        .has(row.bindingId))
+    ) {
+      const profile = input.agentProfiles.find(
+        (profile) => profile.profileId === row.agentProfileId
+      );
+      if (!profile) {
+        throw new Error(
+          "An authorization fixture requires its real Agent Profile parent"
+        );
       }
-      return results;
-    }),
-    centerAgentDesignations: centerAgentDesignationRows,
-    disallowedWrites,
-    spaces: spaceRows,
-    prepare: vi.fn((sql: string) => {
-      const normalizedSql = sql.toLowerCase();
-      return {
-        bind: vi.fn((...args: unknown[]) => ({
-          isSingleRowRead:
-            normalizedSql.trimStart().startsWith("select") &&
-            normalizedSql.includes("limit 1"),
-          all: vi.fn(async () => ({
-            success: true,
-            results: resolveAllRows({
-              agentProfiles: input.agentProfiles,
-              args,
-              authorizationRows,
-              bindingRows,
-              centerAgentAuditRows,
-              centerAgentDesignationRows,
-              dispatchLedgerEntries: input.dispatchLedgerEntries,
-              memberActivities: input.memberActivities,
-              members: input.members,
-              normalizedSql,
-              organizations: input.organizations,
-              ownedDevices: input.ownedDevices,
-              slackUserIdentityLinks: input.slackUserIdentityLinks,
-              spaceMemberships: input.spaceMemberships,
-              spaces: spaceRows,
-            }),
-          })),
-          first: vi.fn(async () =>
-            resolveFirstRow({
-              bindingRows,
-              agentProfiles: input.agentProfiles,
-              args,
-              authorizationRows,
-              centerAgentAuditRows,
-              centerAgentDesignationRows,
-              centerAgentDesignationReadbackOverride:
-                input.centerAgentDesignationReadbackOverride,
-              centerAgentMemoryPolicyRows,
-              centerAgentPublicationRows,
-              connectorConnection: input.connectorConnection,
-              informationProtectionPolicyRows,
-              members: input.members,
-              nativeDeliveries: input.nativeDeliveries,
-              normalizedSql,
-              organizations: input.organizations,
-              personalOrganizations: input.personalOrganizations,
-              slackWorkspaceBindings: input.slackWorkspaceBindings,
-              spaces: spaceRows,
-            })
-          ),
-          run: vi.fn(() => {
-            if (
-              normalizedSql.includes(
-                "insert or ignore into center_agent_publication_operations"
-              )
-            ) {
-              const existing = centerAgentPublicationRows.find(
-                (row) =>
-                  row.organization_id === String(args[1] ?? "") &&
-                  row.actor_profile_id === String(args[2] ?? "") &&
-                  row.source_kind === String(args[4] ?? "") &&
-                  row.source_id === String(args[5] ?? "") &&
-                  row.source_revision === String(args[6] ?? "") &&
-                  row.operation_key === String(args[7] ?? "") &&
-                  row.destination_kind === String(args[8] ?? "") &&
-                  row.destination_id === String(args[9] ?? "")
-              );
-              if (existing) {
-                return createD1RunResult(0);
-              }
-              centerAgentPublicationRows.push({
-                actor_profile_id: String(args[2] ?? ""),
-                claim_expires_at_ms: Number(args[12] ?? 0),
-                claim_id: String(args[11] ?? ""),
-                created_at_ms: Number(args[13] ?? 0),
-                destination_id: String(args[9] ?? ""),
-                destination_kind: String(args[8] ?? "") as
-                  | "slack_channel"
-                  | "slack_file",
-                id: String(args[0] ?? ""),
-                organization_id: String(args[1] ?? ""),
-                operation_key: String(args[7] ?? ""),
-                represented_user_id: String(args[3] ?? ""),
-                request_signature: String(args[10] ?? ""),
-                response_json: null,
-                source_id: String(args[5] ?? ""),
-                source_kind: String(args[4] ?? "") as
-                  | "organization_document"
-                  | "remote_agent_execution"
-                  | "routine_run",
-                source_revision: String(args[6] ?? ""),
-                status: "pending",
-                updated_at_ms: Number(args[14] ?? 0),
-              });
-              return createD1RunResult(1);
-            }
-            if (
-              normalizedSql.includes(
-                "update center_agent_publication_operations"
-              )
-            ) {
-              if (normalizedSql.includes("response_json = ?")) {
-                const row = centerAgentPublicationRows.find(
-                  (candidate) =>
-                    candidate.id === String(args[2] ?? "") &&
-                    candidate.status === "pending" &&
-                    candidate.claim_id === String(args[3] ?? "")
-                );
-                if (!row) {
-                  return createD1RunResult(0);
+      const hosted = profile.managedRole === "center_agent";
+      await fixture.writeRow(
+        "openMeldDaemon_agent_profile_bindings",
+        mapAgentProfileBindingTestRow(
+          agentProfileBindingTestRow({
+            bindingId: row.bindingId,
+            agentProfileId: row.agentProfileId,
+            ownerId: hosted
+              ? profile.organizationId
+              : (profile.ownerUserId ?? row.authorizedBy),
+            ownerKind: hosted ? "organization" : "owner_account",
+            ...(hosted
+              ? {
+                  agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+                  hostedRuntimeIdentityJson: JSON.stringify(
+                    HOSTED_CENTER_AGENT_RUNTIME_IDENTITY
+                  ),
+                  openMeldServiceRuntimeId:
+                    HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
+                  runtimeKind: "hosted_center_agent",
                 }
-                row.response_json = String(args[0] ?? "");
-                row.status = "completed";
-                row.claim_id = null;
-                row.claim_expires_at_ms = null;
-                row.updated_at_ms = Number(args[1] ?? 0);
-                return createD1RunResult(1);
-              }
-              if (normalizedSql.includes("status = ?")) {
-                const row = centerAgentPublicationRows.find(
-                  (candidate) =>
-                    candidate.id === String(args[2] ?? "") &&
-                    candidate.status === "pending" &&
-                    candidate.claim_id === String(args[3] ?? "")
-                );
-                if (!row) {
-                  return createD1RunResult(0);
-                }
-                row.status = String(args[0] ?? "") as
-                  | "failed"
-                  | "outcome_unknown";
-                row.claim_id = null;
-                row.claim_expires_at_ms = null;
-                row.updated_at_ms = Number(args[1] ?? 0);
-                return createD1RunResult(1);
-              }
-              if (normalizedSql.includes("status = 'pending'")) {
-                const row = centerAgentPublicationRows.find(
-                  (candidate) =>
-                    candidate.id === String(args[3] ?? "") &&
-                    candidate.status === "failed"
-                );
-                if (!row) {
-                  return createD1RunResult(0);
-                }
-                row.status = "pending";
-                row.claim_id = String(args[0] ?? "");
-                row.claim_expires_at_ms = Number(args[1] ?? 0);
-                row.updated_at_ms = Number(args[2] ?? 0);
-                return createD1RunResult(1);
-              }
-              if (normalizedSql.includes("status = 'outcome_unknown'")) {
-                const row = centerAgentPublicationRows.find(
-                  (candidate) =>
-                    candidate.id === String(args[1] ?? "") &&
-                    candidate.status === "pending" &&
-                    candidate.claim_id === String(args[2] ?? "") &&
-                    (candidate.claim_expires_at_ms ??
-                      Number.POSITIVE_INFINITY) <= Number(args[3] ?? 0)
-                );
-                if (!row) {
-                  return createD1RunResult(0);
-                }
-                row.status = "outcome_unknown";
-                row.claim_id = null;
-                row.claim_expires_at_ms = null;
-                row.updated_at_ms = Number(args[0] ?? 0);
-                return createD1RunResult(1);
-              }
-            }
-            if (
-              normalizedSql.includes("insert into center_agent_designations")
-            ) {
-              const organizationId = String(args[0] ?? "");
-              centerAgentDesignationRows.set(
-                organizationId,
-                centerAgentDesignationRow({
-                  agentProfileId: String(args[1] ?? ""),
-                  createdAtMs: Number(args[3] ?? 0),
-                  designatedBy: String(args[2] ?? ""),
-                  organizationId,
-                })
-              );
-              return createD1RunResult(1);
-            }
-            if (
-              normalizedSql.includes("update center_agent_designations") &&
-              normalizedSql.includes("operating_state = ?")
-            ) {
-              const organizationId = String(args[3] ?? "");
-              const designation =
-                centerAgentDesignationRows.get(organizationId);
-              if (!designation) {
-                return createD1RunResult(0);
-              }
-              designation.operatingState = String(args[0]) as
-                | "active"
-                | "paused";
-              designation.pausedAtMs =
-                args[1] === null ? null : Number(args[1] ?? 0);
-              designation.pausedByUserId =
-                args[2] === null ? null : String(args[2] ?? "");
-              return createD1RunResult(1);
-            }
-            if (
-              normalizedSql.includes(
-                "insert into center_agent_audit_journal"
-              ) ||
-              normalizedSql.includes(
-                "insert or ignore into center_agent_audit_journal"
-              )
-            ) {
-              if (remainingCenterAgentAuditWriteFailures > 0) {
-                remainingCenterAgentAuditWriteFailures -= 1;
-                throw new Error("Test Center Agent audit write failure.");
-              }
-              if (
-                normalizedSql.includes("insert or ignore") &&
-                centerAgentAuditRows.some((row) => row.id === String(args[0]))
-              ) {
-                return createD1RunResult(0);
-              }
-              centerAgentAuditRows.push({
-                id: String(args[0] ?? ""),
-                organizationId: String(args[1] ?? ""),
-                actorProfileId: String(args[2] ?? ""),
-                action: String(args[3] ?? ""),
-                onBehalfOfProfileId:
-                  args[4] === null ? null : String(args[4] ?? ""),
-                onBehalfOfUserId:
-                  args[5] === null ? null : String(args[5] ?? ""),
-                onBehalfOfDisplayName:
-                  args[6] === null ? null : String(args[6] ?? ""),
-                resourceType: args[7] === null ? null : String(args[7] ?? ""),
-                resourceId: args[8] === null ? null : String(args[8] ?? ""),
-                sourceNativeDeliveryId:
-                  args[9] === null ? null : String(args[9] ?? ""),
-                sourceSpaceId:
-                  args[10] === null ? null : String(args[10] ?? ""),
-                createdAtMs: Number(args[11] ?? 0),
-              });
-              return createD1RunResult(1);
-            }
-            if (
-              normalizedSql.includes("insert into center_agent_memory_policies")
-            ) {
-              const organizationId = String(args[0] ?? "");
-              const organizationMemoryOptIn = args[1] === 1;
-              const updatedByUserId =
-                args[2] === null ? null : String(args[2] ?? "");
-              centerAgentMemoryPolicyRows.set(organizationId, {
-                organizationId,
-                organizationMemoryOptIn,
-                updatedByUserId,
-              });
-              centerAgentMemoryPolicyWrites.push({
-                organizationId,
-                organizationMemoryOptIn,
-                updatedByUserId,
-              });
-              return createD1RunResult(1);
-            }
-            if (
-              normalizedSql.includes(
-                "insert into organization_information_protection_policies"
-              )
-            ) {
-              const organizationId = String(args[0] ?? "");
-              const protectedInformation = String(args[1] ?? "");
-              const updatedByUserId = String(args[2] ?? "");
-              const updatedAtMs = Number(args[4] ?? 0);
-              informationProtectionPolicyRows.set(organizationId, {
-                organizationId,
-                protectedInformation,
-                updatedAtMs,
-                updatedByUserId,
-              });
-              informationProtectionPolicyWrites.push({
-                organizationId,
-                protectedInformation,
-                updatedByUserId,
-              });
-              return createD1RunResult(1);
-            }
-            if (
-              normalizedSql.includes(
-                "delete from organization_information_protection_policies"
-              )
-            ) {
-              const organizationId = String(args[0] ?? "");
-              const deleted =
-                informationProtectionPolicyRows.delete(organizationId);
-              informationProtectionPolicyWrites.push({
-                organizationId,
-                protectedInformation: null,
-                updatedByUserId:
-                  input.members.find(
-                    (member) => member.organizationId === organizationId
-                  )?.userId ?? "",
-              });
-              return createD1RunResult(deleted ? 1 : 0);
-            }
-            if (
-              normalizedSql.includes("update openmeld_profiles") &&
-              normalizedSql.includes("set status = 'active'")
-            ) {
-              const profileId = String(args[1] ?? "");
-              const organizationId = String(args[2] ?? "");
-              const profile = input.agentProfiles.find(
-                (item) =>
-                  item.profileId === profileId &&
-                  item.organizationId === organizationId
-              );
-              if (!profile) {
-                return createD1RunResult(0);
-              }
-              profile.status = "active";
-              return createD1RunResult(1);
-            }
-            if (
-              normalizedSql.includes(
-                "update openmelddaemon_agent_profile_bindings"
-              ) &&
-              normalizedSql.includes(
-                "configuration_revision = configuration_revision + 1"
-              ) &&
-              normalizedSql.includes("model_id = ?")
-            ) {
-              const ownerKind = String(args[3] ?? "") as "owner_account";
-              const ownerId = String(args[4] ?? "");
-              const agentProfileId = String(args[5] ?? "");
-              const bindingId = String(args[6] ?? "");
-              const expectedRevision = Number(args[7] ?? -1);
-              const key = bindingKey(ownerKind, ownerId, agentProfileId);
-              const binding = bindingRows.get(key);
-              if (
-                !binding ||
-                binding.bindingId !== bindingId ||
-                binding.configurationRevision !== expectedRevision
-              ) {
-                return createD1RunResult(0);
-              }
-              binding.modelId = args[0] === null ? null : String(args[0] ?? "");
-              binding.reasoningLevel =
-                args[1] === null ? null : String(args[1] ?? "");
-              binding.configurationRevision += 1;
-              binding.updatedAtMs = Number(args[2] ?? 0);
-              return createD1RunResult(1);
-            }
-            if (
-              normalizedSql.includes(
-                "update openmelddaemon_agent_profile_bindings"
-              ) &&
-              normalizedSql.includes("binding_state = 'enabled_primary'") &&
-              normalizedSql.includes("disabled_at_ms = null")
-            ) {
-              const updatedAtMs = Number(args[0] ?? 0);
-              const bindingId = String(args[1] ?? "");
-              const binding = pendingBindingTransitions.get(bindingId);
-              if (!binding) {
-                return createD1RunResult(0);
-              }
-              binding.bindingState = "enabled_primary";
-              binding.disabledAtMs = null;
-              binding.updatedAtMs = updatedAtMs;
-              bindingRows.set(
-                bindingKey(
-                  binding.ownerKind,
-                  binding.ownerId,
-                  binding.agentProfileId
-                ),
-                binding
-              );
-              pendingBindingTransitions.delete(bindingId);
-              return createD1RunResult(1);
-            }
-            if (
-              normalizedSql.includes(
-                "update openmelddaemon_agent_profile_bindings"
-              ) &&
-              normalizedSql.includes("binding_state = 'disabled_historical'")
-            ) {
-              if (normalizedSql.includes("with admitted")) {
-                const agentProfileId = String(args.at(-1) ?? "");
-                const admittedCount = Number(args.at(-2) ?? 0);
-                const admittedArgumentCount = admittedCount * 4;
-                const transitionGuardArgumentCount = normalizedSql.includes(
-                  "transition_target"
-                )
-                  ? 5
-                  : 3;
-                const disabledCount =
-                  normalizedSql.match(/when \? then \?/g)?.length ?? 0;
-                const disabledIds = args
-                  .slice(
-                    args.length - transitionGuardArgumentCount - disabledCount,
-                    args.length - transitionGuardArgumentCount
-                  )
-                  .map((value) => String(value));
-                let changes = 0;
-                for (const bindingId of disabledIds) {
-                  const entry = [...bindingRows.entries()].find(
-                    ([, binding]) => binding.bindingId === bindingId
-                  );
-                  if (!entry) {
-                    const implicitBinding = input.agentProfiles.find(
-                      (profile) =>
-                        profile.profileId === agentProfileId &&
-                        profile.hasBinding !== false &&
-                        bindingId === `binding-${profile.profileId}`
-                    );
-                    if (implicitBinding) {
-                      bindingWriteEvents.push(
-                        `disable:${implicitBinding.ownerUserId}`
-                      );
-                      changes += 1;
-                    }
-                    continue;
-                  }
-                  const [key, binding] = entry;
-                  binding.bindingState = "disabled_historical";
-                  binding.disabledAtMs = Number(
-                    args[admittedArgumentCount] ?? 0
-                  );
-                  binding.updatedAtMs = Number(
-                    args[admittedArgumentCount + 1] ?? 0
-                  );
-                  bindingRows.delete(key);
-                  bindingWriteEvents.push(`disable:${binding.ownerId}`);
-                  changes += 1;
-                }
-                return createD1RunResult(changes);
-              }
-              const isAtomicReconciliation =
-                normalizedSql.includes("where binding_id = ?") &&
-                normalizedSql.includes("configuration_revision = ?");
-              const ownerKind = String(
-                args[isAtomicReconciliation ? 4 : 3] ?? ""
-              ) as "owner_account";
-              const ownerId = String(
-                args[isAtomicReconciliation ? 5 : 4] ?? ""
-              );
-              const agentProfileId = String(
-                args[isAtomicReconciliation ? 6 : 5] ?? ""
-              );
-              const bindingId = String(
-                args[isAtomicReconciliation ? 3 : 6] ?? ""
-              );
-              const key = bindingKey(ownerKind, ownerId, agentProfileId);
-              const binding = bindingRows.get(key);
-              if (!binding) {
-                const implicitBinding = input.agentProfiles.find(
-                  (profile) =>
-                    profile.profileId === agentProfileId &&
-                    profile.ownerUserId === ownerId &&
-                    profile.hasBinding !== false &&
-                    bindingId === `binding-${profile.profileId}`
-                );
-                if (implicitBinding) {
-                  bindingWriteEvents.push(`disable:${ownerId}`);
-                  return createD1RunResult(1);
-                }
-              }
-              if (
-                !binding ||
-                binding.bindingId !== bindingId ||
-                (isAtomicReconciliation &&
-                  binding.configurationRevision !== Number(args[7] ?? -1))
-              ) {
-                return createD1RunResult(0);
-              }
-              binding.bindingState = "disabled_historical";
-              binding.disabledAtMs = Number(args[0] ?? 0);
-              if (normalizedSql.includes("reason_code = ?")) {
-                binding.reasonCode = String(args[2] ?? "");
-              }
-              binding.updatedAtMs = Number(args[1] ?? 0);
-              bindingRows.delete(key);
-              bindingWriteEvents.push(`disable:${ownerId}`);
-              return createD1RunResult(1);
-            }
-            if (
-              normalizedSql.includes(
-                "insert into openmelddaemon_agent_profile_bindings"
-              )
-            ) {
-              const admittedTupleCount = normalizedSql.includes("with admitted")
-                ? (normalizedSql.match(/\(\?, \?, \?, \?\)/g)?.length ?? 0)
-                : 0;
-              const offset = admittedTupleCount * 4;
-              const ownerKind = String(
-                args[offset + 1] ?? ""
-              ) as "owner_account";
-              const ownerId = String(args[offset + 2] ?? "");
-              const agentProfileId = String(args[offset + 3] ?? "");
-              const isDisabledTransition = normalizedSql.includes(
-                "'disabled_historical'"
-              );
-              const settingsOffset = isDisabledTransition ? 1 : 0;
-              const binding: AgentProfileBindingTestRow = {
-                bindingId: String(args[offset] ?? ""),
-                ownerKind,
-                ownerId,
-                agentProfileId,
-                openMeldServiceRuntimeId: String(args[offset + 4] ?? ""),
-                runtimeKind: String(args[offset + 5] ?? "openmeld_service") as
-                  | "openmeld_service"
-                  | "hosted_center_agent",
-                hostedRuntimeIdentityJson:
-                  args[offset + 6] === null
-                    ? null
-                    : String(args[offset + 6] ?? ""),
-                agentControllerRef: String(args[offset + 7] ?? ""),
-                agentControllerConversationId:
-                  args[offset + 8] === null
-                    ? null
-                    : String(args[offset + 8] ?? ""),
-                bindingState: isDisabledTransition
-                  ? "disabled_historical"
-                  : "enabled_primary",
-                configurationRevision: 1,
-                createdAtMs: Number(args[offset + 9] ?? 0),
-                updatedAtMs: Number(args[offset + 10] ?? 0),
-                disabledAtMs: isDisabledTransition
-                  ? Number(args[offset + 11] ?? 0)
-                  : null,
-                createdByProfileId:
-                  args[offset + 11 + settingsOffset] === null
-                    ? null
-                    : String(args[offset + 11 + settingsOffset] ?? ""),
-                reasonCode:
-                  args[offset + 12 + settingsOffset] === null
-                    ? null
-                    : String(args[offset + 12 + settingsOffset] ?? ""),
-                agentControllerPermissionMode:
-                  args[offset + 14 + settingsOffset] === null
-                    ? null
-                    : String(args[offset + 14 + settingsOffset] ?? ""),
-                modelId:
-                  args[offset + 15 + settingsOffset] === null
-                    ? null
-                    : String(args[offset + 15 + settingsOffset] ?? ""),
-                openCodePermission:
-                  args[offset + 16 + settingsOffset] === null
-                    ? null
-                    : String(args[offset + 16 + settingsOffset] ?? ""),
-                reasoningLevel:
-                  args[offset + 17 + settingsOffset] === null
-                    ? null
-                    : String(args[offset + 17 + settingsOffset] ?? ""),
-              };
-              if (binding.bindingState === "disabled_historical") {
-                pendingBindingTransitions.set(binding.bindingId, binding);
-              } else {
-                bindingRows.set(
-                  bindingKey(ownerKind, ownerId, agentProfileId),
-                  binding
-                );
-              }
-              bindingWriteEvents.push(`insert:${ownerId}`);
-              return createD1RunResult(1);
-            }
-            if (
-              normalizedSql.includes(
-                "delete from openmelddaemon_agent_profile_bindings"
-              )
-            ) {
-              const bindingId = String(args[0] ?? "");
-              const deleted = pendingBindingTransitions.delete(bindingId);
-              return createD1RunResult(deleted ? 1 : 0);
-            }
-            if (
-              normalizedSql.includes("insert into organization_member_activity")
-            ) {
-              const memberActivities = input.memberActivities;
-              if (!memberActivities) {
-                disallowedWrites.push(normalizedSql);
-                return createD1RunResult(0);
-              }
-              const organizationId = String(args[0] ?? "");
-              const userId = String(args[1] ?? "");
-              const humanProfileId = String(args[2] ?? "");
-              const lastActiveAtMs = Number(args[3] ?? 0);
-              const existing = memberActivities.find(
-                (activity) =>
-                  activity.organizationId === organizationId &&
-                  activity.userId === userId
-              );
-              if (existing && existing.lastActiveAtMs >= lastActiveAtMs) {
-                return createD1RunResult(0);
-              }
-              if (existing) {
-                existing.humanProfileId = humanProfileId;
-                existing.lastActiveAtMs = lastActiveAtMs;
-              } else {
-                memberActivities.push({
-                  humanProfileId,
-                  lastActiveAtMs,
-                  organizationId,
-                  userId,
-                });
-              }
-              return createD1RunResult(1);
-            }
-            disallowedWrites.push(normalizedSql);
-            return createD1RunResult(0);
-          }),
-        })),
-      };
-    }),
+              : {
+                  bindingState: "disabled_historical",
+                  disabledAtMs: TEST_NOW_MS,
+                }),
+          })
+        ),
+        ["binding_id"]
+      );
+    }
+    await fixture.writeRow(
+      "organization_binding_authorizations",
+      {
+        id: row.id,
+        organization_id: row.organizationId,
+        binding_id: row.bindingId,
+        authorized_by: row.authorizedBy,
+        created_at: row.createdAtMs,
+      },
+      ["id"]
+    );
+  }
+  for (const row of input.centerAgentDesignations ?? []) {
+    await fixture.writeRow(
+      "center_agent_designations",
+      {
+        organization_id: row.organizationId,
+        agent_profile_id: row.agentProfileId,
+        designated_by: row.designatedBy,
+        operating_state: row.operatingState,
+        paused_at: row.pausedAtMs,
+        paused_by_user_id: row.pausedByUserId,
+        created_at: row.createdAtMs,
+      },
+      ["organization_id"]
+    );
+  }
+  for (const row of input.centerAgentMemoryPolicies ?? []) {
+    await fixture.writeRow(
+      "center_agent_memory_policies",
+      {
+        organization_id: row.organizationId,
+        organization_memory_opt_in: row.organizationMemoryOptIn ? 1 : 0,
+        updated_by_user_id: row.updatedByUserId,
+        created_at_ms: TEST_NOW_MS,
+        updated_at_ms: TEST_NOW_MS,
+      },
+      ["organization_id"]
+    );
+  }
+  for (const row of input.informationProtectionPolicies ?? []) {
+    await fixture.writeRow(
+      "organization_information_protection_policies",
+      {
+        organization_id: row.organizationId,
+        protected_information: row.protectedInformation,
+        updated_by_user_id: row.updatedByUserId,
+        created_at_ms: row.updatedAtMs,
+        updated_at_ms: row.updatedAtMs,
+      },
+      ["organization_id"]
+    );
+  }
+  for (const row of input.memberActivities ?? []) {
+    await fixture.writeRow(
+      "organization_member_activity",
+      {
+        organization_id: row.organizationId,
+        user_id: row.userId,
+        human_profile_id: row.humanProfileId,
+        last_active_at_ms: row.lastActiveAtMs,
+        updated_at_ms: row.lastActiveAtMs,
+      },
+      ["organization_id", "user_id"]
+    );
+  }
+  for (const row of input.centerAgentAuditJournal ?? []) {
+    await fixture.writeRow(
+      "center_agent_audit_journal",
+      {
+        id: row.id,
+        organization_id: row.organizationId,
+        actor_profile_id: row.actorProfileId,
+        action: row.action,
+        on_behalf_of_profile_id: row.onBehalfOfProfileId,
+        on_behalf_of_user_id: row.onBehalfOfUserId,
+        on_behalf_of_display_name: row.onBehalfOfDisplayName,
+        resource_id: row.resourceId,
+        resource_type: row.resourceType,
+        source_native_delivery_id: row.sourceNativeDeliveryId ?? null,
+        source_space_id: row.sourceSpaceId ?? null,
+        created_at: row.createdAtMs,
+      },
+      ["id"]
+    );
+  }
+  const spaces = input.spaces ?? [];
+  for (const space of spaces) {
+    await fixture.writeRow(
+      "space_index_spaces",
+      {
+        space_id: space.spaceId,
+        organization_id: space.organizationId,
+        organization_visibility: space.visibility,
+        status: space.status,
+        space_name: space.spaceName,
+        space_purpose: space.spacePurpose,
+        direct_message_pair_key: space.directMessagePairKey,
+        direct_message_converted_at_ms: space.directMessageConvertedAtMs,
+        active_member_count: space.activeMemberCount,
+        active_human_count: space.activeHumanCount,
+        active_agent_count: space.activeAgentCount,
+        space_created_at_ms: space.spaceCreatedAtMs,
+        space_updated_at_ms: space.spaceUpdatedAtMs,
+        source_updated_at_ms: space.sourceUpdatedAtMs,
+        projected_at_ms: space.sourceUpdatedAtMs,
+        projection_event_id: `fixture:${space.spaceId}`,
+      },
+      ["space_id"]
+    );
+  }
+  for (const row of input.spaceMemberships ?? []) {
+    await fixture.writeRow(
+      "space_index_memberships",
+      {
+        space_id: row.spaceId,
+        profile_id: row.profileId,
+        profile_kind_snapshot: row.profileId.startsWith("agt_")
+          ? "agent"
+          : "human",
+        profile_name_snapshot:
+          input.agentProfiles.find(
+            (profile) => profile.profileId === row.profileId
+          )?.profileName ?? "Ava",
+        owner_user_id_snapshot: row.ownerUserId,
+        status: row.status,
+        member_source: "organization_directory",
+        added_at_ms: row.addedAtMs,
+        source_updated_at_ms: row.addedAtMs,
+        projected_at_ms: row.addedAtMs,
+        projection_event_id: `fixture:${row.spaceId}:${row.profileId}`,
+      },
+      ["space_id", "profile_id"]
+    );
+  }
+  for (const row of input.ownedDevices ?? []) {
+    await fixture.writeRow(
+      "openMeldDaemon_owned_devices",
+      {
+        owner_user_id: row.ownerUserId,
+        device_id: row.deviceId,
+        observed_display_name: row.observedDisplayName,
+        first_seen_at_ms: row.firstSeenAtMs,
+        last_observed_at_ms: row.lastObservedAtMs,
+        updated_at_ms: row.updatedAtMs,
+        platform_family: "macOS",
+        os_version: "15.5",
+        device_type: "laptop",
+      },
+      ["owner_user_id", "device_id"]
+    );
+  }
+  for (const row of input.slackWorkspaceBindings ?? []) {
+    await fixture.writeRow(
+      "openMeldRemoteAgent_slack_workspace_bindings",
+      {
+        slack_team_id: row.slackTeamId,
+        organization_id: row.organizationId,
+        created_at_ms: row.createdAtMs,
+        updated_at_ms: row.updatedAtMs,
+      },
+      ["slack_team_id"]
+    );
+  }
+  for (const row of input.slackUserIdentityLinks ?? []) {
+    await fixture.writeRow(
+      "slack_user_identity_links",
+      {
+        organization_id: row.organizationId,
+        slack_team_id: row.slackTeamId,
+        slack_user_id: row.slackUserId,
+        openmeld_user_id: row.openmeldUserId,
+        source: row.source,
+        created_at_ms: row.createdAtMs,
+      },
+      ["slack_team_id", "slack_user_id"]
+    );
+  }
+  for (const row of input.nativeDeliveries ?? []) {
+    await fixture.writeRow("openMeldRemoteAgent_native_delivery_ledger", row, [
+      "idempotency_key",
+    ]);
+  }
+  if (input.connectorConnection) {
+    const row = input.connectorConnection;
+    await fixture.writeRow(
+      "connector_connections",
+      {
+        connection_name: row.connectionName,
+        organization_id: row.organizationId,
+        user_id: row.userId ?? "user-a",
+        scope: row.scope,
+        service: row.service,
+        status: row.status,
+        created_at_ms: TEST_NOW_MS,
+        updated_at_ms: TEST_NOW_MS,
+      },
+      ["connection_name"]
+    );
+  }
+  for (const row of input.dispatchLedgerEntries ?? []) {
+    await fixture.writeRow(
+      "openMeldDaemon_dispatch_ledger",
+      {
+        dispatch_id: row.dispatchId,
+        idempotency_key: `fixture:${row.dispatchId}`,
+        space_id: row.spaceId,
+        source_client_message_id: `client:${row.dispatchId}`,
+        source_event_id: `signal:${row.dispatchId}`,
+        target_profile_id: row.targetProfileId,
+        dispatch_owner_kind: "owner_account",
+        dispatch_owner_id: "user-a",
+        status: row.status,
+        first_seen_at_ms: row.firstSeenAtMs ?? 0,
+        last_attempt_at_ms: row.lastAttemptAtMs ?? 0,
+        attempt_count: row.attemptCount ?? 1,
+        latest_attempt_id: row.attemptId ?? null,
+      },
+      ["idempotency_key"]
+    );
+    if (row.attemptId) {
+      await fixture.writeRow(
+        "openMeldDaemon_dispatch_attempts",
+        {
+          attempt_id: row.attemptId,
+          dispatch_id: row.dispatchId,
+          idempotency_key: `fixture:${row.dispatchId}`,
+          attempt_no: row.attemptNo ?? 1,
+          status: row.attemptStatus ?? "created",
+          error_code: row.attemptErrorCode ?? null,
+          error_message: row.attemptErrorMessage ?? null,
+          created_at_ms: row.attemptCreatedAtMs ?? 0,
+          started_at_ms: row.attemptStartedAtMs ?? null,
+          finished_at_ms: row.attemptFinishedAtMs ?? null,
+        },
+        ["attempt_id"]
+      );
+    }
+  }
+  if (input.centerAgentAuditWriteFailures) {
+    await fixture.operator.query(
+      `CREATE SEQUENCE public.audit_fault_calls; CREATE FUNCTION public.audit_write_fault() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF nextval('public.audit_fault_calls') <= ${input.centerAgentAuditWriteFailures} THEN RAISE EXCEPTION 'Test Center Agent audit write failure.'; END IF; RETURN NEW; END $$; CREATE TRIGGER audit_write_fault BEFORE INSERT ON "openmeld"."center_agent_audit_journal" FOR EACH ROW EXECUTE FUNCTION public.audit_write_fault(); GRANT USAGE ON SEQUENCE public.audit_fault_calls TO openmeld_pg_runtime`
+    );
+  }
+  const calls: QueryConfig[] = [];
+  const bindingWriteEvents: string[] = [];
+  let designationWritten = false;
+  let designationRaceApplied = false;
+  const db = observePostgresDatabase(fixture.db, async (query) => {
+    calls.push(query);
+    if (BINDING_WRITE_PATTERN.test(query.text)) {
+      bindingWriteEvents.push(query.text);
+    }
+    if (DESIGNATION_INSERT_PATTERN.test(query.text)) {
+      designationWritten = true;
+    }
+    if (
+      input.centerAgentDesignationReadbackRace &&
+      designationWritten &&
+      !designationRaceApplied &&
+      DESIGNATION_READ_PATTERN.test(query.text)
+    ) {
+      designationRaceApplied = true;
+      await fixture.operator.query({
+        text: 'UPDATE "openmeld"."center_agent_designations" SET agent_profile_id = $1 WHERE organization_id = $2',
+        values: [
+          input.centerAgentDesignationReadbackRace.agentProfileId,
+          input.centerAgentDesignationReadbackRace.organizationId,
+        ],
+      });
+    }
+  });
+  organizationPostgresObservers.set(fixture.binding, db);
+  const bindingSelect = `SELECT agent_controller_conversation_id AS "agentControllerConversationId", agent_controller_permission_mode AS "agentControllerPermissionMode", agent_controller_ref AS "agentControllerRef", agent_profile_id AS "agentProfileId", binding_id AS "bindingId", binding_state AS "bindingState", configuration_revision AS "configurationRevision", created_at_ms AS "createdAtMs", created_by_profile_id AS "createdByProfileId", disabled_at_ms AS "disabledAtMs", hosted_runtime_identity_json AS "hostedRuntimeIdentityJson", model_id AS "modelId", opencode_permission AS "openCodePermission", owner_id AS "ownerId", owner_kind AS "ownerKind", reason_code AS "reasonCode", reasoning_level AS "reasoningLevel", runtime_kind AS "runtimeKind", updated_at_ms AS "updatedAtMs", openmeld_service_runtime_id AS "openMeldServiceRuntimeId" FROM "openmeld"."openMeldDaemon_agent_profile_bindings" WHERE binding_state = 'enabled_primary'`;
+  const readBindings = async () =>
+    (
+      await fixture.operator.query<AgentProfileBindingTestRow>(
+        `${bindingSelect} ORDER BY binding_id`
+      )
+    ).rows;
+  const bindingRows = {
+    values: readBindings,
+    async entries() {
+      return (await readBindings()).map(
+        (row) =>
+          [
+            bindingKey(row.ownerKind, row.ownerId, row.agentProfileId),
+            row,
+          ] as const
+      );
+    },
+    async snapshot() {
+      return new Map(await this.entries());
+    },
+    async size() {
+      return (await readBindings()).length;
+    },
+    async get(key: string) {
+      return (await this.entries()).find(
+        ([candidate]) => candidate === key
+      )?.[1];
+    },
+    async set(_key: string, row: AgentProfileBindingTestRow) {
+      await fixture.operator.query({
+        text: `DELETE FROM "openmeld"."openMeldDaemon_agent_profile_bindings" WHERE owner_kind = $1 AND owner_id = $2 AND agent_profile_id = $3 AND binding_state = 'enabled_primary' AND binding_id <> $4`,
+        values: [row.ownerKind, row.ownerId, row.agentProfileId, row.bindingId],
+      });
+      await fixture.writeRow(
+        "openMeldDaemon_agent_profile_bindings",
+        mapAgentProfileBindingTestRow(row),
+        ["binding_id"]
+      );
+    },
   };
+  const readDesignations = async () =>
+    (
+      await fixture.operator.query<
+        ReturnType<typeof centerAgentDesignationRow>
+      >(
+        `SELECT organization_id AS "organizationId", agent_profile_id AS "agentProfileId", designated_by AS "designatedBy", created_at AS "createdAtMs", operating_state AS "operatingState", paused_at AS "pausedAtMs", paused_by_user_id AS "pausedByUserId" FROM "openmeld"."center_agent_designations" ORDER BY organization_id`
+      )
+    ).rows;
+  const centerAgentDesignations = {
+    values: readDesignations,
+    async size() {
+      return (await readDesignations()).length;
+    },
+    async get(id: string) {
+      return (await readDesignations()).find(
+        (row) => row.organizationId === id
+      );
+    },
+  };
+  async function readCenterAgentAuditRows() {
+    return (
+      await fixture.operator.query<CenterAgentAuditJournalTestRow>(
+        `SELECT id, organization_id AS "organizationId", actor_profile_id AS "actorProfileId", action, on_behalf_of_profile_id AS "onBehalfOfProfileId", on_behalf_of_user_id AS "onBehalfOfUserId", on_behalf_of_display_name AS "onBehalfOfDisplayName", resource_type AS "resourceType", resource_id AS "resourceId", source_native_delivery_id AS "sourceNativeDeliveryId", source_space_id AS "sourceSpaceId", created_at AS "createdAtMs" FROM "openmeld"."center_agent_audit_journal" ORDER BY created_at, id`
+      )
+    ).rows;
+  }
+  async function readMemberActivities() {
+    return (
+      await fixture.operator.query<{
+        organizationId: string;
+        userId: string;
+        humanProfileId: string;
+        lastActiveAtMs: number;
+      }>(
+        `SELECT organization_id AS "organizationId", user_id AS "userId", human_profile_id AS "humanProfileId", last_active_at_ms AS "lastActiveAtMs" FROM "openmeld"."organization_member_activity" ORDER BY organization_id, user_id`
+      )
+    ).rows;
+  }
+  async function readMemoryPolicies() {
+    return (
+      await fixture.operator.query<{
+        organizationId: string;
+        organizationMemoryOptIn: number;
+        updatedByUserId: string | null;
+      }>(
+        `SELECT organization_id AS "organizationId", organization_memory_opt_in AS "organizationMemoryOptIn", updated_by_user_id AS "updatedByUserId" FROM "openmeld"."center_agent_memory_policies" ORDER BY organization_id`
+      )
+    ).rows.map((row) => ({
+      ...row,
+      organizationMemoryOptIn: row.organizationMemoryOptIn === 1,
+    }));
+  }
+  async function readInformationPolicies() {
+    return (
+      await fixture.operator.query<{
+        organizationId: string;
+        protectedInformation: string;
+        updatedByUserId: string | null;
+      }>(
+        `SELECT organization_id AS "organizationId", protected_information AS "protectedInformation", updated_by_user_id AS "updatedByUserId" FROM "openmeld"."organization_information_protection_policies" ORDER BY organization_id`
+      )
+    ).rows;
+  }
   return {
-    ...db,
-    agentProfiles: input.agentProfiles,
-    authorizationRows,
+    binding: fixture.binding,
+    fixture,
+    db,
+    calls,
+    bindingRows,
     bindingWriteEvents,
+    centerAgentDesignations,
+    readCenterAgentAuditRows,
+    readMemberActivities,
+    readMemoryPolicies,
+    readInformationPolicies,
+    authorizationRows: fixture.rows("organization_binding_authorizations", [
+      "id",
+    ]),
+    spaces,
+    agentProfiles: input.agentProfiles,
     members: input.members,
+    writeAgentProfile,
   };
 }
 
@@ -12777,1356 +13029,6 @@ function buildOrganizationDirectoryAgentProfileRow(input: {
   };
 }
 
-function resolveFirstRow(input: {
-  bindingRows: Map<string, AgentProfileBindingTestRow>;
-  agentProfiles: Parameters<typeof createOrganizationRpcDb>[0]["agentProfiles"];
-  args: unknown[];
-  authorizationRows: Map<string, ReturnType<typeof authorizationRow>>;
-  centerAgentAuditRows: CenterAgentAuditJournalTestRow[];
-  centerAgentDesignationRows: Map<
-    string,
-    ReturnType<typeof centerAgentDesignationRow>
-  >;
-  centerAgentDesignationReadbackOverride?: ReturnType<
-    typeof centerAgentDesignationRow
-  > | null;
-  centerAgentMemoryPolicyRows: Map<
-    string,
-    {
-      organizationId: string;
-      organizationMemoryOptIn: boolean;
-      updatedByUserId: string | null;
-    }
-  >;
-  centerAgentPublicationRows: CenterAgentPublicationOperationTestRow[];
-  connectorConnection?: Parameters<
-    typeof createOrganizationRpcDb
-  >[0]["connectorConnection"];
-  informationProtectionPolicyRows: Map<
-    string,
-    {
-      organizationId: string;
-      protectedInformation: string;
-      updatedAtMs: number;
-      updatedByUserId: string | null;
-    }
-  >;
-  members: Parameters<typeof createOrganizationRpcDb>[0]["members"];
-  nativeDeliveries?: Parameters<
-    typeof createOrganizationRpcDb
-  >[0]["nativeDeliveries"];
-  normalizedSql: string;
-  organizations?: Parameters<
-    typeof createOrganizationRpcDb
-  >[0]["organizations"];
-  personalOrganizations?: Array<{ organizationId: string; userId: string }>;
-  slackWorkspaceBindings?: Array<{
-    createdAtMs: number;
-    organizationId: string;
-    slackTeamId: string;
-    updatedAtMs: number;
-  }>;
-  spaces?: ReturnType<typeof spaceRow>[];
-}) {
-  if (
-    input.normalizedSql.includes("from center_agent_audit_journal") &&
-    input.normalizedSql.includes("where id = ?")
-  ) {
-    const row = input.centerAgentAuditRows.find(
-      (entry) => entry.id === String(input.args[0] ?? "")
-    );
-    return row
-      ? {
-          id: row.id,
-          action: row.action,
-          actor_profile_id: row.actorProfileId,
-          organization_id: row.organizationId,
-          on_behalf_of_profile_id: row.onBehalfOfProfileId,
-          on_behalf_of_user_id: row.onBehalfOfUserId,
-          on_behalf_of_display_name: row.onBehalfOfDisplayName,
-          resource_type: row.resourceType,
-          resource_id: row.resourceId,
-          source_native_delivery_id: row.sourceNativeDeliveryId,
-          source_space_id: row.sourceSpaceId,
-          local_agent_client: null,
-          context_manifest_estimated_token_count: null,
-          context_manifest_included_message_count: null,
-          context_manifest_truncated: null,
-          context_load_estimated_token_count: null,
-          context_load_included_message_count: null,
-          context_load_manifest_id: null,
-          created_at: row.createdAtMs,
-        }
-      : null;
-  }
-  if (input.normalizedSql.includes("from connector_connections")) {
-    const organizationId = String(input.args[0] ?? "");
-    const connectionName = String(input.args[1] ?? "");
-    const connection = input.connectorConnection;
-    if (
-      !connection ||
-      connection.organizationId !== organizationId ||
-      connection.connectionName !== connectionName
-    ) {
-      return null;
-    }
-    if (input.normalizedSql.includes("access_policy")) {
-      const activeOnly = Number(input.args[2] ?? 0) === 1;
-      if (activeOnly && connection.status !== "active") {
-        return null;
-      }
-      return {
-        access_policy: null,
-        access_revision: 1,
-        scope: connection.scope,
-      };
-    }
-    return {
-      connection_name: connection.connectionName,
-      created_at_ms: TEST_NOW_MS,
-      disconnected_at_ms: null,
-      organization_id: connection.organizationId,
-      scope: connection.scope,
-      service: connection.service,
-      status: connection.status,
-      updated_at_ms: TEST_NOW_MS,
-      user_id: connection.userId,
-    };
-  }
-
-  if (
-    input.normalizedSql.includes("from openmeld_profiles as profiles") &&
-    input.normalizedSql.includes("profiles.owner_user_id = ?") &&
-    input.normalizedSql.includes("profiles.is_default = 1")
-  ) {
-    const organizationId = String(input.args[0] ?? "");
-    const ownerUserId = String(input.args[1] ?? "");
-    const humanProfile = organizationRpcHumanProfile(ownerUserId);
-    const member = input.members.find(
-      (item) =>
-        item.organizationId === organizationId && item.userId === ownerUserId
-    );
-    return humanProfile && member
-      ? {
-          member_user_id: member.userId,
-          owner_name: member.userName,
-          owner_user_id: member.userId,
-          profile_id: humanProfile.profileId,
-          profile_name: humanProfile.profileName,
-          profile_status: humanProfile.status,
-        }
-      : null;
-  }
-
-  if (
-    input.normalizedSql.includes(
-      "from openmeldremoteagent_native_delivery_ledger"
-    )
-  ) {
-    const lookup = String(input.args[0] ?? "");
-    return (
-      input.nativeDeliveries?.find((delivery) =>
-        input.normalizedSql.includes("where delivery_id = ?")
-          ? delivery.delivery_id === lookup
-          : delivery.submission_id === lookup
-      ) ?? null
-    );
-  }
-
-  if (
-    input.normalizedSql.includes("from center_agent_publication_operations")
-  ) {
-    return (
-      input.centerAgentPublicationRows.find(
-        (row) =>
-          row.organization_id === String(input.args[0] ?? "") &&
-          row.actor_profile_id === String(input.args[1] ?? "") &&
-          row.source_kind === String(input.args[2] ?? "") &&
-          row.source_id === String(input.args[3] ?? "") &&
-          row.source_revision === String(input.args[4] ?? "") &&
-          row.operation_key === String(input.args[5] ?? "") &&
-          row.destination_kind === String(input.args[6] ?? "") &&
-          row.destination_id === String(input.args[7] ?? "")
-      ) ?? null
-    );
-  }
-
-  if (
-    input.normalizedSql.includes(
-      "from openmeldremoteagent_slack_workspace_bindings"
-    )
-  ) {
-    const organizationId = String(input.args[0] ?? "");
-    const binding = input.slackWorkspaceBindings?.find(
-      (item) => item.organizationId === organizationId
-    );
-    return binding
-      ? {
-          created_at_ms: binding.createdAtMs,
-          organization_id: binding.organizationId,
-          slack_team_id: binding.slackTeamId,
-          updated_at_ms: binding.updatedAtMs,
-        }
-      : null;
-  }
-
-  if (input.normalizedSql.includes("from slack_workspace_tokens")) {
-    return null;
-  }
-
-  if (
-    input.normalizedSql.includes("from members") &&
-    input.normalizedSql.includes("inner join openmeld_profiles as profiles") &&
-    input.normalizedSql.includes("profiles.profile_kind = 'human'")
-  ) {
-    const organizationId = String(input.args[0] ?? "");
-    const memberId = String(input.args[1] ?? "");
-    const userId = String(input.args[2] ?? "");
-    const member = input.members.find(
-      (item) =>
-        item.organizationId === organizationId &&
-        item.memberId === memberId &&
-        item.userId === userId
-    );
-    return member
-      ? {
-          member_id: member.memberId,
-          profile_id: HUMAN_PROFILE_ID,
-          profile_name: member.userName,
-          role: member.role,
-          user_id: member.userId,
-        }
-      : null;
-  }
-
-  if (
-    input.normalizedSql.includes("from members") &&
-    (input.normalizedSql.includes("select id, role") ||
-      input.normalizedSql.includes("select role"))
-  ) {
-    const organizationId = String(input.args[0] ?? "");
-    const userId = String(input.args[1] ?? "");
-    const member = input.members.find(
-      (member) =>
-        member.organizationId === organizationId && member.userId === userId
-    );
-    return member ? { id: member.memberId, role: member.role } : null;
-  }
-
-  if (
-    input.normalizedSql.includes("select") &&
-    input.normalizedSql.includes("user_id") &&
-    input.normalizedSql.includes("from members") &&
-    input.normalizedSql.includes("role = 'owner'")
-  ) {
-    const organizationId = String(input.args[0] ?? "");
-    const owner = input.members
-      .filter(
-        (member) =>
-          member.organizationId === organizationId && member.role === "owner"
-      )
-      .sort(
-        (left, right) =>
-          left.createdAt - right.createdAt ||
-          left.memberId.localeCompare(right.memberId)
-      )[0];
-    return owner ? { user_id: owner.userId } : null;
-  }
-
-  if (
-    input.normalizedSql.includes(
-      "select organizations.id as organization_id"
-    ) &&
-    input.normalizedSql.includes("json_extract(organizations.metadata")
-  ) {
-    const userId = String(input.args[0] ?? "");
-    const organization = input.personalOrganizations?.find(
-      (item) => item.userId === userId
-    );
-    return organization
-      ? { organization_id: organization.organizationId }
-      : null;
-  }
-
-  if (
-    input.normalizedSql.includes("from organizations") &&
-    input.normalizedSql.includes("where id = ?")
-  ) {
-    const organizationId = String(input.args[0] ?? "");
-    const organization = input.organizations?.find(
-      (item) => item.organizationId === organizationId
-    );
-    if (input.normalizedSql.includes("created_by_user_id")) {
-      const creatorUserId =
-        organization?.createdByUserId ??
-        input.members
-          .filter(
-            (member) =>
-              member.organizationId === organizationId &&
-              member.role === "owner"
-          )
-          .sort(
-            (left, right) =>
-              left.createdAt - right.createdAt ||
-              left.memberId.localeCompare(right.memberId)
-          )[0]?.userId ??
-        null;
-      return { created_by_user_id: creatorUserId };
-    }
-    return {
-      metadata: organization?.metadata ?? null,
-      name: organization?.name ?? "Test Organization",
-      slug: organization?.slug ?? organizationId,
-    };
-  }
-
-  if (input.normalizedSql.includes("from center_agent_memory_policies")) {
-    const organizationId = String(input.args[0] ?? "");
-    const policy = input.centerAgentMemoryPolicyRows.get(organizationId);
-    return policy
-      ? {
-          organization_memory_opt_in: policy.organizationMemoryOptIn ? 1 : 0,
-          updated_by_user_id: policy.updatedByUserId,
-        }
-      : null;
-  }
-
-  if (
-    input.normalizedSql.includes(
-      "from organization_information_protection_policies"
-    )
-  ) {
-    const organizationId = String(input.args[0] ?? "");
-    const policy =
-      input.informationProtectionPolicyRows.get(organizationId) ?? null;
-    return policy
-      ? {
-          organization_id: policy.organizationId,
-          protected_information: policy.protectedInformation,
-          updated_at_ms: policy.updatedAtMs,
-          updated_by_user_id: policy.updatedByUserId,
-        }
-      : null;
-  }
-
-  if (input.normalizedSql.includes("from center_agent_designations")) {
-    const organizationId = String(input.args[0] ?? "");
-    const designation =
-      input.centerAgentDesignationReadbackOverride === undefined
-        ? input.centerAgentDesignationRows.get(organizationId)
-        : input.centerAgentDesignationReadbackOverride;
-    return designation
-      ? {
-          agent_profile_id: designation.agentProfileId,
-          created_at: designation.createdAtMs,
-          designated_by: designation.designatedBy,
-          duty: null,
-          operating_state: designation.operatingState,
-          organization_id: designation.organizationId,
-          paused_at: designation.pausedAtMs,
-          paused_by_user_id: designation.pausedByUserId,
-        }
-      : null;
-  }
-
-  if (input.normalizedSql.includes("from openmeld_profiles as profiles")) {
-    const organizationId = String(input.args[0] ?? "");
-    const profileId = String(input.args.at(-1) ?? "");
-    const agentProfile = input.agentProfiles.find(
-      (profile) => profile.profileId === profileId
-    );
-    const hasAuthorizedBinding = input.authorizationRows.has(
-      authorizationKey(organizationId, `binding-${profileId}`)
-    );
-    if (agentProfile) {
-      return {
-        has_authorized_binding: hasAuthorizedBinding ? 1 : 0,
-        is_default: agentProfile.isDefault ?? 0,
-        member_user_id: input.members.some(
-          (member) =>
-            member.organizationId === organizationId &&
-            member.userId === agentProfile.ownerUserId
-        )
-          ? agentProfile.ownerUserId
-          : null,
-        managed_role: agentProfile.managedRole ?? null,
-        organization_id: agentProfile.organizationId,
-        owner_name: agentProfile.ownerUserId === "user-a" ? "Ava" : "Ben",
-        owner_user_id: agentProfile.ownerUserId,
-        profile_id: agentProfile.profileId,
-        profile_kind: "agent",
-        profile_name: agentProfile.profileName,
-        profile_status: agentProfile.status,
-      };
-    }
-    if (
-      profileId === HUMAN_PROFILE_ID ||
-      profileId === SECOND_HUMAN_PROFILE_ID
-    ) {
-      const member = input.members.find(
-        (item) =>
-          item.organizationId === organizationId && item.userId === "user-a"
-      );
-      return member
-        ? {
-            has_authorized_binding: 0,
-            is_default: profileId === HUMAN_PROFILE_ID ? 1 : 0,
-            member_user_id: member.userId,
-            organization_id: null,
-            owner_name: member.userName,
-            owner_user_id: member.userId,
-            profile_id: profileId,
-            profile_kind: "human",
-            profile_name: member.userName,
-            profile_status: "active",
-          }
-        : null;
-    }
-    return null;
-  }
-
-  if (
-    input.normalizedSql.includes("from openmeld_profiles") &&
-    input.normalizedSql.includes("where profile_id = ?")
-  ) {
-    const profileId = String(input.args[0] ?? "");
-    const agentProfile = input.agentProfiles.find(
-      (profile) => profile.profileId === profileId
-    );
-    return agentProfile
-      ? {
-          managed_role: agentProfile.managedRole ?? null,
-          organization_id: agentProfile.organizationId,
-          owner_user_id: agentProfile.ownerUserId,
-          profile_id: agentProfile.profileId,
-          profile_kind: "agent",
-          profile_name: agentProfile.profileName,
-          status: agentProfile.status,
-        }
-      : null;
-  }
-
-  if (
-    input.normalizedSql.includes("from openmeld_profiles") &&
-    input.normalizedSql.includes("profile_id = ?") &&
-    input.normalizedSql.includes("managed_role = ?") &&
-    input.normalizedSql.includes("status = 'active'")
-  ) {
-    const organizationId = String(input.args[0] ?? "");
-    const profileId = String(input.args[1] ?? "");
-    const managedRole = String(input.args[2] ?? "");
-    const agentProfile = input.agentProfiles.find(
-      (profile) =>
-        profile.organizationId === organizationId &&
-        profile.profileId === profileId &&
-        profile.managedRole === managedRole &&
-        profile.status === "active"
-    );
-    return agentProfile
-      ? {
-          owner_user_id: agentProfile.ownerUserId,
-          profile_id: agentProfile.profileId,
-        }
-      : null;
-  }
-
-  if (
-    input.normalizedSql.includes("from openmeld_profiles") &&
-    input.normalizedSql.includes("managed_role = ?") &&
-    input.normalizedSql.includes("status = 'active'")
-  ) {
-    const organizationId = String(input.args[0] ?? "");
-    const managedRole = String(input.args[1] ?? "");
-    const agentProfile = input.agentProfiles
-      .filter(
-        (profile) =>
-          profile.organizationId === organizationId &&
-          profile.managedRole === managedRole &&
-          profile.status === "active"
-      )
-      .sort(
-        (left, right) =>
-          (right.updatedAt ?? 1_700_000_000_000) -
-            (left.updatedAt ?? 1_700_000_000_000) ||
-          (right.createdAt ?? 1_700_000_000_000) -
-            (left.createdAt ?? 1_700_000_000_000)
-      )[0];
-    return agentProfile
-      ? {
-          owner_user_id: agentProfile.ownerUserId,
-          profile_id: agentProfile.profileId,
-        }
-      : null;
-  }
-
-  if (input.normalizedSql.includes("openmelddaemon_agent_profile_bindings")) {
-    const ownerId = String(input.args[1] ?? "");
-    const profileId = String(input.args[2] ?? "");
-    const storedBinding = input.bindingRows.get(
-      bindingKey(
-        input.args[0] as "owner_account" | "organization",
-        ownerId,
-        profileId
-      )
-    );
-    if (storedBinding) {
-      return mapAgentProfileBindingTestRow(storedBinding);
-    }
-    const agentProfile = input.agentProfiles.find(
-      (profile) =>
-        profile.profileId === profileId &&
-        profile.ownerUserId === ownerId &&
-        profile.hasBinding !== false
-    );
-    return agentProfile
-      ? {
-          agent_controller_conversation_id: null,
-          agent_controller_permission_mode: "ask",
-          agent_controller_ref: "builtin:codex",
-          agent_profile_id: profileId,
-          binding_id: `binding-${profileId}`,
-          binding_state: "enabled_primary",
-          configuration_revision: 0,
-          hosted_runtime_identity_json: null,
-          created_at_ms: 1_700_000_000_000,
-          created_by_profile_id: HUMAN_PROFILE_ID,
-          disabled_at_ms: null,
-          model_id: null,
-          owner_id: ownerId,
-          runtime_kind: "openmeld_service",
-          owner_kind: "owner_account",
-          reason_code: null,
-          reasoning_level: null,
-          updated_at_ms: 1_700_000_000_000,
-          openmeld_service_runtime_id: `runtime-${profileId}`,
-        }
-      : null;
-  }
-
-  if (
-    input.normalizedSql.includes("from organization_binding_authorizations") &&
-    !input.normalizedSql.includes("as authorizations")
-  ) {
-    const organizationId = String(input.args[0] ?? "");
-    const bindingId = String(input.args[1] ?? "");
-    const authorization = input.authorizationRows.get(
-      authorizationKey(organizationId, bindingId)
-    );
-    return authorization === undefined
-      ? null
-      : {
-          authorized_by: authorization.authorizedBy,
-          binding_id: bindingId,
-          created_at: authorization.createdAtMs,
-          id: authorization.id,
-          organization_id: organizationId,
-        };
-  }
-
-  if (
-    input.normalizedSql.includes("count(*) as count") &&
-    input.normalizedSql.includes("from space_index_spaces") &&
-    input.normalizedSql.includes("direct_message_pair_key")
-  ) {
-    const organizationId = String(input.args[0] ?? "");
-    const pairKey = String(input.args[1] ?? "");
-    const purpose = String(input.args[2] ?? "");
-    return {
-      count: (input.spaces ?? []).filter(
-        (space) =>
-          space.organizationId === organizationId &&
-          space.directMessagePairKey === pairKey &&
-          space.spacePurpose === purpose
-      ).length,
-    };
-  }
-
-  if (
-    input.normalizedSql.includes("from space_index_spaces s") &&
-    input.normalizedSql.includes("s.direct_message_pair_key = ?") &&
-    !input.normalizedSql.includes("active_member_count")
-  ) {
-    const organizationId = String(input.args[0] ?? "");
-    const pairKey = String(input.args[1] ?? "");
-    const purpose = String(input.args[2] ?? "");
-    const space = (input.spaces ?? []).find(
-      (item) =>
-        item.organizationId === organizationId &&
-        item.directMessagePairKey === pairKey &&
-        item.spacePurpose === purpose &&
-        (!input.normalizedSql.includes(
-          "s.direct_message_converted_at_ms is null"
-        ) ||
-          item.directMessageConvertedAtMs === null) &&
-        item.status === "active"
-    );
-    return space ? toDirectMessageSpaceIndexRow(space) : null;
-  }
-
-  if (
-    input.normalizedSql.includes("from space_index_spaces s") &&
-    input.normalizedSql.includes("s.direct_message_pair_key = ?")
-  ) {
-    const organizationId = String(input.args[0] ?? "");
-    const pairKey = String(input.args[1] ?? "");
-    const purpose = String(input.args[2] ?? "");
-    const space = (input.spaces ?? []).find(
-      (item) =>
-        item.organizationId === organizationId &&
-        item.directMessagePairKey === pairKey &&
-        item.spacePurpose === purpose &&
-        (!input.normalizedSql.includes(
-          "s.direct_message_converted_at_ms is null"
-        ) ||
-          item.directMessageConvertedAtMs === null) &&
-        item.status === "active" &&
-        typeof item.activeMemberCount === "number" &&
-        item.activeMemberCount <= 2
-    );
-    return space ? toDirectMessageSpaceIndexRow(space) : null;
-  }
-
-  if (
-    input.normalizedSql.includes("from space_index_spaces s") &&
-    input.normalizedSql.includes("where s.space_id = ?")
-  ) {
-    const spaceId = String(input.args[0] ?? "");
-    const space = (input.spaces ?? []).find(
-      (item) =>
-        item.spaceId === spaceId &&
-        item.status === "active" &&
-        (!input.normalizedSql.includes(
-          "s.direct_message_converted_at_ms is null"
-        ) ||
-          item.directMessageConvertedAtMs === null)
-    );
-    return space ? toDirectMessageSpaceIndexRow(space) : null;
-  }
-
-  if (
-    input.normalizedSql.includes("from space_index_spaces") &&
-    input.normalizedSql.includes("where space_id = ?")
-  ) {
-    const spaceId = String(input.args[0] ?? "");
-    const space = (input.spaces ?? []).find(
-      (item) => item.spaceId === spaceId && item.status === "active"
-    );
-    return space
-      ? {
-          organization_id: space.organizationId,
-          organization_visibility: space.visibility,
-          space_id: space.spaceId,
-        }
-      : null;
-  }
-
-  return null;
-}
-
-function resolveAllRows(input: {
-  agentProfiles: Parameters<typeof createOrganizationRpcDb>[0]["agentProfiles"];
-  args: unknown[];
-  authorizationRows?: Map<string, ReturnType<typeof authorizationRow>>;
-  bindingRows?: Map<string, AgentProfileBindingTestRow>;
-  centerAgentAuditRows?: CenterAgentAuditJournalTestRow[];
-  centerAgentDesignationRows?: Map<
-    string,
-    ReturnType<typeof centerAgentDesignationRow>
-  >;
-  dispatchLedgerEntries?: DispatchLedgerTestEntry[];
-  memberActivities?: Parameters<
-    typeof createOrganizationRpcDb
-  >[0]["memberActivities"];
-  members: Parameters<typeof createOrganizationRpcDb>[0]["members"];
-  normalizedSql: string;
-  organizations?: Parameters<
-    typeof createOrganizationRpcDb
-  >[0]["organizations"];
-  ownedDevices?: Parameters<typeof createOrganizationRpcDb>[0]["ownedDevices"];
-  slackUserIdentityLinks?: Parameters<
-    typeof createOrganizationRpcDb
-  >[0]["slackUserIdentityLinks"];
-  spaceMemberships?: ReturnType<typeof spaceMembershipRow>[];
-  spaces?: ReturnType<typeof spaceRow>[];
-}) {
-  if (input.normalizedSql.includes("from organization_member_activity")) {
-    const organizationId = String(input.args[0] ?? "");
-    return (input.memberActivities ?? [])
-      .filter((activity) => activity.organizationId === organizationId)
-      .sort((left, right) => left.userId.localeCompare(right.userId))
-      .map((activity) => ({
-        human_profile_id: activity.humanProfileId,
-        last_active_at_ms: activity.lastActiveAtMs,
-        organization_id: activity.organizationId,
-        updated_at_ms: activity.lastActiveAtMs,
-        user_id: activity.userId,
-      }));
-  }
-
-  if (input.normalizedSql.includes("from openmelddaemon_owned_devices")) {
-    const ownerUserId = String(input.args[0] ?? "");
-    return (input.ownedDevices ?? [])
-      .filter((device) => device.ownerUserId === ownerUserId)
-      .sort(
-        (left, right) =>
-          right.updatedAtMs - left.updatedAtMs ||
-          left.deviceId.localeCompare(right.deviceId)
-      )
-      .map((device) => ({
-        connected_computer_id: null,
-        device_id: device.deviceId,
-        device_type: "laptop",
-        first_seen_at_ms: device.firstSeenAtMs,
-        last_observed_at_ms: device.lastObservedAtMs,
-        observed_display_name: device.observedDisplayName,
-        os_version: "15.5",
-        owner_user_id: device.ownerUserId,
-        platform_family: "macOS",
-        updated_at_ms: device.updatedAtMs,
-        user_display_name: null,
-      }));
-  }
-
-  if (input.normalizedSql.includes("from slack_user_identity_links")) {
-    const organizationId = String(input.args[0] ?? "");
-    const slackTeamId = String(input.args[1] ?? "");
-    const slackUserIds = new Set(
-      input.args.slice(2).map((value) => String(value ?? ""))
-    );
-    return (input.slackUserIdentityLinks ?? [])
-      .filter(
-        (link) =>
-          link.organizationId === organizationId &&
-          link.slackTeamId === slackTeamId &&
-          slackUserIds.has(link.slackUserId)
-      )
-      .map((link) => ({
-        created_at_ms: link.createdAtMs,
-        organization_id: link.organizationId,
-        slack_team_id: link.slackTeamId,
-        slack_user_id: link.slackUserId,
-        source: link.source,
-        openmeld_user_id: link.openmeldUserId,
-      }));
-  }
-
-  if (
-    input.normalizedSql.includes(
-      "from openmelddaemon_dispatch_ledger as ledger"
-    )
-  ) {
-    const spaceId = String(input.args[0] ?? "");
-    const hasTargetProfileFilter = input.normalizedSql.includes(
-      "and ledger.target_profile_id = ?"
-    );
-    const hasDispatchIdFilter = input.normalizedSql.includes(
-      "and ledger.dispatch_id = ?"
-    );
-    let argIndex = 1;
-    const targetProfileId = hasTargetProfileFilter
-      ? String(input.args[argIndex++] ?? "")
-      : null;
-    const dispatchId = hasDispatchIdFilter
-      ? String(input.args[argIndex++] ?? "")
-      : null;
-    const limit = Number(input.args[argIndex] ?? 10);
-
-    return [...(input.dispatchLedgerEntries ?? [])]
-      .filter((row) => row.spaceId === spaceId)
-      .filter(
-        (row) => !targetProfileId || row.targetProfileId === targetProfileId
-      )
-      .filter((row) => !dispatchId || row.dispatchId === dispatchId)
-      .sort(
-        (left, right) =>
-          (right.lastAttemptAtMs ?? 0) - (left.lastAttemptAtMs ?? 0)
-      )
-      .slice(0, limit)
-      .map((row) => ({
-        attemptCount: row.attemptCount ?? 1,
-        attemptCreatedAtMs: row.attemptCreatedAtMs ?? 0,
-        attemptErrorCode: row.attemptErrorCode ?? null,
-        attemptErrorMessage: row.attemptErrorMessage ?? null,
-        attemptFinishedAtMs: row.attemptFinishedAtMs ?? null,
-        attemptId: row.attemptId ?? null,
-        attemptNo: row.attemptNo ?? 1,
-        attemptStartedAtMs: row.attemptStartedAtMs ?? null,
-        attemptStatus: row.attemptStatus ?? null,
-        dispatchId: row.dispatchId,
-        firstSeenAtMs: row.firstSeenAtMs ?? 0,
-        lastAttemptAtMs: row.lastAttemptAtMs ?? 0,
-        status: row.status,
-        targetProfileId: row.targetProfileId,
-      }));
-  }
-
-  if (input.normalizedSql.includes("from center_agent_audit_journal")) {
-    const exactId = input.normalizedSql.includes("where id = ?")
-      ? String(input.args[0] ?? "")
-      : null;
-    const organizationId = String(input.args[0] ?? "");
-    const excludesActions = input.normalizedSql.includes("action not in");
-    const excludedActions = new Set(
-      excludesActions
-        ? input.args.slice(1, -1).map((value) => String(value ?? ""))
-        : []
-    );
-    const limit = exactId ? 1 : Number(input.args.at(-1) ?? 100);
-    return [...(input.centerAgentAuditRows ?? [])]
-      .filter(
-        (row) =>
-          (exactId
-            ? row.id === exactId
-            : row.organizationId === organizationId) &&
-          !excludedActions.has(row.action)
-      )
-      .sort(
-        (left, right) =>
-          right.createdAtMs - left.createdAtMs ||
-          right.id.localeCompare(left.id)
-      )
-      .slice(0, limit)
-      .map((row) => ({
-        action: row.action,
-        actor_profile_id: row.actorProfileId,
-        context_load_estimated_token_count: null,
-        context_load_included_message_count: null,
-        context_load_manifest_id: null,
-        context_manifest_estimated_token_count: null,
-        context_manifest_included_message_count: null,
-        context_manifest_truncated: null,
-        created_at: row.createdAtMs,
-        id: row.id,
-        local_agent_client: null,
-        on_behalf_of_display_name: row.onBehalfOfDisplayName,
-        on_behalf_of_profile_id: row.onBehalfOfProfileId,
-        on_behalf_of_user_id: row.onBehalfOfUserId,
-        organization_id: row.organizationId,
-        resource_id: row.resourceId,
-        resource_type: row.resourceType,
-        source_native_delivery_id: row.sourceNativeDeliveryId ?? null,
-        source_space_id: row.sourceSpaceId ?? null,
-      }));
-  }
-
-  if (
-    input.normalizedSql.includes("from openmeld_profiles as profiles") &&
-    input.normalizedSql.includes(
-      "left join organization_binding_authorizations as authorizations"
-    )
-  ) {
-    const authorizationOrganizationId = String(input.args[0] ?? "");
-    const profileOrganizationIds = new Set(
-      input.args.slice(1, -2).map((value) => String(value))
-    );
-    const userId = String(input.args.at(-2) ?? "");
-    const preferredOrganizationId = String(input.args.at(-1) ?? "");
-    return input.agentProfiles
-      .filter(
-        (profile) =>
-          profileOrganizationIds.has(profile.organizationId) &&
-          profile.ownerUserId === userId &&
-          profile.status === "active"
-      )
-      .sort(
-        (left, right) =>
-          (left.organizationId === preferredOrganizationId ? 0 : 1) -
-            (right.organizationId === preferredOrganizationId ? 0 : 1) ||
-          left.profileName.localeCompare(right.profileName, undefined, {
-            sensitivity: "base",
-          }) ||
-          left.profileId.localeCompare(right.profileId)
-      )
-      .map((profile) => {
-        const bindingId =
-          profile.hasBinding === false ? null : `binding-${profile.profileId}`;
-        const authorization = bindingId
-          ? input.authorizationRows?.get(
-              authorizationKey(authorizationOrganizationId, bindingId)
-            )
-          : null;
-        return {
-          agent_profile_id: profile.profileId,
-          authorized_at: authorization?.createdAtMs ?? null,
-          authorized_by: authorization?.authorizedBy ?? null,
-          binding_id: bindingId,
-          owner_user_id: profile.ownerUserId,
-          profile_handle: profile.profileHandle,
-          profile_name: profile.profileName,
-          profile_organization_id: profile.organizationId,
-        };
-      });
-  }
-
-  if (
-    input.normalizedSql.includes(
-      "inner join openmelddaemon_agent_profile_bindings as bindings"
-    ) &&
-    input.normalizedSql.includes("bindings.binding_state = 'enabled_primary'")
-  ) {
-    const organizationId = String(input.args[0] ?? "");
-    const userId = String(input.args[1] ?? "");
-    const requestedProfileIds = new Set(
-      input.args.slice(2).map((value) => String(value))
-    );
-    return input.agentProfiles
-      .filter(
-        (profile) =>
-          profile.organizationId === organizationId &&
-          profile.ownerUserId === userId &&
-          profile.status === "active" &&
-          (requestedProfileIds.size === 0 ||
-            requestedProfileIds.has(profile.profileId))
-      )
-      .map((profile) => ({
-        agent_profile_id: profile.profileId,
-        binding_id: `binding-${profile.profileId}`,
-        managed_role: profile.managedRole ?? null,
-        organization_id: profile.organizationId,
-        owner_user_id: profile.ownerUserId,
-      }));
-  }
-
-  if (
-    input.normalizedSql.includes("from members") &&
-    input.normalizedSql.includes("inner join users")
-  ) {
-    const organizationId = String(input.args[0] ?? "");
-    return input.members
-      .filter((member) => member.organizationId === organizationId)
-      .map((member) => {
-        const humanProfile = organizationRpcHumanProfile(member.userId);
-        return {
-          human_profile_handle: humanProfile?.profileHandle ?? null,
-          human_profile_id: humanProfile?.profileId ?? null,
-          human_profile_last_used_at: humanProfile?.lastUsedAt ?? null,
-          human_profile_name: humanProfile?.profileName ?? null,
-          human_profile_status: humanProfile?.status ?? null,
-          member_created_at: member.createdAt,
-          member_id: member.memberId,
-          organization_id: member.organizationId,
-          role: member.role,
-          user_email: member.userEmail,
-          user_id: member.userId,
-          user_image: member.userImage,
-          user_name: member.userName,
-        };
-      });
-  }
-
-  if (
-    input.normalizedSql.includes(
-      "from organization_binding_authorizations as authorizations"
-    ) &&
-    input.normalizedSql.includes("profiles.profile_handle")
-  ) {
-    const organizationId = String(input.args[0] ?? "");
-    const authorizedOrganizationId = String(input.args[1] ?? organizationId);
-    const profilesById = new Map<
-      string,
-      Parameters<typeof createOrganizationRpcDb>[0]["agentProfiles"][number]
-    >();
-
-    for (const profile of input.agentProfiles) {
-      if (profile.organizationId === organizationId) {
-        profilesById.set(profile.profileId, profile);
-      }
-    }
-
-    for (const authorization of input.authorizationRows?.values() ?? []) {
-      if (authorization.organizationId !== authorizedOrganizationId) {
-        continue;
-      }
-      const profile = input.agentProfiles.find(
-        (candidate) =>
-          candidate.profileId === authorization.agentProfileId &&
-          candidate.status === "active"
-      );
-      if (profile) {
-        profilesById.set(profile.profileId, profile);
-      }
-    }
-
-    return [...profilesById.values()]
-      .map((profile) =>
-        buildOrganizationDirectoryAgentProfileRow({
-          members: input.members,
-          profile,
-        })
-      )
-      .sort(
-        (left, right) =>
-          left.profile_name.localeCompare(right.profile_name, undefined, {
-            sensitivity: "base",
-          }) || left.profile_id.localeCompare(right.profile_id)
-      );
-  }
-
-  if (
-    input.normalizedSql.includes("directory_agents") &&
-    input.normalizedSql.includes("left join users")
-  ) {
-    const organizationId = String(input.args[0] ?? "");
-    const directoryProfiles = new Map<
-      string,
-      (typeof input.agentProfiles)[number]
-    >();
-    for (const profile of input.agentProfiles) {
-      if (profile.organizationId === organizationId) {
-        directoryProfiles.set(profile.profileId, profile);
-      }
-    }
-    for (const authorization of input.authorizationRows?.values() ?? []) {
-      if (authorization.organizationId !== organizationId) {
-        continue;
-      }
-      const profile = input.agentProfiles.find(
-        (item) =>
-          item.profileId === authorization.agentProfileId &&
-          item.status === "active"
-      );
-      if (profile) {
-        directoryProfiles.set(profile.profileId, profile);
-      }
-    }
-    return [...directoryProfiles.values()]
-      .map((profile) =>
-        buildOrganizationDirectoryAgentProfileRow({
-          members: input.members,
-          profile,
-        })
-      )
-      .sort(
-        (left, right) =>
-          left.profile_name.localeCompare(right.profile_name, undefined, {
-            sensitivity: "base",
-          }) || left.profile_id.localeCompare(right.profile_id)
-      );
-  }
-
-  if (
-    input.normalizedSql.includes("from openmeld_profiles") &&
-    input.normalizedSql.includes("profile_kind = 'agent'")
-  ) {
-    const organizationId = String(input.args[0] ?? "");
-    return input.agentProfiles
-      .filter((profile) => profile.organizationId === organizationId)
-      .map((profile) =>
-        buildOrganizationDirectoryAgentProfileRow({
-          members: input.members,
-          profile,
-        })
-      );
-  }
-
-  if (
-    input.normalizedSql.includes("from organization_binding_authorizations") &&
-    input.normalizedSql.includes("where binding_id = ?")
-  ) {
-    const bindingId = String(input.args[0] ?? "");
-    return [...(input.authorizationRows?.values() ?? [])]
-      .filter((authorization) => authorization.bindingId === bindingId)
-      .sort(
-        (left, right) =>
-          left.createdAtMs - right.createdAtMs ||
-          left.organizationId.localeCompare(right.organizationId)
-      )
-      .map((authorization) => ({
-        authorized_by: authorization.authorizedBy,
-        binding_id: authorization.bindingId,
-        created_at: authorization.createdAtMs,
-        id: authorization.id,
-        organization_id: authorization.organizationId,
-      }));
-  }
-
-  if (
-    input.normalizedSql.includes(
-      "from organization_binding_authorizations as authorizations"
-    )
-  ) {
-    const organizationId = String(input.args[0] ?? "");
-    return [...(input.authorizationRows?.values() ?? [])]
-      .filter(
-        (authorization) => authorization.organizationId === organizationId
-      )
-      .filter((authorization) =>
-        input.agentProfiles.some(
-          (profile) =>
-            profile.profileId === authorization.agentProfileId &&
-            profile.status === "active"
-        )
-      )
-      .sort(
-        (left, right) =>
-          right.createdAtMs - left.createdAtMs ||
-          left.agentProfileId.localeCompare(right.agentProfileId) ||
-          left.bindingId.localeCompare(right.bindingId)
-      )
-      .map((authorization) => ({
-        agent_profile_id: authorization.agentProfileId,
-        authorized_by: authorization.authorizedBy,
-        binding_id: authorization.bindingId,
-        created_at: authorization.createdAtMs,
-        id: authorization.id,
-        organization_id: authorization.organizationId,
-      }));
-  }
-
-  if (input.normalizedSql.includes("from space_index_spaces s")) {
-    const ownerUserId = String(input.args[0] ?? "");
-    const profileId = input.args[1];
-    const organizationId = String(input.args[2] ?? "");
-    const limit = Number(input.args[3] ?? 500);
-    return (input.spaces ?? [])
-      .filter(
-        (space) =>
-          space.organizationId === organizationId && space.status === "active"
-      )
-      .map((space) => {
-        const joinedAtValues = (input.spaceMemberships ?? [])
-          .filter(
-            (membership) =>
-              membership.spaceId === space.spaceId &&
-              (membership.ownerUserId === ownerUserId ||
-                membership.profileId === profileId) &&
-              membership.status === "active"
-          )
-          .map((membership) => membership.addedAtMs);
-        const latestJoinedAtMs =
-          joinedAtValues.length > 0 ? Math.max(...joinedAtValues) : null;
-        return { space, latestJoinedAtMs };
-      })
-      .filter(
-        ({ latestJoinedAtMs, space }) =>
-          space.visibility === "public" || latestJoinedAtMs !== null
-      )
-      .sort((left, right) => {
-        const joinedOrder =
-          Number(left.latestJoinedAtMs === null) -
-          Number(right.latestJoinedAtMs === null);
-        if (joinedOrder !== 0) {
-          return joinedOrder;
-        }
-        const leftJoinedAt = left.latestJoinedAtMs ?? 0;
-        const rightJoinedAt = right.latestJoinedAtMs ?? 0;
-        if (rightJoinedAt !== leftJoinedAt) {
-          return rightJoinedAt - leftJoinedAt;
-        }
-        const leftUpdatedAt =
-          left.space.spaceUpdatedAtMs ?? left.space.sourceUpdatedAtMs;
-        const rightUpdatedAt =
-          right.space.spaceUpdatedAtMs ?? right.space.sourceUpdatedAtMs;
-        if (rightUpdatedAt !== leftUpdatedAt) {
-          return rightUpdatedAt - leftUpdatedAt;
-        }
-        const nameOrder = (
-          left.space.spaceName ?? "Untitled space"
-        ).localeCompare(right.space.spaceName ?? "Untitled space");
-        if (nameOrder !== 0) {
-          return nameOrder;
-        }
-        return left.space.spaceId.localeCompare(right.space.spaceId);
-      })
-      .slice(0, limit)
-      .map(({ latestJoinedAtMs, space }) => ({
-        center_agent_profile_id:
-          input.centerAgentDesignationRows?.get(space.organizationId)
-            ?.agentProfileId ?? null,
-        direct_message_pair_key: space.directMessagePairKey,
-        direct_message_converted_at_ms: space.directMessageConvertedAtMs,
-        latest_joined_at_ms: latestJoinedAtMs,
-        organization_id: space.organizationId,
-        organization_visibility: space.visibility,
-        source_updated_at_ms: space.sourceUpdatedAtMs,
-        space_created_at_ms: space.spaceCreatedAtMs,
-        space_id: space.spaceId,
-        space_name: space.spaceName,
-        space_purpose: space.spacePurpose,
-        space_updated_at_ms: space.spaceUpdatedAtMs,
-      }));
-  }
-
-  if (
-    input.normalizedSql.includes(
-      "from openmelddaemon_agent_profile_bindings"
-    ) &&
-    input.normalizedSql.includes("where agent_profile_id = ?") &&
-    input.normalizedSql.includes("binding_state = 'enabled_primary'")
-  ) {
-    const agentProfileId = String(input.args[0] ?? "");
-    const explicitBindings = [...(input.bindingRows?.values() ?? [])].filter(
-      (binding) =>
-        binding.agentProfileId === agentProfileId &&
-        binding.bindingState === "enabled_primary"
-    );
-    const explicitOwners = new Set(
-      explicitBindings.map((binding) => binding.ownerId)
-    );
-    const implicitBindings = input.agentProfiles
-      .filter(
-        (profile): profile is typeof profile & { ownerUserId: string } =>
-          profile.ownerUserId !== null
-      )
-      .filter(
-        (profile) =>
-          profile.profileId === agentProfileId &&
-          profile.status === "active" &&
-          profile.managedRole !== "center_agent" &&
-          profile.hasBinding !== false &&
-          !explicitOwners.has(profile.ownerUserId)
-      )
-      .map<AgentProfileBindingTestRow>((profile) => ({
-        agentControllerConversationId: null,
-        agentControllerPermissionMode: "ask",
-        agentControllerRef: "builtin:codex",
-        agentProfileId: profile.profileId,
-        bindingId: `binding-${profile.profileId}`,
-        bindingState: "enabled_primary",
-        configurationRevision: 0,
-        createdAtMs: profile.createdAt ?? 1_700_000_000_000,
-        createdByProfileId: HUMAN_PROFILE_ID,
-        disabledAtMs: null,
-        hostedRuntimeIdentityJson: null,
-        modelId: null,
-        openCodePermission: null,
-        ownerId: profile.ownerUserId,
-        ownerKind: "owner_account",
-        reasonCode: null,
-        reasoningLevel: null,
-        runtimeKind: "openmeld_service",
-        updatedAtMs: profile.updatedAt ?? 1_700_000_000_000,
-        openMeldServiceRuntimeId: `runtime-${profile.profileId}`,
-      }));
-    return [...explicitBindings, ...implicitBindings]
-      .sort(
-        (left, right) =>
-          left.ownerId.localeCompare(right.ownerId) ||
-          left.bindingId.localeCompare(right.bindingId)
-      )
-      .slice(0, Number(input.args[1] ?? Number.POSITIVE_INFINITY))
-      .map(mapAgentProfileBindingTestRow);
-  }
-
-  if (
-    input.normalizedSql.includes(
-      "from openmelddaemon_agent_profile_bindings"
-    ) &&
-    input.normalizedSql.includes(
-      "select agent_profile_id, agent_controller_ref"
-    ) &&
-    input.normalizedSql.includes("binding_state = 'enabled_primary'")
-  ) {
-    return input.agentProfiles
-      .filter(
-        (profile) =>
-          input.args.some(
-            (value, index) =>
-              index % 2 === 0 &&
-              value === profile.profileId &&
-              input.args[index + 1] ===
-                (profile.ownerUserId ?? profile.organizationId)
-          ) &&
-          profile.status === "active" &&
-          profile.hasBinding !== false
-      )
-      .sort((left, right) => left.profileId.localeCompare(right.profileId))
-      .map((profile) => ({
-        agent_controller_ref: "builtin:codex",
-        agent_profile_id: profile.profileId,
-        ...(input.normalizedSql.includes("model_id")
-          ? {
-              model_id:
-                [...(input.bindingRows?.values() ?? [])].find(
-                  (row) => row.agentProfileId === profile.profileId
-                )?.modelId ?? null,
-              reasoning_level:
-                [...(input.bindingRows?.values() ?? [])].find(
-                  (row) => row.agentProfileId === profile.profileId
-                )?.reasoningLevel ?? null,
-            }
-          : {}),
-      }));
-  }
-
-  if (
-    input.normalizedSql.includes(
-      "from openmelddaemon_agent_profile_bindings"
-    ) &&
-    input.normalizedSql.includes("where owner_kind = ?") &&
-    input.normalizedSql.includes("binding_state = 'enabled_primary'")
-  ) {
-    const ownerId = String(input.args[1] ?? "");
-    return input.agentProfiles
-      .filter(
-        (profile) =>
-          profile.ownerUserId === ownerId &&
-          profile.status === "active" &&
-          profile.hasBinding !== false
-      )
-      .sort((left, right) => left.profileId.localeCompare(right.profileId))
-      .map((profile) => ({
-        agent_controller_conversation_id: null,
-        agent_controller_permission_mode: null,
-        agent_controller_ref: "claude-code",
-        agent_profile_id: profile.profileId,
-        binding_id: `binding-${profile.profileId}`,
-        binding_state: "enabled_primary",
-        created_at_ms: profile.createdAt ?? 0,
-        created_by_profile_id: null,
-        disabled_at_ms: null,
-        hosted_runtime_identity_json: null,
-        model_id: null,
-        opencode_permission: null,
-        owner_id: ownerId,
-        owner_kind: "owner_account",
-        reason_code: null,
-        reasoning_level: null,
-        runtime_kind: "openmeld_service",
-        updated_at_ms: profile.updatedAt ?? 0,
-        openmeld_service_runtime_id: `runtime-${profile.profileId}`,
-      }));
-  }
-
-  if (
-    input.normalizedSql.includes("from organizations") &&
-    input.normalizedSql.includes("where id in")
-  ) {
-    const requestedIds = new Set(input.args.map((value) => String(value)));
-    return (input.organizations ?? [])
-      .filter((organization) => requestedIds.has(organization.organizationId))
-      .map((organization) => ({
-        id: organization.organizationId,
-        name: organization.name,
-        slug: organization.slug,
-      }));
-  }
-
-  if (
-    input.normalizedSql.includes("from organization_binding_authorizations") &&
-    input.normalizedSql.includes("where binding_id = ?") &&
-    !input.normalizedSql.includes("join")
-  ) {
-    const bindingId = String(input.args[0] ?? "");
-    return [...(input.authorizationRows?.values() ?? [])]
-      .filter((authorization) => authorization.bindingId === bindingId)
-      .sort(
-        (left, right) =>
-          left.createdAtMs - right.createdAtMs ||
-          left.organizationId.localeCompare(right.organizationId)
-      )
-      .map((authorization) => ({
-        authorized_by: authorization.authorizedBy,
-        binding_id: authorization.bindingId,
-        created_at: authorization.createdAtMs,
-        id: `authorization-${authorization.organizationId}-${authorization.bindingId}`,
-        organization_id: authorization.organizationId,
-      }));
-  }
-
-  return [];
-}
-
 function organizationRpcHumanProfile(userId: string): {
   lastUsedAt: number;
   profileHandle: string;
@@ -14153,10 +13055,6 @@ function organizationRpcHumanProfile(userId: string): {
     };
   }
   return null;
-}
-
-function authorizationKey(organizationId: string, bindingId: string): string {
-  return `${organizationId}:${bindingId}`;
 }
 
 function bindingKey(
@@ -14278,6 +13176,71 @@ function createSpaceStub(
   } = {}
 ) {
   const spaces = input.spaces ?? [];
+  let projectionWriter:
+    | ((
+        snapshot: Omit<ProjectSpaceIndexSnapshotInput, "db">
+      ) => Promise<unknown>)
+    | undefined;
+  let revision = 0;
+  async function projectSnapshot(
+    spaceId: string,
+    eventType: ProjectSpaceIndexSnapshotInput["eventType"]
+  ) {
+    const space = spaces.find((space) => space.spaceId === spaceId);
+    if (!(space && projectionWriter)) {
+      return;
+    }
+    const updatedAt = new Date(TEST_NOW_MS + ++revision).toISOString();
+    await projectionWriter({
+      eventType,
+      metaRecord: {
+        v: 1,
+        spaceId,
+        organizationId: space.organizationId,
+        visibility: space.visibility,
+        accessMode: "members_only",
+        createdAt: new Date(space.spaceCreatedAtMs).toISOString(),
+        updatedAt,
+        ...(space.spaceName ? { name: space.spaceName } : {}),
+        ...(space.spacePurpose ? { purpose: space.spacePurpose } : {}),
+        ...(space.directMessagePairKey
+          ? { directMessage: { pairKey: space.directMessagePairKey } }
+          : {}),
+      },
+      memberRecords: [...(memberProfileIdsBySpace.get(spaceId) ?? [])].map(
+        (profileId) => ({
+          spaceId,
+          profileId,
+          profileKindSnapshot:
+            memberKindsBySpace.get(spaceId)?.get(profileId) === "agent"
+              ? "agent"
+              : "human",
+          profileNameSnapshot: profileId,
+          ownerUserIdSnapshot:
+            new Map([
+              [HUMAN_PROFILE_ID, "user-a"],
+              [SECOND_HUMAN_PROFILE_ID, "user-b"],
+            ]).get(profileId) ?? null,
+          ownerNameSnapshot: null,
+          controllerRefSnapshot: null,
+          status: "active",
+          memberSource: "added_by_member",
+          addedAt: updatedAt,
+          removedAt: null,
+          addedByProfileId: null,
+          addedByOwnerUserId: null,
+          addedByDisplayNameSnapshot: null,
+          removedByProfileId: null,
+          removedByOwnerUserId: null,
+          removalReason: null,
+          firstEnteredAt: null,
+          lastEnteredAt: null,
+          createdAt: updatedAt,
+          updatedAt,
+        })
+      ),
+    });
+  }
   const memberProfileIdsBySpace = new Map(
     Object.entries(input.initialActiveMemberProfileIdsBySpace ?? {}).map(
       ([spaceId, profileIds]) => [spaceId, new Set(profileIds)] as const
@@ -14296,7 +13259,7 @@ function createSpaceStub(
   );
   const signals: SignalTextEnvelope[] = [...(input.initialSignals ?? [])];
   const patchSpaceMeta = vi.fn(
-    (request: {
+    async (request: {
       accessMode?:
         | "members_only"
         | "protected"
@@ -14354,6 +13317,7 @@ function createSpaceStub(
           space.activeAgentCount = request.creator?.kind === "agent" ? 1 : 0;
         }
       }
+      await projectSnapshot(request.spaceId, "space.meta_updated");
       return Promise.resolve({
         accessMode: request.accessMode ?? "public",
         name: request.name ?? "Untitled space",
@@ -14366,7 +13330,7 @@ function createSpaceStub(
     }
   );
   const initializeDirectMessageMeta = vi.fn(
-    (request: {
+    async (request: {
       name?: string;
       organizationId: string;
       pairKey: string;
@@ -14393,6 +13357,7 @@ function createSpaceStub(
       if (!existing) {
         spaces.push(row);
       }
+      await projectSnapshot(request.spaceId, "space.meta_updated");
       return Promise.resolve({
         created,
         meta: {
@@ -14561,6 +13526,9 @@ function createSpaceStub(
     }
   );
   return {
+    setProjectionWriter(writer: NonNullable<typeof projectionWriter>) {
+      projectionWriter = writer;
+    },
     rpcGetMeta: vi.fn((request: { spaceId: string }) => {
       const space = spaces.find((item) => item.spaceId === request.spaceId);
       if (!space) {
@@ -14650,7 +13618,7 @@ function createSpaceStub(
     rpcPostSignalOnceByClientMessageId: postSignalOnceByClientMessageId,
     rpcPostDirectMessageSignal: postSignalOnceByClientMessageId,
     rpcPostMembers: vi.fn(
-      (request: {
+      async (request: {
         members: Array<{ profileId: string; profileKind?: string }>;
         requireActorMembership?: boolean;
         spaceId: string;
@@ -14659,14 +13627,12 @@ function createSpaceStub(
           request.requireActorMembership === true &&
           input.unjoinedSpaceIds?.includes(request.spaceId)
         ) {
-          return Promise.reject(
-            Object.assign(
-              new Error("Join this Space before adding other members."),
-              {
-                code: "space.membership_required",
-                status: 403,
-              }
-            )
+          throw Object.assign(
+            new Error("Join this Space before adding other members."),
+            {
+              code: "space.membership_required",
+              status: 403,
+            }
           );
         }
         let memberProfileIds = memberProfileIdsBySpace.get(request.spaceId);
@@ -14698,6 +13664,7 @@ function createSpaceStub(
             (kind) => kind === "agent"
           ).length;
         }
+        await projectSnapshot(request.spaceId, "space.members_updated");
         return Promise.resolve({
           addedMemberIds,
           alreadyMemberIds,
@@ -14867,14 +13834,6 @@ function resolveTestNamedSpaceId(name: string): string {
     5381n
   );
   return hash.toString(16).padStart(64, "0");
-}
-
-function createD1RunResult(changes: number): D1Result {
-  return {
-    meta: { changes },
-    results: [],
-    success: true,
-  } as unknown as D1Result;
 }
 
 function createOwnerLocalRuntimesWithUsageLimits(): LocalRuntimesResponse {

@@ -1330,6 +1330,8 @@ registerRoutinesCommands(program, {
       run: async (output) => {
         await runRoutinesCreate({
           ...output,
+          agentProfileId: opts.agent,
+          scope: opts.scope,
           cronExpression: opts.cron,
           dailyTime: opts.daily,
           instructions: opts.instructions,
@@ -1474,6 +1476,8 @@ registerProjectCommands(program, {
           allowUnverified: opts.allowUnverified,
           path: opts.path,
           projectSlug,
+          repository: opts.repository,
+          share: opts.share,
         });
       },
     });
@@ -1541,6 +1545,7 @@ registerProjectCommands(program, {
 });
 
 registerAgentActivityCommands(program, {
+  history: runAgentActivityHistory,
   context: runActivityContext,
   health: runActivityHealth,
   hook: runActivityHook,
@@ -1593,32 +1598,98 @@ const computerCmd = program
   .description("Inspect and name computers in OpenMeld.");
 
 computerCmd
+  .command("cloud")
+  .description(
+    "Read your personal cloud Computer or run a file or command operation."
+  )
+  .option(
+    "--operation <json>",
+    "Computer operation: describe, browser, preview, files, read, write, edit, list, or command. Use describe to discover capabilities."
+  )
+  .addHelpText(
+    "after",
+    `
+Without --operation, show your personal cloud Computer.
+
+Examples:
+  openmeld computer cloud --operation '{"action":"describe"}'
+  openmeld computer cloud --operation '{"action":"read","path":"/computer/home/example.txt"}'
+
+Use describe before running commands to inspect the operation schemas.
+Commands require a stable invocationId and key; poll the same invocation to read its result.`
+  )
+  .action(async (opts: { operation?: string }) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["computer", "cloud"],
+      view,
+      run: async () => {
+        const { runCloudComputer } = await import("./commands/cloud-computer");
+        await runCloudComputer({ operation: opts.operation, view });
+      },
+    });
+  });
+
+computerCmd
   .command("disconnect")
   .description(
     "Disconnect this computer from its reviewed account without forgetting its record."
   )
-  .requiredOption(
+  .option(
     "--connection-intent <json>",
     "Account and exact Computer session reviewed for disconnection"
   )
-  .action(async (opts: { connectionIntent: string }) => {
-    const view = getGlobalViewOption();
-    await runCommandWithEntryChecks({
-      routeTokens: ["computer", "disconnect"],
-      view,
-      run: async () => {
-        const { runComputerDisconnect } = await import(
-          "./commands/computer-disconnect"
-        );
-        await runComputerDisconnect(
-          computerConnectionIntentSchema.parse(
-            JSON.parse(opts.connectionIntent)
-          ),
-          view
-        );
-      },
-    });
-  });
+  .option("--expected-account <id>", "Account shown in OpenMeld Web")
+  .option("--device <id>", "Computer device shown in OpenMeld Web")
+  .option(
+    "--runtime-lane <lane>",
+    "Computer runtime lane shown in OpenMeld Web"
+  )
+  .action(
+    async (opts: {
+      connectionIntent?: string;
+      expectedAccount?: string;
+      device?: string;
+      runtimeLane?: string;
+    }) => {
+      const view = getGlobalViewOption();
+      await runCommandWithEntryChecks({
+        routeTokens: ["computer", "disconnect"],
+        view,
+        run: async () => {
+          const { runComputerDisconnect, runComputerDisconnectTarget } =
+            await import("./commands/computer-disconnect");
+          if (!opts.connectionIntent) {
+            const { desktopComputerDisconnectRequestSchema } = await import(
+              "@openmeld/schemas"
+            );
+            await runComputerDisconnectTarget(
+              desktopComputerDisconnectRequestSchema.parse({
+                expectedAccount: opts.expectedAccount,
+                expectedConnection: {
+                  deviceId: opts.device,
+                  runtimeLane: opts.runtimeLane,
+                },
+              }),
+              view
+            );
+            return;
+          }
+          if (opts.expectedAccount || opts.device || opts.runtimeLane) {
+            throw new Error(
+              "Use either a connection intent or an explicit Computer target."
+            );
+          }
+          await runComputerDisconnect(
+            computerConnectionIntentSchema.parse(
+              JSON.parse(opts.connectionIntent)
+            ),
+            view
+          );
+        },
+      });
+    }
+  );
 
 computerCmd.addHelpText(
   "after",
@@ -3347,7 +3418,7 @@ withSpaceProfileOption(
     .description(
       "Read live Wake progress for this Space; use result or service trace after execution."
     )
-    .argument("<space>", "Space ID (64-character hex)")
+    .argument("<space>", "Space URL or 64-character Space ID")
     .option(
       "--client-message <client-message-id>",
       "Read progress for one client message instead of the active Space summary"
@@ -3363,17 +3434,23 @@ withSpaceProfileOption(
     .option("--password <value>", "Space password for protected access")
 ).action(async (space, opts, command: Command) => {
   const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  const target = resolveSpaceReadCommandTarget({
+    baseUrl: cliOptions.gatewayUrl,
+    profile: cliOptions.profile,
+    space: String(space ?? "").trim(),
+  });
+
   const view = getGlobalViewOption();
   await runCommandWithEntryChecks({
     routeTokens: ["space", "wake-progress"],
     view,
-    profile: cliOptions.profile,
-    gatewayUrl: cliOptions.gatewayUrl,
+    profile: target.profile,
+    gatewayUrl: target.baseUrl,
     run: async () => {
       await runSpaceWakeProgress({
-        profile: cliOptions.profile,
-        baseUrl: cliOptions.gatewayUrl,
-        space: String(space),
+        profile: target.profile,
+        baseUrl: target.baseUrl,
+        space: target.space,
         clientMessageId:
           normalizeOptionalString(opts.clientMessage) ?? undefined,
         sourceProfileId:
@@ -3394,7 +3471,7 @@ withSpaceProfileOption(
     .description(
       "Request Stop for one live Wake and report only the server-confirmed state."
     )
-    .argument("<space>", "Space ID (64-character hex)")
+    .argument("<space>", "Space URL or 64-character Space ID")
     .option(
       "--client-message <client-message-id>",
       "Select the Wake by client message ID"
@@ -3411,17 +3488,23 @@ withSpaceProfileOption(
     .option("--password <value>", "Space password for protected access")
 ).action(async (space, opts, command: Command) => {
   const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  const target = resolveSpaceReadCommandTarget({
+    baseUrl: cliOptions.gatewayUrl,
+    profile: cliOptions.profile,
+    space: String(space ?? "").trim(),
+  });
+
   const view = getGlobalViewOption();
   await runCommandWithEntryChecks({
     routeTokens: ["space", "wake-stop"],
     view,
-    profile: cliOptions.profile,
-    gatewayUrl: cliOptions.gatewayUrl,
+    profile: target.profile,
+    gatewayUrl: target.baseUrl,
     run: async () => {
       await runSpaceWakeStop({
-        profile: cliOptions.profile,
-        baseUrl: cliOptions.gatewayUrl,
-        space: String(space),
+        profile: target.profile,
+        baseUrl: target.baseUrl,
+        space: target.space,
         clientMessageId:
           normalizeOptionalString(opts.clientMessage) ?? undefined,
         sourceSignalId: normalizeOptionalString(opts.sourceSignal) ?? undefined,
@@ -3923,6 +4006,8 @@ withSpaceProfileOption(
       "--task-workspace <mode>",
       "Task folder: isolated (private project worktree for local work) or current"
     )
+    .option("--project <slug>", "Project for a new code task")
+    .option("--repository <url>", "Repository associated with --project")
     .argument("[space]", "Space ID (64-character hex)")
     .argument("[text...]", "Text to send")
     .option(
@@ -3985,6 +4070,11 @@ withSpaceProfileOption(
     profile: cliOptions.profile,
     gatewayUrl: cliOptions.gatewayUrl,
     run: async () => {
+      const projectWork = await resolveCliProjectWork({
+        baseUrl: cliOptions.gatewayUrl,
+        projectSlug: opts.project,
+        repositoryUrl: opts.repository,
+      });
       await runSpaceSend({
         clientMessageId:
           typeof opts.clientMessage === "string"
@@ -4002,6 +4092,7 @@ withSpaceProfileOption(
           continueFrom: opts.continueFrom,
           taskAccess: opts.taskAccess,
           taskWorkspace: opts.taskWorkspace,
+          projectWork,
         }),
         password: cliOptions.password,
         text: textValue,
@@ -4549,7 +4640,7 @@ withSpaceProfileOption(
   spaceCmd
     .command("result")
     .description("Read one formal dispatch result scoped to this space.")
-    .argument("[space]", "Space ID (64-character hex)")
+    .argument("[space]", "Space URL or 64-character Space ID")
     .option("--dispatch <dispatch-id>", "Lookup by dispatch ID")
     .option("--result-ref <result-ref>", "Lookup by dispatch result ref")
     .option("--json", "Print canonical JSON", false)
@@ -4569,17 +4660,23 @@ withSpaceProfileOption(
     throw createSpaceResultGuideError();
   }
 
+  const target = resolveSpaceReadCommandTarget({
+    baseUrl: cliOptions.gatewayUrl,
+    profile: cliOptions.profile,
+    space: String(space ?? "").trim(),
+  });
+
   const view = getGlobalViewOption();
   await runCommandWithEntryChecks({
     routeTokens: ["space", "result"],
     view,
-    profile: cliOptions.profile,
-    gatewayUrl: cliOptions.gatewayUrl,
+    profile: target.profile,
+    gatewayUrl: target.baseUrl,
     run: async () => {
       await runSpaceResult({
-        profile: cliOptions.profile,
-        baseUrl: cliOptions.gatewayUrl,
-        space: spaceValue,
+        profile: target.profile,
+        baseUrl: target.baseUrl,
+        space: target.space,
         ...(dispatchId ? { dispatchId } : {}),
         ...(resultRef ? { resultRef } : {}),
         password: cliOptions.password,
@@ -4711,6 +4808,8 @@ program
     "--task-workspace <mode>",
     "Task folder: isolated (private project worktree for local work) or current"
   )
+  .option("--project <slug>", "Project for a new code task")
+  .option("--repository <url>", "Repository associated with --project")
   .argument("[text...]", "Text to send")
   .option("--profile <id>", "OpenMeld profile ID")
   .option("--base-url <url>", "OpenMeld gateway URL")
@@ -4760,6 +4859,8 @@ program
         continueFrom?: string;
         taskAccess?: string;
         taskWorkspace?: string;
+        project?: string;
+        repository?: string;
         file?: string[];
         textFile?: string;
         plain?: boolean;
@@ -4780,6 +4881,11 @@ program
         profile: opts.profile,
         gatewayUrl: opts.baseUrl,
         run: async () => {
+          const projectWork = await resolveCliProjectWork({
+            baseUrl: opts.baseUrl,
+            projectSlug: opts.project,
+            repositoryUrl: opts.repository,
+          });
           await runSpaceSend({
             profile: opts.profile,
             contextSelection: resolveSpaceTaskSelection({
@@ -4790,6 +4896,7 @@ program
               continueFrom: opts.continueFrom,
               taskAccess: opts.taskAccess,
               taskWorkspace: opts.taskWorkspace,
+              projectWork,
             }),
             baseUrl: opts.baseUrl,
             space,
@@ -6151,5 +6258,9 @@ main().catch((error: unknown) => {
   process.exitCode = 1;
 });
 
+import { runAgentActivityHistory } from "./agent-activity/command";
 import { registerPluginCommands } from "./plugins/registration";
-import { resolveSpaceTaskSelection } from "./space/send-input";
+import {
+  resolveCliProjectWork,
+  resolveSpaceTaskSelection,
+} from "./space/send-input";

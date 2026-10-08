@@ -120,6 +120,12 @@ Organization and continuing that same identity matches the user's intent.
 
 ## Setup Entry And Health
 
+For code work, a Local Agent uses its already authorized local Project folder
+or working directory by default. Use cloud Computer when the user chooses it
+or a concrete environment or isolation requirement justifies it. Explain the
+requirement before changing environments. Continue an existing cloud task in
+its current environment and preserve its work.
+
 When OpenMeld Web provides a setup command, run it exactly. Do not rewrite its
 token, lane, distribution, bootstrap URL, or local-agent selection. After setup,
 use the `cliCommandPrefix` and `nextCommands` from `setup.complete`; do not
@@ -127,6 +133,33 @@ replace a managed binary path, production `openmeld`, `openmeld-dev`, or an npm
 prefix with another lane.
 
 Live checks:
+
+For optional cloud execution, `openmeld computer cloud --view agent` reads the
+signed-in account's personal Computer identity. This is separate from the local
+workstation. Center and Remote Agents for the same owner share these files.
+For repository reuse, worktrees, storage checks and safe cleanup, read
+`playbooks/computer.md` before a large clone, dependency install or build.
+Use `--operation '<json>'` with `describe` to get the current official file-tool schemas and execution capabilities. Use `files` to invoke those tools, `command` to run Linux, worker-shell or worker-javascript, and `browser`/`preview` when available. Legacy `read`, `write`, `edit` and `list` remain supported.
+For example:
+
+```bash
+openmeld computer cloud --operation '{"action":"describe"}' --view agent
+openmeld computer cloud --operation '{"action":"files","tool":"read","input":{"path":"/computer/home/report.txt"}}' --view agent
+openmeld computer cloud --operation '{"action":"command","invocationId":"report-task","command":{"action":"start","key":"build","command":"pwd"}}' --view agent
+openmeld computer cloud --operation '{"action":"command","invocationId":"report-task","command":{"action":"poll","key":"build","waitSeconds":1}}' --view agent
+```
+
+Keep `invocationId` and command `key` stable across retries. Use `poll` or `list`
+after an uncertain response; do not start another command. `stop` addresses only
+that invocation's key. `syncPending` means the process exited but file
+synchronization is unconfirmed. Continue polling unless `syncError` or
+`nextAction: inspect` is present. Then stop polling and inspect persistent files.
+An exit code does not prove file synchronization succeeded.
+Independent tasks can run concurrently. Use separate
+files or Git worktrees for concurrent edits. `edit` checks exact old text;
+`write` can include `expectedContent` to reject a stale overwrite. Shell writes
+do not participate in this conflict check. Select what to share from the
+requester's intent and destination audience; access does not imply publication.
 
 ```bash
 openmeld computer current --brief --view agent

@@ -1,241 +1,106 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-	advanceOnboardingProgress,
-	completeOnboardingProgress,
-	createInitialOnboardingProgress,
-	readOnboardingProgress,
-	writeOnboardingProgress,
-} from "#/lib/onboarding/onboarding-progress";
-import type { OrganizationSummary } from "#/lib/organizations/organization-types";
 import { OnboardingEntryGate } from "./onboarding-entry-gate";
 
-const navigateMock = vi.fn((_input: unknown): Promise<void> | void =>
-	Promise.resolve()
-);
-
-vi.mock("@tanstack/react-router", () => ({
-	useNavigate: () => navigateMock,
-}));
-
-vi.mock("#/components/openmeld-logo-weak", () => ({
-	OpenMeldLogo: () => <div>OpenMeld</div>,
-}));
-
-const currentOrganization: OrganizationSummary = {
-	id: "org-acme",
-	name: "Acme",
-	slug: "acme",
+const navigate = vi.fn();
+const tutorial = {
+	hasStartedTutorial: false,
+	loading: false,
+	error: null as Error | null,
 };
-const selectedOrganization: OrganizationSummary = {
-	id: "org-beta",
-	name: "Beta",
-	slug: "beta",
+vi.mock("@tanstack/react-router", () => ({ useNavigate: () => navigate }));
+vi.mock("./walkthrough/walkthrough-context", () => ({
+	useWalkthrough: () => tutorial,
+}));
+const organization = { id: "org-acme", name: "Acme", slug: "acme" };
+const props = {
+	currentOrganization: organization,
+	currentSection: "home" as const,
+	organizations: [organization],
+	storageScope: "account-test",
 };
-let storageScope = "account-test";
 
-describe("OnboardingEntryGate", () => {
+describe("tutorial admission", () => {
 	beforeEach(() => {
 		window.localStorage.clear();
-		navigateMock.mockClear();
-		storageScope = `account-${crypto.randomUUID()}`;
+		navigate.mockReset().mockResolvedValue(undefined);
+		tutorial.hasStartedTutorial = false;
+		tutorial.loading = false;
+		tutorial.error = null;
 	});
-
-	afterEach(() => {
-		cleanup();
-		vi.restoreAllMocks();
+	afterEach(cleanup);
+	it("opens the new tutorial for a first entry", async () => {
+		render(<OnboardingEntryGate {...props}>Product</OnboardingEntryGate>);
+		await waitFor(() =>
+			expect(navigate).toHaveBeenCalledWith({
+				replace: true,
+				to: "/o/acme/onboarding",
+			})
+		);
+		expect(screen.queryByText("Product")).toBeNull();
+		expect(window.localStorage.length).toBe(0);
 	});
-	it("preserves an explicit Space destination without marking setup complete", async () => {
+	it("keeps an invitation destination and its subsequent navigation", async () => {
 		const view = render(
 			<OnboardingEntryGate
-				currentOrganization={currentOrganization}
+				{...props}
 				currentSection="space"
 				hasExplicitSpaceDestination
-				organizations={[currentOrganization]}
-				storageScope={storageScope}
 			>
-				Plugin content
+				Space
 			</OnboardingEntryGate>
 		);
-		expect(await screen.findByText("Plugin content")).toBeTruthy();
-		expect(navigateMock).not.toHaveBeenCalled();
-		expect(
-			readOnboardingProgress({ storage: window.localStorage, storageScope })
-		).toBeNull();
+		expect(await screen.findByText("Space")).toBeTruthy();
 		view.rerender(
-			<OnboardingEntryGate
-				currentOrganization={currentOrganization}
-				currentSection="home"
-				organizations={[currentOrganization]}
-				storageScope={storageScope}
-			>
-				Spaces directory
-			</OnboardingEntryGate>
+			<OnboardingEntryGate {...props}>Product</OnboardingEntryGate>
 		);
-		expect(await screen.findByText("Spaces directory")).toBeTruthy();
-		expect(navigateMock).not.toHaveBeenCalled();
+		expect(await screen.findByText("Product")).toBeTruthy();
+		expect(navigate).not.toHaveBeenCalled();
 	});
-
-	it("opens onboarding even when browser storage cannot be read", async () => {
-		vi.spyOn(console, "error").mockImplementation(() => undefined);
-		vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
-			throw new Error("Storage is blocked");
-		});
-
-		renderGate();
-
-		await expectOnboardingRedirect();
-		expect(screen.queryByText("Plugin content")).toBeNull();
+	it("does not restart first entry when an account switches to a workspace without a run", async () => {
+		tutorial.hasStartedTutorial = true;
+		render(<OnboardingEntryGate {...props}>Product</OnboardingEntryGate>);
+		expect(await screen.findByText("Product")).toBeTruthy();
+		expect(navigate).not.toHaveBeenCalled();
 	});
-
-	it("opens onboarding even when browser storage cannot be written", async () => {
-		vi.spyOn(console, "error").mockImplementation(() => undefined);
-		vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-			throw new Error("Storage is full");
-		});
-
-		renderGate();
-
-		await expectOnboardingRedirect();
-		expect(screen.queryByText("Plugin content")).toBeNull();
-	});
-
-	it("supports routers that schedule navigation synchronously", async () => {
-		navigateMock.mockImplementationOnce(() => undefined);
-
-		renderGate();
-
-		await expectOnboardingRedirect();
-		expect(screen.queryByText("Plugin content")).toBeNull();
-	});
-
-	it("renders the product immediately after this onboarding version is complete", async () => {
-		writeOnboardingProgress({
-			progress: completeOnboardingProgress({
-				current: createInitialOnboardingProgress({ nowMs: 1 }),
-				nowMs: 2,
-			}),
-			storage: window.localStorage,
-			storageScope,
-		});
-
-		renderGate();
-
-		expect(await screen.findByText("Plugin content")).toBeTruthy();
-		expect(navigateMock).not.toHaveBeenCalled();
-	});
-
-	it("keeps onboarding completion when browser storage is unavailable", async () => {
-		vi.spyOn(console, "error").mockImplementation(() => undefined);
-		vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
-			throw new Error("Storage is blocked");
-		});
-		vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-			throw new Error("Storage is blocked");
-		});
-		writeOnboardingProgress({
-			progress: completeOnboardingProgress({
-				current: createInitialOnboardingProgress({ nowMs: 1 }),
-				nowMs: 2,
-			}),
-			storage: window.localStorage,
-			storageScope,
-		});
-
-		renderGate();
-
-		expect(await screen.findByText("Plugin content")).toBeTruthy();
-		expect(navigateMock).not.toHaveBeenCalled();
-	});
-
-	it("resumes onboarding inside the Organization the user selected", async () => {
-		writeOnboardingProgress({
-			progress: advanceOnboardingProgress({
-				current: createInitialOnboardingProgress({ nowMs: 1 }),
-				nowMs: 2,
-				selectedOrganizationId: selectedOrganization.id,
-				step: "plugins",
-			}),
-			storage: window.localStorage,
-			storageScope,
-		});
-
-		renderGate({
-			organizations: [currentOrganization, selectedOrganization],
-		});
-
-		await expectOnboardingRedirect("/o/beta/onboarding");
-	});
-
-	it("resets an unavailable selected Organization before onboarding continues", async () => {
-		writeOnboardingProgress({
-			progress: advanceOnboardingProgress({
-				current: createInitialOnboardingProgress({ nowMs: 1 }),
-				nowMs: 2,
-				selectedOrganizationId: "org-unavailable",
-				step: "plugins",
-			}),
-			storage: window.localStorage,
-			storageScope,
-		});
-
-		renderGate();
-
-		await expectOnboardingRedirect();
-		expect(
-			readOnboardingProgress({
-				storage: window.localStorage,
-				storageScope,
+	it("offers the new tutorial once even after completing the former onboarding", async () => {
+		window.localStorage.setItem(
+			"openmeld:onboarding:account-test:v1",
+			JSON.stringify({ version: 1, completedAtMs: 2 })
+		);
+		const view = render(
+			<OnboardingEntryGate {...props}>Product</OnboardingEntryGate>
+		);
+		await waitFor(() =>
+			expect(navigate).toHaveBeenCalledWith({
+				replace: true,
+				to: "/o/acme/onboarding",
 			})
-		).toMatchObject({
-			currentStep: "organization",
-			selectedOrganizationId: null,
-		});
+		);
+		tutorial.hasStartedTutorial = true;
+		navigate.mockClear();
+		view.rerender(
+			<OnboardingEntryGate {...props}>Product</OnboardingEntryGate>
+		);
+		expect(await screen.findByText("Product")).toBeTruthy();
+		expect(navigate).not.toHaveBeenCalled();
+		expect(
+			window.localStorage.getItem("openmeld:onboarding:account-test:v1")
+		).toBe(JSON.stringify({ version: 1, completedAtMs: 2 }));
 	});
-
-	it("corrects a direct onboarding route before mounting Organization steps", async () => {
-		writeOnboardingProgress({
-			progress: advanceOnboardingProgress({
-				current: createInitialOnboardingProgress({ nowMs: 1 }),
-				nowMs: 2,
-				selectedOrganizationId: selectedOrganization.id,
-				step: "plugins",
-			}),
-			storage: window.localStorage,
-			storageScope,
-		});
-
-		renderGate({
-			currentSection: "onboarding",
-			organizations: [currentOrganization, selectedOrganization],
-		});
-
-		await expectOnboardingRedirect("/o/beta/onboarding");
-		expect(screen.queryByText("Plugin content")).toBeNull();
+	it("waits for admission, then leaves the product usable if progress cannot be read", async () => {
+		tutorial.loading = true;
+		const view = render(
+			<OnboardingEntryGate {...props}>Product</OnboardingEntryGate>
+		);
+		expect(screen.queryByText("Product")).toBeNull();
+		expect(navigate).not.toHaveBeenCalled();
+		tutorial.loading = false;
+		tutorial.error = new Error("Network unavailable");
+		view.rerender(
+			<OnboardingEntryGate {...props}>Product</OnboardingEntryGate>
+		);
+		expect(await screen.findByText("Product")).toBeTruthy();
+		expect(navigate).not.toHaveBeenCalled();
 	});
 });
-
-function renderGate(input?: {
-	currentSection?: "onboarding" | "space";
-	organizations?: OrganizationSummary[];
-}) {
-	return render(
-		<OnboardingEntryGate
-			currentOrganization={currentOrganization}
-			currentSection={input?.currentSection ?? "space"}
-			organizations={input?.organizations ?? [currentOrganization]}
-			storageScope={storageScope}
-		>
-			<div>Plugin content</div>
-		</OnboardingEntryGate>
-	);
-}
-
-async function expectOnboardingRedirect(to = "/o/acme/onboarding") {
-	await waitFor(() => {
-		expect(navigateMock).toHaveBeenCalledWith({
-			replace: true,
-			to,
-		});
-	});
-}

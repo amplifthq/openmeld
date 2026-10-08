@@ -2,19 +2,22 @@ import type {
 	AiUsageQueryResponse,
 	ModelCatalog,
 } from "@openmeld/schemas/types";
+import {
+	type BrandChartColors,
+	modelBrandChartColors,
+} from "@openmeld/ui/lib/brand-chart-colors";
 import { modelBrandName } from "#/components/models/model-brand";
 
 export const usageNumber = new Intl.NumberFormat("en-US");
+const money = new Intl.NumberFormat("en-US", {
+	style: "currency",
+	currency: "USD",
+	minimumFractionDigits: 2,
+	maximumFractionDigits: 4,
+});
 export function usageMoney(nanoUsd: number) {
 	const usd = nanoUsd / 1_000_000_000;
-	return usd > 0 && usd < 0.0001
-		? "<$0.0001"
-		: new Intl.NumberFormat("en-US", {
-				style: "currency",
-				currency: "USD",
-				minimumFractionDigits: 2,
-				maximumFractionDigits: 4,
-			}).format(usd);
+	return usd > 0 && usd < 0.0001 ? "<$0.0001" : money.format(usd);
 }
 export function usageModel(model: string | null, catalog?: ModelCatalog) {
 	const name =
@@ -31,32 +34,37 @@ export type UsageModelSeries = {
 	model: string | null;
 	name: string;
 	brand: string | null;
-	color: string;
+	colors: BrandChartColors;
 };
-const colors = [
-	"#869fff",
-	"#d97757",
-	"#2aafa0",
-	"#c49a47",
-	"#cb87d0",
-	"#569ecb",
-];
-function modelColor(model: string | null) {
-	let hash = 0;
-	for (const character of model ?? "unattributed") {
-		hash = (hash * 31 + character.charCodeAt(0)) % 4_294_967_296;
+
+const LIGHTER_MODEL_VARIANT = /\b(pro|astra|thinking|reasoner)\b/i;
+const DARKER_MODEL_VARIANT = /\b(luna|mini|nano|haiku|sonnet|flash|terra)\b/i;
+
+function modelVariant(model: string | null) {
+	// Identity, never array position, cost ranking, or the selected time window.
+	if (LIGHTER_MODEL_VARIANT.test(model ?? "")) {
+		return "lighter";
 	}
-	return colors[hash % colors.length] ?? "#869fff";
+	if (DARKER_MODEL_VARIANT.test(model ?? "")) {
+		return "darker";
+	}
+	return "base";
 }
 export function usageModelSeries(
 	models: AiUsageQueryResponse["models"],
 	catalog?: ModelCatalog
 ): UsageModelSeries[] {
-	return models.map((model, index) => ({
-		key: `model_${index}`,
-		provider: model.provider,
-		model: model.model,
-		...usageModel(model.model, catalog),
-		color: modelColor(model.model),
-	}));
+	return models.map((model, index) => {
+		const presentation = usageModel(model.model, catalog);
+		return {
+			key: `model_${index}`,
+			provider: model.provider,
+			model: model.model,
+			...presentation,
+			colors: modelBrandChartColors(
+				presentation.brand,
+				modelVariant(model.model)
+			),
+		};
+	});
 }

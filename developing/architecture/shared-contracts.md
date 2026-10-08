@@ -25,6 +25,134 @@
 - Source of truth: This file owns the durable boundary for shared OpenMeld contracts
   and reusable policy.
 
+## Storage and migration references
+
+Production shared relational storage is PostgreSQL. Numeric migration references
+from the original D1 rollout describe historical schema dependencies already
+absorbed into the native baseline; they are not D1 commands to run now. New
+changes use the native journal and scoped database release in the
+[PostgreSQL workflow](../engineering/postgresql.md). Receiver-first service and client compatibility requirements still apply.
+
+## User time context
+
+`packages/schemas/src/user-time-context.ts` owns the common IANA timezone
+observation and accepted request context. Web observes browser `Intl`, Desktop
+observes Electron main-process `Intl` at its shared cloud-request boundary, and
+the CLI/OpenMeld Service observes its own process `Intl`. All use the same
+`x-openmeld-user-time-zone` and `x-openmeld-user-time-zone-source` headers. Web
+SSR only forwards the browser observation; it must not substitute server time.
+Gateway binds a valid observation to the authenticated caller. The source is a
+claimed client environment, not extra authority or a user identity selector.
+
+Core freezes `requestTimeContext` with accepted Space input. It contains the
+server `submittedAtMs` and resolved timezone/source/observation time. The
+text-signal acceptance boundary fills missing context for HTTP and legacy
+WebSocket authoring from Core's generated signal time and verified actor.
+WebSocket sessions retain the Gateway principal through hibernation; legacy
+human sessions use their verified owner after the existing live access check.
+Client payload timestamps, identities and time blocks do not supply authority.
+Already captured RPC and Queue context is retained. The shared
+dispatch snapshot, Remote Agent turn envelope and exact-execution input carry
+that same optional object. Queue promotion and retries keep the accepted anchor;
+active Steer gets its own anchor. Relative dates use this anchor. Each model
+request gets one fresh UTC runtime-clock data message at the end of its outgoing
+provider payload, with the same static system guidance across requests,
+without changing retained history. Explicit timezone in a user's request takes
+precedence; saved Routine schedules retain their timezone.
+
+The canonical user row and observation precedence are defined in
+[Data And Observability](data-and-observability.md#user-time-context).
+Missing or invalid context uses explicit `UTC`/`utc`/`null` fallback. No local
+current time is transported or persisted, and no online laptop is needed.
+
+Contract impact: headers and time fields are optional. New receivers accept old
+requests; older Gateway ignores the observation headers. New Core omits the
+hosted-only time field from workstation dispatch snapshots, so existing Service
+receivers keep their strict wire contract. Wake, setup, status, traces, Space
+actions, CLI commands and helper skills keep their existing contracts; no local
+contract epoch bump or required-client update is needed. Updated Desktop/Service
+artifacts are available updates. Cloud rollout is receiver-first: Remote Agent,
+then native migrations `0029_user_time_context` and `0030_user_time_account_guard`,
+Auth and Core, then Gateway/Web and
+client artifacts. Remote Agent callbacks do not change, so this order introduces
+no reverse dependency. Rollback removes newer callers before their receivers and
+retains the additive table. No historical backfill is required.
+
+## Personal cloud Computer operations
+
+`cloudComputerSchema` and `cloudComputerOperationSchema` own the account Computer
+identity and file/command operations. Core derives ownership from the authenticated
+request or persisted hosted delivery. The public `/v1/computer/cloud` endpoint
+does not accept an owner or provider resource ID. `GET` resolves the identity;
+`POST` performs one operation. `observedAtMs` dates that response, not a cached
+online flag. Legacy file reads/writes are bounded to 2 MB at this JSON boundary.
+Official file operations retain the SDK's limits and pagination.
+
+Additive `describe`, `files`, `browser` and `preview` operations use the same
+authenticated route. `files` carries the official SDK tool name and parameters;
+`describe` publishes those exact schemas. Command start adds backend, environment,
+stdin and JSON input; exit may include a JSON result. The three backends are
+container, worker-shell and worker-javascript. Stop may select a native signal.
+The existing default Linux command behavior and legacy file operations remain
+valid. New actions fail explicitly against older receivers; deploy the Remote
+Agent receiver and Core/Gateway schemas before the updated CLI/Skills caller.
+No Service, Wake, setup, Space action or controller protocol changes. No contract
+epoch bump is needed; updated CLI/Skills are optional available artifacts in a
+later coordinated release. This feature PR uses deferred release readiness.
+
+Command operations use an invocation ID and stable key. Local invocation IDs are
+namespaced separately from hosted submissions. The Computer holds the command
+receipt and native execution ID. Poll and Stop address that receipt; a retry
+must not allocate another process. Different invocations may run concurrently.
+File `edit` compares exact old text under the Computer's mutation queue; `write`
+can require `expectedContent`. Arbitrary shell writes are outside that queue.
+
+Contract impact: the new CLI route is additive and does not change workstation
+Service, Wake or dispatch schemas. Core must receive the database migration and
+new RPC before the new Remote Agent or CLI uses personal Computers. An older
+Core cannot satisfy `includeComputer`; the runtime fails that capability
+explicitly. Earlier hosted context versions retain their cleanup address and
+cannot silently acquire a personal Computer. Existing CLI/Service clients keep
+their prior local operations. No production rollout is implied by this contract.
+The command and managed Skill are additive, with no CLI/Service/Skills epoch
+bump. Feature verification uses deferred release readiness; a later authorized
+release must rebuild and stamp affected local artifacts as `available`.
+Deploy the Remote Agent Computer RPC receiver before exposing the new CLI route
+to users; roll back callers before removing that receiver. Existing setup, Wake,
+Space actions, Service status, trace and self-rescue contracts stay compatible.
+
+## Task permission inheritance
+
+Native permission inheritance is the default for new Codex and Claude tasks
+without explicit access preferences, regardless of requester ownership.
+`ExecutionContextRequest.ownerRequested` is accepted only for compatibility with
+persisted older snapshots; new snapshots do not write or use it.
+An assignment may carry `permissionSource: agent_settings` only with workspace
+access. Absence preserves the previous bounded-task contract. The Service uses
+its current Computer policy and Profile-native permission intent; this field is
+not a full-access grant. `executionContextPermissionInheritance` is an explicit
+adapter capability, separate from workspace protocol versions. Core checks it
+before delivering such an assignment.
+
+Core derives the per-Wake `requesterIsAgentOwner` delivery projection from current
+identity or recorded Center delegation. It is prompt context, not authorization.
+It is sent only to a Service advertising `verifiedRequesterContext`; older
+services receive the existing payload. The Service combines this fact with the
+existing caller, owner, and Space audience context on every turn, including resume.
+An unverified original requester remains unknown; names or message text never
+establish ownership. This does not alter Plugin or account-access authorization.
+
+Ordinary Plugin delegation is an additive constraint on the existing recorded
+Wake publication command (`pluginActions`). Core alone resolves the original
+human and one-hop task chain. Local clients privately forward the admitted
+`executionTokenEcho`; RuntimeCoordinator's read-only authorization RPC validates
+that proof without transferring execution truth to the dispatch ledger. Remote
+clients opt into `includePluginDelegations`; responses omit the projection for
+old callers. Missing proof or an older receiver rejects the new delegated path.
+These additions require a new packaged CLI/Service for delegated Local use and
+Core before the new Remote caller; they do not alter ordinary human-source
+calls, token issuance, token retirement, or finalization ownership.
+
 ## Direct Message opening and publication
 
 The shared `openDirectMessageSpaceBodySchema` accepts an optional idempotent
@@ -474,7 +602,7 @@ an explicit refusal through its existing accepted-result Stop publication. It
 verifies the receipt, attempt, run, token, Space and target before Space elects
 the existing atomic final claim. The existing stopped notice, cancellation
 projection, task outcome, result acknowledgement and replay owners are reused.
-No additional task-result variant, Stop RPC, outcome enum or D1 migration is
+No additional task-result variant, Stop RPC, outcome enum or PostgreSQL migration is
 introduced; a failed publication stays retryable, not falsely completed.
 
 Contract impact: deploy the matching Core behavior before distributing the new
@@ -653,8 +781,41 @@ epoch changes. Before rolling Core back, let accepted recovery deliveries settle
 an old Core cannot read requests with this new strict field. No database migration
 or local component release is required.
 
+## Personal Remote Agent evidence
+
+Personal Remote evidence reads add `evidence` and `thread` variants to the
+existing `personalRemoteAgentSpaceTool` request/response union. The source
+identity and version use the current context-manifest `sourceRef`; the source
+Space remains fixed by the admitted delivery. Evidence continuations require
+the original version. Thread continuations use the Space-owned after-signal
+query and never advance past messages omitted by the context budget.
+
+Deploy the Core receiver before the Remote tool producer. Old Remote producers
+continue to use the unchanged variants. An old Core rejects the new variants;
+Remote must not fall back to latest content or a different conversation.
+This increment adds no stored grant, database migration, CLI command, Service
+transport, Prepare payload, or Wake envelope field. Existing workstation setup,
+Wake, Space Action, status and diagnostics contracts remain unchanged. Shared
+schema changes still require normal local artifact verification before delivery.
+
 ## Shared Agent Plugins
 
+Connector execution admission uses the existing operation record and audit
+journal. For a Core-derived task identity, the operation row identity includes
+the exact effect signature rather than the model's chosen operation ID. A
+duplicate ID for that same task/effect resolves to the original operation and
+cannot issue another provider request. Read effects do not use this fence.
+A later explicit request has a different task identity.
+
+`includeExecutionPermit` opts Remote consumers into a per-call execution permit
+and the shared `connectorActionReplayPermissionSchema`. Only a durably recorded
+unknown outcome can permit replay. The operation owner atomically inserts one
+unique replay-attempt journal row, conditional on the original 24-hour window,
+before permitting provider execution. Concurrent requests and process recovery
+cannot renew that allowance. A lost claim response consumes the attempt rather
+than permitting an unrecorded retry. Old consumers may initiate new operations;
+recovery without the explicit permit capability fails closed. Core must precede
+the new consumer. No second quota store or database migration is introduced.
 `plugin-connection-reply` reads persisted connection links through one shared
 parser used by Web presentation and Core continuation validation. Production
 root/App origins and staging root/App origins are explicit, separate compatibility
@@ -686,6 +847,37 @@ provider outcomes remain unknown. Wake provenance is read through the Dispatch
 application boundary. It does not establish execution liveness or replace
 RuntimeCoordinator authority. The local account and Service remain the local
 trust boundary; a dispatch identifier is not a secret execution capability.
+
+Local non-read calls reuse a Core-verified original request. Direct human Wakes
+use the immutable Space message identity. Recorded Center delegations use the
+parent native delivery identity. Current execution admission, membership, exact
+delegated input, selected account, connection version, and Plugin permission are
+checked again. A continuation or specified child shares that root; changing an
+operation ID or executor does not create another write for the same task/effect.
+The original operation and account remain the receipt owner. Only its original
+executor can claim the one provider replay, preserving its idempotency key.
+
+A manual Local call without verified request provenance creates one exact private
+Inbox request. `includeRequestAuthorization` opts into the shared
+`authorization_required` projection. Other callers receive an actionable error.
+`plugin-action-requests` owns read/approve/reject DTOs. Approval requires the
+authenticated account principal to match the request owner and a Human Profile.
+A delegated Agent principal cannot approve, even if it supplies a Human Profile
+identifier. This uses the existing account credential boundary; it does not
+claim to distinguish a human from an Agent given that human's full credentials.
+No email code or separate factor enrollment is added. An approved manual request
+supplies `plugin-request:<id>`; its exact actor, account and input remain bound.
+A genuinely new manual request can be approved separately without resolving an
+older unknown result.
+
+Inbox source-target capability 10 adds `plugin_action_request`; version 9 retains
+account-scoped notifications but directs users to current Web for this detail.
+Rollout requires migration 0192 and current Gateway/schema readers before Core
+creates these rows, followed by Web/CLI consumers. The unreleased email-code
+prototype is removed from Auth, schemas and Web. Replay readers must understand
+`original_executor_required` before Core emits cross-executor receipts. The
+fifteen-minute destructive token remains distinct from the one-hour manual
+request and the operation's single replay within its original 24-hour window.
 
 ### Contract impact and rollout
 
@@ -748,22 +940,28 @@ requires Core and Gateway before Web; no local component upgrade is required.
 ## Space Task contracts
 
 `@openmeld/schemas` owns the strict Space Task, actor, result, review, event,
-create, mutation, list, detail, receipt, and GitHub `externalWorkItems`
-contracts. `externalWorkItems` defaults to `[]`, so stored Task JSON written
-before this field still parses. Gateway authenticates
+create, mutation, list, detail, receipt, Project-set, and provider-typed
+`externalWorkItems` contracts. `externalWorkItems` and `projectIds` default to
+`[]`, so stored Task JSON written before these fields still parses. GitHub
+items retain owner, repository, and number; Linear items retain provider UUID,
+identifier, team UUID, optional provider project UUID, and URL. Linear observed
+state remains null because no Linear subscription owns it. Gateway authenticates
 `GET/POST /v1/spaces/:spaceId/tasks` and
 `GET/PATCH /v1/spaces/:spaceId/tasks/:taskId`; Core RPC delegates to the owning
 Space Durable Object. Writes require an active human or Agent member whose
 profile ownership matches the authenticated actor. Member reads use the same
 actor boundary; public and shared-link reads use the existing read-only Space
-access contract. Current Direct Messages reject the capability.
+access contract. Direct Messages support the same Task workflow. Private writes
+require active conversation membership; observing an owned Agent's conversation
+does not grant the human owner mutation access. Agent tools use the current
+conversation ID and retain the same Core actor and membership checks.
 
 Create and mutation requests carry an operation id. Mutations also carry an
 expected revision. The Space Durable Object compares `expectedRevision` in the
 workflow before writing; a stale revision is typed `space_task.revision_conflict`
 HTTP 409. The SQL `UPDATE` is not a second concurrency authority. Replaying
 the same operation returns `applied: false`; reuse for different input is
-`space_task.operation_conflict` HTTP 409. Attaching too many GitHub issues is
+`space_task.operation_conflict` HTTP 409. Attaching too many external issues is
 `space_task.external_work_item_limit`; detaching or observing a missing link is
 `space_task.external_work_item_not_found`. Reviews additionally require
 `expectedResultRevision`, identifying the submitted result the reviewer
@@ -780,6 +978,17 @@ decision before resubmitting a semantic change. They do not replace
 `expectedRevision` and blindly replay a stale brief or review. A provider
 observation may retry once with a refreshed revision because it reports
 provider-owned state rather than approving a changed Task.
+`set_projects` is a revision-checked Space Task mutation. Core validates each
+active Project against the Space's Organization before the Space writer accepts
+the association; the Task's owning Space still writes the only Task state.
+The Task Project set is work scope, not another Task writer or an authorization
+grant. A new external write cannot take a destination from the set's list
+order. Existing Tasks remain unassociated until a new scoped mutation succeeds.
+Project detail's recent Task response contains at most twenty currently
+authorized Task summaries. Core first reads bounded Project link keys from
+PostgreSQL, then rereads each Task through the owning Space with the current Human
+Profile. Missing, inaccessible, or no-longer-associated Tasks are omitted;
+the response never exposes candidate counts or implies complete history.
 
 `GET` detail returns the legacy Task and event shape by default. A client may
 request `includeAffordances=1` to receive `allowedActions` and `pendingActions`.
@@ -812,13 +1021,31 @@ cancels still-active linked Tasks through the Space writer. Completing or
 canceling a Task does not PATCH GitHub from Core. Old Remote Agent builds
 simply omit the association.
 
+Confirmed Linear creation may add an exact reference to one eligible source
+Task through the same Space mutation RPC. An issue-creation receipt and its
+Task-reference write are separate effects: a confirmed provider creation with
+failed association reports the partial result and recovers only the Task
+mutation. Linear references do not enter the GitHub webhook link projection or
+GitHub close-prompt policy.
+
+New Task fields and the Linear variant are strict-reader changes. Deploy
+consumers that understand `projectIds` and both provider variants before Core
+begins returning them. Updated clients send `taskContractVersion=2` on Task
+read/write routes. For an older client, Core omits the empty new field from a
+legacy Task and returns `space_task.contract_update_required` (HTTP 426) when
+current Project or Linear facts would otherwise be lost or rejected. Older
+clients reject an unsupported Task rather than flatten it to one Project or
+recode a Linear issue as GitHub. The
+published CLI and OpenMeld Service compatibility audit covers the Task
+read/write path before this producer is enabled.
+
 Gateway `POST /github/app/webhook` forwards the raw body and GitHub delivery
 headers to Core `verifyGitHubAppWebhook`. Core verifies
 `X-Hub-Signature-256` with `GITHUB_OPENMELD_WEBHOOK_SECRET`, accepts `ping`,
 ignores uninteresting events, and enqueues `kind: "github_app_webhook"` on
 the existing daemon-dispatch queue. The Space Durable Object
 `rpcApplyGitHubIssueObservation` path has no member context and does not
-start a model turn. Deploy D1 migration 0180 before Core and Gateway
+start a model turn. Verify the native schema originating in historical D1 migration 0180 before Core and Gateway
 consumers. A missing webhook secret fails closed. Old Gateway builds simply
 lack the route; old Core builds reject the new RPC. No local-component
 upgrade is required.
@@ -899,6 +1126,32 @@ receivers; it introduces no backend endpoint or data migration. Older local
 components retain their existing history commands. Scoped bootstrap guidance
 uses the MCP reader because native file isolation can prevent loading a local
 CLI and its dependencies.
+
+`read_evidence` accepts `spaceMessageEvidenceRequestSchema` and reads exactly
+one message through that same current-Agent Space API. Local and Remote readers
+share the context-manifest materializer in `@openmeld/protocol`: source version,
+materialized hash, Unicode offsets, and the 4,000-character bound have one
+implementation. Continuing a source page requires its original version. Missing,
+recalled, or changed evidence fails explicitly; it never selects the latest
+version in place of a requested version. This adds a local tool, without adding
+a cloud route or granting access to another Space.
+
+Large local tool results remain transport snapshots. Before `read_result`
+discloses each cached page, it reruns the original source read with the original
+arguments and compares the result with the snapshot. Revocation, source changes,
+or an inaccessible old Files revision invalidate the page. The active Wake is
+also checked after the read. A cached result is never an authorization grant.
+
+The local `read_result` request optionally accepts a case-sensitive literal
+`query` against the retained serialized JSON. Its bounded `search` response
+contains up to two original-text excerpts and a cursor for subsequent matches;
+it is not a complete read or a semantic absence proof. Omitting `query` preserves
+the original complete pagination contract. Search uses the same Wake, connection,
+source-version, and access checks as paging. The schemas live in
+`packages/schemas`; this is a locally advertised tool extension, not a cloud
+payload change. Older local components continue to advertise ordinary paging.
+No setup, Wake, action, diagnostic, or native conversation contract changes;
+there is no required contract-floor bump or cloud rollout ordering dependency.
 
 ### Thread continuation and file working context
 
@@ -1187,7 +1440,7 @@ audit. `packages/agent-runtime` owns the stable, provider-neutral language
 judgment instructions and rendering of the optional per-turn advisory. Remote
 Agent and Local OpenMeld Service consume those contracts; they do not persist a
 second preference or convert advisory guidance into permission or execution
-truth. The additive rollout deploys the D1 migration and cloud receivers before
+truth. The additive rollout deploys the PostgreSQL migration and cloud receivers before
 Core emits the optional fields, then publishes the local Service producer.
 Older receivers ignore no new required field; new receivers admit an omitted
 field as no guidance.
@@ -1259,6 +1512,13 @@ under a reconciliation id and makes no user-readable change until the terminal
 page succeeds. A complete terminal page replaces that source's current set.
 Unsupported, error, and disconnected outcomes are explicit terminal facts,
 not empty arrays with implied success.
+For a folder shared across Projects, `partial` pages may carry only Sessions
+with an exact accepted Project attribution and must carry
+`project_attribution_ambiguous`. Core publishes those rows at the terminal
+page while leaving the source in error coverage, so omitted native Sessions
+cannot masquerade as an empty complete inventory. Old readers already accept
+the existing `error` coverage state; old writers that do not know `partial`
+fail closed rather than flattening this result to `sessions`.
 
 The current-session Profile lookup is a separate narrow HTTP/RPC contract over
 the same Binding identity. Its strict query contains one exact controller ref
@@ -1306,7 +1566,7 @@ Web preserves the stable code and renders the message instead of exposing an
 unparsed upstream body. Auth owns the preference and exposes it as a server-owned
 user field on the existing session response; Web does not define a parallel
 local-storage or entry-fetch contract. The Auth session HTTP boundary projects
-this field from the canonical D1 user row after Better Auth resolves the
+this field from the canonical PostgreSQL user row after Better Auth resolves the
 session, so production secondary-storage or cookie snapshots cannot make the
 entry preference stale. This projection stays inside the existing session
 request and preserves Better Auth's underlying session failure semantics.
@@ -1453,7 +1713,7 @@ return it only with `includeSourceFacts: true`; Gateway strips it for version `7
 and older clients without dropping their existing reply/target fields. Deploy
 the additive Core reader before the Gateway writer. Stored source facts require
 retaining compatible readers during rollback; never discard/recreate items to
-undo a projection. The additive D1 migration also narrowly repairs the retired
+undo a projection. The additive PostgreSQL migration also narrowly repairs the retired
 owner-awareness writer, and Space schema v43 persists publication/contact and
 projection-selection receipts in the source transaction boundary.
 
@@ -1529,7 +1789,7 @@ Older request callers retain the email-invitation flow and legacy response shape
 An approval is not a membership claim: Auth fulfills membership and optional Space
 access first, then Core records completion and resolves reviewer Inbox items.
 
-Contract impact: this changes Auth HTTP, Auth/Core RPC, and additive shared D1
+Contract impact: this changes Auth HTTP, Auth/Core RPC, and additive shared PostgreSQL
 data only. Existing CLI, Service, Skills, Gateway, and Remote Agent remain
 compatible for setup, Wake, Space actions, status, and diagnostics; no local
 component epoch or artifact change is required. The receiver-first release order
@@ -1549,7 +1809,7 @@ idempotency fence is the exact recipient plus source event key inside one
 Organization; producers and clients must not invent a second dedupe rule.
 Recipient identity and account existence remain Auth-owned inputs. A source
 adapter may reuse exact recipient identity already proven by its owning domain
-or consume an explicit owner-approved projection; sharing one D1 binding does
+or consume an explicit owner-approved projection; sharing one PostgreSQL database does
 not authorize it to query Auth-private `users` or `members` tables.
 
 Web, future Desktop, and future Mobile clients consume the same list, direct
@@ -1676,13 +1936,13 @@ unchanged. Migration `0128_massive_blur` adds the nullable last-attempt
 field and index used to rotate a failed provider lookup behind never-attempted
 repairs rather than starving the bounded batch.
 
-`message_channel` rows remain in D1 after the producer stops. A normal rollback
+`message_channel` rows remain in PostgreSQL after the producer stops. A normal rollback
 therefore stops emission with a forward Core change that retains the new reader,
 then keeps the new Core, Gateway, and Web readers deployed. It must not restore
 an old Core, Gateway, or Web reader while any new row can remain. A complete
 reader rollback is allowed only after an explicit, verified compatibility
 migration or retention process proves that no persisted row uses the new
-discriminator. Manual D1 rewrites or deletion are not a normal rollback path.
+discriminator. Manual PostgreSQL rewrites or deletion are not a normal rollback path.
 
 The additive Dismiss method rolls out receiver first: deploy Core, then Gateway,
 then Web. Old clients do not call the new method and remain compatible. During
@@ -1950,6 +2210,11 @@ diagnostics payloads) are dot-separated, and every segment uses `snake_case`:
 
 ## `packages/schemas`
 
+The PostgreSQL foundation adds no product HTTP/RPC/WebSocket or Service wire
+contract. Storage adaptation must preserve existing shared contracts; driver
+row types and SQL schemas do not replace `packages/schemas`. The isolated
+infrastructure probe returns HTTP status only and accepts no caller SQL/data.
+
 `packages/schemas/src/schemas` is the single source of truth for shared payload
 schemas.
 
@@ -2106,13 +2371,22 @@ workflow contract tests, but do not by themselves create a local-component
 release. Product-facing and runtime schemas elsewhere in `packages/schemas`
 remain release-sensitive.
 
+The public Docs foundation adds `docs` to the production scope and artifact
+admission enums. The same change updates the trusted planner, scope leases,
+workflow producers, artifact readers, and release-status projection. This is
+a repository delivery-control change; no product HTTP, RPC, CLI, Service,
+Wake, or diagnostic payload changes. Existing local components and cloud
+runtime contracts remain compatible. The Docs renderer has no authenticated
+App or Service dependency. A delivery-control rollback must stop Docs release
+requests before restoring readers that do not recognize the new scope.
+
 ### Prepare Connection Progress Observation Contract
 
 Prepare connection progress uses a versioned, strict observation payload with
 operation and attempt identity, producer sequence, timestamp, semantic phase,
 state, and optional bounded detail or measured byte transfer. Terminal may send
 the observation only for its authenticated Prepare Session and current
-connection epoch. Core relays a latest-only value to Web without a D1 event,
+connection epoch. Core relays a latest-only value to Web without a PostgreSQL event,
 Prepare mutation, or `sessionRevision` change. Receivers treat unsupported
 progress as optional and retain the existing coarse snapshot experience.
 The relayed payload retains the Terminal connection epoch. Core accepts only
@@ -2196,6 +2470,78 @@ way OpenMeld cancels authentication UI. Parent and helper are always the same
 packaged binary version, so no mixed-version rollout exists at this private
 boundary.
 
+### Project Workflow Contracts
+
+`packages/schemas/src/schemas/http/projects.ts` owns versioned Project
+issue-routing, repository-association, and Common Agent configuration
+contracts. Gateway exposes separate authenticated Project subroutes; Core
+persists each setting on the existing Organization-scoped Project row and
+reuses creator-or-Organization-owner management authority. Existing strict
+Project list responses retain their original shape. Repository URLs are
+canonicalized and fingerprinted by Core; the legacy Project repository fields
+project the optional default for older consumers, while additional URLs
+remain separate associations. Neither a repository association nor Common
+Agent membership authorizes file, provider, Space, or Agent execution access.
+
+For an OpenMeld-controlled new issue action, the action owner sends its exact
+proposed provider target to Core. Core verifies the active delivery and current
+Task associations, returning either `project_default` or `confirmation_required`.
+Message text and object references are never parsed into write authority.
+The operation claim carries a complete structured `issueDestination`; Core
+recomputes its routing decision rather than accepting a caller-authored default
+revision. New GitHub, Linear and batch creation claims without this target and
+the correct write effect fail closed. A default-based claim uses the verified
+Project revision and exact destination. The PostgreSQL transaction
+locks and checks the active Project row before inserting the operation and its
+attempted audit receipt. A stale claim writes neither an operation nor false
+attempted evidence. GitHub batches claim one frozen batch
+operation before writing their durable manifest. Other new issue claims reuse
+`plugin_action_requests` and the private Inbox approval flow. The existing
+request digest binds the actor, operation, connection, complete target and action
+input identity. Only its Human recipient can approve; the claim's SQL guard
+rechecks approval state, expiry, membership, connection generation and access
+revision before writing operation/audit evidence. The internal request intent
+records `purpose: issue_destination` and its exact Agent consumer; retained
+intents without `consumer` preserve their existing Local Agent meaning. This
+adds no second consent table or automatic provider retry. A replay reads its
+already accepted operation and retains its
+frozen provider, account, target, and idempotency key rather than re-resolving
+from a later Project edit. The Project rule never substitutes for current
+connection and actor authorization. Local Plugin calls use their verified
+dispatch source Task or the same exact-action Inbox confirmation; direct third-party tools outside
+OpenMeld are not covered by this boundary.
+
+Apply PostgreSQL migration `0027_project_workflow` before the Core readers and
+writers. Historical D1 migrations remain unchanged. The
+Core issue-resolution and operation receivers must be available before Remote
+Agent callers. Earlier draft callers that send `issueRoutingDecision` instead
+of `issueDestination` are rejected before new issue writes; new callers reject
+the earlier text-derived resolution bases. The existing Inbox view/command
+shape remains unchanged. Linear target mapping requires the supported catalog's
+`team_id` and `project_id` fields and rejects target-field drift before execution.
+The local Service still resolves its
+existing route observation, then uses a frozen per-Context Project repository
+selection when one is present. An older Service is rejected at Context
+admission for this selection. Local Project Control accepts an optional
+repository fingerprint only after Core verifies it against the active Project
+association. A same-Organization shared-folder use needs a separate, stale-safe
+share confirmation token; the move token cannot authorize sharing. The new
+Project subroutes remain additive to the legacy Project list contract.
+
+Receiver-first Core deploys pin the published local-components manifest. When
+that manifest declares `runtime-transport-epoch-2026-09-space-files-1gib`
+(including Service 0.3.248), Core accepts that exact epoch and the new
+`runtime-transport-epoch-2026-09-project-work-v1` epoch. Previously released
+Antigravity permission modes remain writable. The earlier image-geometry
+receiver transition retains its existing writer hold only when that epoch is
+explicitly pinned. Unknown or invalid pinned manifests do not authorize an
+additional epoch. Ordinary published-Service Wakes, setup and diagnostics
+remain compatible during the transition; explicit Project-work admission
+still requires Execution Context capability v4. The CLI, Service and Skills
+publication follows the receivers. Once Core switches to the new manifest,
+the normal current-epoch requirement applies. No new payload or database
+contract is introduced by this rollout correction.
+
 ### Center Agent Project Tool Contracts
 
 `packages/schemas/src/schemas/http/center-agent-projects.ts` owns the
@@ -2265,7 +2611,7 @@ explicitly states that acceptance does not execute work. Remote Agent keeps all
 three tools out of Routine turns and permits at most one recommendation per
 interactive turn through its model guidance.
 
-This additive rollout is migration and receiver first: apply the D1 migration,
+This additive rollout is migration and receiver first: apply the PostgreSQL migration,
 deploy the Core RPC receivers, then deploy Remote Agent callers. Old Remote
 Agents call nothing new; a new Remote Agent against old Core fails closed.
 Rollback removes Remote Agent callers before Core receivers or the table.
@@ -2315,6 +2661,10 @@ public `OrganizationDirectoryResponse` adds only the optional member-level
 and CLI clients continue to receive the prior strict shape during rollout.
 
 The broad `OrganizationDirectoryResponse` remains a compatibility contract.
+Its opt-in `centerAgentOnly=true` scope preserves member authorization and the
+response schema, omits members, and resolves runtime readiness only for the
+designated Center Agent. Omitted or unknown query parameters retain the full
+directory behavior. Web keeps the scoped result under a distinct cache key.
 Current Web People and Agents use two narrower Core-owned read projections so
 identity is never blocked by runtime fan-out. `OrganizationProfileDirectoryResponse`
 contains Auth-owned member and Agent Profile identity, Center Agent designation,
@@ -2363,14 +2713,14 @@ normal policy outcomes. Conflict targets outside that initial set still receive
 a current Auth lookup.
 
 Within that request, concurrent primary Binding, controller-conversation conflict,
-and organization-context reads use bounded D1 batches grouped by physical
+and organization-context reads use bounded PostgreSQL batches grouped by physical
 database. Each repository retains its exact SELECT, owner predicates, conflict
 ordering, exclusion rules, and row validation. This batches database round trips,
 not policy decisions or result caching: subsequent reads still execute against
 the database. A failed or incomplete batch rejects its reads and follows the
 existing unavailable-evidence path. Other readiness callers retain scalar reads;
 the owner and per-Profile concurrency limits are unchanged. This uses existing
-Auth RPC and D1 contracts and introduces no Web, Gateway, CLI, Service, or Skills
+Auth RPC and PostgreSQL contracts and introduces no Web, Gateway, CLI, Service, or Skills
 payload change. Core requires Auth's existing `resolveProfilesByIds` capability;
 a receiver without it yields unavailable identity evidence, never guessed facts.
 
@@ -2657,7 +3007,7 @@ dedicated contract.
 optional conversion timestamp. Current DM classification must use that marker
 with DM origin and the exact active-member count; a client must not reconstruct
 conversion from route shape or a cached list. The field additions and endpoint
-are additive. The D1 column lands before Core projects it; then deploy Core,
+are additive. The PostgreSQL column lands before Core projects it; then deploy Core,
 Gateway, and Web. Old Web ignores the field and never calls the new route; new
 Web against an old cloud stack receives an explicit failed conversion rather
 than a partial member write. Rollback removes Web and Gateway callers before
@@ -2673,7 +3023,7 @@ projection for resolving sidebar identity through the Organization Profile
 Directory, not membership or access authority. Strict older clients omit the
 flag and keep their prior response shape. Roll out schemas, Core, Gateway, and
 Web receiver-first; rollback removes the Web flag before the Gateway and Core
-field support. No D1, CLI, Service, daemon, runtime, or local-component contract
+field support. No PostgreSQL, CLI, Service, daemon, runtime, or local-component contract
 change is required.
 
 ### Organization Logo Contracts
@@ -2912,7 +3262,7 @@ in place. Do not roll Core back below this compatibility bridge after geometry
 has been persisted in messages: old internal readers are not certified for that
 canonical shape. Recover with the bridge retained, or a forward fix. Never erase
 canonical geometry, drop the nullable column, or rewrite stored messages for a
-rollback. No D1 migration or new public image transport is introduced.
+rollback. No PostgreSQL migration or new public image transport is introduced.
 
 `packages/schemas` owns the Space File entry and revision descriptors, mutation
 bodies and responses, raw upload query, list query, content limits, error-code
@@ -3148,7 +3498,7 @@ The canonical Space File rollout is receiver-first across strict boundaries:
 Rollback removes Web/CLI producers first, then Core's dispatch producer, then
 the Remote Agent and Local Service consumers. The contract adds optional
 fields but changes strict mixed-version behavior, so unchanged version
-constants are not evidence of compatibility. No D1 migration or new public R2
+constants are not evidence of compatibility. No PostgreSQL migration or new public R2
 bucket is introduced: each Space Durable Object lazily owns its SQLite tables,
 and immutable bytes use the existing private Space object-store binding.
 
@@ -3163,8 +3513,8 @@ components interoperate with the existing Core and Gateway file receivers.
 
 #### Historical attachment rollout
 
-The first rollout is an explicit exception to the default cloud deploy order:
-apply D1 migration 0020, deploy Core's new attachment RPC methods, deploy
+The original attachment rollout was an exception to the default cloud deploy
+order: apply historical D1 migration 0020, deploy Core's new attachment RPC methods, deploy
 Gateway's routes and R2 binding, and only then release a client that calls the
 new endpoint. Existing clients remain compatible because no existing route or
 payload changes.
@@ -3289,7 +3639,7 @@ Contract Impact Audit:
   acceptance while any old durable delivery or recovery request can exist.
 - CLI, OpenMeld Service, daemon, Prepare, RuntimeTransport, workstation Wake,
   Space action, diagnostics, and local component contract versions are
-  unchanged. No D1 migration is required because the existing hosted Binding
+  unchanged. No PostgreSQL migration is required because the existing hosted Binding
   model field and configuration revision remain the single preference store.
   The shared-schema source mechanically changes the packaged Service bundle
   hash, so this feature branch defers the manifest update; the next clean release
@@ -3459,6 +3809,18 @@ owners.
 
 ### Agent Stream Contracts
 
+Hosted model recovery uses a typed `recovery` stream part from the native runtime,
+with waiting/recovered/exhausted state, retry number, maximum retries, and next
+retry timestamp. It shares the stream's sequence, dispatch identity, reply
+placement, and terminal guard. The Space cursor persists this presentation
+projection; it does not own retry admission or execution truth. Provider error
+text is excluded. Bootstrap includes this optional presence field only when
+the caller requests `includeAgentStreamRecovery=true`; older strict readers
+receive the original presence shape. Older live readers ignore unfamiliar part
+types without dropping the connection. Deploy Web and Gateway readers, then
+Core, then the Remote Agent producer. CLI, Service, and local Skills require no
+new contract floor for this hosted-only capability.
+
 Shared schema surfaces define the hosted Center Agent and workstation Local
 Agent Space-stream paths:
 
@@ -3489,7 +3851,7 @@ Agent Space-stream paths:
   status remains `completed` for that internal submission, not for the entire
   native delivery. Failure and cancellation override checkpoint recovery.
   Older final callback bodies remain valid; no CLI/Service protocol version or
-  D1 migration changes. Rollback must drain new private worker state as described
+  PostgreSQL migration changes. Rollback must drain new private worker state as described
   in the Remote Agent runtime owner document.
 - `packages/schemas/src/schemas/daemon/runtime-transport.ts` owns the Local
   OpenMeld Service-to-Core privacy-bounded tool-activity frame. The frame
@@ -3507,6 +3869,15 @@ Agent Space-stream paths:
   reasoning status is not execution truth; clients must not infer model support
   or a stuck execution from silence. Old Service/Gateway combinations do not
   negotiate the header and therefore continue without live reasoning.
+- `packages/schemas/src/schemas/protocol/envelope.ts` owns the optional
+  `stoppedReplyText` on a system notice envelope. Space attaches only its accepted
+  public text snapshot for the same Space, dispatch, target Profile, and source
+  message. The existing terminal guard can retain that bounded snapshot until
+  notice publication; its existing expiry still applies. This is display data,
+  never successful completion or execution authority. Older envelope readers
+  ignore this additive field and still parse the unchanged strict notice data.
+  New Web also accepts old notices without a partial reply. No Service, CLI,
+  setup, dispatch, trace, or recovery contract floor changes are needed.
 - `packages/schemas/src/schemas/protocol/agent-stream.ts` owns Space live text,
   thinking, public-progress, tool-part, and terminal frames plus the active stream presence,
   active text snapshot, and durable privacy-bounded Agent reply work
@@ -3562,8 +3933,11 @@ lease, target Agent Profile, Space, and source signal against authoritative
 pending-dispatch state before Space accepts it. Space owns sequence,
 deduplication, gap evidence, expiry, and terminal guards across text and tool
 parts for both paths. Room entry recovers active stream presence and any active
-text projection through the bootstrap snapshot; private thinking and the
-compact live Work summary are not replayed. The presence rollout is Core
+text projection through the bootstrap snapshot. Reasoning is absent from durable
+bootstrap, but a bounded live tail may replay from the active Space instance
+after the existing audience and Local Agent owner-preference checks. Hosted
+provider-emitted reasoning reuses the existing v2 thinking callback and does not
+change execution, publication, or authorization ownership. The presence rollout is Core
 receiver/producer first, then Gateway forwarding, then Web opt-in. An old
 Gateway ignores the unknown browser query, and new Core omits the additive
 response field for callers that did not opt in. A successful
@@ -3770,7 +4144,7 @@ New Core subscription writers omit the former Space-only `sourceSignalId`,
 `spaceId`, and `threadContext` continuation fields. The shared reader accepts
 historical rows only when all three legacy fields are present together. The
 Core consumer derives the new delivery's conversation identity from the exact
-observer Native Delivery, so this change requires no D1 migration and does not
+observer Native Delivery, so this change requires no PostgreSQL migration and does not
 change the Remote Agent turn-envelope schema.
 
 This contract requires a consumer-first Core rollout controlled by
@@ -3912,7 +4286,7 @@ terminal evidence.
 
 For a controller-native watch, Core prevalidates Organization, requester
 ownership, and registration-source capability, then repeats the exact task key,
-Organization, owner, and registration source inside the same conditional D1
+Organization, owner, and registration source inside the same conditional PostgreSQL
 INSERT that creates the subscription. If retention removed the task or the same
 handle was re-registered with different authority evidence, the INSERT creates
 nothing and the request fails as target-not-found. A prior read followed by an
@@ -4498,8 +4872,7 @@ already-running older Remote Agent can call a newly deployed Core. Omission
 uses the legacy direct path and must not be emitted by the current tool. The
 current execution source keeps `operationId` receiver-optional during rollout;
 an older caller maps to the source-owned `source` key and preserves the former
-one-message-per-source-and-destination behavior. Apply D1 migration
-`0145_calm_tarot` first; it backfills that key and expands the unique
+one-message-per-source-and-destination behavior. Verify the native schema originating in historical D1 migration `0145_calm_tarot` first; it backfills that key and expands the unique
 scope without changing existing rows' meaning. Then deploy Core before Remote
 Agent. Old Remote
 Agent may still call its legacy `channelName` plus `threadTs` request and
@@ -4533,8 +4906,7 @@ digest. A completed retry returns the stored strict response. A
 provider-confirmed non-publication may retry, while an interrupted or
 undecodable completion becomes `outcome_unknown` and never uploads again
 automatically. Audit records the represented publication action without file
-bytes or Bot credentials. Apply D1 migration
-`0141_awesome_lady_bullseye` before Core;
+bytes or Bot credentials. Verify the native schema originating in historical D1 migration `0141_awesome_lady_bullseye` before Core;
 the previous table constraint rejects `slack_file` claims and therefore cannot
 fence file uploads safely. This is otherwise an additive receiver-first RPC:
 deploy Core before Remote Agent and remove the caller before the receiver on
@@ -4661,7 +5033,7 @@ rolling back that consumer. The additive optional field does not change CLI,
 OpenMeld Service, daemon, Prepare, RuntimeCoordinator, or local-component
 contract versions.
 
-For the first Slack adapter, apply shared D1 migration `0044` before deploying
+For the first Slack adapter, apply shared historical D1 migration `0044` before deploying
 the Core producer. The Remote Agent consumer from the previous rollout must
 already accept `channelContext`. Rollback stops the Core producer before
 removing that consumer; the cursor table may remain as dormant synchronization
@@ -4816,7 +5188,7 @@ reads are also optional to delivery: a read failure
 or missing Space Organization projection is observable and omits the custom
 hints while preserving built-in guidance.
 
-The production rollout is ordered: apply D1 migration `0061`; deploy Core so it
+The rollout is ordered: verify the native schema originating in historical D1 migration `0061`; deploy Core so it
 accepts both optional cloud and workstation fields; deploy Gateway and the
 Remote Agent; deploy Web; then publish the CLI/Service producer. A new Remote
 Agent must not send the strict request flag to old Core, and a new local Service
@@ -5011,7 +5383,7 @@ Core RPC method using the same schema so a partial deployment fails as an
 explicit contract error rather than an unowned 502.
 
 Human content updates carry both `expectedDocumentUpdatedAt` and nullable
-`expectedDraftCreatedAt`. Core includes both values in the same conditional D1
+`expectedDraftCreatedAt`. Core includes both values in the same conditional PostgreSQL
 update that writes the content. A zero-row update returns
 `organization_document.working_copy_conflict` after confirming the Document
 still exists, so a stale browser cannot erase a newer Center Agent draft or
@@ -5063,7 +5435,7 @@ Agent; roll back Remote Agent before Core.
 
 This contract has two strict directions and rolls out consumer-first:
 
-1. apply D1 migration `0115_tense_cannonball`;
+1. Verify the native schema originating in historical D1 migration `0115_tense_cannonball`;
 2. deploy Web so it accepts the new Agent Work key before any worker emits it;
 3. deploy Remote Agent so it accepts the `member_research` turn variant and
    exposes the self-only tool;
@@ -5075,7 +5447,7 @@ older Core RPC receiver and does not create a document through another path.
 An older Remote Agent never calls the new Core method, but new Core must not
 lead the Remote Agent rollout because the old worker does not accept the new
 strict turn variant. Rollback therefore removes the Core producer first, then
-Remote Agent, then Web; the additive D1 migration may remain.
+Remote Agent, then Web; the additive PostgreSQL migration may remain.
 
 Core persists that trusted task id with the Organization Document draft write so
 completion can be verified even if a human immediately approves or discards the
@@ -5157,7 +5529,7 @@ raw grant list or create another capability writer. Practical mutations and Run
 history remain on `practical-v2`; management clients omit management-only fields
 on ordinary updates and send capability fields only for explicit changes.
 
-`management-v2` rolls out through an additive D1 migration first, then the Core
+`management-v2` rolls out through an additive PostgreSQL migration first, then the Core
 receiver and frozen `management-v1` compatibility reader, Gateway, and Web.
 Existing Web builds can keep requesting `management-v1`, and CLI remains on
 `practical-v2`, throughout the mixed-version window. New Web must not request
@@ -5191,7 +5563,7 @@ requires `onBehalfOf = null`, and keeps historical delegation in
 `turnEnvelope.sender.delegatedBy`. The worker submit response is a strict union:
 either the durable submission ACK with a real `submissionId`, or a versioned
 admission rejection with `idempotencyKey`, bounded `reasonCode`, and `message`.
-The rejection variant must not invent a submission identity. Core's private D1
+The rejection variant must not invent a submission identity. Core's private PostgreSQL
 recovery envelope is a storage concern, not a second cross-service contract:
 its inner request is still validated by the shared worker-request schema before
 write and after read.
@@ -5219,7 +5591,7 @@ replacement may carry only the shared bounded, source-attributed
 empty. Legacy version-1 through version-3 requests still treat the rejection as
 terminal.
 
-Version 4 is an additive strict request-envelope change. Deploy the D1
+Version 4 is an additive strict request-envelope change. Deploy the PostgreSQL
 generation-pointer migration, then the Remote Agent request receiver, then the
 Core producer. An old Core continues sending version 3 to the new receiver; an
 old strict Remote Agent rejects version 4, so Core must never produce it first.
@@ -5231,7 +5603,7 @@ The field is rollout-optional so a new Remote Agent consumer can deploy before
 Core emits it; omission means `standard`. Core persists the policy on the
 Routine and copies it into the frozen worker request. `read_only` is consumed
 only as the narrow external-action fence owned by
-`developing/product/center-agent-routines.md`; it does not authorize reads,
+`developing/product/routines.md`; it does not authorize reads,
 replace capability-owned checks, or become a second general permission model.
 Deploy the Remote Agent consumer first, apply the Routine-column migration,
 then deploy the Core producer.
@@ -5309,7 +5681,7 @@ consumer-first rollout.
 
 Roll out the original connected-member read access in this order:
 
-1. apply D1 migrations `0077` and `0078`, which add native-delivery speaker
+1. Verify the native schema originating in historical D1 migrations `0077` and `0078`, which add native-delivery speaker
    evidence and audit-source projection;
 2. deploy Remote Agent, whose optional identity consumer keeps old Core turns
    on the legacy external-participant surface and preserves verified read
@@ -5320,13 +5692,13 @@ Roll out the original connected-member read access in this order:
 
 The reverse Core-first window is unsafe because an older strict Remote Agent
 does not accept the new sender identity. Rollback therefore stops or rolls back
-the Core producer before the Remote Agent consumer; the additive D1 columns may
+the Core producer before the Remote Agent consumer; the additive PostgreSQL columns may
 remain.
 
 Expand connected-member Organization-shared App access in a separate
 receiver-first rollout:
 
-1. apply D1 migration `0096_lovely_roland_deschain`, which adds the canonical
+1. Verify the native schema originating in historical D1 migration `0096_lovely_roland_deschain`, which adds the canonical
    requester-attribution key and source native-delivery attribution to
    connector action operations;
 2. deploy Core with the expanded shared tool-name contract, exact native
@@ -5400,7 +5772,7 @@ link but cannot claim automatic continuation. Core atomically claims one
 private token for the signed-in OpenMeld user before Auth may add Organization
 membership. Core then rechecks the current workspace Binding and signed-in
 Organization membership while consuming the claimed token and writing the link
-in one atomic D1 batch. If that exact Slack account points to another member,
+in one PostgreSQL transaction. If that exact Slack account points to another member,
 the same Slack-private proof atomically replaces the canonical mapping; it never
 creates two mappings. A competing OpenMeld user fails before Auth enrollment.
 The same user may retry a claim left unconsumed by a failed Auth enrollment.
@@ -5479,7 +5851,7 @@ UI, then Gateway, then Core. New consumers default omitted `identityLinks`,
 empty, null, or false, so they remain compatible with old Core. Old strict
 consumers may reject those new fields, so Core must not emit them before Web and
 Gateway are ready. Before the Core step, the new Web sees no mappings and
-therefore exposes no deletion caller or provider-account email. No Auth, D1
+therefore exposes no deletion caller or provider-account email. No Auth, PostgreSQL
 migration, CLI, OpenMeld Service, Runtime Transport,
 Prepare, Wake, Space Action, status, trace, diagnostic, or self-rescue contract
 changes; existing local components continue without an update. Rollback first
@@ -5556,7 +5928,7 @@ and account-target support before recording the target. It does not retry a
 Slack-only request or discard an unverified selected account to produce a
 generic action. The directory supports `matchedBy = "identity_link"`.
 Rollback stops Core production before removing Gateway or Web consumers; the
-additive D1 columns may remain.
+additive PostgreSQL columns may remain.
 
 For the provider-neutral completion, apply migrations
 `0096_lovely_roland_deschain` and `0097_last_squirrel_girl`, deploy the shared
@@ -5577,7 +5949,7 @@ that same strict Routine variant. It does not change sender authority,
 destination, Routine id, or Run id. Core emits it only after the initial
 delivery has registered the continuation and reached an intermediate terminal
 callback. Current Core supports at most one such resumed Center Agent delivery
-per Run. D1 atomically claims the exact continuation delegation id before child
+per Run. PostgreSQL atomically claims the exact continuation delegation id before child
 work is created; replaying that id is idempotent and a different second id fails
 closed. Other Routine resume modes fail closed.
 
@@ -5607,12 +5979,10 @@ Routine rollout has three independent Remote Agent strict windows:
   producer first. Thrown service-binding failures remain outcome-ambiguous and
   keep bounded idempotent recovery.
 
-Apply D1 migration `0025` before `0026`, Slack ingress migration `0035` before
-queued Slack production, Routine migration `0036` before new Routine fields,
-and migration `0063` before Core may create a second native-delivery row for a
-Routine Run. Migration `0064` adds the stored Routine action grants and the
-one-continuation Run claim and must precede Core writers. For this rollout:
-apply `0063` and `0064`; deploy Core's optional create/update input consumer
+Complete native PostgreSQL migration acceptance before producers. The baseline
+includes the original D1 Routine schema chain (`0025`, `0026`, `0035`, `0036`,
+`0063`, `0064`), including action grants and the one-continuation claim. Do not
+replay that D1 sequence. Deploy Core's optional create/update input consumer
 before the Remote Agent starts sending `authorizedActions`; deploy the Remote
 Agent consumer that accepts optional Routine continuation evidence; deploy Core so the Slack
 queue consumer exists and no-contract
@@ -5655,6 +6025,19 @@ connection name is constrained to OpenConnector's 64-character
 owner prefix and uses a deterministic hash suffix when a long service name
 would exceed that limit.
 
+The completed `linear.create_linear_issue` write carries one validated,
+provider-typed issue receipt. Core stores this bounded reference in the
+connector operation, and the same requester-scoped read returns it for
+association-only recovery without another provider create. Older operation
+rows have no receipt and must never be replayed as a new Linear create after
+completion. A pending or outcome-unknown operation may use the same provider
+idempotency key only while OpenConnector's 24-hour replay retention is safely
+current; older or undated operations require reconciliation. Apply the
+additive receipt-column migration before the Core reader and writer, then
+deploy Core before a Remote Agent caller sends the receipt. An old Core rejects
+the new completion field, so this order is required before enabling Linear
+issue creation through the new Remote Agent.
+
 `packages/schemas/src/schemas/runtime/openconnector-runtime.ts` is OpenMeld's
 pinned runtime validator for OpenConnector action metadata. It mirrors the
 OpenConnector `/v1/actions?service=` serializer and the bounded
@@ -5684,6 +6067,57 @@ returns `routine_destructive_action_unsupported` before a new operation claim or
 provider execution. Recovery reads an exact existing operation before current
 catalog and policy checks, and may replay only that same idempotent provider
 operation; recovery never authorizes new destructive work.
+
+The internal `pluginRuntime` list request accepts an optional `actionId`. Core
+uses it for execution admission, and Remote Agent requests the same exact ID
+when it verifies execution metadata again. OpenConnector's additive
+`/v1/actions?service=...&actionId=...` filter preserves current policy checks.
+Remote Agent still checks the ID, service, and executable metadata if an older
+producer returns the complete catalog. No permission or connection result is
+cached. Deploy the Remote Agent receiver before the Core caller that sends this
+optional field. An older strict Remote Agent receiver rejects it. Rollback Core
+first. This changes no CLI, Service, Skills, setup, Wake, or public response
+contract and requires no local-component version bump.
+
+#### Selected Git connection transport integration
+
+`services/remote-agent/connectors/github-connection-transport.ts` owns the
+Plugins host adapter for Git read requests. It is an integration entrypoint,
+not an enabled native Computer command. The Computer owner must bind each
+request to an active operation and its exact repository before calling
+`forwardGitConnectionRequest`. Pass the connection snapshot selected by Core.
+The required `authorize` callback must recheck execution access and resolve
+that same connection through Core with `includeAccessPolicy: true` on every
+advertisement and upload-pack exchange. It returns the existing
+`centerAgentConnectorConnectionSelectionSchema` response. Never use an
+automatic connection preference after the operation selected an identity.
+
+The adapter verifies current read permission, Organization, member ownership,
+scope, alias, active status, and `updatedAtMs` against that snapshot. A changed
+or revoked connection fails the new request. OpenConnector derives the same
+canonical alias from verified Organization/requester IDs and the selected
+scope. Member connections use OAuth or API tokens. Shared GitHub connections
+use the existing App installation token resolver. Credentials stay with
+OpenConnector. The host replaces request credentials, cookies, and selector
+headers rather than forwarding them from the Computer. Both request and
+response remain byte streams. Abort signals propagate to the upstream fetch.
+
+The adapter requires the distinct OpenConnector endpoints
+`/v1/openmeld/git-connections/:owner/:repo/info/refs` and
+`/v1/openmeld/git-connections/:owner/:repo/git-upload-pack`. An older producer
+fails without substituting the legacy personal-only endpoint. The OpenMeld
+deployment overlay allows GitHub only for these fixed read-protocol routes.
+The upstream route still authenticates the configured runtime bearer and
+checks current runtime policy. Ordinary proxy and MCP policy remain blocked.
+
+Integration order: merge the OpenConnector endpoint, update the reviewed pin
+in `config/openconnector/github-working-copy-policy.mjs`, deploy that producer
+with the overlay, then enable the Computer consumer. The current pin does not
+contain the selected-connection endpoint. Keep this consumer disabled until
+that dependency is delivered. Computer owns native `git clone`/`git fetch`,
+process start, progress, cancellation, exit, and cleanup. Its integration must
+verify both member and shared connections, concurrent accounts, revocation,
+and existing independently authenticated CLI use through real commands.
 
 The Core connector-operation read must be deployed before the Remote Agent
 consumer. For the execution-connection snapshot rollout, apply the additive
@@ -5738,7 +6172,7 @@ new Gateway without rejecting an unexpected field. The new Web must be deployed
 only after Gateway understands the opt-in. Roll back Web before Gateway.
 
 Deploy the OpenConnector installation verifier and token minter first, then the
-Core D1 migration and Core, then Gateway, Remote Agent, and Web. New Core remains
+Core PostgreSQL migration and Core, then Gateway, Remote Agent, and Web. New Core remains
 compatible with old callers that never start a GitHub App installation. A new
 Gateway or Remote Agent against an old dependency fails closed; it must not
 recreate the OAuth App connector path or reinterpret a member connection as an
@@ -5992,7 +6426,7 @@ same facts.
 The current shared read path is:
 
 ```text
-local OpenMeld Service -> Runtime Agent Controller Report -> Core D1 projection -> listLocalRuntimes -> Web/Desktop/UI consumers
+local OpenMeld Service -> Runtime Agent Controller Report -> Core PostgreSQL projection -> listLocalRuntimes -> Web/Desktop/UI consumers
 ```
 
 Desktop may also consume the local CLI JSON projection for the same facts:
@@ -6243,7 +6677,7 @@ policy reads and writes. Web hides the control when that projection is absent,
 so a new cloud release remains quiet and compatible with an older Service.
 Policy responses may carry absolute paths only back to the authenticated owner
 who made the immediate request.
-Those paths are local configuration, not a cloud projection, and no D1 schema,
+Those paths are local configuration, not a cloud projection, and no PostgreSQL schema,
 browser persistence allowlist, Organization record, or Agent Activity contract
 may store them.
 
@@ -6932,11 +7366,11 @@ RuntimeCoordinator execution authority.
 limit and the shared `PATCH /v1/account/display-name` request and response.
 Account Display Name is the canonical name value for the account's one default
 Human Profile. The Auth-owned account display-name command is the only writer:
-one D1 atomic `batch()` transaction updates Better Auth `users.name` and the
+one native PostgreSQL transaction updates Better Auth `users.name` and the
 active default Human Profile's `profileName` and collision-safe derived
-`profileHandle`. Auth must not implement this pair with explicit transaction
-statements or Drizzle `db.transaction()`, because D1's Worker API owns the
-transaction boundary through `batch()`.
+`profileHandle`. The repository uses Drizzle `db.transaction()`; every mutation
+uses the transaction client and a failure rolls back both writes. Do not split
+the paired mutation across separate transactions or clients.
 
 The default Human Profile is a one-to-one read projection of Account Display
 Name, not an independently writable identity. `PATCH /v1/profiles/:profileId`
@@ -7016,7 +7450,7 @@ Agent Profile as actor, and delegates to the same Core request operations.
 Routine turns cannot decide another member's pending request or change the
 represented member's approval preferences.
 
-This is an additive rollout. Apply the D1 migration first, then deploy Auth so
+This is an additive rollout. Apply the PostgreSQL migration first, then deploy Auth so
 Core can send creation provenance, Gateway so it can read the new Inbox source
 target, Core, Web, and Remote Agent. Publish the CLI and managed Skill only
 after the cloud endpoints exist. New cloud leaves old CLI, Skills, setup, Wake,
@@ -7159,6 +7593,31 @@ Neither authorizes another write. Direct tools and Code Mode retain the caller's
 exact `operationId` and explain that a write may have succeeded, a new operation
 ID must not be used, and recovery must use the same action and input. The durable
 Core operation and provider idempotency key remain the existing owners.
+The optional `replay` projection makes recovery permission explicit: `allowed`
+with one attempt and a positive remaining window, or a denial reason for an
+unverified/expired window or a replay already attempted. Older receipts without
+this field grant no replay permission. Core claims the single replay through a
+unique entry in the existing operation audit journal. Both Local and Remote
+ordinary Plugin writes require this durable permit. The original connection
+version is frozen in the operation ledger; replacing a same-name connection
+refuses replay. Migration `0192_lush_rick_jones.sql` adds that nullable
+version before new Core code is deployed. Legacy rows remain readable but do
+not receive a replay permit without a frozen account version. Old consumers
+keep their prior response shape unless they opt into recovery receipts.
+The common App/GitHub guidance and Code Mode consume the same rule;
+`not_found`, a timeout, or one page without a matching target proves no outcome.
+GitHub retains its own authorization and operation owner.
+
+Ordinary Plugin target reads may carry `verificationOf: { operationId,
+actionId }`. Core accepts the association only for a declared read through the
+original operation's still-current account and returns that operation's stored
+request signature, identity, and outcome. This is read evidence, not automatic
+confirmation of the original effect. The caller compares authoritative target
+data with the exact original input and reports the matching target. Empty pages,
+`not_found`, timeouts, and insufficient evidence leave the original outcome
+unchanged. Local CLI exposes `--verify-operation` and `--verify-action`; Remote
+direct tools and Code Mode use the same input. New Core must precede these
+consumers; a missing association receipt refuses the verification read.
 
 Native `readAdmission` is an additive Core-to-Remote RPC. It reuses the exact
 persisted submit-request schema so the receipt owner can verify the original
@@ -7369,7 +7828,7 @@ Shared database truth lives in `packages/db`.
 
 Consumers building predicates for those shared tables import the required
 operators and inferred-record types from `@openmeld/db/query`. That entrypoint
-re-exports Drizzle directly from the same package that owns the tables and D1
+re-exports Drizzle directly from the same package that owns the tables and PostgreSQL
 factory; it is not another ORM, query implementation, or database authority.
 Its ESM and declaration outputs keep Drizzle external, and it must not import
 Node-only SQLite tooling into Worker consumers.
@@ -7386,13 +7845,13 @@ The durable mental model is:
 
 ```text
 packages/schemas defines cross-boundary contracts
-packages/db defines shared D1 schema truth
+packages/db defines shared PostgreSQL schema truth
 services/auth and services/core expose domain-owned behavior
 services/gateway aggregates read-only diagnostics
 ```
 
 A shared physical database does not imply shared ownership. Auth and Core may
-share a physical D1 binding while each domain still owns its own tables and
+share a physical PostgreSQL database while each domain still owns its own tables and
 writers.
 
 Database ownership, projections, Dispatch Ledger, Diagnostic Reports, and
@@ -7519,6 +7978,13 @@ submit only a selection. Core constructs requester/discussion scope and assigns
 the context once. Native conversation IDs and local workspace fingerprints are
 resolved from retained Core context records. Results echo the context ID; native
 history checkpoints are stored per accepted Wake and survive Head retirement.
+A code-work selection may carry `projectWork` with one Project ID and canonical
+repository fingerprint. RuntimeCoordinator freezes that pair in the assigned
+Context; a retained Context cannot change it by editing Project defaults. Core
+verifies the current Project association before delivery. The Service resolves
+only an owner-local matching connection and never receives a cloud-selected
+absolute path. An invalid or removed association fails visibly without
+selecting another repository.
 A fork source's completed-history boundary is optional in the assignment: when
 no checkpoint was frozen, Core names the source identity and the harness
 confirms the boundary from that source's own retained history.
@@ -7553,6 +8019,11 @@ readiness checks. Claude project contexts additionally require Service adapter
 `executionContextVersion: 3`; older Services receive a visible update-required
 outcome. Version 2 remains sufficient for the legacy association and Codex
 contexts. The shared assignment wire shape remains v1.
+An assignment with `projectWork` requires Service adapter
+`executionContextVersion: 4` for Codex or Claude Code. Older Services receive
+`service.update_required` at admission before an execution token or local
+workspace is used. The optional field leaves legacy assignments readable and
+keeps the assignment wire version at v1.
 
 The public signal read encoder omits `contextSelection` so older strict history
 readers remain usable. This encoder must never be used for persistence, dispatch
@@ -7772,7 +8243,7 @@ writes its Inbox intent before the cloud Binding write may begin. If the
 continuation head wins the owner-shard order first, it becomes running and the
 setting may save for later work without changing the current execution. An
 older shard that lacks the dedicated future-settings RPC rejects the setting
-write before D1 mutation; ordinary Wakes continue on the unchanged hot path.
+write before PostgreSQL mutation; ordinary Wakes continue on the unchanged hot path.
 
 The RuntimeCoordinator head no-execution contract is also the durable boundary
 for a canonical readiness block found after a Wake already owns the Profile
@@ -7800,7 +8271,7 @@ directory. The strict Core Skip request still fails closed for unfenced callers.
 `agentControllerCollaborationMode` is independent shared Binding metadata.
 The initial values are `codex:default` and `codex:plan`; non-Codex Bindings
 must reject them. The field moves through the shared Binding schema, API
-client, Gateway/Core write path, D1 Binding record, owner read projection, and
+client, Gateway/Core write path, PostgreSQL Binding record, owner read projection, and
 local route catalog. The local Codex adapter translates it into
 `conversationPolicy.collaborationMode` and verifies the native App Server Plan
 preset before starting the turn. The App Server preset mask supplies mode,
@@ -7935,7 +8406,7 @@ New Web and Gateway accept old Core responses because `pendingInteraction` is
 optional. New Core remains compatible with an old Service, which emits no new
 interaction frames and retains its previous explicit fail-closed behavior. A
 new Service must not run against old Core: the old strict frame receiver cannot
-route the interaction and may leave the provider waiting. No D1 migration is
+route the interaction and may leave the provider waiting. No PostgreSQL migration is
 required because pending interaction state belongs only to RuntimeCoordinator.
 The existing schema version and runtime contract epoch remain valid because no
 existing frame changed and the new producer is released only after its strict
@@ -8267,7 +8738,7 @@ The Space Durable Object is the sole writer of `ownerUserIds` and `allowGuests`.
 Creator attribution remains immutable. Owners are current Organization members
 with an active Human Profile in the Space; multiple Owners are supported and the
 last Owner cannot be removed. Ownership changes are serialized and audited.
-`space_owner_member_references` is a restrictive D1 deletion guard, not a second
+`space_owner_member_references` is a restrictive PostgreSQL deletion guard, not a second
 authorization source: add the reference before granting ownership, remove it after
 demotion, and reconcile stale references against the owning Space before departure.
 Organization membership removal, leaving, and account deletion require handoff.
@@ -8302,9 +8773,9 @@ not a substitute for access enforcement. Anonymous execution is not enabled.
 
 ### Contract impact and rollout
 
-This changes Space HTTP/RPC contracts, Auth invitation storage, Space SQLite, D1
+This changes Space HTTP/RPC contracts, Auth invitation storage, Space SQLite, PostgreSQL
 ownership guards, hosted Agent envelopes, and workstation dispatch snapshots.
-Apply additive D1 migrations before Auth. Deploy Auth before Core. The hosted Remote Agent receiver must accept
+Apply additive PostgreSQL migrations before Auth. Deploy Auth before Core. The hosted Remote Agent receiver must accept
 optional caller context before Core emits it; this receiver-first dependency is an
 explicit exception to the usual Core-before-Remote-Agent order. No new hosted RPC
 caller is introduced by that receiver change.
@@ -8374,7 +8845,7 @@ Use scoped owner documents for related rules:
 
 - `developing/product/product-model.md`: product promise and user-facing model.
 - `developing/product/agent-profiles.md`: Agent Profile product semantics.
-- `developing/product/center-agent-routines.md`: Routine and Run product
+- `developing/product/routines.md`: Routine and Run product
   semantics, authority, scheduling, and result surfaces.
 - `developing/architecture/agent-transport-contract.md`: execution authority,
   readiness, Wake execution, and final outcome contract.
@@ -8473,7 +8944,7 @@ delete is idempotent for that same author's deleted row. A claimed or consumed r
 cannot be taken back for editing. Removing input never stops its original Wake.
 
 Local rows use the same outbox and freeze the original requester account,
-author, Profile, dispatch, Coordinator execution, attempt and run. D1 locates
+author, Profile, dispatch, Coordinator execution, attempt and run. PostgreSQL locates
 the Coordinator; it cannot authorize or select an active run. The Coordinator
 resolves the admitted source and current attempt/run, then checks the exact
 Service session, generation, Profile lease and supported controller. Space
@@ -8550,3 +9021,40 @@ available local components and verify the actual release base. Retain additive
 SQL migration 49 on rollback; reverting Core while Local rows remain requires
 draining/retaining the candidate Space reader, because old request parsers cannot
 read Local rows. Do not erase held rows to make rollback appear safe.
+## Session history contract
+
+`packages/schemas` owns the Session history policy, operations, requester,
+metadata audit, bounded result, RPC, and transport frames. Core supplies the
+requester from authenticated human or admitted execution evidence. Public
+requests cannot supply their own requester or audience. Local Agent calls need
+the current execution token and exact dispatch/binding scope. Hosted calls need
+the active native delivery and its frozen, verified human root. Only verified
+one-hop delegation is supported; missing provenance fails closed.
+
+The additive `x-openmeld-session-history: session-history-v3` handshake is
+independent of File access. An old Service returns unsupported and receives no
+new frame. Requests use `daemon.session_history.request`; replies use
+`daemon.session_history.request_result`. Pending operations and response bodies
+stay in memory; HTTP results use `Cache-Control: no-store`.
+
+Version 2 removes the per-Agent allowlist. The single enabled flag applies to
+human reads and every verified owner-delegated reader within selected Project
+connections. Old settings are projected as disabled and written in the v2 local
+store format on the next mutation; old binaries fail closed on that format.
+Old v1 Services are not admitted to the v2 history channel. Deploy Core/Gateway
+before the updated Service and Web. Rolling back requires matching clients and
+receivers; never reinterpret an existing v2 grant as a legacy allowlist.
+
+Version 3 adds the provider discriminator to reads, results, and access audit.
+Codex, Claude Code, OpenCode, and Grok Build share the same authorization path.
+An omitted provider means Codex only, preserving prior callers and local audit
+records; it never guesses a provider from a native ID. v1/v2 Services are not
+admitted to the v3 history channel. The local policy store remains v2 because
+its grant semantics are unchanged. New clients must wait for receiver rollout;
+rollback receivers and callers together. No transcript is added to storage.
+
+Contract impact: deploy receiving Core/Gateway and hosted tools before exposing
+new clients. Existing CLI/Service/Skills continue their previous setup, Wake,
+Space actions, and diagnostics. New history reads need the advertised Service
+capability; no fallback or mandatory compatibility-epoch bump is needed. Local
+CLI and Service updates are available, not required for existing workflows.

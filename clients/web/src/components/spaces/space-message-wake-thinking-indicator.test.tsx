@@ -71,7 +71,7 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 						kind: "status",
 						step: {
 							description: "OpenMeld accepted the Stop request.",
-							kind: "sent",
+							kind: "working",
 							label: "Stop requested",
 							status: "complete",
 						},
@@ -114,53 +114,6 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 		expect(preview.className).toContain("whitespace-nowrap");
 	});
 
-	it("uses weaving while OpenMeld posts the reply", () => {
-		render(
-			<SpaceMessageWakeThinkingIndicator
-				entries={[
-					createThinkingEntry({
-						elapsedStartedAtMs: null,
-						phase: "publishing",
-						step: {
-							description: "OpenMeld is finalizing the reply.",
-							kind: "posting",
-							label: "Finalizing reply",
-							status: "active",
-						},
-						text: "Finalizing reply",
-					}),
-				]}
-			/>
-		);
-
-		expect(
-			resolveOrbState(screen.getByTestId("space-wake-thinking-indicator"))
-		).toBe("weaving");
-	});
-
-	it("uses connecting before execution starts", () => {
-		render(
-			<SpaceMessageWakeThinkingIndicator
-				entries={[
-					createThinkingEntry({
-						elapsedStartedAtMs: null,
-						phase: "sending",
-						step: {
-							description: "OpenMeld is sending the Wake request.",
-							kind: "starting",
-							label: "Sending to agent",
-							status: "active",
-						},
-						text: "Sending to agent",
-					}),
-				]}
-			/>
-		);
-
-		const indicator = screen.getByTestId("space-wake-thinking-indicator");
-		expect(resolveOrbState(indicator)).toBe("connecting");
-	});
-
 	it("keeps the authoritative running state after forty-five seconds without visible progress", () => {
 		vi.setSystemTime(STARTED_AT_MS + 45_000);
 
@@ -184,7 +137,7 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 
 		expect(
 			screen.getByTestId("space-wake-thinking-indicator").textContent
-		).toBe("Agent · Thinking… · 45s");
+		).toBe("Agent · Working… · 45s");
 		expect(
 			resolveOrbState(screen.getByTestId("space-wake-thinking-indicator"))
 		).toBe("solving");
@@ -217,7 +170,7 @@ describe("SpaceMessageWakeThinkingIndicator", () => {
 						elapsedStartedAtMs: null,
 						step: {
 							description: "This agent was included in the Wake.",
-							kind: "sent",
+							kind: "working",
 							label: "Wake started",
 							status: "complete",
 						},

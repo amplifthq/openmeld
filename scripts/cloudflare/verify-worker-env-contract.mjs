@@ -1,27 +1,24 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { AUTH_DB_MIGRATIONS_PATH } from "../../packages/db/src/auth/fact-metadata.ts";
-import {
-  SHARED_DB_BINDING_NAME,
-  SHARED_DB_DATABASE_ID,
-  SHARED_DB_DATABASE_NAME,
-} from "../../packages/db/src/shared/fact-metadata.ts";
 import { parseJsoncObject as parseJsoncSource } from "../../packages/db/src/tooling/parse-jsonc.ts";
 import { ORGANIZATION_JOIN_LINK_ACCEPT_RATE_LIMIT } from "../../services/auth/src/lib/organization-join-link-accept-rate-limit.ts";
 import { FEEDBACK_SUBMIT_RATE_LIMITS } from "../../services/gateway/src/feedback/feedback-submit-rate-limiter.ts";
 import { SPACE_PASSWORD_RATE_LIMIT } from "../../services/gateway/src/lib/space-password-rate-limiter.ts";
+import { verifyPostgresqlEnvironment } from "../../tooling/postgresql/verify.mjs";
 
 const repoRoot = path.resolve(
   process.env.OPENMELD_VERIFICATION_ROOT ??
     path.resolve(import.meta.dirname, "../..")
 );
+const hasCoreAccountDeletion = existsSync(
+  path.join(repoRoot, "services/core/src/organizations/account-deletion.ts")
+);
 const verificationProfile = parseVerificationProfile(process.argv.slice(2));
+verifyPostgresqlEnvironment(repoRoot, { profile: verificationProfile });
 const verifiesStaging = verificationProfile === "all";
 const DEV_VAR_KEY_PATTERN = /^([A-Z0-9_]+)=/u;
 const CONFIG_ENV_LABEL_PREFIX_PATTERN = /^env\./u;
-const OPENCONNECTOR_GOOGLE_ACTION_PATTERN =
-  /^(?:gmail|googlecalendar|googledrive)\./u;
 const OBSERVABILITY_ANALYTICS_BINDING = "OPENMELD_OBSERVABILITY";
 const OBSERVABILITY_ANALYTICS_DATASET = "openmeld_runtime_evidence";
 const OBSERVABILITY_ANALYTICS_STAGING_DATASET = "openmeld_runtime_evidence_stg";
@@ -64,8 +61,6 @@ const MESSAGE_CHANNEL_EVENTS_PROD_QUEUE_NAME =
   "openmeld-message-channel-events-prod";
 const MESSAGE_CHANNEL_EVENTS_STAGING_QUEUE_NAME =
   "openmeld-message-channel-events-stg";
-const STAGING_DB_DATABASE_ID = "10da3483-0644-459a-8523-381a2a17ac39";
-const STAGING_DB_DATABASE_NAME = "openmeld-db-stg";
 const FEEDBACK_RATE_LIMIT_BINDINGS = [
   {
     name: "OPENMELD_FEEDBACK_IP_RATE_LIMITER",
@@ -94,38 +89,37 @@ const GATEWAY_RATE_LIMIT_BINDINGS = [
   },
 ];
 
-// Per-domain bindings remain split-ready aliases to the one greenfield
-// production database. A future observability-only split would change only
-// OPENMELD_WAKE_EVIDENCE_DB after a separate capacity decision.
-const AUTH_IDENTITY_DB_BINDING = {
-  binding: "OPENMELD_IDENTITY_DB",
-  database_name: SHARED_DB_DATABASE_NAME,
-  database_id: SHARED_DB_DATABASE_ID,
-};
-const CORE_LOCAL_STATE_DB_BINDING = {
-  binding: "OPENMELD_LOCAL_STATE_DB",
-  database_name: SHARED_DB_DATABASE_NAME,
-  database_id: SHARED_DB_DATABASE_ID,
-};
-const CORE_WAKE_EVIDENCE_DB_BINDING = {
-  binding: "OPENMELD_WAKE_EVIDENCE_DB",
-  database_name: SHARED_DB_DATABASE_NAME,
-  database_id: SHARED_DB_DATABASE_ID,
-};
-const CORE_PROJECTIONS_DB_BINDING = {
-  binding: "OPENMELD_PROJECTIONS_DB",
-  database_name: SHARED_DB_DATABASE_NAME,
-  database_id: SHARED_DB_DATABASE_ID,
-};
+// Historical binding names must not return to PostgreSQL product Workers.
 const D1_BINDING_NAMES = [
-  SHARED_DB_BINDING_NAME,
-  AUTH_IDENTITY_DB_BINDING.binding,
-  CORE_LOCAL_STATE_DB_BINDING.binding,
-  CORE_WAKE_EVIDENCE_DB_BINDING.binding,
-  CORE_PROJECTIONS_DB_BINDING.binding,
+  "OPENMELD_DB",
+  "OPENMELD_IDENTITY_DB",
+  "OPENMELD_LOCAL_STATE_DB",
+  "OPENMELD_WAKE_EVIDENCE_DB",
+  "OPENMELD_PROJECTIONS_DB",
 ];
 
 const workerPackages = [
+  {
+    name: "openmeld-docs",
+    packageJsonPath: "clients/docs/package.json",
+    wranglerConfigPath: "clients/docs/wrangler.jsonc",
+    generatedTypesPath: "clients/docs/worker-configuration.d.ts",
+    requiredScripts: [
+      "cf-typegen",
+      "deploy:stg",
+      "sync:config:prod",
+      "sync:config:stg",
+      "sync:prod",
+      "sync:stg",
+    ],
+    secretOwned: false,
+    stagingSecretOwned: false,
+    requiredConfigEnvironments: ["stg", "prod"],
+    expectedGeneratedBindings: ["OPENMELD_OBSERVABILITY"],
+    forbiddenGeneratedBindings: [...D1_BINDING_NAMES, "APP", "AUTH_SERVICE"],
+    expectedD1Bindings: () => [],
+    expectedR2Bindings: () => [],
+  },
   {
     name: "openmeld-website",
     packageJsonPath: "clients/website/package.json",
@@ -214,17 +208,13 @@ const workerPackages = [
     ],
     expectedGeneratedBindings: [
       "AUTH_EMAIL",
+      "OPENMELD_POSTGRESQL",
       "OPENMELD_AUTH_KV",
-      "OPENMELD_DB",
-      "OPENMELD_IDENTITY_DB",
       "OPENMELD_OBSERVABILITY",
       "OPENMELD_ORGANIZATION_JOIN_LINK_ACCEPT_RATE_LIMITER",
     ],
     forbiddenGeneratedBindings: [],
-    expectedD1Bindings: ({ environment, wranglerConfigPath }) => [
-      buildSharedD1BindingForWorkerConfig(wranglerConfigPath, environment),
-      buildAliasedD1Binding(AUTH_IDENTITY_DB_BINDING.binding, environment),
-    ],
+    expectedD1Bindings: () => [],
     expectedR2Bindings: () => [],
     expectedRateLimitBindings: AUTH_RATE_LIMIT_BINDINGS,
   },
@@ -266,10 +256,7 @@ const workerPackages = [
       "OPENMELD_AUTH_WORKER",
       "OPENMELD_REMOTE_AGENT_WORKER",
       "OPENMELD_RUNTIME_TRANSPORT",
-      "OPENMELD_DB",
-      "OPENMELD_LOCAL_STATE_DB",
-      "OPENMELD_WAKE_EVIDENCE_DB",
-      "OPENMELD_PROJECTIONS_DB",
+      "OPENMELD_POSTGRESQL",
       "OPENMELD_OBSERVABILITY",
       "OPENMELD_ORGANIZATION_SKILLS",
       "OPENMELD_SPACE_ATTACHMENTS",
@@ -291,12 +278,7 @@ const workerPackages = [
       "ZEP_OPENMELD_API_KEY",
     ],
     forbiddenGeneratedBindings: [],
-    expectedD1Bindings: ({ environment, wranglerConfigPath }) => [
-      buildSharedD1BindingForWorkerConfig(wranglerConfigPath, environment),
-      buildAliasedD1Binding(CORE_LOCAL_STATE_DB_BINDING.binding, environment),
-      buildAliasedD1Binding(CORE_WAKE_EVIDENCE_DB_BINDING.binding, environment),
-      buildAliasedD1Binding(CORE_PROJECTIONS_DB_BINDING.binding, environment),
-    ],
+    expectedD1Bindings: () => [],
     expectedR2Bindings: ({ environment }) => [
       {
         binding: SPACE_ATTACHMENTS_R2_BINDING,
@@ -311,6 +293,23 @@ const workerPackages = [
           stg: SPACE_ATTACHMENTS_R2_STAGING_BUCKET,
         }),
       },
+      ...(hasCoreAccountDeletion
+        ? [
+            {
+              binding: ACCOUNT_AVATARS_R2_BINDING,
+              bucket_name: expectedResourceName(environment, {
+                local: ORGANIZATION_LOGOS_R2_PREVIEW_BUCKET,
+                prod: ORGANIZATION_LOGOS_R2_BUCKET,
+                stg: ORGANIZATION_LOGOS_R2_STAGING_BUCKET,
+              }),
+              preview_bucket_name: expectedResourceName(environment, {
+                local: ORGANIZATION_LOGOS_R2_PREVIEW_BUCKET,
+                prod: ORGANIZATION_LOGOS_R2_PREVIEW_BUCKET,
+                stg: ORGANIZATION_LOGOS_R2_STAGING_BUCKET,
+              }),
+            },
+          ]
+        : []),
       {
         binding: ORGANIZATION_SKILLS_R2_BINDING,
         bucket_name: expectedResourceName(environment, {
@@ -543,57 +542,9 @@ function readDefinedEnvKeys(relativePath) {
 const openConnectorWrangler = parseJsoncObject(
   "config/openconnector/wrangler.production.jsonc"
 );
-const expectedOpenConnectorGoogleReadActions = [
-  "gmail.search_threads",
-  "gmail.list_threads",
-  "gmail.fetch_emails",
-  "gmail.get_message",
-  "gmail.fetch_message_by_message_id",
-  "gmail.fetch_message_by_thread_id",
-  "gmail.get_profile",
-  "gmail.list_history",
-  "googlecalendar.list_calendars",
-  "googlecalendar.get_calendar_list_entry",
-  "googlecalendar.get_calendar",
-  "googlecalendar.list_events",
-  "googlecalendar.list_events_all_calendars",
-  "googlecalendar.get_event",
-  "googlecalendar.list_event_instances",
-  "googlecalendar.sync_events",
-  "googlecalendar.free_busy_query",
-  "googlecalendar.find_free_slots",
-  "googlecalendar.get_colors",
-  "googlecalendar.find_event",
-  "googledrive.about.get",
-  "googledrive.apps.get",
-  "googledrive.changes.getStartPageToken",
-  "googledrive.changes.list",
-  "googledrive.comments.get",
-  "googledrive.comments.list",
-  "googledrive.drives.get",
-  "googledrive.drives.list",
-  "googledrive.files.export",
-  "googledrive.files.get",
-  "googledrive.files.list",
-  "googledrive.files.listLabels",
-  "googledrive.permissions.get",
-  "googledrive.permissions.list",
-  "googledrive.replies.get",
-  "googledrive.replies.list",
-  "googledrive.revisions.get",
-  "googledrive.revisions.list",
-  "googledrive.accessproposals.list",
-  "googledrive.approvals.list",
-];
-const configuredOpenConnectorGoogleActions = String(
-  openConnectorWrangler.vars?.OOMOL_CONNECT_ALLOWED_ACTIONS ?? ""
-)
-  .split(",")
-  .filter((action) => OPENCONNECTOR_GOOGLE_ACTION_PATTERN.test(action));
 ensure(
-  JSON.stringify(configuredOpenConnectorGoogleActions) ===
-    JSON.stringify(expectedOpenConnectorGoogleReadActions),
-  "OpenConnector production must expose only the reviewed read-only Google action baseline."
+  openConnectorWrangler.vars?.OOMOL_CONNECT_ALLOWED_ACTIONS === "*",
+  "OpenConnector must expose provider actions through the existing Plugin access and action policy, not a duplicate service allowlist."
 );
 ensure(
   openConnectorWrangler.workers_dev === false &&
@@ -1219,34 +1170,6 @@ function expectedGatewayQueueProducers(environment) {
       queue: names.messageChannelEvents,
     },
   ];
-}
-
-function buildSharedD1BindingForWorkerConfig(wranglerConfigPath, environment) {
-  const database = expectedDatabase(environment);
-  return {
-    binding: SHARED_DB_BINDING_NAME,
-    database_id: database.id,
-    database_name: database.name,
-    migrations_dir: path.posix.relative(
-      path.posix.dirname(wranglerConfigPath),
-      AUTH_DB_MIGRATIONS_PATH
-    ),
-  };
-}
-
-function buildAliasedD1Binding(binding, environment) {
-  const database = expectedDatabase(environment);
-  return {
-    binding,
-    database_id: database.id,
-    database_name: database.name,
-  };
-}
-
-function expectedDatabase(environment) {
-  return environment === "stg"
-    ? { id: STAGING_DB_DATABASE_ID, name: STAGING_DB_DATABASE_NAME }
-    : { id: SHARED_DB_DATABASE_ID, name: SHARED_DB_DATABASE_NAME };
 }
 
 function expectedResourceName(environment, values) {

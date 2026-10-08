@@ -29,9 +29,10 @@ export function buildInboxItemSourceNavigation(input: {
 				openInNewTab: false,
 			};
 		case "desktop_update":
+		case "plugin_action_request":
 			if (!input.item.id) {
 				throw new Error(
-					"Desktop update navigation requires its canonical Inbox item."
+					"Inbox detail navigation requires its canonical Inbox item."
 				);
 			}
 			return {

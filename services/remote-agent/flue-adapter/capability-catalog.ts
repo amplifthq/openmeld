@@ -221,6 +221,8 @@ const CAPABILITY_CATALOG_OVERRIDES: Readonly<
     aliases: [
       "install an Organization Skill",
       "install a GitHub Skill",
+      "import a repository of Skills",
+      "resume an interrupted Skill import batch",
       "安装组织技能",
       "安装 GitHub 技能",
     ],
@@ -284,6 +286,11 @@ const CAPABILITY_CATALOG_OVERRIDES: Readonly<
     ],
     namespace: "organization",
   },
+  openmeld_read_session_history: {
+    aliases: ["read Codex conversation", "读取本机会话历史"],
+    dependencies: ["openmeld_list_agent_activity_sessions"],
+    namespace: "agents_and_computers",
+  },
   openmeld_list_routine_runs: {
     aliases: [
       "Routine run history",
@@ -323,6 +330,14 @@ const CAPABILITY_CATALOG_OVERRIDES: Readonly<
       "why did Center Agent fail",
       "Center Agent execution status",
       "Center Agent delivery ID",
+      "why did you stop after the child reported",
+      "task continuation failed",
+      "missing child report",
+      "no automatic continuation",
+      "子报告发出后为什么停了",
+      "子任务报告没有送达",
+      "没有自动接续",
+      "接续失败",
       "调查 Center Agent 失败原因",
       "Center Agent 为什么失败",
       "Center Agent 执行状态",

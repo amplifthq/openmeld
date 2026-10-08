@@ -1,3 +1,4 @@
+import type { PostgreSQLBinding } from "@openmeld/db/postgresql";
 import type {
   PresenceEnvelope,
   SignalEnvelope,
@@ -8,8 +9,9 @@ import type {
   OpenMeldDaemonDispatchQueueMessage,
   OpenMeldRequestContext,
 } from "@openmeld/schemas/types";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildAcceptedDispatchSnapshot } from "../src/dispatch/application/accepted-dispatch-snapshot";
+import { AlarmFailureBackoff } from "../src/lib/alarm-failure-backoff";
 import {
   OPENMELD_HEADER_AUTO_RELAY_DEPTH,
   OPENMELD_HEADER_DISPATCH_CHAIN_ID,
@@ -39,6 +41,7 @@ import {
   createPendingSpaceWebSocketSession,
   type SpaceQueuedWebSocketMessage,
 } from "../src/space/transport/do/space-websocket-session";
+import { createProjectionPostgresBinding } from "../test-support/postgresql-query.test-support";
 
 type SignalPublisherTarget = {
   assertRemoteAgentFinalReplyWasNotStopped?: (
@@ -288,6 +291,7 @@ const webSocketMessage = (
   Space.prototype as unknown as {
     webSocketMessage(
       this: {
+        bindings: { OPENMELD_POSTGRESQL: PostgreSQLBinding };
         mergePublishedAuthorProfile: (
           profile: SignalEnvelope["profile"]
         ) => Promise<SignalEnvelope["profile"]>;
@@ -758,34 +762,28 @@ const createOutboxRedriveMethodTarget = () => ({
   },
 });
 
-const runSpaceAlarm = (
-  Space.prototype as unknown as {
-    alarm(this: unknown): Promise<void>;
-  }
-).alarm;
+function runSpaceAlarm(this: object): Promise<void> {
+  return Space.prototype.alarm.call(withNativeSpaceOwner(this));
+}
 
-const runIsolatedAlarmStep = (
-  Space.prototype as unknown as {
-    runIsolatedAlarmStep(
-      this: unknown,
-      step: string,
-      run: () => Promise<void>
-    ): Promise<void>;
-  }
-).runIsolatedAlarmStep;
+function createAlarmFailureBackoffFixture() {
+  const records = new Map<string, unknown>();
+  return new AlarmFailureBackoff({
+    get: (key: string) => Promise.resolve(structuredClone(records.get(key))),
+    put: (key: string, value: unknown) => {
+      records.set(key, structuredClone(value));
+      return Promise.resolve();
+    },
+    delete: (key: string) => Promise.resolve(records.delete(key)),
+  } as unknown as DurableObjectStorage);
+}
 
 const readDispatchLedgerEvidence = (
   Space.prototype as unknown as {
     readDispatchLedgerEvidence(
       this: {
         bindings: {
-          OPENMELD_DB?: {
-            prepare: (query: string) => {
-              bind: (...args: unknown[]) => {
-                first: <TRow>() => Promise<TRow | null>;
-              };
-            };
-          };
+          OPENMELD_POSTGRESQL?: PostgreSQLBinding;
         };
         spaceId: string;
       },
@@ -813,6 +811,7 @@ const syncSpaceBackgroundAlarm = (
   Space.prototype as unknown as {
     syncSpaceBackgroundAlarm(this: {
       env: { OPENMELD_SPACE_ATTACHMENTS?: R2Bucket };
+      getAlarmFailureBackoff: () => AlarmFailureBackoff;
       ctx: {
         storage: {
           sql: SqlStorage;
@@ -1231,13 +1230,13 @@ describe("space signal consistency matrix", () => {
       );
 
     await rpcPostTransientSignal.call(
-      {
+      withNativeSpaceOwner({
         applySpaceRef: vi.fn(),
         authorizeSpacePasswordAccess: vi.fn().mockResolvedValue({ ok: true }),
         buildTextSignal,
         trackReplyingTransientSignal,
         broadcastSignal,
-      },
+      }),
       {
         spaceId: "space-1",
         profile,
@@ -1279,13 +1278,13 @@ describe("space signal consistency matrix", () => {
 
     await expect(
       rpcPostTransientSignal.call(
-        {
+        withNativeSpaceOwner({
           applySpaceRef: vi.fn(),
           authorizeSpacePasswordAccess: vi.fn().mockResolvedValue({ ok: true }),
           buildTextSignal: buildTextSignalSpy,
           trackReplyingTransientSignal,
           broadcastSignal,
-        },
+        }),
         {
           spaceId: "space-1",
           profile: {
@@ -1319,13 +1318,13 @@ describe("space signal consistency matrix", () => {
 
     await expect(
       rpcPostTransientSignal.call(
-        {
+        withNativeSpaceOwner({
           applySpaceRef: vi.fn(),
           authorizeSpacePasswordAccess: vi.fn().mockResolvedValue({ ok: true }),
           buildTextSignal: buildTextSignalSpy,
           trackReplyingTransientSignal: vi.fn(),
           broadcastSignal: vi.fn(),
-        },
+        }),
         {
           spaceId: "space-1",
           profile: {
@@ -1353,13 +1352,13 @@ describe("space signal consistency matrix", () => {
 
     await expect(
       rpcPostTransientSignal.call(
-        {
+        withNativeSpaceOwner({
           applySpaceRef: vi.fn(),
           authorizeSpacePasswordAccess: vi.fn().mockResolvedValue({ ok: true }),
           buildTextSignal: buildTextSignalSpy,
           trackReplyingTransientSignal: vi.fn(),
           broadcastSignal: vi.fn(),
-        },
+        }),
         {
           spaceId: "space-1",
           profile: {
@@ -2698,14 +2697,26 @@ describe("space signal consistency matrix", () => {
       .mockResolvedValue(undefined);
     const flushDirtyMemberProjection = vi.fn().mockResolvedValue(undefined);
     const syncSpaceBackgroundAlarm = vi.fn().mockResolvedValue(undefined);
+    const backoff = createAlarmFailureBackoffFixture();
 
     try {
       await runSpaceAlarm.call({
+        env: {},
+        getAlarmFailureBackoff: () => backoff,
+        agentStreamProjectionStorage: {
+          list: <T>() => Promise.resolve(new Map<string, T>()),
+        },
+        flushPendingSpaceInboxProjectionOutbox: vi.fn(),
+        flushFileUpdateNotifications: vi.fn(),
+        flushPendingSpaceTaskDeliveries: vi.fn(),
+        reconcilePendingHostedWakeStops: vi.fn(),
+        flushPendingWakeStopOutcomes: vi.fn(),
+        flushPendingExecutionInputs: vi.fn(),
+        flushQueuedSpaceInputs: vi.fn(),
         flushDirtyMemberProjection,
         flushPendingDispatchOutbox,
         flushPendingSpaceIndexProjectionOutbox,
         reconcileDeletedAgentProfileMemberLiveness,
-        runIsolatedAlarmStep,
         spaceId: "space-1",
         syncSpaceBackgroundAlarm,
       });
@@ -2718,6 +2729,9 @@ describe("space signal consistency matrix", () => {
     expect(reconcileDeletedAgentProfileMemberLiveness).toHaveBeenCalledTimes(1);
     expect(flushDirtyMemberProjection).toHaveBeenCalledTimes(1);
     expect(syncSpaceBackgroundAlarm).toHaveBeenCalledTimes(1);
+    expect(await backoff.retryAt("dispatch_outbox_queue")).toBeGreaterThan(
+      Date.now()
+    );
   });
 
   it("keeps the original outbox age across repeated redrives", () => {
@@ -2841,34 +2855,31 @@ describe("space signal consistency matrix", () => {
 
   it("qualifies ledger idempotency key when reading joined dispatch status", async () => {
     let capturedQuery = "";
-    const db = {
-      prepare: vi.fn((query: string) => {
-        capturedQuery = query;
-        return {
-          bind: vi.fn(() => ({
-            first: vi.fn().mockResolvedValue({
-              status: "queued",
-              lastAttemptAtMs: 1_700_000_000_000,
-              latestAttemptStatus: "dispatching",
-              latestAttemptErrorCode: null,
-              daemonSessionId: "daemon-session-1",
-              connectionGeneration: 1,
-              leaseEpoch: 2,
-            }),
-          })),
-        };
-      }),
-    };
+    const db = createProjectionPostgresBinding((query) => {
+      capturedQuery = query.text;
+      expect(query.values).toEqual(["idem-1"]);
+      return [
+        {
+          status: "queued",
+          lastAttemptAtMs: 1_700_000_000_000,
+          latestAttemptStatus: "dispatching",
+          latestAttemptErrorCode: null,
+          daemonSessionId: "daemon-session-1",
+          connectionGeneration: 1,
+          leaseEpoch: 2,
+        },
+      ];
+    });
 
     const result = await readDispatchLedgerEvidence.call(
       {
-        bindings: { OPENMELD_DB: db },
+        bindings: { OPENMELD_POSTGRESQL: db },
         spaceId: "space-1",
       },
       "idem-1"
     );
 
-    expect(capturedQuery).toContain("WHERE ledger.idempotency_key = ?");
+    expect(capturedQuery).toContain("WHERE ledger.idempotency_key = $1");
     expect(result).toEqual({
       kind: "found",
       row: {
@@ -3729,6 +3740,7 @@ describe("space signal consistency matrix", () => {
 
     await syncSpaceBackgroundAlarm.call({
       env: {},
+      getAlarmFailureBackoff: () => createAlarmFailureBackoffFixture(),
       ctx: {
         storage: {
           sql,
@@ -4101,7 +4113,7 @@ describe("space signal consistency matrix", () => {
     );
     const text = "@Missing Agent(wake) please continue";
     const response = await handlePostThreadSignal.call(
-      {
+      withNativeSpaceOwner({
         buildTextSignal,
         ctx: {
           blockConcurrencyWhile: async <T>(
@@ -4111,7 +4123,7 @@ describe("space signal consistency matrix", () => {
         },
         publishTextSignal,
         readSourceTextSignalByClientMessageId: vi.fn(() => null),
-      },
+      }),
       {
         context: {
           actorContext: {
@@ -4230,6 +4242,7 @@ describe("space signal consistency matrix", () => {
     await webSocketMessage.call(
       {
         sessions,
+        bindings: { OPENMELD_POSTGRESQL: NATIVE_PROJECTION_BINDING },
         authorizeLiveSession: async () => true,
         buildTextSignal: buildTextSignalSpy,
         mergePublishedAuthorProfile: async (
@@ -4256,6 +4269,11 @@ describe("space signal consistency matrix", () => {
         authoringPolicy: "user_authored",
         spacePassword: "secret-123",
         supportsCurrentSpaceAddressing: false,
+        verifiedRequestContext: expect.objectContaining({
+          actorContext: expect.objectContaining({
+            openMeldProfileId: profile.profileId,
+          }),
+        }),
       }
     );
     expect(webSocket.send).not.toHaveBeenCalled();
@@ -4280,6 +4298,7 @@ describe("space signal consistency matrix", () => {
     await webSocketMessage.call(
       {
         sessions,
+        bindings: { OPENMELD_POSTGRESQL: NATIVE_PROJECTION_BINDING },
         authorizeLiveSession: async () => true,
         buildTextSignal: (
           profile: SignalEnvelope["profile"],
@@ -4312,7 +4331,29 @@ describe("space signal consistency matrix", () => {
       {
         authoringPolicy: "user_authored",
         supportsCurrentSpaceAddressing: false,
+        verifiedRequestContext: expect.objectContaining({
+          actorContext: expect.objectContaining({
+            openMeldProfileId: "hum-open-1",
+          }),
+        }),
       }
     );
   });
 });
+
+const NATIVE_PROJECTION_BINDING = {
+  connectionString:
+    "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+};
+beforeEach(() => {
+  createProjectionPostgresBinding(() => []);
+});
+function withNativeSpaceOwner<T extends object>(target: T): T {
+  Object.setPrototypeOf(target, Space.prototype);
+  if (!("bindings" in target)) {
+    Object.assign(target, {
+      bindings: { OPENMELD_POSTGRESQL: NATIVE_PROJECTION_BINDING },
+    });
+  }
+  return target;
+}

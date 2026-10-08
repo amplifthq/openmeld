@@ -22,6 +22,7 @@ import {
   type WakeRouteLane,
   type WakeRouteStatus,
 } from "@openmeld/agent-runtime";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   isHostedAgentControllerRef,
@@ -40,11 +41,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { createAgentProfileBindingProjectionFromRecord } from "../../agent-profile-binding/application/agent-profile-binding-lookup-service";
 import { resolveCurrentWorkingFolderObservation } from "../../agent-profile-binding/application/current-working-folder-observation";
-import { readPrimaryAgentProfileBindingRecordByControllerConversation } from "../../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
-import {
-  isAgentProfileEligibleForOrganization,
-  readAgentProfileOrganizationContext,
-} from "../../center-agent/center-agent-organization-scope";
+import { isAgentProfileEligibleForOrganization } from "../../center-agent/center-agent-organization-scope";
 import {
   isCenterAgentDesignationActive,
   readCenterAgentDesignationRecord,
@@ -54,29 +51,22 @@ import {
   lookupRuntimeTransportOwnerService,
   lookupRuntimeTransportRoute,
 } from "../../dispatch/infrastructure/runtime-transport/runtime-transport-client";
-import {
-  type CoreBindings,
-  identityDb,
-  localStateDb,
-} from "../../lib/bindings";
+import type { CoreBindings } from "../../lib/bindings";
 import { resolveCoreRuntimeContractRollout } from "../../local-components/runtime-contract-rollout";
 import { resolveLocalComponentUpdateProjection } from "../../local-components/update-projection";
 import { resolveRemoteAgentRuntimeAvailability } from "../../remote-agent/application/remote-agent-runtime-policy";
 import {
   listOwnedDeviceExecutionTargetRecords,
   type RuntimeRegistryRecord,
-} from "../../runtime-registry/infrastructure/d1/runtime-registry-repo";
+} from "../../runtime-registry/infrastructure/postgresql/runtime-registry-repo";
 import { CORE_LOG_EVENTS } from "../../shared/observability/log-events";
 import {
   resolveConnectedLocalRuntimeDisplayNamesUseCase,
   resolveConnectedLocalRuntimeDisplayNameUseCase,
 } from "../../start/application/current-device-target-service";
-import { resolveCurrentDeviceFromBindings } from "../../start/infrastructure/d1/current-device-derivation-repo";
-import { listOwnedDeviceRegistryRecords } from "../../start/infrastructure/d1/owned-device-registry-repo";
+import { resolveCurrentDeviceFromBindings } from "../../start/infrastructure/postgresql/current-device-derivation-repo";
+import { listOwnedDeviceRegistryRecords } from "../../start/infrastructure/postgresql/owned-device-registry-repo";
 import { RUNTIME_TRANSPORT_LEASE_TTL_MS } from "../../strategy-constants";
-import { readFreshAgentExecutionReadinessImpactForBinding } from "../infrastructure/d1/agent-execution-readiness-impact-repo";
-import { readFreshProviderAccessEvidenceForBinding } from "../infrastructure/d1/provider-access-evidence-repo";
-import { readFreshProviderConversationProofForBinding } from "../infrastructure/d1/provider-conversation-proof-repo";
 import {
   type AgentExecutionReadinessReads,
   createAgentExecutionReadinessReads,
@@ -843,6 +833,7 @@ async function enrichAgentBindingSnapshot(input: {
     }),
     measureReadinessStep(input.timing, "provider_account_evidence_read", () =>
       resolveAgentProviderAccountEvidence({
+        reads: input.reads,
         agentProfileId: input.agent.profileId,
         binding: agentExecutionBinding,
         env: input.env,
@@ -854,6 +845,7 @@ async function enrichAgentBindingSnapshot(input: {
       "provider_conversation_evidence_read",
       () =>
         resolveAgentProviderConversationEvidence({
+          reads: input.reads,
           agentProfileId: input.agent.profileId,
           binding: agentExecutionBinding,
           env: input.env,
@@ -862,6 +854,7 @@ async function enrichAgentBindingSnapshot(input: {
     ),
     measureReadinessStep(input.timing, "readiness_impact_evidence_read", () =>
       resolveAgentReadinessImpactEvidence({
+        reads: input.reads,
         agentProfileId: input.agent.profileId,
         binding: agentExecutionBinding,
         env: input.env,
@@ -1037,7 +1030,7 @@ async function resolveHostedCenterAgentReadiness(input: {
       reasonCodes: ["remote_agent.organization_context_missing"],
     };
   }
-  const db = identityDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return {
       available: false,
@@ -1133,7 +1126,7 @@ async function resolveAgentExecutionBindingEvidence(input: {
   configurationRevision: number | null;
   evidence: AgentExecutionBindingEvidence;
 }> {
-  const domainDb = localStateDb(input.env);
+  const domainDb = getPostgresDatabase(input.env);
   if (!domainDb) {
     return {
       configurationRevision: null,
@@ -1147,10 +1140,9 @@ async function resolveAgentExecutionBindingEvidence(input: {
   try {
     const organizationProfile = input.ownerUserId
       ? null
-      : await readAgentProfileOrganizationContext({
+      : await input.reads.readAgentProfileOrganizationContext({
           agentProfileId: input.agentProfileId,
           db: domainDb,
-          readBatch: input.reads.readBatch,
         });
     let owner: { id: string; kind: "owner_account" | "organization" } | null =
       null;
@@ -1177,22 +1169,22 @@ async function resolveAgentExecutionBindingEvidence(input: {
         agentProfileId: input.agentProfileId,
         db: domainDb,
         owner,
-        readBatch: input.reads.readBatch,
       });
     if (bindingRecord?.agentControllerConversationId && input.ownerUserId) {
       const conflictingBinding =
-        await readPrimaryAgentProfileBindingRecordByControllerConversation({
-          readBatch: input.reads.readBatch,
-          agentControllerConversationId:
-            bindingRecord.agentControllerConversationId,
-          agentControllerRef: bindingRecord.agentControllerRef,
-          db: domainDb,
-          excludeAgentProfileId: input.agentProfileId,
-          owner: {
-            id: input.ownerUserId,
-            kind: "owner_account",
-          },
-        });
+        await input.reads.readPrimaryAgentProfileBindingRecordByControllerConversation(
+          {
+            agentControllerConversationId:
+              bindingRecord.agentControllerConversationId,
+            agentControllerRef: bindingRecord.agentControllerRef,
+            db: domainDb,
+            excludeAgentProfileId: input.agentProfileId,
+            owner: {
+              id: input.ownerUserId,
+              kind: "owner_account",
+            },
+          }
+        );
       if (conflictingBinding) {
         const conflictingProfileIsCurrent =
           await isCurrentConflictingAgentProfile({
@@ -1302,7 +1294,7 @@ async function resolveAgentRuntimeReadiness(input: {
   if (!executionTarget) {
     return null;
   }
-  const domainDb = localStateDb(input.env);
+  const domainDb = getPostgresDatabase(input.env);
   if (!domainDb) {
     return {
       displayState: "unavailable",
@@ -1495,6 +1487,7 @@ function mergeCurrentWorkingFolderReadiness(input: {
 }
 
 async function resolveAgentProviderAccountEvidence(input: {
+  reads: AgentExecutionReadinessReads;
   agentProfileId: string;
   binding: AgentExecutionBindingEvidence | null;
   env: CoreBindings;
@@ -1506,20 +1499,21 @@ async function resolveAgentProviderAccountEvidence(input: {
   const executionTarget = input.binding.executionTarget;
   const bindingId =
     input.binding.bindingId ?? input.binding.dispatchReadableFacts?.bindingId;
-  const domainDb = localStateDb(input.env);
+  const domainDb = getPostgresDatabase(input.env);
   if (!(bindingId && executionTarget && domainDb)) {
     return null;
   }
 
   try {
-    const evidence = await readFreshProviderAccessEvidenceForBinding({
-      agentProfileId: input.agentProfileId,
-      bindingId,
-      agentControllerRef: executionTarget.agentControllerRef,
-      db: domainDb,
-      nowMs: parseGeneratedAtMs(input.generatedAt),
-      openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
-    });
+    const evidence =
+      await input.reads.readFreshProviderAccessEvidenceForBinding({
+        agentProfileId: input.agentProfileId,
+        bindingId,
+        agentControllerRef: executionTarget.agentControllerRef,
+        db: domainDb,
+        nowMs: parseGeneratedAtMs(input.generatedAt),
+        openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
+      });
     if (!evidence) {
       return null;
     }
@@ -1563,6 +1557,7 @@ async function resolveAgentProviderAccountEvidence(input: {
 }
 
 async function resolveAgentProviderConversationEvidence(input: {
+  reads: AgentExecutionReadinessReads;
   agentProfileId: string;
   binding: AgentExecutionBindingEvidence | null;
   env: CoreBindings;
@@ -1595,7 +1590,7 @@ async function resolveAgentProviderConversationEvidence(input: {
     required: true,
   };
 
-  const domainDb = localStateDb(input.env);
+  const domainDb = getPostgresDatabase(input.env);
   if (!domainDb) {
     return {
       ...requiredBase,
@@ -1612,17 +1607,18 @@ async function resolveAgentProviderConversationEvidence(input: {
   }
 
   try {
-    const proof = await readFreshProviderConversationProofForBinding({
-      agentProfileId: input.agentProfileId,
-      bindingId,
-      agentControllerRef: executionTarget.agentControllerRef,
-      agentControllerConversationId,
-      db: domainDb,
-      method: "codex_app_server_thread_resume",
-      nowMs: parseGeneratedAtMs(input.generatedAt),
-      provider: "codex",
-      openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
-    });
+    const proof =
+      await input.reads.readFreshProviderConversationProofForBinding({
+        agentProfileId: input.agentProfileId,
+        bindingId,
+        agentControllerRef: executionTarget.agentControllerRef,
+        agentControllerConversationId,
+        db: domainDb,
+        method: "codex_app_server_thread_resume",
+        nowMs: parseGeneratedAtMs(input.generatedAt),
+        provider: "codex",
+        openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
+      });
     if (!proof) {
       return {
         ...requiredBase,
@@ -1692,6 +1688,7 @@ async function resolveAgentProviderConversationEvidence(input: {
 }
 
 async function resolveAgentReadinessImpactEvidence(input: {
+  reads: AgentExecutionReadinessReads;
   agentProfileId: string;
   binding: AgentExecutionBindingEvidence | null;
   env: CoreBindings;
@@ -1703,20 +1700,21 @@ async function resolveAgentReadinessImpactEvidence(input: {
   const executionTarget = input.binding.executionTarget;
   const bindingId =
     input.binding.bindingId ?? input.binding.dispatchReadableFacts?.bindingId;
-  const domainDb = localStateDb(input.env);
+  const domainDb = getPostgresDatabase(input.env);
   if (!(bindingId && executionTarget && domainDb)) {
     return null;
   }
 
   try {
-    const impact = await readFreshAgentExecutionReadinessImpactForBinding({
-      agentProfileId: input.agentProfileId,
-      bindingId,
-      agentControllerRef: executionTarget.agentControllerRef,
-      db: domainDb,
-      nowMs: parseGeneratedAtMs(input.generatedAt),
-      openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
-    });
+    const impact =
+      await input.reads.readFreshAgentExecutionReadinessImpactForBinding({
+        agentProfileId: input.agentProfileId,
+        bindingId,
+        agentControllerRef: executionTarget.agentControllerRef,
+        db: domainDb,
+        nowMs: parseGeneratedAtMs(input.generatedAt),
+        openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
+      });
     if (!impact) {
       return null;
     }
@@ -1764,7 +1762,7 @@ async function resolveAgentClaimDiagnostics(input: {
   ) {
     return null;
   }
-  const domainDb = localStateDb(input.env);
+  const domainDb = getPostgresDatabase(input.env);
   if (!domainDb) {
     return claimDiagnosticsUnavailable("claim_eligibility.runtime_unavailable");
   }
@@ -1866,7 +1864,7 @@ export async function resolveAgentProfileOrganizationClaimDiagnostics(input: {
     return runtimeClaimDiagnostics;
   }
 
-  const db = identityDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return mergeAgentProfileOrganizationClaimFailure({
       reasonCode: "agent_profile.organization_lookup_failed",
@@ -1876,10 +1874,11 @@ export async function resolveAgentProfileOrganizationClaimDiagnostics(input: {
   }
 
   try {
-    const profileContext = await readAgentProfileOrganizationContext({
+    const profileContext = await (
+      input.reads ?? createAgentExecutionReadinessReads()
+    ).readAgentProfileOrganizationContext({
       agentProfileId: input.binding.agentProfileId,
       db,
-      readBatch: input.reads?.readBatch,
     });
     if (!profileContext) {
       return mergeAgentProfileOrganizationClaimFailure({
@@ -1975,7 +1974,7 @@ async function resolveAgentLocalExecutionServiceEvidence(input: {
     };
   }
 
-  const domainDb = localStateDb(input.env);
+  const domainDb = getPostgresDatabase(input.env);
   if (!domainDb) {
     return {
       localService: {
@@ -2930,7 +2929,7 @@ async function readRuntimeDeviceDisplayName(input: {
   profileId: string;
   runtimeLane: DaemonServiceLane;
 }): Promise<string | null> {
-  const db = localStateDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return null;
   }
@@ -2978,7 +2977,7 @@ export async function preloadRuntimeDeviceDisplayNamesForOwner(input: {
     runtimeLane: DaemonServiceLane;
   }[];
 }): Promise<ReadonlyMap<string, string | null> | null> {
-  const db = localStateDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return null;
   }
@@ -2990,6 +2989,9 @@ export async function preloadRuntimeDeviceDisplayNamesForOwner(input: {
       ])
     ).values(),
   ];
+  if (targets.length === 0) {
+    return new Map();
+  }
   try {
     const resolved = await resolveConnectedLocalRuntimeDisplayNamesUseCase({
       store: {

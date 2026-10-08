@@ -20,6 +20,7 @@ import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ChatCircleTextIcon,
 	CheckCircleIcon,
+	CheckIcon,
 	DotsThreeIcon,
 	FileTextIcon,
 	RobotIcon,
@@ -123,7 +124,7 @@ type InboxItemRowProps = {
 	contextActions?: ReactNode;
 	feedRow?: InboxFeedRow;
 	children?: ReactNode;
-	density: "compact" | "default";
+	density: "compact" | "default" | "preview";
 	focused: boolean;
 	item: InboxItem;
 	onDismiss?: (item: InboxItem) => void;
@@ -163,12 +164,33 @@ function useInboxRowNavigation(input: InboxItemRowProps) {
 	return { sourceNavigation, informational, onOpen };
 }
 
+const ROW_DENSITY_STYLES = {
+	default: {
+		actions: "pe-4 pb-2 sm:pb-0",
+		layout:
+			"grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center",
+		metadata: "mt-2",
+		preview: "",
+	},
+	compact: {
+		actions: "pe-4 pb-2 sm:pb-0",
+		layout:
+			"grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center",
+		metadata: "mt-1",
+		preview: "",
+	},
+	preview: {
+		actions: "pe-2",
+		layout: "grid grid-cols-[minmax(0,1fr)_auto] items-center",
+		metadata: "mt-1",
+		preview: "line-clamp-1 text-xs",
+	},
+};
+
 export function InboxItemRow(input: InboxItemRowProps) {
+	const densityStyles = ROW_DENSITY_STYLES[input.density];
 	const item = presentInboxItem(input.item, useConversationNames());
-	const inlineInvitation =
-		input.density === "default" &&
-		item.sourceTarget.kind === "organization_join_request" &&
-		item.resolutionStatus === "open";
+	const inlineInvitation = isInlineInvitation(input.density, item);
 	const unread = input.feedRow
 		? input.feedRow.unreadCount > 0
 		: item.readAt === null;
@@ -199,6 +221,16 @@ export function InboxItemRow(input: InboxItemRowProps) {
 			handleOpen();
 		}
 	};
+	const defaultActions = (
+		<InboxItemActions
+			menu={menu}
+			onRead={() => input.onSetRead(item, true)}
+			title={item.title}
+			unread={unread}
+		/>
+	);
+	const trailingActions =
+		input.trailingActions ?? (input.showItemActions ? defaultActions : null);
 
 	return (
 		<li>
@@ -214,20 +246,15 @@ export function InboxItemRow(input: InboxItemRowProps) {
 						data-inbox-read-state={unread ? "unread" : "read"}
 						itemId={item.id}
 					>
-						<div
-							className={cn({
-								"grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center":
-									input.trailingActions,
-							})}
-						>
+						<div className={cn(trailingActions && densityStyles.layout)}>
 							<InboxItemSourceLink
 								className={cn(
 									"flex min-w-0 items-start gap-3 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-									input.density === "compact"
+									input.density !== "default"
 										? "min-h-16 px-3 py-3 pe-14"
 										: "min-h-20 px-4 py-4 pe-16 sm:gap-4",
 									inlineInvitation && "min-h-0 gap-4 pb-1",
-									{ "pe-3": input.trailingActions }
+									{ "pe-3": trailingActions }
 								)}
 								href={sourceNavigation.href}
 								informational={informational}
@@ -245,7 +272,7 @@ export function InboxItemRow(input: InboxItemRowProps) {
 									<InboxItemStatusDot dot={input.feedRow?.dot} item={item} />
 								</span>
 								<InboxLeadingAvatar
-									compact={input.density === "compact"}
+									compact={input.density !== "default"}
 									inlineInvitation={inlineInvitation}
 									item={item}
 								/>
@@ -271,7 +298,8 @@ export function InboxItemRow(input: InboxItemRowProps) {
 									<span
 										className={cn(
 											"mt-1 line-clamp-2 break-words text-muted-foreground text-sm leading-5",
-											inlineInvitation && "hidden"
+											inlineInvitation && "hidden",
+											densityStyles.preview
 										)}
 									>
 										{input.previewOverride ?? item.preview}
@@ -279,7 +307,7 @@ export function InboxItemRow(input: InboxItemRowProps) {
 									<span
 										className={cn(
 											"flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-xs",
-											input.density === "compact" ? "mt-1" : "mt-2",
+											densityStyles.metadata,
 											inlineInvitation && "hidden"
 										)}
 									>
@@ -293,15 +321,12 @@ export function InboxItemRow(input: InboxItemRowProps) {
 								item={item}
 								onInteract={handleOpen}
 							/>
-							{input.trailingActions ? (
-								<div className="flex justify-end pe-4 pb-2 sm:pb-0">
-									{input.trailingActions}
+							{trailingActions ? (
+								<div className={cn("flex justify-end", densityStyles.actions)}>
+									{trailingActions}
 								</div>
 							) : null}
 							{input.children}
-							{input.showItemActions ? (
-								<InboxItemActions menu={menu} title={item.title} />
-							) : null}
 						</div>
 					</SharedLayoutItem>
 				}
@@ -309,6 +334,17 @@ export function InboxItemRow(input: InboxItemRowProps) {
 				{menu}
 			</FluidContextMenu>
 		</li>
+	);
+}
+
+function isInlineInvitation(
+	density: InboxItemRowProps["density"],
+	item: InboxItem
+) {
+	return (
+		density === "default" &&
+		item.sourceTarget.kind === "organization_join_request" &&
+		item.resolutionStatus === "open"
 	);
 }
 
@@ -339,6 +375,12 @@ function resolveRowIndicator(
 	item: InboxItem,
 	dot?: InboxFeedRow["dot"]
 ): ReturnType<typeof resolveInboxItemIndicator> {
+	if (
+		item.attention === "action_required" &&
+		item.resolutionStatus === "open"
+	) {
+		return "warning";
+	}
 	if (dot === undefined) {
 		return resolveInboxItemIndicator(item);
 	}
@@ -445,17 +487,34 @@ function InboxItemSourceLink(input: {
 	);
 }
 
-function InboxItemActions(input: { menu: ReactNode; title: string }) {
+function InboxItemActions(input: {
+	menu: ReactNode;
+	title: string;
+	unread: boolean;
+	onRead: () => void;
+}) {
 	return (
-		<div className="absolute inset-y-0 end-2 z-20 flex items-center">
+		<div className="flex shrink-0 items-center gap-1">
+			<Button
+				aria-label={
+					input.unread ? `Mark ${input.title} as read` : `${input.title}: Read`
+				}
+				className="gap-1.5 px-2 text-muted-foreground"
+				disabled={!input.unread}
+				onClick={input.onRead}
+				size="sm"
+				variant="ghost"
+			>
+				<CheckIcon aria-hidden="true" />
+				<span>{input.unread ? "Mark as read" : "Read"}</span>
+			</Button>
 			<DropdownMenu>
 				<DropdownMenuTrigger
 					render={
 						<Button
 							aria-label={`Actions for ${input.title}`}
-							className="size-10 opacity-100 transition-opacity motion-reduce:transition-none sm:opacity-0 sm:data-popup-open:opacity-100 sm:group-hover/inbox-row:opacity-100 sm:focus-visible:opacity-100"
 							size="icon-sm"
-							variant="secondary"
+							variant="ghost"
 						/>
 					}
 				>

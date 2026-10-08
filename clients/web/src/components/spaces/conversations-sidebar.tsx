@@ -11,16 +11,16 @@ import {
 } from "@openmeld/ui/components/dialog";
 import {
 	DropdownMenu,
-	DropdownMenuCheckboxItem,
 	DropdownMenuRadioGroup,
 	DropdownMenuSeparator,
 	DropdownMenuSub,
-	DropdownMenuSubTrigger,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
 import { Input } from "@openmeld/ui/components/input";
 import {
+	FluidDropdownMenuCheckboxItem as DropdownMenuCheckboxItem,
 	FluidDropdownMenuContent as DropdownMenuContent,
+	FluidDropdownMenuSubTrigger as DropdownMenuSubTrigger,
 	FluidDropdownMenuContent,
 	FluidDropdownMenuItem,
 	FluidDropdownMenuRadioItem,
@@ -72,10 +72,12 @@ import {
 } from "./conversation-sidebar-model";
 import { ConversationSidebarRow } from "./conversation-sidebar-row";
 import { NewChatDialog } from "./new-chat-dialog";
+import { SpaceCreationSidebar } from "./space-creation-sidebar";
 import { resolveSpaceMemberAppearances } from "./space-member-avatars";
 import { useConversationDisclosure } from "./use-conversation-disclosure";
 import { useConversationView } from "./use-conversation-view";
 import { useConversations } from "./use-conversations";
+import { useMessagePreviews } from "./use-message-previews";
 import { useSpaceDirectoryFilters } from "./use-space-directory-filters";
 import { useUnreadHistoryPrefetch } from "./use-unread-history-prefetch";
 
@@ -293,6 +295,10 @@ export function ConversationsSidebar(
 		(item) => item.spaceId === model.selected
 	);
 	const activeSection = active ? model.owner(active) : null;
+	const { showMessagePreviews, setShowMessagePreviews } = useMessagePreviews(
+		dm.profileId,
+		dm.org.id
+	);
 	const disclosure = useConversationDisclosure(
 		dm.profileId,
 		dm.org.id,
@@ -454,6 +460,15 @@ export function ConversationsSidebar(
 			</DropdownMenuRadioGroup>
 		</>
 	);
+	const previewMenu = (
+		<DropdownMenuCheckboxItem
+			checked={showMessagePreviews}
+			index={2}
+			onCheckedChange={setShowMessagePreviews}
+		>
+			<ChatCircleTextIcon /> Show message previews
+		</DropdownMenuCheckboxItem>
+	);
 	const filterMenu = (
 		<>
 			{kinds.menu}
@@ -462,6 +477,7 @@ export function ConversationsSidebar(
 			<DropdownMenuSeparator />
 			<DropdownMenuCheckboxItem
 				checked={archived}
+				index={0}
 				onCheckedChange={setArchived}
 			>
 				<ArchiveIcon /> Archived direct messages
@@ -519,9 +535,9 @@ export function ConversationsSidebar(
 							>
 								<SlidersHorizontalIcon />
 							</DropdownMenuTrigger>
-							<FluidDropdownMenuContent align="end" className="w-48">
+							<FluidDropdownMenuContent align="end" className="w-56">
 								<DropdownMenuSub>
-									<DropdownMenuSubTrigger>
+									<DropdownMenuSubTrigger index={0}>
 										<ListIcon aria-hidden="true" />
 										Conversation view
 									</DropdownMenuSubTrigger>
@@ -530,7 +546,7 @@ export function ConversationsSidebar(
 									</FluidDropdownMenuSubContent>
 								</DropdownMenuSub>
 								<DropdownMenuSub>
-									<DropdownMenuSubTrigger>
+									<DropdownMenuSubTrigger index={1}>
 										<FunnelSimpleIcon aria-hidden="true" />
 										Filter conversations
 									</DropdownMenuSubTrigger>
@@ -538,6 +554,7 @@ export function ConversationsSidebar(
 										{filterMenu}
 									</FluidDropdownMenuSubContent>
 								</DropdownMenuSub>
+								{previewMenu}
 							</FluidDropdownMenuContent>
 						</DropdownMenu>
 					</div>
@@ -557,7 +574,7 @@ export function ConversationsSidebar(
 						</DropdownMenuTrigger>
 						<FluidDropdownMenuContent align="start" className="w-56">
 							<DropdownMenuSub>
-								<DropdownMenuSubTrigger>
+								<DropdownMenuSubTrigger index={3}>
 									<PlusIcon aria-hidden="true" />
 									New conversation
 								</DropdownMenuSubTrigger>
@@ -566,7 +583,7 @@ export function ConversationsSidebar(
 								</FluidDropdownMenuSubContent>
 							</DropdownMenuSub>
 							<DropdownMenuSub>
-								<DropdownMenuSubTrigger>
+								<DropdownMenuSubTrigger index={0}>
 									<ListIcon aria-hidden="true" />
 									Conversation view
 								</DropdownMenuSubTrigger>
@@ -575,7 +592,7 @@ export function ConversationsSidebar(
 								</FluidDropdownMenuSubContent>
 							</DropdownMenuSub>
 							<DropdownMenuSub>
-								<DropdownMenuSubTrigger>
+								<DropdownMenuSubTrigger index={1}>
 									<FunnelSimpleIcon aria-hidden="true" />
 									Filter conversations
 								</DropdownMenuSubTrigger>
@@ -583,6 +600,7 @@ export function ConversationsSidebar(
 									{filterMenu}
 								</FluidDropdownMenuSubContent>
 							</DropdownMenuSub>
+							{previewMenu}
 						</FluidDropdownMenuContent>
 					</DropdownMenu>
 				</div>
@@ -662,6 +680,15 @@ export function ConversationsSidebar(
 					</Button>
 				</div>
 			)}
+			<SpaceCreationSidebar
+				onNavigate={onNavigate}
+				organizationId={dm.org.id}
+				orgSlug={dm.org.slug}
+				profileId={dm.profileId}
+				spaceIds={model.conversations.map(
+					(conversation) => conversation.spaceId
+				)}
+			/>
 			{dm.sessions.isFetchingNextPage && (
 				<p aria-live="polite" className="px-2 text-muted-foreground text-xs">
 					Loading older direct messages…
@@ -841,6 +868,7 @@ export function ConversationsSidebar(
 														profileId={item.profileId}
 														section={section.id}
 														selected={model.selected === item.spaceId}
+														showMessagePreviews={showMessagePreviews}
 														title={item.title}
 														unreadCount={
 															dm.indicators.unreadBySpaceId.get(item.spaceId)

@@ -106,6 +106,8 @@ export const listSpaceThreadSignalsResponseSchema = z.strictObject({
 
 export const postSpaceThreadSignalBodySchema = z
   .strictObject({
+    evidenceRefs:
+      signalTextSchema.shape.data.shape.meta.unwrap().shape.evidenceRefs,
     workHandoff:
       signalTextSchema.shape.data.shape.meta.unwrap().shape.workHandoff,
     threadWakeContinuation: z.literal(true).optional(),
@@ -113,6 +115,9 @@ export const postSpaceThreadSignalBodySchema = z
     deviceWait: signalTextSchema.shape.data.shape.deviceWait.optional(),
     contextSelection:
       signalTextSchema.shape.data.shape.contextSelection.optional(),
+    contextSelections:
+      signalTextSchema.shape.data.shape.contextSelections.optional(),
+    taskDraft: signalTextSchema.shape.data.shape.taskDraft.optional(),
     files: signalTextSchema.shape.data.shape.files.optional(),
     messageEnvelope: messageEnvelopeSchema.optional(),
     clientMessageId: clientMessageIdSchema,
@@ -125,6 +130,9 @@ export const postSpaceThreadSignalBodySchema = z
   .superRefine((value, ctx) => {
     const parsed = signalTextSchema.shape.data.safeParse({
       text: value.text,
+      contextSelection: value.contextSelection,
+      contextSelections: value.contextSelections,
+      taskDraft: value.taskDraft,
       ...(value.files ? { files: value.files } : {}),
       ...(value.messageEnvelope
         ? { messageEnvelope: value.messageEnvelope }

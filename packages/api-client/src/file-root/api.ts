@@ -2,6 +2,7 @@ import {
   copyFileRootRevisionBodySchema,
   copyFileRootRevisionResponseSchema,
   copyFileRootToSpaceBodySchema,
+  copyOwnMessageExcerptBodySchema,
   fileRootEntryResponseSchema,
   fileRootFileResponseSchema,
   fileRootFolderResponseSchema,
@@ -18,6 +19,7 @@ import type {
   CopyFileRootRevisionBody,
   CopyFileRootRevisionResponse,
   CopyFileRootToSpaceBody,
+  CopyOwnMessageExcerptBody,
   FileRootEntry,
   FileRootFileDescriptor,
   FileRootFolderDescriptor,
@@ -40,6 +42,21 @@ function contentPath(location: FileRootLocation, fileId: string): string {
 
 export function createFileRootApi(client: OpenMeldApiClientFoundation) {
   return {
+    async copyOwnMessageExcerpt(input: {
+      spaceId: string;
+      body: CopyOwnMessageExcerptBody;
+    }): Promise<SpaceFileDescriptor> {
+      const response = await client.requestJson({
+        url: `/v1/spaces/${encodeURIComponent(input.spaceId)}/files/excerpts`,
+        operation: "files.copy_own_message_excerpt",
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(copyOwnMessageExcerptBodySchema.parse(input.body)),
+        schema: getSpaceFileResponseSchema,
+        invalidMessage: "Invalid excerpt copy response.",
+      });
+      return response.file;
+    },
     async copyToSpace(input: {
       spaceId: string;
       body: CopyFileRootToSpaceBody;

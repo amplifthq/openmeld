@@ -52,7 +52,7 @@ jobs:
         run: node --test --test-name-pattern="project contexts keep restricted file tools" runtime/adapters/claude-code/test/space-action-tools.test.js
 
   linux-container:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
@@ -66,10 +66,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Build Core and Service test dependencies
         run: pnpm exec turbo run build --filter=@openmeld/core^... --filter=openmeld^... --concurrency=1
-      - name: Verify five ordinary Claude project admissions and the sixth waiter
+      - uses: ./.github/actions/setup-postgresql
+      - name: Verify ordinary Claude native admissions and the sixth waiter
         env:
           WRANGLER_LOG_PATH: ${{ runner.temp }}/openmeld-wrangler-logs
-        run: pnpm -C services/core exec vitest run --config vitest.config.ts tests/runtime-transport-runtime-coordinator-contract.test.ts -t "assigns ordinary Claude Wakes independent project contexts" --silent
+        run: pnpm pg:local run pnpm -C services/core exec vitest run --config vitest.config.ts tests/runtime-transport-runtime-coordinator-contract.test.ts -t "keeps independent ordinary Claude tasks native in parallel mode" --silent
       - name: Pull the exact project image
         run: docker pull node:24-bookworm@sha256:64af3819f9275802414d7cdc38c27e9d82bd564dec4d4da87d008255d36c63b4
       - name: Exercise real workspace mounts, MCP authority and concurrent commands

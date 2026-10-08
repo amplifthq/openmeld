@@ -1,6 +1,30 @@
 // biome-ignore-all lint/performance/noBarrelFile: This package intentionally exposes stable public entrypoints.
 
 export {
+  type AccountDeletionCleanupInput,
+  type AccountDeletionCleanupResult,
+  type AccountDeletionComputer,
+  type AccountDeletionConnection,
+  type AccountDeletionConversation,
+  type AccountDeletionFileRoot,
+  type AccountDeletionPlan,
+  type AccountDeletionPreview,
+  type AccountDeletionSpace,
+  accountDeletionAcceptedSchema,
+  accountDeletionCleanupInputSchema,
+  accountDeletionCleanupResultSchema,
+  accountDeletionComputerSchema,
+  accountDeletionConnectionCleanupSchema,
+  accountDeletionConnectionSchema,
+  accountDeletionConversationSchema,
+  accountDeletionFileRootSchema,
+  accountDeletionPendingConnectionsSchema,
+  accountDeletionPlanSchema,
+  accountDeletionPreviewSchema,
+  accountDeletionSpaceSchema,
+  requestAccountDeletionSchema,
+} from "./account-deletion";
+export {
   type AccountInvalidationFrame,
   accountInvalidationFrameSchema,
 } from "./account-invalidation";
@@ -173,12 +197,17 @@ export {
   DESKTOP_UPDATE_FEED_URL,
   DESKTOP_WINDOWS_INTERNAL_PREVIEW_KEY,
   type DesktopCandidateManifest,
+  type DesktopDownloadRelease,
+  type DesktopDownloads,
   type DesktopReleasePlatform,
   desktopCandidateIdSchema,
   desktopCandidateLocation,
   desktopCandidateManifestKey,
   desktopCandidateManifestSchema,
   desktopCandidateUpdateArtifact,
+  desktopDownloadQuerySchema,
+  desktopDownloadReleaseSchema,
+  desktopDownloadsSchema,
   desktopPlatformUpdateFeedUrl,
   desktopPromotedReleaseKey,
   desktopPromotedReleaseSchema,
@@ -302,6 +331,15 @@ export {
   sidebarSortSchema,
 } from "./schemas/account-sidebar";
 export {
+  type FirstWorkAction,
+  type FirstWorkRecord,
+  type FirstWorkResponse,
+  firstWorkActionSchema,
+  firstWorkRecordSchema,
+  firstWorkResponseSchema,
+  type WalkthroughStep,
+} from "./schemas/http/first-work";
+export {
   type PluginChannelContinueResponse,
   type PluginChannelDeliveryMetadata,
   type PluginChannelRequestPreview,
@@ -363,6 +401,33 @@ export {
 } from "./schemas/http/space-message-search";
 export * from "./schemas/index";
 export { agentControllerSessionTitleSchema } from "./schemas/runtime/agent-controller-session";
+export {
+  type CloudComputer,
+  type CloudComputerOperation,
+  type CloudComputerStorage,
+  cloudComputerCleanupResultSchema,
+  cloudComputerCommandSchema,
+  cloudComputerOperationResultSchema,
+  cloudComputerOperationSchema,
+  cloudComputerResponseSchema,
+  cloudComputerRpcRequestSchema,
+  cloudComputerSchema,
+  cloudComputerStorageSchema,
+  cloudComputerWorkerRequestSchema,
+  REMOTE_AGENT_COMPUTER_CLEANUP_FAILED_CODE,
+} from "./schemas/runtime/cloud-computer";
+export {
+  pluginConnectionDescriptionSchema,
+  pluginConnectionHealthSchema,
+  pluginNativeHttpSchema,
+} from "./schemas/runtime/openconnector-runtime";
+export {
+  type PluginConnectionGrant,
+  pluginComputerConnectionRequestSchema,
+  pluginConnectionAuthorizationSchema,
+  pluginConnectionDescribeRequestSchema,
+  pluginConnectionGrantSchema,
+} from "./schemas/runtime/plugin-connection";
 export {
   type RemoteAgentExecutionAccessRequest,
   type RemoteAgentExecutionAccessResponse,
@@ -498,6 +563,17 @@ export {
   spaceWorkSelectionSchema,
 } from "./space-work-handoff";
 export type * from "./types/index";
+export {
+  normalizeUserTimeZone,
+  observeUserTimeZone,
+  resolveUserTimeContext,
+  USER_TIME_ZONE_INTERACTIVE_PRIORITY_MS,
+  userRequestTimeContextSchema,
+  userTimeContextSchema,
+  userTimeZoneObservationSchema,
+  userTimeZoneObservationSourceSchema,
+  userTimeZoneSchema,
+} from "./user-time-context";
 export {
   WEB_APPLICATION_ERROR_MAX_BYTES,
   WEB_APPLICATION_ERROR_PATH,

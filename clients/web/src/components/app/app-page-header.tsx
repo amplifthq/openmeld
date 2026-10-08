@@ -8,6 +8,7 @@ type AppPageHeaderProps = {
 	eyebrow?: ReactNode;
 	id?: string;
 	title: string;
+	titleAccessory?: ReactNode;
 };
 
 export function AppPageHeader(input: AppPageHeaderProps) {
@@ -22,9 +23,12 @@ export function AppPageHeader(input: AppPageHeaderProps) {
 						{input.eyebrow}
 					</p>
 				) : null}
-				<h1 className="font-medium text-2xl text-foreground" id={input.id}>
-					{input.title}
-				</h1>
+				<div className="flex flex-wrap items-center gap-2">
+					<h1 className="font-medium text-2xl text-foreground" id={input.id}>
+						{input.title}
+					</h1>
+					{input.titleAccessory}
+				</div>
 				<p
 					className={cn(
 						"text-muted-foreground text-sm leading-6",

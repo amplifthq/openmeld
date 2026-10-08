@@ -195,6 +195,10 @@ export const desktopUpdateInboxSourceTargetSchema = z.strictObject({
 });
 
 export const inboxSourceTargetSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("plugin_action_request"),
+    requestId: identifierSchema,
+  }),
   computerInboxSourceTargetSchema,
   desktopUpdateInboxSourceTargetSchema,
   z.strictObject({

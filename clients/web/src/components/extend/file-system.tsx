@@ -14,6 +14,7 @@ import { createPortal } from "react-dom"
 
 import { cn } from "@openmeld/ui/lib/utils"
 import { Button } from "@openmeld/ui/components/button"
+import { SkeletonRows } from "@openmeld/ui/components/skeleton-content"
 import {
   FluidDropdownMenuContent,
   FluidDropdownMenuItem,
@@ -50,6 +51,7 @@ import {
   DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu"
 import { Input } from "@openmeld/ui/components/input"
+import { PageToolbar } from "@openmeld/ui/components/page-toolbar"
 import {
   Popover,
   PopoverContent,
@@ -59,7 +61,7 @@ import { ScrollArea as InlineScrollArea, type ScrollAreaProps } from "@openmeld/
 import { Tabs, TabsList, TabsTrigger } from "#/components/extend/ui/tabs"
 import { FileThumbnail } from "#/components/extend/file-thumbnail"
 import { OfficeFileViewer } from "#/components/extend/office-file-viewer"
-import { CaretDownIcon, CaretUpIcon, CalendarIcon, FileZipIcon, ImagesIcon, SquaresFourIcon, ColumnsIcon, CaretLeftIcon, ArrowRightIcon, XIcon, MagnifyingGlassIcon, ArrowsDownUpIcon, CheckIcon, FunnelIcon, CircleNotchIcon } from "@phosphor-icons/react"
+import { CaretDownIcon, CaretUpIcon, CalendarIcon, FileZipIcon, ImagesIcon, SquaresFourIcon, ColumnsIcon, ListBulletsIcon, CaretLeftIcon, ArrowRightIcon, XIcon, MagnifyingGlassIcon, ArrowsDownUpIcon, CheckIcon, FunnelIcon, CircleNotchIcon } from "@phosphor-icons/react"
 
 function ArrowDown01Glyph(props: InlineRegistryIconProps) {
   return (
@@ -79,26 +81,6 @@ function Calendar03Glyph(props: InlineRegistryIconProps) {
 function File01Glyph(props: InlineRegistryIconProps) {
   return (
     <FileZipIcon {...props} />
-  )
-}
-function GalleryThumbnailsGlyph(props: InlineRegistryIconProps) {
-  return (
-    <ImagesIcon {...props} />
-  )
-}
-function GridViewGlyph(props: InlineRegistryIconProps) {
-  return (
-    <SquaresFourIcon {...props} />
-  )
-}
-function LayoutThreeColumnGlyph(props: InlineRegistryIconProps) {
-  return (
-    <ColumnsIcon {...props} />
-  )
-}
-function LeftToRightListBulletGlyph(props: InlineRegistryIconProps) {
-  return (
-    <ColumnsIcon {...props} />
   )
 }
 const LazyPDFViewer = React.lazy(() =>
@@ -191,6 +173,8 @@ export type FileSystemProps = {
   /** Actionable empty state supplied by the owning Files location. */
   emptyContent?: React.ReactNode
   defaultView?: FileSystemView
+  /** Folders expanded on the first list view of the initial location. */
+  defaultExpandedPaths?: readonly string[]
   view?: FileSystemView
   onViewChange?: (view: FileSystemView) => void
   /** Folder prefix to open initially, e.g. `"invoices/"`. */
@@ -1194,6 +1178,13 @@ function FileVisual({
   const customPreview =
     !previewUrl && !isLazyPagePending ? renderFilePreview?.(file) : null
   const showPager = pageable && totalPages > 1
+  if (customPreview) {
+    return (
+      <div className={cn("relative aspect-square overflow-hidden", className)}>
+        {customPreview}
+      </div>
+    )
+  }
   const thumbnail = (
     <FileThumbnail
       file={{ name: file.name, type: file.contentType ?? "" }}
@@ -1254,10 +1245,10 @@ const VIEW_OPTIONS: Array<{
   label: string
   value: FileSystemView
 }> = [
-  { icon: GridViewGlyph, label: "Grid", value: "icons" },
-  { icon: LeftToRightListBulletGlyph, label: "List", value: "list" },
-  { icon: LayoutThreeColumnGlyph, label: "Columns", value: "columns" },
-  { icon: GalleryThumbnailsGlyph, label: "Gallery", value: "gallery" },
+  { icon: SquaresFourIcon, label: "Grid", value: "icons" },
+  { icon: ListBulletsIcon, label: "List", value: "list" },
+  { icon: ColumnsIcon, label: "Columns", value: "columns" },
+  { icon: ImagesIcon, label: "Gallery", value: "gallery" },
 ]
 export function FileSystem({
   items,
@@ -1273,6 +1264,7 @@ export function FileSystem({
   emptyLabel = "This folder is empty",
   emptyContent,
   defaultView = "icons",
+  defaultExpandedPaths = [],
   view: viewProp,
   onViewChange,
   defaultPath = "",
@@ -1870,7 +1862,7 @@ export function FileSystem({
   // The list view tree saves its expanded folders here when it unmounts
   // (view switches, navigation) so returning to the list view — or to a
   // previously visited folder — restores the same disclosure state.
-  const treeExpansionRef = React.useRef(new Map<string, readonly string[]>())
+  const treeExpansionRef = React.useRef(new Map<string, readonly string[]>([[defaultPath, defaultExpandedPaths]]))
   const viewProps: FileSystemViewProps = {
     attachedStagePaths,
     currentPath,
@@ -1933,7 +1925,7 @@ export function FileSystem({
       )}
     >
       <FileSystemIconSpriteSheet />
-      <div className={cn("relative flex min-h-12 shrink-0 flex-wrap items-center justify-between gap-2 px-2", !embedded && "border-b bg-muted/40")}>
+      <PageToolbar className={cn("px-2", !embedded && "border-b bg-muted/40")}>
         <div className="flex min-w-0 items-center gap-0.5">
           {!embedded ? (
             <>
@@ -2033,7 +2025,7 @@ export function FileSystem({
           />
         </div>
         </div>
-      </div>
+      </PageToolbar>
       {breadcrumb || reserveBreadcrumbSpace ? (
         <div className="flex min-h-9 shrink-0 items-center gap-1 px-2 text-sm">
           {breadcrumb ? <nav aria-label="File location">{breadcrumb}</nav> : null}
@@ -2099,8 +2091,8 @@ export function FileSystem({
       <div className="relative min-h-0 flex-1">
         {errorContent ? (
           errorContent
-        ) : isLoading || (isLoadingCurrentFolder && currentEntries.length === 0) ? (
-          <FileSystemEmptyState label="Loading…" isLoading />
+        ) : (isLoading || isLoadingCurrentFolder) && currentEntries.length === 0 ? (
+          <SkeletonRows className="p-3" label="Loading files" />
         ) : currentEntries.length === 0 &&
           (view !== "columns" || isSearching || hasActiveFilters || emptyContent) ? (
           !isSearching && !hasActiveFilters && emptyContent ? emptyContent : <FileSystemEmptyState
@@ -3062,19 +3054,10 @@ function useSettledValue<T>(value: T, delay: number): T {
   }, [delay, settled, value])
   return settled
 }
-function FileSystemEmptyState({
-  label,
-  isLoading = false,
-}: {
-  label: string
-  isLoading?: boolean
-}) {
+function FileSystemEmptyState({ label }: { label: string }) {
   return (
     <div
-      className={cn(
-        "flex size-full items-center justify-center text-sm text-muted-foreground",
-        isLoading && "animate-pulse motion-reduce:animate-none"
-      )}
+      className="flex size-full items-center justify-center text-sm text-muted-foreground"
     >
       {label}
     </div>
@@ -3375,10 +3358,7 @@ function FileSystemIconsView({
                 className="group flex min-h-[5.875rem] w-24 flex-col items-center gap-1.5 outline-none"
               >
                 <span
-                  className={cn(
-                    "mx-auto flex h-14 w-24 shrink-0 items-center justify-center rounded-lg p-0.5 transition-colors group-focus-visible:ring-2 group-focus-visible:ring-ring",
-                    isSelected && "bg-accent"
-                  )}
+                  className="mx-auto flex h-14 w-24 shrink-0 items-center justify-center p-0.5"
                 >
                   {entry.kind === "folder" ? (
                     <FileSystemFolderGlyph className="h-12 w-auto drop-shadow-sm" emblem={entry.emblem} />
@@ -3386,7 +3366,7 @@ function FileSystemIconsView({
                     <div style={{ width: Math.min(76, 48 * previewAspectRatio) }}>
                       <FileVisual
                         file={entry}
-                        className="w-full rounded-sm shadow-xs"
+                        className="w-full"
                         previewAspectRatio={0.78}
                         renderFilePreview={renderFilePreview}
                       />
@@ -3395,7 +3375,7 @@ function FileSystemIconsView({
                 </span>
                 <span
                   className={cn(
-                    "mx-auto max-w-full rounded-sm px-1.5 py-px text-center text-xs leading-tight break-words",
+                    "mx-auto max-w-full rounded-sm px-1.5 py-px text-center text-xs leading-tight break-words group-focus-visible:ring-2 group-focus-visible:ring-ring group-focus-visible:ring-offset-2 group-focus-visible:ring-offset-background",
                     isSelected
                       ? "bg-primary text-primary-foreground"
                       : "text-foreground"
@@ -3456,6 +3436,7 @@ function FileSystemListView({
   emptyLabel,
   fileFilter,
   index,
+  loadPreviewImageUrl,
   onOpen,
   onContextMenuEntry,
   onSelect,
@@ -3532,6 +3513,7 @@ function FileSystemListView({
         currentPath={currentPath}
         hasActiveFilters={fileFilter !== null}
         index={index}
+        loadPreviewImageUrl={loadPreviewImageUrl}
         initialSelectedPath={
           selectedPath?.startsWith(currentPath)
             ? selectedPath.slice(currentPath.length).replace(/\/$/, "")
@@ -3556,6 +3538,7 @@ function FileSystemPierreTree({
   currentPath,
   hasActiveFilters,
   index,
+  loadPreviewImageUrl,
   initialSelectedPath,
   onOpen,
   onContextMenuEntry,
@@ -3568,6 +3551,7 @@ function FileSystemPierreTree({
   currentPath: string
   hasActiveFilters: boolean
   index: FileSystemIndex
+  loadPreviewImageUrl?: FileSystemProps["loadPreviewImageUrl"]
   initialSelectedPath: string | null
   onOpen: (entry: FileSystemEntry) => void
   onContextMenuEntry: (entry: FileSystemEntry) => void
@@ -3577,6 +3561,19 @@ function FileSystemPierreTree({
   sort: FileSystemSortState
   treeExpansionRef: React.RefObject<Map<string, readonly string[]>>
 }) {
+  const [rowPreviews, setRowPreviews] = React.useState<Record<string, string>>({})
+  const requestedPreviews = React.useRef(new Set<string>())
+  const previewLoaderRef = React.useRef(loadPreviewImageUrl)
+  previewLoaderRef.current = loadPreviewImageUrl
+  const currentIndexRef = React.useRef(index)
+  currentIndexRef.current = index
+  const mounted = React.useRef(true)
+  React.useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
   // The tree's comparator receives whole paths, not siblings, so it walks
   // the shared segments and applies the active sort at the first level the
   // two paths diverge — keeping directories first per level, the tree's
@@ -3649,7 +3646,7 @@ function FileSystemPierreTree({
     for (const relativePath of relativePaths) {
       if (thumbnailCount >= TREE_THUMBNAIL_SPRITE_LIMIT) break
       const file = index.files.get(`${currentPath}${relativePath}`)
-      const coverUrl = file ? filePreviewUrls(file)[0] : undefined
+      const coverUrl = file ? filePreviewUrls(file)[0] ?? rowPreviews[`${file.path}#${file.etag ?? file.updatedAt ?? ""}`] : undefined
       if (!file || !coverUrl) continue
       const baseName = file.name.toLowerCase()
       if (byFileName[baseName]) continue
@@ -3672,7 +3669,7 @@ function FileSystemPierreTree({
       set: "complete" as const,
       spriteSheet: `<svg data-icon-sprite aria-hidden="true" width="0" height="0">${symbols.join("")}</svg>`,
     }
-  }, [currentPath, index, relativePaths])
+  }, [currentPath, index, relativePaths, rowPreviews])
   const { model } = useFileTree({
     flattenEmptyDirectories: false,
     icons,
@@ -3686,9 +3683,30 @@ function FileSystemPierreTree({
     renderRowDecoration: ({ row }) => {
       const entry =
         row.kind === "file"
-          ? index.files.get(`${currentPath}${row.path}`)
-          : index.folders.get(normalizeFolderPath(`${currentPath}${row.path}`))
+          ? currentIndexRef.current.files.get(`${currentPath}${row.path}`)
+          : currentIndexRef.current.folders.get(normalizeFolderPath(`${currentPath}${row.path}`))
       if (!entry) return null
+      // The public decoration callback runs only for rendered virtual rows.
+      // Defer reads outside rendering; offscreen files never enter the queue.
+      const previewKey = entry.kind === "file" ? `${entry.path}#${entry.etag ?? entry.updatedAt ?? ""}` : ""
+      if (
+        entry.kind === "file" &&
+        entry.contentType?.startsWith("image/") &&
+        previewLoaderRef.current &&
+        !requestedPreviews.current.has(previewKey) &&
+        requestedPreviews.current.size < TREE_THUMBNAIL_SPRITE_LIMIT
+      ) {
+        requestedPreviews.current.add(previewKey)
+        queueMicrotask(() => {
+          if (!mounted.current) return
+          void previewLoaderRef.current?.(entry, 0).then((url) => {
+            if (url && mounted.current) setRowPreviews((previous) => ({ ...previous, [previewKey]: url }))
+          }).catch(() => {
+            // Keep the file-type icon. Other rows completing must not cause
+            // a failed thumbnail to retry on every sprite update.
+          })
+        })
+      }
       // The decoration lane renders one <span title>; CSS splits it into
       // aligned Date Modified (::before from title) and Size columns.
       const dateColumn =
@@ -3735,17 +3753,22 @@ function FileSystemPierreTree({
         content: attr(title);
         text-align: left;
       }
-      button[data-type='item'][data-item-type='folder'] [data-item-section='content'] {
-        display: flex;
-        align-items: center;
-        min-width: 0;
+      /* Keep one icon column at every depth. Disclosure sits in the gutter,
+         rather than taking the file icon's place and shifting folder names. */
+      button[data-type='item'][data-item-type='folder'] [data-item-section='icon'] {
+        position: relative;
       }
-      button[data-type='item'][data-item-type='folder'] [data-item-section='content']::before {
+      button[data-type='item'][data-item-type='folder'] [data-item-section='icon'] > svg {
+        position: absolute;
+        inset-inline-end: calc(100% + 3px);
+        width: 12px;
+        height: 12px;
+      }
+      button[data-type='item'][data-item-type='folder'] [data-item-section='icon']::before {
         content: "";
         flex: none;
-        width: 18px;
+        width: 16px;
         height: 14px;
-        margin-right: 4px;
         background: url("${FOLDER_GLYPH_DATA_URL}") center / contain no-repeat;
       }
     `,
@@ -4178,20 +4201,20 @@ function FileSystemColumnsView(props: FileSystemViewProps) {
           <InlineScrollArea2
             orientation="vertical"
             className="min-w-60 flex-1 contain-inline-size"
+            contentClassName="w-full"
             viewportClassName="flex justify-center p-4"
           >
-            <div className="flex w-full max-w-lg flex-col items-stretch gap-3">
-              {/* Width derives from the aspect ratio so the thumbnail grows
-                with the pane up to a 20rem height cap. */}
+            <div className="flex w-full flex-col items-stretch gap-3">
+              {/* Images use the pane; document covers retain their page ratio. */}
               <div
                 className="mx-auto w-full shrink-0"
                 style={{
-                  maxWidth: `min(100%, ${(selectedFile.previewAspectRatio ?? 0.78) * 20}rem)`,
+                  maxWidth: selectedFile.contentType?.startsWith("image/") ? "100%" : `min(100%, ${(selectedFile.previewAspectRatio ?? 0.78) * 20}rem)`,
                 }}
               >
                 <FileVisual
                   file={selectedFile}
-                  className="w-full"
+                  className={cn("w-full", selectedFile.contentType?.startsWith("image/") && "h-[min(50vh,32rem)] aspect-auto")}
                   loadPreviewImageUrl={loadPreviewImageUrl}
                   pageable
                   pageUrlCache={pageUrlCache}
@@ -4275,9 +4298,7 @@ const FileSystemColumn = React.memo(function FileSystemColumn({
       viewportProps={{ "aria-label": "Files", role: "listbox" }}
     >
       {isLoading && entries.length === 0 ? (
-        <div className="animate-pulse px-2 py-1.5 text-xs text-muted-foreground motion-reduce:animate-none">
-          Loading…
-        </div>
+        <SkeletonRows className="p-2" label="Loading folder" />
       ) : (
         <div
           className="relative"
@@ -4395,16 +4416,16 @@ function FileSystemInformation({
   }
   if (rows.length === 0) return null
   return (
-    <div className="border-t pt-3">
+    <div className="pt-3">
       <div className="mb-1.5 text-xs font-semibold">Information</div>
       <dl className="space-y-1">
         {rows.map(([label, value]) => (
           <div
             key={label}
-            className="flex items-baseline justify-between gap-3 text-xs"
+            className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-3 gap-y-1 text-xs"
           >
             <dt className="shrink-0 text-muted-foreground">{label}</dt>
-            <dd className="text-right" suppressHydrationWarning>
+            <dd className="min-w-0 break-words text-right" suppressHydrationWarning>
               {value}
             </dd>
           </div>
@@ -4474,6 +4495,10 @@ function FileSystemGalleryStage({
     "size-full",
     !isDialog && "overflow-hidden rounded-lg border"
   )
+  const customImagePreview = file.contentType?.startsWith("image/") ? renderFilePreview?.(file) : null
+  if (customImagePreview) {
+    return <div className="relative size-full overflow-hidden">{customImagePreview}</div>
+  }
   if (viewerKind && isResolving) {
     return <InlineSpinner className="size-6 text-muted-foreground" />
   }
@@ -4712,8 +4737,8 @@ function FileSystemGalleryView(props: FileSystemViewProps) {
                   }}
                   title={entry.name}
                   className={cn(
-                    "flex size-14 shrink-0 items-center justify-center rounded-md border border-transparent p-1 outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    isActive && "border-ring/40 bg-accent"
+                    "flex size-14 shrink-0 items-center justify-center rounded-md p-1 outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    isActive && "bg-accent"
                   )}
                 >
                   {entry.kind === "folder" ? (
@@ -4768,10 +4793,10 @@ function FileSystemGalleryView(props: FileSystemViewProps) {
         {activeEntry ? (
           <InlineScrollArea2
             orientation="vertical"
-            className="hidden w-64 shrink-0 border-l sm:block"
+            className="hidden w-72 shrink-0 border-l md:block xl:w-80"
             viewportClassName="flex flex-col gap-3 p-4"
           >
-            <div className="flex items-center gap-3">
+            <div className="flex items-start gap-3">
               {activeFile ? (
                 <FileVisual
                   file={activeFile}

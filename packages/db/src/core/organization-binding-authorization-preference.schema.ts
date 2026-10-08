@@ -1,15 +1,16 @@
 import { sql } from "drizzle-orm";
-import {
-  check,
-  index,
-  integer,
-  sqliteTable,
-  text,
-  uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+import { check, index, text, uniqueIndex } from "drizzle-orm/pg-core";
 import { organizations, users } from "../auth/auth.schema.ts";
+import {
+  applicationTable,
+  currentTimestampMilliseconds,
+} from "../postgresql/schema.ts";
+import {
+  epochMilliseconds,
+  integerBoolean,
+} from "../postgresql/schema-types.ts";
 
-export const organizationBindingAuthorizationPreferences = sqliteTable(
+export const organizationBindingAuthorizationPreferences = applicationTable(
   "organization_binding_authorization_preferences",
   {
     id: text("id").primaryKey(),
@@ -19,17 +20,16 @@ export const organizationBindingAuthorizationPreferences = sqliteTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    autoAuthorizeAgentProfileBindings: integer(
-      "auto_authorize_agent_profile_bindings",
-      { mode: "boolean" }
+    autoAuthorizeAgentProfileBindings: integerBoolean(
+      "auto_authorize_agent_profile_bindings"
     )
-      .default(false)
+      .default(sql`0`)
       .notNull(),
-    createdAt: integer("created_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    createdAt: epochMilliseconds("created_at")
+      .default(currentTimestampMilliseconds)
       .notNull(),
-    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    updatedAt: epochMilliseconds("updated_at")
+      .default(currentTimestampMilliseconds)
       .notNull(),
   },
   (table) => [

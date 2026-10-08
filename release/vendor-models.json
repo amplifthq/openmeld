@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-02T02:22:15.764Z",
+  "updatedAt": "2026-10-08T09:50:35Z",
   "agentControllers": {
     "antigravity": {
       "defaultModelId": "gemini-3.8-flash-high",
@@ -115,7 +115,6 @@
         {
           "id": "gpt-6.1-sol",
           "displayName": "GPT-6.1 Sol",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": [
             "low",
@@ -274,9 +273,16 @@
       },
       "models": [
         {
+          "id": "claude-haiku-5-5",
+          "displayName": "Claude Haiku 5.5",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+          "minCliVersion": "2.1.293"
+        },
+        {
           "id": "claude-sonnet-5-5",
           "displayName": "Claude Sonnet 5.5",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
           "minCliVersion": "2.1.284"
@@ -376,6 +382,14 @@
       "defaultModelId": "default[]",
       "models": [
         {
+          "id": "claude-haiku-5-5[thinking=true,context=300k,reasoning_effort=high]",
+          "displayName": "Claude Haiku 5.5",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "2026.09.28"
+        },
+        {
           "id": "claude-opus-5-5[context=300k,effort=medium,fast=false]",
           "displayName": "Claude Opus 5.5",
           "unavailable": false,
@@ -385,7 +399,6 @@
         {
           "id": "claude-sonnet-5-5[context=300k,reasoning_effort=high]",
           "displayName": "Claude Sonnet 5.5",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": [],
           "minCliVersion": null
@@ -428,6 +441,41 @@
         {
           "id": "gemini-3.8-flash[reasoning_effort=high]",
           "displayName": "Gemini 3.8 Flash",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
+        {
+          "id": "gemini-3.7-flash[effort=high]",
+          "displayName": "Gemini 3.7 Flash — High",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
+        {
+          "id": "gemini-3.6-flash[effort=high]",
+          "displayName": "Gemini 3.6 Flash — High",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
+        {
+          "id": "kimi-k3[reasoning=max]",
+          "displayName": "Kimi K3 — Max",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
+        {
+          "id": "glm-5p3[reasoning=high]",
+          "displayName": "GLM 5.3 — High",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": null
+        },
+        {
+          "id": "glm-5p3-flash[reasoning=high]",
+          "displayName": "GLM 5.3 Flash — High",
           "unavailable": false,
           "supportedReasoningLevels": [],
           "minCliVersion": null
@@ -669,6 +717,38 @@
       "defaultModelId": "opencode/mimo-v2.6-flash-free",
       "models": [
         {
+          "id": "opencode/claude-haiku-5-5",
+          "displayName": "Claude Haiku 5.5 (Zen)",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+          "minCliVersion": "1.18.34"
+        },
+        {
+          "id": "opencode-go/claude-haiku-5-5",
+          "displayName": "Claude Haiku 5.5 (Go)",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+          "minCliVersion": "1.18.34"
+        },
+        {
+          "id": "opencode/mistral-large-4",
+          "displayName": "OpenCode Mistral Large 4",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["none", "high"],
+          "minCliVersion": "1.18.35"
+        },
+        {
+          "id": "opencode/exo-free",
+          "displayName": "OpenCode Exo Free",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["high"],
+          "minCliVersion": "1.18.35"
+        },
+        {
           "id": "opencode/fledge-alpha-free",
           "displayName": "OpenCode Fledge Alpha Free",
           "badgeLabel": "New",
@@ -693,15 +773,21 @@
         {
           "id": "opencode-go/longcat-2.5-preview-free",
           "displayName": "LongCat 2.5 Preview Free",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high"],
           "minCliVersion": null
         },
         {
+          "id": "opencode-go/space-bunny",
+          "displayName": "Space Bunny",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+          "minCliVersion": "1.18.34"
+        },
+        {
           "id": "opencode-go/space-bunny-free",
           "displayName": "Space Bunny Free",
-          "unavailable": false,
+          "unavailable": true,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
           "minCliVersion": null
         },
@@ -771,7 +857,6 @@
         {
           "id": "openai/gpt-6.1-sol",
           "displayName": "GPT-6.1 Sol",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
           "minCliVersion": null
@@ -779,7 +864,6 @@
         {
           "id": "openai/gpt-6.1-sol-fast",
           "displayName": "GPT-6.1 Sol Fast",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
           "minCliVersion": null
@@ -827,6 +911,13 @@
           "minCliVersion": null
         },
         {
+          "id": "opencode/ling-3.1-flash-free",
+          "displayName": "OpenCode Ling 3.1 Flash Free",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high"],
+          "minCliVersion": "1.18.34"
+        },
+        {
           "id": "opencode/ling-3.0-flash-fin-free",
           "displayName": "OpenCode Ling 3.0 Flash Fin Free",
           "unavailable": false,
@@ -836,7 +927,6 @@
         {
           "id": "opencode/longcat-2.5-preview-free",
           "displayName": "OpenCode LongCat 2.5 Preview Free",
-          "badgeLabel": "New",
           "unavailable": false,
           "supportedReasoningLevels": ["low", "medium", "high"],
           "minCliVersion": "1.18.33"
@@ -1282,7 +1372,7 @@
           "id": "opencode-go/qwen3.7-plus",
           "displayName": "Qwen3.7 Plus",
           "unavailable": false,
-          "supportedReasoningLevels": [],
+          "supportedReasoningLevels": ["high", "max"],
           "minCliVersion": null
         },
         {
@@ -1310,9 +1400,23 @@
       },
       "models": [
         {
+          "id": "anthropic/claude-haiku-5.5",
+          "displayName": "Claude Haiku 5.5",
+          "badgeLabel": "New",
+          "hostedRuntime": {
+            "provider": "openrouter",
+            "inputModalities": ["text", "image"],
+            "contextWindow": 1000000,
+            "maxOutputTokens": 16384,
+            "reasoningLevel": "medium"
+          },
+          "unavailable": false,
+          "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
+          "minCliVersion": null
+        },
+        {
           "id": "openai/gpt-6.1-sol-pro",
           "displayName": "GPT-6.1 Sol (Pro mode)",
-          "badgeLabel": "New",
           "hostedRuntime": {
             "provider": "openrouter",
             "inputModalities": ["image", "text"],
@@ -1327,7 +1431,6 @@
         {
           "id": "openai/gpt-6.1-sol",
           "displayName": "GPT-6.1 Sol",
-          "badgeLabel": "New",
           "hostedRuntime": {
             "provider": "openrouter",
             "inputModalities": ["image", "text"],
@@ -1342,7 +1445,6 @@
         {
           "id": "anthropic/claude-sonnet-5.5",
           "displayName": "Claude Sonnet 5.5",
-          "badgeLabel": "New",
           "hostedRuntime": {
             "provider": "openrouter",
             "inputModalities": ["text", "image"],

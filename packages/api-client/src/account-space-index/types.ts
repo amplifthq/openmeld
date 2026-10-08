@@ -12,6 +12,7 @@ export type ListAccountSpaceIndexInput = {
   includePurposes?: boolean;
   includeMemberPreviews?: boolean;
   includeMessagePreviews?: boolean;
+  includeDirectoryPreviews?: boolean;
   includeRecentlyDeletedItems?: boolean;
   limit?: number;
   scope: AccountSpaceIndexQuery["scope"];

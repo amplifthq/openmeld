@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   buildLocalProjectControlPath,
+  buildProjectCommonAgentsPath,
+  buildProjectIssueRoutingPath,
   buildProjectPath,
+  buildProjectRepositoriesPath,
   buildProjectsPath,
   createLocalProjectControlApi,
   createOpenMeldApiClient,
@@ -88,12 +91,24 @@ describe("api-client Projects API", () => {
     expect(buildProjectPath(PROJECT_ID)).toBe(
       "/v1/organizations/current/projects/project%2Fwith%20spaces"
     );
+    expect(buildProjectIssueRoutingPath(PROJECT_ID)).toBe(
+      "/v1/organizations/current/projects/project%2Fwith%20spaces/issue-routing"
+    );
+    expect(buildProjectRepositoriesPath(PROJECT_ID)).toBe(
+      "/v1/organizations/current/projects/project%2Fwith%20spaces/repositories"
+    );
+    expect(buildProjectCommonAgentsPath(PROJECT_ID)).toBe(
+      "/v1/organizations/current/projects/project%2Fwith%20spaces/common-agents"
+    );
   });
 
   it("uses one strict API surface for every Project operation", async () => {
     const projectsUrl =
       "https://gateway.openmeld.invalid/v1/organizations/current/projects";
     const projectUrl = `${projectsUrl}/project%2Fwith%20spaces`;
+    const routingUrl = `${projectUrl}/issue-routing`;
+    const repositoriesUrl = `${projectUrl}/repositories`;
+    const commonAgentsUrl = `${projectUrl}/common-agents`;
     const responses = new Map<string, Response>([
       [
         `GET ${projectsUrl}`,
@@ -108,6 +123,83 @@ describe("api-client Projects API", () => {
         `DELETE ${projectUrl}`,
         jsonResponse({
           project: { ...PROJECT, archivedAtMs: 1_700_000_000_001 },
+        }),
+      ],
+      [
+        `GET ${routingUrl}`,
+        jsonResponse({
+          routing: {
+            destination: null,
+            projectId: PROJECT_ID,
+            revision: 0,
+            updatedAtMs: null,
+            updatedByUserId: null,
+          },
+        }),
+      ],
+      [
+        `PUT ${routingUrl}`,
+        jsonResponse({
+          routing: {
+            destination: {
+              provider: "linear",
+              teamId: "d1a7c1f0-290e-4cdb-9b4b-b11f102ed448",
+            },
+            projectId: PROJECT_ID,
+            revision: 1,
+            updatedAtMs: 1_700_000_000_001,
+            updatedByUserId: "owner-1",
+          },
+        }),
+      ],
+      [
+        `GET ${repositoriesUrl}`,
+        jsonResponse({
+          settings: {
+            projectId: PROJECT_ID,
+            repositories: [],
+            legacyDefaultFingerprint: null,
+            revision: 0,
+            updatedAtMs: null,
+            updatedByUserId: null,
+          },
+        }),
+      ],
+      [
+        `PUT ${repositoriesUrl}`,
+        jsonResponse({
+          settings: {
+            projectId: PROJECT_ID,
+            repositories: [],
+            legacyDefaultFingerprint: null,
+            revision: 1,
+            updatedAtMs: 1_700_000_000_001,
+            updatedByUserId: "owner-1",
+          },
+        }),
+      ],
+      [
+        `GET ${commonAgentsUrl}`,
+        jsonResponse({
+          commonAgents: {
+            projectId: PROJECT_ID,
+            agentProfileIds: [],
+            revision: 0,
+            updatedAtMs: null,
+            updatedByUserId: null,
+          },
+        }),
+      ],
+      [
+        `PUT ${commonAgentsUrl}`,
+        jsonResponse({
+          commonAgents: {
+            projectId: PROJECT_ID,
+            agentProfileIds: [],
+            revision: 1,
+            updatedAtMs: 1_700_000_000_001,
+            updatedByUserId: "owner-1",
+          },
         }),
       ],
     ]);
@@ -139,6 +231,31 @@ describe("api-client Projects API", () => {
     });
     await api.archive({
       expectedOrganizationId: "org-1",
+      projectId: PROJECT_ID,
+    });
+    await api.readIssueRouting({ projectId: PROJECT_ID });
+    await api.updateIssueRouting({
+      destination: {
+        provider: "linear",
+        teamId: "d1a7c1f0-290e-4cdb-9b4b-b11f102ed448",
+      },
+      expectedOrganizationId: "org-1",
+      expectedRevision: 0,
+      projectId: PROJECT_ID,
+    });
+    await api.readRepositorySettings({ projectId: PROJECT_ID });
+    await api.updateRepositorySettings({
+      defaultRepositoryUrl: null,
+      expectedOrganizationId: "org-1",
+      expectedRevision: 0,
+      projectId: PROJECT_ID,
+      repositoryUrls: [],
+    });
+    await api.readCommonAgents({ projectId: PROJECT_ID });
+    await api.updateCommonAgents({
+      agentProfileIds: [],
+      expectedOrganizationId: "org-1",
+      expectedRevision: 0,
       projectId: PROJECT_ID,
     });
 
@@ -180,6 +297,58 @@ describe("api-client Projects API", () => {
         method: "DELETE",
         operation: "project.archive",
         url: projectUrl,
+      },
+      {
+        body: undefined,
+        method: "GET",
+        operation: "project.issue-routing.read",
+        url: routingUrl,
+      },
+      {
+        body: JSON.stringify({
+          expectedOrganizationId: "org-1",
+          expectedRevision: 0,
+          destination: {
+            provider: "linear",
+            teamId: "d1a7c1f0-290e-4cdb-9b4b-b11f102ed448",
+          },
+        }),
+        method: "PUT",
+        operation: "project.issue-routing.update",
+        url: routingUrl,
+      },
+      {
+        body: undefined,
+        method: "GET",
+        operation: "project.repositories.read",
+        url: repositoriesUrl,
+      },
+      {
+        body: JSON.stringify({
+          expectedOrganizationId: "org-1",
+          expectedRevision: 0,
+          repositoryUrls: [],
+          defaultRepositoryUrl: null,
+        }),
+        method: "PUT",
+        operation: "project.repositories.update",
+        url: repositoriesUrl,
+      },
+      {
+        body: undefined,
+        method: "GET",
+        operation: "project.common-agents.read",
+        url: commonAgentsUrl,
+      },
+      {
+        body: JSON.stringify({
+          expectedOrganizationId: "org-1",
+          expectedRevision: 0,
+          agentProfileIds: [],
+        }),
+        method: "PUT",
+        operation: "project.common-agents.update",
+        url: commonAgentsUrl,
       },
     ]);
   });

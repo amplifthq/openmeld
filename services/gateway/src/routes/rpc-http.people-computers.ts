@@ -36,6 +36,36 @@ export function registerPeopleComputerControlRoutes(
   app: Hono<HonoBindings>
 ): void {
   registerServiceConnectionEvidenceRoutes(app);
+  const historyRoute =
+    "/v1/people-computers/:deviceId/lanes/:runtimeLane/session-history";
+  app.post(historyRoute, async (c) => {
+    c.header("Cache-Control", "no-store");
+    const body = await readJsonRequestBody(c.req.raw);
+    const parsed = body.ok
+      ? sessionHistoryRpcInputSchema.safeParse({
+          ...(body.value as Record<string, unknown>),
+          deviceId: c.req.param("deviceId"),
+          runtimeLane: c.req.param("runtimeLane"),
+          context: buildCoreRpcContext(c),
+        })
+      : null;
+    if (!parsed?.success) {
+      return respondBadRequest({
+        c,
+        route: historyRoute,
+        method: "POST",
+        code: "invalid_payload",
+        message: "Invalid session history request.",
+      });
+    }
+    return executeRpcRoute({
+      c,
+      route: historyRoute,
+      method: "POST",
+      responseSchema: sessionHistoryResultSchema,
+      execute: () => c.var.coreRpc.computerSessionHistory(parsed.data),
+    });
+  });
   registerPeopleComputerProjectMutationRoutes(app);
   const workspaceRoute =
     "/v1/people-computers/:deviceId/lanes/:runtimeLane/agent-profiles/:profileId/workspace";
@@ -554,3 +584,8 @@ export function registerPeopleComputerControlRoutes(
     }
   );
 }
+
+import {
+  sessionHistoryResultSchema,
+  sessionHistoryRpcInputSchema,
+} from "@openmeld/schemas";

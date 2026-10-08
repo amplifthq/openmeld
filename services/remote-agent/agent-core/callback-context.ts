@@ -167,6 +167,8 @@ import type {
   RemoteAgentWorkLoopCheckpoint,
   RemoteAiUsageWrite,
   RemoteAiUsageWriteResponse,
+  ResolveProjectIssueActionResponse,
+  ResolveProjectIssueActionRpcInput,
   ResolveSpaceFileContentInput,
   ResolveSpaceFileContentResponse,
   ResumeCenterAgentRoutineResponse,
@@ -233,7 +235,7 @@ export type RemoteAgentCallbackContext = {
     { kind: "plugin_connection" }
   >;
   // Absent only on pre-isolation admissions; cleanup must retain their old address.
-  computerIsolationVersion?: 1 | 2;
+  computerIsolationVersion?: 1 | 2 | 3;
   accepted: boolean;
   acceptedAt: string;
   agentProfileId: string;
@@ -336,6 +338,7 @@ export type RemoteAgentStorage = RemoteAgentReadableStorage &
   RemoteAgentWritableStorage;
 
 export type RemoteAgentCoreWorkerBinding = {
+  authorizeLocalPluginConnection?(input: unknown): Promise<unknown>;
   recordRemoteAiUsage?(
     input: RemoteAiUsageWrite
   ): Promise<RemoteAiUsageWriteResponse>;
@@ -460,6 +463,9 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentListProjects?(
     input: CenterAgentListProjectsToolRpcInput
   ): Promise<CenterAgentListProjectsToolResponse>;
+  resolveProjectIssueAction?(
+    input: ResolveProjectIssueActionRpcInput
+  ): Promise<ResolveProjectIssueActionResponse>;
   centerAgentPauseRoutine?(
     input: CenterAgentPauseRoutineToolRpcInput
   ): Promise<PauseCenterAgentRoutineResponse>;
@@ -490,6 +496,7 @@ export type RemoteAgentCoreWorkerBinding = {
   remoteAgentOpenDirectMessageSpace?(input: unknown): Promise<unknown>;
   remoteAgentGetOrganizationDirectory?(input: unknown): Promise<unknown>;
   centerAgentResolveConnectorConnection?(input: unknown): Promise<unknown>;
+  centerAgentListConnectorServices?(input: unknown): Promise<unknown>;
   centerAgentEnableAgentProfile?(input: unknown): Promise<unknown>;
   centerAgentGetOrganizationDirectory?(input: unknown): Promise<unknown>;
   centerAgentReadMemberComputers?(
@@ -591,6 +598,9 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentReadAgentActivityOverview?(
     input: CenterAgentReadAgentActivityToolRpcInput
   ): Promise<AgentActivityOverviewResponse>;
+  agentSessionHistory?(
+    input: import("@openmeld/schemas/types").SessionHistoryAgentRpcInput
+  ): Promise<import("@openmeld/schemas/types").SessionHistoryResult>;
   centerAgentSearchMemory?(
     input: CenterAgentSearchMemoryRpcInput
   ): Promise<CenterAgentSearchMemoryResponse>;
@@ -635,6 +645,7 @@ export type RemoteAgentCoreWorkerBinding = {
   ): Promise<unknown>;
   centerAgentUpdateSpaceSettings?(input: unknown): Promise<unknown>;
   centerAgentWakeAgentProfilesInSpace?(input: unknown): Promise<unknown>;
+  centerAgentWakeAgentProfilesInSpaces?(input: unknown): Promise<unknown>;
   personalRemoteAgentSpaceTool?(input: unknown): Promise<unknown>;
   centerAgentListAgentTasks?(input: unknown): Promise<unknown>;
   centerAgentWatchAgentTask?(input: unknown): Promise<unknown>;
@@ -769,7 +780,7 @@ export function createRemoteAgentCallbackContext(input: {
   request: RemoteAgentWorkerSubmitTurnRequest;
 }): RemoteAgentCallbackContext {
   return {
-    computerIsolationVersion: 2,
+    computerIsolationVersion: 3,
     accepted: input.ack.accepted,
     acceptedAt: new Date(input.nowMs).toISOString(),
     ...(input.request.replyRecovery
@@ -2076,7 +2087,8 @@ function isRemoteAgentCallbackContext(
     candidate.v === 1 &&
     (candidate.computerIsolationVersion === undefined ||
       candidate.computerIsolationVersion === 1 ||
-      candidate.computerIsolationVersion === 2) &&
+      candidate.computerIsolationVersion === 2 ||
+      candidate.computerIsolationVersion === 3) &&
     typeof candidate.submissionId === "string" &&
     typeof candidate.idempotencyKey === "string" &&
     typeof candidate.organizationId === "string" &&

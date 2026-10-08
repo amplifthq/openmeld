@@ -26,6 +26,27 @@ outputs. `scripts/vite/shared-public-assets.mjs` materializes ignored client
 copies when Vite loads. Edit shared sources, not generated copies. Shared font
 declarations live in `packages/ui/src/styles/fonts.css`.
 
+Static brand exports follow [the brand asset guide](../../packages/ui/brand/README.md).
+Run `pnpm brand:generate` to update the shared public images and the existing
+Desktop resources; `pnpm brand:preview` renders the approved surface matrix.
+Browser tabs and menu bars use the wider monochrome O. Large brand images and
+Desktop retain the outlined glow treatment. The generator and interactive logo
+share `lib/openmeld-logo-lines.ts`; clients must not introduce private masters.
+
+Public and retained cross-page headers reuse `OpenMeldLogoStrong`, the Website's
+glowing wordmark. They omit a status label by default; an explicit label remains
+available to the caller. `PublicPageHeader` accepts an optional navigation slot
+and app-entry slot. `OpenAppButton` owns the public app-entry appearance: the
+homepage uses its hero size; Website and Docs headers use its compact size and
+regular control corners. The shared `PlatformBadge` supplies the Web label.
+Website composes its existing lazy metal effect through the badge slot, with a
+static reduced-motion fallback. These presentation slots do not own navigation
+destinations or change the App's Log in action.
+
+Docs also consumes the wordmark, fonts, and shared public assets. It retains
+Fumadocs' layout CSS and accessible compound components. See `docs.md` for
+the boundary when composing Fluid primitives with its Base UI version.
+
 ## Boundary
 
 `packages/ui` is the shared home for reusable client UI primitives:
@@ -60,6 +81,16 @@ and surrounding interactions remain outside the chart primitive. Use Fluid
 surfaces and controls around charts. Preserve null gaps, escaped tooltip text,
 and reduced-motion loading behavior when refreshing registry source.
 
+`lib/brand-chart-colors` owns the shared light/dark chart accents for model
+brands and Local Agent controllers. OpenAI models reuse Codex's blue-purple;
+Anthropic models reuse Claude Code's orange. Web chooses stable model variants
+from model identity, never result order, spending, or the selected period.
+Variants stay within the brand hue; unrecognized brands use neutral gray.
+`BrandChartDot` consumes the same theme pair as the chart, so legends, curves,
+and tooltips agree. Organization and Computer Local Agent charts retain the
+same controller colors and monochrome-logo chart accents. Do not add a
+client-local categorical palette that reassigns these brand colors.
+
 `components/folder-component` adapts Rare UI's folder artwork and demo content.
 It exposes controlled open state, a content slot, numeric scaling, and decorative
 composition for an external accessible trigger. Repeated instances use unique
@@ -80,8 +111,10 @@ without changing existing image previews.
 `SettingsDialogContent` is the shared presentational shell for Space settings
 and App settings: Fluid dialog behavior, a navigation slot, and independently
 scrolling content. The default keeps the Space dialog dimensions; the spacious
-variant scales width and height together for App settings. Navigation models,
-section selection, permissions, and URL state remain in the consuming client.
+variant scales width and height together for App settings. Its optional
+`headerActions` slot places client-owned controls before the shared Close button.
+Navigation models, section selection, permissions, and URL state remain in the
+consuming client.
 
 Prefer existing Fluid components whenever the required primitive is available,
 including dropdowns, selects, and action menus. Do not reconstruct menus from
@@ -131,7 +164,12 @@ content, selected text, and disabled scopes retain native context menus.
 `FluidDropdownMenuGroup` splits measured hover lists at semantic dividers;
 `FluidDropdownMenuSubTrigger` keeps submenu triggers in their owning list.
 Menu separators leave one spacing unit (4px) on each side, matching the menu's
-content inset. Both shared menu families own this spacing. Sidebar hover pauses
+content inset. Both shared menu families own this spacing.
+Checkbox alternatives compose `FluidDropdownMenuCheckboxItem`,
+so Base UI owns checked state and keyboard semantics while Fluid owns hover.
+The reusable sidebar category/group filters own their semantic hover groups;
+an embedded group trigger can instead register in its parent's indexed list.
+Sidebar hover pauses
 for open context-menu trigger slots as well as ordinary popup triggers; Base UI
 context-menu areas expose an open marker without `aria-haspopup`.
 
@@ -145,6 +183,15 @@ owned by those components; clients must not recreate it. Verify travel across
 rows and gaps, gap activation, keyboard operation, reopening, disabled states,
 touch behavior, and reduced motion in the complete surface. Official reference:
 [Fluid Hover](https://www.fluidfunctionalism.com/docs/fluid-hover).
+
+Shared card and Inbox highlights notify only the departed and entered items.
+`SharedLayoutGroup` and the sidebar reuse the UI-only `active-item-store`
+subscription helper; this is a presentation projection, not product selection
+or persistence. Sidebar rows batch DOM ordering and registration within a commit
+instead of repeating whole-list work for each row. Preserve the existing DOM,
+Motion layout identity, spring values, focus behavior, and reduced-motion path
+when changing these optimizations. Check long groups in production-mode React;
+development compiler memoization is not a production performance guarantee.
 
 
 ## Import Rule
@@ -245,6 +292,13 @@ by the client; these primitives do not read cookies, routes, account state or
 organization state. OpenMeld uses its existing Base UI/Motion dependencies and
 semantic shape, typography and color tokens. Menu highlights use transforms;
 measured group height and sidebar width only change when layout must change.
+Sidebar hover picking and rendering reuse `useFluidHover` and
+`FluidHoverHighlight`, with the vertical axis and gap clicks disabled. A new
+pointer entry fades in at its nearest item; route selection has its own marker.
+Purely visual dividers within a navigation group do not create another hover
+scope. Hover-preview triggers opt out of popup suspension with
+`data-sidebar-hover-preview`; actual context menus still suspend tracking.
+Portaled popup pointer events do not drive the sidebar's highlight.
 `fluid/nav-menu` supplies navigation semantics and controlled selection over
 `fluid/sidebar-menu`; it does not own another hover or selection engine. Main
 and secondary navigation share the same selection renderer. Clients supply a
@@ -252,9 +306,11 @@ stable `activeLayoutId` across route remounts, scoped to the sidebar presentatio
 so selection also travels between groups. Composite rows retain their existing
 links, actions, dimensions, and color overrides. Reduced motion removes travel.
 `fluid/sidebar-user-footer` adapts the official horizontal user dropdown block;
-clients provide identity and menu actions. `SidebarUserMenuItem` lets clients
-compose Search, Settings, theme, and account controls inside one `SidebarMenu`,
-so one reduced-motion-aware background travels across the complete footer.
+clients provide identity and menu actions. `SidebarUserMenuItem` supplies the
+account trigger and a composed menu slot. Web places Search, Settings, and
+theme controls inside that menu, with one Fluid hover group per semantic section.
+`FluidActionList` accepts a horizontal axis for compact controls while preserving
+its existing reduced-motion behavior.
 The existing `components/sidebar` family remains the inner resize-only surface;
 clients must not nest both engines for one Main Sidebar.
 Its unused menu primitives have been removed; menu consumers use the Fluid family.
@@ -351,6 +407,13 @@ Tabs composition. They reuse the shared proximity hook and surface tokens,
 with raised selection at two levels above the surrounding substrate.
 `TabsList background={false}` removes the track without flattening selection.
 The upstream hover color maps to the existing `interaction-hover` token.
+Conditional children are indexed after React removes empty slots. Value order,
+measurement registration, and the selected indicator use that same rendered
+order; hiding a tab must not leave a hole before the next selectable tab.
+`PageToolbar` owns the shared 48px minimum row height, wrapping, and vertical
+alignment for page navigation and actions. It adds no interaction roles or state;
+the composed Fluid controls retain their keyboard and pointer behavior. Files
+and Routines use this same row instead of independent toolbar geometry.
 Tab content inherits its selected substrate so nested badges can rise one step.
 The eight-level context and paired class resolver live in `@openmeld/ui/lib`;
 Web's `Elevated` consumes those same primitives.
@@ -366,6 +429,11 @@ times; it is not an editable setting or an independent source of Wakeability.
 Its readout must load independently of the owner's editable Binding settings.
 
 ### Loading regions
+
+`OpenMeldLoadingScreen` presents a centered, pointer-responsive shared Logo
+without visible loading copy or a progress bar. Web first-run admission and
+Desktop session loading reuse this surface. Their callers retain pending,
+authentication, error, and retry ownership; the Logo honors reduced motion.
 
 Keep the authorized shell, navigation, known identity, and unrelated usable
 content visible while a region loads. Shared `SkeletonRegion`, `SkeletonRows`,
@@ -390,9 +458,10 @@ geometry without defeating the code-splitting boundary.
 
 Welcome Create/Join actions reuse Fluid Card shared-layout hover with disabled
 items excluded from highlighting. Radio selection uses the same offset-two
-surface recipe as Tabs. Web composers share `PromptInput` and a dedicated
-`styles/composer.css` finish: fixed light/dark backgrounds, one quiet inset edge,
-a small outer shadow, and `rounded-2xl` corners. Shared card token changes must
+surface recipe as Tabs. Web composers share `PromptInput` and the shared UI
+`styles/composer.css` finish, also used by the Website Codex demonstration:
+fixed light/dark backgrounds, one quiet 1px border, no shadow, and 18px corners.
+Shared card token changes must
 not change this finish. Its content retains level-two context so Wake/Reference
 tokens use level three. These changes do not alter access policy or send behavior.
 
@@ -447,9 +516,9 @@ seed. Hosted Remote Agents default to the selected model provider's existing
 Unknown providers or missing logo assets use the generic Agent mark. Saved images
 and explicitly selected fluid avatars take precedence across model changes.
 Center Agents display their saved Bot or fluid style; authorized admins can
-select either. Missing
-style displays the automatic mark and must not hash the Profile ID to invent a
-saved Bot selection. The app shell provides one read of the existing Organization
+select either. Missing or legacy automatic style uses the shared Clover Bot
+default, without persisting a selection or hashing the Profile ID to invent one.
+The app shell provides one read of the existing Organization
 Profile Directory to every avatar entrance. Saved preferences are applied to
 loaded profile caches and invalidated after a successful save. Idle and read-only
 editors use the same saved Profile; only an unsaved user selection is a preview.
@@ -459,7 +528,28 @@ hint. Other tabs re-read their own authorized directory; the hint carries no
 avatar data and does not add directories to browser persistence. Model saves
 refresh the same directory projection and update automatic Remote logos.
 Shared `BotAvatar` composes the public `bot-avatars` simulation and renderer so
-click feedback and pointer following are independent. Space/sidebar avatars
+click feedback and pointer following are independent. The shared default is Fabric;
+its `shading` prop also supports Plastic. Both rendering paths use the same palette
+and the library's material-specific lighting defaults. Still-frame cache keys include
+the material and palette so changing either cannot reuse an old finish.
+`lib/bot-avatar-palette` owns all eighteen Bot colors for Website and Web.
+The cloud uses a neutral white in Original and Soft, with material lighting
+providing its depth.
+Appearance offers Original, Balanced, Soft, Slate, and Sand palettes through the existing browser
+preference store; this is a viewer preference, not a change to saved Profile identity.
+An explicit saved Profile palette takes precedence. A Bot without a saved palette
+inherits Appearance colors in both the editor preview and every avatar entrance.
+The editor leaves Profile color choices unselected until the user chooses one;
+it must not label an inherited palette as a saved Original choice. Changing only
+the Bot type uses the existing `avatarStyle` write and preserves Appearance
+inheritance. Choosing a Profile palette saves that explicit choice without
+persisting the viewer's inherited colors.
+Both preview and saved rendering use the selected colors without extra saturation.
+The Website demo
+starts with Original to match the hero; the product keeps its existing Soft default.
+The regular renderer includes an SVG first frame using the vendor's shape and
+face placement in server HTML, then replaces it with the rendered canvas on mount.
+Space/sidebar avatars
 and profile popovers play one small hop on an explicit click without following
 the pointer; popover opening and navigation still belong to their existing
 controls. The Team Center Agent card has a separate avatar button that also
@@ -481,3 +571,12 @@ primitive never infers work from presence or starts its own status queries.
 client can render its owned product identity without moving Profile rules into
 `packages/ui`. Its source, alt text, and initials props remain the generic
 fallback contract when no composed avatar is supplied.
+
+## Searchable Fluid Select
+
+`SelectContent.search` provides an optional controlled search input outside its
+listbox and bounded Fluid ScrollArea. Callers filter domain options; the shared
+primitive owns focus, dismissal, selected-item scroll, and Fluid Hover geometry.
+Reset a transient query through the Select root's `onCloseAutoFocus` without
+preventing normal focus restoration. Do not rebuild a searchable popup in a
+product component.

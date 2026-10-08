@@ -3,16 +3,16 @@ import { describe, expect, it, vi } from "vitest";
 import {
   claimGitHubAppWebhookDelivery,
   completeGitHubAppWebhookDelivery,
-} from "../src/space/infrastructure/d1/github-app-webhook-delivery-repo";
+} from "../src/space/infrastructure/postgresql/github-app-webhook-delivery-repo";
 import {
   listActiveSpaceTaskGitHubIssueLinks,
   projectSpaceTaskGitHubIssueLinks,
-} from "../src/space/infrastructure/d1/space-task-github-issue-link-repo";
+} from "../src/space/infrastructure/postgresql/space-task-github-issue-link-repo";
 import { processGitHubAppWebhookQueueMessage } from "../src/space/transport/queue/github-app-webhook-queue-consumer";
 import {
-  applyDrizzleMigrationsForTables,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+  createPostgresHarness,
+  postgresTestBinding,
+} from "./helpers/postgresql-harness.test-support";
 
 const SPACE_ID =
   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -43,6 +43,7 @@ const task = {
   },
   description: null,
   externalWorkItems: [githubItem],
+  projectIds: [],
   needsHumanDecision: false,
   phase: "to_do" as const,
   requestedBy: {
@@ -63,26 +64,20 @@ const task = {
   updatedAt: "2026-09-20T00:00:00.000Z",
 };
 
-function createDeliveryHarness() {
-  const harness = createSqliteD1Harness();
-  applyDrizzleMigrationsForTables(harness, ["github_app_webhook_deliveries"]);
+async function createDeliveryHarness() {
+  const harness = await createPostgresHarness();
+
   return harness;
 }
 
-function createLinkHarness() {
-  const harness = createSqliteD1Harness();
-  applyDrizzleMigrationsForTables(harness, [
-    "users",
-    "organizations",
-    "members",
-    "space_task_github_issue_links",
-    "github_app_webhook_deliveries",
-  ]);
-  harness.run({
-    params: ["org-1", "Acme", "acme", 1],
-    sql: `
-      INSERT INTO organizations (id, name, slug, created_at)
-      VALUES (?, ?, ?, ?)
+async function createLinkHarness() {
+  const harness = await createPostgresHarness();
+
+  await harness.query({
+    values: ["org-1", "Acme", "acme", 1],
+    text: `
+      INSERT INTO "openmeld"."organizations" (id, name, slug, created_at)
+      VALUES ($1, $2, $3, $4)
     `,
   });
   return harness;
@@ -90,7 +85,7 @@ function createLinkHarness() {
 
 describe("Space Task GitHub issue D1 projection", () => {
   it("reconciles current GitHub links without an earlier snapshot and is case-insensitive", async () => {
-    const harness = createLinkHarness();
+    const harness = await createLinkHarness();
     try {
       await projectSpaceTaskGitHubIssueLinks({
         db: harness.db,
@@ -160,14 +155,14 @@ describe("Space Task GitHub issue D1 projection", () => {
         })
       ).resolves.toEqual([]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
 
 describe("GitHub App webhook delivery ledger", () => {
   it("claims a delivery once and reclaims only after the processing claim expires", async () => {
-    const harness = createDeliveryHarness();
+    const harness = await createDeliveryHarness();
     try {
       const first = await claimGitHubAppWebhookDelivery({
         action: "closed",
@@ -244,14 +239,14 @@ describe("GitHub App webhook delivery ledger", () => {
         })
       ).resolves.toBe("duplicate");
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
 
 describe("GitHub App webhook queue consumer", () => {
   it("observes each linked Space Task once and ignores deliveries with no links", async () => {
-    const harness = createLinkHarness();
+    const harness = await createLinkHarness();
     const rpcApplyGitHubIssueObservation = vi.fn(async () => ({
       canceled: true,
       observed: true,
@@ -259,7 +254,7 @@ describe("GitHub App webhook queue consumer", () => {
       task,
     }));
     const env = {
-      OPENMELD_DB: harness.db,
+      OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
       OPENMELD_SPACES: {
         get: () => ({ rpcApplyGitHubIssueObservation }),
         idFromString: (spaceId: string) => spaceId,
@@ -385,13 +380,13 @@ describe("GitHub App webhook queue consumer", () => {
       });
       expect(rpcApplyGitHubIssueObservation).not.toHaveBeenCalled();
       expect(
-        harness.queryFirst({
-          sql: "SELECT state FROM github_app_webhook_deliveries WHERE delivery_id = ?",
-          params: ["delivery-unlinked"],
+        await harness.queryFirst({
+          text: 'SELECT state FROM "openmeld"."github_app_webhook_deliveries" WHERE delivery_id = $1',
+          values: ["delivery-unlinked"],
         })
       ).toMatchObject({ state: "ignored" });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });

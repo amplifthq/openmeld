@@ -13188,8 +13188,8 @@ type D1SessionConstraint =
  | 'first-unconstrained';
 type D1SessionBookmark = string;
 declare abstract class D1Database {
-    prepare(query: string): D1PreparedStatement;
-    batch<T = unknown>(statements: D1PreparedStatement[]): Promise<D1Result<T>[]>;
+    prepare(query: string): QueryConfig;
+    batch<T = unknown>(statements: QueryConfig[]): Promise<QueryResult<T>[]>;
     exec(query: string): Promise<D1ExecResult>;
     /**
      * Creates a new D1 Session anchored at the given constraint or the bookmark.
@@ -13205,8 +13205,8 @@ declare abstract class D1Database {
     dump(): Promise<ArrayBuffer>;
 }
 declare abstract class D1DatabaseSession {
-    prepare(query: string): D1PreparedStatement;
-    batch<T = unknown>(statements: D1PreparedStatement[]): Promise<D1Result<T>[]>;
+    prepare(query: string): QueryConfig;
+    batch<T = unknown>(statements: QueryConfig[]): Promise<QueryResult<T>[]>;
     /**
      * @returns The latest session bookmark across all executed queries on the session.
      *          If no query has been executed yet, `null` is returned.
@@ -13214,11 +13214,11 @@ declare abstract class D1DatabaseSession {
     getBookmark(): D1SessionBookmark | null;
 }
 declare abstract class D1PreparedStatement {
-    bind(...values: unknown[]): D1PreparedStatement;
+    bind(...values: unknown[]): QueryConfig;
     first<T = unknown>(colName: string): Promise<T | null>;
     first<T = Record<string, unknown>>(): Promise<T | null>;
-    run<T = Record<string, unknown>>(): Promise<D1Result<T>>;
-    all<T = Record<string, unknown>>(): Promise<D1Result<T>>;
+    run<T = Record<string, unknown>>(): Promise<QueryResult<T>>;
+    all<T = Record<string, unknown>>(): Promise<QueryResult<T>>;
     raw<T = unknown[]>(options: {
         columnNames: true;
     }): Promise<[

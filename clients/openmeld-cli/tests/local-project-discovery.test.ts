@@ -76,6 +76,43 @@ describe("local Project discovery", () => {
       connections: [{ isDefault: true, status: "missing" }],
     });
   });
+  it("does not disclose another account's connected folder in the same Organization", async () => {
+    const rootDir = await tempRoot();
+    const otherFolder = join(rootDir, "other-account");
+    const currentFolder = join(rootDir, "current-account");
+    await Promise.all([mkdir(otherFolder), mkdir(currentFolder)]);
+    await bindProject({
+      organizationId: "org-1",
+      ownerUserId: "user-other",
+      projectId: "project-other",
+      projectSlug: "other",
+      repositoryFingerprint: FINGERPRINT_A,
+      repositoryPath: otherFolder,
+      rootDir,
+    });
+    await bindProject({
+      organizationId: "org-1",
+      ownerUserId: "user-current",
+      projectId: "project-current",
+      projectSlug: "current",
+      repositoryFingerprint: FINGERPRINT_A,
+      repositoryPath: currentFolder,
+      rootDir,
+    });
+    const result = await discoverLocalProjects({
+      ...discoveryInput(rootDir, [
+        { projectId: "project-other", repositoryFingerprint: FINGERPRINT_A },
+        { projectId: "project-current", repositoryFingerprint: FINGERPRINT_A },
+      ]),
+      includeCandidates: false,
+      ownerUserId: "user-current",
+    });
+    expect(result.projects).toMatchObject([
+      { projectId: "project-other", status: "not_connected", connections: [] },
+      { projectId: "project-current", status: "connected" },
+    ]);
+    expect(JSON.stringify(result)).not.toContain(otherFolder);
+  });
   it("deduplicates candidate subdirectories after Git toplevel normalization", async () => {
     const rootDir = await tempRoot();
     const repositoryPath = join(rootDir, "openmeld");

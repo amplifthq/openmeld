@@ -49,6 +49,7 @@ import { syncActiveTaskPermissionModes } from "../routing/active-permission-mode
 import {
   createMutableRouteCatalogState,
   createRouteCatalogFromMutableState,
+  replaceMutableRouteCatalogState,
 } from "../routing/route-catalog-state";
 import { loadContextStore } from "../state/context-store";
 import { buildLedgerPaths } from "../state/daemon-device-id";
@@ -524,10 +525,7 @@ export function createExecutionHostRuntime(input: {
       }
       const applyRouteFacts = () => {
         activeCatalogRevision = request.catalogRevision;
-        Object.assign(
-          routeCatalogState,
-          createMutableRouteCatalogState(catalog)
-        );
+        replaceMutableRouteCatalogState(routeCatalogState, catalog);
         leasesByProfileId.clear();
         for (const lease of request.leases) {
           leasesByProfileId.set(lease.profileId, lease.leaseEpoch);
@@ -643,6 +641,7 @@ export function createExecutionHostRuntime(input: {
         input.onWorkStateChange?.(false);
       }
       handleExecutionHostFrame({
+        readRouteByProfileId: () => routeCatalogState.routeByProfileId,
         computerFileAccessStorePath,
         contextStore,
         currentSocketRef,

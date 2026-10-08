@@ -48,6 +48,7 @@ export {
   centerAgentTaskEvents,
   centerAgentTasks,
 } from "./center-agent-tasks.schema.ts";
+export { cloudComputers } from "./cloud-computer.schema.ts";
 export { openMeldDaemonConnectedComputers } from "./connected-computer.schema.ts";
 export {
   connectorAccessEvents,
@@ -55,6 +56,7 @@ export {
   connectorConnections,
   githubAppInstallationStates,
   pluginActionConfirmations,
+  pluginActionRequests,
 } from "./connector-connection.schema.ts";
 export { openMeldDaemonCurrentDeviceTargets } from "./current-device-target.schema.ts";
 export {
@@ -118,6 +120,7 @@ export {
   CORE_ROUTINE_SCHEMA_DEFINITION_PATH,
   CORE_SPACE_ATTACHMENT_SCHEMA_DEFINITION_PATH,
   CORE_SPACE_TASK_GITHUB_SCHEMA_DEFINITION_PATH,
+  CORE_SPACE_TASK_PROJECT_SCHEMA_DEFINITION_PATH,
   getCoreDbMigrationSources,
   getCoreDbSchemaSources,
 } from "./fact-metadata.ts";
@@ -198,3 +201,8 @@ export {
   githubAppWebhookDeliveries,
   spaceTaskGitHubIssueLinks,
 } from "./space-task-github.schema.ts";
+export {
+  spaceTaskProjectLinks,
+  spaceTaskProjectProjectionStates,
+} from "./space-task-project.schema.ts";
+export { userTimeContexts } from "./user-time-context.schema.ts";

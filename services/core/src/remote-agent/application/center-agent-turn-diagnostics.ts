@@ -6,11 +6,12 @@ import type { CoreBindings } from "../../lib/bindings";
 import {
   projectRemoteAgentNativeDeliveryTurnDiagnostic,
   type RemoteAgentNativeDeliveryRecord,
-} from "../infrastructure/d1/native-delivery-ledger-repo";
+} from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import { resolveRemoteAgentNativeDeliveryRuntimeConversationId } from "./remote-agent-conversation-continuity";
 import { readRemoteAgentRuntimeDiagnosticsForConversation } from "./remote-agent-runtime-diagnostics-service";
 
 export async function attachCenterAgentTurnRuntimeEvidence(input: {
+  currentDelivery?: RemoteAgentNativeDeliveryRecord;
   deliveries: RemoteAgentNativeDeliveryRecord[];
   remoteAgentWorker: CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"] | undefined;
 }): Promise<CenterAgentTurnDiagnostic[]> {
@@ -31,7 +32,10 @@ export async function attachCenterAgentTurnRuntimeEvidence(input: {
     }
     return {
       runtimeConversationId,
-      turn: projectRemoteAgentNativeDeliveryTurnDiagnostic(delivery),
+      turn: projectRemoteAgentNativeDeliveryTurnDiagnostic(
+        delivery,
+        input.currentDelivery ?? delivery
+      ),
     };
   });
   const runtimeDiagnosticsByConversationId = new Map<

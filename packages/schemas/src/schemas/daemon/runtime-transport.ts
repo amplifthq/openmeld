@@ -97,7 +97,7 @@ import { openMeldDaemonTaskResultEnvelopeSchema } from "./task-result";
 
 export const RUNTIME_TRANSPORT_SCHEMA_VERSION = 1 as const;
 export const CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH =
-  "runtime-transport-epoch-2026-09-space-files-1gib" as const;
+  "runtime-transport-epoch-2026-09-project-work-v1" as const;
 
 export const daemonRuntimeContractSchema = z.strictObject({
   epoch: z.string().min(1),
@@ -152,6 +152,14 @@ export const runtimeTransportAgentProfileWorkRecoveryReadResponseSchema =
       action: runtimeTransportAgentProfileWorkRecoveryActionSchema,
       authorizedContinuationClientMessageId: clientMessageIdSchema.nullable(),
       forkInterruptedConversation: z.boolean().optional(),
+      automaticForkEligible: z.boolean().optional(),
+      requesterRecoveryScope: z
+        .strictObject({
+          profileId: z.string().min(1),
+          spaceId: z.string().min(1),
+          canFork: z.boolean(),
+        })
+        .optional(),
       interruptedClientMessageId: clientMessageIdSchema,
       interruptedDispatchId: z.string().trim().min(1).max(512),
       // Older owner shards omit these exact-source fields during a rolling Core
@@ -284,6 +292,8 @@ export const runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema 
     currentDefaultProjectId: z.string().trim().min(1).nullable().optional(),
     expectedInterruptedTargetWakeLifecycleId: z.string().trim().min(1).max(512),
     forkInterruptedConversation: z.boolean().optional(),
+    requireAutomaticForkEligibility: z.literal(true).optional(),
+    requesterProfileId: z.string().min(1).optional(),
     requireAcceptedExecutionTargetRevision: z.literal(true),
   });
 
@@ -340,6 +350,7 @@ export const runtimeTransportAgentProfileWorkQueueApproveResponseSchema =
 export const runtimeTransportAgentProfileWorkSkipRequestSchema =
   runtimeTransportAgentProfileWorkRecoveryTargetSchema.extend({
     expectedInterruptedTargetWakeLifecycleId: z.string().trim().min(1).max(512),
+    requesterProfileId: z.string().min(1).optional(),
   });
 
 export const runtimeTransportAgentProfileWorkSkipResponseSchema =
@@ -446,6 +457,7 @@ export const runtimeTransportBaseCapabilitiesSchema = z.strictObject({
   agentReplyContextReview: z.literal(true).optional(),
   informationProtectionPrompt: z.literal(true).optional(),
   workingLanguagePrompt: z.literal(true).optional(),
+  verifiedRequesterContext: z.literal(true).optional(),
   localAgentInteraction: z.literal(true).optional(),
   profileConfigurationRevision: z.literal(true).optional(),
   localComponents: localComponentsStatusSchema.optional(),
@@ -485,6 +497,7 @@ export const runtimeTransportCapabilitiesSchema =
   runtimeTransportBaseCapabilitiesSchema.extend({
     localExecutionInput: z.literal(true).optional(),
     spaceWorkHandoff: z.literal(true).optional(),
+    sessionHistory: z.literal(true).optional(),
     computerFileAccess: z
       .strictObject({
         readPolicy: z.literal(true).optional(),
@@ -1193,6 +1206,8 @@ export const runtimeTransportDispatchSourceSignalSchema = z.strictObject({
 });
 
 export const runtimeTransportDeliverDispatchPayloadSchema = z.strictObject({
+  // Core identity/delegation projection for this Wake, never a permission grant.
+  requesterIsAgentOwner: z.boolean().optional(),
   runtimeCoordinatorExecutionId:
     runtimeCoordinatorExecutionRecordSchema.shape.runtimeCoordinatorExecutionId,
   executionToken: runtimeCoordinatorExecutionTokenEnvelopeSchema.optional(),
@@ -2337,6 +2352,8 @@ export const runtimeTransportDispatchPreviewEndRequestSchema = z.strictObject({
 
 export const daemonStreamCodeSchema = z.enum([
   "daemon.computer_file_access.read_policy",
+  "daemon.session_history.request",
+  "daemon.session_history.request_result",
   "daemon.computer_file_access.read_policy_result",
   "daemon.computer_file_access.update_policy",
   "daemon.computer_file_access.update_policy_result",

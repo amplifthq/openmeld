@@ -263,6 +263,7 @@ export type SpaceApi = {
       includeAgentReadiness?: boolean;
       historyQuery?: SpaceSignalsReadQuery;
       includeAgentStreamPresence?: boolean;
+      includeAgentStreamRecovery?: boolean;
     }
   ) => Promise<SpaceBootstrapResponse>;
   getStatus: (input: SpaceRequestInput) => Promise<GetSpaceStatusResponse>;
@@ -378,6 +379,8 @@ export type SpaceApi = {
       text: PostNormalMessageBody["text"];
       deviceWait?: PostNormalMessageBody["deviceWait"];
       contextSelection?: PostNormalMessageBody["contextSelection"];
+      contextSelections?: PostNormalMessageBody["contextSelections"];
+      taskDraft?: PostNormalMessageBody["taskDraft"];
       attachments?: PostNormalMessageBody["attachments"];
       files?: PostNormalMessageBody["files"];
       messageEnvelope?: PostNormalMessageBody["messageEnvelope"];

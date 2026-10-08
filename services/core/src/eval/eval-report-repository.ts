@@ -1,10 +1,13 @@
+import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
 import { organizationWeeklyEvalMetricsSchema } from "@openmeld/schemas";
 import type {
   EvalSpaceSignalMetrics,
   OrganizationWeeklyEvalMetrics,
 } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../lib/bindings";
-import { projectionsDb } from "../lib/bindings";
 
 // Leave headroom below the paid Workers default of 10,000 subrequests for the
 // D1 reads and Quality Space publication performed by the same invocation.
@@ -12,7 +15,6 @@ const MAX_EVAL_SPACE_RPC_CALLS = 9900;
 const EVAL_SPACE_RPC_CONCURRENCY = 6;
 const EXPLICIT_CLOSURE_STATUSES_SQL =
   "'reply_published', 'failed_terminal', 'cancelled'";
-
 export type OrganizationExecutionEvalMetrics = {
   closureCount: number;
   closureRate: number;
@@ -21,30 +23,30 @@ export type OrganizationExecutionEvalMetrics = {
   failureRate: number;
   wakeTotal: number;
 };
-
 export async function readOrganizationWeeklyEvalReport(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   periodEndMs: number;
   periodStartMs: number;
 }): Promise<OrganizationWeeklyEvalMetrics | null> {
   const row = await input.db
-    .prepare(
-      `
+    .query<{
+      metrics_json: string;
+    }>({
+      text: `
         SELECT metrics_json
-        FROM eval_reports
-        WHERE organization_id = ?
-          AND period_start = ?
-          AND period_end = ?
+        FROM "openmeld"."eval_reports"
+        WHERE organization_id = $1
+          AND period_start = $2
+          AND period_end = $3
         LIMIT 1
-      `
-    )
-    .bind(input.organizationId, input.periodStartMs, input.periodEndMs)
-    .first<{ metrics_json: string }>();
+      `,
+      values: [input.organizationId, input.periodStartMs, input.periodEndMs],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!row) {
     return null;
   }
-
   try {
     return organizationWeeklyEvalMetricsSchema.parse(
       JSON.parse(row.metrics_json)
@@ -56,10 +58,9 @@ export async function readOrganizationWeeklyEvalReport(input: {
     );
   }
 }
-
 export async function createOrganizationWeeklyEvalReport(input: {
   createdAtMs: number;
-  db: D1Database;
+  db: PostgresDatabase;
   metrics: OrganizationWeeklyEvalMetrics;
   organizationId: string;
   periodEndMs: number;
@@ -78,31 +79,27 @@ export async function createOrganizationWeeklyEvalReport(input: {
     );
   }
   const metrics = organizationWeeklyEvalMetricsSchema.parse(input.metrics);
-
-  await input.db
-    .prepare(
-      `
-        INSERT INTO eval_reports (
+  await input.db.query({
+    text: `
+        INSERT INTO "openmeld"."eval_reports" (
           organization_id,
           period_start,
           period_end,
           metrics_json,
           created_at
         )
-        VALUES (?, ?, ?, ?, ?)
+        VALUES ($1, $2, $3, $4, $5)
         ON CONFLICT (organization_id, period_start, period_end)
         DO NOTHING
-      `
-    )
-    .bind(
+      `,
+    values: [
       organizationId,
       input.periodStartMs,
       input.periodEndMs,
       JSON.stringify(metrics),
-      input.createdAtMs
-    )
-    .run();
-
+      input.createdAtMs,
+    ],
+  });
   const storedMetrics = await readOrganizationWeeklyEvalReport({
     db: input.db,
     organizationId,
@@ -116,41 +113,38 @@ export async function createOrganizationWeeklyEvalReport(input: {
   }
   return storedMetrics;
 }
-
 export async function collectOrganizationWeeklyEvalMetrics(input: {
   env: CoreBindings;
   organizationId: string;
   periodEndMs: number;
   periodStartMs: number;
 }): Promise<OrganizationWeeklyEvalMetrics> {
-  const db = projectionsDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     throw new Error("Weekly eval aggregation requires a projections database");
   }
-
   const executionMetrics = await readOrganizationExecutionEvalMetrics({
     db,
     organizationId: input.organizationId,
     periodEndMs: input.periodEndMs,
     periodStartMs: input.periodStartMs,
   });
-  const spaces = await db
-    .prepare(
-      `
+  const spaces = await db.query<{
+    space_id: string;
+  }>({
+    text: `
         SELECT space_id
-        FROM space_index_spaces
-        WHERE organization_id = ?
-      `
-    )
-    .bind(input.organizationId)
-    .all<{ space_id: string }>();
-  const organizationSpaces = spaces.results ?? [];
+        FROM "openmeld"."space_index_spaces"
+        WHERE organization_id = $1
+      `,
+    values: [input.organizationId],
+  });
+  const organizationSpaces = spaces.rows ?? [];
   if (organizationSpaces.length > MAX_EVAL_SPACE_RPC_CALLS) {
     throw new Error(
       `Weekly eval signal aggregation found ${organizationSpaces.length} Spaces for Organization ${input.organizationId}; the per-invocation limit is ${MAX_EVAL_SPACE_RPC_CALLS}`
     );
   }
-
   const signalMetrics = await mapWithConcurrency(
     organizationSpaces,
     EVAL_SPACE_RPC_CONCURRENCY,
@@ -173,7 +167,6 @@ export async function collectOrganizationWeeklyEvalMetrics(input: {
     }
   );
   const signalTotals = sumSignalMetrics(signalMetrics);
-
   return organizationWeeklyEvalMetricsSchema.parse({
     schemaVersion: 1,
     ...executionMetrics,
@@ -185,16 +178,19 @@ export async function collectOrganizationWeeklyEvalMetrics(input: {
     ),
   });
 }
-
 export async function readOrganizationExecutionEvalMetrics(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   periodEndMs: number;
   periodStartMs: number;
 }): Promise<OrganizationExecutionEvalMetrics> {
   const row = await input.db
-    .prepare(
-      `
+    .query<{
+      closure_count?: unknown;
+      failure_count?: unknown;
+      wake_total?: unknown;
+    }>({
+      text: `
         SELECT
           COUNT(*) AS wake_total,
           COALESCE(
@@ -217,21 +213,16 @@ export async function readOrganizationExecutionEvalMetrics(input: {
             ),
             0
           ) AS failure_count
-        FROM openMeldDaemon_runtime_coordinator_executions AS execution
-        INNER JOIN space_index_spaces AS space
+        FROM "openmeld"."openMeldDaemon_runtime_coordinator_executions" AS execution
+        INNER JOIN "openmeld"."space_index_spaces" AS space
           ON space.space_id = execution.space_id
-        WHERE space.organization_id = ?
-          AND execution.created_at_ms >= ?
-          AND execution.created_at_ms < ?
-      `
-    )
-    .bind(input.organizationId, input.periodStartMs, input.periodEndMs)
-    .first<{
-      closure_count?: unknown;
-      failure_count?: unknown;
-      wake_total?: unknown;
-    }>();
-
+        WHERE space.organization_id = $1
+          AND execution.created_at_ms >= $2
+          AND execution.created_at_ms < $3
+      `,
+      values: [input.organizationId, input.periodStartMs, input.periodEndMs],
+    })
+    .then((result) => result.rows[0] ?? null);
   const wakeTotal = toNonnegativeInteger(row?.wake_total);
   const closureCount = toNonnegativeInteger(row?.closure_count);
   const failureCount = toNonnegativeInteger(row?.failure_count);
@@ -245,16 +236,17 @@ export async function readOrganizationExecutionEvalMetrics(input: {
     wakeTotal,
   };
 }
-
 async function readConcurrencyOverlap(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   periodEndMs: number;
   periodStartMs: number;
 }): Promise<number> {
   const row = await input.db
-    .prepare(
-      `
+    .query<{
+      concurrency_overlap?: unknown;
+    }>({
+      text: `
         WITH execution_intervals AS (
           SELECT
             runtime_coordinator_execution_id,
@@ -264,54 +256,50 @@ async function readConcurrencyOverlap(input: {
             CASE
               WHEN status IN (${EXPLICIT_CLOSURE_STATUSES_SQL})
                 THEN updated_at_ms
-              ELSE ?
+              ELSE $1
             END AS ended_at_ms
-          FROM openMeldDaemon_runtime_coordinator_executions
-          WHERE created_at_ms < ?
+          FROM "openmeld"."openMeldDaemon_runtime_coordinator_executions"
+          WHERE created_at_ms < $2
         )
         SELECT COUNT(*) AS concurrency_overlap
         FROM execution_intervals AS left_execution
         INNER JOIN execution_intervals AS right_execution
           ON right_execution.space_id = left_execution.space_id
-        INNER JOIN space_index_spaces AS space
+        INNER JOIN "openmeld"."space_index_spaces" AS space
           ON space.space_id = left_execution.space_id
-        WHERE space.organization_id = ?
+        WHERE space.organization_id = $3
           AND left_execution.runtime_coordinator_execution_id
             < right_execution.runtime_coordinator_execution_id
           AND left_execution.target_profile_id
             <> right_execution.target_profile_id
-          AND MAX(
+          AND GREATEST(
             left_execution.created_at_ms,
             right_execution.created_at_ms,
-            ?
-          ) < MIN(
+            $4
+          ) < LEAST(
             left_execution.ended_at_ms,
             right_execution.ended_at_ms,
-            ?
+            $5
           )
-      `
-    )
-    .bind(
-      input.periodEndMs,
-      input.periodEndMs,
-      input.organizationId,
-      input.periodStartMs,
-      input.periodEndMs
-    )
-    .first<{ concurrency_overlap?: unknown }>();
-
+      `,
+      values: [
+        input.periodEndMs,
+        input.periodEndMs,
+        input.organizationId,
+        input.periodStartMs,
+        input.periodEndMs,
+      ],
+    })
+    .then((result) => result.rows[0] ?? null);
   return toNonnegativeInteger(row?.concurrency_overlap);
 }
-
 function toNonnegativeInteger(value: unknown): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : 0;
 }
-
 function toRate(numerator: number, denominator: number): number {
   return denominator > 0 ? numerator / denominator : 0;
 }
-
 function sumSignalMetrics(metrics: EvalSpaceSignalMetrics[]): {
   replyCount: number;
   silentCount: number;
@@ -326,7 +314,6 @@ function sumSignalMetrics(metrics: EvalSpaceSignalMetrics[]): {
     { replyCount: 0, silentCount: 0, staleReplyCount: 0 }
   );
 }
-
 async function mapWithConcurrency<Input, Output>(
   inputs: Input[],
   concurrency: number,
@@ -334,7 +321,6 @@ async function mapWithConcurrency<Input, Output>(
 ): Promise<Output[]> {
   const results = new Array<Output>(inputs.length);
   let nextIndex = 0;
-
   async function runWorker(): Promise<void> {
     while (nextIndex < inputs.length) {
       const index = nextIndex;
@@ -345,7 +331,6 @@ async function mapWithConcurrency<Input, Output>(
       }
     }
   }
-
   const workerCount = Math.min(concurrency, inputs.length);
   await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
   return results;

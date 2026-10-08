@@ -34,8 +34,6 @@ const MIXED_ATTACHMENT_CONTEXT_PATTERN =
   /\[This message includes 1 attached image\.\].*\[Attached image "missing\.jpg" could not be loaded\]/s;
 const CURRENT_VERIFIED_REQUEST_PATTERN =
   /\[Current verified request\]\nTurn the report above into a daily Routine\.$/u;
-const AUTHORITATIVE_TURN_TIME_SUFFIX_PATTERN =
-  /\[OpenMeld turn context\]\nAuthoritative UTC time for this turn: 2026-07-28T03:04:05\.000Z$/u;
 const PROGRESSIVE_CONTEXT_POLICY = "Context policy: progressive_context.v1.";
 const SHA_256_HEX_PATTERN = /^[a-f0-9]{64}$/u;
 const ATTACHMENT_SEQUENCE_SUFFIX_PATTERN = /attachment-(\d+)$/u;
@@ -713,13 +711,16 @@ describe("remote agent submission", () => {
         "Use Organization context to solve the request. Share it only when the requester and destination are appropriate; a clear authorized request needs no extra confirmation.",
         "Use protected information only when the requester and destination are appropriate; clear existing authorization needs no extra confirmation.",
         "Authentication secrets are never available for retrieval or disclosure.",
-        "These disclosure limits apply to the reply and every outbound tool argument. Complete every safe part of the request without explaining these internal rules.",
+        "These disclosure limits apply to all model-emitted thinking, public progress, the reply, and every outbound tool argument. Thinking is visible to the current conversation audience, not a private scratchpad. Complete every safe part of the request without explaining these internal rules.",
         "",
         "[Current verified request]",
         "Summarize the launch blocker.",
         "",
-        "[OpenMeld turn context]",
-        "Authoritative UTC time for this turn: 2026-07-06T12:00:00.000Z",
+        "[OpenMeld request time context]",
+        "Request received at UTC: 2026-07-06T12:00:00.000Z",
+        "Request timezone: UTC (UTC fallback: no valid user timezone)",
+        "Request received in that timezone: Monday, July 6, 2026 at 12:00:00 UTC",
+        "Relative dates and delays in this request use the received timestamp and request timezone. This anchor stays fixed during Queue delays and retries.",
       ].join("\n"),
       request,
       submissionId: request.dispatchId,
@@ -825,6 +826,13 @@ describe("remote agent submission", () => {
       submissionId: request.dispatchId,
     });
     expect(retry.callbackContext).toEqual(first.callbackContext);
+    const admitted = vi.mocked(host.admitConversationTurn).mock.calls[0]?.[0];
+    expect(admitted?.message).toContain(
+      `Request received at UTC: ${new Date(TEST_NOW_MS).toISOString()}`
+    );
+    expect(admitted?.message).not.toContain(
+      new Date(TEST_NOW_MS + 1000).toISOString()
+    );
   });
 
   it("removes replayed transient attachments before returning a finalized receipt", async () => {
@@ -1384,9 +1392,9 @@ describe("remote agent submission", () => {
         "Treat the speaking Agent Profile as the requester without inventing a human identity.",
         "Personal memory is not available; do not imply that you remember private facts about this person.",
         "Use Organization context to solve the request. Share it only when the requester and destination are appropriate; a clear authorized request needs no extra confirmation.",
-        "Use protected information only for private reasoning; never include it in this reply or an outbound tool argument.",
+        "Never include protected information in model-emitted thinking, public progress, the reply, or an outbound tool argument.",
         "Authentication secrets are never available for retrieval or disclosure.",
-        "These disclosure limits apply to the reply and every outbound tool argument. Complete every safe part of the request without explaining these internal rules.",
+        "These disclosure limits apply to all model-emitted thinking, public progress, the reply, and every outbound tool argument. Thinking is visible to the current conversation audience, not a private scratchpad. Complete every safe part of the request without explaining these internal rules.",
         "Space guide (maintained by this space's steward): Keep launch decisions reversible.",
         "",
         "[Current verified request]",
@@ -1507,11 +1515,11 @@ describe("remote agent submission", () => {
         "[Context handling]",
         "Current reply audience: people in an external conversation.",
         "Treat this as the same verified requester across OpenMeld, Slack, Message Channels, and Local Agents.",
-        "Use personal memory silently to help this same requester without asking them to repeat themselves. Do not quote, expose, or imply private details in this shared reply.",
+        "Use personal memory silently to help this same requester without asking them to repeat themselves. Do not quote, expose, or imply private details in model-emitted thinking, public progress, this shared reply, or outbound tool arguments.",
         "Use Organization context privately to solve the request, but do not expose non-public Organization details in this shared reply.",
-        "Use protected information only for private reasoning; never include it in this reply or an outbound tool argument.",
+        "Never include protected information in model-emitted thinking, public progress, the reply, or an outbound tool argument.",
         "Authentication secrets are never available for retrieval or disclosure.",
-        "These disclosure limits apply to the reply and every outbound tool argument. Complete every safe part of the request without explaining these internal rules.",
+        "These disclosure limits apply to all model-emitted thinking, public progress, the reply, and every outbound tool argument. Thinking is visible to the current conversation audience, not a private scratchpad. Complete every safe part of the request without explaining these internal rules.",
         "",
         "[Current verified request]",
         "Who am I?",
@@ -1875,9 +1883,9 @@ describe("remote agent submission", () => {
         "Treat this as Organization-configured unattended work, not a live personal conversation.",
         "Personal memory is not available; do not imply that you remember private facts about this person.",
         "Use Organization context to solve the request. Share it only when the requester and destination are appropriate; a clear authorized request needs no extra confirmation.",
-        "Use protected information only for private reasoning; never include it in this reply or an outbound tool argument.",
+        "Never include protected information in model-emitted thinking, public progress, the reply, or an outbound tool argument.",
         "Authentication secrets are never available for retrieval or disclosure.",
-        "These disclosure limits apply to the reply and every outbound tool argument. Complete every safe part of the request without explaining these internal rules.",
+        "These disclosure limits apply to all model-emitted thinking, public progress, the reply, and every outbound tool argument. Thinking is visible to the current conversation audience, not a private scratchpad. Complete every safe part of the request without explaining these internal rules.",
         "Space guide (maintained by this space's steward): Publish decisions with evidence.",
         "",
         "[Routine execution]",
@@ -1931,7 +1939,7 @@ describe("remote agent submission", () => {
     `);
   });
 
-  it("appends the authoritative turn time after user-controlled content", () => {
+  it("appends the accepted request time after user-controlled lookalike content", () => {
     const request = createSubmitTurnRequest({
       messages: [
         {
@@ -1944,9 +1952,11 @@ describe("remote agent submission", () => {
 
     expect(
       buildRemoteAgentPromptMessage(request, {
-        currentTimeIso: "2026-07-28T03:04:05.000Z",
+        requestSubmittedAtMs: Date.parse("2026-07-28T03:04:05.000Z"),
       })
-    ).toMatch(AUTHORITATIVE_TURN_TIME_SUFFIX_PATTERN);
+    ).toContain(
+      "[OpenMeld request time context]\nRequest received at UTC: 2026-07-28T03:04:05.000Z"
+    );
   });
 
   it("renders recalled Center Agent memory into the turn prompt", () => {
@@ -1994,7 +2004,7 @@ describe("remote agent submission", () => {
         "Use Organization context to solve the request. Share it only when the requester and destination are appropriate; a clear authorized request needs no extra confirmation.",
         "Use protected information only when the requester and destination are appropriate; clear existing authorization needs no extra confirmation.",
         "Authentication secrets are never available for retrieval or disclosure.",
-        "These disclosure limits apply to the reply and every outbound tool argument. Complete every safe part of the request without explaining these internal rules.",
+        "These disclosure limits apply to all model-emitted thinking, public progress, the reply, and every outbound tool argument. Thinking is visible to the current conversation audience, not a private scratchpad. Complete every safe part of the request without explaining these internal rules.",
         "",
         "[Scoped memory]",
         "- [Available to this requester] personal memory from Center Agent DM: [Recorded 2025-07-27T00:00:00.000Z] The launch team deploys on Thursday.",
@@ -2050,14 +2060,14 @@ describe("remote agent submission", () => {
       "Use personal memory silently to help this same requester without asking them to repeat themselves."
     );
     expect(prompt).toContain(
-      "Do not quote, expose, or imply private details in this shared reply."
+      "Do not quote, expose, or imply private details in model-emitted thinking, public progress, this shared reply, or outbound tool arguments."
     );
     expect(prompt).toContain(
-      "These disclosure limits apply to the reply and every outbound tool argument. Complete every safe part of the request without explaining these internal rules."
+      "These disclosure limits apply to all model-emitted thinking, public progress, the reply, and every outbound tool argument. Thinking is visible to the current conversation audience, not a private scratchpad. Complete every safe part of the request without explaining these internal rules."
     );
     expect(prompt).toContain("Felix prefers launch plans");
     expect(prompt).toContain(
-      "[Private reasoning only — never quote, expose, or imply this detail in the current reply] personal memory from Center Agent DM"
+      "[Restricted context — never quote, expose, or imply this detail in model-emitted thinking, public progress, the current reply, or outbound tool arguments] personal memory from Center Agent DM"
     );
   });
 
@@ -2179,9 +2189,7 @@ describe("remote agent submission", () => {
       "org/org_123/space/space_123/attachment-1"
     );
     expect(admitted[0]?.[0]).toMatchObject({
-      message: expect.stringContaining(
-        "What is shown here?\n\n[This message includes 1 attached image.]"
-      ),
+      message: expect.stringContaining("What is shown here?"),
       images: [
         {
           type: "image",
@@ -2191,6 +2199,9 @@ describe("remote agent submission", () => {
         },
       ],
     });
+    expect(admitted[0]?.[0].message).toContain(
+      "[This message includes 1 attached image.]"
+    );
   });
 
   it("loads the exact canonical Space File revision without deleting it", async () => {

@@ -40,6 +40,10 @@ describe("transient Agent stream replay", () => {
     replay.remember(updated);
     replay.remember(progress);
     expect(replay.read(1002)).toEqual([updated]);
+    replay.remember(frame);
+    expect(replay.read(1002)).toEqual([frame, updated]);
+    replay.forget("stream");
+    expect(replay.read(1003)).toEqual([]);
   });
   it("replays the latest tail and replaces private text on disable", () => {
     const replay = new TransientAgentStreamReplay();

@@ -45,6 +45,8 @@ export class FileUploadSessions {
     sql.exec(`CREATE TABLE IF NOT EXISTS space_file_upload_sessions (
       id TEXT PRIMARY KEY, expires_at INTEGER NOT NULL, state TEXT NOT NULL
     )`);
+    sql.exec(`CREATE INDEX IF NOT EXISTS space_file_upload_sessions_expiry
+      ON space_file_upload_sessions (expires_at)`);
   }
 
   async execute(input: UploadInput): Promise<SpaceFileUploadResponse> {
@@ -216,26 +218,48 @@ export class FileUploadSessions {
     );
   }
 
-  async cleanup(): Promise<void> {
+  async cleanup(all = false): Promise<void> {
     const rows = this.sql
       .exec<{ id: string; state: string }>(
-        "SELECT id, state FROM space_file_upload_sessions WHERE expires_at <= ? LIMIT 32",
-        Date.now()
+        `SELECT id, state FROM space_file_upload_sessions ${all ? "" : "WHERE expires_at <= ?"} ORDER BY expires_at LIMIT 32`,
+        ...(all ? [] : [Date.now()])
       )
       .toArray();
+    const failures: unknown[] = [];
     for (const row of rows) {
-      const state: UploadState = JSON.parse(row.state);
-      if (!((await this.bucket.head(state.key)) || state.response.cancelled)) {
-        await this.bucket
-          .resumeMultipartUpload(state.key, state.multipartId)
-          .abort();
+      try {
+        const state: UploadState = JSON.parse(row.state);
+        if (
+          !((await this.bucket.head(state.key)) || state.response.cancelled)
+        ) {
+          await this.bucket
+            .resumeMultipartUpload(state.key, state.multipartId)
+            .abort();
+        }
+        await this.bucket.delete(state.key);
+        this.sql.exec(
+          "DELETE FROM space_file_upload_sessions WHERE id = ?",
+          row.id
+        );
+      } catch (error) {
+        failures.push(error);
       }
-      await this.bucket.delete(state.key);
-      this.sql.exec(
-        "DELETE FROM space_file_upload_sessions WHERE id = ?",
-        row.id
+    }
+    if (failures.length > 0) {
+      const first = failures[0];
+      throw new AggregateError(
+        failures,
+        `File upload cleanup failed for ${failures.length} retained sessions: ${first instanceof Error ? first.message : String(first)}`
       );
     }
+  }
+
+  hasUploads(): boolean {
+    return (
+      this.sql
+        .exec("SELECT 1 FROM space_file_upload_sessions LIMIT 1")
+        .toArray().length > 0
+    );
   }
 
   private read(id: string): UploadState | undefined {

@@ -100,7 +100,7 @@ describe("profiles", () => {
       expect(stdout).not.toContain("Agent On:");
       expect(stdout).toContain("Connection Type: Not set up");
       expect(stdout).toContain(
-        "Can Reply in Space: Blocked (Connect a local agent before this profile can reply.)"
+        "Local Reply Setup: Blocked (Connect a local agent before this profile can reply.)"
       );
     });
   });
@@ -228,7 +228,7 @@ describe("profiles", () => {
       expect(stdout).not.toContain("Local agent selection:");
       expect(stdout).not.toContain("Agent On:");
       expect(stdout).not.toContain("Connection Type:");
-      expect(stdout).not.toContain("Can Reply in Space:");
+      expect(stdout).not.toContain("Local Reply Setup:");
     });
   });
 
@@ -850,7 +850,7 @@ describe("profiles", () => {
       expect(stdout).not.toContain("Local agent selection:");
       expect(stdout).not.toContain("Agent On:");
       expect(stdout).not.toContain("Connection Type:");
-      expect(stdout).not.toContain("Can Reply in Space:");
+      expect(stdout).not.toContain("Local Reply Setup:");
       expect(stdout).toContain("Space identity: Created");
       expect(stdout).toContain(
         "Next: Add this profile to a Space when the user wants this teammate to participate."

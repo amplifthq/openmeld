@@ -43,24 +43,18 @@ commands work in every worktree.
 ```bash
 pnpm install --frozen-lockfile
 pnpm dev:doctor
-pnpm dev:worktree
+pnpm dev:postgresql
 ```
 
-The last command starts the Docker-free isolated Web/Worker development stack
-with Remote Agent Sandbox-specific tools disabled. This is the normal path
-when those tools are not under test. In a second terminal in the same worktree,
-start Web with the same environment:
-
-```bash
-pnpm dev:web:worktree
-```
-
-After the Workers are ready, run `pnpm dev:account` to get a local test email
-and simple password, then sign in through the normal product page. Run
-`pnpm dev:seed` to populate that account with shared sample data; it also prepares
-an account if needed. Both commands reuse this worktree's isolated local state.
-See [test accounts and fixture scenarios](../../scripts/dev/sidebar-fixtures.md)
-for options and how to contribute scenarios.
+The last command starts the Docker-free isolated PostgreSQL 18, Web and Worker
+stack with Remote Agent Sandbox-specific tools disabled. Install PostgreSQL
+server/client tools through the
+[PostgreSQL workflow](postgresql.md#tools-and-local-development) first.
+Web starts in this same stack; a second Web launcher is not needed. Create
+synthetic test accounts and product data through the normal local product UI.
+The old `dev:account` and `dev:seed` scripts still target D1; their
+[fixture documentation](../../scripts/dev/sidebar-fixtures.md) is not preparation
+for the current PostgreSQL product lane.
 
 The first Web page load can take about one minute while Web and Cloudflare
 compile. Keep the page open. Later loads should be fast; this first-load delay
@@ -72,8 +66,8 @@ the same Doppler `dev` configs. No `.dev.vars` copy or per-worktree Doppler setu
 is required.
 
 When the task specifically tests Remote Agent Sandbox, container, shell, or
-file tools, replace `pnpm dev:worktree` with
-`pnpm dev:worktree:sandbox` and start Docker first. The normal shared Doppler
+file tools, replace `pnpm dev:postgresql` with
+`pnpm dev:worktree:sandbox -- --postgresql` and start Docker first. The normal shared Doppler
 workflow does not otherwise require Docker.
 
 The recommended commands describe the developer's goal rather than their
@@ -83,9 +77,9 @@ implementation:
 | --- | --- |
 | `pnpm dev:help` | Show the recommended commands and the Docker boundary. |
 | `pnpm dev:doctor` | Check Doppler access, required values, and local shadow files without printing values. |
-| `pnpm dev:worktree` | Start the worktree-specific Worker stack with shared Doppler `dev` values. This is the normal Docker-free path. |
-| `pnpm dev:web:worktree` | Start Web in a second terminal and attach it to the live Worker stack in the same worktree. |
-| `pnpm dev:worktree:sandbox` | Start the same Worker stack with Remote Agent Sandbox tools enabled. Docker is required. |
+| `pnpm dev:postgresql` | Start the complete worktree PostgreSQL/Web/Worker stack with shared Doppler `dev` values. This is the normal Docker-free path. |
+| `pnpm dev:web:worktree` | Start a separate Web process only when needed; the PostgreSQL launcher already starts Web. |
+| `pnpm dev:worktree:sandbox -- --postgresql` | Start the PostgreSQL/Web/Worker stack with Remote Agent Sandbox tools enabled. Docker is required. |
 | `pnpm dev:stop` | Stop OpenMeld development processes in this checkout. Use `pnpm dev:stop -- --dry-run` to inspect targets first. |
 
 The older `pnpm dev:isolated` and fixed-port commands remain available for
@@ -209,8 +203,8 @@ Ordinary `pnpm dev` remains compatible with legacy package-local `.dev.vars`
 files. This prevents the Doppler pilot from breaking the primary human
 checkout.
 
-`pnpm dev:worktree`, `pnpm dev:web:worktree`, and
-`pnpm dev:worktree:sandbox`, however, fail before startup if a package-local
+`pnpm dev:postgresql`, `pnpm dev:web:worktree`, and
+`pnpm dev:worktree:sandbox -- --postgresql`, however, fail before startup if a package-local
 `.dev.vars`, `.env`, or `.env.local` exists. Cloudflare gives those files
 precedence over process-injected values, so continuing would make the source of
 a secret ambiguous. The command lists file paths only; it never reads, deletes,
@@ -284,6 +278,13 @@ health checks, and real-user smoke remain owned by
 and synchronization rules remain owned by `docs/cloudflare-workers-env.md`.
 
 ## Adding Or Moving A Secret
+
+PostgreSQL infrastructure credentials belong to `openmeld-release`, selected
+explicitly as `stg` or `prd`. [postgresql.md](postgresql.md) owns exact-name
+injection of `POSTGRESQL_OPENMELD_MIGRATION_URL`,
+`POSTGRESQL_OPENMELD_RUNTIME_URL`, and `POSTGRESQL_OPENMELD_PROBE_TOKEN`.
+They are not in ordinary `dev` component allowlists. Application Workers receive
+Hyperdrive runtime roles, never migration credentials.
 
 ### OpenMeld Credential Naming
 

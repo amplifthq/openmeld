@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   buildOpenMeldRequestContextHeaders,
   type OpenMeldRequestContextHeadersInput,
+  observeUserTimeZoneHeaders,
 } from "@openmeld/gateway-contract";
 import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
 import {
@@ -105,6 +106,7 @@ export async function buildRequestAuthHeaders(
 ): Promise<Record<string, string>> {
   const headers: Record<string, string> = {};
   await attachAuthHeader(headers, input);
+  Object.assign(headers, observeUserTimeZoneHeaders("service"));
   return headers;
 }
 
@@ -113,6 +115,7 @@ export async function buildOpenMeldRequestContextHeadersWithAuth(
 ): Promise<Record<string, string>> {
   const headers = buildOpenMeldRequestContextHeaders(input);
   await attachAuthHeader(headers, input);
+  Object.assign(headers, observeUserTimeZoneHeaders("service"));
   return headers;
 }
 

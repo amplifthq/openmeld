@@ -1,3 +1,8 @@
+import type {
+  PostgresDatabase,
+  QueryConfig,
+  QueryResult,
+} from "@openmeld/db/postgresql";
 import {
   buildMessageChannelConversationId,
   centerAgentRoutineAuthorizedActionsSchema,
@@ -13,6 +18,8 @@ import type {
   CenterAgentRoutineExternalActionPolicy,
   CenterAgentRoutineLastRunSummary,
   CenterAgentRoutineRun,
+  RoutineExecutorKind,
+  RoutineScope,
 } from "@openmeld/schemas/types";
 import type { RoutineExecutionEngine } from "./routine-execution-engine";
 
@@ -22,8 +29,10 @@ type RoutineAuditAction =
   | "pause_routine"
   | "resume_routine"
   | "update_routine";
-
 export type StoredRoutine = Omit<CenterAgentRoutine, "canManage"> & {
+  scope?: RoutineScope;
+  executorKind?: RoutineExecutorKind;
+  executorName?: string;
   agentProfileId?: string | null;
   authorizedActions: CenterAgentRoutineAuthorizedAction[];
   creationAttribution: CenterAgentRoutineCreationAttribution | null;
@@ -36,15 +45,16 @@ export type DueRoutine = StoredRoutine & {
   nextDueAt: number;
   status: "enabled";
 };
-
 export type RoutineRunExecutionRecord = CenterAgentRoutineRun & {
   agentProfileIdSnapshot: string | null;
   continuationDelegationId: string | null;
   executionEngine: RoutineExecutionEngine | null;
   routineNameSnapshot: string | null;
 };
-
 type RoutineRow = {
+  scope: RoutineScope;
+  executor_kind: RoutineExecutorKind;
+  executor_name: string | null;
   agent_profile_id: string | null;
   id: string;
   organization_id: string;
@@ -80,7 +90,6 @@ type RoutineRow = {
   last_run_started_at_ms: number | null;
   last_run_finished_at_ms: number | null;
 };
-
 type RoutineRunRow = {
   agent_profile_id_snapshot: string | null;
   id: string;
@@ -110,7 +119,6 @@ type RoutineRunRow = {
   started_at_ms: number | null;
   finished_at_ms: number | null;
 };
-
 export type UnpublishedFailedRoutineRun = {
   messageChannelLocator?: CenterAgentRoutine["messageChannelLocator"];
   destinationKind: "slack_thread" | "space" | "message_channel";
@@ -127,11 +135,34 @@ export type UnpublishedFailedRoutineRun = {
   slackThreadTs: string | null;
   targetSpaceId: string | null;
 };
+const UNPUBLISHED_FAILED_ROUTINE_RUN_SQL = `status = 'failed'
+  AND published_signal_id IS NULL
+  AND failure_code IS NOT NULL
+  AND routine_name_snapshot IS NOT NULL`;
 
+/** Run claims precede Space admission and native delivery registration. */
+export async function hasUnsettledSpaceRoutineRun(input: {
+  db: Pick<PostgresDatabase, "query">;
+  spaceId: string;
+}): Promise<boolean> {
+  const result = await input.db.query({
+    text: `SELECT 1 FROM "openmeld"."routine_runs"
+      WHERE COALESCE(destination_kind_snapshot, 'space') = 'space'
+        AND target_space_id_snapshot = $1
+        AND (status IN ('claimed', 'submitted')
+          OR (${UNPUBLISHED_FAILED_ROUTINE_RUN_SQL}))
+      LIMIT 1`,
+    values: [input.spaceId],
+  });
+  return result.rows.length > 0;
+}
 const ROUTINE_RECORD_SELECT = `
   SELECT
     routine.id AS id,
     routine.agent_profile_id AS agent_profile_id,
+    routine.scope AS scope,
+    routine.executor_kind AS executor_kind,
+    (SELECT profile_name FROM "openmeld"."openmeld_profiles" WHERE profile_id = routine.agent_profile_id) AS executor_name,
     routine.organization_id AS organization_id,
     routine.name AS name,
     routine.instructions AS instructions,
@@ -164,68 +195,69 @@ const ROUTINE_RECORD_SELECT = `
     last_run.published_signal_id AS last_run_published_signal_id,
     last_run.started_at_ms AS last_run_started_at_ms,
     last_run.finished_at_ms AS last_run_finished_at_ms
-  FROM routines AS routine
-  LEFT JOIN routine_runs AS last_run
+  FROM "openmeld"."routines" AS routine
+  LEFT JOIN "openmeld"."routine_runs" AS last_run
     ON last_run.id = (
       SELECT latest_run.id
-      FROM routine_runs AS latest_run
+      FROM "openmeld"."routine_runs" AS latest_run
       WHERE latest_run.routine_id = routine.id
         AND latest_run.organization_id = routine.organization_id
-      ORDER BY latest_run.scheduled_for DESC, latest_run.id DESC
+      ORDER BY latest_run.scheduled_for DESC NULLS LAST, latest_run.id DESC NULLS LAST
       LIMIT 1
     )
 `;
-
 export type RoutineAuditActor = CenterAgentAttribution & {
   sourceNativeDeliveryId: string | null;
 };
-
 export type RoutineInsertOutcome = "inserted" | "not_inserted";
 export type RoutineUpdateOutcome = "updated" | "not_updated";
 export type RoutineDeleteOutcome = "deleted" | "not_deleted";
 export type RoutineOccurrenceClaimOutcome =
-  | { status: "claimed"; run: CenterAgentRoutineRun }
-  | { status: "lost_race" };
-
+  | {
+      status: "claimed";
+      run: CenterAgentRoutineRun;
+    }
+  | {
+      status: "lost_race";
+    };
 export async function listRoutineRecords(input: {
+  visibleToUserId?: string;
   agentProfileId?: string | null;
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
 }): Promise<StoredRoutine[]> {
-  const result = await input.db
-    .prepare(
-      `
+  const result = await input.db.query<RoutineRow>({
+    text: `
         ${ROUTINE_RECORD_SELECT}
-        WHERE routine.organization_id = ?
-          AND routine.agent_profile_id IS ?
-        ORDER BY routine.updated_at_ms DESC, routine.id DESC
-      `
-    )
-    .bind(input.organizationId, input.agentProfileId ?? null)
-    .all<RoutineRow>();
-
-  return (result.results ?? []).map(mapRoutineRow);
+        WHERE routine.organization_id = $1
+          AND (($3::text IS NOT NULL AND (routine.scope = 'team' OR routine.created_by_user_id = $3))
+            OR ($3::text IS NULL AND routine.agent_profile_id IS NOT DISTINCT FROM $2 AND routine.scope = CASE WHEN $2::text IS NULL THEN 'team' ELSE 'personal' END))
+        ORDER BY routine.updated_at_ms DESC NULLS LAST, routine.id DESC NULLS LAST
+      `,
+    values: [
+      input.organizationId,
+      input.agentProfileId ?? null,
+      input.visibleToUserId ?? null,
+    ],
+  });
+  return (result.rows ?? []).map(mapRoutineRow);
 }
-
 export async function listDueRoutineRecords(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   limit: number;
   nowMs: number;
 }): Promise<DueRoutine[]> {
-  const result = await input.db
-    .prepare(
-      `
+  const result = await input.db.query<RoutineRow>({
+    text: `
         ${ROUTINE_RECORD_SELECT}
         WHERE routine.status = 'enabled'
-          AND routine.next_due_at <= ?
-        ORDER BY routine.next_due_at ASC, routine.id ASC
-        LIMIT ?
-      `
-    )
-    .bind(input.nowMs, input.limit)
-    .all<RoutineRow>();
-
-  return (result.results ?? []).map((row) => {
+          AND routine.next_due_at <= $1
+        ORDER BY routine.next_due_at ASC NULLS FIRST, routine.id ASC NULLS FIRST
+        LIMIT $2
+      `,
+    values: [input.nowMs, input.limit],
+  });
+  return (result.rows ?? []).map((row) => {
     const routine = mapRoutineRow(row);
     if (routine.status !== "enabled" || routine.nextDueAt === null) {
       throw new Error(`Due Routine ${routine.id} has invalid schedule state`);
@@ -233,82 +265,83 @@ export async function listDueRoutineRecords(input: {
     return routine as DueRoutine;
   });
 }
-
 export async function readRoutineRecord(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   routineId: string;
 }): Promise<StoredRoutine | null> {
   const row = await input.db
-    .prepare(
-      `
+    .query<RoutineRow>({
+      text: `
         ${ROUTINE_RECORD_SELECT}
-        WHERE routine.id = ? AND routine.organization_id = ?
+        WHERE routine.id = $1 AND routine.organization_id = $2
         LIMIT 1
-      `
-    )
-    .bind(input.routineId, input.organizationId)
-    .first<RoutineRow>();
-
+      `,
+      values: [input.routineId, input.organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
   return row ? mapRoutineRow(row) : null;
 }
-
 export async function countRoutineRecords(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
-}): Promise<{ enabled: number; total: number }> {
+}): Promise<{
+  enabled: number;
+  total: number;
+}> {
   const row = await input.db
-    .prepare(
-      `
+    .query<{
+      enabled: number | null;
+      total: number;
+    }>({
+      text: `
         SELECT
           COUNT(*) AS total,
           SUM(CASE WHEN status = 'enabled' THEN 1 ELSE 0 END) AS enabled
-        FROM routines
-        WHERE organization_id = ?
-      `
-    )
-    .bind(input.organizationId)
-    .first<{ enabled: number | null; total: number }>();
-
+        FROM "openmeld"."routines"
+        WHERE organization_id = $1
+      `,
+      values: [input.organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
   return {
     enabled: Number(row?.enabled ?? 0),
     total: Number(row?.total ?? 0),
   };
 }
-
 export async function isActiveCenterAgentProfile(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   profileId: string;
 }): Promise<boolean> {
   const row = await input.db
-    .prepare(
-      `
+    .query<{
+      present: number;
+    }>({
+      text: `
         SELECT 1 AS present
-        FROM openmeld_profiles
-        WHERE profile_id = ?
-          AND organization_id = ?
+        FROM "openmeld"."openmeld_profiles"
+        WHERE profile_id = $1
+          AND organization_id = $2
           AND profile_kind = 'agent'
           AND managed_role = 'center_agent'
           AND status = 'active'
         LIMIT 1
-      `
-    )
-    .bind(input.profileId, input.organizationId)
-    .first<{ present: number }>();
+      `,
+      values: [input.profileId, input.organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
   return row?.present === 1;
 }
-
 export async function insertRoutineRecord(input: {
   actor: RoutineAuditActor;
-  db: D1Database;
+  db: PostgresDatabase;
   limit: number;
   routine: NewStoredRoutine;
 }): Promise<RoutineInsertOutcome> {
-  const insert = input.db
-    .prepare(
-      `
-        INSERT INTO routines (
+  const insert = {
+    text: `
+        INSERT INTO "openmeld"."routines" (
           id,
           agent_profile_id,
           organization_id,
@@ -335,35 +368,32 @@ export async function insertRoutineRecord(input: {
           updated_by_user_id,
           created_at_ms,
           updated_at_ms
+          , scope, executor_kind
         )
-        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, json_patch(
-          json_object('displayName', ?),
-          COALESCE(
+        SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, ((jsonb_build_object('displayName', $20::text))::jsonb || (COALESCE(
             (
-              SELECT json_object(
+              SELECT jsonb_build_object(
                 'interactionSource',
-                json_object(
+                jsonb_build_object(
                   'client', source_request.resource_id,
                   'kind', 'local_agent'
                 )
               )
-              FROM center_agent_audit_journal AS source_request
-              WHERE source_request.organization_id = ?
-                AND source_request.source_native_delivery_id = ?
+              FROM "openmeld"."center_agent_audit_journal" AS source_request
+              WHERE source_request.organization_id = $21
+                AND source_request.source_native_delivery_id = $22
                 AND source_request.action = 'receive_local_agent_request'
                 AND source_request.resource_type = 'local_agent_client'
-              ORDER BY source_request.created_at ASC, source_request.id ASC
+              ORDER BY source_request.created_at ASC NULLS FIRST, source_request.id ASC NULLS FIRST
               LIMIT 1
             ),
             '{}'
-          )
-        ), 'enabled', ?, ?, ?, ?, ?
+          ))::jsonb)::text, 'enabled', $23, $24, $25, $26, $27, $30, $31
         WHERE (
-          SELECT COUNT(*) FROM routines WHERE organization_id = ?
-        ) < ?
-      `
-    )
-    .bind(
+          SELECT COUNT(*) FROM "openmeld"."routines" WHERE organization_id = $28
+        ) < $29
+      `,
+    values: [
       input.routine.id,
       input.routine.agentProfileId ?? null,
       input.routine.organizationId,
@@ -392,8 +422,13 @@ export async function insertRoutineRecord(input: {
       input.routine.createdAtMs,
       input.routine.updatedAtMs,
       input.routine.organizationId,
-      input.limit
-    );
+      input.limit,
+      input.routine.scope ??
+        (input.routine.agentProfileId ? "personal" : "team"),
+      input.routine.executorKind ??
+        (input.routine.agentProfileId ? "remote_agent" : "center_agent"),
+    ],
+  };
   const audit = prepareConditionalRoutineAuditStatement({
     action: "create_routine",
     actor: input.actor,
@@ -402,44 +437,41 @@ export async function insertRoutineRecord(input: {
     organizationId: input.routine.organizationId,
     routineId: input.routine.id,
   });
-
-  const results = await input.db.batch([insert, audit]);
-  return changedExactlyOneRow(results[0]) ? "inserted" : "not_inserted";
+  return (await mutateRoutineWithAudit(input.db, insert, audit))
+    ? "inserted"
+    : "not_inserted";
 }
-
 export async function updateRoutineRecord(input: {
   actor: RoutineAuditActor;
-  db: D1Database;
+  db: PostgresDatabase;
   routine: StoredRoutine;
 }): Promise<RoutineUpdateOutcome> {
-  const update = input.db
-    .prepare(
-      `
-        UPDATE routines
+  const update = {
+    text: `
+        UPDATE "openmeld"."routines"
         SET
-          name = ?,
-          instructions = ?,
-          authorized_actions_json = ?,
-          external_action_policy = ?,
-          schedule_kind = ?,
-          cron_expression = ?,
-          timezone = ?,
-          run_at_ms = ?,
-          message_channel_destination_json = ?,
-          destination_kind = ?,
-          target_space_id = ?,
-          slack_team_id = ?,
-          slack_channel_id = ?,
-          slack_thread_ts = ?,
-          slack_conversation_id = ?,
-          slack_thread_label = ?,
-          next_due_at = ?,
-          updated_by_user_id = ?,
-          updated_at_ms = ?
-        WHERE id = ? AND organization_id = ?
-      `
-    )
-    .bind(
+          name = $1,
+          instructions = $2,
+          authorized_actions_json = $3,
+          external_action_policy = $4,
+          schedule_kind = $5,
+          cron_expression = $6,
+          timezone = $7,
+          run_at_ms = $8,
+          message_channel_destination_json = $9,
+          destination_kind = $10,
+          target_space_id = $11,
+          slack_team_id = $12,
+          slack_channel_id = $13,
+          slack_thread_ts = $14,
+          slack_conversation_id = $15,
+          slack_thread_label = $16,
+          next_due_at = $17,
+          updated_by_user_id = $18,
+          updated_at_ms = $19
+        WHERE id = $20 AND organization_id = $21
+      `,
+    values: [
       input.routine.name,
       input.routine.instructions,
       JSON.stringify(input.routine.authorizedActions),
@@ -460,8 +492,9 @@ export async function updateRoutineRecord(input: {
       input.routine.updatedByUserId,
       input.routine.updatedAtMs,
       input.routine.id,
-      input.routine.organizationId
-    );
+      input.routine.organizationId,
+    ],
+  };
   const audit = prepareConditionalRoutineAuditStatement({
     action: "update_routine",
     actor: input.actor,
@@ -470,36 +503,35 @@ export async function updateRoutineRecord(input: {
     organizationId: input.routine.organizationId,
     routineId: input.routine.id,
   });
-  const results = await input.db.batch([update, audit]);
-  return changedExactlyOneRow(results[0]) ? "updated" : "not_updated";
+  return (await mutateRoutineWithAudit(input.db, update, audit))
+    ? "updated"
+    : "not_updated";
 }
-
 export async function pauseRoutineRecord(input: {
   actor: RoutineAuditActor;
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   organizationId: string;
   routineId: string;
   updatedByUserId: string;
 }): Promise<RoutineUpdateOutcome> {
-  const update = input.db
-    .prepare(
-      `
-        UPDATE routines
+  const update = {
+    text: `
+        UPDATE "openmeld"."routines"
         SET
           status = 'paused',
           next_due_at = NULL,
-          updated_by_user_id = ?,
-          updated_at_ms = ?
-        WHERE id = ? AND organization_id = ? AND status = 'enabled'
-      `
-    )
-    .bind(
+          updated_by_user_id = $1,
+          updated_at_ms = $2
+        WHERE id = $3 AND organization_id = $4 AND status = 'enabled'
+      `,
+    values: [
       input.updatedByUserId,
       input.nowMs,
       input.routineId,
-      input.organizationId
-    );
+      input.organizationId,
+    ],
+  };
   const audit = prepareConditionalRoutineAuditStatement({
     action: "pause_routine",
     actor: input.actor,
@@ -508,40 +540,39 @@ export async function pauseRoutineRecord(input: {
     organizationId: input.organizationId,
     routineId: input.routineId,
   });
-  const results = await input.db.batch([update, audit]);
-  return changedExactlyOneRow(results[0]) ? "updated" : "not_updated";
+  return (await mutateRoutineWithAudit(input.db, update, audit))
+    ? "updated"
+    : "not_updated";
 }
-
 export async function resumeRoutineRecord(input: {
   actor: RoutineAuditActor;
-  db: D1Database;
+  db: PostgresDatabase;
   nextDueAt: number;
   nowMs: number;
   organizationId: string;
   routineId: string;
   updatedByUserId: string;
 }): Promise<RoutineUpdateOutcome> {
-  const update = input.db
-    .prepare(
-      `
-        UPDATE routines
+  const update = {
+    text: `
+        UPDATE "openmeld"."routines"
         SET
           status = 'enabled',
-          next_due_at = ?,
-          updated_by_user_id = ?,
-          updated_at_ms = ?
-        WHERE id = ?
-          AND organization_id = ?
+          next_due_at = $1,
+          updated_by_user_id = $2,
+          updated_at_ms = $3
+        WHERE id = $4
+          AND organization_id = $5
           AND status = 'paused'
-      `
-    )
-    .bind(
+      `,
+    values: [
       input.nextDueAt,
       input.updatedByUserId,
       input.nowMs,
       input.routineId,
-      input.organizationId
-    );
+      input.organizationId,
+    ],
+  };
   const audit = prepareConditionalRoutineAuditStatement({
     action: "resume_routine",
     actor: input.actor,
@@ -550,25 +581,24 @@ export async function resumeRoutineRecord(input: {
     organizationId: input.organizationId,
     routineId: input.routineId,
   });
-  const results = await input.db.batch([update, audit]);
-  return changedExactlyOneRow(results[0]) ? "updated" : "not_updated";
+  return (await mutateRoutineWithAudit(input.db, update, audit))
+    ? "updated"
+    : "not_updated";
 }
-
 export async function deleteRoutineRecord(input: {
   actor: RoutineAuditActor;
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   organizationId: string;
   routineId: string;
 }): Promise<RoutineDeleteOutcome> {
-  const deletion = input.db
-    .prepare(
-      `
-        DELETE FROM routines
-        WHERE id = ? AND organization_id = ?
-      `
-    )
-    .bind(input.routineId, input.organizationId);
+  const deletion = {
+    text: `
+        DELETE FROM "openmeld"."routines"
+        WHERE id = $1 AND organization_id = $2
+      `,
+    values: [input.routineId, input.organizationId],
+  };
   const audit = prepareConditionalRoutineAuditStatement({
     action: "delete_routine",
     actor: input.actor,
@@ -577,23 +607,23 @@ export async function deleteRoutineRecord(input: {
     organizationId: input.organizationId,
     routineId: input.routineId,
   });
-  const results = await input.db.batch([deletion, audit]);
-  return changedExactlyOneRow(results[0]) ? "deleted" : "not_deleted";
+  return (await mutateRoutineWithAudit(input.db, deletion, audit))
+    ? "deleted"
+    : "not_deleted";
 }
-
 export async function listRoutineRunRecords(input: {
+  visibility?: { userId: string; spaceIds: string[]; allowPersonal?: boolean };
   agentProfileId?: string;
   beforeScheduledFor?: number;
-  db: D1Database;
+  db: PostgresDatabase;
   limit: number;
   organizationId: string;
   routineId: string;
 }): Promise<CenterAgentRoutineRun[]> {
   const beforeScheduledFor =
     input.beforeScheduledFor ?? Number.MAX_SAFE_INTEGER;
-  const result = await input.db
-    .prepare(
-      `
+  const result = await input.db.query<RoutineRunRow>({
+    text: `
         SELECT
           id,
           routine_id,
@@ -615,36 +645,39 @@ export async function listRoutineRunRecords(input: {
           published_signal_id,
           started_at_ms,
           finished_at_ms
-        FROM routine_runs
-        WHERE organization_id = ?
-          AND routine_id = ?
-          AND agent_profile_id_snapshot IS ?
-          AND scheduled_for < ?
-        ORDER BY scheduled_for DESC, id DESC
-        LIMIT ?
-      `
-    )
-    .bind(
+        FROM "openmeld"."routine_runs"
+        WHERE organization_id = $1
+          AND routine_id = $2
+          AND agent_profile_id_snapshot IS NOT DISTINCT FROM $3
+          AND scheduled_for < $4
+          AND ($6::text IS NULL OR created_by_user_id_snapshot=$6
+            OR (scope_snapshot='team' AND target_space_id_snapshot=ANY($7::text[])))
+          AND ($8::boolean OR scope_snapshot IS DISTINCT FROM 'personal')
+        ORDER BY scheduled_for DESC NULLS LAST, id DESC NULLS LAST
+        LIMIT $5
+      `,
+    values: [
       input.organizationId,
       input.routineId,
       input.agentProfileId ?? null,
       beforeScheduledFor,
-      input.limit
-    )
-    .all<RoutineRunRow>();
-  return (result.results ?? []).map(mapRoutineRunRow);
+      input.limit,
+      input.visibility?.userId ?? null,
+      input.visibility?.spaceIds ?? [],
+      input.visibility?.allowPersonal !== false,
+    ],
+  });
+  return (result.rows ?? []).map(mapRoutineRunRow);
 }
-
 export async function readRoutineRunRecord(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   runId: string;
 }): Promise<CenterAgentRoutineRun | null> {
   const row = await readRoutineRunRow(input);
   return row ? mapRoutineRunRow(row) : null;
 }
-
 export async function readRoutineRunExecutionRecord(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   runId: string;
 }): Promise<RoutineRunExecutionRecord | null> {
   const row = await readRoutineRunRow(input);
@@ -658,14 +691,13 @@ export async function readRoutineRunExecutionRecord(input: {
       }
     : null;
 }
-
 async function readRoutineRunRow(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   runId: string;
 }): Promise<RoutineRunRow | null> {
   return await input.db
-    .prepare(
-      `
+    .query<RoutineRunRow>({
+      text: `
         SELECT
           id,
           routine_id,
@@ -689,44 +721,43 @@ async function readRoutineRunRow(input: {
           native_delivery_id,
           published_signal_id,
           started_at_ms,
-          finished_at_ms
-        FROM routine_runs
-        WHERE id = ?
+          finished_at_ms,
+          scope_snapshot,
+          created_by_user_id_snapshot
+        FROM "openmeld"."routine_runs"
+        WHERE id = $1
         LIMIT 1
-      `
-    )
-    .bind(input.runId)
-    .first<RoutineRunRow>();
+      `,
+      values: [input.runId],
+    })
+    .then((result) => result.rows[0] ?? null);
 }
-
 export async function claimRoutineRunContinuationDelegation(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delegationId: string;
   nativeDeliveryId: string;
   organizationId: string;
   runId: string;
 }): Promise<"claimed" | "conflict" | "replay"> {
-  const result = await input.db
-    .prepare(
-      `
-        UPDATE routine_runs
-        SET continuation_delegation_id = ?
-        WHERE id = ?
-          AND organization_id = ?
+  const result = await input.db.query({
+    text: `
+        UPDATE "openmeld"."routine_runs"
+        SET continuation_delegation_id = $1
+        WHERE id = $2
+          AND organization_id = $3
           AND execution_engine = 'workflow'
           AND status = 'submitted'
-          AND native_delivery_id = ?
+          AND native_delivery_id = $4
           AND continuation_delegation_id IS NULL
-      `
-    )
-    .bind(
+      `,
+    values: [
       input.delegationId,
       input.runId,
       input.organizationId,
-      input.nativeDeliveryId
-    )
-    .run();
-  if (Number(result.meta?.changes ?? 0) === 1) {
+      input.nativeDeliveryId,
+    ],
+  });
+  if (Number(result.rowCount ?? 0) === 1) {
     return "claimed";
   }
   const run = await readRoutineRunExecutionRecord({
@@ -737,35 +768,32 @@ export async function claimRoutineRunContinuationDelegation(input: {
     ? "replay"
     : "conflict";
 }
-
 export async function releaseRoutineRunContinuationDelegation(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delegationId: string;
   nativeDeliveryId: string;
   organizationId: string;
   runId: string;
 }): Promise<"conflict" | "released" | "replay"> {
-  const result = await input.db
-    .prepare(
-      `
-        UPDATE routine_runs
+  const result = await input.db.query({
+    text: `
+        UPDATE "openmeld"."routine_runs"
         SET continuation_delegation_id = NULL
-        WHERE id = ?
-          AND organization_id = ?
+        WHERE id = $1
+          AND organization_id = $2
           AND execution_engine = 'workflow'
           AND status = 'submitted'
-          AND native_delivery_id = ?
-          AND continuation_delegation_id = ?
-      `
-    )
-    .bind(
+          AND native_delivery_id = $3
+          AND continuation_delegation_id = $4
+      `,
+    values: [
       input.runId,
       input.organizationId,
       input.nativeDeliveryId,
-      input.delegationId
-    )
-    .run();
-  if (Number(result.meta?.changes ?? 0) === 1) {
+      input.delegationId,
+    ],
+  });
+  if (Number(result.rowCount ?? 0) === 1) {
     return "released";
   }
   const run = await readRoutineRunExecutionRecord({
@@ -774,9 +802,8 @@ export async function releaseRoutineRunContinuationDelegation(input: {
   });
   return run?.continuationDelegationId === null ? "replay" : "conflict";
 }
-
 export async function claimRoutineOccurrenceAndAdvance(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   failureCode?: string | null;
   failureDetail?: string | null;
   finishedAtMs?: number | null;
@@ -789,10 +816,9 @@ export async function claimRoutineOccurrenceAndAdvance(input: {
   status: "claimed" | "skipped";
   executionEngine?: RoutineExecutionEngine;
 }): Promise<RoutineOccurrenceClaimOutcome> {
-  const insert = input.db
-    .prepare(
-      `
-        INSERT INTO routine_runs (
+  const insert = {
+    text: `
+        INSERT INTO "openmeld"."routine_runs" (
           id,
           routine_id,
           organization_id,
@@ -812,20 +838,21 @@ export async function claimRoutineOccurrenceAndAdvance(input: {
           slack_thread_label_snapshot,
           execution_engine,
           started_at_ms,
-          finished_at_ms
+          finished_at_ms,
+          scope_snapshot,
+          created_by_user_id_snapshot
         )
-        SELECT ?, id, organization_id, ?, ?, ?, ?, name, agent_profile_id, message_channel_destination_json, destination_kind,
+        SELECT $1, id, organization_id, $2, $3, $4, $5, name, agent_profile_id, message_channel_destination_json, destination_kind,
           target_space_id, slack_team_id, slack_channel_id, slack_thread_ts,
-          slack_conversation_id, slack_thread_label, ?, ?, ?
-        FROM routines
-        WHERE id = ?
-          AND organization_id = ?
+          slack_conversation_id, slack_thread_label, $6, $7, $8, scope, created_by_user_id
+        FROM "openmeld"."routines"
+        WHERE id = $9
+          AND organization_id = $10
           AND status = 'enabled'
-          AND next_due_at = ?
+          AND next_due_at = $11
         ON CONFLICT(routine_id, scheduled_for) DO NOTHING
-      `
-    )
-    .bind(
+      `,
+    values: [
       input.runId,
       input.scheduledFor,
       input.status,
@@ -836,41 +863,43 @@ export async function claimRoutineOccurrenceAndAdvance(input: {
       input.finishedAtMs ?? null,
       input.routineId,
       input.organizationId,
-      input.scheduledFor
-    );
-  const advance = input.db
-    .prepare(
-      `
-        UPDATE routines
+      input.scheduledFor,
+    ],
+  };
+  const advance = {
+    text: `
+        UPDATE "openmeld"."routines"
         SET
-          next_due_at = ?,
+          next_due_at = $1,
           status = CASE
             WHEN schedule_kind = 'once' THEN 'completed'
             ELSE status
           END
-        WHERE id = ?
-          AND organization_id = ?
+        WHERE id = $2
+          AND organization_id = $3
           AND status = 'enabled'
-          AND next_due_at = ?
-          AND changes() = 1
-      `
-    )
-    .bind(
+          AND next_due_at = $4
+      `,
+    values: [
       input.nextDueAt,
       input.routineId,
       input.organizationId,
-      input.scheduledFor
-    );
-  const results = await input.db.batch([insert, advance]);
-  const inserted = changedExactlyOneRow(results[0]);
-  const advanced = changedExactlyOneRow(results[1]);
-  if (!(inserted || advanced)) {
+      input.scheduledFor,
+    ],
+  };
+  const claimed = await input.db.transaction(async (client) => {
+    if ((await client.query(insert)).rowCount !== 1) {
+      return false;
+    }
+    if ((await client.query(advance)).rowCount !== 1) {
+      throw new Error(
+        `Routine occurrence claim invariant failed for ${input.routineId} at ${input.scheduledFor}`
+      );
+    }
+    return true;
+  });
+  if (!claimed) {
     return { status: "lost_race" };
-  }
-  if (!(inserted && advanced)) {
-    throw new Error(
-      `Routine occurrence claim invariant failed for ${input.routineId} at ${input.scheduledFor}`
-    );
   }
   const run = await readRoutineRunRecord({ db: input.db, runId: input.runId });
   if (!run) {
@@ -878,9 +907,8 @@ export async function claimRoutineOccurrenceAndAdvance(input: {
   }
   return { run, status: "claimed" };
 }
-
 export async function quarantineInvalidRoutineSchedule(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   failureDetail: string;
   nowMs: number;
   organizationId: string;
@@ -888,10 +916,9 @@ export async function quarantineInvalidRoutineSchedule(input: {
   runId: string;
   scheduledFor: number;
 }): Promise<RoutineOccurrenceClaimOutcome> {
-  const insert = input.db
-    .prepare(
-      `
-        INSERT INTO routine_runs (
+  const insert = {
+    text: `
+        INSERT INTO "openmeld"."routine_runs" (
           id,
           routine_id,
           organization_id,
@@ -910,21 +937,22 @@ export async function quarantineInvalidRoutineSchedule(input: {
           slack_conversation_id_snapshot,
           slack_thread_label_snapshot,
           started_at_ms,
-          finished_at_ms
+          finished_at_ms,
+          scope_snapshot,
+          created_by_user_id_snapshot
         )
-        SELECT ?, id, organization_id, ?, 'skipped', 'routine.schedule_invalid',
-          ?, name, agent_profile_id, message_channel_destination_json, destination_kind, target_space_id, slack_team_id,
+        SELECT $1, id, organization_id, $2, 'skipped', 'routine.schedule_invalid',
+          $3, name, agent_profile_id, message_channel_destination_json, destination_kind, target_space_id, slack_team_id,
           slack_channel_id, slack_thread_ts, slack_conversation_id,
-          slack_thread_label, ?, ?
-        FROM routines
-        WHERE id = ?
-          AND organization_id = ?
+          slack_thread_label, $4, $5, scope, created_by_user_id
+        FROM "openmeld"."routines"
+        WHERE id = $6
+          AND organization_id = $7
           AND status = 'enabled'
-          AND next_due_at = ?
+          AND next_due_at = $8
         ON CONFLICT(routine_id, scheduled_for) DO NOTHING
-      `
-    )
-    .bind(
+      `,
+    values: [
       input.runId,
       input.scheduledFor,
       input.failureDetail,
@@ -932,31 +960,33 @@ export async function quarantineInvalidRoutineSchedule(input: {
       input.nowMs,
       input.routineId,
       input.organizationId,
-      input.scheduledFor
-    );
-  const pause = input.db
-    .prepare(
-      `
-        UPDATE routines
+      input.scheduledFor,
+    ],
+  };
+  const pause = {
+    text: `
+        UPDATE "openmeld"."routines"
         SET status = 'paused', next_due_at = NULL
-        WHERE id = ?
-          AND organization_id = ?
+        WHERE id = $1
+          AND organization_id = $2
           AND status = 'enabled'
-          AND next_due_at = ?
-          AND changes() = 1
-      `
-    )
-    .bind(input.routineId, input.organizationId, input.scheduledFor);
-  const results = await input.db.batch([insert, pause]);
-  const inserted = changedExactlyOneRow(results[0]);
-  const paused = changedExactlyOneRow(results[1]);
-  if (!(inserted || paused)) {
+          AND next_due_at = $3
+      `,
+    values: [input.routineId, input.organizationId, input.scheduledFor],
+  };
+  const claimed = await input.db.transaction(async (client) => {
+    if ((await client.query(insert)).rowCount !== 1) {
+      return false;
+    }
+    if ((await client.query(pause)).rowCount !== 1) {
+      throw new Error(
+        `Routine schedule quarantine invariant failed for ${input.routineId} at ${input.scheduledFor}`
+      );
+    }
+    return true;
+  });
+  if (!claimed) {
     return { status: "lost_race" };
-  }
-  if (!(inserted && paused)) {
-    throw new Error(
-      `Routine schedule quarantine invariant failed for ${input.routineId} at ${input.scheduledFor}`
-    );
   }
   const run = await readRoutineRunRecord({ db: input.db, runId: input.runId });
   if (!run) {
@@ -964,133 +994,117 @@ export async function quarantineInvalidRoutineSchedule(input: {
   }
   return { run, status: "claimed" };
 }
-
 export async function failStaleClaimedRoutineRuns(input: {
   cutoffMs: number;
-  db: D1Database;
+  db: PostgresDatabase;
   limit: number;
   nowMs: number;
 }): Promise<number> {
-  const result = await input.db
-    .prepare(
-      `
-        UPDATE routine_runs
+  const result = await input.db.query({
+    text: `
+        UPDATE "openmeld"."routine_runs"
         SET
           status = 'failed',
           failure_code = 'routine.claim_timeout',
           failure_detail = 'Routine execution did not reach native delivery before the claim watchdog expired.',
-          finished_at_ms = ?
+          finished_at_ms = $1
         WHERE id IN (
           SELECT id
-          FROM routine_runs
+          FROM "openmeld"."routine_runs"
           WHERE status = 'claimed'
             AND COALESCE(execution_engine, 'legacy') = 'legacy'
-            AND started_at_ms <= ?
-          ORDER BY started_at_ms ASC, id ASC
-          LIMIT ?
+            AND started_at_ms <= $2
+          ORDER BY started_at_ms ASC NULLS FIRST, id ASC NULLS FIRST
+          LIMIT $3
         )
           AND status = 'claimed'
-      `
-    )
-    .bind(input.nowMs, input.cutoffMs, input.limit)
-    .run();
-  return Number(result.meta?.changes ?? 0);
+      `,
+    values: [input.nowMs, input.cutoffMs, input.limit],
+  });
+  return Number(result.rowCount ?? 0);
 }
-
 export async function markClaimedRoutineRunFailed(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   failureCode: string;
   failureDetail: string;
   nowMs: number;
   runId: string;
 }): Promise<boolean> {
-  const result = await input.db
-    .prepare(
-      `
-        UPDATE routine_runs
+  const result = await input.db.query({
+    text: `
+        UPDATE "openmeld"."routine_runs"
         SET
           status = 'failed',
-          failure_code = ?,
-          failure_detail = ?,
-          finished_at_ms = ?
-        WHERE id = ?
+          failure_code = $1,
+          failure_detail = $2,
+          finished_at_ms = $3
+        WHERE id = $4
           AND status = 'claimed'
-      `
-    )
-    .bind(input.failureCode, input.failureDetail, input.nowMs, input.runId)
-    .run();
-  return Number(result.meta?.changes ?? 0) === 1;
+      `,
+    values: [input.failureCode, input.failureDetail, input.nowMs, input.runId],
+  });
+  return Number(result?.rowCount ?? 0) === 1;
 }
-
 export async function markRoutineRunSubmitted(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   nativeDeliveryId?: string | null;
   runId: string;
 }): Promise<boolean> {
-  const result = await input.db
-    .prepare(
-      `
-        UPDATE routine_runs
+  const result = await input.db.query({
+    text: `
+        UPDATE "openmeld"."routine_runs"
         SET
           status = 'submitted',
-          native_delivery_id = ?
-        WHERE id = ?
+          native_delivery_id = $1
+        WHERE id = $2
           AND status = 'claimed'
           AND native_delivery_id IS NULL
-      `
-    )
-    .bind(input.nativeDeliveryId ?? null, input.runId)
-    .run();
-  return Number(result.meta?.changes ?? 0) === 1;
+      `,
+    values: [input.nativeDeliveryId ?? null, input.runId],
+  });
+  return Number(result.rowCount ?? 0) === 1;
 }
-
 export async function attachRoutineRunNativeDelivery(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   nativeDeliveryId: string;
   runId: string;
 }): Promise<boolean> {
-  const result = await input.db
-    .prepare(
-      `
-        UPDATE routine_runs
-        SET native_delivery_id = ?
-        WHERE id = ?
+  const result = await input.db.query({
+    text: `
+        UPDATE "openmeld"."routine_runs"
+        SET native_delivery_id = $1
+        WHERE id = $2
           AND status = 'submitted'
           AND native_delivery_id IS NULL
-      `
-    )
-    .bind(input.nativeDeliveryId, input.runId)
-    .run();
-  return Number(result.meta?.changes ?? 0) === 1;
+      `,
+    values: [input.nativeDeliveryId, input.runId],
+  });
+  return Number(result.rowCount ?? 0) === 1;
 }
-
 export async function markRoutineRunSkipped(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   failureCode: string;
   failureDetail: string;
   nowMs: number;
   runId: string;
 }): Promise<boolean> {
-  const result = await input.db
-    .prepare(
-      `
-        UPDATE routine_runs
+  const result = await input.db.query({
+    text: `
+        UPDATE "openmeld"."routine_runs"
         SET
           status = 'skipped',
-          failure_code = ?,
-          failure_detail = ?,
-          finished_at_ms = ?
-        WHERE id = ?
+          failure_code = $1,
+          failure_detail = $2,
+          finished_at_ms = $3
+        WHERE id = $4
           AND status = 'claimed'
-      `
-    )
-    .bind(input.failureCode, input.failureDetail, input.nowMs, input.runId)
-    .run();
-  return Number(result.meta?.changes ?? 0) === 1;
+      `,
+    values: [input.failureCode, input.failureDetail, input.nowMs, input.runId],
+  });
+  return Number(result.rowCount ?? 0) === 1;
 }
-
 export async function projectRoutineRunTerminal(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   failureCode?: string | null;
   failureDetail?: string | null;
   nativeDeliveryId?: string | null;
@@ -1099,25 +1113,23 @@ export async function projectRoutineRunTerminal(input: {
   runId: string;
   status: "completed" | "failed";
 }): Promise<CenterAgentRoutineRun | null> {
-  const terminalProjection = input.db
-    .prepare(
-      `
-        UPDATE routine_runs
+  const terminalProjection = {
+    text: `
+        UPDATE "openmeld"."routine_runs"
         SET
-          status = ?,
-          failure_code = ?,
-          failure_detail = ?,
-          published_signal_id = ?,
-          finished_at_ms = ?
-        WHERE id = ?
+          status = $1,
+          failure_code = $2,
+          failure_detail = $3,
+          published_signal_id = $4,
+          finished_at_ms = $5
+        WHERE id = $6
           AND (
             status = 'submitted'
-            OR (? = 'failed' AND status = 'claimed')
+            OR ($7 = 'failed' AND status = 'claimed')
           )
-          AND (? IS NULL OR native_delivery_id = ?)
-      `
-    )
-    .bind(
+          AND ($8::text IS NULL OR native_delivery_id = $9)
+      `,
+    values: [
       input.status,
       input.failureCode ?? null,
       input.failureDetail ?? null,
@@ -1126,44 +1138,65 @@ export async function projectRoutineRunTerminal(input: {
       input.runId,
       input.status,
       input.nativeDeliveryId ?? null,
-      input.nativeDeliveryId ?? null
-    );
+      input.nativeDeliveryId ?? null,
+    ],
+  };
   const publishedSignalId = input.publishedSignalId ?? null;
   const statements = [terminalProjection];
   if (publishedSignalId) {
-    statements.push(
-      input.db
-        .prepare(
-          `
-            UPDATE routine_runs
-            SET published_signal_id = ?
-            WHERE id = ?
-              AND status = ?
+    statements.push({
+      text: `
+            UPDATE "openmeld"."routine_runs"
+            SET published_signal_id = $1
+            WHERE id = $2
+              AND status = $3
               AND published_signal_id IS NULL
-              AND (? IS NULL OR native_delivery_id = ?)
-          `
-        )
-        .bind(
-          publishedSignalId,
-          input.runId,
-          input.status,
-          input.nativeDeliveryId ?? null,
-          input.nativeDeliveryId ?? null
-        )
-    );
+              AND ($4::text IS NULL OR native_delivery_id = $5)
+          `,
+      values: [
+        publishedSignalId,
+        input.runId,
+        input.status,
+        input.nativeDeliveryId ?? null,
+        input.nativeDeliveryId ?? null,
+      ],
+    });
   }
-  await input.db.batch(statements);
+  await input.db.transaction(async (client) => {
+    const results: QueryResult[] = [];
+    for (const query of statements) {
+      results.push(await client.query(query));
+    }
+    return results;
+  });
   return await readRoutineRunRecord({ db: input.db, runId: input.runId });
 }
-
 export async function listUnpublishedFailedRoutineRuns(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   limit: number;
   nowMs: number;
 }): Promise<UnpublishedFailedRoutineRun[]> {
-  const result = await input.db
-    .prepare(
-      `
+  const result = await input.db.query<{
+    failure_code: string;
+    failure_detail: string | null;
+    failure_publication_attempt_count: number;
+    id: string;
+    organization_id: string;
+    routine_id: string;
+    routine_name_snapshot: string;
+    message_channel_destination_json_snapshot: string | null;
+    destination_kind_snapshot:
+      | "slack_thread"
+      | "space"
+      | "message_channel"
+      | null;
+    slack_channel_id_snapshot: string | null;
+    slack_conversation_id_snapshot: string | null;
+    slack_team_id_snapshot: string | null;
+    slack_thread_ts_snapshot: string | null;
+    target_space_id_snapshot: string | null;
+  }>({
+    text: `
         SELECT
           id,
           routine_id,
@@ -1179,11 +1212,8 @@ export async function listUnpublishedFailedRoutineRuns(input: {
           slack_channel_id_snapshot,
           slack_thread_ts_snapshot,
           slack_conversation_id_snapshot
-        FROM routine_runs
-        WHERE status = 'failed'
-          AND published_signal_id IS NULL
-          AND failure_code IS NOT NULL
-          AND routine_name_snapshot IS NOT NULL
+        FROM "openmeld"."routine_runs"
+        WHERE ${UNPUBLISHED_FAILED_ROUTINE_RUN_SQL}
           AND (
             (
               COALESCE(destination_kind_snapshot, 'space') = 'space'
@@ -1203,41 +1233,21 @@ export async function listUnpublishedFailedRoutineRuns(input: {
           )
           AND (
             next_failure_publication_attempt_at_ms IS NULL
-            OR next_failure_publication_attempt_at_ms <= ?
+            OR next_failure_publication_attempt_at_ms <= $1
           )
         ORDER BY
           COALESCE(
             next_failure_publication_attempt_at_ms,
             finished_at_ms,
             0
-          ) ASC,
-          finished_at_ms ASC,
-          id ASC
-        LIMIT ?
-      `
-    )
-    .bind(input.nowMs, input.limit)
-    .all<{
-      failure_code: string;
-      failure_detail: string | null;
-      failure_publication_attempt_count: number;
-      id: string;
-      organization_id: string;
-      routine_id: string;
-      routine_name_snapshot: string;
-      message_channel_destination_json_snapshot: string | null;
-      destination_kind_snapshot:
-        | "slack_thread"
-        | "space"
-        | "message_channel"
-        | null;
-      slack_channel_id_snapshot: string | null;
-      slack_conversation_id_snapshot: string | null;
-      slack_team_id_snapshot: string | null;
-      slack_thread_ts_snapshot: string | null;
-      target_space_id_snapshot: string | null;
-    }>();
-  return (result.results ?? []).map((row) => ({
+          ) ASC NULLS FIRST,
+          finished_at_ms ASC NULLS FIRST,
+          id ASC NULLS FIRST
+        LIMIT $2
+      `,
+    values: [input.nowMs, input.limit],
+  });
+  return (result.rows ?? []).map((row) => ({
     messageChannelLocator: parseMessageChannelDestination(
       row.message_channel_destination_json_snapshot
     ),
@@ -1258,93 +1268,84 @@ export async function listUnpublishedFailedRoutineRuns(input: {
     targetSpaceId: row.target_space_id_snapshot,
   }));
 }
-
 export async function claimRoutineWorkflowCheckBatch(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   limit: number;
   nowMs: number;
 }): Promise<string[]> {
-  const result = await input.db
-    .prepare(
-      `
-        UPDATE routine_runs
-        SET workflow_last_checked_at_ms = ?
+  const result = await input.db.query<{
+    id: string;
+  }>({
+    text: `
+        UPDATE "openmeld"."routine_runs"
+        SET workflow_last_checked_at_ms = $1
         WHERE id IN (
           SELECT id
-          FROM routine_runs
+          FROM "openmeld"."routine_runs"
           WHERE execution_engine = 'workflow'
             AND status IN ('claimed', 'submitted')
-            AND workflow_last_checked_at_ms < ?
-          ORDER BY workflow_last_checked_at_ms ASC, started_at_ms ASC, id ASC
-          LIMIT ?
+            AND workflow_last_checked_at_ms < $2
+          ORDER BY workflow_last_checked_at_ms ASC NULLS FIRST, started_at_ms ASC NULLS FIRST, id ASC NULLS FIRST
+          LIMIT $3
         )
         RETURNING id
-      `
-    )
-    .bind(input.nowMs, input.nowMs, input.limit)
-    .all<{ id: string }>();
-  return (result.results ?? []).map((row) => row.id);
+      `,
+    values: [input.nowMs, input.nowMs, input.limit],
+  });
+  return (result.rows ?? []).map((row) => row.id);
 }
-
 export async function recordFailedRoutineRunPublicationAttempt(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   nextAttemptAtMs: number;
   runId: string;
 }): Promise<boolean> {
-  const result = await input.db
-    .prepare(
-      `
-        UPDATE routine_runs
+  const result = await input.db.query({
+    text: `
+        UPDATE "openmeld"."routine_runs"
         SET
           failure_publication_attempt_count = failure_publication_attempt_count + 1,
-          next_failure_publication_attempt_at_ms = ?
-        WHERE id = ?
+          next_failure_publication_attempt_at_ms = $1
+        WHERE id = $2
           AND status = 'failed'
           AND published_signal_id IS NULL
-      `
-    )
-    .bind(input.nextAttemptAtMs, input.runId)
-    .run();
-  return Number(result.meta?.changes ?? 0) === 1;
+      `,
+    values: [input.nextAttemptAtMs, input.runId],
+  });
+  return Number(result.rowCount ?? 0) === 1;
 }
-
 export async function markFailedRoutineRunPublished(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   publishedSignalId: string;
   runId: string;
 }): Promise<boolean> {
-  const result = await input.db
-    .prepare(
-      `
-        UPDATE routine_runs
+  const result = await input.db.query({
+    text: `
+        UPDATE "openmeld"."routine_runs"
         SET
-          published_signal_id = ?,
+          published_signal_id = $1,
           next_failure_publication_attempt_at_ms = NULL
-        WHERE id = ?
+        WHERE id = $2
           AND status = 'failed'
           AND published_signal_id IS NULL
-      `
-    )
-    .bind(input.publishedSignalId, input.runId)
-    .run();
-  return Number(result.meta?.changes ?? 0) === 1;
+      `,
+    values: [input.publishedSignalId, input.runId],
+  });
+  return Number(result.rowCount ?? 0) === 1;
 }
-
 function prepareConditionalRoutineAuditStatement(input: {
   action: RoutineAuditAction;
   actor: RoutineAuditActor;
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   organizationId: string;
   routineId: string;
-}): D1PreparedStatement {
+}): QueryConfig {
   const onBehalfOf = input.actor.onBehalfOf;
-  // D1 batches execute sequentially and atomically. Keeping this audit as the
-  // immediate next statement binds changes() to the Routine mutation result.
-  return input.db
-    .prepare(
-      `
-        INSERT INTO center_agent_audit_journal (
+  // The repository writes this audit only after the same transaction's
+  // Routine mutation reports exactly one changed row.
+  return {
+    text: `
+        INSERT INTO "openmeld"."center_agent_audit_journal" (
           id,
           organization_id,
           actor_profile_id,
@@ -1357,11 +1358,9 @@ function prepareConditionalRoutineAuditStatement(input: {
           source_native_delivery_id,
           created_at
         )
-        SELECT ?, ?, ?, ?, ?, ?, ?, 'routine', ?, ?, ?
-        WHERE changes() = 1
-      `
-    )
-    .bind(
+        SELECT $1, $2, $3, $4, $5, $6, $7, 'routine', $8, $9, $10
+      `,
+    values: [
       crypto.randomUUID(),
       input.organizationId,
       input.actor.actorProfileId,
@@ -1371,16 +1370,29 @@ function prepareConditionalRoutineAuditStatement(input: {
       onBehalfOf?.displayName ?? null,
       input.routineId,
       input.actor.sourceNativeDeliveryId,
-      input.nowMs
-    );
+      input.nowMs,
+    ],
+  };
 }
 
-function changedExactlyOneRow(result: D1Result<unknown> | undefined): boolean {
-  return Number(result?.meta.changes ?? 0) === 1;
+async function mutateRoutineWithAudit(
+  db: PostgresDatabase,
+  mutation: QueryConfig,
+  audit: QueryConfig
+): Promise<boolean> {
+  return await db.transaction(async (client) => {
+    if ((await client.query(mutation)).rowCount !== 1) {
+      return false;
+    }
+    await client.query(audit);
+    return true;
+  });
 }
-
 function mapRoutineRow(row: RoutineRow): StoredRoutine {
   return {
+    scope: row.scope,
+    executorKind: row.executor_kind,
+    executorName: row.executor_name ?? "Center Agent",
     agentProfileId: row.agent_profile_id,
     authorizedActions: centerAgentRoutineAuthorizedActionsSchema.parse(
       JSON.parse(row.authorized_actions_json) as unknown
@@ -1420,7 +1432,6 @@ function mapRoutineRow(row: RoutineRow): StoredRoutine {
     updatedByUserId: row.updated_by_user_id,
   };
 }
-
 function mapRoutineLastRunSummary(
   row: RoutineRow
 ): CenterAgentRoutineLastRunSummary | null {
@@ -1449,7 +1460,6 @@ function mapRoutineLastRunSummary(
     status: row.last_run_status,
   };
 }
-
 function mapRoutineRunRow(row: RoutineRunRow): CenterAgentRoutineRun {
   const messageChannelLocator = parseMessageChannelDestination(
     row.message_channel_destination_json_snapshot
@@ -1477,19 +1487,17 @@ function mapRoutineRunRow(row: RoutineRunRow): CenterAgentRoutineRun {
     targetSpaceId: row.target_space_id_snapshot,
   };
 }
-
 function parseRoutineExecutionEngine(
   value: string | null
 ): RoutineExecutionEngine | null {
   if (value === null) {
     return null;
   }
-  if (value === "legacy" || value === "workflow") {
+  if (value === "legacy" || value === "workflow" || value === "local") {
     return value;
   }
   throw new Error(`Routine Run has invalid execution engine ${value}`);
 }
-
 function serializeMessageChannelDestination(
   locator: CenterAgentRoutine["messageChannelLocator"]
 ): string | null {
@@ -1500,7 +1508,6 @@ function serializeMessageChannelDestination(
       })
     : null;
 }
-
 function parseMessageChannelDestination(
   value: string | null
 ): CenterAgentRoutine["messageChannelLocator"] {

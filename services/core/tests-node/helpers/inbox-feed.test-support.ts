@@ -1,63 +1,40 @@
 import type { InboxSourceCandidate } from "@openmeld/schemas/types";
 import { ensureInboxItem } from "../../src/inbox/application/inbox-item-service";
-import {
-  applyDrizzleMigrationsForTables,
-  createSqliteD1Harness,
-} from "./sqlite-d1-harness.test-support";
+import { createPostgresHarness } from "./postgresql-harness.test-support";
 
-export function createInboxFeedFixture() {
-  const harness = createSqliteD1Harness();
-  harness.run({
-    sql: "CREATE TABLE organizations (id TEXT PRIMARY KEY, name TEXT, slug TEXT, created_at INTEGER)",
+export async function createInboxFeedFixture() {
+  const harness = await createPostgresHarness();
+
+  await harness.query({
+    text: "INSERT INTO \"openmeld\".\"organizations\" (id, name, slug, created_at) VALUES ('org', 'Design', 'design', 0), ('other-org', 'Other', 'other', 0)",
   });
-  harness.run({
-    sql: "CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT, email TEXT)",
-  });
-  harness.run({
-    sql: "CREATE TABLE openmeld_profiles (profile_id TEXT PRIMARY KEY, profile_kind TEXT, organization_id TEXT, owner_user_id TEXT, managed_role TEXT)",
-  });
-  harness.run({
-    sql: "CREATE TABLE center_agent_designations (organization_id TEXT PRIMARY KEY, agent_profile_id TEXT)",
-  });
-  applyDrizzleMigrationsForTables(harness, [
-    "inbox_items",
-    "inbox_email_deliveries",
-    "inbox_feed_snapshots",
-    "inbox_feed_snapshot_members",
-    "inbox_notification_preferences",
-    "inbox_message_notification_defaults",
-    "inbox_conversation_notification_preferences",
-    "inbox_center_agent_read_watermarks",
-    "inbox_space_thread_read_watermarks",
-    "space_index_spaces",
-    "space_index_memberships",
-  ]);
-  harness.run({
-    sql: "INSERT INTO organizations VALUES ('org', 'Design', 'design', 0), ('other-org', 'Other', 'other', 0)",
-  });
-  harness.run({
-    sql: "INSERT INTO users VALUES ('owner', 'Owner', 'owner@example.test'), ('other', 'Other', 'other@example.test')",
+  await harness.query({
+    text: "INSERT INTO \"openmeld\".\"users\" (id, name, email) VALUES ('owner', 'Owner', 'owner@example.test'), ('other', 'Other', 'other@example.test')",
   });
   const identity = { organizationId: "org", recipientUserId: "owner" };
-  const space = (spaceId: string, organizationId = "org", owner = "owner") => {
-    harness.run({
-      sql: `INSERT INTO space_index_spaces (space_id, organization_id, organization_visibility, status, source_updated_at_ms, projected_at_ms, projection_event_id)
-      VALUES (?, ?, 'private', 'active', 0, 0, ?)`,
-      params: [spaceId, organizationId, `space-${spaceId}`],
+  const space = async (
+    spaceId: string,
+    organizationId = "org",
+    owner = "owner"
+  ) => {
+    await harness.query({
+      text: `INSERT INTO "openmeld"."space_index_spaces" (space_id, organization_id, organization_visibility, status, source_updated_at_ms, projected_at_ms, projection_event_id)
+      VALUES ($1, $2, 'private', 'active', 0, 0, $3)`,
+      values: [spaceId, organizationId, `space-${spaceId}`],
     });
-    member(spaceId, `${owner}-${spaceId}`, owner, "human");
+    await member(spaceId, `${owner}-${spaceId}`, owner, "human");
   };
-  const member = (
+  const member = async (
     spaceId: string,
     profileId: string,
     owner: string,
     kind: "agent" | "human"
   ) => {
-    harness.run({
-      sql: `INSERT INTO space_index_memberships
+    await harness.query({
+      text: `INSERT INTO "openmeld"."space_index_memberships"
       (space_id, profile_id, profile_kind_snapshot, profile_name_snapshot, owner_user_id_snapshot, status, member_source, added_at_ms, source_updated_at_ms, projected_at_ms, projection_event_id)
-      VALUES (?, ?, ?, ?, ?, 'active', 'joined_directly', 0, 0, 0, ?)`,
-      params: [
+      VALUES ($1, $2, $3, $4, $5, 'active', 'joined_directly', 0, 0, 0, $6)`,
+      values: [
         spaceId,
         profileId,
         kind,
@@ -67,18 +44,23 @@ export function createInboxFeedFixture() {
       ],
     });
   };
-  space("space");
-  space("other-space", "other-org");
-  const agent = (profileId: string, managed = false) => {
-    harness.run({
-      sql: "INSERT INTO openmeld_profiles VALUES (?, 'agent', 'org', ?, ?)",
-      params: [
+  await space("space");
+  await space("other-space", "other-org");
+  const agent = async (profileId: string, managed = false) => {
+    await harness.query({
+      text: "INSERT INTO \"openmeld\".\"openmeld_profiles\" (profile_id, profile_name, profile_handle, source, profile_kind, organization_id, owner_user_id, managed_role) VALUES ($1, $1, $1, 'web_create', 'agent', 'org', $2, $3)",
+      values: [
         profileId,
         managed ? null : "owner",
         managed ? "center_agent" : null,
       ],
     });
-    member("space", profileId, managed ? "organization" : "owner", "agent");
+    await member(
+      "space",
+      profileId,
+      managed ? "organization" : "owner",
+      "agent"
+    );
   };
   const item = (id: string, patch: Partial<InboxSourceCandidate> = {}) =>
     ensureInboxItem({

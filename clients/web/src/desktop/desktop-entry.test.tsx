@@ -160,12 +160,15 @@ describe("Desktop entry session revalidation", () => {
 				<DesktopEntry />
 			</QueryClientProvider>
 		);
-		expect(screen.getByText("Checking your sign-in…")).toBeTruthy();
+		expect(
+			screen.getByLabelText("Opening OpenMeld").getAttribute("aria-busy")
+		).toBe("true");
+		expect(screen.queryByRole("button")).toBeNull();
 		expect(screen.queryByText("Sign in to Desktop")).toBeNull();
 		// An unknown read is an error, not an authoritative signed-out response.
 		await act(() => first.reject(new Error("offline")));
 		fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
-		expect(screen.getByRole("button").hasAttribute("disabled")).toBe(true);
+		expect(screen.queryByRole("button")).toBeNull();
 		fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
 		await waitFor(() =>
 			expect(router.navigate).toHaveBeenCalledWith({

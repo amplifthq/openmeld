@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   AGENT_ACTIVITY_EVENT_MAX_BYTES,
   AGENT_ACTIVITY_EVENT_RETENTION_MS,
@@ -10,17 +11,25 @@ import type {
   SubmitAgentActivityEventResult,
   SubmitAgentActivityEventsResponse,
 } from "@openmeld/schemas/types";
-import { readProjectRecord } from "../projects/project-repository";
+import {
+  readProjectRecord,
+  readProjectRepositorySettingsRecord,
+} from "../projects/project-repository";
 import type { VerifiedRuntimeReportingAuthority } from "../runtime-reporting/runtime-reporting-authority";
 import { acceptAgentActivityEventRecord } from "./activity-event-repository";
 import { linkAcceptedAgentActivityExecutions } from "./activity-execution-link-repository";
 
 type MembershipEvidence =
-  | { ok: true; userId: string }
-  | { ok: false; unavailable: boolean };
-
+  | {
+      ok: true;
+      userId: string;
+    }
+  | {
+      ok: false;
+      unavailable: boolean;
+    };
 export async function acceptAgentActivityEventBatch(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   events: readonly unknown[];
   now?: () => number;
   resolveMembership: (organizationId: string) => Promise<MembershipEvidence>;
@@ -68,7 +77,6 @@ export async function acceptAgentActivityEventBatch(input: {
     },
   });
 }
-
 function isCandidateWithinByteLimit(candidate: unknown): boolean {
   try {
     return (
@@ -79,9 +87,8 @@ function isCandidateWithinByteLimit(candidate: unknown): boolean {
     return false;
   }
 }
-
 async function acceptValidatedEvent(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   event: AgentActivityEvent;
   index: number;
   nowMs: number;
@@ -113,9 +120,26 @@ async function acceptValidatedEvent(input: {
   if (project.archivedAtMs !== null) {
     return reject(input, "project_archived", "permanent_rejected");
   }
+  const settings = await readProjectRepositorySettingsRecord({
+    db: input.db,
+    organizationId: input.event.organizationId,
+    projectId: input.event.projectId,
+  });
+  if (!settings) {
+    return reject(input, "project_missing", "permanent_rejected");
+  }
+  const associatedFingerprints = [
+    ...(settings.legacyDefaultFingerprint
+      ? [settings.legacyDefaultFingerprint]
+      : []),
+    ...settings.repositories.map(
+      (repository) => repository.repositoryFingerprint
+    ),
+  ];
   if (
-    project.repositoryFingerprint !== null &&
-    project.repositoryFingerprint !== input.event.repositoryFingerprint
+    associatedFingerprints.length > 0 &&
+    (input.event.repositoryFingerprint === null ||
+      !associatedFingerprints.includes(input.event.repositoryFingerprint))
   ) {
     return reject(
       input,
@@ -158,7 +182,6 @@ async function acceptValidatedEvent(input: {
     ? reject(input, outcome, "permanent_rejected")
     : { eventId: input.event.eventId, index: input.index, outcome };
 }
-
 function isEventTimeAcceptable(event: AgentActivityEvent, nowMs: number) {
   return (
     event.observedAtMs >= nowMs - AGENT_ACTIVITY_EVENT_RETENTION_MS &&
@@ -166,23 +189,25 @@ function isEventTimeAcceptable(event: AgentActivityEvent, nowMs: number) {
     event.expiresAtMs <= event.observedAtMs + AGENT_ACTIVITY_EVENT_RETENTION_MS
   );
 }
-
 function reject(
-  input: { event: AgentActivityEvent; index: number },
+  input: {
+    event: AgentActivityEvent;
+    index: number;
+  },
   reason: NonNullable<SubmitAgentActivityEventResult["reason"]>,
   outcome: "permanent_rejected" | "retryable_rejected"
 ): SubmitAgentActivityEventResult {
   return { eventId: input.event.eventId, index: input.index, outcome, reason };
 }
-
-function readCandidateEventId(candidate: unknown): { eventId?: string } {
+function readCandidateEventId(candidate: unknown): {
+  eventId?: string;
+} {
   if (!(candidate && typeof candidate === "object" && "eventId" in candidate)) {
     return {};
   }
   const eventId = String(candidate.eventId).trim();
   return eventId.length > 0 && eventId.length <= 256 ? { eventId } : {};
 }
-
 function summarizeBatchStatus(
   results: readonly SubmitAgentActivityEventResult[]
 ): "accepted" | "partial" | "rejected" {
@@ -194,7 +219,6 @@ function summarizeBatchStatus(
   }
   return accepted === 0 ? "rejected" : "partial";
 }
-
 function parseResponse(value: unknown): SubmitAgentActivityEventsResponse {
   const parsed = submitAgentActivityEventsResponseSchema.safeParse(value);
   if (!parsed.success) {

@@ -1,27 +1,49 @@
 import {
+  isLinearIssueCreateAction,
+  pluginActionResponseSchema,
   pluginActionRpcInputSchema,
+  pluginConnectionDescriptionSchema,
+  pluginConnectionGrantSchema,
   pluginRuntimeResponseSchema,
+  projectIssueDestinationSchema,
+  readLinearIssueActionDestination,
+  readLinearIssueReference,
 } from "@openmeld/schemas";
 import type {
   PluginActionRequest,
   PluginActionResponse,
   PluginActionRpcInput,
   PluginRuntimeRequest,
+  ResolveProjectIssueActionResponse,
 } from "@openmeld/schemas/types";
 import { digestCanonicalJson } from "@openmeld/utils";
+import { requireDelegatedPluginAction } from "../center-agent/application/delegated-plugin-authorization";
 import {
   buildCenterAgentConnectorActionOperationScope,
   readCenterAgentConnectorActionOperationForRecovery,
   readCenterAgentConnectorActionOperationForRequest,
+  readConnectorActionReplayPermission,
   recordCenterAgentConnectorActionOperation,
 } from "../center-agent/connector-action-operation-repository";
+import { ensurePersonalComputer } from "../computer/personal-computer";
 import type { CoreBindings } from "../lib/bindings";
 import { readOrganizationAccountIdentityProjection } from "../organizations/organization-context";
-import { createCoreRpcHttpError } from "../rpc/errors";
+import {
+  projectIssueRoutingDecisionForClaim,
+  readLocalIssueTaskProjects,
+  resolveProjectIssueAction,
+} from "../projects/project-issue-action-routing";
+import { listProjectIssueRoutingCandidates } from "../projects/project-repository";
+import {
+  createCoreRpcHttpError,
+  isRpcReceiverMethodNotImplementedErrorForMethod,
+} from "../rpc/errors";
 import {
   type ConnectorConnectionRecord,
   listConnectorConnections,
+  requireConnectorConnectionForExecution,
 } from "./connector-connection-repository";
+import { requireConnectorVerificationRead } from "./connector-verification-read";
 import {
   pluginPermissionAllows,
   readPluginAccess,
@@ -29,6 +51,11 @@ import {
   selectPluginConnection,
 } from "./plugin-access";
 import { preparePluginActionConfirmation } from "./plugin-action-confirmation";
+import {
+  type PluginRequestExecutionGuard,
+  preparePluginActionRequest,
+  readPluginActionRequestForOperation,
+} from "./plugin-action-requests";
 import {
   assertBoundPluginConnection,
   boundPluginConnectionPreference,
@@ -62,6 +89,7 @@ export async function rpcPluginAction(
   const input = parsed.data;
   const caller = await requireLocalPluginCaller(env, input);
   const action = input.request.action;
+  const grant = await requireLocalDelegatedAction(caller, action);
   if (action.operation === "connect") {
     return await localPluginConnectionGuidance(env, caller, action);
   }
@@ -69,11 +97,202 @@ export async function rpcPluginAction(
     return await listAvailableConnections(env, caller);
   }
   if (action.operation === "execute") {
-    const recovered = await recoverOperation(caller, action);
+    const recovered = await recoverOperation(
+      env,
+      caller,
+      action,
+      input.request.includeRecoveryReceipt === true
+    );
     if (recovered) {
       return recovered;
     }
   }
+  const selected = await selectLocalConnection(env, caller, action, grant);
+  const connection = await presentConnection(env, caller, selected.connection);
+  if (action.operation === "connection") {
+    return await openLocalNativeConnection(
+      env,
+      input,
+      caller,
+      connection,
+      selected.connection,
+      action
+    );
+  }
+  const catalog = await callRuntime(env, {
+    operation: "list",
+    service: action.service,
+    ...(action.operation === "actions" ? {} : { actionId: action.actionId }),
+  });
+  if (catalog.status !== "catalog") {
+    throw failure(
+      "plugin.catalog_unavailable",
+      "The plugin action catalog is unavailable.",
+      503
+    );
+  }
+  if (action.operation === "actions") {
+    return {
+      kind: "actions",
+      connection,
+      actions: permittedLocalActions(catalog.actions, connection, caller),
+    };
+  }
+  const metadata = catalog.actions.find(
+    (candidate) => candidate.id === action.actionId
+  );
+  if (!metadata) {
+    throw failure(
+      "plugin.action_unavailable",
+      "This action is not available. List the plugin’s actions again.",
+      404
+    );
+  }
+  readLinearIssueActionDestination({
+    actionId: action.actionId,
+    service: action.service,
+    actionInput: action.input,
+    inputSchema: metadata.inputSchema,
+  });
+  return await executeSelectedAction(
+    env,
+    input,
+    caller,
+    action,
+    connection,
+    metadata.effect ?? "unspecified",
+    grant
+  );
+}
+
+async function openLocalNativeConnection(
+  env: CoreBindings,
+  input: PluginActionRpcInput,
+  caller: Caller,
+  connection: Connection,
+  record: ConnectorConnectionRecord,
+  action: Extract<PluginActionRequest["action"], { operation: "connection" }>
+): Promise<PluginActionResponse> {
+  const runtime = env.OPENMELD_REMOTE_AGENT_WORKER;
+  if (
+    !(
+      runtime?.describePluginConnection &&
+      runtime.createPluginComputerConnection
+    )
+  ) {
+    throw failure(
+      "plugin.runtime_unavailable",
+      "Plugin connection access is unavailable.",
+      503
+    );
+  }
+  const description = pluginConnectionDescriptionSchema.parse(
+    await runtime
+      .describePluginConnection({
+        service: action.service,
+        connectionName: record.connectionName,
+      })
+      .catch(rethrowNativeConnectionReceiverError)
+  );
+  if (
+    !(action.computer && description.nativeHttp) ||
+    description.connection?.health.state === "reconnect_required"
+  ) {
+    return {
+      kind: "native_connection",
+      connection,
+      description,
+      nextAction:
+        description.connection?.health.state === "reconnect_required"
+          ? "Reconnect this account in Plugins."
+          : "Use --computer to reuse this account on your cloud Computer. If no native transport is declared, use Plugin actions.",
+    };
+  }
+  const computer = await ensurePersonalComputer(caller.db, caller.ownerUserId);
+  const id = await digestCanonicalJson([
+    caller.organizationId,
+    caller.ownerUserId,
+    caller.actorProfileId,
+    input.request.dispatchId ?? null,
+    "plugin",
+    action.key,
+  ]);
+  const expiresAtMs = Date.now() + 29 * 60 * 1000;
+  const grant = pluginConnectionGrantSchema.parse({
+    id,
+    service: action.service,
+    organizationId: caller.organizationId,
+    requesterUserId: caller.ownerUserId,
+    connectionName: record.connectionName,
+    connectionUpdatedAtMs: record.updatedAtMs,
+    connectionScope: record.scope,
+    expiresAtMs,
+    authority: { kind: "local", request: input },
+  });
+  const result = await runtime
+    .createPluginComputerConnection({
+      computer,
+      grant,
+    })
+    .catch(rethrowNativeConnectionReceiverError);
+  return pluginActionResponseSchema.parse({
+    kind: "native_connection",
+    connection,
+    ...(result as object),
+    expiresAtMs,
+  });
+}
+
+function rethrowNativeConnectionReceiverError(error: unknown): never {
+  if (
+    ["describePluginConnection", "createPluginComputerConnection"].some(
+      (method) => isRpcReceiverMethodNotImplementedErrorForMethod(error, method)
+    )
+  ) {
+    throw failure(
+      "plugin.runtime_unavailable",
+      "Plugin connection access is temporarily unavailable during the server update. Try again shortly.",
+      503
+    );
+  }
+  throw error;
+}
+
+/** Internal reauthorization uses the same caller and connection selection as the public operation. */
+export async function authorizeLocalPluginConnection(
+  env: CoreBindings,
+  value: unknown
+) {
+  const input = pluginActionRpcInputSchema.parse(value);
+  if (input.request.action.operation !== "connection") {
+    throw failure(
+      "plugin.request_invalid",
+      "A native connection request is required."
+    );
+  }
+  const caller = await requireLocalPluginCaller(env, input);
+  const grant = await requireLocalDelegatedAction(caller, input.request.action);
+  const selected = await selectLocalConnection(
+    env,
+    caller,
+    input.request.action,
+    grant
+  );
+  return {
+    connection: selected.connection,
+    permission: selected.permission,
+  };
+}
+
+async function selectLocalConnection(
+  env: CoreBindings,
+  caller: Caller,
+  action: Exclude<
+    PluginActionRequest["action"],
+    { operation: "list" | "connect" }
+  >,
+  grant: Awaited<ReturnType<typeof requireLocalDelegatedAction>>
+) {
   if (action.account === "personal" && !caller.personalAllowed) {
     throw failure(
       "plugin.personal_request_required",
@@ -105,65 +324,157 @@ export async function rpcPluginAction(
     );
   }
   assertBoundPluginConnection(binding, action.service, selected.connection);
-  const connection = await presentConnection(env, caller, selected.connection);
-  const catalog = await callRuntime(env, {
-    operation: "list",
-    service: action.service,
-  });
-  if (catalog.status !== "catalog") {
-    throw failure(
-      "plugin.catalog_unavailable",
-      "The plugin action catalog is unavailable.",
-      503
-    );
-  }
-  if (action.operation === "actions") {
-    return {
-      kind: "actions",
-      connection,
-      actions: catalog.actions.filter((candidate) =>
-        pluginPermissionAllows(
-          connection.permission,
-          candidate.effect ?? "unspecified"
-        )
-      ),
-    };
-  }
-  const metadata = catalog.actions.find(
-    (candidate) => candidate.id === action.actionId
-  );
-  if (!metadata) {
-    throw failure(
-      "plugin.action_unavailable",
-      "This action is not available. List the plugin’s actions again.",
-      404
-    );
-  }
-  const effect = metadata.effect ?? "unspecified";
+  assertDelegatedConnection(grant, selected.connection);
+  return selected;
+}
+
+async function executeSelectedAction(
+  env: CoreBindings,
+  input: PluginActionRpcInput,
+  caller: Caller,
+  action: Execution,
+  connection: Connection,
+  effect: "read" | "write" | "destructive" | "unspecified",
+  grant: Awaited<ReturnType<typeof requireLocalDelegatedAction>>
+): Promise<PluginActionResponse> {
+  assertDelegatedEffect(grant, effect);
   if (!pluginPermissionAllows(connection.permission, effect)) {
     throw failure(
       "plugin.action_forbidden",
       "This connection allows read-only access for Local Agents."
     );
   }
+  const issueResolution = await resolveLocalPluginIssueRoutingDecision({
+    action,
+    actionId: action.actionId,
+    caller,
+    context: input.context,
+    dispatchId: input.request.dispatchId ?? null,
+    env,
+  });
   const signature = await requestSignature(
     caller,
     action,
     connection.connectionName
   );
-  if (effect === "destructive" || effect === "unspecified") {
-    const { revision } = await readPluginAccess({
+  let requestRoot = caller.authorizedRequestRoot;
+  const issueConfirmationRequired =
+    issueResolution?.basis === "confirmation_required";
+  const purpose = issueConfirmationRequired
+    ? ("issue_destination" as const)
+    : undefined;
+  const needsHumanApproval = !requestRoot || issueConfirmationRequired;
+  let executionGuard: PluginRequestExecutionGuard | undefined;
+  if (effect !== "read") {
+    const current = await requireConnectorConnectionForExecution({
       ...caller,
       connectionName: connection.connectionName,
     });
-    const confirmation = await preparePluginActionConfirmation({
+    const access = await readPluginAccess({
       ...caller,
-      accessRevision: revision,
-      requestSignature: signature,
-      token: action.confirmationToken,
+      connectionName: connection.connectionName,
+      activeOnly: true,
     });
-    if (confirmation) {
-      return {
+    if (action.verificationOf) {
+      await requireConnectorVerificationRead({
+        db: caller.db,
+        scope: operationScope(caller, action),
+        reference: action.verificationOf,
+        effect,
+        connection,
+        connectionUpdatedAtMs: current.updatedAtMs,
+      });
+    }
+    if (needsHumanApproval) {
+      const { permission: _permission, ...executionConnection } = connection;
+      const authorization = await preparePluginActionRequest({
+        db: caller.db,
+        requestId: action.authorizationRequestId,
+        intent: {
+          purpose,
+          organizationId: caller.organizationId,
+          userId: caller.representedUserId,
+          actorProfileId: caller.actorProfileId,
+          operationId: action.operationId,
+          sourceRequestKey: caller.sourceRequestKey ?? null,
+          connection: executionConnection,
+          connectionUpdatedAtMs: current.updatedAtMs,
+          accessRevision: access.revision,
+          service: action.service,
+          actionId: action.actionId,
+          effect,
+          input: action.input,
+        },
+      });
+      if (!authorization.root) {
+        if (input.request.includeRequestAuthorization) {
+          return {
+            kind: "authorization_required",
+            request: authorization.request,
+          };
+        }
+        throw failure(
+          "request_authorization_required",
+          "Open your Inbox in OpenMeld to review this Plugin request, then repeat the same command and operation ID.",
+          409
+        );
+      }
+      requestRoot = authorization.root;
+      executionGuard = authorization.executionGuard;
+    }
+  }
+  const confirmation = await prepareLocalDestructiveConfirmation({
+    caller,
+    action,
+    connection,
+    effect,
+    signature,
+  });
+  if (confirmation) {
+    return confirmation;
+  }
+  return await executeAction(
+    env,
+    {
+      ...(await requireLocalPluginCaller(env, input)),
+      ...(requestRoot ? { sourceRequestKey: requestRoot } : {}),
+    },
+    action,
+    connection,
+    signature,
+    effect,
+    projectIssueRoutingDecisionForClaim(issueResolution),
+    input.request.includeRecoveryReceipt === true,
+    executionGuard
+  );
+}
+
+async function prepareLocalDestructiveConfirmation(input: {
+  caller: Caller;
+  action: Execution;
+  connection: Connection;
+  effect: "read" | "write" | "destructive" | "unspecified";
+  signature: string;
+}): Promise<Extract<
+  PluginActionResponse,
+  { kind: "confirmation_required" }
+> | null> {
+  const { caller, action, connection, effect, signature } = input;
+  if (effect !== "destructive" && effect !== "unspecified") {
+    return null;
+  }
+  const { revision } = await readPluginAccess({
+    ...caller,
+    connectionName: connection.connectionName,
+  });
+  const confirmation = await preparePluginActionConfirmation({
+    ...caller,
+    accessRevision: revision,
+    requestSignature: signature,
+    token: action.confirmationToken,
+  });
+  return confirmation
+    ? {
         kind: "confirmation_required",
         actionId: action.actionId,
         operationId: action.operationId,
@@ -172,17 +483,92 @@ export async function rpcPluginAction(
         expiresAtMs: confirmation.expiresAtMs,
         message:
           "Review this exact action, input, and account with the requester before repeating it with the confirmation token.",
-      };
-    }
+      }
+    : null;
+}
+
+function assertDelegatedEffect(
+  grant: Awaited<ReturnType<typeof requireLocalDelegatedAction>>,
+  effect: string
+) {
+  if (grant && grant.effect !== effect) {
+    throw failure(
+      "plugin.delegation_scope_mismatch",
+      "This action's effect differs from the delegated authorization."
+    );
   }
-  return await executeAction(
-    env,
-    caller,
-    action,
-    connection,
-    signature,
-    effect
+}
+
+function permittedLocalActions(
+  actions: Extract<PluginActionResponse, { kind: "actions" }>["actions"],
+  connection: Connection,
+  caller: Caller
+) {
+  return actions.filter(
+    (action) =>
+      pluginPermissionAllows(
+        connection.permission,
+        action.effect ?? "unspecified"
+      ) &&
+      (!caller.delegatedPluginActions ||
+        caller.delegatedPluginActions.some(
+          (grant) =>
+            grant.connectionName === connection.connectionName &&
+            grant.actionId === action.id &&
+            grant.effect === action.effect &&
+            grant.expiresAtMs > Date.now()
+        ))
   );
+}
+
+async function resolveLocalPluginIssueRoutingDecision(input: {
+  action: Execution;
+  actionId: string;
+  caller: Caller;
+  context: PluginActionRpcInput["context"];
+  dispatchId: string | null;
+  env: CoreBindings;
+}): Promise<ResolveProjectIssueActionResponse | null> {
+  const { action, actionId, caller, context, dispatchId, env } = input;
+  if (
+    !(
+      (action.service === "github" && actionId === "github.create_issue") ||
+      (action.service === "linear" && isLinearIssueCreateAction(actionId))
+    )
+  ) {
+    return null;
+  }
+  const proposedDestination = projectIssueDestinationSchema.parse(
+    action.service === "github"
+      ? {
+          provider: "github",
+          owner: action.input.owner,
+          repo: action.input.repo,
+        }
+      : {
+          provider: "linear",
+          teamId: action.input.team_id,
+          ...(action.input.project_id === undefined
+            ? {}
+            : { projectId: action.input.project_id }),
+        }
+  );
+  const taskProjectIds = await readLocalIssueTaskProjects({
+    context,
+    dispatchId,
+    env,
+    sourceSignalId: caller.sourceSignalId,
+    sourceSpaceId: caller.sourceSpaceId,
+    targetProfileId: caller.actorProfileId,
+  });
+  return resolveProjectIssueAction({
+    projects: await listProjectIssueRoutingCandidates({
+      db: caller.db,
+      organizationId: caller.organizationId,
+    }),
+    proposedDestination,
+    taskProjectIds,
+  });
 }
 
 async function readLocalContinuationBinding(
@@ -217,6 +603,18 @@ async function listAvailableConnections(
   });
   const connections: Connection[] = [];
   for (const record of records) {
+    if (
+      caller.delegatedPluginActions &&
+      !caller.delegatedPluginActions.some(
+        (grant) =>
+          grant.connectionName === record.connectionName &&
+          grant.connectionUpdatedAtMs === record.updatedAtMs &&
+          grant.connectionOwnerUserId === record.userId &&
+          grant.expiresAtMs > Date.now()
+      )
+    ) {
+      continue;
+    }
     if (
       record.status !== "active" ||
       (record.scope === "member" && !caller.personalAllowed)
@@ -301,12 +699,15 @@ async function requestSignature(
     account: action.account,
     input: action.input,
     connectionName,
+    ...(action.verificationOf ? { verificationOf: action.verificationOf } : {}),
   });
 }
 
 async function recoverOperation(
+  env: CoreBindings,
   caller: Caller,
-  action: Execution
+  action: Execution,
+  includeRecoveryReceipt: boolean
 ): Promise<PluginActionResponse | null> {
   const scope = operationScope(caller, action);
   const existing = await readCenterAgentConnectorActionOperationForRecovery({
@@ -316,6 +717,12 @@ async function recoverOperation(
     service: action.service,
   });
   if (!existing) {
+    if (action.replay) {
+      throw failure(
+        "plugin.replay_receipt_unavailable",
+        "Read the original operation receipt before requesting a replay."
+      );
+    }
     return null;
   }
   await readCenterAgentConnectorActionOperationForRequest({
@@ -336,6 +743,32 @@ async function recoverOperation(
       503
     );
   }
+  const current = await requireConnectorConnectionForExecution({
+    ...caller,
+    connectionName: existing.executionConnection.connectionName,
+  });
+  assertDelegatedConnection(
+    await requireLocalDelegatedAction(caller, action),
+    current
+  );
+  if (
+    current.status !== "active" ||
+    current.userId !== existing.executionConnection.ownerUserId ||
+    (existing.connectionUpdatedAtMs !== null &&
+      current.updatedAtMs !== existing.connectionUpdatedAtMs) ||
+    current.scope !== existing.executionConnection.scope ||
+    current.service !== action.service
+  ) {
+    throw failure(
+      "plugin.operation_identity_changed",
+      "The original operation account is no longer available."
+    );
+  }
+  await presentConnection(env, caller, current);
+  const replay = await readLocalReplayPermission(caller, existing);
+  if (action.replay && includeRecoveryReceipt && replay.allowed) {
+    return null;
+  }
   return {
     kind: "execution",
     actionId: action.actionId,
@@ -344,7 +777,36 @@ async function recoverOperation(
     replayed: true,
     connection: existing.executionConnection,
     providerExecutionId: existing.providerExecutionId,
+    ...(existing.linearIssueReceipt
+      ? {
+          data: {
+            id: existing.linearIssueReceipt.id,
+            identifier: existing.linearIssueReceipt.identifier,
+            ticket_url: existing.linearIssueReceipt.url,
+          },
+        }
+      : {}),
+    ...(includeRecoveryReceipt ? { replay } : {}),
   };
+}
+
+function readCompletedLinearIssueReceipt(
+  action: Execution,
+  result: Awaited<ReturnType<typeof callRuntime>>
+) {
+  if (
+    result.status !== "completed" ||
+    action.service !== "linear" ||
+    !isLinearIssueCreateAction(action.actionId)
+  ) {
+    return undefined;
+  }
+  return (
+    readLinearIssueReference({
+      actionInput: action.input,
+      data: result.data,
+    }) ?? undefined
+  );
 }
 
 async function executeAction(
@@ -353,8 +815,29 @@ async function executeAction(
   action: Execution,
   connection: Connection,
   signature: string,
-  effect: "read" | "write" | "destructive" | "unspecified"
+  effect: "read" | "write" | "destructive" | "unspecified",
+  issueRoutingDecision: Parameters<
+    typeof recordCenterAgentConnectorActionOperation
+  >[0]["issueRoutingDecision"],
+  includeRecoveryReceipt: boolean,
+  executionGuard?: PluginRequestExecutionGuard
 ): Promise<PluginActionResponse> {
+  const grant = await requireLocalDelegatedAction(caller, action);
+  const current = await requireConnectorConnectionForExecution({
+    ...caller,
+    connectionName: connection.connectionName,
+  });
+  assertDelegatedConnection(grant, current);
+  if (
+    current.scope !== connection.scope ||
+    current.userId !== connection.ownerUserId ||
+    current.service !== connection.service
+  ) {
+    throw failure(
+      "plugin.operation_identity_changed",
+      "The selected account changed before execution."
+    );
+  }
   await requirePluginPermission({
     ...caller,
     connectionName: connection.connectionName,
@@ -362,6 +845,14 @@ async function executeAction(
     effect,
   });
   const { permission: _permission, ...executionConnection } = connection;
+  const verificationOf = await requireConnectorVerificationRead({
+    db: caller.db,
+    scope: operationScope(caller, action),
+    reference: action.verificationOf,
+    effect,
+    connection: executionConnection,
+    connectionUpdatedAtMs: current.updatedAtMs,
+  });
   const operation = {
     db: caller.db,
     organizationId: caller.organizationId,
@@ -384,24 +875,48 @@ async function executeAction(
     service: action.service,
     connectionName: connection.connectionName,
     executionConnection,
+    connectionUpdatedAtMs: current.updatedAtMs,
     requestSignature: signature,
+    effect,
+    sourceRequestKey: caller.sourceRequestKey,
+    effectSignature: await digestCanonicalJson({
+      actionId: action.actionId,
+      service: action.service,
+      input: action.input,
+      connectionName: connection.connectionName,
+    }),
   };
   const claim = await recordCenterAgentConnectorActionOperation({
     ...operation,
+    issueRoutingDecision,
     outcome: "attempted",
     nowMs: Date.now(),
     providerExecutionId: null,
+    allowReplay: action.replay === true && includeRecoveryReceipt,
+    executionGuard,
   });
-  if (claim.replayed) {
-    const recovered = await recoverOperation(caller, action);
-    if (!recovered) {
+  if (!claim.executionAllowed) {
+    if (!claim.operation.executionConnection) {
       throw failure(
-        "plugin.operation_unavailable",
-        "The operation could not be recovered.",
+        "plugin.operation_identity_unavailable",
+        "The original operation account is unavailable.",
         503
       );
     }
-    return recovered;
+    return {
+      kind: "execution",
+      actionId: claim.operation.actionId,
+      operationId: claim.operation.operationId,
+      connection: claim.operation.executionConnection,
+      replayed: true,
+      status: claim.operation.status,
+      providerExecutionId: claim.operation.providerExecutionId,
+      ...(includeRecoveryReceipt
+        ? {
+            replay: await readLocalReplayPermission(caller, claim.operation),
+          }
+        : {}),
+    };
   }
   const result = await callRuntime(env, {
     operation: "execute",
@@ -429,26 +944,95 @@ async function executeAction(
       503
     );
   }
-  if (result.status !== "pending") {
-    await recordCenterAgentConnectorActionOperation({
+  const linearIssueReceipt = readCompletedLinearIssueReceipt(action, result);
+  let persisted:
+    | Awaited<ReturnType<typeof recordCenterAgentConnectorActionOperation>>
+    | undefined;
+  try {
+    persisted = await recordCenterAgentConnectorActionOperation({
       ...operation,
-      outcome: result.status,
+      linearIssueReceipt,
+      outcome: result.status === "pending" ? "outcome_unknown" : result.status,
       nowMs: Date.now(),
       providerExecutionId: result.providerExecutionId,
     });
+  } catch {
+    return {
+      kind: "execution",
+      actionId: action.actionId,
+      operationId: action.operationId,
+      connection: executionConnection,
+      replayed: claim.replayed,
+      status: "outcome_unknown",
+      providerExecutionId: result.providerExecutionId,
+      error:
+        "The provider result could not be durably recorded. Check the original target; do not issue a new write.",
+      ...(includeRecoveryReceipt
+        ? {
+            executionConfirmation:
+              result.status === "completed"
+                ? ("executed" as const)
+                : ("unknown" as const),
+            replay: {
+              allowed: false as const,
+              reason: "window_unverified" as const,
+            },
+          }
+        : {}),
+    };
   }
   return {
     kind: "execution",
     actionId: action.actionId,
     operationId: action.operationId,
     connection: executionConnection,
-    replayed: false,
+    ...(verificationOf ? { verificationOf } : {}),
+    replayed: claim.replayed,
     status: result.status,
     providerExecutionId: result.providerExecutionId,
+    ...(includeRecoveryReceipt
+      ? {
+          replay: await readLocalReplayPermission(caller, persisted.operation),
+        }
+      : {}),
     ...(result.status === "completed"
       ? { data: result.data }
       : { error: result.error }),
   };
+}
+
+async function readLocalReplayPermission(
+  caller: Caller,
+  operation: NonNullable<
+    Awaited<
+      ReturnType<typeof readCenterAgentConnectorActionOperationForRecovery>
+    >
+  >
+) {
+  const replay = await readConnectorActionReplayPermission({
+    actorProfileId: caller.actorProfileId,
+    db: caller.db,
+    operation,
+    nowMs: Date.now(),
+  });
+  if (!replay.allowed) {
+    return replay;
+  }
+  if (caller.authorizedRequestRoot) {
+    return replay;
+  }
+  const authority = await readPluginActionRequestForOperation({
+    ...caller,
+    userId: caller.representedUserId,
+    operationId: operation.operationId,
+  });
+  const remainingWindowMs = Math.min(
+    replay.remainingWindowMs,
+    (authority?.expiresAtMs ?? 0) - Date.now()
+  );
+  return remainingWindowMs > 0
+    ? { ...replay, remainingWindowMs }
+    : { allowed: false as const, reason: "window_unverified" as const };
 }
 
 async function callRuntime(env: CoreBindings, input: PluginRuntimeRequest) {
@@ -473,4 +1057,59 @@ async function callRuntime(env: CoreBindings, input: PluginRuntimeRequest) {
 
 function failure(code: string, reason: string, status = 403) {
   return createCoreRpcHttpError({ code, reason, status });
+}
+
+async function requireLocalDelegatedAction(
+  caller: Caller,
+  action: PluginActionRequest["action"]
+) {
+  if (!caller.delegatedPluginActions || action.operation === "list") {
+    return undefined;
+  }
+  if (action.operation === "connect" || action.operation === "connection") {
+    throw failure(
+      "plugin.delegation_scope_mismatch",
+      "A delegated action must use its explicitly authorized connection."
+    );
+  }
+  const accountGrants = caller.delegatedPluginActions.filter(
+    (candidate) =>
+      candidate.connectionScope ===
+      (action.account === "personal" ? "member" : "shared")
+  );
+  const grant = requireDelegatedPluginAction(accountGrants, {
+    service: action.service,
+    ...(action.operation === "execute" ? { actionId: action.actionId } : {}),
+  });
+  if (action.operation === "execute") {
+    return requireDelegatedPluginAction(accountGrants, {
+      service: action.service,
+      actionId: action.actionId,
+      requestSignature: await digestCanonicalJson({
+        actionId: action.actionId,
+        service: action.service,
+        connectionName: grant.connectionName,
+        input: action.input,
+      }),
+    });
+  }
+  return grant;
+}
+
+function assertDelegatedConnection(
+  grant: Awaited<ReturnType<typeof requireLocalDelegatedAction>>,
+  connection: ConnectorConnectionRecord
+) {
+  if (
+    grant &&
+    (grant.connectionName !== connection.connectionName ||
+      grant.connectionUpdatedAtMs !== connection.updatedAtMs ||
+      grant.connectionOwnerUserId !== connection.userId ||
+      grant.connectionScope !== connection.scope)
+  ) {
+    throw failure(
+      "plugin.delegation_account_changed",
+      "The account selected for this delegation has changed."
+    );
+  }
 }

@@ -1,0 +1,60 @@
+{
+  "entries": [
+    {
+      "areas": ["inbox", "web"],
+      "audiences": ["users"],
+      "body": "The Inbox toolbar now shares the full Inbox's conversation and system-update\ngroups. Scroll to load older items, expand a group, or mark it as read without\nleaving your work. Pending requests stay visible after reading, and the full\nInbox remains one click away. Loading failures offer a retry without discarding\nupdates already on screen.",
+      "evidence": [
+        "pr:1530",
+        "commit:28242f81d13293ddb3154ac27fe36137f4cef7eb",
+        "worker-version:9ad65d51-9690-4d55-a2c1-95cb50d1f4d5"
+      ],
+      "id": "toolbar-inbox-grouped-feed",
+      "kind": "improved",
+      "publishedAt": "2026-10-07",
+      "release": "v0.3.246",
+      "title": "Browse grouped updates from the Inbox toolbar"
+    },
+    {
+      "areas": ["usage", "computers", "routines"],
+      "audiences": ["users"],
+      "body": "Usage charts keep Claude orange and GPT blue-purple, matching their Local Agent\ncolors. Model variants stay within their brand's color family when you switch\nbetween Organization and My agents, change the date range, or view a Computer.\nChart lines, legends, and tooltips use matching colors in light and dark themes.\n\nThe settings sidebar and page now use the name AI usage. Organization usage\nshows the workspace total, while My agents includes both Remote Agent costs\nand Local Agent tokens for your agents.\n\nRoutine counts move out of AI usage and appear beside the Routines page title\nas a compact count, such as 3/50. Hover over or focus the count to see the limit.",
+      "evidence": [
+        "pr:1529",
+        "commit:28242f81d13293ddb3154ac27fe36137f4cef7eb",
+        "worker-version:9ad65d51-9690-4d55-a2c1-95cb50d1f4d5"
+      ],
+      "id": "consistent-usage-brand-colors",
+      "kind": "fixed",
+      "publishedAt": "2026-10-07",
+      "release": "v0.3.246",
+      "title": "Clearer AI usage charts"
+    },
+    {
+      "areas": ["agents", "openmeld-service"],
+      "audiences": ["users"],
+      "body": "Local agents can use OpenCode 2 or the official Antigravity ACP installation.\nBoth support continued conversations, native tools, permission requests, and\nquestions through the existing OpenMeld controls. Existing OpenCode 1 and\nAntigravity CLI installations remain supported.\n\nAntigravity status checks do not start sign-in. A connected provider account is\nstill required to run its models. Automatic reply repair remains unavailable\nfor these two new transports until their tool restrictions can be verified.",
+      "evidence": [
+        "pr:1540",
+        "commit:28242f81d13293ddb3154ac27fe36137f4cef7eb",
+        "workflow:37512193993",
+        "dispatch:8e50474d-da2c-4d3d-9a60-15e57e952212"
+      ],
+      "id": "opencode2-antigravity-acp",
+      "kind": "new",
+      "publishedAt": "2026-10-07",
+      "release": "v0.3.246",
+      "title": "Connect OpenCode 2 and Antigravity ACP"
+    }
+  ],
+  "hasMore": true,
+  "latestPublishedAt": "2026-10-07",
+  "schemaVersion": 1,
+  "source": {
+    "kind": "github",
+    "path": "changelog/index.json",
+    "ref": "main",
+    "repository": "amplifthq/openmeld"
+  },
+  "totalMatching": 233
+}

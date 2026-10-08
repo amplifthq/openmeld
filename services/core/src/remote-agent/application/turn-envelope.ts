@@ -1,7 +1,9 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   buildMessageChannelConversationId,
   buildOpenMeldOrganizationWebUrl,
   deriveCenterAgentDirectMessageSpaceProjection,
+  resolveUserTimeContext,
 } from "@openmeld/schemas";
 import type {
   AgentDelegationSnapshot,
@@ -25,6 +27,7 @@ import {
   toWorkingLanguageGuidance,
 } from "../../organizations/organization-working-language-repository";
 import { readCenterAgentDirectMessageProjectionCandidateBySpaceId } from "../../space-index/space-index-repository";
+import { readUserTimeContext } from "../../user-time-context/user-time-context-repository";
 import { parseCoreOwnedRemoteAgentTurnEnvelope } from "./center-agent-context-scope";
 
 type OrganizationEnvelopeFacts = {
@@ -35,7 +38,6 @@ type OrganizationEnvelopeFacts = {
   webUrl?: string;
   workingLanguage?: RemoteAgentTurnEnvelope["organization"]["workingLanguage"];
 };
-
 type SenderEnvelopeFacts = {
   callerContext?: NonNullable<
     OpenMeldDaemonDispatchQueueMessage["sourceSignalSnapshot"]
@@ -48,29 +50,26 @@ type SenderEnvelopeFacts = {
   role?: string;
   verified: boolean;
 };
-
 type SpaceEnvelopeFacts = {
   id: string;
   isCenterAgentDm: boolean;
   kind: "dm" | "space";
   name: string;
 };
-
 type RemoteAgentTurnEnvelopeFacts = {
+  requestTimeContext?: RemoteAgentTurnEnvelope["requestTimeContext"];
   centerAgent: CenterAgentProfileIdentity;
   centerAgentInteractionSource?: RemoteAgentTurnEnvelope["centerAgentInteractionSource"];
   organization: OrganizationEnvelopeFacts;
   sender: SenderEnvelopeFacts;
   space: SpaceEnvelopeFacts;
 };
-
 type OrganizationRow = {
   member_count: number | null;
   metadata: string | null;
   name: string;
   slug: string;
 };
-
 type SenderRow = {
   member_id: string | null;
   owner_user_id: string;
@@ -79,18 +78,16 @@ type SenderRow = {
   profile_name: string;
   role: string | null;
 };
-
 type RoutineSpaceRow = {
   direct_message_pair_key: string | null;
   organization_id: string;
   space_name: string | null;
   space_purpose: string | null;
 };
-
 export async function resolveRemoteAgentTurnEnvelope(input: {
   author: RemoteAgentWorkerAuthorContext;
   centerAgentProfileId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   message: OpenMeldDaemonDispatchQueueMessage;
   organizationId: string;
   webAppUrl?: string;
@@ -118,8 +115,15 @@ export async function resolveRemoteAgentTurnEnvelope(input: {
       organizationId: input.organizationId,
     }),
   ]);
-
   return buildRemoteAgentTurnEnvelope({
+    requestTimeContext: input.message.sourceSignalSnapshot
+      ?.requestTimeContext ?? {
+      submittedAtMs: input.message.enqueuedAtMs,
+      userTime:
+        sender.verified && sender.kind === "member" && sender.ownerUserId
+          ? await readUserTimeContext(input.db, sender.ownerUserId)
+          : resolveUserTimeContext(null),
+    },
     centerAgent,
     centerAgentInteractionSource:
       input.message.sourceSignalSnapshot?.centerAgentInteractionSource,
@@ -131,7 +135,6 @@ export async function resolveRemoteAgentTurnEnvelope(input: {
     space,
   });
 }
-
 function routineTriggerDestination(
   destination: Parameters<
     typeof resolveRemoteAgentRoutineTurnEnvelope
@@ -142,13 +145,12 @@ function routineTriggerDestination(
   }
   return { ...destination, label: destination.label ?? undefined };
 }
-
 export async function resolveRemoteAgentRoutineTurnEnvelope(input: {
   personalAgent?: boolean;
   authorizedActions?: CenterAgentRoutineAuthorizedAction[];
   centerAgentProfileId: string;
   createdByUserId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   delegatedMember: {
     displayName: string;
     memberId: string;
@@ -157,7 +159,10 @@ export async function resolveRemoteAgentRoutineTurnEnvelope(input: {
   };
   externalActionPolicy: CenterAgentRoutineExternalActionPolicy;
   destination:
-    | { kind: "space"; spaceId: string }
+    | {
+        kind: "space";
+        spaceId: string;
+      }
     | {
         kind: "message_channel";
         locator: import("@openmeld/schemas/types").MessageChannelConversationLocator;
@@ -191,21 +196,21 @@ export async function resolveRemoteAgentRoutineTurnEnvelope(input: {
   let space: SpaceEnvelopeFacts;
   if (input.destination.kind === "space") {
     const spaceRow = await input.db
-      .prepare(
-        `
+      .query<RoutineSpaceRow>({
+        text: `
           SELECT
             organization_id,
             space_name,
             space_purpose,
             direct_message_pair_key
-          FROM space_index_spaces
-          WHERE space_id = ?
+          FROM "openmeld"."space_index_spaces"
+          WHERE space_id = $1
             AND status = 'active'
           LIMIT 1
-        `
-      )
-      .bind(input.destination.spaceId)
-      .first<RoutineSpaceRow>();
+        `,
+        values: [input.destination.spaceId],
+      })
+      .then((result) => result.rows[0] ?? null);
     if (!spaceRow || spaceRow.organization_id !== input.organizationId) {
       throw new Error(
         `Remote Agent Routine envelope could not resolve target Space ${input.destination.spaceId}`
@@ -274,10 +279,9 @@ export async function resolveRemoteAgentRoutineTurnEnvelope(input: {
     },
   });
 }
-
 export async function resolveRemoteAgentMemberResearchTurnEnvelope(input: {
   centerAgentProfileId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   directMessageSpaceId: string;
   organizationId: string;
   requester: {
@@ -303,17 +307,17 @@ export async function resolveRemoteAgentMemberResearchTurnEnvelope(input: {
       webAppUrl: input.webAppUrl,
     }),
     input.db
-      .prepare(
-        `
+      .query<RoutineSpaceRow>({
+        text: `
           SELECT organization_id, space_name, space_purpose, direct_message_pair_key
-          FROM space_index_spaces
-          WHERE space_id = ?
+          FROM "openmeld"."space_index_spaces"
+          WHERE space_id = $1
             AND status = 'active'
           LIMIT 1
-        `
-      )
-      .bind(input.directMessageSpaceId)
-      .first<RoutineSpaceRow>(),
+        `,
+        values: [input.directMessageSpaceId],
+      })
+      .then((result) => result.rows[0] ?? null),
   ]);
   if (spaceRow?.organization_id !== input.organizationId) {
     throw new Error(
@@ -361,10 +365,9 @@ export async function resolveRemoteAgentMemberResearchTurnEnvelope(input: {
     },
   });
 }
-
 export async function resolveRemoteAgentTaskContinuationTurnEnvelope(input: {
   centerAgentProfileId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   delegation: AgentDelegationSnapshot;
   delegationId: string;
   externalSpace?: SpaceEnvelopeFacts;
@@ -389,10 +392,9 @@ export async function resolveRemoteAgentTaskContinuationTurnEnvelope(input: {
     },
   });
 }
-
 export async function resolveRemoteAgentRoutineTaskContinuationTurnEnvelope(input: {
   centerAgentProfileId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   delegation: AgentDelegationSnapshot;
   delegationId: string;
   organizationId: string;
@@ -472,10 +474,9 @@ export async function resolveRemoteAgentRoutineTaskContinuationTurnEnvelope(inpu
     },
   });
 }
-
 export async function resolveRemoteAgentTaskWatchContinuationTurnEnvelope(input: {
   centerAgentProfileId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   externalSpace?: SpaceEnvelopeFacts;
   organizationId: string;
   outcome: AgentTaskCompletionObservation;
@@ -498,10 +499,9 @@ export async function resolveRemoteAgentTaskWatchContinuationTurnEnvelope(input:
     },
   });
 }
-
 async function resolveRemoteAgentContinuationTurnEnvelope(input: {
   centerAgentProfileId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   externalSpace?: SpaceEnvelopeFacts;
   organizationId: string;
   requesterProfileId: string;
@@ -509,7 +509,9 @@ async function resolveRemoteAgentContinuationTurnEnvelope(input: {
   spaceId: string;
   trigger: Extract<
     RemoteAgentTurnEnvelope["trigger"],
-    { source: "task_continuation" | "task_watch_continuation" }
+    {
+      source: "task_continuation" | "task_watch_continuation";
+    }
   >;
   webAppUrl?: string;
 }): Promise<RemoteAgentTurnEnvelope> {
@@ -532,17 +534,17 @@ async function resolveRemoteAgentContinuationTurnEnvelope(input: {
     input.externalSpace
       ? Promise.resolve(null)
       : input.db
-          .prepare(
-            `
+          .query<RoutineSpaceRow>({
+            text: `
               SELECT organization_id, space_name, space_purpose, direct_message_pair_key
-              FROM space_index_spaces
-              WHERE space_id = ?
+              FROM "openmeld"."space_index_spaces"
+              WHERE space_id = $1
                 AND status = 'active'
               LIMIT 1
-            `
-          )
-          .bind(input.spaceId)
-          .first<RoutineSpaceRow>(),
+            `,
+            values: [input.spaceId],
+          })
+          .then((result) => result.rows[0] ?? null),
   ]);
   if (
     !requester?.member_id ||
@@ -613,16 +615,15 @@ async function resolveRemoteAgentContinuationTurnEnvelope(input: {
     trigger: input.trigger,
   });
 }
-
 export async function readActiveRepresentedHumanSender(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   profileId: string;
   userId: string;
 }): Promise<SenderRow | null> {
   return await input.db
-    .prepare(
-      `
+    .query<SenderRow>({
+      text: `
         SELECT
           m.id AS member_id,
           m.role,
@@ -630,25 +631,27 @@ export async function readActiveRepresentedHumanSender(input: {
           p.profile_kind,
           p.profile_name,
           p.owner_user_id
-        FROM members m
-        INNER JOIN openmeld_profiles p
+        FROM "openmeld"."members" m
+        INNER JOIN "openmeld"."openmeld_profiles" p
           ON p.owner_user_id = m.user_id
           AND p.profile_kind = 'human'
           AND p.status = 'active'
-        WHERE m.organization_id = ?
-          AND m.user_id = ?
-          AND p.profile_id = ?
+        WHERE m.organization_id = $1
+          AND m.user_id = $2
+          AND p.profile_id = $3
         LIMIT 1
-      `
-    )
-    .bind(input.organizationId, input.userId, input.profileId)
-    .first<SenderRow>();
+      `,
+      values: [input.organizationId, input.userId, input.profileId],
+    })
+    .then((result) => result.rows[0] ?? null);
 }
-
 export function buildRemoteAgentTurnEnvelope(
   input: RemoteAgentTurnEnvelopeFacts
 ): RemoteAgentTurnEnvelope {
   return parseCoreOwnedRemoteAgentTurnEnvelope({
+    ...(input.requestTimeContext
+      ? { requestTimeContext: input.requestTimeContext }
+      : {}),
     ...(input.centerAgentInteractionSource
       ? { centerAgentInteractionSource: input.centerAgentInteractionSource }
       : {}),
@@ -665,7 +668,6 @@ export function buildRemoteAgentTurnEnvelope(
     },
   });
 }
-
 function resolveSpaceInteractionEnvironment(
   space: SpaceEnvelopeFacts
 ): NonNullable<RemoteAgentTurnEnvelope["interactionEnvironment"]> {
@@ -673,54 +675,48 @@ function resolveSpaceInteractionEnvironment(
     ? "requester_private"
     : "organization_shared";
 }
-
 async function readCenterAgentEnvelopeFacts(input: {
   centerAgentProfileId: string;
-  db: D1Database;
+  db: PostgresDatabase;
 }): Promise<CenterAgentProfileIdentity> {
   const identity = await readCenterAgentProfileIdentity({
     agentProfileId: input.centerAgentProfileId,
     db: input.db,
   });
-
   if (!identity) {
     throw new Error(
       `Remote Agent turn envelope could not resolve Center Agent profile ${input.centerAgentProfileId}`
     );
   }
-
   return identity;
 }
-
 async function readOrganizationEnvelopeFacts(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   webAppUrl?: string;
 }): Promise<OrganizationEnvelopeFacts> {
   const row = await input.db
-    .prepare(
-      `
+    .query<OrganizationRow>({
+      text: `
         SELECT
           o.name,
           o.slug,
           o.metadata,
           COUNT(m.id) AS member_count
-        FROM organizations o
-        LEFT JOIN members m ON m.organization_id = o.id
-        WHERE o.id = ?
+        FROM "openmeld"."organizations" o
+        LEFT JOIN "openmeld"."members" m ON m.organization_id = o.id
+        WHERE o.id = $1
         GROUP BY o.id
         LIMIT 1
-      `
-    )
-    .bind(input.organizationId)
-    .first<OrganizationRow>();
-
+      `,
+      values: [input.organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!row) {
     throw new Error(
       `Remote Agent turn envelope could not resolve Organization ${input.organizationId}`
     );
   }
-
   const webAppUrl = normalizeOptionalText(input.webAppUrl);
   const personal =
     row.slug.startsWith("personal-") ||
@@ -763,10 +759,9 @@ async function readOrganizationEnvelopeFacts(input: {
     return organization;
   }
 }
-
 async function readSenderEnvelopeFacts(input: {
   author: RemoteAgentWorkerAuthorContext;
-  db: D1Database;
+  db: PostgresDatabase;
   message: OpenMeldDaemonDispatchQueueMessage;
   organizationId: string;
 }): Promise<SenderEnvelopeFacts> {
@@ -782,10 +777,9 @@ async function readSenderEnvelopeFacts(input: {
       verified: false,
     };
   }
-
   const row = await input.db
-    .prepare(
-      `
+    .query<SenderRow>({
+      text: `
         SELECT
           p.profile_id,
           p.profile_name,
@@ -793,17 +787,16 @@ async function readSenderEnvelopeFacts(input: {
           p.owner_user_id,
           m.id AS member_id,
           m.role
-        FROM openmeld_profiles p
-        LEFT JOIN members m
-          ON m.organization_id = ?
+        FROM "openmeld"."openmeld_profiles" p
+        LEFT JOIN "openmeld"."members" m
+          ON m.organization_id = $1
           AND m.user_id = p.owner_user_id
-        WHERE p.profile_id = ?
+        WHERE p.profile_id = $2
         LIMIT 1
-      `
-    )
-    .bind(input.organizationId, sourceProfileId)
-    .first<SenderRow>();
-
+      `,
+      values: [input.organizationId, sourceProfileId],
+    })
+    .then((result) => result.rows[0] ?? null);
   const sourceKind =
     row?.profile_kind ?? input.message.sourceSignalSnapshot?.profileKind;
   const kind = sourceKind === "agent" ? "agent_profile" : "member";
@@ -825,10 +818,9 @@ async function readSenderEnvelopeFacts(input: {
     verified: kind === "member" ? Boolean(row?.member_id) : Boolean(row),
   };
 }
-
 async function readSpaceEnvelopeFacts(input: {
   centerAgentProfileId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   message: OpenMeldDaemonDispatchQueueMessage;
   organizationId: string;
 }): Promise<SpaceEnvelopeFacts> {
@@ -846,7 +838,6 @@ async function readSpaceEnvelopeFacts(input: {
         spacePurpose: candidate.spacePurpose,
       })
     : null;
-
   return {
     id: input.message.spaceId,
     isCenterAgentDm: projection !== null,
@@ -858,9 +849,8 @@ async function readSpaceEnvelopeFacts(input: {
       normalizeOptionalText(input.message.spaceNameSnapshot) ?? "this Space",
   };
 }
-
 export async function readDesignatedCenterAgentProfileId(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
 }): Promise<string | null> {
   const designation = await readCenterAgentDesignationRecord({
@@ -869,20 +859,20 @@ export async function readDesignatedCenterAgentProfileId(input: {
   });
   return designation?.agentProfileId ?? null;
 }
-
 function hasPersonalOrganizationMetadata(metadata: string | null): boolean {
   const normalized = normalizeOptionalText(metadata);
   if (!normalized) {
     return false;
   }
   try {
-    const parsed = JSON.parse(normalized) as { personal?: unknown };
+    const parsed = JSON.parse(normalized) as {
+      personal?: unknown;
+    };
     return parsed.personal === true || parsed.personal === 1;
   } catch {
     return false;
   }
 }
-
 function normalizeOptionalText(value: unknown): string | null {
   if (typeof value !== "string") {
     return null;

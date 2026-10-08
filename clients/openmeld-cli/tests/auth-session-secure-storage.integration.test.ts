@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withTempHome } from "./helpers/fs";
 
 const secureStorage = vi.hoisted(() => ({
@@ -26,6 +26,7 @@ import {
   getInterruptedComputerAuthSessionRecovery,
   markInterruptedComputerAuthSessionRecovery,
   setAuthSession,
+  withAdmittedServiceSession,
 } from "../src/config/auth-session";
 
 const TOKEN_REF = {
@@ -45,6 +46,127 @@ const FINAL_TOKEN_REF = {
 };
 
 describe("auth session secure storage boundary", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it.each([
+    "committed",
+    "candidate",
+    "service",
+  ] as const)("renews the same verified credential without reopening secure storage: %s", async (owner) => {
+    await withTempHome(async () => {
+      const initial = {
+        accessToken: secureStorage.accessToken,
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        user: { id: "owner" },
+      };
+      const transition =
+        owner === "candidate"
+          ? await beginAuthSessionTransition(initial)
+          : null;
+      if (!transition) {
+        await setAuthSession(initial);
+      }
+      const session = await getAuthSession();
+      if (!session) {
+        throw new Error("Missing fixture session");
+      }
+      const expiresAt = new Date(Date.now() + 600_000).toISOString();
+      const fetchMock = vi.fn().mockImplementation(async () =>
+        Response.json({
+          session: { id: "session-active", expiresAt },
+          user: { id: "owner" },
+        })
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      secureStorage.readAccessToken.mockResolvedValue({
+        status: "unavailable",
+        errorMessage: "macOS Keychain did not respond within 5 seconds",
+      });
+      const renew = async () => {
+        await expect(
+          getAuthSessionState({ validateRemote: true })
+        ).resolves.toMatchObject({
+          state: "valid",
+          session: { accessToken: initial.accessToken, expiresAt },
+        });
+        await expect(getAuthSession()).resolves.toMatchObject({ expiresAt });
+        fetchMock.mockResolvedValueOnce(new Response(null, { status: 401 }));
+        await expect(
+          getAuthSessionState({ validateRemote: true })
+        ).resolves.toMatchObject({ state: "revoked", session: null });
+      };
+      try {
+        if (owner === "service") {
+          await withAdmittedServiceSession(session, renew);
+        } else {
+          await renew();
+        }
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(secureStorage.readAccessToken).toHaveBeenCalledTimes(1);
+      } finally {
+        await transition?.rollback();
+      }
+    });
+  });
+
+  it.each([
+    "committed",
+    "candidate",
+  ] as const)("keeps the previous credential when a rotated token cannot be read back: %s", async (owner) => {
+    await withTempHome(async () => {
+      const initial = {
+        accessToken: secureStorage.accessToken,
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "owner" },
+      };
+      const transition =
+        owner === "candidate"
+          ? await beginAuthSessionTransition(initial)
+          : null;
+      if (!transition) {
+        await setAuthSession(initial);
+      }
+      secureStorage.storeAccessToken.mockResolvedValue(REPLACEMENT_TOKEN_REF);
+      secureStorage.readAccessToken.mockResolvedValue({ status: "missing" });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          Response.json(
+            {
+              session: {
+                id: "session-active",
+                expiresAt: new Date(Date.now() + 600_000).toISOString(),
+              },
+              user: { id: "owner" },
+            },
+            { headers: { "set-auth-token": "rotated-token" } }
+          )
+        )
+      );
+      try {
+        await expect(
+          getAuthSessionState({ validateRemote: true })
+        ).rejects.toThrow("stored access token could not be reloaded");
+        await expect(getAuthSession()).resolves.toMatchObject({
+          accessToken: initial.accessToken,
+        });
+        expect(secureStorage.deleteAccessToken).toHaveBeenCalledWith(
+          REPLACEMENT_TOKEN_REF
+        );
+        expect(secureStorage.deleteAccessToken).not.toHaveBeenCalledWith(
+          TOKEN_REF
+        );
+      } finally {
+        await transition?.rollback();
+      }
+    });
+  });
+
   it("finishes interrupted cleanup without reading an already revoked candidate credential", async () => {
     await withTempHome(async () => {
       const transition = await beginAuthSessionTransition(

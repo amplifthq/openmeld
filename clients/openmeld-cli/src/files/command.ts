@@ -133,6 +133,72 @@ export function registerFilesCommands(
     .description("Work with Team files or your private files.");
 
   files
+    .command("copy-excerpt")
+    .description(
+      "Share a selected excerpt of your own message with a named Space audience."
+    )
+    .requiredOption("--source-space <id>", "Source Space ID")
+    .requiredOption("--signal <id>", "Exact source message ID")
+    .requiredOption(
+      "--version <sha256>",
+      "Exact message version from its evidence reference"
+    )
+    .requiredOption("--author <profile-id>", "Your Human Profile ID")
+    .requiredOption(
+      "--start <number>",
+      "First selected Unicode character, starting at zero"
+    )
+    .requiredOption("--end <number>", "First character after the selection")
+    .requiredOption("--space <id>", "Private, members-only destination Space")
+    .requiredOption(
+      "--audience <profile-ids>",
+      "All destination member Profile IDs, comma-separated"
+    )
+    .requiredOption("--name <name>", "Name for the excerpt file")
+    .requiredOption(
+      "--request-id <id>",
+      "Stable request ID; reuse it to reconcile this copy"
+    )
+    .option("--folder <id>", "Destination folder ID, or root", "root")
+    .option("--json", "Print canonical JSON", false)
+    .action(async (opts, command: Command) => {
+      await runChecked(["files", "copy-excerpt"], async () => {
+        await withFiles({
+          command,
+          json: opts.json === true,
+          location: "my",
+          run: async ({ api, output, presenter }) => {
+            const file = await api.copyOwnMessageExcerpt({
+              spaceId: opts.space,
+              body: {
+                source: {
+                  spaceId: opts.sourceSpace,
+                  sourceSignalId: opts.signal,
+                  version: opts.version,
+                  authorProfileId: opts.author,
+                  start: Number(opts.start),
+                  end: Number(opts.end),
+                },
+                audienceProfileIds: opts.audience
+                  .split(",")
+                  .map((id: string) => id.trim()),
+                name: opts.name,
+                parentId: folder(opts.folder),
+                clientMutationId: opts.requestId,
+              },
+            });
+            output("files.excerpt_copied", { file, spaceId: opts.space }, () =>
+              presenter.line({
+                code: "files.excerpt_copied",
+                text: `Shared the selected excerpt as ${file.path}.`,
+              })
+            );
+          },
+        });
+      });
+    });
+
+  files
     .command("list")
     .description("List a Files location or folder.")
     .requiredOption("--location <team|my>", "Team files or My files")

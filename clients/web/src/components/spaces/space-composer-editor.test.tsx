@@ -35,6 +35,7 @@ const FELIX_OPTION_NAME = /Felix/;
 const RUNNER_OPTION_NAME = /Runner/;
 const ALL_OPTION_NAME = /@all/;
 const BOTH_OPTION_NAME = /Both/;
+const MENTION_ONLY_OPTION_NAME = /^Mention only\s*— Won’t wake the agent$/;
 
 describe("SpaceComposerEditor", () => {
 	afterEach(cleanup);
@@ -412,7 +413,7 @@ describe("SpaceComposerEditor", () => {
 		const token = screen.getByTestId("space-composer-profile-token");
 		expect(within(token).getByText(profileName)).toBeTruthy();
 		expect(
-			screen.getByRole("combobox", {
+			screen.getByRole("button", {
 				name: `Change relation for ${profileName}`,
 			}).textContent
 		).toBe("Wake");
@@ -447,7 +448,7 @@ describe("SpaceComposerEditor", () => {
 		expect(editor.getAttribute("contenteditable")).toBe("true");
 		const token = within(editor).getByTestId("space-composer-profile-token");
 		expect(within(token).getByText("Runner")).toBeTruthy();
-		const relation = within(editor).getByRole("combobox", {
+		const relation = within(editor).getByRole("button", {
 			name: "Change relation for Runner",
 		});
 		expect(relation).toBeTruthy();
@@ -504,7 +505,7 @@ describe("SpaceComposerEditor", () => {
 			screen.getByRole("textbox", { name: "Message this space" }).textContent
 		).toContain("review this");
 		expect(
-			screen.getByRole("combobox", { name: "Change relation for Runner" })
+			screen.getByRole("button", { name: "Change relation for Runner" })
 				.textContent
 		).toBe("Wake");
 		expect(onSend).not.toHaveBeenCalled();
@@ -596,7 +597,7 @@ describe("SpaceComposerEditor", () => {
 		const token = within(editor).getByTestId("space-composer-profile-token");
 		expect(within(token).getByText("Felix")).toBeTruthy();
 		expect(
-			within(editor).queryByRole("combobox", {
+			within(editor).queryByRole("button", {
 				name: "Change relation for Felix",
 			})
 		).toBeNull();
@@ -627,17 +628,14 @@ describe("SpaceComposerEditor", () => {
 		);
 
 		fireEvent.click(
-			screen.getByRole("combobox", {
+			screen.getByRole("button", {
 				name: "Change relation for Runner",
 			})
 		);
-		fireEvent.keyDown(
-			screen.getByRole("option", {
-				name: "Mention only — Won’t wake the agent",
-			}),
-			{
-				key: "Enter",
-			}
+		fireEvent.click(
+			screen.getByRole("menuitemradio", {
+				name: MENTION_ONLY_OPTION_NAME,
+			})
 		);
 		expect(onSend).not.toHaveBeenCalled();
 
@@ -737,13 +735,12 @@ describe("SpaceComposerEditor", () => {
 			/>
 		);
 		fireEvent.click(
-			screen.getByRole("combobox", { name: "Change relation for Pepper" })
+			screen.getByRole("button", { name: "Change relation for Pepper" })
 		);
-		fireEvent.keyDown(
-			screen.getByRole("option", {
-				name: "Mention only — Won’t wake the agent",
-			}),
-			{ key: "Enter" }
+		fireEvent.click(
+			screen.getByRole("menuitemradio", {
+				name: MENTION_ONLY_OPTION_NAME,
+			})
 		);
 		await waitFor(() =>
 			expect(onChange).toHaveBeenLastCalledWith(
@@ -812,17 +809,17 @@ describe("SpaceComposerEditor", () => {
 			/>
 		);
 
-		const relation = screen.getByRole("combobox", {
+		const relation = screen.getByRole("button", {
 			name: "Change relation for Runner",
 		});
 		fireEvent.click(relation);
-		const wakeOption = screen.getByRole("option", {
+		const wakeOption = screen.getByRole("menuitemradio", {
 			name: canWait ? "Wake when online" : "Wake — Offline",
 		});
 		expect(wakeOption.getAttribute("aria-disabled") === "true").toBe(!canWait);
 		expect(
 			screen
-				.getByRole("option", { name: "Mention only — Won’t wake the agent" })
+				.getByRole("menuitemradio", { name: MENTION_ONLY_OPTION_NAME })
 				.getAttribute("aria-disabled")
 		).not.toBe("true");
 		expect(
@@ -979,7 +976,7 @@ describe("SpaceComposerEditor", () => {
 			const token = screen.getByTestId("space-composer-profile-token");
 			expect(within(token).getByText("Felix")).toBeTruthy();
 			expect(
-				within(token).queryByRole("combobox", {
+				within(token).queryByRole("button", {
 					name: "Change relation for Felix",
 				})
 			).toBeNull();
@@ -1377,6 +1374,28 @@ describe("SpaceComposerEditor", () => {
 				screen.getByRole("textbox", { name: "Message this space" })
 			);
 		});
+	});
+
+	it("does not write a draft when only the caret moves after restoration", async () => {
+		const composerRef = createRef<SpaceComposerEditorHandle>();
+		const onChange = vi.fn();
+		const props = {
+			addressingTargets: [],
+			ariaLabel: "Message this space",
+			authoredMentions: [],
+			composerRef,
+			mentionPickerItems: [],
+			onChange,
+			onSend: vi.fn(),
+			placeholder: "Message",
+		};
+		const view = render(<SpaceComposerEditor {...props} text="" />);
+		view.rerender(<SpaceComposerEditor {...props} text="My edited draft" />);
+		await act(() => {
+			composerRef.current?.selectTextRange({ start: 3, end: 3 });
+		});
+		expect(screen.getByText("My edited draft")).toBeTruthy();
+		expect(onChange).not.toHaveBeenCalled();
 	});
 
 	it("cancels deferred draft focus when the user focuses another input", () => {

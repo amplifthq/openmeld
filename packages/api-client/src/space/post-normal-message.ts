@@ -19,6 +19,8 @@ export async function postSpaceNormalMessage(
     text: PostNormalMessageBody["text"];
     deviceWait?: PostNormalMessageBody["deviceWait"];
     contextSelection?: PostNormalMessageBody["contextSelection"];
+    contextSelections?: PostNormalMessageBody["contextSelections"];
+    taskDraft?: PostNormalMessageBody["taskDraft"];
     attachments?: PostNormalMessageBody["attachments"];
     files?: PostNormalMessageBody["files"];
     messageEnvelope?: PostNormalMessageBody["messageEnvelope"];
@@ -61,6 +63,8 @@ function buildPostNormalMessageBody(input: {
   text: PostNormalMessageBody["text"];
   deviceWait?: PostNormalMessageBody["deviceWait"];
   contextSelection?: PostNormalMessageBody["contextSelection"];
+  contextSelections?: PostNormalMessageBody["contextSelections"];
+  taskDraft?: PostNormalMessageBody["taskDraft"];
   attachments?: PostNormalMessageBody["attachments"];
   files?: PostNormalMessageBody["files"];
   messageEnvelope?: PostNormalMessageBody["messageEnvelope"];
@@ -70,10 +74,15 @@ function buildPostNormalMessageBody(input: {
   return {
     text: input.text,
     ...(input.meta?.workHandoff ? { workHandoffVersion: 1 as const } : {}),
+    ...(input.meta?.evidenceRefs ? { evidenceRefsVersion: 1 as const } : {}),
     ...(input.deviceWait ? { deviceWait: input.deviceWait } : {}),
     ...(input.contextSelection
       ? { contextSelection: input.contextSelection }
       : {}),
+    ...(input.contextSelections
+      ? { contextSelections: input.contextSelections }
+      : {}),
+    ...(input.taskDraft ? { taskDraft: input.taskDraft } : {}),
     ...(input.attachments ? { attachments: input.attachments } : {}),
     ...(input.files ? { files: input.files } : {}),
     ...(input.messageEnvelope

@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { buildConnectorAppRequestProviderKey } from "@openmeld/schemas";
 import type {
   ConnectorAppRequest,
@@ -20,9 +21,8 @@ type ConnectorAppRequestRow = {
   updated_at_ms: number;
   use_case: string | null;
 };
-
 export async function upsertConnectorAppRequest(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs: number;
   organizationId: string;
   providerId: string | null;
@@ -38,10 +38,9 @@ export async function upsertConnectorAppRequest(input: {
     providerName: input.providerName,
     source: input.source,
   });
-  await input.db
-    .prepare(
-      `
-        INSERT INTO connector_app_requests (
+  await input.db.query({
+    text: `
+        INSERT INTO "openmeld"."connector_app_requests" (
           id,
           organization_id,
           requester_user_id,
@@ -57,7 +56,7 @@ export async function upsertConnectorAppRequest(input: {
           notified_at_ms,
           created_at_ms,
           updated_at_ms
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'requested', NULL, NULL, ?, ?)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'requested', NULL, NULL, $11, $12)
         ON CONFLICT(organization_id, requester_user_id, provider_key) DO UPDATE SET
           requester_member_id = excluded.requester_member_id,
           provider_id = excluded.provider_id,
@@ -78,9 +77,8 @@ export async function upsertConnectorAppRequest(input: {
             ELSE connector_app_requests.notified_at_ms
           END,
           updated_at_ms = excluded.updated_at_ms
-      `
-    )
-    .bind(
+      `,
+    values: [
       `connector_request_${crypto.randomUUID()}`,
       input.organizationId,
       input.requesterUserId,
@@ -92,13 +90,12 @@ export async function upsertConnectorAppRequest(input: {
       input.useCase,
       input.source,
       input.nowMs,
-      input.nowMs
-    )
-    .run();
-
+      input.nowMs,
+    ],
+  });
   const row = await input.db
-    .prepare(
-      `
+    .query<ConnectorAppRequestRow>({
+      text: `
         SELECT
           id,
           organization_id,
@@ -114,29 +111,27 @@ export async function upsertConnectorAppRequest(input: {
           notified_at_ms,
           created_at_ms,
           updated_at_ms
-        FROM connector_app_requests
-        WHERE organization_id = ?
-          AND requester_user_id = ?
-          AND provider_key = ?
+        FROM "openmeld"."connector_app_requests"
+        WHERE organization_id = $1
+          AND requester_user_id = $2
+          AND provider_key = $3
         LIMIT 1
-      `
-    )
-    .bind(input.organizationId, input.requesterUserId, providerKey)
-    .first<ConnectorAppRequestRow>();
+      `,
+      values: [input.organizationId, input.requesterUserId, providerKey],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!row) {
     throw new Error("Connector App request upsert produced no record.");
   }
   return toConnectorAppRequest(row);
 }
-
 export async function listConnectorAppRequestsForRequester(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   requesterUserId: string;
 }): Promise<ConnectorAppRequest[]> {
-  const result = await input.db
-    .prepare(
-      `
+  const result = await input.db.query<ConnectorAppRequestRow>({
+    text: `
         SELECT
           id,
           organization_id,
@@ -152,18 +147,16 @@ export async function listConnectorAppRequestsForRequester(input: {
           notified_at_ms,
           created_at_ms,
           updated_at_ms
-        FROM connector_app_requests
-        WHERE organization_id = ?
-          AND requester_user_id = ?
-        ORDER BY created_at_ms DESC, id DESC
+        FROM "openmeld"."connector_app_requests"
+        WHERE organization_id = $1
+          AND requester_user_id = $2
+        ORDER BY created_at_ms DESC NULLS LAST, id DESC NULLS LAST
         LIMIT 500
-      `
-    )
-    .bind(input.organizationId, input.requesterUserId)
-    .all<ConnectorAppRequestRow>();
-  return result.results.map(toConnectorAppRequest);
+      `,
+    values: [input.organizationId, input.requesterUserId],
+  });
+  return result.rows.map(toConnectorAppRequest);
 }
-
 function toConnectorAppRequest(
   row: ConnectorAppRequestRow
 ): ConnectorAppRequest {
@@ -196,7 +189,6 @@ function toConnectorAppRequest(
     useCase: row.use_case,
   };
 }
-
 function parseRequestedCapabilities(value: string): string[] {
   const parsed: unknown = JSON.parse(value);
   if (

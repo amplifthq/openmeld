@@ -198,10 +198,8 @@ export function buildOrganizationProjectActivityPath(input: {
 	return `${url.pathname}${url.search}`;
 }
 
-export function buildOrganizationCenterAgentRoutinesPath(
-	orgSlug: string
-): string {
-	return `${buildOrganizationCenterAgentRootPath(orgSlug)}/routines`;
+export function buildOrganizationRoutinesPath(orgSlug: string): string {
+	return `/o/${orgSlug}/routines`;
 }
 
 export function buildOrganizationDocumentsPath(orgSlug: string): string {
@@ -266,7 +264,7 @@ export function buildOrganizationCenterAgentChatPath(
 		session?: string;
 		focusSignalId?: string;
 		focusThreadRootSignalId?: string;
-		view?: "files" | "graph" | "messages";
+		view?: "files" | "graph" | "messages" | "tasks";
 	}
 ): string {
 	const path = `${buildOrganizationRootPath(orgSlug)}/chats/center-agent`;
@@ -444,7 +442,7 @@ export function resolveOrganizationSwitchPath(input: {
 	if (section === "center-agent") {
 		switch (subsection) {
 			case "routines":
-				return buildOrganizationCenterAgentRoutinesPath(input.nextOrgSlug);
+				return buildOrganizationRoutinesPath(input.nextOrgSlug);
 			case "skills":
 				return buildOrganizationSkillsPath(input.nextOrgSlug);
 			case "channels":

@@ -13,9 +13,11 @@ describe("site metadata", () => {
     const head = buildPublicPageHead();
     const title = readTitle(head);
     const description =
-      "Open-source operating system for agent-native teams of people and machines. Connect local agents, shared context, and team workflows in one place.";
+      "Share context, work in parallel, and pick up where anyone left off with your team, cloud agents, and everyone's agents (Codex, Claude Code, Grok Build, OpenCode, Antigravity, and Cursor CLI).";
 
-    expect(title).toBe("OpenMeld | People and Agents Working as One");
+    expect(title).toBe(
+      "OpenMeld | The open collaboration system for anyone and agents"
+    );
     expect(title).not.toBe("OpenMeld - OpenMeld");
     expect(readMetaName(head, "description")).toBe(description);
     expect(readCanonical(head)).toBe(siteConfig.url);

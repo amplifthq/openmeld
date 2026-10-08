@@ -100,8 +100,8 @@ export function resolveProductionTrain(input, dependencies = {}) {
     );
   }
   return {
-    artifactScopes: ["cli", "desktop", "web", "website"].filter((scope) =>
-      selectedScopes.includes(scope)
+    artifactScopes: ["cli", "desktop", "web", "website", "docs"].filter(
+      (scope) => selectedScopes.includes(scope)
     ),
     productionScopes: [...plan.scopes],
     selectedScopes: [...selectedScopes],
@@ -187,6 +187,7 @@ async function buildProductionTrainArtifacts(input, dependencies = {}) {
     desktop: "not_required",
     web: "not_required",
     website: "not_required",
+    docs: "not_required",
   };
   const artifactEvidence = [];
   for (const scope of train.artifactScopes) {
@@ -262,7 +263,7 @@ export async function admitProductionTrainArtifacts(input, dependencies = {}) {
   ) {
     const train = resolveProductionTrain(input, dependencies);
     const evidence = await verifyParentAdmission(input, train, dependencies);
-    for (const scope of ["web", "website"].filter((scope) =>
+    for (const scope of ["web", "website", "docs"].filter((scope) =>
       train.selectedScopes.includes(scope)
     )) {
       if (
@@ -280,8 +281,8 @@ export async function admitProductionTrainArtifacts(input, dependencies = {}) {
     }
     if (
       input.restoreRendererArtifact &&
-      !train.selectedScopes.some(
-        (scope) => scope === "web" || scope === "website"
+      !train.selectedScopes.some((scope) =>
+        ["web", "website", "docs"].includes(scope)
       )
     ) {
       throw new Error(
@@ -320,7 +321,7 @@ if (
       }
       await appendFile(
         process.env.GITHUB_OUTPUT,
-        `parent_admission_evidence=${JSON.stringify(result.parentEvidence)}\nhas_web_artifact=${result.artifactScopes.includes("web")}\nhas_website_artifact=${result.artifactScopes.includes("website")}\n`
+        `parent_admission_evidence=${JSON.stringify(result.parentEvidence)}\nhas_web_artifact=${result.artifactScopes.includes("web")}\nhas_website_artifact=${result.artifactScopes.includes("website")}\nhas_docs_artifact=${result.artifactScopes.includes("docs")}\n`
       );
     }
     process.stdout.write(`${JSON.stringify(result)}\n`);

@@ -145,10 +145,7 @@ export type DaemonProfileRouteConfig = {
   profileId: string;
   streamingMode: RuntimeAgentStreamingMode;
   transportMode: RuntimeAgentTransportMode;
-  workingFolderRuntime?: Extract<
-    import("../../profile-workspace/effective-runtime-resolution").CurrentEffectiveProfileWorkingFolderRuntimeResolution,
-    { status: "ready" }
-  >;
+  workingFolderRuntime?: import("../../profile-workspace/effective-runtime-resolution").CurrentEffectiveProfileWorkingFolderRuntimeResolution;
 };
 
 export type DaemonProfileRouteResolution =
@@ -238,6 +235,7 @@ export type OpenMeldDaemonTaskErrorType =
   | "timeout";
 
 export type ParsedDispatchTask = {
+  requesterIsAgentOwner?: boolean;
   workHandoff?: import("@openmeld/schemas").SpaceWorkHandoff;
   workingCopyId?: string;
   executionContext?: import("@openmeld/schemas/types").ExecutionContextTask;
@@ -285,9 +283,13 @@ export type ParsedDispatchTask = {
 };
 
 export type DispatchPromptBootstrapInput = {
+  requesterIsAgentOwner?: ParsedDispatchTask["requesterIsAgentOwner"];
   executionContextAccess?: NonNullable<
     ParsedDispatchTask["executionContext"]
   >["access"];
+  projectWork?: NonNullable<
+    ParsedDispatchTask["executionContext"]
+  >["projectWork"];
   callerContext?: ParsedDispatchTask["callerContext"];
   continuitySnapshot?: OpenMeldDaemonDispatchContinuitySnapshot | null;
   dispatchTriggerSource: "activation_targets" | "listen_all";
@@ -361,6 +363,8 @@ export type ParsedDaemonFrame = {
     | "daemon.dispatch.progress"
     | "daemon.reasoning.preferences"
     | "daemon.error"
+    | "daemon.session_history.request"
+    | "daemon.session_history.request_result"
     | "daemon.computer_file_access.read_policy"
     | "daemon.computer_file_access.read_policy_result"
     | "daemon.computer_file_access.update_policy"

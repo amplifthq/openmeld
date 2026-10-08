@@ -659,7 +659,7 @@ describe("PluginConnectionCard", () => {
 		});
 		popup.closed = true;
 
-		expect(await screen.findByText("Connected")).toBeTruthy();
+		expect(await screen.findByText("Account connected")).toBeTruthy();
 		expect(
 			screen.queryByText(
 				"Linear wasn’t connected. Try again when you’re ready."
@@ -1025,7 +1025,7 @@ describe("PluginConnectionCard", () => {
 			await lateConnectionLookup;
 		});
 
-		expect(await screen.findByText("Connected")).toBeTruthy();
+		expect(await screen.findByText("Account connected")).toBeTruthy();
 		expect(
 			screen.queryByText(
 				"Linear authorization timed out. Start again when you are ready."

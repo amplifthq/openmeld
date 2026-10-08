@@ -1,7 +1,6 @@
 // biome-ignore-all lint/performance/noBarrelFile: Shared schema package intentionally exposes stable contract entrypoints.
 
 export type { SpaceSendRequestReceipt } from "../schemas/cli/space-send";
-
 export type {
   ServiceConnectionEvidenceEvent,
   ServiceConnectionEvidenceJournal,
@@ -32,6 +31,11 @@ export type {
 } from "../schemas/runtime/center-agent-session-title";
 export type { MessageChannelCardHistory } from "../schemas/runtime/message-channel-card-history";
 export type {
+  UserRequestTimeContext,
+  UserTimeContext,
+  UserTimeZoneObservation,
+} from "../user-time-context";
+export type {
   AiUsageObservation,
   AiUsageQuery,
   AiUsageQueryResponse,
@@ -60,6 +64,12 @@ export type {
   CenterAgentRoutineRunEvidence,
 } from "./http/center-agent-routine-evidence";
 export type {
+  ListRoutineManagementResponse,
+  RoutineExecutorKind,
+  RoutineManagement,
+  RoutineScope,
+} from "./http/center-agent-routines";
+export type {
   OrganizationMemberPresenceBody,
   OrganizationMemberPresenceResponse,
 } from "./http/organization-member-presence";
@@ -79,6 +89,7 @@ export type {
 } from "../schemas/http/space-file-update-settings";
 export type {
   SpaceInputQueueMutation,
+  SpaceInputQueueOptions,
   SpaceInputQueueResponse,
 } from "../schemas/http/space-input-queue";
 export type {
@@ -92,6 +103,7 @@ export type * from "./agent-view/index";
 export type * from "./common/index";
 export type * from "./config/index";
 export type * from "./daemon/index";
+export * from "./daemon/session-history";
 export type * from "./db/index";
 export type * from "./eval-report";
 export type * from "./http/index";

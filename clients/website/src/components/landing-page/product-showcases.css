@@ -1,0 +1,232 @@
+.meld-showcase-stage {
+	position: relative;
+	isolation: isolate;
+	margin-top: 40px;
+}
+.meld-agent-stage + .meld-footnote {
+	text-align: right;
+}
+.meld-scene-panel {
+	position: relative;
+	isolation: isolate;
+	margin: 0;
+	min-width: 0;
+	overflow: hidden;
+	border: 1px solid transparent;
+	border-radius: 12px;
+	background:
+		linear-gradient(#101010, #101010) padding-box,
+		linear-gradient(130deg, #ffffff40, #ffffff0a 34%, #e3d3b322 62%, #ffffff12)
+		border-box;
+	box-shadow:
+		0 32px 70px -22px #000000b3,
+		0 8px 20px -12px #00000080;
+}
+.meld-scene-panel::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	border-radius: inherit;
+	box-shadow: inset 0 1px 0 #ffffff0a;
+	pointer-events: none;
+}
+.meld-scene-panel iframe {
+	display: block;
+	border: 0;
+	transform-origin: 0 0;
+	pointer-events: none;
+	color-scheme: dark;
+	background: #101010;
+}
+.meld-agent-canvas {
+	position: relative;
+	background: transparent;
+}
+.meld-agent-canvas iframe {
+	display: block;
+	width: 100%;
+	border: 0;
+	background: transparent;
+	color-scheme: dark;
+}
+.meld-interactive-showcase {
+	display: block;
+	width: 100%;
+	border: 0;
+	background: transparent;
+	color-scheme: dark;
+}
+.meld-centeragent-stage,
+.meld-usage-stage {
+	margin-top: 72px;
+}
+.meld-knowledge-stage,
+.meld-routine-stage {
+	display: grid;
+	padding-bottom: 48px;
+}
+.meld-knowledge-stage > figure,
+.meld-routine-stage > figure {
+	grid-area: 1 / 1;
+}
+.meld-files-plane {
+	margin-top: 36px;
+	width: 86%;
+}
+.meld-skill-plane {
+	justify-self: end;
+	margin-top: 82px;
+	width: 50%;
+}
+.meld-routines-plane {
+	margin-top: 28px;
+	width: 96%;
+}
+.meld-report-plane {
+	justify-self: end;
+	margin-top: 240px;
+	width: 47%;
+}
+.meld-feature-footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 24px;
+	padding-top: 20px;
+	border-top: 1px solid #ffffff0d;
+	color: #969696;
+	font-size: 13px;
+}
+.meld-feature-links {
+	position: relative;
+	display: flex;
+	gap: 10px;
+}
+.meld-feature-trigger {
+	position: relative;
+	z-index: 1;
+	display: inline-flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 32px;
+	border: 0;
+	border-radius: 7px;
+	padding: 11px 14px;
+	color: #c5c5c5;
+	background: transparent;
+	font-size: 13px;
+	cursor: pointer;
+}
+.meld-feature-sheet {
+	width: min(640px, 100%) !important;
+	max-width: none !important;
+	background: #121212;
+	color: #f2f2f2;
+	border-color: #ffffff18;
+	font-family: var(--font-sans);
+}
+.meld-feature-sheet [data-slot="sheet-header"] {
+	gap: 18px;
+	padding: 56px 32px 28px;
+}
+.meld-feature-sheet [data-slot="sheet-title"] {
+	font-size: 32px;
+	line-height: 1.15;
+	letter-spacing: -0.04em;
+}
+.meld-feature-sheet [data-slot="sheet-description"] {
+	font-size: 16px;
+	line-height: 1.6;
+	color: #aaa;
+}
+.meld-feature-sheet-body {
+	padding: 0 32px 32px;
+	overflow-y: auto;
+}
+.meld-feature-sheet-body .meld-scene-panel {
+	box-shadow: none;
+}
+.meld-feature-sheet-body ul {
+	display: grid;
+	gap: 18px;
+	list-style: none;
+	padding: 24px 0 0;
+	margin: 0;
+	font-size: 15px;
+	line-height: 1.55;
+	color: #b5b5b5;
+}
+@media (hover: hover) and (pointer: fine) {
+	.meld-scene-panel {
+		transition: transform 280ms cubic-bezier(0.23, 1, 0.32, 1);
+	}
+	.meld-skill-plane:hover,
+	.meld-report-plane:hover {
+		transform: translateY(-5px);
+	}
+}
+@media (max-width: 900px) {
+	.meld-skill-plane {
+		width: 55%;
+	}
+	.meld-report-plane {
+		margin-top: 180px;
+		width: 52%;
+	}
+}
+@media (max-width: 600px) {
+	.meld-showcase-stage {
+		margin-top: 28px;
+	}
+	.meld-knowledge-stage,
+	.meld-routine-stage {
+		display: grid;
+		gap: 20px;
+		min-height: 0;
+		padding-bottom: 28px;
+	}
+	.meld-files-plane,
+	.meld-routines-plane {
+		display: none;
+	}
+	.meld-skill-plane,
+	.meld-report-plane {
+		margin-top: 0;
+		width: 100%;
+	}
+	.meld-feature-footer {
+		align-items: flex-start;
+		gap: 12px;
+	}
+	.meld-feature-footer > span {
+		padding-top: 10px;
+	}
+	.meld-feature-links {
+		flex-direction: column;
+		gap: 0;
+	}
+	.meld-feature-trigger {
+		width: 100%;
+		font-size: 12px;
+		padding: 10px;
+	}
+	.meld-feature-sheet [data-slot="sheet-header"] {
+		padding-inline: 24px;
+	}
+	.meld-feature-sheet-body {
+		padding-inline: 24px;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.meld-showcase-stage {
+		opacity: 1 !important;
+		transform: none !important;
+	}
+	.meld-scene-panel {
+		transition: none;
+	}
+	.meld-skill-plane:hover,
+	.meld-report-plane:hover {
+		transform: none;
+	}
+}

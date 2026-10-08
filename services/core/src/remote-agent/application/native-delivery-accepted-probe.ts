@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { CoreBindings } from "../../lib/bindings";
 import {
   claimRemoteAgentAcceptedDeliveryProbeSchedule,
@@ -5,16 +6,15 @@ import {
   markRemoteAgentNativeDeliveryAck,
   type RemoteAgentNativeDeliveryRecord,
   releaseRemoteAgentAcceptedDeliveryProbeSchedule,
-} from "../infrastructure/d1/native-delivery-ledger-repo";
+} from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import {
   enqueueRemoteAgentAcceptedDeliveryProbe,
   REMOTE_AGENT_ACCEPTED_DELIVERY_PROBE_DELAY_SECONDS,
 } from "./native-delivery-admission-watchdog";
 import { REMOTE_AGENT_SLACK_WORKING_STATUS_REFRESH_INTERVAL_SECONDS } from "./slack-working-status";
-
 export async function markRemoteAgentNativeDeliveryAckWithProbe(input: {
   accepted: boolean;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   idempotencyKey: string;
   nowMs: number;
@@ -38,9 +38,8 @@ export async function markRemoteAgentNativeDeliveryAckWithProbe(input: {
     })
   ).delivery;
 }
-
 export async function ensureRemoteAgentAcceptedDeliveryProbe(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   nowMs: number;
@@ -69,7 +68,6 @@ export async function ensureRemoteAgentAcceptedDeliveryProbe(input: {
       "Remote Agent accepted delivery is missing its submission identity"
     );
   }
-
   const delaySeconds = resolveAcceptedDeliveryProbeDelaySeconds(input.delivery);
   const nextDueAtMs = input.nowMs + delaySeconds * 1000;
   const claim = await claimRemoteAgentAcceptedDeliveryProbeSchedule({
@@ -85,7 +83,6 @@ export async function ensureRemoteAgentAcceptedDeliveryProbe(input: {
       enqueued: false,
     };
   }
-
   try {
     const enqueued = await enqueueRemoteAgentAcceptedDeliveryProbe({
       ack: { submissionId },
@@ -113,7 +110,6 @@ export async function ensureRemoteAgentAcceptedDeliveryProbe(input: {
     });
     throw error;
   }
-
   const delivery = await markRemoteAgentAcceptedDeliveryProbeScheduled({
     db: input.db,
     idempotencyKey: input.delivery.idempotencyKey,
@@ -128,7 +124,6 @@ export async function ensureRemoteAgentAcceptedDeliveryProbe(input: {
   }
   return { delivery, enqueued: true };
 }
-
 export function resolveAcceptedDeliveryProbeDelaySeconds(
   delivery: Pick<RemoteAgentNativeDeliveryRecord, "conversationKind">
 ): number {

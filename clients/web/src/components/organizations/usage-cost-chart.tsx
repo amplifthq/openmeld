@@ -3,6 +3,7 @@ import {
 	type ChartConfig,
 	EChartsAreaChart,
 } from "@openmeld/ui/components/evilcharts/charts/echarts-area-chart";
+import { memo } from "react";
 import { ModelBrandIcon } from "#/components/models/model-brand-icon";
 import { type UsageModelSeries, usageMoney } from "./usage-models";
 
@@ -10,7 +11,9 @@ const day = new Intl.DateTimeFormat("en-US", {
 	month: "short",
 	day: "numeric",
 });
-export default function UsageCostChart(input: {
+const options = { grid: { left: 52, right: 16, top: 12, bottom: 28 } };
+
+function UsageCostChart(input: {
 	series: UsageModelSeries[];
 	buckets: AiUsageQueryResponse["timeSeries"];
 	loading: boolean;
@@ -20,7 +23,7 @@ export default function UsageCostChart(input: {
 			series.key,
 			{
 				label: series.name,
-				colors: { light: [series.color], dark: [series.color] },
+				colors: series.colors,
 				icon: () => <ModelBrandIcon brand={series.brand} />,
 			},
 		])
@@ -45,7 +48,7 @@ export default function UsageCostChart(input: {
 	return (
 		<EChartsAreaChart
 			animation={false}
-			chartOptions={{ grid: { left: 52, right: 16, top: 12, bottom: 28 } }}
+			chartOptions={options}
 			className="h-44 w-full"
 			config={config}
 			curveType="linear"
@@ -78,3 +81,5 @@ export default function UsageCostChart(input: {
 		</EChartsAreaChart>
 	);
 }
+
+export default memo(UsageCostChart);

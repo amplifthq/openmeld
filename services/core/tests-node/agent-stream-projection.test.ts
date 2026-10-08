@@ -1,6 +1,6 @@
 import { AGENT_REPLY_FINAL_PURPOSE } from "@openmeld/schemas";
 import type {
-  AgentStreamToolPart,
+  AgentStreamPart,
   SpaceAgentStreamSnapshot,
   SpaceAgentStreamTerminal,
 } from "@openmeld/schemas/types";
@@ -13,6 +13,7 @@ import {
   applyAgentStreamPart,
   applyAgentStreamTransientDelta,
   attachAgentActivityToFinalReply,
+  attachStoppedReplyText,
   cleanupExpiredAgentStreamProjections,
   closeAgentStreamProjection,
   listActiveAgentStreamPresences,
@@ -27,6 +28,73 @@ const SPACE_ID =
 const PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 
 describe("Space Agent stream projection", () => {
+  it("persists recovery on the same execution and refuses stale or post-terminal recovery", async () => {
+    const storage = new MemoryProjectionStorage();
+    const recovery = {
+      type: "recovery",
+      state: "waiting",
+      attempt: 3,
+      maxAttempts: 5,
+      nextRetryAtMs: 13_000,
+    } as const;
+    await applyAgentStreamPart({
+      storage,
+      part: createPart({ sequence: 1 }),
+      nowMs: 1000,
+    });
+    const waiting = createPart({ sequence: 2, part: recovery });
+    expect(
+      await applyAgentStreamPart({ storage, part: waiting, nowMs: 2000 })
+    ).toMatchObject({ status: "accepted" });
+    expect(
+      await listActiveAgentStreamPresences({ storage, nowMs: 2500 })
+    ).toEqual([
+      expect.objectContaining({
+        streamId: "stream:sub_1",
+        dispatchId: "dispatch_1",
+        sequence: 2,
+        recovery,
+      }),
+    ]);
+    expect(
+      await applyAgentStreamPart({ storage, part: waiting, nowMs: 2600 })
+    ).toMatchObject({ status: "duplicate_accepted" });
+    await applyAgentStreamPart({
+      storage,
+      part: createPart({
+        sequence: 3,
+        part: { ...recovery, state: "recovered", nextRetryAtMs: 0 },
+      }),
+      nowMs: 3000,
+    });
+    expect(
+      await listActiveAgentStreamPresences({ storage, nowMs: 3500 })
+    ).toEqual([
+      expect.objectContaining({
+        recovery: expect.objectContaining({ state: "recovered" }),
+      }),
+    ]);
+    await closeAgentStreamProjection({
+      storage,
+      streamId: "stream:sub_1",
+      terminal: {
+        kind: "stopped",
+        reasonCode: "agent_stopped",
+        noticeText: "Stopped.",
+      },
+      nowMs: 4000,
+    });
+    expect(
+      await applyAgentStreamPart({
+        storage,
+        part: createPart({ sequence: 4, part: recovery }),
+        nowMs: 5000,
+      })
+    ).toMatchObject({ status: "rejected" });
+    expect(
+      await listActiveAgentStreamPresences({ storage, nowMs: 5000 })
+    ).toEqual([]);
+  });
   it("accepts the explicit text kind used by the stream RPC without persisting it", async () => {
     const storage = new MemoryProjectionStorage();
 
@@ -281,6 +349,84 @@ describe("Space Agent stream projection", () => {
       reasonCode: "agent_stream.terminal",
       lastSequence: 1,
     });
+  });
+
+  it.each([
+    false,
+    true,
+  ])("preserves only the matching accepted public text when Stop is published (closed=%s)", async (closed) => {
+    const storage = new MemoryProjectionStorage();
+    await applyAgentStreamDelta({
+      storage,
+      delta: createDelta({ textSnapshot: "Public partial reply" }),
+      nowMs: 1000,
+    });
+    await applyAgentStreamDelta({
+      storage,
+      delta: createDelta({
+        streamId: "other-stream",
+        dispatchId: "other-dispatch",
+        textSnapshot: "Other request",
+      }),
+      nowMs: 1100,
+    });
+    if (closed) {
+      await closeAgentStreamProjection({
+        storage,
+        streamId: "stream:sub_1",
+        terminal: {
+          kind: "stopped",
+          reasonCode: "remote_agent.stopped",
+          noticeText: "Stopped",
+        },
+        nowMs: 1200,
+      });
+    }
+    const signal = {
+      v: 1 as const,
+      id: "stopped-notice",
+      spaceId: SPACE_ID,
+      ts: 1300,
+      profile: { kind: "system" as const, profileId: "openmeld-system" },
+      type: "signal.system_notice" as const,
+      data: {
+        noticeType: "wake_stopped" as const,
+        actorProfileId: PROFILE_ID,
+        dispatchId: "dispatch_1",
+        generatedBy: "openmeld" as const,
+        text: "This request was stopped.",
+      },
+      stoppedReplyText: "Caller-supplied text must not be trusted",
+    };
+    const result = await attachStoppedReplyText({
+      storage,
+      signal,
+      nowMs: 1300,
+    });
+    expect(result).toMatchObject({
+      stoppedReplyText: "Public partial reply",
+      data: { noticeType: "wake_stopped" },
+    });
+    expect(
+      await attachStoppedReplyText({
+        storage,
+        signal: {
+          ...signal,
+          data: {
+            ...signal.data,
+            actorProfileId: "agt_22222222-2222-4222-8222-222222222222",
+          },
+        },
+        nowMs: 1300,
+      })
+    ).not.toHaveProperty("stoppedReplyText");
+    expect(
+      await attachStoppedReplyText({
+        storage,
+        signal,
+        nowMs: 1300 + AGENT_STREAM_PROJECTION_RETENTION_MS,
+      })
+    ).not.toHaveProperty("stoppedReplyText");
   });
 
   it("removes abandoned streams and terminal guards after thirty minutes", async () => {
@@ -795,7 +941,7 @@ function createDelta(
 
 function createPart(
   overrides: {
-    part?: AgentStreamToolPart;
+    part?: AgentStreamPart;
     sequence?: number;
     streamId?: string;
   } = {}

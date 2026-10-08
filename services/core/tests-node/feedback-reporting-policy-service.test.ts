@@ -3,11 +3,8 @@ import {
   createFeedbackReportingPolicyService,
   type FeedbackReportingPolicyRepository,
 } from "../src/feedback/application/feedback-reporting-policy-service";
-import { createD1FeedbackReportingPolicyRepository } from "../src/feedback/infrastructure/d1/feedback-reporting-policy-repo";
-import {
-  applyDrizzleMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+import { createPostgresFeedbackReportingPolicyRepository } from "../src/feedback/infrastructure/postgresql/feedback-reporting-policy-repo";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("Feedback reporting policy service", () => {
   it("defaults a missing organization policy to reporting enabled", async () => {
@@ -76,16 +73,12 @@ describe("Feedback reporting policy service", () => {
 
 describe("Feedback reporting policy D1 repository", () => {
   it("round-trips the organization opt-out through migration 0022", async () => {
-    const harness = createSqliteD1Harness();
+    const harness = await createPostgresHarness();
     try {
-      applyDrizzleMigrationForTable(
-        harness,
-        "openMeldFeedback_reporting_policies"
-      );
-      seedOrganizationAndUser(harness);
+      await seedOrganizationAndUser(harness);
       const service = createFeedbackReportingPolicyService({
         nowMs: () => 3000,
-        repository: createD1FeedbackReportingPolicyRepository({
+        repository: createPostgresFeedbackReportingPolicyRepository({
           db: harness.db,
         }),
       });
@@ -106,39 +99,20 @@ describe("Feedback reporting policy D1 repository", () => {
         updatedByUserId: "user_owner",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
 
-function seedOrganizationAndUser(
-  harness: ReturnType<typeof createSqliteD1Harness>
-): void {
-  harness.run({
-    sql: `
-      CREATE TABLE organizations (
-        id TEXT PRIMARY KEY NOT NULL,
-        name TEXT NOT NULL,
-        slug TEXT NOT NULL,
-        created_at INTEGER NOT NULL
-      )
-    `,
+async function seedOrganizationAndUser(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>
+): Promise<void> {
+  await harness.query({
+    values: ["org_feedback", "Feedback Org", "feedback-org", 1000],
+    text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, $2, $3, $4)',
   });
-  harness.run({
-    sql: `
-      CREATE TABLE users (
-        id TEXT PRIMARY KEY NOT NULL,
-        name TEXT NOT NULL,
-        email TEXT NOT NULL
-      )
-    `,
-  });
-  harness.run({
-    params: ["org_feedback", "Feedback Org", "feedback-org", 1000],
-    sql: "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, ?, ?, ?)",
-  });
-  harness.run({
-    params: ["user_owner", "Owner", "owner@example.com"],
-    sql: "INSERT INTO users (id, name, email) VALUES (?, ?, ?)",
+  await harness.query({
+    values: ["user_owner", "Owner", "owner@example.com"],
+    text: 'INSERT INTO "openmeld"."users" (id, name, email) VALUES ($1, $2, $3)',
   });
 }

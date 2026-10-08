@@ -1624,6 +1624,22 @@ describe("gateway http forwarding", () => {
     });
   });
 
+  it("forwards the opt-in Center Agent directory scope to Core", async () => {
+    const { env, rpc } = makeEnv();
+    const response = await app.fetch(
+      new Request(
+        "http://local/v1/organizations/current/directory?centerAgentOnly=true"
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    expect(rpc.getCurrentOrganizationDirectory).toHaveBeenCalledWith({
+      centerAgentOnly: true,
+      context: EXPECTED_CORE_CONTEXT,
+    });
+  });
+
   it("forwards the lightweight Profile Directory options without requesting runtime state", async () => {
     const { env, rpc } = makeEnv();
     const request = new Request(
@@ -2493,6 +2509,58 @@ describe("gateway http forwarding", () => {
     expect(bootstrapTimingPoint?.doubles?.[1]).toBe(42);
   });
 
+  it.each([
+    false,
+    true,
+  ])("only exposes model recovery to an opted-in bootstrap reader: %s", async (supported) => {
+    const { env, rpc } = makeEnv();
+    const original = await rpc.getSpaceBootstrapWithTiming();
+    const recovery = {
+      type: "recovery",
+      state: "waiting",
+      attempt: 2,
+      maxAttempts: 5,
+      nextRetryAtMs: 7000,
+    } as const;
+    rpc.getSpaceBootstrapWithTiming.mockResolvedValue({
+      ...original,
+      payload: {
+        ...original.payload,
+        activeAgentStreamPresences: [
+          {
+            v: 1,
+            spaceId: "demo",
+            streamId: "stream:sub_1",
+            sequence: 2,
+            profileId: "agt_11111111-1111-4111-8111-111111111111",
+            triggerMessageId: "signal_1",
+            dispatchId: "dispatch_1",
+            state: "streaming",
+            gapDetected: false,
+            createdAtMs: 1000,
+            updatedAtMs: 2000,
+            expiresAtMs: 60_000,
+            recovery,
+          },
+        ],
+      },
+    });
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/spaces/demo/bootstrap?includeAgentStreamPresence=true${supported ? "&includeAgentStreamRecovery=true" : ""}`
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      activeAgentStreamPresences: { recovery?: unknown }[];
+    };
+    expect(body.activeAgentStreamPresences[0]?.recovery).toEqual(
+      supported ? recovery : undefined
+    );
+  });
+
   it("forwards GET /v1/spaces/:spaceId/dispatches/:dispatchId/trace to core RPC", async () => {
     const { env, rpc } = makeEnv();
     const request = new Request(
@@ -2551,6 +2619,7 @@ describe("gateway http forwarding", () => {
     "3",
     "4",
     "5",
+    "6",
   ])("negotiates dispatch trace response version %s without changing the public route", async (version) => {
     const { env, rpc } = makeEnv();
     const response = await app.fetch(
@@ -2603,7 +2672,7 @@ describe("gateway http forwarding", () => {
     const response = await app.fetch(
       new Request("http://local/v1/spaces/demo/dispatches/dispatch-1/trace", {
         headers: {
-          "x-openmeld-space-dispatch-trace-response-version": "6",
+          "x-openmeld-space-dispatch-trace-response-version": "7",
         },
       }),
       env,
@@ -5971,7 +6040,7 @@ describe("gateway http forwarding", () => {
     });
   });
 
-  it("forwards PATCH /contract to core RPC", async () => {
+  it("narrows legacy status permissions before forwarding PATCH /contract", async () => {
     const { env, rpc } = makeEnv();
     const contractPatch = {
       publicationMode: "raw_context_sharing",
@@ -6005,7 +6074,7 @@ describe("gateway http forwarding", () => {
     });
     expect(rpc.patchSpaceContract).toHaveBeenCalledWith({
       spaceId: "demo",
-      contractPatch,
+      contractPatch: { ...contractPatch, allowedActions: ["stay_silent"] },
       password: "secret-contract",
       context: EXPECTED_CORE_CONTEXT,
     });
@@ -6158,7 +6227,7 @@ describe("gateway http forwarding", () => {
     expect(rpc.getSpaceDispatchResult).not.toHaveBeenCalled();
   });
 
-  it("forwards PUT /contract to core RPC", async () => {
+  it("narrows legacy status permissions before forwarding PUT /contract", async () => {
     const { env, rpc } = makeEnv();
     const contract = {
       dispatchPolicy: { mode: "mention_only" },
@@ -6188,7 +6257,10 @@ describe("gateway http forwarding", () => {
     });
     expect(rpc.putSpaceContract).toHaveBeenCalledWith({
       spaceId: "demo",
-      contract,
+      contract: {
+        ...contract,
+        allowedActions: ["post_message", "stay_silent"],
+      },
       context: EXPECTED_CORE_CONTEXT,
     });
   });

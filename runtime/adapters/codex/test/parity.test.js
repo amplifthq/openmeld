@@ -300,6 +300,139 @@ test("codex Stop fences the default app-server path while writer occupancy waits
   }
 });
 
+for (const [initialMode, targetMode, version, receipt, expectedStatus] of [
+  [
+    "codex:askForApproval",
+    "codex:approveForMe",
+    "0.160.1",
+    "applied",
+    "applied",
+  ],
+  [
+    "codex:approveForMe",
+    "codex:askForApproval",
+    "0.160.1",
+    "applied",
+    "applied",
+  ],
+  [
+    "codex:askForApproval",
+    "codex:fullAccess",
+    "0.160.1",
+    "applied",
+    "not_applied",
+  ],
+  [
+    "codex:fullAccess",
+    "codex:approveForMe",
+    "0.160.1",
+    "applied",
+    "not_applied",
+  ],
+  [
+    "codex:customConfig",
+    "codex:approveForMe",
+    "0.160.1",
+    "applied",
+    "not_applied",
+  ],
+  [
+    "codex:askForApproval",
+    "codex:approveForMe",
+    "0.150.1",
+    "applied",
+    "not_applied",
+  ],
+  [
+    "codex:askForApproval",
+    "codex:approveForMe",
+    "0.160.1",
+    "notFound",
+    "not_applied",
+  ],
+]) {
+  test(`codex live permissions ${initialMode} -> ${targetMode} (${version}, ${receipt})`, async () => {
+    const { invokeCodexAppServerTransport } = await import("../dist/index.js");
+    const fixtureDir = await mkdtemp(join(tmpdir(), "codex-permissions-"));
+    const fixturePath = join(fixtureDir, "app-server.mjs");
+    const logPath = join(fixtureDir, "rpc.jsonl");
+    await writeFakeCodexAppServerFixture(fixturePath);
+    let activeTurn;
+    let accepted;
+    const turnAccepted = new Promise((resolve) => {
+      accepted = resolve;
+    });
+    try {
+      const execution = invokeCodexAppServerTransport({
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        codexTimeoutMs: 5000,
+        codexWorkdir: fixtureDir,
+        agentControllerPermissionMode: initialMode,
+        env: {
+          OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+          OPENMELD_FAKE_CODEX_APP_SERVER_TURN_DELAY_MS: "60000",
+          OPENMELD_FAKE_CODEX_NATIVE_VERSION: version,
+          OPENMELD_FAKE_CODEX_PERMISSION_RECEIPT: receipt,
+        },
+        taskId: "permission-task",
+        threadId: "permission-thread",
+        prompt: "Continue working",
+        onActiveTurn: (turn) => {
+          activeTurn = turn;
+          return () => undefined;
+        },
+        onRuntimeEvent: (event) => {
+          if (event.phase === "provider_turn_accepted") {
+            accepted();
+          }
+        },
+      });
+      await Promise.race([
+        turnAccepted,
+        execution.then(() => assert.fail("Turn ended before admission")),
+      ]);
+      const result = await activeTurn.updatePermissionMode({
+        taskId: "permission-task",
+        agentControllerPermissionMode: targetMode,
+      });
+      assert.equal(result.status, expectedStatus);
+      const messages = await readFakeAppServerMessages(logPath);
+      const update = messages.find(
+        (message) => message.method === "turn/settings/update"
+      );
+      if (expectedStatus === "applied") {
+        assert.deepEqual(update.params, {
+          threadId: "permission-thread",
+          turnId: "turn-1",
+          approvalsReviewer:
+            targetMode === "codex:approveForMe" ? "auto_review" : "user",
+        });
+      }
+      assert.equal(
+        messages.filter((message) => message.method === "turn/start").length,
+        1
+      );
+      assert.equal(
+        messages.some((message) => message.method === "turn/interrupt"),
+        false
+      );
+      await activeTurn.interrupt();
+      await execution;
+      assert.equal(
+        (
+          await activeTurn.updatePermissionMode({
+            taskId: "permission-task",
+            agentControllerPermissionMode: targetMode,
+          })
+        ).status,
+        "not_applied"
+      );
+    } finally {
+      await rm(fixtureDir, { force: true, recursive: true });
+    }
+  });
+}
+
 for (const [mode, expectedStatus] of [
   ["applied", "applied"],
   ["unsupported", "not_applied"],
@@ -1122,7 +1255,9 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "  if (message.method === 'config/read') { write({ id: message.id, result: { config: { mcp_servers: { openmeld_internal_dispatch_space_action: JSON.parse(process.env.OPENMELD_FAKE_CODEX_SPACE_POLICY ?? '{}') } }, origins: {}, layers: null } }); return; }",
       "  if (message.method === 'configRequirements/read') { write({ id: message.id, result: { requirements: JSON.parse(process.env.OPENMELD_FAKE_CODEX_MANAGED_REQUIREMENTS ?? 'null') } }); return; }",
       "  if (message.method === 'command/exec') { write({ jsonrpc: '2.0', id: message.id, result: { exitCode: 0, stdout: 'denied:denied:allowed:denied', stderr: '' } }); return; }",
-      "  if (message.method === 'mcpServerStatus/list') { write({ jsonrpc: '2.0', id: message.id, result: { data: [], nextCursor: null } }); return; }",
+      // A real 0.150.1 server with a responsive tools/list and stalled
+      // resources/list returns toolsAndAuthOnly while full remains pending.
+      "  if (message.method === 'mcpServerStatus/list') { if (message.params.detail === 'full' && process.env.OPENMELD_FAKE_CODEX_HANG_RESOURCES === '1') return; write({ jsonrpc: '2.0', id: message.id, result: JSON.parse(process.env.OPENMELD_FAKE_CODEX_MCP_INVENTORY ?? '{\"data\":[],\"nextCursor\":null}') }); return; }",
       "  if (message.method === 'collaborationMode/list') {",
       "    write({ jsonrpc: '2.0', id: message.id, result: { data: [",
       "      { name: 'Plan', mode: 'plan', model: null, reasoning_effort: 'medium' },",
@@ -1213,6 +1348,10 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "    if (startDelayMs > 0) setTimeout(onStart, startDelayMs); else onStart();",
       "    return;",
       "  }",
+      // Captured from the native Codex 0.160.1 TurnSettingsUpdateResponse.
+      "  if (message.method === 'turn/settings/update') {",
+      "    write({ id: message.id, result: { status: process.env.OPENMELD_FAKE_CODEX_PERMISSION_RECEIPT || 'applied' } }); return;",
+      "  }",
       // Shape captured from Codex 0.150.1 generate-json-schema TurnSteerParams/
       // TurnSteerResponse and the official App Server turn/steer contract.
       // Rejections: openai/codex rust-v0.150.1, request_processors/turn_processor.rs.
@@ -1254,6 +1393,47 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
 
 for (const scenario of [
   { name: "new native thread", version: "0.150.1", native: true },
+  {
+    name: "current controller queries only the alternate carrier",
+    version: "0.160.0",
+    native: true,
+  },
+  {
+    name: "an active alternate carrier prevents a native turn",
+    version: "0.160.0",
+    native: true,
+    // Fields from the native ListMcpServerStatusResponse capture in scoped-mcp.
+    inventory: {
+      data: [
+        {
+          name: "openmeld_internal_dispatch_space_action",
+          runtimeStatus: "connected",
+          pluginId: null,
+          serverInfo: null,
+          tools: {},
+          toolsError: null,
+          resources: [],
+          resourceTemplates: [],
+          authStatus: "unsupported",
+        },
+      ],
+      nextCursor: null,
+    },
+    error: "context.space_tool_carrier_unverified",
+  },
+  {
+    name: "an incomplete carrier inventory prevents a native turn",
+    version: "0.160.0",
+    native: true,
+    inventory: { data: [], nextCursor: "1" },
+    error: "context.space_tool_carrier_unverified",
+  },
+  {
+    name: "native tools with a stalled ambient resource catalog",
+    version: "0.150.1",
+    native: true,
+    hangResources: true,
+  },
   {
     name: "bundled prerelease resumes the native conversation",
     version: "0.159.0-alpha.12.1",
@@ -1476,6 +1656,12 @@ for (const scenario of [
           OPENMELD_USER_FACING_CLI_COMMAND: "openmeld",
           OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
           OPENMELD_FAKE_CODEX_NATIVE_VERSION: scenario.version,
+          OPENMELD_FAKE_CODEX_MCP_INVENTORY: scenario.inventory
+            ? JSON.stringify(scenario.inventory)
+            : undefined,
+          OPENMELD_FAKE_CODEX_HANG_RESOURCES: scenario.hangResources
+            ? "1"
+            : "0",
           OPENMELD_FAKE_CODEX_MISSING_METHOD: scenario.missingMethod,
           ...(scenario.deliveryOnly
             ? { OPENMELD_SPACE_ACTION_DELIVERY_ONLY: "1" }
@@ -1530,6 +1716,22 @@ for (const scenario of [
         scenario.native && !scenario.existing
       );
       if (scenario.native) {
+        const inventory = messages.find(
+          (message) => message.method === "mcpServerStatus/list"
+        );
+        assert.deepEqual(inventory.params, {
+          threadId: executionThreadId,
+          detail: scenario.deliveryOnly ? "full" : "toolsAndAuthOnly",
+          ...(scenario.version === "0.160.0" && !scenario.deliveryOnly
+            ? { serverName: "openmeld_internal_dispatch_space_action" }
+            : {}),
+          limit: 100,
+        });
+        assert.equal(
+          messages.find((message) => message.method === "mcpServerStatus/list")
+            .params.detail,
+          scenario.deliveryOnly ? "full" : "toolsAndAuthOnly"
+        );
         assert.equal(
           scenario.deliveryOnly
             ? thread.params.config.mcp_servers
@@ -4155,8 +4357,8 @@ test("invokeCodexAppServerTransport isolates structured-action repair from the s
   }
 });
 
-test("invokeCodexAppServerTransport reports a missing rollout as missing context", async () => {
-  const { invokeCodexAppServerTransport } = await import("../dist/index.js");
+test("an inherited-permission task reports missing history without starting replacement work", async () => {
+  const { invokeCodexAppServer } = await import("../dist/index.js");
   const fixtureDir = await mkdtemp(join(tmpdir(), "codex-app-no-rollout-"));
   const dispatchDir = await mkdtemp(
     join(tmpdir(), "codex-app-no-rollout-dir-")
@@ -4168,7 +4370,23 @@ test("invokeCodexAppServerTransport reports a missing rollout as missing context
 
   try {
     await assert.rejects(
-      invokeCodexAppServerTransport({
+      invokeCodexAppServer({
+        executionContext: {
+          version: 1,
+          id: "11111111-1111-4111-8111-111111111111",
+          access: "workspace",
+          workspace: "current",
+          permissionSource: "agent_settings",
+          scope: {
+            organizationId: "org",
+            requesterProfileId: "human",
+            spaceId: "space",
+            targetProfileId: "agent",
+            threadId: null,
+          },
+          nativeConversationId: "thread-missing-rollout",
+          runtimeWorkspaceFingerprint: null,
+        },
         launchContract: createNodeScriptLaunchContract(fixturePath),
         codexTimeoutMs: 5000,
         codexWorkdir: dispatchDir,

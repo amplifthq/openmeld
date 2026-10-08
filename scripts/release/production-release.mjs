@@ -6,6 +6,18 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { readCutoverTarget } from "../../tooling/postgresql/remote-target.mjs";
+import {
+  admitPostgresqlProductRelease,
+  readPostgresqlCutoverPreparation,
+  restoreProductCrons,
+  verifyProductCrons,
+} from "./database-backend-admission.mjs";
+import {
+  cutoverConfigArgs,
+  cutoverDeploySteps,
+  withPostgresqlCutoverConfig,
+} from "./postgresql-cutover-config.mjs";
 import { executeRecordedProductionDeploySteps } from "./production-release-receipts.mjs";
 import {
   acquireProductionScopeLease,
@@ -18,7 +30,10 @@ import {
   isSkillsReleasePath,
 } from "./release-ready-paths.mjs";
 import { readCurrentWorkerVersionIds } from "./release-stage-probes.mjs";
-import { resolveRemoteAgentRequestCompatibilityBridge } from "./remote-agent-request-compatibility.mjs";
+import {
+  resolvePersonalCloudComputerRequestCompatibility,
+  resolveRemoteAgentRequestCompatibilityBridge,
+} from "./remote-agent-request-compatibility.mjs";
 import { requireMainlineReleaseSha } from "./require-mainline-release-sha.mjs";
 import {
   admitWebsiteDomainRelease,
@@ -44,6 +59,7 @@ const DIRECT_SCOPES = new Set([
   "remote-agent",
   "web",
   "website",
+  "docs",
 ]);
 const CLOUD_SCOPES = [
   "auth",
@@ -52,6 +68,7 @@ const CLOUD_SCOPES = [
   "core",
   "remote-agent",
   "website",
+  "docs",
 ];
 const FULL_SCOPES = ["db", ...CLOUD_SCOPES];
 const SCOPE_ORDER = [
@@ -63,6 +80,7 @@ const SCOPE_ORDER = [
   "core",
   "remote-agent",
   "website",
+  "docs",
 ];
 const REMOTE_AGENT_RECEIVER_FIRST_SCOPE_ORDER = [
   "db",
@@ -181,6 +199,16 @@ const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
     "web",
   ],
   "personal-remote-tools-receivers-first": SCOPE_ORDER,
+  "personal-cloud-computer-receivers-first": [
+    "db",
+    "auth",
+    "core",
+    "remote-agent",
+    "gateway",
+    "web",
+    "cli",
+    "website",
+  ],
   "inbox-task-retirement-producer-first": [
     "db",
     "core",
@@ -263,7 +291,28 @@ export function resolveProductionCompatibilityDependencies(
     "clients/openmeld-cli/src/space/dispatch-task.ts"
   );
   const invitation = isSpaceInvitationReceiverFirstDiff(changedPaths);
+  const remoteRequestReceiverFirst =
+    isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths, context);
+  const remoteReceiverRequired = requiresRemoteAgentRequestReceiver(
+    changedPaths,
+    context,
+    remoteRequestReceiverFirst
+  );
   const dependencyGroups = [
+    {
+      enabled: isProjectIssueWorkflowDiff(changedPaths),
+      edges: [
+        ["core", "remote-agent"],
+        ["remote-agent", "web"],
+      ],
+    },
+    {
+      enabled: isProjectSharedFolderDiff(changedPaths),
+      edges: [
+        ["core", "cli"],
+        ["cli", "web"],
+      ],
+    },
     {
       enabled: isRemoteAiUsageDiff(changedPaths),
       edges: [["core", "remote-agent"]],
@@ -284,6 +333,16 @@ export function resolveProductionCompatibilityDependencies(
         ["core", "gateway"],
         ["gateway", "web"],
       ],
+    },
+    {
+      enabled: isGatewayRequestContextReceiverFirstDiff(changedPaths, context),
+      edges: [["core", "gateway"]],
+    },
+    {
+      enabled:
+        hasRemoteExecutionInputOwners(changedPaths) &&
+        inspectRemoteExecutionInputSchemaDirection(context)?.responseChanged,
+      edges: [["core", "remote-agent"]],
     },
     {
       enabled: isCenterAgentEvidenceDiff(changedPaths),
@@ -326,6 +385,19 @@ export function resolveProductionCompatibilityDependencies(
     {
       enabled: isPersonalRemoteToolsReceiverFirstDiff(changedPaths),
       edges: [["core", "remote-agent"]],
+    },
+    {
+      enabled: isPersonalCloudComputerDiff(changedPaths),
+      edges: [
+        ["db", "core"],
+        ["core", "remote-agent"],
+        ["remote-agent", "gateway"],
+        ["db", "cli"],
+        ["auth", "cli"],
+        ["core", "cli"],
+        ["remote-agent", "cli"],
+        ["gateway", "cli"],
+      ],
     },
     {
       enabled: taskInboxRetired,
@@ -432,16 +504,14 @@ export function resolveProductionCompatibilityDependencies(
       edges: [["core", "cli"]],
     },
     {
-      enabled:
-        (isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths) ||
-          changedPaths.some(isRemoteAgentReceiverFirstContractPath)) &&
-        !resolveRemoteAgentRequestCompatibilityBridge({
-          ...context,
-          readGitFile:
-            context.readGitFile ??
-            ((ref, path) => runGit(["show", `${ref}:${path}`])),
-        }),
+      enabled: remoteReceiverRequired,
       edges: [["remote-agent", "core"]],
+    },
+    {
+      // CLI publication deploys the candidate Core projection. It must not
+      // activate that strict request producer before the Remote receiver.
+      enabled: remoteRequestReceiverFirst && remoteReceiverRequired,
+      edges: [["remote-agent", "cli"]],
     },
     {
       enabled: isIndependentSkillBridgeDiff(changedPaths),
@@ -462,7 +532,10 @@ export function resolveProductionCompatibilityDependencies(
   return edges;
 }
 
-export function resolveProductionCompatibilityReceiverWitnesses(changedPaths) {
+export function resolveProductionCompatibilityReceiverWitnesses(
+  changedPaths,
+  context = {}
+) {
   const witnesses = isWorkingFolderRecoveryDiff(changedPaths)
     ? [
         {
@@ -478,9 +551,16 @@ export function resolveProductionCompatibilityReceiverWitnesses(changedPaths) {
         },
       ]
     : [];
+  if (isGatewayRequestContextReceiverFirstDiff(changedPaths, context)) {
+    witnesses.push({
+      receiver: "core",
+      producer: "gateway",
+      receiverPaths: [GATEWAY_REQUEST_CONTEXT_SCHEMA_PATH],
+    });
+  }
   if (
     !(
-      isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths) ||
+      isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths, context) ||
       changedPaths.some(isRemoteAgentReceiverFirstContractPath)
     )
   ) {
@@ -488,19 +568,25 @@ export function resolveProductionCompatibilityReceiverWitnesses(changedPaths) {
   }
   const receiverPaths = [
     ...REMOTE_AGENT_WORKER_REQUEST_SCHEMA_PATHS,
+    REMOTE_EXECUTION_INPUT_SCHEMA_PATH,
     REMOTE_AGENT_WORKER_REQUEST_RECEIVER_PATH,
     ...REMOTE_AGENT_RECEIVER_FIRST_CONTRACT_PATHS,
   ].filter((path) => changedPaths.includes(path));
-  return receiverPaths.length > 0
-    ? [
-        ...witnesses,
-        {
-          producer: "core",
-          receiver: "remote-agent",
-          receiverPaths,
-        },
-      ]
-    : witnesses;
+  if (receiverPaths.length > 0) {
+    witnesses.push({
+      producer: "core",
+      receiver: "remote-agent",
+      receiverPaths,
+    });
+    if (isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths, context)) {
+      witnesses.push({
+        producer: "cli",
+        receiver: "remote-agent",
+        receiverPaths,
+      });
+    }
+  }
+  return witnesses;
 }
 
 function isWorkingFolderRecoveryDiff(paths) {
@@ -568,9 +654,11 @@ function isReviewedWindowsPreviewOnlyNpmSetupDiff(paths, context) {
 }
 
 function isInboxNotificationObservationDiff(paths) {
+  // Storage-only receiver changes do not introduce a new observation caller.
+  // Other Inbox schema additions still keep their reader-before-writer order.
   return [
     INBOX_SCHEMA_PATH,
-    "services/core/src/inbox/application/inbox-notification-observations.ts",
+    "clients/web/src/lib/inbox/notification-observer.ts",
   ].every((file) => paths.includes(file));
 }
 const RETIRED_TASK_INBOX_PRODUCER_PATH =
@@ -622,17 +710,62 @@ const REMOTE_AGENT_RECEIVER_FIRST_CONTRACT_PATHS = new Set([
   "services/remote-agent/flue-adapter/cloudflare-entrypoint.ts",
   "services/remote-agent/flue-adapter/execution-reconciliation.ts",
 ]);
+const REMOTE_AI_USAGE_PRODUCER_CONTRACT_PATHS = new Set([
+  "packages/schemas/src/schemas/ai-usage.ts",
+  "services/remote-agent/agent-core/ai-usage.ts",
+]);
+const CENTER_AGENT_CONTEXT_MANIFEST_CONTRACT_PATHS = new Set([
+  "packages/schemas/src/schemas/http/center-agent-context-manifest.ts",
+  "packages/schemas/src/types/http/center-agent-context-manifest.ts",
+  "services/core/src/center-agent/application/center-agent-context-manifest-service.ts",
+]);
 function isRemoteAiUsageDiff(changedPaths) {
+  // A receiver-only edit does not introduce a new Remote producer contract.
   return changedPaths.some((path) =>
-    [
-      "packages/schemas/src/schemas/ai-usage.ts",
-      "services/core/src/usage/ai-usage-rpc.ts",
-      "services/remote-agent/agent-core/ai-usage.ts",
-    ].includes(path)
+    REMOTE_AI_USAGE_PRODUCER_CONTRACT_PATHS.has(path)
   );
+}
+
+// Explain these directional signals at the same owner that classifies them.
+// These are source-path observations, not deployed receiver compatibility proof.
+function describeCompatibilityPathSignals(changedPaths) {
+  return [
+    {
+      contract: "remote-ai-usage",
+      dependency: ["core", "remote-agent"],
+      matchedPaths: changedPaths.filter((path) =>
+        REMOTE_AI_USAGE_PRODUCER_CONTRACT_PATHS.has(path)
+      ),
+      nonTriggerPaths: changedPaths.filter(
+        (path) => path === "services/core/src/usage/ai-usage-rpc.ts"
+      ),
+      reason:
+        "The changed shared contract or Remote producer requires Core first. A Core receiver-only edit does not establish a changed Remote producer contract.",
+    },
+    {
+      contract: "center-agent-context-manifest",
+      dependency: ["remote-agent", "core"],
+      matchedPaths: changedPaths.filter(
+        (path) =>
+          path.startsWith("services/core/") &&
+          isCenterAgentContextManifestContractPath(path)
+      ),
+      nonTriggerPaths: changedPaths.filter(
+        (path) =>
+          path ===
+          "services/core/src/center-agent/center-agent-context-manifest-repository.ts"
+      ),
+      reason:
+        "The Core context projection produces Remote context entries. Its persistence repository does not define that wire contract.",
+    },
+  ];
 }
 const REMOTE_AGENT_WORKER_RESPONSE_SCHEMA_PATH =
   "packages/schemas/src/schemas/runtime/remote-agent-worker.ts";
+const REMOTE_EXECUTION_INPUT_SCHEMA_PATH =
+  "packages/schemas/src/schemas/runtime/remote-agent-execution-input.ts";
+const GATEWAY_REQUEST_CONTEXT_SCHEMA_PATH =
+  "packages/schemas/src/schemas/daemon/profile-identity.ts";
 const REMOTE_AGENT_WORKER_REQUEST_SCHEMA_PATHS = new Set([
   REMOTE_AGENT_WORKER_RESPONSE_SCHEMA_PATH,
   "packages/schemas/src/schemas/runtime/remote-agent-turn-envelope.ts",
@@ -655,6 +788,7 @@ const PACKAGE_SCOPE = new Map([
   ["openmeld", "cli"],
   ["openmeld-web", "web"],
   ["openmeld-website", "website"],
+  ["openmeld-docs", "docs"],
 ]);
 const DB_MIGRATION_PATH_PREFIX = "packages/db/drizzle/";
 const DB_SCHEMA_PATH_PREFIXES = [
@@ -677,6 +811,11 @@ const GLOBAL_WORKSPACE_RUNTIME_PATHS = new Set([
   "turbo.json",
 ]);
 const SCOPE_VERIFY_SPECS = {
+  docs: {
+    filter: "openmeld-docs...",
+    label: "Verify Docs",
+    tasks: ["check"],
+  },
   website: {
     filter: "openmeld-website...",
     label: "Verify Website",
@@ -733,19 +872,23 @@ export function parseProductionReleaseArgs(argv) {
     if (arg === "--") {
       continue;
     }
-    if (arg === "--base") {
-      index += 1;
-      options.base = readRequiredArgument(argv, index, arg);
+    if (arg === "--database-cutover" && command === "plan") {
+      options.databaseCutover = true;
       continue;
     }
-    if (arg === "--scope") {
-      index += 1;
-      options.scope = readRequiredArgument(argv, index, arg);
+    if (arg === "--database-cutover-restore-crons" && command === "deploy") {
+      options.databaseCutoverRestoreCrons = true;
       continue;
     }
-    if (["--domain-evidence", "--domain-phase"].includes(arg)) {
-      options[arg === "--domain-evidence" ? "domainEvidence" : "domainPhase"] =
-        readRequiredArgument(argv, ++index, arg);
+    const valueOption = new Map([
+      ["--base", "base"],
+      ["--scope", "scope"],
+      ["--domain-evidence", "domainEvidence"],
+      ["--domain-phase", "domainPhase"],
+      ["--database-cutover-snapshot", "databaseCutoverSnapshot"],
+    ]).get(arg);
+    if (valueOption) {
+      options[valueOption] = readRequiredArgument(argv, ++index, arg);
       continue;
     }
     if (arg === "--redeploy" && command === "deploy") {
@@ -759,7 +902,32 @@ export function parseProductionReleaseArgs(argv) {
     throw new Error(`Unknown production release option: ${arg}`);
   }
   validateDomainReleaseOptions(options);
+  validateDatabaseCutoverOptions(options);
   return options;
+}
+
+function validateDatabaseCutoverOptions(options) {
+  if (
+    options.databaseCutoverRestoreCrons &&
+    (options.scope !== "auth,core" ||
+      options.databaseCutoverSnapshot ||
+      options.domainEvidence ||
+      options.domainPhase)
+  ) {
+    throw new Error(
+      "Cron restoration requires deploy --scope auth,core without snapshot or domain options"
+    );
+  }
+  if (
+    options.databaseCutoverSnapshot &&
+    (!["deploy", "preflight"].includes(options.command) ||
+      options.domainEvidence ||
+      options.domainPhase)
+  ) {
+    throw new Error(
+      "A cutover snapshot applies only to deploy or preflight, without domain changes"
+    );
+  }
 }
 
 function validateDomainReleaseOptions(options) {
@@ -929,10 +1097,13 @@ export function buildProductionVerifyStepSpecs(input) {
       scope === "core" &&
       !input.scopes.includes("cli") &&
       !input.taskInboxRetired &&
+      !isInboxSourceTargetReceiverFirstDiff(input.changedPaths) &&
       !isDeviceWaitReceiverFirstDiff(input.changedPaths) &&
       !isLocalServiceRuntimeReceiverFirstDiff(input.changedPaths) &&
       !isWorkingFolderRecoveryDiff(input.changedPaths) &&
+      !input.coreCurrentCliProjection &&
       !isPersonalRemoteToolsReceiverFirstDiff(input.changedPaths) &&
+      !isPersonalCloudComputerDiff(input.changedPaths) &&
       !isSpaceTaskReceiverFirstDiff(input.changedPaths) &&
       !isSpaceInvitationReceiverFirstDiff(input.changedPaths)
     ) {
@@ -962,6 +1133,11 @@ export function buildProductionPreflightStepSpecs(input) {
     throw new Error(
       "Production preflight requires the exact release SHA for receipt-based train admission."
     );
+  }
+  // Trigger restoration publishes no application or CLI bytes. Admission under
+  // the Auth/Core leases still proves the exact active receipts and database.
+  if (input.databaseCutoverRestoreCrons) {
+    return steps;
   }
   steps.unshift({
     args: [
@@ -1024,10 +1200,13 @@ export function buildProductionPreflightStepSpecs(input) {
     input.scopes.includes("core") &&
     !input.scopes.includes("cli") &&
     !input.taskInboxRetired &&
+    !isInboxSourceTargetReceiverFirstDiff(input.changedPaths) &&
     !isDeviceWaitReceiverFirstDiff(input.changedPaths) &&
     !isLocalServiceRuntimeReceiverFirstDiff(input.changedPaths) &&
     !isWorkingFolderRecoveryDiff(input.changedPaths) &&
+    !input.coreCurrentCliProjection &&
     !isPersonalRemoteToolsReceiverFirstDiff(input.changedPaths) &&
+    !isPersonalCloudComputerDiff(input.changedPaths) &&
     !isPeopleComputersReceiverFirstDiff(input.changedPaths) &&
     !isSpaceTaskReceiverFirstDiff(input.changedPaths) &&
     !isSpaceInvitationReceiverFirstDiff(input.changedPaths)
@@ -1127,7 +1306,8 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   assertInboxSourceTargetReleaseScopes(
     scopes,
     changedPaths,
-    input.taskInboxRetired
+    input.taskInboxRetired,
+    input.compatibilityContext
   );
   assertLocalServiceRuntimeReleaseScopes(scopes, changedPaths);
   assertWakeProgressOptInContractReleaseScopes(scopes, changedPaths);
@@ -1135,7 +1315,8 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   assertSpaceTaskReleaseScopes(scopes, changedPaths);
   const deployOrderProfile = resolveProductionDeployOrderProfile(
     compatibilityChangedPaths,
-    input.taskInboxRetired
+    input.taskInboxRetired,
+    input.compatibilityContext
   );
   if (
     deployOrderProfile === "space-caller-context-receivers-first" &&
@@ -1166,7 +1347,13 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   for (const scope of orderedScopes) {
     const start = steps.length;
     appendProductionDeployScopeSteps({
-      coreReceiverFirst: isWorkingFolderRecoveryDiff(changedPaths),
+      databaseBackend: input.databaseBackend,
+      databaseCutoverSnapshot: input.databaseCutoverSnapshot,
+      coreReceiverFirst:
+        isWorkingFolderRecoveryDiff(changedPaths) ||
+        isLocalServiceRuntimeReceiverFirstDiff(changedPaths) ||
+        deployOrderProfile === "core-worker-response-reader-first" ||
+        isInboxSourceTargetReceiverFirstDiff(changedPaths),
       deployOrderProfile,
       releaseSha: input.releaseSha,
       scope,
@@ -1235,41 +1422,58 @@ function annotateReleaseScope(steps, start, scope) {
 }
 
 function appendRendererDeploySteps(input) {
-  const website = input.scope === "website";
-  const client = website ? "website" : "web";
+  const client = input.scope;
+  const renderer = {
+    web: { label: "Web", url: "https://app.openmeld.ai" },
+    website: { label: "Website", url: "https://openmeld.ai" },
+    docs: { label: "Docs", url: "https://docs.openmeld.ai" },
+  }[client];
   input.steps.push(
-    packageDeployStep(
-      `openmeld-${client}`,
-      website ? "Deploy Website" : "Deploy Web",
-      {
-        args: ["--config", `clients/${client}/wrangler.jsonc`, "--env", "prod"],
-      }
-    ),
+    packageDeployStep(`openmeld-${client}`, `Deploy ${renderer.label}`, {
+      args: ["--config", `clients/${client}/wrangler.jsonc`, "--env", "prod"],
+    }),
     {
       args: [
         "scripts/release/production-web-health.mjs",
         "--scope",
         client,
         "--url",
-        website ? "https://openmeld.ai" : "https://app.openmeld.ai",
+        renderer.url,
         "--source-sha",
         input.releaseSha,
         "--artifact-receipt",
         `dev-tmp/release-artifact-check/${client}.json`,
       ],
       command: "node",
-      label: website ? "Verify Website health" : "Verify Web health",
+      label: `Verify ${renderer.label} health`,
     }
   );
 }
 
+function appendDatabaseDeploySteps(input) {
+  if (input.databaseBackend === "postgresql") {
+    for (const command of input.databaseCutoverSnapshot
+      ? ["verify"]
+      : ["migrate", "grant-runtime", "verify"]) {
+      input.steps.push({
+        command: "node",
+        args: ["tooling/postgresql/cutover.mjs", command],
+        controlPath: "tooling/postgresql/cutover.mjs",
+        label: `PostgreSQL database: ${command}`,
+      });
+    }
+    return;
+  }
+  input.steps.push({
+    args: ["db:release:prod"],
+    command: "pnpm",
+    label: "Synchronize production database",
+  });
+}
+
 function appendProductionDeployScopeSteps(input) {
   if (input.scope === "db") {
-    input.steps.push({
-      args: ["db:release:prod"],
-      command: "pnpm",
-      label: "Synchronize production database",
-    });
+    appendDatabaseDeploySteps(input);
     return;
   }
   if (input.scope === "cli") {
@@ -1279,7 +1483,7 @@ function appendProductionDeployScopeSteps(input) {
     });
     return;
   }
-  if (input.scope === "web" || input.scope === "website") {
+  if (["web", "website", "docs"].includes(input.scope)) {
     appendRendererDeploySteps(input);
     return;
   }
@@ -1317,6 +1521,7 @@ function appendProductionDeployScopeSteps(input) {
       input.deployOrderProfile === "device-wait-receivers-first" ||
       input.deployOrderProfile === "people-computers-receivers-first" ||
       input.deployOrderProfile === "personal-remote-tools-receivers-first" ||
+      input.deployOrderProfile === "personal-cloud-computer-receivers-first" ||
       input.deployOrderProfile === "local-service-runtime-receiver-first" ||
       input.deployOrderProfile === "space-task-receivers-first" ||
       input.deployOrderProfile === "space-invitation-receivers-first"
@@ -1384,7 +1589,8 @@ function resolveProductionDeployScopeOrder(
 ) {
   const profile = resolveProductionDeployOrderProfile(
     changedPaths,
-    taskInboxRetired
+    taskInboxRetired,
+    context
   );
   const order = DEPLOY_SCOPE_ORDER_BY_PROFILE[profile];
   const selected = new Set(scopes);
@@ -1398,12 +1604,23 @@ function resolveProductionDeployScopeOrder(
     );
   }
   const preferred = order.filter((scope) => selected.has(scope));
+  // Public docs have no App receiver dependency and follow every selected profile.
+  if (selected.has("docs") && !preferred.includes("docs")) {
+    preferred.push("docs");
+  }
   if (
     !(
+      isProjectIssueWorkflowDiff(changedPaths) ||
+      isProjectSharedFolderDiff(changedPaths) ||
       isWorkingFolderRecoveryDiff(changedPaths) ||
       isNpmSetupArtifactDiff(changedPaths) ||
       isRemoteAiUsageDiff(changedPaths) ||
-      isInboxNotificationObservationDiff(changedPaths)
+      isCenterAgentEvidenceDiff(changedPaths) ||
+      isSpaceMessageSearchReceiverFirstDiff(changedPaths) ||
+      isInboxNotificationObservationDiff(changedPaths) ||
+      isGatewayRequestContextReceiverFirstDiff(changedPaths, context) ||
+      hasRemoteTurnEnvelopeOwners(changedPaths) ||
+      hasRemoteExecutionInputOwners(changedPaths)
     )
   ) {
     return preferred;
@@ -1442,8 +1659,24 @@ function resolveProductionDeployScopeOrder(
 
 function resolveProductionDeployOrderProfile(
   changedPaths,
-  taskInboxRetired = false
+  taskInboxRetired = false,
+  context = {}
 ) {
+  if (isPersonalCloudComputerDiff(changedPaths)) {
+    const profile = resolveProductionDeployOrderProfile(
+      changedPaths.filter(
+        (file) => !PERSONAL_CLOUD_COMPUTER_CONTRACT_PATHS.has(file)
+      ),
+      taskInboxRetired,
+      context
+    );
+    if (profile !== "default-auth-receiver-first") {
+      throw new Error(
+        `Personal cloud Computer requires Core before Remote and conflicts with ${profile}; split the release.`
+      );
+    }
+    return "personal-cloud-computer-receivers-first";
+  }
   const evidence = isCenterAgentEvidenceDiff(changedPaths);
   const spaceMessageSearch =
     isSpaceMessageSearchReceiverFirstDiff(changedPaths);
@@ -1454,8 +1687,12 @@ function resolveProductionDeployOrderProfile(
           file !== SPACE_MESSAGE_SEARCH_SCHEMA_PATH &&
           !CENTER_AGENT_EVIDENCE_SCHEMA_PATHS.has(file)
       ),
-      taskInboxRetired
+      taskInboxRetired,
+      context
     );
+    if (otherProfile === "core-worker-response-reader-first") {
+      return otherProfile;
+    }
     if (otherProfile !== "default-auth-receiver-first") {
       throw new Error(
         `Space message search/evidence receiver order conflicts with ${otherProfile}; review and split incompatible releases.`
@@ -1471,7 +1708,8 @@ function resolveProductionDeployOrderProfile(
   if (isSpaceTaskReceiverFirstDiff(changedPaths)) {
     const otherProfile = resolveProductionDeployOrderProfile(
       changedPaths.filter((file) => file !== SPACE_TASK_SCHEMA_PATH),
-      taskInboxRetired
+      taskInboxRetired,
+      context
     );
     if (
       ![
@@ -1479,6 +1717,7 @@ function resolveProductionDeployOrderProfile(
         "core-worker-response-reader-first",
         "device-wait-receivers-first",
         "people-computers-receivers-first",
+        "local-service-runtime-receiver-first",
       ].includes(otherProfile)
     ) {
       throw new Error(
@@ -1490,12 +1729,14 @@ function resolveProductionDeployOrderProfile(
   if (!isSpaceCallerContextDiff(changedPaths)) {
     return resolveOtherProductionDeployOrderProfile(
       changedPaths,
-      taskInboxRetired
+      taskInboxRetired,
+      context
     );
   }
   const profile = resolveOtherProductionDeployOrderProfile(
     changedPaths,
-    taskInboxRetired
+    taskInboxRetired,
+    context
   );
   if (
     ![
@@ -1512,7 +1753,8 @@ function resolveProductionDeployOrderProfile(
 
 function resolveOtherProductionDeployOrderProfile(
   changedPaths,
-  taskInboxRetired
+  taskInboxRetired,
+  context
 ) {
   if (isPersonalRemoteToolsReceiverFirstDiff(changedPaths)) {
     // This entrypoint change exports the browser facet; it does not expand a
@@ -1524,7 +1766,8 @@ function resolveOtherProductionDeployOrderProfile(
           file !==
             "services/core/src/remote-agent/application/remote-agent-tool-caller.ts"
       ),
-      taskInboxRetired
+      taskInboxRetired,
+      context
     );
     if (
       ![
@@ -1543,7 +1786,9 @@ function resolveOtherProductionDeployOrderProfile(
     // The exact retired contract is proven against Git below. Other contracts
     // still select their ordinary profile and must be composable with Core first.
     const profile = resolveProductionDeployOrderProfile(
-      changedPaths.filter((file) => file !== INBOX_SCHEMA_PATH)
+      changedPaths.filter((file) => file !== INBOX_SCHEMA_PATH),
+      false,
+      context
     );
     if (
       profile === "remote-agent-receiver-first" ||
@@ -1562,7 +1807,10 @@ function resolveOtherProductionDeployOrderProfile(
       `Task Inbox retirement requires Core before its strict readers and conflicts with ${profile}; split the release.`
     );
   }
-  const profile = resolveExistingProductionDeployOrderProfile(changedPaths);
+  const profile = resolveExistingProductionDeployOrderProfile(
+    changedPaths,
+    context
+  );
   if (isDeviceWaitReceiverFirstDiff(changedPaths)) {
     assertComposableDeviceWaitReleaseProfile(changedPaths, profile);
     return "device-wait-receivers-first";
@@ -1645,6 +1893,21 @@ function isPersonalRemoteToolsReceiverFirstDiff(changedPaths) {
   ].every((file) => changedPaths.includes(file));
 }
 
+const PERSONAL_CLOUD_COMPUTER_CONTRACT_PATHS = new Set([
+  "packages/schemas/src/schemas/runtime/cloud-computer.ts",
+  "packages/schemas/src/schemas/runtime/remote-agent-execution-access.ts",
+  "services/core/src/computer/computer-rpc.ts",
+  "services/core/src/remote-agent/application/remote-agent-execution-access.ts",
+  "services/remote-agent/agent-core/execution-access.ts",
+  "services/gateway/src/routes/rpc-http.cloud-computer.ts",
+]);
+
+function isPersonalCloudComputerDiff(changedPaths) {
+  return [...PERSONAL_CLOUD_COMPUTER_CONTRACT_PATHS].every((file) =>
+    changedPaths.includes(file)
+  );
+}
+
 function isPeopleComputersReceiverFirstDiff(changedPaths) {
   return [
     [
@@ -1662,13 +1925,13 @@ function isPeopleComputersReceiverFirstDiff(changedPaths) {
   );
 }
 
-function resolveExistingProductionDeployOrderProfile(changedPaths) {
+function resolveExistingProductionDeployOrderProfile(changedPaths, context) {
   const isConnectComputerReceiverFirst =
     isConnectComputerCliReceiverFirstDiff(changedPaths);
   const isInboxReceiverFirst =
     isInboxSourceTargetReceiverFirstDiff(changedPaths);
   const isRemoteAgentRequestReceiverFirst =
-    isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths);
+    isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths, context);
   const isRemoteAgentReceiverFirst = changedPaths.some(
     isRemoteAgentReceiverFirstContractPath
   );
@@ -1944,6 +2207,22 @@ function isSpaceHistoryQueryContractDiff(changedPaths) {
   return changedPaths.includes(SPACE_HISTORY_QUERY_SCHEMA_PATH);
 }
 
+// Project issue settings expose a Core receiver and a Remote Agent action owner.
+function isProjectIssueWorkflowDiff(paths) {
+  return [
+    "services/core/src/projects/project-issue-action-routing.ts",
+    "services/remote-agent/agent-core/project-issue-routing.ts",
+    "clients/web/src/components/projects/project-issue-routing-section.tsx",
+  ].every((path) => paths.includes(path));
+}
+function isProjectSharedFolderDiff(paths) {
+  return [
+    "packages/schemas/src/schemas/daemon/runtime-transport.ts",
+    "clients/openmeld-cli/src/local-service/projects/local-project-discovery.ts",
+    "clients/web/src/components/projects/project-computer-section.tsx",
+  ].every((path) => paths.includes(path));
+}
+
 function isSpaceTaskReceiverFirstDiff(changedPaths) {
   return (
     changedPaths.includes(SPACE_TASK_SCHEMA_PATH) &&
@@ -2082,7 +2361,8 @@ function isInboxSourceTargetReceiverFirstDiff(changedPaths) {
 function assertInboxSourceTargetReleaseScopes(
   scopes,
   changedPaths,
-  taskInboxRetired = false
+  taskInboxRetired = false,
+  context = {}
 ) {
   if (
     !(taskInboxRetired || isInboxSourceTargetReceiverFirstDiff(changedPaths))
@@ -2101,7 +2381,11 @@ function assertInboxSourceTargetReleaseScopes(
       "remote-agent-and-inbox-receivers-first",
       "remote-agent-and-inbox-task-retirement-first",
     ].includes(
-      resolveProductionDeployOrderProfile(changedPaths, taskInboxRetired)
+      resolveProductionDeployOrderProfile(
+        changedPaths,
+        taskInboxRetired,
+        context
+      )
     ) &&
     !selected.has("remote-agent")
   ) {
@@ -2111,16 +2395,148 @@ function assertInboxSourceTargetReleaseScopes(
   }
 }
 
-function isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths) {
+function isRemoteAgentWorkerRequestReceiverFirstDiff(
+  changedPaths,
+  context = {}
+) {
   return (
-    changedPaths.some((path) =>
+    isImportedRemoteAgentRequestReceiverFirstDiff(changedPaths, context) ||
+    (changedPaths.some((path) =>
       REMOTE_AGENT_WORKER_REQUEST_SCHEMA_PATHS.has(path)
     ) &&
-    changedPaths.includes(REMOTE_AGENT_WORKER_REQUEST_RECEIVER_PATH) &&
-    changedPaths.some((path) =>
-      REMOTE_AGENT_WORKER_REQUEST_PRODUCER_PATHS.has(path)
-    )
+      changedPaths.includes(REMOTE_AGENT_WORKER_REQUEST_RECEIVER_PATH) &&
+      changedPaths.some((path) =>
+        REMOTE_AGENT_WORKER_REQUEST_PRODUCER_PATHS.has(path)
+      ))
   );
+}
+function isImportedRemoteAgentRequestReceiverFirstDiff(paths, context) {
+  const direction = hasRemoteExecutionInputOwners(paths)
+    ? inspectRemoteExecutionInputSchemaDirection(context)
+    : null;
+  return (
+    hasRemoteTurnEnvelopeOwners(paths) ||
+    (direction?.requestChanged === true && direction.responseChanged === false)
+  );
+}
+function requiresRemoteAgentRequestReceiver(paths, context, requestChanged) {
+  return (
+    // The native-request bridge does not witness these separate producers.
+    isImportedRemoteAgentRequestReceiverFirstDiff(paths, context) ||
+    ((requestChanged || paths.some(isRemoteAgentReceiverFirstContractPath)) &&
+      !resolveRemoteAgentRequestCompatibilityBridge({
+        ...context,
+        readGitFile:
+          context.readGitFile ??
+          ((ref, path) => runGit(["show", `${ref}:${path}`])),
+      }))
+  );
+}
+function hasRemoteTurnEnvelopeOwners(paths) {
+  return [
+    "packages/schemas/src/schemas/runtime/remote-agent-turn-envelope.ts",
+    "services/core/src/remote-agent/application/turn-envelope.ts",
+  ].every((file) => paths.includes(file));
+}
+function hasRemoteExecutionInputOwners(paths) {
+  return [
+    REMOTE_EXECUTION_INPUT_SCHEMA_PATH,
+    "services/core/src/space/transport/do/space.ts",
+    "services/remote-agent/flue-adapter/execution-input.ts",
+  ].every((file) => paths.includes(file));
+}
+function readContractSources(context, file) {
+  if (!(context.base && context.sourceSha)) {
+    return null;
+  }
+  const readGitFile =
+    context.readGitFile ?? ((ref, path) => runGit(["show", `${ref}:${path}`]));
+  try {
+    return [
+      readGitFile(context.base, file),
+      readGitFile(context.sourceSha, file),
+    ];
+  } catch {
+    return null;
+  }
+}
+function inspectRemoteExecutionInputSchemaDirection(context) {
+  const sources = readContractSources(
+    context,
+    REMOTE_EXECUTION_INPUT_SCHEMA_PATH
+  );
+  if (!sources) {
+    return null;
+  }
+  const sections = sources.map((source) => {
+    const identity = source.indexOf("const inputIdentity =");
+    const request = source.indexOf(
+      "export const remoteAgentWorkerExecutionInputRequestSchema"
+    );
+    const response = source.indexOf(
+      "export const remoteAgentWorkerExecutionInputReceiptSchema"
+    );
+    return identity >= 0 && request > identity && response > request
+      ? [
+          source.slice(identity, request),
+          source.slice(request, response),
+          source.slice(response),
+        ]
+      : null;
+  });
+  if (sections.some((section) => !section)) {
+    return null;
+  }
+  const [before, after] = sections;
+  const identityChanged = before[0] !== after[0];
+  return {
+    requestChanged: identityChanged || before[1] !== after[1],
+    responseChanged: identityChanged || before[2] !== after[2],
+  };
+}
+function hasGatewayRequestContextOwners(paths) {
+  return [
+    GATEWAY_REQUEST_CONTEXT_SCHEMA_PATH,
+    "services/gateway/src/lib/openmeld-context.ts",
+  ].every((file) => paths.includes(file));
+}
+function inspectGatewayRequestContextChange(context) {
+  const sources = readContractSources(
+    context,
+    GATEWAY_REQUEST_CONTEXT_SCHEMA_PATH
+  );
+  const contexts = sources?.map((source) => {
+    const start = source.indexOf("export const openMeldRequestContextSchema");
+    return start >= 0 ? source.slice(start) : null;
+  });
+  return contexts?.every((schema) => schema !== null)
+    ? contexts[0] !== contexts[1]
+    : null;
+}
+function isGatewayRequestContextReceiverFirstDiff(paths, context) {
+  return (
+    hasGatewayRequestContextOwners(paths) &&
+    inspectGatewayRequestContextChange(context) === true
+  );
+}
+
+function assertStrictRequestContextDirection(changedPaths, context) {
+  if (hasRemoteExecutionInputOwners(changedPaths)) {
+    const direction = inspectRemoteExecutionInputSchemaDirection(context);
+    if (!direction || (direction.requestChanged && direction.responseChanged)) {
+      throw new Error(
+        "Remote execution-input changes require a proven request or response direction. Unknown or mixed strict contracts need separate receiver-first stages."
+      );
+    }
+  }
+  if (
+    hasGatewayRequestContextOwners(changedPaths) &&
+    inspectGatewayRequestContextChange(context) === null
+  ) {
+    throw new Error(
+      "Gateway request-context changes require readable strict schema history before publishing its Core caller."
+    );
+  }
 }
 
 function isReviewedHostedProgressCompatibilityBridge(input) {
@@ -2217,6 +2633,31 @@ function isReviewedProviderConnectionMissingResponseAddition(input) {
   }
 }
 
+function isWorkspaceProxyExportOnlyChange(input) {
+  if (!(input.base && input.sourceSha)) {
+    return false;
+  }
+  try {
+    const file = "services/remote-agent/.flue/cloudflare.ts";
+    const before = input.readGitFile(input.base, file);
+    const after = input.readGitFile(input.sourceSha, file);
+    return (
+      before !== after &&
+      after
+        .replace(
+          'export { WorkspaceServiceProxy } from "@cloudflare/computer";',
+          'export { WorkspaceProxy, WorkspaceServiceProxy } from "@cloudflare/computer";'
+        )
+        .replace(
+          'export { WorkspaceProxy } from "../flue-adapter/computer-workspace-proxy";\n',
+          ""
+        ) === before
+    );
+  } catch {
+    return false;
+  }
+}
+
 function resolveProductionReleaseContext(input) {
   const changedPaths = input.changedPaths ?? resolveChangedPaths(input.base);
   const sourceSha = input.sourceSha ?? readHeadSha();
@@ -2226,23 +2667,45 @@ function resolveProductionReleaseContext(input) {
     readGitFile:
       input.readGitFile ?? ((ref, path) => runGit(["show", `${ref}:${path}`])),
   };
+  assertStrictRequestContextDirection(changedPaths, compatibilityContext);
+  const computerBridge = isPersonalCloudComputerDiff(changedPaths)
+    ? resolvePersonalCloudComputerRequestCompatibility(compatibilityContext)
+    : null;
+  if (isPersonalCloudComputerDiff(changedPaths) && !computerBridge) {
+    throw new Error(
+      "Personal cloud Computer release requires proven unchanged native Core-to-Remote requests and only the reviewed additive Remote receiver changes. Missing history or unknown owner changes require a separate compatibility review."
+    );
+  }
   const requestBridge =
-    isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths) ||
-    changedPaths.some(isRemoteAgentReceiverFirstContractPath)
-      ? resolveRemoteAgentRequestCompatibilityBridge(compatibilityContext)
-      : null;
-  const compatibilityChangedPaths = isReviewedHostedProgressCompatibilityBridge(
-    {
-      base: input.base,
+    computerBridge ??
+    (isRemoteAgentWorkerRequestReceiverFirstDiff(
       changedPaths,
-      readGitFile: input.readGitFile,
-      sourceSha,
-    }
-  )
+      compatibilityContext
+    ) || changedPaths.some(isRemoteAgentReceiverFirstContractPath)
+      ? resolveRemoteAgentRequestCompatibilityBridge(compatibilityContext)
+      : null);
+  let compatibilityChangedPaths = isReviewedHostedProgressCompatibilityBridge({
+    base: input.base,
+    changedPaths,
+    readGitFile: input.readGitFile,
+    sourceSha,
+  })
     ? changedPaths.filter(
         (path) => path !== REMOTE_AGENT_WORKER_RESPONSE_SCHEMA_PATH
       )
     : changedPaths;
+  if (computerBridge) {
+    compatibilityChangedPaths = compatibilityChangedPaths.filter(
+      (file) =>
+        file !== "services/remote-agent/.flue/cloudflare.ts" &&
+        file !== "services/remote-agent/.flue/agents/center-agent.ts"
+    );
+  }
+  if (isWorkspaceProxyExportOnlyChange(compatibilityContext)) {
+    compatibilityChangedPaths = compatibilityChangedPaths.filter(
+      (file) => file !== "services/remote-agent/.flue/cloudflare.ts"
+    );
+  }
   const taskInboxRetired = inspectTaskInboxRetirement({
     base: input.base,
     changedPaths,
@@ -2279,9 +2742,13 @@ function describeProductionReleaseImpact(context) {
       context.taskInboxRetired,
       context.compatibilityContext
     ),
+    compatibilityPathSignals: describeCompatibilityPathSignals(
+      context.compatibilityChangedPaths
+    ),
     compatibilityReceiverWitnesses:
       resolveProductionCompatibilityReceiverWitnesses(
-        context.compatibilityChangedPaths
+        context.compatibilityChangedPaths,
+        context.compatibilityContext
       ),
     scopes: context.scopes,
     sourceSha: context.sourceSha,
@@ -2292,6 +2759,20 @@ function describeProductionReleaseImpact(context) {
 // affected components cannot safely be deployed together. Only the planner
 // and stage admission own that ordering decision.
 export function buildProductionReleaseImpact(input) {
+  if (["website", "docs"].includes(input.componentScope)) {
+    const changedPaths = input.changedPaths ?? resolveChangedPaths(input.base);
+    return {
+      changedPaths,
+      scopes: resolveAutomaticReleaseScopes({
+        affectedPackages:
+          input.affectedPackages ?? resolveAffectedPackages(changedPaths),
+        changedPaths,
+      }).filter((scope) => scope === input.componentScope),
+      compatibilityDependencies: [],
+      compatibilityBridges: [],
+      compatibilityReceiverWitnesses: [],
+    };
+  }
   return describeProductionReleaseImpact(
     resolveProductionReleaseContext(input)
   );
@@ -2322,7 +2803,10 @@ export function buildProductionReleasePlan(input) {
     compatibilityChangedPaths.includes(
       REMOTE_AGENT_WORKER_REQUEST_RECEIVER_PATH
     ) &&
-    !isRemoteAgentWorkerRequestReceiverFirstDiff(compatibilityChangedPaths) &&
+    !isRemoteAgentWorkerRequestReceiverFirstDiff(
+      compatibilityChangedPaths,
+      compatibilityContext
+    ) &&
     !isReviewedProviderConnectionMissingResponseAddition({
       base: input.base,
       changedPaths: compatibilityChangedPaths,
@@ -2339,7 +2823,8 @@ export function buildProductionReleasePlan(input) {
   }
   const deployOrderProfile = resolveProductionDeployOrderProfile(
     compatibilityChangedPaths,
-    taskInboxRetired
+    taskInboxRetired,
+    compatibilityContext
   );
   const deployScopeOrder = resolveProductionDeployScopeOrder(
     scopes,
@@ -2353,6 +2838,8 @@ export function buildProductionReleasePlan(input) {
     deployOrderProfile,
     deployScopeOrder,
     deploySteps: buildProductionDeployStepSpecs(scopes, {
+      databaseBackend: input.databaseBackend,
+      databaseCutoverSnapshot: input.databaseCutoverSnapshot,
       compatibilityContext,
       changedPaths,
       compatibilityChangedPaths,
@@ -2360,12 +2847,17 @@ export function buildProductionReleasePlan(input) {
       releaseSha: sourceSha,
     }),
     preflightSteps: buildProductionPreflightStepSpecs({
+      coreCurrentCliProjection:
+        deployOrderProfile === "core-worker-response-reader-first",
+      databaseCutoverRestoreCrons: input.databaseCutoverRestoreCrons,
       changedPaths,
       releaseSha: sourceSha,
       scopes,
       taskInboxRetired,
     }),
     verifySteps: buildProductionVerifyStepSpecs({
+      coreCurrentCliProjection:
+        deployOrderProfile === "core-worker-response-reader-first",
       changedPaths,
       scopes,
       taskInboxRetired,
@@ -2754,18 +3246,52 @@ function runReadOnlyCommand(input) {
   };
 }
 
+function formatCompatibilityPathSignals(signals = []) {
+  return signals
+    .filter(
+      (signal) => signal.matchedPaths.length || signal.nonTriggerPaths.length
+    )
+    .map(
+      (signal) =>
+        `Compatibility path signal (${signal.contract}): ${signal.matchedPaths.join(", ") || "no changed producer/contract"}. Non-trigger paths: ${signal.nonTriggerPaths.join(", ") || "none"}. ${signal.reason}`
+    );
+}
+
 function printPlan(plan, json) {
   if (json) {
     process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
     return;
   }
   const lines = [
-    "Production release plan",
-    `Source: ${plan.sourceSha}`,
+    plan.databaseCutover
+      ? "PostgreSQL cutover preparation — promotion blocked"
+      : "Production release plan",
+    `Source: ${plan.sourceSha}${plan.worktreeDirty ? " (includes uncommitted changes)" : ""}`,
     `Base: ${plan.base}`,
     `Scopes: ${plan.scopes.length > 0 ? plan.scopes.join(", ") : "none"}`,
-    `Deploy order: ${plan.deployScopeOrder.join(", ")}`,
+    `Deploy order: ${plan.deployScopeOrder.join(", ") || "none"}`,
   ];
+  if (plan.databaseCutover) {
+    const cutover = plan.databaseCutover;
+    lines.push(
+      `Target inventory: ${cutover.target.organization}/${cutover.target.database}, PostgreSQL ${cutover.target.majorVersion}`,
+      `Evidence: ${cutover.evidenceStatus}; executor: ${cutover.executor}`,
+      `Rolling release ordering: ${plan.rollingRelease.status}${plan.rollingRelease.reason ? ` (${plan.rollingRelease.reason})` : ""}`,
+      "Compatibility baseline: source comparison only; deployed component receipts not inspected.",
+      "",
+      "Required before promotion:",
+      ...cutover.requiredBeforePromotion.map(
+        (requirement) => `- ${requirement}`
+      ),
+      "",
+      "Maintenance sequence (not executable):",
+      ...cutover.maintenanceSequence.map((stage) => `- ${stage}`),
+      "",
+      `Before the first PostgreSQL write: ${cutover.recovery.beforeFirstPostgresqlWrite}`,
+      `After the first PostgreSQL write: ${cutover.recovery.afterFirstPostgresqlWrite}`
+    );
+  }
+  lines.push(...formatCompatibilityPathSignals(plan.compatibilityPathSignals));
   for (const bridge of plan.compatibilityBridges ?? []) {
     lines.push(
       `Compatibility bridge: ${bridge.kind} from ${bridge.baselineSha} (${bridge.evidence}).`
@@ -2802,7 +3328,59 @@ function printPlan(plan, json) {
 }
 
 async function main(argv) {
-  const options = parseProductionReleaseArgs(argv);
+  const options = {
+    ...parseProductionReleaseArgs(argv),
+    databaseBackend: "postgresql",
+  };
+  if (options.databaseCutover) {
+    if (options.scope !== "auto") {
+      throw new Error(
+        "Cutover preparation reviews the complete source impact; keep --scope auto."
+      );
+    }
+    const databaseCutover = await readPostgresqlCutoverPreparation();
+    const impact = buildProductionReleaseImpact(options);
+    let rollingRelease;
+    try {
+      const ordinary = buildProductionReleasePlan({
+        ...options,
+        changedPaths: impact.changedPaths,
+        affectedPackages: impact.affectedPackages,
+      });
+      rollingRelease = {
+        status: "ordering_resolved_only",
+        deployScopeOrder: ordinary.deployScopeOrder,
+      };
+    } catch (error) {
+      rollingRelease = {
+        status: "blocked",
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    }
+    printPlan(
+      {
+        ...impact,
+        databaseCutover,
+        rollingRelease,
+        compatibilityEvidence: {
+          basis: "source_comparison_only",
+          deployedComponentReceipts: "not_inspected",
+        },
+        worktreeDirty: runGit(["status", "--porcelain=v1"]).trim().length > 0,
+        coordinatedScopeReview: sortScopes([
+          "db",
+          ...CLOUD_SCOPES,
+          ...impact.scopes,
+        ]),
+        deployScopeOrder: [],
+        deploySteps: [],
+        preflightSteps: [],
+        verifySteps: [],
+      },
+      options.json
+    );
+    return;
+  }
   const plan = buildProductionReleasePlan(options);
   printPlan(plan, options.json);
   if (options.command === "plan") {
@@ -2829,6 +3407,12 @@ async function main(argv) {
     runStep(step);
   }
   assertSourceStillMatches(plan.sourceSha);
+  if (options.command === "preflight" && options.databaseCutoverSnapshot) {
+    await admitPostgresqlProductRelease({
+      snapshot: options.databaseCutoverSnapshot,
+      scopes: plan.scopes,
+    });
+  }
   if (options.command === "verify" || options.command === "preflight") {
     return;
   }
@@ -2848,18 +3432,54 @@ async function main(argv) {
         process.stdout.write(`${JSON.stringify(result)}\n`);
         return;
       }
+      const databaseAdmission = await admitPostgresqlProductRelease({
+        snapshot: options.databaseCutoverSnapshot,
+        scopes: plan.scopes,
+        sourceSha: plan.sourceSha,
+        restoreCrons: options.databaseCutoverRestoreCrons,
+      });
+      process.stdout.write(`${JSON.stringify({ databaseAdmission })}\n`);
+      if (options.databaseCutoverRestoreCrons) {
+        await restoreProductCrons({
+          runStep: (step) => {
+            assertSourceStillMatches(plan.sourceSha);
+            runStep(step);
+            assertSourceStillMatches(plan.sourceSha);
+          },
+        });
+        return;
+      }
       const admission = await admitWebsiteDomainRelease(domainInput);
-      await executeObservedDomainRelease(domainInput, admission, () =>
-        executeRecordedProductionDeploySteps({
-          sourceSha: plan.sourceSha,
-          executeSteps: executeProductionDeploySteps,
-          redeploy: options.redeploy ?? false,
-          beforeStep: () => assertSourceStillMatches(plan.sourceSha),
-          runCommand: runReadOnlyCommand,
-          afterStep: () => assertSourceStillMatches(plan.sourceSha),
-          steps: plan.deploySteps,
-        })
+      await withPostgresqlCutoverConfig(
+        process.cwd(),
+        Boolean(options.databaseCutoverSnapshot),
+        (env) =>
+          executeObservedDomainRelease(domainInput, admission, () =>
+            executeRecordedProductionDeploySteps({
+              env,
+              sourceSha: plan.sourceSha,
+              executeSteps: executeProductionDeploySteps,
+              redeploy: options.redeploy ?? false,
+              beforeStep: () => {
+                assertSourceStillMatches(plan.sourceSha);
+                for (const scope of ["auth", "core"]) {
+                  cutoverConfigArgs(scope, { env });
+                }
+              },
+              runCommand: runReadOnlyCommand,
+              afterStep: () => assertSourceStillMatches(plan.sourceSha),
+              steps: options.databaseCutoverSnapshot
+                ? cutoverDeploySteps(plan.deploySteps)
+                : plan.deploySteps,
+            })
+          )
       );
+      if (options.databaseCutoverSnapshot) {
+        await verifyProductCrons({
+          registered: await readCutoverTarget(),
+          paused: true,
+        });
+      }
     },
     owner: resolveLocalReleaseOwner(),
     scopes: options.domainEvidence
@@ -2959,7 +3579,10 @@ function workerDeploymentHealthStep(input) {
 }
 
 function isDatabaseSchemaPath(path) {
-  if (path.startsWith(DB_MIGRATION_PATH_PREFIX)) {
+  if (
+    path.startsWith(DB_MIGRATION_PATH_PREFIX) ||
+    path.startsWith("packages/db/postgresql/migrations/")
+  ) {
     return path.endsWith(".sql") || path.endsWith(".json");
   }
   return (
@@ -2996,10 +3619,7 @@ function isCenterAgentCliReceiverFirstContractPath(path) {
 }
 
 function isCenterAgentContextManifestContractPath(path) {
-  return (
-    path.includes("center-agent-context-manifest") ||
-    path.includes("center_agent_context_manifest")
-  );
+  return CENTER_AGENT_CONTEXT_MANIFEST_CONTRACT_PATHS.has(path);
 }
 
 function isWorkspaceRuntimePath(relativePath) {

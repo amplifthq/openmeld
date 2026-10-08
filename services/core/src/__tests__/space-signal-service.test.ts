@@ -1,9 +1,12 @@
+import {
+  getPostgresDatabase,
+  type PostgreSQLBinding,
+  PostgresDatabase,
+} from "@openmeld/db/postgresql";
 import type { SignalEnvelope, SignalTextReplyTo } from "@openmeld/protocol";
 import {
   AGENT_REPLY_FINAL_PURPOSE,
-  projectTargetWakeLifecycleIdentity,
   REMOTE_AGENT_FAILURE_PURPOSE,
-  RUNTIME_COORDINATOR_FAILURE_PUBLICATION_COMMAND_MODEL_VERSION,
   SPACE_WAKE_CLIENT_MESSAGE_ID_REQUIRED_ERROR_CODE,
   SPACE_WAKE_CLIENT_MESSAGE_ID_REQUIRED_MESSAGE,
   signalSystemNoticeDataSchema,
@@ -18,17 +21,18 @@ import type {
   OpenMeldDaemonDispatchQueueMessage,
   PostSpaceWakeStopBody,
   PostSpaceWakeStopResponse,
-  RuntimeCoordinatorFailurePublicationCommand,
   SpaceDispatchLookupMatch,
   SpaceDispatchTraceSnapshot,
   WakeProgressItem,
   WakeStopEligibilityReadModel,
 } from "@openmeld/schemas/types";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createProjectionPostgresBinding } from "../../test-support/postgresql-query.test-support";
+import { createFinalOutcomeSql } from "../../test-support/space-final-outcome.test-support";
 import { DISPATCH_REPLYING_HINT_START_PURPOSE } from "../dispatch/rules/dispatch-hint-policy";
 import { inspectExecutionRecovery } from "../execution-recovery/application/execution-recovery-service";
 import type { CoreBindings } from "../lib/bindings";
-import type { ActiveRemoteAgentNativeDeliveryWakeProgressEvidence } from "../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import type { ActiveRemoteAgentNativeDeliveryWakeProgressEvidence } from "../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { buildDefaultSpaceContract } from "../space/application/space-contract-service";
 import {
   assertWakeDeviceWaitAuthoring,
@@ -169,6 +173,10 @@ const createReplyingHintTrackingSpace = (sql: SqlStorage) => {
     ctx: { storage: { sql: SqlStorage } };
     trackReplyingTransientSignal: (signal: SignalEnvelope) => boolean;
   };
+  Object.defineProperty(space, "bindings", {
+    value: { OPENMELD_POSTGRESQL: NATIVE_PROJECTION_BINDING },
+    configurable: true,
+  });
   Object.defineProperties(space, {
     activeReplyingSignalsByDispatchId: {
       value: activeReplyingSignalsByDispatchId,
@@ -191,73 +199,6 @@ const TEST_MESSAGE_ENVELOPE: MessageEnvelope = {
   activationTargets: ["agt_33333333-3333-4333-8333-333333333333"],
   referenceTargets: [],
   text: "@Codex Agent(wake) hello",
-};
-
-const createFinalOutcomeSql = () => {
-  const finalReplyClaims = new Map<string, string>();
-  const signalRows = new Map<string, { payloadJson: string; ts: number }>();
-  const sqlExec = vi.fn((query: string, ...params: unknown[]) => {
-    if (query.includes("FROM space_members")) {
-      return { toArray: () => [] };
-    }
-    if (query.includes("SELECT signal_id")) {
-      const claimKey = `${String(params[0])}:${String(params[1])}`;
-      return {
-        toArray: () => [
-          ...(finalReplyClaims.has(claimKey)
-            ? [{ signal_id: finalReplyClaims.get(claimKey) }]
-            : []),
-        ],
-      };
-    }
-    if (query.includes("INSERT OR IGNORE INTO space_final_reply_claims")) {
-      const claimKey = `${String(params[0])}:${String(params[1])}`;
-      if (finalReplyClaims.has(claimKey)) {
-        return { rowsWritten: 0 };
-      }
-      finalReplyClaims.set(claimKey, String(params[2]));
-      return { rowsWritten: 1 };
-    }
-    if (query.includes("INSERT OR IGNORE INTO space_signals")) {
-      const signalId = String(params[0]);
-      if (signalRows.has(signalId)) {
-        return { rowsWritten: 0 };
-      }
-      signalRows.set(signalId, {
-        payloadJson: String(params[6]),
-        ts: Number(params[1]),
-      });
-      return { rowsWritten: 1 };
-    }
-    if (
-      query.includes("FROM space_signals") &&
-      query.includes("WHERE id = ?")
-    ) {
-      const signalId = String(params[0]);
-      const row = signalRows.get(signalId);
-      return {
-        toArray: () =>
-          row
-            ? [
-                {
-                  id: signalId,
-                  ts: row.ts,
-                  payload_json: row.payloadJson,
-                },
-              ]
-            : [],
-      };
-    }
-    if (query.includes("DELETE FROM space_signals")) {
-      return { rowsWritten: 0 };
-    }
-    return { rowsWritten: 1, toArray: () => [] };
-  });
-  const sql = {
-    databaseSize: 0,
-    exec: sqlExec,
-  } as unknown as SqlStorage;
-  return { finalReplyClaims, signalRows, sql, sqlExec };
 };
 
 const createSystemWakePublishingHarness = (input: {
@@ -462,14 +403,9 @@ const createSystemWakePublishingHarness = (input: {
   const broadcastSignal = vi.fn();
   const flushPendingDispatchOutbox = vi.fn(async () => undefined);
   const waitUntil = vi.fn();
-  const identityDb = {
-    prepare: vi.fn(() => ({
-      bind: vi.fn(() => ({
-        first: vi.fn(async () => null),
-      })),
-    })),
-  } as unknown as D1Database;
-  const bindings = { OPENMELD_DB: identityDb } as CoreBindings;
+  const bindings = {
+    OPENMELD_POSTGRESQL: createProjectionPostgresBinding(() => []),
+  } as CoreBindings;
   const space = Object.create(Space.prototype) as {
     publishTextSignal: (
       signal: SignalEnvelope,
@@ -479,6 +415,10 @@ const createSystemWakePublishingHarness = (input: {
       }
     ) => Promise<void>;
   };
+  Object.defineProperty(space, "bindings", {
+    value: { OPENMELD_POSTGRESQL: NATIVE_PROJECTION_BINDING },
+    configurable: true,
+  });
   Object.defineProperties(space, {
     bindings: { value: bindings },
     broadcastSignal: { value: broadcastSignal },
@@ -564,7 +504,13 @@ const buildWakeProgressItemFromLookupTrace = async (
     readWakeProgressRuntimeDeviceDisplayName: () => Promise<string | null>;
     readWakeProgressPendingAgentInteraction: () => Promise<null>;
   };
-  const bindings = {} as CoreBindings;
+  Object.defineProperty(space, "bindings", {
+    value: { OPENMELD_POSTGRESQL: NATIVE_PROJECTION_BINDING },
+    configurable: true,
+  });
+  const bindings = {
+    OPENMELD_POSTGRESQL: NATIVE_PROJECTION_BINDING,
+  } as CoreBindings;
   Object.defineProperties(space, {
     bindings: { value: bindings },
     ctx: {
@@ -747,27 +693,26 @@ function createRuntimeAgentControllerReportDb(input: {
   agentControllerInterface: AgentControllerInterfaceSnapshot | null;
   expiresAtMs: number;
   reportStatus?: string;
-}): D1Database {
-  const first = vi.fn(async () => ({
-    agent_controller_interface_json: input.agentControllerInterface
-      ? JSON.stringify(input.agentControllerInterface)
-      : null,
-    agent_controller_ref: "builtin:claude",
-    openmeld_service_runtime_id: "runtime-rc-1",
-    accepted_at_ms: Date.UTC(2026, 2, 4, 0, 0),
-    expires_at_ms: input.expiresAtMs,
-    observed_at_ms: Date.UTC(2026, 2, 4, 0, 0),
-    reported_reason_codes_json: "[]",
-    report_status: input.reportStatus ?? "ready",
-    updated_at_ms: Date.UTC(2026, 2, 4, 0, 0),
-  }));
-  const bind = vi.fn(() => ({ first }));
-  const prepare = vi.fn(() => ({ bind }));
-  return { prepare } as unknown as D1Database;
+}): PostgreSQLBinding {
+  return createProjectionPostgresBinding(() => [
+    {
+      agent_controller_interface_json: input.agentControllerInterface
+        ? JSON.stringify(input.agentControllerInterface)
+        : null,
+      agent_controller_ref: "builtin:claude",
+      openmeld_service_runtime_id: "runtime-rc-1",
+      accepted_at_ms: Date.UTC(2026, 2, 4),
+      expires_at_ms: input.expiresAtMs,
+      observed_at_ms: Date.UTC(2026, 2, 4),
+      reported_reason_codes_json: "[]",
+      report_status: input.reportStatus ?? "ready",
+      updated_at_ms: Date.UTC(2026, 2, 4),
+    },
+  ]);
 }
 
 async function readWakeProgressWakeStopEligibilityForTest(input: {
-  db: D1Database;
+  db: PostgreSQLBinding;
   trace: SpaceDispatchTraceSnapshot;
   publicationEligibility?: WakeStopEligibilityReadModel | null;
 }): Promise<WakeProgressItem["wakeStopEligibility"]> {
@@ -777,7 +722,11 @@ async function readWakeProgressWakeStopEligibilityForTest(input: {
     ) => Promise<WakeProgressItem["wakeStopEligibility"]>;
   };
   Object.defineProperty(space, "bindings", {
-    value: { OPENMELD_DB: input.db },
+    value: { OPENMELD_POSTGRESQL: NATIVE_PROJECTION_BINDING },
+    configurable: true,
+  });
+  Object.defineProperty(space, "bindings", {
+    value: { OPENMELD_POSTGRESQL: input.db },
   });
   Object.defineProperty(
     space,
@@ -792,7 +741,7 @@ async function readWakeProgressWakeStopEligibilityForTest(input: {
 async function readWakeProgressPreAgentWakeStopEligibilityForTest(
   trace: SpaceDispatchTraceSnapshot,
   options: {
-    db?: D1Database;
+    db?: PostgreSQLBinding;
     headLifecycleReadStatus?:
       | "accepted"
       | "execution_linked"
@@ -813,6 +762,10 @@ async function readWakeProgressPreAgentWakeStopEligibilityForTest(
     }) => Promise<WakeProgressItem["wakeStopEligibility"]>;
     spaceId: string;
   };
+  Object.defineProperty(space, "bindings", {
+    value: { OPENMELD_POSTGRESQL: NATIVE_PROJECTION_BINDING },
+    configurable: true,
+  });
   Object.defineProperties(space, {
     bindings: {
       value: {
@@ -820,7 +773,8 @@ async function readWakeProgressPreAgentWakeStopEligibilityForTest(
           headLifecycleReadStatus:
             options.headLifecycleReadStatus ?? "accepted",
         }),
-        ...(options.db ? { OPENMELD_DB: options.db } : {}),
+        OPENMELD_POSTGRESQL:
+          options.db ?? createProjectionPostgresBinding(() => []),
       },
     },
     ctx: {
@@ -1090,149 +1044,151 @@ function createWakeEvidenceDb(
     executions?: readonly WakeProgressExecutionRow[];
     lookupRows?: readonly WakeProgressExecutionRow[];
   } = {}
-): D1Database {
-  const prepare = vi.fn((query: string) => {
-    const bind = vi.fn((...params: unknown[]) => {
-      const all = vi.fn(() => {
-        const sourceSignalIdsJson = params.find(
-          (param) => typeof param === "string" && param.startsWith("[")
-        );
-        const sourceDispatchIds = sourceSignalIdsJson
-          ? new Set(JSON.parse(String(sourceSignalIdsJson)) as string[])
-          : null;
-        if (
-          query.includes(
-            "FROM openMeldDaemon_runtime_coordinator_executions AS executions"
-          )
-        ) {
-          return {
-            results: (input.executions ?? [])
-              .filter((execution) =>
-                ACTIVE_WAKE_PROGRESS_TEST_STATUSES.has(
-                  execution.executionStatus ??
-                    execution.status ??
-                    "result_accepted"
-                )
-              )
-              .filter(
-                (execution) =>
-                  !query.includes("executions.dispatch_id IN") ||
-                  sourceDispatchIds?.has(execution.dispatchId)
-              )
-              .map((execution, index) => ({
-                dispatch_id: execution.dispatchId,
-                running_at_ms: execution.runningAtMs ?? null,
-                latest_dispatch_attempt_status:
-                  execution.latestAttemptStatus ?? null,
-                latest_occupancy_payload_json:
-                  execution.latestOccupancyPayloadJson ?? null,
-                runtime_coordinator_execution_id: `rce-${execution.dispatchId}`,
-                openmeld_service_runtime_id: `runtime-${execution.dispatchId}`,
-                source_client_message_id:
-                  execution.sourceClientMessageId ?? null,
-                source_event_id: execution.sourceEventId,
-                created_at_ms:
-                  execution.createdAtMs ??
-                  Date.UTC(2026, 2, 4, 0, 1, 0) + index,
-                status:
-                  execution.executionStatus ??
+): PostgreSQLBinding {
+  return createProjectionPostgresBinding((config) => {
+    const query = config.text;
+    const params = config.values ?? [];
+    return (() => {
+      let sourceSignalIdsJson: unknown = null;
+      if (query.includes("AS executions")) {
+        sourceSignalIdsJson = params[4];
+      } else if (query.includes("AS deliveries")) {
+        sourceSignalIdsJson = params[6];
+      }
+      const sourceDispatchIds = sourceSignalIdsJson
+        ? new Set(sourceSignalIdsJson as string[])
+        : null;
+      if (
+        query.includes(
+          'FROM "openmeld"."openMeldDaemon_runtime_coordinator_executions" AS executions'
+        )
+      ) {
+        return {
+          rows: (input.executions ?? [])
+            .filter((execution) =>
+              ACTIVE_WAKE_PROGRESS_TEST_STATUSES.has(
+                execution.executionStatus ??
                   execution.status ??
-                  "result_accepted",
-                target_profile_id: execution.targetProfileId,
-                updated_at_ms:
-                  execution.updatedAtMs ??
-                  Date.UTC(2026, 2, 4, 0, 3, 0) + index,
-              })),
-          };
-        }
-        if (
-          query.includes(
-            "FROM openMeldRemoteAgent_native_delivery_ledger AS deliveries"
-          )
-        ) {
-          return {
-            results: (input.activeNativeDeliveryRows ?? [])
-              .filter((row) =>
-                ["accepted", "retry_observed"].includes(
-                  row.nativeDeliveryStatus ?? "accepted"
-                )
+                  "result_accepted"
               )
-              .filter(
-                (row) =>
-                  !query.includes("deliveries.dispatch_id IN") ||
-                  sourceDispatchIds?.has(row.dispatchId)
+            )
+            .filter(
+              (execution) =>
+                sourceDispatchIds === null ||
+                sourceDispatchIds?.has(execution.dispatchId)
+            )
+            .map((execution, index) => ({
+              dispatch_id: execution.dispatchId,
+              running_at_ms: execution.runningAtMs ?? null,
+              latest_dispatch_attempt_status:
+                execution.latestAttemptStatus ?? null,
+              latest_occupancy_payload_json:
+                execution.latestOccupancyPayloadJson ?? null,
+              runtime_coordinator_execution_id: `rce-${execution.dispatchId}`,
+              openmeld_service_runtime_id: `runtime-${execution.dispatchId}`,
+              source_client_message_id: execution.sourceClientMessageId ?? null,
+              source_event_id: execution.sourceEventId,
+              created_at_ms:
+                execution.createdAtMs ?? Date.UTC(2026, 2, 4, 0, 1, 0) + index,
+              status:
+                execution.executionStatus ??
+                execution.status ??
+                "result_accepted",
+              target_profile_id: execution.targetProfileId,
+              updated_at_ms:
+                execution.updatedAtMs ?? Date.UTC(2026, 2, 4, 0, 3, 0) + index,
+            })),
+        };
+      }
+      if (
+        query.includes(
+          'FROM "openmeld"."openMeldRemoteAgent_native_delivery_ledger" AS deliveries'
+        )
+      ) {
+        return {
+          rows: (input.activeNativeDeliveryRows ?? [])
+            .filter((row) =>
+              ["accepted", "retry_observed"].includes(
+                row.nativeDeliveryStatus ?? "accepted"
               )
-              .map((row, index) => ({
-                started_at_ms:
-                  row.acceptedAtMs ?? Date.UTC(2026, 2, 4, 0, 2, 0) + index,
-                dispatch_id: row.dispatchId,
-                failure_reason_code:
-                  row.finalPublicationState === "outcome_unknown"
-                    ? "remote_agent.callback_publication_outcome_unknown"
-                    : null,
-                phase: resolveNativeDeliveryEvidencePhase(row),
-                source_client_message_id: row.sourceClientMessageId ?? null,
-                target_profile_id: row.targetProfileId,
-                trigger_message_id: row.sourceEventId,
-                updated_at_ms:
-                  row.updatedAtMs ?? Date.UTC(2026, 2, 4, 0, 3, 0) + index,
-              })),
-          };
-        }
-        if (
-          query.includes("FROM openMeldDaemon_dispatch_ledger AS ledger") &&
-          query.includes("ledger.status = 'dispatching'")
-        ) {
-          return {
-            results: (input.activeDispatchRows ?? []).map((row, index) => ({
+            )
+            .filter(
+              (row) =>
+                sourceDispatchIds === null ||
+                sourceDispatchIds?.has(row.dispatchId)
+            )
+            .map((row, index) => ({
+              started_at_ms:
+                row.acceptedAtMs ?? Date.UTC(2026, 2, 4, 0, 2, 0) + index,
               dispatch_id: row.dispatchId,
-              latest_dispatch_attempt_status: row.latestAttemptStatus ?? null,
+              failure_reason_code:
+                row.finalPublicationState === "outcome_unknown"
+                  ? "remote_agent.callback_publication_outcome_unknown"
+                  : null,
+              phase: resolveNativeDeliveryEvidencePhase(row),
+              source_client_message_id: row.sourceClientMessageId ?? null,
               target_profile_id: row.targetProfileId,
+              trigger_message_id: row.sourceEventId,
               updated_at_ms:
                 row.updatedAtMs ?? Date.UTC(2026, 2, 4, 0, 3, 0) + index,
             })),
-          };
-        }
-        if (query.includes("FROM openMeldDaemon_dispatch_ledger AS ledger")) {
-          const spaceId = String(params[0] ?? "");
-          const selector = String(params[1] ?? "");
-          const targetProfileId =
-            params.length > 2 ? String(params[2] ?? "") : null;
-          return {
-            results: (input.lookupRows ?? [])
-              .filter(
-                (row) =>
-                  spaceId === "space-1" &&
-                  (row.sourceEventId === selector ||
-                    row.sourceClientMessageId === selector) &&
-                  (!targetProfileId || row.targetProfileId === targetProfileId)
-              )
-              .toSorted(
-                (left, right) =>
-                  (right.firstSeenAtMs ?? 0) - (left.firstSeenAtMs ?? 0) ||
-                  right.dispatchId.localeCompare(left.dispatchId)
-              )
-              .map((row) => ({
-                attemptCount: 1,
-                dispatchId: row.dispatchId,
-                dispatchStatus: row.dispatchStatus ?? row.status ?? "succeeded",
-                latestAttemptErrorCode: null,
-                latestAttemptErrorMessage: null,
-                latestAttemptId: "attempt-1",
-                latestAttemptStatus: "succeeded",
-                sourceSignalId: row.sourceEventId,
-                targetProfileId: row.targetProfileId,
-              })),
-          };
-        }
-        return { results: [] };
-      });
-      const first = vi.fn(() => null);
-      return { all, first };
-    });
-    return { bind };
+        };
+      }
+      if (
+        query.includes(
+          'FROM "openmeld"."openMeldDaemon_dispatch_ledger" AS ledger'
+        ) &&
+        query.includes("ledger.status = 'dispatching'")
+      ) {
+        return {
+          rows: (input.activeDispatchRows ?? []).map((row, index) => ({
+            dispatch_id: row.dispatchId,
+            latest_dispatch_attempt_status: row.latestAttemptStatus ?? null,
+            target_profile_id: row.targetProfileId,
+            updated_at_ms:
+              row.updatedAtMs ?? Date.UTC(2026, 2, 4, 0, 3, 0) + index,
+          })),
+        };
+      }
+      if (
+        query.includes(
+          'FROM "openmeld"."openMeldDaemon_dispatch_ledger" AS ledger'
+        )
+      ) {
+        const spaceId = String(params[0] ?? "");
+        const selector = String(params[1] ?? "");
+        const targetProfileId =
+          params.length > 2 ? String(params[2] ?? "") : null;
+        return {
+          rows: (input.lookupRows ?? [])
+            .filter(
+              (row) =>
+                spaceId === "space-1" &&
+                (row.sourceEventId === selector ||
+                  row.sourceClientMessageId === selector) &&
+                (!targetProfileId || row.targetProfileId === targetProfileId)
+            )
+            .toSorted(
+              (left, right) =>
+                (right.firstSeenAtMs ?? 0) - (left.firstSeenAtMs ?? 0) ||
+                right.dispatchId.localeCompare(left.dispatchId)
+            )
+            .map((row) => ({
+              attemptCount: 1,
+              dispatchId: row.dispatchId,
+              dispatchStatus: row.dispatchStatus ?? row.status ?? "succeeded",
+              latestAttemptErrorCode: null,
+              latestAttemptErrorMessage: null,
+              latestAttemptId: "attempt-1",
+              latestAttemptStatus: "succeeded",
+              sourceSignalId: row.sourceEventId,
+              targetProfileId: row.targetProfileId,
+            })),
+        };
+      }
+      return { rows: [] };
+    })().rows;
   });
-  return { prepare } as unknown as D1Database;
 }
 
 function createRuntimeTransportBindings(input: {
@@ -1459,7 +1415,7 @@ async function readActiveWakeProgressForTest(input: {
     ctx: { storage: { sql: SqlStorage } };
     readActiveSpaceWakeProgress: (input: {
       actorOwnerUserId?: string | null;
-      db: D1Database;
+      db: PostgresDatabase;
       includeTiming?: boolean;
       includePageInfo?: boolean;
       includeSourceContext?: boolean;
@@ -1474,10 +1430,14 @@ async function readActiveWakeProgressForTest(input: {
     >;
     spaceId: string;
   };
+  Object.defineProperty(space, "bindings", {
+    value: { OPENMELD_POSTGRESQL: NATIVE_PROJECTION_BINDING },
+    configurable: true,
+  });
   Object.defineProperties(space, {
     bindings: {
       value: {
-        OPENMELD_DB: wakeEvidenceDb,
+        OPENMELD_POSTGRESQL: wakeEvidenceDb,
         ...createRuntimeTransportBindings({
           headLifecycleReadStatus: input.headLifecycleReadStatus ?? "missing",
         }),
@@ -1511,7 +1471,7 @@ async function readActiveWakeProgressForTest(input: {
 
   return await space.readActiveSpaceWakeProgress({
     actorOwnerUserId: input.actorOwnerUserId,
-    db: wakeEvidenceDb,
+    db: getPostgresDatabase({ OPENMELD_POSTGRESQL: wakeEvidenceDb }),
     includeTiming: input.includeTiming,
     includePageInfo: input.includePageInfo,
     includeSourceContext: input.includeSourceContext,
@@ -1691,6 +1651,10 @@ describe("space signal service", () => {
       ) => void;
       rpcPostSystemNoticeSignal: Space["rpcPostSystemNoticeSignal"];
     };
+    Object.defineProperty(space, "bindings", {
+      value: { OPENMELD_POSTGRESQL: NATIVE_PROJECTION_BINDING },
+      configurable: true,
+    });
     Object.defineProperties(space, {
       applySpaceRef: { value: vi.fn() },
       authorizeSpacePasswordAccess: {
@@ -1733,6 +1697,10 @@ describe("space signal service", () => {
     const { signalRows, sql } = createFinalOutcomeSql();
     const broadcastSignal = vi.fn();
     const space = Object.create(Space.prototype) as Space;
+    Object.defineProperty(space, "bindings", {
+      value: { OPENMELD_POSTGRESQL: NATIVE_PROJECTION_BINDING },
+      configurable: true,
+    });
     Object.defineProperties(space, {
       applySpaceRef: { value: vi.fn() },
       authorizeSpacePasswordAccess: {
@@ -1835,6 +1803,10 @@ describe("space signal service", () => {
     const { signalRows, sql } = createFinalOutcomeSql();
     const broadcastSignal = vi.fn();
     const space = Object.create(Space.prototype) as Space;
+    Object.defineProperty(space, "bindings", {
+      value: { OPENMELD_POSTGRESQL: NATIVE_PROJECTION_BINDING },
+      configurable: true,
+    });
     Object.defineProperties(space, {
       applySpaceRef: { value: vi.fn() },
       authorizeSpacePasswordAccess: {
@@ -1993,6 +1965,10 @@ describe("space signal service", () => {
     );
     const inspect = vi.fn(async () => ({ recovery: projection }));
     const space = Object.create(Space.prototype) as Space;
+    Object.defineProperty(space, "bindings", {
+      value: { OPENMELD_POSTGRESQL: NATIVE_PROJECTION_BINDING },
+      configurable: true,
+    });
     Object.defineProperties(space, {
       applySpaceRef: { value: vi.fn() },
       ctx: { value: { storage: { transaction } } },
@@ -2123,6 +2099,10 @@ describe("space signal service", () => {
     );
     const inspect = vi.fn(async () => ({ recovery: projection }));
     const space = Object.create(Space.prototype) as Space;
+    Object.defineProperty(space, "bindings", {
+      value: { OPENMELD_POSTGRESQL: NATIVE_PROJECTION_BINDING },
+      configurable: true,
+    });
     Object.defineProperties(space, {
       applySpaceRef: { value: vi.fn() },
       ctx: { value: { storage: { transaction } } },
@@ -2228,6 +2208,10 @@ describe("space signal service", () => {
     const resumeExactControllerConversation = vi.fn();
     const inspect = vi.fn(async () => ({ recovery: projection }));
     const space = Object.create(Space.prototype) as Space;
+    Object.defineProperty(space, "bindings", {
+      value: { OPENMELD_POSTGRESQL: NATIVE_PROJECTION_BINDING },
+      configurable: true,
+    });
     Object.defineProperties(space, {
       applySpaceRef: { value: vi.fn() },
       ctx: { value: { storage: { transaction } } },
@@ -2263,6 +2247,10 @@ describe("space signal service", () => {
   it("rejects an execution recovery publication when Space did not persist or find the notice", async () => {
     const { sql } = createFinalOutcomeSql();
     const space = Object.create(Space.prototype) as Space;
+    Object.defineProperty(space, "bindings", {
+      value: { OPENMELD_POSTGRESQL: NATIVE_PROJECTION_BINDING },
+      configurable: true,
+    });
     Object.defineProperties(space, {
       applySpaceRef: { value: vi.fn() },
       authorizeSpacePasswordAccess: {
@@ -2340,6 +2328,10 @@ describe("space signal service", () => {
       persistSignalWithOptionalOutbox: typeof persistSignalWithOptionalOutbox;
       rpcPostStatusSignal: Space["rpcPostStatusSignal"];
     };
+    Object.defineProperty(space, "bindings", {
+      value: { OPENMELD_POSTGRESQL: NATIVE_PROJECTION_BINDING },
+      configurable: true,
+    });
     Object.defineProperties(space, {
       applySpaceRef: { value: vi.fn() },
       authorizeSpacePasswordAccess: {
@@ -2397,6 +2389,10 @@ describe("space signal service", () => {
       persistSignalWithOptionalOutbox: typeof persistSignalWithOptionalOutbox;
       rpcPostSystemNoticeSignal: Space["rpcPostSystemNoticeSignal"];
     };
+    Object.defineProperty(space, "bindings", {
+      value: { OPENMELD_POSTGRESQL: NATIVE_PROJECTION_BINDING },
+      configurable: true,
+    });
     Object.defineProperties(space, {
       applySpaceRef: { value: vi.fn() },
       authorizeSpacePasswordAccess: {
@@ -2459,6 +2455,10 @@ describe("space signal service", () => {
         }
       ) => Promise<void>;
     };
+    Object.defineProperty(space, "bindings", {
+      value: { OPENMELD_POSTGRESQL: NATIVE_PROJECTION_BINDING },
+      configurable: true,
+    });
     Object.defineProperties(space, {
       persistTextSignalWithOptionalOutbox: {
         value: persistTextSignalWithOptionalOutbox,
@@ -2509,6 +2509,10 @@ describe("space signal service", () => {
         signalContext?: TestFinalTextSignalContext
       ) => Promise<void>;
     };
+    Object.defineProperty(space, "bindings", {
+      value: { OPENMELD_POSTGRESQL: NATIVE_PROJECTION_BINDING },
+      configurable: true,
+    });
     Object.defineProperties(space, {
       broadcastSignal: { value: broadcastSignal },
       ctx: { value: { waitUntil } },
@@ -2704,6 +2708,10 @@ describe("space signal service", () => {
       persistSignalWithOptionalOutbox: typeof persistSignalWithOptionalOutbox;
       rpcPostStatusSignal: Space["rpcPostStatusSignal"];
     };
+    Object.defineProperty(space, "bindings", {
+      value: { OPENMELD_POSTGRESQL: NATIVE_PROJECTION_BINDING },
+      configurable: true,
+    });
     Object.defineProperties(space, {
       applySpaceRef: { value: vi.fn() },
       authorizeSpacePasswordAccess: {
@@ -2959,6 +2967,10 @@ describe("space signal service", () => {
       }>;
       spaceId: string;
     };
+    Object.defineProperty(space, "bindings", {
+      value: { OPENMELD_POSTGRESQL: NATIVE_PROJECTION_BINDING },
+      configurable: true,
+    });
     Object.defineProperties(space, {
       ctx: { value: { storage: { sql } } },
       durableObjectId: { value: failureSignal.spaceId },
@@ -3183,429 +3195,6 @@ describe("space signal service", () => {
         profileId: "agt_11111111-1111-4111-8111-111111111111",
       })
     ).toBe("sig-final-failure-1");
-  });
-
-  it("applies a RuntimeCoordinator failure publication command as one visible terminal failure notice", async () => {
-    const { signalRows, sql, sqlExec } = createFinalOutcomeSql();
-    const sourceWakeSignal = {
-      v: 1,
-      id: "sig-source-1",
-      spaceId: "space-1",
-      ts: 1_700_000_000_000,
-      profile: {
-        kind: "human",
-        profileId: "22222222-2222-4222-8222-222222222222",
-        profileName: "Mira",
-      },
-      type: "signal.text",
-      data: {
-        text: "@Codex Agent(wake) please check the deploy",
-      },
-    } satisfies SignalEnvelope;
-    signalRows.set(sourceWakeSignal.id, {
-      payloadJson: JSON.stringify(sourceWakeSignal),
-      ts: sourceWakeSignal.ts,
-    });
-    const targetWakeLifecycleIdentity = projectTargetWakeLifecycleIdentity({
-      clientMessageId: "client-message-1",
-      dispatchId: "dispatch-failure-publication-1",
-      sourceSignalId: "sig-source-1",
-      spaceId: "space-1",
-      targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
-    });
-    const command = {
-      createdAtMs: 1_700_000_000_000,
-      dispatchId: "dispatch-failure-publication-1",
-      failurePublicationCommandId: "failure-command-1",
-      modelVersion:
-        RUNTIME_COORDINATOR_FAILURE_PUBLICATION_COMMAND_MODEL_VERSION,
-      ownerUserId: "owner-1",
-      publicationCategory: "service_not_connected",
-      publicationIntentId: "publication-intent-1",
-      reasonCode: "daemon.profile.offline",
-      spaceId: "space-1",
-      targetProfileMentionLabel: "Codex Agent",
-      targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
-      targetProfileName: "Codex Agent",
-      targetWakeLifecycleIdentity,
-      targetWakeLifecycleId: targetWakeLifecycleIdentity.targetWakeLifecycleId,
-      userRecoveryAction: "start_or_restart_openmeld_service",
-    } satisfies RuntimeCoordinatorFailurePublicationCommand;
-    const threadContext = {
-      rootSignalId: sourceWakeSignal.id,
-      threadId: "thr_11111111-1111-4111-8111-111111111111",
-    };
-    const broadcastSignal = vi.fn();
-    const persistSignalWithOptionalOutbox = vi.fn((signal: SignalEnvelope) => {
-      const result = insertSignalRecord(sql, signal);
-      return {
-        dispatchMessages: [],
-        duplicateFinalReplyBlocked: result.duplicateFinalReplyBlocked,
-        persistedSignal: result.persistedSignal,
-      };
-    });
-    let builtNoticeCount = 0;
-    const space = Object.create(Space.prototype) as {
-      applySpaceRef: (spaceId: string) => void;
-      broadcastSignal: (
-        signal: SignalEnvelope,
-        signalContext?: unknown
-      ) => void;
-      buildSystemNoticeSignal: (
-        profile: SignalEnvelope["profile"],
-        data: Extract<SignalEnvelope, { type: "signal.system_notice" }>["data"]
-      ) => SignalEnvelope;
-      bindings: CoreBindings;
-      ctx: { storage: { sql: SqlStorage } };
-      lastTimestamp: number;
-      persistSignalWithOptionalOutbox: (
-        signal: SignalEnvelope,
-        createOutboxRecord: boolean,
-        signalContext?: unknown
-      ) => {
-        dispatchMessages: unknown[];
-        duplicateFinalReplyBlocked: boolean;
-        persistedSignal: boolean;
-      };
-      readSignalById: (signalId: string) => SignalEnvelope | null;
-      resolveThreadContextForSignal: () => typeof threadContext;
-      rpcApplyRuntimeCoordinatorFailurePublicationCommand: Space["rpcApplyRuntimeCoordinatorFailurePublicationCommand"];
-      spaceId: string;
-    };
-    Object.defineProperties(space, {
-      applySpaceRef: {
-        value: vi.fn((spaceId: string) => {
-          space.spaceId = spaceId;
-        }),
-      },
-      broadcastSignal: { value: broadcastSignal },
-      buildSystemNoticeSignal: {
-        value: vi.fn(
-          (
-            profile: SignalEnvelope["profile"],
-            data: Extract<
-              SignalEnvelope,
-              { type: "signal.system_notice" }
-            >["data"]
-          ) =>
-            ({
-              v: 1,
-              id: `sig-runtime-failure-${++builtNoticeCount}`,
-              spaceId: "space-1",
-              ts: 1_700_000_000_100,
-              profile,
-              type: "signal.system_notice",
-              data,
-            }) satisfies SignalEnvelope
-        ),
-      },
-      bindings: { value: {} as CoreBindings },
-      ctx: { value: { storage: { sql } } },
-      lastTimestamp: { value: 0, writable: true },
-      persistSignalWithOptionalOutbox: {
-        value: persistSignalWithOptionalOutbox,
-      },
-      readSignalById: {
-        value: vi.fn((signalId: string) => {
-          const row = signalRows.get(signalId);
-          return row ? (JSON.parse(row.payloadJson) as SignalEnvelope) : null;
-        }),
-      },
-      resolveThreadContextForSignal: { value: vi.fn(() => threadContext) },
-      spaceId: { value: "space-1", writable: true },
-    });
-
-    await expect(
-      space.rpcApplyRuntimeCoordinatorFailurePublicationCommand(command)
-    ).resolves.toMatchObject({
-      failurePublicationCommandId: "failure-command-1",
-      finalMessageKind: "failure_notice",
-      ok: true,
-      publicationAction: "created",
-      publishedSignalId: "sig-runtime-failure-1",
-      status: "failure_published",
-    });
-    const persistedSignalRow = signalRows.get("sig-runtime-failure-1");
-    expect(persistedSignalRow).toBeDefined();
-    expect(JSON.parse(String(persistedSignalRow?.payloadJson))).toMatchObject({
-      data: {
-        actorProfileId: "agt_11111111-1111-4111-8111-111111111111",
-        actorName: "Codex Agent",
-        dispatchId: "dispatch-failure-publication-1",
-        failureStage: "execution",
-        generatedBy: "openmeld",
-        noticeType: "terminal_failure",
-        reason: "daemon.profile.offline",
-        reasonCode: "daemon.profile.offline",
-        replyTo: {
-          previewText: "@Codex Agent(wake) please check the deploy",
-          profileId: "22222222-2222-4222-8222-222222222222",
-          profileKind: "human",
-          profileName: "Mira",
-          signalId: "sig-source-1",
-        },
-        text: "OpenMeld could not reach Codex Agent on this computer for this Wake. Reconnect the computer, then try again.",
-      },
-      type: "signal.system_notice",
-    });
-    expect(persistSignalWithOptionalOutbox).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: "sig-runtime-failure-1",
-      }),
-      false,
-      {
-        finalOutcomeAuthority: "runtime_coordinator_failure_publication",
-        threadContext,
-      }
-    );
-    expect(broadcastSignal).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: "sig-runtime-failure-1",
-      }),
-      {
-        finalOutcomeAuthority: "runtime_coordinator_failure_publication",
-        threadContext,
-      },
-      {
-        persisted: true,
-      }
-    );
-    expect(broadcastSignal).toHaveBeenCalledTimes(1);
-
-    await expect(
-      space.rpcApplyRuntimeCoordinatorFailurePublicationCommand(command)
-    ).resolves.toMatchObject({
-      finalMessageKind: "failure_notice",
-      publicationAction: "already_visible",
-      publishedSignalId: "sig-runtime-failure-1",
-      status: "failure_published",
-    });
-    expect(persistSignalWithOptionalOutbox).toHaveBeenCalledTimes(1);
-    expect(broadcastSignal).toHaveBeenCalledTimes(1);
-
-    const secondTargetWakeLifecycleIdentity =
-      projectTargetWakeLifecycleIdentity({
-        clientMessageId: "client-message-1",
-        dispatchId: "dispatch-failure-publication-2",
-        sourceSignalId: "sig-source-1",
-        spaceId: "space-1",
-        targetProfileId: "agt_33333333-3333-4333-8333-333333333333",
-      });
-    const secondCommand = {
-      ...command,
-      dispatchId: "dispatch-failure-publication-2",
-      failurePublicationCommandId: "failure-command-2",
-      publicationIntentId: "publication-intent-2",
-      reasonCode: "organization_binding_authorization.required",
-      targetProfileMentionLabel: "Review Agent",
-      targetProfileId: "agt_33333333-3333-4333-8333-333333333333",
-      targetProfileName: "Review Agent",
-      targetWakeLifecycleIdentity: secondTargetWakeLifecycleIdentity,
-      targetWakeLifecycleId:
-        secondTargetWakeLifecycleIdentity.targetWakeLifecycleId,
-    } satisfies RuntimeCoordinatorFailurePublicationCommand;
-
-    await expect(
-      space.rpcApplyRuntimeCoordinatorFailurePublicationCommand(secondCommand)
-    ).resolves.toMatchObject({
-      failurePublicationCommandId: "failure-command-2",
-      finalMessageKind: "failure_notice",
-      ok: true,
-      publicationAction: "created",
-      publishedSignalId: "sig-runtime-failure-2",
-      status: "failure_published",
-    });
-    const secondPersistedSignalRow = signalRows.get("sig-runtime-failure-2");
-    expect(
-      JSON.parse(String(secondPersistedSignalRow?.payloadJson))
-    ).toMatchObject({
-      data: {
-        actorProfileId: "agt_33333333-3333-4333-8333-333333333333",
-        actorName: "Review Agent",
-        dispatchId: "dispatch-failure-publication-2",
-        failureStage: "execution",
-        reasonCode: "organization_binding_authorization.required",
-        text: "Review Agent cannot be used in this workspace. Choose an Agent Profile created here.",
-      },
-      type: "signal.system_notice",
-    });
-    expect(persistSignalWithOptionalOutbox).toHaveBeenCalledTimes(2);
-    expect(broadcastSignal).toHaveBeenCalledTimes(2);
-    expect(
-      sqlExec.mock.calls.some(([query]) =>
-        String(query).includes("FROM space_members")
-      )
-    ).toBe(false);
-  });
-
-  it("falls back to the profile id when a RuntimeCoordinator failure publication rebuilds replyTo for a source signal without profile.profileName", async () => {
-    // Reproduces the W-ERR2-R1 dogfood gap: a Center Agent tool call posts
-    // the Wake with profile.kind "agent", but services/remote-agent's
-    // toOpenMeldRequestContext never sets actorContext.profileName (unlike a
-    // Gateway-authenticated human session), so the persisted source signal's
-    // profile.profileName is absent. Before the fix,
-    // buildRuntimeCoordinatorFailurePublicationReplyTo required
-    // profile.profileName with no fallback and returned null, so the
-    // published terminal_failure notice had no replyTo. It must now fall
-    // back to a resolved Space membership snapshot, then the profile id.
-    const { signalRows, sql } = createFinalOutcomeSql();
-    const centerAgentProfileId = "agt_44444444-4444-4444-8444-444444444444";
-    const sourceWakeSignal = {
-      v: 1,
-      id: "sig-center-agent-source-1",
-      spaceId: "space-1",
-      ts: 1_700_000_000_000,
-      profile: {
-        kind: "agent",
-        profileId: centerAgentProfileId,
-      },
-      type: "signal.text",
-      data: {
-        text: "@Codex Agent(wake) please check the deploy",
-      },
-    } satisfies SignalEnvelope;
-    signalRows.set(sourceWakeSignal.id, {
-      payloadJson: JSON.stringify(sourceWakeSignal),
-      ts: sourceWakeSignal.ts,
-    });
-    const targetWakeLifecycleIdentity = projectTargetWakeLifecycleIdentity({
-      clientMessageId: "client-message-1",
-      dispatchId: "dispatch-center-agent-failure-publication-1",
-      sourceSignalId: sourceWakeSignal.id,
-      spaceId: "space-1",
-      targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
-    });
-    const command = {
-      createdAtMs: 1_700_000_000_000,
-      dispatchId: "dispatch-center-agent-failure-publication-1",
-      failurePublicationCommandId: "center-agent-failure-command-1",
-      modelVersion:
-        RUNTIME_COORDINATOR_FAILURE_PUBLICATION_COMMAND_MODEL_VERSION,
-      ownerUserId: "owner-1",
-      publicationCategory: "service_not_connected",
-      publicationIntentId: "center-agent-publication-intent-1",
-      reasonCode: "daemon.profile.offline",
-      spaceId: "space-1",
-      targetProfileMentionLabel: "Codex Agent",
-      targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
-      targetProfileName: "Codex Agent",
-      targetWakeLifecycleIdentity,
-      targetWakeLifecycleId: targetWakeLifecycleIdentity.targetWakeLifecycleId,
-      userRecoveryAction: "start_or_restart_openmeld_service",
-    } satisfies RuntimeCoordinatorFailurePublicationCommand;
-    let builtNoticeCount = 0;
-    const space = Object.create(Space.prototype) as {
-      applySpaceRef: (spaceId: string) => void;
-      broadcastSignal: (
-        signal: SignalEnvelope,
-        signalContext?: unknown
-      ) => void;
-      buildSystemNoticeSignal: (
-        profile: SignalEnvelope["profile"],
-        data: Extract<SignalEnvelope, { type: "signal.system_notice" }>["data"]
-      ) => SignalEnvelope;
-      bindings: CoreBindings;
-      ctx: { storage: { sql: SqlStorage } };
-      lastTimestamp: number;
-      persistSignalWithOptionalOutbox: (
-        signal: SignalEnvelope,
-        createOutboxRecord: boolean,
-        signalContext?: unknown
-      ) => {
-        dispatchMessages: unknown[];
-        duplicateFinalReplyBlocked: boolean;
-        persistedSignal: boolean;
-      };
-      readSignalById: (signalId: string) => SignalEnvelope | null;
-      resolveThreadContextForSignal: () => null;
-      rpcApplyRuntimeCoordinatorFailurePublicationCommand: Space["rpcApplyRuntimeCoordinatorFailurePublicationCommand"];
-      spaceId: string;
-    };
-    Object.defineProperties(space, {
-      applySpaceRef: {
-        value: vi.fn((spaceId: string) => {
-          space.spaceId = spaceId;
-        }),
-      },
-      broadcastSignal: { value: vi.fn() },
-      buildSystemNoticeSignal: {
-        value: vi.fn(
-          (
-            profile: SignalEnvelope["profile"],
-            data: Extract<
-              SignalEnvelope,
-              { type: "signal.system_notice" }
-            >["data"]
-          ) =>
-            ({
-              v: 1,
-              id: `sig-center-agent-runtime-failure-${++builtNoticeCount}`,
-              spaceId: "space-1",
-              ts: 1_700_000_000_100,
-              profile,
-              type: "signal.system_notice",
-              data,
-            }) satisfies SignalEnvelope
-        ),
-      },
-      bindings: { value: {} as CoreBindings },
-      ctx: { value: { storage: { sql } } },
-      lastTimestamp: { value: 0, writable: true },
-      persistSignalWithOptionalOutbox: {
-        value: vi.fn((signal: SignalEnvelope) => {
-          const result = insertSignalRecord(sql, signal);
-          return {
-            dispatchMessages: [],
-            duplicateFinalReplyBlocked: result.duplicateFinalReplyBlocked,
-            persistedSignal: result.persistedSignal,
-          };
-        }),
-      },
-      readSignalById: {
-        value: vi.fn((signalId: string) => {
-          const row = signalRows.get(signalId);
-          return row ? (JSON.parse(row.payloadJson) as SignalEnvelope) : null;
-        }),
-      },
-      resolveThreadContextForSignal: { value: vi.fn(() => null) },
-      spaceId: { value: "space-1", writable: true },
-    });
-
-    await expect(
-      space.rpcApplyRuntimeCoordinatorFailurePublicationCommand(command)
-    ).resolves.toMatchObject({
-      failurePublicationCommandId: "center-agent-failure-command-1",
-      finalMessageKind: "failure_notice",
-      ok: true,
-      publicationAction: "created",
-      publishedSignalId: "sig-center-agent-runtime-failure-1",
-      status: "failure_published",
-    });
-    const persistedSignalRow = signalRows.get(
-      "sig-center-agent-runtime-failure-1"
-    );
-    expect(persistedSignalRow).toBeDefined();
-    expect(JSON.parse(String(persistedSignalRow?.payloadJson))).toMatchObject({
-      data: {
-        actorProfileId: "agt_11111111-1111-4111-8111-111111111111",
-        dispatchId: "dispatch-center-agent-failure-publication-1",
-        generatedBy: "openmeld",
-        noticeType: "terminal_failure",
-        reason: "daemon.profile.offline",
-        replyTo: {
-          previewText: "@Codex Agent(wake) please check the deploy",
-          profileId: centerAgentProfileId,
-          profileKind: "agent",
-          // No Space member snapshot is wired into this harness, so the
-          // fallback resolves to the raw profile id -- the point of this
-          // assertion is that replyTo exists at all instead of being
-          // dropped, not the display value.
-          profileName: centerAgentProfileId,
-          signalId: sourceWakeSignal.id,
-        },
-      },
-      type: "signal.system_notice",
-    });
   });
 
   it("claims generated OpenMeld status messages as a target Wake final outcome", () => {
@@ -4867,7 +4456,7 @@ describe("space signal service", () => {
         publicationEligibility,
       })
     ).toEqual(publicationEligibility);
-    expect(db.prepare).not.toHaveBeenCalled();
+    expect(PostgresDatabase.prototype.query).not.toHaveBeenCalled();
     expect(
       await readWakeProgressWakeStopEligibilityForTest({
         db,
@@ -4875,7 +4464,7 @@ describe("space signal service", () => {
         publicationEligibility: null,
       })
     ).toBeNull();
-    expect(db.prepare).not.toHaveBeenCalled();
+    expect(PostgresDatabase.prototype.query).not.toHaveBeenCalled();
   });
 
   it("routes publication eligibility to the execution owner's Coordinator and fails closed on an older receiver", async () => {
@@ -4903,9 +4492,14 @@ describe("space signal service", () => {
         trace: SpaceDispatchTraceSnapshot
       ): Promise<WakeStopEligibilityReadModel | null>;
     };
+    Object.defineProperty(space, "bindings", {
+      value: { OPENMELD_POSTGRESQL: NATIVE_PROJECTION_BINDING },
+      configurable: true,
+    });
     Object.defineProperties(space, {
       bindings: {
         value: {
+          OPENMELD_POSTGRESQL: NATIVE_PROJECTION_BINDING,
           OPENMELD_RUNTIME_TRANSPORT: { idFromName, get: () => ({ fetch }) },
         },
       },
@@ -5224,13 +4818,7 @@ describe("space signal service", () => {
       terminal_outcome_json: null,
       updated_at_ms: 1_700_000_001_000,
     };
-    const db = {
-      prepare: vi.fn(() => ({
-        bind: vi.fn(() => ({
-          first: vi.fn(async () => executionRow),
-        })),
-      })),
-    } as unknown as D1Database;
+    const db = createProjectionPostgresBinding(() => [executionRow]);
     const preAgentResponse = {
       cancellationState: {
         observedAtMs: 1_700_000_002_000,
@@ -5259,8 +4847,12 @@ describe("space signal service", () => {
       requestRemoteAgentNativeDeliveryStop: () => Promise<null>;
       spaceId: string;
     };
+    Object.defineProperty(space, "bindings", {
+      value: { OPENMELD_POSTGRESQL: NATIVE_PROJECTION_BINDING },
+      configurable: true,
+    });
     Object.defineProperties(space, {
-      bindings: { value: { OPENMELD_DB: db } },
+      bindings: { value: { OPENMELD_POSTGRESQL: db } },
       readWakeStopDispatchLookup: {
         value: vi.fn(async () => ({ matches: [lookupMatch] })),
       },
@@ -5344,9 +4936,14 @@ describe("space signal service", () => {
       };
       spaceId: string;
     };
+    Object.defineProperty(space, "bindings", {
+      value: { OPENMELD_POSTGRESQL: NATIVE_PROJECTION_BINDING },
+      configurable: true,
+    });
     Object.defineProperties(space, {
       bindings: {
         value: {
+          OPENMELD_POSTGRESQL: NATIVE_PROJECTION_BINDING,
           OPENMELD_RUNTIME_TRANSPORT: {
             get: vi.fn(() => ({ fetch })),
             idFromName: vi.fn((name: string) => ({ name })),
@@ -6969,4 +6566,12 @@ describe("space signal service", () => {
     expect(persistSignal).toHaveBeenCalledWith(signal);
     expect(broadcast).not.toHaveBeenCalled();
   });
+});
+
+const NATIVE_PROJECTION_BINDING = {
+  connectionString:
+    "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+};
+beforeEach(() => {
+  createProjectionPostgresBinding(() => []);
 });

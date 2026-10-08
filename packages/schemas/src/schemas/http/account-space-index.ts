@@ -76,6 +76,9 @@ export const accountSpaceIndexQuerySchema = z.strictObject({
   includeMemberPreviews: z
     .preprocess((value) => value === true || value === "true", z.boolean())
     .optional(),
+  includeDirectoryPreviews: z
+    .preprocess((value) => value === true || value === "true", z.boolean())
+    .optional(),
   gatewayHost: profileSpaceHistoryGatewayHostSchema,
   includeDirectMessageProfileIds:
     accountSpaceIndexIncludeDirectMessageProfileIdsSchema,
@@ -94,17 +97,19 @@ export const accountSpaceIndexJoinedProfileSchema = z.strictObject({
   profileName: trimmedNonEmptyStringSchema,
 });
 
+const accountSpaceMessagePreviewSchema = z.strictObject({
+  signalId: trimmedNonEmptyStringSchema,
+  profileId: trimmedNonEmptyStringSchema,
+  timestamp: z.number().int().nonnegative(),
+  text: z.string().max(240),
+});
 export const accountSpaceIndexItemSchema = z.strictObject({
-  // Absent means not requested/not projected; null is a known empty conversation.
-  messagePreview: z
-    .strictObject({
-      signalId: trimmedNonEmptyStringSchema,
-      profileId: trimmedNonEmptyStringSchema,
-      timestamp: z.number().int().nonnegative(),
-      text: z.string().max(240),
-    })
-    .nullable()
+  recentMessagePreviews: z
+    .array(accountSpaceMessagePreviewSchema)
+    .max(2)
     .optional(),
+  // Absent means not requested/not projected; null is a known empty conversation.
+  messagePreview: accountSpaceMessagePreviewSchema.nullable().optional(),
   memberPreviews: z
     .array(
       z.strictObject({
@@ -114,7 +119,7 @@ export const accountSpaceIndexItemSchema = z.strictObject({
         agentControllerRef: nullableTrimmedStringSchema,
       })
     )
-    .max(3)
+    .max(8)
     .optional(),
   creatorKind: z.union([profileSpaceCreatorKindSchema, z.null()]),
   creatorOwnerUserId: nullableTrimmedStringSchema,

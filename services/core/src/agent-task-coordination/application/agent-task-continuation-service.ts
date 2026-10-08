@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type {
   AgentDelegationSnapshot,
   AgentTaskCompletionObservation,
@@ -5,7 +6,10 @@ import type {
   AgentTaskHandle,
   AgentTaskTerminalOutcome,
 } from "@openmeld/schemas/types";
-import { isTaskSummaryRecoveryAuthorized } from "../../center-agent/application/task-summary-recovery-service";
+import {
+  isTaskSummaryRecoveryAuthorized,
+  recoverFailedTaskContinuationSummary,
+} from "../../center-agent/application/task-summary-recovery-service";
 import type { CoreBindings } from "../../lib/bindings";
 import { reportTaskContinuationEvidence } from "../../remote-agent/application/native-delivery-admission-evidence";
 import {
@@ -13,12 +17,12 @@ import {
   RemoteAgentTaskContinuationTerminalError,
   submitRemoteAgentTaskContinuationDelivery,
 } from "../../remote-agent/application/native-delivery-service";
-import { readRemoteAgentNativeDeliveryByDeliveryId } from "../../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import { readRemoteAgentNativeDeliveryByDeliveryId } from "../../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import {
   type AgentDelegationRecord,
   activateFallbackAgentDelegationChild,
   readAgentDelegation,
-} from "../infrastructure/d1/agent-delegation-repo";
+} from "../infrastructure/postgresql/agent-delegation-repo";
 import {
   type AgentTaskCompletionSubscriptionRecord,
   cancelAgentTaskCompletionSubscription,
@@ -28,18 +32,23 @@ import {
   readAgentTaskCompletionSubscription,
   releaseAgentTaskCompletionSubscriptionClaim,
   settleAgentTaskCompletionSubscription,
-} from "../infrastructure/d1/agent-task-coordination-repo";
+} from "../infrastructure/postgresql/agent-task-coordination-repo";
 
 const AGENT_TASK_CONTINUATION_CLAIM_LEASE_MS = 60_000;
-
 export async function processAgentTaskContinuationQueueMessage(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   message: AgentTaskContinuationQueueMessage;
   nowMs: number;
 }): Promise<
-  | { status: "completed"; task: AgentTaskHandle | null }
-  | { retryAfterSeconds: number; status: "retry_later" }
+  | {
+      status: "completed";
+      task: AgentTaskHandle | null;
+    }
+  | {
+      retryAfterSeconds: number;
+      status: "retry_later";
+    }
 > {
   const current = await readAgentTaskCompletionSubscription({
     db: input.db,
@@ -61,6 +70,12 @@ export async function processAgentTaskContinuationQueueMessage(input: {
     current.state === "settled" ||
     current.state === "cancelled"
   ) {
+    if (current?.state === "settled") {
+      await recoverSettledContinuationSummary({
+        ...input,
+        subscription: current,
+      });
+    }
     return { status: "completed", task: current?.continuationTask ?? null };
   }
   if (
@@ -85,7 +100,6 @@ export async function processAgentTaskContinuationQueueMessage(input: {
   ) {
     return { retryAfterSeconds: 5, status: "retry_later" };
   }
-
   const claimId = crypto.randomUUID();
   const claimed = await claimReadyAgentTaskCompletionSubscription({
     claimId,
@@ -143,9 +157,8 @@ export async function processAgentTaskContinuationQueueMessage(input: {
     throw error;
   }
 }
-
 async function isRoutineObserverStillRunning(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   deliveryId: string;
 }): Promise<boolean> {
   const observer = await readRemoteAgentNativeDeliveryByDeliveryId(input);
@@ -154,11 +167,10 @@ async function isRoutineObserverStillRunning(input: {
     (observer?.status === "accepted" || observer?.status === "retry_observed")
   );
 }
-
 async function executeClaimedAgentTaskContinuation(input: {
   claimId: string;
   claimed: AgentTaskCompletionSubscriptionRecord;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   nowMs: number;
 }): Promise<AgentTaskHandle | null> {
@@ -212,6 +224,7 @@ async function executeClaimedAgentTaskContinuation(input: {
       claimId: input.claimId,
       continuationTask,
       db: input.db,
+      env: input.env,
       nowMs: input.nowMs,
       subscriptionId: claimed.subscriptionId,
     });
@@ -257,7 +270,6 @@ async function executeClaimedAgentTaskContinuation(input: {
     });
     return null;
   }
-
   const continuationTask =
     claimed.continuation.kind === "activate_fallback"
       ? await executeFallbackActivation({
@@ -286,15 +298,16 @@ async function executeClaimedAgentTaskContinuation(input: {
     claimId: input.claimId,
     continuationTask,
     db: input.db,
+    env: input.env,
     nowMs: input.nowMs,
     subscriptionId: claimed.subscriptionId,
   });
 }
-
 async function settleClaimedAgentTaskContinuation(input: {
   claimId: string;
   continuationTask: AgentTaskHandle | null;
-  db: D1Database;
+  db: PostgresDatabase;
+  env: CoreBindings;
   nowMs: number;
   subscriptionId: string;
 }): Promise<AgentTaskHandle | null> {
@@ -311,20 +324,38 @@ async function settleClaimedAgentTaskContinuation(input: {
   if (!settled) {
     throw new Error("agent_task_continuation.settlement_failed");
   }
+  await recoverSettledContinuationSummary({ ...input, subscription: settled });
   return input.continuationTask;
 }
-
+async function recoverSettledContinuationSummary(input: {
+  db: PostgresDatabase;
+  env: CoreBindings;
+  nowMs: number;
+  subscription: AgentTaskCompletionSubscriptionRecord;
+}): Promise<void> {
+  if (input.subscription.continuationTask?.kind !== "native_delivery") {
+    return;
+  }
+  const delivery = await readRemoteAgentNativeDeliveryByDeliveryId({
+    db: input.db,
+    deliveryId: input.subscription.continuationTask.deliveryId,
+  });
+  if (delivery) {
+    await recoverFailedTaskContinuationSummary({ ...input, delivery });
+  }
+}
 type ObserverDelivery = NonNullable<
   Awaited<ReturnType<typeof readRemoteAgentNativeDeliveryByDeliveryId>>
 >;
-
 async function executeFallbackActivation(input: {
   claimed: AgentTaskCompletionSubscriptionRecord;
   continuation: Extract<
     NonNullable<AgentTaskCompletionSubscriptionRecord["continuation"]>,
-    { kind: "activate_fallback" }
+    {
+      kind: "activate_fallback";
+    }
   >;
-  db: D1Database;
+  db: PostgresDatabase;
   delegation: AgentDelegationRecord;
   env: CoreBindings;
   isAuthorized: () => Promise<boolean>;
@@ -370,14 +401,15 @@ async function executeFallbackActivation(input: {
   });
   return created.task;
 }
-
 async function executeParentResume(input: {
   claimed: AgentTaskCompletionSubscriptionRecord;
   continuation: Extract<
     NonNullable<AgentTaskCompletionSubscriptionRecord["continuation"]>,
-    { kind: "resume_agent" }
+    {
+      kind: "resume_agent";
+    }
   >;
-  db: D1Database;
+  db: PostgresDatabase;
   delegation: AgentDelegationRecord;
   env: CoreBindings;
   idempotencyKey: string;
@@ -419,14 +451,15 @@ async function executeParentResume(input: {
   });
   return created.task;
 }
-
 async function executeTaskWatchResume(input: {
   claimed: AgentTaskCompletionSubscriptionRecord;
   continuation: Extract<
     NonNullable<AgentTaskCompletionSubscriptionRecord["continuation"]>,
-    { kind: "resume_task_watch" }
+    {
+      kind: "resume_task_watch";
+    }
   >;
-  db: D1Database;
+  db: PostgresDatabase;
   env: CoreBindings;
   idempotencyKey: string;
   isAuthorized: () => Promise<boolean>;

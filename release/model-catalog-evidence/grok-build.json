@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "controller": "grok-build",
-  "observedAt": "2026-10-02T01:10:45.106Z",
-  "fingerprint": "f08993bb867663c40b4b5eb4d0df2220c92d30a49f8b07995e044559f3226100",
+  "observedAt": "2026-10-08T01:13:59.973Z",
+  "fingerprint": "9a8c3555f56962d8d2f9d8aa0f8d26e16b002e1a5a9d42dcd30dfd44b1fa25d7",
   "sources": [
     {
       "url": "https://docs.x.ai/build/overview.md",
@@ -170,6 +170,28 @@
               }
             },
             "canonical_model_id": "xai/grok-4.7"
+          },
+          "grok-imagine-video-1.5-lite": {
+            "id": "grok-imagine-video-1.5-lite",
+            "name": "Grok Imagine Video 1.5 Lite",
+            "description": "Cost-efficient video model for text-to-video and image-to-video generation",
+            "family": "grok",
+            "attachment": true,
+            "reasoning": false,
+            "tool_call": false,
+            "temperature": false,
+            "release_date": "2026-10-01",
+            "last_updated": "2026-10-01",
+            "modalities": {
+              "input": ["text", "image", "pdf"],
+              "output": ["video"]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1024,
+              "output": 0
+            },
+            "canonical_model_id": "xai/grok-imagine-video-1.5-lite"
           }
         }
       }

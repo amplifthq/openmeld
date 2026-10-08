@@ -7,6 +7,7 @@ import type {
   ListCenterAgentRoutinesManagementResponse,
   ListCenterAgentRoutinesResponse,
   ListCenterAgentRoutineTargetSpacesResponse,
+  ListRoutineManagementResponse,
   OpenMeldRequestContext,
   PauseCenterAgentRoutineResponse,
   ResumeCenterAgentRoutineResponse,
@@ -22,7 +23,9 @@ export type RoutineRequestInput = {
 };
 
 export type ListRoutinesInput = RoutineRequestInput;
-export type ListRoutineTargetSpacesInput = RoutineRequestInput;
+export type ListRoutineTargetSpacesInput = RoutineRequestInput & {
+  agentProfileId?: string;
+};
 export type CreateRoutineInput = RoutineRequestInput &
   CreateCenterAgentRoutineBody;
 export type UpdateRoutineInput = RoutineRequestInput &
@@ -32,6 +35,9 @@ export type ListRoutineRunsInput = RoutineRequestInput &
   ListCenterAgentRoutineRunsQuery & { routineId: string };
 
 export type RoutinesApi = {
+  listAllRoutines: (
+    input?: ListRoutinesInput
+  ) => Promise<ListRoutineManagementResponse>;
   listRoutines: (
     input?: ListRoutinesInput
   ) => Promise<ListCenterAgentRoutinesResponse>;

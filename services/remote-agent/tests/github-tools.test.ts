@@ -4,6 +4,7 @@ import {
   centerAgentRecordConnectorActionOperationResponseSchema,
   spaceTaskSchema,
 } from "@openmeld/schemas";
+import type { ProjectIssueDestination } from "@openmeld/schemas/types";
 import { digestCanonicalJson } from "@openmeld/utils";
 import { safeParse } from "valibot";
 import { describe, expect, it, vi } from "vitest";
@@ -219,12 +220,138 @@ function getRemoteAgentGitHubToolDefinitions(
         recorded: true,
       })) as never,
       ...coreWorker,
+      resolveProjectIssueAction:
+        coreWorker.resolveProjectIssueAction ??
+        vi.fn(({ proposedDestination }) =>
+          Promise.resolve({
+            basis: "confirmation_required" as const,
+            destination: proposedDestination,
+            projectId: null,
+            projectRevision: null,
+          })
+        ),
     },
     submissionId: ACK.submissionId,
   });
 }
 
 describe("Remote Agent GitHub tools", () => {
+  it("checks the Project destination before accepting a new issue write", async () => {
+    const resolveProjectIssueAction = vi.fn(() =>
+      Promise.reject(new Error("New issues for Payments go to Linear."))
+    );
+    const recordOperation = vi.fn();
+    const tools = getRemoteAgentGitHubToolDefinitions({
+      coreWorker: {
+        centerAgentRecordConnectorActionOperation: recordOperation,
+        resolveProjectIssueAction,
+      },
+      storage: await createStorage(createSubmitTurnRequest()),
+    });
+    await expect(
+      executeTool(tools, "github_create_issue", {
+        githubActor: "organization",
+        owner: "amplifthq",
+        repo: "payments",
+        title: "Follow up on the PR",
+      })
+    ).rejects.toThrow("New issues for Payments go to Linear.");
+    expect(resolveProjectIssueAction).toHaveBeenCalledWith({
+      context: expect.any(Object),
+      proposedDestination: {
+        provider: "github",
+        owner: "amplifthq",
+        repo: "payments",
+      },
+    });
+    expect(recordOperation).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["missing", "direct"],
+    ["denied", "direct"],
+    ["completed", "direct"],
+    ["failed", "direct"],
+    ["missing", "code_mode"],
+    ["denied", "code_mode"],
+    ["completed", "code_mode"],
+    ["failed", "code_mode"],
+  ] as const)("preserves a %s Core execution decision through %s without a provider write", async (decision, source) => {
+    const storage = await createStorage(createSubmitTurnRequest());
+    const provider = vi.fn<typeof fetch>();
+    const executionConnection = {
+      connectionName: "original-github-account",
+      ownerDisplayName: "Mira",
+      ownerUserId: "user_mira",
+      scope: "member" as const,
+      service: "github" as const,
+    };
+    const terminal = decision === "completed" || decision === "failed";
+    const tools = getRemoteAgentGitHubToolDefinitions({
+      storage,
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        runtimeToken: "fixture",
+        fetch: provider,
+      },
+      coreWorker: {
+        centerAgentResolveConnectorConnection: vi.fn(async () =>
+          connectionSelection({ ownerDisplayName: "Mira", userId: "user_mira" })
+        ),
+        centerAgentRecordConnectorActionOperation: vi.fn(async () => ({
+          attribution: {
+            actorProfileId: "agt_11111111-1111-4111-8111-111111111111",
+            onBehalfOf: null,
+          },
+          operationId: "original-operation",
+          providerExecutionId: terminal ? "provider-original" : null,
+          status: terminal ? decision : "pending",
+          recorded: true,
+          replayed: true,
+          executionConnection,
+          ...(decision === "missing" ? {} : { executionAllowed: false }),
+          replay: {
+            allowed: false,
+            reason: terminal ? "operation_terminal" : "operation_in_progress",
+          },
+        })) as never,
+      },
+    });
+    const definition = tools.find(
+      (tool) => tool.name === "github_create_issue_comment"
+    );
+    if (!definition) {
+      throw new Error("Missing GitHub write tool");
+    }
+    const receipt = await executeRemoteAgentToolDefinition({
+      definition,
+      storage,
+      submissionId: ACK.submissionId,
+      source,
+      toolInput: {
+        githubActor: "requester",
+        operationId: "replacement-id",
+        owner: "synthetic",
+        repo: "fixture",
+        issueNumber: 1,
+        body: "Synthetic comment",
+      },
+    });
+    expect(provider).not.toHaveBeenCalled();
+    expect(receipt).toMatchObject({
+      status: terminal ? decision : "outcome_unknown",
+      operationId: "original-operation",
+    });
+    if (terminal) {
+      expect(receipt).toHaveProperty(
+        "executionConnection",
+        executionConnection
+      );
+      expect(receipt).not.toHaveProperty("data");
+      expect(receipt).not.toHaveProperty("executionConfirmation", "executed");
+    }
+  });
+
   it.each([
     "expired",
     "legacy_core",
@@ -430,6 +557,7 @@ describe("Remote Agent GitHub tools", () => {
     expect(JSON.stringify(receipt)).not.toContain(providerKey);
     expect(record.mock.calls.map(([entry]) => entry.outcome)).toEqual([
       "attempted",
+      "outcome_unknown",
     ]);
     await expect(
       executeTool(definitions, "github_create_issue_comment", toolInput)
@@ -443,6 +571,7 @@ describe("Remote Agent GitHub tools", () => {
     ).toBe(providerKey);
     expect(record.mock.calls.map(([entry]) => entry.outcome)).toEqual([
       "attempted",
+      "outcome_unknown",
       "attempted",
       "completed",
     ]);
@@ -705,7 +834,7 @@ describe("Remote Agent GitHub tools", () => {
     };
     const dynamic = tools.find((tool) => tool.name === "github_execute_action");
     expect(dynamic?.description).toContain(
-      "retry exactly once only if its receipt explicitly allows"
+      "retry exactly once only when its receipt explicitly permits replay"
     );
     expect(dynamic?.description).not.toContain(
       "Reuse operationId only to recover the same execution"
@@ -1116,7 +1245,7 @@ describe("Remote Agent GitHub tools", () => {
       }).success
     ).toBe(false);
     expect(pullRequestDescription).toContain(
-      "retry exactly once only if its receipt explicitly allows"
+      "retry exactly once only when its receipt explicitly permits replay"
     );
     expect(pullRequestDescription).toContain(
       "never use a new ID to repeat the write"
@@ -2518,7 +2647,7 @@ describe("Remote Agent GitHub tools", () => {
     await expect(
       executeTool(tools, "github_get_current_user", {})
     ).rejects.toThrow(
-      "Your GitHub is not ready. It may be disconnected or authorization may still be pending. Use the Plugin connection action below, check Your GitHub, and try again. OpenMeld did not use a different GitHub identity."
+      "Your GitHub is not ready for this Agent. The account may be disconnected, provider authorization may be pending, or this Agent may have no access. Use the Plugin connection action below, check the connection and its Agent access settings, and try again. OpenMeld did not use a different GitHub identity."
     );
     await expect(
       readRemoteAgentCallbackContext(storage, ACK.submissionId)
@@ -2546,7 +2675,7 @@ describe("Remote Agent GitHub tools", () => {
     await expect(
       executeTool(tools, "github_get_current_user", {})
     ).rejects.toThrow(
-      "Open Plugins → GitHub for this workspace, check Your GitHub, and try again."
+      "Open Plugins → GitHub for this workspace, check the connection and its Agent access settings, and try again."
     );
   });
 
@@ -2582,7 +2711,7 @@ describe("Remote Agent GitHub tools", () => {
         githubActor: "organization",
       })
     ).rejects.toThrow(
-      "Organization access is not ready. It may be disconnected or authorization may still be pending. Use the Plugin connection action below, check Organization access, and try again. OpenMeld did not use a different GitHub identity."
+      "Organization access is not ready for this Agent. The account may be disconnected, provider authorization may be pending, or this Agent may have no access. Use the Plugin connection action below, check the connection and its Agent access settings, and try again. OpenMeld did not use a different GitHub identity."
     );
     await expect(
       readRemoteAgentCallbackContext(storage, ACK.submissionId)
@@ -3028,7 +3157,21 @@ describe("Remote Agent GitHub tools", () => {
           userId: "user_1",
         })
       ),
+      resolveProjectIssueAction: vi.fn(
+        ({
+          proposedDestination,
+        }: {
+          proposedDestination: ProjectIssueDestination;
+        }) =>
+          Promise.resolve({
+            basis: "confirmation_required" as const,
+            destination: proposedDestination,
+            projectId: null,
+            projectRevision: null,
+          })
+      ),
     };
+    const coreWorkerWithLedger = withTestConnectorOperationLedger(coreWorker);
     const batchInput = {
       githubActor: "organization",
       issues: [{ externalKey: "finding-1", title: "Review finding 1" }],
@@ -3036,10 +3179,11 @@ describe("Remote Agent GitHub tools", () => {
       owner: "openmeld",
       repo: "app",
     };
-    const firstTurnTools = getRemoteAgentGitHubToolDefinitions({
+    const firstTurnTools = buildRemoteAgentGitHubToolDefinitions({
       connectorExecution,
-      coreWorker,
+      coreWorker: coreWorkerWithLedger,
       storage,
+      submissionId: ACK.submissionId,
     });
     await expect(
       executeTool(firstTurnTools, "github_create_issue_batch", batchInput)
@@ -3073,7 +3217,7 @@ describe("Remote Agent GitHub tools", () => {
     );
     const routineTools = buildRemoteAgentGitHubToolDefinitions({
       connectorExecution,
-      coreWorker,
+      coreWorker: coreWorkerWithLedger,
       storage,
       submissionId: routineSubmissionId,
     });
@@ -4902,6 +5046,7 @@ async function executeTool(
 }
 
 type TestConnectorOperation = {
+  replayAttempted?: boolean;
   createdAtMs: number;
   actionId: string;
   connectionName: string;
@@ -4989,6 +5134,7 @@ function withTestConnectorOperationLedger(
         return Promise.resolve({
           operation: operation
             ? {
+                replay: testReplayPermission(operation),
                 replayWindowRemainingMs: Math.max(
                   0,
                   24 * 60 * 60 * 1000 - (Date.now() - operation.createdAtMs)
@@ -5028,6 +5174,14 @@ function withTestConnectorOperationLedger(
           service: input.service,
           status: "pending",
         };
+        const executionAllowed =
+          input.outcome === "attempted" &&
+          (input.effect === "read" ||
+            !existing ||
+            testReplayPermission(operation).allowed);
+        if (existing && executionAllowed && input.effect !== "read") {
+          operation.replayAttempted = true;
+        }
         if (input.outcome !== "attempted") {
           operation.providerExecutionId = input.providerExecutionId;
           operation.status = input.outcome;
@@ -5046,11 +5200,42 @@ function withTestConnectorOperationLedger(
           operationId: operation.operationId,
           providerExecutionId: operation.providerExecutionId,
           recorded: true,
+          executionAllowed,
+          replay: testReplayPermission(operation),
           replayed: Boolean(existing),
           status: operation.status,
         });
       }),
   };
+}
+
+function testReplayPermission(operation: TestConnectorOperation) {
+  if (operation.status === "completed" || operation.status === "failed") {
+    return { allowed: false as const, reason: "operation_terminal" as const };
+  }
+  if (!operation.executionConnection) {
+    return {
+      allowed: false as const,
+      reason: "original_account_unverified" as const,
+    };
+  }
+  if (operation.replayAttempted) {
+    return { allowed: false as const, reason: "already_replayed" as const };
+  }
+  const remainingWindowMs = Math.max(
+    0,
+    86_400_000 - (Date.now() - operation.createdAtMs)
+  );
+  if (remainingWindowMs === 0) {
+    return { allowed: false as const, reason: "window_expired" as const };
+  }
+  if (operation.status !== "outcome_unknown") {
+    return {
+      allowed: false as const,
+      reason: "operation_in_progress" as const,
+    };
+  }
+  return { allowed: true as const, remainingWindowMs, maxAttempts: 1 as const };
 }
 
 function requireWriteConfirmationToken(result: unknown): string {

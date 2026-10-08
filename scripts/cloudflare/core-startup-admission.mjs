@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { cutoverConfigArgs } from "../release/postgresql-cutover-config.mjs";
 import { requireProductionDatabaseCurrent } from "../release/require-production-db-current.mjs";
 import { validateCoreVersionReleaseConfig } from "./core-version-deployment.mjs";
 
@@ -121,12 +122,13 @@ export function buildCoreStartupAdmissionStepSpec(input) {
       "prod",
       ...(input.tag ? ["--tag", input.tag] : []),
       ...input.defines.flatMap((definition) => ["--define", definition]),
+      ...(input.configArgs ?? []),
     ],
     command: "pnpm",
   };
 }
 
-export function runCoreStartupAdmission(input) {
+export async function runCoreStartupAdmission(input) {
   if (!FULL_COMMIT_SHA_PATTERN.test(input.releaseSha)) {
     throw new Error(
       "Core startup admission requires an exact release SHA before uploading a version"
@@ -143,11 +145,7 @@ export function runCoreStartupAdmission(input) {
       }));
   // This owner can activate Core atomically for a Durable Object migration.
   // Check here, after an ordered database stage, rather than at train preflight.
-  requireProductionDatabaseCurrent({
-    cwd: input.cwd ?? REPOSITORY_ROOT,
-    runCommand: (commandInput) =>
-      runCommand({ ...commandInput, env: input.env ?? process.env }),
-  });
+  await verifyCoreDatabase(input, runCommand);
   const temporaryDirectory = mkdtempSync(
     path.join(tmpdir(), "openmeld-core-startup-admission-")
   );
@@ -157,6 +155,10 @@ export function runCoreStartupAdmission(input) {
   );
   try {
     const step = buildCoreStartupAdmissionStepSpec({
+      configArgs: cutoverConfigArgs("core", {
+        cwd: input.cwd ?? REPOSITORY_ROOT,
+        env: input.env ?? process.env,
+      }),
       defines: input.defines ?? [],
       tag: input.tag,
     });
@@ -233,9 +235,17 @@ export function runCoreStartupAdmission(input) {
   }
 }
 
-function main() {
+async function verifyCoreDatabase(input, runCommand) {
+  await (input.requireDatabaseCurrent ?? requireProductionDatabaseCurrent)({
+    cwd: input.cwd ?? REPOSITORY_ROOT,
+    runCommand: (commandInput) =>
+      runCommand({ ...commandInput, env: input.env ?? process.env }),
+  });
+}
+
+async function main() {
   const options = parseArguments(process.argv.slice(2));
-  runCoreStartupAdmission(options);
+  await runCoreStartupAdmission(options);
 }
 
 function parseArguments(argumentsList) {
@@ -274,5 +284,5 @@ function requireArgumentValue(argument, value) {
 }
 
 if (pathToFileURL(process.argv[1] ?? "").href === import.meta.url) {
-  main();
+  await main();
 }

@@ -3,26 +3,35 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import publishedManifest from "../../../release/local-components.json";
 import { assertAgentControllerPermissionModeReleased } from "../src/local-components/runtime-contract-rollout";
 import { resolveDaemonExecutionCompatibility } from "../src/runtime-transport/application/daemon-execution-compatibility";
+// Captured from release/local-components.json at the published v0.3.248 tag.
+import stableManifest from "./fixtures/local-components-v0.3.248.json";
 
 const PREVIOUS_EPOCH = "runtime-transport-epoch-2026-09-image-geometry";
 const receiverManifest = structuredClone(publishedManifest);
 receiverManifest.components.service.runtimeContractEpoch = PREVIOUS_EPOCH;
 
-describe("Core receiver-first Antigravity rollout", () => {
+describe("Core receiver-first runtime contract rollout", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("keeps the published Service usable while accepting the new receiver protocol and holding writers", () => {
+  it.each([
+    { manifest: receiverManifest, permissionWritesEnabled: false },
+    { manifest: stableManifest, permissionWritesEnabled: true },
+  ])("keeps the pinned $manifest.components.service.runtimeContractEpoch Service usable without regressing released permission modes", ({
+    manifest,
+    permissionWritesEnabled,
+  }) => {
+    const publishedEpoch = manifest.components.service.runtimeContractEpoch;
     vi.stubGlobal(
       "OPENMELD_LOCAL_COMPONENTS_RELEASE_MANIFEST_JSON",
-      JSON.stringify(receiverManifest)
+      JSON.stringify(manifest)
     );
     for (const epoch of [
-      PREVIOUS_EPOCH,
+      publishedEpoch,
       CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
     ]) {
       expect(resolveDaemonExecutionCompatibility({ epoch })).toMatchObject({
         status: "compatible",
-        expectedEpoch: PREVIOUS_EPOCH,
+        expectedEpoch: publishedEpoch,
       });
     }
     for (const mode of [
@@ -31,9 +40,15 @@ describe("Core receiver-first Antigravity rollout", () => {
       "plan",
       "bypassPermissions",
     ]) {
-      expect(() =>
-        assertAgentControllerPermissionModeReleased(`antigravity:${mode}`)
-      ).toThrow("Antigravity permission settings are not available yet");
+      const write = () =>
+        assertAgentControllerPermissionModeReleased(`antigravity:${mode}`);
+      if (permissionWritesEnabled) {
+        expect(write).not.toThrow();
+      } else {
+        expect(write).toThrow(
+          "Antigravity permission settings are not available yet"
+        );
+      }
     }
     expect(() =>
       assertAgentControllerPermissionModeReleased(null)
@@ -62,9 +77,14 @@ describe("Core receiver-first Antigravity rollout", () => {
         JSON.stringify(released)
       );
     }
-    expect(
-      resolveDaemonExecutionCompatibility({ epoch: PREVIOUS_EPOCH }).status
-    ).toBe("update_required");
+    for (const epoch of [
+      PREVIOUS_EPOCH,
+      stableManifest.components.service.runtimeContractEpoch,
+    ]) {
+      expect(resolveDaemonExecutionCompatibility({ epoch }).status).toBe(
+        "update_required"
+      );
+    }
     expect(
       resolveDaemonExecutionCompatibility({
         epoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
@@ -75,13 +95,26 @@ describe("Core receiver-first Antigravity rollout", () => {
     ).not.toThrow();
   });
 
-  it("holds new writers when the pinned release manifest is invalid", () => {
-    vi.stubGlobal("OPENMELD_LOCAL_COMPONENTS_RELEASE_MANIFEST_JSON", "invalid");
+  it.each([
+    "invalid",
+    "unsupported_epoch",
+  ])("rejects an invalid or unsupported pinned release (%s)", (value) => {
+    const manifest = structuredClone(stableManifest);
+    manifest.components.service.runtimeContractEpoch = value;
+    vi.stubGlobal(
+      "OPENMELD_LOCAL_COMPONENTS_RELEASE_MANIFEST_JSON",
+      value === "invalid" ? value : JSON.stringify(manifest)
+    );
     expect(() =>
       assertAgentControllerPermissionModeReleased("antigravity:acceptEdits")
     ).toThrow();
     expect(
       resolveDaemonExecutionCompatibility({ epoch: PREVIOUS_EPOCH }).status
+    ).toBe("update_required");
+    expect(
+      resolveDaemonExecutionCompatibility({
+        epoch: manifest.components.service.runtimeContractEpoch,
+      }).status
     ).toBe("update_required");
   });
 });

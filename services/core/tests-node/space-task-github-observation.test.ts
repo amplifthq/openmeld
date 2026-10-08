@@ -34,6 +34,7 @@ const task = (overrides: Partial<SpaceTask> = {}): SpaceTask => ({
   createdBy: requester,
   description: null,
   externalWorkItems: [githubIssue],
+  projectIds: [],
   needsHumanDecision: false,
   phase: "in_progress",
   requestedBy: requester,

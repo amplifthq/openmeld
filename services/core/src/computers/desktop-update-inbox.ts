@@ -1,3 +1,8 @@
+import type { QueryResult } from "@openmeld/db/postgresql";
+import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
 import {
   desktopUpdateObservationRpcInputSchema,
   inboxSourceTargetSchema,
@@ -8,18 +13,22 @@ import type {
   DesktopUpdateObservationRpcInput,
   InboxItem,
 } from "@openmeld/schemas/types";
-import { type CoreBindings, inboxDb } from "../lib/bindings";
+import type { CoreBindings } from "../lib/bindings";
 import { isLocalComponentVersionAtLeast } from "../local-components/update-projection";
 import { createCoreRpcHttpError } from "../rpc/errors";
 
-type InstalledObservation = { sequence: number; observation_json: string };
+type InstalledObservation = {
+  sequence: number;
+  observation_json: string;
+};
 type UpdateTarget = Extract<
   InboxItem["sourceTarget"],
-  { kind: "desktop_update" }
+  {
+    kind: "desktop_update";
+  }
 >;
 const INSTALLATION_WHERE =
-  "owner_user_id = ? AND installation_id = ? AND lane = ?";
-
+  "owner_user_id = $1 AND installation_id = $2 AND lane = $3";
 export async function rpcReportDesktopUpdateObservation(
   env: CoreBindings,
   raw: DesktopUpdateObservationRpcInput
@@ -40,16 +49,15 @@ export async function rpcReportDesktopUpdateObservation(
       "The Desktop account changed. Check the current account before reporting an update."
     );
   }
-  const db = inboxDb(env);
+  const db = getPostgresDatabase(env);
   if (!db) {
     throw failure(503, "Inbox is temporarily unavailable.");
   }
   return await reportDesktopUpdateObservation({ db, observation });
 }
-
 /** Account/device source projection. No Organization selection, mail, install command or read mutation. */
 export async function reportDesktopUpdateObservation(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   observation: DesktopUpdateObservation;
   nowMs?: number;
 }): Promise<DesktopUpdateObservationResponse> {
@@ -65,62 +73,66 @@ export async function reportDesktopUpdateObservation(input: {
   // sequence. A concurrent newer report cannot leave an older release active.
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const previous = await input.db
-      .prepare(
-        `SELECT sequence, observation_json FROM desktop_update_installations WHERE ${INSTALLATION_WHERE}`
-      )
-      .bind(...scope)
-      .first<InstalledObservation>();
+      .query<InstalledObservation>({
+        text: `SELECT sequence, observation_json FROM "openmeld"."desktop_update_installations" WHERE ${INSTALLATION_WHERE}`,
+        values: [...scope],
+      })
+      .then((result) => result.rows[0] ?? null);
     const replay = readObservationReplay(previous, observation, serialized);
     if (replay) {
       return replay;
     }
-    const existing = await input.db
-      .prepare(`SELECT id, source_target_json FROM inbox_items
-      WHERE organization_id IS NULL AND recipient_user_id = ? AND source_kind = 'desktop_update'
-        AND json_extract(source_target_json, '$.installationId') = ?
-        AND json_extract(source_target_json, '$.lane') = ?
-        AND json_extract(source_target_json, '$.state') = 'available'`)
-      .bind(...scope)
-      .all<{ id: string; source_target_json: string }>();
+    const existing = await input.db.query<{
+      id: string;
+      source_target_json: string;
+    }>({
+      text: `SELECT id, source_target_json FROM "openmeld"."inbox_items"
+      WHERE organization_id IS NULL AND recipient_user_id = $1 AND source_kind = 'desktop_update'
+        AND ((source_target_json)::jsonb #>> '{installationId}') = $2
+        AND ((source_target_json)::jsonb #>> '{lane}') = $3
+        AND ((source_target_json)::jsonb #>> '{state}') = 'available'`,
+      values: [...scope],
+    });
     const nowMs = input.nowMs ?? Date.now();
-    const guard = `EXISTS (SELECT 1 FROM desktop_update_installations WHERE ${INSTALLATION_WHERE} AND sequence = ? AND observation_json = ?)`;
+    const guard = (offset: number) =>
+      `EXISTS (SELECT 1 FROM "openmeld"."desktop_update_installations" WHERE owner_user_id = $${offset + 1} AND installation_id = $${offset + 2} AND lane = $${offset + 3} AND sequence = $${offset + 4} AND observation_json = $${offset + 5})`;
     const guardBindings = [...scope, observation.sequence, serialized];
     const statements = [
-      input.db
-        .prepare(`INSERT INTO desktop_update_installations
-      (owner_user_id, installation_id, lane, sequence, observation_json, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?)
+      {
+        text: `INSERT INTO "openmeld"."desktop_update_installations"
+      (owner_user_id, installation_id, lane, sequence, observation_json, updated_at_ms) VALUES ($1, $2, $3, $4, $5, $6)
       ON CONFLICT(owner_user_id, installation_id, lane) DO UPDATE SET sequence = excluded.sequence,
         observation_json = excluded.observation_json, updated_at_ms = excluded.updated_at_ms
-      WHERE desktop_update_installations.sequence = ?`)
-        .bind(
+      WHERE desktop_update_installations.sequence = $7`,
+        values: [
           ...scope,
           observation.sequence,
           serialized,
           nowMs,
-          previous?.sequence ?? -1
-        ),
+          previous?.sequence ?? -1,
+        ],
+      },
     ];
-    for (const row of existing.results ?? []) {
+    for (const row of existing.rows ?? []) {
       const target = readUpdateTarget(row.source_target_json);
       const state = resolveReleaseState(target, observation);
       if (state === "available") {
         continue;
       }
       const { title, preview } = endedUpdateCopy(target, state);
-      statements.push(
-        input.db
-          .prepare(`UPDATE inbox_items SET source_target_json = ?, title = ?, preview = ?, updated_at_ms = max(updated_at_ms, ?)
-        WHERE id = ? AND recipient_user_id = ? AND organization_id IS NULL AND source_kind = 'desktop_update' AND ${guard}`)
-          .bind(
-            JSON.stringify({ ...target, state }),
-            title,
-            preview,
-            nowMs,
-            row.id,
-            observation.expectedUserId,
-            ...guardBindings
-          )
-      );
+      statements.push({
+        text: `UPDATE "openmeld"."inbox_items" SET source_target_json = $1, title = $2, preview = $3, updated_at_ms = GREATEST(updated_at_ms, $4)
+        WHERE id = $5 AND recipient_user_id = $6 AND organization_id IS NULL AND source_kind = 'desktop_update' AND ${guard(6)}`,
+        values: [
+          JSON.stringify({ ...target, state }),
+          title,
+          preview,
+          nowMs,
+          row.id,
+          observation.expectedUserId,
+          ...guardBindings,
+        ],
+      });
     }
     if (observation.availableVersion) {
       const target: UpdateTarget = {
@@ -133,31 +145,36 @@ export async function reportDesktopUpdateObservation(input: {
         state: "available",
       };
       const id = await desktopUpdateItemId(observation, target.version);
-      statements.push(
-        input.db
-          .prepare(`INSERT INTO inbox_items
+      statements.push({
+        text: `INSERT INTO "openmeld"."inbox_items"
         (id, organization_id, recipient_user_id, kind, attention, importance, title, preview, context_label,
           source_kind, source_key, source_target_json, source_facts_json, resolution_status, occurred_at_ms, created_at_ms, updated_at_ms)
-        SELECT ?, NULL, ?, 'desktop_update', 'update', 'normal', ?, ?, ?, 'desktop_update', ?, ?, ?, 'not_applicable', ?, ?, ?
-        WHERE ${guard} ON CONFLICT(id) DO NOTHING`)
-          .bind(
-            id,
-            observation.expectedUserId,
-            `OpenMeld ${target.version} is available`,
-            `An update is available for Desktop on ${target.deviceName}. Open Updates on that device to continue.`,
-            target.deviceName,
-            id,
-            JSON.stringify(target),
-            JSON.stringify({ version: 1, recipientReasons: ["device_owner"] }),
-            nowMs,
-            nowMs,
-            nowMs,
-            ...guardBindings
-          )
-      );
+        SELECT $1, NULL, $2, 'desktop_update', 'update', 'normal', $3, $4, $5, 'desktop_update', $6, $7, $8, 'not_applicable', $9, $10, $11
+        WHERE ${guard(11)} ON CONFLICT(id) DO NOTHING`,
+        values: [
+          id,
+          observation.expectedUserId,
+          `OpenMeld ${target.version} is available`,
+          `An update is available for Desktop on ${target.deviceName}. Open Updates on that device to continue.`,
+          target.deviceName,
+          id,
+          JSON.stringify(target),
+          JSON.stringify({ version: 1, recipientReasons: ["device_owner"] }),
+          nowMs,
+          nowMs,
+          nowMs,
+          ...guardBindings,
+        ],
+      });
     }
-    const [write] = await input.db.batch(statements);
-    if (Number(write?.meta.changes) > 0) {
+    const [write] = await input.db.transaction(async (client) => {
+      const results: QueryResult[] = [];
+      for (const query of statements) {
+        results.push(await client.query(query));
+      }
+      return results;
+    });
+    if (Number(write?.rowCount) > 0) {
       return { accepted: true, sequence: observation.sequence };
     }
   }
@@ -166,7 +183,6 @@ export async function reportDesktopUpdateObservation(input: {
     "A newer Desktop observation arrived. Retry the latest native state."
   );
 }
-
 function readUpdateTarget(serialized: string): UpdateTarget {
   const target = inboxSourceTargetSchema.parse(JSON.parse(serialized));
   if (target.kind !== "desktop_update") {
@@ -174,7 +190,6 @@ function readUpdateTarget(serialized: string): UpdateTarget {
   }
   return target;
 }
-
 function endedUpdateCopy(
   target: UpdateTarget,
   state: "installed" | "superseded"
@@ -189,7 +204,6 @@ function endedUpdateCopy(
         preview: `A newer update check replaced this offer on ${target.deviceName}.`,
       };
 }
-
 function assertValidDesktopVersions(
   observation: DesktopUpdateObservation
 ): void {
@@ -213,7 +227,6 @@ function assertValidDesktopVersions(
     );
   }
 }
-
 function readObservationReplay(
   previous: InstalledObservation | null,
   observation: DesktopUpdateObservation,
@@ -236,7 +249,6 @@ function readObservationReplay(
     sequence: previous.sequence,
   };
 }
-
 function resolveReleaseState(
   target: UpdateTarget,
   observation: DesktopUpdateObservation
@@ -254,7 +266,6 @@ function resolveReleaseState(
   }
   return "available";
 }
-
 async function desktopUpdateItemId(
   observation: DesktopUpdateObservation,
   version: string
@@ -272,7 +283,6 @@ async function desktopUpdateItemId(
   );
   return `inbox_desktop_${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
-
 function failure(status: number, reason: string) {
   return createCoreRpcHttpError({
     code: "inbox.desktop_update_observation_failed",

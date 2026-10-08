@@ -1,0 +1,1 @@
+ALTER TABLE "openmeld"."openmeld_profiles" ADD COLUMN "avatar_options" jsonb;

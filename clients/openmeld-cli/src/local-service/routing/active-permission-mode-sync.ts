@@ -18,14 +18,45 @@ export type ActivePermissionModeSyncOutcome = {
   taskId: string;
 };
 
-export async function syncActiveTaskPermissionModes(input: {
-  catalogState: MutableRouteCatalogState;
+type ActivePermissionModeSyncInput = {
+  catalogState: Pick<MutableRouteCatalogState, "routeByProfileId">;
+  taskId?: string;
   inflightTaskControlRegistry: InflightTaskControlRegistry;
   localAdapterContainer: LocalDaemonAdapterContainer;
-}): Promise<ActivePermissionModeSyncOutcome[]> {
+};
+
+// Catalog sync and approval release can converge at the same time. Serialize
+// their native writes and read the current catalog after the prior write ends.
+const pendingSyncs = new WeakMap<
+  InflightTaskControlRegistry,
+  Promise<ActivePermissionModeSyncOutcome[]>
+>();
+
+export function syncActiveTaskPermissionModes(
+  input: ActivePermissionModeSyncInput
+): Promise<ActivePermissionModeSyncOutcome[]> {
+  const previous = pendingSyncs.get(input.inflightTaskControlRegistry);
+  const run = () => applyActiveTaskPermissionModes(input);
+  const current = previous ? previous.then(run, run) : run();
+  pendingSyncs.set(input.inflightTaskControlRegistry, current);
+  const cleanup = () => {
+    if (pendingSyncs.get(input.inflightTaskControlRegistry) === current) {
+      pendingSyncs.delete(input.inflightTaskControlRegistry);
+    }
+  };
+  current.then(cleanup, cleanup);
+  return current;
+}
+
+async function applyActiveTaskPermissionModes(
+  input: ActivePermissionModeSyncInput
+): Promise<ActivePermissionModeSyncOutcome[]> {
   const outcomes: ActivePermissionModeSyncOutcome[] = [];
 
-  for (const task of input.inflightTaskControlRegistry.listTasks()) {
+  const tasks = input.inflightTaskControlRegistry
+    .listTasks()
+    .filter((task) => !input.taskId || input.taskId === task.taskId);
+  for (const task of tasks) {
     if (!task.targetProfileId) {
       continue;
     }
@@ -62,6 +93,25 @@ export async function syncActiveTaskPermissionModes(input: {
           adapterId: task.adapterId,
           agentControllerPermissionMode: nextPermissionMode,
           reasonCode: result.reasonCode,
+          status: "not_applied",
+          targetProfileId: task.targetProfileId,
+          taskId: task.taskId,
+        });
+        continue;
+      }
+
+      const currentTask = input.inflightTaskControlRegistry.getTask(
+        task.taskId
+      );
+      if (
+        !currentTask ||
+        currentTask.dispatchId !== task.dispatchId ||
+        currentTask.attemptId !== task.attemptId
+      ) {
+        outcomes.push({
+          adapterId: task.adapterId,
+          agentControllerPermissionMode: nextPermissionMode,
+          reasonCode: "adapter.task_not_active",
           status: "not_applied",
           targetProfileId: task.targetProfileId,
           taskId: task.taskId,

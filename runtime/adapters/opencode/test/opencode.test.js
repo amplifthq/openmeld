@@ -3,6 +3,7 @@ import { chmod, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { writeFakeOpenCodeServer } from "./fixtures/server-v1.js";
 
 const AUTH_RE = /not logged in|login required|unauthorized|credentials/i;
 const BAD_GATEWAY_RE = /Bad Gateway/i;
@@ -279,17 +280,7 @@ test("opencode adapter dispatch launches the task directly without a version pro
   const fixtureDir = await mkdtemp(join(tmpdir(), "opencode-cli-fixture-"));
   const fixturePath = join(fixtureDir, "opencode-fixture-dispatch.mjs");
 
-  await writeFile(
-    fixturePath,
-    [
-      "#!/usr/bin/env node",
-      "if (process.argv[2] !== 'run') throw new Error('Wake must launch the task, not probe the CLI');",
-      "console.log(JSON.stringify({ type: 'text', sessionID: 'opencode-session-1', part: { text: 'hello from opencode' } }));",
-      "process.exit(0);",
-    ].join("\n"),
-    "utf8"
-  );
-  await chmod(fixturePath, 0o755);
+  await writeFakeOpenCodeServer(fixturePath, { rejectVersion: true });
 
   try {
     const adapter = createOpenCodeAdapter({
@@ -305,6 +296,10 @@ test("opencode adapter dispatch launches the task directly without a version pro
       },
       prompt: "hello",
       runtimeContext: createRuntimeContext(),
+      env: {
+        OPENMELD_FAKE_OPENCODE_SESSION_ID: "opencode-session-1",
+        OPENMELD_FAKE_OPENCODE_REPLY: "hello from opencode",
+      },
       sourceEventId: "evt-opencode-1",
       spaceId: "space-1",
       taskId: "task-opencode-1",
@@ -330,26 +325,7 @@ test("opencode adapter dispatch passes official OpenCode permission env", async 
   const fixtureDir = await mkdtemp(join(tmpdir(), "opencode-cli-fixture-"));
   const fixturePath = join(fixtureDir, "opencode-fixture-permission-env.mjs");
 
-  await writeFile(
-    fixturePath,
-    [
-      "#!/usr/bin/env node",
-      "console.log(JSON.stringify({",
-      "  type: 'text',",
-      "  sessionID: 'opencode-session-permission-env',",
-      "  part: {",
-      "    text: JSON.stringify({",
-      "      config: process.env.OPENCODE_CONFIG_CONTENT ?? null,",
-      "      permission: process.env.OPENCODE_PERMISSION ?? null,",
-      "      passthrough: process.env.OPENMELD_TEST_ENV ?? null,",
-      "    }),",
-      "  },",
-      "}));",
-      "process.exit(0);",
-    ].join("\n"),
-    "utf8"
-  );
-  await chmod(fixturePath, 0o755);
+  await writeFakeOpenCodeServer(fixturePath, { rejectVersion: true });
 
   try {
     const adapter = createOpenCodeAdapter({
@@ -371,6 +347,7 @@ test("opencode adapter dispatch passes official OpenCode permission env", async 
       agentId: "agt-demo",
       env: {
         OPENCODE_PERMISSION: '{"edit":"allow"}',
+        OPENMELD_FAKE_OPENCODE_ECHO_ENV: "1",
         OPENMELD_TEST_ENV: "kept",
         OPENMELD_SPACE_ACTION_CONTEXT_PATH: "/tmp/action/context.json",
         OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH: "/tmp/action/bin/openmeld-dev",

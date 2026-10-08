@@ -104,26 +104,58 @@ Agent Direct Message mutation rules to an ordinary Space.
 
 ## Space Tasks
 
-An ordinary shared Space may own **Tasks** as durable collaboration
-commitments. Messages remains the default place to ask, discuss, and complete
+Shared Spaces and private conversations, including Center Agent chats, may own
+**Tasks** as durable collaboration commitments. Messages remains the default place to ask, discuss, and complete
 small work. A Task records a clear deliverable that needs continuing ownership,
-progress, review, or later closure. Direct Messages and specialized private
-Center Agent sessions do not expose or accept Space Tasks.
+progress, review, or later closure. Tasks inherit the source conversation's
+membership and visibility; private tasks do not become Organization-shared.
 
 A Task preserves the trusted requester and creator, one optional assignee, one
 optional independent reviewer, its source message and Thread, completion
-conditions, linked GitHub issues, current result, current review, revision, and
+conditions, an explicit set of zero or several Projects, linked GitHub and
+Linear issue references, current result, current review, revision, and
 append-only activity.
 The active phases are **To do**, **In progress**, and **In review**. **Done**
 means the declared completion boundary was met; **Canceled** means the accepted
 commitment is no longer being pursued. Reopening is explicit. Assignment alone
 does not start an Agent or claim that work is running.
 
-The source Message or Thread remains the collaboration surface. **Add to
-Tasks** captures one message explicitly. Agents create a Task automatically
-only when the current request is a clear, discrete deliverable; questions,
-exploration, acknowledgements, and tiny same-turn actions stay in Messages.
+The source Message or Thread remains the collaboration surface. The composer
+offers **Create task** in its existing attachment/add menu. It opens an inline
+draft with a title and optional assignee and reviewer. Closing the draft keeps
+the message, mentions, and attachments. **Create task** publishes the message
+and Task together; **Create and start** also activates the explicitly addressed
+Wake targets. The message, Task, and dispatch outbox share one transaction.
+Retries use the message identity and do not create another Task.
+
+The Tasks view also offers **New task**, and the message menu can capture an
+existing message. Ordinary message sending never infers Task creation. Agents
+create Tasks through the existing Task API when explicitly requested.
 Several Tasks may share one Thread, but a mutation must identify one exact Task.
+Project association is a revision-checked Task scope change owned by the Space.
+Existing Tasks remain unassociated until an authorized person or Agent makes an
+explicit choice. A Task's Project list order never selects an external target;
+one operation resolves its own relevant Project. Project association does not
+change Space visibility, membership, Task permissions, or execution authority.
+
+The composer has no global Task or Session mode selector. Each Agent mention
+keeps its Wake/Mention only menu. For supported local controllers, Session and
+Access & workspace appear directly below a divider. Each Wake target owns its
+selection; one Agent's selection never applies to another Agent. No selection
+is required to send a normal message. A Task is a work record, not an execution
+session. Marking it In progress changes its phase; it does not launch an Agent.
+
+Composer authoring adds optional `taskDraft` and `contextSelections` fields.
+Task creation and the original message's dispatch commit together. Dispatch
+context names the existing Task, assignee, and reviewer so Agents can update it
+without creating another record. This adds no separate message or Wake.
+The latter is keyed by explicitly activated Agent profile IDs and cannot be
+combined with the legacy shared `contextSelection`. Core resolves one selection
+for each dispatch; downstream controller contracts stay unchanged. Public
+message read projections omit these authoring controls for existing strict
+readers. New cloud accepts old writers; old cloud rejects the new fields.
+Deploy the cloud changes before the new Web client. No local component update
+or database migration is required.
 
 The requester, assignee, reviewer, and Space owner have action-specific
 permissions. The assignee starts work and submits results. With no reviewer,
@@ -162,9 +194,22 @@ refreshes that observation and does not reopen a completed or canceled Task.
 Closing or completing a Task does not silently patch GitHub; the Task result
 prompts the Agent or person to close the linked issue when it is still open.
 This is authorized association for already-linked issues, not an import of
-every GitHub issue and not Task creation from GitHub events. Linear objects
-remain links. Webhook deliveries grant no new execution authority and do not
-start Agent work.
+every GitHub issue and not Task creation from GitHub events. A confirmed Linear
+issue creation can attach an exact typed reference to one eligible source Task.
+The Linear reference keeps its issue UUID, display identifier, team scope,
+optional provider project, and URL. Failure to attach after creation is a
+partial outcome; recovery adds only the Task reference. Linear references do
+not claim status monitoring, close synchronization, or automatic follow-up.
+Webhook deliveries grant no new execution authority and do not start Agent
+work.
+
+Project Common Agents are selection suggestions in a Task assignment flow.
+When one is outside the Space, **Add and assign** discloses that the Agent and
+its owner will join the Space, applies the existing atomic membership operation
+first, then makes the revision-checked Task assignment. A membership success
+followed by assignment failure is shown as a partial outcome; it is never
+silently rolled back or described as successful assignment. Assignment alone
+does not start an execution.
 
 ## Editing and Recalling Messages
 
@@ -248,7 +293,7 @@ invitation summary, not its discussion history, before acceptance.
 
 Better Auth remains the Organization invitation and membership writer. Core
 owns the Space invitation intent and policy; the Space owns the membership
-grant and an atomic accepted-or-revoked receipt. D1 status projects that receipt.
+grant and an atomic accepted-or-revoked receipt. PostgreSQL status projects that receipt.
 Acceptance can retry after Organization joining or an acknowledgement failure;
 it cannot use an old accepted invitation to re-add a removed Space member.
 Acceptance rechecks the sender's current authority. Revoke never removes an
@@ -424,8 +469,14 @@ never evidence that a running Agent is stuck.
 Local Agent reasoning is ephemeral. It is not a Space message, Work summary, Agent Activity,
 search input, notification, export, transcript, execution journal, or diagnostic
 body. OpenMeld retains no reasoning text in storage or browser persistence.
-The live tail is cleared on disconnect, navigation, privacy disable, and terminal
-outcome. Provider-owned local session retention is outside this OpenMeld promise.
+The mounted conversation retains already received live work across transport
+reconnection so a brief interruption does not collapse the reader's work view.
+This is in-memory presentation only, not evidence of continued execution or a
+durable transcript. Navigation, profile changes, access revocation, an observed
+privacy-disable frame, and terminal outcomes clear the tail. During lost
+connectivity, privacy and outcome updates take effect when received; the existing
+stale-updates notice covers prolonged interruptions. Provider-owned local session
+retention is outside this OpenMeld promise.
 
 An ambient `Working` indicator identifies current Wake activity in that Space,
 not the author of an older reply or a historical **Work summary**. When Core has
@@ -1064,6 +1115,20 @@ Before Organization departure or account removal, the departing person must
 hand over every owned Space and become a Member. Organization deletion requires
 its ordinary Spaces to be deleted first; it cannot strand their history.
 
+Leaving or removing a member preserves shared history and files. Permanent Space
+deletion is a separate, human-owner-confirmed action affecting everyone. It must
+reject with `space.wakes_pending` while dispatch handoff/recovery, a workstation
+execution, a native delivery (including Routine runs and uncertain publication),
+an admitted Routine awaiting delivery or failure publication, a task continuation,
+or a stopped-outcome publication is unsettled. Users stop work through the existing
+Stop action or wait for its outcome, then retry deletion. Deletion does not invent
+an execution timeout or a second cancellation mechanism. The Space serializes the
+check and deletion through its existing concurrency gate; the runtime owners retain
+their execution authority. An unavailable owner store must not permit deletion.
+PostgreSQL checks share one repeatable-read snapshot so a continuation-to-delivery
+handoff cannot fall between independently read states. Rejected deletion logs the
+pending owner categories and request ID without message contents.
+
 Share or invite and Settings compose different task-focused views from one
 canonical snapshot and one local draft. Link reading, Organization visibility,
 joining, and guest access commit together so the UI never reports a partially
@@ -1514,6 +1579,15 @@ reply placement is resolved and locked by Space before publication, and later
 callbacks and recovery reuse it. This does not change the source message's
 observation scope or RuntimeCoordinator execution authority.
 
+Local Wake instructions direct agents to share a brief public blocker update
+through `report_progress` when useful work can continue. The update explains
+the effect on the request and the next step; private commentary is not Space
+progress. Repeated unchanged updates, credentials, raw commands, and private
+reasoning stay out of public progress. If supported recovery cannot unblock any
+useful work, the agent uses the required completion action to explain the
+remaining blocker. Progress remains non-final and does not authorize retries or
+replace native permission controls.
+
 For interactive Center Agent turns, follow an explicit user preference for the
 main conversation, including a continuing preference while it remains relevant.
 The Center Agent selects that destination with `openmeld_set_reply_placement`
@@ -1559,6 +1633,15 @@ one persisted reply, one explicit stopped outcome, or one explicit failure
 If OpenMeld stops a Wake before it reaches the agent, the visible outcome is still an
 explicit stopped Space system notice. It is not an Agent reply, and it must not
 be rendered as silent disappearance from progress.
+
+Web presents a stopped outcome in the target Agent's reply position with the
+label `(Request stopped)` and the original request context, not as a conversation-wide
+notice. This presentation does not change the system notice's authorship or
+claim a successful Agent reply. Each target of a multi-Agent request retains
+its own outcome. Public reply text already accepted by Space stays visible,
+including after refresh; private thinking and transient work are not retained.
+An empty stopped response shows the target identity and `(Request stopped)` alone. Stop
+does not imply that earlier actions were undone.
 
 For ordinary account-owned Profiles, only the account that authored the Wake's
 source message or the target Agent Profile's owner may stop that Wake, and they
@@ -1689,7 +1772,7 @@ stopped notice, failure notice, or ended Wake presentation removes it.
 
 Stop is one click for one target. Multiple targets use the shared picker with
 per-Agent Stop and Stop all. Clicking immediately shows `Stopping…` and freezes
-the current partial answer; only a confirmed terminal outcome says `Stopped`.
+the current partial answer; only a confirmed terminal outcome says `(Request stopped)`.
 Completed work remains visible and Stop does not imply rollback. A completed
 reply wins a race with a later Stop acknowledgement. A failed connection keeps
 the command intent with an explicit retry action. Receipts survive navigation
@@ -1803,6 +1886,10 @@ When a final Agent Profile reply was composed while newer public text messages
 arrived, the persisted reply may carry a server-derived count and clients may
 show a quiet `written before N newer messages` marker. The count is timeline
 context, not a failure, execution state, or claim that the reply is wrong.
+The count excludes queued messages with a confirmed native steering receipt
+for that exact dispatch and target Agent Profile. Those messages reached the
+running execution. Enqueue, uncertain delivery, and another execution's receipt
+do not establish that the Agent received a message.
 Agents and clients must not author or infer this metadata themselves.
 
 Agent-authored final communication has two choices: `reply` (`post_message`)

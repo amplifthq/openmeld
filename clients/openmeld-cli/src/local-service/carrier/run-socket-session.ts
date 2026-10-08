@@ -251,6 +251,33 @@ function classifyDaemonSocketDisconnect(input: {
   return "abnormal_socket_close";
 }
 
+function handleSessionHistorySocketFrame(input: {
+  computerFileAccessStorePath: string;
+  ownerUserId: string;
+  deviceId: string;
+  presenter: Presenter;
+  frame: ParsedDaemonFrame;
+  socket: WsClient;
+}): boolean {
+  if (input.frame.code !== "daemon.session_history.request") {
+    return false;
+  }
+  const parsed = sessionHistoryRequestFrameSchema.safeParse(input.frame);
+  if (!parsed.success) {
+    return true;
+  }
+  handleSessionHistoryFrame({ ...input, frame: parsed.data })
+    .then((frame) => input.socket.send(JSON.stringify(frame)))
+    .catch(() => {
+      emitRunLine({
+        presenter: input.presenter,
+        code: "daemon.run.session_history_failed",
+        text: "Session history request failed. No transcript content was logged.",
+      });
+    });
+  return true;
+}
+
 function handleComputerFileAccessSocketFrame(input: {
   computerFileAccessStorePath: string;
   deviceId: string;
@@ -293,6 +320,7 @@ function handleComputerFileAccessSocketFrame(input: {
 function handleLocalProjectControlSocketFrame(input: {
   deviceId: string;
   frame: ParsedDaemonFrame;
+  ownerUserId: string;
   onLocalProjectConnectionsChanged?: () => void;
   presenter: Presenter;
   socket: WsClient;
@@ -303,6 +331,7 @@ function handleLocalProjectControlSocketFrame(input: {
   handleLocalProjectControlFrame({
     deviceId: input.deviceId,
     frame: input.frame,
+    ownerUserId: input.ownerUserId,
   })
     .then((resultFrame) => {
       input.socket.send(JSON.stringify(resultFrame));
@@ -1903,6 +1932,7 @@ export async function runDaemonSocketSession(input: {
       return;
     }
     const handledCurrentComputerControl =
+      handleSessionHistorySocketFrame({ ...input, frame: parsedFrame }) ||
       handleLocalFolderPickerSocketFrame({
         deviceId: input.deviceId,
         frame: parsedFrame,
@@ -1913,6 +1943,7 @@ export async function runDaemonSocketSession(input: {
       handleLocalProjectControlSocketFrame({
         deviceId: input.deviceId,
         frame: parsedFrame,
+        ownerUserId: input.ownerUserId,
         onLocalProjectConnectionsChanged: () => {
           requestLocalExecutionEvidenceRefresh({
             reason: "local_state_changed",
@@ -2377,3 +2408,6 @@ function resolveProfileWorkspaceControlErrorCode(error: unknown): string {
   }
   return "profile.workspace.update_failed";
 }
+
+import { sessionHistoryRequestFrameSchema } from "@openmeld/schemas";
+import { handleSessionHistoryFrame } from "../session-history/session-history-handler";

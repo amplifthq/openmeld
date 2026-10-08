@@ -75,47 +75,43 @@ export async function collectLocalAgentControllerInventory(
     includeControllerInterface?: boolean;
     localAdapterContainer?: LocalDaemonAdapterContainer;
     probePolicy?: AgentControllerInterfaceProbePolicy;
+    agentIds?: readonly string[];
+    reconcileNewRegistrations?: boolean;
+    onCapability?: (
+      capability: LocalAgentControllerInventoryItem
+    ) => Promise<void>;
   } = {}
 ): Promise<LocalAgentControllerInventory> {
   // OPENMELD_SERVICE_THIN_CORE: LocalAgentControllerInventory fact source.
   // This is local computer evidence only: detected controllers, launchability,
   // and local blockers. It must not become Profile, Binding, Space, Wake, or
   // final outcome truth.
-  const states = await listAgentTargetStates();
-  const builtinStates = states.filter(
-    (state): state is AgentTargetState & { targetKind: "builtin" } =>
-      state.targetKind === "builtin"
-  );
+  const collectCapability = async (
+    state: AgentTargetState & { targetKind: "builtin" }
+  ) => {
+    const capability = await resolveLocalAgentControllerInventoryItem({
+      includeControllerInterface: input.includeControllerInterface === true,
+      localAdapterContainer: input.localAdapterContainer,
+      probePolicy: input.probePolicy,
+      state,
+    });
+    await input.onCapability?.(capability);
+    return capability;
+  };
 
-  if (input.probePolicy === "background") {
-    // Eligible background probes cold-start real controller processes. Run
-    // them one at a time so a periodic sync never stacks several controller
-    // launches into one CPU spike on the user's machine.
-    const capabilities: LocalAgentControllerInventoryItem[] = [];
-    for (const state of builtinStates) {
-      capabilities.push(
-        await resolveLocalAgentControllerInventoryItem({
-          includeControllerInterface: input.includeControllerInterface === true,
-          localAdapterContainer: input.localAdapterContainer,
-          probePolicy: input.probePolicy,
-          state,
-        })
-      );
-    }
-    return { capabilities };
-  }
-
-  const capabilities = await Promise.all(
-    builtinStates.map((state) =>
-      resolveLocalAgentControllerInventoryItem({
-        includeControllerInterface: input.includeControllerInterface === true,
-        localAdapterContainer: input.localAdapterContainer,
-        probePolicy: input.probePolicy,
-        state,
-      })
-    )
-  );
-
+  const capabilities: LocalAgentControllerInventoryItem[] = [];
+  await listAgentTargetStates({
+    agentIds: input.agentIds,
+    reconcileNewRegistrations: input.reconcileNewRegistrations,
+    onState: async (state) => {
+      if (state.targetKind === "builtin") {
+        // One controller process at a time, with no full-machine scan barrier.
+        capabilities.push(
+          await collectCapability({ ...state, targetKind: "builtin" })
+        );
+      }
+    },
+  });
   return { capabilities };
 }
 

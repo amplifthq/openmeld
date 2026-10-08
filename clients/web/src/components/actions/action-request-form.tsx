@@ -18,10 +18,11 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { type ReactNode, useId, useState } from "react";
 import { MessageResponse } from "#/components/ai/message-response";
 
-export type ActionPermissionModeShortcut = {
+export type ActionPermissionModeOption = {
 	description: string;
 	label: string;
 	permissionMode: AgentControllerPermissionMode;
+	requiresExplicitConfirmation?: boolean;
 };
 
 /** Typed input UI only; the caller owns authorization, persistence, and transport. */
@@ -32,7 +33,7 @@ export function ActionRequestForm(input: {
 		response: AgentInteractionResponse,
 		permissionMode?: AgentControllerPermissionMode
 	) => Promise<void>;
-	permissionModeShortcut?: ActionPermissionModeShortcut;
+	permissionModeOptions?: readonly ActionPermissionModeOption[];
 }) {
 	switch (input.request.kind) {
 		case "permission":
@@ -66,11 +67,13 @@ function PermissionInteraction(input: {
 		response: AgentInteractionResponse,
 		permissionMode?: AgentControllerPermissionMode
 	) => Promise<void>;
-	permissionModeShortcut?: ActionPermissionModeShortcut;
+	permissionModeOptions?: readonly ActionPermissionModeOption[];
 	request: Extract<AgentInteractionRequest, { kind: "permission" }>;
 }) {
 	const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
-	const [updatePermissionMode, setUpdatePermissionMode] = useState(false);
+	const [permissionModeIndex, setPermissionModeIndex] = useState(-1);
+	const [modeConfirmed, setModeConfirmed] = useState(false);
+	const selectedMode = input.permissionModeOptions?.[permissionModeIndex];
 	const selectedIndex = input.request.options.findIndex(
 		(option) => option.optionId === selectedOptionId
 	);
@@ -99,25 +102,64 @@ function PermissionInteraction(input: {
 						/>
 					))}
 				</RadioGroup>
-				{input.permissionModeShortcut && selectedOptionAllows ? (
-					<CheckboxGroup
-						aria-label="Future Agent permissions"
-						checkedIndices={updatePermissionMode ? new Set([0]) : new Set()}
-						className="w-full"
-					>
-						<CheckboxItem
-							checked={updatePermissionMode}
-							description={`After this response is sent, OpenMeld will save ${input.permissionModeShortcut.label} for future requests. This does not delay the current Wake.`}
-							index={0}
-							label={`Also use ${input.permissionModeShortcut.label} for future requests`}
-							onToggle={() => setUpdatePermissionMode((current) => !current)}
-						/>
-					</CheckboxGroup>
+				{input.request.supportsPermissionModeUpdate &&
+				input.permissionModeOptions?.length &&
+				selectedOptionAllows ? (
+					<div className="grid gap-2">
+						<RadioGroup
+							aria-label="Agent permissions after this request"
+							className="w-full"
+							selectedIndex={permissionModeIndex + 1}
+						>
+							<RadioItem
+								index={0}
+								label="Keep current permissions"
+								onSelect={() => {
+									setPermissionModeIndex(-1);
+									setModeConfirmed(false);
+								}}
+								selected={permissionModeIndex === -1}
+							/>
+							{input.permissionModeOptions.map((option, index) => (
+								<RadioItem
+									description={option.description}
+									index={index + 1}
+									key={option.permissionMode}
+									label={option.label}
+									onSelect={() => {
+										setPermissionModeIndex(index);
+										setModeConfirmed(false);
+									}}
+									selected={permissionModeIndex === index}
+								/>
+							))}
+						</RadioGroup>
+						{selectedMode?.requiresExplicitConfirmation ? (
+							<CheckboxGroup
+								aria-label="Confirm permission change"
+								checkedIndices={modeConfirmed ? new Set([0]) : new Set()}
+							>
+								<CheckboxItem
+									checked={modeConfirmed}
+									index={0}
+									label={`I trust this Agent to use ${selectedMode.label}.`}
+									onToggle={() => setModeConfirmed((current) => !current)}
+								/>
+							</CheckboxGroup>
+						) : null}
+					</div>
 				) : null}
 			</ApprovalCardBody>
 			<ApprovalCardFooter>
 				<Button
-					disabled={input.disabled || !selectedOptionId}
+					disabled={
+						input.disabled ||
+						!selectedOptionId ||
+						(selectedOptionAllows &&
+							input.request.supportsPermissionModeUpdate &&
+							selectedMode?.requiresExplicitConfirmation &&
+							!modeConfirmed)
+					}
 					onClick={() => {
 						if (!selectedOptionId) {
 							return;
@@ -127,8 +169,8 @@ function PermissionInteraction(input: {
 								kind: "permission",
 								optionId: selectedOptionId,
 							},
-							updatePermissionMode && selectedOptionAllows
-								? input.permissionModeShortcut?.permissionMode
+							selectedOptionAllows && input.request.supportsPermissionModeUpdate
+								? selectedMode?.permissionMode
 								: undefined
 						);
 					}}

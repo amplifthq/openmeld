@@ -1,5 +1,5 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { describe, expect, it } from "vitest";
-
 import type { SpaceMemberRecord } from "../src/space/infrastructure/sql/space-member-repo";
 import type { SpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
 import {
@@ -16,13 +16,13 @@ import {
 } from "../src/space-index/space-index-repository";
 import { projectSpaceMessagePreview } from "../src/space-index/space-message-preview";
 import {
-  applyDrizzleMigrationsForTables,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+  createFaultInjectingPostgresDatabase,
+  createPostgresHarness,
+} from "./helpers/postgresql-harness.test-support";
 
 describe("space index AccountSpaces read model", () => {
   it("does not inherit private Space membership through the Organization Center Agent", async () => {
-    const harness = createSpaceIndexHarness();
+    const harness = await createSpaceIndexHarness();
     try {
       const meta = {
         ...createMeta({
@@ -41,7 +41,7 @@ describe("space index AccountSpaces read model", () => {
       const centerMember = {
         ...createMember({
           addedAt: meta.updatedAt,
-          profileId: "agent-center",
+          profileId: "agt_33333333-3333-4333-8333-333333333333",
           profileKindSnapshot: "agent",
           profileNameSnapshot: "Center Agent",
           spaceId: meta.spaceId,
@@ -72,7 +72,7 @@ describe("space index AccountSpaces read model", () => {
         limit: 10,
         organizationId: "org-1",
         ownerUserId: null,
-        profileId: "agent-center",
+        profileId: "agt_33333333-3333-4333-8333-333333333333",
       };
       expect(
         (
@@ -108,27 +108,34 @@ describe("space index AccountSpaces read model", () => {
         )
       ).toEqual([meta.spaceId]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("opts in to the first three active members without exposing other Spaces", async () => {
-    const harness = createSpaceIndexHarness();
+    const harness = await createSpaceIndexHarness();
     try {
-      const members = ["human-1", "human-2", "agent-1", "agent-2"].map(
-        (profileId, index) => ({
-          ...createMember({
-            addedAt: `2026-04-10T00:0${index + 1}:00.000Z`,
-            profileId,
-            profileKindSnapshot: profileId.startsWith("human")
-              ? ("human" as const)
-              : ("agent" as const),
-            profileNameSnapshot: profileId,
-            spaceId: "shared",
-          }),
-          controllerRefSnapshot: profileId.startsWith("agent") ? "codex" : null,
-        })
-      );
+      const members = [
+        "human-1",
+        "human-2",
+        "agent-1",
+        "agent-2",
+        "agent-3",
+        "agent-4",
+        "agent-5",
+        "agent-6",
+        "agent-7",
+      ].map((profileId, index) => ({
+        ...createMember({
+          addedAt: `2026-04-10T00:0${index + 1}:00.000Z`,
+          profileId,
+          profileKindSnapshot: profileId.startsWith("human")
+            ? ("human" as const)
+            : ("agent" as const),
+          profileNameSnapshot: profileId,
+          spaceId: "shared",
+        }),
+        controllerRefSnapshot: profileId.startsWith("agent") ? "codex" : null,
+      }));
       await projectActiveSpaceIndexSnapshot({
         db: harness.db,
         eventType: "space.created",
@@ -205,12 +212,30 @@ describe("space index AccountSpaces read model", () => {
           agentControllerRef: "codex",
         },
       ]);
+      const directory = await listAccountSpacesFromSpaceIndex({
+        ...input,
+        includeDirectoryPreviews: true,
+      });
+      expect(
+        directory.spaceItems[0]?.memberPreviews?.map(
+          (member) => member.profileId
+        )
+      ).toEqual([
+        "human-1",
+        "human-2",
+        "agent-1",
+        "agent-2",
+        "agent-3",
+        "agent-4",
+        "agent-5",
+        "agent-6",
+      ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
   it("projects bounded Space entry guidance without reading Space content", async () => {
-    const harness = createSpaceIndexHarness();
+    const harness = await createSpaceIndexHarness();
     try {
       await projectActiveSpaceIndexSnapshot({
         db: harness.db,
@@ -222,7 +247,6 @@ describe("space index AccountSpaces read model", () => {
         }),
         memberRecords: [],
       });
-
       await expect(
         readSpaceIndexOrganizationJoinTarget({
           db: harness.db,
@@ -237,12 +261,11 @@ describe("space index AccountSpaces read model", () => {
         visibility: "private",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("reads SpaceIndex truth with account/profile scope, backend limit, dedupe, and history overlay", async () => {
-    const harness = createSpaceIndexHarness();
+    const harness = await createSpaceIndexHarness();
     try {
       await projectActiveSpaceIndexSnapshot({
         db: harness.db,
@@ -287,13 +310,12 @@ describe("space index AccountSpaces read model", () => {
           }),
         ],
       });
-      seedMembershipOverlay(harness, {
+      await seedMembershipOverlay(harness, {
         lastJoinedAt: Date.parse("2026-04-12T00:00:00.000Z"),
         pinnedAt: Date.parse("2026-04-13T00:00:00.000Z"),
         profileId: "agent-1",
         spaceId: "space-alpha",
       });
-
       const accountLimited = await listAccountSpacesFromSpaceIndex({
         db: harness.db,
         gatewayHost: "gateway.testing.example",
@@ -302,7 +324,6 @@ describe("space index AccountSpaces read model", () => {
         scope: "account",
         selectedProfileId: "human-1",
       });
-
       expect(accountLimited.pinnedItems).toHaveLength(1);
       expect(accountLimited.spaceItems).toHaveLength(0);
       expect(accountLimited.pinnedItems[0]).toMatchObject({
@@ -329,7 +350,6 @@ describe("space index AccountSpaces read model", () => {
           profileName: "Mira",
         },
       ]);
-
       const humanScoped = await listAccountSpacesFromSpaceIndex({
         db: harness.db,
         gatewayHost: "gateway.testing.example",
@@ -342,7 +362,6 @@ describe("space index AccountSpaces read model", () => {
       expect(humanScoped.spaceItems.map((item) => item.spaceId)).toEqual([
         "space-alpha",
       ]);
-
       const agentScoped = await listAccountSpacesFromSpaceIndex({
         db: harness.db,
         gatewayHost: "gateway.testing.example",
@@ -357,12 +376,11 @@ describe("space index AccountSpaces read model", () => {
         )
       ).toEqual(["space-alpha", "space-beta"]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("only returns Space purpose when AccountSpaces callers opt in", async () => {
-    const harness = createSpaceIndexHarness();
+    const harness = await createSpaceIndexHarness();
     try {
       await projectActiveSpaceIndexSnapshot({
         db: harness.db,
@@ -383,7 +401,6 @@ describe("space index AccountSpaces read model", () => {
           }),
         ],
       });
-
       const legacy = await listAccountSpacesFromSpaceIndex({
         db: harness.db,
         gatewayHost: "gateway.testing.example",
@@ -401,19 +418,17 @@ describe("space index AccountSpaces read model", () => {
         scope: "account",
         selectedProfileId: "human-1",
       });
-
       expect(legacy.spaceItems[0]).not.toHaveProperty("spacePurpose");
       expect(withPurposes.spaceItems[0]).toMatchObject({
         spaceId: "space-alpha",
         spacePurpose: "project_alpha",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("hides legacy Welcoming Spaces from current account and organization lists", async () => {
-    const harness = createSpaceIndexHarness();
+    const harness = await createSpaceIndexHarness();
     try {
       await projectActiveSpaceIndexSnapshot({
         db: harness.db,
@@ -452,7 +467,6 @@ describe("space index AccountSpaces read model", () => {
           }),
         ],
       });
-
       const accountSpaces = await listAccountSpacesFromSpaceIndex({
         db: harness.db,
         gatewayHost: "gateway.testing.example",
@@ -469,7 +483,6 @@ describe("space index AccountSpaces read model", () => {
         organizationId: "org-1",
         ownerUserId: "owner-1",
       });
-
       expect(accountSpaces.spaceItems.map((item) => item.spaceId)).toEqual([
         "space-alpha",
       ]);
@@ -477,13 +490,13 @@ describe("space index AccountSpaces read model", () => {
         "space-alpha",
       ]);
       expect(organizationSpaces.spaces[0]?.activeMemberCount).toBe(1);
-
-      await harness.db
-        .prepare(
-          "UPDATE space_index_spaces SET active_member_count = NULL WHERE space_id = ?"
-        )
-        .bind("space-alpha")
-        .run();
+      await harness.db.query({
+        ...{
+          text: 'UPDATE "openmeld"."space_index_spaces" SET active_member_count = NULL WHERE space_id = $1',
+          values: [],
+        },
+        values: ["space-alpha"],
+      });
       const organizationSpacesWithUnknownCount =
         await listOrganizationSpacesFromSpaceIndex({
           db: harness.db,
@@ -496,23 +509,22 @@ describe("space index AccountSpaces read model", () => {
         organizationSpacesWithUnknownCount.spaces[0]?.activeMemberCount
       ).toBeNull();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("filters Center Agent DMs from AccountSpaces without hiding ordinary DMs", async () => {
-    const harness = createSpaceIndexHarness();
+    const harness = await createSpaceIndexHarness();
     try {
-      seedCenterAgentDesignation(harness, {
-        agentProfileId: "agent-center",
+      await seedCenterAgentDesignation(harness, {
+        agentProfileId: "agt_33333333-3333-4333-8333-333333333333",
         organizationId: "org-1",
       });
-
       await projectActiveSpaceIndexSnapshot({
         db: harness.db,
         eventType: "space.created",
         metaRecord: createMeta({
-          directMessagePairKey: "agent-center:human-1",
+          directMessagePairKey:
+            "agt_33333333-3333-4333-8333-333333333333:human-1",
           name: "Mira and Center Agent",
           purpose: "openmeld_dm_space",
           spaceId: "space-center-agent-dm",
@@ -528,7 +540,7 @@ describe("space index AccountSpaces read model", () => {
           }),
           createMember({
             addedAt: "2026-04-10T00:02:00.000Z",
-            profileId: "agent-center",
+            profileId: "agt_33333333-3333-4333-8333-333333333333",
             profileKindSnapshot: "agent",
             profileNameSnapshot: "Center Agent",
             spaceId: "space-center-agent-dm",
@@ -562,7 +574,6 @@ describe("space index AccountSpaces read model", () => {
           }),
         ],
       });
-
       const projectedPreview = {
         signalId: "signal-ordinary-dm",
         profileId: "human-1",
@@ -581,12 +592,11 @@ describe("space index AccountSpaces read model", () => {
         revision: 1,
         preview: {
           signalId: "signal-center-agent-dm",
-          profileId: "agent-center",
+          profileId: "agt_33333333-3333-4333-8333-333333333333",
           timestamp: Date.parse("2026-04-13T00:00:00.000Z"),
           text: "Center Agent reply",
         },
       });
-
       const accountSpaces = await listAccountSpacesFromSpaceIndex({
         db: harness.db,
         gatewayHost: "gateway.testing.example",
@@ -597,7 +607,6 @@ describe("space index AccountSpaces read model", () => {
         scope: "account",
         selectedProfileId: "human-1",
       });
-
       expect(accountSpaces.spaceItems.map((item) => item.spaceId)).toEqual([
         "space-ordinary-agent-dm",
       ]);
@@ -611,7 +620,7 @@ describe("space index AccountSpaces read model", () => {
       const sessions = await listCenterAgentSessionIndexRows({
         db: harness.db,
         organizationId: "org-1",
-        pairKey: "agent-center:human-1",
+        pairKey: "agt_33333333-3333-4333-8333-333333333333:human-1",
         limit: 10,
       });
       expect(sessions).toMatchObject([
@@ -630,19 +639,18 @@ describe("space index AccountSpaces read model", () => {
         await listCenterAgentSessionIndexRows({
           db: harness.db,
           organizationId: "org-1",
-          pairKey: "agent-center:human-1",
+          pairKey: "agt_33333333-3333-4333-8333-333333333333:human-1",
           limit: 10,
         })
       ).toMatchObject([
         { spaceId: "space-center-agent-dm", messagePreview: null },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("keeps each account Space open profile scoped to that Space history", async () => {
-    const harness = createSpaceIndexHarness();
+    const harness = await createSpaceIndexHarness();
     try {
       await projectActiveSpaceIndexSnapshot({
         db: harness.db,
@@ -694,19 +702,18 @@ describe("space index AccountSpaces read model", () => {
           }),
         ],
       });
-      seedMembershipOverlay(harness, {
+      await seedMembershipOverlay(harness, {
         lastJoinedAt: Date.parse("2026-04-12T00:00:00.000Z"),
         pinnedAt: null,
         profileId: "human-1",
         spaceId: "space-human-last",
       });
-      seedMembershipOverlay(harness, {
+      await seedMembershipOverlay(harness, {
         lastJoinedAt: Date.parse("2026-04-13T00:00:00.000Z"),
         pinnedAt: null,
         profileId: "agent-1",
         spaceId: "space-agent-last",
       });
-
       const accountSpaces = await listAccountSpacesFromSpaceIndex({
         db: harness.db,
         gatewayHost: "gateway.testing.example",
@@ -715,7 +722,6 @@ describe("space index AccountSpaces read model", () => {
         scope: "account",
         selectedProfileId: "human-1",
       });
-
       expect(
         accountSpaces.spaceItems.map((item) => ({
           openProfileId: item.openProfileId,
@@ -735,12 +741,11 @@ describe("space index AccountSpaces read model", () => {
         },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("keeps Space ordering stable when a Space is opened as another profile", async () => {
-    const harness = createSpaceIndexHarness();
+    const harness = await createSpaceIndexHarness();
     try {
       await projectActiveSpaceIndexSnapshot({
         db: harness.db,
@@ -785,20 +790,19 @@ describe("space index AccountSpaces read model", () => {
           }),
         ],
       });
-      seedMembershipOverlay(harness, {
+      await seedMembershipOverlay(harness, {
         lastJoinedAt: Date.parse("2026-04-10T00:01:00.000Z"),
         lastSeenTs: Date.parse("2026-06-24T01:46:00.000Z"),
         pinnedAt: null,
         profileId: "human-1",
         spaceId: "space-opened-again",
       });
-      seedMembershipOverlay(harness, {
+      await seedMembershipOverlay(harness, {
         lastJoinedAt: Date.parse("2026-04-10T00:02:00.000Z"),
         pinnedAt: null,
         profileId: "human-2",
         spaceId: "space-opened-again",
       });
-
       const accountSpaces = await listAccountSpacesFromSpaceIndex({
         db: harness.db,
         gatewayHost: "gateway.testing.example",
@@ -807,7 +811,6 @@ describe("space index AccountSpaces read model", () => {
         scope: "account",
         selectedProfileId: "human-1",
       });
-
       expect(
         accountSpaces.spaceItems.map((item) => ({
           openProfileId: item.openProfileId,
@@ -827,12 +830,11 @@ describe("space index AccountSpaces read model", () => {
         "2026-04-10T00:02:00.000Z"
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("keeps deleted Space evidence before hiding the Space from AccountSpaces", async () => {
-    const harness = createSpaceIndexHarness();
+    const harness = await createSpaceIndexHarness();
     try {
       const metaRecord = createMeta({
         name: "Deleted Alpha",
@@ -864,7 +866,6 @@ describe("space index AccountSpaces read model", () => {
         metaRecord,
         memberRecords,
       });
-
       const accountSpaces = await listAccountSpacesFromSpaceIndex({
         db: harness.db,
         gatewayHost: "gateway.testing.example",
@@ -873,39 +874,40 @@ describe("space index AccountSpaces read model", () => {
         scope: "account",
         selectedProfileId: "human-1",
       });
-      const deletedSpaceRow = harness.queryFirst<{
+      const deletedSpaceRow = await harness.queryFirst<{
         deleted_at_ms: number | null;
         status: string;
       }>({
-        params: ["space-alpha"],
-        sql: `
+        values: ["space-alpha"],
+        text: `
           SELECT status, deleted_at_ms
-          FROM space_index_spaces
-          WHERE space_id = ?
+          FROM "openmeld"."space_index_spaces"
+          WHERE space_id = $1
         `,
       });
-      const deletedMembershipRow = harness.queryFirst<{
+      const deletedMembershipRow = await harness.queryFirst<{
         removal_reason: string | null;
         status: string;
       }>({
-        params: ["space-alpha", "human-1"],
-        sql: `
+        values: ["space-alpha", "human-1"],
+        text: `
           SELECT status, removal_reason
-          FROM space_index_memberships
-          WHERE space_id = ? AND profile_id = ?
+          FROM "openmeld"."space_index_memberships"
+          WHERE space_id = $1 AND profile_id = $2
         `,
       });
-      const deletionEventRow = harness.queryFirst<{ event_type: string }>({
-        params: ["space-alpha"],
-        sql: `
+      const deletionEventRow = await harness.queryFirst<{
+        event_type: string;
+      }>({
+        values: ["space-alpha"],
+        text: `
           SELECT event_type
-          FROM space_index_projection_events
-          WHERE space_id = ?
+          FROM "openmeld"."space_index_projection_events"
+          WHERE space_id = $1
           ORDER BY source_updated_at_ms DESC
           LIMIT 1
         `,
       });
-
       expect(accountSpaces).toEqual({
         pinnedItems: [],
         spaceItems: [],
@@ -920,12 +922,11 @@ describe("space index AccountSpaces read model", () => {
       });
       expect(deletionEventRow).toEqual({ event_type: "space.deleted" });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("records member update projection evidence when only membership truth changes", async () => {
-    const harness = createSpaceIndexHarness();
+    const harness = await createSpaceIndexHarness();
     try {
       const metaRecord = createMeta({
         name: "Membership Alpha",
@@ -939,7 +940,6 @@ describe("space index AccountSpaces read model", () => {
         profileNameSnapshot: "Mira",
         spaceId: "space-alpha",
       });
-
       await projectActiveSpaceIndexSnapshot({
         db: harness.db,
         eventType: "space.members_updated",
@@ -961,21 +961,19 @@ describe("space index AccountSpaces read model", () => {
           }),
         ],
       });
-
-      const projectionEvents = harness.queryAll<{
+      const projectionEvents = await harness.queryAll<{
         event_type: string;
         source_updated_at_ms: number;
       }>({
-        params: ["space-alpha", "space.members_updated"],
-        sql: `
+        values: ["space-alpha", "space.members_updated"],
+        text: `
           SELECT event_type, source_updated_at_ms
-          FROM space_index_projection_events
-          WHERE space_id = ?
-            AND event_type = ?
+          FROM "openmeld"."space_index_projection_events"
+          WHERE space_id = $1
+            AND event_type = $2
           ORDER BY source_updated_at_ms ASC
         `,
       });
-
       expect(projectionEvents).toEqual([
         {
           event_type: "space.members_updated",
@@ -987,12 +985,11 @@ describe("space index AccountSpaces read model", () => {
         },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("does not write a completed event when projection rows fail and reports the partial row", async () => {
-    const harness = createSpaceIndexHarness();
+    const harness = await createSpaceIndexHarness();
     try {
       const oldMeta = createMeta({
         name: "Old Alpha",
@@ -1012,12 +1009,11 @@ describe("space index AccountSpaces read model", () => {
         metaRecord: oldMeta,
         memberRecords: [humanMember],
       });
-
       await expect(
         projectActiveSpaceIndexSnapshot({
           db: createProjectionFailureDb({
             db: harness.db,
-            failOnSql: "INSERT INTO space_index_memberships",
+            failOnSql: 'INSERT INTO "openmeld"."space_index_memberships"',
           }),
           eventType: "space.members_updated",
           metaRecord: createMeta({
@@ -1036,27 +1032,28 @@ describe("space index AccountSpaces read model", () => {
             }),
           ],
         })
-      ).rejects.toThrow("injected projection failure");
-
-      const completedProjectionEvent = harness.queryFirst<{
+      ).rejects.toThrow("injected PostgreSQL query failure");
+      const completedProjectionEvent = await harness.queryFirst<{
         event_type: string;
         projection_event_id: string;
       }>({
-        params: ["space-alpha", "space.members_updated"],
-        sql: `
+        values: ["space-alpha", "space.members_updated"],
+        text: `
           SELECT projection_event_id, event_type
-          FROM space_index_projection_events
-          WHERE space_id = ? AND event_type = ?
+          FROM "openmeld"."space_index_projection_events"
+          WHERE space_id = $1 AND event_type = $2
           ORDER BY source_updated_at_ms DESC
           LIMIT 1
         `,
       });
-      const indexedProfiles = harness.queryAll<{ profile_id: string }>({
-        params: ["space-alpha"],
-        sql: `
+      const indexedProfiles = await harness.queryAll<{
+        profile_id: string;
+      }>({
+        values: ["space-alpha"],
+        text: `
           SELECT profile_id
-          FROM space_index_memberships
-          WHERE space_id = ?
+          FROM "openmeld"."space_index_memberships"
+          WHERE space_id = $1
           ORDER BY profile_id ASC
         `,
       });
@@ -1072,7 +1069,6 @@ describe("space index AccountSpaces read model", () => {
         db: harness.db,
         spaceId: "space-alpha",
       });
-
       expect(completedProjectionEvent).toBeNull();
       expect(indexedProfiles).toEqual([{ profile_id: "human-1" }]);
       expect(accountSpaces.spaceItems[0]).toMatchObject({
@@ -1097,12 +1093,11 @@ describe("space index AccountSpaces read model", () => {
         ])
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("detects a completed projection event whose membership rows are incomplete", async () => {
-    const harness = createSpaceIndexHarness();
+    const harness = await createSpaceIndexHarness();
     try {
       const oldMeta = createMeta({
         name: "Old Alpha",
@@ -1122,10 +1117,9 @@ describe("space index AccountSpaces read model", () => {
         metaRecord: oldMeta,
         memberRecords: [humanMember],
       });
-
       const partialEventId = "spidx_projection_legacy_partial";
-      harness.run({
-        params: [
+      await harness.query({
+        values: [
           partialEventId,
           "space-alpha",
           "space.members_updated",
@@ -1133,8 +1127,8 @@ describe("space index AccountSpaces read model", () => {
           Date.parse("2026-04-10T00:11:01.000Z"),
           JSON.stringify({ memberCount: 2, spaceId: "space-alpha" }),
         ],
-        sql: `
-          INSERT INTO space_index_projection_events (
+        text: `
+          INSERT INTO "openmeld"."space_index_projection_events" (
             projection_event_id,
             space_id,
             event_type,
@@ -1142,15 +1136,13 @@ describe("space index AccountSpaces read model", () => {
             projected_at_ms,
             payload_json
           )
-          VALUES (?, ?, ?, ?, ?, ?)
+          VALUES ($1, $2, $3, $4, $5, $6)
         `,
       });
-
       const diagnostic = await diagnoseSpaceIndexProjectionDrift({
         db: harness.db,
         spaceId: "space-alpha",
       });
-
       expect(diagnostic.ok).toBe(false);
       expect(diagnostic.issues).toEqual(
         expect.arrayContaining([
@@ -1167,12 +1159,11 @@ describe("space index AccountSpaces read model", () => {
         ])
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("does not let an older active snapshot resurrect a deleted Space", async () => {
-    const harness = createSpaceIndexHarness();
+    const harness = await createSpaceIndexHarness();
     try {
       const metaRecord = createMeta({
         name: "Deleted Alpha",
@@ -1210,7 +1201,6 @@ describe("space index AccountSpaces read model", () => {
         metaRecord,
         memberRecords,
       });
-
       const accountSpaces = await listAccountSpacesFromSpaceIndex({
         db: harness.db,
         gatewayHost: "gateway.testing.example",
@@ -1219,23 +1209,26 @@ describe("space index AccountSpaces read model", () => {
         scope: "account",
         selectedProfileId: "human-1",
       });
-      const deletedSpaceRow = harness.queryFirst<{ status: string }>({
-        params: ["space-alpha"],
-        sql: `
+      const deletedSpaceRow = await harness.queryFirst<{
+        status: string;
+      }>({
+        values: ["space-alpha"],
+        text: `
           SELECT status
-          FROM space_index_spaces
-          WHERE space_id = ?
+          FROM "openmeld"."space_index_spaces"
+          WHERE space_id = $1
         `,
       });
-      const deletedMembershipRow = harness.queryFirst<{ status: string }>({
-        params: ["space-alpha", "human-1"],
-        sql: `
+      const deletedMembershipRow = await harness.queryFirst<{
+        status: string;
+      }>({
+        values: ["space-alpha", "human-1"],
+        text: `
           SELECT status
-          FROM space_index_memberships
-          WHERE space_id = ? AND profile_id = ?
+          FROM "openmeld"."space_index_memberships"
+          WHERE space_id = $1 AND profile_id = $2
         `,
       });
-
       expect(accountSpaces).toEqual({
         pinnedItems: [],
         spaceItems: [],
@@ -1243,10 +1236,9 @@ describe("space index AccountSpaces read model", () => {
       expect(deletedSpaceRow).toEqual({ status: "deleted" });
       expect(deletedMembershipRow).toEqual({ status: "removed" });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   // Production repro (2026-06-14): a whole-space delete wrote status="deleted",
   // then a ~13s-delayed `space.members_updated` (source ts BEFORE the delete)
   // landed just after it and revived the space to "active" because the guard was
@@ -1254,7 +1246,7 @@ describe("space index AccountSpaces read model", () => {
   // and is evaluated atomically against the live (deleted) row, so the stale
   // members_updated cannot resurrect the Space or re-activate the removed member.
   it("keeps a Space deleted when a stale members_updated lands after the delete", async () => {
-    const harness = createSpaceIndexHarness();
+    const harness = await createSpaceIndexHarness();
     try {
       const metaRecord = createMeta({
         name: "Raced Alpha",
@@ -1293,7 +1285,6 @@ describe("space index AccountSpaces read model", () => {
         metaRecord,
         memberRecords,
       });
-
       const accountSpaces = await listAccountSpacesFromSpaceIndex({
         db: harness.db,
         gatewayHost: "gateway.testing.example",
@@ -1302,15 +1293,18 @@ describe("space index AccountSpaces read model", () => {
         scope: "account",
         selectedProfileId: "human-1",
       });
-      const spaceRow = harness.queryFirst<{ status: string }>({
-        params: ["space-alpha"],
-        sql: "SELECT status FROM space_index_spaces WHERE space_id = ?",
+      const spaceRow = await harness.queryFirst<{
+        status: string;
+      }>({
+        values: ["space-alpha"],
+        text: 'SELECT status FROM "openmeld"."space_index_spaces" WHERE space_id = $1',
       });
-      const membershipRow = harness.queryFirst<{ status: string }>({
-        params: ["space-alpha", "human-1"],
-        sql: "SELECT status FROM space_index_memberships WHERE space_id = ? AND profile_id = ?",
+      const membershipRow = await harness.queryFirst<{
+        status: string;
+      }>({
+        values: ["space-alpha", "human-1"],
+        text: 'SELECT status FROM "openmeld"."space_index_memberships" WHERE space_id = $1 AND profile_id = $2',
       });
-
       expect(accountSpaces).toEqual({
         pinnedItems: [],
         spaceItems: [],
@@ -1318,12 +1312,11 @@ describe("space index AccountSpaces read model", () => {
       expect(spaceRow).toEqual({ status: "deleted" });
       expect(membershipRow).toEqual({ status: "removed" });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("surfaces a recently deleted Space as a one-time notice with who deleted it", async () => {
-    const harness = createSpaceIndexHarness();
+    const harness = await createSpaceIndexHarness();
     try {
       const metaRecord = createMeta({
         name: "Soon Deleted",
@@ -1356,7 +1349,6 @@ describe("space index AccountSpaces read model", () => {
         metaRecord,
         memberRecords,
       });
-
       const result = await listAccountSpacesFromSpaceIndex({
         db: harness.db,
         gatewayHost: "gateway.testing.example",
@@ -1366,7 +1358,6 @@ describe("space index AccountSpaces read model", () => {
         scope: "account",
         selectedProfileId: "human-1",
       });
-
       // The deleted Space is hidden from the active lists but surfaced once as a
       // notice carrying who deleted it.
       expect(result.pinnedItems).toHaveLength(0);
@@ -1380,12 +1371,11 @@ describe("space index AccountSpaces read model", () => {
         },
       ]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("does not let history overlay resurrect removed members or deleted Spaces", async () => {
-    const harness = createSpaceIndexHarness();
+    const harness = await createSpaceIndexHarness();
     try {
       const removedMeta = createMeta({
         name: "Removed Member Alpha",
@@ -1407,13 +1397,12 @@ describe("space index AccountSpaces read model", () => {
           }),
         ],
       });
-      seedMembershipOverlay(harness, {
+      await seedMembershipOverlay(harness, {
         lastJoinedAt: Date.parse("2026-04-12T00:00:00.000Z"),
         pinnedAt: Date.parse("2026-04-13T00:00:00.000Z"),
         profileId: "human-1",
         spaceId: "space-removed-member",
       });
-
       const deletedMeta = createMeta({
         name: "Deleted Overlay Alpha",
         spaceId: "space-deleted-overlay",
@@ -1444,13 +1433,12 @@ describe("space index AccountSpaces read model", () => {
         metaRecord: deletedMeta,
         memberRecords: deletedMembers,
       });
-      seedMembershipOverlay(harness, {
+      await seedMembershipOverlay(harness, {
         lastJoinedAt: Date.parse("2026-04-14T00:00:00.000Z"),
         pinnedAt: Date.parse("2026-04-15T00:00:00.000Z"),
         profileId: "human-1",
         spaceId: "space-deleted-overlay",
       });
-
       const accountSpaces = await listAccountSpacesFromSpaceIndex({
         db: harness.db,
         gatewayHost: "gateway.testing.example",
@@ -1467,7 +1455,6 @@ describe("space index AccountSpaces read model", () => {
         scope: "profile",
         selectedProfileId: "human-1",
       });
-
       expect(accountSpaces).toEqual({
         pinnedItems: [],
         spaceItems: [],
@@ -1477,17 +1464,16 @@ describe("space index AccountSpaces read model", () => {
         spaceItems: [],
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   // P0.3 equivalence proof (physical-db-split.md): the overlay read is
   // gateway-host scoped exactly like the old `h.gateway_host = ?` JOIN
   // predicate. Overlay stored for one host must NOT surface to a query for a
   // different host; the space itself still lists (membership is host-agnostic),
   // only the pin/last-joined overlay is gated.
   it("scopes overlay to the matching gateway host and ignores a mismatched host", async () => {
-    const harness = createSpaceIndexHarness();
+    const harness = await createSpaceIndexHarness();
     try {
       await projectActiveSpaceIndexSnapshot({
         db: harness.db,
@@ -1508,8 +1494,8 @@ describe("space index AccountSpaces read model", () => {
         ],
       });
       // Overlay stored under a DIFFERENT gateway host than the reader uses.
-      harness.run({
-        params: [
+      await harness.query({
+        values: [
           "other.example",
           Date.parse("2026-04-13T00:00:00.000Z"),
           Date.parse("2026-04-12T00:00:00.000Z"),
@@ -1517,16 +1503,15 @@ describe("space index AccountSpaces read model", () => {
           "space-host",
           "human-1",
         ],
-        sql: `
-          UPDATE space_index_memberships SET
-            overlay_gateway_host = ?,
-            overlay_pinned_at_ms = ?,
-            overlay_last_joined_at_ms = ?,
-            overlay_updated_at_ms = ?
-          WHERE space_id = ? AND profile_id = ?
+        text: `
+          UPDATE "openmeld"."space_index_memberships" SET
+            overlay_gateway_host = $1,
+            overlay_pinned_at_ms = $2,
+            overlay_last_joined_at_ms = $3,
+            overlay_updated_at_ms = $4
+          WHERE space_id = $5 AND profile_id = $6
         `,
       });
-
       const mismatched = await listAccountSpacesFromSpaceIndex({
         db: harness.db,
         gatewayHost: "gateway.testing.example",
@@ -1541,7 +1526,6 @@ describe("space index AccountSpaces read model", () => {
         "space-host",
       ]);
       expect(mismatched.spaceItems[0]?.pinnedAt ?? null).toBeNull();
-
       const matched = await listAccountSpacesFromSpaceIndex({
         db: harness.db,
         gatewayHost: "other.example",
@@ -1556,12 +1540,11 @@ describe("space index AccountSpaces read model", () => {
       ]);
       expect(matched.pinnedItems[0]?.pinnedAt).toBe("2026-04-13T00:00:00.000Z");
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("lists visible space ids with the same membership predicates as the account read", async () => {
-    const harness = createSpaceIndexHarness();
+    const harness = await createSpaceIndexHarness();
     try {
       await projectActiveSpaceIndexSnapshot({
         db: harness.db,
@@ -1611,7 +1594,6 @@ describe("space index AccountSpaces read model", () => {
         metaRecord: betaMetaRecord,
         memberRecords: betaMemberRecords,
       });
-
       const spaceIds = await listAccountSpaceIdsFromSpaceIndex({
         db: harness.db,
         gatewayHost: "gateway.testing.example",
@@ -1619,7 +1601,6 @@ describe("space index AccountSpaces read model", () => {
         ownerUserId: "owner-1",
       });
       expect(spaceIds).toEqual(["space-alpha"]);
-
       await expect(
         listAccountSpaceIdsFromSpaceIndex({
           db: harness.db,
@@ -1629,12 +1610,11 @@ describe("space index AccountSpaces read model", () => {
         })
       ).resolves.toEqual([]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("uses the exact account sidebar candidate ordering for bounded fan-out", async () => {
-    const harness = createSpaceIndexHarness();
+    const harness = await createSpaceIndexHarness();
     try {
       for (const [spaceId, name, addedAt] of [
         ["space-first", "First", "2026-04-10T00:01:00.000Z"],
@@ -1655,13 +1635,12 @@ describe("space index AccountSpaces read model", () => {
           ],
         });
       }
-      seedMembershipOverlay(harness, {
+      await seedMembershipOverlay(harness, {
         lastJoinedAt: Date.parse("2026-04-10T00:01:00.000Z"),
         pinnedAt: Date.parse("2026-04-12T00:00:00.000Z"),
         profileId: "human-1",
         spaceId: "space-first",
       });
-
       const sidebar = await listAccountSpacesFromSpaceIndex({
         db: harness.db,
         gatewayHost: "gateway.testing.example",
@@ -1676,7 +1655,6 @@ describe("space index AccountSpaces read model", () => {
         limit: 1,
         ownerUserId: "owner-1",
       });
-
       expect(fanOutIds).toEqual(
         [...sidebar.pinnedItems, ...sidebar.spaceItems].map(
           (item) => item.spaceId
@@ -1684,20 +1662,17 @@ describe("space index AccountSpaces read model", () => {
       );
       expect(fanOutIds).toEqual(["space-first"]);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
-
-function createSpaceIndexHarness() {
-  const harness = createSqliteD1Harness();
-  applyDrizzleMigrationsForTables(harness, SPACE_INDEX_TABLE_NAMES);
+async function createSpaceIndexHarness() {
+  const harness = await createPostgresHarness();
   for (const sql of SPACE_INDEX_AUXILIARY_TABLES_SQL) {
-    harness.run({ sql });
+    await harness.query({ text: sql });
   }
   return harness;
 }
-
 function createMeta(input: {
   directMessagePairKey?: string;
   name: string;
@@ -1728,7 +1703,6 @@ function createMeta(input: {
     visibility: input.visibility ?? "private",
   };
 }
-
 function createMember(input: {
   addedAt: string;
   profileId: string;
@@ -1763,7 +1737,6 @@ function createMember(input: {
     updatedAt: input.addedAt,
   };
 }
-
 function createRemovedMember(input: {
   addedAt: string;
   profileId: string;
@@ -1782,24 +1755,17 @@ function createRemovedMember(input: {
     updatedAt: input.removedAt,
   };
 }
-
 function createProjectionFailureDb(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   failOnSql: string;
-}): D1Database {
-  return {
-    ...input.db,
-    prepare: (sql: string) => {
-      if (sql.includes(input.failOnSql)) {
-        throw new Error(`injected projection failure: ${input.failOnSql}`);
-      }
-      return input.db.prepare(sql);
-    },
-  } as D1Database;
+}): PostgresDatabase {
+  return createFaultInjectingPostgresDatabase({
+    db: input.db,
+    matches: (sql) => sql.includes(input.failOnSql),
+  });
 }
-
-function seedMembershipOverlay(
-  harness: ReturnType<typeof createSqliteD1Harness>,
+async function seedMembershipOverlay(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>,
   input: {
     lastJoinedAt: number;
     lastSeenTs?: number | null;
@@ -1807,11 +1773,11 @@ function seedMembershipOverlay(
     profileId: string;
     spaceId: string;
   }
-): void {
+): Promise<void> {
   // Overlay values now live as projected columns on the membership row
   // (physical-db-split.md P0.3); the cross-domain history JOIN is gone.
-  harness.run({
-    params: [
+  await harness.query({
+    values: [
       "gateway.testing.example",
       input.pinnedAt,
       input.lastJoinedAt,
@@ -1820,75 +1786,49 @@ function seedMembershipOverlay(
       input.spaceId,
       input.profileId,
     ],
-    sql: `
-      UPDATE space_index_memberships SET
-        overlay_gateway_host = ?,
-        overlay_pinned_at_ms = ?,
-        overlay_last_joined_at_ms = ?,
-        overlay_last_seen_ts = ?,
-        overlay_updated_at_ms = ?
-      WHERE space_id = ? AND profile_id = ?
+    text: `
+      UPDATE "openmeld"."space_index_memberships" SET
+        overlay_gateway_host = $1,
+        overlay_pinned_at_ms = $2,
+        overlay_last_joined_at_ms = $3,
+        overlay_last_seen_ts = $4,
+        overlay_updated_at_ms = $5
+      WHERE space_id = $6 AND profile_id = $7
     `,
   });
 }
-
-function seedCenterAgentDesignation(
-  harness: ReturnType<typeof createSqliteD1Harness>,
+async function seedCenterAgentDesignation(
+  harness: Awaited<ReturnType<typeof createPostgresHarness>>,
   input: {
     agentProfileId: string;
     organizationId: string;
   }
-): void {
-  harness.run({
-    params: [input.organizationId, input.agentProfileId, "owner-1", 100],
-    sql: `
-      INSERT INTO center_agent_designations (
+): Promise<void> {
+  await harness.query({
+    text: `INSERT INTO "openmeld"."organizations" (id, name, slug, created_at)
+    VALUES ($1, 'Organization', $1, 100) ON CONFLICT DO NOTHING`,
+    values: [input.organizationId],
+  });
+  await harness.query(`INSERT INTO "openmeld"."users" (id, name, email, created_at, updated_at)
+    VALUES ('owner-1', 'Owner', 'owner@example.test', 100, 100) ON CONFLICT DO NOTHING`);
+  await harness.query({
+    text: `INSERT INTO "openmeld"."openmeld_profiles"
+    (profile_id, profile_name, profile_handle, profile_kind, managed_role, organization_id, source)
+    VALUES ($1, 'Center Agent', 'center', 'agent', 'center_agent', $2, 'migration')`,
+    values: [input.agentProfileId, input.organizationId],
+  });
+  await harness.query({
+    values: [input.organizationId, input.agentProfileId, "owner-1", 100],
+    text: `
+      INSERT INTO "openmeld"."center_agent_designations" (
         organization_id,
         agent_profile_id,
         designated_by,
         created_at
       )
-      VALUES (?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4)
     `,
   });
 }
 
-const SPACE_INDEX_TABLE_NAMES = [
-  "space_index_spaces",
-  "space_index_memberships",
-  "space_index_projection_events",
-] as const;
-
-const SPACE_INDEX_AUXILIARY_TABLES_SQL = [
-  `
-    CREATE TABLE center_agent_designations (
-      organization_id TEXT PRIMARY KEY,
-      agent_profile_id TEXT NOT NULL,
-      duty TEXT,
-      designated_by TEXT NOT NULL,
-      operating_state TEXT NOT NULL DEFAULT 'active',
-      paused_at INTEGER,
-      paused_by_user_id TEXT,
-      created_at INTEGER NOT NULL
-    )
-  `,
-  `
-    CREATE TABLE openmeld_profile_space_history (
-      profile_id TEXT NOT NULL,
-      gateway_host TEXT NOT NULL,
-      space_id TEXT NOT NULL,
-      space_name TEXT,
-      creator_profile_id TEXT,
-      creator_kind TEXT,
-      space_created_at INTEGER,
-      space_updated_at INTEGER,
-      last_joined_at INTEGER NOT NULL,
-      last_seen_ts INTEGER,
-      pinned_at INTEGER,
-      status TEXT NOT NULL DEFAULT 'active',
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      UNIQUE(profile_id, gateway_host, space_id)
-    )
-  `,
-] as const;
+const SPACE_INDEX_AUXILIARY_TABLES_SQL = [] as const;

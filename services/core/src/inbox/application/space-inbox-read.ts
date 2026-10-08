@@ -1,14 +1,14 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type {
   MutateSpaceInboxReadBody,
   MutateSpaceInboxReadResponse,
 } from "@openmeld/schemas/types";
 import { INBOX_SPACE_MESSAGE_FILTER, InboxServiceError } from "./inbox-service";
 import { buildCurrentInboxSourceAccessSql } from "./inbox-source-access";
-
 // The same recipient Inbox rows own both visible-message reads and explicit
 // Space-wide reads. Snapshots freeze selection only; they are not a read ledger.
 export async function mutateSpaceInboxRead(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   recipientUserId: string;
   body: MutateSpaceInboxReadBody;
@@ -16,52 +16,60 @@ export async function mutateSpaceInboxRead(input: {
 }): Promise<MutateSpaceInboxReadResponse> {
   const { db, body, organizationId, recipientUserId } = input;
   const now = input.nowMs ?? Date.now();
-  const filter = `organization_id = ? AND recipient_user_id = ?
+  const filter = (
+    parameterOffset: number
+  ) => `organization_id = $${parameterOffset + 1} AND recipient_user_id = $${parameterOffset + 2}
     AND cleared_at_ms IS NULL AND read_at_ms IS NULL
     AND ${INBOX_SPACE_MESSAGE_FILTER}
-    AND json_extract(source_target_json, '$.spaceId') = ?
+    AND ((source_target_json)::jsonb #>> '{spaceId}') = $${parameterOffset + 3}
     AND ${buildCurrentInboxSourceAccessSql("inbox_items")}`;
   const scope = [organizationId, recipientUserId, body.spaceId];
-
   if (body.operation === "prepare") {
     const snapshotId = crypto.randomUUID();
-    await db.batch([
-      db
-        .prepare(
-          "DELETE FROM inbox_feed_snapshots WHERE id IN (SELECT id FROM inbox_feed_snapshots WHERE expires_at_ms <= ? LIMIT 100)"
-        )
-        .bind(now),
-      db
-        .prepare(`INSERT INTO inbox_feed_snapshots
+    await db.transaction(
+      async (client) =>
+        [
+          await client.query({
+            text: 'DELETE FROM "openmeld"."inbox_feed_snapshots" WHERE id IN (SELECT id FROM "openmeld"."inbox_feed_snapshots" WHERE expires_at_ms <= $1 LIMIT 100)',
+            values: [now],
+          }),
+          await client.query({
+            text: `INSERT INTO "openmeld"."inbox_feed_snapshots"
         (id, organization_id, recipient_user_id, category, unread_only, agents_only, through_row_id, created_at_ms, expires_at_ms)
-        SELECT ?, ?, ?, 'all', 1, 0, coalesce(max(rowid), 0), ?, ? FROM inbox_items`)
-        .bind(
-          snapshotId,
-          organizationId,
-          recipientUserId,
-          now,
-          now + 15 * 60 * 1000
-        ),
-      db
-        .prepare(`INSERT INTO inbox_feed_snapshot_members (snapshot_id, item_id)
-        SELECT ?, id FROM inbox_items WHERE ${filter}`)
-        .bind(snapshotId, ...scope),
-    ]);
+        SELECT $1, $2, $3, 'all', 1, 0, coalesce(max(sequence), 0), $4, $5 FROM "openmeld"."inbox_items"`,
+            values: [
+              snapshotId,
+              organizationId,
+              recipientUserId,
+              now,
+              now + 15 * 60 * 1000,
+            ],
+          }),
+          await client.query({
+            text: `INSERT INTO "openmeld"."inbox_feed_snapshot_members" (snapshot_id, item_id)
+        SELECT $1, id FROM "openmeld"."inbox_items" WHERE ${filter(1)}`,
+            values: [snapshotId, ...scope],
+          }),
+        ] as const
+    );
     const count = await db
-      .prepare(
-        "SELECT count(*) AS count FROM inbox_feed_snapshot_members WHERE snapshot_id = ?"
-      )
-      .bind(snapshotId)
-      .first<{ count: number }>();
+      .query<{
+        count: number;
+      }>({
+        text: 'SELECT count(*) AS count FROM "openmeld"."inbox_feed_snapshot_members" WHERE snapshot_id = $1',
+        values: [snapshotId],
+      })
+      .then((result) => result.rows[0] ?? null);
     return { operation: "prepare", snapshotId, unreadCount: count?.count ?? 0 };
   }
-
   if (body.operation === "clear") {
     const snapshot = await db
-      .prepare(`SELECT id FROM inbox_feed_snapshots
-      WHERE id = ? AND organization_id = ? AND recipient_user_id = ? AND expires_at_ms > ?`)
-      .bind(body.snapshotId, organizationId, recipientUserId, now)
-      .first();
+      .query({
+        text: `SELECT id FROM "openmeld"."inbox_feed_snapshots"
+      WHERE id = $1 AND organization_id = $2 AND recipient_user_id = $3 AND expires_at_ms > $4`,
+        values: [body.snapshotId, organizationId, recipientUserId, now],
+      })
+      .then((result) => result.rows[0] ?? null);
     if (!snapshot) {
       throw new InboxServiceError({
         code: "inbox.snapshot_expired",
@@ -72,26 +80,26 @@ export async function mutateSpaceInboxRead(input: {
   }
   const selection =
     body.operation === "clear"
-      ? `id IN (SELECT item_id FROM inbox_feed_snapshot_members WHERE snapshot_id = ?)
- AND updated_at_ms <= (SELECT created_at_ms FROM inbox_feed_snapshots WHERE id = ?)`
-      : `EXISTS (SELECT 1 FROM json_each(?) AS selected
-        WHERE json_extract(selected.value, '$.itemId') = inbox_items.id
-          AND json_extract(selected.value, '$.occurredAtMs') = inbox_items.occurred_at_ms)`;
-  const result = await db
-    .prepare(`UPDATE inbox_items
-    SET read_at_ms = max(?, created_at_ms), updated_at_ms = max(?, updated_at_ms)
-    WHERE ${filter} AND ${selection}`)
-    .bind(
+      ? `id IN (SELECT item_id FROM "openmeld"."inbox_feed_snapshot_members" WHERE snapshot_id = $6)
+ AND updated_at_ms <= (SELECT created_at_ms FROM "openmeld"."inbox_feed_snapshots" WHERE id = $7)`
+      : `EXISTS (SELECT 1 FROM jsonb_array_elements_text($6::jsonb) AS selected(value)
+        WHERE ((selected.value)::jsonb #>> '{itemId}') = inbox_items.id
+          AND ((selected.value)::jsonb #>> '{occurredAtMs}')::bigint = inbox_items.occurred_at_ms)`;
+  const result = await db.query({
+    text: `UPDATE "openmeld"."inbox_items"
+    SET read_at_ms = GREATEST($1, created_at_ms), updated_at_ms = GREATEST($2, updated_at_ms)
+    WHERE ${filter(2)} AND ${selection}`,
+    values: [
       now,
       now,
       ...scope,
       ...(body.operation === "clear"
         ? [body.snapshotId, body.snapshotId]
-        : [JSON.stringify(body.items)])
-    )
-    .run();
+        : [JSON.stringify(body.items)]),
+    ],
+  });
   return {
     operation: "read",
-    markedReadCount: Math.max(0, Number(result.meta.changes ?? 0)),
+    markedReadCount: Math.max(0, Number(result.rowCount ?? 0)),
   };
 }

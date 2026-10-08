@@ -3,6 +3,7 @@ import {
   createAuthorityOpenMeldServiceRuntimeId,
   createRuntimeLookupInput,
 } from "@openmeld/agent-runtime";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   DAEMON_STREAM_KEEPALIVE_PING,
   DAEMON_STREAM_KEEPALIVE_PONG,
@@ -19,11 +20,13 @@ import {
   RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   runtimeTransportBaseCapabilitiesSchema,
+  SESSION_HISTORY_CAPABILITY_HEADER,
+  SESSION_HISTORY_RUNTIME_CAPABILITY,
 } from "@openmeld/schemas";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import releaseManifestJson from "../../../release/local-components.json";
 import type { CoreBindings } from "../src/lib/bindings";
-import { registerRuntimeRegistryRecord } from "../src/runtime-registry/infrastructure/d1/runtime-registry-repo";
+import { registerRuntimeRegistryRecord } from "../src/runtime-registry/infrastructure/postgresql/runtime-registry-repo";
 import type { RuntimeTransportHub } from "../src/runtime-transport/transport/do/runtime-transport-hub";
 import { CORE_LOG_EVENTS } from "../src/shared/observability/log-events";
 import { quiesceRuntimeTransportShard } from "./runtime-transport-test-support";
@@ -38,16 +41,13 @@ const REQUEST_ID = "req-runtime-transport-reconcile";
 const SERVER_ROUTE_RECONCILIATION_REASON = "server_route_reconciliation";
 const CURRENT_RELEASE_SERVICE_VERSION =
   releaseManifestJson.components.service.bundleVersion;
-
 const touchedOwnerUserIds = new Set<string>();
-
 afterEach(async () => {
   for (const ownerUserId of touchedOwnerUserIds) {
     await quiesceRuntimeTransportShard(getRuntimeTransportShard(ownerUserId));
   }
   touchedOwnerUserIds.clear();
 });
-
 async function fetchWithOpenMeldAuth(input: {
   path: string;
   ownerUserId: string;
@@ -60,17 +60,16 @@ async function fetchWithOpenMeldAuth(input: {
   headers.set("x-openmeld-profile-kind", "human");
   headers.set("x-openmeld-profile", DAEMON_TEST_PROFILE_ID);
   headers.set("x-openmeld-owner-user-id", input.ownerUserId);
-
   return await SELF.fetch(`${BASE_URL}${input.path}`, {
     ...(input.init ?? {}),
     headers,
   });
 }
-
 async function openDaemonStream(
   ownerUserId: string,
   options?: {
     computerFileAccess?: boolean;
+    sessionHistory?: boolean;
     localFolderPicker?: boolean;
     computerCare?: boolean;
     executionAdmissionConfirmation?: boolean;
@@ -83,6 +82,12 @@ async function openDaemonStream(
     init: {
       headers: {
         Upgrade: "websocket",
+        ...(options?.sessionHistory
+          ? {
+              [SESSION_HISTORY_CAPABILITY_HEADER]:
+                SESSION_HISTORY_RUNTIME_CAPABILITY,
+            }
+          : {}),
         ...(options?.executionAdmissionConfirmation
           ? { [OPENMELD_EXECUTION_ADMISSION_HEADER]: "1" }
           : {}),
@@ -103,7 +108,6 @@ async function openDaemonStream(
       },
     },
   });
-
   if (response.status !== 101) {
     throw new Error(
       `Failed to open daemon stream, expected status 101 but got ${String(response.status)}`
@@ -112,11 +116,9 @@ async function openDaemonStream(
   if (!response.webSocket) {
     throw new Error("Missing WebSocket on daemon stream response");
   }
-
   response.webSocket.accept();
   return response.webSocket;
 }
-
 async function registerSession(input: {
   capabilities?: Record<string, unknown>;
   daemonSessionId: string;
@@ -137,9 +139,15 @@ async function registerSession(input: {
 }): Promise<{
   computerCare?: true;
   executionAdmissionConfirmation?: true;
-  acceptedLeases: Array<{ leaseEpoch: number; profileId: string }>;
+  acceptedLeases: Array<{
+    leaseEpoch: number;
+    profileId: string;
+  }>;
   connectionGeneration: number | undefined;
-  rejectedProfiles: Array<{ profileId: string; reasonCode: string }>;
+  rejectedProfiles: Array<{
+    profileId: string;
+    reasonCode: string;
+  }>;
 }> {
   input.socket.send(
     JSON.stringify({
@@ -176,7 +184,6 @@ async function registerSession(input: {
       },
     })
   );
-
   const frame = await waitForJsonMessage(
     input.socket,
     (value) =>
@@ -189,11 +196,16 @@ async function registerSession(input: {
   const payload = frame.payload as {
     computerCare?: true;
     executionAdmissionConfirmation?: true;
-    acceptedLeases?: Array<{ leaseEpoch: number; profileId: string }>;
+    acceptedLeases?: Array<{
+      leaseEpoch: number;
+      profileId: string;
+    }>;
     connectionGeneration?: number;
-    rejectedProfiles?: Array<{ profileId: string; reasonCode: string }>;
+    rejectedProfiles?: Array<{
+      profileId: string;
+      reasonCode: string;
+    }>;
   };
-
   return {
     computerCare: payload.computerCare,
     executionAdmissionConfirmation: payload.executionAdmissionConfirmation,
@@ -202,7 +214,6 @@ async function registerSession(input: {
     rejectedProfiles: payload.rejectedProfiles ?? [],
   };
 }
-
 async function sendHeartbeat(input: {
   acceptingDispatches?: boolean;
   capabilities?: Record<string, unknown>;
@@ -210,12 +221,18 @@ async function sendHeartbeat(input: {
   deviceId: string;
   lane?: string;
   ownerUserId: string;
-  leases: Array<{ leaseEpoch: number; profileId: string }>;
+  leases: Array<{
+    leaseEpoch: number;
+    profileId: string;
+  }>;
   serviceVersion?: string;
   socket: WebSocket;
 }): Promise<{
   ok: boolean;
-  staleLeases: Array<{ leaseEpoch: number; profileId: string }>;
+  staleLeases: Array<{
+    leaseEpoch: number;
+    profileId: string;
+  }>;
 }> {
   input.socket.send(
     JSON.stringify({
@@ -238,7 +255,6 @@ async function sendHeartbeat(input: {
       },
     })
   );
-
   const frame = await waitForJsonMessage(
     input.socket,
     (value) => value.code === "daemon.session.heartbeat",
@@ -246,15 +262,16 @@ async function sendHeartbeat(input: {
   );
   const payload = frame.payload as {
     ok?: boolean;
-    staleLeases?: Array<{ leaseEpoch: number; profileId: string }>;
+    staleLeases?: Array<{
+      leaseEpoch: number;
+      profileId: string;
+    }>;
   };
-
   return {
     ok: payload.ok === true,
     staleLeases: payload.staleLeases ?? [],
   };
 }
-
 async function seedExpectedRoute(input: {
   ownerUserId: string;
   deviceId: string;
@@ -269,7 +286,7 @@ async function seedExpectedRoute(input: {
     lane,
   });
   await registerRuntimeRegistryRecord({
-    db: env.OPENMELD_DB,
+    db: getPostgresDatabase(env),
     record: {
       nowMs: Date.now(),
       runtimeLookupInput,
@@ -282,32 +299,39 @@ async function seedExpectedRoute(input: {
   });
   const nowMs = Date.now();
   const organizationId = `org-route-reconciliation-${input.ownerUserId}`;
-  await env.OPENMELD_DB.prepare(
-    `
-      INSERT OR IGNORE INTO users (
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `
+      INSERT INTO "openmeld"."users" (
         id, name, email, email_verified, created_at, updated_at
       )
-      VALUES (?, 'Route reconciliation owner', ?, 1, ?, ?)
-    `
-  )
-    .bind(
+      VALUES ($1, 'Route reconciliation owner', $2, 1, $3, $4) ON CONFLICT DO NOTHING`,
+      values: [],
+    },
+    values: [
       input.ownerUserId,
       `${input.ownerUserId}@route-reconciliation.test`,
       nowMs,
-      nowMs
-    )
-    .run();
-  await env.OPENMELD_DB.prepare(
-    `
-      INSERT OR IGNORE INTO organizations (id, name, slug, created_at)
-      VALUES (?, 'Route reconciliation organization', ?, ?)
-    `
-  )
-    .bind(organizationId, `route-reconciliation-${input.ownerUserId}`, nowMs)
-    .run();
-  await env.OPENMELD_DB.prepare(
-    `
-      INSERT INTO openmeld_profiles (
+      nowMs,
+    ],
+  });
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `
+      INSERT INTO "openmeld"."organizations" (id, name, slug, created_at)
+      VALUES ($1, 'Route reconciliation organization', $2, $3) ON CONFLICT DO NOTHING`,
+      values: [],
+    },
+    values: [
+      organizationId,
+      `route-reconciliation-${input.ownerUserId}`,
+      nowMs,
+    ],
+  });
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `
+      INSERT INTO "openmeld"."openmeld_profiles" (
         profile_id,
         profile_name,
         profile_handle,
@@ -321,22 +345,24 @@ async function seedExpectedRoute(input: {
         created_at,
         updated_at
       )
-      VALUES (?, 'Route reconciliation agent', ?, 'agent', 0, 'active', ?, ?, ?, 'cli_create', ?, ?)
-    `
-  )
-    .bind(
+      VALUES ($1, 'Route reconciliation agent', $2, 'agent', 0, 'active', $3, $4, $5, 'cli_create', $6, $7)
+    `,
+      values: [],
+    },
+    values: [
       input.profileId,
       `route-reconciliation-${input.profileId}`,
       organizationId,
       input.ownerUserId,
       input.ownerUserId,
       nowMs,
-      nowMs
-    )
-    .run();
-  await env.OPENMELD_DB.prepare(
-    `
-      INSERT INTO openMeldDaemon_agent_profile_bindings (
+      nowMs,
+    ],
+  });
+  await getPostgresDatabase(env).query({
+    ...{
+      text: `
+      INSERT INTO "openmeld"."openMeldDaemon_agent_profile_bindings" (
         binding_id,
         owner_kind,
         owner_id,
@@ -354,20 +380,20 @@ async function seedExpectedRoute(input: {
         model_id,
         reasoning_level
       )
-      VALUES (?, 'owner_account', ?, ?, ?, 'builtin:codex', NULL, 'enabled_primary', ?, ?, NULL, NULL, NULL, NULL, NULL, NULL)
-    `
-  )
-    .bind(
+      VALUES ($1, 'owner_account', $2, $3, $4, 'builtin:codex', NULL, 'enabled_primary', $5, $6, NULL, NULL, NULL, NULL, NULL, NULL)
+    `,
+      values: [],
+    },
+    values: [
       `binding-${input.profileId}`,
       input.ownerUserId,
       input.profileId,
       input.runtimeId,
       nowMs,
-      nowMs
-    )
-    .run();
+      nowMs,
+    ],
+  });
 }
-
 async function installAuthProfileResolver(input: {
   onResolveProfile?: (profileId: string) => void;
   ownerUserId: string;
@@ -376,7 +402,9 @@ async function installAuthProfileResolver(input: {
 }): Promise<void> {
   const profileIds = new Set(input.profileIds);
   await runInDurableObject(input.shard, (instance) => {
-    const internal = instance as unknown as { env: CoreBindings };
+    const internal = instance as unknown as {
+      env: CoreBindings;
+    };
     const resolveProfileFact = (profileId: string) => {
       input.onResolveProfile?.(profileId);
       return profileIds.has(profileId)
@@ -419,7 +447,6 @@ async function installAuthProfileResolver(input: {
     };
   });
 }
-
 async function expireRouteCatalogReconciliationThrottle(input: {
   shard: DurableObjectStub<RuntimeTransportHub>;
 }): Promise<void> {
@@ -427,7 +454,9 @@ async function expireRouteCatalogReconciliationThrottle(input: {
     const internal = instance as unknown as {
       routeCatalogReconciliationSignalsBySessionKey: Map<
         string,
-        { notifiedAtMs: number }
+        {
+          notifiedAtMs: number;
+        }
       >;
     };
     for (const signal of internal.routeCatalogReconciliationSignalsBySessionKey.values()) {
@@ -435,7 +464,6 @@ async function expireRouteCatalogReconciliationThrottle(input: {
     }
   });
 }
-
 async function expectNoRouteCatalogChangedFrame(
   socket: WebSocket
 ): Promise<void> {
@@ -458,7 +486,6 @@ async function expectNoRouteCatalogChangedFrame(
     throw error;
   }
 }
-
 async function expectNoOpenMeldToolsControlRequestFrame(
   socket: WebSocket
 ): Promise<void> {
@@ -481,7 +508,6 @@ async function expectNoOpenMeldToolsControlRequestFrame(
     throw error;
   }
 }
-
 async function waitForAutomaticUpdateTarget(input: {
   computerKey: string;
   expectedTarget: string | null;
@@ -493,7 +519,9 @@ async function waitForAutomaticUpdateTarget(input: {
       const internal = instance as unknown as {
         automaticToolsUpdateTargetByComputer: Map<
           string,
-          { targetVersion: string }
+          {
+            targetVersion: string;
+          }
         >;
       };
       return (
@@ -510,7 +538,6 @@ async function waitForAutomaticUpdateTarget(input: {
     `Timed out waiting for automatic update target ${String(input.expectedTarget)}`
   );
 }
-
 async function lookupRoute(input: {
   ownerUserId: string;
   profileId: string;
@@ -535,14 +562,12 @@ async function lookupRoute(input: {
       }),
     }
   );
-
   return (await response.json()) as {
     online: boolean;
     reasonCode?: string;
     leaseEpoch?: number;
   };
 }
-
 async function fetchRouteObservation(input: {
   ownerUserId: string;
   profileId: string;
@@ -568,7 +593,6 @@ async function fetchRouteObservation(input: {
       `Expected route observation status 200 but got ${String(response.status)}`
     );
   }
-
   return (await response.json()) as {
     observedAt: string;
     profileId: string;
@@ -583,7 +607,6 @@ async function fetchRouteObservation(input: {
     };
   };
 }
-
 function getRuntimeTransportShard(
   ownerUserId: string
 ): DurableObjectStub<RuntimeTransportHub> {
@@ -594,7 +617,6 @@ function getRuntimeTransportShard(
   const namespace = daemonEnv.OPENMELD_RUNTIME_TRANSPORT;
   return namespace.get(namespace.idFromName(ownerUserId));
 }
-
 async function acceptRuntimeCoordinatorHead(input: {
   ownerUserId: string;
   dispatchId: string;
@@ -631,7 +653,6 @@ async function acceptRuntimeCoordinatorHead(input: {
     );
   }
 }
-
 async function deliverDispatch(input: {
   ownerUserId: string;
   dispatchId: string;
@@ -645,7 +666,10 @@ async function deliverDispatch(input: {
     referenceTargets: string[];
     text: string;
   };
-}): Promise<{ accepted: boolean; reasonCode?: string }> {
+}): Promise<{
+  accepted: boolean;
+  reasonCode?: string;
+}> {
   const spaceId = `space-${input.dispatchId}`;
   const sourceEventId = `evt-${input.dispatchId}`;
   await acceptRuntimeCoordinatorHead({
@@ -655,7 +679,6 @@ async function deliverDispatch(input: {
     sourceEventId,
     targetProfileId: input.profileId,
   });
-
   const shard = getRuntimeTransportShard(input.ownerUserId);
   const response = await shard.fetch(
     "https://runtime-transport.internal/deliver-dispatch",
@@ -728,29 +751,30 @@ async function deliverDispatch(input: {
       }),
     }
   );
-
   return (await response.json()) as {
     accepted: boolean;
     reasonCode?: string;
   };
 }
-
 type DeliveredDispatchPayload = {
   runtimeCoordinatorExecutionId: string;
   executionToken?: {
     executionToken: string;
     runId: string;
     tokenFingerprint: string;
-    executionScope: { runtimeCoordinatorExecutionId: string };
+    executionScope: {
+      runtimeCoordinatorExecutionId: string;
+    };
   };
-  executionIdentity: { core: Record<string, unknown> };
+  executionIdentity: {
+    core: Record<string, unknown>;
+  };
   taskId: string;
   sourceEventId: string;
   sourceMessageEnvelope?: {
     ccTargets?: string[];
   };
 };
-
 function buildSuccessTaskResultFrame(input: {
   dispatchId: string;
   attemptId: string;
@@ -764,7 +788,6 @@ function buildSuccessTaskResultFrame(input: {
   if (!executionToken) {
     throw new Error("Expected delivered dispatch to carry an execution token");
   }
-
   return {
     v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
     code: "daemon.dispatch.result" as const,
@@ -806,7 +829,6 @@ function buildSuccessTaskResultFrame(input: {
     },
   };
 }
-
 describe("runtime transport lease reconciliation", () => {
   it("negotiates independent local capabilities without changing strict registration capabilities", async () => {
     const ownerUserId = "owner-computer-file-access-negotiation";
@@ -815,11 +837,11 @@ describe("runtime transport lease reconciliation", () => {
     const shard = getRuntimeTransportShard(ownerUserId);
     const socket = await openDaemonStream(ownerUserId, {
       computerFileAccess: true,
+      sessionHistory: true,
       localFolderPicker: true,
       computerCare: true,
       executionAdmissionConfirmation: true,
     });
-
     try {
       const registered = await registerSession({
         daemonSessionId,
@@ -839,19 +861,21 @@ describe("runtime transport lease reconciliation", () => {
           socket,
         })
       ).toMatchObject({ ok: true });
-
       await runInDurableObject(shard, (instance) => {
         const internal = instance as unknown as {
           state: {
             sessionsById: Map<
               string,
-              { capabilities: Record<string, unknown> }
+              {
+                capabilities: Record<string, unknown>;
+              }
             >;
           };
         };
         expect(
           internal.state.sessionsById.get(daemonSessionId)?.capabilities
         ).toMatchObject({
+          sessionHistory: true,
           computerFileAccess: {
             readPolicy: true,
             updatePolicy: true,
@@ -865,7 +889,6 @@ describe("runtime transport lease reconciliation", () => {
       socket.close(1000, "test_done");
     }
   });
-
   it("keeps Computer file access absent for an older Service without negotiation", async () => {
     const ownerUserId = "owner-computer-file-access-legacy-service";
     const daemonSessionId =
@@ -873,7 +896,6 @@ describe("runtime transport lease reconciliation", () => {
     const deviceId = "device-computer-file-access-legacy-service";
     const shard = getRuntimeTransportShard(ownerUserId);
     const socket = await openDaemonStream(ownerUserId);
-
     try {
       const registered = await registerSession({
         daemonSessionId,
@@ -893,13 +915,14 @@ describe("runtime transport lease reconciliation", () => {
           socket,
         })
       ).toMatchObject({ ok: true });
-
       await runInDurableObject(shard, (instance) => {
         const internal = instance as unknown as {
           state: {
             sessionsById: Map<
               string,
-              { capabilities: Record<string, unknown> }
+              {
+                capabilities: Record<string, unknown>;
+              }
             >;
           };
         };
@@ -908,20 +931,21 @@ describe("runtime transport lease reconciliation", () => {
         ).not.toHaveProperty("computerFileAccess");
         expect(
           internal.state.sessionsById.get(daemonSessionId)?.capabilities
+        ).not.toHaveProperty("sessionHistory");
+        expect(
+          internal.state.sessionsById.get(daemonSessionId)?.capabilities
         ).not.toHaveProperty("localFolderPicker");
       });
     } finally {
       socket.close(1000, "test_done");
     }
   });
-
   it("returns the exact OpenMeld Tools result from the current compatible Service", async () => {
     const ownerUserId = "owner-openmeld-tools-control";
     const daemonSessionId = "daemon-session-openmeld-tools-control";
     const deviceId = "device-openmeld-tools-control";
     const shard = getRuntimeTransportShard(ownerUserId);
     const socket = await openDaemonStream(ownerUserId);
-
     try {
       await registerSession({
         capabilities: {
@@ -982,7 +1006,6 @@ describe("runtime transport lease reconciliation", () => {
           v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
         })
       );
-
       await expect(
         responsePromise.then((response) => response.json())
       ).resolves.toEqual({
@@ -996,7 +1019,6 @@ describe("runtime transport lease reconciliation", () => {
       socket.close(1000, "test_done");
     }
   });
-
   it("requests one automatic update from a capable production Service and coalesces the release", async () => {
     const ownerUserId = "owner-openmeld-tools-automatic-update";
     const daemonSessionId = "daemon-session-openmeld-tools-automatic-update";
@@ -1019,7 +1041,6 @@ describe("runtime transport lease reconciliation", () => {
         ? undefined
         : JSON.stringify(parsedCapabilities.error.issues)
     ).toBe(true);
-
     try {
       const automaticRequest = waitForJsonMessage(
         socket,
@@ -1046,8 +1067,11 @@ describe("runtime transport lease reconciliation", () => {
           },
         },
       });
-      const requestId = (requestFrame.payload as { requestId: string })
-        .requestId;
+      const requestId = (
+        requestFrame.payload as {
+          requestId: string;
+        }
+      ).requestId;
       socket.send(
         JSON.stringify({
           code: "daemon.openmeld_tools_control.result",
@@ -1064,7 +1088,6 @@ describe("runtime transport lease reconciliation", () => {
           v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
         })
       );
-
       await sendHeartbeat({
         capabilities,
         daemonSessionId,
@@ -1080,7 +1103,6 @@ describe("runtime transport lease reconciliation", () => {
       socket.close(1000, "test_done");
     }
   });
-
   it("clears a failed automatic request so a replacement Service can retry", async () => {
     const ownerUserId = "owner-openmeld-tools-automatic-retry";
     const firstDaemonSessionId =
@@ -1100,7 +1122,6 @@ describe("runtime transport lease reconciliation", () => {
     };
     const firstSocket = await openDaemonStream(ownerUserId);
     let secondSocket: WebSocket | null = null;
-
     try {
       const firstAutomaticRequest = waitForJsonMessage(
         firstSocket,
@@ -1130,14 +1151,12 @@ describe("runtime transport lease reconciliation", () => {
         expectedTarget: CURRENT_RELEASE_SERVICE_VERSION,
         shard,
       });
-
       firstSocket.close(1000, "replace_service");
       await waitForAutomaticUpdateTarget({
         computerKey,
         expectedTarget: null,
         shard,
       });
-
       secondSocket = await openDaemonStream(ownerUserId);
       const retryRequest = waitForJsonMessage(
         secondSocket,
@@ -1163,8 +1182,11 @@ describe("runtime transport lease reconciliation", () => {
           },
         },
       });
-      const retryRequestId = (retryFrame.payload as { requestId: string })
-        .requestId;
+      const retryRequestId = (
+        retryFrame.payload as {
+          requestId: string;
+        }
+      ).requestId;
       secondSocket.send(
         JSON.stringify({
           code: "daemon.openmeld_tools_control.result",
@@ -1186,7 +1208,6 @@ describe("runtime transport lease reconciliation", () => {
       secondSocket?.close(1000, "test_done");
     }
   }, 10_000);
-
   it("nudges a fresh daemon session to resync when expected routes are missing from register", async () => {
     const ownerUserId = "owner-route-reconcile-register";
     const deviceId = "device-route-reconcile-register";
@@ -1204,7 +1225,6 @@ describe("runtime transport lease reconciliation", () => {
       shard,
     });
     const socket = await openDaemonStream(ownerUserId);
-
     try {
       const catalogChanged = waitForJsonMessage(
         socket,
@@ -1219,7 +1239,6 @@ describe("runtime transport lease reconciliation", () => {
         profileIds: [],
       });
       expect(registered.rejectedProfiles).toEqual([]);
-
       await expect(catalogChanged).resolves.toMatchObject({
         code: "daemon.route_catalog.changed",
         payload: { reason: SERVER_ROUTE_RECONCILIATION_REASON },
@@ -1228,7 +1247,6 @@ describe("runtime transport lease reconciliation", () => {
       socket.close(1000, "test_done");
     }
   });
-
   it("does not immediately repeat route reconciliation when the expected lease is present", async () => {
     const ownerUserId = "owner-route-reconcile-present";
     const deviceId = "device-route-reconcile-present";
@@ -1246,7 +1264,6 @@ describe("runtime transport lease reconciliation", () => {
       shard,
     });
     const socket = await openDaemonStream(ownerUserId);
-
     try {
       const registered = await registerSession({
         socket,
@@ -1261,7 +1278,6 @@ describe("runtime transport lease reconciliation", () => {
       socket.close(1000, "test_done");
     }
   });
-
   it("narrows a scoped route-catalog change to the affected profile while still nudging the daemon", async () => {
     const ownerUserId = "owner-route-catalog-scoped";
     const deviceId = "device-route-catalog-scoped";
@@ -1286,7 +1302,6 @@ describe("runtime transport lease reconciliation", () => {
       shard,
     });
     const socket = await openDaemonStream(ownerUserId);
-
     try {
       const registered = await registerSession({
         socket,
@@ -1298,7 +1313,6 @@ describe("runtime transport lease reconciliation", () => {
       expect(
         registered.acceptedLeases.map((lease) => lease.profileId).sort()
       ).toEqual([changedProfileId, bystanderProfileId].sort());
-
       // Drain the register-time invalidation buffer so the assertion below
       // observes only what the scoped notify contributes.
       await runInDurableObject(shard, (instance) => {
@@ -1314,7 +1328,6 @@ describe("runtime transport lease reconciliation", () => {
         }
         internal.pendingAgentReadinessInvalidationsByReason.clear();
       });
-
       const catalogChanged = waitForJsonMessage(
         socket,
         (value) => value.code === "daemon.route_catalog.changed",
@@ -1343,7 +1356,6 @@ describe("runtime transport lease reconciliation", () => {
         code: "daemon.route_catalog.changed",
         payload: { reason: "agent_profile_binding_changed" },
       });
-
       await runInDurableObject(shard, (instance) => {
         const internal = instance as unknown as {
           agentReadinessInvalidationFlushTimer: ReturnType<
@@ -1367,7 +1379,6 @@ describe("runtime transport lease reconciliation", () => {
       socket.close(1000, "test_done");
     }
   });
-
   it("invalidates only changed readiness on same-socket registration and admission heartbeats", async () => {
     const ownerUserId = "owner-reregister-delta";
     const deviceId = "device-reregister-delta";
@@ -1392,7 +1403,6 @@ describe("runtime transport lease reconciliation", () => {
       shard,
     });
     const socket = await openDaemonStream(ownerUserId);
-
     const drainInvalidationBuffer = async (): Promise<string[]> =>
       await runInDurableObject(shard, (instance) => {
         const internal = instance as unknown as {
@@ -1411,7 +1421,6 @@ describe("runtime transport lease reconciliation", () => {
         internal.pendingAgentReadinessInvalidationsByReason.clear();
         return pending;
       });
-
     try {
       const first = await registerSession({
         socket,
@@ -1426,7 +1435,6 @@ describe("runtime transport lease reconciliation", () => {
       ]);
       // The initial register is a new socket: full fan-out is expected.
       expect(await drainInvalidationBuffer()).toContain(steadyProfileId);
-
       const sameCatalog = await registerSession({
         socket,
         ownerUserId,
@@ -1440,7 +1448,6 @@ describe("runtime transport lease reconciliation", () => {
       ).toEqual([steadyProfileId]);
       // Same socket, same catalog: no readiness fact changed, no broadcast.
       expect(await drainInvalidationBuffer()).toEqual([]);
-
       const withNewcomer = await registerSession({
         socket,
         ownerUserId,
@@ -1454,7 +1461,6 @@ describe("runtime transport lease reconciliation", () => {
       ).toEqual([newcomerProfileId, steadyProfileId].sort());
       // Same socket, one new profile: only the newcomer is invalidated.
       expect(await drainInvalidationBuffer()).toEqual([newcomerProfileId]);
-
       // A new session starts with admission closed. Opening, closing and
       // reopening it changes every carried profile's new-Wake verdict, even
       // with the same socket, version and fresh leases.
@@ -1482,7 +1488,6 @@ describe("runtime transport lease reconciliation", () => {
       socket.close(1000, "test_done");
     }
   });
-
   it("throttles repeated route reconciliation while a heartbeat still reports the same missing route", async () => {
     const ownerUserId = "owner-route-reconcile-throttle";
     const deviceId = "device-route-reconcile-throttle";
@@ -1500,7 +1505,6 @@ describe("runtime transport lease reconciliation", () => {
       shard,
     });
     const socket = await openDaemonStream(ownerUserId);
-
     try {
       const firstCatalogChanged = waitForJsonMessage(
         socket,
@@ -1518,7 +1522,6 @@ describe("runtime transport lease reconciliation", () => {
         code: "daemon.route_catalog.changed",
         payload: { reason: SERVER_ROUTE_RECONCILIATION_REASON },
       });
-
       const heartbeat = await sendHeartbeat({
         socket,
         ownerUserId,
@@ -1532,7 +1535,6 @@ describe("runtime transport lease reconciliation", () => {
       socket.close(1000, "test_done");
     }
   });
-
   it("does not nudge when the daemon report already accounts for a skipped expected route", async () => {
     const ownerUserId = "owner-route-reconcile-skipped";
     const deviceId = "device-route-reconcile-skipped";
@@ -1550,7 +1552,6 @@ describe("runtime transport lease reconciliation", () => {
       shard,
     });
     const socket = await openDaemonStream(ownerUserId);
-
     try {
       const registered = await registerSession({
         socket,
@@ -1571,7 +1572,6 @@ describe("runtime transport lease reconciliation", () => {
       });
       expect(registered.rejectedProfiles).toEqual([]);
       await expectNoRouteCatalogChangedFrame(socket);
-
       const heartbeat = await sendHeartbeat({
         socket,
         ownerUserId,
@@ -1585,7 +1585,6 @@ describe("runtime transport lease reconciliation", () => {
       socket.close(1000, "test_done");
     }
   });
-
   it("does not nudge when rejected route registration already accounts for an expected route", async () => {
     const ownerUserId = "owner-route-reconcile-rejected";
     const deviceId = "device-route-reconcile-rejected";
@@ -1605,7 +1604,6 @@ describe("runtime transport lease reconciliation", () => {
     });
     const firstSocket = await openDaemonStream(ownerUserId);
     const secondSocket = await openDaemonStream(ownerUserId);
-
     try {
       const firstRegistered = await registerSession({
         socket: firstSocket,
@@ -1618,7 +1616,6 @@ describe("runtime transport lease reconciliation", () => {
         { leaseEpoch: 1, profileId },
       ]);
       await expectNoRouteCatalogChangedFrame(firstSocket);
-
       const secondRegistered = await registerSession({
         socket: secondSocket,
         ownerUserId,
@@ -1633,7 +1630,6 @@ describe("runtime transport lease reconciliation", () => {
         },
       ]);
       await expectNoRouteCatalogChangedFrame(secondSocket);
-
       const heartbeat = await sendHeartbeat({
         socket: secondSocket,
         ownerUserId,
@@ -1648,7 +1644,6 @@ describe("runtime transport lease reconciliation", () => {
       secondSocket.close(1000, "test_done");
     }
   });
-
   it("does not re-signal after the throttle window when the daemon report fingerprint is unchanged", async () => {
     const ownerUserId = "owner-route-reconcile-fingerprint";
     const deviceId = "device-route-reconcile-fingerprint";
@@ -1666,7 +1661,6 @@ describe("runtime transport lease reconciliation", () => {
       shard,
     });
     const socket = await openDaemonStream(ownerUserId);
-
     try {
       const firstCatalogChanged = waitForJsonMessage(
         socket,
@@ -1684,7 +1678,6 @@ describe("runtime transport lease reconciliation", () => {
         code: "daemon.route_catalog.changed",
         payload: { reason: SERVER_ROUTE_RECONCILIATION_REASON },
       });
-
       await expireRouteCatalogReconciliationThrottle({ shard });
       const heartbeat = await sendHeartbeat({
         socket,
@@ -1699,7 +1692,6 @@ describe("runtime transport lease reconciliation", () => {
       socket.close(1000, "test_done");
     }
   });
-
   it("skips the expected-routes read for consecutive heartbeats with the same fresh leases", async () => {
     const ownerUserId = "owner-route-reconcile-read-cache";
     const deviceId = "device-route-reconcile-read-cache";
@@ -1721,7 +1713,6 @@ describe("runtime transport lease reconciliation", () => {
       },
     });
     const socket = await openDaemonStream(ownerUserId);
-
     try {
       const registered = await registerSession({
         socket,
@@ -1733,7 +1724,6 @@ describe("runtime transport lease reconciliation", () => {
       expect(registered.acceptedLeases).toEqual([{ leaseEpoch: 1, profileId }]);
       await expectNoRouteCatalogChangedFrame(socket);
       profileResolveCount = 0;
-
       const firstHeartbeat = await sendHeartbeat({
         socket,
         ownerUserId,
@@ -1744,7 +1734,6 @@ describe("runtime transport lease reconciliation", () => {
       expect(firstHeartbeat).toEqual({ ok: true, staleLeases: [] });
       await expectNoRouteCatalogChangedFrame(socket);
       expect(profileResolveCount).toBe(1);
-
       const secondHeartbeat = await sendHeartbeat({
         socket,
         ownerUserId,
@@ -1759,14 +1748,12 @@ describe("runtime transport lease reconciliation", () => {
       socket.close(1000, "test_done");
     }
   });
-
   it("nudges an already registered daemon session when a new expected route appears before heartbeat", async () => {
     const ownerUserId = "owner-route-reconcile-heartbeat";
     const deviceId = "device-route-reconcile-heartbeat";
     const profileId = `agt_${crypto.randomUUID()}`;
     const shard = getRuntimeTransportShard(ownerUserId);
     const socket = await openDaemonStream(ownerUserId);
-
     try {
       const registered = await registerSession({
         socket,
@@ -1777,7 +1764,6 @@ describe("runtime transport lease reconciliation", () => {
       });
       expect(registered.rejectedProfiles).toEqual([]);
       await expectNoRouteCatalogChangedFrame(socket);
-
       await seedExpectedRoute({
         ownerUserId,
         deviceId,
@@ -1789,7 +1775,6 @@ describe("runtime transport lease reconciliation", () => {
         profileIds: [profileId],
         shard,
       });
-
       const catalogChanged = waitForJsonMessage(
         socket,
         (value) => value.code === "daemon.route_catalog.changed",
@@ -1807,7 +1792,6 @@ describe("runtime transport lease reconciliation", () => {
         code: "daemon.route_catalog.changed",
         payload: { reason: SERVER_ROUTE_RECONCILIATION_REASON },
       });
-
       const throttledHeartbeat = await sendHeartbeat({
         socket,
         ownerUserId,
@@ -1821,7 +1805,6 @@ describe("runtime transport lease reconciliation", () => {
       socket.close(1000, "test_done");
     }
   });
-
   it("exposes daemon route observation through the authenticated HTTP route", async () => {
     const ownerUserId = "owner-route-observation";
     const profileId = "agt-route-observation";
@@ -1833,12 +1816,10 @@ describe("runtime transport lease reconciliation", () => {
       profileIds: [profileId],
       socket,
     });
-
     const observation = await fetchRouteObservation({
       ownerUserId,
       profileId,
     });
-
     expect(observation.profileId).toBe(profileId);
     expect(typeof observation.observedAt).toBe("string");
     expect(observation.route).toMatchObject({
@@ -1849,14 +1830,11 @@ describe("runtime transport lease reconciliation", () => {
       connectionGeneration: registered.connectionGeneration,
       leaseEpoch: registered.acceptedLeases[0]?.leaseEpoch,
     });
-
     socket.close();
   });
-
   it("rejects mismatched register owner without poisoning the shard", async () => {
     const ownerUserId = "owner-daemon-reconcile-owner-match";
     const socket = await openDaemonStream(ownerUserId);
-
     try {
       const mismatched = await registerSession({
         socket,
@@ -1872,7 +1850,6 @@ describe("runtime transport lease reconciliation", () => {
           reasonCode: "daemon.session.reject_conflict",
         },
       ]);
-
       const registered = await registerSession({
         socket,
         ownerUserId,
@@ -1890,13 +1867,11 @@ describe("runtime transport lease reconciliation", () => {
           leases: registered.acceptedLeases,
         })
       ).resolves.toEqual({ ok: true, staleLeases: [] });
-
       const route = await lookupRoute({
         ownerUserId,
         profileId: "agt-owner-match",
       });
       expect(route.online).toBe(true);
-
       const leaseEpoch = registered.acceptedLeases.find(
         (lease) => lease.profileId === "agt-owner-match"
       )?.leaseEpoch;
@@ -1917,11 +1892,9 @@ describe("runtime transport lease reconciliation", () => {
       socket.close(1000, "test_done");
     }
   });
-
   it("removes dropped profiles immediately for same session re-register", async () => {
     const ownerUserId = "owner-daemon-reconcile-1";
     const socket = await openDaemonStream(ownerUserId);
-
     try {
       const initial = await registerSession({
         socket,
@@ -1931,7 +1904,6 @@ describe("runtime transport lease reconciliation", () => {
         profileIds: ["agt-remove-a", "agt-remove-b"],
       });
       expect(initial.rejectedProfiles).toEqual([]);
-
       const subset = await registerSession({
         socket,
         ownerUserId,
@@ -1940,7 +1912,6 @@ describe("runtime transport lease reconciliation", () => {
         profileIds: ["agt-remove-b"],
       });
       expect(subset.rejectedProfiles).toEqual([]);
-
       const removedRoute = await lookupRoute({
         ownerUserId,
         profileId: "agt-remove-a",
@@ -1954,7 +1925,6 @@ describe("runtime transport lease reconciliation", () => {
         },
         reasonCode: "daemon.profile.pending_first_report",
       });
-
       const removedObservation = await fetchRouteObservation({
         ownerUserId,
         profileId: "agt-remove-a",
@@ -1963,7 +1933,6 @@ describe("runtime transport lease reconciliation", () => {
         online: false,
         reasonCode: "daemon.profile.offline",
       });
-
       const keptRoute = await lookupRoute({
         ownerUserId,
         profileId: "agt-remove-b",
@@ -1973,11 +1942,9 @@ describe("runtime transport lease reconciliation", () => {
       socket.close(1000, "test_done");
     }
   });
-
   it("adds new profiles immediately while keeping same-session lease epoch stable", async () => {
     const ownerUserId = "owner-daemon-reconcile-2";
     const socket = await openDaemonStream(ownerUserId);
-
     try {
       const initial = await registerSession({
         socket,
@@ -1990,7 +1957,6 @@ describe("runtime transport lease reconciliation", () => {
         (lease) => lease.profileId === "agt-add-a"
       )?.leaseEpoch;
       expect(initialEpoch).toBe(1);
-
       const expanded = await registerSession({
         socket,
         ownerUserId,
@@ -1998,12 +1964,10 @@ describe("runtime transport lease reconciliation", () => {
         deviceId: "device-2",
         profileIds: ["agt-add-a", "agt-add-b"],
       });
-
       const expandedEpoch = expanded.acceptedLeases.find(
         (lease) => lease.profileId === "agt-add-a"
       )?.leaseEpoch;
       expect(expandedEpoch).toBe(initialEpoch);
-
       const addedRoute = await lookupRoute({
         ownerUserId,
         profileId: "agt-add-b",
@@ -2013,7 +1977,6 @@ describe("runtime transport lease reconciliation", () => {
       socket.close(1000, "test_done");
     }
   });
-
   it("logs stale lease rejection with structured event", async () => {
     const ownerUserId = "owner-daemon-reconcile-3";
     const daemonSessionId = "daemon-session-3";
@@ -2022,7 +1985,6 @@ describe("runtime transport lease reconciliation", () => {
     const warnSpy = vi
       .spyOn(console, "warn")
       .mockImplementation(() => undefined);
-
     try {
       const registered = await registerSession({
         socket,
@@ -2046,7 +2008,6 @@ describe("runtime transport lease reconciliation", () => {
           leases: registered.acceptedLeases,
         })
       ).resolves.toEqual({ ok: true, staleLeases: [] });
-
       const dispatchId = "dispatch-stale-lease-log-1";
       const attemptId = "attempt-stale-lease-log-1";
       const deliverFramePromise = waitForJsonMessage(
@@ -2069,7 +2030,6 @@ describe("runtime transport lease reconciliation", () => {
         },
       });
       expect(deliverResponse.accepted).toBe(true);
-
       const deliverFrame = await deliverFramePromise;
       const deliveredRequest = deliverFrame.payload as {
         payload: DeliveredDispatchPayload;
@@ -2077,7 +2037,6 @@ describe("runtime transport lease reconciliation", () => {
       expect(deliveredRequest.payload.sourceMessageEnvelope?.ccTargets).toEqual(
         []
       );
-
       socket.send(
         JSON.stringify(
           buildSuccessTaskResultFrame({
@@ -2091,11 +2050,14 @@ describe("runtime transport lease reconciliation", () => {
           })
         )
       );
-
       const acceptedFrame = await waitForJsonMessage(
         socket,
         (value) => {
-          const payload = value.payload as { dispatchId?: string } | undefined;
+          const payload = value.payload as
+            | {
+                dispatchId?: string;
+              }
+            | undefined;
           return (
             value.code === "daemon.dispatch.accepted" &&
             payload?.dispatchId === dispatchId
@@ -2104,7 +2066,9 @@ describe("runtime transport lease reconciliation", () => {
         5000
       );
       const acceptedPayload = acceptedFrame.payload as
-        | { ok?: boolean }
+        | {
+            ok?: boolean;
+          }
         | undefined;
       expect(acceptedPayload?.ok).toBe(false);
       expect(warnSpy).toHaveBeenCalledWith(
@@ -2122,12 +2086,16 @@ describe("runtime transport lease reconciliation", () => {
     }
   });
 });
-
 function createAutomaticUpdateLocalComponentsStatus(): Record<string, unknown> {
   return {
     schemaVersion: 1,
     generatedAt: "2026-09-01T12:54:00.000Z",
     entrypoint: "setup",
+    installationSource: {
+      distribution: "npm",
+      channel: "stable",
+      platform: "darwin-arm64",
+    },
     summaryLabel: "Everything is up to date",
     summaryDescription: "OpenMeld Tools are ready.",
     setupAction: "none",
@@ -2168,12 +2136,10 @@ function createAutomaticUpdateLocalComponentsStatus(): Record<string, unknown> {
     },
   };
 }
-
 describe("daemon stream keepalive", () => {
   it("answers a daemon-stream keepalive PING with PONG", async () => {
     const ownerUserId = "owner-daemon-keepalive-1";
     const socket = await openDaemonStream(ownerUserId);
-
     try {
       const pong = waitForRawMessage(
         socket,
@@ -2186,12 +2152,10 @@ describe("daemon stream keepalive", () => {
       socket.close(1000, "test_done");
     }
   });
-
   it("keepalive PING never changes the lease or emits an error frame", async () => {
     const ownerUserId = "owner-daemon-keepalive-2";
     const profileId = "agt-keepalive-lease";
     const socket = await openDaemonStream(ownerUserId);
-
     try {
       const registered = await registerSession({
         socket,
@@ -2204,10 +2168,8 @@ describe("daemon stream keepalive", () => {
         registered.acceptedLeases.find((lease) => lease.profileId === profileId)
           ?.leaseEpoch
       ).toBe(1);
-
       const before = await lookupRoute({ ownerUserId, profileId });
       expect(before.online).toBe(true);
-
       // A keepalive PING is auto-answered with PONG (or by the webSocketMessage
       // fallback); either way it must never surface as an error frame or touch
       // the lease / readiness. Receiving PONG -- not a schema.invalid error
@@ -2219,7 +2181,6 @@ describe("daemon stream keepalive", () => {
       );
       socket.send(DAEMON_STREAM_KEEPALIVE_PING);
       expect(await pong).toBe(DAEMON_STREAM_KEEPALIVE_PONG);
-
       const after = await lookupRoute({ ownerUserId, profileId });
       expect(after.online).toBe(true);
       expect(after.leaseEpoch).toBe(before.leaseEpoch);
@@ -2227,7 +2188,6 @@ describe("daemon stream keepalive", () => {
       socket.close(1000, "test_done");
     }
   });
-
   it("answers a keepalive PING through the webSocketMessage fallback without parsing it as a frame", async () => {
     // In production setWebSocketAutoResponse answers the PING below the handler,
     // so workerd never routes it to webSocketMessage. Drive the handler directly
@@ -2241,11 +2201,9 @@ describe("daemon stream keepalive", () => {
         sentRaw.push(data);
       },
     } as unknown as WebSocket;
-
     await runInDurableObject(shard, (instance) => {
       instance.webSocketMessage(fakeSocket, DAEMON_STREAM_KEEPALIVE_PING);
     });
-
     expect(sentRaw).toEqual([DAEMON_STREAM_KEEPALIVE_PONG]);
   });
 });

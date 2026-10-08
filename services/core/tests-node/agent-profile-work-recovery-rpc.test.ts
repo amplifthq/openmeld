@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
@@ -6,9 +7,9 @@ import {
   rpcExecuteAgentProfileWorkRecovery,
 } from "../src/rpc/methods";
 import {
-  applyDrizzleMigrationForTable as applyMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+  createPostgresHarness,
+  postgresTestBinding,
+} from "./helpers/postgresql-harness.test-support";
 
 const AGENT_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 const SPACE_ID = "a".repeat(64);
@@ -29,7 +30,7 @@ const CONTEXT: OpenMeldRequestContext = {
 
 describe("Agent Profile work recovery Core RPC", () => {
   it("applies serial admission only through current Organization owner authorization", async () => {
-    const harness = createRecoveryHarness();
+    const harness = await createRecoveryHarness();
     const runtimeTransportStub = createRuntimeTransportStub();
     const env = createEnv({ db: harness.db, runtimeTransportStub });
     try {
@@ -66,11 +67,11 @@ describe("Agent Profile work recovery Core RPC", () => {
         mode: "serial",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
   it("rejects requests outside the Profile's canonical Organization before reading recovery state", async () => {
-    const harness = createRecoveryHarness();
+    const harness = await createRecoveryHarness();
     const runtimeTransportStub = createRuntimeTransportStub();
     try {
       await expect(
@@ -99,12 +100,12 @@ describe("Agent Profile work recovery Core RPC", () => {
         runtimeTransportStub.rpcReadAgentProfileWorkRecovery
       ).not.toHaveBeenCalled();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("rejects a non-owner before reading recovery state", async () => {
-    const harness = createRecoveryHarness();
+    const harness = await createRecoveryHarness();
     const runtimeTransportStub = createRuntimeTransportStub();
     try {
       await expect(
@@ -136,12 +137,12 @@ describe("Agent Profile work recovery Core RPC", () => {
         runtimeTransportStub.rpcReadAgentProfileWorkRecovery
       ).not.toHaveBeenCalled();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("fails closed before reading recovery state when Auth omits Organization scope", async () => {
-    const harness = createRecoveryHarness();
+    const harness = await createRecoveryHarness();
     const runtimeTransportStub = createRuntimeTransportStub();
     try {
       await expect(
@@ -181,7 +182,7 @@ describe("Agent Profile work recovery Core RPC", () => {
         runtimeTransportStub.rpcReadAgentProfileWorkRecovery
       ).not.toHaveBeenCalled();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
@@ -217,7 +218,7 @@ describe("Agent Profile work recovery Core RPC", () => {
       scenario: `old ${action} against newer interrupted work`,
     })),
   ])("returns 409 for a $scenario", async ({ bodyAction, recovery }) => {
-    const harness = createRecoveryHarness();
+    const harness = await createRecoveryHarness();
     const runtimeTransportStub = createRuntimeTransportStub({ recovery });
     try {
       await expect(
@@ -252,21 +253,21 @@ describe("Agent Profile work recovery Core RPC", () => {
         runtimeTransportStub.rpcRequestAgentProfileWorkLocalAttemptWithdrawal
       ).not.toHaveBeenCalled();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("approves queued work from Auth scope despite a conflicting Core profile row", async () => {
-    const harness = createRecoveryHarness();
+    const harness = await createRecoveryHarness();
     const runtimeTransportStub = createRuntimeTransportStub({
       recovery: buildAvailableRecovery({ action: "approve_queued_work" }),
     });
     try {
-      harness.run({
-        params: ["org-stale", "stale-owner", AGENT_PROFILE_ID],
-        sql: `UPDATE openmeld_profiles
-          SET organization_id = ?, owner_user_id = ?
-          WHERE profile_id = ?`,
+      await harness.query({
+        values: ["org-stale", "stale-owner", AGENT_PROFILE_ID],
+        text: `UPDATE "openmeld"."openmeld_profiles"
+          SET organization_id = $1, owner_user_id = $2
+          WHERE profile_id = $3`,
       });
       await expect(
         rpcExecuteAgentProfileWorkRecovery(
@@ -302,12 +303,12 @@ describe("Agent Profile work recovery Core RPC", () => {
         targetProfileId: AGENT_PROFILE_ID,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("skips interrupted work through the owner Hub", async () => {
-    const harness = createRecoveryHarness();
+    const harness = await createRecoveryHarness();
     const runtimeTransportStub = createRuntimeTransportStub({
       recovery: buildAvailableRecovery({ action: "skip_interrupted_work" }),
     });
@@ -340,7 +341,7 @@ describe("Agent Profile work recovery Core RPC", () => {
         targetProfileId: AGENT_PROFILE_ID,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
@@ -350,7 +351,7 @@ describe("Agent Profile work recovery Core RPC", () => {
     "skip_interrupted_work",
     "fork_interrupted_work",
   ] as const)("rejects unfenced %s before reading or mutating owner state", async (action) => {
-    const harness = createRecoveryHarness();
+    const harness = await createRecoveryHarness();
     const runtimeTransportStub = createRuntimeTransportStub({
       recovery: buildAvailableRecovery({ action }),
     });
@@ -374,12 +375,12 @@ describe("Agent Profile work recovery Core RPC", () => {
         runtimeTransportStub.rpcSkipAgentProfileInterruptedWork
       ).not.toHaveBeenCalled();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("authorizes one deterministic continuation identity before asking Space to start it", async () => {
-    const harness = createRecoveryHarness();
+    const harness = await createRecoveryHarness();
     const callOrder: string[] = [];
     let authorizedContinuationClientMessageId: string | null = null;
     const runtimeTransportStub = createRuntimeTransportStub({
@@ -484,12 +485,12 @@ describe("Agent Profile work recovery Core RPC", () => {
       expect(spaceStub.rpcInspectExecutionRecovery).not.toHaveBeenCalled();
       expect(spaceStub.rpcExecuteExecutionRecovery).not.toHaveBeenCalled();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("defers a continuation from an older owner shard before any Space side effect", async () => {
-    const harness = createRecoveryHarness();
+    const harness = await createRecoveryHarness();
     const recovery = buildAvailableRecovery({
       action: "continue_interrupted_work",
     });
@@ -529,30 +530,71 @@ describe("Agent Profile work recovery Core RPC", () => {
         runtimeTransportStub.rpcAuthorizeAgentProfileWorkContinuation
       ).not.toHaveBeenCalled();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
-  it("skips occupied work when recovery action is fork_interrupted_work", async () => {
-    const harness = createRecoveryHarness();
+  it.each([
+    "owner",
+    "requester",
+    "other-task",
+  ] as const)("scopes occupied work skip to %s", async (actor) => {
+    const harness = await createRecoveryHarness();
     const runtimeTransportStub = createRuntimeTransportStub({
       recovery: buildAvailableRecovery({ action: "fork_interrupted_work" }),
     });
+    const spaceStub = {
+      rpcInputQueue: vi.fn(async () => ({
+        items: [],
+        recoveries:
+          actor === "requester"
+            ? [
+                {
+                  targetProfileId: AGENT_PROFILE_ID,
+                  profileName: "Agent One",
+                  action: "fork_interrupted_work" as const,
+                  expectedInterruptedTargetWakeLifecycleId:
+                    TARGET_WAKE_LIFECYCLE_ID,
+                },
+              ]
+            : [],
+      })),
+    };
     try {
-      await expect(
-        rpcExecuteAgentProfileWorkRecovery(
-          createEnv({ db: harness.db, runtimeTransportStub }),
-          {
-            agentProfileId: AGENT_PROFILE_ID,
-            body: {
-              action: "skip_interrupted_work",
-              expectedInterruptedTargetWakeLifecycleId:
-                TARGET_WAKE_LIFECYCLE_ID,
-            },
-            context: CONTEXT,
-          }
-        )
-      ).resolves.toEqual({
+      const result = rpcExecuteAgentProfileWorkRecovery(
+        createEnv({ db: harness.db, runtimeTransportStub, spaceStub }),
+        {
+          agentProfileId: AGENT_PROFILE_ID,
+          body: {
+            action: "skip_interrupted_work",
+            ...(actor !== "owner" ? { spaceId: SPACE_ID } : {}),
+            expectedInterruptedTargetWakeLifecycleId: TARGET_WAKE_LIFECYCLE_ID,
+          },
+          context:
+            actor === "owner"
+              ? CONTEXT
+              : {
+                  ...CONTEXT,
+                  actorContext: {
+                    ...CONTEXT.actorContext,
+                    ownerUserId: "requester-owner",
+                  },
+                },
+        }
+      );
+      if (actor === "other-task") {
+        await expect(result).rejects.toMatchObject({
+          code: "agent_profile_work_recovery.not_allowed",
+        });
+        expect(
+          runtimeTransportStub.rpcSkipAgentProfileInterruptedWork
+        ).not.toHaveBeenCalled();
+        expect(
+          runtimeTransportStub.rpcRequestAgentProfileWorkLocalAttemptWithdrawal
+        ).not.toHaveBeenCalled();
+        return;
+      }
+      await expect(result).resolves.toEqual({
         action: "skip_interrupted_work",
         status: "accepted",
       });
@@ -562,6 +604,10 @@ describe("Agent Profile work recovery Core RPC", () => {
       expect(
         runtimeTransportStub.rpcSkipAgentProfileInterruptedWork
       ).toHaveBeenCalledWith({
+        requesterProfileId:
+          actor === "requester"
+            ? CONTEXT.actorContext.openMeldProfileId
+            : undefined,
         expectedInterruptedTargetWakeLifecycleId: TARGET_WAKE_LIFECYCLE_ID,
         ownerUserId: "owner-1",
         targetProfileId: AGENT_PROFILE_ID,
@@ -576,12 +622,12 @@ describe("Agent Profile work recovery Core RPC", () => {
         targetProfileId: AGENT_PROFILE_ID,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("still skips the work when the withdrawal request cannot be delivered", async () => {
-    const harness = createRecoveryHarness();
+    const harness = await createRecoveryHarness();
     const runtimeTransportStub = createRuntimeTransportStub({
       recovery: buildAvailableRecovery({ action: "fork_interrupted_work" }),
     });
@@ -610,12 +656,12 @@ describe("Agent Profile work recovery Core RPC", () => {
         runtimeTransportStub.rpcSkipAgentProfileInterruptedWork
       ).toHaveBeenCalledOnce();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("persists fork intent across continuation retry after initial Space creation failure", async () => {
-    const harness = createRecoveryHarness();
+    const harness = await createRecoveryHarness();
     let currentRecovery = buildAvailableRecovery({
       action: "fork_interrupted_work",
     });
@@ -705,12 +751,12 @@ describe("Agent Profile work recovery Core RPC", () => {
         },
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("withholds the replacement branch until the original attempt is confirmed stopped", async () => {
-    const harness = createRecoveryHarness();
+    const harness = await createRecoveryHarness();
     const runtimeTransportStub = createRuntimeTransportStub({
       localAttemptWithdrawal: "requested",
       recovery: buildAvailableRecovery({ action: "fork_interrupted_work" }),
@@ -752,12 +798,12 @@ describe("Agent Profile work recovery Core RPC", () => {
         spaceStub.rpcStartUsageExhaustedContinuation
       ).not.toHaveBeenCalled();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("re-asks for the withdrawal on a retry that reuses a stored authorization", async () => {
-    const harness = createRecoveryHarness();
+    const harness = await createRecoveryHarness();
     const runtimeTransportStub = createRuntimeTransportStub({
       localAttemptWithdrawal: "requested",
       recovery: buildAvailableRecovery({
@@ -800,12 +846,12 @@ describe("Agent Profile work recovery Core RPC", () => {
         spaceStub.rpcStartUsageExhaustedContinuation
       ).not.toHaveBeenCalled();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("starts the replacement branch once the computer confirms the attempt is gone", async () => {
-    const harness = createRecoveryHarness();
+    const harness = await createRecoveryHarness();
     const runtimeTransportStub = createRuntimeTransportStub({
       localAttemptWithdrawal: "withdrawn",
       recovery: buildAvailableRecovery({ action: "fork_interrupted_work" }),
@@ -846,12 +892,12 @@ describe("Agent Profile work recovery Core RPC", () => {
         spaceStub.rpcStartUsageExhaustedContinuation
       ).toHaveBeenCalledOnce();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("defers replacement work when an owner shard predates the prerequisite", async () => {
-    const harness = createRecoveryHarness();
+    const harness = await createRecoveryHarness();
     const runtimeTransportStub = createRuntimeTransportStub({
       recovery: buildAvailableRecovery({ action: "fork_interrupted_work" }),
     });
@@ -888,12 +934,12 @@ describe("Agent Profile work recovery Core RPC", () => {
         spaceStub.rpcStartUsageExhaustedContinuation
       ).not.toHaveBeenCalled();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 
   it("defers replacement work when the owner shard cannot answer the prerequisite", async () => {
-    const harness = createRecoveryHarness();
+    const harness = await createRecoveryHarness();
     const runtimeTransportStub = createRuntimeTransportStub({
       localAttemptWithdrawal: "unavailable",
       recovery: buildAvailableRecovery({ action: "fork_interrupted_work" }),
@@ -924,33 +970,21 @@ describe("Agent Profile work recovery Core RPC", () => {
         spaceStub.rpcStartUsageExhaustedContinuation
       ).not.toHaveBeenCalled();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
 
-function createRecoveryHarness() {
-  const harness = createSqliteD1Harness();
-  applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
-  harness.run({
-    sql: `CREATE TABLE openmeld_profiles (
-      profile_id text PRIMARY KEY NOT NULL,
-      profile_name text NOT NULL,
-      profile_handle text NOT NULL,
-      profile_kind text NOT NULL,
-      is_default integer NOT NULL,
-      status text NOT NULL,
-      organization_id text,
-      owner_user_id text NOT NULL,
-      source text NOT NULL,
-      managed_role text,
-      created_at integer NOT NULL,
-      updated_at integer NOT NULL
-    )`,
+async function createRecoveryHarness() {
+  const harness = await createPostgresHarness();
+  await harness.query({
+    text: `INSERT INTO "openmeld"."users" (id,name,email) VALUES ('owner-1','Owner','owner-1@example.com'),('stale-owner','Stale Owner','stale@example.com');
+    INSERT INTO "openmeld"."organizations" (id,name,slug,created_at) VALUES ('org-1','Organization','org-1',1700000000000),('org-stale','Stale Organization','org-stale',1700000000000)`,
   });
+
   const now = Date.now();
-  harness.run({
-    params: [
+  await harness.query({
+    values: [
       AGENT_PROFILE_ID,
       "Agent One",
       "agent-one",
@@ -963,7 +997,7 @@ function createRecoveryHarness() {
       now,
       now,
     ],
-    sql: `INSERT INTO openmeld_profiles (
+    text: `INSERT INTO "openmeld"."openmeld_profiles" (
       profile_id,
       profile_name,
       profile_handle,
@@ -975,10 +1009,10 @@ function createRecoveryHarness() {
       source,
       created_at,
       updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
   });
-  harness.run({
-    params: [
+  await harness.query({
+    values: [
       "binding-1",
       "owner-1",
       AGENT_PROFILE_ID,
@@ -988,7 +1022,7 @@ function createRecoveryHarness() {
       now,
       now,
     ],
-    sql: `INSERT INTO openMeldDaemon_agent_profile_bindings (
+    text: `INSERT INTO "openmeld"."openMeldDaemon_agent_profile_bindings" (
       binding_id,
       owner_kind,
       owner_id,
@@ -1001,7 +1035,7 @@ function createRecoveryHarness() {
       configuration_revision,
       created_at_ms,
       updated_at_ms
-    ) VALUES (?, 'owner_account', ?, ?, ?, 'openmeld_service', ?, ?, 'enabled_primary', 1, ?, ?)`,
+    ) VALUES ($1, 'owner_account', $2, $3, $4, 'openmeld_service', $5, $6, 'enabled_primary', 1, $7, $8)`,
   });
   return harness;
 }
@@ -1080,7 +1114,7 @@ function createRuntimeTransportStub(input?: {
 
 function createEnv(input: {
   authResolveProfileById?: ResolveProfileByIdRpc;
-  db: D1Database;
+  db: PostgresDatabase;
   runtimeTransportStub: ReturnType<typeof createRuntimeTransportStub>;
   spaceStub?: Record<string, unknown>;
 }): CoreBindings {
@@ -1102,7 +1136,7 @@ function createEnv(input: {
           },
         })),
     },
-    OPENMELD_DB: input.db,
+    OPENMELD_POSTGRESQL: postgresTestBinding(input.db),
     OPENMELD_RUNTIME_TRANSPORT: {
       get: vi.fn(() => input.runtimeTransportStub),
       idFromName: vi.fn((value: string) => value),

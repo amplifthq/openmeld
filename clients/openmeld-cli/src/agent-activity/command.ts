@@ -2,15 +2,17 @@ import { homedir } from "node:os";
 import {
   createAgentActivityApi,
   createProjectsApi,
+  createSessionHistoryApi,
 } from "@openmeld/api-client";
+import { buildCanonicalRepositoryUrl } from "@openmeld/projects";
 import {
-  agentActivityInventorySessionOriginSchema,
-  agentActivityInventorySessionStatusSchema,
   agentActivitySessionInventoryQuerySchema,
   agentActivitySessionStatusSchema,
   agentActivitySnapshotQuerySchema,
   cliJsonOutputEnvelopeSchema,
-  localAgentSessionProviderSchema,
+  daemonServiceLaneSchema,
+  sessionHistoryReadSchema,
+  sessionHistoryResultSchema,
 } from "@openmeld/schemas";
 import type {
   AgentActivityProvider,
@@ -53,6 +55,7 @@ import {
   bindProject,
   listProjectBindings,
   listProjectConnectionsWithStatus,
+  ProjectBindingOperationError,
   unbindProject,
 } from "./project-bindings";
 import {
@@ -61,6 +64,66 @@ import {
 } from "./route-registry";
 
 type CommandInput = { json?: boolean; view?: string };
+
+export async function runAgentActivityHistory(
+  input: CommandInput & {
+    device: string;
+    lane: string;
+    projectId: string;
+    session: string;
+    provider?: string;
+    offset?: string;
+    limit?: string;
+  }
+) {
+  await runProjectCommand(input, "activity.history", async (context) => {
+    const request = sessionHistoryReadSchema.parse({
+      operation: "read_session",
+      projectId: input.projectId,
+      sessionId: input.session,
+      provider: input.provider,
+      offset: Number(input.offset ?? 0),
+      limit: Number(input.limit ?? 20),
+    });
+    const dispatch =
+      process.env[OPENMELD_DISPATCH_RUNTIME_MODE_ENV] ||
+      process.env[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV]
+        ? readDispatchSpaceActionContextFromEnv()
+        : null;
+    const agent = dispatch
+      ? await resolveOpenMeldProfile({
+          openMeldProfileId: dispatch.targetProfileId,
+          profileKind: "agent",
+        })
+      : null;
+    if (dispatch && !dispatch.executionTokenEcho) {
+      throw new Error(
+        "This Wake has no current execution proof for session history."
+      );
+    }
+    const response = await context.historyApi.request({
+      organizationId: context.organizationId,
+      deviceId: input.device,
+      runtimeLane: daemonServiceLaneSchema.parse(input.lane),
+      request,
+      ...(dispatch && agent && dispatch.executionTokenEcho
+        ? {
+            execution: {
+              dispatchId: dispatch.dispatchId,
+              executionTokenEcho: dispatch.executionTokenEcho,
+            },
+            requestContext: buildOpenMeldRequestContextFromProfile({
+              openMeldProfile: agent,
+            }),
+          }
+        : {}),
+    });
+    if (response.kind === "error") {
+      throw new Error(response.message);
+    }
+    emitSuccess(context, "activity.history", response);
+  });
+}
 
 export async function runProjectsList(input: CommandInput = {}): Promise<void> {
   await runProjectCommand(input, "list", async (context) => {
@@ -124,6 +187,7 @@ export async function runAgentActivityRead(
 
 export async function runAgentActivitySessions(
   input: CommandInput & {
+    computer?: string;
     cursor?: string;
     limit?: string;
     member?: string;
@@ -148,33 +212,16 @@ export async function runAgentActivitySessions(
     }
     const response = await context.activityApi.readSessions(
       agentActivitySessionInventoryQuerySchema.parse({
-        ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
-        ...(input.limit === undefined ? {} : { limit: input.limit }),
-        ...(input.member === undefined ? {} : { memberUserId: input.member }),
-        ...(input.nativeSession === undefined
-          ? {}
-          : { nativeSessionId: input.nativeSession }),
-        ...(input.origin === undefined
-          ? {}
-          : {
-              origin: agentActivityInventorySessionOriginSchema.parse(
-                input.origin
-              ),
-            }),
-        ...(projectId === undefined ? {} : { projectId }),
-        ...(input.provider === undefined
-          ? {}
-          : {
-              provider: localAgentSessionProviderSchema.parse(input.provider),
-            }),
-        ...(input.query === undefined ? {} : { query: input.query }),
-        ...(input.status === undefined
-          ? {}
-          : {
-              status: agentActivityInventorySessionStatusSchema.parse(
-                input.status
-              ),
-            }),
+        computerId: input.computer,
+        cursor: input.cursor,
+        limit: input.limit,
+        memberUserId: input.member,
+        nativeSessionId: input.nativeSession,
+        origin: input.origin,
+        projectId,
+        provider: input.provider,
+        query: input.query,
+        status: input.status,
       })
     );
     requireOrganizationIdentity(
@@ -339,11 +386,16 @@ export async function purgeLocalProject(binding: {
 }
 
 export function toPublicAgentActivityBinding<
-  T extends { bindingGeneration: string; isDefault?: boolean },
+  T extends {
+    bindingGeneration: string;
+    isDefault?: boolean;
+    ownerUserId?: string;
+  },
 >(binding: T) {
   const {
     bindingGeneration: _bindingGeneration,
     isDefault: _isDefault,
+    ownerUserId: _ownerUserId,
     ...publicBinding
   } = binding;
   return publicBinding;
@@ -354,6 +406,8 @@ export async function runProjectsBind(
     allowUnverified?: boolean;
     path?: string;
     projectSlug: string;
+    repository?: string;
+    share?: boolean;
   }
 ): Promise<void> {
   await runProjectCommand(input, "bind", async (context) => {
@@ -370,11 +424,16 @@ export async function runProjectsBind(
     if (!project || project.archivedAtMs !== null) {
       throw new Error(`Active Project "${projectSlug}" was not found.`);
     }
+    const selectedFingerprint = await resolveProjectBindFingerprint(
+      context,
+      project,
+      input.repository
+    );
     const requestedPath = input.path ?? process.cwd();
     const connection = await validateLocalProjectConnectionPath({
       allowUnverifiedNonGit: input.allowUnverified === true,
       declaredPath: requestedPath,
-      projectRepositoryFingerprint: project.repositoryFingerprint,
+      projectRepositoryFingerprint: selectedFingerprint,
     }).catch((error: unknown) => {
       if (
         error instanceof LocalProjectConnectionError &&
@@ -388,13 +447,18 @@ export async function runProjectsBind(
       throw error;
     });
     await assertProjectBindingProducerCompatible();
-    const binding = await bindProject({
+    const bindingInput = {
       organizationId: context.organizationId,
+      ownerUserId: context.ownerUserId,
       projectId: project.id,
       projectSlug: project.slug,
       repositoryFingerprint: connection.repositoryFingerprint,
       repositoryPath: connection.canonicalPath,
-    });
+    };
+    const binding = await bindProjectForCommand(
+      bindingInput,
+      input.share === true
+    );
     const integrationSetup = await activateAgentActivityIntegrations();
     emitSuccess(context, "projects.bind", {
       binding: toPublicAgentActivityBinding(binding),
@@ -405,6 +469,76 @@ export async function runProjectsBind(
         : { normalizedFrom: connection.normalizedFrom }),
     });
   });
+}
+
+async function resolveProjectBindFingerprint(
+  context: ProjectCommandContext,
+  project: Project,
+  requestedUrl: string | undefined
+): Promise<string | null> {
+  const settings = (
+    await context.projectsApi.readRepositorySettings({ projectId: project.id })
+  ).settings;
+  if (settings.projectId !== project.id) {
+    throw new Error(
+      "The Project repository settings changed. Refresh and retry."
+    );
+  }
+  const canonicalUrl = requestedUrl
+    ? buildCanonicalRepositoryUrl(requestedUrl)
+    : null;
+  if (requestedUrl && !canonicalUrl) {
+    throw new Error("--repository must name a supported repository URL.");
+  }
+  const selected = canonicalUrl
+    ? settings.repositories.find(
+        (repository) => repository.repositoryUrl === canonicalUrl
+      )
+    : (settings.repositories.find((repository) => repository.isDefault) ??
+      (settings.repositories.length === 1
+        ? settings.repositories[0]
+        : undefined));
+  if (canonicalUrl && !selected) {
+    throw new Error("That repository is not associated with this Project.");
+  }
+  if (
+    !(selected || settings.legacyDefaultFingerprint) &&
+    settings.repositories.length > 1
+  ) {
+    throw new Error(
+      "This Project has several repositories. Pass --repository with the exact URL."
+    );
+  }
+  return (
+    selected?.repositoryFingerprint ?? settings.legacyDefaultFingerprint ?? null
+  );
+}
+
+async function bindProjectForCommand(
+  bindingInput: Parameters<typeof bindProject>[0],
+  share: boolean
+): Promise<Awaited<ReturnType<typeof bindProject>>> {
+  try {
+    return await bindProject(bindingInput);
+  } catch (error) {
+    if (
+      !(error instanceof ProjectBindingOperationError) ||
+      error.code !== "path_conflict" ||
+      error.pathConflict?.conflictScope !== "same_organization"
+    ) {
+      throw error;
+    }
+    if (share && error.pathConflict.shareConfirmationToken) {
+      return await bindProject({
+        ...bindingInput,
+        shareConfirmationToken: error.pathConflict.shareConfirmationToken,
+      });
+    }
+    throw new Error(
+      `${error.message} Run this bind command again with --share to keep both Project connections.`,
+      { cause: error }
+    );
+  }
 }
 
 export async function activateAgentActivityIntegrations(input?: {
@@ -528,11 +662,13 @@ export async function runProjectsUnbind(
 }
 
 export type ProjectCommandContext = {
+  historyApi: ReturnType<typeof createSessionHistoryApi>;
   activityApi: ReturnType<typeof createAgentActivityApi>;
   json: boolean;
   organizationId: string;
   organizationName: string;
   organizationSlug: string;
+  ownerUserId: string;
   presenter: Presenter;
   projectsApi: ReturnType<typeof createProjectsApi>;
 };
@@ -554,14 +690,20 @@ export async function runProjectCommand(
         "Sign in and choose an active Organization before managing Projects."
       );
     }
+    const ownerUserId = auth.session?.user?.id?.trim();
+    if (!ownerUserId) {
+      throw new Error("The signed-in account owner is unavailable.");
+    }
     organizationSlug = organization.slug;
     const apiClient = createCliApiClientFoundation(await resolveBaseUrl());
     await run({
+      historyApi: createSessionHistoryApi(apiClient),
       activityApi: createAgentActivityApi(apiClient),
       json,
       organizationId: organization.id,
       organizationName: organization.name,
       organizationSlug: organization.slug,
+      ownerUserId,
       presenter,
       projectsApi: createProjectsApi(apiClient),
     });
@@ -707,6 +849,36 @@ function emitActivitySuccess(
   code: string,
   payload: Record<string, unknown>
 ): boolean {
+  if (code === "activity.history") {
+    const history = sessionHistoryResultSchema.parse(payload);
+    if (history.kind !== "session") {
+      return false;
+    }
+    renderInfoCard({
+      presenter: context.presenter,
+      codePrefix: code,
+      title: "Session history",
+      sanitize: true,
+      rows: [
+        { label: "Session", value: history.sessionId },
+        { label: "Requester", value: history.requester.requesterUserId },
+        { label: "Audience", value: history.requester.audience },
+        { label: "Request source", value: history.requester.requestRootId },
+        ...history.messages.map((message) => ({
+          label: `${message.role}${message.truncated ? " (shortened)" : ""}`,
+          value: message.text,
+        })),
+        {
+          label: "Next offset",
+          value:
+            history.nextOffset === null
+              ? "End of history"
+              : String(history.nextOffset),
+        },
+      ],
+    });
+    return true;
+  }
   if (code === "activity.read" && context.presenter.view === "agent") {
     emitAgentActivitySnapshot(
       context.presenter,
@@ -1049,3 +1221,11 @@ function titleForCode(code: string): string {
   const action = (code.split(".").at(-1) ?? "complete").replaceAll("_", " ");
   return `Project ${action.charAt(0).toUpperCase()}${action.slice(1)}`;
 }
+
+import { resolveOpenMeldProfile } from "../config/openmeld-profiles-api";
+import { buildOpenMeldRequestContextFromProfile } from "../config/openmeld-request-context";
+import { OPENMELD_DISPATCH_RUNTIME_MODE_ENV } from "../runtime/dispatch-runtime-env";
+import {
+  OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV,
+  readDispatchSpaceActionContextFromEnv,
+} from "../runtime/dispatch-space-action-context";

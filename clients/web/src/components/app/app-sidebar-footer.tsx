@@ -6,49 +6,54 @@ import {
 	AvatarImage,
 } from "@openmeld/ui/components/avatar";
 import { DropdownMenuSeparator } from "@openmeld/ui/components/dropdown-menu";
-import { FluidDropdownMenuItem } from "@openmeld/ui/fluid/dropdown-menu";
-import { SidebarFooter } from "@openmeld/ui/fluid/sidebar";
+import { Kbd, KbdGroup } from "@openmeld/ui/components/kbd";
 import {
-	SidebarMenu,
-	SidebarMenuButton,
-	SidebarMenuItem,
-} from "@openmeld/ui/fluid/sidebar-menu";
+	FluidDropdownMenuGroup,
+	FluidDropdownMenuItem,
+} from "@openmeld/ui/fluid/dropdown-menu";
+import { SidebarFooter } from "@openmeld/ui/fluid/sidebar";
+import { SidebarMenu } from "@openmeld/ui/fluid/sidebar-menu";
 import type { SidebarMode } from "@openmeld/ui/fluid/sidebar-state";
 import { SidebarUserMenuItem } from "@openmeld/ui/fluid/sidebar-user-footer";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	CaretRightIcon,
 	DesktopTowerIcon,
-	GearSixIcon,
 	GlobeHemisphereWestIcon,
 	MagnifyingGlassIcon,
-	MoonIcon,
+	PaletteIcon,
 	SignOutIcon,
-	SunIcon,
 } from "@phosphor-icons/react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { useTheme } from "next-themes";
 import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
+import { ThemeSelector } from "#/components/appearance/theme-selector";
+import { useWalkthrough } from "#/components/onboarding/walkthrough/walkthrough-context";
 import { useOrganizationInviteEntry } from "#/components/organizations/use-organization-invite-entry";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { useAppSettings } from "#/components/settings/use-app-settings";
 import { DesktopSignOutMenuItem } from "#/desktop/desktop-account-actions";
 import { getDesktopPlatform, openDesktopWeb } from "#/desktop/platform";
+import {
+	DESKTOP_UPDATE_ATTENTION_LABEL,
+	DesktopUpdateIndicator,
+	useDesktopUpdateAttention,
+} from "#/desktop/updater";
 import { useLogoutAction } from "#/hooks/auth-form.hooks";
 import {
 	AccountsSwitcherView,
 	useAccountSwitcher,
 } from "./app-account-switcher";
+import { AppHelpMenu } from "./app-help-menu";
 import { useAppNavigationPresentation } from "./app-navigation-presentation";
-import { CollapsedRailTooltip } from "./app-rail-navigation";
-import { AppSettingsButton } from "./app-settings-button";
+import { AppSettingsMenuItem } from "./app-settings-menu-item";
 import type {
 	AppOuterRailAccount,
 	HumanProfileAvatarIdentity,
 } from "./app-workspace-switcher";
 import {
 	CurrentComputerAttentionIndicator,
+	CurrentComputerMenuStatus,
 	useCurrentComputer,
 } from "./current-computer";
 
@@ -68,7 +73,7 @@ function PlatformAppMenuItem(input: { index: number; webPath: string }) {
 					);
 					return;
 				}
-				window.location.assign("/desktop");
+				window.location.assign(`${import.meta.env.VITE_WEBSITE_URL}/downloads`);
 			}}
 		>
 			{desktop ? <GlobeHemisphereWestIcon /> : <DesktopTowerIcon />}
@@ -79,54 +84,39 @@ function PlatformAppMenuItem(input: { index: number; webPath: string }) {
 
 function footerLayout(iconOnly: boolean, isDrawer: boolean) {
 	return {
-		actionClass: cn(
-			"shrink-0 justify-center p-0 text-sidebar-foreground/60 hover:text-sidebar-foreground focus-visible:text-sidebar-foreground",
-			iconOnly ? "size-9 [&_svg]:size-[18px]" : "size-7",
-			isDrawer && "h-11 w-full justify-start gap-3 px-3"
-		),
-		actionsClassName: cn(
-			"app-sidebar-footer-actions gap-1",
-			iconOnly && "mx-auto w-9",
-			!(iconOnly || isDrawer) && "min-w-0 flex-1 flex-row items-center",
-			isDrawer && "min-w-0 flex-col items-stretch"
-		),
+		actionsClassName: cn("app-sidebar-footer-actions", iconOnly && "w-8"),
 		footerClassName: cn(
 			"app-sidebar-footer p-2",
+			iconOnly && "items-center",
 			isDrawer &&
 				"border-border border-t [&_a]:min-h-11 [&_a]:min-w-11 [&_button]:min-h-11 [&_button]:min-w-11"
 		),
 		userItemClassName: cn(
-			iconOnly && "w-9",
+			iconOnly && "w-8",
 			!(iconOnly || isDrawer) && "min-w-0 flex-1",
 			isDrawer && "w-full min-w-0"
 		),
 	};
 }
 
-function drawerText(label: string, isDrawer: boolean) {
-	return isDrawer ? label : null;
-}
-
 export function AppSidebarFooter({
 	account,
 	humanProfileAvatar,
 	mode,
-	isSettingsActive,
 }: {
 	account: AppOuterRailAccount;
 	humanProfileAvatar: HumanProfileAvatarIdentity | null;
 	mode: SidebarMode;
-	orgSlug: string;
-	isSettingsActive: boolean;
 }) {
 	const iconOnly = mode === "icon";
+	const walkthrough = useWalkthrough();
 	const computerAttentionLabel = useCurrentComputer()?.attentionLabel;
+	const updateAttention = useDesktopUpdateAttention();
 	const navigate = useNavigate();
 	const currentWebPath = useLocation({
 		select: (location) => location.href,
 	});
 	const name = account.name?.trim() || account.email || "Account";
-	const settingsLabel = "Settings";
 	const openSettings = useAppSettings();
 	const { dismiss, presentation } = useAppNavigationPresentation();
 	const logout = useLogoutAction();
@@ -138,10 +128,7 @@ export function AppSidebarFooter({
 		account,
 		!desktop && menuOpen && showAccounts
 	);
-	const { resolvedTheme, setTheme } = useTheme();
-	const dark = resolvedTheme === "dark";
 	const isDrawer = presentation === "drawer";
-	const themeActionLabel = dark ? "Light mode" : "Dark mode";
 	const openAccount = () => {
 		dismiss();
 		setMenuOpen(false);
@@ -155,67 +142,27 @@ export function AppSidebarFooter({
 			name={name}
 		/>
 	);
-	const { actionClass, actionsClassName, footerClassName, userItemClassName } =
-		footerLayout(iconOnly, isDrawer);
+	const { actionsClassName, footerClassName, userItemClassName } = footerLayout(
+		iconOnly,
+		isDrawer
+	);
 	return (
-		<SidebarFooter className={footerClassName}>
-			<SidebarMenu aria-label="App utilities" className={actionsClassName}>
-				<SidebarMenuItem className="shrink-0">
-					<CollapsedRailTooltip
-						label="Search or run a command"
-						side={iconOnly ? "right" : "top"}
-					>
-						<SidebarMenuButton
-							aria-label="Search or run a command"
-							className={actionClass}
-							icon={MagnifyingGlassIcon}
-							onClick={() => {
-								dismiss();
-								window.dispatchEvent(new Event("openmeld:command-center"));
-							}}
-							tabIndex={0}
-						>
-							{drawerText("Search", isDrawer)}
-						</SidebarMenuButton>
-					</CollapsedRailTooltip>
-				</SidebarMenuItem>
-				<SidebarMenuItem className="shrink-0">
-					<CollapsedRailTooltip
-						label={settingsLabel}
-						side={iconOnly ? "right" : "top"}
-					>
-						<SidebarMenuButton
-							className={actionClass}
-							icon={GearSixIcon}
-							isActive={isSettingsActive && !menuOpen}
-							render={
-								<AppSettingsButton
-									isActive={isSettingsActive}
-									onClick={openAccount}
-								/>
-							}
-							tabIndex={0}
-						>
-							{drawerText(settingsLabel, isDrawer)}
-						</SidebarMenuButton>
-					</CollapsedRailTooltip>
-				</SidebarMenuItem>
-				<SidebarMenuItem className="shrink-0">
-					<CollapsedRailTooltip
-						label={dark ? "Switch to light mode" : "Switch to dark mode"}
-						side={iconOnly ? "right" : "top"}
-					>
-						<SidebarMenuButton
-							aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
-							className={actionClass}
-							icon={dark ? SunIcon : MoonIcon}
-							onClick={() => setTheme(dark ? "light" : "dark")}
-							tabIndex={0}
-						>
-							{drawerText(themeActionLabel, isDrawer)}
-						</SidebarMenuButton>
-					</CollapsedRailTooltip>
-				</SidebarMenuItem>
+		<SidebarFooter className={cn(footerClassName, "relative")}>
+			<div
+				className={cn(
+					"absolute bottom-2 left-full z-40 ml-2",
+					menuOpen && "hidden"
+				)}
+				id="walkthrough-notice-anchor"
+				ref={walkthrough?.setNoticeAnchor}
+			/>
+			<SidebarMenu
+				activeIndicatorClassName={iconOnly ? "rounded-full" : undefined}
+				aria-label="App utilities"
+				className={actionsClassName}
+				focusIndicatorClassName={iconOnly ? "rounded-full" : undefined}
+				hoverIndicatorClassName={iconOnly ? "rounded-full" : undefined}
+			>
 				<SidebarUserMenuItem
 					avatar={
 						<AccountAvatarWithComputerAttention>
@@ -244,69 +191,98 @@ export function AppSidebarFooter({
 							/>
 						) : (
 							<>
-								<FluidDropdownMenuItem
-									className="gap-2 py-2"
-									closeOnClick={false}
-									index={0}
-									onClick={() =>
-										desktop ? openAccount() : setShowAccounts(true)
-									}
-								>
-									{avatar}
-									<span className="min-w-0 flex-1 text-left">
-										<span className="block truncate font-medium">{name}</span>
-										<span className="block truncate text-muted-foreground text-xs">
-											{account.email}
-										</span>
-									</span>
-									<CaretRightIcon className="size-3.5 shrink-0" />
-								</FluidDropdownMenuItem>
-								<DropdownMenuSeparator className="my-1" />
-								{invitationEntry.menuItem}
-								<ComputerMenuItem
-									index={invitationEntry.nextMenuIndex}
-									onNavigate={(destination) => {
-										setMenuOpen(false);
-										dismiss();
-										navigate({ to: destination }).catch((error: Error) =>
-											toast.error(error.message)
-										);
-									}}
-								/>
-								<FluidDropdownMenuItem
-									index={invitationEntry.nextMenuIndex + 1}
-									onClick={openAccount}
-								>
-									<GearSixIcon />
-									Settings
-								</FluidDropdownMenuItem>
-								<PlatformAppMenuItem
-									index={invitationEntry.nextMenuIndex + 2}
-									webPath={currentWebPath}
-								/>
-								<DropdownMenuSeparator className="my-1" />
-								{desktop ? (
-									<DesktopSignOutMenuItem
-										index={invitationEntry.nextMenuIndex + 3}
-									/>
-								) : (
+								<FluidDropdownMenuGroup>
 									<FluidDropdownMenuItem
-										disabled={logout.isPending}
-										index={invitationEntry.nextMenuIndex + 3}
+										className="gap-2 py-2"
+										closeOnClick={false}
+										index={0}
+										onClick={() =>
+											desktop ? openAccount() : setShowAccounts(true)
+										}
+									>
+										{avatar}
+										<span className="min-w-0 flex-1 text-left">
+											<span className="block truncate font-medium">{name}</span>
+											<span className="block truncate text-muted-foreground text-xs">
+												{account.email}
+											</span>
+										</span>
+										<CaretRightIcon className="size-3.5 shrink-0" />
+									</FluidDropdownMenuItem>
+									<DropdownMenuSeparator className="my-1" />
+								</FluidDropdownMenuGroup>
+								<FluidDropdownMenuGroup>
+									<FluidDropdownMenuItem
+										index={0}
 										onClick={() => {
-											logout.mutate(undefined, {
-												onSuccess: () => window.location.assign("/"),
-												onError: (error) =>
-													toast.error(
-														error.message || "Unable to log out. Try again."
-													),
-											});
+											setMenuOpen(false);
+											dismiss();
+											window.dispatchEvent(
+												new Event("openmeld:command-center")
+											);
 										}}
 									>
-										<SignOutIcon />
-										Log out
+										<MagnifyingGlassIcon />
+										<span className="flex-1">Search</span>
+										<KbdGroup>
+											<Kbd>⌘</Kbd>
+											<Kbd>K</Kbd>
+										</KbdGroup>
 									</FluidDropdownMenuItem>
-								)}
+								</FluidDropdownMenuGroup>
+								<DropdownMenuSeparator />
+								<FluidDropdownMenuGroup>
+									{invitationEntry.menuItem}
+									<ComputerMenuItem
+										index={invitationEntry.nextMenuIndex}
+										onNavigate={(destination) => {
+											setMenuOpen(false);
+											dismiss();
+											navigate({ to: destination }).catch((error: Error) =>
+												toast.error(error.message)
+											);
+										}}
+									/>
+									<AppSettingsMenuItem
+										index={invitationEntry.nextMenuIndex + 1}
+										onClick={openAccount}
+									/>
+									<PlatformAppMenuItem
+										index={invitationEntry.nextMenuIndex + 2}
+										webPath={currentWebPath}
+									/>
+								</FluidDropdownMenuGroup>
+								<div className="flex h-8 items-center gap-2 px-2 text-xs">
+									<PaletteIcon aria-hidden="true" className="size-4 shrink-0" />
+									<span className="flex-1">Theme</span>
+									<ThemeSelector />
+								</div>
+								<DropdownMenuSeparator />
+								<FluidDropdownMenuGroup>
+									<AppHelpMenu index={invitationEntry.nextMenuIndex + 3} />
+									{desktop ? (
+										<DesktopSignOutMenuItem
+											index={invitationEntry.nextMenuIndex + 4}
+										/>
+									) : (
+										<FluidDropdownMenuItem
+											disabled={logout.isPending}
+											index={invitationEntry.nextMenuIndex + 4}
+											onClick={() => {
+												logout.mutate(undefined, {
+													onSuccess: () => window.location.assign("/"),
+													onError: (error) =>
+														toast.error(
+															error.message || "Unable to log out. Try again."
+														),
+												});
+											}}
+										>
+											<SignOutIcon />
+											Log out
+										</FluidDropdownMenuItem>
+									)}
+								</FluidDropdownMenuGroup>
 							</>
 						)
 					}
@@ -322,11 +298,14 @@ export function AppSidebarFooter({
 						}
 					}}
 					open={menuOpen}
-					triggerLabel={
-						computerAttentionLabel
-							? `Open user menu for ${name}, ${computerAttentionLabel}`
-							: undefined
-					}
+					triggerClassName={iconOnly ? "size-8 rounded-full" : undefined}
+					triggerLabel={[
+						`Open user menu for ${name}`,
+						computerAttentionLabel,
+						updateAttention ? DESKTOP_UPDATE_ATTENTION_LABEL : null,
+					]
+						.filter(Boolean)
+						.join(", ")}
 				/>
 			</SidebarMenu>
 			{invitationEntry.dialog}
@@ -344,30 +323,15 @@ function AccountFooterAvatar(input: {
 		return (
 			<DitherProfileAvatar
 				{...input.humanProfileAvatar}
-				className={
-					input.iconOnly
-						? "rounded-md after:rounded-md [&_[data-slot=avatar-fallback]]:rounded-md [&_[data-slot=avatar-image]]:rounded-md"
-						: undefined
-				}
 				profileKind="human"
-				size={input.iconOnly ? 36 : 20}
+				size={input.iconOnly ? 32 : 20}
 			/>
 		);
 	}
 	return (
-		<Avatar
-			className={
-				input.iconOnly ? "size-9 rounded-md after:rounded-md" : "size-5"
-			}
-		>
-			<AvatarImage
-				alt=""
-				className={input.iconOnly ? "rounded-md" : undefined}
-				src={input.account.image ?? undefined}
-			/>
-			<AvatarFallback className={input.iconOnly ? "rounded-md" : undefined}>
-				{input.name.slice(0, 1)}
-			</AvatarFallback>
+		<Avatar className={input.iconOnly ? "size-8" : "size-5"}>
+			<AvatarImage alt="" src={input.account.image ?? undefined} />
+			<AvatarFallback>{input.name.slice(0, 1)}</AvatarFallback>
 		</Avatar>
 	);
 }
@@ -378,10 +342,14 @@ function AccountAvatarWithComputerAttention({
 	children: ReactNode;
 }) {
 	const computer = useCurrentComputer();
+	const updateAttention = useDesktopUpdateAttention();
 	const showAttention = computer?.attentionLabel;
 	return (
 		<span className="relative inline-flex">
 			{children}
+			{updateAttention && !showAttention ? (
+				<DesktopUpdateIndicator className="absolute -top-0.5 -right-0.5" />
+			) : null}
 			{showAttention ? (
 				<>
 					<span className="sr-only">{computer.accessibleLabel}</span>
@@ -411,9 +379,7 @@ function ComputerMenuItem(input: {
 		>
 			<DesktopTowerIcon />
 			<span className="flex-1">Computer</span>
-			{computer ? (
-				<CurrentComputerAttentionIndicator status={computer.status} />
-			) : null}
+			<CurrentComputerMenuStatus />
 		</FluidDropdownMenuItem>
 	);
 }

@@ -107,10 +107,14 @@ export const validateSpaceSignalClientMessageIdPolicy = (
 export const postNormalMessageBodySchema = z
   .strictObject({
     workHandoffVersion: z.literal(1).optional(),
+    evidenceRefsVersion: z.literal(1).optional(),
     text: signalTextRequestDataSchema.shape.text,
     deviceWait: signalTextRequestDataSchema.shape.deviceWait.optional(),
     contextSelection:
       signalTextRequestDataSchema.shape.contextSelection.optional(),
+    contextSelections:
+      signalTextRequestDataSchema.shape.contextSelections.optional(),
+    taskDraft: signalTextRequestDataSchema.shape.taskDraft.optional(),
     attachments: signalTextRequestDataSchema.shape.attachments.optional(),
     files: signalTextRequestDataSchema.shape.files.optional(),
     messageEnvelope:
@@ -119,7 +123,11 @@ export const postNormalMessageBodySchema = z
     meta: signalTextRequestDataSchema.shape.meta.optional(),
   })
   .superRefine((value, ctx) => {
-    const { workHandoffVersion: _workHandoffVersion, ...signalData } = value;
+    const {
+      workHandoffVersion: _workHandoffVersion,
+      evidenceRefsVersion: _evidenceRefsVersion,
+      ...signalData
+    } = value;
     const parsed = signalTextRequestDataSchema.safeParse(signalData);
     if (parsed.success) {
       return;

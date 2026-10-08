@@ -1,3 +1,7 @@
+import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
 import { runAgentActivityDigestTick } from "../agent-activity/activity-digest-service";
 import {
   runAgentActivityDailyAggregation,
@@ -7,30 +11,19 @@ import { retryAgentActivitySessionInventoryMemberCleanups } from "../agent-activ
 import { retryAgentProfileCreationRequestInboxProjections } from "../agent-profile-creation-request/agent-profile-creation-request-inbox-projection";
 import { recoverAgentProfileCreationRequests } from "../agent-profile-creation-request/agent-profile-creation-request-recovery";
 import { retryReadyAgentTaskContinuations } from "../agent-task-coordination/application/agent-task-terminal-outcome-service";
-import { runAgentControllerTaskRetention } from "../agent-task-coordination/infrastructure/d1/agent-controller-task-retention";
+import { runAgentControllerTaskRetention } from "../agent-task-coordination/infrastructure/postgresql/agent-controller-task-retention";
 import { retryPendingCenterAgentWakePublications } from "../center-agent/application/center-agent-wake-publication-service";
 import { shouldWriteDestinationNeutralTaskContinuations } from "../center-agent/application/task-continuation-rollout";
 import { runCenterAgentMemberResearchTick } from "../center-agent-member-research/member-research-service";
 import { deleteExpiredServiceConnectionIncidents } from "../computers/service-connection-evidence-repo";
 import { retryPendingPreHeadFailurePublications } from "../dispatch/application/dispatch-queue-service";
-import { runWakeEvidenceRetention } from "../dispatch/infrastructure/d1/wake-evidence-retention";
+import { runWakeEvidenceRetention } from "../dispatch/infrastructure/postgresql/wake-evidence-retention";
 import {
   EVAL_WEEKLY_REPORT_CRON,
   runWeeklyEvalReport,
 } from "../eval/weekly-eval-report-service";
 import { retryInboxUrgentEmailDeliveries } from "../inbox/application/inbox-email-delivery-service";
 import type { CoreBindings } from "../lib/bindings";
-import {
-  agentActivityDb,
-  agentTaskCoordinationDb,
-  dispatchRecoveryDb,
-  identityDb,
-  inboxDb,
-  localStateDb,
-  organizationDocumentsDb,
-  routineDb,
-  wakeEvidenceDb,
-} from "../lib/bindings";
 import { reconcileOrganizationDocumentDraftInbox } from "../organization-documents/organization-document-inbox-reconciler";
 import {
   readOrganizationPersonalClassification,
@@ -47,11 +40,15 @@ import {
   submitRemoteAgentRoutineDelivery,
 } from "../remote-agent/application/native-delivery-service";
 import { runSlackChannelIntroductionTick } from "../remote-agent/application/slack-signal-service";
-import { countStrandedRemoteAgentSlackEventIngress } from "../remote-agent/infrastructure/d1/slack-event-ingress-repo";
+import { countStrandedRemoteAgentSlackEventIngress } from "../remote-agent/infrastructure/postgresql/slack-event-ingress-repo";
 import {
   assertRoutineWorkflowConfiguration,
   resolveRoutineExecutionEngineSelection,
 } from "../routines/routine-execution-engine";
+import {
+  recoverLocalRoutineRuns,
+  submitLocalRoutineDelivery,
+} from "../routines/routine-local-delivery";
 import { runRoutineSchedulerTick } from "../routines/routine-scheduler";
 import {
   ensureRoutineRunWorkflowStarted,
@@ -65,12 +62,10 @@ import {
 import { emitCoreCloudflareRuntimeEvidence } from "../shared/observability/cloudflare-runtime-evidence";
 import { deleteExpiredSpaceComposerUploads } from "../space/application/space-composer-upload-storage";
 import { backfillSpaceMessagePreviews } from "../space-index/space-message-preview-backfill";
-
 export const ROUTINE_TICK_CRON = "* * * * *";
 export const WAKE_EVIDENCE_RETENTION_CRON = "0 4 * * *";
 export const AGENT_ACTIVITY_RETENTION_CRON = WAKE_EVIDENCE_RETENTION_CRON;
 export { EVAL_WEEKLY_REPORT_CRON };
-
 export async function runCoreScheduledTasks(input: {
   cron: string | null;
   env: CoreBindings;
@@ -79,7 +74,6 @@ export async function runCoreScheduledTasks(input: {
   retryRoutineFailurePublications?: typeof retryRemoteAgentRoutineFailurePublications;
   retryRoutineWorkflowStarts?: typeof retryPendingRoutineRunWorkflowStarts;
   retryRoutineSubmissions?: typeof retryRemoteAgentRoutineSubmissions;
-  runWakeEvidenceRetention?: typeof runWakeEvidenceRetention;
   runAgentActivityDigest?: typeof runAgentActivityDigestTick;
   runAgentActivityDailyAggregation?: typeof runAgentActivityDailyAggregation;
   runAgentActivityRetention?: typeof runAgentActivityRetention;
@@ -94,6 +88,7 @@ export async function runCoreScheduledTasks(input: {
   retryPreHeadFailurePublications?: typeof retryPendingPreHeadFailurePublications;
   countStrandedSlackIngress?: typeof countStrandedRemoteAgentSlackEventIngress;
   runWeeklyEvalReport?: typeof runWeeklyEvalReport;
+  runWakeEvidenceRetention?: typeof runWakeEvidenceRetention;
   reconcileOrganizationDocumentInbox?: typeof reconcileOrganizationDocumentDraftInbox;
   reconcileSlackNativeDeliveryInbox?: typeof reconcileLinkedSlackNativeDeliveryInbox;
   retryInboxEmailDeliveries?: typeof retryInboxUrgentEmailDeliveries;
@@ -109,7 +104,6 @@ export async function runCoreScheduledTasks(input: {
     });
     return;
   }
-
   if (input.cron === ROUTINE_TICK_CRON) {
     await runAgentProfileCreationRequestRecovery(input);
     await runAgentProfileCreationRequestInboxProjectionRedrive(input);
@@ -129,7 +123,7 @@ export async function runCoreScheduledTasks(input: {
       })
     );
     assertRoutineWorkflowConfiguration(input.env);
-    const db = routineDb(input.env);
+    const db = getPostgresDatabase(input.env);
     if (!db) {
       console.error("[core.routine.scheduler.db_unavailable]", {
         cron: input.cron,
@@ -168,10 +162,14 @@ export async function runCoreScheduledTasks(input: {
       nowMs: input.nowMs,
     });
     const runRoutineTick = input.runRoutineTick ?? runRoutineSchedulerTick;
+    await recoverLocalRoutineRuns({ db, env: input.env, nowMs: input.nowMs });
     await runRoutineTick({
       db,
       nowMs: input.nowMs,
       resolveExecutionEngine: (routine) => {
+        if (routine.executorKind === "local_agent") {
+          return "local";
+        }
         const selection = resolveRoutineExecutionEngineSelection({
           env: input.env,
           organizationId: routine.organizationId,
@@ -188,6 +186,12 @@ export async function runCoreScheduledTasks(input: {
         return selection.engine;
       },
       submitRoutineDelivery: async (deliveryInput) => {
+        if (deliveryInput.executionEngine === "local") {
+          return await submitLocalRoutineDelivery({
+            ...deliveryInput,
+            env: input.env,
+          });
+        }
         if (deliveryInput.executionEngine === "workflow") {
           await ensureRoutineRunWorkflowStarted({
             env: input.env,
@@ -202,7 +206,7 @@ export async function runCoreScheduledTasks(input: {
       },
     });
     if (input.env.OPENMELD_AGENT_ACTIVITY_DIGEST_ENABLED === "true") {
-      const activityDb = agentActivityDb(input.env);
+      const activityDb = getPostgresDatabase(input.env);
       const summarize =
         input.env.OPENMELD_REMOTE_AGENT_WORKER?.summarizeAgentActivityDigest;
       if (!(activityDb && summarize)) {
@@ -231,24 +235,10 @@ export async function runCoreScheduledTasks(input: {
     });
     return;
   }
-
   await runSpaceComposerUploadCleanup(input);
   const scheduledRetentionFailures = await runScheduledRetention(input);
-
-  const sweepWakeEvidence =
-    input.runWakeEvidenceRetention ?? runWakeEvidenceRetention;
-  try {
-    await sweepWakeEvidence({
-      cron: input.cron,
-      env: input.env,
-      nowMs: input.nowMs,
-    });
-  } catch (error) {
-    scheduledRetentionFailures.push(error);
-  }
   throwScheduledRetentionFailures(scheduledRetentionFailures);
 }
-
 async function runSpaceComposerUploadCleanup(input: {
   deleteExpiredComposerUploads?: typeof deleteExpiredSpaceComposerUploads;
   env: CoreBindings;
@@ -278,11 +268,10 @@ async function runSpaceComposerUploadCleanup(input: {
     });
   }
 }
-
 async function runAgentProfileCreationRequestRecovery(
   input: Parameters<typeof runCoreScheduledTasks>[0]
 ): Promise<void> {
-  const db = identityDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return;
   }
@@ -305,11 +294,10 @@ async function runAgentProfileCreationRequestRecovery(
     });
   }
 }
-
 async function runAgentProfileCreationRequestInboxProjectionRedrive(
   input: Parameters<typeof runCoreScheduledTasks>[0]
 ): Promise<void> {
-  const db = identityDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return;
   }
@@ -333,11 +321,10 @@ async function runAgentProfileCreationRequestInboxProjectionRedrive(
     );
   }
 }
-
 async function runAgentActivitySessionInventoryMemberCleanup(
   input: Parameters<typeof runCoreScheduledTasks>[0]
 ): Promise<void> {
-  const db = agentActivityDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return;
   }
@@ -377,10 +364,9 @@ async function runAgentActivitySessionInventoryMemberCleanup(
     );
   }
 }
-
 async function runSlackWelcomePreparationContinuation(
   input: Parameters<typeof runCoreScheduledTasks>[0],
-  db: D1Database
+  db: PostgresDatabase
 ): Promise<void> {
   try {
     await (
@@ -397,10 +383,9 @@ async function runSlackWelcomePreparationContinuation(
     });
   }
 }
-
 async function runSlackChannelIntroductionContinuation(
   input: Parameters<typeof runCoreScheduledTasks>[0],
-  db: D1Database
+  db: PostgresDatabase
 ): Promise<void> {
   try {
     await (
@@ -416,13 +401,12 @@ async function runSlackChannelIntroductionContinuation(
     });
   }
 }
-
 async function runAcceptedDeliveryProbeRecovery(input: {
   env: CoreBindings;
   nowMs: number;
   retryAcceptedDeliveryProbes?: typeof retryMissingRemoteAgentAcceptedDeliveryProbes;
 }): Promise<void> {
-  const db = wakeEvidenceDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     console.error(
       "[core.remote_agent.native_delivery.accepted_probe_recovery_store_unavailable]"
@@ -449,13 +433,12 @@ async function runAcceptedDeliveryProbeRecovery(input: {
     );
   }
 }
-
 async function runInboxEmailDeliveryRedrive(input: {
   env: CoreBindings;
   nowMs: number;
   retryInboxEmailDeliveries?: typeof retryInboxUrgentEmailDeliveries;
 }): Promise<void> {
-  const db = inboxDb(input.env);
+  const db = getPostgresDatabase(input.env);
   const authWorker = input.env.OPENMELD_AUTH_WORKER;
   const sendInboxUrgentEmail = authWorker?.sendInboxUrgentEmail;
   if (!(db && authWorker && sendInboxUrgentEmail)) {
@@ -518,13 +501,12 @@ async function runInboxEmailDeliveryRedrive(input: {
     });
   }
 }
-
 async function runSlackNativeDeliveryInboxReconciliation(input: {
   env: CoreBindings;
   nowMs: number;
   reconcileSlackNativeDeliveryInbox?: typeof reconcileLinkedSlackNativeDeliveryInbox;
 }): Promise<void> {
-  const db = localStateDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return;
   }
@@ -550,13 +532,12 @@ async function runSlackNativeDeliveryInboxReconciliation(input: {
     );
   }
 }
-
 async function runOrganizationDocumentInboxReconciliation(input: {
   env: CoreBindings;
   nowMs: number;
   reconcileOrganizationDocumentInbox?: typeof reconcileOrganizationDocumentDraftInbox;
 }): Promise<void> {
-  const db = organizationDocumentsDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (
     !(db && input.env.OPENMELD_AUTH_WORKER?.resolveOrganizationDirectoryMembers)
   ) {
@@ -591,13 +572,12 @@ async function runOrganizationDocumentInboxReconciliation(input: {
     });
   }
 }
-
 async function runPreHeadFailurePublicationRedrive(input: {
   env: CoreBindings;
   nowMs: number;
   retryPreHeadFailurePublications?: typeof retryPendingPreHeadFailurePublications;
 }): Promise<void> {
-  const db = dispatchRecoveryDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return;
   }
@@ -627,13 +607,12 @@ async function runPreHeadFailurePublicationRedrive(input: {
     );
   }
 }
-
 async function runLarkPlatformRegistrationContinuation(input: {
   env: CoreBindings;
   nowMs: number;
   runLarkPlatformRegistrationTick?: typeof runLarkPlatformRegistrationTick;
 }): Promise<void> {
-  const db = localStateDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     console.error("[core.remote_agent.lark_registration.db_unavailable]", {
       event: "core.remote_agent.lark_registration.db_unavailable",
@@ -668,13 +647,12 @@ async function runLarkPlatformRegistrationContinuation(input: {
     });
   }
 }
-
 async function runCenterAgentWakePublicationRedrive(input: {
   env: CoreBindings;
   nowMs: number;
   retryCenterAgentWakePublications?: typeof retryPendingCenterAgentWakePublications;
 }): Promise<void> {
-  const db = agentTaskCoordinationDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return;
   }
@@ -709,13 +687,12 @@ async function runCenterAgentWakePublicationRedrive(input: {
     });
   }
 }
-
 async function runAgentTaskContinuationRedrive(input: {
   env: CoreBindings;
   nowMs: number;
   retryAgentTaskContinuations?: typeof retryReadyAgentTaskContinuations;
 }): Promise<void> {
-  const db = agentTaskCoordinationDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return;
   }
@@ -733,13 +710,12 @@ async function runAgentTaskContinuationRedrive(input: {
     });
   }
 }
-
 async function reportStrandedRemoteAgentSlackEventIngress(input: {
   env: CoreBindings;
   nowMs: number;
   countStrandedSlackIngress?: typeof countStrandedRemoteAgentSlackEventIngress;
 }): Promise<void> {
-  const db = localStateDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return;
   }
@@ -768,7 +744,6 @@ async function reportStrandedRemoteAgentSlackEventIngress(input: {
     workerEnvironment: input.env.OPENMELD_WORKER_ENVIRONMENT,
   });
 }
-
 async function runAgentActivityScheduledRetention(input: {
   env: CoreBindings;
   nowMs: number;
@@ -776,7 +751,7 @@ async function runAgentActivityScheduledRetention(input: {
   runAgentActivityRetention?: typeof runAgentActivityRetention;
 }) {
   try {
-    const db = agentActivityDb(input.env);
+    const db = getPostgresDatabase(input.env);
     if (!db) {
       throw new Error("Agent Activity retention database is unavailable.");
     }
@@ -810,7 +785,6 @@ async function runAgentActivityScheduledRetention(input: {
     return error;
   }
 }
-
 async function runScheduledRetention(input: {
   cron: string | null;
   env: CoreBindings;
@@ -818,6 +792,7 @@ async function runScheduledRetention(input: {
   runAgentActivityDailyAggregation?: typeof runAgentActivityDailyAggregation;
   runAgentActivityRetention?: typeof runAgentActivityRetention;
   runAgentControllerTaskRetention?: typeof runAgentControllerTaskRetention;
+  runWakeEvidenceRetention?: typeof runWakeEvidenceRetention;
 }): Promise<unknown[]> {
   if (input.cron !== AGENT_ACTIVITY_RETENTION_CRON) {
     return [];
@@ -826,19 +801,29 @@ async function runScheduledRetention(input: {
   const agentControllerTaskFailure =
     await runAgentControllerTaskScheduledRetention(input);
   const connectionHistoryFailure = await runServiceConnectionRetention(input);
+  let wakeEvidenceFailure: unknown = null;
+  try {
+    await (input.runWakeEvidenceRetention ?? runWakeEvidenceRetention)(input);
+  } catch (error) {
+    console.error(
+      "[core.wake_evidence_retention.failed]",
+      summarizeScheduledError(error)
+    );
+    wakeEvidenceFailure = error;
+  }
   return [
     agentActivityFailure,
     agentControllerTaskFailure,
     connectionHistoryFailure,
+    wakeEvidenceFailure,
   ].filter((failure) => failure !== null);
 }
-
 async function runServiceConnectionRetention(input: {
   env: CoreBindings;
   nowMs: number;
 }) {
   try {
-    const db = wakeEvidenceDb(input.env);
+    const db = getPostgresDatabase(input.env);
     if (!db) {
       throw new Error("Connection history database is unavailable.");
     }
@@ -856,14 +841,13 @@ async function runServiceConnectionRetention(input: {
     return error;
   }
 }
-
 async function runAgentControllerTaskScheduledRetention(input: {
   env: CoreBindings;
   nowMs: number;
   runAgentControllerTaskRetention?: typeof runAgentControllerTaskRetention;
 }) {
   try {
-    const db = agentTaskCoordinationDb(input.env);
+    const db = getPostgresDatabase(input.env);
     if (!db) {
       throw new Error(
         "Agent Controller task retention database is unavailable."
@@ -893,7 +877,6 @@ async function runAgentControllerTaskScheduledRetention(input: {
     return error;
   }
 }
-
 function throwScheduledRetentionFailures(failures: unknown[]): void {
   if (failures.length === 0) {
     return;
@@ -903,7 +886,6 @@ function throwScheduledRetentionFailures(failures: unknown[]): void {
   }
   throw new AggregateError(failures, "Core scheduled retention tasks failed.");
 }
-
 function summarizeScheduledError(error: unknown): {
   errorMessage: string;
   errorName: string;

@@ -61,6 +61,7 @@ import {
 	type SpaceWakeStopRequestStatus,
 	type SpaceWakeStopTargetResolution,
 } from "#/lib/spaces/wake-stop-target";
+import { useCenterAgentCurrentModelName } from "#/query/profiles/agent-avatar-context";
 import {
 	type CenterAgentComputerSetupContext,
 	resolveLatestComputerSetupActionSignalId,
@@ -172,6 +173,7 @@ import {
 } from "./space-outcome-row";
 import { resolveSpaceOutcomeRowTone } from "./space-outcome-tone";
 import { resolveSpacePendingAgentActionIdentity } from "./space-pending-agent-action-model";
+import { SpaceMessageTaskReference } from "./space-task-references";
 import {
 	ThreadMessagesLoading,
 	ThreadPanelHeader,
@@ -254,6 +256,7 @@ function createThreadExecutionRecoveryHandler(input: {
 }
 
 type SpaceThreadPanelProps = {
+	organizationId?: string | null;
 	open?: boolean;
 	wakeRecommendationsEnabled?: boolean;
 	activeThread: SpaceThread | null;
@@ -984,6 +987,7 @@ function renderThreadComposer(
 			onMentionButtonClick={input.onMentionButtonClick}
 			onRemoveComposerFile={input.onRemoveComposerFile}
 			onSend={input.onSend}
+			organizationId={input.organizationId}
 			orgSlug={input.orgSlug}
 			pendingActionSurface={input.pendingActionSurface}
 			prepareSetupHref={input.prepareSetupHref}
@@ -1206,10 +1210,6 @@ function ThreadTimeline(input: {
 			</p>
 		);
 	}
-	if (input.isLoading) {
-		return <ThreadMessagesLoading />;
-	}
-
 	return (
 		<MessageScrollerProvider autoScroll={true} defaultScrollPosition="end">
 			<SpaceMessageScrollController
@@ -1217,15 +1217,27 @@ function ThreadTimeline(input: {
 				scrollElement={scrollElement}
 			/>
 			<MessageScroller className="min-h-0 flex-1">
-				<MessageScrollerViewport className="px-4 py-4" ref={setScrollElement}>
+				<MessageScrollerViewport
+					className="space-conversation-inline-padding py-4"
+					ref={setScrollElement}
+				>
 					<SpaceMessageReadObserver
 						key={input.readScopeKey}
 						onViewedUpdates={input.onViewedUpdates}
 						unreadTargets={input.unreadTargets}
 					/>
 					<MessageScrollerContent className="gap-0">
+						{input.isLoading && input.items.length === 0 ? (
+							<ThreadMessagesLoading />
+						) : null}
 						{input.items.map((item) => {
-							if (isSpaceOutcomeNoticeItem(item)) {
+							if (
+								isSpaceOutcomeNoticeItem(item) &&
+								!(
+									item.systemNoticeType === "wake_stopped" &&
+									item.actorProfileKind === "agent"
+								)
+							) {
 								return (
 									<MessageScrollerItem key={item.id} messageId={item.id}>
 										<div
@@ -1473,7 +1485,11 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 				item: input.item,
 				timelineItems: input.allItems,
 			});
+	const centerAgentModelName = useCenterAgentCurrentModelName(
+		input.item.actorProfileId
+	);
 	const agentAttribution = formatSpaceAgentAttribution({
+		centerAgentModelName,
 		agentControllerRef: input.item.actorAgentControllerRef,
 		ownerName: input.item.actorOwnerName,
 		profileKind: input.item.actorProfileKind,
@@ -1641,6 +1657,13 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 										ref={(element) => {
 											input.registerMessageElement(input.item.id, element);
 										}}
+										references={
+											<SpaceMessageTaskReference
+												signalId={
+													input.item.recalledAt ? undefined : input.item.id
+												}
+											/>
+										}
 										tabIndex={-1}
 									>
 										{input.item.actorProfileKind === "agent" ? (
@@ -1852,6 +1875,7 @@ function resolveThreadMessageAvatarImageUrl(input: {
 }
 
 function ThreadComposer(input: {
+	organizationId?: string | null;
 	taskSources: readonly SpaceTaskSource[];
 	canSendMessage: boolean;
 	composerMembers?: SpaceComposerProps["members"];
@@ -1900,7 +1924,11 @@ function ThreadComposer(input: {
 		text: input.composerText,
 	});
 	const submitComposer = (options?: SpaceComposerSendOptions) => {
-		if (!input.canSendMessage || input.isSendingMessage || sendBlocked) {
+		const blocked = resolveSpaceComposerSendBlocked({
+			files: input.composerFiles,
+			text: input.composerText || options?.taskDraft?.title || "",
+		});
+		if (!input.canSendMessage || input.isSendingMessage || blocked) {
 			return;
 		}
 		input.onSend(options).catch((error) => {
@@ -1948,8 +1976,9 @@ function ThreadComposer(input: {
 				placement: "thread",
 			}}
 			members={input.composerMembers}
+			organizationId={input.organizationId}
 			presentation={{
-				className: "px-4 py-4",
+				className: "space-conversation-inline-padding py-4",
 				dataSlot: "thread-composer",
 				maxHeight: 180,
 			}}

@@ -233,6 +233,11 @@ describe("remote agent OpenMeld tool catalog", () => {
       source: "not_checked",
     };
     teamReadiness.primaryBinding = null;
+    teamReadiness.wakeRouteEvidence = {
+      observedAt: ISO_NOW,
+      reasonCode: "not_requested",
+      status: "unavailable",
+    };
     const directory = organizationDirectoryResponseSchema.parse({
       ...organizationDirectoryResponse(),
       members: Array.from({ length: 19 }, (_, index) => ({
@@ -296,6 +301,33 @@ describe("remote agent OpenMeld tool catalog", () => {
       ).toBe(true);
       expect(page.totalMembers).toBe(19);
       expect(page.totalAgentProfiles).toBe(1);
+      const progressValue = tools.find(
+        (tool) => tool.name === "openmeld_read_organization_directory"
+      )?.progressValue;
+      expect(progressValue).toBeDefined();
+      expect(progressValue?.(page)).toEqual(
+        progressValue?.({
+          ...page,
+          generatedAt: "2026-10-07T14:00:00.000Z",
+          agentProfiles: page.agentProfiles.map((agent) => ({
+            ...agent,
+            readiness: {
+              ...agent.readiness,
+              generatedAt: "2026-10-07T14:00:00.000Z",
+              wakeRouteEvidence: {
+                ...agent.readiness.wakeRouteEvidence,
+                observedAt: "2026-10-07T14:00:00.000Z",
+              },
+            },
+          })),
+        })
+      );
+      expect(progressValue?.(page)).not.toEqual(
+        progressValue?.({
+          ...page,
+          totalMembers: page.totalMembers + 1,
+        })
+      );
       members.push(...page.members);
       agents.push(...page.agentProfiles);
       cursor = page.nextCursor ?? undefined;
@@ -377,8 +409,10 @@ describe("remote agent OpenMeld tool catalog", () => {
 
     expect(disabled).not.toContain("openmeld_read_agent_activity");
     expect(disabled).not.toContain("openmeld_list_agent_activity_sessions");
+    expect(disabled).not.toContain("openmeld_read_session_history");
     expect(enabled).toContain("openmeld_read_agent_activity");
     expect(enabled).toContain("openmeld_list_agent_activity_sessions");
+    expect(enabled).toContain("openmeld_read_session_history");
   });
 
   it("enables the Agent Activity read-tool fence in every Remote Agent wrangler env", () => {
@@ -3914,6 +3948,60 @@ describe("remote agent OpenMeld tool catalog", () => {
     ).toBe(false);
   });
 
+  it.each([
+    true,
+    false,
+  ])("accepts a multi-Space delegation only when all destinations are acknowledged (%s)", async (complete) => {
+    const destinations = ["alpha", "beta"].map((spaceId) => ({
+      spaceId,
+      agentProfileIds: [AGENT_PROFILE_ID],
+      text: `Review ${spaceId}.`,
+      mentionProfileIds: [],
+      referenceProfileIds: [],
+    }));
+    const response = {
+      delegationId: "delegation-batch",
+      status: "queued" as const,
+      childTasks: destinations.map((destination, index) => ({
+        completionCondition: "terminal" as const,
+        subscriptionId: `subscription-${index}`,
+        task: {
+          kind: "space_wake" as const,
+          v: 1 as const,
+          sourceClientMessageId: `child-${index}`,
+          spaceId: complete ? destination.spaceId : "alpha",
+          targetProfileId: AGENT_PROFILE_ID,
+        },
+      })),
+    };
+    const centerAgentWakeAgentProfilesInSpaces = vi.fn(async () => response);
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentWakeAgentProfilesInSpaces },
+      storage: await createStorageWithPendingContext(createSubmitTurnRequest()),
+    });
+    const result = executeTool(
+      tools,
+      "openmeld_wake_agent_profiles_in_spaces",
+      { destinations }
+    );
+    if (!complete) {
+      await expect(result).rejects.toThrow(
+        "Core did not acknowledge the complete Wake batch"
+      );
+      return;
+    }
+    await expect(result).resolves.toEqual(response);
+    expect(centerAgentWakeAgentProfilesInSpaces).toHaveBeenCalledOnce();
+    expect(centerAgentWakeAgentProfilesInSpaces).toHaveBeenCalledWith(
+      expect.objectContaining({ destinations })
+    );
+    expect(
+      tools
+        .find((tool) => tool.name === "openmeld_wake_agent_profiles_in_spaces")
+        ?.endsTurnAfter?.(await result)
+    ).toBe(true);
+  });
+
   it("returns a durably queued Wake without treating it as a tool failure", async () => {
     const request = createSubmitTurnRequest();
     const centerAgentWakeAgentProfilesInSpace = vi.fn(() => {
@@ -5644,6 +5732,21 @@ describe("remote agent OpenMeld tool catalog", () => {
         targetOwnerUserId: "user_1",
       })
     ).resolves.toEqual(response);
+    const description = tools.find(
+      (tool) => tool.name === "openmeld_create_agent_profile_request"
+    )?.description;
+    expect(description).toContain(
+      'connectionSelection must be { kind: "remote" }'
+    );
+    expect(description).toContain(
+      "Fork requires canFork; Resume requires canResume and an unbound Session"
+    );
+    expect(description).toContain(
+      "createdAgentProfileId proves identity creation, not current reply readiness"
+    );
+    expect(description).toContain(
+      "recover its setup rather than creating another"
+    );
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({
         configuration: {
@@ -6993,6 +7096,42 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
         spaceId: SPACE_ID,
       },
       response: readSourceSpaceContextResponse(),
+      rpcName: "centerAgentReadSpaceContext",
+      toolName: "openmeld_read_space_context",
+    },
+    {
+      expectedPayload: {
+        requestedAddressingModel: "wake_reference_mention",
+        scope: "thread_evidence",
+        threadId: "thr_11111111-1111-4111-8111-111111111111",
+        spaceId: SPACE_ID,
+        offset: 20,
+        version: `sha256:${"a".repeat(64)}`,
+      },
+      input: {
+        scope: "thread_evidence",
+        threadId: "thr_11111111-1111-4111-8111-111111111111",
+        spaceId: SPACE_ID,
+        offset: 20,
+        version: `sha256:${"a".repeat(64)}`,
+      },
+      response: {
+        organizationId: "org_123",
+        spaceId: SPACE_ID,
+        context: {
+          scope: "thread_evidence",
+          sourceRef: {
+            kind: "thread",
+            spaceId: SPACE_ID,
+            threadId: "thr_11111111-1111-4111-8111-111111111111",
+            version: `sha256:${"a".repeat(64)}`,
+          },
+          messages: [],
+          offset: 20,
+          nextOffset: null,
+          truncated: false,
+        },
+      },
       rpcName: "centerAgentReadSpaceContext",
       toolName: "openmeld_read_space_context",
     },

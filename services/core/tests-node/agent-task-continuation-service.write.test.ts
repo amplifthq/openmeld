@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   getSpaceMessageDetailsResponseSchema,
   remoteAgentWorkerSubmitTurnRequestSchema,
@@ -19,7 +20,7 @@ import {
   activateAgentDelegationChildren,
   createAgentDelegation,
   readAgentDelegation,
-} from "../src/agent-task-coordination/infrastructure/d1/agent-delegation-repo";
+} from "../src/agent-task-coordination/infrastructure/postgresql/agent-delegation-repo";
 import {
   claimReadyAgentTaskCompletionSubscription,
   readAgentTaskCompletionSubscription,
@@ -28,22 +29,21 @@ import {
   registerAgentTaskCompletionSubscription,
   registerManualTaskSummaryRecovery,
   settleAgentTaskCompletionSubscription,
-} from "../src/agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
+} from "../src/agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo";
 import { prepareCenterAgentWakeDelegation } from "../src/center-agent/application/center-agent-delegation-service";
 import {
   continueTaskSummary,
   readInterruptedTaskResults,
   readVerifiedSummaryResults,
+  recoverFailedTaskContinuationSummary,
 } from "../src/center-agent/application/task-summary-recovery-service";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
   readRemoteAgentNativeDeliveryByDeliveryId,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
-} from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
-import {
-  applyDrizzleMigrationForTable,
-  createSqliteD1Harness,
-} from "./helpers/sqlite-d1-harness.test-support";
+} from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
+import { legacySummaryReceiverRequestSchema } from "./helpers/legacy-summary-receiver.test-support";
+import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 const submitContinuation = vi.hoisted(() => vi.fn());
 const activateFallbackWake = vi.hoisted(() => vi.fn());
@@ -52,14 +52,12 @@ const TaskContinuationTerminalError = vi.hoisted(
   () =>
     class extends Error {
       readonly reasonCode: string;
-
       constructor(reasonCode: string) {
         super(reasonCode);
         this.reasonCode = reasonCode;
       }
     }
 );
-
 vi.mock("../src/remote-agent/application/native-delivery-service", () => ({
   activateCenterAgentFallbackSpaceWake: activateFallbackWake,
   RemoteAgentTaskContinuationTerminalError: TaskContinuationTerminalError,
@@ -68,7 +66,6 @@ vi.mock("../src/remote-agent/application/native-delivery-service", () => ({
 vi.mock("../src/rpc/space-ref", () => ({
   resolveSpaceStub: resolveSpace,
 }));
-
 const childTask = {
   kind: "space_wake",
   sourceClientMessageId: "client-child",
@@ -76,14 +73,17 @@ const childTask = {
   targetProfileId: "agt_00000000-0000-4000-8000-000000000002",
   v: 1,
 } satisfies AgentTaskHandle;
-
 const parentTask: AgentTaskHandle = {
   deliveryId: "delivery-parent",
   kind: "native_delivery",
   v: 1,
 };
-
-const continuation: Extract<AgentTaskContinuation, { kind: "resume_agent" }> = {
+const continuation: Extract<
+  AgentTaskContinuation,
+  {
+    kind: "resume_agent";
+  }
+> = {
   delegationId: "delegation-1",
   instruction: "Synthesize the child result for the original requester.",
   kind: "resume_agent",
@@ -92,14 +92,12 @@ const continuation: Extract<AgentTaskContinuation, { kind: "resume_agent" }> = {
   spaceId: "space-parent",
   threadContext: null,
 };
-
 describe("Agent Task continuation service", () => {
   beforeEach(() => {
     activateFallbackWake.mockReset();
     resolveSpace.mockReset();
     submitContinuation.mockReset();
   });
-
   it.each([
     "available",
     "running",
@@ -107,6 +105,7 @@ describe("Agent Task continuation service", () => {
     "missing_result",
     "revoked_result",
     "old_receiver",
+    "old_receiver_missing_method",
     "old_receiver_rejects",
     "stopped",
     "parent_stop_during_reconciliation",
@@ -121,8 +120,25 @@ describe("Agent Task continuation service", () => {
     "unverified_result_recovery",
     "revoked_result_recovery",
     "running_recovery",
-  ] as const)("manual summary uses exact native evidence and retained Space results: %s", async (scenario) => {
-    const harness = createHarness();
+    "automatic_available",
+    "automatic_before_settlement",
+    "automatic_probe_retry",
+    "automatic_fence_retry",
+    "automatic_manual_race",
+    "automatic_old_receiver",
+    "automatic_old_receiver_rejects",
+    "automatic_missing_result",
+    "automatic_revoked_result",
+    "automatic_wrong_result",
+    "automatic_result_rpc_retry",
+    "automatic_denied",
+    "automatic_stopped",
+    "automatic_budget",
+    "automatic_unpublished",
+    "automatic_identity_mismatch",
+    "automatic_recursive",
+  ] as const)("summary recovery uses exact native evidence and retained Space results: %s", async (scenario) => {
+    const harness = await createHarness();
     try {
       await arrangeReadySubscription(harness.db, "summary-source");
       submitContinuation.mockResolvedValue({
@@ -170,23 +186,18 @@ describe("Agent Task continuation service", () => {
         watchedTask: source.watchedTask,
         outcome: source.outcome,
       };
-      await harness.db
-        .prepare(
-          "UPDATE openMeldRemoteAgent_native_delivery_ledger SET status = 'failed', execution_recovery_submit_request_json = ? WHERE delivery_id = 'delivery-continuation-race'"
-        )
-        .bind(JSON.stringify(request))
-        .run();
-      harness.run({
-        sql: "CREATE TABLE members (id TEXT, role TEXT, organization_id TEXT, user_id TEXT)",
+      await harness.db.query({
+        ...{
+          text: "UPDATE \"openmeld\".\"openMeldRemoteAgent_native_delivery_ledger\" SET status = 'failed', execution_recovery_submit_request_json = $1 WHERE delivery_id = 'delivery-continuation-race'",
+          values: [],
+        },
+        values: [JSON.stringify(request)],
       });
-      harness.run({
-        sql: "CREATE TABLE openmeld_profiles (profile_id TEXT, profile_kind TEXT, profile_name TEXT, owner_user_id TEXT, status TEXT)",
+      await harness.query({
+        text: "INSERT INTO \"openmeld\".\"members\" (id, role, organization_id, user_id, \"created_at\") VALUES ('member-parent', 'member', 'org-1', 'user-parent', 1700000000000)",
       });
-      harness.run({
-        sql: "INSERT INTO members VALUES ('member-parent', 'member', 'org-1', 'user-parent')",
-      });
-      harness.run({
-        sql: "INSERT INTO openmeld_profiles VALUES ('human-parent', 'human', 'Requester', 'user-parent', 'active')",
+      await harness.query({
+        text: "INSERT INTO \"openmeld\".\"openmeld_profiles\" (profile_id, profile_kind, profile_name, owner_user_id, status, profile_handle, source) VALUES ('11111111-1111-4111-8111-111111111111', 'human', 'Requester', 'user-parent', 'active', 'requester', 'auth_bootstrap')",
       });
       const unavailableFact = {
         state: "not_recorded",
@@ -237,18 +248,23 @@ describe("Agent Task continuation service", () => {
         },
         diagnostics: { signalId: "signal-child-result", traceSelectors: [] },
       });
+      let resultReadFailed = false;
       const readResult = vi.fn(() => {
-        if (scenario === "missing_result") {
+        if (["missing_result", "automatic_missing_result"].includes(scenario)) {
           throw new Error("HTTP 404: result missing");
         }
-        if (scenario === "revoked_result") {
+        if (["revoked_result", "automatic_revoked_result"].includes(scenario)) {
           throw new Error("HTTP 403: access revoked");
+        }
+        if (scenario === "automatic_result_rpc_retry" && !resultReadFailed) {
+          resultReadFailed = true;
+          throw new Error("temporary result RPC failure");
         }
         return Promise.resolve(resultDetails);
       });
       resolveSpace.mockReturnValue({
         rpcCheckTaskSummaryRecoveryAccess: vi.fn(async () => ({
-          allowed: true,
+          allowed: scenario !== "automatic_denied",
         })),
         rpcGetMessageDetails: readResult,
         rpcGetDispatchLookup: vi.fn(async () => ({
@@ -274,10 +290,11 @@ describe("Agent Task continuation service", () => {
         })),
         rpcReadFinalReplyClaimOutcome: vi.fn(async () => ({
           outcome: "success",
-          signalId:
-            scenario === "wrong_result"
-              ? "unrelated-result"
-              : "signal-child-result",
+          signalId: ["wrong_result", "automatic_wrong_result"].includes(
+            scenario
+          )
+            ? "unrelated-result"
+            : "signal-child-result",
         })),
       });
       const execution = {
@@ -296,7 +313,21 @@ describe("Agent Task continuation service", () => {
         completedAtMs: scenario === "running" ? null : 1150,
         cancellationReason: null,
       };
+      let firstReconciliations = 0;
+      let releaseFirstReconciliations: (() => void) | undefined;
+      const firstReconciliationBarrier = new Promise<void>((resolve) => {
+        releaseFirstReconciliations = resolve;
+      });
       const reconcile = vi.fn(async () => {
+        if (scenario === "automatic_manual_race" && firstReconciliations < 2) {
+          // Both callers have read no recovery through real PostgreSQL before
+          // either can record an intent, fence the source or insert a summary.
+          firstReconciliations += 1;
+          if (firstReconciliations === 2) {
+            releaseFirstReconciliations?.();
+          }
+          await firstReconciliationBarrier;
+        }
         if (scenario === "parent_stop_during_reconciliation") {
           await recordAgentTaskTerminalOutcome({
             db: harness.db,
@@ -317,6 +348,7 @@ describe("Agent Task continuation service", () => {
       });
       let recoveryFenceId: string | undefined;
       let fenceReadFailed = false;
+      let probeReadFailed = false;
       const cancel = vi.fn((query: { summaryRecoveryId?: string }) => {
         recoveryFenceId = query.summaryRecoveryId;
         return Promise.resolve({ status: "not_stoppable", execution });
@@ -334,14 +366,31 @@ describe("Agent Task continuation service", () => {
               trigger: { ...request.turnEnvelope.trigger, summaryOnly: true },
             },
           });
-          if (scenario === "old_receiver") {
+          if (
+            scenario === "old_receiver" ||
+            scenario === "automatic_old_receiver"
+          ) {
             return Promise.resolve({ v: 1, status: "not_found" });
           }
-          if (scenario === "old_receiver_rejects") {
-            throw new Error("Unrecognized key: summaryOnly");
+          if (scenario === "old_receiver_missing_method") {
+            throw new Error(
+              'The RPC receiver does not implement the method "readAdmissionStop".'
+            );
+          }
+          if (
+            ["old_receiver_rejects", "automatic_old_receiver_rejects"].includes(
+              scenario
+            )
+          ) {
+            legacySummaryReceiverRequestSchema.parse(input);
+          }
+          if (scenario === "automatic_probe_retry" && !probeReadFailed) {
+            probeReadFailed = true;
+            throw new Error("temporary receiver probe failure");
           }
           return Promise.resolve(
             scenario === "stopped" ||
+              scenario === "automatic_stopped" ||
               (cancel.mock.calls.length > 0 &&
                 [
                   "fence_read_failure",
@@ -373,6 +422,10 @@ describe("Agent Task continuation service", () => {
           );
         }
         expect(frozen).toEqual(request);
+        if (scenario === "automatic_fence_retry" && !fenceReadFailed) {
+          fenceReadFailed = true;
+          return Promise.resolve({ v: 1, status: "not_found" });
+        }
         if (
           ["fence_read_failure", "user_stop_after_recovery_fence"].includes(
             scenario
@@ -421,6 +474,241 @@ describe("Agent Task continuation service", () => {
         organizationId: "org-1",
         sourceSubscriptionId: source.subscriptionId,
       };
+      if (scenario.startsWith("automatic_")) {
+        if (
+          scenario === "automatic_recursive" &&
+          request.turnEnvelope.trigger.source === "task_continuation"
+        ) {
+          request.turnEnvelope.trigger.summaryOnly = true;
+        }
+        await harness.db.query({
+          text: `UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger"
+            SET failure_code = $1, published_signal_id = $2,
+              execution_recovery_submit_request_json = $3
+            WHERE delivery_id = 'delivery-continuation-race'`,
+          values: [
+            scenario === "automatic_budget"
+              ? "remote_agent.turn.output_limit_exceeded"
+              : "remote_agent.computer.command_cleanup_failed",
+            scenario === "automatic_unpublished"
+              ? null
+              : "signal-coordinator-failure",
+            JSON.stringify(request),
+          ],
+        });
+        const delivery = await readRemoteAgentNativeDeliveryByDeliveryId({
+          db: harness.db,
+          deliveryId: "delivery-continuation-race",
+        });
+        if (!delivery) {
+          throw new Error("Missing failed coordinator");
+        }
+        if (scenario === "automatic_identity_mismatch") {
+          delivery.deliveryId = "unrelated-delivery";
+        }
+        if (scenario === "automatic_old_receiver_rejects") {
+          await expect(
+            recoverFailedTaskContinuationSummary({ ...input, delivery })
+          ).rejects.toThrow();
+          await expect(
+            processAgentTaskContinuationQueueMessage({
+              ...input,
+              message: buildQueueMessage(source.subscriptionId),
+            })
+          ).rejects.toThrow();
+          expect(cancel).not.toHaveBeenCalled();
+          expect(send).not.toHaveBeenCalled();
+          expect(submitContinuation).toHaveBeenCalledTimes(1);
+          return;
+        }
+        const beforeSettlement = [
+          "automatic_before_settlement",
+          "automatic_probe_retry",
+          "automatic_fence_retry",
+          "automatic_result_rpc_retry",
+        ].includes(scenario);
+        if (beforeSettlement) {
+          await harness.db.query({
+            text: `UPDATE "openmeld"."agent_task_completion_subscriptions"
+              SET state = 'continuation_claimed', continuation_task_handle_json = NULL,
+                continuation_task_key = NULL, claim_id = 'original-claim', claim_expires_at_ms = 1200
+              WHERE subscription_id = $1`,
+            values: [source.subscriptionId],
+          });
+          await recoverFailedTaskContinuationSummary({ ...input, delivery });
+          expect(cancel).not.toHaveBeenCalled();
+          expect(send).not.toHaveBeenCalled();
+          const queued = {
+            ...input,
+            message: buildQueueMessage(source.subscriptionId),
+          };
+          if (scenario !== "automatic_before_settlement") {
+            let rejection = "task_summary_recovery.stop_unconfirmed";
+            if (scenario === "automatic_probe_retry") {
+              rejection = "temporary receiver probe failure";
+            } else if (scenario === "automatic_result_rpc_retry") {
+              rejection = "temporary result RPC failure";
+            }
+            await expect(
+              processAgentTaskContinuationQueueMessage(queued)
+            ).rejects.toThrow(rejection);
+            await expect(
+              readAgentTaskCompletionSubscription({
+                db: harness.db,
+                subscriptionId: source.subscriptionId,
+              })
+            ).resolves.toMatchObject({ state: "settled" });
+            expect(send).not.toHaveBeenCalled();
+            expect(
+              (
+                await harness.db.query({
+                  text: `SELECT subscription_id FROM "openmeld"."agent_task_completion_subscriptions"
+                    WHERE subscription_id <> $1`,
+                  values: [source.subscriptionId],
+                })
+              ).rows
+            ).toHaveLength(0);
+          }
+          // Redelivery must use the settled-source hook, not replay admission.
+          await processAgentTaskContinuationQueueMessage(queued);
+        } else if (scenario === "automatic_manual_race") {
+          await Promise.all([
+            recoverFailedTaskContinuationSummary({ ...input, delivery }),
+            continueTaskSummary({ ...input, inspectOnly: false }),
+          ]);
+          expect(firstReconciliations).toBe(2);
+        } else {
+          await recoverFailedTaskContinuationSummary({ ...input, delivery });
+          if (
+            [
+              "automatic_missing_result",
+              "automatic_revoked_result",
+              "automatic_wrong_result",
+            ].includes(scenario)
+          ) {
+            await expect(
+              processAgentTaskContinuationQueueMessage({
+                ...input,
+                message: buildQueueMessage(source.subscriptionId),
+              })
+            ).resolves.toMatchObject({ status: "completed" });
+            expect(submitContinuation).toHaveBeenCalledTimes(1);
+          }
+        }
+        const recovers =
+          scenario === "automatic_available" ||
+          beforeSettlement ||
+          scenario === "automatic_manual_race";
+        if (recovers) {
+          await Promise.all([
+            recoverFailedTaskContinuationSummary({ ...input, delivery }),
+            processAgentTaskContinuationQueueMessage({
+              ...input,
+              message: buildQueueMessage(source.subscriptionId),
+            }),
+          ]);
+          const recoveries = await harness.db.query<{
+            subscription_id: string;
+            continuation_json: string;
+          }>({
+            text: `SELECT subscription_id, continuation_json FROM "openmeld"."agent_task_completion_subscriptions"
+              WHERE subscription_id <> $1`,
+            values: [source.subscriptionId],
+          });
+          expect(recoveries.rows).toHaveLength(1);
+          expect(
+            JSON.parse(recoveries.rows[0]?.continuation_json ?? "{}")
+          ).toMatchObject({
+            summaryRecovery: {
+              sourceSubscriptionId: source.subscriptionId,
+              operatorUserId: "user-parent",
+            },
+          });
+          const retained = await readRemoteAgentNativeDeliveryByDeliveryId({
+            db: harness.db,
+            deliveryId: delivery.deliveryId,
+          });
+          expect(retained).toMatchObject({
+            status: "failed",
+            publishedSignalId: "signal-coordinator-failure",
+          });
+          expect(
+            (
+              await readAgentTaskCompletionSubscription({
+                db: harness.db,
+                subscriptionId: source.subscriptionId,
+              })
+            )?.outcome
+          ).toEqual(source.outcome);
+          expect(cancel).toHaveBeenCalledTimes(
+            ["automatic_fence_retry", "automatic_manual_race"].includes(
+              scenario
+            )
+              ? 2
+              : 1
+          );
+          expect(submitContinuation).toHaveBeenCalledTimes(
+            beforeSettlement ? 2 : 1
+          );
+          if (scenario === "automatic_manual_race") {
+            const recoveryId = recoveries.rows[0]?.subscription_id;
+            if (!recoveryId) {
+              throw new Error("Missing shared recovery identity");
+            }
+            expect(cancel.mock.calls.map(([query]) => query)).toEqual([
+              expect.objectContaining({ summaryRecoveryId: recoveryId }),
+              expect.objectContaining({ summaryRecoveryId: recoveryId }),
+            ]);
+            submitContinuation.mockImplementation(async (admission) => {
+              expect(admission).toMatchObject({
+                subscriptionId: recoveryId,
+                summaryOnly: true,
+              });
+              await insertContinuationDelivery({
+                db: harness.db,
+                idempotencyKey: admission.idempotencyKey,
+                deliveryId: "summary-delivery",
+              });
+              return {
+                task: {
+                  kind: "native_delivery",
+                  deliveryId: "summary-delivery",
+                  v: 1,
+                },
+              };
+            });
+            const recoveryMessage = {
+              ...input,
+              message: buildQueueMessage(recoveryId),
+              nowMs: 1400,
+            };
+            await Promise.all([
+              processAgentTaskContinuationQueueMessage(recoveryMessage),
+              processAgentTaskContinuationQueueMessage(recoveryMessage),
+            ]);
+            await processAgentTaskContinuationQueueMessage(recoveryMessage);
+            expect(submitContinuation).toHaveBeenCalledTimes(2);
+            await expect(
+              readAgentTaskCompletionSubscription({
+                db: harness.db,
+                subscriptionId: recoveryId,
+              })
+            ).resolves.toMatchObject({
+              state: "settled",
+              continuationTask: {
+                kind: "native_delivery",
+                deliveryId: "summary-delivery",
+                v: 1,
+              },
+            });
+          }
+          expect(activateFallbackWake).not.toHaveBeenCalled();
+        } else {
+          expect(cancel).not.toHaveBeenCalled();
+          expect(send).not.toHaveBeenCalled();
+        }
+        return;
+      }
       const observer = await readRemoteAgentNativeDeliveryByDeliveryId({
         db: harness.db,
         deliveryId: "delivery-parent",
@@ -459,11 +747,10 @@ describe("Agent Task continuation service", () => {
       expect(readResult).not.toHaveBeenCalled();
       // Exercise the failure reader through the real persisted subscription and
       // delegation. The public destination must match the child's own Space.
-      await harness.db
-        .prepare(
-          "UPDATE openMeldRemoteAgent_native_delivery_ledger SET space_id = 'space-child' WHERE delivery_id = 'delivery-parent'"
-        )
-        .run();
+      await harness.db.query({
+        text: "UPDATE \"openmeld\".\"openMeldRemoteAgent_native_delivery_ledger\" SET space_id = 'space-child' WHERE delivery_id = 'delivery-parent'",
+        values: [],
+      });
       const interrupted = await readRemoteAgentNativeDeliveryByDeliveryId({
         db: harness.db,
         deliveryId: "delivery-continuation-race",
@@ -493,11 +780,19 @@ describe("Agent Task continuation service", () => {
           },
         })
       ).toEqual([]);
-      await harness.db
-        .prepare(
-          "UPDATE openMeldRemoteAgent_native_delivery_ledger SET space_id = 'space-parent' WHERE delivery_id = 'delivery-parent'"
-        )
-        .run();
+      await harness.db.query({
+        text: "UPDATE \"openmeld\".\"openMeldRemoteAgent_native_delivery_ledger\" SET space_id = 'space-parent' WHERE delivery_id = 'delivery-parent'",
+        values: [],
+      });
+      if (scenario === "old_receiver_rejects") {
+        await expect(continueTaskSummary(input)).rejects.toThrow();
+        await expect(
+          continueTaskSummary({ ...input, inspectOnly: false })
+        ).rejects.toThrow();
+        expect(cancel).not.toHaveBeenCalled();
+        expect(send).not.toHaveBeenCalled();
+        return;
+      }
       const inspected = await continueTaskSummary(input);
       expect(cancel).not.toHaveBeenCalled();
       expect(send).not.toHaveBeenCalled();
@@ -572,38 +867,41 @@ describe("Agent Task continuation service", () => {
             throw new Error("Missing recovery identity");
           }
           if (scenario === "cancelled_recovery") {
-            await harness.db
-              .prepare(
-                "UPDATE agent_task_completion_subscriptions SET state = 'cancelled' WHERE subscription_id = ?"
-              )
-              .bind(recovery.subscriptionId)
-              .run();
+            await harness.db.query({
+              ...{
+                text: 'UPDATE "openmeld"."agent_task_completion_subscriptions" SET state = \'cancelled\' WHERE subscription_id = $1',
+                values: [],
+              },
+              values: [recovery.subscriptionId],
+            });
           } else {
             await insertContinuationDelivery({
               db: harness.db,
               idempotencyKey: recovery.continuationIdempotencyKey,
               deliveryId: "summary-delivery",
             });
-            await harness.db
-              .prepare(
-                "UPDATE agent_task_completion_subscriptions SET state = 'settled', continuation_task_handle_json = ?, continuation_task_key = ? WHERE subscription_id = ?"
-              )
-              .bind(
+            await harness.db.query({
+              ...{
+                text: 'UPDATE "openmeld"."agent_task_completion_subscriptions" SET state = \'settled\', continuation_task_handle_json = $1, continuation_task_key = $2 WHERE subscription_id = $3',
+                values: [],
+              },
+              values: [
                 JSON.stringify({
                   v: 1,
                   kind: "native_delivery",
                   deliveryId: "summary-delivery",
                 }),
                 "native_delivery:summary-delivery",
-                recovery.subscriptionId
-              )
-              .run();
+                recovery.subscriptionId,
+              ],
+            });
             if (scenario !== "running_recovery") {
-              await harness.db
-                .prepare(
-                  "UPDATE openMeldRemoteAgent_native_delivery_ledger SET status = ?, published_signal_id = ? WHERE delivery_id = 'summary-delivery'"
-                )
-                .bind(
+              await harness.db.query({
+                ...{
+                  text: 'UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger" SET status = $1, published_signal_id = $2 WHERE delivery_id = \'summary-delivery\'',
+                  values: [],
+                },
+                values: [
                   scenario === "failed_recovery" ? "failed" : "completed",
                   [
                     "completed_recovery",
@@ -611,9 +909,9 @@ describe("Agent Task continuation service", () => {
                     "revoked_result_recovery",
                   ].includes(scenario)
                     ? "summary-result"
-                    : null
-                )
-                .run();
+                    : null,
+                ],
+              });
             }
             readResult.mockResolvedValue({
               ...resultDetails,
@@ -720,15 +1018,14 @@ describe("Agent Task continuation service", () => {
         );
       }
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it.each([
     true,
     false,
   ])("rechecks the requester's current Space access before manual summary admission: %s", async (allowed) => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await arrangeReadySubscription(harness.db, "original-manual");
       await claimReadyAgentTaskCompletionSubscription({
@@ -766,17 +1063,11 @@ describe("Agent Task continuation service", () => {
         operatorUserId: "user-parent",
         nowMs: 1130,
       });
-      harness.run({
-        sql: "CREATE TABLE members (id TEXT, role TEXT, organization_id TEXT, user_id TEXT)",
+      await harness.query({
+        text: "INSERT INTO \"openmeld\".\"members\" (id, role, organization_id, user_id, \"created_at\") VALUES ('member-parent', 'member', 'org-1', 'user-parent', 1700000000000)",
       });
-      harness.run({
-        sql: "CREATE TABLE openmeld_profiles (profile_id TEXT, profile_kind TEXT, profile_name TEXT, owner_user_id TEXT, status TEXT)",
-      });
-      harness.run({
-        sql: "INSERT INTO members VALUES ('member-parent', 'member', 'org-1', 'user-parent')",
-      });
-      harness.run({
-        sql: "INSERT INTO openmeld_profiles VALUES ('human-parent', 'human', 'Requester', 'user-parent', 'active')",
+      await harness.query({
+        text: "INSERT INTO \"openmeld\".\"openmeld_profiles\" (profile_id, profile_kind, profile_name, owner_user_id, status, profile_handle, source) VALUES ('11111111-1111-4111-8111-111111111111', 'human', 'Requester', 'user-parent', 'active', 'requester', 'auth_bootstrap')",
       });
       const access = vi.fn(async () => ({ allowed }));
       resolveSpace.mockReturnValue({
@@ -801,7 +1092,7 @@ describe("Agent Task continuation service", () => {
       expect(submitContinuation).toHaveBeenCalledTimes(allowed ? 1 : 0);
       expect(access).toHaveBeenCalledWith({
         spaceId: "space-parent",
-        profileId: "human-parent",
+        profileId: "11111111-1111-4111-8111-111111111111",
         ownerUserId: "user-parent",
       });
       expect(result.status).toBe("completed");
@@ -824,12 +1115,11 @@ describe("Agent Task continuation service", () => {
         });
       }
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("submits and settles one continuation exactly once", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await arrangeReadySubscription(harness.db, "subscription-1");
       submitContinuation.mockResolvedValue({
@@ -839,7 +1129,6 @@ describe("Agent Task continuation service", () => {
           v: 1,
         },
       });
-
       await expect(
         processAgentTaskContinuationQueueMessage({
           db: harness.db,
@@ -862,7 +1151,6 @@ describe("Agent Task continuation service", () => {
         status: "completed",
         task: { deliveryId: "delivery-continuation-1" },
       });
-
       expect(submitContinuation).toHaveBeenCalledTimes(1);
       const submittedContinuation = submitContinuation.mock.calls[0]?.[0];
       expect(submittedContinuation.replyLanguageTag).toBe("zh-Hans");
@@ -882,12 +1170,11 @@ describe("Agent Task continuation service", () => {
         state: "settled",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("settles a terminal continuation instead of retrying its admission", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await arrangeReadySubscription(harness.db, "subscription-terminal");
       submitContinuation.mockResolvedValue({
@@ -898,7 +1185,6 @@ describe("Agent Task continuation service", () => {
           v: 1,
         },
       });
-
       await expect(
         processAgentTaskContinuationQueueMessage({
           db: harness.db,
@@ -924,12 +1210,11 @@ describe("Agent Task continuation service", () => {
       });
       expect(submitContinuation).toHaveBeenCalledOnce();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("cancels a continuation when its frozen model route was already cleared", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await arrangeReadySubscription(
         harness.db,
@@ -940,7 +1225,6 @@ describe("Agent Task continuation service", () => {
           "remote_agent.task_continuation.original_model_route_unavailable"
         )
       );
-
       await expect(
         processAgentTaskContinuationQueueMessage({
           db: harness.db,
@@ -960,24 +1244,24 @@ describe("Agent Task continuation service", () => {
       });
       expect(submitContinuation).toHaveBeenCalledOnce();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("waits for a Routine observer callback to finish before resuming it", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await arrangeReadySubscription(harness.db, "subscription-routine");
-      await harness.db
-        .prepare(
-          `
-            UPDATE openMeldRemoteAgent_native_delivery_ledger
+      await harness.db.query({
+        ...{
+          text: `
+            UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger"
             SET routine_run_id = 'routine-run-1'
-            WHERE delivery_id = ?
-          `
-        )
-        .bind(parentTask.deliveryId)
-        .run();
+            WHERE delivery_id = $1
+          `,
+          values: [],
+        },
+        values: [parentTask.deliveryId],
+      });
       submitContinuation.mockResolvedValue({
         task: {
           deliveryId: "delivery-routine-continuation",
@@ -985,7 +1269,6 @@ describe("Agent Task continuation service", () => {
           v: 1,
         },
       });
-
       await expect(
         processAgentTaskContinuationQueueMessage({
           db: harness.db,
@@ -995,17 +1278,17 @@ describe("Agent Task continuation service", () => {
         })
       ).resolves.toEqual({ retryAfterSeconds: 5, status: "retry_later" });
       expect(submitContinuation).not.toHaveBeenCalled();
-
-      await harness.db
-        .prepare(
-          `
-            UPDATE openMeldRemoteAgent_native_delivery_ledger
+      await harness.db.query({
+        ...{
+          text: `
+            UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger"
             SET status = 'completed'
-            WHERE delivery_id = ?
-          `
-        )
-        .bind(parentTask.deliveryId)
-        .run();
+            WHERE delivery_id = $1
+          `,
+          values: [],
+        },
+        values: [parentTask.deliveryId],
+      });
       await expect(
         processAgentTaskContinuationQueueMessage({
           db: harness.db,
@@ -1019,12 +1302,11 @@ describe("Agent Task continuation service", () => {
       });
       expect(submitContinuation).toHaveBeenCalledTimes(1);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("resumes a general exact-task watch without requiring a delegation", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await arrangeReadyTaskWatchSubscription(
         harness.db,
@@ -1037,7 +1319,6 @@ describe("Agent Task continuation service", () => {
           v: 1,
         },
       });
-
       await expect(
         processAgentTaskContinuationQueueMessage({
           db: harness.db,
@@ -1057,12 +1338,11 @@ describe("Agent Task continuation service", () => {
       expect(submitted).not.toHaveProperty("delegation");
       expect(submitted).not.toHaveProperty("delegationId");
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("retries with the same continuation idempotency key after a crash gap", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await arrangeReadySubscription(harness.db, "subscription-crash-gap");
       submitContinuation
@@ -1074,7 +1354,6 @@ describe("Agent Task continuation service", () => {
             v: 1,
           },
         });
-
       await expect(
         processAgentTaskContinuationQueueMessage({
           db: harness.db,
@@ -1094,7 +1373,6 @@ describe("Agent Task continuation service", () => {
         status: "completed",
         task: { deliveryId: "delivery-continuation-recovered" },
       });
-
       expect(submitContinuation).toHaveBeenCalledTimes(2);
       expect(submitContinuation.mock.calls[0]?.[0].idempotencyKey).toBe(
         "agent-task-continuation:subscription-crash-gap"
@@ -1103,25 +1381,25 @@ describe("Agent Task continuation service", () => {
         "agent-task-continuation:subscription-crash-gap"
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("redrives a durable winner if the delegation completion write was interrupted", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     const subscriptionId = "subscription-winner-crash-gap";
     try {
       await arrangeReadySubscription(harness.db, subscriptionId);
-      await harness.db
-        .prepare(
-          `
-            UPDATE agent_delegations
+      await harness.db.query({
+        ...{
+          text: `
+            UPDATE "openmeld"."agent_delegations"
             SET state = 'active', completed_at_ms = NULL
-            WHERE delegation_id = ?
-          `
-        )
-        .bind(`delegation:${subscriptionId}`)
-        .run();
+            WHERE delegation_id = $1
+          `,
+          values: [],
+        },
+        values: [`delegation:${subscriptionId}`],
+      });
       submitContinuation.mockResolvedValue({
         task: {
           deliveryId: "delivery-winner-redriven",
@@ -1129,7 +1407,6 @@ describe("Agent Task continuation service", () => {
           v: 1,
         },
       });
-
       await expect(
         processAgentTaskContinuationQueueMessage({
           db: harness.db,
@@ -1148,12 +1425,11 @@ describe("Agent Task continuation service", () => {
         })
       ).resolves.toMatchObject({ state: "completed" });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("defers while another continuation claim lease is active", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await arrangeReadySubscription(harness.db, "subscription-claimed");
       await claimReadyAgentTaskCompletionSubscription({
@@ -1163,7 +1439,6 @@ describe("Agent Task continuation service", () => {
         nowMs: 1200,
         subscriptionId: "subscription-claimed",
       });
-
       await expect(
         processAgentTaskContinuationQueueMessage({
           db: harness.db,
@@ -1177,16 +1452,14 @@ describe("Agent Task continuation service", () => {
       });
       expect(submitContinuation).not.toHaveBeenCalled();
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("redrives durable ready subscriptions after an enqueue gap", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     const send = vi.fn(async () => undefined);
     try {
       await arrangeReadySubscription(harness.db, "subscription-redrive");
-
       await expect(
         retryReadyAgentTaskContinuations({
           db: harness.db,
@@ -1196,18 +1469,16 @@ describe("Agent Task continuation service", () => {
           nowMs: 1200,
         })
       ).resolves.toEqual({ enqueuedCount: 1 });
-
       expect(send).toHaveBeenCalledWith({
         ...buildQueueMessage("subscription-redrive"),
         enqueuedAtMs: 1200,
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("keeps a continuation ready when its immediate Queue send fails", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await insertParentDelivery(harness.db);
       await createAgentDelegation({
@@ -1238,7 +1509,6 @@ describe("Agent Task continuation service", () => {
         subscriptionId: "subscription-enqueue-failure",
         watchedTask: childTask,
       });
-
       await expect(
         recordAndEnqueueAgentTaskTerminalOutcome({
           db: harness.db,
@@ -1258,7 +1528,6 @@ describe("Agent Task continuation service", () => {
           task: childTask,
         })
       ).resolves.toBeUndefined();
-
       await expect(
         readAgentTaskCompletionSubscription({
           db: harness.db,
@@ -1266,12 +1535,11 @@ describe("Agent Task continuation service", () => {
         })
       ).resolves.toMatchObject({ state: "ready" });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("enqueues and resumes a duplicate terminal observation exactly once", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     const send = vi.fn(async () => undefined);
     const subscriptionId = "subscription-duplicate-terminal";
     const outcome = {
@@ -1314,7 +1582,6 @@ describe("Agent Task continuation service", () => {
       const env = {
         OPENMELD_DAEMON_DISPATCH_QUEUE: { send },
       } as unknown as CoreBindings;
-
       await recordAndEnqueueAgentTaskTerminalOutcome({
         db: harness.db,
         env,
@@ -1329,9 +1596,7 @@ describe("Agent Task continuation service", () => {
         outcome,
         task: childTask,
       });
-
       expect(send).toHaveBeenCalledTimes(1);
-
       submitContinuation.mockResolvedValue({
         task: {
           deliveryId: "delivery-duplicate-terminal-continuation",
@@ -1351,15 +1616,13 @@ describe("Agent Task continuation service", () => {
         message: buildQueueMessage(subscriptionId),
         nowMs: 1210,
       });
-
       expect(submitContinuation).toHaveBeenCalledTimes(1);
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("resumes the exact parent controller conversation once after a local runtime is lost", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     const send = vi.fn(async () => undefined);
     const subscriptionId = "subscription-local-runtime-lost";
     const outcome = {
@@ -1405,7 +1668,6 @@ describe("Agent Task continuation service", () => {
       const env = {
         OPENMELD_DAEMON_DISPATCH_QUEUE: { send },
       } as unknown as CoreBindings;
-
       await recordAndEnqueueAgentTaskTerminalOutcome({
         db: harness.db,
         env,
@@ -1420,10 +1682,8 @@ describe("Agent Task continuation service", () => {
         outcome,
         task: childTask,
       });
-
       expect(send).toHaveBeenCalledOnce();
       expect(send).toHaveBeenCalledWith(buildQueueMessage(subscriptionId));
-
       submitContinuation.mockResolvedValue({
         task: {
           deliveryId: "delivery-local-runtime-lost-continuation",
@@ -1443,7 +1703,6 @@ describe("Agent Task continuation service", () => {
         message: buildQueueMessage(subscriptionId),
         nowMs: 1210,
       });
-
       expect(submitContinuation).toHaveBeenCalledOnce();
       expect(submitContinuation).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1456,12 +1715,11 @@ describe("Agent Task continuation service", () => {
         })
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("activates a fallback only after the primary authoritatively fails", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await insertParentDelivery(harness.db);
       const prepared = await prepareCenterAgentWakeDelegation({
@@ -1518,7 +1776,6 @@ describe("Agent Task continuation service", () => {
         outcome: { status: "failed" },
         state: "ready",
       });
-
       await expect(
         processAgentTaskContinuationQueueMessage({
           db: harness.db,
@@ -1535,7 +1792,6 @@ describe("Agent Task continuation service", () => {
           nowMs: 1300,
         })
       ).resolves.toEqual({ status: "completed", task: fallbackTask });
-
       expect(activateFallbackWake).toHaveBeenCalledTimes(1);
       await expect(
         readAgentDelegation({
@@ -1550,12 +1806,11 @@ describe("Agent Task continuation service", () => {
         state: "active",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("waits for active child cancellation before confirming the parent stop", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     const postWakeStop = vi
       .fn()
       .mockResolvedValueOnce({
@@ -1625,7 +1880,6 @@ describe("Agent Task continuation service", () => {
         watchedTask: childTask,
       });
       resolveSpace.mockReturnValue({ rpcPostWakeStop: postWakeStop });
-
       const terminalInput = {
         db: harness.db,
         env: {} as CoreBindings,
@@ -1639,14 +1893,12 @@ describe("Agent Task continuation service", () => {
         },
         task: parentTask,
       };
-
       await expect(
         recordAndEnqueueAgentTaskTerminalOutcome(terminalInput)
       ).rejects.toThrow("agent_task_parent_stop.cancellation_requested");
       await expect(
         recordAndEnqueueAgentTaskTerminalOutcome(terminalInput)
       ).resolves.toBeUndefined();
-
       expect(postWakeStop).toHaveBeenCalledWith(
         expect.objectContaining({
           body: {
@@ -1677,18 +1929,16 @@ describe("Agent Task continuation service", () => {
         })
       ).resolves.toMatchObject({ state: "cancelled" });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("maps a missing rpcPostWakeStop receiver method to stable Space unavailable", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await arrangeActiveChildForParentStop(harness.db);
       resolveSpace.mockReturnValue(
         createProxyLikeSpaceStubWithMissingReceiverMethod("rpcPostWakeStop")
       );
-
       await expect(
         recordAndEnqueueAgentTaskTerminalOutcome({
           db: harness.db,
@@ -1705,10 +1955,9 @@ describe("Agent Task continuation service", () => {
         })
       ).rejects.toThrow("agent_task_parent_stop.space_unavailable");
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it.each([
     ["transport", "network connection lost"],
     [
@@ -1716,13 +1965,12 @@ describe("Agent Task continuation service", () => {
       'HTTP 409: {"ok":false,"error":{"code":"space.wake_stop.not_stoppable","message":"Wake is already terminal."}}',
     ],
   ])("preserves an unrelated %s error from rpcPostWakeStop", async (_errorKind, errorMessage) => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await arrangeActiveChildForParentStop(harness.db);
       resolveSpace.mockReturnValue({
         rpcPostWakeStop: vi.fn(() => Promise.reject(new Error(errorMessage))),
       });
-
       const rejection = await recordAndEnqueueAgentTaskTerminalOutcome({
         db: harness.db,
         env: {} as CoreBindings,
@@ -1741,18 +1989,16 @@ describe("Agent Task continuation service", () => {
       );
       const rejectionMessage =
         rejection instanceof Error ? rejection.message : String(rejection);
-
       expect(rejectionMessage).toContain(errorMessage);
       expect(rejectionMessage).not.toContain(
         "agent_task_parent_stop.space_unavailable"
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("preserves a missing nested receiver method that is not rpcPostWakeStop", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await arrangeActiveChildForParentStop(harness.db);
       resolveSpace.mockReturnValue(
@@ -1760,7 +2006,6 @@ describe("Agent Task continuation service", () => {
           "rpcReadWakeStopState"
         )
       );
-
       const rejection = await recordAndEnqueueAgentTaskTerminalOutcome({
         db: harness.db,
         env: {} as CoreBindings,
@@ -1779,7 +2024,6 @@ describe("Agent Task continuation service", () => {
       );
       const rejectionMessage =
         rejection instanceof Error ? rejection.message : String(rejection);
-
       expect(rejectionMessage).toContain(
         'The RPC receiver does not implement the method "rpcReadWakeStopState".'
       );
@@ -1787,12 +2031,11 @@ describe("Agent Task continuation service", () => {
         "agent_task_parent_stop.space_unavailable"
       );
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("attempts every child and continuation cancellation before reporting Stop failures", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     const subscriptionId = "subscription-stop-all-targets";
     const continuationIdempotencyKey = `agent-task-continuation:${subscriptionId}`;
     const activeChildTask = {
@@ -1880,7 +2123,6 @@ describe("Agent Task continuation service", () => {
         nowMs: 1110,
       });
       resolveSpace.mockReturnValue({ rpcPostWakeStop: postWakeStop });
-
       const rejection = await recordAndEnqueueAgentTaskTerminalOutcome({
         db: harness.db,
         env: {
@@ -1901,12 +2143,10 @@ describe("Agent Task continuation service", () => {
       );
       const rejectionMessage =
         rejection instanceof Error ? rejection.message : String(rejection);
-
       expect(rejectionMessage).toContain("agent_task_parent_stop.not_found");
       expect(rejectionMessage).toContain(
         "remote_agent.parent_stop_cancellation_pending"
       );
-
       expect(postWakeStop).toHaveBeenCalledTimes(2);
       expect(cancelExecution).toHaveBeenCalledTimes(1);
       await expect(
@@ -1919,12 +2159,11 @@ describe("Agent Task continuation service", () => {
         status: "accepted",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("stops active siblings after a first-success delegation already completed", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     const siblingTask = {
       ...childTask,
       sourceClientMessageId: "client-sibling",
@@ -2002,7 +2241,6 @@ describe("Agent Task continuation service", () => {
         task: childTask,
       });
       resolveSpace.mockReturnValue({ rpcPostWakeStop: postWakeStop });
-
       await expect(
         recordAndEnqueueAgentTaskTerminalOutcome({
           db: harness.db,
@@ -2018,7 +2256,6 @@ describe("Agent Task continuation service", () => {
           task: parentTask,
         })
       ).resolves.toBeUndefined();
-
       expect(postWakeStop).toHaveBeenCalledTimes(1);
       expect(postWakeStop).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -2039,12 +2276,11 @@ describe("Agent Task continuation service", () => {
         state: "cancelled",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("cancels a claimed native continuation when Parent Stop wins the race", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     const subscriptionId = "subscription-native-continuation-stop";
     const continuationIdempotencyKey = `agent-task-continuation:${subscriptionId}`;
     const cancelExecution = vi
@@ -2092,7 +2328,6 @@ describe("Agent Task continuation service", () => {
         db: harness.db,
         idempotencyKey: continuationIdempotencyKey,
       });
-
       await expect(
         recordAndEnqueueAgentTaskTerminalOutcome({
           db: harness.db,
@@ -2110,7 +2345,6 @@ describe("Agent Task continuation service", () => {
           task: parentTask,
         })
       ).rejects.toThrow("remote_agent.parent_stop_cancellation_pending");
-
       expect(cancelExecution).toHaveBeenCalledWith(
         expect.objectContaining({
           idempotencyKey: continuationIdempotencyKey,
@@ -2127,7 +2361,6 @@ describe("Agent Task continuation service", () => {
         failureCode: null,
         status: "accepted",
       });
-
       await expect(
         recordAndEnqueueAgentTaskTerminalOutcome({
           db: harness.db,
@@ -2155,12 +2388,11 @@ describe("Agent Task continuation service", () => {
         status: "failed",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("keeps Parent Stop retryable when the native continuation cannot be found", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     const subscriptionId = "subscription-native-continuation-missing";
     const continuationIdempotencyKey = `agent-task-continuation:${subscriptionId}`;
     const cancelExecution = vi.fn(
@@ -2189,7 +2421,6 @@ describe("Agent Task continuation service", () => {
         db: harness.db,
         idempotencyKey: continuationIdempotencyKey,
       });
-
       await expect(
         recordAndEnqueueAgentTaskTerminalOutcome({
           db: harness.db,
@@ -2218,7 +2449,6 @@ describe("Agent Task continuation service", () => {
         failureCode: null,
         status: "accepted",
       });
-
       await expect(
         recordAndEnqueueAgentTaskTerminalOutcome({
           db: harness.db,
@@ -2246,12 +2476,11 @@ describe("Agent Task continuation service", () => {
         status: "failed",
       });
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
-
   it("does not treat an unproven missing child as a successful Parent Stop", async () => {
-    const harness = createHarness();
+    const harness = await createHarness();
     try {
       await insertParentDelivery(harness.db);
       await createAgentDelegation({
@@ -2292,7 +2521,6 @@ describe("Agent Task continuation service", () => {
           targetProfileId: childTask.targetProfileId,
         })),
       });
-
       await expect(
         recordAndEnqueueAgentTaskTerminalOutcome({
           db: harness.db,
@@ -2309,12 +2537,13 @@ describe("Agent Task continuation service", () => {
         })
       ).rejects.toThrow("agent_task_parent_stop.not_found");
     } finally {
-      harness.close();
+      await harness.close();
     }
   });
 });
-
-async function arrangeActiveChildForParentStop(db: D1Database): Promise<void> {
+async function arrangeActiveChildForParentStop(
+  db: PostgresDatabase
+): Promise<void> {
   await insertParentDelivery(db);
   await createAgentDelegation({
     children: [
@@ -2339,7 +2568,6 @@ async function arrangeActiveChildForParentStop(db: D1Database): Promise<void> {
     nowMs: 1010,
   });
 }
-
 function createProxyLikeSpaceStubWithMissingReceiverMethod(
   methodName: string
 ): object {
@@ -2355,9 +2583,8 @@ function createProxyLikeSpaceStubWithMissingReceiverMethod(
     }
   );
 }
-
 async function arrangeReadySubscription(
-  db: D1Database,
+  db: PostgresDatabase,
   subscriptionId: string
 ): Promise<void> {
   await insertParentDelivery(db);
@@ -2405,9 +2632,8 @@ async function arrangeReadySubscription(
     task: childTask,
   });
 }
-
 async function arrangeReadyTaskWatchSubscription(
-  db: D1Database,
+  db: PostgresDatabase,
   subscriptionId: string
 ): Promise<void> {
   await insertParentDelivery(db);
@@ -2442,7 +2668,6 @@ async function arrangeReadyTaskWatchSubscription(
     task: childTask,
   });
 }
-
 function buildQueueMessage(subscriptionId: string) {
   return {
     enqueuedAtMs: 1100,
@@ -2452,25 +2677,21 @@ function buildQueueMessage(subscriptionId: string) {
     v: 4 as const,
   };
 }
-
-function createHarness() {
-  const harness = createSqliteD1Harness();
-  applyDrizzleMigrationForTable(
-    harness,
-    "openMeldRemoteAgent_native_delivery_ledger"
-  );
-  applyDrizzleMigrationForTable(harness, "agent_task_terminal_outcomes");
-  applyDrizzleMigrationForTable(harness, "agent_task_completion_subscriptions");
-  applyDrizzleMigrationForTable(harness, "agent_delegations");
-  applyDrizzleMigrationForTable(harness, "agent_delegation_children");
+async function createHarness() {
+  const harness = await createPostgresHarness();
+  await harness.query({
+    text: `INSERT INTO "openmeld"."users" (id, name, email) VALUES ('user-parent', 'Requester', 'requester@example.test')`,
+  });
+  await harness.query({
+    text: `INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ('org-1', 'Organization', 'org-1', 1700000000000)`,
+  });
   return harness;
 }
-
-async function insertParentDelivery(db: D1Database): Promise<void> {
-  await db
-    .prepare(
-      `
-        INSERT OR IGNORE INTO openMeldRemoteAgent_native_delivery_ledger (
+async function insertParentDelivery(db: PostgresDatabase): Promise<void> {
+  await db.query({
+    ...{
+      text: `
+        INSERT INTO "openmeld"."openMeldRemoteAgent_native_delivery_ledger" (
           delivery_id,
           organization_id,
           conversation_kind,
@@ -2488,10 +2709,11 @@ async function insertParentDelivery(db: D1Database): Promise<void> {
           created_at_ms,
           updated_at_ms
         )
-        VALUES (?, ?, 'space', ?, ?, ?, ?, ?, ?, ?, 'accepted', ?, ?, ?, ?, ?)
-      `
-    )
-    .bind(
+        VALUES ($1, $2, 'space', $3, $4, $5, $6, $7, $8, $9, 'accepted', $10, $11, $12, $13, $14)
+      `,
+      values: [],
+    },
+    values: [
       "delivery-parent",
       "org-1",
       "space-parent",
@@ -2501,24 +2723,23 @@ async function insertParentDelivery(db: D1Database): Promise<void> {
       "dispatch-parent",
       "idempotency-parent",
       "submission-parent",
-      "human-parent",
+      "11111111-1111-4111-8111-111111111111",
       "user-parent",
       "Felix",
       900,
-      900
-    )
-    .run();
+      900,
+    ],
+  });
 }
-
 async function insertContinuationDelivery(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   idempotencyKey: string;
   deliveryId?: string;
 }): Promise<void> {
-  await input.db
-    .prepare(
-      `
-        INSERT INTO openMeldRemoteAgent_native_delivery_ledger (
+  await input.db.query({
+    ...{
+      text: `
+        INSERT INTO "openmeld"."openMeldRemoteAgent_native_delivery_ledger" (
           delivery_id,
           organization_id,
           conversation_kind,
@@ -2536,10 +2757,11 @@ async function insertContinuationDelivery(input: {
           created_at_ms,
           updated_at_ms
         )
-        VALUES (?, ?, 'space', ?, ?, ?, ?, ?, ?, ?, 'accepted', ?, ?, ?, ?, ?)
-      `
-    )
-    .bind(
+        VALUES ($1, $2, 'space', $3, $4, $5, $6, $7, $8, $9, 'accepted', $10, $11, $12, $13, $14)
+      `,
+      values: [],
+    },
+    values: [
       input.deliveryId ?? "delivery-continuation-race",
       "org-1",
       "space-parent",
@@ -2553,11 +2775,11 @@ async function insertContinuationDelivery(input: {
       input.deliveryId
         ? `submission:${input.deliveryId}`
         : "submission-continuation-race",
-      "human-parent",
+      "11111111-1111-4111-8111-111111111111",
       "user-parent",
       "Felix",
       1110,
-      1110
-    )
-    .run();
+      1110,
+    ],
+  });
 }

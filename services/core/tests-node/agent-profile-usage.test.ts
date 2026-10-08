@@ -1,4 +1,5 @@
 import { createAuthorityOpenMeldServiceRuntimeId } from "@openmeld/agent-runtime";
+import { PostgresDatabase } from "@openmeld/db/postgresql";
 import type {
   AgentControllerInterfaceSnapshot,
   AgentControllerUsageLimits,
@@ -80,7 +81,10 @@ describe("Agent Profile shared usage", () => {
       >()
       .mockResolvedValue([report]);
     const result = await readAgentProfileUsage({
-      db: {} as D1Database,
+      db: new PostgresDatabase({
+        connectionString:
+          "postgresql://127.0.0.1:1/unexpected_test_database_access",
+      }),
       binding,
       reads: { readCurrentRuntimeAgentControllerReports: read },
       nowMs: nowMs + age,
@@ -97,7 +101,10 @@ describe("Agent Profile shared usage", () => {
   it("does not borrow another controller or provider's quota", async () => {
     const read = vi.fn().mockResolvedValue([report]);
     const input = {
-      db: {} as D1Database,
+      db: new PostgresDatabase({
+        connectionString:
+          "postgresql://127.0.0.1:1/unexpected_test_database_access",
+      }),
       binding: {
         ...binding,
         executionTarget: {

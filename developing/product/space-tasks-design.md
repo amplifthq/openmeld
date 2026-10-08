@@ -22,7 +22,7 @@ The following product decisions were confirmed during design discussion. They de
 | Decision | Rationale |
 | --- | --- |
 | A Task records the work OpenMeld participants accept, including an explicit follow-up-and-report request. External issues are references, not a second kind of card with a different state owner. | Tracking another team's fix must not imply responsibility for implementing it. |
-| The first release supports ordinary shared collaboration Spaces, without DM Tasks or global Tasks navigation. | Prove shared handoffs before introducing private-task and aggregation surfaces. |
+| Tasks support shared Spaces and private conversations, including Center Agent chats. Global Tasks navigation remains deferred. | Keep task capture consistent and preserve each conversation's access boundary. |
 | Without required independent review, completion follows the requested delivery boundary and supporting evidence. | Avoid mandatory human approval for every card while preserving actual completion conditions. |
 
 ### Confirmed decisions — interview round 2
@@ -55,6 +55,10 @@ The following product decisions were confirmed during design discussion. They de
 | --- | --- |
 | Permit at most two automatic rework rounds after initial implementation, then require a human decision before another round. Escalate earlier for a real blocker or scope/authority change. | Bound unproductive Agent-to-Agent cycles without interrupting healthy in-flight execution or marking unfinished work complete. |
 
+Storage update: production shared relational persistence moved to PostgreSQL
+on 2026-10-04. This proposal uses that current backend; use the
+[PostgreSQL workflow](../engineering/postgresql.md) for new schema work.
+
 ## 1. Product Decision
 
 Add **Tasks** alongside **Messages** and **Files** in an eligible Space. Messages is the default place to request and discuss work. Tasks makes work that needs continued attention visible and actionable. Files holds existing Space materials and deliverables.
@@ -83,7 +87,7 @@ execution Task Handles or claim production availability.
 
 | Included | Deferred |
 | --- | --- |
-| Tasks in ordinary, non-DM collaboration Spaces | Tasks in Direct Messages, private Center Agent sessions, and specialized Space kinds |
+| Tasks in collaboration Spaces and private conversations, including Center Agent sessions | Global task aggregation |
 | Creation from clear delivery requests in Messages and explicit tracking requests | Ambient conversion of conversation history or automatic import of every external issue |
 | Human and Agent responsibility; optional independent review | Multiple primary assignees, arbitrary reviewer chains, and mandatory organizational role hierarchies |
 | One board, a task detail panel, source-thread links, and Inbox attention | Global Tasks navigation, Board/List switching, custom workflow editors, and independent Goals |
@@ -282,7 +286,7 @@ Each Task has one immutable owning Space in the first release. Its canonical ide
 
 This proposes logical ownership, not a finalized database migration or class layout. Any organization-wide Task index is a rebuildable read projection and must revalidate source access. No global Task writer, second execution scheduler, or private Flue-state reads are introduced.
 
-Future global Tasks should mean tasks accessible to the current viewer in the selected Organization, with explicit filters and source labels. It must not expose private DM tasks to other members or silently omit a supported source kind. Initial shared-Space scope is presented consistently; unsupported DM/specialized kinds hide Tasks and reject creation, list, and mutation endpoints rather than exposing empty functional controls.
+Future global Tasks should mean tasks accessible to the current viewer in the selected Organization, with explicit filters and source labels. It must not expose private DM tasks to other members or silently omit a supported source kind. Shared Spaces and private conversations use the same Task APIs and UI. Private task reads and mutations retain the existing membership and actor authorization boundaries.
 
 Task content uses existing Space visibility. Private source material and external credentials do not become shareable merely because a Task links to them. Disclosing a private request into a shared Task requires authorized, bounded content; private history, tokens, and native local paths are not copied.
 
@@ -385,7 +389,7 @@ Deliver capture from Messages, stable Task identity, roles, board/detail, result
 | Submit-a-PR request versus deploy-and-verify request | Only the former can finish from PR submission evidence; neither adds an unrequested human acceptance gate |
 | Completed work with failed publication | Work is not rerun; delivery failure and exact retry are visible |
 | Refresh, leave/re-enter, and current access revocation | State remains recoverable; inaccessible data and mutation controls are not exposed |
-| DM and specialized Space entry points | Tasks is absent and unsupported server operations reject; ordinary messaging still works |
+| Private conversation entry points | Tasks uses the shared implementation; unauthorized readers and mutations are rejected |
 | A first-release request for automatic Linear follow-up, GitHub PR events, or unlinked GitHub issue import | Unsupported monitoring is explained; no event subscription or automatic-report promise is fabricated. Already-linked GitHub issue close/reopen can update the linked Task. |
 
 Use focused behavior tests at the owner seam, then supported real-user entry points for the shared handoff. Follow repository test guidance; do not build broad test suites that only mirror schema or UI implementation.
@@ -395,7 +399,7 @@ Use focused behavior tests at the owner seam, then supported real-user entry poi
 The first increment observes already-linked GitHub issue `closed` and
 `reopened` events through the GitHub App webhook. Close cancels still-active
 linked Tasks after refreshing `lastObservedState`. Reopen refreshes the
-observation and does not reopen a completed or canceled Task. Missing D1 link
+observation and does not reopen a completed or canceled Task. Missing PostgreSQL link
 rows are ignored; callbacks grant no new execution authority and do not start
 a model turn.
 
@@ -430,7 +434,7 @@ This proposal was checked against local source at `5501efa1d` on 2026-09-15. It 
 The product discussion is complete. The WIP implementation specifies these
 engineering details in the owning contracts:
 
-1. Eligibility is ordinary shared Spaces; Direct Messages reject. Active member
+1. Eligibility includes shared Spaces and private conversations. Active member
    identity and action-specific role checks are server-owned.
 2. Space Durable Object SQLite owns Task documents, append-only events, exact
    operation replay, revision-bound writes, pending delivery intent, and exact

@@ -1,0 +1,1 @@
+const e=()=>null,s=()=>null,o=()=>null,t=()=>{throw new Error("No server in demo")};export{o as CsvFilePreview,e as OfficeFileViewer,s as PdfViewer,t as deleteCookie,t as getRequest,t as getRequestHeaders,t as setCookie,t as setResponseHeader};

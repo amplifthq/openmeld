@@ -21,24 +21,24 @@ describe("resolveWakeProgressStatus", () => {
 			resolveWakeProgressStatus(
 				createWakeProgressItem({ targetLabel: "@agt_legacy_name" })
 			)?.label
-		).toBe("Agent · Thinking…");
+		).toBe("Agent · Working…");
 	});
 	it.each([
-		["sending", "runner · Thinking…", "starting"],
-		["request_sent", "runner · Thinking…", "sent"],
+		["sending", "runner · Working…", "working"],
+		["request_sent", "runner · Working…", "working"],
 		["queued", "runner · Waiting for earlier tasks", "queued"],
-		["connecting", "runner · Thinking…", "connecting"],
-		["retrying", "runner · Thinking…", "retrying"],
-		["running", "runner · Thinking…", "working"],
-		["writing", "runner · Replying…", "replying"],
-		["publishing", "runner · Replying…", "posting"],
+		["connecting", "runner · Working…", "working"],
+		["retrying", "runner · Working…", "working"],
+		["running", "runner · Working…", "working"],
+		["writing", "runner · Working…", "working"],
+		["publishing", "runner · Working…", "working"],
 	] as const)("presents %s without exposing transport details", (phase, label, kind) => {
 		expect(
 			resolveWakeProgressStatus(createWakeProgressItem({ phase }))
 		).toEqual(expect.objectContaining({ kind, label }));
 	});
 
-	it("shows the pending owner interaction instead of claiming the Agent · Thinking…", () => {
+	it("shows the pending owner interaction instead of claiming the Agent · Working…", () => {
 		expect(
 			resolveWakeProgressStatus(
 				createWakeProgressItem({
@@ -95,7 +95,7 @@ describe("resolveWakeProgressStatus", () => {
 		).toEqual(
 			expect.objectContaining({
 				kind: "waiting_for_controller",
-				label: "Waiting for runner",
+				label: "runner · Waiting for another app",
 				description: "Another app is using this conversation.",
 			})
 		);
@@ -135,7 +135,7 @@ function createWakeProgressItem(
 	return {
 		clientMessageId: "client-message-1",
 		dispatchId: "dispatch-1",
-		message: "runner · Thinking…",
+		message: "runner · Working…",
 		phase: "running",
 		sourceSignalId: "signal-1",
 		targetLabel: "@runner",

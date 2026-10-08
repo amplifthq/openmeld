@@ -27,7 +27,6 @@ const APP_PAGES = new Set([
 	"/agent-interface",
 	"/callback",
 	"/check-email",
-	"/desktop",
 	"/desktop-shell",
 	"/desktop-sign-in",
 	"/device",
@@ -61,6 +60,19 @@ export function routeAppRequest(
 ): Response | Promise<Response> | null {
 	const url = new URL(request.url);
 	const path = url.pathname;
+	if (path === "/desktop" || path === "/desktop/") {
+		if (request.method !== "GET" && request.method !== "HEAD") {
+			return new Response("Method not allowed", {
+				status: 405,
+				headers: { Allow: "GET, HEAD" },
+			});
+		}
+		url.pathname = "/downloads";
+		return new Response(null, {
+			status: 307,
+			headers: { Location: url.href, "Cache-Control": "no-store" },
+		});
+	}
 	if (
 		APP_PROTOCOL_PATHS.has(path) ||
 		APP_PROTOCOL_PREFIXES.some((prefix) => path.startsWith(prefix)) ||

@@ -1,16 +1,80 @@
 #!/usr/bin/env node
 
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
+import { verifyHostedPostgresqlCliDatabase } from "./database-backend-admission.mjs";
 
 const PENDING_EVIDENCE_LIMIT = 4000;
 const NO_PENDING_D1_MIGRATIONS_PATTERN = /No migrations to apply[.!]?/iu;
 const PENDING_D1_MIGRATIONS_PATTERN =
   /Migrations to be applied:|\b\d{4}_[\w-]+\.sql\b/iu;
 
-export function requireProductionDatabaseCurrent(input = {}) {
+export async function requireProductionDatabaseCurrent(input = {}) {
   const cwd = path.resolve(input.cwd ?? process.cwd());
+  const manifestPath = path.join(cwd, "release/database-backend.json");
+  if (
+    existsSync(manifestPath) &&
+    JSON.parse(readFileSync(manifestPath, "utf8")).backend === "postgresql"
+  ) {
+    return await requirePostgresqlDatabaseCurrent(input, cwd);
+  }
+  return requireD1DatabaseCurrent(input, cwd);
+}
+
+async function requirePostgresqlDatabaseCurrent(input, cwd) {
+  if (input.hostedCli) {
+    const sourceSha = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd,
+      encoding: "utf8",
+    }).trim();
+    if (input.sourceSha && input.sourceSha !== sourceSha) {
+      throw new Error(
+        "Hosted CLI database source does not match the release checkout"
+      );
+    }
+    return await verifyHostedPostgresqlCliDatabase({
+      root: cwd,
+      sourceSha,
+      env: input.env,
+      gitEnvironment: input.gitEnvironment,
+      readReceipts: input.readReceipts,
+    });
+  }
+  const result = (input.runCommand ?? runCommand)({
+    command: process.execPath,
+    args: [
+      fileURLToPath(
+        new URL("../../tooling/postgresql/cutover.mjs", import.meta.url)
+      ),
+      "verify",
+    ],
+    cwd,
+  });
+  if (result.status !== 0) {
+    throw new Error(
+      `Production PostgreSQL journal or runtime grants are not current. ${formatProbeEvidence(result)}`
+    );
+  }
+  const verified = JSON.parse(result.stdout);
+  if (
+    !(verified.runtimeGrantsVerified && verified.nativeJournal?.length) ||
+    verified.target?.kind !== "planetscale"
+  ) {
+    throw new Error(
+      "Production PostgreSQL probe did not return native target evidence"
+    );
+  }
+  return {
+    status: "current",
+    reason:
+      "the native PostgreSQL journal and runtime grants match the release source",
+  };
+}
+
+function requireD1DatabaseCurrent(input, cwd) {
   const command = {
     command: "pnpm",
     args: [
@@ -97,21 +161,25 @@ function formatProbeEvidence(result) {
 }
 
 function parseArguments(argv) {
+  const hostedCli = argv.includes("--hosted-cli");
+  const args = argv.filter((arg) => arg !== "--hosted-cli");
   if (
-    argv.length === 2 &&
-    argv[0] === "--release-source" &&
-    String(argv[1] ?? "").trim()
+    args.length === 2 &&
+    args[0] === "--release-source" &&
+    String(args[1] ?? "").trim()
   ) {
-    return { cwd: argv[1] };
+    return { cwd: args[1], hostedCli };
   }
   throw new Error(
-    "Usage: require-production-db-current.mjs --release-source <path>"
+    "Usage: require-production-db-current.mjs --release-source <path> [--hosted-cli]"
   );
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   try {
-    requireProductionDatabaseCurrent(parseArguments(process.argv.slice(2)));
+    await requireProductionDatabaseCurrent(
+      parseArguments(process.argv.slice(2))
+    );
     process.stdout.write("Production database migrations are current.\n");
   } catch (error) {
     process.stderr.write(

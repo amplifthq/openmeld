@@ -2,3 +2,5 @@ patches/*.patch -whitespace
 release/openmeld-cli-skill/** text eol=lf
 clients/web/public/skills/openmeld-cli/** text eol=lf
 clients/web/src/routeTree.gen.ts text eol=lf
+# Bundled dependencies preserve whitespace inside runtime template strings.
+clients/website/public/product-demo/assets/*.js -whitespace

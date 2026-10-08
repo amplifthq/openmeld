@@ -4,6 +4,7 @@ import { useAgentFinish, useModel, useSkill, useTool } from "@flue/runtime";
 import { extend, getCloudflareContext } from "@flue/runtime/cloudflare";
 import { renderTaskKnowledgeIndex } from "@openmeld/agent-runtime";
 import {
+  accountDeletionConversationSchema,
   remoteAgentWorkerAdmissionRejectedResponseSchema,
   remoteAgentWorkerCancellationRequestSchema,
   remoteAgentWorkerExecutionInputQuerySchema,
@@ -21,6 +22,7 @@ import type { Agent } from "agents";
 import { summarizeAgentActivityDigest } from "../../agent-core/agent-activity-digest";
 import { flushRemoteAiUsage } from "../../agent-core/ai-usage";
 import {
+  listRemoteAgentCallbackContexts,
   listRemoteAgentUsageRecords,
   type RemoteAgentCoreWorkerBinding,
   waitForRemoteAgentCallbackContext,
@@ -57,13 +59,22 @@ import {
   resolveOrganizationMemberTurnEnvelopeSpeaker,
 } from "../../agent-core/tool-context";
 import {
+  ACCOUNT_ERASED_KEY,
+  acknowledgeAccountErasure,
+  eraseAccountStorage,
+  requireRetainedAccountStorage,
+} from "../../flue-adapter/account-deletion";
+import {
   abortFlueCenterAgentSubmission,
   createFlueCenterAgentAdmissionHost,
   prepareFlueCenterAgentAdmission,
   reconcileAndRedeliverRemoteAgentCallbacks,
   scheduleRemoteAgentCallbackRetry,
 } from "../../flue-adapter/center-agent-admission";
-import { CENTER_AGENT_DURABILITY } from "../../flue-adapter/center-agent-durability";
+import {
+  CENTER_AGENT_DURABILITY,
+  CENTER_AGENT_MODEL_RETRY,
+} from "../../flue-adapter/center-agent-durability";
 import {
   materializeCenterAgentRuntime,
   resolveCenterAgentRuntimeContextPlan,
@@ -73,6 +84,7 @@ import {
   emitRemoteAgentExecutionStageEvidence,
 } from "../../flue-adapter/cloudflare-runtime-evidence";
 import { stopRemoteAgentComputerCommands } from "../../flue-adapter/computer-command";
+import { resolveRemoteAgentComputerName } from "../../flue-adapter/computer-identity";
 import {
   createRemoteAgentComputerCapability,
   isRemoteAgentComputerEnabled,
@@ -107,6 +119,7 @@ import {
   resolveRemoteAgentCompactionReserveTokens,
   resolveRemoteAgentProviderContextCapacity,
 } from "../../flue-adapter/provider-context-capacity";
+import { createRetainedToolResultReducer } from "../../flue-adapter/retained-context";
 import { readRemoteAgentRuntimeDiagnostics } from "../../flue-adapter/runtime-diagnostics";
 import { disabledNoNetworkSandbox } from "../../flue-adapter/sandbox";
 import { createRemoteAgentSqlStorage } from "../../flue-adapter/storage";
@@ -206,7 +219,7 @@ async function prepareCenterAgentRender() {
       executionContext &&
       !executionContext.replyRecovery &&
       !summaryOnly &&
-      executionContext.computerIsolationVersion === 2 &&
+      executionContext.computerIsolationVersion === 3 &&
       isRemoteAgentComputerEnabled(env)
         ? await createRemoteAgentComputerCapability({
             connectorExecution: {
@@ -375,6 +388,7 @@ async function prepareCenterAgentRender() {
           >[0]["finish"]
         ) =>
           checkRemoteAgentExecutionFinish({
+            env,
             context: executionContext,
             storage,
             finish,
@@ -383,7 +397,16 @@ async function prepareCenterAgentRender() {
     steeringSource: executionContext
       ? createRemoteAgentSteeringSource({ context: executionContext, storage })
       : null,
-    compaction: materialization.model.compaction,
+    compaction: {
+      ...materialization.model.compaction,
+      reduceToolResultPreviews: executionContext
+        ? createRetainedToolResultReducer({
+            storage,
+            submissionId: executionContext.submissionId,
+            coreWorker,
+          })
+        : undefined,
+    },
     durability: CENTER_AGENT_DURABILITY,
     model: materialization.model.modelSpecifier,
     thinkingLevel: executionContext?.modelRoute?.reasoningLevel ?? "high",
@@ -436,6 +459,7 @@ export function CenterAgentV2() {
 CenterAgentV2.agentName = "center-agent-v2";
 CenterAgentV2.projectResourceSignal = projectRemoteAgentResourceSignal;
 CenterAgentV2.durability = CENTER_AGENT_DURABILITY;
+CenterAgentV2.modelRetry = CENTER_AGENT_MODEL_RETRY;
 // Every admitted OpenMeld turn currently carries a separate authority and
 // terminal callback. Never silently absorb another turn into that authority.
 // Exact-execution steering is a separate ingress contract.
@@ -454,6 +478,57 @@ CenterAgentV2.steeringSource = (_submissionId: string) => {
 export const cloudflare = extend<Agent<CloudflareBindings>>({
   base: (Base) =>
     class extends Base {
+      async eraseAccountConversation(raw: unknown) {
+        const request = accountDeletionConversationSchema.parse(raw);
+        // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Historical Computer generations have distinct ownership boundaries; keep erasure decisions together.
+        return await this.ctx.blockConcurrencyWhile(async () => {
+          if (await this.ctx.storage.get(ACCOUNT_ERASED_KEY)) {
+            return;
+          }
+          const contexts = await listRemoteAgentCallbackContexts(
+            createRemoteAgentSqlStorage(this.ctx.storage.sql)
+          );
+          for (const context of contexts) {
+            if (
+              context.organizationId !== request.organizationId ||
+              context.spaceId !== request.spaceId
+            ) {
+              throw new Error("Account conversation identity mismatch.");
+            }
+            // The legacy Center computer is a team workspace shared across Spaces.
+            // A private Space cannot erase the team's shared disk.
+            // Current personal Computers belong to the account, not a conversation.
+            // Core erases them from the account's Computer inventory.
+            if (context.computerIsolationVersion === 3) {
+              continue;
+            }
+            const namespace = (this.env as CloudflareBindings).AGENT_COMPUTER;
+            const computer = namespace.get(
+              namespace.idFromName(resolveRemoteAgentComputerName(context))
+            );
+            if (
+              !(
+                request.deleteSharedComputer || context.computerIsolationVersion
+              ) &&
+              context.conversationIdentity?.kind !== "personal_agent"
+            ) {
+              await computer.eraseAccountSpaceDirectory(request.spaceId);
+            } else {
+              await acknowledgeAccountErasure(
+                async () =>
+                  await namespace
+                    .get(
+                      namespace.idFromName(
+                        resolveRemoteAgentComputerName(context)
+                      )
+                    )
+                    .eraseAccountComputer()
+              );
+            }
+          }
+          await eraseAccountStorage(this.ctx);
+        });
+      }
       async readAdmission(input: unknown) {
         return await readRemoteAgentAdmission({
           request: parseRemoteAgentSubmitTurnRequest(input),
@@ -468,6 +543,7 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
         });
       }
       async generateCenterAgentSessionTitle(request: unknown) {
+        await requireRetainedAccountStorage(this.ctx.storage);
         return await generateCenterAgentSessionTitle({
           env: this.env as CloudflareBindings,
           request,
@@ -481,6 +557,7 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
       async summarizeAgentActivityDigest(
         request: Parameters<typeof summarizeAgentActivityDigest>[0]["request"]
       ) {
+        await requireRetainedAccountStorage(this.ctx.storage);
         return await summarizeAgentActivityDigest({
           env: this.env as CloudflareBindings,
           request,
@@ -492,6 +569,7 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
       }
 
       async receiveExecutionInput(input: unknown) {
+        await requireRetainedAccountStorage(this.ctx.storage);
         const request =
           remoteAgentWorkerExecutionInputRequestSchema.parse(input);
         return await receiveRemoteAgentExecutionInput({
@@ -512,6 +590,7 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
       async submitConversationTurn(
         request: RemoteAgentWorkerSubmitTurnRequest
       ) {
+        await requireRetainedAccountStorage(this.ctx.storage);
         const logContext = {
           dispatchId: request.dispatchId,
           idempotencyKey: request.idempotencyKey,

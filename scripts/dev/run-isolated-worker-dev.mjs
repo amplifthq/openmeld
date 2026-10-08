@@ -21,6 +21,10 @@ const coreIsolatedConfigPath = resolve(
   repoRoot,
   "services/core/.wrangler-isolated.json"
 );
+const authPostgresConfigPath = resolve(
+  repoRoot,
+  "services/auth/.wrangler-isolated.json"
+);
 const remoteAgentConfigDirectory = resolve(
   repoRoot,
   "services/remote-agent/dist/openmeld_remote_agent"
@@ -80,7 +84,9 @@ export function resolveIsolatedWorkerDevPlan(input) {
           "wrangler",
           "dev",
           "-c",
-          "./wrangler.jsonc",
+          ...(env.OPENMELD_PG_ISOLATED === "1"
+            ? [authPostgresConfigPath]
+            : ["./wrangler.jsonc"]),
           "-c",
           requireText(input.coreConfigPath, "coreConfigPath"),
           ...commonArgs,
@@ -246,6 +252,7 @@ export function buildIsolatedCoreWranglerConfig(input) {
 
   return {
     ...sourceConfig,
+    ...(env.OPENMELD_PG_ISOLATED === "1" ? localPostgresBinding(env) : {}),
     dev: {
       ...(sourceConfig.dev ?? {}),
       inspector_port: Number(
@@ -282,6 +289,20 @@ export async function runIsolatedWorker(service) {
 
   if (service === "auth") {
     writeIsolatedCoreConfig(process.env);
+    if (process.env.OPENMELD_PG_ISOLATED === "1") {
+      const source = parseJsoncObject(
+        readFileSync(resolve(repoRoot, "services/auth/wrangler.jsonc"), "utf8")
+      );
+      writeFileSync(
+        authPostgresConfigPath,
+        JSON.stringify(
+          { ...source, ...localPostgresBinding(process.env) },
+          null,
+          2
+        ),
+        { mode: 0o600 }
+      );
+    }
   }
   const plan = resolveIsolatedWorkerDevPlan({
     coreConfigPath: coreIsolatedConfigPath,
@@ -323,6 +344,35 @@ export async function runIsolatedWorker(service) {
     }
   );
   return exitCode;
+}
+
+function localPostgresBinding(env) {
+  const value = requireEnvironmentValue(
+    env,
+    "CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_OPENMELD_POSTGRESQL"
+  );
+  const url = new URL(value);
+  if (
+    url.hostname !== "127.0.0.1" ||
+    url.pathname !== "/openmeld_pg_development" ||
+    url.search ||
+    url.hash
+  ) {
+    throw new Error(
+      "Isolated Workers require the worktree loopback PostgreSQL database"
+    );
+  }
+  // Wrangler uses its official local connection override. Generated configs
+  // contain no credential and cannot select a shared cloud database.
+  return {
+    d1_databases: [],
+    hyperdrive: [
+      {
+        binding: "OPENMELD_POSTGRESQL",
+        id: "00000000000000000000000000000000",
+      },
+    ],
+  };
 }
 
 function writeIsolatedCoreConfig(env) {

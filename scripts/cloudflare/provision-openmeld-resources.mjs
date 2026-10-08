@@ -15,6 +15,7 @@ export const OPENMELD_RESOURCES = [
   dnsRecord("connectors.openmeld.ai", "open-connector"),
   worker("openmeld-web-prod", "web"),
   worker("openmeld-website-prod", "website"),
+  worker("openmeld-docs-prod", "docs"),
   worker("openmeld-auth-prod", "auth"),
   worker("openmeld-core-prod", "core"),
   worker("openmeld-gateway-prod", "gateway"),
@@ -59,6 +60,7 @@ export const OPENMELD_STAGING_RESOURCES = [
   dnsRecord("gateway.staging.openmeld.ai", "gateway", "staging"),
   worker("openmeld-web-stg", "web", "staging"),
   worker("openmeld-website-stg", "website", "staging"),
+  worker("openmeld-docs-stg", "docs", "staging"),
   worker("openmeld-auth-stg", "auth", "staging"),
   worker("openmeld-core-stg", "core", "staging"),
   worker("openmeld-gateway-stg", "gateway", "staging"),
@@ -88,7 +90,6 @@ export const OPENMELD_STAGING_RESOURCES = [
     "private",
     "staging"
   ),
-  d1("openmeld-db-stg", "shared", "staging"),
   kv("openmeld-auth-kv-stg", "auth", "staging"),
   r2("openmeld-space-attachments-stg", "shared", "confidential", "staging"),
   r2("openmeld-organization-skills-stg", "shared", "private", "staging"),

@@ -42,6 +42,7 @@ const SUCCESSFUL_JOB_SCOPES = [
     scope: "db",
   },
   { patterns: [/Deploy Website/u], scope: "website" },
+  { patterns: [/Deploy Docs/u], scope: "docs" },
   { patterns: [/Deploy Web(?:\s|$)/u], scope: "web" },
   { patterns: [/Deploy Gateway Worker/u], scope: "gateway" },
   { patterns: [/Deploy Auth Worker/u], scope: "auth" },
@@ -157,24 +158,28 @@ export async function collectProductionReleaseStatus(input = {}) {
     changeBase: options.changeBase,
     sourceSha,
   });
-  const { sources, history } = await readHostedReleaseState(
-    adapters,
-    repo,
-    sourceSha
-  );
+  const localSources = new Map();
+  const localIssues = [];
   try {
     mergeGuardedLocalReleaseSources({
       localSources: await adapters.readLocalReleaseSources(repo),
       sourceIsAncestor: adapters.sourceIsAncestor,
       sourceSha,
-      sources,
+      sources: localSources,
     });
   } catch (error) {
-    history.issues.push({
+    localIssues.push({
       scopes: RELEASE_SCOPES,
       detail: `Local deployment evidence unavailable: ${error.message}`,
     });
   }
+  const { sources, history } = await readHostedReleaseState(
+    adapters,
+    repo,
+    sourceSha,
+    localSources
+  );
+  history.issues.push(...localIssues);
   applyDeployedOverrides({
     deployed: options.deployed,
     sourceIsAncestor: adapters.sourceIsAncestor,
@@ -184,14 +189,14 @@ export async function collectProductionReleaseStatus(input = {}) {
 
   const plansByBase = new Map();
   const components = [];
-  const missingSources = [];
+  const unknownSources = [];
   const pendingScopes = [];
   for (const scope of RELEASE_SCOPES) {
-    // Historical source revisions before the split have no Website component.
-    if (
-      scope === "website" &&
-      adapters.hasWebsitePackage(sourceSha) === false
-    ) {
+    const hasPublicPackage = {
+      website: adapters.hasWebsitePackage,
+      docs: adapters.hasDocsPackage,
+    }[scope];
+    if (hasPublicPackage?.(sourceSha) === false) {
       continue;
     }
     const releaseSource = sources.get(scope);
@@ -205,7 +210,7 @@ export async function collectProductionReleaseStatus(input = {}) {
       webReleaseSource: sources.get("web"),
     });
     if (component.state === "unknown") {
-      missingSources.push(scope);
+      unknownSources.push(scope);
     }
     if (component.state !== "current") {
       pendingScopes.push(scope);
@@ -237,16 +242,16 @@ export async function collectProductionReleaseStatus(input = {}) {
     });
   }
   const scopeBasis = currentChange ? "current-change" : "global-backlog";
-  const relevantMissingSources = currentChange
-    ? missingSources.filter((scope) => currentChange.scopes.includes(scope))
-    : missingSources;
+  const relevantUnknownSources = currentChange
+    ? unknownSources.filter((scope) => currentChange.scopes.includes(scope))
+    : unknownSources;
   const blockers = buildReleaseStatusBlockers({
-    missingSources: relevantMissingSources,
+    unknownSources: relevantUnknownSources,
     components,
     pushCheckBlockers,
   });
   const globalBlockers = buildReleaseStatusBlockers({
-    missingSources,
+    unknownSources,
     components,
     pushCheckBlockers,
   });
@@ -307,16 +312,23 @@ function readRecordedAt(source, label) {
 
 function buildReleaseStatusBlockers(input) {
   const blockers = [...input.pushCheckBlockers];
-  if (input.missingSources.length > 0) {
+  const missingSources = input.components
+    .filter(
+      (component) =>
+        input.unknownSources.includes(component.scope) &&
+        component.reason === "No successful deployment history was found."
+    )
+    .map((component) => component.scope);
+  if (missingSources.length > 0) {
     blockers.push({
-      detail: `missing successful deployment history for ${input.missingSources.join(", ")}`,
+      detail: `missing successful deployment history for ${missingSources.join(", ")}`,
       name: "Deployment history",
-      scopes: input.missingSources,
+      scopes: missingSources,
       url: undefined,
     });
   }
   for (const component of input.components ?? []) {
-    if (input.missingSources.includes(component.scope) && component.reason) {
+    if (input.unknownSources.includes(component.scope) && component.reason) {
       blockers.push({
         name: `${component.scope} deployment evidence`,
         detail: component.reason,
@@ -366,7 +378,12 @@ function buildCurrentChangeFacts(input) {
   };
 }
 
-async function readHostedReleaseState(adapters, repo, sourceSha) {
+async function readHostedReleaseState(
+  adapters,
+  repo,
+  sourceSha,
+  initialSources
+) {
   let response;
   try {
     response = await adapters.readReleaseRuns(repo);
@@ -396,6 +413,7 @@ async function readHostedReleaseState(adapters, repo, sourceSha) {
     runs,
     repo,
     issues: history.issues,
+    initialSources,
     sourceIsAncestor: (sha) => adapters.sourceIsAncestor(sha, sourceSha),
   });
   return { sources, history };
@@ -421,6 +439,30 @@ function describeInitialWebsitePublication(input) {
     reason:
       "First Website publication. The guarded domain admission must verify the existing Web owner and current App smoke before root cutover.",
   };
+}
+
+function describeInitialDocsPublication(input) {
+  if (
+    input.scope !== "docs" ||
+    !input.webReleaseSource?.sha ||
+    input.adapters.hasDocsPackage(input.webReleaseSource.sha) !== false ||
+    input.adapters.hasDocsPackage(input.sourceSha) !== true
+  ) {
+    return null;
+  }
+  return {
+    scope: "docs",
+    state: "pending",
+    evidence: describeComponentEvidence(undefined),
+    changedPaths: ["clients/docs/package.json"],
+    compatibilityDependencies: [],
+    reason:
+      "First Docs publication. The prior App source predates the independent Docs package.",
+  };
+}
+
+function componentImpactCacheKey(sha, scope) {
+  return ["website", "docs"].includes(scope) ? `${sha}:${scope}` : sha;
 }
 
 function describeReleaseComponent(input) {
@@ -449,6 +491,7 @@ function describeReleaseComponent(input) {
   if (!releaseSource) {
     return (
       describeInitialWebsitePublication(input) ??
+      describeInitialDocsPublication(input) ??
       unknown("No successful deployment history was found.")
     );
   }
@@ -459,10 +502,13 @@ function describeReleaseComponent(input) {
   }
   if (releaseSource.receipt && releaseSource.receipt.status !== "verified") {
     const receipt = releaseSource.receipt;
-    const recovery = describeGuardedReceiptRecoveryCandidate(releaseSource);
+    const recovery = describeGuardedReceiptRecoveryCandidate(
+      releaseSource,
+      scope
+    );
     if (recovery) {
       return unknown(
-        "Local release application is retained and eligible to enter guarded health-only recovery. The guarded executor must still match its exact operation and live deployment identity before running health and writing verified evidence.",
+        "Retained evidence permits guarded recovery admission. The executor must still verify the exact operation and live deployment before continuing the retained attempt.",
         { recovery }
       );
     }
@@ -474,18 +520,23 @@ function describeReleaseComponent(input) {
       `Local release is ${receipt.status}/${receipt.application}; ${guidance}`
     );
   }
-  let entry = plansByBase.get(releaseSource.sha);
+  const impactKey = componentImpactCacheKey(releaseSource.sha, scope);
+  let entry = plansByBase.get(impactKey);
   if (!entry) {
     try {
       entry = {
-        plan: adapters.buildImpact({ base: releaseSource.sha, sourceSha }),
+        plan: adapters.buildImpact({
+          base: releaseSource.sha,
+          sourceSha,
+          componentScope: scope,
+        }),
       };
     } catch (error) {
       entry = {
         error: `Source impact from ${releaseSource.sha} failed: ${error.message}`,
       };
     }
-    plansByBase.set(releaseSource.sha, entry);
+    plansByBase.set(impactKey, entry);
   }
   if (entry.error) {
     return unknown(
@@ -658,7 +709,7 @@ function describeComponentEvidence(releaseSource) {
 }
 
 export async function readLatestSuccessfulReleaseSources(input) {
-  const sources = new Map();
+  const sources = new Map(input.initialSources);
   // Completed runs are ordered by their last update. Active runs and runs
   // without a trustworthy update time must always have their jobs inspected:
   // an active run can finish a deployment after the history snapshot was read.
@@ -674,16 +725,14 @@ export async function readLatestSuccessfulReleaseSources(input) {
   ) {
     const remaining = runsByUpdate.slice(offset);
     const oldestReceipt = Math.min(
-      ...RELEASE_SCOPES.map((scope) =>
-        sources.has(scope)
-          ? Date.parse(sources.get(scope).recordedAt)
-          : Number.NEGATIVE_INFINITY
-      )
+      ...RELEASE_SCOPES.map((scope) => successfulSourceTime(sources.get(scope)))
     );
     if (runUpdateTime(remaining[0]) < oldestReceipt) {
       break;
     }
-    const runs = remaining.slice(0, RELEASE_JOB_BATCH_SIZE);
+    const runs = remaining
+      .slice(0, RELEASE_JOB_BATCH_SIZE)
+      .filter((run) => runUpdateTime(run) >= oldestReceipt);
     const jobsByRun = await Promise.all(
       runs.map(async (run) => {
         try {
@@ -720,6 +769,23 @@ export async function readLatestSuccessfulReleaseSources(input) {
     }
   }
   return sources;
+}
+
+function successfulSourceTime(source) {
+  if (source?.conflict) {
+    return Number.NEGATIVE_INFINITY;
+  }
+  let recordedAt;
+  if (
+    source?.receipt?.status === "verified" ||
+    (!source?.receipt && source?.source === "github")
+  ) {
+    recordedAt = source.recordedAt;
+  } else if (source?.receipt && source.source === "guarded-local") {
+    recordedAt = source.verifiedHistoryBaseline?.recordedAt;
+  }
+  const value = Date.parse(recordedAt);
+  return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY;
 }
 
 function runUpdateTime(run) {
@@ -1021,6 +1087,16 @@ function defaultAdapters() {
     return checkoutRepository;
   };
   return {
+    hasDocsPackage: (sha) => {
+      try {
+        return (
+          runGit(["ls-tree", sha, "--", "clients/docs/package.json"]).trim()
+            .length > 0
+        );
+      } catch {
+        return null;
+      }
+    },
     hasWebsitePackage: (sha) => {
       try {
         return (
@@ -1040,9 +1116,10 @@ function defaultAdapters() {
         scope: "auto",
         sourceSha,
       }),
-    buildImpact: ({ base, sourceSha }) =>
+    buildImpact: ({ base, sourceSha, componentScope }) =>
       buildProductionReleaseImpact({
         base,
+        componentScope,
         changedPaths: splitLines(
           runGit(["diff", "--name-only", `${base}...${sourceSha}`])
         ),
@@ -1224,6 +1301,7 @@ function scopedReleaseWorkflowMapping(scopes) {
       "core",
       "remote-agent",
       "website",
+      "docs",
     ])
   ) {
     return "Scoped Production Release input: full.";
@@ -1236,6 +1314,7 @@ function scopedReleaseWorkflowMapping(scopes) {
       "core",
       "remote-agent",
       "website",
+      "docs",
     ])
   ) {
     return "Scoped Production Release input: cloud.";

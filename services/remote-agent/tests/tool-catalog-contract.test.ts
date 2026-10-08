@@ -65,7 +65,7 @@ async function materialize(includeRead: boolean) {
     sandboxDefinitions: includeRead
       ? [
           {
-            name: "read",
+            name: "computer",
             description: "Read the fictional Cedar record.",
             input: strictObject({}),
             execute: async () => ({ name: "Cedar" }),
@@ -186,7 +186,7 @@ it.each([
       throw new Error("Missing provider request.");
     }
     const names = payload.tools.map((tool) => tool.function.name);
-    expect(names).toContain("read");
+    expect(names).toContain("computer");
     expect(names).toContain("activate_skill");
     expect(names).toContain("read_skill_resource");
     expect(names).not.toContain("task");

@@ -1,3 +1,8 @@
+import type {
+  PoolClient,
+  PostgresDatabase,
+  QueryConfig,
+} from "@openmeld/db/postgresql";
 import {
   organizationWorkingLanguagePreferenceResponseSchema,
   workingLanguageGuidanceSchema,
@@ -17,7 +22,6 @@ type OrganizationWorkingLanguagePreferenceRow = {
   updated_at_ms: number;
   updated_by_user_id: string | null;
 };
-
 export type OrganizationWorkingLanguagePreferenceRecord = {
   languageTag: string | null;
   mode: OrganizationWorkingLanguageMode;
@@ -26,14 +30,13 @@ export type OrganizationWorkingLanguagePreferenceRecord = {
   updatedAtMs: number | null;
   updatedByUserId: string | null;
 };
-
 export async function readOrganizationWorkingLanguagePreference(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
 }): Promise<OrganizationWorkingLanguagePreferenceRecord> {
   const row = await input.db
-    .prepare(
-      `
+    .query<OrganizationWorkingLanguagePreferenceRow>({
+      text: `
         SELECT
           organization_id,
           mode,
@@ -41,23 +44,22 @@ export async function readOrganizationWorkingLanguagePreference(input: {
           revision,
           updated_by_user_id,
           updated_at_ms
-        FROM organization_working_language_preferences
-        WHERE organization_id = ?
+        FROM "openmeld"."organization_working_language_preferences"
+        WHERE organization_id = $1
         LIMIT 1
-      `
-    )
-    .bind(input.organizationId)
-    .first<OrganizationWorkingLanguagePreferenceRow>();
+      `,
+      values: [input.organizationId],
+    })
+    .then((result) => result.rows[0] ?? null);
   return mapPreferenceRow(input.organizationId, row);
 }
-
 export async function readOrganizationWorkingLanguagePreferenceForSpace(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   spaceId: string;
 }): Promise<OrganizationWorkingLanguagePreferenceRecord | null> {
   const row = await input.db
-    .prepare(
-      `
+    .query<OrganizationWorkingLanguagePreferenceRow>({
+      text: `
         SELECT
           spaces.organization_id,
           preferences.mode,
@@ -65,24 +67,23 @@ export async function readOrganizationWorkingLanguagePreferenceForSpace(input: {
           preferences.revision,
           preferences.updated_by_user_id,
           preferences.updated_at_ms
-        FROM space_index_spaces AS spaces
-        LEFT JOIN organization_working_language_preferences AS preferences
+        FROM "openmeld"."space_index_spaces" AS spaces
+        LEFT JOIN "openmeld"."organization_working_language_preferences" AS preferences
           ON preferences.organization_id = spaces.organization_id
-        WHERE spaces.space_id = ?
+        WHERE spaces.space_id = $1
         LIMIT 1
-      `
-    )
-    .bind(input.spaceId)
-    .first<OrganizationWorkingLanguagePreferenceRow>();
+      `,
+      values: [input.spaceId],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!row?.organization_id) {
     return null;
   }
   return mapPreferenceRow(row.organization_id, row);
 }
-
 export async function setOrganizationWorkingLanguagePreference(input: {
-  atomicStatements?: readonly D1PreparedStatement[];
-  db: D1Database;
+  atomicStatements?: readonly QueryConfig[];
+  db: PostgresDatabase;
   languageTag?: string;
   mode: "automatic" | "selected";
   nowMs: number;
@@ -91,39 +92,37 @@ export async function setOrganizationWorkingLanguagePreference(input: {
 }): Promise<OrganizationWorkingLanguagePreferenceRecord> {
   const preferenceStatement =
     prepareSetOrganizationWorkingLanguagePreferenceStatement(input);
-  await input.db.batch([
-    preferenceStatement,
-    ...(input.atomicStatements ?? []),
-  ]);
+  await input.db.transaction(async (client) =>
+    Promise.all([
+      client.query(preferenceStatement),
+      ...(input.atomicStatements ?? []).map((query) => client.query(query)),
+    ])
+  );
   return input.mode === "automatic"
     ? defaultPreference(input.organizationId)
     : await readOrganizationWorkingLanguagePreference(input);
 }
-
 export function prepareSetOrganizationWorkingLanguagePreferenceStatement(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   languageTag?: string;
   mode: "automatic" | "selected";
   nowMs: number;
   organizationId: string;
   updatedByUserId: string;
-}): D1PreparedStatement {
+}): QueryConfig {
   if (input.mode === "automatic") {
-    return input.db
-      .prepare(
-        `
-          DELETE FROM organization_working_language_preferences
-          WHERE organization_id = ?
-        `
-      )
-      .bind(input.organizationId);
+    return {
+      text: `
+          DELETE FROM "openmeld"."organization_working_language_preferences"
+          WHERE organization_id = $1
+        `,
+      values: [input.organizationId],
+    };
   }
-
   const languageTag = workingLanguageTagSchema.parse(input.languageTag);
-  return input.db
-    .prepare(
-      `
-        INSERT INTO organization_working_language_preferences (
+  return {
+    text: `
+        INSERT INTO "openmeld"."organization_working_language_preferences" (
           organization_id,
           mode,
           language_tag,
@@ -132,30 +131,29 @@ export function prepareSetOrganizationWorkingLanguagePreferenceStatement(input: 
           created_at_ms,
           updated_at_ms
         )
-        VALUES (?, 'selected', ?, 1, ?, ?, ?)
+        VALUES ($1, 'selected', $2, 1, $3, $4, $5)
         ON CONFLICT(organization_id) DO UPDATE SET
           mode = 'selected',
           language_tag = excluded.language_tag,
           revision = organization_working_language_preferences.revision + 1,
           updated_by_user_id = excluded.updated_by_user_id,
           updated_at_ms = excluded.updated_at_ms
-      `
-    )
-    .bind(
+      `,
+    values: [
       input.organizationId,
       languageTag,
       input.updatedByUserId,
       input.nowMs,
-      input.nowMs
-    );
+      input.nowMs,
+    ],
+  };
 }
-
 export async function observeOrganizationWorkingLanguage(input: {
-  beforeStatements?: readonly D1PreparedStatement[];
-  db: D1Database;
+  beforeMutation?: (client: PoolClient) => Promise<void>;
+  db: PostgresDatabase;
   languageTag: string;
   nowMs: number;
-  onChangedStatements?: readonly D1PreparedStatement[];
+  onChangedStatements?: readonly QueryConfig[];
   organizationId: string;
 }): Promise<{
   changed: boolean;
@@ -163,39 +161,45 @@ export async function observeOrganizationWorkingLanguage(input: {
 }> {
   const languageTag = workingLanguageTagSchema.parse(input.languageTag);
   const current = await readOrganizationWorkingLanguagePreference(input);
-  const mutationStatements =
+  const mutationStatement =
     current.mode === "automatic" && current.languageTag !== languageTag
-      ? prepareObserveOrganizationWorkingLanguageStatements({
+      ? prepareObserveOrganizationWorkingLanguageStatement({
           ...input,
           languageTag,
         })
-      : [];
-  const changed = mutationStatements.length > 0;
-  const statements = [
-    ...(input.beforeStatements ?? []),
-    ...mutationStatements,
-    ...(changed ? (input.onChangedStatements ?? []) : []),
-  ];
-  if (statements.length > 0) {
-    await input.db.batch(statements);
+      : null;
+  const changed = mutationStatement !== null;
+  if (input.beforeMutation || mutationStatement) {
+    await input.db.transaction(async (client) => {
+      await input.beforeMutation?.(client);
+      if (mutationStatement) {
+        const result = await client.query(mutationStatement);
+        if (result.rowCount !== 1) {
+          throw new Error(
+            "Working language changed concurrently; observation was rolled back."
+          );
+        }
+        for (const statement of input.onChangedStatements ?? []) {
+          await client.query(statement);
+        }
+      }
+    });
   }
   return {
     changed,
     preference: await readOrganizationWorkingLanguagePreference(input),
   };
 }
-
-export function prepareObserveOrganizationWorkingLanguageStatements(input: {
-  db: D1Database;
+function prepareObserveOrganizationWorkingLanguageStatement(input: {
+  db: PostgresDatabase;
   languageTag: string;
   nowMs: number;
   organizationId: string;
-}): readonly D1PreparedStatement[] {
+}): QueryConfig {
   const languageTag = workingLanguageTagSchema.parse(input.languageTag);
-  const mutationStatement = input.db
-    .prepare(
-      `
-        INSERT INTO organization_working_language_preferences (
+  const mutationStatement = {
+    text: `
+        INSERT INTO "openmeld"."organization_working_language_preferences" (
           organization_id,
           mode,
           language_tag,
@@ -204,35 +208,18 @@ export function prepareObserveOrganizationWorkingLanguageStatements(input: {
           created_at_ms,
           updated_at_ms
         )
-        VALUES (?, 'automatic', ?, 1, NULL, ?, ?)
+        VALUES ($1, 'automatic', $2, 1, NULL, $3, $4)
         ON CONFLICT(organization_id) DO UPDATE SET
           language_tag = excluded.language_tag,
           revision = organization_working_language_preferences.revision + 1,
           updated_at_ms = excluded.updated_at_ms
         WHERE organization_working_language_preferences.mode = 'automatic'
           AND organization_working_language_preferences.language_tag != excluded.language_tag
-      `
-    )
-    .bind(input.organizationId, languageTag, input.nowMs, input.nowMs);
-  return [
-    mutationStatement,
-    prepareRequirePreviousStatementChangedOneRow(input.db),
-  ];
+      `,
+    values: [input.organizationId, languageTag, input.nowMs, input.nowMs],
+  };
+  return mutationStatement;
 }
-
-export function prepareRequirePreviousStatementChangedOneRow(
-  db: D1Database
-): D1PreparedStatement {
-  // SQLite evaluates only the selected CASE branch. abs(min-int) raises an
-  // integer-overflow error, turning a lost CAS/update into a batch rollback.
-  return db.prepare(`
-    SELECT CASE
-      WHEN changes() = 1 THEN 1
-      ELSE abs(-9223372036854775808)
-    END
-  `);
-}
-
 export function toWorkingLanguageGuidance(
   preference: OrganizationWorkingLanguagePreferenceRecord
 ): WorkingLanguageGuidance | null {
@@ -244,7 +231,6 @@ export function toWorkingLanguageGuidance(
     mode: preference.mode,
   });
 }
-
 export function toOrganizationWorkingLanguagePreferenceResponse(
   preference: OrganizationWorkingLanguagePreferenceRecord
 ): OrganizationWorkingLanguagePreferenceResponse {
@@ -260,7 +246,6 @@ export function toOrganizationWorkingLanguagePreferenceResponse(
     updatedByUserId: preference.updatedByUserId,
   });
 }
-
 function mapPreferenceRow(
   organizationId: string,
   row: OrganizationWorkingLanguagePreferenceRow | null
@@ -277,7 +262,6 @@ function mapPreferenceRow(
     updatedByUserId: row.updated_by_user_id,
   };
 }
-
 function defaultPreference(
   organizationId: string
 ): OrganizationWorkingLanguagePreferenceRecord {

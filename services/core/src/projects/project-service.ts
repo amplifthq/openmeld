@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   buildCanonicalRepositoryUrl,
   buildRepositoryFingerprint,
@@ -7,6 +8,10 @@ import type {
   CreateProjectBody,
   ListProjectsResponse,
   Project,
+  ProjectCommonAgents,
+  ProjectIssueDestination,
+  ProjectIssueRouting,
+  ProjectRepositorySettings,
   UpdateProjectBody,
 } from "@openmeld/schemas/types";
 import { createCoreRpcHttpError } from "../rpc/errors";
@@ -25,20 +30,25 @@ import {
   isProjectSlugConflict,
   listActivitySnapshotProjectRecords,
   listProjectRecords,
+  readActiveAgentProfileIds,
+  readProjectCommonAgentsRecord,
+  readProjectIssueRoutingRecord,
   readProjectRecord,
+  readProjectRepositorySettingsRecord,
   type StoredProject,
+  updateProjectCommonAgentsRecord,
+  updateProjectIssueRoutingRecord,
   updateProjectRecord,
+  updateProjectRepositorySettingsRecord,
 } from "./project-repository";
-
 export function createProjectService(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   generateId?: () => string;
   now?: () => number;
 }) {
   const generateId =
     input.generateId ?? (() => `project_${crypto.randomUUID()}`);
   const now = input.now ?? Date.now;
-
   return {
     async list(authority: ProjectReadAuthority): Promise<ListProjectsResponse> {
       const projects = await listProjectRecords({
@@ -50,7 +60,6 @@ export function createProjectService(input: {
         projects: projects.map((project) => toProject(project, authority)),
       };
     },
-
     async listForActivitySnapshot(
       authority: ProjectReadAuthority
     ): Promise<ListProjectsResponse> {
@@ -63,7 +72,6 @@ export function createProjectService(input: {
         projects: projects.map((project) => toProject(project, authority)),
       };
     },
-
     async read(
       authority: ProjectAuthority,
       projectId: string
@@ -76,6 +84,205 @@ export function createProjectService(input: {
       return toProject(project, authority);
     },
 
+    async readIssueRouting(
+      authority: ProjectAuthority,
+      projectId: string
+    ): Promise<ProjectIssueRouting> {
+      const routing = await readProjectIssueRoutingRecord({
+        db: input.db,
+        organizationId: authority.organizationId,
+        projectId,
+      });
+      if (!routing) {
+        throw projectNotFoundError();
+      }
+      return routing;
+    },
+
+    async readRepositorySettings(
+      authority: ProjectAuthority,
+      projectId: string
+    ): Promise<ProjectRepositorySettings> {
+      const settings = await readProjectRepositorySettingsRecord({
+        db: input.db,
+        organizationId: authority.organizationId,
+        projectId,
+      });
+      if (!settings) {
+        throw projectNotFoundError();
+      }
+      return settings;
+    },
+
+    async updateRepositorySettings(
+      authority: ProjectAuthority,
+      projectId: string,
+      update: {
+        defaultRepositoryUrl: string | null;
+        expectedRevision: number;
+        repositoryUrls: string[];
+      }
+    ): Promise<ProjectRepositorySettings> {
+      const project = await requireProject({
+        authority,
+        db: input.db,
+        projectId,
+      });
+      requireProjectManageAuthority({
+        authority,
+        createdByUserId: project.createdByUserId,
+      });
+      requireActiveProject(project);
+      const current = await this.readRepositorySettings(authority, projectId);
+      if (current.legacyDefaultFingerprint) {
+        throw createCoreRpcHttpError({
+          code: "project.legacy_repository_url_required",
+          reason:
+            "Set a Repository URL for this legacy Project before changing its repository list.",
+          status: 409,
+        });
+      }
+      const urls = update.repositoryUrls.map((url) => {
+        const canonical = buildCanonicalRepositoryUrl(url);
+        if (!canonical) {
+          throw projectRepositoryInvalidError();
+        }
+        return canonical;
+      });
+      if (new Set(urls).size !== urls.length) {
+        throw projectRepositoryInvalidError();
+      }
+      const defaultRepositoryUrl = update.defaultRepositoryUrl
+        ? buildCanonicalRepositoryUrl(update.defaultRepositoryUrl)
+        : null;
+      if (
+        (update.defaultRepositoryUrl && !defaultRepositoryUrl) ||
+        (defaultRepositoryUrl && !urls.includes(defaultRepositoryUrl))
+      ) {
+        throw projectRepositoryInvalidError();
+      }
+      const defaultRepositoryFingerprint = defaultRepositoryUrl
+        ? await buildRepositoryFingerprint(defaultRepositoryUrl)
+        : null;
+      if (defaultRepositoryUrl && !defaultRepositoryFingerprint) {
+        throw projectRepositoryInvalidError();
+      }
+      const updated = await updateProjectRepositorySettingsRecord({
+        additionalRepositoryUrls: urls.filter(
+          (url) => url !== defaultRepositoryUrl
+        ),
+        db: input.db,
+        defaultRepositoryFingerprint,
+        defaultRepositoryUrl,
+        expectedRevision: update.expectedRevision,
+        nowMs: now(),
+        organizationId: authority.organizationId,
+        projectId,
+        userId: authority.userId,
+      });
+      if (!updated) {
+        throw projectConflictError();
+      }
+      return await this.readRepositorySettings(authority, projectId);
+    },
+
+    async readCommonAgents(
+      authority: ProjectAuthority,
+      projectId: string
+    ): Promise<ProjectCommonAgents> {
+      const commonAgents = await readProjectCommonAgentsRecord({
+        db: input.db,
+        organizationId: authority.organizationId,
+        projectId,
+      });
+      if (!commonAgents) {
+        throw projectNotFoundError();
+      }
+      return commonAgents;
+    },
+
+    async updateCommonAgents(
+      authority: ProjectAuthority,
+      projectId: string,
+      update: { agentProfileIds: string[]; expectedRevision: number }
+    ): Promise<ProjectCommonAgents> {
+      const project = await requireProject({
+        authority,
+        db: input.db,
+        projectId,
+      });
+      requireProjectManageAuthority({
+        authority,
+        createdByUserId: project.createdByUserId,
+      });
+      requireActiveProject(project);
+      const eligible = await readActiveAgentProfileIds({
+        db: input.db,
+        organizationId: authority.organizationId,
+        profileIds: update.agentProfileIds,
+      });
+      if (eligible.length !== update.agentProfileIds.length) {
+        throw createCoreRpcHttpError({
+          code: "project.common_agent_unavailable",
+          reason: "Choose active Agents in this Organization.",
+          status: 409,
+        });
+      }
+      const updated = await updateProjectCommonAgentsRecord({
+        agentProfileIds: [...update.agentProfileIds].sort(),
+        db: input.db,
+        expectedRevision: update.expectedRevision,
+        nowMs: now(),
+        organizationId: authority.organizationId,
+        projectId,
+        userId: authority.userId,
+      });
+      if (!updated) {
+        throw projectConflictError();
+      }
+      return await this.readCommonAgents(authority, projectId);
+    },
+
+    async updateIssueRouting(
+      authority: ProjectAuthority,
+      projectId: string,
+      update: {
+        destination: ProjectIssueDestination | null;
+        expectedRevision: number;
+      }
+    ): Promise<ProjectIssueRouting> {
+      const project = await requireProject({
+        authority,
+        db: input.db,
+        projectId,
+      });
+      requireProjectManageAuthority({
+        authority,
+        createdByUserId: project.createdByUserId,
+      });
+      requireActiveProject(project);
+      const updated = await updateProjectIssueRoutingRecord({
+        db: input.db,
+        destination: update.destination,
+        expectedRevision: update.expectedRevision,
+        nowMs: now(),
+        organizationId: authority.organizationId,
+        projectId,
+        userId: authority.userId,
+      });
+      if (!updated) {
+        throw projectConflictError();
+      }
+      const routing = await readProjectIssueRoutingRecord({
+        db: input.db,
+        organizationId: authority.organizationId,
+        projectId,
+      });
+      if (!routing) {
+        throw projectNotFoundError();
+      }
+      return routing;
+    },
     async prepareArchive(
       authority: ProjectAuthority,
       projectId: string
@@ -92,7 +299,6 @@ export function createProjectService(input: {
       requireActiveProject(project);
       return toProject(project, authority);
     },
-
     async create(
       authority: ProjectAuthority,
       body: Omit<CreateProjectBody, "expectedOrganizationId">
@@ -125,18 +331,6 @@ export function createProjectService(input: {
       if (previous) {
         return previous;
       }
-      const rejectDuplicateRepository = Boolean(
-        body.operationId && repository.repositoryFingerprint
-      );
-      const assertNoDuplicate = () =>
-        assertProjectRepositoryAvailable({
-          db: input.db,
-          organizationId: authority.organizationId,
-          repositoryFingerprint: rejectDuplicateRepository
-            ? repository.repositoryFingerprint
-            : null,
-        });
-      await assertNoDuplicate();
       const baseProject = {
         archivedAtMs: null,
         createdAtMs: nowMs,
@@ -149,7 +343,6 @@ export function createProjectService(input: {
         ...repository,
         updatedAtMs: nowMs,
       } satisfies Omit<StoredProject, "slug">;
-
       if (body.slug !== undefined && !body.operationId) {
         return await insertProjectWithExplicitSlug({
           authority,
@@ -157,18 +350,14 @@ export function createProjectService(input: {
           project: { ...baseProject, slug: body.slug },
         });
       }
-
       return await insertProjectWithGeneratedSlug({
         db: input.db,
         authority,
         baseProject,
         requestedSlug: body.slug,
-        rejectDuplicateRepository,
         replay,
-        assertNoDuplicate,
       });
     },
-
     async update(
       authority: ProjectAuthority,
       projectId: string,
@@ -195,11 +384,32 @@ export function createProjectService(input: {
         slug: body.slug ?? current.slug,
         updatedAtMs: nextMutationTime(now(), current.updatedAtMs),
       };
+      const repositorySettings =
+        current.repositoryUrl !== updated.repositoryUrl ||
+        current.repositoryFingerprint !== updated.repositoryFingerprint
+          ? await readProjectRepositorySettingsRecord({
+              db: input.db,
+              organizationId: authority.organizationId,
+              projectId,
+            })
+          : null;
       try {
         const outcome = await updateProjectRecord({
+          ...(repositorySettings
+            ? {
+                additionalRepositoryUrls: repositorySettings.repositories
+                  .filter(
+                    (entry) =>
+                      !entry.isDefault &&
+                      entry.repositoryUrl !== updated.repositoryUrl
+                  )
+                  .map((entry) => entry.repositoryUrl),
+              }
+            : {}),
           currentUpdatedAtMs: current.updatedAtMs,
           db: input.db,
           project: updated,
+          userId: authority.userId,
         });
         if (outcome === "not_updated") {
           throw projectConflictError();
@@ -212,7 +422,6 @@ export function createProjectService(input: {
       }
       return toProject(updated, authority);
     },
-
     async archive(
       authority: ProjectAuthority,
       projectId: string
@@ -253,7 +462,6 @@ export function createProjectService(input: {
     },
   };
 }
-
 async function hashProjectCreation(value: unknown): Promise<string> {
   const bytes = await crypto.subtle.digest(
     "SHA-256",
@@ -263,12 +471,10 @@ async function hashProjectCreation(value: unknown): Promise<string> {
     byte.toString(16).padStart(2, "0")
   ).join("");
 }
-
 export type ProjectService = ReturnType<typeof createProjectService>;
-
 async function insertProjectWithExplicitSlug(input: {
   authority: ProjectAuthority;
-  db: D1Database;
+  db: PostgresDatabase;
   project: StoredProject;
 }): Promise<Project> {
   try {
@@ -287,14 +493,12 @@ async function insertProjectWithExplicitSlug(input: {
   }
   return toProject(input.project, input.authority);
 }
-
 function nextMutationTime(nowMs: number, currentUpdatedAtMs: number): number {
   return Math.max(nowMs, currentUpdatedAtMs + 1);
 }
-
 async function requireProject(input: {
   authority: ProjectAuthority;
-  db: D1Database;
+  db: PostgresDatabase;
   projectId: string;
 }): Promise<StoredProject> {
   const project = await readProjectRecord({
@@ -307,7 +511,6 @@ async function requireProject(input: {
   }
   return project;
 }
-
 function requireActiveProject(project: StoredProject): void {
   if (project.archivedAtMs === null) {
     return;
@@ -318,7 +521,6 @@ function requireActiveProject(project: StoredProject): void {
     status: 409,
   });
 }
-
 function projectNotFoundError(): Error {
   return createCoreRpcHttpError({
     code: "project.not_found",
@@ -326,7 +528,6 @@ function projectNotFoundError(): Error {
     status: 404,
   });
 }
-
 function projectSlugConflictError(): Error {
   return createCoreRpcHttpError({
     code: "project.slug_conflict",
@@ -334,7 +535,6 @@ function projectSlugConflictError(): Error {
     status: 409,
   });
 }
-
 function automaticProjectSlugConflictError(): Error {
   return createCoreRpcHttpError({
     code: "project.slug_conflict",
@@ -343,7 +543,6 @@ function automaticProjectSlugConflictError(): Error {
     status: 409,
   });
 }
-
 function projectLimitReachedError(): Error {
   return createCoreRpcHttpError({
     code: "project.limit_reached",
@@ -352,7 +551,6 @@ function projectLimitReachedError(): Error {
     status: 409,
   });
 }
-
 function projectConflictError(): Error {
   return createCoreRpcHttpError({
     code: "project.conflict",
@@ -361,6 +559,14 @@ function projectConflictError(): Error {
   });
 }
 
+function projectRepositoryInvalidError(): Error {
+  return createCoreRpcHttpError({
+    code: "project.repository_settings_invalid",
+    reason:
+      "Choose distinct canonical Repository URLs and one default from that list, or no default.",
+    status: 400,
+  });
+}
 function projectHasActivityError(): Error {
   return createCoreRpcHttpError({
     code: "project.has_activity",
@@ -369,7 +575,6 @@ function projectHasActivityError(): Error {
     status: 409,
   });
 }
-
 function toProject(
   project: StoredProject,
   authority: ProjectReadAuthority
@@ -403,7 +608,6 @@ function toProject(
     updatedAtMs: project.updatedAtMs,
   };
 }
-
 function toProjectMutationAuthority(
   authority: ProjectReadAuthority
 ): ProjectAuthority | null {
@@ -412,7 +616,6 @@ function toProjectMutationAuthority(
   }
   return { ...authority, userId: authority.userId };
 }
-
 async function resolveCreatedRepositoryIdentity(
   body: Pick<CreateProjectBody, "repositoryFingerprint" | "repositoryUrl">
 ): Promise<Pick<StoredProject, "repositoryFingerprint" | "repositoryUrl">> {
@@ -427,7 +630,6 @@ async function resolveCreatedRepositoryIdentity(
     repositoryUrl: body.repositoryUrl,
   });
 }
-
 async function resolveUpdatedRepositoryIdentity(input: {
   body: Pick<UpdateProjectBody, "repositoryFingerprint" | "repositoryUrl">;
   current: StoredProject;
@@ -458,7 +660,6 @@ async function resolveUpdatedRepositoryIdentity(input: {
     repositoryUrl: input.current.repositoryUrl,
   };
 }
-
 async function resolveCanonicalRepositoryIdentity(input: {
   repositoryFingerprint?: string | null;
   repositoryUrl: string;
@@ -476,7 +677,6 @@ async function resolveCanonicalRepositoryIdentity(input: {
   }
   return { repositoryFingerprint, repositoryUrl };
 }
-
 function projectRepositoryIdentityInvalidError(): Error {
   return createCoreRpcHttpError({
     code: "project.repository_identity_invalid",
@@ -484,9 +684,8 @@ function projectRepositoryIdentityInvalidError(): Error {
     status: 400,
   });
 }
-
 async function readProjectCreationReplay(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   authority: ProjectAuthority;
   projectId: string;
   requestSignature: string | null;
@@ -513,36 +712,12 @@ async function readProjectCreationReplay(input: {
   requireActiveProject(existing);
   return toProject(existing, input.authority);
 }
-
-async function assertProjectRepositoryAvailable(input: {
-  db: D1Database;
-  organizationId: string;
-  repositoryFingerprint: string | null;
-}): Promise<void> {
-  if (!input.repositoryFingerprint) {
-    return;
-  }
-  const existing = (await listProjectRecords(input)).find(
-    (project) => project.repositoryFingerprint === input.repositoryFingerprint
-  );
-  if (existing) {
-    throw createCoreRpcHttpError({
-      code: "project.repository_exists",
-      reason:
-        "This repository already has a project in this workspace. Use the existing project.",
-      status: 409,
-    });
-  }
-}
-
 async function insertProjectWithGeneratedSlug(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   authority: ProjectAuthority;
   baseProject: Omit<StoredProject, "slug">;
   requestedSlug?: string;
-  rejectDuplicateRepository: boolean;
   replay: () => Promise<Project | null>;
-  assertNoDuplicate: () => Promise<void>;
 }): Promise<Project> {
   for (let sequence = 1; sequence <= 99; sequence += 1) {
     const slug =
@@ -556,14 +731,12 @@ async function insertProjectWithGeneratedSlug(input: {
       const outcome = await insertProjectRecord({
         db: input.db,
         project,
-        rejectDuplicateRepository: input.rejectDuplicateRepository,
       });
       if (outcome === "limit_reached") {
         const existing = await input.replay();
         if (existing) {
           return existing;
         }
-        await input.assertNoDuplicate();
         throw projectLimitReachedError();
       }
       return toProject(project, input.authority);
@@ -572,7 +745,6 @@ async function insertProjectWithGeneratedSlug(input: {
       if (existing) {
         return existing;
       }
-      await input.assertNoDuplicate();
       if (shouldRetryGeneratedSlug(error, input.requestedSlug)) {
         continue;
       }
@@ -581,7 +753,6 @@ async function insertProjectWithGeneratedSlug(input: {
   }
   throw automaticProjectSlugConflictError();
 }
-
 function shouldRetryGeneratedSlug(
   error: unknown,
   requestedSlug: string | undefined

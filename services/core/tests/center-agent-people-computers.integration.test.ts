@@ -1,4 +1,6 @@
 import { env } from "cloudflare:test";
+import type { QueryResult } from "@openmeld/db/postgresql";
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
@@ -18,7 +20,6 @@ import {
 
 describe("Center Agent PeopleComputers authorization", () => {
   afterEach(() => vi.restoreAllMocks());
-
   it("reads readiness as the represented owner and rejects missing, revoked or different owners", async () => {
     const fixture = await seedFixture();
     const agentProfileId = `agt_${crypto.randomUUID()}`;
@@ -65,14 +66,17 @@ describe("Center Agent PeopleComputers authorization", () => {
         onBehalfOf: { profileId: fixture.owner.profileId },
       })
     ).rejects.toThrow("agent profile not found");
-    await env.OPENMELD_DB.prepare("DELETE FROM members WHERE id = ?")
-      .bind(fixture.member.memberId)
-      .run();
+    await getPostgresDatabase(env).query({
+      ...{
+        text: 'DELETE FROM "openmeld"."members" WHERE id = $1',
+        values: [],
+      },
+      values: [fixture.member.memberId],
+    });
     await expect(
       rpcCenterAgentCheckAgentProfileReadiness(coreEnv, request)
     ).rejects.toThrow("requesting member is no longer available");
   });
-
   it("returns only the represented member's inventory without claiming a current computer", async () => {
     const fixture = await seedFixture();
     const request = {
@@ -137,7 +141,6 @@ describe("Center Agent PeopleComputers authorization", () => {
       })
     ).rejects.toThrow("not available on your account");
   });
-
   it("updates only the represented member's explicit environment, never the organization's creator's computer", async () => {
     const transport = await import(
       "../src/dispatch/infrastructure/runtime-transport/runtime-transport-client"
@@ -248,7 +251,6 @@ describe("Center Agent PeopleComputers authorization", () => {
       })
     );
   });
-
   it("reads the requesting member's devices instead of the organization's creator's devices", async () => {
     const fixture = await seedFixture();
     const result = await rpcCenterAgentListLocalAgentConnectionCandidates(
@@ -267,7 +269,6 @@ describe("Center Agent PeopleComputers authorization", () => {
     expect(result.candidates[0]?.connectable).toBe(false);
     expect(JSON.stringify(result)).not.toContain(fixture.owner.deviceId);
   });
-
   it("rejects mismatched member identity and an explicitly requested nonmember", async () => {
     const fixture = await seedFixture();
     await expect(
@@ -290,7 +291,6 @@ describe("Center Agent PeopleComputers authorization", () => {
       })
     ).rejects.toThrow();
   });
-
   it("permits explicit team-member candidate discovery without changing the requesting identity", async () => {
     const fixture = await seedFixture();
     const result = await rpcCenterAgentListLocalAgentConnectionCandidates(
@@ -309,7 +309,6 @@ describe("Center Agent PeopleComputers authorization", () => {
     ]);
   });
 });
-
 async function seedFixture() {
   const suffix = crypto.randomUUID();
   const organizationId = `org_people_computers_${suffix}`;
@@ -328,63 +327,132 @@ async function seedFixture() {
   }
   const centerAgentId = `agt_${crypto.randomUUID()}`;
   const now = Date.now();
-  await env.OPENMELD_DB.prepare(
-    "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, 'Computer test', ?, ?)"
-  )
-    .bind(organizationId, `people-computers-${suffix}`, now)
-    .run();
+  await getPostgresDatabase(env).query({
+    ...{
+      text: 'INSERT INTO "openmeld"."organizations" (id, name, slug, created_at) VALUES ($1, \'Computer test\', $2, $3)',
+      values: [],
+    },
+    values: [organizationId, `people-computers-${suffix}`, now],
+  });
   for (const actor of actors) {
-    await env.OPENMELD_DB.batch([
-      env.OPENMELD_DB.prepare(
-        "INSERT INTO users (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)"
-      ).bind(actor.userId, actor.role, `${actor.userId}@example.com`, now, now),
-      env.OPENMELD_DB.prepare(
-        "INSERT INTO members (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, ?, ?)"
-      ).bind(actor.memberId, organizationId, actor.userId, actor.role, now),
-      env.OPENMELD_DB.prepare(
-        "INSERT INTO openmeld_profiles (profile_id, profile_name, profile_handle, profile_kind, is_default, status, owner_user_id, created_by_user_id, source, created_at, updated_at) VALUES (?, ?, ?, 'human', 1, 'active', ?, ?, 'auth_bootstrap', ?, ?)"
-      ).bind(
-        actor.profileId,
-        actor.role,
-        `${actor.role}-${suffix}`,
-        actor.userId,
-        actor.userId,
-        now,
-        now
-      ),
-      env.OPENMELD_DB.prepare(
-        "INSERT INTO openMeldDaemon_owned_devices (owner_user_id, device_id, observed_display_name, platform_family, device_type, first_seen_at_ms, last_observed_at_ms, updated_at_ms) VALUES (?, ?, ?, 'macOS', 'laptop', ?, ?, ?)"
-      ).bind(
-        actor.userId,
-        actor.deviceId,
-        `${actor.role} computer`,
-        now,
-        now,
-        now
-      ),
-      env.OPENMELD_DB.prepare(
-        "INSERT INTO openMeldDaemon_runtime_registry_records (openmeld_service_runtime_id, owner_kind, owner_id, device_id, lane, created_at_ms, last_registered_at_ms, updated_at_ms) VALUES (?, 'owner_account', ?, ?, 'prod', ?, ?, ?)"
-      ).bind(actor.runtimeId, actor.userId, actor.deviceId, now, now, now),
-      env.OPENMELD_DB.prepare(
-        "INSERT INTO openMeldDaemon_runtime_agent_controller_reports (openmeld_service_runtime_id, agent_controller_ref, report_status, observed_at_ms, expires_at_ms, reported_reason_codes_json, accepted_at_ms, updated_at_ms) VALUES (?, 'builtin:codex', 'ready', ?, ?, '[]', ?, ?)"
-      ).bind(actor.runtimeId, now, now + 60_000, now, now),
-    ]);
+    await getPostgresDatabase(env).transaction(async (client) =>
+      (async () => {
+        const results: QueryResult[] = [];
+        for (const query of [
+          {
+            ...{
+              text: 'INSERT INTO "openmeld"."users" (id, name, email, email_verified, created_at, updated_at) VALUES ($1, $2, $3, 1, $4, $5)',
+              values: [],
+            },
+            values: [
+              actor.userId,
+              actor.role,
+              `${actor.userId}@example.com`,
+              now,
+              now,
+            ],
+          },
+          {
+            ...{
+              text: 'INSERT INTO "openmeld"."members" (id, organization_id, user_id, role, created_at) VALUES ($1, $2, $3, $4, $5)',
+              values: [],
+            },
+            values: [
+              actor.memberId,
+              organizationId,
+              actor.userId,
+              actor.role,
+              now,
+            ],
+          },
+          {
+            ...{
+              text: "INSERT INTO \"openmeld\".\"openmeld_profiles\" (profile_id, profile_name, profile_handle, profile_kind, is_default, status, owner_user_id, created_by_user_id, source, created_at, updated_at) VALUES ($1, $2, $3, 'human', 1, 'active', $4, $5, 'auth_bootstrap', $6, $7)",
+              values: [],
+            },
+            values: [
+              actor.profileId,
+              actor.role,
+              `${actor.role}-${suffix}`,
+              actor.userId,
+              actor.userId,
+              now,
+              now,
+            ],
+          },
+          {
+            ...{
+              text: "INSERT INTO \"openmeld\".\"openMeldDaemon_owned_devices\" (owner_user_id, device_id, observed_display_name, platform_family, device_type, first_seen_at_ms, last_observed_at_ms, updated_at_ms) VALUES ($1, $2, $3, 'macOS', 'laptop', $4, $5, $6)",
+              values: [],
+            },
+            values: [
+              actor.userId,
+              actor.deviceId,
+              `${actor.role} computer`,
+              now,
+              now,
+              now,
+            ],
+          },
+          {
+            ...{
+              text: "INSERT INTO \"openmeld\".\"openMeldDaemon_runtime_registry_records\" (openmeld_service_runtime_id, owner_kind, owner_id, device_id, lane, created_at_ms, last_registered_at_ms, updated_at_ms) VALUES ($1, 'owner_account', $2, $3, 'prod', $4, $5, $6)",
+              values: [],
+            },
+            values: [
+              actor.runtimeId,
+              actor.userId,
+              actor.deviceId,
+              now,
+              now,
+              now,
+            ],
+          },
+          {
+            ...{
+              text: "INSERT INTO \"openmeld\".\"openMeldDaemon_runtime_agent_controller_reports\" (openmeld_service_runtime_id, agent_controller_ref, report_status, observed_at_ms, expires_at_ms, reported_reason_codes_json, accepted_at_ms, updated_at_ms) VALUES ($1, 'builtin:codex', 'ready', $2, $3, '[]', $4, $5)",
+              values: [],
+            },
+            values: [actor.runtimeId, now, now + 60_000, now, now],
+          },
+        ]) {
+          results.push(await client.query(query));
+        }
+        return results;
+      })()
+    );
   }
-  await env.OPENMELD_DB.batch([
-    env.OPENMELD_DB.prepare(
-      "INSERT INTO openmeld_profiles (profile_id, profile_name, profile_handle, profile_kind, is_default, status, organization_id, owner_user_id, created_by_user_id, source, managed_role, created_at, updated_at) VALUES (?, 'Center Agent', ?, 'agent', 0, 'active', ?, NULL, ?, 'cli_create', 'center_agent', ?, ?)"
-    ).bind(
-      centerAgentId,
-      `center-agent-${suffix}`,
-      organizationId,
-      owner.userId,
-      now,
-      now
-    ),
-    env.OPENMELD_DB.prepare(
-      "INSERT INTO center_agent_designations (organization_id, agent_profile_id, duty, designated_by, created_at) VALUES (?, ?, NULL, ?, ?)"
-    ).bind(organizationId, centerAgentId, owner.userId, now),
-  ]);
+  await getPostgresDatabase(env).transaction(async (client) =>
+    (async () => {
+      const results: QueryResult[] = [];
+      for (const query of [
+        {
+          ...{
+            text: "INSERT INTO \"openmeld\".\"openmeld_profiles\" (profile_id, profile_name, profile_handle, profile_kind, is_default, status, organization_id, owner_user_id, created_by_user_id, source, managed_role, created_at, updated_at) VALUES ($1, 'Center Agent', $2, 'agent', 0, 'active', $3, NULL, $4, 'cli_create', 'center_agent', $5, $6)",
+            values: [],
+          },
+          values: [
+            centerAgentId,
+            `center-agent-${suffix}`,
+            organizationId,
+            owner.userId,
+            now,
+            now,
+          ],
+        },
+        {
+          ...{
+            text: 'INSERT INTO "openmeld"."center_agent_designations" (organization_id, agent_profile_id, duty, designated_by, created_at) VALUES ($1, $2, NULL, $3, $4)',
+            values: [],
+          },
+          values: [organizationId, centerAgentId, owner.userId, now],
+        },
+      ]) {
+        results.push(await client.query(query));
+      }
+      return results;
+    })()
+  );
   const context: OpenMeldRequestContext = {
     activeOrganizationId: organizationId,
     actorContext: {
@@ -402,6 +470,6 @@ async function seedFixture() {
     context,
     owner,
     member,
-    coreEnv: { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings,
+    coreEnv: { OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL } as CoreBindings,
   };
 }

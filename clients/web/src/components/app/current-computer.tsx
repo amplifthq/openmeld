@@ -5,6 +5,7 @@ import type {
 	LocalRuntimeComputer,
 	LocalRuntimesResponse,
 } from "@openmeld/schemas/types";
+import { Badge } from "@openmeld/ui/components/badge";
 import { buttonVariants } from "@openmeld/ui/components/button";
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import {
@@ -12,7 +13,10 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
-import { resolveStatusToneIndicatorClassName } from "@openmeld/ui/lib/status-tone";
+import {
+	resolveStatusToneBadgeClassName,
+	resolveStatusToneIndicatorClassName,
+} from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import { DesktopTowerIcon } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -22,6 +26,7 @@ import { resolveCurrentExecutionTarget } from "#/components/agents/agents-page-c
 import { useLocalRuntimeQueries } from "#/components/agents/use-local-runtime-queries";
 import { useStartFlowState } from "#/components/app/start-flow-state";
 import { getDesktopPlatform } from "#/desktop/platform";
+import { useDesktopComputerConnection } from "#/desktop/use-computer-connection";
 import {
 	type ComputerSummaryStatus,
 	resolveCurrentLocalRuntimeComputerSummaryStatus,
@@ -42,6 +47,7 @@ import {
 import { startQueryKeys } from "#/query/query-keys";
 
 type CurrentComputerPresentation = {
+	connected?: boolean;
 	attentionLabel?: string;
 	status: ComputerSummaryStatus | null;
 	destination?: string;
@@ -92,6 +98,7 @@ function useCurrentComputerPresentation(
 	orgSlug: string
 ): CurrentComputerPresentation {
 	const { state, storageScope } = useStartFlowState();
+	const desktopConnection = useDesktopComputerConnection();
 	const displaySnapshotQuery = useQuery(
 		currentComputerToolbarDisplaySnapshotQueryOptions({ storageScope })
 	);
@@ -147,7 +154,7 @@ function useCurrentComputerPresentation(
 		);
 	}
 
-	let destination = deviceId
+	let destination: string | undefined = deviceId
 		? buildOrganizationComputerPath({
 				deviceId,
 				orgSlug,
@@ -157,7 +164,7 @@ function useCurrentComputerPresentation(
 				session: "fresh",
 			});
 	if (getDesktopPlatform()) {
-		destination = buildConnectComputerPath({ orgSlug });
+		destination = desktopComputerDestination(desktopConnection, orgSlug);
 	}
 	const deviceLabel = computer?.deviceDisplayName ?? "Computer";
 	const statusLabel =
@@ -166,7 +173,54 @@ function useCurrentComputerPresentation(
 		? `Open ${deviceLabel} details, ${statusLabel}`
 		: "Connect this Computer";
 
-	return { status, destination, deviceLabel, statusLabel, accessibleLabel };
+	return {
+		status,
+		destination,
+		deviceLabel,
+		statusLabel,
+		accessibleLabel,
+		connected: deviceId ? readiness?.service.connected : false,
+	};
+}
+function desktopComputerDestination(
+	connection: ReturnType<typeof useDesktopComputerConnection>,
+	orgSlug: string
+): string | undefined {
+	if (connection.isPending || connection.isError) {
+		return undefined;
+	}
+	return connection.data?.status === "available"
+		? buildOrganizationComputerPath({
+				orgSlug,
+				deviceId: connection.data.target.deviceId,
+			})
+		: buildConnectComputerPath({ orgSlug });
+}
+
+export function CurrentComputerMenuStatus() {
+	const computer = useCurrentComputer();
+	if (!computer) {
+		return null;
+	}
+	if (
+		computer.status?.tone === "warning" ||
+		computer.status?.tone === "danger"
+	) {
+		return <CurrentComputerAttentionIndicator status={computer.status} />;
+	}
+	if (computer.connected === undefined) {
+		return null;
+	}
+	return (
+		<Badge
+			className={resolveStatusToneBadgeClassName(
+				computer.connected ? "ready" : "muted"
+			)}
+			variant="secondary"
+		>
+			{computer.connected ? "Connected" : "Not connected"}
+		</Badge>
+	);
 }
 export function CurrentComputerToolbarLauncher() {
 	const computer = useCurrentComputer();

@@ -4253,11 +4253,11 @@ function resolveConfigurationDraftSummary(input: {
 			input.modelCatalog?.agentControllers[
 				input.editState?.modelSelection?.agentControllerId ?? ""
 			];
-		const modelId = input.draft.selectedModelId || catalog?.defaultModelId;
+		const modelId = input.draft.selectedModelId;
 		const model = catalog?.models.find((entry) => entry.id === modelId);
 		return [
 			input.controllerDisplayName,
-			model?.displayName ?? modelId,
+			model?.displayName ?? (modelId || "Controller default"),
 			input.draft.selectedReasoningLevel,
 		]
 			.filter(Boolean)
@@ -4619,8 +4619,18 @@ function AgentProfileModelConfigurationCard(input: {
 		? props.modelCatalog?.agentControllers[selection.agentControllerId]
 		: null;
 	const model = controller?.models.find(
-		(entry) => entry.id === (selection?.modelId || controller.defaultModelId)
+		(entry) => entry.id === selection?.modelId
 	);
+	const usesControllerDefault =
+		selection &&
+		!selection.modelId &&
+		!isHostedAgentControllerRef(props.agentControllerRef);
+	const defaultModel = controller?.models.find(
+		(entry) => entry.id === controller.defaultModelId
+	);
+	const defaultDescription = usesControllerDefault
+		? `No model is saved for this Agent. New chats use ${defaultModel?.displayName ?? "the catalog default"}; existing chats may keep their own model and reasoning settings.`
+		: undefined;
 	const retirement = resolveModelRetirementDisplay(
 		model,
 		props.modelCompatibilityContext
@@ -4640,7 +4650,7 @@ function AgentProfileModelConfigurationCard(input: {
 			description={
 				editor.failedEdits.model
 					? "Changes weren’t saved. Open to retry."
-					: retirementDescription
+					: (retirementDescription ?? defaultDescription)
 			}
 			disabled={
 				editor.controlsDisabled || editor.pendingEdit?.editor === "model"
@@ -6068,9 +6078,6 @@ function AgentProfilePermissionModeEditSection(input: {
 		return null;
 	}
 	const options = input.controllerPermissionMode.options;
-	const selectedOption =
-		options.find((option) => option.value === input.selectedPolicy) ??
-		options[0];
 	const selectedMetadata = getAgentControllerPermissionModeDisplayMetadata(
 		input.selectedPolicy,
 		{ agentControllerRef: input.controllerPermissionMode.agentControllerRef }
@@ -6078,6 +6085,8 @@ function AgentProfilePermissionModeEditSection(input: {
 	const applicationTiming = resolveAgentProfileEditApplicationTiming({
 		agentControllerRef: input.controllerPermissionMode.agentControllerRef,
 		field: "permission_mode",
+		currentPermissionMode: input.controllerPermissionMode.value,
+		nextPermissionMode: input.selectedPolicy,
 	});
 	const requiresConfirmation =
 		selectedMetadata.requiresExplicitConfirmation &&
@@ -6109,7 +6118,7 @@ function AgentProfilePermissionModeEditSection(input: {
 						selectedPolicy: nextPolicy,
 					});
 				}}
-				value={selectedOption?.value}
+				value={input.selectedPolicy}
 			>
 				<SelectTrigger
 					aria-describedby={getAgentControllerPermissionModeOutcomeDescriptionId(

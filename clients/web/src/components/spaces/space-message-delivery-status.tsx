@@ -11,6 +11,7 @@ import {
 } from "#/lib/spaces/message-state";
 import { Marker, MarkerContent, MarkerIcon } from "./primitives/marker";
 import { SpaceAgentOrb } from "./space-agent-orb";
+import { SpaceRequestElapsedTime } from "./space-request-elapsed-time";
 
 const AGENT_STATUS_ENTER_TRANSITION = {
 	duration: 0.24,
@@ -40,6 +41,7 @@ export function SpaceMessageDeliveryStatus(input: {
 	align?: "start" | "end";
 	className?: string;
 	presentation: SpaceMessageDeliveryPresentation | null;
+	requestStartedAtMs?: number;
 }) {
 	const presentation = input.presentation;
 	if (!presentation) {
@@ -79,6 +81,14 @@ export function SpaceMessageDeliveryStatus(input: {
 					statusText
 				)}
 			</MarkerContent>
+			{input.requestStartedAtMs !== undefined &&
+				(presentation === "agent_sending" ||
+					presentation === "agent_streaming") && (
+					<>
+						<span aria-hidden="true">·</span>
+						<SpaceRequestElapsedTime startedAtMs={input.requestStartedAtMs} />
+					</>
+				)}
 		</Marker>
 	);
 }

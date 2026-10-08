@@ -1,8 +1,55 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FluidActionList, FluidActionListItem } from "./action-list";
 
 describe("FluidActionList", () => {
+  it("suppresses pointer-driven focus rings and restores them for keyboard navigation", async () => {
+    const { container } = render(
+      <FluidActionList>
+        <FluidActionListItem index={0}>Help</FluidActionListItem>
+      </FluidActionList>
+    );
+    const item = screen.getByRole("button", { name: "Help" });
+    const originalMatches = item.matches.bind(item);
+    vi.spyOn(item, "matches").mockImplementation(
+      (selector) => selector === ":focus-visible" || originalMatches(selector)
+    );
+    fireEvent.pointerMove(item);
+    fireEvent.focus(item);
+    expect(
+      container.querySelector('[data-slot="fluid-action-list-focus-indicator"]')
+    ).toBeNull();
+    fireEvent.keyDown(item, { key: "ArrowDown" });
+    expect(
+      container.querySelector('[data-slot="fluid-action-list-focus-indicator"]')
+    ).not.toBeNull();
+    fireEvent.pointerDown(item);
+    fireEvent.focus(item);
+    await waitFor(() =>
+      expect(
+        container.querySelector(
+          '[data-slot="fluid-action-list-focus-indicator"]'
+        )
+      ).toBeNull()
+    );
+    // Tabbing back into a mounted list starts outside its capture handlers.
+    fireEvent.blur(item, { relatedTarget: document.body });
+    fireEvent.focus(item);
+    expect(
+      container.querySelector('[data-slot="fluid-action-list-focus-indicator"]')
+    ).toBeNull();
+    fireEvent.keyDown(document.body, { key: "Tab" });
+    fireEvent.focus(item);
+    expect(
+      container.querySelector('[data-slot="fluid-action-list-focus-indicator"]')
+    ).not.toBeNull();
+  });
   it("keeps nested menu focus from highlighting an unrelated outer action", () => {
     render(
       <FluidActionList>

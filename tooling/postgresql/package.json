@@ -1,0 +1,30 @@
+{
+  "name": "@openmeld/postgresql",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "pg": "node cli.mjs",
+    "test": "node local.mjs check && pnpm run test:d1-migration",
+    "test:d1-migration": "node local.mjs run node --test --test-concurrency=1 database.test.mjs d1-rehearsal.test.mjs d1-remote.test.mjs",
+    "cf-typegen": "wrangler types worker-configuration.d.ts",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@openmeld/auth": "workspace:*",
+    "@openmeld/db": "workspace:*",
+    "@openmeld/projects": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "pg": "8.23.1",
+    "pg-copy-streams": "7.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "@types/pg": "8.15.6",
+    "better-auth": "1.6.30",
+    "drizzle-kit": "^0.31.9",
+    "miniflare": "5.20260930.0-alpha",
+    "typescript": "^5.9.3",
+    "wrangler": "catalog:"
+  }
+}

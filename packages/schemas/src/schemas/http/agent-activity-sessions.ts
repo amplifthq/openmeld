@@ -173,6 +173,7 @@ export const agentActivityInventoryCoverageSchema = z
   .superRefine(refineLocalAgentProviderControllerPair);
 
 export const agentActivitySessionInventoryQuerySchema = z.strictObject({
+  computerId: boundedIdentifierSchema.optional(),
   cursor: z.string().trim().min(1).max(2048).optional(),
   limit: z.coerce
     .number()
@@ -242,6 +243,7 @@ export const observedLocalAgentSessionSchema = z
 
 export const agentActivitySessionReconciliationResultSchema = z.enum([
   "sessions",
+  "partial",
   "unsupported",
   "error",
   "disconnected",
@@ -289,6 +291,16 @@ export const submitAgentActivitySessionReconciliationBodySchema = z
         context.addIssue({
           code: "custom",
           message: "Successful reconciliation pages cannot include a problem.",
+          path: ["problemCode"],
+        });
+      }
+      return;
+    }
+    if (value.result === "partial") {
+      if (value.problemCode === undefined) {
+        context.addIssue({
+          code: "custom",
+          message: "Partial reconciliation requires a stable problem code.",
           path: ["problemCode"],
         });
       }

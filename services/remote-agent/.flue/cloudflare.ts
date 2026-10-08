@@ -1,16 +1,33 @@
 import { env as workerEnv } from "cloudflare:workers";
+import {
+  pluginComputerConnectionRequestSchema,
+  pluginConnectionDescribeRequestSchema,
+} from "@openmeld/schemas";
+import {
+  describePluginConnection,
+  pluginConnectionInstructions,
+} from "../connectors/plugin-connection";
 import { executePluginRuntime } from "../connectors/plugin-runtime";
+import { acknowledgeAccountErasure } from "../flue-adapter/account-deletion";
+import type { AgentComputerNamespace } from "../flue-adapter/agent-computer-workspace-access";
+import { personalComputerProviderName } from "../flue-adapter/computer-identity";
+import type { AgentComputer } from "../flue-adapter/computer-workspace";
 
 // biome-ignore lint/performance/noBarrelFile: Native browser code execution uses a Durable Object facet.
 export { CodemodeRuntime } from "@cloudflare/codemode";
-// The Center Agent's computer: org-level durable workspace DO, the
+// Account-owned personal Computers, the
 // loopback WorkerEntrypoint its worker-shell isolate dials back through,
-// and the WorkspaceProxy that carries the container's /ws egress home.
-export { WorkspaceProxy, WorkspaceServiceProxy } from "@cloudflare/computer";
+// and the WorkspaceProxy that carries the container's /api egress home.
+export { WorkspaceServiceProxy } from "@cloudflare/computer";
 export { ComputerPreviewOutbound } from "../flue-adapter/computer-preview";
 export { AgentComputer } from "../flue-adapter/computer-workspace";
+export { WorkspaceProxy } from "../flue-adapter/computer-workspace-proxy";
 
 import {
+  accountDeletionComputerSchema,
+  accountDeletionConversationSchema,
+  cloudComputerOperationResultSchema,
+  cloudComputerWorkerRequestSchema,
   remoteAgentWorkerCancellationRequestSchema,
   remoteAgentWorkerExecutionInputQuerySchema,
   remoteAgentWorkerExecutionInputRequestSchema,
@@ -43,6 +60,73 @@ import {
 const env = workerEnv as unknown as CloudflareBindings;
 
 export default {
+  async describePluginConnection(value: unknown) {
+    const request = pluginConnectionDescribeRequestSchema.parse(value);
+    return await describePluginConnection({
+      ...request,
+      connectorExecution: {
+        baseUrl: env.OPENMELD_CONNECTORS_BASE_URL,
+        runtimeToken: env.OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN,
+      },
+    });
+  },
+  async createPluginComputerConnection(value: unknown) {
+    const request = pluginComputerConnectionRequestSchema.parse(value);
+    if (request.computer.ownerUserId !== request.grant.requesterUserId) {
+      throw new Error("plugin.computer_owner_mismatch");
+    }
+    const namespace = env.AGENT_COMPUTER as AgentComputerNamespace;
+    const stub = namespace.get(
+      namespace.idFromName(personalComputerProviderName(request.computer.id))
+    ) as DurableObjectStub<AgentComputer>;
+    await stub.registerPluginConnectionGrant(request.grant);
+    const description = await describePluginConnection({
+      service: request.grant.service,
+      connectionName: request.grant.connectionName,
+      connectorExecution: {
+        baseUrl: env.OPENMELD_CONNECTORS_BASE_URL,
+        runtimeToken: env.OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN,
+      },
+    });
+    return pluginConnectionInstructions(
+      description,
+      `http://computer.internal/connections/${request.grant.id}`
+    );
+  },
+  async eraseAccountComputer(input: unknown) {
+    const request = accountDeletionComputerSchema.parse(input);
+    const namespace = env.AGENT_COMPUTER as AgentComputerNamespace;
+    await acknowledgeAccountErasure(
+      async () =>
+        await (
+          namespace.get(
+            namespace.idFromName(
+              personalComputerProviderName(request.computerId)
+            )
+          ) as DurableObjectStub<AgentComputer>
+        ).eraseAccountComputer()
+    );
+  },
+  async eraseAccountConversation(input: unknown) {
+    const request = accountDeletionConversationSchema.parse(input);
+    const namespace = env.FLUE_CENTER_AGENT_V2_AGENT as CenterAgentNamespace;
+    await acknowledgeAccountErasure(
+      async () =>
+        await namespace
+          .get(namespace.idFromName(request.runtimeConversationId))
+          .eraseAccountConversation(request)
+    );
+  },
+  async cloudComputerOperation(value: unknown) {
+    const request = cloudComputerWorkerRequestSchema.parse(value);
+    const namespace = env.AGENT_COMPUTER as AgentComputerNamespace;
+    const stub = namespace.get(
+      namespace.idFromName(personalComputerProviderName(request.computer.id))
+    ) as DurableObjectStub<AgentComputer>;
+    return cloudComputerOperationResultSchema.parse(
+      await stub.computerOperation(request.operation)
+    );
+  },
   readSubmitTurnCapabilities(input: unknown) {
     const request =
       remoteAgentWorkerSubmitCapabilitiesRequestSchema.safeParse(input);

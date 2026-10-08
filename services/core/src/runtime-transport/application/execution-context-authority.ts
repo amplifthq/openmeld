@@ -178,6 +178,34 @@ function sameScope(
   return scopeKey(a) === scopeKey(b);
 }
 
+/** Retain history, but stop offering the replaced context for automatic routing. */
+export async function retireRecoveredContextSourceAssociation(input: {
+  storage: Pick<DurableObjectTransaction, "get" | "delete">;
+  sourceContextId: string;
+  replacementContextId: string;
+}): Promise<void> {
+  const source = requireContext(
+    await input.storage.get(CONTEXT_PREFIX + input.sourceContextId)
+  );
+  const replacement = requireContext(
+    await input.storage.get(CONTEXT_PREFIX + input.replacementContextId)
+  );
+  if (
+    replacement.assignment.forkSource?.contextId !== source.assignment.id ||
+    !sameScope(source.assignment.scope, replacement.assignment.scope) ||
+    source.bindingId !== replacement.bindingId ||
+    source.agentControllerRef !== replacement.agentControllerRef ||
+    source.openMeldServiceRuntimeId !== replacement.openMeldServiceRuntimeId
+  ) {
+    throw new ExecutionContextSelectionError(
+      "execution_context.source_scope_mismatch"
+    );
+  }
+  await input.storage.delete(
+    `${ASSOCIATION_PREFIX}${scopeKey(source.assignment.scope)}:${source.assignment.id}`
+  );
+}
+
 // Resolves from accepted Wake associations in this Coordinator's transaction.
 // It returns writes so rejected admission never creates a context or native work.
 type AssignmentPlan = {
@@ -642,26 +670,54 @@ function createContext(
   source: ContextSource | null
 ): ContextRecord {
   const selection = request.selection;
+  const inheritsAgentSettings =
+    (snapshot.controllerSnapshot.agentControllerRef === "builtin:codex" ||
+      snapshot.controllerSnapshot.agentControllerRef ===
+        "builtin:claude-code") &&
+    selection.mode !== "resume" &&
+    !selection.access &&
+    (selection.mode === "new" ||
+      !source ||
+      source.context.assignment.permissionSource === "agent_settings");
   const implicitPreferences =
-    selection.mode === "auto" &&
-    !source &&
-    snapshot.controllerSnapshot.agentControllerRef === "builtin:codex"
+    inheritsAgentSettings ||
+    (selection.mode === "auto" &&
+      !source &&
+      snapshot.controllerSnapshot.agentControllerRef === "builtin:codex")
       ? ({ access: "workspace", workspace: "current" } as const)
       : {};
   const preferences: Partial<
-    Pick<ExecutionContextAssignment, "access" | "workspace">
+    Pick<ExecutionContextAssignment, "access" | "projectWork" | "workspace">
   > =
     selection.mode === "resume" ? {} : { ...implicitPreferences, ...selection };
   const forkSource = forkCheckpoint(request, source);
+  if (
+    selection.mode === "fork" &&
+    preferences.projectWork &&
+    !sameProjectWork(
+      preferences.projectWork,
+      source?.context.assignment.projectWork
+    )
+  ) {
+    throw new ExecutionContextSelectionError(
+      "execution_context.project_work_changed_requires_new_task"
+    );
+  }
+  const projectWork =
+    preferences.projectWork ?? source?.context.assignment.projectWork;
   return {
     assignment: {
       version: 1,
       id: crypto.randomUUID(),
       scope: request.scope,
+      ...(inheritsAgentSettings
+        ? { permissionSource: "agent_settings" as const }
+        : {}),
       access:
         preferences.access ??
         source?.context.assignment.access ??
         "space_context",
+      ...(projectWork ? { projectWork } : {}),
       workspace: preferences.workspace ?? "isolated",
       ...(forkSource ? { forkSource } : {}),
     },
@@ -685,6 +741,16 @@ function supportsContextAccess(
   );
 }
 
+function sameProjectWork(
+  left: ExecutionContextAssignment["projectWork"],
+  right: ExecutionContextAssignment["projectWork"]
+): boolean {
+  return (
+    left?.projectId === right?.projectId &&
+    left?.repositoryFingerprint === right?.repositoryFingerprint
+  );
+}
+
 function assertContextPreferences(
   context: ContextRecord,
   request: ContextRequest,
@@ -694,6 +760,11 @@ function assertContextPreferences(
   if (!supportsContextAccess(context.agentControllerRef, assignment.access)) {
     throw new ExecutionContextSelectionError(
       "execution_context.controller_access_unsupported"
+    );
+  }
+  if (assignment.projectWork && assignment.access === "space_context") {
+    throw new ExecutionContextSelectionError(
+      "execution_context.project_work_requires_workspace_access"
     );
   }
   if (
@@ -706,6 +777,7 @@ function assertContextPreferences(
   }
   if (
     context.agentControllerRef === "builtin:claude-code" &&
+    assignment.permissionSource !== "agent_settings" &&
     assignment.access === "workspace" &&
     assignment.workspace !== "isolated"
   ) {
@@ -725,6 +797,14 @@ function assertContextPreferences(
   if (selection.workspace && selection.workspace !== assignment.workspace) {
     throw new ExecutionContextSelectionError(
       "execution_context.workspace_changed_requires_new_task"
+    );
+  }
+  if (
+    selection.projectWork &&
+    !sameProjectWork(selection.projectWork, assignment.projectWork)
+  ) {
+    throw new ExecutionContextSelectionError(
+      "execution_context.project_work_changed_requires_new_task"
     );
   }
 }

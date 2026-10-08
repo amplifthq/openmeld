@@ -68,6 +68,7 @@ export function mergeChatPreferences(
 
 export type Chat = {
 	messagePreview?: AccountSpaceItem["messagePreview"];
+	recentMessagePreviews?: AccountSpaceItem["recentMessagePreviews"];
 	spaceId: string;
 	name: string | null;
 	createdAt: string | null;

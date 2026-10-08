@@ -9,6 +9,12 @@ import type {
   OpenMeldRequestContext,
   OpenMeldRequestedOrganizationSelector,
 } from "@openmeld/schemas/types";
+import {
+  buildUserTimeZoneObservationHeaders,
+  OPENMELD_HEADER_USER_TIME_ZONE,
+  OPENMELD_HEADER_USER_TIME_ZONE_SOURCE,
+  readUserTimeZoneObservationHeaders,
+} from "./user-time-context";
 
 export type { OpenMeldRequestedOrganizationSelector } from "@openmeld/schemas/types";
 
@@ -63,7 +69,7 @@ export const OPENMELD_HEADER_INBOX_SUMMARY_VERSION =
   "x-openmeld-inbox-summary-version";
 export const OPENMELD_INBOX_SUMMARY_VERSION = "3";
 export const OPENMELD_INBOX_SOURCE_TARGET_THREAD_UNAWARE_VERSION = "3";
-export const OPENMELD_INBOX_SOURCE_TARGET_VERSION = "9";
+export const OPENMELD_INBOX_SOURCE_TARGET_VERSION = "10";
 export const OPENMELD_EXPECTED_FORWARDED_BY = "openmeld-gateway";
 
 const MAX_HEADER_LENGTH = 128;
@@ -94,6 +100,8 @@ const MAX_ENCODED_PROFILE_ID_LIST_HEADER_LENGTH =
   OPENMELD_HEADER_TEXT_ENCODING_PREFIX.length;
 const PRINTABLE_ASCII_PATTERN = /^[\x20-\x7e]*$/;
 const OPENMELD_MANAGED_REQUEST_CONTEXT_HEADERS = [
+  OPENMELD_HEADER_USER_TIME_ZONE,
+  OPENMELD_HEADER_USER_TIME_ZONE_SOURCE,
   OPENMELD_HEADER_REQUEST_ID,
   OPENMELD_HEADER_CALLER_PRINCIPAL_ID,
   OPENMELD_HEADER_PROFILE_ID,
@@ -180,7 +188,9 @@ export function readOpenMeldRequestContext(
     return null;
   }
 
+  const userTimeZoneObservation = readUserTimeZoneObservationHeaders(headers);
   const parsed = openMeldRequestContextSchema.safeParse({
+    ...(userTimeZoneObservation ? { userTimeZoneObservation } : {}),
     actorContext: {
       requestId,
       ...(safeHeader(headers.get(OPENMELD_HEADER_CALLER_PRINCIPAL_ID))
@@ -283,6 +293,9 @@ export function buildOpenMeldRequestContextHeaders(
 ): Record<string, string> {
   const { actorContext } = input.requestContext;
   const headers: Record<string, string> = {
+    ...buildUserTimeZoneObservationHeaders(
+      input.requestContext.userTimeZoneObservation ?? null
+    ),
     [OPENMELD_HEADER_REQUEST_ID]: actorContext.requestId,
     [OPENMELD_HEADER_PROFILE_ID]: actorContext.openMeldProfileId,
     [OPENMELD_HEADER_PROFILE_KIND]: actorContext.profileKind,

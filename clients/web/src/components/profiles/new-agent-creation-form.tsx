@@ -1,13 +1,11 @@
 "use client";
 
 import type { AgentProfileCreationRequest } from "@openmeld/schemas/types";
-import { TabItem, Tabs, TabsList } from "@openmeld/ui/fluid/tabs";
-import { CloudIcon, DesktopTowerIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import type { OptimisticAgentProfileCreation } from "#/lib/profiles/agent-profile-creation-requests";
+import { AgentRuntimeChoice } from "./agent-runtime-choice";
 import { CreateAgentProfilePage } from "./create-profile-dialog";
-import { LocalAgentLogoStack } from "./local-agent-logo-stack";
 import { RemoteAgentCreationForm } from "./remote-agent-creation-form";
 
 type NewAgentCreationFormProps = {
@@ -53,59 +51,7 @@ export function NewAgentCreationForm(input: NewAgentCreationFormProps) {
 						Choose where this Agent runs. A new chat opens after creation.
 					</p>
 				</div>
-				<Tabs
-					className="max-w-3xl"
-					onValueChange={(value) =>
-						setRuntime(value === "local" ? "local" : "remote")
-					}
-					value={runtime}
-				>
-					<TabsList
-						aria-label="Agent runtime"
-						background={false}
-						className="grid grid-cols-2 items-stretch gap-2"
-					>
-						<TabItem
-							aria-label="Choose a Local Agent"
-							className="h-auto min-h-24 items-start gap-3 rounded-md border border-border border-dashed p-4 text-left aria-selected:border-transparent aria-selected:border-solid"
-							label="Choose a Local Agent"
-							value="local"
-						>
-							<DesktopTowerIcon
-								aria-hidden="true"
-								className="mt-0.5 size-5 shrink-0"
-							/>
-							<span className="grid gap-1">
-								<span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-									<span className="font-medium text-sm">
-										Choose a Local Agent
-									</span>
-									<LocalAgentLogoStack compact />
-								</span>
-								<span className="text-muted-foreground text-xs">
-									Runs on your computer.
-								</span>
-							</span>
-						</TabItem>
-						<TabItem
-							aria-label="Remote Agent"
-							className="h-auto min-h-24 items-start gap-3 rounded-md border border-border border-dashed p-4 text-left aria-selected:border-transparent aria-selected:border-solid"
-							label="Remote Agent"
-							value="remote"
-						>
-							<CloudIcon
-								aria-hidden="true"
-								className="mt-0.5 size-5 shrink-0"
-							/>
-							<span className="grid gap-1">
-								<span className="font-medium text-sm">Remote Agent</span>
-								<span className="text-muted-foreground text-xs">
-									Runs in the cloud.
-								</span>
-							</span>
-						</TabItem>
-					</TabsList>
-				</Tabs>
+				<AgentRuntimeChoice onChange={setRuntime} runtime={runtime} />
 			</div>
 			{form}
 		</div>

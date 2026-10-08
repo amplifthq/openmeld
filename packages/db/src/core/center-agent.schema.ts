@@ -1,16 +1,17 @@
 import { sql } from "drizzle-orm";
-import {
-  check,
-  index,
-  integer,
-  sqliteTable,
-  text,
-  uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+import { bigint, check, index, text, uniqueIndex } from "drizzle-orm/pg-core";
 import { organizations, users } from "../auth/auth.schema.ts";
 import { openMeldProfiles } from "../auth/openmeld-profile.schema.ts";
+import {
+  applicationTable,
+  currentTimestampMilliseconds,
+} from "../postgresql/schema.ts";
+import {
+  epochMilliseconds,
+  integerBoolean,
+} from "../postgresql/schema-types.ts";
 
-export const centerAgentDesignations = sqliteTable(
+export const centerAgentDesignations = applicationTable(
   "center_agent_designations",
   {
     organizationId: text("organization_id")
@@ -24,12 +25,12 @@ export const centerAgentDesignations = sqliteTable(
       onDelete: "set null",
     }),
     operatingState: text("operating_state").default("active").notNull(),
-    pausedAt: integer("paused_at", { mode: "timestamp_ms" }),
+    pausedAt: epochMilliseconds("paused_at"),
     pausedByUserId: text("paused_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
-    createdAt: integer("created_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    createdAt: epochMilliseconds("created_at")
+      .default(currentTimestampMilliseconds)
       .notNull(),
   },
   (table) => [
@@ -68,7 +69,7 @@ export const centerAgentDesignations = sqliteTable(
   ]
 );
 
-export const centerAgentAuditJournal = sqliteTable(
+export const centerAgentAuditJournal = applicationTable(
   "center_agent_audit_journal",
   {
     id: text("id").primaryKey(),
@@ -91,8 +92,8 @@ export const centerAgentAuditJournal = sqliteTable(
     resourceId: text("resource_id"),
     sourceNativeDeliveryId: text("source_native_delivery_id"),
     sourceSpaceId: text("source_space_id"),
-    createdAt: integer("created_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    createdAt: epochMilliseconds("created_at")
+      .default(currentTimestampMilliseconds)
       .notNull(),
   },
   (table) => [
@@ -129,7 +130,7 @@ export const centerAgentAuditJournal = sqliteTable(
   ]
 );
 
-export const centerAgentContextManifests = sqliteTable(
+export const centerAgentContextManifests = applicationTable(
   "center_agent_context_manifests",
   {
     id: text("id").primaryKey(),
@@ -146,18 +147,24 @@ export const centerAgentContextManifests = sqliteTable(
     clientName: text("client_name").notNull(),
     view: text("view").notNull(),
     schemaVersion: text("schema_version").notNull(),
-    requestedTokenBudget: integer("requested_token_budget").notNull(),
-    estimatedTokenCount: integer("estimated_token_count").notNull(),
-    includedMessageCount: integer("included_message_count").notNull(),
-    truncated: integer("truncated", { mode: "boolean" }).notNull(),
+    requestedTokenBudget: bigint("requested_token_budget", {
+      mode: "number",
+    }).notNull(),
+    estimatedTokenCount: bigint("estimated_token_count", {
+      mode: "number",
+    }).notNull(),
+    includedMessageCount: bigint("included_message_count", {
+      mode: "number",
+    }).notNull(),
+    truncated: integerBoolean("truncated").notNull(),
     truncationReasonsJson: text("truncation_reasons_json").notNull(),
     continuationCursor: text("continuation_cursor"),
     sourceRefsJson: text("source_refs_json").notNull(),
     auditEntryId: text("audit_entry_id")
       .notNull()
       .references(() => centerAgentAuditJournal.id, { onDelete: "cascade" }),
-    createdAt: integer("created_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    createdAt: epochMilliseconds("created_at")
+      .default(currentTimestampMilliseconds)
       .notNull(),
   },
   (table) => [
@@ -194,12 +201,12 @@ export const centerAgentContextManifests = sqliteTable(
     ),
     check(
       "center_agent_context_manifests_json_check",
-      sql`json_valid("truncation_reasons_json") and json_type("truncation_reasons_json") = 'array' and json_valid("source_refs_json") and json_type("source_refs_json") = 'array'`
+      sql`"truncation_reasons_json" is json array and "source_refs_json" is json array`
     ),
   ]
 );
 
-export const centerAgentContextManifestMaterializations = sqliteTable(
+export const centerAgentContextManifestMaterializations = applicationTable(
   "center_agent_context_manifest_materializations",
   {
     manifestId: text("manifest_id")
@@ -208,8 +215,8 @@ export const centerAgentContextManifestMaterializations = sqliteTable(
         onDelete: "cascade",
       }),
     entriesJson: text("entries_json").notNull(),
-    createdAt: integer("created_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    createdAt: epochMilliseconds("created_at")
+      .default(currentTimestampMilliseconds)
       .notNull(),
   },
   () => [
@@ -219,12 +226,12 @@ export const centerAgentContextManifestMaterializations = sqliteTable(
     ),
     check(
       "center_agent_context_manifest_materializations_json_check",
-      sql`json_valid("entries_json") and json_type("entries_json") = 'array'`
+      sql`"entries_json" is json array`
     ),
   ]
 );
 
-export const centerAgentContextLoadReceipts = sqliteTable(
+export const centerAgentContextLoadReceipts = applicationTable(
   "center_agent_context_load_receipts",
   {
     id: text("id").primaryKey(),
@@ -245,13 +252,17 @@ export const centerAgentContextLoadReceipts = sqliteTable(
     clientName: text("client_name").notNull(),
     schemaVersion: text("schema_version").notNull(),
     selectedEntriesJson: text("selected_entries_json").notNull(),
-    estimatedTokenCount: integer("estimated_token_count").notNull(),
-    includedMessageCount: integer("included_message_count").notNull(),
+    estimatedTokenCount: bigint("estimated_token_count", {
+      mode: "number",
+    }).notNull(),
+    includedMessageCount: bigint("included_message_count", {
+      mode: "number",
+    }).notNull(),
     auditEntryId: text("audit_entry_id")
       .notNull()
       .references(() => centerAgentAuditJournal.id, { onDelete: "cascade" }),
-    createdAt: integer("created_at", { mode: "timestamp_ms" })
-      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    createdAt: epochMilliseconds("created_at")
+      .default(currentTimestampMilliseconds)
       .notNull(),
   },
   (table) => [
@@ -283,12 +294,12 @@ export const centerAgentContextLoadReceipts = sqliteTable(
     ),
     check(
       "center_agent_context_load_receipts_json_check",
-      sql`json_valid("selected_entries_json") and json_type("selected_entries_json") = 'array'`
+      sql`"selected_entries_json" is json array`
     ),
   ]
 );
 
-export const centerAgentAttentionRequests = sqliteTable(
+export const centerAgentAttentionRequests = applicationTable(
   "center_agent_attention_requests",
   {
     id: text("id").primaryKey(),
@@ -306,9 +317,9 @@ export const centerAgentAttentionRequests = sqliteTable(
     title: text("title").notNull(),
     prompt: text("prompt").notNull(),
     status: text("status").default("open").notNull(),
-    createdAtMs: integer("created_at_ms").notNull(),
-    resolvedAtMs: integer("resolved_at_ms"),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    resolvedAtMs: bigint("resolved_at_ms", { mode: "number" }),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex("center_agent_attention_requests_submission_unique").on(
@@ -343,7 +354,7 @@ export const centerAgentAttentionRequests = sqliteTable(
   ]
 );
 
-export const centerAgentConnectorActionOperations = sqliteTable(
+export const centerAgentConnectorActionOperations = applicationTable(
   "center_agent_connector_action_operations",
   {
     id: text("id").primaryKey(),
@@ -366,10 +377,14 @@ export const centerAgentConnectorActionOperations = sqliteTable(
     connectionOwnerDisplayName: text("connection_owner_display_name"),
     connectionOwnerUserId: text("connection_owner_user_id"),
     connectionScope: text("connection_scope"),
+    connectionUpdatedAtMs: bigint("connection_updated_at_ms", {
+      mode: "number",
+    }),
     status: text("status").notNull(),
     providerExecutionId: text("provider_execution_id"),
-    createdAtMs: integer("created_at_ms").notNull(),
-    updatedAtMs: integer("updated_at_ms").notNull(),
+    linearIssueReceiptJson: text("linear_issue_receipt_json"),
+    createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
+    updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },
   (table) => [
     uniqueIndex("center_agent_connector_action_operations_scope_unique").on(
@@ -405,7 +420,7 @@ export const centerAgentConnectorActionOperations = sqliteTable(
     check(
       "center_agent_connector_action_operations_signature_shape_check",
       sql`length("request_signature") = 64
-        and "request_signature" not glob '*[^0-9a-f]*'`
+        and "request_signature" !~ '^.*[^0-9a-f].*$'`
     ),
     check(
       "center_agent_connector_action_operations_service_non_empty_check",

@@ -154,6 +154,32 @@ describe("SpaceThreadPanel", () => {
 		expect(composer?.className).not.toContain("border-border");
 	});
 
+	it("keeps known live work visible while Thread history is still loading", () => {
+		const { rerenderThreadPanel } = renderThreadPanel({
+			signals: [],
+			signalsIsLoading: true,
+			ephemeralActivityItems: [
+				{
+					...createWakeProgressItem(),
+					replyThreadRootSignalId: "sig-root",
+				},
+			],
+			onWakeStopRequest: vi.fn(),
+		});
+		const liveRow = document.querySelector('[data-message-id^="active-wake:"]');
+		expect(liveRow).not.toBeNull();
+		expect(screen.queryByText("Loading messages…")).toBeNull();
+		expect(screen.getByRole("button", { name: "Stop @runner" })).toBeTruthy();
+		rerenderThreadPanel({
+			signalsIsLoading: false,
+			signals: [createTextSignal()],
+		});
+		expect(document.querySelector('[data-message-id^="active-wake:"]')).toBe(
+			liveRow
+		);
+		expect(screen.getByRole("button", { name: "Stop @runner" })).toBeTruthy();
+	});
+
 	it("restores only this Thread's active Wakes without importing the root message's main-conversation controls", () => {
 		const context = {
 			messagePreview: "Review the launch",
@@ -382,7 +408,7 @@ describe("SpaceThreadPanel", () => {
 			],
 		});
 		const activityTrigger = screen.getByRole("button", {
-			name: "Thinking…. Work summary: Reviewing source files…",
+			name: "Working…. Work summary: Reviewing source files…",
 		});
 		expect(activityTrigger.getAttribute("aria-expanded")).toBe("true");
 		const progressRow = activityTrigger.closest(
@@ -1076,22 +1102,20 @@ describe("SpaceThreadPanel", () => {
 		expect(sourceMessage?.getAttribute("data-align")).toBe("start");
 	});
 
-	it("gives a stopped Wake a muted outcome row in the thread instead of a destructive one", () => {
+	it("shows Stopped in the Agent reply surface inside a thread", () => {
 		renderThreadPanel({
 			signals: [
 				createSystemNoticeSignal({
 					id: "sig-thread-stopped",
+					actorProfileId: TARGET_PROFILE_ID,
 					noticeType: "wake_stopped",
 					text: "Wake was stopped for Runner.",
 				}),
 			],
 		});
 
-		const marker = screen
-			.getByText("Wake was stopped for Runner.")
-			.closest("[data-slot='marker']");
-		expect(marker?.className).toContain("text-muted-foreground");
-		expect(marker?.className).not.toContain("text-destructive");
+		expect(screen.getByText("(Request stopped)")).toBeTruthy();
+		expect(screen.queryByTestId("space-outcome-row")).toBeNull();
 	});
 
 	it("shows the outcome row text but hides the Message details action for a read-only thread viewer", () => {
@@ -1248,6 +1272,7 @@ describe("SpaceThreadPanel", () => {
 					selector: {
 						by: "client_message",
 						clientMessageId: "client-message-1",
+						dispatchId: "dispatch-1",
 						targetProfileId: TARGET_PROFILE_ID,
 					},
 					status: "active",
@@ -1741,7 +1766,7 @@ function createWakeProgressItem(input?: {
 		clientMessageId: "client-message-1",
 		dispatchId: "dispatch-1",
 		failureReasonCode: null,
-		message: "@runner · Thinking… on this computer...",
+		message: "@runner · Working… on this computer...",
 		phase: "running",
 		sourceSignalId: "sig-thread-wake",
 		targetLabel: "@runner",

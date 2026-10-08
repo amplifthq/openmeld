@@ -57,9 +57,19 @@ const INBOX_NOTIFICATION_POLL_INTERVAL_MS = 10_000;
 // The cursor response is empty between events; only a new Space message
 // refreshes the full account Space directory.
 const VISIBLE_INBOX_OBSERVATION_POLL_INTERVAL_MS = 1000;
+const CONNECTED_INBOX_RECOVERY_POLL_INTERVAL_MS = 30_000;
 const INBOX_NOTIFICATION_RETRY_INTERVAL_MS = 10_000;
 const INBOX_NOTIFICATION_PENDING_FETCH_CONCURRENCY = 6;
 const EMPTY_RECOVERED_PENDING_ITEMS: NotificationInboxItem[] = [];
+
+function parseAccountInvalidationFrame(data: string) {
+	try {
+		const frame = accountInvalidationFrameSchema.safeParse(JSON.parse(data));
+		return frame.success ? frame.data : null;
+	} catch {
+		return null;
+	}
+}
 
 function resolveTrayComputerStatusTone(
 	computer: ReturnType<typeof useCurrentComputer>
@@ -174,6 +184,10 @@ export function InboxNotificationListener(input: {
 		unreadCountStatus = "ready";
 	}
 	const desktop = getDesktopPlatform();
+	const [connectedStreamScope, setConnectedStreamScope] = useState<
+		string | null
+	>(null);
+	const streamScope = `${input.userId}:${input.organizationId}`;
 	const notificationFeed = useMemo(
 		() => ({
 			read: createInboxNotificationObserver({
@@ -203,7 +217,9 @@ export function InboxNotificationListener(input: {
 				typeof document !== "undefined" &&
 				document.visibilityState === "visible"
 			) {
-				return VISIBLE_INBOX_OBSERVATION_POLL_INTERVAL_MS;
+				return connectedStreamScope === streamScope
+					? CONNECTED_INBOX_RECOVERY_POLL_INTERVAL_MS
+					: VISIBLE_INBOX_OBSERVATION_POLL_INTERVAL_MS;
 			}
 			return notificationsEnabled && !desktop
 				? INBOX_NOTIFICATION_POLL_INTERVAL_MS
@@ -212,6 +228,7 @@ export function InboxNotificationListener(input: {
 		refetchIntervalInBackground: notificationsEnabled,
 	});
 	useEffect(() => {
+		setConnectedStreamScope(null);
 		let stopped = false;
 		let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 		let pingTimer: ReturnType<typeof setInterval> | null = null;
@@ -266,7 +283,7 @@ export function InboxNotificationListener(input: {
 				if (stopped) {
 					return;
 				}
-				retryCount = 0;
+				setConnectedStreamScope(streamScope);
 				refreshInbox();
 				refreshSpaces();
 				pingTimer = setInterval(() => {
@@ -284,17 +301,17 @@ export function InboxNotificationListener(input: {
 				) {
 					return;
 				}
-				let value: unknown;
-				try {
-					value = JSON.parse(event.data);
-				} catch {
+				// An upgrade alone does not prove a stable connection. Keep backing
+				// off short-lived connections until an end-to-end keepalive succeeds.
+				if (event.data === "pong") {
+					retryCount = 0;
 					return;
 				}
-				const frame = accountInvalidationFrameSchema.safeParse(value);
-				if (!frame.success) {
+				const frame = parseAccountInvalidationFrame(event.data);
+				if (!frame) {
 					return;
 				}
-				if (frame.data.type === "inbox.changed") {
+				if (frame.type === "inbox.changed") {
 					refreshInbox();
 				} else {
 					scheduleSpaceRefresh();
@@ -308,13 +325,12 @@ export function InboxNotificationListener(input: {
 				if (stopped) {
 					return;
 				}
-				refreshInbox();
-				refreshSpaces();
+				setConnectedStreamScope(null);
 				reconnectTimer = setTimeout(
 					connect,
 					Math.min(30_000, 1000 * 2 ** retryCount)
 				);
-				retryCount += 1;
+				retryCount = Math.min(5, retryCount + 1);
 			});
 		};
 		connect();
@@ -331,7 +347,13 @@ export function InboxNotificationListener(input: {
 			}
 			connection?.close();
 		};
-	}, [desktop, input.organizationId, itemsQuery.refetch, queryClient]);
+	}, [
+		desktop,
+		input.organizationId,
+		itemsQuery.refetch,
+		queryClient,
+		streamScope,
+	]);
 	const feedIdentity = `${input.organizationId}:${input.organizationSlug}:${input.userId}:${notificationsEnabled}`;
 	const deliveryAbortRef = useRef<{
 		feedIdentity: string;

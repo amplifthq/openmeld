@@ -1,5 +1,10 @@
 import { DurableObject } from "cloudflare:workers";
 import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+  withPostgresRequest,
+} from "@openmeld/db/postgresql";
+import {
   PREPARE_SESSION_STREAM_PROTOCOL_VERSION,
   prepareSessionStreamClientFrameSchema,
   prepareSessionStreamServerFrameSchema,
@@ -10,7 +15,7 @@ import type {
   PrepareSessionStreamRole,
   PrepareSessionStreamServerFrame,
 } from "@openmeld/schemas/types";
-import { type CoreBindings, localStateDb } from "../../../lib/bindings";
+import type { CoreBindings } from "../../../lib/bindings";
 import {
   disconnectPrepareTerminalConnectionUseCase,
   PrepareSessionRevisionConflictError,
@@ -32,9 +37,7 @@ import {
 type AcceptableWebSocket = WebSocket & {
   accept(): void;
 };
-
 type AcceptableWebSocketPair = [WebSocket, AcceptableWebSocket];
-
 const createWebSocketPair = (): AcceptableWebSocketPair => {
   const WebSocketPairConstructor = (
     globalThis as typeof globalThis & {
@@ -43,66 +46,70 @@ const createWebSocketPair = (): AcceptableWebSocketPair => {
   ).WebSocketPair;
   return new WebSocketPairConstructor();
 };
-
 export class PrepareSessionHub extends DurableObject<CoreBindings> {
   private readonly activeTerminalBindings = new Map<
     string,
-    { connectionEpoch: number; lastProgressSequence: number | null }
+    {
+      connectionEpoch: number;
+      lastProgressSequence: number | null;
+    }
   >();
   private readonly latestConnectionProgress = new Map<
     string,
     Extract<
       PrepareSessionStreamServerFrame,
-      { type: "connection_progress" }
+      {
+        type: "connection_progress";
+      }
     >["payload"]
   >();
   fetch(request: Request): Promise<Response> {
     return Promise.resolve(this.handleFetch(request));
   }
-
   async webSocketMessage(
     webSocket: WebSocket,
     rawMessage: string | ArrayBuffer
   ): Promise<void> {
-    const attachment = readPrepareSessionHubSocketAttachment(webSocket);
-    if (!(attachment.prepareSessionId && attachment.role)) {
-      this.sendErrorFrame(webSocket, {
-        code: "prepare.session.socket_unverified",
-        message: "Socket is not attached to a prepare session.",
-      });
-      safeCloseSocket(webSocket, 1008, "prepare_session_socket_unverified");
-      return;
-    }
-
-    const frame = parseClientFrame(rawMessage);
-    if (!frame) {
-      this.sendErrorFrame(webSocket, {
-        code: "prepare.session.protocol_mismatch",
-        message:
-          "This OpenMeld CLI does not match the current setup protocol. Update OpenMeld, copy a fresh Agent Interface prompt, and run setup again.",
-      });
-      return;
-    }
-
-    await this.handleClientFrame(
-      webSocket,
-      {
-        prepareSessionId: attachment.prepareSessionId,
-        connectionEpoch: attachment.connectionEpoch ?? undefined,
-        role: attachment.role,
-      },
-      frame
-    );
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      const attachment = readPrepareSessionHubSocketAttachment(webSocket);
+      if (!(attachment.prepareSessionId && attachment.role)) {
+        this.sendErrorFrame(webSocket, {
+          code: "prepare.session.socket_unverified",
+          message: "Socket is not attached to a prepare session.",
+        });
+        safeCloseSocket(webSocket, 1008, "prepare_session_socket_unverified");
+        return;
+      }
+      const frame = parseClientFrame(rawMessage);
+      if (!frame) {
+        this.sendErrorFrame(webSocket, {
+          code: "prepare.session.protocol_mismatch",
+          message:
+            "This OpenMeld CLI does not match the current setup protocol. Update OpenMeld, copy a fresh Agent Interface prompt, and run setup again.",
+        });
+        return;
+      }
+      await this.handleClientFrame(
+        webSocket,
+        {
+          prepareSessionId: attachment.prepareSessionId,
+          connectionEpoch: attachment.connectionEpoch ?? undefined,
+          role: attachment.role,
+        },
+        frame
+      );
+    });
   }
-
   async webSocketClose(webSocket: WebSocket): Promise<void> {
-    await this.handleSocketClosed(webSocket, "socket_closed");
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      await this.handleSocketClosed(webSocket, "socket_closed");
+    });
   }
-
   async webSocketError(webSocket: WebSocket): Promise<void> {
-    await this.handleSocketClosed(webSocket, "socket_error");
+    return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
+      await this.handleSocketClosed(webSocket, "socket_error");
+    });
   }
-
   private async handleFetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname !== "/stream") {
@@ -115,11 +122,9 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
         { status: 404 }
       );
     }
-
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
       return new Response("expected websocket", { status: 400 });
     }
-
     const prepareSessionId = normalizeOptionalText(
       request.headers.get(PREPARE_SESSION_HUB_SESSION_ID_HEADER)
     );
@@ -131,14 +136,12 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
         status: 400,
       });
     }
-
     const [client, server] = createWebSocketPair();
     this.ctx.acceptWebSocket(server);
     writePrepareSessionHubSocketAttachment(server, {
       prepareSessionId,
       role,
     });
-
     const snapshot = await this.loadSnapshot(prepareSessionId);
     const connectedSnapshot =
       role === "terminal"
@@ -162,13 +165,11 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
     if (role === "terminal") {
       this.broadcastSnapshot(connectedSnapshot, server);
     }
-
     return new Response(null, {
       status: 101,
       webSocket: client,
     });
   }
-
   private async handleClientFrame(
     webSocket: WebSocket,
     attachment: {
@@ -187,7 +188,6 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
       });
       return;
     }
-
     if (frame.type === "client.hello") {
       if (
         frame.payload.protocolVersion !==
@@ -201,7 +201,6 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
       }
       return;
     }
-
     if (
       (frame.type === "terminal.step.write" ||
         frame.type === "terminal.connection_progress.write" ||
@@ -215,7 +214,6 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
       });
       return;
     }
-
     if (
       (frame.type === "terminal.step.write" ||
         frame.type === "terminal.connection_progress.write" ||
@@ -230,7 +228,6 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
       });
       return;
     }
-
     if (
       frame.type === "web.agent_selection.write" &&
       attachment.role !== "web"
@@ -241,7 +238,6 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
       });
       return;
     }
-
     try {
       if (frame.type === "terminal.connection_progress.write") {
         await this.handleConnectionProgress(webSocket, attachment, frame);
@@ -254,7 +250,6 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
       this.sendWriteError(webSocket, error);
     }
   }
-
   private async handleConnectionProgress(
     webSocket: WebSocket,
     attachment: {
@@ -264,7 +259,9 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
     },
     frame: Extract<
       PrepareSessionStreamClientFrame,
-      { type: "terminal.connection_progress.write" }
+      {
+        type: "terminal.connection_progress.write";
+      }
     >
   ): Promise<void> {
     if (frame.payload.prepareSessionId !== attachment.prepareSessionId) {
@@ -304,7 +301,6 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
       frame.payload
     );
   }
-
   private async writeFrame(
     frame: PrepareSessionStreamClientFrame
   ): Promise<PrepareSessionSnapshot> {
@@ -334,7 +330,6 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
     }
     throw new Error(`Unsupported prepare session frame: ${frame.type}`);
   }
-
   private async replaceActiveTerminal(
     newSocket: WebSocket,
     snapshot: PrepareSessionSnapshot
@@ -359,7 +354,6 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
         safeCloseSocket(socket, 4000, "terminal_replaced");
       }
     }
-
     const next = await registerPrepareTerminalConnectionUseCase({
       db: this.requireDb(),
       prepareSessionId: snapshot.prepareSessionId,
@@ -373,7 +367,6 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
     this.syncTerminalBinding(next);
     return next;
   }
-
   private async handleSocketClosed(
     webSocket: WebSocket,
     reasonCode: string
@@ -404,7 +397,6 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
       throw error;
     }
   }
-
   private async loadSnapshot(
     prepareSessionId: string
   ): Promise<PrepareSessionSnapshot> {
@@ -413,7 +405,6 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
       prepareSessionId,
     });
   }
-
   private broadcastSnapshot(
     snapshot: PrepareSessionSnapshot,
     exceptSocket?: WebSocket
@@ -430,12 +421,13 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
       this.sendSnapshot(socket, snapshot, "snapshot_changed");
     }
   }
-
   private broadcastConnectionProgress(
     prepareSessionId: string,
     progress: Extract<
       PrepareSessionStreamServerFrame,
-      { type: "connection_progress" }
+      {
+        type: "connection_progress";
+      }
     >["payload"]
   ): void {
     for (const socket of this.ctx.getWebSockets()) {
@@ -460,7 +452,6 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
       }
     }
   }
-
   private async readActiveTerminalBinding(prepareSessionId: string): Promise<{
     connectionEpoch: number;
     lastProgressSequence: number | null;
@@ -473,7 +464,6 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
     this.syncTerminalBinding(snapshot);
     return this.activeTerminalBindings.get(prepareSessionId) ?? null;
   }
-
   private syncTerminalBinding(snapshot: PrepareSessionSnapshot): void {
     const epoch = snapshot.terminalConnection.connectionEpoch;
     if (
@@ -495,7 +485,6 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
     });
     this.latestConnectionProgress.delete(snapshot.prepareSessionId);
   }
-
   private sendSnapshot(
     webSocket: WebSocket,
     snapshot: PrepareSessionSnapshot,
@@ -508,7 +497,6 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
       },
     });
   }
-
   private sendWriteError(webSocket: WebSocket, error: unknown): void {
     if (error instanceof PrepareSessionRevisionConflictError) {
       this.sendErrorFrame(webSocket, {
@@ -529,7 +517,6 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
       message: "Setup state could not be saved.",
     });
   }
-
   private sendErrorFrame(
     webSocket: WebSocket,
     input: {
@@ -542,7 +529,6 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
       payload: input,
     });
   }
-
   private sendFrame(
     webSocket: WebSocket,
     frame: PrepareSessionStreamServerFrame
@@ -555,16 +541,14 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
     }
     webSocket.send(JSON.stringify(parsed.data));
   }
-
-  private requireDb(): D1Database {
-    const db = localStateDb(this.env);
+  private requireDb(): PostgresDatabase {
+    const db = getPostgresDatabase(this.env);
     if (!db) {
       throw new Error("prepare session store unavailable");
     }
     return db;
   }
 }
-
 function parseClientFrame(
   rawMessage: string | ArrayBuffer
 ): PrepareSessionStreamClientFrame | null {
@@ -580,7 +564,6 @@ function parseClientFrame(
   const parsed = prepareSessionStreamClientFrameSchema.safeParse(rawJson);
   return parsed.success ? parsed.data : null;
 }
-
 function normalizeOptionalText(value: unknown): string | null {
   if (typeof value !== "string") {
     return null;
@@ -588,11 +571,9 @@ function normalizeOptionalText(value: unknown): string | null {
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : null;
 }
-
 function normalizeRole(value: unknown): PrepareSessionStreamRole | null {
   return value === "web" || value === "terminal" ? value : null;
 }
-
 function safeCloseSocket(
   webSocket: WebSocket,
   code: number,

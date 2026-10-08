@@ -1,9 +1,13 @@
+import {
+  type PostgreSQLBinding,
+  withPostgresRequest,
+} from "@openmeld/db/postgresql";
 import type { Profile, SignalEnvelope, SpaceCreator } from "@openmeld/protocol";
 import {
   CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
 } from "@openmeld/schemas";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RuntimeTransportHub } from "../src";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
@@ -24,6 +28,7 @@ import {
   upsertSpaceMemberRecord,
 } from "../src/space/infrastructure/sql/space-member-repo";
 import type { SpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
+import { createProjectionPostgresBinding } from "../test-support/postgresql-query.test-support";
 
 type SqlRow = Record<string, SqlStorageValue>;
 
@@ -436,12 +441,13 @@ class MutableSqlStorage {
   }
 }
 
-type RouteTruthD1Database = {
+type RouteTruthPostgresProjection = {
   bindSpy: ReturnType<typeof vi.fn>;
-  db: D1Database;
+  db: PostgreSQLBinding;
+  querySpy: ReturnType<typeof vi.fn>;
 };
 
-type RouteTruthD1DatabaseInput = {
+type RouteTruthPostgresProjectionInput = {
   agentProfileId: string;
   agentProfileIds?: readonly string[];
   includeExpectedRouteBindings?: boolean;
@@ -460,9 +466,9 @@ type RouteTruthD1DatabaseInput = {
   runtimeLane?: string;
 };
 
-function createRouteTruthD1Database(
-  input: RouteTruthD1DatabaseInput
-): RouteTruthD1Database {
+function createRouteTruthPostgresProjection(
+  input: RouteTruthPostgresProjectionInput
+): RouteTruthPostgresProjection {
   const ownerUserId = input.ownerUserId ?? "owner-1";
   const agentProfileId = input.agentProfileId;
   const agentProfileIds = input.agentProfileIds ?? [agentProfileId];
@@ -558,7 +564,8 @@ function createRouteTruthD1Database(
     }
     if (
       input.includeExpectedRouteBindings &&
-      FROM_AGENT_PROFILE_BINDINGS_SQL_REGEX.test(sql)
+      FROM_AGENT_PROFILE_BINDINGS_SQL_REGEX.test(sql) &&
+      !sql.includes("LIMIT 1")
     ) {
       return agentProfileIds.map((profileId) => ({
         ...firstForSql(sql, [profileId]),
@@ -609,36 +616,39 @@ function createRouteTruthD1Database(
   }
 
   const bindSpy = vi.fn();
-  const prepare = vi.fn((sql: string) => {
-    return {
-      bind: (...params: unknown[]) => {
-        bindSpy(...params);
-        return {
-          all: vi.fn(async () => ({ results: allForSql(sql) })),
-          first: vi.fn(async () => firstForSql(sql, params)),
-          run: vi.fn(async () => ({ meta: { changes: 0 }, success: true })),
-        };
-      },
-    };
+  const querySpy = vi.fn((query: string, values: readonly unknown[]) => {
+    bindSpy(...values);
+    const sql = query.replaceAll('"', "").replaceAll("openmeld.", "");
+    const rows = allForSql(sql);
+    if (rows.length) {
+      return rows;
+    }
+    const row = firstForSql(sql, values.flat());
+    return row ? [row] : [];
   });
-
   return {
     bindSpy,
-    db: {
-      prepare,
-      batch: vi.fn(async (statements: D1PreparedStatement[]) =>
-        Promise.all(
-          statements.map(async (statement) => {
-            const row = await statement.first();
-            return { success: true, results: row === null ? [] : [row] };
-          })
-        )
-      ),
-    } as unknown as D1Database,
+    querySpy,
+    db: createProjectionPostgresBinding(({ text, values }) =>
+      querySpy(text, values ?? [])
+    ),
   };
 }
 
+const EMPTY_PROJECTION_BINDING = {
+  connectionString:
+    "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+};
+function withProjectionBinding(env: Partial<CoreBindings>): CoreBindings {
+  return {
+    OPENMELD_POSTGRESQL: EMPTY_PROJECTION_BINDING,
+    ...env,
+  } as CoreBindings;
+}
 describe("space-members-service", () => {
+  beforeEach(() => {
+    createProjectionPostgresBinding(() => []);
+  });
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -812,9 +822,9 @@ describe("space-members-service", () => {
     });
     const summary = await readSpaceStatusMembersSummaryUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {
+      env: withProjectionBinding({
         OPENMELD_RUNTIME_TRANSPORT: { idFromName: runtimeRead },
-      } as unknown as CoreBindings,
+      } as unknown as CoreBindings),
       spaceId: "space-status-summary",
       liveSessions: [
         {
@@ -861,13 +871,13 @@ describe("space-members-service", () => {
     const snapshot = await listSpaceMembersSnapshotUseCase({
       includeAgentReadiness: false,
       sql: sql as unknown as SqlStorage,
-      env: {
+      env: withProjectionBinding({
         OPENMELD_RUNTIME_TRANSPORT: {
           idFromName: () => {
             throw new Error("Runtime reads must not gate display");
           },
         },
-      } as unknown as CoreBindings,
+      } as unknown as CoreBindings),
       spaceId: "space-display",
       liveSessions: [],
       nowIso: "2026-03-06T12:05:00.000Z",
@@ -912,7 +922,7 @@ describe("space-members-service", () => {
 
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: withProjectionBinding({} as CoreBindings),
       spaceId: metaRecord.spaceId,
       liveSessions,
       metaRecord,
@@ -964,7 +974,7 @@ describe("space-members-service", () => {
 
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: withProjectionBinding({} as CoreBindings),
       spaceId: metaRecord.spaceId,
       liveSessions: [],
       metaRecord,
@@ -1024,14 +1034,15 @@ describe("space-members-service", () => {
       { id: removedOwnerUserId, image: null },
       { id: customOwnerUserId, image: customAvatar },
     ];
-    const all = vi.fn(async () => ({ results: identityRows, success: true }));
-    const bind = vi.fn(() => ({ all }));
-    const prepare = vi.fn(() => ({ bind }));
+    const querySpy = vi.fn(
+      (_query: import("@openmeld/db/postgresql").QueryConfig) => identityRows
+    );
+    const binding = createProjectionPostgresBinding(querySpy);
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {
-        OPENMELD_DB: { prepare } as unknown as D1Database,
-      } as CoreBindings,
+      env: withProjectionBinding({
+        OPENMELD_POSTGRESQL: binding,
+      } as CoreBindings),
       spaceId: "space-members-canonical-avatars",
       liveSessions: [
         {
@@ -1062,8 +1073,10 @@ describe("space-members-service", () => {
         }),
       ])
     );
-    expect(prepare).toHaveBeenCalledTimes(1);
-    expect(bind).toHaveBeenCalledWith(customOwnerUserId, removedOwnerUserId);
+    expect(querySpy).toHaveBeenCalledTimes(1);
+    expect(querySpy.mock.calls[0]?.[0]).toMatchObject({
+      values: [[customOwnerUserId, removedOwnerUserId]],
+    });
   });
 
   it("backfills legacy add-members notices even when the creator member row already exists", async () => {
@@ -1109,7 +1122,7 @@ describe("space-members-service", () => {
 
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: withProjectionBinding({} as CoreBindings),
       spaceId: metaRecord.spaceId,
       liveSessions: [],
       metaRecord,
@@ -1170,7 +1183,7 @@ describe("space-members-service", () => {
 
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: withProjectionBinding({} as CoreBindings),
       spaceId: metaRecord.spaceId,
       liveSessions: [],
       metaRecord,
@@ -1216,7 +1229,7 @@ describe("space-members-service", () => {
 
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: withProjectionBinding({} as CoreBindings),
       spaceId: metaRecord.spaceId,
       liveSessions: [],
       metaRecord,
@@ -1261,7 +1274,7 @@ describe("space-members-service", () => {
 
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: withProjectionBinding({} as CoreBindings),
       spaceId: metaRecord.spaceId,
       liveSessions: [],
       metaRecord,
@@ -1285,7 +1298,7 @@ describe("space-members-service", () => {
 
     await addSpaceMembersUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: withProjectionBinding({} as CoreBindings),
       spaceId: "space-members-system-notice-name-preserve",
       members: [
         {
@@ -1314,7 +1327,7 @@ describe("space-members-service", () => {
 
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: withProjectionBinding({} as CoreBindings),
       spaceId: "space-members-system-notice-name-preserve",
       liveSessions: [],
       nowIso: "2026-03-06T12:26:00.000Z",
@@ -1395,9 +1408,9 @@ describe("space-members-service", () => {
     );
     const input = {
       sql: sql as unknown as SqlStorage,
-      env: {
+      env: withProjectionBinding({
         OPENMELD_AUTH_WORKER: { resolveProfilesByIds },
-      } as unknown as CoreBindings,
+      } as unknown as CoreBindings),
     };
     expect((await refreshSpaceMemberNamesFromAuth(input)).changed).toBe(true);
     sql.seedSignal(
@@ -1484,9 +1497,9 @@ describe("space-members-service", () => {
     expect(
       await refreshSpaceMemberNamesFromAuth({
         sql: sql as unknown as SqlStorage,
-        env: {
+        env: withProjectionBinding({
           OPENMELD_AUTH_WORKER: { resolveProfilesByIds },
-        } as unknown as CoreBindings,
+        } as unknown as CoreBindings),
       })
     ).toEqual({ changed: false, profileFacts: null });
     expect(Date.now() - startedAt).toBeLessThan(2000);
@@ -1563,9 +1576,9 @@ describe("space-members-service", () => {
     expect(
       await refreshSpaceMemberNamesFromAuth({
         sql: sql as unknown as SqlStorage,
-        env: {
+        env: withProjectionBinding({
           OPENMELD_AUTH_WORKER: { resolveProfilesByIds },
-        } as unknown as CoreBindings,
+        } as unknown as CoreBindings),
       })
     ).toMatchObject({ changed: false });
     if (scenario === "concurrent rename") {
@@ -1625,7 +1638,7 @@ describe("space-members-service", () => {
 
     await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: withProjectionBinding({} as CoreBindings),
       spaceId: metaRecord.spaceId,
       liveSessions: [],
       metaRecord,
@@ -1672,7 +1685,7 @@ describe("space-members-service", () => {
 
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: withProjectionBinding({} as CoreBindings),
       spaceId: metaRecord.spaceId,
       liveSessions: [],
       metaRecord,
@@ -1734,7 +1747,7 @@ describe("space-members-service", () => {
 
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: withProjectionBinding({} as CoreBindings),
       spaceId: metaRecord.spaceId,
       liveSessions: [],
       metaRecord,
@@ -1790,7 +1803,7 @@ describe("space-members-service", () => {
 
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: withProjectionBinding({} as CoreBindings),
       spaceId: metaRecord.spaceId,
       liveSessions: [
         {
@@ -1821,7 +1834,7 @@ describe("space-members-service", () => {
 
     const response = await addSpaceMembersUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: withProjectionBinding({} as CoreBindings),
       spaceId: "space-members-dedupe",
       members: [
         {
@@ -1930,7 +1943,7 @@ describe("space-members-service", () => {
 
     await addSpaceMembersUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: withProjectionBinding({} as CoreBindings),
       spaceId: metaRecord.spaceId,
       members: [
         {
@@ -1970,7 +1983,7 @@ describe("space-members-service", () => {
 
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: withProjectionBinding({} as CoreBindings),
       spaceId: metaRecord.spaceId,
       liveSessions: [],
       metaRecord,
@@ -1993,7 +2006,7 @@ describe("space-members-service", () => {
 
     await addSpaceMembersUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: withProjectionBinding({} as CoreBindings),
       spaceId: "space-members-remove-self",
       members: [
         {
@@ -2033,7 +2046,7 @@ describe("space-members-service", () => {
 
     const retained = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: withProjectionBinding({} as CoreBindings),
       spaceId: "space-members-remove-self",
       liveSessions: [],
       nowIso: "2026-03-06T12:32:00.000Z",
@@ -2105,7 +2118,7 @@ describe("space-members-service", () => {
     });
     await addSpaceMembersUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: withProjectionBinding({} as CoreBindings),
       spaceId: metaRecord.spaceId,
       members: [
         {
@@ -2140,7 +2153,7 @@ describe("space-members-service", () => {
 
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: withProjectionBinding({} as CoreBindings),
       spaceId: metaRecord.spaceId,
       liveSessions: [],
       metaRecord,
@@ -2243,7 +2256,7 @@ describe("space-members-service", () => {
 
     await addSpaceMembersUseCase({
       sql: sql as unknown as SqlStorage,
-      env: lineageEnv as unknown as CoreBindings,
+      env: withProjectionBinding(lineageEnv as unknown as CoreBindings),
       spaceId: "space-members-context",
       members: [
         {
@@ -2264,7 +2277,7 @@ describe("space-members-service", () => {
 
     const ownerSnapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: lineageEnv as unknown as CoreBindings,
+      env: withProjectionBinding(lineageEnv as unknown as CoreBindings),
       spaceId: "space-members-context",
       viewerOwnerUserId: "owner-context-1",
       viewerProfileId: "hum-members-host-ctx",
@@ -2286,7 +2299,7 @@ describe("space-members-service", () => {
     });
     const outsiderSnapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: lineageEnv as unknown as CoreBindings,
+      env: withProjectionBinding(lineageEnv as unknown as CoreBindings),
       spaceId: "space-members-context",
       viewerOwnerUserId: "owner-context-2",
       viewerProfileId: "hum-outsider",
@@ -2325,7 +2338,7 @@ describe("space-members-service", () => {
 
     await addSpaceMembersUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: withProjectionBinding({} as CoreBindings),
       spaceId,
       members: [
         {
@@ -2345,7 +2358,7 @@ describe("space-members-service", () => {
 
     const ownerSnapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: withProjectionBinding({} as CoreBindings),
       spaceId,
       viewerOwnerUserId: "owner-1",
       viewerProfileId: "hum-owner-viewer",
@@ -2354,7 +2367,7 @@ describe("space-members-service", () => {
     });
     const outsiderSnapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: withProjectionBinding({} as CoreBindings),
       spaceId,
       viewerOwnerUserId: "owner-2",
       viewerProfileId: "hum-outsider-viewer",
@@ -2363,7 +2376,7 @@ describe("space-members-service", () => {
     });
     const unknownViewerSnapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: withProjectionBinding({} as CoreBindings),
       spaceId,
       liveSessions: [],
       nowIso: "2026-03-06T13:04:00.000Z",
@@ -2460,7 +2473,7 @@ describe("space-members-service", () => {
 
     await addSpaceMembersUseCase({
       sql: sql as unknown as SqlStorage,
-      env: lineageEnv as unknown as CoreBindings,
+      env: withProjectionBinding(lineageEnv as unknown as CoreBindings),
       spaceId: "space-members-lineage-throws",
       members: [
         {
@@ -2481,7 +2494,7 @@ describe("space-members-service", () => {
 
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: lineageEnv as unknown as CoreBindings,
+      env: withProjectionBinding(lineageEnv as unknown as CoreBindings),
       spaceId: "space-members-lineage-throws",
       viewerOwnerUserId: "owner-throws-1",
       viewerProfileId: "hum-members-host-throws",
@@ -2544,7 +2557,7 @@ describe("space-members-service", () => {
 
     await addSpaceMembersUseCase({
       sql: sql as unknown as SqlStorage,
-      env: lineageEnv as unknown as CoreBindings,
+      env: withProjectionBinding(lineageEnv as unknown as CoreBindings),
       spaceId: "space-members-context-fallback",
       members: [
         {
@@ -2583,7 +2596,7 @@ describe("space-members-service", () => {
 
     const ownerSnapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: lineageEnv as unknown as CoreBindings,
+      env: withProjectionBinding(lineageEnv as unknown as CoreBindings),
       spaceId: "space-members-context-fallback",
       viewerOwnerUserId: "owner-context-1",
       viewerProfileId: "hum-members-host-fallback",
@@ -2592,7 +2605,7 @@ describe("space-members-service", () => {
     });
     const outsiderSnapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: lineageEnv as unknown as CoreBindings,
+      env: withProjectionBinding(lineageEnv as unknown as CoreBindings),
       spaceId: "space-members-context-fallback",
       viewerOwnerUserId: "owner-context-2",
       viewerProfileId: "hum-outsider",
@@ -2665,7 +2678,7 @@ describe("space-members-service", () => {
 
     await addSpaceMembersUseCase({
       sql: sql as unknown as SqlStorage,
-      env: lineageEnv as unknown as CoreBindings,
+      env: withProjectionBinding(lineageEnv as unknown as CoreBindings),
       spaceId: "space-members-lineage-tree",
       members: [
         {
@@ -2736,7 +2749,7 @@ describe("space-members-service", () => {
 
     const parentViewerSnapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: lineageEnv as unknown as CoreBindings,
+      env: withProjectionBinding(lineageEnv as unknown as CoreBindings),
       spaceId: "space-members-lineage-tree",
       viewerOwnerUserId: "owner-lineage-1",
       viewerProfileId: "agt-lineage-parent",
@@ -2745,7 +2758,7 @@ describe("space-members-service", () => {
     });
     const ownerViewerSnapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: lineageEnv as unknown as CoreBindings,
+      env: withProjectionBinding(lineageEnv as unknown as CoreBindings),
       spaceId: "space-members-lineage-tree",
       viewerOwnerUserId: "owner-lineage-1",
       viewerProfileId: "hum-lineage-root",
@@ -2787,7 +2800,7 @@ describe("space-members-service", () => {
 
     await addSpaceMembersUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: withProjectionBinding({} as CoreBindings),
       spaceId: "space-members-handles",
       members: [
         {
@@ -2820,7 +2833,7 @@ describe("space-members-service", () => {
 
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: withProjectionBinding({} as CoreBindings),
       spaceId: "space-members-handles",
       liveSessions: [],
       nowIso: "2026-03-06T13:01:00.000Z",
@@ -2875,11 +2888,11 @@ describe("space-members-service", () => {
         },
       },
     });
-    const routeDb = createRouteTruthD1Database({
+    const routeDb = createRouteTruthPostgresProjection({
       agentProfileId: "agt_route_online",
     });
     const env = {
-      OPENMELD_DB: routeDb.db,
+      OPENMELD_POSTGRESQL: routeDb.db,
       OPENMELD_RUNTIME_TRANSPORT: TEST_RUNTIME_TRANSPORT,
       OPENMELD_AUTH_WORKER: {
         resolveProfileById(input: { openMeldProfileId?: string | null }) {
@@ -2900,7 +2913,7 @@ describe("space-members-service", () => {
 
     await addSpaceMembersUseCase({
       sql: sql as unknown as SqlStorage,
-      env: env as unknown as CoreBindings,
+      env: withProjectionBinding(env as unknown as CoreBindings),
       spaceId: "space-members-route-online",
       members: [
         {
@@ -2920,7 +2933,7 @@ describe("space-members-service", () => {
 
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: env as unknown as CoreBindings,
+      env: withProjectionBinding(env as unknown as CoreBindings),
       spaceId: "space-members-route-online",
       metaRecord: createReadinessMetaRecord(
         "space-members-route-online",
@@ -2933,7 +2946,7 @@ describe("space-members-service", () => {
     });
     const outsiderSnapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: env as unknown as CoreBindings,
+      env: withProjectionBinding(env as unknown as CoreBindings),
       spaceId: "space-members-route-online",
       metaRecord: createReadinessMetaRecord(
         "space-members-route-online",
@@ -3016,7 +3029,7 @@ describe("space-members-service", () => {
         },
       },
     });
-    const routeDb = createRouteTruthD1Database({
+    const routeDb = createRouteTruthPostgresProjection({
       agentControllerRef: "builtin:codex",
       agentControllerReport: {
         reasonCodes: [
@@ -3043,14 +3056,14 @@ describe("space-members-service", () => {
           });
         },
       },
-      OPENMELD_DB: routeDb.db,
+      OPENMELD_POSTGRESQL: routeDb.db,
       OPENMELD_RUNTIME_TRANSPORT: TEST_RUNTIME_TRANSPORT,
     } satisfies Partial<CoreBindings>;
 
     await addSpaceMembersUseCase({
       actorDisplayName: "Owner One",
       actorProfileId: "hum-members-host-codex-sign-in-warning",
-      env: env as unknown as CoreBindings,
+      env: withProjectionBinding(env as unknown as CoreBindings),
       liveSessions: [],
       members: [
         {
@@ -3068,7 +3081,7 @@ describe("space-members-service", () => {
     });
 
     const snapshot = await listSpaceMembersSnapshotUseCase({
-      env: env as unknown as CoreBindings,
+      env: withProjectionBinding(env as unknown as CoreBindings),
       liveSessions: [],
       metaRecord: createReadinessMetaRecord(
         "space-members-codex-sign-in-warning",
@@ -3105,7 +3118,7 @@ describe("space-members-service", () => {
       (_, index) => `agt_fanout_${index}`
     );
     const memberIds = profileIds.slice(0, 5);
-    const routeDb = createRouteTruthD1Database({
+    const routeDb = createRouteTruthPostgresProjection({
       agentProfileId: "agt_fanout_0",
       agentProfileIds: profileIds,
       includeExpectedRouteBindings: true,
@@ -3192,7 +3205,7 @@ describe("space-members-service", () => {
       reasonCode: "daemon.session.not_found",
     });
     const env = {
-      OPENMELD_DB: routeDb.db,
+      OPENMELD_POSTGRESQL: routeDb.db,
       OPENMELD_RUNTIME_TRANSPORT: TEST_RUNTIME_TRANSPORT,
       OPENMELD_AUTH_WORKER: { resolveProfileById },
     } as unknown as CoreBindings;
@@ -3214,7 +3227,7 @@ describe("space-members-service", () => {
       nowIso,
     });
     resolveProfileById.mockClear();
-    vi.mocked(routeDb.db.prepare).mockClear();
+    routeDb.querySpy.mockClear();
     const snapshotInput = {
       sql: sql as unknown as SqlStorage,
       env,
@@ -3224,7 +3237,17 @@ describe("space-members-service", () => {
       liveSessions: [],
       nowIso,
     };
-    const first = await listSpaceMembersSnapshotUseCase(snapshotInput);
+    // The public Space entrypoint owns one database façade per request.
+    // Reopen the owner for every snapshot so failures cannot leak across requests.
+    const readSnapshot = (
+      input: Parameters<
+        typeof listSpaceMembersSnapshotUseCase
+      >[0] = snapshotInput
+    ) =>
+      withPostgresRequest(env.OPENMELD_POSTGRESQL, () =>
+        listSpaceMembersSnapshotUseCase(input)
+      );
+    const first = await readSnapshot();
     expect(first.agents).toHaveLength(5);
     expect(
       first.agents.map((agent) => agent.agentWakeAvailability?.status)
@@ -3235,9 +3258,9 @@ describe("space-members-service", () => {
         .map(([input]) => input.openMeldProfileId)
         .sort()
     ).toEqual([...memberIds].sort());
-    const queries = vi
-      .mocked(routeDb.db.prepare)
-      .mock.calls.map(([sql]) => sql);
+    const queries = routeDb.querySpy.mock.calls.map(([sql]) =>
+      String(sql).replaceAll('"', "").replaceAll("openmeld.", "")
+    );
     expect(
       queries.filter(
         (sql) =>
@@ -3256,7 +3279,7 @@ describe("space-members-service", () => {
     resolveProfileById.mockRejectedValueOnce(
       new Error("temporary Auth read failure")
     );
-    const interrupted = await listSpaceMembersSnapshotUseCase(snapshotInput);
+    const interrupted = await readSnapshot();
     expect(
       interrupted.agents.filter(
         (agent) => agent.agentWakeAvailability?.status === "available_for_wake"
@@ -3272,7 +3295,7 @@ describe("space-members-service", () => {
       reasonCodes: ["agent_profile.identity_lookup_failed"],
     });
     expect(failed?.agentWakeAvailability?.badgeLabel).toBe("Unavailable");
-    const recovered = await listSpaceMembersSnapshotUseCase(snapshotInput);
+    const recovered = await readSnapshot();
     expect(
       recovered.agents.map((agent) => agent.agentWakeAvailability?.status)
     ).toEqual(Array.from({ length: 5 }, () => "available_for_wake"));
@@ -3309,7 +3332,7 @@ describe("space-members-service", () => {
       env,
     });
     resolveProfileById.mockClear();
-    const withNames = await listSpaceMembersSnapshotUseCase({
+    const withNames = await readSnapshot({
       ...snapshotInput,
       profileFacts: refreshed.profileFacts,
     });
@@ -3442,12 +3465,12 @@ describe("space-members-service", () => {
         },
       ],
     });
-    const routeDb = createRouteTruthD1Database({
+    const routeDb = createRouteTruthPostgresProjection({
       agentProfileId: "agt_batch_available",
       agentProfileIds: ["agt_batch_available", "agt_batch_pending"],
     });
     const env = {
-      OPENMELD_DB: routeDb.db,
+      OPENMELD_POSTGRESQL: routeDb.db,
       OPENMELD_RUNTIME_TRANSPORT: TEST_RUNTIME_TRANSPORT,
       OPENMELD_AUTH_WORKER: {
         resolveProfileById(input: { openMeldProfileId?: string | null }) {
@@ -3472,7 +3495,7 @@ describe("space-members-service", () => {
 
     await addSpaceMembersUseCase({
       sql: sql as unknown as SqlStorage,
-      env: env as unknown as CoreBindings,
+      env: withProjectionBinding(env as unknown as CoreBindings),
       spaceId: "space-members-batch-routes",
       members: [
         {
@@ -3500,7 +3523,7 @@ describe("space-members-service", () => {
 
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: env as unknown as CoreBindings,
+      env: withProjectionBinding(env as unknown as CoreBindings),
       spaceId: "space-members-batch-routes",
       metaRecord: createReadinessMetaRecord(
         "space-members-batch-routes",
@@ -3514,11 +3537,9 @@ describe("space-members-service", () => {
 
     expect(lookupRoutesBatchSpy).toHaveBeenCalledOnce();
 
-    // Member readiness shares request-local D1 round trips across Agent profiles.
+    // The native read owner shares one request-level route lookup across members.
     expect(
-      vi
-        .mocked(routeDb.db.batch)
-        .mock.calls.some(([statements]) => statements.length > 1)
+      routeDb.querySpy.mock.calls.some(([, values]) => Array.isArray(values))
     ).toBe(true);
     expect(lookupRoutesBatchSpy).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -3577,11 +3598,11 @@ describe("space-members-service", () => {
     const lookupOwnerServiceSpy = vi
       .spyOn(runtimeTransportClient, "lookupRuntimeTransportOwnerService")
       .mockReturnValue(ownerService.promise);
-    const routeDb = createRouteTruthD1Database({
+    const routeDb = createRouteTruthPostgresProjection({
       agentProfileId: "agt_parallel_preloads",
     });
     const env = {
-      OPENMELD_DB: routeDb.db,
+      OPENMELD_POSTGRESQL: routeDb.db,
       OPENMELD_RUNTIME_TRANSPORT: TEST_RUNTIME_TRANSPORT,
       OPENMELD_AUTH_WORKER: {
         resolveProfileById() {
@@ -3603,7 +3624,7 @@ describe("space-members-service", () => {
     await addSpaceMembersUseCase({
       actorDisplayName: "Owner One",
       actorProfileId: "hum-members-host-parallel-preloads",
-      env: env as unknown as CoreBindings,
+      env: withProjectionBinding(env as unknown as CoreBindings),
       liveSessions: [],
       members: [
         {
@@ -3621,7 +3642,7 @@ describe("space-members-service", () => {
     });
 
     const snapshotPromise = listSpaceMembersSnapshotUseCase({
-      env: env as unknown as CoreBindings,
+      env: withProjectionBinding(env as unknown as CoreBindings),
       liveSessions: [],
       metaRecord: createReadinessMetaRecord(
         "space-members-parallel-preloads",
@@ -3710,16 +3731,16 @@ describe("space-members-service", () => {
         status: "compatible",
       },
     });
-    const routeDb = createRouteTruthD1Database({
+    const routeDb = createRouteTruthPostgresProjection({
       agentProfileId: "agt_identity_unavailable",
     });
     const env = {
-      OPENMELD_DB: routeDb.db,
+      OPENMELD_POSTGRESQL: routeDb.db,
     } satisfies Partial<CoreBindings>;
 
     await addSpaceMembersUseCase({
       sql: sql as unknown as SqlStorage,
-      env: env as unknown as CoreBindings,
+      env: withProjectionBinding(env as unknown as CoreBindings),
       spaceId: "space-members-identity-unavailable",
       members: [
         {
@@ -3739,7 +3760,7 @@ describe("space-members-service", () => {
 
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: env as unknown as CoreBindings,
+      env: withProjectionBinding(env as unknown as CoreBindings),
       spaceId: "space-members-identity-unavailable",
       metaRecord: createReadinessMetaRecord(
         "space-members-identity-unavailable",
@@ -3796,12 +3817,12 @@ describe("space-members-service", () => {
         },
       },
     });
-    const routeDb = createRouteTruthD1Database({
+    const routeDb = createRouteTruthPostgresProjection({
       agentProfileId: "agt_profile_deleted",
     });
     let profileDeleted = false;
     const env = {
-      OPENMELD_DB: routeDb.db,
+      OPENMELD_POSTGRESQL: routeDb.db,
       OPENMELD_RUNTIME_TRANSPORT: TEST_RUNTIME_TRANSPORT,
       OPENMELD_AUTH_WORKER: {
         resolveProfileById(input: { openMeldProfileId?: string | null }) {
@@ -3829,7 +3850,7 @@ describe("space-members-service", () => {
 
     await addSpaceMembersUseCase({
       sql: sql as unknown as SqlStorage,
-      env: env as unknown as CoreBindings,
+      env: withProjectionBinding(env as unknown as CoreBindings),
       spaceId: "space-members-profile-deleted",
       members: [
         {
@@ -3850,7 +3871,7 @@ describe("space-members-service", () => {
     profileDeleted = true;
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: env as unknown as CoreBindings,
+      env: withProjectionBinding(env as unknown as CoreBindings),
       spaceId: "space-members-profile-deleted",
       metaRecord: createReadinessMetaRecord(
         "space-members-profile-deleted",
@@ -3901,11 +3922,11 @@ describe("space-members-service", () => {
         },
       },
     });
-    const routeDb = createRouteTruthD1Database({
+    const routeDb = createRouteTruthPostgresProjection({
       agentProfileId: "agt_route_offline",
     });
     const env = {
-      OPENMELD_DB: routeDb.db,
+      OPENMELD_POSTGRESQL: routeDb.db,
       OPENMELD_RUNTIME_TRANSPORT: TEST_RUNTIME_TRANSPORT,
       OPENMELD_AUTH_WORKER: {
         resolveProfileById(input: { openMeldProfileId?: string | null }) {
@@ -3926,7 +3947,7 @@ describe("space-members-service", () => {
 
     await addSpaceMembersUseCase({
       sql: sql as unknown as SqlStorage,
-      env: env as unknown as CoreBindings,
+      env: withProjectionBinding(env as unknown as CoreBindings),
       spaceId: "space-members-route-offline",
       members: [
         {
@@ -3946,7 +3967,7 @@ describe("space-members-service", () => {
 
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: env as unknown as CoreBindings,
+      env: withProjectionBinding(env as unknown as CoreBindings),
       spaceId: "space-members-route-offline",
       metaRecord: createReadinessMetaRecord(
         "space-members-route-offline",
@@ -4015,11 +4036,11 @@ describe("space-members-service", () => {
         },
       },
     });
-    const routeDb = createRouteTruthD1Database({
+    const routeDb = createRouteTruthPostgresProjection({
       agentProfileId: "agt_route_report_covered",
     });
     const env = {
-      OPENMELD_DB: routeDb.db,
+      OPENMELD_POSTGRESQL: routeDb.db,
       OPENMELD_RUNTIME_TRANSPORT: TEST_RUNTIME_TRANSPORT,
       OPENMELD_AUTH_WORKER: {
         resolveProfileById(input: { openMeldProfileId?: string | null }) {
@@ -4040,7 +4061,7 @@ describe("space-members-service", () => {
 
     await addSpaceMembersUseCase({
       sql: sql as unknown as SqlStorage,
-      env: env as unknown as CoreBindings,
+      env: withProjectionBinding(env as unknown as CoreBindings),
       spaceId: "space-members-report-covered",
       members: [
         {
@@ -4060,7 +4081,7 @@ describe("space-members-service", () => {
 
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: env as unknown as CoreBindings,
+      env: withProjectionBinding(env as unknown as CoreBindings),
       spaceId: "space-members-report-covered",
       metaRecord: createReadinessMetaRecord(
         "space-members-report-covered",
@@ -4106,11 +4127,11 @@ describe("space-members-service", () => {
         status: "compatible",
       },
     });
-    const routeDb = createRouteTruthD1Database({
+    const routeDb = createRouteTruthPostgresProjection({
       agentProfileId: "agt_route_lease_reaped",
     });
     const env = {
-      OPENMELD_DB: routeDb.db,
+      OPENMELD_POSTGRESQL: routeDb.db,
       OPENMELD_AUTH_WORKER: {
         resolveProfileById(input: { openMeldProfileId?: string | null }) {
           return Promise.resolve({
@@ -4130,7 +4151,7 @@ describe("space-members-service", () => {
 
     await addSpaceMembersUseCase({
       sql: sql as unknown as SqlStorage,
-      env: env as unknown as CoreBindings,
+      env: withProjectionBinding(env as unknown as CoreBindings),
       spaceId: "space-members-route-lease-reaped",
       members: [
         {
@@ -4150,7 +4171,7 @@ describe("space-members-service", () => {
 
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: env as unknown as CoreBindings,
+      env: withProjectionBinding(env as unknown as CoreBindings),
       spaceId: "space-members-route-lease-reaped",
       metaRecord: createReadinessMetaRecord(
         "space-members-route-lease-reaped",
@@ -4201,11 +4222,11 @@ describe("space-members-service", () => {
         },
       },
     });
-    const routeDb = createRouteTruthD1Database({
+    const routeDb = createRouteTruthPostgresProjection({
       agentProfileId: "agt_route_update_required",
     });
     const env = {
-      OPENMELD_DB: routeDb.db,
+      OPENMELD_POSTGRESQL: routeDb.db,
       OPENMELD_RUNTIME_TRANSPORT: TEST_RUNTIME_TRANSPORT,
       OPENMELD_AUTH_WORKER: {
         resolveProfileById(input: { openMeldProfileId?: string | null }) {
@@ -4226,7 +4247,7 @@ describe("space-members-service", () => {
 
     await addSpaceMembersUseCase({
       sql: sql as unknown as SqlStorage,
-      env: env as unknown as CoreBindings,
+      env: withProjectionBinding(env as unknown as CoreBindings),
       spaceId: "space-members-route-update-required",
       members: [
         {
@@ -4246,7 +4267,7 @@ describe("space-members-service", () => {
 
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: env as unknown as CoreBindings,
+      env: withProjectionBinding(env as unknown as CoreBindings),
       spaceId: "space-members-route-update-required",
       metaRecord: createReadinessMetaRecord(
         "space-members-route-update-required",
@@ -4290,11 +4311,11 @@ describe("space-members-service", () => {
       runtimeTransportClient,
       "lookupRuntimeTransportRoute"
     ).mockRejectedValue(new Error("runtime transport unavailable"));
-    const routeDb = createRouteTruthD1Database({
+    const routeDb = createRouteTruthPostgresProjection({
       agentProfileId: "agt_route_unavailable",
     });
     const env = {
-      OPENMELD_DB: routeDb.db,
+      OPENMELD_POSTGRESQL: routeDb.db,
       OPENMELD_AUTH_WORKER: {
         resolveProfileById(input: { openMeldProfileId?: string | null }) {
           return Promise.resolve({
@@ -4314,7 +4335,7 @@ describe("space-members-service", () => {
 
     await addSpaceMembersUseCase({
       sql: sql as unknown as SqlStorage,
-      env: env as unknown as CoreBindings,
+      env: withProjectionBinding(env as unknown as CoreBindings),
       spaceId: "space-members-route-unavailable",
       members: [
         {
@@ -4334,7 +4355,7 @@ describe("space-members-service", () => {
 
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: env as unknown as CoreBindings,
+      env: withProjectionBinding(env as unknown as CoreBindings),
       spaceId: "space-members-route-unavailable",
       metaRecord: createReadinessMetaRecord(
         "space-members-route-unavailable",
@@ -4385,12 +4406,12 @@ describe("space-members-service", () => {
       runtimeTransportClient,
       "lookupRuntimeTransportRoute"
     );
-    const routeDb = createRouteTruthD1Database({
+    const routeDb = createRouteTruthPostgresProjection({
       agentProfileId: "agt_binding_unavailable",
       failBindingRead: true,
     });
     const env = {
-      OPENMELD_DB: routeDb.db,
+      OPENMELD_POSTGRESQL: routeDb.db,
       OPENMELD_AUTH_WORKER: {
         resolveProfileById(input: { openMeldProfileId?: string | null }) {
           return Promise.resolve({
@@ -4410,7 +4431,7 @@ describe("space-members-service", () => {
 
     await addSpaceMembersUseCase({
       sql: sql as unknown as SqlStorage,
-      env: env as unknown as CoreBindings,
+      env: withProjectionBinding(env as unknown as CoreBindings),
       spaceId: "space-members-binding-unavailable",
       members: [
         {
@@ -4430,7 +4451,7 @@ describe("space-members-service", () => {
 
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: env as unknown as CoreBindings,
+      env: withProjectionBinding(env as unknown as CoreBindings),
       spaceId: "space-members-binding-unavailable",
       metaRecord: createReadinessMetaRecord(
         "space-members-binding-unavailable",
@@ -4475,7 +4496,7 @@ describe("space-members-service", () => {
 
     await addSpaceMembersUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: withProjectionBinding({} as CoreBindings),
       spaceId: "space-members-mention-alias-snapshot",
       members: [
         {
@@ -4508,7 +4529,7 @@ describe("space-members-service", () => {
 
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: withProjectionBinding({} as CoreBindings),
       spaceId: "space-members-mention-alias-snapshot",
       liveSessions: [],
       nowIso: "2026-03-06T13:01:00.000Z",
@@ -4537,7 +4558,7 @@ describe("space-members-service", () => {
 
     await addSpaceMembersUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: withProjectionBinding({} as CoreBindings),
       spaceId: "space-members-duplicate-explicit-alias",
       members: [
         {
@@ -4575,7 +4596,7 @@ describe("space-members-service", () => {
 
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: withProjectionBinding({} as CoreBindings),
       spaceId: "space-members-duplicate-explicit-alias",
       liveSessions: [],
       nowIso: "2026-03-06T13:07:00.000Z",
@@ -4618,7 +4639,7 @@ describe("space-members-service", () => {
     const sql = new MutableSqlStorage();
     const spaceId = "space-members-hosted-center-agent-availability";
     const agentProfileId = "agt_members_hosted_center_agent";
-    const routeTruth = createRouteTruthD1Database({
+    const routeTruth = createRouteTruthPostgresProjection({
       agentProfileId,
       agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
       centerAgentDesignationOrganizationId: "org-1",
@@ -4640,8 +4661,7 @@ describe("space-members-service", () => {
           },
         })),
       },
-      OPENMELD_DB: routeTruth.db,
-      OPENMELD_LOCAL_STATE_DB: routeTruth.db,
+      OPENMELD_POSTGRESQL: routeTruth.db,
       OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED: "true",
       OPENMELD_REMOTE_AGENT_WORKER: {
         submitConversationTurn: vi.fn(),
@@ -4713,7 +4733,7 @@ describe("space-members-service", () => {
     const sql = new MutableSqlStorage();
     const spaceId = "space-members-hosted-center-agent-disconnected";
     const agentProfileId = "agt_members_hosted_center_agent_disconnected";
-    const routeTruth = createRouteTruthD1Database({
+    const routeTruth = createRouteTruthPostgresProjection({
       agentProfileId,
       agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
       ownerUserId: "owner-center-agent",
@@ -4733,8 +4753,7 @@ describe("space-members-service", () => {
           },
         })),
       },
-      OPENMELD_DB: routeTruth.db,
-      OPENMELD_LOCAL_STATE_DB: routeTruth.db,
+      OPENMELD_POSTGRESQL: routeTruth.db,
       OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED: "true",
       OPENMELD_REMOTE_AGENT_WORKER: {
         submitConversationTurn: vi.fn(),
@@ -4796,7 +4815,7 @@ describe("space-members-service", () => {
 
     await addSpaceMembersUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: withProjectionBinding({} as CoreBindings),
       spaceId: "space-members-legacy-mention-alias",
       members: [
         {
@@ -4821,7 +4840,7 @@ describe("space-members-service", () => {
 
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: withProjectionBinding({} as CoreBindings),
       spaceId: "space-members-legacy-mention-alias",
       liveSessions: [],
       nowIso: "2026-03-06T13:09:00.000Z",
@@ -4892,7 +4911,7 @@ describe("space-members-service", () => {
 
     const snapshot = await listSpaceMembersSnapshotUseCase({
       sql: sql as unknown as SqlStorage,
-      env: {} as CoreBindings,
+      env: withProjectionBinding({} as CoreBindings),
       spaceId: "space-members-removed-handle",
       liveSessions: [],
       nowIso: "2026-03-06T13:03:00.000Z",

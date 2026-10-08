@@ -1210,6 +1210,7 @@ describe("setup-bootstrap-script", () => {
 		expect(result).toEqual({
 			config: {
 				openMeldHome: "/tmp/openmeld-home",
+				webAppUrl: "http://localhost:3000",
 				authUrl: "http://localhost:8788",
 				binaryManifestUrl: "http://127.0.0.1:3197/cli/manifest.json",
 				distribution: "binary",
@@ -1234,6 +1235,7 @@ describe("setup-bootstrap-script", () => {
 		expect(result).toEqual({
 			config: {
 				openMeldHome: "/tmp/openmeld-home",
+				webAppUrl: "http://localhost:3000",
 				authUrl: "http://localhost:8788",
 				binaryManifestUrl: "http://127.0.0.1:3197/cli/manifest.json",
 				distribution: "binary",
@@ -1257,6 +1259,7 @@ describe("setup-bootstrap-script", () => {
 		expect(result).toEqual({
 			config: {
 				openMeldHome: "/tmp/openmeld-home",
+				webAppUrl: "http://[::1]:3000",
 				authUrl: "http://[::1]:8788",
 				binaryManifestUrl: "http://127.0.0.1:3197/cli/manifest.json",
 				distribution: "binary",
@@ -1280,6 +1283,7 @@ describe("setup-bootstrap-script", () => {
 		expect(result).toEqual({
 			config: {
 				binaryManifestUrl: "https://openmeld.invalid/cli/manifest.json",
+				webAppUrl: "https://openmeld.invalid",
 				distribution: "binary",
 				lane: "prod",
 			},
@@ -1299,6 +1303,7 @@ describe("setup-bootstrap-script", () => {
 		).toEqual({
 			config: {
 				binaryManifestUrl: "https://openmeld.invalid/cli/manifest.json",
+				webAppUrl: "https://openmeld.invalid",
 				distribution: "binary",
 				lane: "prod",
 			},
@@ -1315,6 +1320,7 @@ describe("setup-bootstrap-script", () => {
 		).toEqual({
 			config: {
 				binaryManifestUrl: "https://openmeld.invalid/cli/manifest.json",
+				webAppUrl: "https://openmeld.invalid",
 				distribution: "npm",
 				lane: "prod",
 			},
@@ -1334,6 +1340,7 @@ describe("setup-bootstrap-script", () => {
 		).toEqual({
 			config: {
 				authUrl: "http://localhost:8788",
+				webAppUrl: "http://localhost:3000",
 				binaryManifestUrl: "http://127.0.0.1:3197/cli/manifest.json",
 				distribution: "npm",
 				gatewayUrl: "http://localhost:8080",
@@ -1355,6 +1362,7 @@ describe("setup-bootstrap-script", () => {
 		).toEqual({
 			config: {
 				authUrl: "http://localhost:8788",
+				webAppUrl: "http://localhost:3000",
 				gatewayUrl: "http://localhost:8080",
 				binaryManifestUrl: "http://127.0.0.1:3197/cli/manifest.json",
 				distribution: "binary",
@@ -1628,6 +1636,7 @@ describe("setup-bootstrap-script", () => {
 		expect(result).toEqual({
 			config: {
 				authUrl: "https://auth.staging.openmeld.ai",
+				webAppUrl,
 				binaryManifestUrl: `${requestOrigin}/cli/manifest.json`,
 				distribution: "binary",
 				gatewayUrl: "https://gateway.staging.openmeld.ai",

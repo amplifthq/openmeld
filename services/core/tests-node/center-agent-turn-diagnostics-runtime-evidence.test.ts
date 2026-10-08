@@ -8,7 +8,7 @@ import {
   attachCenterAgentTurnRuntimeEvidence,
   projectCenterAgentTurnRuntimeEvidence,
 } from "../src/remote-agent/application/center-agent-turn-diagnostics";
-import type { RemoteAgentNativeDeliveryRecord } from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import type { RemoteAgentNativeDeliveryRecord } from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 
 describe("Center Agent turn runtime evidence", () => {
   it("joins exact submission evidence across the current and previous turns", () => {
@@ -89,6 +89,41 @@ describe("Center Agent turn runtime evidence", () => {
     expect(result).toMatchObject([
       { runtimeEvidenceStatus: "available" },
       { runtimeEvidenceStatus: "available" },
+    ]);
+  });
+  it("attributes separate Slack threads to the explicitly selected current delivery", async () => {
+    const current = {
+      ...delivery("current"),
+      conversationKind: "slack" as const,
+      slackTeamId: "team-1",
+      slackChannelId: "channel-1",
+      slackThreadTs: "100.1",
+    };
+    const previous = {
+      ...current,
+      deliveryId: "delivery-previous",
+      slackThreadTs: "99.1",
+    };
+    const turns = await attachCenterAgentTurnRuntimeEvidence({
+      currentDelivery: current,
+      deliveries: [previous, current],
+      remoteAgentWorker: undefined,
+    });
+    expect(turns.map((entry) => entry.conversationSource)).toEqual([
+      {
+        kind: "slack",
+        teamId: "team-1",
+        channelId: "channel-1",
+        threadTs: "99.1",
+        isCurrentConversation: false,
+      },
+      {
+        kind: "slack",
+        teamId: "team-1",
+        channelId: "channel-1",
+        threadTs: "100.1",
+        isCurrentConversation: true,
+      },
     ]);
   });
 });

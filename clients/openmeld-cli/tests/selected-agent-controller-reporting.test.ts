@@ -19,8 +19,17 @@ vi.mock(
       >();
     return {
       ...actual,
-      collectLocalAgentControllerInventory:
-        collectLocalAgentControllerInventoryMock,
+      collectLocalAgentControllerInventory: async (
+        input: Parameters<typeof actual.collectLocalAgentControllerInventory>[0]
+      ) => {
+        const inventory = await collectLocalAgentControllerInventoryMock(input);
+        for (const capability of inventory.capabilities) {
+          if (input?.agentIds?.includes(capability.agentId)) {
+            await input.onCapability?.(capability);
+          }
+        }
+        return inventory;
+      },
     };
   }
 );
@@ -143,7 +152,7 @@ describe("selected Agent Controller reporting", () => {
     ]);
   });
 
-  it("submits multiple selected Agent Controllers in one Agent Controller report batch", async () => {
+  it("submits each selected Agent Controller separately and deduplicates selections", async () => {
     submitRuntimeAgentControllerReportsMock.mockResolvedValueOnce([
       {
         agentControllerRef: "builtin:claude",
@@ -196,7 +205,7 @@ describe("selected Agent Controller reporting", () => {
       localAgentIds: ["codex", "claude", "codex"],
     });
 
-    expect(submitRuntimeAgentControllerReportsMock).toHaveBeenCalledTimes(1);
+    expect(submitRuntimeAgentControllerReportsMock).toHaveBeenCalledTimes(2);
     expect(submitRuntimeAgentControllerReportsMock).toHaveBeenCalledWith({
       reports: [
         {
@@ -204,6 +213,10 @@ describe("selected Agent Controller reporting", () => {
           localParticipationState: "ready",
           reasonCodes: [],
         },
+      ],
+    });
+    expect(submitRuntimeAgentControllerReportsMock).toHaveBeenCalledWith({
+      reports: [
         {
           agentControllerRef: "builtin:codex",
           localParticipationState: "ready",

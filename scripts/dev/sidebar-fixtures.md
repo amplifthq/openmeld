@@ -1,5 +1,11 @@
 # Shared local product fixtures
 
+These seed/account scripts target the historical local D1 stack. They are not
+compatible with the current PostgreSQL product lane and must not be used as
+PostgreSQL smoke preparation. Start the current product with
+`pnpm dev:postgresql` and create synthetic data through its normal UI. The
+standalone visual previews below remain separate from backend acceptance.
+
 Run from the isolated checkout:
 
 ```sh
@@ -43,7 +49,7 @@ and policy-blocked system notices. The following cases use production components
 
 | Space | Scenario |
 | --- | --- |
-| Design feedback | Agent working status, elapsed time, and Stop in the conversation |
+| Design feedback | Model recovery, network icon, retry count, countdown, and Stop in the conversation; add `fixtureRecovery=recovered` to the URL to inspect resumed work |
 | Engineering daily | Another app holds the conversation; waiting explanation and Cancel waiting |
 | Release coordination | Plan review in the normal Pending Agent actions surface |
 | Performance lab | Command permission in the normal Pending Agent actions surface |

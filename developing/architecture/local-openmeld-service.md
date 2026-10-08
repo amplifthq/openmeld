@@ -286,6 +286,18 @@ continue as non-blocking background work. An explicit terminal-side Agent
 selection still prepares and reports the selected controllers before that
 explicit request completes.
 
+Background controller discovery submits each completed controller check without
+waiting for unrelated controllers to finish. Submission uses the existing
+per-controller report contract; it does not imply that unchecked controllers are
+ready. Background probes remain sequential to limit process-launch load.
+
+Installation discovery, registration reconciliation, native checks, and reporting
+form one per-controller pass. A scan must not wait for all installation probes
+before publishing its first completed controller. Explicit controller requests
+scan only their requested IDs. A newly committed registration may reuse that
+pass's verified launch resolution only while its launch contract is unchanged;
+a changed selection must be resolved again. Disabled registrations stay disabled.
+
 The Prepare owner must persist the successful Service-alignment step, including
 the connected device and Runtime lane evidence, before it can complete the
 session. An empty Agent Controller selection is not Service evidence and must
@@ -538,13 +550,15 @@ Only an explicit sign-in action may enter an interactive authorization flow.
 
 Antigravity's `agy --print /usage` can enter authentication and open browser
 login pages or request Keychain access. Until a provider-owned no-interaction
-contract is verified, both fresh and background ACI checks run only `--version`.
+contract is verified, both fresh and background ACI checks for the legacy CLI
+run only `--version`. The separately selected official ACP installation uses
+only the credential-free `initialize` handshake during inventory.
 They report authentication as unknown, an explicit warning explaining the
 unavailable checks, and Usage as `unsupported`. They must not claim signed-in
 readiness from installation alone or retain an old numeric quota without current
 account evidence. Status refresh cannot restore Antigravity authentication or
 quota verification in this version; users can inspect them directly in the
-Antigravity CLI. Its existing user-requested execution transport is unchanged.
+Antigravity client. The legacy CLI execution transport remains available.
 The shared Usage support matrix declares Antigravity unsupported so historical
 quota cannot become new capacity authority or authorize automatic recovery.
 
@@ -598,6 +612,19 @@ Neither event collection nor account queries start a conversation or model call.
 
 ### Agent Instruction Delivery
 
+Within one dispatch preparation, Documents, Skills, and Space instructions share
+one freshly resolved Agent identity and one authorized Space metadata response.
+Document and Skill directories load concurrently after that scope is established.
+Do not retain this context across Wakes or reuse it for later context-tool reads:
+those reads must check current authorization and Skill enablement. Explicit
+handoff Skill releases remain pinned. A failed directory read does not discard
+the other directory or the authorized Space metadata.
+
+The local dispatch journal records `bootstrap_read_completed` with the operation,
+duration, and loaded/failed status. These measurements describe preparation only;
+provider acceptance, useful first text, and final publication are separate
+milestones. Timing records do not contain directory contents or credentials.
+
 For a new Codex Session created by an ordinary Wake, Service derives an optional
 bounded title from the Agent Profile name and the current Wake text, before
 bootstrap instructions are rendered. After Codex accepts the first turn, its
@@ -624,6 +651,15 @@ language advisory remain per-turn input. A preference change therefore does not
 change the stable instruction epoch. Provider adapters must not maintain a
 second copy of either category or run a separate language detector/model call.
 
+Space Action submission rules are also stable instructions, conditional on the
+current Wake requiring a reply or silence action. The permitted completion
+action remains explicit in every Wake, including when both briefs are hidden.
+Native instruction delivery omits repeated submission rules from that turn's
+input; the complete fallback retains them. The content-derived epoch changes
+when those rules change, so older or unproven conversations receive the complete
+fallback. No history is summarized or removed and no native conversation is
+replaced for this optimization.
+
 The stable workflow applies only to OpenMeld Wakes. User messages, Space Guides,
 attachments, and history remain task context rather than runtime instructions
 or new permissions. Current completion guidance requires the permitted action
@@ -640,6 +676,13 @@ context reads or other business tools. When a context read fails before any
 Space Action submission, the Agent should report the blocker through the
 permitted completion action rather than invent results or silently finish.
 Shared text attachments use the dispatch `read_file` tool when available.
+Large local Space reads retain their complete in-memory result and expose
+bounded pages. Agents may use `read_result.query` to locate literal text in that
+original JSON without replaying every earlier page. Search excerpts remain
+untrusted task data. They neither summarize nor replace history, and broader
+questions still require additional searches or complete reads. Every search
+revalidates source access and version through the same owner as paging; results
+remain scoped to the active Wake and tool connection.
 Dispatch MCP tool processes retain the carrier's `OPENMELD_HOME`,
 `OPENMELD_AUTH_URL` and `OPENMELD_GATEWAY_URL` when present, alongside its
 environment preset. The shared adapter configuration forwards these non-secret
@@ -678,12 +721,19 @@ controller access to local credentials or arbitrary filesystem paths. A file
 read does not record an action or finish the Wake. The configuration forwards the active
 dispatch identity, and fails closed when the action context is absent, expired,
 or mismatched. Fresh and resumed controller conversations use the same tool
-boundary. Codex, Claude Code, Cursor, Grok Build, OpenCode, and OpenClaw use
+boundary. Codex, Claude Code, Cursor, Grok Build, OpenCode, Antigravity ACP, and OpenClaw use
 their controller-native tool extension point and the same
 dispatch-owned action writer. Controllers without a proven structured-tool
 surface continue to use the exact dispatch-scoped CLI fallback.
 
-Antigravity CLI does not currently expose a proven per-invocation structured-
+Codex native-tool admission reads MCP tools and authentication status when it
+only needs to exclude an alternate OpenMeld carrier. Unrelated resource discovery
+must not block that turn. Scoped MCP carriers still request the full inventory
+and verify tools, resources and resource templates, including delivery-only
+recovery. Narrowing ordinary inventory does not weaken the scoped isolation
+contract or increase initialization timeouts.
+
+Antigravity's legacy CLI does not currently expose a proven per-invocation structured-
 tool configuration surface. During an action-enabled dispatch, the adapter
 therefore appends the dispatch publication contract to the invocation prompt,
 asking for one `reply`, `status`, or `silent` outcome through
@@ -804,6 +854,25 @@ error code when present, without forwarding provider error text as product copy.
 The native contract is documented in the
 [Codex App Server reference](https://learn.chatgpt.com/docs/app-server#steer-an-active-turn).
 
+Claude Code uses the same exact-execution receiver with the Agent SDK's open
+user-message stream and native `priority: "now"`. It never opens a second query
+or resumes another session to deliver input. This requires Claude Code 2.1.290
+or later: older versions can acknowledge a duplicate UUID before consumption.
+The installed executable, not the SDK dependency version, determines eligibility.
+A matching top-level replay message from the active session confirms consumption;
+writing to the input stream alone does not. The receipt's `threadId` is the native
+session ID and `turnId` is the consumed native user-message UUID. Claude does not
+provide Codex's atomic `expectedTurnId` precondition; priority delivery follows
+Claude's current execution boundary. The UI promises immediate delivery to the
+working Agent, not identical provider turn semantics. Repair and delivery-only
+queries reject live input. A priority message can yield the old native turn's
+result before its own replay and continuation. That intermediate result must not
+settle the OpenMeld task; wait for consumption and the continuation's result.
+Stop, the final native result, and query cleanup close input
+and settle unacknowledged submissions as unconfirmed. A receipt timeout does not
+stop the original execution or authorize a resend. Space retains the durable
+queue and the Execution Host retains the existing deduplication responsibility.
+
 The Execution Host's private inherited IPC `executionInput` method accepts an
 exact owner account, Profile, dispatch, attempt and RuntimeCoordinator execution
 and run. The registry receives these identifiers from the existing admitted
@@ -832,6 +901,13 @@ extension ships with its matching connector/Host bundle. Installed-candidate
 and real Local model acceptance are separate from protocol fixtures; no old
 published bundle is certified by deferred feature checks. There is no new public
 Service command or general Local Agent tool in this slice.
+
+Space may persist a queued draft before Coordinator admission by validating the
+original Human author against its durable dispatch source. This draft names the
+dispatch and Agent owner but contains no attempt/run authority. Send now resolves
+the current binding before claiming that same input row. Receipt reads require
+the saved binding; they never resolve a new run or resend. Ordinary queue
+consumption still waits for the predecessor's successful final Space reply.
 
 After an occupancy transition, the Service includes the current occupancy value
 on the first keepalive in its current lifecycle phase, the first keepalive after
@@ -979,7 +1055,7 @@ state.
 
 Absolute paths may cross Web, Gateway, Core, RuntimeTransportHub, and Service
 only in the authenticated Computer owner's immediate request-response. They
-must not be written to D1, Organization data, Agent Activity, cloud snapshots,
+must not be written to PostgreSQL, Organization data, Agent Activity, cloud snapshots,
 Center Agent context, browser persistence, logs, traces, or failure receipts.
 Service store failures expose only stable `computer.file_access.*` codes and
 path-free messages across process boundaries. The local typed error retains its
@@ -1055,7 +1131,7 @@ client requests fail closed. ACP image/audio input remains unsupported when the
 live capability says so; the separate local-file-path attachment capability
 does not turn into native ACP image support.
 
-Cursor and Grok Build share adapter-core ACP process mechanics: newline JSON-RPC
+Cursor, Grok Build, and Antigravity ACP share adapter-core ACP process mechanics: newline JSON-RPC
 framing, pending-request ownership, lifecycle telemetry, bounded admission,
 session cancellation, and process-tree supervision. Their adapters retain
 vendor-specific launch, authentication, model, mode, extension-request, and
@@ -1073,6 +1149,33 @@ Codex App Server maps current and legacy command/file approvals,
 elicitation into the same contract. Claude Agent SDK maps `canUseTool`,
 `AskUserQuestion`, `ExitPlanMode`, and MCP elicitation. OpenCode uses its local
 server event stream plus official permission and question reply endpoints.
+OpenCode 1 uses `@opencode-ai/sdk/v2`; OpenCode 2 uses `@opencode/client` and
+its native `/api` routes. Server startup identifies the API generation without
+an extra version process during ordinary Wake. OpenCode 2 confirms the submitted
+inbox receipt, execution outcome, and current-turn assistant messages separately;
+an HTTP prompt response or completed wait alone is not a successful execution.
+Its native forms and permission decisions reuse the existing human-interaction
+contract. An already active resumed session is rejected before policy mutation.
+The dispatch MCP server is registered in the owned server's in-memory registry,
+with direct tools and unchanged permission rules. No user configuration is
+written. OpenCode 2.0.24 reports MCP connection before its 100 ms debounced tool
+reload; startup allows 500 ms for that reload because the API has no public
+tool-registry-ready receipt. Real-binary smoke must verify tool execution, not
+only an MCP connection or a text answer.
+
+Antigravity ACP uses the official `agy_acp_server.par` or `agy_acp_server.exe`
+installation and its adjacent `localharness_external` executable. It remains
+a separate selectable installation from the legacy `agy` CLI. Explicit execution
+authenticates with the native cached account (default `oauth-personal`, optionally
+`OPENMELD_ANTIGRAVITY_ACP_AUTH_METHOD`), with browser launch disabled and bounded
+authentication admission. Missing credentials produce a sign-in error.
+The adapter uses native `session/new`, `session/resume`, model configuration,
+advertised modes, dispatch MCP servers, and `session/cancel`. Native choice
+questions and permission requests reuse the current interaction UI; security
+warnings remain visible, and native "always" approval means this session.
+Unsupported modes, reasoning settings, and choices fail explicitly. Installation
+does not imply authenticated model access; background inventory never authenticates.
+
 Provider abort or process exit must release any adapter-local waiter promptly.
 For a Binding with `codex:plan`, the local route resolves a Plan conversation
 policy, verifies the native collaboration-mode catalog, and passes the exact
@@ -1201,6 +1304,13 @@ use a context-specific local lane and ledger key. The Service must not search
 the Profile's other contexts as a fallback or heal a missing scoped conversation
 by silently starting another one. Ledger v2 reads valid v1 state without resetting
 its native conversation mappings. Corrupt scoped evidence fails closed.
+
+New Codex and Claude contexts with `permissionSource: agent_settings` use the
+ordinary native tool, settings, hooks, MCP, and permission-mode path. The starting
+Project folder does not create a filesystem boundary. Computer File Access still
+applies when configured. Only explicit or retained bounded Claude project tasks
+prepare a container and replace native shell tools; creating a new conversation
+alone must not do either. Delivery-only correction retains its narrow purpose.
 
 The existing local slot owner enforces the five-context Profile cap and local
 resource exclusions. Isolated task folders have distinct canonical roots and
@@ -1764,7 +1874,7 @@ Legacy current-target Project operations remain available to existing clients.
 An operation response may contain an absolute local path only for immediate
 forwarding through Core and Gateway to the authenticated owner who initiated
 that request. Immediate forwarding is not storage. Local paths must never be
-written to D1, Agent Activity events or projections, cloud snapshots,
+written to PostgreSQL, Agent Activity events or projections, cloud snapshots,
 Organization-shared Project records, or Center Agent context. Logs, traces,
 failure receipts, and diagnostics that cross the local trust boundary use
 Project ID, device ID, candidate ID, and binding generation instead of the
@@ -1785,13 +1895,40 @@ Binding configuration, Default Project, local binding generation, or effective
 folder fingerprint as a new fact. The route cache may preserve routing metadata
 for offline startup, but it never restores a cached working-folder observation
 as current; the new Service session must observe and report it again.
+An otherwise eligible route remains registered with a missing or invalid
+default working-folder fact (Default Project or Profile workspace) so an
+explicitly selected Project/repository can be delivered. The observation still
+blocks ordinary Wake readiness and launch.
+The inherited execution Host catalog IPC carries ready, missing, and invalid
+current working-folder resolutions; it cannot require a ready path merely to
+register a route with a precise unavailable fact.
 Dispatch admission compares the route's observed source, Default Project and
-local binding generation when applicable, and effective directory with the
-current durable local configuration. Once a connection or Profile workspace
+local binding generation when applicable, status and reason, and effective
+directory when ready with the current durable local configuration. Once a
+connection or Profile workspace
 mutation is durable, an older route cannot launch new work; catalog refresh
 only controls how quickly the new route becomes available again.
+For an accepted Execution Context with `projectWork`, the Service first
+performs that current-route check, then resolves the frozen Project and
+repository fingerprint against current owner-local, Organization-scoped
+connections. One matching folder is required; a matching Project default may
+disambiguate several clones. Missing, removed, and ambiguous matches fail
+closed without using the Profile's Default Project folder. The existing file
+access and native workspace preparation checks then apply to the selected
+folder. Local binding store v4 permits a canonical path to have several
+same-owner, same-Organization Project uses only after explicit share
+confirmation. Removing one use does not remove the folder or other uses.
+The selected-work resolver requires a binding recorded for the current
+Service account owner. Ownerless legacy connections remain readable for old
+work but cannot authorize the new selected-work contract until explicitly
+reconnected. Discovery does not disclose paths bound to another known owner.
 Every durable local Project connection writer emits the same lane-local catalog
 refresh signal, while an idempotent no-op emits nothing.
+
+Execution Host connection refresh replaces the contents of its shared route
+map in place. Already queued dispatches must read that same map at admission
+so they see refreshed working-folder facts and route removals. Refresh does
+not relax the current identity, durable configuration, or freshness checks.
 
 Current working-folder facts are a negotiated transport capability. The Service
 requests expected routes in `v4`, then falls back through `v3`, `v2`, and the
@@ -1873,7 +2010,7 @@ is unavailable.
 
 Selected paths may cross Web, Gateway, Core, RuntimeTransportHub, and Service
 only in the authenticated owner's immediate request-response. They must never
-enter command arguments, D1, browser persistence, logs, traces, failure
+enter command arguments, PostgreSQL, browser persistence, logs, traces, failure
 receipts, diagnostics, Agent Activity, Organization state, or Center Agent
 context. Scripts are supplied through stdin where the platform requires them,
 and the adapter returns its typed result through supervised stdout. Selected
@@ -2071,6 +2208,12 @@ Catalog consumption rules:
   current metadata before returning. Concurrent reads of the same credential
   are coalesced. A new Service process reloads from secure storage, and remote
   authorization remains authoritative.
+- An Auth-confirmed renewal that retains the verified access token and storage
+  reference updates expiry without reopening secure storage. This applies to
+  committed sessions and visible setup candidates, including admitted Service
+  sessions. A rotated credential still requires successful storage read-back
+  before new metadata or candidate state is published. Mutation ownership,
+  full-payload fences, revocation checks, and rotation cleanup remain unchanged.
 - Reading a committed local session does not acquire the account-transition
   mutation lock when no durable transition journal exists. Recovery acquires
   that lock only after observing a journal and rereads it under ownership before
@@ -3373,12 +3516,18 @@ saved Binding permission mode or OpenCode permission JSON.
 Codex exact-controller recovery copies the canonical conversation into an
 ephemeral App Server fork and applies the conservative repair approval and
 sandbox policy only to that fork. Claude Code repair resumes through an Agent
-SDK or CLI fork and applies its temporary Plan mode only there. OpenCode repair
+SDK or CLI fork and applies its temporary Plan mode only there. OpenCode 1 repair
 uses the official Server session fork and passes the Binding's unchanged
 `OPENCODE_PERMISSION` JSON to the child. Each adapter continues to report the
 validated canonical conversation identity. If the installed controller cannot
 create the required isolated child, repair fails explicitly while ordinary
 Wake, setup, status, and diagnostics remain available.
+
+OpenCode 2 and Antigravity ACP currently reject delivery-only repair explicitly:
+their exposed APIs have no verified exclusive tool scope equivalent to the
+existing repair contract. Ordinary native MCP publication remains supported.
+Do not silently rerun a failed action with broader tools, mutate the canonical
+session's permissions for repair, or claim successful publication from text.
 
 Repair also fails explicitly when the canonical conversation no longer exists.
 The ordinary-Wake context-heal path must not create a new conversation during
@@ -3557,3 +3706,24 @@ or claim a Wake outcome.
   diagnostics.
 - Setup and repair must not report success from process start or inventory
   detection alone.
+## On-demand local agent history
+
+The optional `session-history-v3` transport capability admits bounded read-only
+local agent history requests. The Service owns the local Organization-scoped policy
+and the latest 200 metadata-only access records. Grants pin Project connection
+generations; reconnecting requires renewed consent. File access restrictions
+intersect this policy. Recheck policy, canonical source path, and current Project
+connection before releasing messages. Persist neither source text nor provider
+errors in the policy/audit store.
+
+Codex uses native `thread/read`, first without turns to authorize the source
+directory, then with turns to project user/assistant text. Claude Code uses the
+official SDK's `getSessionInfo` and `getSessionMessages`. OpenCode uses read-only
+SQLite connections and projects native text parts. Grok Build reads metadata
+before its bounded `updates.jsonl` ACP stream. Each provider authorizes the source
+directory before message reads and again before release. Native identity and
+provider stay paired across clients, tools, routing, results, and audit.
+Do not resume, inject, index, or
+copy source transcripts. Core owns caller authentication and verified human
+provenance; local Service enforces owner, reader, Project, and policy scope.
+This capability does not change Wake execution ownership or readiness.

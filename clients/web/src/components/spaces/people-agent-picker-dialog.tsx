@@ -8,10 +8,25 @@ import {
 } from "@openmeld/ui/components/dialog";
 import { Input } from "@openmeld/ui/components/input";
 import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
-import { MagnifyingGlassIcon } from "@phosphor-icons/react";
-import type { ReactNode, RefObject } from "react";
+import { MagnifyingGlassIcon, PlusIcon } from "@phosphor-icons/react";
+import {
+	lazy,
+	type ReactNode,
+	type RefObject,
+	Suspense,
+	useState,
+} from "react";
 import { SpaceAddMembersCandidates } from "./people-agent-picker-candidates";
-import type { SpaceAddMembersCandidateGroups } from "./people-agent-picker-model";
+import type {
+	SpaceAddMembersCandidateGroups,
+	SpaceAddMembersCandidateSummary,
+} from "./people-agent-picker-model";
+
+const PeopleAgentPickerCreateAgent = lazy(() =>
+	import("../profiles/people-agent-picker-create-agent").then((module) => ({
+		default: module.PeopleAgentPickerCreateAgent,
+	}))
+);
 
 export function PeopleAgentPickerDialog(input: {
 	open: boolean;
@@ -28,6 +43,8 @@ export function PeopleAgentPickerDialog(input: {
 	submitLabel: string;
 	emptySelectionLabel?: string;
 	canSubmit: boolean;
+	tutorialAction?: "create" | "select" | "submit";
+	secondaryAction?: ReactNode;
 	isSubmitting: boolean;
 	selectionDisabled?: boolean;
 	isLoading: boolean;
@@ -35,33 +52,82 @@ export function PeopleAgentPickerDialog(input: {
 	onRetry?: () => void;
 	emptyMessage: string;
 	includeAgentOwners?: boolean;
+	onAgentCreated?: (agent: SpaceAddMembersCandidateSummary) => void;
 	actions?: ReactNode;
 	notice?: ReactNode;
-	children?: ReactNode;
 	id?: string;
 	finalFocus?: RefObject<HTMLElement | null>;
 }) {
+	const [creating, setCreating] = useState(false);
+	const [creationBusy, setCreationBusy] = useState(false);
+	const isSubmitting = input.isSubmitting || creationBusy;
+	const tutorialAction = pickerTutorialAction(
+		creating,
+		input.tutorialAction,
+		isSubmitting
+	);
 	return (
 		<Dialog
 			onOpenChange={(open) => {
-				if (!input.isSubmitting) {
+				if (!isSubmitting) {
+					if (!open) {
+						setCreating(false);
+					}
 					input.onOpenChange(open);
 				}
 			}}
 			open={input.open}
 		>
 			<DialogContent
-				className="@container flex max-h-[min(46rem,calc(100dvh-2rem))] flex-col overflow-hidden sm:max-w-2xl"
+				// Keep the same containing block through progress changes and exit.
+				// A closing scale/translate would move the nested fixed tutorial.
+				className="@container translate-none inset-0 m-auto flex h-fit max-h-[min(46rem,calc(100dvh-2rem))] flex-col overflow-hidden data-closed:animate-none data-open:animate-none sm:max-w-2xl"
+				data-tutorial-action={tutorialAction}
+				data-tutorial-description={input.description}
+				data-walkthrough="people-agent-picker"
 				finalFocus={input.finalFocus}
 				id={input.id}
 			>
-				{input.children ?? (
+				{creating && input.onAgentCreated ? (
+					<Suspense
+						fallback={
+							<div className="flex flex-col gap-3">
+								<DialogHeader>
+									<DialogTitle>Create an Agent</DialogTitle>
+								</DialogHeader>
+								<SkeletonRows label="Loading Agent creation" />
+							</div>
+						}
+					>
+						<PeopleAgentPickerCreateAgent
+							onBack={() => setCreating(false)}
+							onBusyChange={setCreationBusy}
+							onCreated={input.onAgentCreated}
+						/>
+					</Suspense>
+				) : (
 					<div className="flex min-h-0 flex-col gap-3">
 						<DialogHeader>
 							<DialogTitle>{input.title}</DialogTitle>
 						</DialogHeader>
 						<DialogDescription>{input.description}</DialogDescription>
-						{input.actions}
+						{(input.onAgentCreated || input.actions) && (
+							<div className="flex flex-wrap items-center gap-2">
+								{input.onAgentCreated && (
+									<Button
+										data-tutorial-target="create"
+										disabled={isSubmitting || input.selectionDisabled}
+										onClick={() => setCreating(true)}
+										size="xs"
+										variant={newAgentVariant(input.tutorialAction)}
+									>
+										<PlusIcon aria-hidden="true" />
+										New Agent
+									</Button>
+								)}
+								{input.actions}
+							</div>
+						)}
 						<div className="relative">
 							<MagnifyingGlassIcon
 								aria-hidden="true"
@@ -70,7 +136,7 @@ export function PeopleAgentPickerDialog(input: {
 							<Input
 								aria-label="Search people and agents"
 								autoComplete="off"
-								autoFocus
+								autoFocus={!input.tutorialAction}
 								className="pl-9"
 								disabled={input.isSubmitting || input.selectionDisabled}
 								onChange={(event) => input.onQueryChange(event.target.value)}
@@ -97,21 +163,23 @@ export function PeopleAgentPickerDialog(input: {
 						{input.isLoading ? (
 							<SkeletonRows label="Loading people and agents" />
 						) : (
-							<SpaceAddMembersCandidates
-								candidateGroups={input.candidateGroups}
-								emptyMessage={input.emptyMessage}
-								includeAgentOwners={input.includeAgentOwners}
-								isSubmitting={
-									input.isSubmitting || input.selectionDisabled === true
-								}
-								onToggle={(id) => {
-									if (!(input.isSubmitting || input.selectionDisabled)) {
-										input.onToggle(id);
+							<div data-tutorial-target="select">
+								<SpaceAddMembersCandidates
+									candidateGroups={input.candidateGroups}
+									emptyMessage={input.emptyMessage}
+									includeAgentOwners={input.includeAgentOwners}
+									isSubmitting={
+										input.isSubmitting || input.selectionDisabled === true
 									}
-								}}
-								searchActive={input.query.trim().length > 0}
-								selectedProfileIds={input.selectedProfileIds}
-							/>
+									onToggle={(id) => {
+										if (!(input.isSubmitting || input.selectionDisabled)) {
+											input.onToggle(id);
+										}
+									}}
+									searchActive={input.query.trim().length > 0}
+									selectedProfileIds={input.selectedProfileIds}
+								/>
+							</div>
 						)}
 						<div className="flex @min-[20rem]:flex-row flex-col @min-[20rem]:items-center items-stretch @min-[20rem]:justify-between gap-2">
 							<span className="@min-[20rem]:w-auto w-full text-muted-foreground text-xs">
@@ -120,18 +188,20 @@ export function PeopleAgentPickerDialog(input: {
 									: `${input.selectedProfileIds.size} selected`}
 							</span>
 							<span className="flex @min-[20rem]:w-auto w-full items-center gap-2">
-								{input.selectedProfileIds.size > 0 && (
-									<Button
-										disabled={input.isSubmitting || input.selectionDisabled}
-										onClick={input.onClear}
-										size="xs"
-										variant="ghost"
-									>
-										Clear
-									</Button>
-								)}
+								{input.secondaryAction ??
+									(input.selectedProfileIds.size > 0 && (
+										<Button
+											disabled={input.isSubmitting || input.selectionDisabled}
+											onClick={input.onClear}
+											size="xs"
+											variant="secondary"
+										>
+											Clear
+										</Button>
+									))}
 								<Button
 									className="min-w-0 @min-[20rem]:flex-none flex-1"
+									data-tutorial-target="submit"
 									disabled={!input.canSubmit || input.isSubmitting}
 									onClick={input.onSubmit}
 									size="sm"
@@ -145,4 +215,17 @@ export function PeopleAgentPickerDialog(input: {
 			</DialogContent>
 		</Dialog>
 	);
+}
+
+function newAgentVariant(action: string | undefined) {
+	return action === "create" ? ("default" as const) : ("outline" as const);
+}
+
+function pickerTutorialAction(
+	creating: boolean,
+	action: string | undefined,
+	isSubmitting: boolean
+) {
+	const nextAction = action && isSubmitting ? "submit" : action;
+	return creating ? undefined : nextAction;
 }

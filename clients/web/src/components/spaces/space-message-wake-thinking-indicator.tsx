@@ -15,6 +15,7 @@ import {
 	WAKE_STATUS_ORB_STATE,
 } from "./space-agent-orb-state";
 import { SpaceMessageProgressRow } from "./space-message-progress-row";
+import { formatElapsedDuration } from "./space-request-elapsed-time";
 
 export function SpaceMessageWakeThinkingIndicator(input: {
 	align?: "start" | "end";
@@ -269,20 +270,11 @@ function formatWakeProgressSummaryPart(
 		case "queued":
 			return `${agentCount} waiting for earlier tasks`;
 		case "working":
-			return `${agentCount} thinking`;
-		case "replying":
-			return `${agentCount} replying`;
-		case "posting":
-			return count === 1 ? "Posting 1 reply" : `Posting ${count} replies`;
+			return `${agentCount} working`;
 		case "waiting_for_controller":
 			return `${agentCount} waiting for an earlier task`;
 		case "waiting_for_device":
 			return `${agentCount} waiting for a computer`;
-		case "starting":
-		case "sent":
-		case "connecting":
-		case "retrying":
-			return `${agentCount} thinking`;
 		default: {
 			const _exhaustive: never = kind;
 			return _exhaustive;
@@ -341,7 +333,7 @@ function StaticElapsedThinkingIndicator(input: {
 				aria-hidden="true"
 				className="flex size-5 shrink-0 items-center justify-center"
 			>
-				<SpaceAgentOrb />
+				<SpaceAgentOrb state={WAKE_STATUS_ORB_STATE[input.entry.step.kind]} />
 			</span>
 			<span
 				className="min-w-0 text-[13px]"
@@ -381,7 +373,7 @@ function resolveSingleElapsedEntry(
 	if (
 		!entry ||
 		entry.elapsedStartedAtMs === null ||
-		entry.step.kind !== "working"
+		entry.step.status !== "active"
 	) {
 		return null;
 	}
@@ -463,18 +455,4 @@ function resolveElapsedSeconds(input: {
 		return 0;
 	}
 	return Math.max(0, Math.floor((input.nowMs - elapsedStartedAtMs) / 1000));
-}
-
-function formatElapsedDuration(totalSeconds: number): string {
-	if (totalSeconds < 60) {
-		return `${totalSeconds}s`;
-	}
-	const minutes = Math.floor(totalSeconds / 60);
-	const seconds = totalSeconds % 60;
-	if (minutes < 60) {
-		return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
-	}
-	const hours = Math.floor(minutes / 60);
-	const remainingMinutes = minutes % 60;
-	return `${hours}h ${remainingMinutes.toString().padStart(2, "0")}m`;
 }

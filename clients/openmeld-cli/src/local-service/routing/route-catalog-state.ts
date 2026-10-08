@@ -85,6 +85,20 @@ export function createRouteCatalogFromMutableState(
   };
 }
 
+/** Apply accepted facts without stranding deliveries that already hold the map. */
+export function replaceMutableRouteCatalogState(
+  state: MutableRouteCatalogState,
+  catalog: RouteCatalog
+): void {
+  const routeByProfileId = state.routeByProfileId;
+  const next = createMutableRouteCatalogState(catalog);
+  replaceRouteCatalogMap({
+    routeByProfileId,
+    nextRouteByProfileId: next.routeByProfileId,
+  });
+  Object.assign(state, next, { routeByProfileId });
+}
+
 export async function syncDaemonRouteCatalogState(input: {
   catalogState: MutableRouteCatalogState;
   forceRegister?: boolean;
@@ -305,12 +319,13 @@ function buildRouteCatalogFingerprint(routeCatalog: RouteCatalog): string {
             status: route.workingFolderRuntime.workingFolderFact.status,
           }
         : null,
-      workingFolderPathFingerprint: route?.workingFolderRuntime
-        ?.effectiveRuntimeWorkingDirectory
-        ? buildRuntimeWorkspaceFingerprint(
-            route.workingFolderRuntime.effectiveRuntimeWorkingDirectory
-          )
-        : null,
+      workingFolderPathFingerprint:
+        route?.workingFolderRuntime?.status === "ready" &&
+        route.workingFolderRuntime.effectiveRuntimeWorkingDirectory
+          ? buildRuntimeWorkspaceFingerprint(
+              route.workingFolderRuntime.effectiveRuntimeWorkingDirectory
+            )
+          : null,
     };
   });
   const skippedProfiles = routeCatalog.skippedProfiles.map((profile) => ({

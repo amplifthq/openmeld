@@ -23,7 +23,10 @@ import {
 	createOrganizationScopedWebSpaceApi,
 	createUnscopedWebSpaceApi,
 } from "#/lib/spaces/api";
-import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
+import {
+	isStoppedSpaceReply,
+	type SpaceTimelineItem,
+} from "#/lib/spaces/timeline";
 import { resolveSpaceMessageStopFeedback } from "#/lib/spaces/wake-progress-presentation";
 import {
 	CenterAgentComputerSetupCard,
@@ -57,6 +60,10 @@ import {
 	type SpaceMessageReferencesById,
 	SpaceMessageReferenceText,
 } from "./space-message-reference";
+import {
+	taskMessageBodyText,
+	useSpaceMessageTask,
+} from "./space-task-references";
 import { useSpaceWakeStopRequestStatuses } from "./space-wake-stop-control";
 import { usePluginConnectionReply } from "./use-plugin-connection-reply";
 import { useSpaceStreamDisplayText } from "./use-space-stream-display-text";
@@ -90,6 +97,8 @@ type SpaceMessageBodyProps = {
 			Pick<
 				SpaceTimelineItem,
 				| "actorProfileKind"
+				| "systemNoticeType"
+				| "signalType"
 				| "id"
 				| "messageRevision"
 				| "deliveryState"
@@ -127,6 +136,7 @@ function useSpaceMessageTextPresentation(input: SpaceMessageBodyProps) {
 	const pluginReply = usePluginConnectionReply({
 		final:
 			input.item.isAgentFinalReply === true &&
+			!isStoppedSpaceReply(input.item) &&
 			input.item.agentStreamState?.status !== "streaming",
 		organizationSlug: input.orgSlug,
 		text: input.item.text,
@@ -405,6 +415,7 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 	}
 ) {
 	const text = input.textPresentation;
+	const task = useSpaceMessageTask(input.item.id);
 	const references = useSpaceMessageReferencePresentation(input);
 	const className = cn(
 		"break-words content-space-message [overflow-wrap:anywhere]",
@@ -457,7 +468,13 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 		renderProfileTrigger: input.renderProfileTrigger,
 		referencesById: references.spaceReferencesById,
 		renderInternalLink: references.renderInternalLink,
-		renderedText: text.renderedText,
+		renderedText: taskMessageBodyText(
+			task,
+			input.item.text,
+			references.profileMentionProfilesById.size,
+			text.renderedText,
+			input.includeAttachments === false
+		),
 		shouldRenderMarkdown,
 	});
 	const inlineTargetIds = new Set(
@@ -492,6 +509,7 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 		body
 	);
 	const hasVisibleContent =
+		isStoppedSpaceReply(input.item) ||
 		addressedBody !== null ||
 		Boolean(navigationActionContent) ||
 		attachments.length > 0 ||
@@ -504,7 +522,19 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 	return (
 		<SpaceMessageBodyContent
 			attachments={attachments}
-			body={addressedBody}
+			body={
+				<>
+					{addressedBody}
+					{isStoppedSpaceReply(input.item) ? (
+						<p
+							className="text-muted-foreground text-xs leading-5"
+							data-slot="stopped-reply-status"
+						>
+							(Request stopped)
+						</p>
+					) : null}
+				</>
+			}
 			bodyRef={input.bodyRef}
 			containerClassName={input.containerClassName}
 			edited={
@@ -513,6 +543,8 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 			files={files}
 			isExpanded={text.isExpanded}
 			linkPreviews={
+				input.item.signalType === "signal.text" &&
+				!isStoppedSpaceReply(input.item) &&
 				input.item.id &&
 				input.item.spaceId &&
 				input.item.deliveryState === "sent" &&

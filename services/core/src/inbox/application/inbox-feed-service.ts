@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   inboxFeedQuerySchema,
   inboxFeedResponseSchema,
@@ -30,8 +31,14 @@ import {
   mapInboxItemRow,
 } from "./inbox-service";
 
-type Identity = { organizationId: string; recipientUserId: string };
-type Snapshot = InboxFeedScope & { id: string; expiresAtMs: number };
+type Identity = {
+  organizationId: string;
+  recipientUserId: string;
+};
+type Snapshot = InboxFeedScope & {
+  id: string;
+  expiresAtMs: number;
+};
 type SnapshotRow = {
   id: string;
   organization_id: string;
@@ -65,23 +72,36 @@ type CountRow = {
   priority_count: number;
 };
 const SNAPSHOT_TTL_MS = 15 * 60 * 1000;
+export type InboxFeedMeasure = <T>(
+  stage:
+    | "inbox.prepare"
+    | "inbox.invitations"
+    | "inbox.snapshot"
+    | "inbox.page",
+  work: () => Promise<T>
+) => Promise<T>;
+
+export const runInboxFeedStage: InboxFeedMeasure = (_stage, work) => work();
 
 export function createInboxFeedService(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs?: () => number;
   canManageOrganization?: boolean;
+  measure?: InboxFeedMeasure;
 }) {
   const now = input.nowMs ?? Date.now;
-
+  const measure = input.measure ?? runInboxFeedStage;
   async function readSnapshot(
     identity: Identity,
     id: string
   ): Promise<Snapshot> {
     const row = await input.db
-      .prepare(`SELECT * FROM inbox_feed_snapshots
-      WHERE id = ? AND organization_id = ? AND recipient_user_id = ? AND expires_at_ms > ?`)
-      .bind(id, identity.organizationId, identity.recipientUserId, now())
-      .first<SnapshotRow>();
+      .query<SnapshotRow>({
+        text: `SELECT * FROM "openmeld"."inbox_feed_snapshots"
+      WHERE id = $1 AND organization_id = $2 AND recipient_user_id = $3 AND expires_at_ms > $4`,
+        values: [id, identity.organizationId, identity.recipientUserId, now()],
+      })
+      .then((result) => result.rows[0] ?? null);
     if (!row) {
       throw new InboxServiceError({
         code: "inbox.snapshot_expired",
@@ -90,6 +110,9 @@ export function createInboxFeedService(input: {
           "This Inbox view has expired. Refresh before changing its items.",
       });
     }
+    return mapSnapshot(row);
+  }
+  function mapSnapshot(row: SnapshotRow): Snapshot {
     return {
       id: row.id,
       organizationId: row.organization_id,
@@ -104,8 +127,7 @@ export function createInboxFeedService(input: {
       snapshotId: row.id,
     };
   }
-
-  async function createSnapshot(
+  function createSnapshot(
     identity: Identity,
     query: InboxFeedQuery
   ): Promise<Snapshot> {
@@ -121,36 +143,44 @@ export function createInboxFeedService(input: {
       throughRowId: Number.MAX_SAFE_INTEGER,
     } as const;
     const cte = inboxFeedCte(seedScope, input.canManageOrganization === true);
-    await input.db.batch([
-      input.db
-        .prepare(
-          "DELETE FROM inbox_feed_snapshots WHERE id IN (SELECT id FROM inbox_feed_snapshots WHERE expires_at_ms <= ? LIMIT 100)"
+    // One statement is atomic and shares one MVCC snapshot. RETURNING links
+    // the header to its members without five serial transaction round trips.
+    return input.db
+      .query<SnapshotRow>({
+        text: `${cte.sql},
+        expired AS (
+          DELETE FROM "openmeld"."inbox_feed_snapshots"
+          WHERE id IN (SELECT id FROM "openmeld"."inbox_feed_snapshots" WHERE expires_at_ms <= $10 LIMIT 100)
+        ), header AS (
+          INSERT INTO "openmeld"."inbox_feed_snapshots"
+          (id, organization_id, recipient_user_id, category, unread_only, agents_only, people_only, conversation_type, through_row_id, created_at_ms, expires_at_ms)
+          SELECT $4, $1, $2, $5, $6, $7, $8, $9, coalesce(max(sequence), 0), $10, $11
+          FROM "openmeld"."inbox_items" RETURNING *
+        ), members AS (
+          INSERT INTO "openmeld"."inbox_feed_snapshot_members" (snapshot_id, item_id)
+          SELECT header.id, filtered.id FROM filtered CROSS JOIN header
         )
-        .bind(created),
-      input.db
-        .prepare(`INSERT INTO inbox_feed_snapshots
-        (id, organization_id, recipient_user_id, category, unread_only, agents_only, people_only, conversation_type, through_row_id, created_at_ms, expires_at_ms)
-        SELECT ?, ?, ?, ?, ?, ?, ?, ?, coalesce(max(rowid), 0), ?, ? FROM inbox_items`)
-        .bind(
+        SELECT * FROM header`,
+        values: [
+          ...cte.bindings,
           id,
-          identity.organizationId,
-          identity.recipientUserId,
           query.category ?? "all",
           query.unreadOnly === "true" ? 1 : 0,
           query.agentsOnly === "true" ? 1 : 0,
           query.peopleOnly === "true" ? 1 : 0,
           query.conversationType ?? "all",
           created,
-          created + SNAPSHOT_TTL_MS
-        ),
-      input.db
-        .prepare(`${cte.sql} INSERT INTO inbox_feed_snapshot_members (snapshot_id, item_id)
-        SELECT ?, id FROM filtered`)
-        .bind(...cte.bindings, id),
-    ]);
-    return readSnapshot(identity, id);
+          created + SNAPSHOT_TTL_MS,
+        ],
+      })
+      .then(({ rows }) => {
+        const row = rows[0];
+        if (!row) {
+          throw new Error("Inbox snapshot insert did not return its header");
+        }
+        return mapSnapshot(row);
+      });
   }
-
   return {
     async list(
       identity: Identity,
@@ -162,9 +192,11 @@ export function createInboxFeedService(input: {
       if (query.groupKey && !snapshotId) {
         throw invalidInboxFeedCursor();
       }
-      const snapshot = snapshotId
-        ? await readSnapshot(identity, snapshotId)
-        : await createSnapshot(identity, query);
+      const snapshot = await measure("inbox.snapshot", () =>
+        snapshotId
+          ? readSnapshot(identity, snapshotId)
+          : createSnapshot(identity, query)
+      );
       assertMatchingSnapshot(snapshot, query, cursor);
       const cte = inboxFeedCte(
         snapshot,
@@ -178,23 +210,20 @@ export function createInboxFeedService(input: {
       const collectionKind = expandedKey
         ? readGroupKind(expandedKey)
         : undefined;
-      const results = await input.db.batch([
-        input.db
-          .prepare(`${cte.sql} ${INBOX_FEED_COUNTS_SQL}`)
-          .bind(...cte.bindings),
-        input.db
-          .prepare(
-            `${cte.sql} ${inboxFeedRowsSql(Boolean(query.groupKey), query.grouping, collectionKind)}`
-          )
-          .bind(
+      const result = await measure("inbox.page", () =>
+        input.db.query<FeedItemRow & { feed_counts: CountRow }>({
+          text: `${cte.sql}, feed_counts AS (${INBOX_FEED_COUNTS_SQL}) ${inboxFeedRowsSql(Boolean(query.groupKey), query.grouping, collectionKind, cte.bindings.length)}`,
+          values: [
             ...cte.bindings,
             ...(expandedKey ? [expandedKey] : []),
             ...cursorBindings(cursor),
-            limit + 1
-          ),
-      ]);
-      const { counts, candidates, selectionUnreadCount } =
-        readQueryResults(results);
+            limit + 1,
+          ],
+        })
+      );
+      const { counts, candidates, selectionUnreadCount } = readQueryResults(
+        result.rows
+      );
       const page = candidates.slice(0, limit);
       return inboxFeedResponseSchema.parse({
         organizationId: identity.organizationId,
@@ -206,21 +235,22 @@ export function createInboxFeedService(input: {
         nextCursor: nextPageCursor(candidates, limit, snapshot.id, query),
       });
     },
-
     async mutate(
       identity: Identity,
       rawBody: MutateInboxFeedBody
-    ): Promise<{ changedCount: number }> {
+    ): Promise<{
+      changedCount: number;
+    }> {
       const body = mutateInboxFeedBodySchema.parse(rawBody);
       const snapshot = await readSnapshot(identity, body.snapshotId);
       const cte = inboxFeedCte(snapshot, input.canManageOrganization === true);
       const timestamp = now();
       const column = body.operation === "read" ? "read_at_ms" : "cleared_at_ms";
-      const result = await input.db
-        .prepare(`${cte.sql}
-        UPDATE inbox_items SET ${column} = max(?, created_at_ms), updated_at_ms = max(?, updated_at_ms)
-        WHERE ${column} IS NULL AND id IN (SELECT id FROM selected ${body.groupKey ? "WHERE raw_group_key = ? OR collection_key = ? OR json_array('conversation_group', raw_group_key, collection_key) = ?" : ""})`)
-        .bind(
+      const result = await input.db.query({
+        text: `${cte.sql}
+        UPDATE "openmeld"."inbox_items" SET ${column} = GREATEST($5, created_at_ms), updated_at_ms = GREATEST($6, updated_at_ms)
+        WHERE ${column} IS NULL AND id IN (SELECT id FROM selected ${body.groupKey ? "WHERE raw_group_key = $7 OR collection_key = $8 OR json_build_array('conversation_group', raw_group_key, collection_key)::text = $9" : ""})`,
+        values: [
           ...cte.bindings,
           timestamp,
           timestamp,
@@ -230,14 +260,13 @@ export function createInboxFeedService(input: {
                 decodeInboxFeedKey(body.groupKey),
                 decodeInboxFeedKey(body.groupKey),
               ]
-            : [])
-        )
-        .run();
-      return { changedCount: Math.max(0, Number(result.meta.changes ?? 0)) };
+            : []),
+        ],
+      });
+      return { changedCount: Math.max(0, Number(result.rowCount ?? 0)) };
     },
   };
 }
-
 function selectionCountProjection(
   query: InboxFeedQuery,
   selectionUnreadCount: number
@@ -246,7 +275,6 @@ function selectionCountProjection(
     ? { selectionUnreadCount }
     : {};
 }
-
 function assertMatchingSnapshot(
   snapshot: Snapshot,
   query: InboxFeedQuery,
@@ -270,39 +298,28 @@ function assertMatchingSnapshot(
     throw invalidInboxFeedCursor();
   }
 }
-
-function readQueryResults(results: D1Result[]): {
+function readQueryResults(
+  rows: Array<FeedItemRow & { feed_counts: CountRow }>
+): {
   selectionUnreadCount: number;
   counts: InboxFeedCounts;
   candidates: FeedItemRow[];
 } {
-  const [countResult, pageResult] = results;
-  if (
-    !(
-      countResult?.success &&
-      pageResult?.success &&
-      Array.isArray(countResult.results) &&
-      Array.isArray(pageResult.results) &&
-      countResult.results.length === 1
-    )
-  ) {
+  const countRow = rows[0]?.feed_counts;
+  if (!countRow) {
     throw new Error("Inbox query did not return a complete snapshot page");
   }
   return {
-    selectionUnreadCount: Number(
-      (countResult.results[0] as CountRow).selection_unread_count
-    ),
-    counts: mapCounts(countResult.results[0] as CountRow),
-    candidates: pageResult.results as FeedItemRow[],
+    selectionUnreadCount: Number(countRow.selection_unread_count),
+    counts: mapCounts(countRow),
+    candidates: rows.filter((row) => row.id !== null),
   };
 }
-
 function cursorBindings(cursor: InboxFeedCursor | null) {
   const rank = cursor?.rank ?? null;
   const occurredAt = cursor?.occurredAtMs ?? null;
   return [rank, rank, rank, occurredAt, rank, occurredAt, cursor?.key ?? null];
 }
-
 function nextPageCursor(
   rows: FeedItemRow[],
   limit: number,
@@ -322,21 +339,18 @@ function nextPageCursor(
     ...(query.grouping ? { grouping: query.grouping } : {}),
   });
 }
-
 function feedSection(rank: number): InboxFeedRow["section"] {
   if (rank === 0) {
     return "priority";
   }
   return rank === 1 ? "open" : "activity";
 }
-
 function feedDot(rank: number, unreadCount: number): InboxFeedRow["dot"] {
   if (rank === 0) {
     return "yellow";
   }
   return unreadCount > 0 ? "blue" : null;
 }
-
 function mapCounts(row?: CountRow): InboxFeedCounts {
   return {
     all: Number(row?.all_count ?? 0),
@@ -347,7 +361,6 @@ function mapCounts(row?: CountRow): InboxFeedCounts {
     priority: Number(row?.priority_count ?? 0),
   };
 }
-
 function mapFeedRow(row: FeedItemRow, grouping?: "space"): InboxFeedRow {
   const item = mapInboxItemRow({
     ...row,
@@ -365,7 +378,6 @@ function mapFeedRow(row: FeedItemRow, grouping?: "space"): InboxFeedRow {
     ...groupProjection(row, grouping),
   };
 }
-
 function groupProjection(
   row: FeedItemRow,
   grouping?: "space"
@@ -382,7 +394,6 @@ function groupProjection(
   }
   return {};
 }
-
 function readGroupKind(key: string): string {
   try {
     const parts: unknown = JSON.parse(key);

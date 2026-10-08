@@ -2,6 +2,7 @@ import {
   jsonErrorResponse,
   OPENMELD_HEADER_PROFILE_ID,
   readOpenMeldRequestedOrganizationSelector,
+  readUserTimeZoneObservationHeaders,
 } from "@openmeld/gateway-contract";
 import {
   openMeldRequestedOrganizationSelectorSchema,
@@ -149,6 +150,8 @@ export const gatewayAuthMiddleware = createMiddleware<HonoBindings>(
     c.set("authClaims", claims);
     c.set("resolvedProfile", resolvedProfile);
     const openMeldRequestContext = buildOpenMeldRequestContext({
+      userTimeZoneObservation:
+        readUserTimeZoneObservationHeaders(c.req.raw.headers) ?? undefined,
       ...(claims.activeOrganizationId
         ? { activeOrganizationId: claims.activeOrganizationId }
         : {}),

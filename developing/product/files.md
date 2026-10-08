@@ -27,6 +27,12 @@ The user must always see the current location and audience before adding content
 
 ## Ordinary file contract
 
+Account deletion erases the member's private roots and their revision objects;
+it does not copy them into Team Files. The File Root owner fences new writes and
+waits for admitted writes to settle before deleting R2 prefixes. Retry interrupted
+cleanup through the account job. Team roots are erased only when their sole-member
+workspace closes; shared copies in surviving teams remain independent assets.
+
 - A file or folder has a stable identity and one root. Folder placement does not grant access to another root.
 - Content revisions are immutable. Writes state the expected current revision; a conflicting write fails visibly. An exact revision can be read again if current authorization still permits access.
 - Upload sessions, chunks, checksums, resumability, and retry handling use the shared file transport. A completed upload is not reported before its metadata revision is committed.
@@ -42,6 +48,21 @@ Copying an exact revision to another root requires an authorized source read and
 
 Live references, automatic cross-root synchronization, cross-Organization browsing, public links, desktop sync, and per-file ACL inheritance are outside the first complete Files path. They must not be simulated by a copy that looks linked.
 
+An explicit human selection can copy an excerpt of the author's own Space
+message through `POST /v1/spaces/:spaceId/files/excerpts` or
+`openmeld files copy-excerpt`. The request names the exact source message,
+content version, author, Unicode character range (end exclusive), and every
+destination member. The current human must be that author. Only the selected
+plain text is copied; adjacent messages, reply context, attachments, and other
+authors' text are not fetched into the copy. Selections are limited to 16,000
+characters. Source access and version are checked again after object storage.
+The destination must be private, members-only, invite-only, and have exactly
+the named members; the Files owner rechecks that audience at metadata commit.
+An Agent-authored request cannot grant itself this sharing authority. A lawful
+copy has its own Files identity and lifecycle: subsequent source recall does
+not delete it. Revocation before copying refuses the operation. This entry
+does not add anyone to the source conversation or create cross-root revocation.
+
 ## Managed content
 
 Files can show managed objects, but ordinary file mutations never bypass their owning workflows.
@@ -54,6 +75,8 @@ Files can show managed objects, but ordinary file mutations never bypass their o
 ## Human and Agent experience
 
 Team and Space use the same Finder-style file browser and shared viewer components, with OpenMeld's Fluid controls, tokens, and radius. A file browser fills its owning page rather than adding a second framed application inside it. The initial viewer set is read-only; editors are added only after version, conflict, and save behavior is correct. Viewer availability is separate from Agent read capability.
+
+Space Files includes both chat attachments and manually uploaded files by default. File origin is provenance, not a visibility filter. The file browser does not present the structured work-handoff workflow as a generic send-file action.
 
 Center, Hosted Remote, and Local Agents use the same logical file operations and exact revision references as people. The root service enforces the represented human's authorization at the time of each read or write. A private file may enter a Hosted Agent turn only when the audience and execution path keep it private. A one-to-one conversation alone does not prove that a shared Computer, cache, history, or published output is isolated.
 

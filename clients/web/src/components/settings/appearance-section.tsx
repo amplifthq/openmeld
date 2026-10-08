@@ -1,9 +1,11 @@
 "use client";
 
+import { BotAvatar } from "@openmeld/ui/components/bot-avatar";
 import { SettingsRow } from "@openmeld/ui/components/settings-row";
 import { Switch } from "@openmeld/ui/components/switch";
 import { RadioGroup, RadioItem } from "@openmeld/ui/fluid/radio-group";
 import { useMediaQuery } from "@openmeld/ui/hooks/use-media-query";
+import { BOT_AVATAR_PALETTES } from "@openmeld/ui/lib/bot-avatar-palette";
 import {
 	DEFAULT_ROUNDED_SHAPE_RADIUS_PX,
 	type ShapeVariant,
@@ -11,20 +13,17 @@ import {
 } from "@openmeld/ui/lib/shape-context";
 import {
 	ChatCircleTextIcon,
-	DesktopIcon,
-	MoonIcon,
-	SunDimIcon,
 	TrayIcon,
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
 import { useTheme } from "next-themes";
-import {
-	type CSSProperties,
-	type ReactNode,
-	useState,
-	useSyncExternalStore,
-} from "react";
+import { type CSSProperties, useState, useSyncExternalStore } from "react";
 import { AppPageHeader } from "#/components/app/app-page-header";
+import { THEME_CHOICES } from "#/components/appearance/theme-choices";
+import {
+	BOT_MATERIAL_CHOICES,
+	useBotAvatarPreference,
+} from "#/lib/appearance/bot-avatar-preference";
 import {
 	SIDEBAR_DISPLAY_CHOICES,
 	type SidebarDisplay,
@@ -46,35 +45,7 @@ import {
 	writeSpaceSelfMessageAlignmentPreference,
 } from "#/lib/spaces/self-message-alignment-preference";
 
-type ThemeChoice = {
-	description: string;
-	icon: ReactNode;
-	label: string;
-	value: "dark" | "light" | "system";
-};
-
 const PHONE_APPEARANCE_CHOICES_QUERY = "(max-width: 639px)";
-
-const THEME_CHOICES: readonly ThemeChoice[] = [
-	{
-		description: "Follow your operating system appearance.",
-		icon: <DesktopIcon aria-hidden="true" className="size-4" />,
-		label: "System",
-		value: "system",
-	},
-	{
-		description: "Use the light appearance.",
-		icon: <SunDimIcon aria-hidden="true" className="size-4" />,
-		label: "Light",
-		value: "light",
-	},
-	{
-		description: "Use the dark appearance.",
-		icon: <MoonIcon aria-hidden="true" className="size-4" />,
-		label: "Dark",
-		value: "dark",
-	},
-] as const;
 
 type ShapeChoice = {
 	description: string;
@@ -133,6 +104,19 @@ const SELF_MESSAGE_ALIGNMENT_CHOICES: readonly SelfMessageAlignmentChoice[] = [
 	},
 ] as const;
 
+const HISTORY_SLIDER_CHOICES = [
+	{
+		description: "Show a compact slider for older messages.",
+		enabled: true,
+		label: "Show",
+	},
+	{
+		description: "Hide the slider and give messages more room.",
+		enabled: false,
+		label: "Hide",
+	},
+] as const;
+
 const subscribeToHydration = () => () => undefined;
 const getClientHydrationSnapshot = () => true;
 const getServerHydrationSnapshot = () => false;
@@ -141,6 +125,7 @@ export function AppearanceSection() {
 	const sidebar = useSidebarDisplayPreference();
 	const toolbar = useToolbarPreference();
 	const historySlider = useHistorySliderPreference();
+	const botAvatar = useBotAvatarPreference();
 	const { setTheme, theme } = useTheme();
 	const { setShape, shape } = useShapeContext();
 	const choiceOrientation = useMediaQuery(PHONE_APPEARANCE_CHOICES_QUERY)
@@ -160,7 +145,7 @@ export function AppearanceSection() {
 			readSpaceSelfMessageAlignmentPreference()
 		);
 
-	const selectedIndex = mounted
+	const selectedThemeIndex = mounted
 		? THEME_CHOICES.findIndex((choice) => choice.value === theme)
 		: -1;
 	const selectedConversationLayoutIndex = mounted
@@ -196,19 +181,19 @@ export function AppearanceSection() {
 							aria-label="Theme"
 							className="w-full"
 							orientation={choiceOrientation}
-							selectedIndex={selectedIndex}
+							selectedIndex={selectedThemeIndex}
 						>
 							{THEME_CHOICES.map((choice, index) => (
 								<RadioItem
-									adornment={choice.icon}
+									adornment={
+										<choice.icon aria-hidden="true" className="size-4" />
+									}
 									className="min-w-0 flex-1 px-3 py-2.5"
 									description={choice.description}
 									index={index}
 									key={choice.value}
 									label={choice.label}
-									onSelect={() => {
-										setTheme(choice.value);
-									}}
+									onSelect={() => setTheme(choice.value)}
 									selected={mounted && theme === choice.value}
 								/>
 							))}
@@ -357,15 +342,39 @@ export function AppearanceSection() {
 				/>
 				<SettingsRow
 					control={
-						<Switch
-							aria-label="Show history slider"
-							checked={historySlider.enabled}
-							id="history-slider"
-							onCheckedChange={historySlider.setEnabled}
-						/>
+						<RadioGroup
+							aria-label="History slider"
+							className="w-full"
+							orientation={choiceOrientation}
+							selectedIndex={
+								mounted
+									? HISTORY_SLIDER_CHOICES.findIndex(
+											(choice) => choice.enabled === historySlider.enabled
+										)
+									: -1
+							}
+						>
+							{HISTORY_SLIDER_CHOICES.map((choice, index) => (
+								<RadioItem
+									className="min-w-0 flex-1 px-3 py-3"
+									description={
+										<span className="flex min-w-0 flex-col gap-2">
+											<span>{choice.description}</span>
+											<HistorySliderPreview enabled={choice.enabled} />
+										</span>
+									}
+									index={index}
+									key={choice.label}
+									label={choice.label}
+									onSelect={() => historySlider.setEnabled(choice.enabled)}
+									selected={mounted && historySlider.enabled === choice.enabled}
+								/>
+							))}
+						</RadioGroup>
 					}
-					description="Browse older messages in a Space. Saved in this browser."
+					description="Browse older messages in a Space. Shown only when older history is available. Saved in this browser."
 					label="History slider"
+					layout="stacked"
 					showDivider
 				/>
 				<SettingsRow
@@ -394,6 +403,117 @@ export function AppearanceSection() {
 					description="Choose which shortcuts appear in the bottom toolbar. Saved in this browser."
 					label="Toolbar shortcuts"
 					layout="stacked"
+				/>
+				<SettingsRow
+					control={
+						<RadioGroup
+							aria-label="Bot avatar material"
+							className="w-full"
+							orientation={choiceOrientation}
+							selectedIndex={
+								mounted
+									? BOT_MATERIAL_CHOICES.findIndex(
+											(choice) => choice.value === botAvatar.shading
+										)
+									: -1
+							}
+						>
+							{BOT_MATERIAL_CHOICES.map((choice, index) => (
+								<RadioItem
+									className="min-w-0 flex-1 px-3 py-3"
+									description={
+										<span className="flex min-w-0 flex-col gap-2">
+											<span>{choice.description}</span>
+											<span
+												aria-hidden="true"
+												className="flex h-24 items-center justify-center"
+											>
+												<BotAvatar
+													motionEnabled={botAvatar.motionEnabled}
+													palette={botAvatar.palette}
+													shading={choice.value}
+													size={56}
+													type="clover"
+													working
+												/>
+											</span>
+										</span>
+									}
+									index={index}
+									key={choice.value}
+									label={choice.label}
+									onSelect={() => botAvatar.setShading(choice.value)}
+									selected={mounted && botAvatar.shading === choice.value}
+								/>
+							))}
+						</RadioGroup>
+					}
+					description="Choose a finish for Center Agent Bot avatars across the app. Saved in this browser."
+					label="Bot avatar material"
+					layout="stacked"
+					showDivider
+				/>
+				<SettingsRow
+					control={
+						<RadioGroup
+							aria-label="Bot avatar colors"
+							className="w-full"
+							orientation={choiceOrientation}
+							selectedIndex={
+								mounted
+									? BOT_AVATAR_PALETTES.findIndex(
+											(choice) => choice.value === botAvatar.palette
+										)
+									: -1
+							}
+						>
+							{BOT_AVATAR_PALETTES.map((choice, index) => (
+								<RadioItem
+									className="min-w-0 flex-1 px-3 py-3"
+									description={
+										<span className="flex flex-col gap-2">
+											<span>{choice.description}</span>
+											<span
+												aria-hidden="true"
+												className="flex h-16 items-center justify-center gap-2"
+											>
+												{(["clover", "cat", "ghost"] as const).map((type) => (
+													<BotAvatar
+														key={type}
+														motionEnabled={false}
+														palette={choice.value}
+														shading={botAvatar.shading}
+														size={28}
+														type={type}
+													/>
+												))}
+											</span>
+										</span>
+									}
+									index={index}
+									key={choice.value}
+									label={choice.label}
+									onSelect={() => botAvatar.setPalette(choice.value)}
+									selected={mounted && botAvatar.palette === choice.value}
+								/>
+							))}
+						</RadioGroup>
+					}
+					description="Choose colors for Bot avatars across the app. Saved in this browser."
+					label="Bot avatar colors"
+					layout="stacked"
+					showDivider
+				/>
+				<SettingsRow
+					control={
+						<Switch
+							aria-label="Animate Bot avatars"
+							checked={botAvatar.motionEnabled}
+							onCheckedChange={botAvatar.setMotionEnabled}
+						/>
+					}
+					description="Animate Bot avatars while they work and when you interact with them. Saved in this browser."
+					label="Animate Bot avatars"
 				/>
 			</section>
 		</>
@@ -525,6 +645,34 @@ function ConversationLayoutPreview(input: { layout: SpaceConversationLayout }) {
 				</span>
 			</span>
 			<span className="w-4 shrink-0 border-border border-l bg-muted/40" />
+		</span>
+	);
+}
+
+function HistorySliderPreview(input: { enabled: boolean }) {
+	return (
+		<span
+			aria-hidden="true"
+			className="flex h-20 w-full overflow-hidden border border-border bg-background"
+			data-history-slider-preview={input.enabled ? "show" : "hide"}
+		>
+			<span className="w-3 shrink-0 border-border border-r bg-muted/70" />
+			{input.enabled && (
+				<span className="flex w-4 shrink-0 flex-col justify-center gap-0.5 pl-1">
+					{[0, 1, 2, 3, 4, 5, 6, 7, 8].map((tick) => (
+						<span
+							className={`h-0.5 ${tick === 4 ? "w-2.5 bg-foreground/70" : "w-1 bg-muted-foreground/40"}`}
+							key={tick}
+						/>
+					))}
+				</span>
+			)}
+			<span className="flex min-w-0 flex-1 flex-col gap-1.5 p-2">
+				<span className="h-1.5 w-3/5 bg-muted-foreground/30" />
+				<span className="h-1.5 w-4/5 self-end bg-muted-foreground/20" />
+				<span className="h-1.5 w-2/3 bg-muted-foreground/30" />
+				<span className="mt-auto h-3 w-full border border-border bg-muted/60" />
+			</span>
 		</span>
 	);
 }

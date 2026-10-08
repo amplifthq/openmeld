@@ -6,6 +6,7 @@ import {
   REMOTE_AGENT_CAPABILITY_DESCRIBE_TOOL_NAME,
   REMOTE_AGENT_CAPABILITY_SEARCH_TOOL_NAME,
 } from "../flue-adapter/capability-discovery";
+import { InMemoryDurableObjectStorage } from "./storage";
 
 const DEFINITIONS: RemoteAgentToolDefinition[] = [
   {
@@ -41,6 +42,86 @@ const DEFINITIONS: RemoteAgentToolDefinition[] = [
 ];
 
 describe("Remote Agent capability discovery", () => {
+  it("restores selected contracts after recreation without retaining removed capabilities", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    const select = (
+      definitions: RemoteAgentToolDefinition[],
+      submissionId = "one"
+    ) => {
+      const tool = createRemoteAgentCapabilityDiscoveryDefinitions(
+        definitions,
+        undefined,
+        {
+          storage,
+          submissionId,
+        }
+      ).find(
+        (tool) => tool.name === REMOTE_AGENT_CAPABILITY_DESCRIBE_TOOL_NAME
+      );
+      if (!tool) {
+        throw new Error("Missing capability recovery tool");
+      }
+      return tool;
+    };
+    await select(DEFINITIONS).execute({
+      names: ["github_create_issue"],
+    });
+    await select(DEFINITIONS).execute({
+      names: ["openmeld_list_app_actions"],
+    });
+    const restored = select(
+      DEFINITIONS.filter((tool) => tool.name !== "github_create_issue")
+    );
+    for (let i = 0; i < 4; i++) {
+      await expect(restored.execute({})).resolves.toMatchObject({
+        capabilities: [
+          {
+            name: "openmeld_list_app_actions",
+            inputSchema: { required: ["service"] },
+          },
+        ],
+        unknownNames: ["github_create_issue"],
+      });
+    }
+    expect(restored.progressTracking).toBeUndefined();
+    await expect(
+      select(DEFINITIONS, "other-execution").execute({})
+    ).resolves.toEqual({ capabilities: [], unknownNames: [] });
+  });
+  it("bounds recovery across calls and moves reused names to the front", async () => {
+    const definitions = Array.from({ length: 10 }, (_, index) => ({
+      description: "Read one record.",
+      execute: () => Promise.resolve({}),
+      input: object({}),
+      name: `read_${index}`,
+    }));
+    const storage = new InMemoryDurableObjectStorage();
+    const describe = createRemoteAgentCapabilityDiscoveryDefinitions(
+      definitions,
+      undefined,
+      { storage, submissionId: "bounded" }
+    ).find((tool) => tool.name === REMOTE_AGENT_CAPABILITY_DESCRIBE_TOOL_NAME);
+    if (!describe) {
+      throw new Error("Missing capability recovery tool");
+    }
+    for (const definition of definitions) {
+      await describe.execute({ names: [definition.name] });
+    }
+    await describe.execute({ names: ["read_4"] });
+    const restored = (await describe.execute({})) as {
+      capabilities: { name: string }[];
+    };
+    expect(restored.capabilities.map(({ name }) => name)).toEqual([
+      "read_4",
+      "read_9",
+      "read_8",
+      "read_7",
+      "read_6",
+      "read_5",
+      "read_3",
+      "read_2",
+    ]);
+  });
   it("searches a fixed turn catalog without returning every schema", async () => {
     const definitions =
       createRemoteAgentCapabilityDiscoveryDefinitions(DEFINITIONS);

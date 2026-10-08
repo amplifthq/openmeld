@@ -1,8 +1,8 @@
 {
   "$schema": "https://www.schemastore.org/package.json",
   "name": "openmeld",
-  "version": "0.3.240",
-  "openMeldReleaseDate": "2026-10-03",
+  "version": "0.3.250",
+  "openMeldReleaseDate": "2026-10-08",
   "description": "OpenMeld CLI - https://openmeld.ai",
   "license": "MIT",
   "type": "module",
@@ -37,12 +37,13 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.286",
-    "@anthropic-ai/sdk": "^0.93.0",
+    "@anthropic-ai/claude-agent-sdk": "^0.3.291",
+    "@anthropic-ai/sdk": "^0.131.0",
     "@clack/prompts": "^1.0.1",
     "@mariozechner/pi-tui": "0.57.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@opencode-ai/sdk": "^1.18.7",
+    "@opencode-ai/sdk": "^1.18.34",
+    "@opencode/client": "2.0.24",
     "better-sqlite3": "^12.6.2",
     "commander": "^14.0.0",
     "picocolors": "^1.1.1",
@@ -85,6 +86,6 @@
   },
   "openmeld": {
     "releaseLine": "openmeld-greenfield-2026-07",
-    "minRequiredCliVersion": "0.3.224"
+    "minRequiredCliVersion": "0.3.249"
   }
 }

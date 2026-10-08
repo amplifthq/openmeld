@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type {
   AgentDelegationCompletionPolicy,
   AgentTaskHandle,
@@ -7,39 +8,62 @@ import {
   cancelAgentDelegationWithSubscriptions,
   createAgentDelegation,
   readAgentDelegation,
-} from "../../agent-task-coordination/infrastructure/d1/agent-delegation-repo";
-import { registerAgentTaskCompletionSubscription } from "../../agent-task-coordination/infrastructure/d1/agent-task-coordination-repo";
+} from "../../agent-task-coordination/infrastructure/postgresql/agent-delegation-repo";
+import { registerAgentTaskCompletionSubscription } from "../../agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo";
 import {
   readRemoteAgentNativeDeliveryByDeliveryId,
   readRemoteAgentNativeDeliveryBySubmissionId,
-} from "../../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+} from "../../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import {
   claimRoutineRunContinuationDelegation,
   readRoutineRunExecutionRecord,
   releaseRoutineRunContinuationDelegation,
 } from "../../routines/routine-repository";
-
 export type PreparedCenterAgentWakeDelegation = {
   childTasks: Array<{
     completionCondition: "terminal";
     subscriptionId: string;
-    task: AgentTaskHandle & { kind: "space_wake" };
+    task: AgentTaskHandle & {
+      kind: "space_wake";
+    };
   }>;
   delegationId: string;
   fallbackTask?: {
     activationSubscriptionId: string;
     completionCondition: "terminal";
     subscriptionId: string;
-    task: AgentTaskHandle & { kind: "space_wake" };
+    task: AgentTaskHandle & {
+      kind: "space_wake";
+    };
   };
   subscriptionIds: string[];
 };
-
 export type CenterAgentParentDelivery = NonNullable<
   Awaited<ReturnType<typeof readRemoteAgentNativeDeliveryBySubmissionId>>
 >;
 
+export function buildDelegatedTaskText(
+  text: string,
+  replyLanguageTag?: string
+): string {
+  if (!replyLanguageTag) {
+    return text;
+  }
+  const language =
+    new Intl.DisplayNames(["en"], { type: "language" }).of(
+      new Intl.Locale(replyLanguageTag).baseName
+    ) ?? replyLanguageTag;
+  // Keep this decision in the durable, visible task brief. Both Local and
+  // Remote Agents already receive it, including older supported carriers.
+  return `${text}\n\nThe original requester’s reply language is ${language}. Keep that language even if this delegated brief uses another language, unless the requester explicitly changes it.`;
+}
+
 export function planCenterAgentWakeDelegation(input: {
+  additionalDestinations?: Array<{
+    childSpaceId: string;
+    clientMessageId: string;
+    targetProfileIds: string[];
+  }>;
   childSpaceId: string;
   clientMessageId: string;
   fallbackAgentProfileId?: string;
@@ -52,17 +76,23 @@ export function planCenterAgentWakeDelegation(input: {
     );
   }
   const delegationId = buildDelegationId(input.clientMessageId);
-  const childTasks = input.targetProfileIds.map((targetProfileId) => ({
-    completionCondition: "terminal" as const,
-    subscriptionId: buildSubscriptionId(input.clientMessageId, targetProfileId),
-    task: {
-      kind: "space_wake" as const,
-      sourceClientMessageId: input.clientMessageId,
-      spaceId: input.childSpaceId,
-      targetProfileId,
-      v: 1 as const,
-    },
-  }));
+  const childTasks = [input, ...(input.additionalDestinations ?? [])].flatMap(
+    (destination) =>
+      destination.targetProfileIds.map((targetProfileId) => ({
+        completionCondition: "terminal" as const,
+        subscriptionId: buildSubscriptionId(
+          destination.clientMessageId,
+          targetProfileId
+        ),
+        task: {
+          kind: "space_wake" as const,
+          sourceClientMessageId: destination.clientMessageId,
+          spaceId: destination.childSpaceId,
+          targetProfileId,
+          v: 1 as const,
+        },
+      }))
+  );
   const fallbackTask = buildPreparedFallbackTask(input);
   return {
     childTasks,
@@ -76,14 +106,16 @@ export function planCenterAgentWakeDelegation(input: {
     ],
   };
 }
-
 export async function prepareCenterAgentWakeDelegation(input: {
+  additionalDestinations?: Parameters<
+    typeof planCenterAgentWakeDelegation
+  >[0]["additionalDestinations"];
   actorProfileId: string;
   childSpaceId: string;
   clientMessageId: string;
   completionMode: CenterAgentDelegationCompletionMode;
   replyLanguageTag?: string;
-  db: D1Database;
+  db: PostgresDatabase;
   destinationNeutralContinuations?: boolean;
   fallbackAgentProfileId?: string;
   nowMs: number;
@@ -102,6 +134,7 @@ export async function prepareCenterAgentWakeDelegation(input: {
     organizationId: input.organizationId,
     parentSubmissionId: input.parentSubmissionId,
     resumesParent,
+    allowCompletedParent: (input.additionalDestinations?.length ?? 0) > 0,
     ...(resumesParent
       ? { continuationDelegationId: prepared.delegationId }
       : {}),
@@ -109,7 +142,6 @@ export async function prepareCenterAgentWakeDelegation(input: {
       ? { routineDelegationCompletionMode: input.completionMode }
       : {}),
   });
-
   const parentTask: AgentTaskHandle = {
     deliveryId: parentDelivery.deliveryId,
     kind: "native_delivery",
@@ -119,7 +151,6 @@ export async function prepareCenterAgentWakeDelegation(input: {
   const completionPolicy = buildDelegationCompletionPolicy(
     input.completionMode
   );
-
   try {
     const delegation = await createAgentDelegation({
       children: [
@@ -164,23 +195,28 @@ export async function prepareCenterAgentWakeDelegation(input: {
       resumesParent,
     });
   } catch (error) {
-    await cancelPreparedCenterAgentWakeDelegation({
-      db: input.db,
-      delegationId,
-      nowMs: input.nowMs,
-      parentDelivery,
-      subscriptionIds,
-    });
+    // A batch is already durable before preparation. A transient subscription
+    // write must not cancel siblings that may have been accepted by a Space.
+    if (!input.additionalDestinations?.length) {
+      await cancelPreparedCenterAgentWakeDelegation({
+        db: input.db,
+        delegationId,
+        nowMs: input.nowMs,
+        parentDelivery,
+        subscriptionIds,
+      });
+    }
     throw error;
   }
   return prepared;
 }
-
 export async function requireCenterAgentContinuationParent(input: {
+  allowCompletedParent?: boolean;
+  claimRoutineContinuation?: boolean;
   actorProfileId: string;
   continuationDelegationId?: string;
   destinationNeutralContinuations: boolean;
-  db: D1Database;
+  db: PostgresDatabase;
   organizationId: string;
   parentSubmissionId: string;
   resumesParent: boolean;
@@ -192,7 +228,9 @@ export async function requireCenterAgentContinuationParent(input: {
   });
   const isActiveParent =
     parentDelivery?.status === "accepted" ||
-    parentDelivery?.status === "retry_observed";
+    parentDelivery?.status === "retry_observed" ||
+    (input.allowCompletedParent === true &&
+      parentDelivery?.status === "completed");
   if (
     !parentDelivery ||
     parentDelivery.organizationId !== input.organizationId ||
@@ -215,17 +253,6 @@ export async function requireCenterAgentContinuationParent(input: {
       "Parent continuation currently requires an OpenMeld Space conversation."
     );
   }
-  if (input.resumesParent && parentDelivery.routineRunId) {
-    await assertRoutineDelegationContinuationAllowed({
-      completionMode: input.routineDelegationCompletionMode,
-      delegationId: input.continuationDelegationId,
-      db: input.db,
-      parentDelivery: {
-        ...parentDelivery,
-        routineRunId: parentDelivery.routineRunId,
-      },
-    });
-  }
   if (
     input.resumesParent &&
     !(parentDelivery.onBehalfOfProfileId && parentDelivery.onBehalfOfUserId)
@@ -235,14 +262,28 @@ export async function requireCenterAgentContinuationParent(input: {
       "Parent continuation requires a verified human requester."
     );
   }
+  if (input.resumesParent && parentDelivery.routineRunId) {
+    await assertRoutineDelegationContinuationAllowed({
+      claim: input.claimRoutineContinuation !== false,
+      completionMode: input.routineDelegationCompletionMode,
+      delegationId: input.continuationDelegationId,
+      db: input.db,
+      parentDelivery: {
+        ...parentDelivery,
+        routineRunId: parentDelivery.routineRunId,
+      },
+    });
+  }
   return parentDelivery;
 }
-
 async function assertRoutineDelegationContinuationAllowed(input: {
+  claim: boolean;
   completionMode: CenterAgentDelegationCompletionMode | undefined;
   delegationId: string | undefined;
-  db: D1Database;
-  parentDelivery: CenterAgentParentDelivery & { routineRunId: string };
+  db: PostgresDatabase;
+  parentDelivery: CenterAgentParentDelivery & {
+    routineRunId: string;
+  };
 }): Promise<void> {
   if (input.completionMode !== "resume_parent_when_all_terminal") {
     throw new CenterAgentDelegationPreparationError(
@@ -282,6 +323,20 @@ async function assertRoutineDelegationContinuationAllowed(input: {
       "This Routine Run cannot identify its continuation delegation."
     );
   }
+  if (
+    run.continuationDelegationId &&
+    run.continuationDelegationId !== input.delegationId
+  ) {
+    throw new CenterAgentDelegationPreparationError(
+      "center_agent.routine_delegation_limit_reached",
+      "A Routine Run can resume its Center Agent once after delegated work. Finish this Run with the available results."
+    );
+  }
+  // Admission checks must not claim a continuation before its durable intent
+  // exists. Publication preparation acquires the existing atomic claim.
+  if (!input.claim) {
+    return;
+  }
   const claim = await claimRoutineRunContinuationDelegation({
     db: input.db,
     delegationId: input.delegationId,
@@ -296,7 +351,6 @@ async function assertRoutineDelegationContinuationAllowed(input: {
     );
   }
 }
-
 function buildPreparedFallbackTask(input: {
   childSpaceId: string;
   clientMessageId: string;
@@ -326,7 +380,6 @@ function buildPreparedFallbackTask(input: {
     },
   };
 }
-
 function buildDelegationCompletionPolicy(
   completionMode: CenterAgentDelegationCompletionMode
 ): AgentDelegationCompletionPolicy {
@@ -337,10 +390,9 @@ function buildDelegationCompletionPolicy(
         when: mapCompletionModeToBarrier(completionMode),
       };
 }
-
 async function registerPreparedDelegationSubscriptions(input: {
   childTasks: PreparedCenterAgentWakeDelegation["childTasks"];
-  db: D1Database;
+  db: PostgresDatabase;
   delegationId: string;
   fallbackTask: PreparedCenterAgentWakeDelegation["fallbackTask"];
   input: Parameters<typeof prepareCenterAgentWakeDelegation>[0];
@@ -364,7 +416,7 @@ async function registerPreparedDelegationSubscriptions(input: {
         : null,
       db: input.db,
       idempotencyKey: buildSubscriptionIdempotencyKey(
-        input.input.clientMessageId,
+        child.task.sourceClientMessageId,
         child.task.targetProfileId
       ),
       nowMs: input.input.nowMs,
@@ -425,7 +477,6 @@ async function registerPreparedDelegationSubscriptions(input: {
     watchedTask: input.fallbackTask.task,
   });
 }
-
 function buildResumeParentContinuation(input: {
   delegationId: string;
   destinationNeutralContinuations: boolean;
@@ -450,9 +501,8 @@ function buildResumeParentContinuation(input: {
         threadContext: input.parentDelivery.threadContext,
       };
 }
-
 export async function cancelPreparedCenterAgentWakeDelegation(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   delegationId: string;
   nowMs: number;
   parentDelivery?: CenterAgentParentDelivery;
@@ -487,58 +537,53 @@ export async function cancelPreparedCenterAgentWakeDelegation(input: {
     runId: parentDelivery.routineRunId,
   });
 }
-
 export class CenterAgentDelegationPreparationError extends Error {
   readonly code: string;
-
   constructor(code: string, message: string) {
     super(message);
     this.code = code;
     this.name = "CenterAgentDelegationPreparationError";
   }
 }
-
 function buildDelegationId(clientMessageId: string): string {
   return `dlg:${clientMessageId}`;
 }
-
 function buildDelegationIdempotencyKey(clientMessageId: string): string {
   return `center-agent-delegation:${clientMessageId}`;
 }
-
 function buildSubscriptionId(
   clientMessageId: string,
   targetProfileId: string
 ): string {
   return `sub:${clientMessageId}:${targetProfileId}`;
 }
-
 function buildSubscriptionIdempotencyKey(
   clientMessageId: string,
   targetProfileId: string
 ): string {
   return `center-agent-delegation-subscription:${clientMessageId}:${targetProfileId}`;
 }
-
 function buildFallbackClientMessageId(clientMessageId: string): string {
   return `ca-fallback:${clientMessageId}`;
 }
-
 function buildFallbackActivationSubscriptionId(
   clientMessageId: string
 ): string {
   return `sub:${clientMessageId}:activate-fallback`;
 }
-
 function buildFallbackActivationSubscriptionIdempotencyKey(
   clientMessageId: string
 ): string {
   return `center-agent-delegation-fallback:${clientMessageId}`;
 }
-
 function mapCompletionModeToBarrier(
   mode: Exclude<CenterAgentDelegationCompletionMode, "child_reports_directly">
-): Extract<AgentDelegationCompletionPolicy, { mode: "resume_parent" }>["when"] {
+): Extract<
+  AgentDelegationCompletionPolicy,
+  {
+    mode: "resume_parent";
+  }
+>["when"] {
   switch (mode) {
     case "resume_parent_when_all_terminal":
       return "all_terminal";
@@ -552,7 +597,6 @@ function mapCompletionModeToBarrier(
       return assertNever(mode);
   }
 }
-
 function assertNever(value: never): never {
   throw new Error(`Unsupported Center Agent completion mode: ${String(value)}`);
 }

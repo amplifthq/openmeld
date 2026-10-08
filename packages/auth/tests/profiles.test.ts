@@ -18,6 +18,7 @@ import type {
   SpaceDeletionTombstoneRecord,
   SpaceDeletionTombstoneRepository,
 } from "../src/profiles/space-deletion-tombstone-repository";
+import { createCapturedPostgresUniqueError } from "./postgresql-errors.test-support";
 
 const TEST_AGENT_PROFILE_ID = "agt_aaaaaaaa-0000-0000-0000-000000000000";
 const TEST_HUMAN_PROFILE_ID = "11111111-2222-4333-8444-555555555555";
@@ -190,6 +191,7 @@ function createInMemoryRepository(
         creationIdempotencyKey: null,
         defaultProjectId: null,
         avatarStyle: null,
+        avatarOptions: null,
         managedRole: null,
         source: input.source ?? "auth_bootstrap",
         lastUsedAt: null,
@@ -242,6 +244,7 @@ function createInMemoryRepository(
         creationIdempotencyKey: input.creationIdempotencyKey ?? null,
         defaultProjectId: null,
         avatarStyle: null,
+        avatarOptions: null,
         managedRole: input.managedRole ?? null,
         source: input.source ?? "cli_create",
         lastUsedAt: null,
@@ -275,6 +278,7 @@ function createInMemoryRepository(
         creationIdempotencyKey: null,
         defaultProjectId: null,
         avatarStyle: null,
+        avatarOptions: null,
         managedRole: null,
         source: input.source ?? "cli_create",
         lastUsedAt: null,
@@ -311,6 +315,9 @@ function createInMemoryRepository(
       );
       if (profile) {
         profile.avatarStyle = avatarStyle;
+        if ("avatarOptions" in scope) {
+          profile.avatarOptions = scope.avatarOptions ?? null;
+        }
       }
       return Promise.resolve();
     },
@@ -1199,9 +1206,11 @@ describe("OpenMeld profile service", () => {
         profileId: center.profileId,
         managedRole: "center_agent",
         avatarStyle: "ghost",
+        avatarOptions: { palette: "balanced" },
       }
     );
     expect(centerUpdated.avatarStyle).toBe("ghost");
+    expect(centerUpdated.avatarOptions).toEqual({ palette: "balanced" });
     await expect(
       service.updateManagedAgentProfileInOrganization({
         organizationId: "org_other",
@@ -1719,9 +1728,7 @@ describe("OpenMeld profile service", () => {
             updatedAt: new Date("2026-02-19T00:00:00.000Z"),
           })
         );
-        throw new Error(
-          "UNIQUE constraint failed: openmeld_profiles.owner_user_id, openmeld_profiles.profile_handle"
-        );
+        throw createCapturedPostgresUniqueError("profileOwnerHandle");
       }
 
       return updateProfileIdentityForOwner(ownerUserId, profileId, input);

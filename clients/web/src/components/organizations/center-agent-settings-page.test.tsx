@@ -21,6 +21,12 @@ import vendorModelCatalog from "../../../../../release/vendor-models.json";
 import { CenterAgentModelSection } from "./center-agent-model-section";
 import { CenterAgentSettingsContent } from "./center-agent-settings-page";
 
+// JSDOM does not implement the browser scrolling API used by Fluid Select.
+Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+	configurable: true,
+	value: vi.fn(),
+});
+
 const designateCurrentCenterAgentMock = vi.hoisted(() => vi.fn());
 const listCurrentCenterAgentAuditJournalMock = vi.hoisted(() => vi.fn());
 const navigateMock = vi.hoisted(() => vi.fn());
@@ -32,6 +38,7 @@ const readCurrentOrganizationCenterAgentMemoryPolicyMock = vi.hoisted(() =>
 	vi.fn()
 );
 const readCurrentOrganizationUsageOverviewMock = vi.hoisted(() => vi.fn());
+const readCurrentOrganizationProfileDirectoryMock = vi.hoisted(() => vi.fn());
 const setCurrentOrganizationCenterAgentMemoryPolicyMock = vi.hoisted(() =>
 	vi.fn()
 );
@@ -74,6 +81,14 @@ vi.mock("#/lib/organizations/organization-usage", () => ({
 		readCurrentOrganizationUsageOverviewMock,
 }));
 
+vi.mock("#/lib/organizations/organization-directory", async () => ({
+	...(await vi.importActual<
+		typeof import("#/lib/organizations/organization-directory")
+	>("#/lib/organizations/organization-directory")),
+	readCurrentOrganizationProfileDirectory:
+		readCurrentOrganizationProfileDirectoryMock,
+}));
+
 vi.mock("#/lib/organizations/center-agent-memory", () => ({
 	readCurrentOrganizationCenterAgentMemoryPolicy:
 		readCurrentOrganizationCenterAgentMemoryPolicyMock,
@@ -87,6 +102,9 @@ const AUDIT_LOG_BUTTON_NAME = /Audit Log/;
 
 describe("CenterAgentSettingsContent", () => {
 	beforeEach(() => {
+		readCurrentOrganizationProfileDirectoryMock
+			.mockReset()
+			.mockResolvedValue(buildDirectoryResponse());
 		designateCurrentCenterAgentMock.mockReset().mockResolvedValue({
 			designation: buildDesignation(),
 			organizationId: ORGANIZATION_ID,
@@ -218,6 +236,7 @@ describe("CenterAgentSettingsContent", () => {
 		const audit = screen.getByRole("button", { name: AUDIT_LOG_BUTTON_NAME });
 		expect(audit.getAttribute("aria-expanded")).toBe("false");
 		expect(listCurrentCenterAgentAuditJournalMock).not.toHaveBeenCalled();
+		expect(readCurrentOrganizationProfileDirectoryMock).not.toHaveBeenCalled();
 		expect(screen.getByRole("heading", { name: "Danger zone" })).toBeTruthy();
 		expect(screen.queryByText("claude-sonnet-4-5 · high")).toBeNull();
 		expect(screen.queryByLabelText("Display name")).toBeNull();
@@ -232,7 +251,22 @@ describe("CenterAgentSettingsContent", () => {
 		expect(audit.getAttribute("aria-expanded")).toBe("true");
 		await waitFor(() => {
 			expect(listCurrentCenterAgentAuditJournalMock).toHaveBeenCalledTimes(1);
+			expect(readCurrentOrganizationProfileDirectoryMock).toHaveBeenCalledTimes(
+				1
+			);
 		});
+	});
+
+	it("starts model and memory reads while Center Agent identity is still loading", async () => {
+		renderSettings({ canManage: true, isDirectoryPending: true });
+		await waitFor(() => {
+			expect(readCurrentCenterAgentModelMock).toHaveBeenCalledTimes(1);
+			expect(
+				readCurrentOrganizationCenterAgentMemoryPolicyMock
+			).toHaveBeenCalledTimes(1);
+		});
+		expect(screen.queryByRole("button", { name: "Edit Identity" })).toBeNull();
+		expect(readCurrentOrganizationProfileDirectoryMock).not.toHaveBeenCalled();
 	});
 
 	it("lets an owner change organization memory from Center Agent settings", async () => {
@@ -605,6 +639,10 @@ describe("CenterAgentSettingsContent", () => {
 			organizationQueryKeys.directory(ORGANIZATION_ID),
 			buildDirectoryResponse()
 		);
+		queryClient.setQueryData(
+			organizationQueryKeys.centerAgentDirectory(ORGANIZATION_ID),
+			{ ...buildDirectoryResponse(), members: [] }
+		);
 		renderSettings({ canManage: true, queryClient });
 		fireEvent.click(
 			await screen.findByRole("button", { name: "Edit Identity" })
@@ -625,6 +663,14 @@ describe("CenterAgentSettingsContent", () => {
 			organizationQueryKeys.directory(ORGANIZATION_ID)
 		);
 		expect(cached?.agentProfiles[0]).toMatchObject({
+			profileHandle: "operations-center-agent",
+			profileName: "Operations Center Agent",
+		});
+		expect(
+			queryClient.getQueryData<OrganizationDirectoryResponse>(
+				organizationQueryKeys.centerAgentDirectory(ORGANIZATION_ID)
+			)?.agentProfiles[0]
+		).toMatchObject({
 			profileHandle: "operations-center-agent",
 			profileName: "Operations Center Agent",
 		});
@@ -694,16 +740,18 @@ describe("CenterAgentSettingsContent", () => {
 
 function renderSettings(input: {
 	canManage: boolean;
+	isDirectoryPending?: boolean;
 	isPersonalWorkspace?: boolean;
 	queryClient?: ReturnType<typeof createTestQueryClient>;
 }) {
 	return render(
 		<TestQueryClientProvider queryClient={input.queryClient}>
 			<CenterAgentSettingsContent
-				agentProfiles={buildDirectoryResponse().agentProfiles}
-				isDirectoryPending={false}
+				agentProfiles={
+					input.isDirectoryPending ? [] : buildDirectoryResponse().agentProfiles
+				}
+				isDirectoryPending={input.isDirectoryPending === true}
 				isPersonalWorkspace={input.isPersonalWorkspace === true}
-				members={buildDirectoryResponse().members}
 				memoryRoleState={{
 					canManage: input.canManage,
 					errorMessage: null,

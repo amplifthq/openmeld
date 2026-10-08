@@ -1,5 +1,6 @@
 import type { DesktopPlatform, DesktopSession } from "@openmeld/schemas";
 import { Button } from "@openmeld/ui/components/button";
+import { OpenMeldLoadingScreen } from "@openmeld/ui/components/openmeld-loading-screen";
 import { OPENMELD_LOGO_THEME_COLORS } from "@openmeld/ui/lib/openmeld-logo-theme";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useRouter, useSearch } from "@tanstack/react-router";
@@ -229,6 +230,10 @@ export function DesktopEntry() {
 		};
 	}, [bridge, router, returnPath, queryClient]);
 
+	if (pendingOperation === "session") {
+		return <OpenMeldLoadingScreen className="bg-[var(--app-canvas)]" />;
+	}
+
 	const copy = workspaceUnavailable
 		? {
 				title: "Workspace unavailable",
@@ -338,7 +343,7 @@ async function revalidateDesktopEntry(input: {
 
 function desktopEntryCopy(
 	available: boolean,
-	pending: "session" | "browser" | null,
+	pending: "browser" | null,
 	browserOpened: boolean,
 	signedOut: boolean
 ) {
@@ -355,13 +360,6 @@ function desktopEntryCopy(
 			description:
 				"Continue signing in with your OpenMeld account in the browser.",
 			action: "Opening browser…",
-		};
-	}
-	if (pending === "session") {
-		return {
-			title: "Opening your workspace",
-			description: "Checking your sign-in…",
-			action: "Please wait…",
 		};
 	}
 	if (!signedOut) {

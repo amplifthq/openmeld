@@ -7,6 +7,7 @@ import {
 import { cloneElement, type ReactElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	CurrentComputerMenuStatus,
 	CurrentComputerProvider,
 	CurrentComputerToolbarLauncher,
 } from "./current-computer";
@@ -22,6 +23,12 @@ const statusMock = vi.hoisted(() => vi.fn());
 const displaySnapshotQueryMock = vi.hoisted(() => vi.fn());
 const queryClientMock = vi.hoisted(() => ({ setQueryData: vi.fn() }));
 const desktopPlatformMock = vi.hoisted(() => vi.fn().mockReturnValue(null));
+const desktopConnectionMock = vi.hoisted(() =>
+	vi.fn().mockReturnValue({ data: undefined })
+);
+vi.mock("#/desktop/use-computer-connection", () => ({
+	useDesktopComputerConnection: desktopConnectionMock,
+}));
 
 vi.mock("#/desktop/platform", () => ({
 	getDesktopPlatform: desktopPlatformMock,
@@ -100,6 +107,7 @@ describe("CurrentComputerToolbarLauncher", () => {
 		displaySnapshotQueryMock.mockReset().mockReturnValue({ data: undefined });
 		queryClientMock.setQueryData.mockReset();
 		desktopPlatformMock.mockReset().mockReturnValue(null);
+		desktopConnectionMock.mockReset().mockReturnValue({ data: undefined });
 		useLocalRuntimeQueriesMock.mockReset().mockReturnValue(
 			buildRuntimeQueries({
 				currentDeviceId: "device-current",
@@ -109,6 +117,42 @@ describe("CurrentComputerToolbarLauncher", () => {
 	});
 
 	afterEach(cleanup);
+
+	it.each([
+		true,
+		false,
+	])("shows the menu badge for service connected=%s", (connected) => {
+		useLocalRuntimeQueriesMock.mockReturnValue(
+			buildRuntimeQueries({
+				currentDeviceId: "device-current",
+				readinessDeviceId: "device-current",
+				readinessServiceConnected: connected,
+			})
+		);
+		render(<CurrentComputerMenuStatus />);
+		expect(
+			screen.getByText(connected ? "Connected" : "Not connected")
+		).toBeTruthy();
+	});
+
+	it("does not label unresolved Computer status as disconnected", () => {
+		render(<CurrentComputerMenuStatus />);
+		expect(screen.queryByText("Not connected")).toBeNull();
+		expect(screen.queryByText("Connected")).toBeNull();
+	});
+
+	it("shows a warning dot without a badge or warning text in the menu", () => {
+		statusMock.mockReturnValue({
+			label: "Update available",
+			reason: "openmeld_tools_update",
+			showLabel: true,
+			tone: "warning",
+		});
+		render(<CurrentComputerMenuStatus />);
+		expect(screen.getByTestId("current-computer-toolbar-status")).toBeTruthy();
+		expect(screen.queryByText("Update available")).toBeNull();
+		expect(screen.queryByText("Connected")).toBeNull();
+	});
 
 	it("opens the current Computer detail directly from the far-left toolbar entry", () => {
 		render(<CurrentComputerToolbarLauncher />);
@@ -159,15 +203,46 @@ describe("CurrentComputerToolbarLauncher", () => {
 	it.each([
 		"device-current",
 		undefined,
-	])("opens the native connection check from Desktop regardless of browser selection: %s", (currentDeviceId) => {
+	])("opens the native Computer details regardless of browser selection: %s", (currentDeviceId) => {
 		desktopPlatformMock.mockReturnValue({});
+		desktopConnectionMock.mockReturnValue({
+			data: {
+				status: "available",
+				accountId: "user-current",
+				target: { deviceId: "native-device", runtimeLane: "prod" },
+			},
+		});
 		useLocalRuntimeQueriesMock.mockReturnValue(
 			buildRuntimeQueries({ currentDeviceId })
 		);
 		render(<CurrentComputerToolbarLauncher />);
 		expect(screen.getByRole("link").getAttribute("href")).toBe(
-			"/o/acme/connect"
+			"/o/acme/computers/native-device"
 		);
+	});
+
+	it.each([
+		"pending",
+		"error",
+		"unavailable",
+	])("does not substitute browser selection for a %s native connection", (state) => {
+		desktopPlatformMock.mockReturnValue({});
+		desktopConnectionMock.mockReturnValue({
+			isPending: state === "pending",
+			isError: state === "error",
+			data:
+				state === "unavailable"
+					? { status: "unavailable", message: "Not connected" }
+					: undefined,
+		});
+		render(<CurrentComputerToolbarLauncher />);
+		if (state === "unavailable") {
+			expect(screen.getByRole("link").getAttribute("href")).toBe(
+				"/o/acme/connect"
+			);
+		} else {
+			expect(screen.queryByRole("link")).toBeNull();
+		}
 	});
 
 	it("does not offer setup before Computer inventory finishes loading", () => {

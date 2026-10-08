@@ -1,3 +1,7 @@
+import {
+  getPostgresDatabase,
+  type PostgresDatabase,
+} from "@openmeld/db/postgresql";
 import { remoteAgentStreamDeltaCallbackResponseSchema } from "@openmeld/schemas";
 import type {
   RemoteAgentStreamDeltaCallbackBody,
@@ -6,7 +10,7 @@ import type {
   SpaceAgentStreamTerminalFrame,
 } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../../lib/bindings";
-import { wakeEvidenceDb } from "../../lib/bindings";
+
 import type {
   ApplySpaceAgentStreamDeltaInput,
   ApplySpaceAgentStreamPartInput,
@@ -18,13 +22,11 @@ import {
   type RemoteAgentNativeDeliveryRecord,
   readRemoteAgentNativeDeliveryBySubmissionId,
   recordRemoteAgentNativeDeliveryExecutionProgress,
-} from "../infrastructure/d1/native-delivery-ledger-repo";
+} from "../infrastructure/postgresql/native-delivery-ledger-repo";
 import { resolveRemoteAgentNativeDeliveryIdentityMismatch } from "./native-delivery-identity";
-
 export type RemoteAgentStreamCallbackBody =
   | RemoteAgentStreamDeltaCallbackBody
   | RemoteAgentStreamPartCallbackBody;
-
 export type AgentStreamSpaceStub = {
   rpcApplyAgentStreamDelta(
     input: ApplySpaceAgentStreamDeltaInput
@@ -36,7 +38,6 @@ export type AgentStreamSpaceStub = {
     input: CloseSpaceAgentStreamInput
   ): Promise<SpaceAgentStreamTerminalFrame | null>;
 };
-
 type ResolveRemoteAgentStreamCallbackTargetResult =
   | {
       kind: "space_target";
@@ -51,18 +52,18 @@ type ResolveRemoteAgentStreamCallbackTargetResult =
       kind: "response";
       response: RemoteAgentStreamDeltaCallbackResponse;
     };
-
 type RemoteAgentStreamCallbackResponseResult = Extract<
   ResolveRemoteAgentStreamCallbackTargetResult,
-  { kind: "response" }
+  {
+    kind: "response";
+  }
 >;
-
 export async function resolveRemoteAgentStreamCallbackTarget(input: {
   body: RemoteAgentStreamCallbackBody;
   env: CoreBindings;
-  partKind: "text" | "tool";
+  partKind: "text" | "tool" | "recovery";
 }): Promise<ResolveRemoteAgentStreamCallbackTargetResult> {
-  const db = wakeEvidenceDb(input.env);
+  const db = getPostgresDatabase(input.env);
   if (!db) {
     return reject("agent_stream.db_unavailable", input);
   }
@@ -130,7 +131,7 @@ export async function resolveRemoteAgentStreamCallbackTarget(input: {
     };
   }
   if (delivery.conversationKind === "message_channel") {
-    if (input.partKind === "tool") {
+    if (input.partKind !== "text") {
       return {
         kind: "response",
         response: remoteAgentStreamDeltaCallbackResponseSchema.parse({
@@ -141,7 +142,6 @@ export async function resolveRemoteAgentStreamCallbackTarget(input: {
     }
     return { delivery, kind: "message_channel_target" };
   }
-
   const stub = resolveSpaceStub(
     input.env.OPENMELD_SPACES,
     input.body.spaceId
@@ -153,14 +153,16 @@ export async function resolveRemoteAgentStreamCallbackTarget(input: {
   }
   return { kind: "space_target", delivery, stub };
 }
-
 async function resolveDeliveryWithExecutionProgress(input: {
   body: RemoteAgentStreamCallbackBody;
-  db: D1Database;
+  db: PostgresDatabase;
   delivery: RemoteAgentNativeDeliveryRecord;
-  partKind: "text" | "tool";
+  partKind: "text" | "tool" | "recovery";
 }): Promise<
-  | { delivery: RemoteAgentNativeDeliveryRecord; kind: "delivery" }
+  | {
+      delivery: RemoteAgentNativeDeliveryRecord;
+      kind: "delivery";
+    }
   | RemoteAgentStreamCallbackResponseResult
 > {
   let deliveryWithProgress: RemoteAgentNativeDeliveryRecord | null;
@@ -203,17 +205,16 @@ async function resolveDeliveryWithExecutionProgress(input: {
   }
   return { delivery: deliveryWithProgress, kind: "delivery" };
 }
-
 function retryExecutionEvidence(
   input: {
     body: RemoteAgentStreamCallbackBody;
-    partKind: "text" | "tool";
+    partKind: "text" | "tool" | "recovery";
   },
   dispatchId: string
 ): RemoteAgentStreamCallbackResponseResult {
   console.info("[core.remote_agent.stream_callback.retryable]", {
     event:
-      input.partKind === "tool"
+      input.partKind !== "text"
         ? CORE_LOG_EVENTS.remoteAgentStreamPartRejected
         : CORE_LOG_EVENTS.remoteAgentStreamDeltaRejected,
     dispatchId,
@@ -232,16 +233,15 @@ function retryExecutionEvidence(
     }),
   };
 }
-
 export function buildRemoteAgentStreamRejectedResponse(input: {
   body?: Partial<RemoteAgentStreamCallbackBody>;
   context?: Record<string, unknown>;
-  partKind: "text" | "tool";
+  partKind: "text" | "tool" | "recovery";
   reasonCode: string;
 }): RemoteAgentStreamDeltaCallbackResponse {
   console.info("[core.remote_agent.stream_callback.rejected]", {
     event:
-      input.partKind === "tool"
+      input.partKind !== "text"
         ? CORE_LOG_EVENTS.remoteAgentStreamPartRejected
         : CORE_LOG_EVENTS.remoteAgentStreamDeltaRejected,
     partKind: input.partKind,
@@ -258,7 +258,6 @@ export function buildRemoteAgentStreamRejectedResponse(input: {
     lastSequence: 0,
   });
 }
-
 export function buildRemoteAgentStreamId(submissionId: string): string;
 export function buildRemoteAgentStreamId(submissionId: null): null;
 export function buildRemoteAgentStreamId(
@@ -269,12 +268,11 @@ export function buildRemoteAgentStreamId(
 ): string | null {
   return submissionId ? `stream:${submissionId}` : null;
 }
-
 function reject(
   reasonCode: string,
   input: {
     body: RemoteAgentStreamCallbackBody;
-    partKind: "text" | "tool";
+    partKind: "text" | "tool" | "recovery";
   },
   context?: Record<string, unknown>
 ): RemoteAgentStreamCallbackResponseResult {

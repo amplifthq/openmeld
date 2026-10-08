@@ -34,9 +34,10 @@ export function drawCollaborationLoop(frame: LandingAsciiFrame) {
 	const { context, height, width } = frame;
 	const compact = width < 640;
 	const fontSize = clamp(width / 112, compact ? 6.5 : 7.5, 11);
-	const scale = Math.min(width * (compact ? 0.4655 : 0.361), height * 0.456);
-	const centerX = width * (compact ? 0.525 : 0.55);
-	const centerY = height * 0.52;
+	const scaleX = width * 0.3;
+	const scaleY = height * 0.43;
+	const centerX = width * 0.5;
+	const centerY = height * 0.5;
 	const rotationX = 0.73 + frame.pointerY * 0.07;
 	const rotationY = -0.24 + frame.pointerX * 0.08;
 	const rotationZ = -0.12;
@@ -77,7 +78,7 @@ export function drawCollaborationLoop(frame: LandingAsciiFrame) {
 
 		for (let stripIndex = 0; stripIndex < stripSteps; stripIndex += 1) {
 			const stripProgress = stripIndex / (stripSteps - 1);
-			const stripPosition = (stripProgress - 0.5) * 1.32;
+			const stripPosition = (stripProgress - 0.5) * 1.0;
 			const radius =
 				COLLABORATION_LOOP_MAJOR_RADIUS + stripPosition * cosineTwist;
 			const point = rotatePoint(
@@ -108,8 +109,8 @@ export function drawCollaborationLoop(frame: LandingAsciiFrame) {
 					1
 				),
 				character: ASCII_RAMP[characterIndex] ?? "·",
-				x: centerX + point.x * scale * perspective,
-				y: centerY + point.y * scale * 0.61 * perspective,
+				x: centerX + point.x * scaleX * perspective,
+				y: centerY + point.y * scaleY * 0.88 * perspective,
 				z: point.z,
 			});
 		}
@@ -125,75 +126,6 @@ export function drawCollaborationLoop(frame: LandingAsciiFrame) {
 	for (const glyph of glyphs) {
 		context.globalAlpha = glyph.alpha;
 		context.fillText(glyph.character, glyph.x, glyph.y);
-	}
-
-	context.globalAlpha = 1;
-}
-
-export function drawAgentActivityField(frame: LandingAsciiFrame) {
-	const { context, height, width } = frame;
-	const compact = width < 640;
-	const cellSize = compact ? 12 : 14;
-	const fontSize = compact ? 8 : 9;
-	const laneCount = 5;
-	const columnCount = Math.ceil(width / cellSize);
-	const rowCount = Math.ceil(height / cellSize);
-
-	context.clearRect(0, 0, width, height);
-	context.fillStyle = frame.color;
-	context.font = `500 ${fontSize}px ${frame.fontFamily}`;
-	context.textAlign = "center";
-	context.textBaseline = "middle";
-
-	for (let row = 0; row < rowCount; row += 1) {
-		for (let column = 0; column < columnCount; column += 1) {
-			const noise = stableNoise(column, row);
-			if (noise < 0.82) {
-				continue;
-			}
-
-			context.globalAlpha = 0.055 + noise * 0.05;
-			context.fillText(
-				ASCII_RAMP[Math.floor(noise * 4)] ?? "·",
-				column * cellSize + cellSize / 2,
-				row * cellSize + cellSize / 2
-			);
-		}
-	}
-
-	for (let lane = 0; lane < laneCount; lane += 1) {
-		const laneProgress =
-			(frame.timeSeconds * (0.035 + lane * 0.004) + lane * 0.17) % 1;
-		const laneSpacing = height / (laneCount + 0.25);
-		const laneCenter = (laneCount - 1) / 2;
-		const baseY = height / 2 + (lane - laneCenter) * laneSpacing;
-		const amplitude = Math.min(18, height * 0.055);
-
-		for (let column = 0; column <= columnCount; column += 1) {
-			const x = column * cellSize;
-			const normalizedX = x / Math.max(width, 1);
-			const wave =
-				Math.sin(normalizedX * TAU * (1.2 + lane * 0.08) + lane * 0.7) *
-				amplitude;
-			const packet = circularPulse(normalizedX, laneProgress, 0.07);
-			const handoff = circularPulse(
-				normalizedX,
-				wrapProgress(laneProgress + 0.45),
-				0.035
-			);
-			const intensity = clamp(0.16 + packet * 0.82 + handoff * 0.4, 0, 1);
-			const characterIndex = Math.min(
-				ASCII_RAMP.length - 1,
-				Math.floor(intensity * ASCII_RAMP.length)
-			);
-
-			context.globalAlpha = 0.14 + intensity * 0.72;
-			context.fillText(
-				ASCII_RAMP[characterIndex] ?? "·",
-				x,
-				baseY + wave + Math.sin(frame.timeSeconds * 0.4 + column * 0.08) * 2
-			);
-		}
 	}
 
 	context.globalAlpha = 1;
@@ -234,11 +166,6 @@ function circularPulse(value: number, center: number, radius: number) {
 	const directDistance = Math.abs(value - center);
 	const distance = Math.min(directDistance, 1 - directDistance);
 	return Math.exp(-((distance / radius) ** 2));
-}
-
-function stableNoise(x: number, y: number) {
-	const raw = Math.sin(x * 12.9898 + y * 78.233) * 43_758.5453;
-	return raw - Math.floor(raw);
 }
 
 function wrapProgress(value: number) {

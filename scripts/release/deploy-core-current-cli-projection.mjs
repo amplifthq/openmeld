@@ -18,6 +18,7 @@ import {
   describeLocalComponentsAvailabilityCatalog,
   readLocalComponentsAvailabilityCatalog,
 } from "./local-components-availability.mjs";
+import { cutoverConfigArgs } from "./postgresql-cutover-config.mjs";
 import {
   probeCliBinaryStage,
   probeCoreProjectionStage,
@@ -373,6 +374,7 @@ export async function deployCoreWithCurrentCliProjection(input = {}) {
     return target;
   }
   const releaseSteps = buildCoreVersionReleaseStepSpecs({
+    configArgs: cutoverConfigArgs("core", { cwd, env }),
     trafficPercent: admissionEvidence.trafficPercent,
     versionId: admissionEvidence.versionId,
     wranglerConfigSource: adapters.readCoreWranglerConfig(),

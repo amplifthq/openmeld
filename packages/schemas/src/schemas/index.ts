@@ -62,6 +62,12 @@ export {
   organizationMemberPresenceWriteResponseSchema,
 } from "./http/organization-member-presence";
 export {
+  pluginActionRequestCommandRpcSchema,
+  pluginActionRequestCommandSchema,
+  pluginActionRequestIntentSchema,
+  pluginActionRequestViewSchema,
+} from "./http/plugin-action-requests";
+export {
   resolveSpaceFileStreamMetadata,
   spaceFileStreamMetadataSchema,
   spaceFileStreamOptionsSchema,
@@ -91,6 +97,11 @@ export { messageChannelCardHistorySchema } from "./runtime/message-channel-card-
 
 export const OPENMELD_SCHEMA_VERSION = 1 as const;
 
+export {
+  spaceEvidenceReferenceSchema,
+  spaceEvidenceReferencesSchema,
+  spaceThreadEvidenceRequestSchema,
+} from "../space-evidence";
 export { agentControllerCollaborationModeSchema } from "./agent-controller-collaboration-mode";
 export { agentControllerPermissionModeSchema } from "./agent-controller-permission-mode";
 export { agentProfileWorkRecoveryActionKindSchema } from "./agent-profile-work-recovery";
@@ -555,6 +566,8 @@ export {
   RUNTIME_COORDINATOR_TOKEN_AUTHORITY_MODEL_VERSION,
   RUNTIME_COORDINATOR_TOKEN_DIAGNOSTIC_MODEL_VERSION,
   RUNTIME_COORDINATOR_TOKEN_SECRET_FIELD_NAMES,
+  runtimeCoordinatorExecutionAccessRequestSchema,
+  runtimeCoordinatorExecutionAccessResponseSchema,
   runtimeCoordinatorExecutionTokenAuthorityRecordSchema,
   runtimeCoordinatorExecutionTokenEchoSchema,
   runtimeCoordinatorExecutionTokenEnvelopeSchema,
@@ -785,6 +798,7 @@ export {
   OPENMELD_DAEMON_SERVICE_UPDATE_JOB_SCHEMA,
   storedDaemonServiceUpdateJobSchema,
 } from "./daemon/service-update-job";
+export * from "./daemon/session-history";
 export {
   isOriginalErrorSafeForMessageDetails,
   OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
@@ -1192,9 +1206,14 @@ export {
   centerAgentUpdateSpaceSettingsResponseSchema,
   centerAgentWakeAgentProfilesInSpaceBodySchema,
   centerAgentWakeAgentProfilesInSpaceResponseSchema,
+  centerAgentWakeAgentProfilesInSpacesBodySchema,
+  centerAgentWakeAgentProfilesInSpacesResponseSchema,
   centerAgentWakePublicationCommandSchema,
   centerAgentWatchAgentTaskBodySchema,
   centerAgentWatchAgentTaskResponseSchema,
+  connectorActionTerminalReceiptSchema,
+  connectorActionVerificationEvidenceSchema,
+  connectorActionVerificationReferenceSchema,
   designateCenterAgentBodySchema,
   designateCenterAgentResponseSchema,
   ensureMessageChannelMemberOrganizationMembershipRpcInputSchema,
@@ -1399,12 +1418,18 @@ export {
   listCenterAgentRoutineTargetSpacesQuerySchema,
   listCenterAgentRoutineTargetSpacesResponseSchema,
   listCenterAgentRoutineTargetSpacesRpcInputSchema,
+  listRoutineManagementResponseSchema,
   pauseCenterAgentRoutineBodySchema,
   pauseCenterAgentRoutineResponseSchema,
   pauseCenterAgentRoutineRpcInputSchema,
+  ROUTINE_MANAGEMENT_CONTRACT,
   resumeCenterAgentRoutineBodySchema,
   resumeCenterAgentRoutineResponseSchema,
   resumeCenterAgentRoutineRpcInputSchema,
+  routineExecutorKindSchema,
+  routineLocalSubmissionSchema,
+  routineManagementSchema,
+  routineScopeSchema,
   updateCenterAgentRoutineBodySchema,
   updateCenterAgentRoutineResponseSchema,
   updateCenterAgentRoutineRpcInputSchema,
@@ -1463,6 +1488,7 @@ export {
   OPENMELD_MACOS_CLI_SIGNING_REQUIREMENT,
   resolveCliBinaryPlatform,
 } from "./http/cli-binary-manifest";
+export { connectorActionReplayPermissionSchema } from "./http/connector-action-replay";
 export {
   buildConnectorAppRequestProviderKey,
   CENTER_AGENT_APP_CONNECTOR_SERVICES,
@@ -1496,6 +1522,7 @@ export {
   connectorDisconnectResponseSchema,
   connectorOrganizationContextQuerySchema,
   connectorServiceSchema,
+  connectorServicesResponseSchema,
   createConnectorAppRequestBodySchema,
   githubAppInstallationIdSchema,
   githubAppInstallationSetupQuerySchema,
@@ -1572,6 +1599,7 @@ export {
   copyFileRootRevisionBodySchema,
   copyFileRootRevisionResponseSchema,
   copyFileRootToSpaceBodySchema,
+  copyOwnMessageExcerptBodySchema,
   fileRootEntryResponseSchema,
   fileRootEntrySchema,
   fileRootFileDescriptorSchema,
@@ -2007,6 +2035,10 @@ export {
   pluginActionRpcInputSchema,
 } from "./http/plugin-actions";
 export {
+  pluginDelegationAuthorizationSchema,
+  pluginDelegationRequestSchema,
+} from "./http/plugin-delegation";
+export {
   connectorActionOutcomeUnknownSchema,
   pluginActionEffectSchema,
   pluginRuntimeRequestSchema,
@@ -2043,12 +2075,14 @@ export {
   AGENT_PROFILE_CREATION_IDEMPOTENCY_KEY_MAX_LENGTH,
   additionalHumanProfileCreationDisabledErrorResponseSchema,
   additionalHumanProfileCreationDisabledRpcErrorResponseSchema,
+  agentAvatarOptionsSchema,
   agentAvatarStyleSchema,
   authProfileKindSchema,
   authProfileManagedRoleSchema,
   authProfileStatusSchema,
   authProfileViewSchema,
   CENTER_AGENT_BOT_AVATAR_TYPES,
+  centerAgentAvatarSelectionSchema,
   createAgentProfileBodySchema,
   createAgentProfileResponseSchema,
   createdAgentProfileActionResponseSchema,
@@ -2079,16 +2113,44 @@ export {
   createProjectBodySchema,
   createProjectResponseSchema,
   createProjectRpcInputSchema,
+  isLinearIssueCreateAction,
   listProjectsQuerySchema,
   listProjectsResponseSchema,
   listProjectsRpcInputSchema,
   PROJECT_NAME_MAX_CHARS,
+  PROJECT_RECENT_TASK_LIMIT,
   PROJECT_SLUG_MAX_CHARS,
+  projectCommonAgentsSchema,
+  projectIssueDestinationSchema,
+  projectIssueRoutingSchema,
+  projectRecentTaskSchema,
+  projectRepositorySettingsSchema,
   projectRouteParamsSchema,
   projectSchema,
   projectSlugSchema,
+  readLinearIssueActionDestination,
+  readLinearIssueReference,
+  readProjectCommonAgentsResponseSchema,
+  readProjectCommonAgentsRpcInputSchema,
+  readProjectIssueRoutingResponseSchema,
+  readProjectIssueRoutingRpcInputSchema,
+  readProjectRecentTasksResponseSchema,
+  readProjectRecentTasksRpcInputSchema,
+  readProjectRepositorySettingsResponseSchema,
+  readProjectRepositorySettingsRpcInputSchema,
   repositoryFingerprintSchema,
+  resolveProjectIssueActionResponseSchema,
+  resolveProjectIssueActionRpcInputSchema,
   updateProjectBodySchema,
+  updateProjectCommonAgentsBodySchema,
+  updateProjectCommonAgentsResponseSchema,
+  updateProjectCommonAgentsRpcInputSchema,
+  updateProjectIssueRoutingBodySchema,
+  updateProjectIssueRoutingResponseSchema,
+  updateProjectIssueRoutingRpcInputSchema,
+  updateProjectRepositorySettingsBodySchema,
+  updateProjectRepositorySettingsResponseSchema,
+  updateProjectRepositorySettingsRpcInputSchema,
   updateProjectResponseSchema,
   updateProjectRpcInputSchema,
 } from "./http/projects";
@@ -2315,6 +2377,7 @@ export {
   spaceEntryTargetSchema,
   spaceEntryViewSchema,
 } from "./http/space-entry";
+export { spaceThreadEvidenceResponseSchema } from "./http/space-evidence";
 export {
   spaceFileUpdateSettingsCommandSchema,
   spaceFileUpdateSettingsSchema,
@@ -2399,6 +2462,7 @@ export {
 } from "./http/space-files";
 export {
   spaceInputQueueMutationSchema,
+  spaceInputQueueOptionsSchema,
   spaceInputQueueResponseSchema,
 } from "./http/space-input-queue";
 export {
@@ -2474,6 +2538,7 @@ export {
   resolveInitialSpaceAccessMode,
   spaceCreatorSchema,
   spaceDirectMessageMetaSchema,
+  spaceEntryAccessResponseSchema,
   spaceMetaSchema,
   spaceOrganizationVisibilitySchema,
   spaceStorageUsageSchema,
@@ -2523,6 +2588,7 @@ export {
   mutateSpaceTaskBodySchema,
   SPACE_TASK_COMPLETION_CONDITION_MAX_CHARS,
   SPACE_TASK_COMPLETION_CONDITION_MAX_ITEMS,
+  SPACE_TASK_CONTRACT_UPDATE_REQUIRED_ERROR_CODE,
   SPACE_TASK_DESCRIPTION_MAX_CHARS,
   SPACE_TASK_ERROR_CODES,
   SPACE_TASK_EXTERNAL_WORK_ITEM_LIMIT_ERROR_CODE,
@@ -2536,6 +2602,7 @@ export {
   SPACE_TASK_REVIEW_FEEDBACK_MAX_CHARS,
   SPACE_TASK_REVISION_CONFLICT_ERROR_CODE,
   SPACE_TASK_TITLE_MAX_CHARS,
+  SPACE_TASK_WORKFLOW_CONTRACT_VERSION,
   spaceTaskActionSchema,
   spaceTaskActorSchema,
   spaceTaskDetailOptionsSchema,
@@ -2764,6 +2831,7 @@ export {
 } from "./protocol/agent-interaction";
 export {
   AGENT_STREAM_SNAPSHOT_MAX_CHARS,
+  agentStreamRecoveryPartSchema,
   agentStreamToolPartSchema,
   clearSpaceReasoningReplaySchema,
   spaceAgentActivitySchema,
@@ -3222,6 +3290,7 @@ export {
   spaceContractFieldsSchema,
   spaceContractSchema,
 } from "./space-mesh/space-contract";
+export { spaceMessageEvidenceRequestSchema } from "./space-mesh/space-message-evidence";
 export { spaceNoteSchema } from "./space-mesh/space-note";
 export {
   spaceThreadActionRefSchema,

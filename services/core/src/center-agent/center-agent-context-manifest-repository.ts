@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   centerAgentContextLoadSelectedEntrySchema,
   centerAgentContextManifestMaterializationSchema,
@@ -12,7 +13,6 @@ import {
   prepareCenterAgentAuditJournalEntryStatement,
   type ResolvedCenterAgentAttribution,
 } from "./center-agent-repository";
-
 export async function insertCenterAgentContextManifest(input: {
   actorProfileId: string;
   attribution: ResolvedCenterAgentAttribution;
@@ -20,7 +20,7 @@ export async function insertCenterAgentContextManifest(input: {
   clientName: string;
   continuationCursor: string | null;
   conversationSpaceId: string;
-  db: D1Database;
+  db: PostgresDatabase;
   estimatedTokenCount: number;
   includedMessageCount: number;
   manifestId: string;
@@ -47,10 +47,9 @@ export async function insertCenterAgentContextManifest(input: {
       type: "center_agent_context_manifest",
     },
   });
-  const manifestStatement = input.db
-    .prepare(
-      `
-        INSERT INTO center_agent_context_manifests (
+  const manifestStatement = {
+    text: `
+        INSERT INTO "openmeld"."center_agent_context_manifests" (
           id,
           organization_id,
           requested_by_profile_id,
@@ -69,10 +68,9 @@ export async function insertCenterAgentContextManifest(input: {
           audit_entry_id,
           created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `
-    )
-    .bind(
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+      `,
+    values: [
       input.manifestId,
       input.organizationId,
       input.requestedByProfileId,
@@ -89,31 +87,33 @@ export async function insertCenterAgentContextManifest(input: {
       input.continuationCursor,
       JSON.stringify(input.sourceRefs),
       input.auditEntryId,
-      input.nowMs
-    );
-  const materializationStatement = input.db
-    .prepare(
-      `
-        INSERT INTO center_agent_context_manifest_materializations (
+      input.nowMs,
+    ],
+  };
+  const materializationStatement = {
+    text: `
+        INSERT INTO "openmeld"."center_agent_context_manifest_materializations" (
           manifest_id,
           entries_json,
           created_at
         )
-        VALUES (?, ?, ?)
-      `
-    )
-    .bind(
+        VALUES ($1, $2, $3)
+      `,
+    values: [
       input.manifestId,
       JSON.stringify(input.materializations),
-      input.nowMs
-    );
-  await input.db.batch([
-    auditStatement,
-    manifestStatement,
-    materializationStatement,
-  ]);
+      input.nowMs,
+    ],
+  };
+  await input.db.transaction(
+    async (client) =>
+      [
+        await client.query(auditStatement),
+        await client.query(manifestStatement),
+        await client.query(materializationStatement),
+      ] as const
+  );
 }
-
 type CenterAgentContextManifestForLoadReceiptRow = {
   actor_profile_id: string;
   client_name: string;
@@ -122,7 +122,6 @@ type CenterAgentContextManifestForLoadReceiptRow = {
   organization_id: string;
   requested_by_profile_id: string;
 };
-
 export type CenterAgentContextManifestForLoadReceipt = {
   actorProfileId: string;
   clientName: string;
@@ -131,7 +130,6 @@ export type CenterAgentContextManifestForLoadReceipt = {
   organizationId: string;
   requestedByProfileId: string;
 };
-
 type CenterAgentContextLoadReceiptRow = {
   actor_profile_id: string;
   audit_entry_id: string;
@@ -145,7 +143,6 @@ type CenterAgentContextLoadReceiptRow = {
   requested_by_profile_id: string;
   selected_entries_json: string;
 };
-
 export type CenterAgentContextLoadReceiptRecord = {
   actorProfileId: string;
   auditEntryId: string;
@@ -159,16 +156,15 @@ export type CenterAgentContextLoadReceiptRecord = {
   requestedByProfileId: string;
   selectedEntries: CenterAgentContextLoadSelectedEntry[];
 };
-
 export async function readCenterAgentContextManifestForLoadReceipt(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   manifestId: string;
   organizationId: string;
   requestedByProfileId: string;
 }): Promise<CenterAgentContextManifestForLoadReceipt | null> {
   const row = await input.db
-    .prepare(
-      `
+    .query<CenterAgentContextManifestForLoadReceiptRow>({
+      text: `
         SELECT
           id,
           organization_id,
@@ -176,17 +172,21 @@ export async function readCenterAgentContextManifestForLoadReceipt(input: {
           actor_profile_id,
           manifest.client_name,
           materialization.entries_json AS materialized_entries_json
-        FROM center_agent_context_manifests AS manifest
-        LEFT JOIN center_agent_context_manifest_materializations AS materialization
+        FROM "openmeld"."center_agent_context_manifests" AS manifest
+        LEFT JOIN "openmeld"."center_agent_context_manifest_materializations" AS materialization
           ON materialization.manifest_id = manifest.id
-        WHERE manifest.id = ?
-          AND manifest.organization_id = ?
-          AND manifest.requested_by_profile_id = ?
+        WHERE manifest.id = $1
+          AND manifest.organization_id = $2
+          AND manifest.requested_by_profile_id = $3
         LIMIT 1
-      `
-    )
-    .bind(input.manifestId, input.organizationId, input.requestedByProfileId)
-    .first<CenterAgentContextManifestForLoadReceiptRow>();
+      `,
+      values: [
+        input.manifestId,
+        input.organizationId,
+        input.requestedByProfileId,
+      ],
+    })
+    .then((result) => result.rows[0] ?? null);
   if (!row) {
     return null;
   }
@@ -206,16 +206,15 @@ export async function readCenterAgentContextManifestForLoadReceipt(input: {
     requestedByProfileId: row.requested_by_profile_id,
   };
 }
-
 export async function readCenterAgentContextLoadReceiptByManifest(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   manifestId: string;
   organizationId: string;
   requestedByProfileId: string;
 }): Promise<CenterAgentContextLoadReceiptRecord | null> {
   const row = await input.db
-    .prepare(
-      `
+    .query<CenterAgentContextLoadReceiptRow>({
+      text: `
         SELECT
           id,
           organization_id,
@@ -228,24 +227,27 @@ export async function readCenterAgentContextLoadReceiptByManifest(input: {
           included_message_count,
           audit_entry_id,
           created_at
-        FROM center_agent_context_load_receipts
-        WHERE manifest_id = ?
-          AND organization_id = ?
-          AND requested_by_profile_id = ?
+        FROM "openmeld"."center_agent_context_load_receipts"
+        WHERE manifest_id = $1
+          AND organization_id = $2
+          AND requested_by_profile_id = $3
         LIMIT 1
-      `
-    )
-    .bind(input.manifestId, input.organizationId, input.requestedByProfileId)
-    .first<CenterAgentContextLoadReceiptRow>();
+      `,
+      values: [
+        input.manifestId,
+        input.organizationId,
+        input.requestedByProfileId,
+      ],
+    })
+    .then((result) => result.rows[0] ?? null);
   return row ? mapContextLoadReceiptRow(row) : null;
 }
-
 export async function insertCenterAgentContextLoadReceipt(input: {
   actorProfileId: string;
   attribution: ResolvedCenterAgentAttribution;
   auditEntryId: string;
   clientName: string;
-  db: D1Database;
+  db: PostgresDatabase;
   estimatedTokenCount: number;
   id: string;
   manifestId: string;
@@ -267,10 +269,9 @@ export async function insertCenterAgentContextLoadReceipt(input: {
       type: "center_agent_context_load_receipt",
     },
   });
-  const receiptStatement = input.db
-    .prepare(
-      `
-        INSERT INTO center_agent_context_load_receipts (
+  const receiptStatement = {
+    text: `
+        INSERT INTO "openmeld"."center_agent_context_load_receipts" (
           id,
           organization_id,
           manifest_id,
@@ -284,10 +285,9 @@ export async function insertCenterAgentContextLoadReceipt(input: {
           audit_entry_id,
           created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `
-    )
-    .bind(
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      `,
+    values: [
       input.id,
       input.organizationId,
       input.manifestId,
@@ -299,11 +299,17 @@ export async function insertCenterAgentContextLoadReceipt(input: {
       input.estimatedTokenCount,
       input.selectedEntries.length,
       input.auditEntryId,
-      input.nowMs
-    );
-  await input.db.batch([auditStatement, receiptStatement]);
+      input.nowMs,
+    ],
+  };
+  await input.db.transaction(
+    async (client) =>
+      [
+        await client.query(auditStatement),
+        await client.query(receiptStatement),
+      ] as const
+  );
 }
-
 function mapContextLoadReceiptRow(
   row: CenterAgentContextLoadReceiptRow
 ): CenterAgentContextLoadReceiptRecord {
@@ -325,14 +331,18 @@ function mapContextLoadReceiptRow(
     }),
   };
 }
-
 function parseJsonArray<T>(input: {
   json: string;
   label: string;
   schema: {
-    safeParse: (
-      value: unknown
-    ) => { data: T; success: true } | { success: false };
+    safeParse: (value: unknown) =>
+      | {
+          data: T;
+          success: true;
+        }
+      | {
+          success: false;
+        };
   };
 }): T[] {
   let value: unknown;

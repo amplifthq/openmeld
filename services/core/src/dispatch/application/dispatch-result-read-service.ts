@@ -1,11 +1,11 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import type { DispatchResult } from "@openmeld/schemas/types";
 import {
   getDispatchResultByDispatchId,
   getDispatchResultByResultRef,
 } from "./dispatch-result-service";
-
 export async function getSpaceDispatchResult(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   spaceId: string;
   dispatchId?: string;
   resultRef?: string;
@@ -17,7 +17,6 @@ export async function getSpaceDispatchResult(input: {
   if (selectorCount !== 1) {
     throw new Error("exactly one dispatch result selector is required");
   }
-
   let result: DispatchResult | null;
   if (dispatchId) {
     result = await getDispatchResultByDispatchId({
@@ -32,13 +31,11 @@ export async function getSpaceDispatchResult(input: {
   } else {
     throw new Error("exactly one dispatch result selector is required");
   }
-
   if (!result || result.spaceId !== input.spaceId) {
     return null;
   }
   return result;
 }
-
 function normalizeOptionalText(value: string | undefined): string | null {
   const normalized = String(value ?? "").trim();
   return normalized.length > 0 ? normalized : null;

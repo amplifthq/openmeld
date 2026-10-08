@@ -58,6 +58,20 @@ const CONFIGURED_AI_GATEWAY_ENV = {
 } as const;
 
 describe("remote agent model routing", () => {
+  it("bounds context deferral by a small route's input capacity", async () => {
+    const config = await resolveRemoteAgentModelRuntimeConfigForRegistration({
+      env: {},
+      modelRoute: {
+        ...TEST_CENTER_AGENT_MODEL_ROUTE,
+        contextWindow: 32_000,
+        maxOutputTokens: 8000,
+      },
+    });
+    expect(config.compaction.workingContextTokens).toBe(24_000);
+    expect(config.compaction.maxWorkingContextTokens).toBe(24_000);
+    expect(config.compaction.preserveActiveInput).toBe(true);
+    expect(config.compaction.thinkingLevel).toBe("low");
+  });
   let models = createModels();
   const streamRegisteredModel: typeof models.stream = (...args) =>
     models.stream(...args);
@@ -70,6 +84,91 @@ describe("remote agent model routing", () => {
     });
   });
   afterEach(() => vi.restoreAllMocks());
+  it.each([
+    "anthropic/claude-opus-5.5",
+    "openai/gpt-6-sol",
+    "google/gemini-2.5-pro",
+    "deepseek/deepseek-v4-flash",
+    "qwen/qwen-plus",
+    "z-ai/glm-5.3-flash",
+    "x-ai/grok-4.6",
+  ])("refreshes the outgoing clock for %s without moving accepted input", async (modelId) => {
+    resetProviderRuntime();
+    const payloads: Record<string, unknown>[] = [];
+    const clock = vi.spyOn(Date, "now").mockReturnValue(100_000);
+    const captureFetch = vi.fn<typeof fetch>((_url, init) => {
+      payloads.push(JSON.parse(String(init?.body)));
+      return Promise.reject(
+        new Error("Captured outgoing vendor payload before network dispatch")
+      );
+    });
+    try {
+      const runtime = await registerRemoteAgentCloudflareProvider({
+        env: {
+          ...CONFIGURED_AI_GATEWAY_ENV,
+          CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-token",
+        },
+        modelRoute: {
+          ...TEST_CENTER_AGENT_MODEL_ROUTE,
+          modelId,
+          preference: { kind: "selected_model", modelId },
+        },
+        organizationId: "org_clock",
+      });
+      const model = resolveModel(runtime.modelSpecifier);
+      const context = {
+        systemPrompt: "Stable system instruction.",
+        messages: [
+          {
+            role: "user" as const,
+            timestamp: 1,
+            content: "Request received at UTC: 1970-01-01T00:00:01.000Z",
+          },
+        ],
+      };
+      for (const nowMs of [100_000, 700_000]) {
+        clock.mockReturnValue(nowMs);
+        await streamRegisteredModel(model, context, {
+          apiKey: "unused",
+          fetch: captureFetch,
+          maxRetries: 0,
+        }).result();
+      }
+      expect(payloads).toHaveLength(2);
+      expect(JSON.stringify(payloads[0])).toContain("1970-01-01T00:01:40.000Z");
+      expect(JSON.stringify(payloads[1])).toContain("1970-01-01T00:11:40.000Z");
+      for (const payload of payloads) {
+        expect(JSON.stringify(payload)).toContain(
+          "Request received at UTC: 1970-01-01T00:00:01.000Z"
+        );
+        expect(
+          (payload.messages as { role: string; content: unknown }[]).filter(
+            (message) =>
+              message.role === "user" &&
+              typeof message.content === "string" &&
+              message.content.startsWith("[OpenMeld runtime clock]")
+          )
+        ).toHaveLength(1);
+        const clockMessage = (payload.messages as Record<string, unknown>[]).at(
+          -1
+        );
+        expect(clockMessage).toMatchObject({
+          role: "user",
+          content: expect.stringContaining("[OpenMeld runtime clock]"),
+        });
+        expect(clockMessage).not.toHaveProperty("cache_control");
+      }
+      const retainedMessages = (payload: Record<string, unknown> | undefined) =>
+        (payload?.messages as unknown[] | undefined)?.slice(0, -1);
+      expect(retainedMessages(payloads[1])).toEqual(
+        retainedMessages(payloads[0])
+      );
+      expect(context.messages).toHaveLength(1);
+      expect(context.systemPrompt).toBe("Stable system instruction.");
+    } finally {
+      resetProviderRuntime();
+    }
+  });
   it("registers GPT-5.4 mini from static metadata", async () => {
     let resolveRefresh: ((response: Response) => void) | undefined;
     const fetchModelMetadata = vi.fn(
@@ -88,6 +187,12 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toEqual({
       compaction: {
+        workingContextTokens: 48_000,
+        maxWorkingContextTokens: 56_000,
+        preserveActiveInput: true,
+        thinkingLevel: "low",
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 40_000,
       },
@@ -118,6 +223,12 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toEqual({
       compaction: {
+        workingContextTokens: 48_000,
+        maxWorkingContextTokens: 56_000,
+        preserveActiveInput: true,
+        thinkingLevel: "low",
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 340_000,
       },
@@ -428,6 +539,10 @@ describe("remote agent model routing", () => {
                 },
               ],
             },
+            {
+              role: "user",
+              content: expect.stringContaining("[OpenMeld runtime clock]"),
+            },
           ],
         });
         if (modelId.startsWith("anthropic/")) {
@@ -446,6 +561,10 @@ describe("remote agent model routing", () => {
           messages: [
             { content: "Stable system instruction." },
             { role: "user", content: "Current question." },
+            {
+              role: "user",
+              content: expect.stringContaining("[OpenMeld runtime clock]"),
+            },
           ],
         });
         expect(JSON.stringify(capturedPayload)).not.toContain("cache_control");
@@ -644,6 +763,12 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toEqual({
       compaction: {
+        workingContextTokens: 48_000,
+        maxWorkingContextTokens: 56_000,
+        preserveActiveInput: true,
+        thinkingLevel: "low",
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 64_000,
       },
@@ -672,6 +797,12 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toEqual({
       compaction: {
+        workingContextTokens: 48_000,
+        maxWorkingContextTokens: 56_000,
+        preserveActiveInput: true,
+        thinkingLevel: "low",
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 64_000,
       },
@@ -960,6 +1091,12 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toEqual({
       compaction: {
+        workingContextTokens: 48_000,
+        maxWorkingContextTokens: 56_000,
+        preserveActiveInput: true,
+        thinkingLevel: "low",
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 340_000,
       },
@@ -986,6 +1123,12 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toEqual({
       compaction: {
+        workingContextTokens: 48_000,
+        maxWorkingContextTokens: 56_000,
+        preserveActiveInput: true,
+        thinkingLevel: "low",
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 340_000,
       },
@@ -1014,6 +1157,12 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toEqual({
       compaction: {
+        workingContextTokens: 48_000,
+        maxWorkingContextTokens: 56_000,
+        preserveActiveInput: true,
+        thinkingLevel: "low",
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         // Compacts before the top provider's 1,048,576-token limit, not the
         // larger catalog context length.
@@ -1059,6 +1208,12 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toMatchObject({
       compaction: {
+        workingContextTokens: 48_000,
+        maxWorkingContextTokens: 56_000,
+        preserveActiveInput: true,
+        thinkingLevel: "low",
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 50_000,
       },
@@ -1092,6 +1247,12 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toMatchObject({
       compaction: {
+        workingContextTokens: 48_000,
+        maxWorkingContextTokens: 56_000,
+        preserveActiveInput: true,
+        thinkingLevel: "low",
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 340_000,
       },
@@ -1126,6 +1287,12 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toMatchObject({
       compaction: {
+        workingContextTokens: 48_000,
+        maxWorkingContextTokens: 56_000,
+        preserveActiveInput: true,
+        thinkingLevel: "low",
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 50_000,
       },
@@ -1209,6 +1376,12 @@ describe("remote agent model routing", () => {
       })
     ).resolves.toEqual({
       compaction: {
+        workingContextTokens: 48_000,
+        maxWorkingContextTokens: 56_000,
+        preserveActiveInput: true,
+        thinkingLevel: "low",
+        workingContextHeadroomTokens: 8000,
+        maxSummaryTokens: 4096,
         keepRecentTokens: 8000,
         reserveTokens: 40_000,
       },

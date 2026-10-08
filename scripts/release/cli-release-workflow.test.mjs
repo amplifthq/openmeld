@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -34,6 +41,7 @@ const DATABASE_PROBE_FAILED_ERROR_PATTERN =
   /could not prove that the Production database is current.*authentication failed/su;
 const DATABASE_PROBE_INCONCLUSIVE_ERROR_PATTERN =
   /could not prove that the Production database is current/su;
+const NATIVE_DATABASE_PROBE_ERROR = /PostgreSQL (journal|probe)/u;
 const REQUIRED_PRODUCTION_TRAIN_INPUT =
   /production_train_scopes:\n\s+description: [^\n]+\n\s+required: true\n\s+type: string/u;
 
@@ -238,15 +246,15 @@ test("blocks CLI and Core publication while Production D1 migrations are pending
   assert.ok(databaseGate < publish);
   assert.ok(
     source.includes(
-      'node ../release-control/scripts/release/require-production-db-current.mjs --release-source "$PWD"'
+      'node ../release-control/scripts/release/require-production-db-current.mjs --release-source "$PWD" --hosted-cli'
     )
   );
 });
 
-test("allows CLI/Core publication only from unambiguous no-pending migration evidence", () => {
+test("allows CLI/Core publication only from unambiguous no-pending migration evidence", async () => {
   const commands = [];
   assert.deepEqual(
-    requireProductionDatabaseCurrent({
+    await requireProductionDatabaseCurrent({
       cwd: "/release-source",
       runCommand: (command) => {
         commands.push(command);
@@ -285,8 +293,8 @@ test("allows CLI/Core publication only from unambiguous no-pending migration evi
   ]);
 });
 
-test("fails closed when the migration probe contradicts itself", () => {
-  assert.throws(
+test("fails closed when the migration probe contradicts itself", async () => {
+  await assert.rejects(
     () =>
       requireProductionDatabaseCurrent({
         cwd: "/release-source",
@@ -301,8 +309,60 @@ test("fails closed when the migration probe contradicts itself", () => {
   );
 });
 
-test("fails closed when migration evidence contradicts across output streams", () => {
-  assert.throws(
+test("native PostgreSQL publication requires its journal and runtime grant evidence without probing D1", async () => {
+  const cwd = mkdtempSync(path.join(tmpdir(), "pg-release-source-"));
+  mkdirSync(path.join(cwd, "release"));
+  writeFileSync(
+    path.join(cwd, "release/database-backend.json"),
+    '{"backend":"postgresql"}'
+  );
+  // The actual isolated native journal and grant checks are exercised by
+  // d1-remote.test.mjs. Here the subprocess boundary must preserve their refusal.
+  const evidence = {
+    target: { kind: "planetscale" },
+    runtimeGrantsVerified: true,
+    nativeJournal: [
+      { name: "0000_native_postgresql", checksum: "a".repeat(64) },
+    ],
+  };
+  let result = { status: 0, stdout: JSON.stringify(evidence) };
+  const probe = () =>
+    requireProductionDatabaseCurrent({
+      cwd,
+      runCommand(command) {
+        assert.equal(command.command, process.execPath);
+        assert.deepEqual(command.args, [
+          path.resolve(SCRIPT_DIR, "../../tooling/postgresql/cutover.mjs"),
+          "verify",
+        ]);
+        assert.equal(command.cwd, cwd);
+        return result;
+      },
+    });
+  try {
+    assert.equal((await probe()).status, "current");
+    for (const failure of [
+      { status: 1, stderr: "Native journal checksum differs" },
+      {
+        status: 0,
+        stdout: JSON.stringify({ ...evidence, runtimeGrantsVerified: false }),
+      },
+      { status: 0, stdout: JSON.stringify({ ...evidence, nativeJournal: [] }) },
+      {
+        status: 0,
+        stdout: JSON.stringify({ ...evidence, target: { kind: "local" } }),
+      },
+    ]) {
+      result = failure;
+      await assert.rejects(probe, NATIVE_DATABASE_PROBE_ERROR);
+    }
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("fails closed when migration evidence contradicts across output streams", async () => {
+  await assert.rejects(
     () =>
       requireProductionDatabaseCurrent({
         cwd: "/release-source",
@@ -316,8 +376,8 @@ test("fails closed when migration evidence contradicts across output streams", (
   );
 });
 
-test("blocks CLI/Core publication when Production D1 is behind", () => {
-  assert.throws(
+test("blocks CLI/Core publication when Production D1 is behind", async () => {
+  await assert.rejects(
     () =>
       requireProductionDatabaseCurrent({
         cwd: "/release-source",
@@ -331,8 +391,8 @@ test("blocks CLI/Core publication when Production D1 is behind", () => {
   );
 });
 
-test("fails closed when the migration probe itself fails", () => {
-  assert.throws(
+test("fails closed when the migration probe itself fails", async () => {
+  await assert.rejects(
     () =>
       requireProductionDatabaseCurrent({
         cwd: "/release-source",
@@ -346,12 +406,12 @@ test("fails closed when the migration probe itself fails", () => {
   );
 });
 
-test("fails closed when a successful migration probe has no decisive evidence", () => {
+test("fails closed when a successful migration probe has no decisive evidence", async () => {
   for (const stdout of [
     "",
     "Wrangler completed without a migration summary.\n",
   ]) {
-    assert.throws(
+    await assert.rejects(
       () =>
         requireProductionDatabaseCurrent({
           cwd: "/release-source",

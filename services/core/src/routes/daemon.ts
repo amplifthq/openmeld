@@ -1,3 +1,4 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY,
   daemonRouteObservationResponseSchema,
@@ -9,6 +10,8 @@ import {
   OPENMELD_REASONING_STREAM_HEADER,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
   SERVICE_CONNECTION_ID_QUERY_PARAMETER,
+  SESSION_HISTORY_CAPABILITY_HEADER,
+  SESSION_HISTORY_RUNTIME_CAPABILITY,
   SPACE_WORK_HANDOFF_CAPABILITY_HEADER,
   serviceConnectionDiagnosticIdSchema,
 } from "@openmeld/schemas";
@@ -21,6 +24,7 @@ import { lookupRuntimeTransportRoute } from "../dispatch/infrastructure/runtime-
 import { resolveRuntimeTransportOwnerShard } from "../dispatch/infrastructure/runtime-transport/runtime-transport-shard";
 import type { HonoBindings } from "../lib/bindings";
 import { RUNTIME_TRANSPORT_VERIFIED_OWNER_HEADER } from "../runtime-transport/infrastructure/runtime-transport-socket-attachment";
+import { resolveUserRequestTimeContext } from "../user-time-context/user-time-context-repository";
 
 export function registerDaemonRoutes(app: Hono<HonoBindings>): void {
   app.get("/v1/daemon/routes/:profileId", async (c) => {
@@ -98,6 +102,11 @@ export function registerDaemonRoutes(app: Hono<HonoBindings>): void {
     }
 
     const shard = resolveRuntimeTransportOwnerShard(c.env, ownerUserId);
+    await resolveUserRequestTimeContext({
+      db: getPostgresDatabase(c.env),
+      context: c.var.openMeldRequestContext,
+      submittedAtMs: Date.now(),
+    });
     const computerFileAccessCapability =
       c.req.header(OPENMELD_RUNTIME_CAPABILITIES_HEADER) ===
       COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY
@@ -134,6 +143,13 @@ export function registerDaemonRoutes(app: Hono<HonoBindings>): void {
             .map((header) => [header, "1"])
         ),
         [RUNTIME_TRANSPORT_VERIFIED_OWNER_HEADER]: ownerUserId,
+        ...(c.req.header(SESSION_HISTORY_CAPABILITY_HEADER) ===
+        SESSION_HISTORY_RUNTIME_CAPABILITY
+          ? {
+              [SESSION_HISTORY_CAPABILITY_HEADER]:
+                SESSION_HISTORY_RUNTIME_CAPABILITY,
+            }
+          : {}),
         ...(computerFileAccessCapability
           ? {
               [OPENMELD_RUNTIME_CAPABILITIES_HEADER]:

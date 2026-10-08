@@ -1,11 +1,15 @@
 "use client";
 
-import { findPluginDefinition } from "@openmeld/product-catalog/plugins";
+import {
+	findPluginDefinition,
+	pluginFromProvider,
+} from "@openmeld/product-catalog/plugins";
 import { pluginChannelRequestPreviewSchema } from "@openmeld/schemas";
 import { Button } from "@openmeld/ui/components/button";
 import { useQuery } from "@tanstack/react-query";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
+import { organizationPluginProviderCatalogQueryOptions } from "#/query/organizations/plugin-connections";
 import { PluginConnectionSetupPanel } from "./plugin-connection-message-card";
 
 /** This private request page reuses the same setup surface as Message UI.
@@ -16,7 +20,17 @@ export function PluginConnectionRequestPanel(input: {
 	requestId: string;
 }) {
 	const { currentOrganization, currentUserId } = useAppOrganization();
-	const plugin = findPluginDefinition(input.service);
+	const catalog = useQuery(
+		organizationPluginProviderCatalogQueryOptions({
+			organizationId: currentOrganization.id,
+		})
+	);
+	const provider = catalog.data?.providers.find(
+		(item) => item.service === input.service
+	);
+	const plugin = provider
+		? pluginFromProvider(provider)
+		: findPluginDefinition(input.service);
 	const preview = useQuery({
 		queryKey: [
 			"plugin-channel-request",
@@ -41,7 +55,7 @@ export function PluginConnectionRequestPanel(input: {
 				invalidMessage: "This setup request could not be verified.",
 			}),
 	});
-	if (preview.isPending) {
+	if (preview.isPending || (!plugin && catalog.isPending)) {
 		return <output>Checking the original request…</output>;
 	}
 	if (

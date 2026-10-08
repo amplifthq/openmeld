@@ -565,6 +565,12 @@ export const prepareSpaceFileWriteInputSchema = z.strictObject({
   // pre-feature create behavior, so old clients stay visible in the
   // default Files view without any required client-side change.
   origin: spaceFileOriginSchema.optional(),
+  // An explicit excerpt copy checks this audience again at the owning commit.
+  expectedAudienceProfileIds: z
+    .array(z.string().min(1).max(256))
+    .min(1)
+    .max(100)
+    .optional(),
 });
 
 export const prepareSpaceFileWriteResponseSchema = z.strictObject({

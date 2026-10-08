@@ -1,6 +1,5 @@
 import type { Executor } from "@cloudflare/codemode";
 import { createCodeTool } from "@cloudflare/codemode/ai";
-import type { SessionEnv } from "@flue/runtime";
 import {
   CENTER_AGENT_DELEGATION_COMPLETION_MODES,
   DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
@@ -26,11 +25,8 @@ import {
   createRemoteAgentCodeModeFlueTool,
   type RemoteAgentCodeModeRuntime,
 } from "../flue-adapter/code-mode";
+import { createNativeComputerTool } from "../flue-adapter/computer-native";
 import { createRemoteAgentReadToolResultDefinition } from "../flue-adapter/retained-tool-results";
-import {
-  getRemoteAgentSandboxToolDefinitions,
-  REMOTE_AGENT_SANDBOX_TOOL_NAMES,
-} from "../flue-adapter/sandbox-tools";
 import {
   createRemoteAgentStreamPublisher,
   type RemoteAgentStreamPublisher,
@@ -130,6 +126,7 @@ describe("Remote Agent Code Mode", () => {
         {
           status: "outcome_unknown",
           operationId: "comment-2",
+          replay: { allowed: false, reason: "window_unverified" },
           message: expect.stringContaining("Do not retry this write"),
         },
         { status: "completed", operationId: "comment-3" },
@@ -180,9 +177,14 @@ describe("Remote Agent Code Mode", () => {
     };
     const text = `${"start\\n".repeat(30_000)}UNIQUE_RAW_LOG_MIDDLE${"end\\n".repeat(30_000)}`;
     const exec = vi.fn(async () => ({ stdout: text, stderr: "", exitCode: 0 }));
-    const definitions = getRemoteAgentSandboxToolDefinitions({
-      env: { exec } as unknown as SessionEnv,
-    });
+    const definitions: RemoteAgentToolDefinition[] = [
+      {
+        name: "bash",
+        description: "Run a command",
+        input: strictObject({ command: string() }),
+        execute: exec,
+      },
+    ];
     const reader = createRemoteAgentReadToolResultDefinition({
       storage,
       coreWorker,
@@ -443,6 +445,80 @@ describe("Remote Agent Code Mode", () => {
     await running;
     expect(following).not.toHaveBeenCalled();
   });
+  it("lets personal Agents discover and request session history without bypassing authorization", async () => {
+    const storage = await createStorage(createSubmitTurnRequest());
+    const authorize = vi.fn(async () => ({ kind: "authorize" }));
+    const read = vi.fn(async () => ({
+      kind: "error" as const,
+      code: "denied" as const,
+      message: "History access is disabled.",
+    }));
+    const runtime = createRuntime({
+      executorOptions: [],
+      execute: async (tools) => {
+        const tool = tools.openmeld_read_session_history;
+        if (!tool?.execute) {
+          throw new Error("Session history is unavailable");
+        }
+        return {
+          result: await tool.execute(
+            {
+              computerId: "computer-1",
+              projectId: "project-1",
+              sessionId: "session-1",
+            },
+            TOOL_OPTIONS
+          ),
+        };
+      },
+    });
+    const catalog = await getRemoteAgentFlueTools({
+      personalAgent: true,
+      agentActivityReadEnabled: true,
+      storage,
+      submissionId: SUBMISSION_ID,
+      coreWorker: {
+        personalRemoteAgentSpaceTool: authorize,
+        agentSessionHistory: read,
+      },
+      env: { LOADER: {} as WorkerLoader },
+      codeModeRuntime: runtime,
+    });
+    expect(catalog.capabilities.map((tool) => tool.name)).toEqual(
+      expect.arrayContaining([
+        "openmeld_list_agent_activity_sessions",
+        "openmeld_read_session_history",
+      ])
+    );
+    const codeMode = catalog.tools.find((tool) => tool.name === "codemode");
+    if (!codeMode) {
+      throw new Error("Code Mode is unavailable");
+    }
+    const run = () =>
+      codeMode.run({
+        data: { code: "read history" },
+        log: console,
+        toolCallId: "personal-history",
+      });
+    await run();
+    expect(read).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        computerId: "computer-1",
+        request: {
+          operation: "read_session",
+          projectId: "project-1",
+          sessionId: "session-1",
+          offset: 0,
+          limit: 20,
+        },
+      })
+    );
+    authorize.mockRejectedValue(
+      new Error("remote_agent.space_membership_revoked")
+    );
+    await expect(run()).rejects.toThrow("space_membership_revoked");
+    expect(read).toHaveBeenCalledTimes(1);
+  });
   it("checks personal execution authority before direct and Code Mode computer calls", async () => {
     const storage = await createStorage(createSubmitTurnRequest());
     const execute = vi.fn(async () => ({ result: "computer-result" }));
@@ -450,7 +526,7 @@ describe("Remote Agent Code Mode", () => {
     const runtime = createRuntime({
       executorOptions: [],
       execute: async (tools) => {
-        const tool = tools.read;
+        const tool = tools.computer;
         if (!tool?.execute) {
           throw new Error("Computer missing from Code Mode");
         }
@@ -468,7 +544,7 @@ describe("Remote Agent Code Mode", () => {
       codeModeRuntime: runtime,
       sandboxDefinitions: [
         {
-          name: "read",
+          name: "computer",
           description: "Use computer",
           input: strictObject({ code: string() }),
           execute,
@@ -480,7 +556,7 @@ describe("Remote Agent Code Mode", () => {
     expect(names).not.toContain("openmeld_read_org_documents");
     expect(names).not.toContain("openmeld_create_project");
     expect(names).not.toContain("openmeld_create_routine");
-    const direct = tools.find((tool) => tool.name === "read");
+    const direct = tools.find((tool) => tool.name === "computer");
     const codeMode = tools.find((tool) => tool.name === "codemode");
     if (!(direct && codeMode)) {
       throw new Error("Expected both execution paths");
@@ -1251,64 +1327,51 @@ describe("Remote Agent Code Mode", () => {
     warn.mockRestore();
   });
 
-  it("composes the exact active Sandbox tools inside Code Mode", async () => {
-    const request = createSubmitTurnRequest();
-    const storage = await createStorage(request);
-    const exec = vi.fn(async () => ({
-      exitCode: 0,
-      stderr: "",
-      stdout: "sandbox-composition-ok\n",
+  it("composes the personal Computer interface inside Code Mode", async () => {
+    const storage = await createStorage(createSubmitTurnRequest());
+    const execute = vi.fn(async () => ({
+      kind: "files",
+      result: { isError: false, content: [{ type: "text", text: "hello" }] },
     }));
-    const definitions = getRemoteAgentSandboxToolDefinitions({
-      env: { exec } as unknown as SessionEnv,
+    const definition = createNativeComputerTool({
+      invocationId: SUBMISSION_ID,
+      workingDirectory: "/computer/tasks/test",
+      workspaceAccess: {
+        computerOperation: execute,
+        withWorkspace: () => {
+          throw new Error("Use the operation owner");
+        },
+      },
     });
     const runtime = createRuntime({
-      execute: async (tools) => {
-        const bash = tools.bash;
-        if (!bash?.execute) {
-          throw new Error("Code Mode Sandbox bash tool is unavailable.");
-        }
-        const executeBash = bash.execute as (
-          input: Record<string, unknown>
-        ) => PromiseLike<unknown> | unknown;
-        return {
-          result: await executeBash({
-            command: "printf 'sandbox-composition-ok\\n'",
-          }),
-        };
-      },
+      execute: async (tools) => ({
+        result: await tools.computer?.execute?.(
+          {
+            action: "files",
+            tool: "read",
+            input: { path: "/computer/home/test.txt" },
+          },
+          TOOL_OPTIONS
+        ),
+      }),
       executorOptions: [],
     });
     const tool = await createRemoteAgentCodeModeFlueTool({
-      definitions,
+      definitions: [definition],
       env: {},
       loader: {} as WorkerLoader,
       runtime,
       storage,
       submissionId: SUBMISSION_ID,
     });
-
-    expect(definitions.map((definition) => definition.name)).toEqual(
-      REMOTE_AGENT_SANDBOX_TOOL_NAMES
-    );
-    expect(tool.description).toContain("bash");
     await expect(
-      runCodeModeTool(tool, {
-        input: {
-          code: `async () => codemode.bash({ command: "printf 'sandbox-composition-ok\\\\n'" })`,
-        },
-      })
-    ).resolves.toEqual({
-      result: {
-        exitCode: 0,
-        stderr: "",
-        stdout: "sandbox-composition-ok\n",
-      },
+      runCodeModeTool(tool, { input: { code: "async () => null" } })
+    ).resolves.toMatchObject({ result: { kind: "files" } });
+    expect(execute).toHaveBeenCalledWith({
+      action: "files",
+      tool: "read",
+      input: { path: "/computer/home/test.txt" },
     });
-    expect(exec).toHaveBeenCalledWith(
-      "printf 'sandbox-composition-ok\\n'",
-      expect.objectContaining({ signal: undefined })
-    );
   });
 });
 

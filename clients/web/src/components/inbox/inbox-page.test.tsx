@@ -105,7 +105,7 @@ class TestIntersectionObserver implements IntersectionObserver {
 		/* The test retains only the current sentinel. */
 	}
 	disconnect(): void {
-		/* Browser cleanup is exercised by React unmount. */
+		intersectionCallback = null;
 	}
 	takeRecords(): IntersectionObserverEntry[] {
 		return [];
@@ -127,6 +127,39 @@ afterEach(() => {
 });
 
 describe("canonical Inbox attention page", () => {
+	it("marks a single item read immediately from its visible quick action and restores a failed save", async () => {
+		const message = item({ title: "Standalone update" });
+		let rejectRead: (error: Error) => void = () => undefined;
+		mocks.read.mockImplementation(
+			() =>
+				new Promise((_resolve, reject) => {
+					rejectRead = reject;
+				})
+		);
+		renderPage({ rows: [row(message)] });
+		fireEvent.click(
+			screen.getByRole("button", { name: "Mark Standalone update as read" })
+		);
+		await waitFor(() =>
+			expect(
+				screen
+					.getByRole("button", { name: "Standalone update: Read" })
+					.hasAttribute("disabled")
+			).toBe(true)
+		);
+		expect(mocks.navigate).not.toHaveBeenCalled();
+		act(() => {
+			rejectRead(new Error("Save failed"));
+		});
+		await waitFor(() =>
+			expect(
+				screen
+					.getByRole("button", { name: "Mark Standalone update as read" })
+					.hasAttribute("disabled")
+			).toBe(false)
+		);
+	});
+
 	it("reads installed system updates in place without navigating to a selected update", async () => {
 		const update = item({
 			id: "installed",
@@ -312,7 +345,8 @@ describe("canonical Inbox attention page", () => {
 				.getByText(normal.title)
 				.closest("li")
 				?.querySelector("[data-inbox-status-dot]")
-		).toBeNull();
+				?.getAttribute("data-inbox-status-dot")
+		).toBe("warning");
 		expect(
 			screen.getByText(priority.title).querySelector("[data-inbox-status-dot]")
 		).toBeNull();
@@ -345,14 +379,14 @@ describe("canonical Inbox attention page", () => {
 			importance: "normal",
 			resolutionStatus: "open",
 			read: false,
-			indicator: "unread",
+			indicator: "warning",
 		},
 		{
 			attention: "action_required",
 			importance: "normal",
 			resolutionStatus: "open",
 			read: true,
-			indicator: null,
+			indicator: "warning",
 		},
 		{
 			attention: "action_required",
@@ -447,6 +481,80 @@ describe("canonical Inbox attention page", () => {
 				conversationType: "direct_messages",
 				cursor: "next-page",
 			})
+		);
+	});
+
+	it("keeps visible rows and waits for background refresh before loading older items", async () => {
+		const first = row(item({ id: "first", title: "Visible update" }));
+		const next = row(item({ id: "next", title: "Older update" }));
+		const { queryClient, queryKey } = renderPage({
+			rows: [first],
+			nextRows: [next],
+		});
+		await waitFor(() => expect(observed).toHaveBeenCalled());
+		let finishRefresh!: (response: InboxFeedResponse) => void;
+		mocks.feed.mockImplementationOnce(
+			() =>
+				new Promise<InboxFeedResponse>((resolve) => {
+					finishRefresh = resolve;
+				})
+		);
+		let refresh!: Promise<void>;
+		act(() => {
+			refresh = queryClient.invalidateQueries({ queryKey });
+		});
+		await waitFor(() => expect(mocks.feed).toHaveBeenCalledTimes(1));
+		await waitFor(() => expect(intersectionCallback).toBeNull());
+		expect(screen.getByText("Visible update")).toBeTruthy();
+		expect((observed.mock.calls.at(-1)?.[0] as Element).isConnected).toBe(
+			false
+		);
+		expect(mocks.feed).toHaveBeenCalledTimes(1);
+		await act(async () => {
+			finishRefresh(page([first], "next-page"));
+			await refresh;
+		});
+		await waitFor(() => expect(intersectionCallback).not.toBeNull());
+		intersect();
+		expect(await screen.findByText("Older update")).toBeTruthy();
+	});
+
+	it("shows an expired saved view but waits for a fresh snapshot before bulk actions", async () => {
+		const original = row(item({ id: "saved", title: "Saved update" }));
+		const { queryClient, queryKey } = renderPage({ rows: [original] });
+		act(() =>
+			queryClient.setQueryData(queryKey, {
+				pageParams: [undefined],
+				pages: [
+					{
+						...page([original]),
+						snapshotExpiresAt: new Date(Date.now() - 1).toISOString(),
+					},
+				],
+			})
+		);
+		await waitFor(() =>
+			expect(
+				(
+					screen.getByRole("button", {
+						name: "Mark 1 item as read",
+					}) as HTMLButtonElement
+				).disabled
+			).toBe(true)
+		);
+		expect(screen.getByText("Saved update")).toBeTruthy();
+		expect(mocks.selection).not.toHaveBeenCalled();
+		await act(async () => {
+			await queryClient.invalidateQueries({ queryKey });
+		});
+		await waitFor(() =>
+			expect(
+				(
+					screen.getByRole("button", {
+						name: "Mark 1 item as read",
+					}) as HTMLButtonElement
+				).disabled
+			).toBe(false)
 		);
 	});
 
@@ -882,7 +990,7 @@ function page(
 	return {
 		organizationId: "organization-123",
 		snapshotId: "snapshot",
-		snapshotExpiresAt: "2026-09-18T02:00:00Z",
+		snapshotExpiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
 		nextCursor,
 		selectionUnreadCount: rows.reduce(
 			(n, current) => n + current.unreadCount,

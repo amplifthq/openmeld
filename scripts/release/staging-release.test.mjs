@@ -36,7 +36,7 @@ test("explicitly keeps existing containers only for Remote Agent deployments", (
   assert.throws(() =>
     parseStagingReleaseArgs(["verify", "--containers-rollout=none"])
   );
-  for (const scope of ["auth", "web", "website"]) {
+  for (const scope of ["auth", "web", "website", "docs"]) {
     assert.throws(() =>
       parseStagingReleaseArgs([
         "deploy",
@@ -93,12 +93,14 @@ test("deploys isolated prerequisites, database, secrets, and Workers in order", 
       "Create staging prerequisites",
       "Create staging Worker identities",
       "Apply staging database migrations",
+      "Grant staging runtime access",
       "Deploy staging Auth",
       "Deploy staging Core",
       "Deploy staging Gateway",
       "Deploy staging Web",
       "Deploy staging Remote Agent",
       "Deploy staging Website",
+      "Deploy staging Docs",
       "Verify staging resources",
       "Verify staging user entry points",
     ]
@@ -112,7 +114,18 @@ test("deploys isolated prerequisites, database, secrets, and Workers in order", 
 
   const commandArguments = steps.flatMap((step) => step.args ?? []);
   assert.equal(commandArguments.includes("staging"), true);
-  assert.equal(commandArguments.includes("stg"), true);
+  assert.equal(commandArguments.includes("component:stg"), true);
+  assert.equal(commandArguments.includes("d1"), false);
+  assert.deepEqual(steps[4].args, [
+    "tooling/postgresql/cloud.mjs",
+    "migrate",
+    "staging",
+  ]);
+  assert.deepEqual(steps[5].args, [
+    "tooling/postgresql/cloud.mjs",
+    "grant-runtime",
+    "staging",
+  ]);
   assert.equal(commandArguments.includes("prod"), false);
   assert.equal(
     steps
@@ -141,6 +154,23 @@ test("verifies the same staging resources without mutating them", () => {
 });
 
 test("deploys one non-database Worker without redeploying unrelated components", () => {
+  const docsSteps = buildStagingDeployStepSpecs({ scope: "docs" });
+  assert.deepEqual(
+    docsSteps.map((step) => step.label),
+    [
+      "Verify staging environment contracts",
+      "Deploy staging Docs",
+      "Verify staging Docs entry points",
+    ]
+  );
+  assert.equal(
+    docsSteps.flatMap((step) => step.args ?? []).includes("component:stg"),
+    true
+  );
+  assert.equal(
+    docsSteps.flatMap((step) => step.args ?? []).includes("docs"),
+    true
+  );
   const webSteps = buildStagingDeployStepSpecs({ scope: "web" });
   assert.deepEqual(
     webSteps.map((step) => step.label),

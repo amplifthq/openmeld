@@ -79,7 +79,7 @@ export type CodexCancelSignalFn = (
 
 type CodexAppServerActiveTurn = Pick<
   CodexAppServerActiveTurnRegistration,
-  "interrupt" | "steer" | "threadId" | "turnId"
+  "interrupt" | "steer" | "threadId" | "turnId" | "updatePermissionMode"
 >;
 
 export type CodexAdapterOptions = {
@@ -219,6 +219,7 @@ export const createCodexAdapter = (
     registration: CodexAppServerActiveTurnRegistration
   ) => {
     const activeTurn = {
+      updatePermissionMode: registration.updatePermissionMode,
       interrupt: registration.interrupt,
       steer: registration.steer,
       threadId: registration.threadId,
@@ -484,6 +485,16 @@ export const createCodexAdapter = (
       dispatch,
       interrupt,
       steer,
+      updatePermissionMode: async (input) => {
+        const activeTurn = activeAppServerTurns.get(input.taskId);
+        return activeTurn
+          ? await activeTurn.updatePermissionMode(input)
+          : {
+              status: "not_applied",
+              taskId: input.taskId,
+              reasonCode: "adapter.task_not_active",
+            };
+      },
       verifyComputerFileAccessBoundary,
     } satisfies RuntimeAdapter,
     {
@@ -866,6 +877,7 @@ const resolveDefaultCodexAppServerInvoke = (input: {
         dispatchInput.agentControllerPermissionMode,
       cancellationSignal: dispatchInput.cancellationSignal,
       computerFileAccessBoundary: dispatchInput.computerFileAccessBoundary,
+      executionContext: dispatchInput.executionContext,
       launchContract,
       codexTimeoutMs,
       codexWorkdir:

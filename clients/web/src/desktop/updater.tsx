@@ -279,7 +279,7 @@ export function DesktopUpdatesSection(input: {
 		const bridge = getDesktopPlatform();
 		if (
 			!bridge ||
-			pendingRef.current ||
+			(pendingRef.current && action !== "cancel") ||
 			desktopUpdaterPresentation(snapshot).action !== action
 		) {
 			return;

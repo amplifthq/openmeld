@@ -110,6 +110,7 @@ export type SpaceTimelineItem = {
 		streamId: string;
 		reasonCode: string | null;
 		toolParts?: readonly AgentStreamToolPart[];
+		recovery?: import("@openmeld/schemas/types").AgentStreamRecoveryPart;
 		thinking?: string;
 		thinkingActive?: boolean;
 		progress?: string;
@@ -301,6 +302,7 @@ export function buildSpaceTimelineItems(input: {
 					status: stream.status,
 					streamId: stream.streamId,
 					toolParts: stream.toolParts ?? [],
+					recovery: stream.recovery,
 					...(stream.status === "streaming" && stream.thinking
 						? {
 								thinking: stream.thinking,
@@ -384,9 +386,27 @@ function buildSpaceTimelineItem(input: {
 		membersSnapshot: input.membersSnapshot,
 		signalIndex: input.signalIndex,
 	});
+	const stoppedProfileId =
+		input.signal.type === "signal.system_notice" &&
+		input.signal.data.noticeType === "wake_stopped"
+			? input.signal.data.actorProfileId
+			: undefined;
+	const actorSignal = stoppedProfileId
+		? {
+				...input.signal,
+				profile: {
+					kind: "agent" as const,
+					profileId: stoppedProfileId,
+					profileName:
+						input.signal.type === "signal.system_notice"
+							? input.signal.data.actorName
+							: undefined,
+				},
+			}
+		: input.signal;
 	const actor = resolveActorPresentation({
 		membersSnapshot: input.membersSnapshot,
-		signal: input.signal,
+		signal: actorSignal,
 		targetCatalog: input.targetCatalog,
 	});
 	const agentReplyDetails = readAgentFinalReplyDetails(input.signal);
@@ -427,8 +447,8 @@ function buildSpaceTimelineItem(input: {
 		actorOwnerDisplay: actor.ownerDisplay,
 		actorOwnerName: actor.ownerName,
 		actorOwnerUserId: actor.ownerUserId,
-		actorProfileId: input.signal.profile.profileId,
-		actorProfileKind: input.signal.profile.kind,
+		actorProfileId: actorSignal.profile.profileId,
+		actorProfileKind: actorSignal.profile.kind,
 		actorProfileName: actor.profileName,
 		actorRuntimeDeviceDisplayName: actor.runtimeDeviceDisplayName,
 		agentControllerConversationId:
@@ -463,7 +483,12 @@ function buildSpaceTimelineItem(input: {
 		systemNoticeType: readSystemNoticeType(input.signal),
 		systemNoticeTargetProfileId: readSystemNoticeTargetProfileId(input.signal),
 		transientActivityPurpose: readTransientActivityPurpose(input.signal),
-		text: projection.text,
+		text:
+			input.signal.type === "signal.system_notice" &&
+			input.signal.data.noticeType === "wake_stopped" &&
+			actorSignal.profile.kind === "agent"
+				? (input.signal.stoppedReplyText ?? "")
+				: projection.text,
 		...readSourceMessageAddressingDetails(input.signal),
 		...readLegacyEmptyReplyFailure(input.signal),
 	};
@@ -647,6 +672,17 @@ export function isSpaceTimelineCatchUpAnchorSignal(
 // a request-level outcome the outcome row / anchoring model covers -- they
 // keep the plain system-event marker treatment.
 const OUTCOME_NOTICE_TYPES = new Set(["terminal_failure", "wake_stopped"]);
+
+export function isStoppedSpaceReply(
+	item: Partial<
+		Pick<SpaceTimelineItem, "systemNoticeType" | "agentStreamState">
+	>
+): boolean {
+	return (
+		item.systemNoticeType === "wake_stopped" ||
+		item.agentStreamState?.status === "stopped"
+	);
+}
 
 export function isSpaceOutcomeNoticeItem(item: SpaceTimelineItem): boolean {
 	return (

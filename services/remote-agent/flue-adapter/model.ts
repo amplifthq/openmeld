@@ -21,6 +21,7 @@ import {
   resolveRemoteAgentOpenRouterModelId,
 } from "../agent-core/model";
 import { REMOTE_AGENT_OPENROUTER_PROVIDER_ROUTING } from "../agent-core/openrouter-provider-routing";
+import { withRemoteAgentProviderTimeContext } from "../agent-core/prompt";
 import { recordRemoteAgentTurnObservabilityBestEffort } from "../agent-core/turn-observability";
 import { createFlueMeteredFetch } from "./ai-usage";
 import { emitCenterAgentPerformanceMilestone } from "./center-agent-performance-observability";
@@ -67,6 +68,9 @@ const OPENROUTER_MESSAGE_ONLY_PROMPT_CACHE_MODEL_IDS = new Set([
 ]);
 export const REMOTE_AGENT_MODEL_METADATA_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 export const REMOTE_AGENT_COMPACTION_KEEP_RECENT_TOKENS = 8000;
+export const REMOTE_AGENT_WORKING_CONTEXT_TOKENS = 48_000;
+export const REMOTE_AGENT_MAX_SUMMARY_TOKENS = 4096;
+const WORKING_CONTEXT_DEFERRAL_TOKENS = 8000;
 const MODEL_METADATA_FETCH_TIMEOUT_MS = 3000;
 // Flue estimates context tokens, so compact before reaching a provider tier.
 const PRICE_TIER_COMPACTION_SAFETY_RATIO = 0.8;
@@ -131,8 +135,14 @@ export type RemoteAgentProviderStageObservation = {
 
 export type RemoteAgentModelRuntimeConfig = {
   compaction: {
+    workingContextHeadroomTokens: number;
     keepRecentTokens: number;
     reserveTokens: number;
+    workingContextTokens: number;
+    maxWorkingContextTokens: number;
+    preserveActiveInput: true;
+    thinkingLevel: "low";
+    maxSummaryTokens: number;
   };
   contextWindow: number;
   maxTokens: number;
@@ -442,6 +452,35 @@ function resolveCompactionThreshold(input: {
   );
 }
 
+function buildRemoteAgentCompactionConfig(input: {
+  contextWindow: number;
+  priceTierBoundary: number | null;
+}): RemoteAgentModelRuntimeConfig["compaction"] {
+  // The working target and bounded deferral stay below route and price limits.
+  const ceiling = resolveCompactionThreshold(input);
+  const workingContextTokens = Math.min(
+    REMOTE_AGENT_WORKING_CONTEXT_TOKENS,
+    ceiling
+  );
+  return {
+    workingContextTokens,
+    maxWorkingContextTokens: Math.min(
+      workingContextTokens + WORKING_CONTEXT_DEFERRAL_TOKENS,
+      ceiling
+    ),
+    workingContextHeadroomTokens: Math.min(
+      8000,
+      Math.floor(input.contextWindow / 8),
+      Math.floor(workingContextTokens / 2)
+    ),
+    preserveActiveInput: true,
+    thinkingLevel: "low",
+    maxSummaryTokens: REMOTE_AGENT_MAX_SUMMARY_TOKENS,
+    keepRecentTokens: REMOTE_AGENT_COMPACTION_KEEP_RECENT_TOKENS,
+    reserveTokens: input.contextWindow - ceiling,
+  };
+}
+
 function resolvePriceTierBoundary(
   pricingOverrides?: readonly OpenRouterPricingOverride[] | null
 ): number | null {
@@ -469,17 +508,12 @@ export async function resolveRemoteAgentModelRuntimeConfigForRegistration(input:
 }): Promise<RemoteAgentModelRuntimeConfig> {
   if (input.modelRoute) {
     return {
-      compaction: {
-        keepRecentTokens: REMOTE_AGENT_COMPACTION_KEEP_RECENT_TOKENS,
-        reserveTokens:
-          input.modelRoute.contextWindow -
-          resolveCompactionThreshold({
-            contextWindow: input.modelRoute.contextWindow,
-            priceTierBoundary: resolveReviewedPromptPriceTierBoundary(
-              input.modelRoute.modelId
-            ),
-          }),
-      },
+      compaction: buildRemoteAgentCompactionConfig({
+        contextWindow: input.modelRoute.contextWindow,
+        priceTierBoundary: resolveReviewedPromptPriceTierBoundary(
+          input.modelRoute.modelId
+        ),
+      }),
       contextWindow: input.modelRoute.contextWindow,
       maxTokens: input.modelRoute.maxOutputTokens,
       modelId: input.modelRoute.modelId,
@@ -615,18 +649,10 @@ function buildRemoteAgentModelRuntimeConfig(input: {
     contextWindow - 1
   );
   return {
-    compaction: {
-      keepRecentTokens: REMOTE_AGENT_COMPACTION_KEEP_RECENT_TOKENS,
-      // Flue interprets reserveTokens as the early-compaction band below the
-      // context window. Price-aware bands may intentionally exceed the base
-      // reserve cap so compaction starts before a higher prompt-price tier.
-      reserveTokens:
-        contextWindow -
-        resolveCompactionThreshold({
-          contextWindow,
-          priceTierBoundary: resolvePriceTierBoundary(input.pricingOverrides),
-        }),
-    },
+    compaction: buildRemoteAgentCompactionConfig({
+      contextWindow,
+      priceTierBoundary: resolvePriceTierBoundary(input.pricingOverrides),
+    }),
     contextWindow,
     maxTokens,
     modelId: input.modelId,
@@ -898,7 +924,7 @@ export function withRemoteAgentProviderObservabilityAndSessionAffinity(
         );
       }
       const preparedPayload = normalizeRemoteAgentPromptCacheToolDefinitions(
-        resolvedPayload,
+        withRemoteAgentProviderTimeContext(resolvedPayload, Date.now()),
         model?.id
       );
       const durationMs = Date.now() - startedAtMs;

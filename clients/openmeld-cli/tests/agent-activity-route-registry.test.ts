@@ -36,9 +36,36 @@ describe("Agent Activity route registry", () => {
       organizationId: "org-dev",
       projectId: "project-dev",
       projectSlug: "dev-project",
+      ownerUserId: "user-dev",
       repositoryFingerprint: null,
       repositoryPath: devRepository,
       rootDir: devRootDir,
+    });
+    let shareConfirmationToken: string | undefined;
+    try {
+      await bindProject({
+        organizationId: "org-dev",
+        projectId: "project-dev-shared",
+        projectSlug: "shared-project",
+        ownerUserId: "user-dev",
+        repositoryFingerprint: null,
+        repositoryPath: devRepository,
+        rootDir: devRootDir,
+      });
+    } catch (error) {
+      shareConfirmationToken = (
+        error as { pathConflict?: { shareConfirmationToken?: string } }
+      ).pathConflict?.shareConfirmationToken;
+    }
+    await bindProject({
+      organizationId: "org-dev",
+      projectId: "project-dev-shared",
+      projectSlug: "shared-project",
+      ownerUserId: "user-dev",
+      repositoryFingerprint: null,
+      repositoryPath: devRepository,
+      rootDir: devRootDir,
+      shareConfirmationToken,
     });
     await bindProject({
       organizationId: "org-custom",

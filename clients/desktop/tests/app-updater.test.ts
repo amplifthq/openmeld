@@ -1,10 +1,14 @@
 import { EventEmitter } from "node:events";
+import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { DesktopReleasePlatform } from "@openmeld/schemas";
 import type { AutoUpdater } from "electron";
 import type { MacUpdater, UpdateCheckResult } from "electron-updater";
 import { describe, expect, it, vi } from "vitest";
 import { createAppUpdater } from "../src/main/update/app-updater";
+import { recordUpdateFailure } from "../src/main/update/update-failure-diagnostic";
 
 function fixture(
   url = `/desktop/updates/${"a".repeat(64)}/desktop.zip`,
@@ -40,6 +44,10 @@ function fixture(
   const prepareRestart = vi.fn(async () => true);
   const setInstalling = vi.fn();
   const recordMacInstallRequested = vi.fn();
+  const recordFailure =
+    vi.fn<
+      NonNullable<Parameters<typeof createAppUpdater>[0]["recordFailure"]>
+    >();
   const controller = createAppUpdater({
     updater: driver as unknown as MacUpdater,
     platform,
@@ -47,6 +55,7 @@ function fixture(
     currentAppBundle:
       platform === "macos-arm64" ? "/Applications/OpenMeld.app" : null,
     recordMacInstallRequested,
+    recordFailure,
     publish: vi.fn(),
     prepareRestart,
     setInstalling,
@@ -57,9 +66,121 @@ function fixture(
     prepareRestart,
     setInstalling,
     recordMacInstallRequested,
+    recordFailure,
   };
 }
 describe("Desktop update consent", () => {
+  it("keeps a slow download alive while bytes continue to arrive", async () => {
+    vi.useFakeTimers();
+    try {
+      const { controller, driver, recordFailure } = fixture();
+      await controller.act("check");
+      driver.downloadUpdate.mockImplementationOnce((token) => {
+        if (!token) {
+          throw new Error("Missing cancellation token");
+        }
+        return token.createPromise(() => {
+          /* Await user cancellation. */
+        });
+      });
+      const downloading = controller.act("download");
+      for (const percent of [1, 2, 3]) {
+        await vi.advanceTimersByTimeAsync(60_000);
+        driver.emit("download-progress", { percent });
+        expect(controller.snapshot().status).toBe("downloading");
+      }
+      await controller.act("cancel");
+      await downloading;
+      expect(recordFailure).not.toHaveBeenCalled();
+      expect(controller.snapshot().status).toBe("available");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it.each([
+    "cancel",
+    "stall",
+  ] as const)("recovers from a %s without blocking a new download", async (reason) => {
+    vi.useFakeTimers();
+    try {
+      const { controller, driver, recordFailure } = fixture();
+      await controller.act("check");
+      driver.downloadUpdate.mockImplementationOnce((token) => {
+        if (!token) {
+          throw new Error("Download requires cancellation support");
+        }
+        return token.createPromise((_resolve, _reject, onCancel) => {
+          onCancel(() => {
+            /* No native request in this controller fixture. */
+          });
+        });
+      });
+      const downloading = controller.act("download");
+      driver.emit("download-progress", { percent: 27 });
+      if (reason === "cancel") {
+        await controller.act("cancel");
+      } else {
+        await vi.advanceTimersByTimeAsync(90_000);
+      }
+      await downloading;
+      expect(controller.snapshot().status).toBe(
+        reason === "cancel" ? "available" : "error"
+      );
+      expect(recordFailure).toHaveBeenCalledTimes(reason === "cancel" ? 0 : 1);
+      await controller.act("download");
+      expect(controller.snapshot().status).toBe("downloaded");
+      expect(driver.quitAndInstall).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("retains safe download failure evidence through a successful retry", async () => {
+    const directory = mkdtempSync(
+      join(tmpdir(), "openmeld-update-diagnostic-")
+    );
+    const path = join(directory, "diagnostics", "desktop-update-failure.json");
+    try {
+      const { controller, driver, recordFailure } = fixture();
+      recordFailure.mockImplementation((record) =>
+        recordUpdateFailure(path, record)
+      );
+      await controller.act("check");
+      driver.downloadUpdate.mockRejectedValueOnce(
+        Object.assign(
+          new Error(
+            "socket failed https://user:secret@example.test/update?token=private /Users/private/path"
+          ),
+          { code: "ECONNRESET" }
+        )
+      );
+      await controller.act("download");
+      const contents = readFileSync(path, "utf8");
+      expect(JSON.parse(contents)).toMatchObject({
+        format: 1,
+        stage: "download",
+        currentVersion: "0.1.1",
+        targetVersion: "0.1.2",
+        code: "ECONNRESET",
+      });
+      expect(contents).not.toContain("secret");
+      expect(contents).not.toContain("private");
+      if (process.platform !== "win32") {
+        expect(statSync(path).mode % 0o1000).toBe(0o600);
+      }
+      await controller.act("download");
+      expect(controller.snapshot().status).toBe("downloaded");
+      expect(readFileSync(path, "utf8")).toBe(contents);
+      recordFailure.mockImplementation(() => {
+        throw new Error("disk full");
+      });
+      driver.emit("error", new Error("unrecognized private response body"));
+      expect(controller.snapshot().status).toBe("error");
+      expect(readFileSync(path, "utf8")).toBe(contents);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it.each([
     "windows-x64",
     "windows-arm64",

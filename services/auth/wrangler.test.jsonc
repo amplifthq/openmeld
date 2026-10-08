@@ -27,12 +27,10 @@
     "GOOGLE_OPENMELD_AUTH_OAUTH_CLIENT_ID": "test-google-client-id",
     "GOOGLE_OPENMELD_AUTH_OAUTH_CLIENT_SECRET": "test-google-client-secret"
   },
-  "d1_databases": [
+  "hyperdrive": [
     {
-      "binding": "OPENMELD_DB",
-      "database_name": "openmeld-auth-test",
-      "database_id": "00000000-0000-0000-0000-000000000001",
-      "migrations_dir": "../../packages/db/drizzle"
+      "binding": "OPENMELD_POSTGRESQL",
+      "id": "00000000000000000000000000000001"
     }
   ]
 }

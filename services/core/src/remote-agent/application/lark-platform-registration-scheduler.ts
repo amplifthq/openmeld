@@ -1,27 +1,32 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   listDueRemoteAgentLarkPlatformRegistrationAttempts,
   rejectRemoteAgentLarkPlatformRegistrationAttempt,
-} from "../infrastructure/d1/lark-platform-registration-attempt-repo";
+} from "../infrastructure/postgresql/lark-platform-registration-attempt-repo";
 import {
   continueRemoteAgentLarkPlatformRegistration,
   type RegistrationEnvironment,
 } from "./lark-platform-registration-service";
 
 const DEFAULT_REGISTRATION_TICK_LIMIT = 4;
-
 export type LarkPlatformRegistrationTickSummary = {
   errors: number;
   processed: number;
   scanned: number;
 };
-
 export async function runLarkPlatformRegistrationTick(input: {
-  classifyOrganization: (input: {
-    organizationId: string;
-  }) => Promise<{ ok: true; personal: boolean } | { ok: false }>;
+  classifyOrganization: (input: { organizationId: string }) => Promise<
+    | {
+        ok: true;
+        personal: boolean;
+      }
+    | {
+        ok: false;
+      }
+  >;
   clock?: () => number;
   createId?: () => string;
-  db: D1Database;
+  db: PostgresDatabase;
   env: RegistrationEnvironment;
   fetchImpl?: typeof fetch;
   limit?: number;
@@ -38,7 +43,6 @@ export async function runLarkPlatformRegistrationTick(input: {
     processed: 0,
     scanned: attempts.length,
   };
-
   for (const attempt of attempts) {
     try {
       const continuationNowMs = input.clock?.() ?? input.nowMs;
@@ -109,6 +113,5 @@ export async function runLarkPlatformRegistrationTick(input: {
       );
     }
   }
-
   return summary;
 }

@@ -5,8 +5,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AuthBindings } from "../src/lib/bindings";
 import {
   AUTH_DB_BETTER_AUTH_GENERATED_SCHEMA_PATH,
-  AUTH_DB_DRIZZLE_CONFIG_PATH,
-  AUTH_DB_SCHEMA_ENTRYPOINT_PATH,
   AUTH_DB_SCHEMA_GLOB_PATH,
   D1_LOCAL_DB_PATH_ENV_NAME,
 } from "../src/lib/db/fact-metadata";
@@ -57,20 +55,19 @@ afterEach(() => {
 describe("auth db facts", () => {
   it("builds a runtime snapshot without local tooling paths", () => {
     const snapshot = buildAuthRuntimeDbFactSnapshot({
-      OPENMELD_DB: {} as D1Database,
+      OPENMELD_POSTGRESQL: {
+        connectionString: "postgresql://runtime@127.0.0.1:1/runtime",
+      },
     } as AuthBindings);
     expect(snapshot.mode).toBe("runtime");
     expect(snapshot.subject).toBe("auth");
-    expect(snapshot.bindingName).toBe("OPENMELD_DB");
-    expect(snapshot.schemaSources.map((item) => item.path)).toContain(
-      AUTH_DB_SCHEMA_ENTRYPOINT_PATH
-    );
-    expect(snapshot.schemaSources.map((item) => item.path)).toContain(
-      AUTH_DB_DRIZZLE_CONFIG_PATH
-    );
-    expect(snapshot.schemaSources.map((item) => item.path)).toContain(
-      AUTH_DB_BETTER_AUTH_GENERATED_SCHEMA_PATH
-    );
+    expect(snapshot.bindingName).toBe("OPENMELD_POSTGRESQL");
+    expect(snapshot.schemaSources.map((item) => item.path)).toEqual([
+      "packages/db/src/schema.ts",
+    ]);
+    expect(snapshot.migrationSources.map((item) => item.path)).toEqual([
+      "packages/db/postgresql/migrations",
+    ]);
     expect(snapshot.target.databaseId).toBeNull();
     expect(snapshot.target.databaseName).toBeNull();
     expect(snapshot.target.resolvedFrom).toBe("runtime_binding_present");
@@ -79,7 +76,7 @@ describe("auth db facts", () => {
     expect("observedFallbackHits" in snapshot).toBe(false);
   });
 
-  it("marks the runtime target as unavailable when the auth worker cannot see OPENMELD_DB", () => {
+  it("marks the runtime target as unavailable when the auth worker cannot see OPENMELD_POSTGRESQL", () => {
     const snapshot = buildAuthRuntimeDbFactSnapshot(undefined);
 
     expect(snapshot.target.databaseId).toBeNull();

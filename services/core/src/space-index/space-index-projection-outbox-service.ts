@@ -1,3 +1,4 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   markSpaceIndexProjectionOutboxCompleted,
   markSpaceIndexProjectionOutboxFailed,
@@ -13,7 +14,6 @@ const SPACE_INDEX_PROJECTION_RETRY_DELAYS_MS = [
   2000, 5000, 15_000, 60_000,
 ] as const;
 const SPACE_INDEX_PROJECTION_MAX_RETRY_DELAY_MS = 60_000;
-
 export type SpaceIndexProjectionOutboxAttemptResult =
   | {
       completedAtMs: number;
@@ -28,9 +28,8 @@ export type SpaceIndexProjectionOutboxAttemptResult =
       projectionId: string;
       status: "failed";
     };
-
 export async function attemptSpaceIndexProjectionOutboxRecord(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   nowMs?: number;
   record: SpaceIndexProjectionOutboxRecord;
   sql: SqlStorage;
@@ -71,11 +70,12 @@ export async function attemptSpaceIndexProjectionOutboxRecord(input: {
     };
   }
 }
-
 async function projectSpaceIndexProjectionSnapshot(input: {
-  db: D1Database;
+  db: PostgresDatabase;
   record: SpaceIndexProjectionOutboxRecord;
-}): Promise<{ projectionEventId: string }> {
+}): Promise<{
+  projectionEventId: string;
+}> {
   const snapshot = input.record.snapshot;
   if (snapshot.kind === "message_preview") {
     await projectSpaceMessagePreview({
@@ -83,6 +83,7 @@ async function projectSpaceIndexProjectionSnapshot(input: {
       spaceId: input.record.spaceId,
       revision: snapshot.revision,
       preview: snapshot.preview,
+      recentPreviews: snapshot.recentPreviews,
     });
     return { projectionEventId: input.record.projectionId };
   }
@@ -95,7 +96,6 @@ async function projectSpaceIndexProjectionSnapshot(input: {
     });
     return { projectionEventId: result.projectionEventId };
   }
-
   const result = await projectDeletedSpaceIndexSnapshot({
     db: input.db,
     deletedAt: snapshot.deletedAt,
@@ -106,15 +106,12 @@ async function projectSpaceIndexProjectionSnapshot(input: {
     memberRecords: snapshot.memberRecords,
     metaRecord: snapshot.metaRecord,
   });
-  await input.db
-    .prepare(
-      "UPDATE space_index_spaces SET message_preview_json = NULL WHERE space_id = ? AND status = 'deleted'"
-    )
-    .bind(input.record.spaceId)
-    .run();
+  await input.db.query({
+    text: 'UPDATE "openmeld"."space_index_spaces" SET message_preview_json = NULL, recent_message_previews_json = NULL WHERE space_id = $1 AND status = \'deleted\'',
+    values: [input.record.spaceId],
+  });
   return { projectionEventId: result.projectionEventId };
 }
-
 function resolveSpaceIndexProjectionRetryDelayMs(
   record: SpaceIndexProjectionOutboxRecord
 ): number {

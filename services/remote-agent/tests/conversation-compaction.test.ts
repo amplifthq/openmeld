@@ -23,6 +23,33 @@ type CompactionStartObservation = Extract<
 type CompactionObservation = Extract<FlueObservation, { type: "compaction" }>;
 
 describe("Remote Agent conversation compaction", () => {
+  it("keeps the failed summary's cause in the existing diagnostic projection", async () => {
+    const storage = await createStorageWithCallbackContext();
+    const observer = createRemoteAgentConversationCompactionObserver();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      observer.enqueue({
+        storage,
+        event: {
+          ...compactionCompletedObservation(2, 24, 24),
+          isError: true,
+          error: {
+            message: "context.compaction_failed: Incomplete summary (length)",
+          },
+        },
+      });
+      await observer.drain(SUBMISSION_ID);
+      expect(warn).toHaveBeenCalledWith(
+        "[remote_agent.conversation_compaction.failed]",
+        expect.objectContaining({
+          error: "context.compaction_failed: Incomplete summary (length)",
+          submissionId: SUBMISSION_ID,
+        })
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
   it("installs one canonical section for facts, status, and pending work", () => {
     const runtimeSource = readFileSync(resolveProjectionModulePath(), "utf8");
     const promptStart = runtimeSource.indexOf("const SUMMARIZATION_PROMPT = `");
@@ -108,6 +135,7 @@ describe("Remote Agent conversation compaction", () => {
     );
 
     const expectedEvidence =
+      "Scope: cumulative totals for the active conversation at this checkpoint, including calls whose original messages remain below. Those retained messages are the same events, not additional calls. Do not add their counts again or infer repeated execution from seeing both representations.\n" +
       `- ${SLACK_MESSAGE_TOOL_NAME}: calls=3; non_error_results=3; ` +
       "error_results=0; first=2026-08-18T16:00:01.000Z; " +
       "latest=2026-08-18T16:00:06.000Z";

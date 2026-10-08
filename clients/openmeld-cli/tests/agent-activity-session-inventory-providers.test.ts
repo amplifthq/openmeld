@@ -644,11 +644,17 @@ describe("Local Agent Session Inventory provider adapters", () => {
     });
   });
 
-  it("exhausts Codex native pages and keeps archived capabilities honest", async () => {
+  it.each([
+    { recencyAt: 40, repeatedThread: false },
+    { recencyAt: 29, repeatedThread: true },
+  ])("exhausts Codex native pages with recency $recencyAt and keeps archived capabilities honest", async ({
+    recencyAt,
+    repeatedThread,
+  }) => {
     const serverPath = join(root, "fake-codex-app-server.mjs");
     await writeFile(
       serverPath,
-      buildFakeCodexAppServer(repositoryPath),
+      buildFakeCodexAppServer(repositoryPath, { recencyAt, repeatedThread }),
       "utf8"
     );
     const sessions = await discoverCodexThreads({
@@ -665,9 +671,12 @@ describe("Local Agent Session Inventory provider adapters", () => {
     const byId = new Map(
       sessions.map((entry) => [entry.session.nativeSessionId, entry.session])
     );
+    expect(sessions).toHaveLength(2);
     expect(byId.get("codex-live")).toMatchObject({
       canFork: true,
       canResume: true,
+      lastActiveAtMs: 40_000,
+      startedAtMs: 30_000,
       nativeSessionTitle: "Native Codex title",
       origin: "local",
       status: "working",
@@ -707,6 +716,50 @@ describe("Local Agent Session Inventory provider adapters", () => {
         }),
       ])
     );
+  });
+
+  it("attributes a shared-folder Codex Session only to its accepted Project", async () => {
+    const fingerprint = `sha256:${"a".repeat(64)}`;
+    const first = { ...binding, repositoryFingerprint: fingerprint };
+    const second = {
+      ...first,
+      bindingGeneration: "binding-generation-2",
+      isDefault: true,
+      projectId: "project-2",
+      projectSlug: "platform",
+    };
+    await recordOpenMeldCreatedLocalAgentSession({
+      agentControllerRef: "builtin:codex",
+      nativeSessionId: "codex-live",
+      projectAttribution: {
+        organizationId: "org-1",
+        projectId: "project-2",
+        repositoryFingerprint: fingerprint,
+      },
+      rootDir: root,
+    });
+    const serverPath = join(root, "fake-codex-shared-app-server.mjs");
+    await writeFile(
+      serverPath,
+      buildFakeCodexAppServer(repositoryPath),
+      "utf8"
+    );
+    const sessions = await discoverCodexThreads({
+      bindings: [first, second],
+      launchContract: {
+        argsPrefix: [serverPath],
+        commandPath: process.execPath,
+        kind: "executable",
+      },
+      nowMs: NOW_MS,
+      rootDir: root,
+    });
+    expect(sessions).toMatchObject([
+      {
+        binding: { projectId: "project-2" },
+        session: { nativeSessionId: "codex-live", origin: "openmeld" },
+      },
+    ]);
   });
 
   it("rejects a malformed non-null Codex pagination cursor", async () => {
@@ -975,6 +1028,8 @@ function buildFakeCodexAppServer(
   input: {
     firstPageNextCursor?: unknown;
     malformedThread?: boolean;
+    recencyAt?: number;
+    repeatedThread?: boolean;
     threadTimestamp?: unknown;
   } = {}
 ): string {
@@ -987,7 +1042,9 @@ function buildFakeCodexAppServer(
     ephemeral: false,
     id: input.malformedThread ? undefined : "codex-live",
     name: "Native Codex title",
-    recencyAt: threadTimestamp,
+    // Codex 0.160.1 thread/list captured recency one second before creation.
+    // recencyAt is a sorting key, while updatedAt is the update timestamp.
+    recencyAt: input.recencyAt ?? threadTimestamp,
     source: "cli",
     status: { activeFlags: [], type: "active" },
     updatedAt: threadTimestamp,
@@ -1013,7 +1070,11 @@ for await (const line of lines) {
     process.stdout.write(JSON.stringify({ id: request.id, jsonrpc: "2.0", result: {} }) + "\\n");
     continue;
   }
-  if (request.method !== "thread/list" || JSON.stringify(request.params.sourceKinds) !== JSON.stringify(sourceKinds)) {
+  if (request.method === "thread/read" && request.params.threadId === "codex-live" && request.params.includeTurns === false) {
+    process.stdout.write(JSON.stringify({ id: request.id, jsonrpc: "2.0", result: {thread: ${JSON.stringify(liveThread)}} }) + "\\n");
+    continue;
+  }
+  if (request.method !== "thread/list" || JSON.stringify(request.params.sourceKinds) !== JSON.stringify(sourceKinds) || JSON.stringify(request.params.modelProviders) !== "[]") {
     process.stdout.write(JSON.stringify({ id: request.id, jsonrpc: "2.0", error: { message: "incomplete source filter" } }) + "\\n");
     continue;
   }
@@ -1022,7 +1083,7 @@ for await (const line of lines) {
     ? [{ id: "codex-archived", cwd: ${JSON.stringify(cwd)}, createdAt: 10, updatedAt: 20, recencyAt: 20, ephemeral: false, name: null, source: "appServer", status: { type: "notLoaded" } }]
     : request.params.cursor === null
       ? [${JSON.stringify(liveThread)}]
-      : [];
+      : ${JSON.stringify(input.repeatedThread ? [{ ...liveThread, updatedAt: 35, name: "Older retained copy" }] : [])};
   const nextCursor = archived ? null : request.params.cursor === null ? ${JSON.stringify(
     input.firstPageNextCursor === undefined
       ? "page-2"

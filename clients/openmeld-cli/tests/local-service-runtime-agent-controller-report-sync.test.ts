@@ -1,22 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
-  reconcileControllersMock,
   collectLocalAgentControllerInventoryMock,
   notifyRuntimeReportingAttemptObserverMock,
   submitRuntimeAgentControllerReportsMock,
 } = vi.hoisted(() => ({
-  reconcileControllersMock: vi.fn(async () => undefined),
   collectLocalAgentControllerInventoryMock: vi.fn(),
   notifyRuntimeReportingAttemptObserverMock: vi.fn(
     async (observer, attempt) => await observer?.(attempt)
   ),
   submitRuntimeAgentControllerReportsMock: vi.fn(),
-}));
-
-vi.mock("../src/agents/registry", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/agents/registry")>()),
-  reconcileNewRunnableBuiltinAgentRegistrations: reconcileControllersMock,
 }));
 
 vi.mock(
@@ -28,8 +21,15 @@ vi.mock(
       >();
     return {
       ...actual,
-      collectLocalAgentControllerInventory:
-        collectLocalAgentControllerInventoryMock,
+      collectLocalAgentControllerInventory: async (
+        input: Parameters<typeof actual.collectLocalAgentControllerInventory>[0]
+      ) => {
+        const inventory = await collectLocalAgentControllerInventoryMock(input);
+        for (const capability of inventory.capabilities) {
+          await input?.onCapability?.(capability);
+        }
+        return inventory;
+      },
     };
   }
 );
@@ -76,24 +76,18 @@ describe("local service runtime agent controller report sync", () => {
   };
 
   beforeEach(() => {
-    reconcileControllersMock.mockClear();
     collectLocalAgentControllerInventoryMock.mockReset();
     notifyRuntimeReportingAttemptObserverMock.mockClear();
     submitRuntimeAgentControllerReportsMock.mockReset();
-    submitRuntimeAgentControllerReportsMock.mockResolvedValue([
-      {
-        agentControllerReportStatus: "accepted",
-        reasonCodes: [],
-        source: "runtime_reporting_api",
-        status: "submitted",
-      },
-      {
-        agentControllerReportStatus: "accepted",
-        reasonCodes: ["local_agent_preparation.not_enabled"],
-        source: "runtime_reporting_api",
-        status: "submitted",
-      },
-    ]);
+    submitRuntimeAgentControllerReportsMock.mockImplementation(
+      async ({ reports }) =>
+        reports.map((report: { reasonCodes: string[] }) => ({
+          agentControllerReportStatus: "accepted",
+          reasonCodes: report.reasonCodes,
+          source: "runtime_reporting_api",
+          status: "submitted",
+        }))
+    );
   });
 
   it("submits registered LocalAgentControllerInventory capabilities as runtime evidence", async () => {
@@ -151,16 +145,9 @@ describe("local service runtime agent controller report sync", () => {
     expect(collectLocalAgentControllerInventoryMock).toHaveBeenCalledWith({
       includeControllerInterface: true,
       localAdapterContainer,
+      onCapability: expect.any(Function),
+      reconcileNewRegistrations: true,
     });
-    expect(reconcileControllersMock).toHaveBeenCalledWith();
-    const [inventoryOrder] =
-      collectLocalAgentControllerInventoryMock.mock.invocationCallOrder;
-    if (inventoryOrder === undefined) {
-      throw new Error("Controller inventory was not collected");
-    }
-    expect(reconcileControllersMock.mock.invocationCallOrder[0]).toBeLessThan(
-      inventoryOrder
-    );
     expect(submitRuntimeAgentControllerReportsMock).toHaveBeenCalledWith({
       reports: [
         {
@@ -170,6 +157,10 @@ describe("local service runtime agent controller report sync", () => {
           localParticipationState: "ready",
           reasonCodes: [],
         },
+      ],
+    });
+    expect(submitRuntimeAgentControllerReportsMock).toHaveBeenCalledWith({
+      reports: [
         {
           agentControllerRef: "builtin:claude-code",
           enabled: false,
@@ -287,6 +278,57 @@ describe("local service runtime agent controller report sync", () => {
       reasonCode: "runtime.agent_controller_report.no_local_controllers",
       status: "not_applicable",
     });
+  });
+
+  it("keeps a failed report visible when a later controller succeeds", async () => {
+    collectLocalAgentControllerInventoryMock.mockResolvedValue({
+      capabilities: ["codex", "claude-code"].map((agentId) => ({
+        agentId,
+        agentControllerRef: `builtin:${agentId}`,
+        registered: true,
+        enabled: true,
+        blockerReasonCodes: [],
+        launchability: "launchable",
+        selectable: true,
+        selectableReason: null,
+      })),
+    });
+    const failed = {
+      authenticationRejected: false,
+      family: "runtime_agent_controller",
+      message: "Report failed",
+      reasonCode: "runtime.reporting.failed",
+      status: "failed",
+    };
+    submitRuntimeAgentControllerReportsMock
+      .mockImplementationOnce(async ({ onAttempt }) => {
+        await onAttempt(failed);
+        return [{ status: "failed", reasonCodes: [failed.reasonCode] }];
+      })
+      .mockImplementationOnce(async ({ onAttempt }) => {
+        await onAttempt({
+          ...failed,
+          message: null,
+          reasonCode: null,
+          status: "succeeded",
+        });
+        return [
+          {
+            status: "submitted",
+            agentControllerReportStatus: "accepted",
+            reasonCodes: [],
+          },
+        ];
+      });
+    const onAttempt = vi.fn();
+    const { syncLocalServiceRuntimeAgentControllerReports } = await import(
+      "../src/local-service/reporting/runtime-agent-controller-report-sync"
+    );
+    await syncLocalServiceRuntimeAgentControllerReports({
+      localAdapterContainer: {} as never,
+      onAttempt,
+    });
+    expect(onAttempt).toHaveBeenLastCalledWith(failed);
   });
 
   it("reports inventory failures to the health observer before rethrowing", async () => {

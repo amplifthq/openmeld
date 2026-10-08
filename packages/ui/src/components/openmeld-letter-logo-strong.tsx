@@ -1,10 +1,10 @@
 "use client";
 
-import { OPENMELD_LETTER_O_LOGO_LINES as DEFAULT_OPENMELD_LETTER_O_LOGO_LINES } from "#components/openmeld-logo-core";
 import {
   OpenMeldLogoStrong,
   type OpenMeldLogoStrongProps,
 } from "#components/openmeld-logo-strong";
+import { OPENMELD_LETTER_O_LOGO_LINES as DEFAULT_OPENMELD_LETTER_O_LOGO_LINES } from "#lib/openmeld-logo-lines";
 
 export type OpenMeldLetterLogoStrongProps = OpenMeldLogoStrongProps;
 

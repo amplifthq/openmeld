@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { repositoryFingerprintSchema } from "../http/projects";
 
 const reference = z.string().trim().min(1).max(2048);
 // Local workspace owner facts, not client-selected paths or Computer policy.
@@ -16,8 +17,13 @@ export const executionContextAccessSchema = z.enum([
   "workspace",
 ]);
 const workspace = z.enum(["current", "isolated"]);
+export const executionContextProjectWorkSchema = z.strictObject({
+  projectId: reference,
+  repositoryFingerprint: repositoryFingerprintSchema,
+});
 const preferences = {
   access: executionContextAccessSchema.optional(),
+  projectWork: executionContextProjectWorkSchema.optional(),
   workspace: workspace.optional(),
 };
 export const executionContextSelectionSchema = z.discriminatedUnion("mode", [
@@ -42,32 +48,44 @@ export const executionContextScopeSchema = z.strictObject({
 // Created by Core from an authorized Space message, never supplied by a client.
 export const executionContextRequestSchema = z.strictObject({
   required: z.boolean().optional(),
+  // Retained for persisted snapshots from older Core versions. Not a permission gate.
+  ownerRequested: z.literal(true).optional(),
   scope: executionContextScopeSchema,
   selection: executionContextSelectionSchema,
 });
 
-export const executionContextAssignmentSchema = z.strictObject({
-  version: z.literal(1),
-  id: z.string().uuid(),
-  scope: executionContextScopeSchema,
-  access: executionContextAccessSchema,
-  workspace,
-  forkSource: z
-    .strictObject({
-      contextId: z.string().uuid(),
-      sourceWakeId: reference,
-      nativeConversationId: reference,
-      // Absent when the boundary is confirmed by read-only preparation instead
-      // of by a frozen checkpoint: the source may be a thread OpenMeld never
-      // finished a turn on, and only the harness can say where its settled
-      // history ends. Core still names the exact source context, Wake, native
-      // conversation, and workspace the fork must inherit.
-      completedHistoryId: reference.optional(),
-      runtimeWorkspaceFingerprint: reference,
-      workspace,
-    })
-    .optional(),
-});
+export const executionContextAssignmentSchema = z
+  .strictObject({
+    version: z.literal(1),
+    id: z.string().uuid(),
+    scope: executionContextScopeSchema,
+    access: executionContextAccessSchema,
+    projectWork: executionContextProjectWorkSchema.optional(),
+    // Absent on retained tasks: their original folder boundary still applies.
+    permissionSource: z.literal("agent_settings").optional(),
+    workspace,
+    forkSource: z
+      .strictObject({
+        contextId: z.string().uuid(),
+        sourceWakeId: reference,
+        nativeConversationId: reference,
+        // Absent when the boundary is confirmed by read-only preparation instead
+        // of by a frozen checkpoint: the source may be a thread OpenMeld never
+        // finished a turn on, and only the harness can say where its settled
+        // history ends. Core still names the exact source context, Wake, native
+        // conversation, and workspace the fork must inherit.
+        completedHistoryId: reference.optional(),
+        runtimeWorkspaceFingerprint: reference,
+        workspace,
+      })
+      .optional(),
+  })
+  .refine(
+    (context) => !context.permissionSource || context.access === "workspace",
+    {
+      message: "Task restrictions cannot inherit broader Agent permissions.",
+    }
+  );
 
 export const executionContextCompletionSchema = z.strictObject({
   contextId: z.string().uuid(),
@@ -87,7 +105,7 @@ export const executionContextLegacyAssociationSchema = z.strictObject({
 });
 
 export const executionContextTaskSchema =
-  executionContextAssignmentSchema.extend({
+  executionContextAssignmentSchema.safeExtend({
     legacyAssociation: executionContextLegacyAssociationSchema.optional(),
     nativeConversationId: reference.nullable(),
     runtimeWorkspaceFingerprint: reference.nullable(),

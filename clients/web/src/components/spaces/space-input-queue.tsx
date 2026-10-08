@@ -17,6 +17,7 @@ import { CSS } from "@dnd-kit/utilities";
 import type {
 	SpaceInputQueueMutation,
 	SpaceInputQueueResponse,
+	WakeProgressItem,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import {
@@ -50,17 +51,28 @@ import {
 import { type Ref, useLayoutEffect, useRef, useState } from "react";
 import { SpaceComposerTray } from "./space-composer-tray";
 import { useSpaceInputQueue } from "./use-space-input-queue";
+import { useSpaceWorkRecovery } from "./use-space-work-recovery";
 
 type Item = SpaceInputQueueResponse["items"][number];
 const MotionTray = motion.create(SpaceComposerTray);
 const rowTransition = { ...springs.slow, bounce: 0 };
 
 export function SpaceInputQueue(input: {
+	progressItems: readonly Pick<
+		WakeProgressItem,
+		| "dispatchId"
+		| "targetProfileId"
+		| "terminal"
+		| "phase"
+		| "waitReasonCode"
+		| "pendingInteraction"
+	>[];
 	spaceId: string;
 	profileId: string;
 	onEdit: (text: string) => void;
 }) {
 	const queue = useSpaceInputQueue({ ...input, enabled: true });
+	const recovery = useSpaceWorkRecovery(input.spaceId, queue.recoveries);
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [editRecovery, setEditRecovery] = useState<Item | null>(null);
@@ -128,7 +140,7 @@ export function SpaceInputQueue(input: {
 				{announcement}
 			</span>
 			<AnimatePresence initial={false}>
-				{queue.items.length || queue.error || error ? (
+				{queue.items.length || queue.error || error || recovery.visible ? (
 					<MotionTray
 						animate={{ opacity: 1 }}
 						aria-label="Queued messages"
@@ -140,6 +152,7 @@ export function SpaceInputQueue(input: {
 						layout={reduceMotion || keyboardReorder ? false : "position"}
 						transition={rowTransition}
 					>
+						{recovery.content}
 						<p className="sr-only">
 							Queued messages are sent in this order after the current response.
 						</p>
@@ -168,6 +181,17 @@ export function SpaceInputQueue(input: {
 									<AnimatePresence initial={false} mode="popLayout" propagate>
 										{queue.items.map((item) => (
 											<QueuedMessage
+												canSendNow={input.progressItems.some(
+													(progress) =>
+														progress.dispatchId === item.target.dispatchId &&
+														progress.targetProfileId ===
+															item.target.targetProfileId &&
+														(progress.phase === "running" ||
+															progress.phase === "writing") &&
+														!progress.terminal &&
+														!progress.waitReasonCode &&
+														!progress.pendingInteraction
+												)}
 												index={pendingIds.indexOf(item.inputId)}
 												item={item}
 												key={item.inputId}
@@ -224,6 +248,7 @@ function queuedMessageStatus(item: Item): string | null {
 }
 
 function QueuedMessage({
+	canSendNow,
 	item,
 	saving,
 	mutate,
@@ -233,6 +258,7 @@ function QueuedMessage({
 	keyboardReorder,
 	ref,
 }: {
+	canSendNow: boolean;
 	item: Item;
 	saving: boolean;
 	mutate: (mutation: SpaceInputQueueMutation, editing?: Item) => Promise<void>;
@@ -334,10 +360,16 @@ function QueuedMessage({
 						expanded && "max-sm:justify-self-end"
 					)}
 				>
-					<TooltipHint content="Apply to the current response">
+					<TooltipHint
+						content={
+							canSendNow
+								? "Send this message while the agent is working"
+								: "Available when this response is running"
+						}
+					>
 						<Button
 							className="gap-1 px-1.5 transition-colors"
-							disabled={disabled || item.blocked}
+							disabled={disabled || item.blocked || !canSendNow}
 							onClick={() =>
 								mutate({
 									action: "steer",
@@ -349,7 +381,7 @@ function QueuedMessage({
 							variant="ghost"
 						>
 							<ArrowBendUpRightIcon size={14} />
-							Steer
+							Send now
 						</Button>
 					</TooltipHint>
 					<Button

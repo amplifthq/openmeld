@@ -12,6 +12,7 @@ import {
   string,
   trim,
 } from "valibot";
+import type { RemoteAgentStorage } from "../agent-core/callback-context";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 import {
   rankRemoteAgentCapabilities,
@@ -44,10 +45,12 @@ const capabilitySearchInputSchema = strictObject({
   query: pipe(string(), trim(), minLength(1), maxLength(160)),
 });
 const capabilityDescribeInputSchema = strictObject({
-  names: pipe(
-    array(pipe(string(), trim(), minLength(1), maxLength(160))),
-    minLength(1),
-    maxLength(CAPABILITY_DESCRIBE_MAX_COUNT)
+  names: optional(
+    pipe(
+      array(pipe(string(), trim(), minLength(1), maxLength(160))),
+      minLength(1),
+      maxLength(CAPABILITY_DESCRIBE_MAX_COUNT)
+    )
   ),
 });
 
@@ -57,7 +60,8 @@ export function createRemoteAgentCapabilityDiscoveryDefinitions(
     capabilityNames: string[];
     operation: "describe" | "search";
     resultCount: number;
-  }) => Promise<void>
+  }) => Promise<void>,
+  recovery?: { storage: RemoteAgentStorage; submissionId: string }
 ): RemoteAgentToolDefinition[] {
   const byName = new Map(
     definitions.map((definition) => [definition.name, definition])
@@ -96,12 +100,20 @@ export function createRemoteAgentCapabilityDiscoveryDefinitions(
     },
     {
       description:
-        "Load the descriptions and model-visible JSON input schemas for up to eight capability names returned by openmeld_search_capabilities. Runtime validation and capability-owned authorization remain authoritative. The loaded definitions remain in this conversation, while the underlying executable catalog stays fixed for the turn.",
+        "Load descriptions and JSON input schemas for up to eight known capability names; known names do not need a search first. After compaction, omit names to recover up to eight recently selected capabilities across earlier calls. Reuse schemas already in context. Recovery uses the current catalog; it does not preserve old permission. Runtime validation and execution-time authorization remain authoritative.",
       execute: async (input) => {
+        const recoveryKey = recovery
+          ? `capability-selection:${recovery.submissionId}`
+          : undefined;
+        const remembered =
+          recovery && recoveryKey
+            ? await recovery.storage.get<string[]>(recoveryKey)
+            : [];
+        const requested = input.names ?? remembered ?? [];
         const names = [
           ...new Set(
-            Array.isArray(input.names)
-              ? input.names.filter(
+            Array.isArray(requested)
+              ? requested.filter(
                   (name): name is string => typeof name === "string"
                 )
               : []
@@ -127,6 +139,20 @@ export function createRemoteAgentCapabilityDiscoveryDefinitions(
           capabilities,
           unknownNames: names.filter((name) => !byName.has(name)),
         };
+        if (recovery && recoveryKey && input.names !== undefined) {
+          // Selection only: descriptions, schemas and access come from the
+          // current catalog. No copied transcript or cached permission.
+          await recovery.storage.putExpiring(
+            recoveryKey,
+            [
+              ...new Set([
+                ...capabilities.map((capability) => capability.name),
+                ...(remembered ?? []),
+              ]),
+            ].slice(0, CAPABILITY_DESCRIBE_MAX_COUNT),
+            Date.now() + 7 * 24 * 60 * 60 * 1000
+          );
+        }
         await observe?.({
           capabilityNames: capabilities.map(({ name }) => name),
           operation: "describe",
@@ -136,7 +162,8 @@ export function createRemoteAgentCapabilityDiscoveryDefinitions(
       },
       input: capabilityDescribeInputSchema,
       name: REMOTE_AGENT_CAPABILITY_DESCRIBE_TOOL_NAME,
-      progressTracking: "observation",
+      // Restoring a schema after compaction is useful even when unchanged.
+      // The ordinary per-assignment tool allowance still counts this call.
     },
   ];
 }

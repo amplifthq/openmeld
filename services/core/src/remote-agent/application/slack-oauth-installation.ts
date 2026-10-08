@@ -1,18 +1,18 @@
+import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import { prepareCenterAgentAuditJournalEntryStatement } from "../../center-agent/center-agent-repository";
-import { prepareEnqueueSlackInstallationWelcomePreparationStatement } from "../infrastructure/d1/slack-installation-welcome-preparation-repo";
+import { prepareEnqueueSlackInstallationWelcomePreparationStatement } from "../infrastructure/postgresql/slack-installation-welcome-preparation-repo";
 import {
   prepareReconcileSlackUserIdentityLinksForWorkspaceMoveStatements,
   prepareUpsertSlackOAuthInstallerIdentityLinkStatement,
-} from "../infrastructure/d1/slack-user-identity-link-repo";
+} from "../infrastructure/postgresql/slack-user-identity-link-repo";
 import {
   createRemoteAgentSlackWorkspaceBinding,
   moveRemoteAgentSlackWorkspaceBinding,
   type RemoteAgentSlackWorkspaceBindingCreateResult,
   type RemoteAgentSlackWorkspaceBindingMoveResult,
-} from "../infrastructure/d1/slack-workspace-binding-repo";
-import { prepareUpsertSlackWorkspaceTokenStatement } from "../infrastructure/d1/slack-workspace-token-repo";
+} from "../infrastructure/postgresql/slack-workspace-binding-repo";
+import { prepareUpsertSlackWorkspaceTokenStatement } from "../infrastructure/postgresql/slack-workspace-token-repo";
 import { encryptSlackBotToken } from "./slack-token-crypto";
-
 export async function installSlackWorkspaceFromOAuth(input: {
   actorProfileId: string;
   auditEntryId: string;
@@ -20,7 +20,7 @@ export async function installSlackWorkspaceFromOAuth(input: {
   botToken: string;
   botUserId: string;
   cryptoKey: string;
-  db: D1Database;
+  db: PostgresDatabase;
   installedByUserId: string;
   moveAuditEntryId?: string | null;
   moveFromOrganizationId?: string | null;
@@ -111,7 +111,6 @@ export async function installSlackWorkspaceFromOAuth(input: {
         slackTeamId,
       })
     : null;
-
   if (moveFromOrganizationId) {
     const moveAuditEntryId = requireNonEmptyText(
       input.moveAuditEntryId ?? "",
@@ -157,7 +156,6 @@ export async function installSlackWorkspaceFromOAuth(input: {
       slackTeamId,
     });
   }
-
   return await createRemoteAgentSlackWorkspaceBinding({
     atomicWrites: {
       onCreated: [
@@ -177,7 +175,6 @@ export async function installSlackWorkspaceFromOAuth(input: {
     slackTeamId,
   });
 }
-
 function normalizeScopes(
   value: readonly string[] | undefined
 ): string[] | null {
@@ -189,14 +186,12 @@ function normalizeScopes(
   ].sort();
   return scopes.length > 0 ? scopes : null;
 }
-
 function normalizeOptionalText(
   value: string | null | undefined
 ): string | null {
   const normalized = value?.trim() ?? "";
   return normalized.length > 0 ? normalized : null;
 }
-
 function requireNonEmptyText(value: string, fieldName: string): string {
   const normalized = value.trim();
   if (!normalized) {
