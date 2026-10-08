@@ -177,7 +177,13 @@ pnpm staging:smoke:computer -- plan
   deployment. The Auth-only path is for compatible Auth changes with no pending
   database requirement; it does not apply migrations.
 
-The first website/App split uses the production domain guard with staging-only
+The full staging deployment can replace the old domain layout in one internal
+maintenance window. It checks existing domain ownership first, then verifies
+the App and Website hosts after deployment. Existing sessions need not survive
+this full refresh. Production and scoped staging releases retain the staged
+domain migration checks.
+
+For a continuity-preserving website/App split, use the domain guard with staging-only
 names. Run `staging:deploy -- --domain-phase prepare --domain-evidence <file>`,
 then scoped Auth, real App browser checks, scoped Website, and the remaining
 scopes as described in [Production Release](production-release.md#websiteapp-origin-migration).
