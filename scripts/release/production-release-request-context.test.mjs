@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
+import { evaluateChannelSync } from "./cli-channel-sync.mjs";
 import { buildProductionReleasePlan } from "./production-release.mjs";
 import { assertProductionStageAdmission } from "./production-stage-admission.mjs";
 
@@ -111,6 +112,64 @@ for (const candidate of ["timeOnly", "combined"]) {
     );
   });
 }
+
+test("keeps the published CLI projection when the strict request cloud stage excludes CLI", async () => {
+  const channel = JSON.parse(
+    readFileSync(
+      new URL(
+        "./fixtures/cli-manifest.production-snapshot.json",
+        import.meta.url
+      ),
+      "utf8"
+    )
+  );
+  channel.channels.stable.version = "0.3.249";
+  channel.channels.stable.minRequiredCliVersion = "0.3.249";
+  const sync = await evaluateChannelSync({
+    manifestComponents: {
+      cli: { packageVersion: "0.3.250" },
+      service: { bundleVersion: "0.3.250" },
+    },
+    fetch: async () => Response.json(channel),
+  });
+  assert.equal(sync.outcome.kind, "behind");
+
+  const plan = contractPlan(fixture.changedPaths.combined, {
+    scope: "db,remote-agent,auth,core,gateway,web",
+  });
+  assert.equal(plan.deployOrderProfile, "remote-agent-receiver-first");
+  assert.deepEqual(plan.deployScopeOrder, SAFE_ORDER.slice(0, 6));
+  const core = plan.deploySteps.filter((step) => step.releaseScope === "core");
+  assert.deepEqual(
+    core.map((step) => step.args),
+    ["--deployment-only", "--verify-only"].map((mode) => [
+      "scripts/release/deploy-core-current-cli-projection.mjs",
+      mode,
+      "--release-sha",
+      plan.sourceSha,
+    ])
+  );
+  assert.ok(core[0].workerDeploymentArgs);
+  assert.equal(core[0].completesReleaseScope, false);
+  assert.equal(core[1].completesReleaseScope, true);
+  for (const steps of [plan.preflightSteps, plan.verifySteps]) {
+    assert.equal(
+      steps.some(
+        (step) => step.label === "Verify Core CLI channel compatibility"
+      ),
+      false
+    );
+  }
+  assert.equal(
+    plan.deploySteps.some((step) => step.internalOperation === "publish-cli"),
+    false
+  );
+  assert.deepEqual(plan.compatibilityDependencies, [
+    ["core", "gateway"],
+    ["remote-agent", "core"],
+    ["remote-agent", "cli"],
+  ]);
+});
 
 test("stage admission blocks both Core and the CLI Core projection until Remote is verified", () => {
   const plan = contractPlan(fixture.changedPaths.combined);
