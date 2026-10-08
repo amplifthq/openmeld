@@ -182,10 +182,18 @@
 	flex-shrink: 0;
 }
 .meld-download-menu {
+	--meld-download-radius: 24px;
 	width: 274px;
 	max-width: calc(100vw - 32px);
 	color-scheme: dark;
-	border-radius: 16px;
+	border-radius: var(--meld-download-radius);
+}
+.meld-download-menu [role="menuitem"],
+.meld-download-menu [data-slot="fluid-hover-highlight"] {
+	border-radius: calc(var(--meld-download-radius) - 4px);
+}
+.meld-download-menu [data-slot="fluid-action-list-focus-indicator"] {
+	border-radius: calc(var(--meld-download-radius) - 2px);
 }
 .meld-download-menu [role="menuitem"] {
 	padding: 12px;

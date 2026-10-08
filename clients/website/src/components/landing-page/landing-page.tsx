@@ -76,6 +76,7 @@ function DownloadButton() {
 				align="start"
 				className="dark meld-download-menu"
 				gapClick={false}
+				sideOffset={12}
 			>
 				<FluidDropdownMenuItem
 					index={0}
