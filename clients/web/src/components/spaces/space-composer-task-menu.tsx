@@ -89,8 +89,8 @@ export function SpaceComposerAgentOptions(input: {
 			<FluidDropdownMenuGroup>
 				<DropdownMenuSub>
 					<FluidDropdownMenuSubTrigger index={0}>
-						Session{" "}
-						<span className="ml-auto max-w-36 truncate text-muted-foreground">
+						<span className="min-w-0 flex-1">Session</span>
+						<span className="max-w-36 truncate text-muted-foreground">
 							{input.choice?.label ?? "Automatic"}
 						</span>
 					</FluidDropdownMenuSubTrigger>
@@ -157,8 +157,8 @@ export function SpaceComposerAgentOptions(input: {
 						disabled={selection?.mode === "resume"}
 						index={1}
 					>
-						Access &amp; workspace{" "}
-						<span className="ml-auto text-muted-foreground">
+						<span className="min-w-0 flex-1">Access &amp; workspace</span>
+						<span className="text-muted-foreground">
 							{selection?.mode === "resume"
 								? "From session"
 								: accessLabels[accessValue]}
