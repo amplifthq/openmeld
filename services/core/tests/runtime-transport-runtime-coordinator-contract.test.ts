@@ -2114,7 +2114,7 @@ const registerCompatibleRoute = (input: {
 
 const createContextHarness = async (
   input?: Parameters<typeof createHarness>[0] & {
-    contextVersion?: 1 | 2 | 3 | null;
+    contextVersion?: 1 | 2 | 3 | 4 | null;
   }
 ) => {
   const harness = await createHarness(input);
@@ -4173,8 +4173,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
     }
   });
 
-  it("keeps the accepted context through linking and retains its fork checkpoint after Head retirement", async () => {
-    const { hub, storageRecords } = await createContextHarness();
+  it("requires a v4 Service and freezes exact Project repository work on admission", async () => {
+    const projectWork = {
+      projectId: "project-payments",
+      repositoryFingerprint: `sha256:${"a".repeat(64)}`,
+    };
     const request = buildRuntimeCoordinatorHeadAcceptRequest({
       acceptedDispatchSnapshot: {
         ...buildAcceptedDispatchSnapshot({ fingerprint: "7" }),
@@ -4187,7 +4190,68 @@ describe("runtime transport runtime coordinator transport contract", () => {
             targetProfileId: TARGET_AGENT_PROFILE_ID,
             threadId: null,
           },
-          selection: { mode: "new", access: "space_context" },
+          selection: {
+            mode: "new",
+            access: "workspace",
+            workspace: "isolated",
+            projectWork,
+          },
+        },
+      },
+    });
+    for (const contextVersion of [2, 3] as const) {
+      const olderService = await createContextHarness({ contextVersion });
+      expect(
+        await (
+          await fetchRuntimeTransportJson(
+            olderService.hub,
+            "/runtime-coordinator/head/accept",
+            request
+          )
+        ).json()
+      ).toMatchObject({ ok: false, reasonCode: "service.update_required" });
+    }
+    const currentService = await createContextHarness({ contextVersion: 4 });
+    expect(
+      await (
+        await fetchRuntimeTransportJson(
+          currentService.hub,
+          "/runtime-coordinator/head/accept",
+          request
+        )
+      ).json()
+    ).toMatchObject({
+      status: "accepted",
+      executionContext: { projectWork },
+    });
+  });
+
+  it("keeps the accepted context through linking and retains its fork checkpoint after Head retirement", async () => {
+    const { hub, storageRecords } = await createContextHarness({
+      contextVersion: 4,
+    });
+    const projectWork = {
+      projectId: "project-payments",
+      repositoryFingerprint: `sha256:${"a".repeat(64)}`,
+    };
+    const request = buildRuntimeCoordinatorHeadAcceptRequest({
+      acceptedDispatchSnapshot: {
+        ...buildAcceptedDispatchSnapshot({ fingerprint: "7" }),
+        contextRequest: {
+          required: true,
+          scope: {
+            organizationId: "org",
+            requesterProfileId: "human",
+            spaceId: HEX_SPACE_ID,
+            targetProfileId: TARGET_AGENT_PROFILE_ID,
+            threadId: null,
+          },
+          selection: {
+            mode: "new",
+            access: "workspace",
+            workspace: "isolated",
+            projectWork,
+          },
         },
       },
     });
@@ -4198,7 +4262,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         request
       )
     ).json()) as { executionContext: { id: string; access: string } };
-    expect(response.executionContext.access).toBe("space_context");
+    expect(response.executionContext.access).toBe("workspace");
     const key = buildRuntimeCoordinatorHeadLifecycleStorageKey(
       request.targetWakeLifecycleIdentity.targetWakeLifecycleId
     );
@@ -4259,7 +4323,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
       spaceId: HEX_SPACE_ID,
       targetProfileId: TARGET_AGENT_PROFILE_ID,
     });
-    const planFork = (requesterProfileId: string) =>
+    const planFork = (
+      requesterProfileId: string,
+      selectedProjectWork?: typeof projectWork
+    ) =>
       storage.transaction((transaction) =>
         prepareExecutionContextAssignment({
           storage: transaction,
@@ -4276,6 +4343,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
                 selection: {
                   mode: "fork",
                   sourceWakeId: original.targetWakeLifecycleId,
+                  ...(selectedProjectWork
+                    ? { projectWork: selectedProjectWork }
+                    : {}),
                 },
               },
             },
@@ -4286,6 +4356,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(
       fork.record.acceptedDispatchSnapshot?.executionContext
     ).toMatchObject({
+      projectWork,
       forkSource: {
         contextId: response.executionContext.id,
         nativeConversationId: "native-parent",
@@ -4295,6 +4366,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
     await expect(planFork("another-human")).rejects.toThrow(
       "source_scope_mismatch"
     );
+    await expect(
+      planFork("human", {
+        ...projectWork,
+        repositoryFingerprint: `sha256:${"b".repeat(64)}`,
+      })
+    ).rejects.toThrow("project_work_changed_requires_new_task");
     await expect(
       recordExecutionContextCompletion({
         storage,
@@ -5694,20 +5771,33 @@ describe("runtime transport runtime coordinator transport contract", () => {
     }
   });
 
-  it("reschedules housekeeping when an alarm phase fails", async () => {
+  it.each([
+    "processRuntimeCoordinatorFinalizationRetryAlarm",
+    "processAgentProfileContextMigrationAlarm",
+    "observeComputerConnectionIncidents",
+  ])("backs off failed housekeeping %s while healthy phases continue", async (failedMethod) => {
     const nowMs = 1_700_000_000_000;
     const dateNow = vi.spyOn(Date, "now").mockReturnValue(nowMs);
     try {
-      const { hub, storageSetAlarm } = await createHarness();
-      const finalizationPhase = vi.fn(() =>
+      const { hub, storageSetAlarm, state } = await createHarness();
+      state.pendingDispatches.clear();
+      const finalizationPhase = vi.fn<() => Promise<void>>(() =>
         Promise.reject(new Error("forced phase failure"))
       );
       const watchdogPhase = vi.fn(() => Promise.resolve());
       Object.defineProperty(
         hub,
-        "processRuntimeCoordinatorFinalizationRetryAlarm",
+        failedMethod === "observeComputerConnectionIncidents"
+          ? "getComputerConnectionIncidents"
+          : failedMethod,
         {
-          value: finalizationPhase,
+          value:
+            failedMethod === "observeComputerConnectionIncidents"
+              ? () => ({
+                  observe: finalizationPhase,
+                  nextAlarmAtMs: () => null,
+                })
+              : finalizationPhase,
         }
       );
       Object.defineProperty(hub, "processRuntimeCoordinatorWatchdogAlarm", {
@@ -5717,8 +5807,64 @@ describe("runtime transport runtime coordinator transport contract", () => {
       await (hub as unknown as { alarm: () => Promise<void> }).alarm();
 
       expect(finalizationPhase).toHaveBeenCalled();
-      expect(watchdogPhase).not.toHaveBeenCalled();
+      expect(watchdogPhase).toHaveBeenCalled();
+      // The healthy watchdog still needs its earlier deadline.
       expect(storageSetAlarm).toHaveBeenCalledWith(nowMs + 1000);
+
+      await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+      expect(finalizationPhase).toHaveBeenCalledTimes(1);
+      expect(watchdogPhase).toHaveBeenCalledTimes(2);
+
+      dateNow.mockReturnValue(nowMs + 5000);
+      await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+      expect(finalizationPhase).toHaveBeenCalledTimes(2);
+      dateNow.mockReturnValue(nowMs + 14_999);
+      await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+      expect(finalizationPhase).toHaveBeenCalledTimes(2);
+
+      finalizationPhase.mockImplementation(() => Promise.resolve());
+      dateNow.mockReturnValue(nowMs + 15_000);
+      await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+      finalizationPhase.mockImplementation(() =>
+        Promise.reject(new Error("new failure"))
+      );
+      dateNow.mockReturnValue(nowMs + 16_000);
+      await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+      dateNow.mockReturnValue(nowMs + 20_999);
+      await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+      expect(finalizationPhase).toHaveBeenCalledTimes(4);
+      dateNow.mockReturnValue(nowMs + 21_000);
+      await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+      expect(finalizationPhase).toHaveBeenCalledTimes(5);
+    } finally {
+      dateNow.mockRestore();
+    }
+  });
+
+  it.each([
+    "syncHousekeepingAlarm",
+  ])("persists global alarm failure backoff across reconstruction when %s fails", async (method) => {
+    const nowMs = 1_700_000_000_000;
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(nowMs);
+    const fail = vi.fn(() => Promise.reject(new Error("service unavailable")));
+    try {
+      const first = await createHarness();
+      Object.defineProperty(first.hub, method, { value: fail });
+      await (first.hub as RuntimeTransportHub).alarm();
+      expect(first.storageSetAlarm).toHaveBeenLastCalledWith(nowMs + 5000);
+
+      const restored = await createHarness({
+        storageRecords: first.storageRecords,
+      });
+      Object.defineProperty(restored.hub, method, { value: fail });
+      dateNow.mockReturnValue(nowMs + 1000);
+      await (restored.hub as RuntimeTransportHub).alarm();
+      expect(fail).toHaveBeenCalledTimes(1);
+      expect(restored.storageSetAlarm).toHaveBeenLastCalledWith(nowMs + 5000);
+      dateNow.mockReturnValue(nowMs + 5000);
+      await (restored.hub as RuntimeTransportHub).alarm();
+      expect(fail).toHaveBeenCalledTimes(2);
+      expect(restored.storageSetAlarm).toHaveBeenLastCalledWith(nowMs + 15_000);
     } finally {
       dateNow.mockRestore();
     }
@@ -12405,11 +12551,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).toBe(expiresAtMs);
     const clock = vi.spyOn(Date, "now").mockReturnValue(expiresAtMs + 1);
     try {
-      await (
-        restarted.hub as unknown as {
-          processAgentProfileWorkPromotionAlarm(now: number): Promise<void>;
-        }
-      ).processAgentProfileWorkPromotionAlarm(expiresAtMs + 1);
+      await (restarted.hub as unknown as RuntimeTransportHub).alarm();
       expect(
         await (
           restarted.hub as unknown as RuntimeTransportHub

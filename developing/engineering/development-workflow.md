@@ -2520,8 +2520,8 @@ commands inside the documented isolated PostgreSQL cluster.
 Production database changes use the guarded scoped release owner in
 [Production Database Release](production-release.md#production-database-release).
 The legacy `db:release:prod` and `db:sync:prod` commands reject the PostgreSQL
-manifest. Shared staging remains on its deployed D1 revision and cannot receive
-current-source product deployments until its separate migration is supported.
+manifest. Shared staging uses its own PostgreSQL target through the guarded
+`pnpm staging:deploy` workflow, including migrations and runtime grants.
 
 Historical D1 files remain immutable import/recovery evidence; see
 [the historical migration directory](../../packages/db/drizzle/README.md).

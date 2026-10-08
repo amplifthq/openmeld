@@ -22,6 +22,7 @@ import {
 } from "#/lib/spaces/composer-attachment";
 import type { ComposerFileDraftCleanup } from "#/lib/spaces/composer-file-drafts";
 import { isQuotaWakeFailure } from "#/lib/spaces/wake-failure-display";
+import { SpaceComposerAgentOptionsWithProject } from "./space-composer-agent-options";
 import {
 	SpaceComposerAddMenu,
 	SpaceComposerAttachmentRecovery,
@@ -45,11 +46,14 @@ import {
 	type SpaceComposerInputRef,
 } from "./space-composer-editor";
 import { SpaceComposerEditorBoundary } from "./space-composer-editor-boundary";
-import {
-	type SpaceComposerTaskChoice,
-	SpaceComposerTaskMenu,
-	type SpaceTaskSource,
+import type {
+	SpaceComposerTaskChoice,
+	SpaceTaskSource,
 } from "./space-composer-task-menu";
+import {
+	type SpaceTaskDraft,
+	SpaceTaskDraftFields,
+} from "./space-task-draft-fields";
 import { useSpaceWakeRecommendation } from "./space-wake-recommendation";
 import type {
 	SpaceComposerAddressingTarget,
@@ -57,6 +61,7 @@ import type {
 } from "./use-space-mention-authoring";
 
 export type SpaceComposerProps = {
+	organizationId?: string | null;
 	taskSources?: readonly SpaceTaskSource[];
 	members?: { state: "loading" | "error"; onRetry: () => void };
 	recovery?: Omit<
@@ -196,45 +201,52 @@ function useComposerWakeSuggestion(input: SpaceComposerProps) {
 }
 
 function useComposerTaskChoice(input: SpaceComposerProps) {
-	const [choice, setChoice] = useState<SpaceComposerTaskChoice>();
-	const targets = input.content.addressingTargets.filter(
-		(target) => target.relation === "wake"
-	);
-	const target =
-		targets.length === 1 &&
-		["builtin:codex", "builtin:claude-code"].includes(
-			targets[0]?.agentControllerRef ?? ""
-		)
-			? targets[0]
-			: undefined;
-	const active =
-		choice?.targetProfileId === target?.profileId ? choice : undefined;
+	const [choices, setChoices] = useState<
+		Record<string, SpaceComposerTaskChoice | undefined>
+	>({});
 	return {
-		menu: target ? (
-			<SpaceComposerTaskMenu
-				choice={active}
-				disabled={
-					hasPendingComposerMembers(input) ||
-					input.availability.isSendingMessage
-				}
-				onChange={setChoice}
-				requiresProjectContainer={
-					target.agentControllerRef === "builtin:claude-code"
-				}
-				sources={input.taskSources ?? []}
-				supportsCurrentFolder={target.agentControllerRef === "builtin:codex"}
-				targetProfileId={target.profileId}
-			/>
-		) : null,
+		renderAgentOptions: (profileId: string) => {
+			const target = input.content.addressingTargets.find(
+				(item) => item.profileId === profileId
+			);
+			if (
+				!(
+					target &&
+					["builtin:codex", "builtin:claude-code"].includes(
+						target.agentControllerRef ?? ""
+					)
+				)
+			) {
+				return null;
+			}
+			return (
+				<SpaceComposerAgentOptionsWithProject
+					choice={choices[profileId]}
+					onChange={(choice) =>
+						setChoices((current) => ({ ...current, [profileId]: choice }))
+					}
+					organizationId={input.organizationId}
+					sources={input.taskSources ?? []}
+					supportsCurrentFolder={target.agentControllerRef === "builtin:codex"}
+					targetProfileId={profileId}
+				/>
+			);
+		},
 		prepare: (options: SpaceComposerSendOptions): SpaceComposerSendOptions => {
-			if (!active) {
+			const entries = input.content.addressingTargets.flatMap((target) => {
+				const choice = choices[target.profileId];
+				return target.relation === "wake" && choice
+					? [[target.profileId, choice.selection] as const]
+					: [];
+			});
+			if (entries.length === 0) {
 				return options;
 			}
 			return {
 				...options,
-				contextSelection: active.selection,
+				contextSelections: Object.fromEntries(entries),
 				onMessageStaged: (id) => {
-					setChoice(undefined);
+					setChoices({});
 					options.onMessageStaged?.(id);
 				},
 			};
@@ -242,8 +254,79 @@ function useComposerTaskChoice(input: SpaceComposerProps) {
 	};
 }
 
+function isTaskDraftDisabled(
+	input: SpaceComposerProps,
+	draft: SpaceTaskDraft | null
+) {
+	return (
+		!(draft?.title.trim() && input.availability.canSendMessage) ||
+		input.availability.isSendingMessage ||
+		input.content.files.some((file) => file.status !== "ready")
+	);
+}
+function createComposerTaskDraft(input: SpaceComposerProps): SpaceTaskDraft {
+	const targets = input.content.addressingTargets.filter(
+		(target) => target.relation === "wake"
+	);
+	return {
+		title: input.content.text.trim().slice(0, 200),
+		assigneeProfileId: targets.length === 1 ? targets[0]?.profileId : undefined,
+	};
+}
+function ComposerTaskSubmit(input: {
+	composer: SpaceComposerProps;
+	disabled: boolean;
+	onSubmit: () => void;
+}) {
+	return (
+		<Button
+			disabled={input.disabled}
+			onClick={input.onSubmit}
+			size="sm"
+			type="button"
+		>
+			{input.composer.content.addressingTargets.some(
+				(target) => target.relation === "wake"
+			)
+				? "Create and start"
+				: "Create task"}
+		</Button>
+	);
+}
+function taskCreateAction(draft: SpaceTaskDraft | null, onCreate: () => void) {
+	return draft ? undefined : onCreate;
+}
+function ComposerTaskDraft(input: {
+	composer: SpaceComposerProps;
+	draft: SpaceTaskDraft | null;
+	onChange: (draft: SpaceTaskDraft | null) => void;
+}) {
+	if (!input.draft) {
+		return null;
+	}
+	return (
+		<SpaceTaskDraftFields
+			disabled={input.composer.availability.isSendingMessage}
+			draft={input.draft}
+			members={input.composer.content.mentionPickerItems.map(
+				(item) => item.suggestion
+			)}
+			onChange={input.onChange}
+			onClose={() => input.onChange(null)}
+		/>
+	);
+}
+function composerPlaceholder(
+	draft: SpaceTaskDraft | null,
+	placeholder: string
+) {
+	return draft ? "Describe the work…" : placeholder;
+}
+
 export function SpaceComposer(input: SpaceComposerProps) {
 	const [editorFailed, setEditorFailed] = useState(false);
+	const [taskDraft, setTaskDraft] = useState<SpaceTaskDraft | null>(null);
+	const taskDisabled = isTaskDraftDisabled(input, taskDraft);
 	const taskContext = useComposerTaskChoice(input);
 	const membersPending = hasPendingComposerMembers(input);
 	const { recommendations, recommended, acceptRecommendation } =
@@ -251,7 +334,11 @@ export function SpaceComposer(input: SpaceComposerProps) {
 	const deviceWaitPresentation =
 		buildSpaceComposerDeviceWaitPresentation(input);
 	const submit = () => {
-		if (deviceWaitPresentation.disabled || membersPending) {
+		if (
+			deviceWaitPresentation.disabled ||
+			membersPending ||
+			(taskDraft && taskDisabled)
+		) {
 			return;
 		}
 		const deviceWait = deviceWaitPresentation.target
@@ -261,8 +348,12 @@ export function SpaceComposer(input: SpaceComposerProps) {
 			return;
 		}
 		const options = taskContext.prepare({
+			...(taskDraft
+				? { taskDraft, onMessageStaged: () => setTaskDraft(null) }
+				: {}),
 			...(deviceWait ? { deviceWait } : {}),
-			...(recommendations &&
+			...(!taskDraft &&
+			recommendations &&
 			(recommendations.candidate || recommendations.nudge)
 				? {
 						onMessageStaged: (clientMessageId: string) =>
@@ -275,7 +366,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 		});
 		// Return focus within the gesture; network completion must not steal it.
 		input.composerRef.current?.focus();
-		if (options.deviceWait || options.onMessageStaged) {
+		if (Object.keys(options).length > 0) {
 			input.actions.onSubmit(options);
 		} else {
 			input.actions.onSubmit();
@@ -338,7 +429,17 @@ export function SpaceComposer(input: SpaceComposerProps) {
 			: null,
 		waitDisabled: deviceWaitPresentation.disabled || membersPending,
 		onSubmit: submit,
-		override: input.slots?.primaryAction,
+		override: taskDraft ? (
+			<ComposerTaskSubmit
+				composer={input}
+				disabled={
+					taskDisabled || membersPending || deviceWaitPresentation.disabled
+				}
+				onSubmit={submit}
+			/>
+		) : (
+			input.slots?.primaryAction
+		),
 		policy,
 	});
 	const feedbackLayout = resolveComposerFeedbackLayout(input, membersPending);
@@ -373,6 +474,11 @@ export function SpaceComposer(input: SpaceComposerProps) {
 					value={input.content.text}
 				>
 					{input.slots?.beforeInput}
+					<ComposerTaskDraft
+						composer={input}
+						draft={taskDraft}
+						onChange={setTaskDraft}
+					/>
 					<SpaceComposerAttachmentState input={input} />
 					<SpaceComposerEditorBoundary
 						ariaLabel={policy.accessibleName}
@@ -382,7 +488,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 						onFailure={() => setEditorFailed(true)}
 						onFocus={input.actions.onFocus}
 						onSend={submit}
-						placeholder={policy.placeholder}
+						placeholder={composerPlaceholder(taskDraft, policy.placeholder)}
 						text={input.content.text}
 					>
 						<SpaceComposerEditor
@@ -403,7 +509,8 @@ export function SpaceComposer(input: SpaceComposerProps) {
 							onFocus={input.actions.onFocus}
 							onPaste={handlePaste}
 							onSend={submit}
-							placeholder={policy.placeholder}
+							placeholder={composerPlaceholder(taskDraft, policy.placeholder)}
+							renderAgentOptions={taskContext.renderAgentOptions}
 							text={input.content.text}
 							wakeRecommendation={
 								recommended
@@ -423,7 +530,6 @@ export function SpaceComposer(input: SpaceComposerProps) {
 								feedbackLayout.leading
 							)}
 						>
-							{taskContext.menu}
 							<SpaceComposerAttachmentAction
 								enabled={input.capabilities?.attachments !== false}
 								override={input.slots?.attachmentAction}
@@ -438,6 +544,9 @@ export function SpaceComposer(input: SpaceComposerProps) {
 									}
 									limitReached={input.availability.fileLimitReached}
 									onAddPeopleOrAgents={input.actions.onAddPeopleOrAgents}
+									onCreateTask={taskCreateAction(taskDraft, () =>
+										setTaskDraft(createComposerTaskDraft(input))
+									)}
 								/>
 							</SpaceComposerAttachmentAction>
 							{!editorFailed &&

@@ -48,6 +48,7 @@ export const {
 
 export const {
   firstWorkExperiences,
+  userTimeContexts,
   aiUsageRecords,
   organizationAiUsagePolicies,
   inboxCenterAgentReadWatermarks,
@@ -192,6 +193,8 @@ export const {
   spaceIndexMemberships,
   spaceIndexProjectionEvents,
   spaceTaskGitHubIssueLinks,
+  spaceTaskProjectLinks,
+  spaceTaskProjectProjectionStates,
   githubAppWebhookDeliveries,
 } = coreSchema;
 

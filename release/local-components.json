@@ -1,28 +1,28 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-07T18:27:26.898Z",
+  "updatedAt": "2026-10-08T18:37:25.420Z",
   "components": {
     "cli": {
-      "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
-      "packageVersion": "0.3.248",
+      "commandContractVersion": "openmeld-cli-command-contract-2026-09-project-work-v1",
+      "packageVersion": "0.3.250",
       "updatePolicy": "available",
-      "reason": "Existing commands remain compatible; new conversation readers are optional and their cloud receivers deploy before CLI publication."
+      "reason": "New timezone request headers are optional and older cloud receivers ignore them; no CLI command or authentication contract changes."
     },
     "service": {
-      "bundleHash": "a24cc02a780dae13075b1a3b091235d8676286f5de115033330ebc8ad04ea25f",
-      "portableBundleHash": "84772ec25550dd28160cc8eaa2285dc01d3d9817e888797d99e1fa804d0e243d",
-      "bundleVersion": "0.3.248",
-      "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
-      "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
+      "bundleHash": "915eba436d1e788b43622a7e5dcc41b0620f8bc95e7aee110aef80ac157e6997",
+      "portableBundleHash": "9fb8f4f620bacca06e36d8f4c40cffb16a4216b612ad2006cc36874c608404f7",
+      "bundleVersion": "0.3.250",
+      "runtimeContractEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
+      "serviceContractVersion": "openmeld-service-contract-2026-09-project-work-v1",
       "updatePolicy": "available",
-      "reason": "Conversation history v3 is capability-gated; old Services retain safe existing Wake, setup, approval and recovery behavior while new cloud receivers deploy first."
+      "reason": "Timezone observations are optional and cloud input metadata is projected away before existing local Service delivery; existing dispatch, execution, and publication contracts remain valid."
     },
     "skills": {
-      "bundleHash": "7a89eb86c43daf33e04984b7f04cbfd9752ec8bcf617004f85bee8007359ddb6",
+      "bundleHash": "b13d1bdc2c5871161859831b398c847fb0df321983f11559a8de1b16f7125ae9",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Computer, Plugin and project guidance is additive and keeps existing Wake and Space action contracts."
+      "reason": "The guidance clarifies local-first execution and renewal of existing Plugin connection grants; it introduces no new required tool or CLI command."
     }
   }
 }

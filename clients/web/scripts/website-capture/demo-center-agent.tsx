@@ -7,7 +7,6 @@ import { AppLogo } from "@openmeld/ui/components/app-logo";
 import { BrainIcon, FileTextIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { AgentAvatarEditor } from "../../src/components/agents/agent-avatar-editor";
-import type { AgentAvatarStyle } from "../../src/components/agents/remote-agent-avatar";
 import {
 	HostedModelSelect,
 	personalRemoteModelChoices,
@@ -18,6 +17,7 @@ import {
 	AgentConfigurationGrid,
 	AgentConfigurationReadoutCard,
 } from "../../src/components/profiles/agent-configuration-card";
+import { useDemoCenterAvatar } from "./demo-center-identity";
 import { demoModelCatalog } from "./demo-model-catalog";
 
 const modelChoices = personalRemoteModelChoices(demoModelCatalog);
@@ -34,7 +34,7 @@ const channels = [
 
 export function DemoCenterAgent() {
 	const [model, setModel] = useState("openai/gpt-6-astra");
-	const [avatar, setAvatar] = useState<AgentAvatarStyle>("cloud");
+	const [avatar, setAvatar] = useDemoCenterAvatar();
 	return (
 		<div className="demo-center-agent">
 			<header className="demo-center-identity">
@@ -45,7 +45,7 @@ export function DemoCenterAgent() {
 					modelId={model}
 					onSave={async (style) => setAvatar(style)}
 					profileId="demo-center-agent"
-					profileName="Amplift Center Agent"
+					profileName="OpenMeld"
 					saving={false}
 					size={88}
 				/>
@@ -53,10 +53,8 @@ export function DemoCenterAgent() {
 					<p className="mb-2 text-muted-foreground text-xs">
 						Center Agent settings
 					</p>
-					<h1 className="font-medium text-2xl">Amplift Center Agent</h1>
-					<p className="mt-1 text-muted-foreground text-sm">
-						@amplift-center-agent
-					</p>
+					<h1 className="font-medium text-2xl">OpenMeld</h1>
+					<p className="mt-1 text-muted-foreground text-sm">@openmeld</p>
 				</div>
 			</header>
 			<div className="demo-center-grid">

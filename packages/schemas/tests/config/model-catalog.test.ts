@@ -8,6 +8,7 @@ import { modelRetirementNoticeSchema } from "../../src/schemas/config/model-cata
 import codexGpt6Capture from "../fixtures/codex-gpt-6-sol-luna-2026.09.23.json";
 import cursorModelCatalogCapture from "../fixtures/cursor-model-catalog-2026.09.10.json";
 import cursorOctoberReviewCapture from "../fixtures/cursor-model-catalog-2026.10.07.json";
+import haikuCapture from "../fixtures/haiku-5.5-local-model-catalog-2026.10.08.json";
 import localModelCatalogCapture from "../fixtures/local-model-catalog-2026.09.22.json";
 import octoberModelCatalogCapture from "../fixtures/local-model-catalog-2026.10.01.json";
 import openCodeGoQwen38Flash from "../fixtures/opencode-go-qwen3.8-flash-1.18.25.json";
@@ -61,7 +62,7 @@ describe("model catalog schema", () => {
     ).toBe(false);
   });
 
-  it("preserves the new local models' authenticated IDs and reasoning options", () => {
+  it("preserves reviewed local model IDs and reasoning options", () => {
     const { agentControllers } = modelCatalogSchema.parse(vendorModelCatalog);
     for (const model of codexGpt6Capture.data) {
       expect(agentControllers.codex?.models).toContainEqual(
@@ -76,13 +77,24 @@ describe("model catalog schema", () => {
       );
     }
     const { cursor, grokBuild, opencode } = localModelCatalogCapture;
+    expect(agentControllers["claude-code"]?.models).toContainEqual(
+      expect.objectContaining({
+        id: haikuCapture.claudeCode.modelId,
+        unavailable: false,
+        minCliVersion: haikuCapture.claudeCode.minCliVersion,
+        supportedReasoningLevels:
+          haikuCapture.claudeCode.supportedReasoningLevels,
+      })
+    );
     for (const model of [
       ...cursor.availableModels,
       ...octoberModelCatalogCapture.cursor.availableModels,
+      ...haikuCapture.cursor.availableModels,
     ]) {
       expect([
         ...cursor.configOptions,
         ...octoberModelCatalogCapture.cursor.configOptions,
+        ...haikuCapture.cursor.configOptions,
       ]).toContainEqual({
         value: model.modelId,
         name: model.name,
@@ -110,6 +122,7 @@ describe("model catalog schema", () => {
       ...octoberModelCatalogCapture.opencode,
       ...openCodeOctoberCapture.models,
       ...openCodeReviewCapture.models,
+      ...haikuCapture.opencode.models,
     ]) {
       expect(agentControllers.opencode?.models).toContainEqual(
         expect.objectContaining({
@@ -144,7 +157,7 @@ describe("model catalog schema", () => {
       expect(modelCatalogSchema.safeParse(catalog).success).toBe(false);
     }
   });
-  it("preserves the October 7 native model IDs and provider variant keys", () => {
+  it("preserves reviewed native model choices and freshness labels", () => {
     const { agentControllers } = modelCatalogSchema.parse(vendorModelCatalog);
     for (const model of openCodeLatestReviewCapture.models) {
       expect(agentControllers.opencode?.models).toContainEqual(
@@ -176,11 +189,19 @@ describe("model catalog schema", () => {
             .map((model) => model.id)
         )
         .toSorted()
-    ).toEqual([
-      "opencode/exo-free",
-      "opencode/fledge-alpha-free",
-      "opencode/mistral-large-4",
-    ]);
+    ).toEqual(
+      [
+        "anthropic/claude-haiku-5.5",
+        haikuCapture.claudeCode.modelId,
+        ...haikuCapture.cursor.availableModels.map((model) => model.modelId),
+        ...haikuCapture.opencode.models.map(
+          (model) => `${model.providerID}/${model.id}`
+        ),
+        "opencode/exo-free",
+        "opencode/fledge-alpha-free",
+        "opencode/mistral-large-4",
+      ].toSorted()
+    );
   });
   it("accepts the release vendor model catalog", () => {
     const result = modelCatalogSchema.safeParse(vendorModelCatalog);

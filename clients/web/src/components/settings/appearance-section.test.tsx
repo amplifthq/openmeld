@@ -147,6 +147,33 @@ describe("AppearanceSection", () => {
 		}
 	});
 
+	it.each([
+		"Original",
+		"Balanced",
+		"Soft",
+		"Slate",
+		"Sand",
+	])("keeps %s Bot colors when Appearance is reopened", (palette) => {
+		renderAppearance();
+		fireEvent.click(screen.getByRole("radio", { name: palette }));
+		cleanup();
+		renderAppearance();
+		expect(
+			screen.getByRole("radio", { name: palette }).getAttribute("aria-checked")
+		).toBe("true");
+	});
+
+	it("changes Bot colors with the keyboard", () => {
+		renderAppearance();
+		fireEvent.click(screen.getByRole("radio", { name: "Slate" }));
+		fireEvent.keyDown(screen.getByRole("radio", { name: "Slate" }), {
+			key: "ArrowRight",
+		});
+		expect(
+			screen.getByRole("radio", { name: "Sand" }).getAttribute("aria-checked")
+		).toBe("true");
+	});
+
 	it("defaults to rounded corners and changes the shared shape context", () => {
 		renderAppearance();
 

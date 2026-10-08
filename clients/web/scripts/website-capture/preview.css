@@ -1,11 +1,20 @@
 @import "../../src/styles.css";
 @source "../../src";
 @source ".";
-html {
-	color-scheme: dark;
-}
 body {
 	margin: 0;
+}
+/* Keep addressing behavior, but omit relation controls in this simple demo. */
+[data-slot="space-message-profile-mention"] > .border-l,
+[data-testid="space-composer-profile-token"] > .border-l,
+[data-testid="space-composer-profile-token"]
+	> :has(> [aria-label^="Change relation for"]) {
+	display: none;
+}
+/* Omit personal/presence labels so the demo's member list stays compact. */
+:is(#space-members-panel, #space-members-drawer)
+	:is([aria-label="Live"], [aria-label="You"]) {
+	display: none;
 }
 [data-slot="app-surface-layout"] {
 	--app-toolbar-height: 0.75rem;

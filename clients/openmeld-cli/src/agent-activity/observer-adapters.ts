@@ -7,6 +7,7 @@ import type { AgentActivityEvent } from "@openmeld/schemas/types";
 import { resolveLocalProjectConnectionForPath } from "./project-binding-resolution";
 import type { ProjectBinding } from "./project-bindings";
 import { normalizeSharedSessionTitle } from "./provider-session-titles";
+import type { LocalAgentSessionProjectAttribution } from "./session-inventory-origin-store";
 
 const ACTIVE_WINDOW_MS = 2 * 60_000;
 
@@ -276,10 +277,12 @@ export function parseOpenCodeSessionRow(input: {
 export async function buildAgentActivityEvent(input: {
   bindings: readonly ProjectBinding[];
   observed: ObservedAgentSession;
+  projectAttribution?: LocalAgentSessionProjectAttribution | null;
 }): Promise<AgentActivityEvent | null> {
   const binding = await resolveObservedAgentActivityBinding(
     input.observed.cwd,
-    input.bindings
+    input.bindings,
+    input.projectAttribution
   );
   if (!binding) {
     return null;
@@ -313,10 +316,19 @@ export async function buildAgentActivityEvent(input: {
 
 export async function resolveObservedAgentActivityBinding(
   cwd: string,
-  bindings: readonly ProjectBinding[]
+  bindings: readonly ProjectBinding[],
+  projectAttribution?: LocalAgentSessionProjectAttribution | null
 ) {
   return await resolveLocalProjectConnectionForPath({
-    connections: bindings,
+    connections: projectAttribution
+      ? bindings.filter(
+          (binding) =>
+            binding.organizationId === projectAttribution.organizationId &&
+            binding.projectId === projectAttribution.projectId &&
+            binding.repositoryFingerprint ===
+              projectAttribution.repositoryFingerprint
+        )
+      : bindings,
     path: cwd,
   });
 }

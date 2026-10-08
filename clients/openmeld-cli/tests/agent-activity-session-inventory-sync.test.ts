@@ -83,6 +83,84 @@ afterEach(async () => {
 });
 
 describe("Local Agent Session Inventory reconciliation", () => {
+  it("reports shared-folder attribution as partial while keeping an exact Session", async () => {
+    root = await mkdtemp(join(tmpdir(), "openmeld-shared-session-source-"));
+    const repositoryPath = join(root, "repository");
+    await mkdir(repositoryPath);
+    const first = await bindProject({
+      organizationId: "org-1",
+      projectId: "project-1",
+      projectSlug: "payments",
+      ownerUserId: "user-1",
+      repositoryFingerprint: null,
+      repositoryPath,
+      rootDir: root,
+    });
+    let shareConfirmationToken: string | undefined;
+    try {
+      await bindProject({
+        organizationId: "org-1",
+        projectId: "project-2",
+        projectSlug: "platform",
+        ownerUserId: "user-1",
+        repositoryFingerprint: null,
+        repositoryPath,
+        rootDir: root,
+      });
+    } catch (error) {
+      shareConfirmationToken = (
+        error as { pathConflict?: { shareConfirmationToken?: string } }
+      ).pathConflict?.shareConfirmationToken;
+    }
+    const second = await bindProject({
+      organizationId: "org-1",
+      projectId: "project-2",
+      projectSlug: "platform",
+      ownerUserId: "user-1",
+      repositoryFingerprint: null,
+      repositoryPath,
+      rootDir: root,
+      shareConfirmationToken,
+    });
+    mocks.discoverLocalAgentSessionProviders.mockResolvedValue([
+      discoveryFor(first, "native-exact"),
+    ]);
+    const result = await syncLocalAgentSessionInventory({
+      foundation: {} as never,
+      nowMs: 20_000,
+      rootDir: root,
+    });
+    expect(result).toMatchObject({
+      sessionCount: 1,
+      submittedSourceCount: 2,
+      status: "submitted",
+    });
+    const requests =
+      mocks.submitAgentActivitySessionReconciliation.mock.calls.map(
+        ([request]) =>
+          request as {
+            problemCode?: string;
+            projectId: string;
+            result: string;
+            sessions: { nativeSessionId: string }[];
+          }
+      );
+    expect(requests).toMatchObject([
+      {
+        problemCode: "project_attribution_ambiguous",
+        projectId: first.projectId,
+        result: "partial",
+        sessions: [{ nativeSessionId: "native-exact" }],
+      },
+      {
+        problemCode: "project_attribution_ambiguous",
+        projectId: second.projectId,
+        result: "partial",
+        sessions: [],
+      },
+    ]);
+  });
+
   it("does not publish or overwrite state when the source store cannot be read", async () => {
     root = await mkdtemp(join(tmpdir(), "openmeld-session-store-error-"));
     const repositoryPath = join(root, "repository");

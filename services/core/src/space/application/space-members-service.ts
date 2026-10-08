@@ -1106,6 +1106,8 @@ function buildAgentIdentitySnapshot(input: {
     profileId: input.record.profileId,
     avatarStyle:
       input.profileFacts?.get(input.record.profileId)?.avatarStyle ?? null,
+    avatarOptions:
+      input.profileFacts?.get(input.record.profileId)?.avatarOptions ?? null,
     profileName: input.record.profileNameSnapshot,
     profileKind: "agent",
     mentionAlias:
@@ -1420,6 +1422,8 @@ async function buildAgentSnapshot(input: {
     profileId: input.record.profileId,
     avatarStyle:
       input.profileFacts?.get(input.record.profileId)?.avatarStyle ?? null,
+    avatarOptions:
+      input.profileFacts?.get(input.record.profileId)?.avatarOptions ?? null,
     avatarModelId: resolveHostedAvatarModelId(
       agentControllerRef,
       executionReadiness.modelSelection?.modelId

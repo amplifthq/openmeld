@@ -69,8 +69,12 @@ export function buildOpenMeldRequestContext(input: {
   ingressContext: GatewayIngressForwardingContext;
   requestId: string;
   resolvedProfile: ResolvedOpenMeldProfile;
+  userTimeZoneObservation?: OpenMeldRequestContext["userTimeZoneObservation"];
 }): OpenMeldRequestContext {
   const parsed = openMeldRequestContextSchema.safeParse({
+    ...(input.userTimeZoneObservation
+      ? { userTimeZoneObservation: input.userTimeZoneObservation }
+      : {}),
     actorContext: buildGatewayActorContext(input),
     ...(input.activeOrganizationId
       ? { activeOrganizationId: input.activeOrganizationId }

@@ -450,6 +450,48 @@ test("allows a Space Task receiver stage with the immutable published CLI projec
   }
 });
 
+test("composes Project and Task receivers before local v4 and Web controls", () => {
+  const paths = [
+    ...SPACE_TASK_PATHS,
+    "packages/schemas/src/schemas/daemon/runtime-transport.ts",
+    "services/core/src/runtime-transport/application/runtime-transport-dispatch-service.ts",
+    "clients/openmeld-cli/src/local-service/adapters/resolve-daemon-capabilities.ts",
+    "services/core/src/projects/project-issue-action-routing.ts",
+    "services/remote-agent/agent-core/project-issue-routing.ts",
+    "clients/web/src/components/projects/project-issue-routing-section.tsx",
+    "clients/openmeld-cli/src/local-service/projects/local-project-discovery.ts",
+    "clients/web/src/components/projects/project-computer-section.tsx",
+  ];
+  const plan = buildProductionReleasePlan({
+    base: "previous-release",
+    sourceSha: REMOTE_SOURCE_SHA,
+    scope: "db,auth,core,gateway,remote-agent,cli,web",
+    changedPaths: paths,
+  });
+  const order = plan.deployScopeOrder;
+  for (const [receiver, producer] of [
+    ["db", "core"],
+    ["core", "gateway"],
+    ["core", "remote-agent"],
+    ["core", "cli"],
+    ["gateway", "cli"],
+    ["remote-agent", "web"],
+    ["cli", "web"],
+  ]) {
+    assert.ok(
+      order.indexOf(receiver) < order.indexOf(producer),
+      `${receiver} before ${producer}`
+    );
+  }
+  assert.equal(plan.deployOrderProfile, "space-task-receivers-first");
+  assert.ok(
+    plan.deploySteps.some(
+      (step) =>
+        step.label === "Deploy Core with the current published CLI projection"
+    )
+  );
+});
+
 test("rejects opposing Space Task receiver orders instead of overriding existing constraints", () => {
   for (const otherPaths of [
     ["services/remote-agent/.flue/cloudflare.ts"],
@@ -1228,6 +1270,22 @@ test("fails fast on current CLI channel truth before expensive Core verification
     "--current",
     "--channel-sync-check",
   ]);
+});
+
+test("uses current trusted control for PostgreSQL recovery without changing operation identity", () => {
+  const steps = buildProductionDeployStepSpecs(["db"], {
+    databaseBackend: "postgresql",
+  });
+  assert.deepEqual(
+    steps.map(({ command, args }) => ({ command, args })),
+    ["migrate", "grant-runtime", "verify"].map((operation) => ({
+      command: "node",
+      args: ["tooling/postgresql/cutover.mjs", operation],
+    }))
+  );
+  for (const step of steps) {
+    assert.equal(step.controlPath, "tooling/postgresql/cutover.mjs");
+  }
 });
 
 test("gives every hosted-eligible preflight step a trusted control path", () => {

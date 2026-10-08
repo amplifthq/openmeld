@@ -17,7 +17,17 @@ import {
   localProjectControlSetDefaultConnectionRequestSchema,
   localProjectControlSetDefaultConnectionResponseSchema,
   projectRouteParamsSchema,
+  readProjectCommonAgentsResponseSchema,
+  readProjectIssueRoutingResponseSchema,
+  readProjectRecentTasksResponseSchema,
+  readProjectRepositorySettingsResponseSchema,
   updateProjectBodySchema,
+  updateProjectCommonAgentsBodySchema,
+  updateProjectCommonAgentsResponseSchema,
+  updateProjectIssueRoutingBodySchema,
+  updateProjectIssueRoutingResponseSchema,
+  updateProjectRepositorySettingsBodySchema,
+  updateProjectRepositorySettingsResponseSchema,
   updateProjectResponseSchema,
 } from "@openmeld/schemas";
 import type { Context, Hono } from "hono";
@@ -33,6 +43,10 @@ import type { RpcHttpMethod } from "./rpc-http.types";
 
 const PROJECTS_ROUTE = "/v1/organizations/current/projects";
 const PROJECT_ROUTE = `${PROJECTS_ROUTE}/:projectId`;
+const PROJECT_ISSUE_ROUTING_ROUTE = `${PROJECT_ROUTE}/issue-routing`;
+const PROJECT_REPOSITORIES_ROUTE = `${PROJECT_ROUTE}/repositories`;
+const PROJECT_COMMON_AGENTS_ROUTE = `${PROJECT_ROUTE}/common-agents`;
+const PROJECT_RECENT_TASKS_ROUTE = `${PROJECT_ROUTE}/recent-tasks`;
 const CURRENT_PROJECTS_ROUTE = "/v1/local-runtimes/current/projects";
 const DISCOVER_PROJECTS_ROUTE = `${CURRENT_PROJECTS_ROUTE}/discover`;
 const CONNECT_CANDIDATE_ROUTE = `${CURRENT_PROJECTS_ROUTE}/connect-candidate`;
@@ -42,6 +56,162 @@ const REMOVE_CONNECTION_ROUTE = `${CURRENT_PROJECTS_ROUTE}/connections/remove`;
 const REMOVE_MISSING_CONNECTIONS_ROUTE = `${CURRENT_PROJECTS_ROUTE}/connections/remove-missing`;
 
 export function registerProjectRoutes(app: Hono<HonoBindings>): void {
+  app.get(PROJECT_RECENT_TASKS_ROUTE, (c) => {
+    const params = parseProjectParams(c, PROJECT_RECENT_TASKS_ROUTE, "GET");
+    if (!params.ok) {
+      return params.response;
+    }
+    return executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.readProjectRecentTasks({
+          context: buildCoreRpcContext(c),
+          projectId: params.data.projectId,
+        }),
+      method: "GET",
+      responseSchema: readProjectRecentTasksResponseSchema,
+      route: PROJECT_RECENT_TASKS_ROUTE,
+    });
+  });
+
+  app.get(PROJECT_REPOSITORIES_ROUTE, (c) => {
+    const params = parseProjectParams(c, PROJECT_REPOSITORIES_ROUTE, "GET");
+    if (!params.ok) {
+      return params.response;
+    }
+    return executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.readProjectRepositorySettings({
+          context: buildCoreRpcContext(c),
+          projectId: params.data.projectId,
+        }),
+      method: "GET",
+      responseSchema: readProjectRepositorySettingsResponseSchema,
+      route: PROJECT_REPOSITORIES_ROUTE,
+    });
+  });
+
+  app.put(PROJECT_REPOSITORIES_ROUTE, async (c) => {
+    const params = parseProjectParams(c, PROJECT_REPOSITORIES_ROUTE, "PUT");
+    if (!params.ok) {
+      return params.response;
+    }
+    const body = await parseBody(
+      c,
+      PROJECT_REPOSITORIES_ROUTE,
+      "PUT",
+      updateProjectRepositorySettingsBodySchema
+    );
+    if (!body.ok) {
+      return body.response;
+    }
+    return executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.updateProjectRepositorySettings({
+          ...body.data,
+          context: buildCoreRpcContext(c),
+          projectId: params.data.projectId,
+        }),
+      method: "PUT",
+      responseSchema: updateProjectRepositorySettingsResponseSchema,
+      route: PROJECT_REPOSITORIES_ROUTE,
+    });
+  });
+
+  app.get(PROJECT_COMMON_AGENTS_ROUTE, (c) => {
+    const params = parseProjectParams(c, PROJECT_COMMON_AGENTS_ROUTE, "GET");
+    if (!params.ok) {
+      return params.response;
+    }
+    return executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.readProjectCommonAgents({
+          context: buildCoreRpcContext(c),
+          projectId: params.data.projectId,
+        }),
+      method: "GET",
+      responseSchema: readProjectCommonAgentsResponseSchema,
+      route: PROJECT_COMMON_AGENTS_ROUTE,
+    });
+  });
+
+  app.put(PROJECT_COMMON_AGENTS_ROUTE, async (c) => {
+    const params = parseProjectParams(c, PROJECT_COMMON_AGENTS_ROUTE, "PUT");
+    if (!params.ok) {
+      return params.response;
+    }
+    const body = await parseBody(
+      c,
+      PROJECT_COMMON_AGENTS_ROUTE,
+      "PUT",
+      updateProjectCommonAgentsBodySchema
+    );
+    if (!body.ok) {
+      return body.response;
+    }
+    return executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.updateProjectCommonAgents({
+          ...body.data,
+          context: buildCoreRpcContext(c),
+          projectId: params.data.projectId,
+        }),
+      method: "PUT",
+      responseSchema: updateProjectCommonAgentsResponseSchema,
+      route: PROJECT_COMMON_AGENTS_ROUTE,
+    });
+  });
+
+  app.get(PROJECT_ISSUE_ROUTING_ROUTE, (c) => {
+    const params = parseProjectParams(c, PROJECT_ISSUE_ROUTING_ROUTE, "GET");
+    if (!params.ok) {
+      return params.response;
+    }
+    return executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.readProjectIssueRouting({
+          context: buildCoreRpcContext(c),
+          projectId: params.data.projectId,
+        }),
+      method: "GET",
+      responseSchema: readProjectIssueRoutingResponseSchema,
+      route: PROJECT_ISSUE_ROUTING_ROUTE,
+    });
+  });
+
+  app.put(PROJECT_ISSUE_ROUTING_ROUTE, async (c) => {
+    const params = parseProjectParams(c, PROJECT_ISSUE_ROUTING_ROUTE, "PUT");
+    if (!params.ok) {
+      return params.response;
+    }
+    const body = await parseBody(
+      c,
+      PROJECT_ISSUE_ROUTING_ROUTE,
+      "PUT",
+      updateProjectIssueRoutingBodySchema
+    );
+    if (!body.ok) {
+      return body.response;
+    }
+    return executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.updateProjectIssueRouting({
+          ...body.data,
+          context: buildCoreRpcContext(c),
+          projectId: params.data.projectId,
+        }),
+      method: "PUT",
+      responseSchema: updateProjectIssueRoutingResponseSchema,
+      route: PROJECT_ISSUE_ROUTING_ROUTE,
+    });
+  });
+
   app.post(DISCOVER_PROJECTS_ROUTE, async (c) => {
     const body = await parseBody(
       c,
@@ -285,7 +455,7 @@ type ParseResult<T> = { data: T; ok: true } | { ok: false; response: Response };
 async function parseBody<T>(
   c: Context<HonoBindings>,
   route: string,
-  method: "DELETE" | "PATCH" | "POST",
+  method: "DELETE" | "PATCH" | "POST" | "PUT",
   schema: z.ZodType<T>,
   acceptMissingBody = false
 ): Promise<ParseResult<T>> {

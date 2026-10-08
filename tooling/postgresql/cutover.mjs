@@ -16,7 +16,12 @@ import {
 } from "./d1-import.mjs";
 import { createRemoteD1Source } from "./d1-remote.mjs";
 import { captureD1Snapshot } from "./d1-snapshot.mjs";
-import { connect, grantRuntime, migrate } from "./database.mjs";
+import {
+  closeMigrationClient,
+  connect,
+  grantRuntime,
+  migrate,
+} from "./database.mjs";
 import { readCutoverTarget, verifyRemoteCredential } from "./remote-target.mjs";
 
 function readCommand(program, args) {
@@ -185,7 +190,7 @@ export async function runCutoverDataCommand([command, ...args]) {
       await grantRuntime(client, registered.runtimeRole);
       return { runtimeGrantsApplied: true };
     } finally {
-      await client.end();
+      await closeMigrationClient(client);
     }
   }
   throw new Error(

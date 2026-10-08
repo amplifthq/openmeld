@@ -126,7 +126,7 @@ export function DocumentDialog({
 				<DialogHeader>
 					<DialogTitle>{name}</DialogTitle>
 					<DialogDescription className="sr-only">
-						Amplift workspace document
+						OpenMeld workspace document
 					</DialogDescription>
 				</DialogHeader>
 				<div className="px-2 py-4">
@@ -186,13 +186,14 @@ export function DemoFiles({
 		<Suspense fallback={null}>
 			<FileSystem
 				className={showcase ? "h-[390px]" : "h-full min-h-0 flex-1"}
+				defaultExpandedPaths={showcase ? ["Team Knowledge/"] : undefined}
 				defaultView={showcase ? "list" : "icons"}
 				embedded
 				items={scope === "team" ? files : []}
 				onFileOpen={(item) =>
 					setFile(item.name ?? item.path.split("/").at(-1) ?? null)
 				}
-				reserveBreadcrumbSpace={team}
+				reserveBreadcrumbSpace={team && !showcase}
 				title="Team files"
 				toolbarStart={
 					team ? (

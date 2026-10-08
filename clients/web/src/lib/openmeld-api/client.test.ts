@@ -66,6 +66,11 @@ describe("web OpenMeld API foundation", () => {
 		expect(result).toEqual({
 			availability: "missing",
 		});
+		const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
+		expect(headers.get("x-openmeld-user-time-zone")).toBe(
+			Intl.DateTimeFormat().resolvedOptions().timeZone
+		);
+		expect(headers.get("x-openmeld-user-time-zone-source")).toBe("web");
 	});
 
 	it("forwards an explicit OpenMeld profile id for browser-origin requests", async () => {

@@ -4,7 +4,6 @@ import {
 	DropdownMenu,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
-import { OpenMeldLogoStrong } from "@openmeld/ui/components/openmeld-logo-strong";
 import {
 	Accordion,
 	AccordionContent,
@@ -15,11 +14,7 @@ import {
 	FluidDropdownMenuContent,
 	FluidDropdownMenuItem,
 } from "@openmeld/ui/fluid/dropdown-menu";
-import { FluidHoverHighlight } from "@openmeld/ui/fluid/fluid-hover-highlight";
-import {
-	useFluidHover,
-	useRegisterFluidHoverItem,
-} from "@openmeld/ui/hooks/use-fluid-hover";
+import { Surface } from "@openmeld/ui/fluid/surface";
 import {
 	AppleLogoIcon,
 	ArrowRightIcon,
@@ -30,17 +25,16 @@ import {
 	WindowsLogoIcon,
 } from "@phosphor-icons/react";
 import { MotionConfig } from "motion/react";
-import { type ReactNode, useRef } from "react";
-import { appUrl } from "#/lib/app-url";
+import { OpenAppButton } from "#/components/open-app-button";
+import { PlatformMetalBadge } from "#/components/platform-metal-badge";
+import { PublicPageHeader } from "#/components/public-page-header";
+import { CliShowcase } from "./cli-showcase";
 import { ConnectorShowcase } from "./connector-showcase";
 import { HeroDescription } from "./hero-copy";
+import { HeroEntrance } from "./hero-entrance";
 import { LandingFooter } from "./landing-footer";
-import {
-	ChannelShowcase,
-	ComputerBento,
-	HeroAgents,
-	PlatformMetalBadge,
-} from "./landing-showcases";
+import { LandingAsciiCanvas } from "./landing-page-ascii-canvas";
+import { ChannelShowcase, ComputerBento } from "./landing-showcases";
 import {
 	AgentShowcase,
 	CenterAgentShowcase,
@@ -49,18 +43,11 @@ import {
 	UsageShowcase,
 } from "./product-showcases";
 import "./landing-page.css";
+import "./hero-entrance.css";
+import "./demo-blend.css";
 
 const REPOSITORY_URL = "https://github.com/amplifthq/openmeld";
-function OpenAppButton({ compact = false }: { compact?: boolean }) {
-	return (
-		<a
-			className={`meld-button meld-button-web ${compact ? "meld-button-compact" : ""}`}
-			href={appUrl("/")}
-		>
-			Open App <PlatformMetalBadge appearance="ring">Web</PlatformMetalBadge>
-		</a>
-	);
-}
+const heroTitleBreak = homePageCopy.tagline.indexOf("system");
 function DownloadButton() {
 	return (
 		<DropdownMenu>
@@ -74,11 +61,12 @@ function DownloadButton() {
 				align="start"
 				className="dark meld-download-menu"
 				gapClick={false}
+				sideOffset={12}
 			>
 				<FluidDropdownMenuItem
 					index={0}
 					onClick={() =>
-						window.location.assign(appUrl("/desktop?platform=macos-arm64"))
+						window.location.assign("/desktop/download?platform=macos-arm64")
 					}
 				>
 					<AppleLogoIcon aria-hidden />
@@ -90,7 +78,7 @@ function DownloadButton() {
 				<FluidDropdownMenuItem
 					index={1}
 					onClick={() =>
-						window.location.assign(appUrl("/desktop?platform=windows-x64"))
+						window.location.assign("/desktop/download?platform=windows-x64")
 					}
 				>
 					<WindowsLogoIcon aria-hidden />
@@ -99,7 +87,7 @@ function DownloadButton() {
 				</FluidDropdownMenuItem>
 				<FluidDropdownMenuItem
 					index={2}
-					onClick={() => window.location.assign(appUrl("/desktop"))}
+					onClick={() => window.location.assign("/downloads")}
 				>
 					<DownloadSimpleIcon aria-hidden />
 					<span>All downloads</span>
@@ -154,7 +142,7 @@ function ProductDemo({
 	title: string;
 	hero?: boolean;
 }) {
-	return (
+	const demo = (
 		<div
 			className={`meld-demo meld-demo-${scene.toLowerCase()} ${hero ? "meld-demo-hero" : ""}`}
 		>
@@ -167,6 +155,7 @@ function ProductDemo({
 			/>
 		</div>
 	);
+	return hero ? <Surface className="meld-demo-surface">{demo}</Surface> : demo;
 }
 
 export function LandingPage() {
@@ -176,40 +165,20 @@ export function LandingPage() {
 				<a className="meld-skip" href="#main-content">
 					Skip to content
 				</a>
-				<header className="meld-header">
-					<div className="meld-wrap meld-header-inner">
-						<a
-							aria-label="OpenMeld homepage"
-							className="meld-brand meld-brand-motion"
-							href="/"
-						>
-							<OpenMeldLogoStrong
-								ariaLabel={null}
-								pointerTracking="viewport"
-								size={4}
-							/>
-						</a>
-						<nav aria-label="Main navigation">
-							<LandingLinks
-								axis="x"
-								className="meld-nav-items"
-								links={[
-									{ href: "#product", content: "Product" },
-									{ href: "#agents", content: "Agents" },
-									{ href: appUrl("/desktop"), content: "Downloads" },
-									{ href: "https://docs.openmeld.ai", content: "Docs" },
-									{ href: "/changelog", content: "Changelog" },
-								]}
-							/>
-						</nav>
-						<OpenAppButton compact />
-					</div>
-				</header>
+				<PublicPageHeader appEntryPath={null} />
 				<main id="main-content">
-					<section aria-labelledby="hero-title" className="meld-hero meld-wrap">
-						<HeroAgents />
-						<h1 className="meld-hero-title" id="hero-title">
-							{homePageCopy.tagline}
+					<HeroEntrance>
+						<h1
+							aria-label={homePageCopy.tagline}
+							className="meld-hero-title"
+							id="hero-title"
+						>
+							<span aria-hidden="true" className="meld-hero-title-line">
+								{homePageCopy.tagline.slice(0, heroTitleBreak)}
+							</span>
+							<span aria-hidden="true" className="meld-hero-title-line">
+								{homePageCopy.tagline.slice(heroTitleBreak)}
+							</span>
 						</h1>
 						<HeroDescription />
 						<AppActions />
@@ -228,7 +197,7 @@ export function LandingPage() {
 								title="Interactive OpenMeld Space demo"
 							/>
 						</div>
-					</section>
+					</HeroEntrance>
 					<section
 						aria-labelledby="agents-title"
 						className="meld-section meld-agents"
@@ -266,14 +235,15 @@ export function LandingPage() {
 					>
 						<div className="meld-section-heading">
 							<h2 id="center-agent-title">
-								One Center Agent.
+								Your 24/7 SI team lead.
 								<br />
-								<span>For your whole team.</span>
+								<span>Assigns work. Reports back.</span>
 							</h2>
 							<p>
-								Your organization’s own agent. It works with your shared
-								context, uses connected apps, and joins your team through
-								Channels. You choose the model.
+								Tell your Center Agent what needs to happen. It finds the right
+								people and agents, delegates tasks, and brings you the results.
+								Coordinate work across Spaces and connected apps from the
+								channels you already use—without chasing every update.
 							</p>
 						</div>
 						<CenterAgentShowcase />
@@ -327,6 +297,7 @@ export function LandingPage() {
 					>
 						<ConnectorShowcase />
 					</section>
+					<CliShowcase />
 					<section
 						aria-labelledby="computer-title"
 						className="meld-section meld-wrap meld-computer-section"
@@ -387,11 +358,14 @@ export function LandingPage() {
 							))}
 						</Accordion>
 					</section>
-					<section className="meld-start meld-wrap">
+					<section className="meld-start meld-wrap" id="start">
+						<div aria-hidden="true" className="meld-start-loop">
+							<LandingAsciiCanvas scene="collaboration-loop" />
+						</div>
 						<h2>
-							Bring a real task.
+							Your team. Your agents.
 							<br />
-							<span>See where it goes.</span>
+							<span>Meld into one.</span>
 						</h2>
 						<AppActions />
 					</section>
@@ -399,56 +373,5 @@ export function LandingPage() {
 				<LandingFooter repositoryUrl={REPOSITORY_URL} />
 			</div>
 		</MotionConfig>
-	);
-}
-
-function LandingLinks({
-	links,
-	axis,
-	className,
-}: {
-	links: readonly { href: string; content: ReactNode }[];
-	axis: "x" | "xy";
-	className: string;
-}) {
-	const ref = useRef<HTMLDivElement>(null);
-	const hover = useFluidHover(ref, { axis, gapClick: false });
-	return (
-		// biome-ignore lint/a11y/noNoninteractiveElementInteractions: Pointer motion controls only the shared decorative highlight.
-		// biome-ignore lint/a11y/noStaticElementInteractions: Native links own activation and keyboard focus.
-		<div
-			className={className}
-			onMouseEnter={hover.handlers.onMouseEnter}
-			onMouseLeave={hover.handlers.onMouseLeave}
-			onMouseMove={hover.handlers.onMouseMove}
-			ref={ref}
-		>
-			<FluidHoverHighlight className="meld-nav-highlight" hover={hover} />
-			{links.map((link, index) => (
-				<LandingLink
-					index={index}
-					key={link.href}
-					link={link}
-					registerItem={hover.registerItem}
-				/>
-			))}
-		</div>
-	);
-}
-function LandingLink({
-	link,
-	index,
-	registerItem,
-}: {
-	link: { href: string; content: ReactNode };
-	index: number;
-	registerItem: ReturnType<typeof useFluidHover>["registerItem"];
-}) {
-	const ref = useRef<HTMLAnchorElement>(null);
-	useRegisterFluidHoverItem(registerItem, index, ref);
-	return (
-		<a href={link.href} ref={ref}>
-			{link.content}
-		</a>
 	);
 }

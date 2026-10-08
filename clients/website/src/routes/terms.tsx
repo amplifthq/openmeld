@@ -3,7 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { TermsOfServicePage } from "#/components/legal/terms-of-service-page";
 
 const TERMS_DESCRIPTION =
-	"Terms governing use of OpenMeld's experimental collaboration service, local agent connections, and connected Plugins.";
+	"Terms for OpenMeld's collaboration service, local and hosted AI agents, connected Apps, content rights, account closure, and service responsibilities.";
 
 export const Route = createFileRoute("/terms")({
 	head: () => ({

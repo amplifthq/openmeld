@@ -320,6 +320,7 @@ function handleComputerFileAccessSocketFrame(input: {
 function handleLocalProjectControlSocketFrame(input: {
   deviceId: string;
   frame: ParsedDaemonFrame;
+  ownerUserId: string;
   onLocalProjectConnectionsChanged?: () => void;
   presenter: Presenter;
   socket: WsClient;
@@ -330,6 +331,7 @@ function handleLocalProjectControlSocketFrame(input: {
   handleLocalProjectControlFrame({
     deviceId: input.deviceId,
     frame: input.frame,
+    ownerUserId: input.ownerUserId,
   })
     .then((resultFrame) => {
       input.socket.send(JSON.stringify(resultFrame));
@@ -1941,6 +1943,7 @@ export async function runDaemonSocketSession(input: {
       handleLocalProjectControlSocketFrame({
         deviceId: input.deviceId,
         frame: parsedFrame,
+        ownerUserId: input.ownerUserId,
         onLocalProjectConnectionsChanged: () => {
           requestLocalExecutionEvidenceRefresh({
             reason: "local_state_changed",

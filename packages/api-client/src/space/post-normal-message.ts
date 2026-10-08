@@ -19,6 +19,8 @@ export async function postSpaceNormalMessage(
     text: PostNormalMessageBody["text"];
     deviceWait?: PostNormalMessageBody["deviceWait"];
     contextSelection?: PostNormalMessageBody["contextSelection"];
+    contextSelections?: PostNormalMessageBody["contextSelections"];
+    taskDraft?: PostNormalMessageBody["taskDraft"];
     attachments?: PostNormalMessageBody["attachments"];
     files?: PostNormalMessageBody["files"];
     messageEnvelope?: PostNormalMessageBody["messageEnvelope"];
@@ -61,6 +63,8 @@ function buildPostNormalMessageBody(input: {
   text: PostNormalMessageBody["text"];
   deviceWait?: PostNormalMessageBody["deviceWait"];
   contextSelection?: PostNormalMessageBody["contextSelection"];
+  contextSelections?: PostNormalMessageBody["contextSelections"];
+  taskDraft?: PostNormalMessageBody["taskDraft"];
   attachments?: PostNormalMessageBody["attachments"];
   files?: PostNormalMessageBody["files"];
   messageEnvelope?: PostNormalMessageBody["messageEnvelope"];
@@ -75,6 +79,10 @@ function buildPostNormalMessageBody(input: {
     ...(input.contextSelection
       ? { contextSelection: input.contextSelection }
       : {}),
+    ...(input.contextSelections
+      ? { contextSelections: input.contextSelections }
+      : {}),
+    ...(input.taskDraft ? { taskDraft: input.taskDraft } : {}),
     ...(input.attachments ? { attachments: input.attachments } : {}),
     ...(input.files ? { files: input.files } : {}),
     ...(input.messageEnvelope

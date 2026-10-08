@@ -33,6 +33,9 @@ describe("command entry name", () => {
       "profile.menu"
     );
     expect(resolveCommandEntryNameFromTokens(["login"])).toBe("auth.login");
+    expect(resolveCommandEntryNameFromTokens(["plugins", "connect"])).toBe(
+      "plugins.connect"
+    );
     expect(resolveCommandEntryNameFromTokens(["center-agent", "ask"])).toBe(
       "center_agent.ask"
     );

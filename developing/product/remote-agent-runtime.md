@@ -207,6 +207,13 @@ SDK rather than a second OpenMeld implementation. The older public JSON
 read/write/edit/list actions remain compatible with installed CLI clients;
 their exact-text compare-and-write semantics are unchanged.
 
+Code work assigned to a Local Agent uses its already authorized local Project
+folder or working directory by default. Center Agent delegation preserves that
+environment. Cloud Computer is appropriate when the user chooses it or a
+concrete environment or isolation requirement justifies it. The agent explains
+that requirement before changing environments. An existing cloud task continues
+in its current environment and preserves its work.
+
 `command` uses one launch/poll/stop/list owner for all three backends. Linux is
 the default; worker-shell runs built-in commands to completion; worker-javascript
 runs an ECMAScript module with structured input and result, durable file imports,
@@ -469,6 +476,46 @@ an already collected result. An exited process with unconfirmed file sync report
 `syncPending`; it must not be presented as completed. Infrastructure outages or
 container replacement can still prevent collection. Such uncertainty remains an
 explicit error, never an automatic replay or invented success.
+If synchronization loses its native record with `ENOENT` or `EEXEC_LOST`, the
+receipt preserves the known exit and output. It reports `syncError` and
+`nextAction: inspect`. The agent stops polling and inspects persistent files.
+The status stays `running` with `syncPending` for existing clients; it does not
+mean the process still runs. Cleanup never signals a command with an observed
+exit. Loss delivered to the model permits its final explanation to publish.
+Loss first discovered by cleanup keeps the explicit failed outcome.
+An authoritative completed synchronization receipt clears uncommitted command
+loss markers. Cleanup checks the current receipts before reporting loss. This
+does not change an execution whose failed outcome was already committed.
+The cleanup owner uses `remote_agent.computer.command_cleanup_failed` only for
+confirmed command loss. Transport timeouts and pending Stop keep their separate
+errors. User cancellation retains priority.
+Workspace acquisition and native observation share a bounded operation budget.
+The public command entrypoint enters this owner before native readiness or
+directory preparation. Only a new launch prepares its directory, within its
+launch budget, and checks timeout and Stop again before dispatch.
+Reader cancellation has a 100 ms grace period before local detachment. The
+collector observes up to four existing identities concurrently so a hung native
+call does not prevent collection of the other receipts. Neither budget permits
+another launch. A launch acknowledgement received after Stop still addresses
+the original command identity through a fresh Workspace client.
+The command receipt retains the requested Stop signal and its native delivery
+acknowledgement. After an acquisition timeout, polling and collection continue
+the pending Stop for that same identity. A short native inspection can avoid
+signalling an exited command; failed or timed-out inspection does not prevent
+signal delivery. An acknowledgement prevents repeat signals on each poll, but
+does not prove exit. An older signal acknowledgement cannot consume a request
+for a different signal.
+Structured diagnostics include command and submission IDs, backend, observation
+and exit times, exit code, synchronization state and failure phase. They exclude
+command text, output, credentials and temporary transport URLs. Background
+collection does not log every running poll.
+
+This is an additive Computer response and local Skill guidance change. Existing
+CLI command-result parsers use a non-strict object, ignore the optional
+`syncError`, and retain exit, `syncPending` and `nextAction`. No status enum,
+command input, setup, Wake, Space action, Service or daemon contract changes.
+Old and new cloud/local components continue to interoperate. Updated Skills
+are available guidance, not a required local-component update.
 The container's `EEXEC_BUSY` is explicit evidence of a live process with an
 existing output subscriber, not a failed command. A bounded poll can report
 `running` with `outputPending: true` and an unchanged cursor in this case;
@@ -1575,7 +1622,28 @@ receiver. Unknown execution, Stop, revoked access or an old receiver is not a
 summary-recovery candidate. Existing Flue model retries remain the only bounded
 inference retry; no outer turn replay is added.
 
-Ordinary Space and Direct Message `turn_not_completed` callbacks use deterministic
+Core also requests this same single summary automatically after an exact Space
+coordinator continuation has published a confirmed
+`remote_agent.computer.command_cleanup_failed` terminal failure. The failed
+delivery must match the settled source subscription's delivery and idempotency
+identity. Native failure projection and continuation settlement call the same
+helper; existing callback and Queue retries cover either arrival order. They
+reuse the manual recovery identity, so the requester and automatic path cannot
+create two summaries. The original failure and child outcomes remain visible.
+The summary does not resume implementation, replay children or recover again.
+Stop, revoked access, unsettled children, input-needed work, unknown execution,
+and budget or model limits do not authorize this automatic path. This first
+automatic path stays Space-only and original-requester-only.
+Transport errors, invalid receipts and unconfirmed evidence propagate to the
+existing callback or Queue retry. They cannot be acknowledged as an unsupported
+receiver. Explicit receiver capability refusal, revoked access, Stop, no
+verified child results and an already terminal summary end the attempt without
+another recovery identity. Legacy RPC can reduce a strict receiver's schema
+error to `ZodError`, without its field or path. That cannot prove unsupported
+summary recovery; update the receiver before enabling this producer.
+
+Ordinary Space and Direct Message `turn_not_completed` and Computer cleanup
+failure callbacks use deterministic
 failure facts. They explain that processing was interrupted, earlier actions may
 have taken effect, and the remaining work/final summary is unconfirmed. Child
 links require the persisted subscription/delegation, matching child author,
@@ -2763,7 +2831,7 @@ surface adopts official features where they are free**:
   create Agent Profiles, enable Agent Profiles, add active Organization members
   and Agent Profiles to Spaces, remove Agent Profiles from Spaces, update Space
   settings, post plain Space messages, manage revision-bound Space Tasks in the
-  current ordinary shared Space, and Wake Agent Profiles in Spaces through
+  current OpenMeld Space or private chat, and Wake Agent Profiles in Spaces through
   Space activation targets. Space Task creation is reserved for clear delivery
   obligations; assignment, start, submission, review, and cancellation remain
   distinct. GitHub issues created from that shared Space record a linked Task
@@ -3904,12 +3972,19 @@ tooling, not a user surface and not availability truth.
   standalone. Its role definition (what a Center Agent is, its posture, its
   boundaries) must agree semantically with the local wake-injected role
   template — reviewed side by side, not shared code yet.
-- Every turn's prompt includes the authoritative current UTC ISO instant. The
-  model calculates relative times from that instant, never from a guessed
-  wall-clock time, and applies a timezone only when user or trusted conversation
-  context supplies it. A successful Routine tool result is confirmed from its
-  exact returned `runAtMs`, using the user's explicit timezone or UTC when none
-  was provided.
+- Every model request gets one fresh authoritative UTC ISO instant in its
+  final temporary user runtime-clock data message, including requests after long
+  tool sequences. Static system guidance identifies this generated message and
+  its use; system instructions do not change with the clock. It is
+  not appended to retained conversation history. The admitted user input carries
+  its separate server acceptance time and resolved IANA timezone. Queue promotion,
+  retry and Steer replay preserve that anchor; each new Steer input has its own.
+  The model calculates relative dates and delays from accepted input, and current
+  date/time from the fresh clock. Explicit user timezone takes precedence over
+  request context; missing/invalid context is labelled UTC fallback. A successful
+  Routine tool result is confirmed from its exact returned `runAtMs`. Saved
+  Routine schedule timezones remain fixed. The shared source and persistence
+  contract is defined in [Shared Contracts](../architecture/shared-contracts.md#user-time-context).
 - Every interactive and Routine system prompt includes one generic execution
   routing protocol. The Center Agent derives a plan from the current task's
   data, identity, side-effect, and environment requirements; the live tool,

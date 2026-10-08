@@ -17,28 +17,77 @@ const SESSION_KEY_PATTERN = /^sha256:[a-f0-9]{64}$/u;
 
 type SessionOriginStore = {
   openMeldCreatedSessionKeys: string[];
+  projectAttributions?: Record<
+    string,
+    LocalAgentSessionProjectAttribution | "ambiguous"
+  >;
   version: typeof STORE_VERSION;
+};
+
+export type LocalAgentSessionProjectAttribution = {
+  organizationId: string;
+  projectId: string;
+  repositoryFingerprint: string;
 };
 
 export async function recordOpenMeldCreatedLocalAgentSession(input: {
   agentControllerRef: string;
   nativeSessionId: string;
+  projectAttribution?: LocalAgentSessionProjectAttribution;
   rootDir?: string;
 }): Promise<void> {
   const sessionKey = buildSessionKey(input);
   await withAgentActivityLocalStateLock(input, async () => {
     const store = await readStore(input);
-    if (store.openMeldCreatedSessionKeys.includes(sessionKey)) {
+    const existingAttribution = store.projectAttributions?.[sessionKey];
+    let projectAttribution = existingAttribution;
+    if (input.projectAttribution) {
+      projectAttribution =
+        existingAttribution &&
+        JSON.stringify(existingAttribution) !==
+          JSON.stringify(input.projectAttribution)
+          ? "ambiguous"
+          : input.projectAttribution;
+    }
+    if (
+      store.openMeldCreatedSessionKeys.includes(sessionKey) &&
+      JSON.stringify(existingAttribution) === JSON.stringify(projectAttribution)
+    ) {
       return;
     }
     await writeStore(input, {
       openMeldCreatedSessionKeys: [
-        ...store.openMeldCreatedSessionKeys,
-        sessionKey,
+        ...new Set([...store.openMeldCreatedSessionKeys, sessionKey]),
       ].sort(),
+      projectAttributions: {
+        ...store.projectAttributions,
+        ...(projectAttribution ? { [sessionKey]: projectAttribution } : {}),
+      },
       version: STORE_VERSION,
     });
   });
+}
+
+export async function readOpenMeldCreatedLocalAgentSessionProjectAttributions(input: {
+  rootDir?: string;
+}): Promise<
+  ReadonlyMap<string, LocalAgentSessionProjectAttribution | "ambiguous">
+> {
+  return new Map(
+    Object.entries((await readStore(input)).projectAttributions ?? {})
+  );
+}
+
+export function resolveOpenMeldCreatedLocalAgentSessionProjectAttribution(input: {
+  agentControllerRef: string;
+  nativeSessionId: string;
+  projectAttributions: ReadonlyMap<
+    string,
+    LocalAgentSessionProjectAttribution | "ambiguous"
+  >;
+}): LocalAgentSessionProjectAttribution | null {
+  const value = input.projectAttributions.get(buildSessionKey(input));
+  return value && value !== "ambiguous" ? value : null;
 }
 
 export async function readOpenMeldCreatedLocalAgentSessionKeys(input: {
@@ -91,6 +140,10 @@ async function readStore(input: {
     return { openMeldCreatedSessionKeys: [], version: STORE_VERSION };
   }
   const value: unknown = JSON.parse(raw);
+  const projectAttributions =
+    value && typeof value === "object" && "projectAttributions" in value
+      ? value.projectAttributions
+      : undefined;
   if (
     !(
       value &&
@@ -101,7 +154,25 @@ async function readStore(input: {
       Array.isArray(value.openMeldCreatedSessionKeys) &&
       value.openMeldCreatedSessionKeys.every(
         (entry) => typeof entry === "string" && SESSION_KEY_PATTERN.test(entry)
-      )
+      ) &&
+      (projectAttributions === undefined ||
+        (projectAttributions &&
+          typeof projectAttributions === "object" &&
+          !Array.isArray(projectAttributions) &&
+          Object.entries(projectAttributions).every(
+            ([key, attribution]) =>
+              SESSION_KEY_PATTERN.test(key) &&
+              (attribution === "ambiguous" ||
+                (attribution &&
+                  typeof attribution === "object" &&
+                  "organizationId" in attribution &&
+                  typeof attribution.organizationId === "string" &&
+                  "projectId" in attribution &&
+                  typeof attribution.projectId === "string" &&
+                  "repositoryFingerprint" in attribution &&
+                  typeof attribution.repositoryFingerprint === "string" &&
+                  SESSION_KEY_PATTERN.test(attribution.repositoryFingerprint)))
+          )))
     )
   ) {
     throw new Error(`Session Inventory origin store is invalid: ${path}`);

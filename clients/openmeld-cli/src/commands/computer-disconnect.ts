@@ -1,6 +1,8 @@
 import {
   type ComputerConnectionIntent,
   computerConnectionIntentSchema,
+  type DesktopComputerDisconnectRequest,
+  desktopComputerDisconnectRequestSchema,
 } from "@openmeld/schemas";
 import {
   buildStoredAuthSessionIdentity,
@@ -18,7 +20,8 @@ import { runServiceAccountControl } from "./service-account-control";
 
 export async function runComputerDisconnect(
   request: ComputerConnectionIntent,
-  view?: string
+  view?: string,
+  target?: DesktopComputerDisconnectRequest["expectedConnection"]
 ) {
   const presenter = createPresenter(await resolveRuntimeContext({ view }));
   presenter.line({
@@ -26,17 +29,39 @@ export async function runComputerDisconnect(
     text: "Stopping OpenMeld Service…",
     data: { state: "started" },
   });
-  await disconnectComputer(request);
+  await disconnectComputer(request, target);
   presenter.line({
     code: "computer.disconnected",
     text: "This computer is disconnected. Its record is still in your account.",
   });
 }
 
+export async function runComputerDisconnectTarget(
+  request: DesktopComputerDisconnectRequest,
+  view?: string
+) {
+  const target = desktopComputerDisconnectRequestSchema.parse(request);
+  if (!target.expectedConnection) {
+    throw new Error(
+      "Specify the Computer device and runtime lane to disconnect."
+    );
+  }
+  const session = await getAuthSessionMetadata();
+  await runComputerDisconnect(
+    {
+      expectedAccount: target.expectedAccount,
+      previousSessionIdentity: buildStoredAuthSessionIdentity(session),
+    },
+    view,
+    target.expectedConnection
+  );
+}
+
 // Disconnect ends this Mac's local account connection. Forget remains the
 // separate cloud operation that removes the account's Computer record.
 export async function disconnectComputer(
-  request: ComputerConnectionIntent
+  request: ComputerConnectionIntent,
+  target?: DesktopComputerDisconnectRequest["expectedConnection"]
 ): Promise<void> {
   const intent = computerConnectionIntentSchema.parse(request);
   const session = await getAuthSessionMetadata();
@@ -53,14 +78,26 @@ export async function disconnectComputer(
   // drains active work, and disables automatic startup. Never use an unscoped Stop.
   await withDaemonServiceRunLock(async () => {
     const contract = await readDaemonServiceContract();
-    const runtime = await readCurrentDaemonRuntimeContext();
-    if (contract?.desiredState === "stopped") {
+    if (target || contract?.desiredState === "stopped") {
       const current = await getAuthSession();
-      if (!current) {
-        throw new Error("Review this computer's sign-in before disconnecting.");
+      if (!(current && contract)) {
+        throw new Error(
+          "Review this computer's connection before disconnecting."
+        );
       }
-      await resolveServiceAccountIdentity(current, contract);
+      const identity = await resolveServiceAccountIdentity(current, contract);
+      if (
+        target &&
+        (identity.accountId !== intent.expectedAccount ||
+          identity.deviceId !== target.deviceId ||
+          identity.lane !== target.runtimeLane)
+      ) {
+        throw new Error(
+          "This command is for a different Computer or environment. Run it on the Computer shown in OpenMeld."
+        );
+      }
     }
+    const runtime = await readCurrentDaemonRuntimeContext();
     // A retry may follow an acknowledged Stop and a failed credential cleanup.
     // Only the owner's explicit stopped intent can skip another Stop.
     if (

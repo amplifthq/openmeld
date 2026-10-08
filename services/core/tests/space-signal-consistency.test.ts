@@ -11,6 +11,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildAcceptedDispatchSnapshot } from "../src/dispatch/application/accepted-dispatch-snapshot";
+import { AlarmFailureBackoff } from "../src/lib/alarm-failure-backoff";
 import {
   OPENMELD_HEADER_AUTO_RELAY_DEPTH,
   OPENMELD_HEADER_DISPATCH_CHAIN_ID,
@@ -765,15 +766,17 @@ function runSpaceAlarm(this: object): Promise<void> {
   return Space.prototype.alarm.call(withNativeSpaceOwner(this));
 }
 
-const runIsolatedAlarmStep = (
-  Space.prototype as unknown as {
-    runIsolatedAlarmStep(
-      this: unknown,
-      step: string,
-      run: () => Promise<void>
-    ): Promise<void>;
-  }
-).runIsolatedAlarmStep;
+function createAlarmFailureBackoffFixture() {
+  const records = new Map<string, unknown>();
+  return new AlarmFailureBackoff({
+    get: (key: string) => Promise.resolve(structuredClone(records.get(key))),
+    put: (key: string, value: unknown) => {
+      records.set(key, structuredClone(value));
+      return Promise.resolve();
+    },
+    delete: (key: string) => Promise.resolve(records.delete(key)),
+  } as unknown as DurableObjectStorage);
+}
 
 const readDispatchLedgerEvidence = (
   Space.prototype as unknown as {
@@ -808,6 +811,7 @@ const syncSpaceBackgroundAlarm = (
   Space.prototype as unknown as {
     syncSpaceBackgroundAlarm(this: {
       env: { OPENMELD_SPACE_ATTACHMENTS?: R2Bucket };
+      getAlarmFailureBackoff: () => AlarmFailureBackoff;
       ctx: {
         storage: {
           sql: SqlStorage;
@@ -2693,14 +2697,26 @@ describe("space signal consistency matrix", () => {
       .mockResolvedValue(undefined);
     const flushDirtyMemberProjection = vi.fn().mockResolvedValue(undefined);
     const syncSpaceBackgroundAlarm = vi.fn().mockResolvedValue(undefined);
+    const backoff = createAlarmFailureBackoffFixture();
 
     try {
       await runSpaceAlarm.call({
+        env: {},
+        getAlarmFailureBackoff: () => backoff,
+        agentStreamProjectionStorage: {
+          list: <T>() => Promise.resolve(new Map<string, T>()),
+        },
+        flushPendingSpaceInboxProjectionOutbox: vi.fn(),
+        flushFileUpdateNotifications: vi.fn(),
+        flushPendingSpaceTaskDeliveries: vi.fn(),
+        reconcilePendingHostedWakeStops: vi.fn(),
+        flushPendingWakeStopOutcomes: vi.fn(),
+        flushPendingExecutionInputs: vi.fn(),
+        flushQueuedSpaceInputs: vi.fn(),
         flushDirtyMemberProjection,
         flushPendingDispatchOutbox,
         flushPendingSpaceIndexProjectionOutbox,
         reconcileDeletedAgentProfileMemberLiveness,
-        runIsolatedAlarmStep,
         spaceId: "space-1",
         syncSpaceBackgroundAlarm,
       });
@@ -2713,6 +2729,9 @@ describe("space signal consistency matrix", () => {
     expect(reconcileDeletedAgentProfileMemberLiveness).toHaveBeenCalledTimes(1);
     expect(flushDirtyMemberProjection).toHaveBeenCalledTimes(1);
     expect(syncSpaceBackgroundAlarm).toHaveBeenCalledTimes(1);
+    expect(await backoff.retryAt("dispatch_outbox_queue")).toBeGreaterThan(
+      Date.now()
+    );
   });
 
   it("keeps the original outbox age across repeated redrives", () => {
@@ -3721,6 +3740,7 @@ describe("space signal consistency matrix", () => {
 
     await syncSpaceBackgroundAlarm.call({
       env: {},
+      getAlarmFailureBackoff: () => createAlarmFailureBackoffFixture(),
       ctx: {
         storage: {
           sql,
@@ -4249,6 +4269,11 @@ describe("space signal consistency matrix", () => {
         authoringPolicy: "user_authored",
         spacePassword: "secret-123",
         supportsCurrentSpaceAddressing: false,
+        verifiedRequestContext: expect.objectContaining({
+          actorContext: expect.objectContaining({
+            openMeldProfileId: profile.profileId,
+          }),
+        }),
       }
     );
     expect(webSocket.send).not.toHaveBeenCalled();
@@ -4306,6 +4331,11 @@ describe("space signal consistency matrix", () => {
       {
         authoringPolicy: "user_authored",
         supportsCurrentSpaceAddressing: false,
+        verifiedRequestContext: expect.objectContaining({
+          actorContext: expect.objectContaining({
+            openMeldProfileId: "hum-open-1",
+          }),
+        }),
       }
     );
   });

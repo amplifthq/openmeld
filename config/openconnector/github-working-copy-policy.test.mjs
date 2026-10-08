@@ -23,6 +23,27 @@ const reads = [
 ];
 
 describe("reviewed Git working-copy ingress", () => {
+  it("preserves upstream scheduled maintenance alongside the authenticated HTTP adapter", async () => {
+    const event = { cron: "* * * * *" };
+    const env = {};
+    const context = {
+      waitUntil: () => {
+        throw new Error("The HTTP adapter must not run scheduled work itself.");
+      },
+    };
+    let called = false;
+    const worker = withGitWorkingCopyPolicy({
+      scheduled(actualEvent, actualEnv, actualContext) {
+        assert.equal(actualEvent, event);
+        assert.equal(actualEnv, env);
+        assert.equal(actualContext, context);
+        called = true;
+      },
+      fetch: () => Response.json({ ok: true }),
+    });
+    await worker.scheduled(event, env, context);
+    assert.equal(called, true);
+  });
   it("admits only required repository reads and non-force task-branch writes", () => {
     for (const path of reads) {
       assert.equal(
@@ -245,7 +266,7 @@ describe("reviewed Git working-copy ingress", () => {
   it("pins the reviewed upstream contract and keeps the broad proxy block in both deploy configs", () => {
     assert.equal(
       OPENMELD_GIT_PROXY_UPSTREAM_SHA,
-      "2700574cda447e96a957e8182a30da4c80dd80b3"
+      "a295f56bf6e533ffc5699efa66282b151e127d87"
     );
     for (const lane of ["staging", "production"]) {
       const config = JSON.parse(
@@ -254,6 +275,7 @@ describe("reviewed Git working-copy ingress", () => {
       assert.equal(config.main, ".openmeld-working-copy-worker.mjs");
       assert.equal(config.vars.OOMOL_CONNECT_BLOCKED_PROXIES, "*");
       assert.equal(config.vars.OOMOL_CONNECT_ALLOWED_PROXIES, undefined);
+      assert.deepEqual(config.triggers?.crons, ["* * * * *"]);
     }
   });
 });

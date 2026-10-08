@@ -1,3 +1,4 @@
+import { FAVICON_ICO_URL } from "@openmeld/ui/lib/favicon";
 import {
   createRootRoute,
   HeadContent,
@@ -47,7 +48,7 @@ export const Route = createRootRoute({
     ],
     links: [
       { rel: "stylesheet", href: appCss },
-      { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
+      { rel: "icon", href: FAVICON_ICO_URL },
     ],
   }),
   component: RootComponent,

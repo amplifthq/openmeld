@@ -4,6 +4,7 @@ import {
   centerAgentRecordConnectorActionOperationResponseSchema,
   spaceTaskSchema,
 } from "@openmeld/schemas";
+import type { ProjectIssueDestination } from "@openmeld/schemas/types";
 import { digestCanonicalJson } from "@openmeld/utils";
 import { safeParse } from "valibot";
 import { describe, expect, it, vi } from "vitest";
@@ -219,12 +220,53 @@ function getRemoteAgentGitHubToolDefinitions(
         recorded: true,
       })) as never,
       ...coreWorker,
+      resolveProjectIssueAction:
+        coreWorker.resolveProjectIssueAction ??
+        vi.fn(({ proposedDestination }) =>
+          Promise.resolve({
+            basis: "confirmation_required" as const,
+            destination: proposedDestination,
+            projectId: null,
+            projectRevision: null,
+          })
+        ),
     },
     submissionId: ACK.submissionId,
   });
 }
 
 describe("Remote Agent GitHub tools", () => {
+  it("checks the Project destination before accepting a new issue write", async () => {
+    const resolveProjectIssueAction = vi.fn(() =>
+      Promise.reject(new Error("New issues for Payments go to Linear."))
+    );
+    const recordOperation = vi.fn();
+    const tools = getRemoteAgentGitHubToolDefinitions({
+      coreWorker: {
+        centerAgentRecordConnectorActionOperation: recordOperation,
+        resolveProjectIssueAction,
+      },
+      storage: await createStorage(createSubmitTurnRequest()),
+    });
+    await expect(
+      executeTool(tools, "github_create_issue", {
+        githubActor: "organization",
+        owner: "amplifthq",
+        repo: "payments",
+        title: "Follow up on the PR",
+      })
+    ).rejects.toThrow("New issues for Payments go to Linear.");
+    expect(resolveProjectIssueAction).toHaveBeenCalledWith({
+      context: expect.any(Object),
+      proposedDestination: {
+        provider: "github",
+        owner: "amplifthq",
+        repo: "payments",
+      },
+    });
+    expect(recordOperation).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["missing", "direct"],
     ["denied", "direct"],
@@ -3115,7 +3157,21 @@ describe("Remote Agent GitHub tools", () => {
           userId: "user_1",
         })
       ),
+      resolveProjectIssueAction: vi.fn(
+        ({
+          proposedDestination,
+        }: {
+          proposedDestination: ProjectIssueDestination;
+        }) =>
+          Promise.resolve({
+            basis: "confirmation_required" as const,
+            destination: proposedDestination,
+            projectId: null,
+            projectRevision: null,
+          })
+      ),
     };
+    const coreWorkerWithLedger = withTestConnectorOperationLedger(coreWorker);
     const batchInput = {
       githubActor: "organization",
       issues: [{ externalKey: "finding-1", title: "Review finding 1" }],
@@ -3123,10 +3179,11 @@ describe("Remote Agent GitHub tools", () => {
       owner: "openmeld",
       repo: "app",
     };
-    const firstTurnTools = getRemoteAgentGitHubToolDefinitions({
+    const firstTurnTools = buildRemoteAgentGitHubToolDefinitions({
       connectorExecution,
-      coreWorker,
+      coreWorker: coreWorkerWithLedger,
       storage,
+      submissionId: ACK.submissionId,
     });
     await expect(
       executeTool(firstTurnTools, "github_create_issue_batch", batchInput)
@@ -3160,7 +3217,7 @@ describe("Remote Agent GitHub tools", () => {
     );
     const routineTools = buildRemoteAgentGitHubToolDefinitions({
       connectorExecution,
-      coreWorker,
+      coreWorker: coreWorkerWithLedger,
       storage,
       submissionId: routineSubmissionId,
     });

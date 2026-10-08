@@ -169,18 +169,28 @@ describe("Agent Activity Session Inventory repository", () => {
   it("allows an existing source to disconnect after the Project fingerprint changes", () => {
     expect(
       isSessionReconciliationFingerprintCompatible({
-        projectRepositoryFingerprint: "sha256:new-project-fingerprint",
+        projectRepositoryFingerprints: ["sha256:new-project-fingerprint"],
         reportedRepositoryFingerprint: "sha256:old-project-fingerprint",
         result: "disconnected",
       })
     ).toBe(true);
     expect(
       isSessionReconciliationFingerprintCompatible({
-        projectRepositoryFingerprint: "sha256:new-project-fingerprint",
+        projectRepositoryFingerprints: ["sha256:new-project-fingerprint"],
         reportedRepositoryFingerprint: "sha256:old-project-fingerprint",
         result: "sessions",
       })
     ).toBe(false);
+    expect(
+      isSessionReconciliationFingerprintCompatible({
+        projectRepositoryFingerprints: [
+          "sha256:new-project-fingerprint",
+          "sha256:old-project-fingerprint",
+        ],
+        reportedRepositoryFingerprint: "sha256:old-project-fingerprint",
+        result: "partial",
+      })
+    ).toBe(true);
   });
 
   it("does not let a racing reconciliation move a current Session identity between sources", async () => {
@@ -458,6 +468,27 @@ describe("Agent Activity Session Inventory repository", () => {
       { problemCode: null, state: "disconnected" },
     ]);
     expect(await inventoryRowCount(harness)).toBe(0);
+  });
+
+  it("shows exactly attributed shared-folder Sessions while coverage stays incomplete", async () => {
+    const harness = await createInventoryHarness();
+    await reconcile(harness.db, {
+      problemCode: "project_attribution_ambiguous",
+      result: "partial",
+      sessions: [observedSession("native-selected-project", 1000)],
+    });
+    const inventory = await read(harness.db);
+    expect(
+      inventory.sessions.map((session) => ({
+        dataState: session.dataState,
+        nativeSessionId: session.nativeSessionId,
+      }))
+    ).toEqual([
+      { dataState: "stale", nativeSessionId: "native-selected-project" },
+    ]);
+    expect(inventory.coverage).toMatchObject([
+      { problemCode: "project_attribution_ambiguous", state: "error" },
+    ]);
   });
 
   it.each([

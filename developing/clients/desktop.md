@@ -428,11 +428,14 @@ failure.
 
 The standalone connection page reads the same native account-aligned Computer
 projection as Working folder selection. A positive connection shows Connected
-and a destructive Disconnect this Mac action; the header links to that page and
-preserves the originating Human Profile for Back. New Agent recovery retains
+and a destructive Disconnect this Mac action. The account menu's Computer entry
+opens the native account-aligned device's Computer details when connected, and
+the connection page when no local connection is available. A browser-selected
+remote Computer never replaces native device identity for this entry. The
+connection page preserves the originating Human Profile for Back. New Agent recovery retains
 its explicit connection intent instead of offering Disconnect.
-The toolbar and account-menu Computer entry open the ordinary native connection
-check without a fresh-session request, regardless of browser Computer selection.
+The toolbar and account-menu Computer entry use this same native destination
+without a fresh-session request, regardless of browser Computer selection.
 Connection presentation is independent of Disconnect eligibility: embedded flows
 show an existing connection and Continue without running Setup, while an explicit
 reconnect shows Connected and Reconnect this Mac. After confirmed completion, the
@@ -504,8 +507,9 @@ exact clean merged release SHA and rejects disposable settings. Its signed sourc
 record binds the release SHA, production identity, and renderer fingerprint;
 publication uses the immutable
 candidate workflow in [Development Workflow](../engineering/development-workflow.md#desktop-preview-release-workflow).
-Building and uploading do not select a default update. Web offers an account-free
-page at `/desktop`, with an immutable `/desktop?candidate=<hash>` override.
+Building and uploading do not select a default update. Website offers an account-free
+page at `/downloads`, with an immutable `/downloads?candidate=<hash>` override.
+Existing `/desktop` page links redirect there without changing the selector.
 An explicit promotion selects the default download and update feed together.
 
 ### Windows package and release boundary

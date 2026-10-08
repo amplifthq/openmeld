@@ -6,7 +6,10 @@ import type {
   AgentTaskHandle,
   AgentTaskTerminalOutcome,
 } from "@openmeld/schemas/types";
-import { isTaskSummaryRecoveryAuthorized } from "../../center-agent/application/task-summary-recovery-service";
+import {
+  isTaskSummaryRecoveryAuthorized,
+  recoverFailedTaskContinuationSummary,
+} from "../../center-agent/application/task-summary-recovery-service";
 import type { CoreBindings } from "../../lib/bindings";
 import { reportTaskContinuationEvidence } from "../../remote-agent/application/native-delivery-admission-evidence";
 import {
@@ -67,6 +70,12 @@ export async function processAgentTaskContinuationQueueMessage(input: {
     current.state === "settled" ||
     current.state === "cancelled"
   ) {
+    if (current?.state === "settled") {
+      await recoverSettledContinuationSummary({
+        ...input,
+        subscription: current,
+      });
+    }
     return { status: "completed", task: current?.continuationTask ?? null };
   }
   if (
@@ -215,6 +224,7 @@ async function executeClaimedAgentTaskContinuation(input: {
       claimId: input.claimId,
       continuationTask,
       db: input.db,
+      env: input.env,
       nowMs: input.nowMs,
       subscriptionId: claimed.subscriptionId,
     });
@@ -288,6 +298,7 @@ async function executeClaimedAgentTaskContinuation(input: {
     claimId: input.claimId,
     continuationTask,
     db: input.db,
+    env: input.env,
     nowMs: input.nowMs,
     subscriptionId: claimed.subscriptionId,
   });
@@ -296,6 +307,7 @@ async function settleClaimedAgentTaskContinuation(input: {
   claimId: string;
   continuationTask: AgentTaskHandle | null;
   db: PostgresDatabase;
+  env: CoreBindings;
   nowMs: number;
   subscriptionId: string;
 }): Promise<AgentTaskHandle | null> {
@@ -312,7 +324,25 @@ async function settleClaimedAgentTaskContinuation(input: {
   if (!settled) {
     throw new Error("agent_task_continuation.settlement_failed");
   }
+  await recoverSettledContinuationSummary({ ...input, subscription: settled });
   return input.continuationTask;
+}
+async function recoverSettledContinuationSummary(input: {
+  db: PostgresDatabase;
+  env: CoreBindings;
+  nowMs: number;
+  subscription: AgentTaskCompletionSubscriptionRecord;
+}): Promise<void> {
+  if (input.subscription.continuationTask?.kind !== "native_delivery") {
+    return;
+  }
+  const delivery = await readRemoteAgentNativeDeliveryByDeliveryId({
+    db: input.db,
+    deliveryId: input.subscription.continuationTask.deliveryId,
+  });
+  if (delivery) {
+    await recoverFailedTaskContinuationSummary({ ...input, delivery });
+  }
 }
 type ObserverDelivery = NonNullable<
   Awaited<ReturnType<typeof readRemoteAgentNativeDeliveryByDeliveryId>>

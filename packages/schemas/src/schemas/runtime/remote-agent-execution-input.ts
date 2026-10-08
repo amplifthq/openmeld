@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { userRequestTimeContextSchema } from "../../user-time-context";
 import { remoteAgentWorkerExecutionQuerySchema } from "./remote-agent-worker";
 
 const inputIdentity = {
@@ -12,6 +13,7 @@ export const remoteAgentWorkerExecutionInputRequestSchema = z.strictObject({
   authorProfileId: z.string().min(1),
   sourceSignalId: z.string().min(1),
   text: z.string().trim().min(1).max(100_000),
+  requestTimeContext: userRequestTimeContextSchema.optional(),
 });
 
 export const remoteAgentWorkerExecutionInputQuerySchema =

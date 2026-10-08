@@ -4,6 +4,7 @@ import {
   type RemoteAgentStorage,
   recordRemoteAgentConversationCompaction,
 } from "../agent-core/callback-context";
+import { normalizeRemoteAgentErrorMessage } from "../agent-core/error-message";
 
 type FlueConversationCompactionStartObservation = Extract<
   FlueObservation,
@@ -152,6 +153,7 @@ async function recordConversationCompactionCompletion(input: {
     });
     console.warn("[remote_agent.conversation_compaction.failed]", {
       durationMs: input.event.durationMs,
+      error: normalizeRemoteAgentErrorMessage(input.event.error).slice(0, 2000),
       eventIndex: input.event.eventIndex,
       messagesAfter: input.event.messagesAfter,
       messagesBefore: input.event.messagesBefore,

@@ -580,6 +580,14 @@ import {
   rpcCenterAgentSetAgentProfileDefaultProject,
   rpcCenterAgentUpdateProject,
 } from "./projects/project-center-agent-rpc";
+import {
+  rpcReadProjectCommonAgents,
+  rpcReadProjectRecentTasks,
+  rpcReadProjectRepositorySettings,
+  rpcResolveProjectIssueAction,
+  rpcUpdateProjectCommonAgents,
+  rpcUpdateProjectRepositorySettings,
+} from "./projects/project-rpc";
 import { verifyLarkPlatformWebhook } from "./remote-agent/application/lark-platform-webhook-service";
 import { createConfiguredMessageChannelProviderRegistry } from "./remote-agent/application/message-channel-provider-runtime";
 import { acknowledgeRemoteAgentAdmission } from "./remote-agent/application/native-delivery-admission-acknowledgement";
@@ -1053,6 +1061,7 @@ import {
   rpcReadOrganizationUsageOverview,
   rpcReadPendingGitHubAppInstallation,
   rpcReadPeopleComputerFileAccessPolicy,
+  rpcReadProjectIssueRouting,
   rpcReadServiceConnectionIncidents,
   rpcReadSpaceFileContent,
   rpcReconcileCurrentOrganizationConnectorConnections,
@@ -1120,6 +1129,7 @@ import {
   rpcUpdateComputerFileAccessPolicy,
   rpcUpdatePeopleComputerFileAccessPolicy,
   rpcUpdateProject,
+  rpcUpdateProjectIssueRouting,
   rpcUpdateRoutine,
   rpcUpdateSpaceCursor,
   rpcUpdateSpaceFileEntry,
@@ -1421,6 +1431,70 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   listProjects(input: ListProjectsInput) {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       rpcListProjects(this.env, input)
+    );
+  }
+
+  readProjectIssueRouting(
+    input: Parameters<typeof rpcReadProjectIssueRouting>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadProjectIssueRouting(this.env, input)
+    );
+  }
+
+  readProjectRepositorySettings(
+    input: Parameters<typeof rpcReadProjectRepositorySettings>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadProjectRepositorySettings(this.env, input)
+    );
+  }
+
+  updateProjectRepositorySettings(
+    input: Parameters<typeof rpcUpdateProjectRepositorySettings>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdateProjectRepositorySettings(this.env, input)
+    );
+  }
+
+  readProjectCommonAgents(
+    input: Parameters<typeof rpcReadProjectCommonAgents>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadProjectCommonAgents(this.env, input)
+    );
+  }
+
+  readProjectRecentTasks(
+    input: Parameters<typeof rpcReadProjectRecentTasks>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadProjectRecentTasks(this.env, input)
+    );
+  }
+
+  updateProjectCommonAgents(
+    input: Parameters<typeof rpcUpdateProjectCommonAgents>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdateProjectCommonAgents(this.env, input)
+    );
+  }
+
+  resolveProjectIssueAction(
+    input: Parameters<typeof rpcResolveProjectIssueAction>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcResolveProjectIssueAction(this.env, input)
+    );
+  }
+
+  updateProjectIssueRouting(
+    input: Parameters<typeof rpcUpdateProjectIssueRouting>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdateProjectIssueRouting(this.env, input)
     );
   }
   createProject(input: CreateProjectInput) {
@@ -4412,6 +4486,54 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   }
   listProjects(input: ListProjectsInput) {
     return super.listProjects(input);
+  }
+
+  readProjectIssueRouting(
+    input: Parameters<typeof rpcReadProjectIssueRouting>[1]
+  ) {
+    return super.readProjectIssueRouting(input);
+  }
+
+  readProjectRepositorySettings(
+    input: Parameters<typeof rpcReadProjectRepositorySettings>[1]
+  ) {
+    return super.readProjectRepositorySettings(input);
+  }
+
+  updateProjectRepositorySettings(
+    input: Parameters<typeof rpcUpdateProjectRepositorySettings>[1]
+  ) {
+    return super.updateProjectRepositorySettings(input);
+  }
+
+  readProjectCommonAgents(
+    input: Parameters<typeof rpcReadProjectCommonAgents>[1]
+  ) {
+    return super.readProjectCommonAgents(input);
+  }
+
+  readProjectRecentTasks(
+    input: Parameters<typeof rpcReadProjectRecentTasks>[1]
+  ) {
+    return super.readProjectRecentTasks(input);
+  }
+
+  updateProjectCommonAgents(
+    input: Parameters<typeof rpcUpdateProjectCommonAgents>[1]
+  ) {
+    return super.updateProjectCommonAgents(input);
+  }
+
+  resolveProjectIssueAction(
+    input: Parameters<typeof rpcResolveProjectIssueAction>[1]
+  ) {
+    return super.resolveProjectIssueAction(input);
+  }
+
+  updateProjectIssueRouting(
+    input: Parameters<typeof rpcUpdateProjectIssueRouting>[1]
+  ) {
+    return super.updateProjectIssueRouting(input);
   }
   createProject(input: CreateProjectInput) {
     return super.createProject(input);

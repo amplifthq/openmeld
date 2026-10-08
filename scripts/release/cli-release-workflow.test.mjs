@@ -332,9 +332,10 @@ test("native PostgreSQL publication requires its journal and runtime grant evide
       runCommand(command) {
         assert.equal(command.command, process.execPath);
         assert.deepEqual(command.args, [
-          path.join(cwd, "tooling/postgresql/cutover.mjs"),
+          path.resolve(SCRIPT_DIR, "../../tooling/postgresql/cutover.mjs"),
           "verify",
         ]);
+        assert.equal(command.cwd, cwd);
         return result;
       },
     });

@@ -1,6 +1,12 @@
 "use client";
 
 import { daemonServiceLaneSchema } from "@openmeld/schemas/schemas";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+} from "@openmeld/ui/fluid/select";
 import { useEffect, useState } from "react";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { BringAgentsSetupProvider } from "#/components/connect/bring-agents-setup-context";
@@ -23,13 +29,18 @@ type RecoveryInput = {
 	isPending: boolean;
 	sessionComputerId?: string;
 	onRetry: () => void;
+	refreshReadiness?: () => Promise<unknown>;
 };
 
 export function useAgentCreationComputerRecovery(input: RecoveryInput) {
 	const [repairComputerId, setRepairComputerId] = useState<string | null>(null);
+	const [pendingSetup, setPendingSetup] = useState<SetupTarget | null>(null);
+	const [setupCompleted, setSetupCompleted] = useState(false);
 	useEffect(() => {
 		if (!input.enabled) {
 			setRepairComputerId(null);
+			setPendingSetup(null);
+			setSetupCompleted(false);
 		}
 	}, [input.enabled]);
 	const { target, selected, enrolled } = resolveRepairComputer(
@@ -41,33 +52,110 @@ export function useAgentCreationComputerRecovery(input: RecoveryInput) {
 		input.guidance !== "set_up_local_agents" ||
 		!input.hasLocalAgents;
 	const state = resolveRecoveryState(input, target);
-	const activeTarget = resolveAutomaticSetupTarget(blocked, state, target);
+	const refreshInventory = input.recovery.localRuntimesQuery.refetch;
+	const refreshReadiness =
+		input.refreshReadiness ??
+		input.recovery.currentLocalRuntimeReplyReadinessQuery.refetch;
+	useEffect(() => {
+		if (
+			!input.enabled ||
+			(input.hasLocalAgents && input.guidance === "set_up_local_agents") ||
+			!(setupCompleted || input.guidance === "set_up_local_agents")
+		) {
+			return;
+		}
+		// Connection and catalog reports arrive separately. Reconcile both owning
+		// projections until creation is ready, including after a transient read failure.
+		let refreshing = false;
+		const timer = window.setInterval(() => {
+			if (refreshing) {
+				return;
+			}
+			refreshing = true;
+			Promise.all([refreshInventory(), refreshReadiness()])
+				.catch((error: unknown) => {
+					console.warn(
+						"Could not refresh local agents after connecting.",
+						error
+					);
+				})
+				.finally(() => {
+					refreshing = false;
+				});
+		}, 3000);
+		return () => window.clearInterval(timer);
+	}, [
+		input.enabled,
+		input.hasLocalAgents,
+		input.guidance,
+		refreshInventory,
+		refreshReadiness,
+		setupCompleted,
+	]);
+	const automaticTarget = resolveAutomaticSetupTarget(
+		blocked && !setupCompleted,
+		state,
+		target
+	);
+	const setupId = automaticTarget?.connectedComputerId;
+	const setupName = automaticTarget?.name;
+	const setupState = automaticTarget?.state;
+	useEffect(() => {
+		if (input.enabled && setupState) {
+			setPendingSetup({
+				connectedComputerId: setupId,
+				name: setupName,
+				state: setupState,
+			});
+		}
+	}, [input.enabled, setupId, setupName, setupState]);
+	// Connection facts can arrive before Prepare's completion callback. Keep
+	// that workflow mounted so it can select the runtime it actually connected.
+	const activeTarget = automaticTarget ?? pendingSetup;
 	const recovery: AgentCreationComputerRecovery | undefined =
-		input.enabled && blocked
+		input.enabled && (blocked || activeTarget)
 			? {
 					state: activeTarget?.state ?? state,
 					computerName: activeTarget ? activeTarget.name : target.name,
-					onStart: input.onRetry,
+					onStart: () => {
+						if (state === "connect" || state === "reconnect") {
+							setSetupCompleted(false);
+						}
+						input.onRetry();
+					},
 					computerChoices:
-						!selected && enrolled.length > 0 ? (
+						!(selected || setupCompleted) &&
+						activeTarget &&
+						enrolled.length > 0 ? (
 							<div className="grid gap-2">
-								<label className="grid gap-2 text-sm">
+								<div className="grid gap-2 text-sm">
 									Computer to reconnect
-									<select
-										className="h-9 rounded-md border bg-background px-3"
-										onChange={(event) =>
-											setRepairComputerId(event.target.value || null)
+									<Select
+										onValueChange={(value) =>
+											setRepairComputerId(value || null)
 										}
 										value={repairComputerId ?? ""}
 									>
-										<option value="">Connect a new computer</option>
-										{enrolled.map((computer) => (
-											<option key={computer.deviceId} value={computer.deviceId}>
-												{computer.deviceDisplayName}
-											</option>
-										))}
-									</select>
-								</label>
+										<SelectTrigger
+											aria-label="Computer to reconnect"
+											placeholder="Connect a new computer"
+										/>
+										<SelectContent>
+											<SelectItem index={0} value="">
+												Connect a new computer
+											</SelectItem>
+											{enrolled.map((computer, index) => (
+												<SelectItem
+													index={index + 1}
+													key={computer.deviceId}
+													value={computer.deviceId}
+												>
+													{computer.deviceDisplayName}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+								</div>
 							</div>
 						) : undefined,
 					setup: activeTarget ? (
@@ -92,6 +180,8 @@ export function useAgentCreationComputerRecovery(input: RecoveryInput) {
 											runtimeLane: lane.data,
 										});
 									}
+									setPendingSetup(null);
+									setSetupCompleted(true);
 									input.onRetry();
 								}}
 								orgSlug={input.orgSlug}

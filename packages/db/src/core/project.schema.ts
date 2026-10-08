@@ -1,5 +1,12 @@
 import { desc, sql } from "drizzle-orm";
-import { bigint, check, index, text, uniqueIndex } from "drizzle-orm/pg-core";
+import {
+  bigint,
+  check,
+  index,
+  integer,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
 import { organizations, users } from "../auth/auth.schema.ts";
 import { openMeldProfiles } from "../auth/openmeld-profile.schema.ts";
 import { applicationTable } from "../postgresql/schema.ts";
@@ -15,6 +22,38 @@ export const projects = applicationTable(
     slug: text("slug").notNull(),
     repositoryFingerprint: text("repository_fingerprint"),
     repositoryUrl: text("repository_url"),
+    issueDestinationJson: text("issue_destination_json"),
+    issueDestinationRevision: integer("issue_destination_revision")
+      .notNull()
+      .default(0),
+    issueDestinationUpdatedByUserId: text(
+      "issue_destination_updated_by_user_id"
+    ),
+    issueDestinationUpdatedAtMs: bigint("issue_destination_updated_at_ms", {
+      mode: "number",
+    }),
+    additionalRepositoryUrlsJson: text("additional_repository_urls_json")
+      .notNull()
+      .default("[]"),
+    repositorySettingsRevision: integer("repository_settings_revision")
+      .notNull()
+      .default(0),
+    repositorySettingsUpdatedByUserId: text(
+      "repository_settings_updated_by_user_id"
+    ),
+    repositorySettingsUpdatedAtMs: bigint("repository_settings_updated_at_ms", {
+      mode: "number",
+    }),
+    commonAgentProfileIdsJson: text("common_agent_profile_ids_json")
+      .notNull()
+      .default("[]"),
+    commonAgentsRevision: integer("common_agents_revision")
+      .notNull()
+      .default(0),
+    commonAgentsUpdatedByUserId: text("common_agents_updated_by_user_id"),
+    commonAgentsUpdatedAtMs: bigint("common_agents_updated_at_ms", {
+      mode: "number",
+    }),
     creationRequestSignature: text("creation_request_signature"),
     createdByUserId: text("created_by_user_id").notNull(),
     createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),

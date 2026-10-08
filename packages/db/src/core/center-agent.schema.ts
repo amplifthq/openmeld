@@ -382,6 +382,7 @@ export const centerAgentConnectorActionOperations = applicationTable(
     }),
     status: text("status").notNull(),
     providerExecutionId: text("provider_execution_id"),
+    linearIssueReceiptJson: text("linear_issue_receipt_json"),
     createdAtMs: bigint("created_at_ms", { mode: "number" }).notNull(),
     updatedAtMs: bigint("updated_at_ms", { mode: "number" }).notNull(),
   },

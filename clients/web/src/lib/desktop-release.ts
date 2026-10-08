@@ -1,5 +1,6 @@
 import {
 	DESKTOP_WINDOWS_INTERNAL_PREVIEW_KEY,
+	type DesktopDownloadRelease,
 	type DesktopReleasePlatform,
 	desktopCandidateIdSchema,
 	desktopCandidateLocation,
@@ -235,14 +236,6 @@ export async function readAvailableDesktopRelease(
 			}
 		: null;
 }
-
-export type DesktopDownloadRelease = {
-	platform: DesktopReleasePlatform;
-	version: string;
-	sizeBytes: number | null;
-	downloadPath: string;
-	message: string | null;
-};
 
 export function buildAbsoluteDesktopUrl(input: {
 	origin: string;

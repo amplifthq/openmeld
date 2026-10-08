@@ -357,6 +357,15 @@ Profile has already entered context mode. Every selection is scoped to the exact
 Organization, Space, discussion, Profile, Binding, and Runtime.
 Admission freezes both the context assignment and a decision to retain legacy
 continuity. Linking an execution or redriving a Wake cannot assign it again.
+An explicit Project code-work selection freezes one Project ID and repository
+fingerprint on that Context. RuntimeCoordinator requires a v4-capable local
+adapter before admitting this selection. Core verifies the Project association
+at delivery, while the Service verifies the owner-local matching folder and
+file access. Profile Default Project and a Space's related Projects remain
+suggestions, never alternate execution targets when the selected repository is
+unavailable. The existing exclusive local workspace slot serializes
+current-folder writers across Project labels; isolated Contexts use separate
+worktrees.
 
 Conversation isolation does not imply a new filesystem boundary. For a new
 Codex or Claude context, omitted access preferences inherit the Profile's current
@@ -1046,6 +1055,18 @@ housekeeping work. The alarm orchestration for those RuntimeCoordinator phases
 has been extracted into application processors, but the authority writers
 remain in `RuntimeTransportHub`.
 
+Unexpected background-phase failures persist a per-owner retry deadline in
+the Durable Object. Retries back off from five seconds to five minutes and
+reset after success. Alarm deadline selection and phase admission both honor
+that deadline, including after hibernation; an overdue work record must not
+override it. Computer incident observation and context migration have their own
+failure owners; context migration failures must not be swallowed by the work
+promotion phase. Healthy phases continue independently. Work-budget continuations
+retain their normal one-second cadence. A failure outside an individual phase
+uses the same durable backoff for the alarm as a whole. These records control
+background retry timing only: they do not fail a running Wake, change
+Wakeability, replace execution authority, or discard pending work.
+
 Do not infer that RuntimeCoordinator has been physically split because files are
 named `runtime-coordinator-*`. Those files are in-process orchestration and
 authority helpers. Do not casually move RuntimeCoordinator HTTP handlers,
@@ -1205,6 +1226,20 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   Missing or invalid facts use the precise Project/workspace reason codes from
   the shared schema; local folder paths never cross the Service boundary.
   Historical Wake outcomes never substitute for this current observation.
+  A Service route remains registered when only its default working-folder fact
+  (Default Project or Profile workspace) is missing or invalid. Current
+  Wakeability still reports that fact as blocked
+  for ordinary Wakes. For one dispatch whose Space-frozen new-Context selection
+  includes `projectWork`, or whose explicit resume/fork selection names an
+  existing Context source, Core may pass this specific default-folder blocker
+  only when the current Binding, Service, route, controller, and other readiness
+  facts permit execution. Resume/fork admission at this stage is provisional:
+  RuntimeCoordinator must resolve and authorize the source Context before
+  execution. This does not change the public Wakeability projection. Once the
+  Context is resolved, Core checks that its Project/repository association is
+  still current; the Service verifies the exact owner-local connection before
+  local execution. An absent, missing, or ambiguous selected connection fails
+  closed without running the Agent.
   Space member/status and Organization directory readiness use the same Core
   decision. Profiles in one request share existing Runtime registry and
   Controller report reads; no result survives into another request. Each

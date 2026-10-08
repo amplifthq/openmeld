@@ -15,7 +15,7 @@ import {
   agentActivityRouteRegistrySchema,
 } from "@openmeld/schemas";
 import { withAgentActivityLocalStateLock } from "./local-state-lock";
-import { resolveProjectBindingForPath } from "./project-bindings";
+import { hasProjectBindingForPath } from "./project-bindings";
 
 const EMPTY_REGISTRY: AgentActivityRouteRegistry = {
   routes: [],
@@ -102,7 +102,7 @@ export async function resolveAgentActivityRouteForPath(input: {
   const registry = await readRegistry(globalRootDir);
   const matches: string[] = [];
   for (const route of registry.routes) {
-    const binding = await resolveProjectBindingForPath({
+    const binding = await hasProjectBindingForPath({
       path: input.path,
       rootDir: route.rootDir,
     });

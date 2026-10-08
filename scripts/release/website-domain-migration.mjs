@@ -241,6 +241,16 @@ export async function admitWebsiteDomainRelease(input) {
   const names = websiteDomainNames(input.environment);
   const state = await readWebsiteDomainState(client, names);
   const evidence = await loadEvidence(input, client);
+  // Internal staging can replace the full stack in one maintenance window.
+  // Ownership is still checked above, and deployment read-back verifies both hosts.
+  if (
+    input.environment === "stg" &&
+    ["auth", "core", "gateway", "web", "website"].every((scope) =>
+      input.scopes.includes(scope)
+    )
+  ) {
+    return { client, names, state, evidence };
+  }
   if (!state.app) {
     throw new Error(
       "Prepare and verify the App hostname before publishing App-origin configuration."
@@ -345,12 +355,16 @@ export async function checkWebsiteDomainEndpoints(names, fetchImpl = fetch) {
     const metadata = await response.json();
     if (
       metadata.client_id !== url ||
+      ![
+        "https://openmeld.ai/icon-512.png",
+        "https://openmeld.ai/brand/openmeld-letter-o-dark-1024.png",
+      ].includes(metadata.logo_uri) ||
       !metadata.redirect_uris?.includes(
         "https://connectors.openmeld.ai/oauth/callback"
       )
     ) {
       throw new Error(
-        "PostHog OAuth client identity or callback changed during domain migration."
+        "PostHog OAuth client identity, logo, or callback changed outside the reviewed domain migration."
       );
     }
   }

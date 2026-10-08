@@ -74,6 +74,15 @@ Do not redeploy unrelated services for ceremony. Broader validation may be
 appropriate for a cross-service contract change, but broader validation does
 not require a broader production rollout.
 
+Project workflow and Task receiver changes can share a release when their
+actual dependency edges remain acyclic. The guarded planner composes Core before
+Gateway and the local Service, Core before the Project issue action owner in
+Remote Agent, and Remote Agent before the Web issue settings. When shared-folder
+controls change with local capability v4, CLI publication also precedes Web.
+The first Core deployment retains the immutable published CLI projection; CLI
+publication activates its matching Core projection. Opposing receiver contracts
+still require separate stages. Do not narrow the release base to hide a conflict.
+
 ### Desktop release coverage
 
 The scoped planner and `release:status` cover Database, cloud services, and
@@ -567,14 +576,39 @@ the diff contains one of these explicit Core-to-Remote-Agent receiver owners:
 It selects the same profile when a diff expands a strict Remote Agent request
 shape—either with a new request version or an additive field—and changes its
 explicit shared-schema request owner, Core producer/admission owner, and Remote
-Agent Center Agent receiver together. Those three signals distinguish a
-directional request-envelope rollout from a non-directional shared-schema edit.
+Agent Center Agent receiver together. A change to the request-only
+`remote-agent-turn-envelope.ts` and Core's `application/turn-envelope.ts` also
+establishes this direction. The existing Center Agent imports and parses that
+shared strict schema, so its own source file need not change to expand its
+receiver contract.
+
+Execution input has requests and responses in one shared file. When
+`remote-agent-execution-input.ts`, Core's Space producer, and Remote's
+`flue-adapter/execution-input.ts` change together, the planner compares the
+actual request/query, shared identity, and receipt/response declarations against
+the component receipt baseline. A request-only change requires Remote before
+Core. A response-only change requires Core before Remote. An unrelated import
+does not establish either direction. Missing history or a change to both sides
+requires separate receiver stages; the shared file path alone is insufficient.
+
+Gateway's `lib/openmeld-context.ts` produces Core's strict request context.
+A changed `openMeldRequestContextSchema` declaration in `profile-identity.ts`
+therefore requires Core before Gateway. Other declarations in that file do not
+establish this dependency. The planner requires readable schema history for
+this owner pair. Optional Web/CLI time headers remain independent: the old
+Gateway can ignore them without rejecting a request.
 
 Within the selected scopes it deploys Database, Remote Agent, Auth, Core,
 Gateway, Web, then CLI. This installs strict Remote Agent RPC receivers before
 Core callers and keeps a selected CLI unpublished until every cloud receiver is
-ready. Shared schemas and Core's native-delivery service are intentionally not
-directional path signals because they carry contracts in both directions.
+ready. The dependency graph also contains Remote Agent -> CLI for a strict
+request rollout. CLI publication deploys its candidate Core release projection,
+which activates the new Core request producer. Stage admission must block that
+CLI stage while Remote is pending, even if an earlier Core receipt exists. The
+early Core stage preserves the current published CLI projection. This edge
+comes from the Core deployment in CLI publication, not from optional headers.
+Other shared schemas and Core's native-delivery service are not directional
+path signals because they carry contracts in both directions.
 
 Personal cloud Computer has the opposite capability direction: its Remote
 Agent requires Core's account Computer identity response. The planner selects
@@ -622,9 +656,12 @@ capability gates and frozen-request replay remain unchanged. The planner checks
 that exact baseline and the reviewed source digest of all listed request owners
 in `scripts/release/remote-agent-request-compatibility.mjs`. Unknown baselines,
 unreadable source, or any changed owner preserve the dependency and block a
-cycle. Never update the digest merely to pass a gate: repeat the published-schema
-and mixed-version audit. `compatibilityBridges` in plan/status records the exact
-source witness; Core metering and Web/Gateway result-reader edges remain intact.
+cycle. This witness does not waive the separate imported turn-envelope or
+execution-input producer dependencies, or Core's Gateway request-context
+receiver dependency. Never update the digest merely to pass a gate: repeat the
+published-schema and mixed-version audit. `compatibilityBridges` in plan/status
+records the exact source witness; Core metering and Web/Gateway result-reader
+edges remain intact.
 
 For this bridge, retain the completed compatible Web readers and additive DB
 migrations, deploy Core and verify its readers/usage receiver, record that exact
@@ -1932,6 +1969,13 @@ an upstream patch merges, synchronize fork `main`, remove the superseded
 downstream patch from the next OpenMeld release branch, and validate that exact
 remote SHA before deployment. Synchronizing the fork alone never requires a
 production redeploy.
+
+The reviewed runtime supports managed authorization requests and event subscription
+maintenance. Keep the once-per-minute `triggers.crons` in both tracked deployment
+configs. The guarded command applies pending migrations before deploying the
+scheduled handler. After deployment, verify scheduled invocations and maintenance
+progress separately from HTTP health. Do not configure a managed-cloud project or
+expand OAuth grants as part of an ordinary source upgrade.
 
 The command regenerates the provider catalog, builds and copies the Web assets,
 applies pending remote D1 migrations, and deploys the Worker with the tracked

@@ -138,6 +138,12 @@ test("historical D1 capture to native PG18 preserves business data and rolls bac
           provider: "cloudflare",
           created_at_ms: "1",
         };
+        const timeContext = {
+          user_id: fixture.owner,
+          time_zone: "America/New_York",
+          source: "web",
+          observed_at_ms: "2",
+        };
         const insertComputer = () =>
           client.query(
             "INSERT INTO openmeld.cloud_computers(id,owner_user_id,provider,created_at_ms) VALUES($1,$2,$3,$4)",
@@ -154,7 +160,23 @@ test("historical D1 capture to native PG18 preserves business data and rolls bac
           );
           await client.query("DELETE FROM openmeld.account_deletion_requests");
           await importD1Snapshot({ snapshot, connectionString });
+          assert.equal(
+            (
+              await client.query(
+                "SELECT count(*)::text AS count FROM openmeld.user_time_contexts"
+              )
+            ).rows[0].count,
+            "0"
+          );
           await insertComputer();
+          await client.query(
+            "INSERT INTO openmeld.user_time_contexts(user_id,time_zone,source,observed_at_ms) VALUES($1,$2,$3,$4)",
+            Object.values(timeContext)
+          );
+          await assert.rejects(
+            importD1Snapshot({ snapshot, connectionString }),
+            populatedTargetError
+          );
           await reconcileD1Snapshot({ snapshot, connectionString });
           assert.deepEqual(
             (
@@ -163,6 +185,14 @@ test("historical D1 capture to native PG18 preserves business data and rolls bac
               )
             ).rows,
             [computer]
+          );
+          assert.deepEqual(
+            (
+              await client.query(
+                "SELECT user_id,time_zone,source,observed_at_ms::text FROM openmeld.user_time_contexts"
+              )
+            ).rows,
+            [timeContext]
           );
         } finally {
           await client.end();
@@ -182,6 +212,47 @@ test("historical D1 capture to native PG18 preserves business data and rolls bac
           performance.now() - baselineCapturedMs;
         const client = await connect(connectionString, true);
         try {
+          assert.deepEqual(
+            (
+              await client.query(
+                "SELECT avatar_options FROM openmeld.openmeld_profiles WHERE profile_id=$1",
+                [fixture.center]
+              )
+            ).rows,
+            [{ avatar_options: null }]
+          );
+          assert.deepEqual(
+            (
+              await client.query(
+                `SELECT id, repository_url, issue_destination_json,
+                issue_destination_revision, additional_repository_urls_json,
+                repository_settings_revision, common_agent_profile_ids_json,
+                common_agents_revision FROM openmeld.projects WHERE id = $1`,
+                [fixture.project]
+              )
+            ).rows,
+            [
+              {
+                id: fixture.project,
+                repository_url:
+                  "https://github.com/example/migration-rehearsal",
+                issue_destination_json: null,
+                issue_destination_revision: 0,
+                additional_repository_urls_json: "[]",
+                repository_settings_revision: 0,
+                common_agent_profile_ids_json: "[]",
+                common_agents_revision: 0,
+              },
+            ]
+          );
+          assert.equal(
+            (
+              await client.query(
+                "SELECT linear_issue_receipt_json FROM openmeld.center_agent_connector_action_operations WHERE id = 'migration-plugin-receipt'"
+              )
+            ).rows[0].linear_issue_receipt_json,
+            null
+          );
           assert.deepEqual(
             (
               await client.query(

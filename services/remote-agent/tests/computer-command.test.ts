@@ -167,6 +167,202 @@ function fixture() {
 }
 
 describe("retained Computer commands", () => {
+  it.each([
+    { action: "start", recovery: "poll", inspection: "ready" },
+    { action: "stop", recovery: "poll", inspection: "ready" },
+    { action: "stop", recovery: "collector", inspection: "ready" },
+    { action: "stop", recovery: "poll", inspection: "error" },
+    { action: "stop", recovery: "collector", inspection: "timeout" },
+  ] as const)("recovers timed out Workspace acquisition (action=$action, recovery=$recovery, inspection=$inspection)", async ({
+    action,
+    recovery,
+    inspection,
+  }) => {
+    const f = fixture();
+    const startRequest = {
+      action: "start",
+      key: "late",
+      command: "touch result",
+    };
+    if (action === "stop") {
+      await f.tool().execute(startRequest);
+    }
+    const entered = Promise.withResolvers<void>();
+    const acquired = Promise.withResolvers<void>();
+    const disposed = Promise.withResolvers<void>();
+    const inspected =
+      Promise.withResolvers<WorkspaceRuntimeExecHandle<"utf8">>();
+    const tool = createComputerCommandTool({
+      context: context("execution-a"),
+      storage: f.storage,
+      workingDirectory: "/computer",
+      workspaceAccess: {
+        async withWorkspace(operation) {
+          entered.resolve();
+          await acquired.promise;
+          try {
+            return await f.workspaceAccess.withWorkspace(operation);
+          } finally {
+            disposed.resolve();
+          }
+        },
+      },
+    });
+    vi.useFakeTimers();
+    try {
+      const launch = tool.execute(
+        action === "start"
+          ? startRequest
+          : { action: "stop", key: "late", signal: "SIGKILL" }
+      );
+      const rejected = expect(launch).rejects.toMatchObject({
+        code: "computer.observation_timeout",
+        phase: "workspace-acquisition",
+      });
+      await entered.promise;
+      await vi.advanceTimersByTimeAsync(action === "start" ? 60_000 : 5000);
+      await rejected;
+      acquired.resolve();
+      await disposed.promise;
+      expect(f.exec).toHaveBeenCalledTimes(action === "start" ? 0 : 1);
+      expect(f.killExec).not.toHaveBeenCalled();
+      if (action === "stop") {
+        await expect(f.tool().execute(startRequest)).rejects.toThrow(
+          "already stopped"
+        );
+        let stopped = false;
+        f.killExec.mockImplementation(() => {
+          stopped = true;
+          return Promise.resolve();
+        });
+        f.getExec.mockImplementation((id) =>
+          Promise.resolve(
+            handle(
+              id,
+              stopped ? [{ id, seq: 1, name: "exit", code: 137 }] : [],
+              stopped
+            )
+          )
+        );
+        if (inspection === "error") {
+          f.getExec.mockRejectedValueOnce(
+            new TypeError("Output transport failed")
+          );
+        } else if (inspection === "timeout") {
+          f.getExec.mockImplementationOnce(() => inspected.promise);
+        }
+        const recovering =
+          recovery === "collector"
+            ? collectComputerCommands({
+                storage: f.storage,
+                workspaceAccess: f.workspaceAccess,
+              })
+            : f.tool().execute({ action: "poll", key: "late", waitSeconds: 1 });
+        const recovered = recovering.catch((error: unknown) => error);
+        await vi.advanceTimersByTimeAsync(1100);
+        const receipt = await recovered;
+        if (inspection === "error") {
+          expect(receipt).toBeInstanceOf(TypeError);
+        }
+        expect(f.killExec).toHaveBeenCalledOnce();
+        expect(f.killExec).toHaveBeenCalledWith(expect.any(String), {
+          backend: "container",
+          signal: "SIGKILL",
+        });
+        await expect(
+          f.tool().execute({ action: "poll", key: "late", waitSeconds: 0 })
+        ).resolves.toMatchObject({ status: "completed", exitCode: 137 });
+        expect(f.killExec).toHaveBeenCalledOnce();
+      }
+      expect(await tool.execute({ action: "list" })).toMatchObject([
+        { key: "late" },
+      ]);
+    } finally {
+      acquired.resolve();
+      inspected.resolve(handle("late-inspection"));
+      await vi.advanceTimersByTimeAsync(100);
+      vi.useRealTimers();
+    }
+  });
+
+  it("bounds a stuck cancellation without killing the retained process", async () => {
+    vi.useFakeTimers();
+    try {
+      const cancellation = Promise.withResolvers<void>();
+      const cancel = vi.fn(() => cancellation.promise);
+      const stream = new ReadableStream<WorkspaceRuntimeEvent<"utf8">>({
+        cancel,
+      });
+      const run = Object.assign(stream, {
+        id: "stuck-cancel",
+        backend: "container",
+        result: vi.fn(),
+        kill: vi.fn(),
+        [Symbol.dispose]: vi.fn(),
+      }) as WorkspaceRuntimeExecHandle<"utf8">;
+      const reading = readCommandSlice(run, "work", 0, 10);
+      await vi.advanceTimersByTimeAsync(110);
+      await expect(reading).resolves.toMatchObject({
+        status: "running",
+        exitCode: null,
+      });
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(run.locked).toBe(false);
+      expect(run[Symbol.dispose]).toHaveBeenCalledOnce();
+      expect(run.kill).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("collects other receipts while one native connection never returns", async () => {
+    const f = fixture();
+    const stuck = (await f
+      .tool()
+      .execute({ action: "start", key: "stuck", command: "sleep 30" })) as {
+      id: string;
+    };
+    await f
+      .tool("execution-b")
+      .execute({ action: "start", key: "saved", command: "printf saved" });
+    vi.useFakeTimers();
+    try {
+      const connection =
+        Promise.withResolvers<WorkspaceRuntimeExecHandle<"utf8">>();
+      f.getExec.mockImplementation((id) =>
+        id === stuck.id
+          ? connection.promise
+          : Promise.resolve(
+              handle(
+                id,
+                [
+                  { id, seq: 1, name: "stdout", value: "saved" },
+                  { id, seq: 2, name: "exit", code: 0 },
+                ],
+                true
+              )
+            )
+      );
+      const collecting = collectComputerCommands({
+        storage: f.storage,
+        workspaceAccess: f.workspaceAccess,
+      });
+      await vi.advanceTimersByTimeAsync(6100);
+      await expect(collecting).resolves.toBe(true);
+      f.getExec.mockRejectedValue(new Error("native records expired"));
+      await expect(
+        f.tool("execution-b").execute({ action: "poll", key: "saved" })
+      ).resolves.toMatchObject({
+        status: "completed",
+        stdout: "saved",
+        exitCode: 0,
+      });
+      expect(f.exec).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("collects a dispatch whose acknowledgement was lost without failing an unstarted dispatch", async () => {
     const f = fixture();
     let nativeId = "";
@@ -266,7 +462,169 @@ describe("retained Computer commands", () => {
     expect(f.killExec).not.toHaveBeenCalled();
   });
 
-  it("preserves exit and output while the SDK reports pending file synchronization", async () => {
+  it("preserves the inspect action when the first exit cannot synchronize", async () => {
+    const f = fixture();
+    f.exec.mockImplementationOnce((_source, options) =>
+      Promise.resolve(
+        handle(
+          options.id,
+          [
+            { id: options.id, seq: 1, name: "stdout", value: "saved" },
+            { id: options.id, seq: 2, name: "exit", code: 0 },
+          ],
+          true
+        )
+      )
+    );
+    f.getExec.mockRejectedValue(
+      Object.assign(new Error("record expired"), { code: "ENOENT" })
+    );
+    const request = { action: "start", key: "sync", command: "printf saved" };
+    await expect(f.tool().execute(request)).resolves.toMatchObject({
+      status: "running",
+      exitCode: 0,
+      stdout: "saved",
+      syncPending: true,
+      syncError: "ENOENT",
+      nextAction: "inspect",
+    });
+    await expect(f.tool().execute(request)).resolves.toMatchObject({
+      nextAction: "inspect",
+    });
+    expect(f.exec).toHaveBeenCalledOnce();
+    expect(f.killExec).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    false,
+    true,
+  ])("preserves authoritative completion racing cleanup loss (settledFirst=%s)", async (settledFirst) => {
+    const f = fixture();
+    const executionContext = context("execution-a");
+    const identity = buildRemoteAgentExecutionIdentity(executionContext);
+    await putRemoteAgentCallbackContext(f.storage, executionContext);
+    await initializeRemoteAgentExecutionState({
+      identity,
+      storage: f.storage,
+      acceptedAtMs: TEST_NOW_MS,
+    });
+    await f
+      .tool()
+      .execute({ action: "start", key: "sync", command: "printf saved" });
+    const run = (id: string) =>
+      handle(
+        id,
+        [
+          { id, seq: 1, name: "stdout", value: "saved" },
+          { id, seq: 2, name: "exit", code: 0 },
+        ],
+        true
+      );
+    f.getExec.mockImplementation((id) => {
+      const receipt = run(id);
+      receipt.result = async () => ({
+        status: "completed",
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        pushed: 0,
+        pulled: 0,
+        skipped: [],
+        sync: {
+          status: "pending",
+          applied: 0,
+          skipped: [],
+          error: "pull failed",
+        },
+      });
+      return Promise.resolve(receipt);
+    });
+    await f.tool().execute({ action: "poll", key: "sync" });
+    const entered = Promise.withResolvers<void>();
+    const synchronized =
+      Promise.withResolvers<
+        Awaited<ReturnType<WorkspaceRuntimeExecHandle<"utf8">["result"]>>
+      >();
+    f.getExec.mockImplementationOnce((id) => {
+      const receipt = run(id);
+      receipt.result = () => {
+        entered.resolve();
+        return synchronized.promise;
+      };
+      return Promise.resolve(receipt);
+    });
+    const confirming = f
+      .tool()
+      .execute({ action: "poll", key: "sync", waitSeconds: 20 });
+    await entered.promise;
+    f.getExec.mockRejectedValue(
+      Object.assign(new Error("record expired"), { code: "ENOENT" })
+    );
+    await collectComputerCommands({
+      storage: f.storage,
+      workspaceAccess: f.workspaceAccess,
+    });
+    await expect(
+      stopStoredComputerCommands({
+        context: executionContext,
+        storage: f.storage,
+        access: () => f.workspaceAccess,
+        reportConfirmedLoss: true,
+      })
+    ).resolves.toEqual({ unfinished: 0, lostDuringCleanup: true });
+    cleanupAccess.mockReturnValue(f.workspaceAccess);
+    const completeRemoteAgentSubmission = vi.fn(async () => ({
+      status: "accepted" as const,
+    }));
+    const reconcile = () =>
+      reconcileRemoteAgentExecution({
+        coreWorker: { completeRemoteAgentSubmission },
+        env: { AGENT_COMPUTER: { idFromName: vi.fn(() => "computer-id") } },
+        identity,
+        readSubmission: async () => ({
+          status: "settled" as const,
+          completedOutput: { submissionId: "execution-a", text: "Saved" },
+        }),
+        storage: f.storage,
+      });
+    if (settledFirst) {
+      await reconcile();
+    }
+    synchronized.resolve({
+      status: "completed",
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+      pushed: 0,
+      pulled: 0,
+      skipped: [],
+      sync: { status: "complete", applied: 0, skipped: [] },
+    });
+    await expect(confirming).resolves.toMatchObject({
+      status: "completed",
+      exitCode: 0,
+    });
+    await expect(
+      stopStoredComputerCommands({
+        context: executionContext,
+        storage: f.storage,
+        access: () => f.workspaceAccess,
+        reportConfirmedLoss: true,
+      })
+    ).resolves.toEqual({ unfinished: 0, lostDuringCleanup: false });
+    await expect(reconcile()).resolves.toMatchObject({
+      execution: { status: settledFirst ? "failed" : "completed" },
+    });
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledOnce();
+    expect(f.exec).toHaveBeenCalledOnce();
+    expect(f.killExec).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "complete",
+    "ENOENT",
+    "EEXEC_LOST",
+  ] as const)("preserves exit and output after pending sync resolves as %s", async (outcome) => {
     const f = fixture();
     await f
       .tool()
@@ -310,6 +668,47 @@ describe("retained Computer commands", () => {
       stdout: "saved",
       after: 2,
     });
+    if (outcome !== "complete") {
+      f.getExec.mockRejectedValue(
+        Object.assign(new Error("native receipt unavailable"), {
+          code: outcome,
+        })
+      );
+      await collectComputerCommands({
+        storage: f.storage,
+        workspaceAccess: f.workspaceAccess,
+      });
+      const observer = f.tool();
+      await expect(
+        observer.execute({ action: "poll", key: "sync" })
+      ).resolves.toMatchObject({
+        status: "running",
+        exitCode: 0,
+        stdout: "saved",
+        syncError: outcome,
+        nextAction: "inspect",
+      });
+      const calls = f.getExec.mock.calls.length;
+      await expect(
+        f.tool().execute({ action: "poll", key: "sync", after: 2 })
+      ).resolves.toMatchObject({
+        status: "running",
+        exitCode: 0,
+        stdout: "",
+        syncError: outcome,
+      });
+      expect(f.getExec).toHaveBeenCalledTimes(calls);
+      await expect(
+        stopStoredComputerCommands({
+          context: context("execution-a"),
+          storage: f.storage,
+          access: () => f.workspaceAccess,
+        })
+      ).resolves.toEqual({ unfinished: 0, lostDuringCleanup: false });
+      expect(f.killExec).not.toHaveBeenCalled();
+      expect(f.exec).toHaveBeenCalledOnce();
+      return;
+    }
     synced = true;
     await expect(
       f.tool().execute({ action: "poll", key: "sync", after: 2 })
@@ -789,13 +1188,24 @@ describe("retained Computer commands", () => {
     expect(f.killExec.mock.calls[0]?.[0]).toBe(started.id);
   });
   it.each([
-    "EEXEC_LOST",
-    "ENOENT",
-  ])("keeps reported %s commands from failing recovered work during cleanup", async (code) => {
+    { code: "EEXEC_LOST", pendingStop: false },
+    { code: "ENOENT", pendingStop: false },
+    { code: "EEXEC_LOST", pendingStop: true },
+    { code: "ENOENT", pendingStop: true },
+  ])("keeps reported $code commands from failing recovered work during cleanup (pending Stop=$pendingStop)", async ({
+    code,
+    pendingStop,
+  }) => {
     const f = fixture();
     const started = await f
       .tool()
       .execute({ action: "start", key: "lost", command: "sleep 300" });
+    if (pendingStop) {
+      f.killExec.mockRejectedValueOnce(new TypeError("Stop transport failed"));
+      await expect(
+        f.tool().execute({ action: "stop", key: "lost" })
+      ).rejects.toThrow("Stop transport failed");
+    }
     // The installed SDK reports a runtime identity mismatch with this code.
     const lost = Object.assign(new Error("Computer runtime replaced"), {
       name: "WorkspaceExecutionLostError",
@@ -816,7 +1226,9 @@ describe("retained Computer commands", () => {
         env: { AGENT_COMPUTER: { idFromName: vi.fn(() => "computer-id") } },
       })
     ).resolves.toMatchObject({ unfinished: 0 });
-    expect(f.killExec).toHaveBeenCalledTimes(code === "ENOENT" ? 1 : 0);
+    expect(f.killExec).toHaveBeenCalledTimes(
+      (code === "ENOENT" ? 1 : 0) + (pendingStop ? 1 : 0)
+    );
     expect(f.exec).toHaveBeenCalledTimes(1);
     expect(started).toMatchObject({ key: "lost", status: "running" });
   });
@@ -912,7 +1324,7 @@ describe("retained Computer commands", () => {
         status: "failed",
         failureCode: cancel
           ? "remote_agent.execution_cancelled"
-          : "remote_agent.turn_not_completed",
+          : "remote_agent.computer.command_cleanup_failed",
       })
     );
     expect(f.exec).toHaveBeenCalledTimes(commandCount);
@@ -1063,7 +1475,10 @@ describe("retained Computer commands", () => {
     expect(f.killExec).toHaveBeenCalledTimes(commandCount);
   });
 
-  it("acknowledges Stop and publishes one aborted outcome when a retained command is gone", async () => {
+  it.each([
+    false,
+    true,
+  ])("acknowledges Stop and publishes one aborted outcome when a retained command is gone (prior Stop acknowledged=%s)", async (priorStopAcknowledged) => {
     const f = fixture();
     const executionContext = context("execution-a");
     const identity = buildRemoteAgentExecutionIdentity(executionContext);
@@ -1076,6 +1491,12 @@ describe("retained Computer commands", () => {
     await f
       .tool()
       .execute({ action: "start", key: "long", command: "sleep 300" });
+    if (priorStopAcknowledged) {
+      await expect(
+        f.tool().execute({ action: "stop", key: "long" })
+      ).resolves.toMatchObject({ status: "stop_requested" });
+      expect(f.killExec).toHaveBeenCalledOnce();
+    }
     const missing = Object.assign(new Error("no exec record"), {
       code: "ENOENT",
     });
@@ -1275,31 +1696,111 @@ describe("retained Computer commands", () => {
     ]);
   });
 
-  it("stops a launch that returns after its cancellation request", async () => {
+  it.each([
+    false,
+    true,
+  ])("stops a late launch after its cancellation request (timedOut=%s)", async (timedOut) => {
     const f = fixture();
-    let release: (() => void) | undefined;
-    let entered: (() => void) | undefined;
-    const started = new Promise<void>((resolve) => {
-      entered = resolve;
+    const started = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const lateStop = Promise.withResolvers<void>();
+    const killedIds: string[] = [];
+    f.killExec.mockImplementation((id) => {
+      killedIds.push(id);
+      if (killedIds.length === 2) {
+        lateStop.resolve();
+      }
+      return Promise.resolve();
     });
     f.exec.mockImplementationOnce(async (_source, options) => {
-      entered?.();
-      await new Promise<void>((resolve) => {
-        release = resolve;
-      });
+      started.resolve();
+      await release.promise;
       return handle(options.id);
     });
-    const launch = f.tool().execute({
-      action: "start",
-      key: "report",
-      command: "python3 report.py",
+    if (timedOut) {
+      vi.useFakeTimers();
+    }
+    try {
+      const launch = f.tool().execute({
+        action: "start",
+        key: "report",
+        command: "python3 report.py",
+      });
+      const rejected = expect(launch).rejects.toThrow(
+        timedOut ? "observation timed out" : "stopped during launch"
+      );
+      await started.promise;
+      if (timedOut) {
+        await vi.advanceTimersByTimeAsync(60_000);
+        await rejected;
+        expect(f.killExec).not.toHaveBeenCalled();
+      }
+      await f
+        .tool()
+        .execute({ action: "stop", key: "report", signal: "SIGKILL" });
+      release.resolve();
+      await lateStop.promise;
+      await rejected;
+      expect(f.exec).toHaveBeenCalledTimes(1);
+      expect(f.killExec).toHaveBeenCalledTimes(2);
+      expect(new Set(killedIds).size).toBe(1);
+      expect(f.killExec.mock.calls).toEqual([
+        [killedIds[0], { backend: "container", signal: "SIGKILL" }],
+        [killedIds[0], { backend: "container", signal: "SIGKILL" }],
+      ]);
+    } finally {
+      release.resolve();
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not let an older Stop acknowledgement consume a newer signal", async () => {
+    const f = fixture();
+    await f
+      .tool()
+      .execute({ action: "start", key: "report", command: "sleep 300" });
+    const entered = Promise.withResolvers<void>();
+    const acknowledged = Promise.withResolvers<void>();
+    let stopped = false;
+    f.killExec
+      .mockImplementationOnce(() => {
+        entered.resolve();
+        return acknowledged.promise;
+      })
+      .mockRejectedValueOnce(new TypeError("Stop transport failed"));
+    const firstStop = f
+      .tool()
+      .execute({ action: "stop", key: "report", signal: "SIGTERM" });
+    await entered.promise;
+    await expect(
+      f.tool().execute({ action: "stop", key: "report", signal: "SIGKILL" })
+    ).rejects.toThrow("Stop transport failed");
+    acknowledged.resolve();
+    await firstStop;
+    f.killExec.mockImplementation(() => {
+      stopped = true;
+      return Promise.resolve();
     });
-    await started;
-    await f.tool().execute({ action: "stop", key: "report" });
-    release?.();
-    await expect(launch).rejects.toThrow("stopped during launch");
-    expect(f.exec).toHaveBeenCalledTimes(1);
-    expect(f.killExec).toHaveBeenCalledTimes(2);
+    f.getExec.mockImplementation((id) =>
+      Promise.resolve(
+        handle(
+          id,
+          stopped ? [{ id, seq: 1, name: "exit", code: 137 }] : [],
+          stopped
+        )
+      )
+    );
+    await expect(
+      f.tool().execute({ action: "poll", key: "report", waitSeconds: 0 })
+    ).resolves.toMatchObject({ status: "completed", exitCode: 137 });
+    expect(f.killExec).toHaveBeenCalledTimes(3);
+    expect(f.killExec).toHaveBeenNthCalledWith(3, expect.any(String), {
+      backend: "container",
+      signal: "SIGKILL",
+    });
+    await f.tool().execute({ action: "poll", key: "report", waitSeconds: 0 });
+    expect(f.killExec).toHaveBeenCalledTimes(3);
+    expect(f.exec).toHaveBeenCalledOnce();
   });
 
   it("keeps cancellation distinct from completed execution", async () => {

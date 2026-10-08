@@ -50,6 +50,8 @@ import {
   agentProfileBindingRouteParamsSchema,
   agentProfileExecutionModeResponseSchema,
   authRpcResolveUserDisplayNameResultSchema,
+  buildAccountAvatarObjectKey,
+  buildAccountAvatarPublicPath,
   buildAgentTaskKey,
   buildSpaceComposerPublishedFileId,
   buildSpaceFileEntryIdForMutation,
@@ -174,6 +176,7 @@ import {
   createCenterAgentSessionBodySchema,
   createConnectorAppRequestBodySchema,
   createSpaceDiagnosticReportBodySchema,
+  createSpaceTaskBodySchema,
   currentAgentProfileSessionLookupQuerySchema,
   currentAgentProfileSessionLookupResponseSchema,
   currentDeviceTargetDeviceIdSchema,
@@ -252,6 +255,7 @@ import {
   messageChannelIdentityLinkPreviewResponseSchema,
   messageChannelSetupRequestBodySchema,
   messageChannelSetupRequestResponseSchema,
+  mutateSpaceTaskBodySchema,
   normalizeSpaceCursorPatch,
   normalizeSpacePasswordText,
   notifyAgentProfileRouteCatalogChangedBodySchema,
@@ -274,6 +278,7 @@ import {
   organizationSpaceDirectoryWithMemberCountsResponseSchema,
   ownerComputerDiagnosticsSchema,
   type PluginConnectionContinuationBinding,
+  parseAccountAvatarReferenceFromUrl,
   parseSlackThreadPublicationPermalink,
   patchSpaceContractBodySchema,
   patchSpaceMetaBodySchema,
@@ -303,6 +308,7 @@ import {
   runtimeTransportAgentProfileWorkRecoveryReadResponseSchema,
   SPACE_COMPOSER_UPLOAD_TTL_MS,
   SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
+  SPACE_TASK_WORKFLOW_CONTRACT_VERSION,
   selectCurrentLocalAgentInstallationBodySchema,
   selectCurrentLocalAgentInstallationResponseSchema,
   setAgentProfileCreationDefaultsBodySchema,
@@ -1086,12 +1092,16 @@ import {
   buildCanonicalLocalProjectDiscoveryRequest,
   createLocalProjectControlRpc,
 } from "../projects/local-project-control-rpc";
+import { prepareProjectIssueActionAdmission } from "../projects/project-issue-action-admission";
+import { readActiveProjectIds } from "../projects/project-repository";
 import { prepareExpectedHumanProjectRequest } from "../projects/project-request-preparation";
 import {
   rpcArchiveProject as archiveProject,
   rpcCreateProject as createProject,
   rpcListProjects as listProjects,
+  rpcReadProjectIssueRouting as readProjectIssueRouting,
   rpcUpdateProject as updateProject,
+  rpcUpdateProjectIssueRouting as updateProjectIssueRouting,
 } from "../projects/project-rpc";
 import { attachCenterAgentTurnRuntimeEvidence } from "../remote-agent/application/center-agent-turn-diagnostics";
 import { reconcileChannelAuthorizationUpdates } from "../remote-agent/application/channel-authorization-update-service";
@@ -1275,6 +1285,13 @@ import {
   readSpaceMemberNameFromAuth,
   SPACE_MEMBER_NAME_READ_BUDGET_MS,
 } from "../space/application/space-members-service";
+import {
+  assertLegacySpaceTaskCanRead,
+  projectSpaceTaskDetailForClient,
+  projectSpaceTaskReceiptForClient,
+  projectSpaceTasksForClient,
+  spaceTaskContractUpdateRequiredError,
+} from "../space/application/space-task-client-compatibility";
 import type { FinalOutcomeWriteAuthority } from "../space/application/types";
 import { readSpaceBoardExecutionProjection } from "../space/infrastructure/postgresql/space-board-execution-read-repo";
 import { readSpaceDispatchLookupByClientMessageId } from "../space/infrastructure/postgresql/space-dispatch-read-repo";
@@ -1342,6 +1359,7 @@ import {
   upsertOwnedDeviceRegistryRecord,
 } from "../start/infrastructure/postgresql/owned-device-registry-repo";
 import { rpcReadOrganizationUsageOverview as readOrganizationUsageOverview } from "../usage/organization-usage-overview-rpc";
+import { recordUserTimeZoneObservation } from "../user-time-context/user-time-context-repository";
 import {
   requireCurrentLocalRuntimeExecutionTarget,
   requireCurrentLocalRuntimeServiceTarget,
@@ -1413,6 +1431,20 @@ export type ResumeRoutineInput = RoutineResumeInput;
 export type UpdateRoutineInput = RoutineUpdateInput;
 export function rpcListProjects(env: CoreBindings, input: ListProjectsInput) {
   return listProjects(env, input);
+}
+
+export function rpcReadProjectIssueRouting(
+  env: CoreBindings,
+  input: Parameters<typeof readProjectIssueRouting>[1]
+) {
+  return readProjectIssueRouting(env, input);
+}
+
+export function rpcUpdateProjectIssueRouting(
+  env: CoreBindings,
+  input: Parameters<typeof updateProjectIssueRouting>[1]
+) {
+  return updateProjectIssueRouting(env, input);
 }
 export function rpcCreateProject(env: CoreBindings, input: CreateProjectInput) {
   return createProject(env, input);
@@ -1901,6 +1933,7 @@ export async function rpcCenterAgentReadTurnDiagnostics(
       limit: parsed.data.limit ?? CENTER_AGENT_TURN_DIAGNOSTICS_DEFAULT_LIMIT,
     });
   const turns = await attachCenterAgentTurnRuntimeEvidence({
+    currentDelivery,
     deliveries: [currentDelivery, ...previousDeliveries],
     remoteAgentWorker: env.OPENMELD_REMOTE_AGENT_WORKER,
   });
@@ -2386,6 +2419,11 @@ export async function rpcMutateSpaceMessage(
 }
 export type PostSignalInput = {
   contextSelection?: import("@openmeld/schemas/types").ExecutionContextSelection;
+  contextSelections?: Record<
+    string,
+    import("@openmeld/schemas/types").ExecutionContextSelection
+  >;
+  taskDraft?: import("@openmeld/schemas/types").SignalText["data"]["taskDraft"];
   deviceWait?: SignalText["data"]["deviceWait"];
   agentStreamId?: string;
   spaceId: string;
@@ -2477,6 +2515,11 @@ export type StartUsageExhaustedContinuationInput = {
    * branch explicitly, because `auto` would resolve back to the same context.
    */
   contextSelection?: import("@openmeld/schemas/types").ExecutionContextSelection;
+  contextSelections?: Record<
+    string,
+    import("@openmeld/schemas/types").ExecutionContextSelection
+  >;
+  taskDraft?: import("@openmeld/schemas/types").SignalText["data"]["taskDraft"];
   interruptedClientMessageId: string;
   interruptedDispatchId: string;
   interruptedSourceSignalId: string;
@@ -7202,6 +7245,14 @@ export async function rpcRecordCurrentOrganizationWebActivity(
   const { context, activeOrganization, humanProfileId } =
     await requireCurrentHumanActivityContext(env, input);
   const nowMs = Date.now();
+  if (context.userTimeZoneObservation) {
+    await recordUserTimeZoneObservation({
+      db: requireIdentityDb(env),
+      userId: activeOrganization.userId,
+      observation: context.userTimeZoneObservation,
+      nowMs,
+    });
+  }
   try {
     await recordOrganizationMemberActivity({
       db: requireIdentityDb(env),
@@ -10116,6 +10167,67 @@ export async function rpcDesignateCenterAgent(
   }
   return validated.data;
 }
+async function prepareCenterAgentAvatar(
+  env: CoreBindings,
+  body: import("@openmeld/schemas/types").CenterAgentUpdateProfileBody,
+  profileId: string
+) {
+  const avatar = body.avatar;
+  let avatarStyle: string | undefined = body.avatarStyle;
+  let avatarOptions: import("@openmeld/schemas/types").AuthProfileView["avatarOptions"];
+  let storedKey: string | undefined;
+  if (avatar?.kind === "bot") {
+    avatarStyle = avatar.type;
+    avatarOptions = { palette: avatar.palette };
+  } else if (avatar?.kind === "color") {
+    avatarStyle = "fluid";
+    avatarOptions = { color: avatar.color };
+  } else if (avatar?.kind === "image") {
+    const bucket = env.OPENMELD_ACCOUNT_AVATARS;
+    if (!(bucket && env.OPENMELD_GATEWAY_URL)) {
+      throw createCoreRpcHttpError({
+        status: 503,
+        code: "center_agent.avatar_unavailable",
+        reason: "Image upload is temporarily unavailable.",
+      });
+    }
+    // Gateway has decoded and normalized this to a metadata-free WebP.
+    if (!avatar.dataUrl.startsWith("data:image/webp;base64,")) {
+      throw createCoreRpcHttpError({
+        status: 400,
+        code: "invalid_payload",
+        reason: "Upload a processed avatar image.",
+      });
+    }
+    const bytes = Uint8Array.from(
+      atob(avatar.dataUrl.slice("data:image/webp;base64,".length)),
+      (char) => char.charCodeAt(0)
+    );
+    const address = {
+      profileId,
+      assetId: crypto.randomUUID(),
+    };
+    storedKey = buildAccountAvatarObjectKey(address);
+    const stored = await bucket.put(storedKey, bytes, {
+      httpMetadata: {
+        contentType: "image/webp",
+        cacheControl: "public, max-age=31536000, immutable",
+      },
+    });
+    if (!stored) {
+      throw new Error("The avatar image could not be stored.");
+    }
+    avatarStyle = "custom";
+    avatarOptions = {
+      imageUrl: new URL(
+        buildAccountAvatarPublicPath(address),
+        env.OPENMELD_GATEWAY_URL
+      ).toString(),
+    };
+  }
+  return { avatarStyle, avatarOptions, storedKey };
+}
+
 export async function rpcUpdateCenterAgentProfile(
   env: CoreBindings,
   input: UpdateCenterAgentProfileInput
@@ -10124,6 +10236,7 @@ export async function rpcUpdateCenterAgentProfile(
   const body = centerAgentUpdateProfileBodySchema.safeParse({
     profileName: input.profileName,
     avatarStyle: input.avatarStyle,
+    avatar: input.avatar,
   });
   if (!body.success) {
     throw createCoreRpcHttpError({
@@ -10163,6 +10276,8 @@ export async function rpcUpdateCenterAgentProfile(
       code: "center_agent.profile_not_found",
     });
   }
+  const { avatarStyle, avatarOptions, storedKey } =
+    await prepareCenterAgentAvatar(env, body.data, managedProfile.profileId);
   const updated = await callRequiredAuthWorkerRpc({
     authWorker: env.OPENMELD_AUTH_WORKER,
     call: (authWorker) =>
@@ -10172,8 +10287,12 @@ export async function rpcUpdateCenterAgentProfile(
         ...(body.data.profileName
           ? { profileName: body.data.profileName }
           : {}),
-        ...(body.data.avatarStyle
-          ? { avatarStyle: body.data.avatarStyle }
+        ...(avatarStyle
+          ? {
+              avatarStyle,
+              avatarOptions,
+              expectedAvatarOptions: managedProfile.avatarOptions ?? null,
+            }
           : {}),
       }),
     unavailable: {
@@ -10182,11 +10301,34 @@ export async function rpcUpdateCenterAgentProfile(
     },
   });
   if (!updated.ok) {
+    if (storedKey) {
+      await env.OPENMELD_ACCOUNT_AVATARS?.delete(storedKey);
+    }
     throw createCoreRpcHttpError({
       status: updated.code === "profile.not_found" ? 404 : 409,
       reason: updated.message,
       code: `center_agent.${updated.code}`,
     });
+  }
+  if (
+    avatarStyle &&
+    managedProfile.avatarOptions?.imageUrl &&
+    managedProfile.avatarOptions.imageUrl !== avatarOptions?.imageUrl
+  ) {
+    const previous = parseAccountAvatarReferenceFromUrl(
+      managedProfile.avatarOptions.imageUrl
+    );
+    if (previous?.profileId === managedProfile.profileId) {
+      try {
+        await env.OPENMELD_ACCOUNT_AVATARS?.delete(
+          buildAccountAvatarObjectKey(previous)
+        );
+      } catch {
+        console.warn("Center Agent previous avatar cleanup failed.", {
+          profileId: managedProfile.profileId,
+        });
+      }
+    }
   }
   const response: CenterAgentUpdateProfileResponse = {
     organizationId: activeOrganization.organizationId,
@@ -15905,8 +16047,11 @@ export async function rpcCenterAgentReadConnectorActionOperation(
             : {}),
           actionId: existing.actionId,
           connectionName: existing.connectionName,
+          createdAtMs: existing.createdAtMs,
           executionConnection: existing.executionConnection,
+          linearIssueReceipt: existing.linearIssueReceipt,
           operationId: existing.operationId,
+          providerExecutionId: existing.providerExecutionId,
           service: existing.service,
           status: existing.status,
         }
@@ -15928,6 +16073,8 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     outcome: input.outcome,
     providerExecutionId: input.providerExecutionId,
     requestSignature: input.requestSignature,
+    issueDestination: input.issueDestination,
+    linearIssueReceipt: input.linearIssueReceipt,
     service: input.service,
     speakerMember: input.speakerMember,
   });
@@ -16047,6 +16194,20 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     connection: executionConnection,
     connectionUpdatedAtMs,
   });
+  const issueAdmission = await prepareProjectIssueActionAdmission({
+    env,
+    context: requireRpcContext(input.context),
+    db: authorization.db,
+    organizationId: authorization.activeOrganization.organizationId,
+    actorProfileId: authorization.actorProfileId,
+    userId: member.userId,
+    operation: parsed.data,
+    existingOperation: Boolean(existing),
+    sourceRequestKey,
+    connection: executionConnection,
+    connectionUpdatedAtMs,
+    personalExecution: "personalExecution" in authorization,
+  });
   const result = await recordCenterAgentConnectorActionOperation({
     actionId: parsed.data.actionId,
     actorProfileId: authorization.actorProfileId,
@@ -16059,13 +16220,16 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     operationId: parsed.data.operationId,
     organizationId: authorization.activeOrganization.organizationId,
     outcome: parsed.data.outcome,
+    linearIssueReceipt: parsed.data.linearIssueReceipt,
     providerExecutionId: parsed.data.providerExecutionId,
     requester,
     requestSignature: parsed.data.requestSignature,
+    issueRoutingDecision: issueAdmission.issueRoutingDecision,
+    executionGuard: issueAdmission.executionGuard,
     service: parsed.data.service,
     sourceNativeDeliveryId: member.sourceNativeDeliveryId,
     sourceSpaceId: member.sourceSpaceId,
-    sourceRequestKey,
+    sourceRequestKey: issueAdmission.sourceRequestKey,
     effectSignature: parsed.data.requestSignature,
     effect: parsed.data.effect,
     allowReplay: parsed.data.includeExecutionPermit === true,
@@ -19381,6 +19545,8 @@ export async function rpcPostSignal(
     ...(input.contextSelection
       ? { contextSelection: input.contextSelection }
       : {}),
+    contextSelections: input.contextSelections,
+    taskDraft: input.taskDraft,
     authoringPolicy: input.authoringPolicy,
     ...(attachments ? { attachments } : {}),
     ...(input.files ? { files: input.files } : {}),
@@ -19432,6 +19598,8 @@ export async function rpcPostSignalOnceByClientMessageId(
     ...(input.contextSelection
       ? { contextSelection: input.contextSelection }
       : {}),
+    contextSelections: input.contextSelections,
+    taskDraft: input.taskDraft,
     ...(input.agentStreamId === undefined
       ? {}
       : { agentStreamId: input.agentStreamId }),
@@ -23351,6 +23519,7 @@ function requireActiveOrganizationMemberId(
 type ManagedCenterAgentProfileRecord = {
   organizationId: string;
   profileId: string;
+  avatarOptions?: import("@openmeld/schemas/types").AuthProfileView["avatarOptions"];
 };
 async function requireOrganizationPermission(input: {
   context: CoreRpcContextInput;
@@ -23916,12 +24085,14 @@ async function readManagedCenterAgentProfileByIdForOrganization(input: {
 }): Promise<ManagedCenterAgentProfileRecord | null> {
   const row = await input.db
     .query<{
+      avatar_options: import("@openmeld/schemas/types").AuthProfileView["avatarOptions"];
       owner_user_id: string;
       profile_id: string;
     }>({
       text: `
         SELECT
           profile_id,
+          avatar_options,
           owner_user_id
         FROM "openmeld"."openmeld_profiles"
         WHERE organization_id = $1
@@ -23939,7 +24110,13 @@ async function readManagedCenterAgentProfileByIdForOrganization(input: {
     })
     .then((result) => result.rows[0] ?? null);
   const profileId = normalizeOptionalText(row?.profile_id);
-  return profileId ? { organizationId: input.organizationId, profileId } : null;
+  return profileId
+    ? {
+        organizationId: input.organizationId,
+        profileId,
+        avatarOptions: row?.avatar_options ?? null,
+      }
+    : null;
 }
 async function readManagedCenterAgentProfileForOrganization(input: {
   db: PostgresDatabase;
@@ -25861,6 +26038,7 @@ export async function rpcSpaceInputQueue(
 
 export type ListSpaceTasksInput = GetSpaceMetaInput & {
   phase?: SpaceTaskPhase;
+  taskContractVersion?: typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
 };
 export type GetSpaceTaskInput = GetSpaceMetaInput &
   SpaceTaskDetailOptions & {
@@ -25868,10 +26046,12 @@ export type GetSpaceTaskInput = GetSpaceMetaInput &
   };
 export type CreateSpaceTaskInput = GetSpaceMetaInput & {
   body: CreateSpaceTaskBody;
+  taskContractVersion?: typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
 };
 export type MutateSpaceTaskInput = GetSpaceMetaInput & {
   taskId: string;
   body: MutateSpaceTaskBody;
+  taskContractVersion?: typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
 };
 export async function rpcSpaceFilePins(
   env: CoreBindings,
@@ -25911,12 +26091,13 @@ export async function rpcListSpaceTasks(
   const context = input.context
     ? await authorizeSpaceTaskRpcContext(env, spaceId, input.context)
     : undefined;
-  return await stub.rpcListTasks({
+  const listed = await stub.rpcListTasks({
     ...input,
     spaceId,
     context,
     spaceAccess: resolveRpcSpaceAccess({ ...input, context }),
   });
+  return projectSpaceTasksForClient(listed, input.taskContractVersion);
 }
 export async function rpcGetSpaceTask(
   env: CoreBindings,
@@ -25924,18 +26105,20 @@ export async function rpcGetSpaceTask(
 ): Promise<SpaceTaskResponse> {
   const options = spaceTaskDetailOptionsSchema.parse({
     includeAffordances: input.includeAffordances,
+    taskContractVersion: input.taskContractVersion,
   });
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
   const context = input.context
     ? await authorizeSpaceTaskRpcContext(env, spaceId, input.context)
     : undefined;
-  return await stub.rpcGetTask({
+  const detail = await stub.rpcGetTask({
     ...input,
     ...options,
     spaceId,
     context,
     spaceAccess: resolveRpcSpaceAccess({ ...input, context }),
   });
+  return projectSpaceTaskDetailForClient(detail, input.taskContractVersion);
 }
 export async function rpcCreateSpaceTask(
   env: CoreBindings,
@@ -25947,6 +26130,27 @@ export async function rpcCreateSpaceTask(
     spaceId,
     requireRpcContext(input.context)
   );
+  const parsedBody = createSpaceTaskBodySchema.parse(input.body);
+  if (
+    parsedBody.projectIds?.length &&
+    input.taskContractVersion !== SPACE_TASK_WORKFLOW_CONTRACT_VERSION
+  ) {
+    throw spaceTaskContractUpdateRequiredError();
+  }
+  if (
+    parsedBody.externalWorkItems?.some((item) => item.provider === "linear") &&
+    input.taskContractVersion !== SPACE_TASK_WORKFLOW_CONTRACT_VERSION
+  ) {
+    throw spaceTaskContractUpdateRequiredError();
+  }
+  if (parsedBody.projectIds?.length) {
+    await assertSpaceTaskProjectsAvailable(env, {
+      context,
+      input,
+      projectIds: parsedBody.projectIds,
+      spaceId,
+    });
+  }
   let body = input.body;
   const submissionId = context.agentControllerConversationId?.trim();
   const db = getPostgresDatabase(env);
@@ -25967,7 +26171,13 @@ export async function rpcCreateSpaceTask(
       };
     }
   }
-  return await stub.rpcCreateTask({ ...input, body, spaceId, context });
+  const receipt = await stub.rpcCreateTask({
+    ...input,
+    body,
+    spaceId,
+    context,
+  });
+  return projectSpaceTaskReceiptForClient(receipt, input.taskContractVersion);
 }
 export async function rpcMutateSpaceTask(
   env: CoreBindings,
@@ -25979,7 +26189,83 @@ export async function rpcMutateSpaceTask(
     spaceId,
     requireRpcContext(input.context)
   );
-  return await stub.rpcMutateTask({ ...input, spaceId, context });
+  if (input.taskContractVersion !== SPACE_TASK_WORKFLOW_CONTRACT_VERSION) {
+    if (
+      input.body.action === "set_projects" ||
+      input.body.action === "detach_linear_external_work_item" ||
+      (input.body.action === "attach_external_work_item" &&
+        input.body.item.provider === "linear")
+    ) {
+      throw spaceTaskContractUpdateRequiredError();
+    }
+    const current = await stub.rpcGetTask({
+      context,
+      password: input.password,
+      spaceId,
+      taskId: input.taskId,
+    });
+    assertLegacySpaceTaskCanRead(current.task, current.events);
+  }
+  if (input.body.action === "set_projects") {
+    const command = mutateSpaceTaskBodySchema.parse(input.body);
+    if (command.action === "set_projects" && command.projectIds.length) {
+      await assertSpaceTaskProjectsAvailable(env, {
+        context,
+        input,
+        projectIds: command.projectIds,
+        spaceId,
+      });
+    }
+  }
+  const receipt = await stub.rpcMutateTask({ ...input, spaceId, context });
+  return projectSpaceTaskReceiptForClient(receipt, input.taskContractVersion);
+}
+
+async function assertSpaceTaskProjectsAvailable(
+  env: CoreBindings,
+  input: {
+    context: CoreRpcContextInput;
+    input: GetSpaceMetaInput;
+    projectIds: string[];
+    spaceId: string;
+  }
+): Promise<void> {
+  const meta = await rpcGetSpaceMeta(env, {
+    ...input.input,
+    context: input.context,
+    spaceId: input.spaceId,
+  });
+  if (
+    !input.context.activeOrganizationId ||
+    meta.organizationId !== input.context.activeOrganizationId
+  ) {
+    throw createCoreRpcHttpError({
+      code: "project.organization_context_changed",
+      reason: "The selected Organization changed. Refresh and try again.",
+      status: 409,
+    });
+  }
+  const db = getPostgresDatabase(env);
+  if (!db) {
+    throw createCoreRpcHttpError({
+      code: "project.store_unavailable",
+      reason: "Project storage is unavailable.",
+      status: 503,
+    });
+  }
+  const active = await readActiveProjectIds({
+    db,
+    organizationId: meta.organizationId,
+    projectIds: input.projectIds,
+  });
+  if (active.length !== input.projectIds.length) {
+    throw createCoreRpcHttpError({
+      code: "project.association_unavailable",
+      reason:
+        "One or more selected Projects are unavailable in this Organization. Refresh the Task and choose active Projects.",
+      status: 409,
+    });
+  }
 }
 async function authorizeSpaceTaskRpcContext(
   env: CoreBindings,

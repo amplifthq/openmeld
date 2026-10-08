@@ -27,6 +27,7 @@ export const LOCAL_PROJECT_CONTROL_UNREACHABLE_MESSAGE =
 
 const LOCAL_PROJECT_CONTROL_ERROR_CODES = new Set<string>([
 	"binding_generation_stale",
+	"owner_mismatch",
 	"binding_not_found",
 	"candidate_unavailable",
 	"command_line_tools_missing",
@@ -186,6 +187,8 @@ export function resolveLocalProjectControlErrorMessage(error: unknown): string {
 		case "binding_generation_stale":
 		case "binding_not_found":
 			return "The connected folders changed on this computer. Check again and retry.";
+		case "owner_mismatch":
+			return "This folder is connected under another OpenMeld account. Use that account to remove the connection before connecting it here.";
 		case "replacement_required":
 		case "replacement_invalid":
 		case "default_missing_requires_replacement":

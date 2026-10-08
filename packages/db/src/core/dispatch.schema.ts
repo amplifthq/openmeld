@@ -161,6 +161,11 @@ import {
   githubAppWebhookDeliveries,
   spaceTaskGitHubIssueLinks,
 } from "./space-task-github.schema.ts";
+import {
+  spaceTaskProjectLinks,
+  spaceTaskProjectProjectionStates,
+} from "./space-task-project.schema.ts";
+import { userTimeContexts } from "./user-time-context.schema.ts";
 
 export const openMeldDaemonOpsDecisions = applicationTable(
   "openMeldDaemon_ops_decisions",
@@ -1761,6 +1766,7 @@ export const agentActivityExecutionLinks = applicationTable(
 );
 
 export const coreSchema = {
+  userTimeContexts,
   firstWorkExperiences,
   aiUsageRecords,
   organizationAiUsagePolicies,
@@ -1906,5 +1912,7 @@ export const coreSchema = {
   spaceIndexMemberships,
   spaceIndexProjectionEvents,
   spaceTaskGitHubIssueLinks,
+  spaceTaskProjectLinks,
+  spaceTaskProjectProjectionStates,
   githubAppWebhookDeliveries,
 } as const;
