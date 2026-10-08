@@ -348,6 +348,11 @@ export function WalkthroughGuide({
 		return null;
 	}
 	const picker = target.dataset.walkthrough === "people-agent-picker";
+	// Keep the guide inside the modal's focus boundary. The picker still owns
+	// selection and submission; its public anchors only control presentation.
+	if (picker) {
+		return <PickerGuide picker={target} />;
+	}
 	// Membership can refresh before saved progress. Never briefly redisplay the
 	// old Members instruction after the user has already added their agent.
 	if (awaitingLocalStep(record.step, spaceProgress)) {
@@ -360,10 +365,6 @@ export function WalkthroughGuide({
 		guide,
 		onConnectAgent
 	);
-	// The real picker owns its description, preselection, actions, and focus.
-	if (picker) {
-		return null;
-	}
 	return (
 		<GuidedTarget
 			actions={actions}
@@ -371,6 +372,43 @@ export function WalkthroughGuide({
 			content={content}
 			target={target}
 			title={title}
+		/>
+	);
+}
+
+function PickerGuide({ picker }: { picker: HTMLElement }) {
+	const [presentation, setPresentation] = useState(() => ({
+		action: picker.dataset.tutorialAction,
+		content: picker.dataset.tutorialDescription,
+	}));
+	useEffect(() => {
+		const observer = new MutationObserver(() =>
+			setPresentation({
+				action: picker.dataset.tutorialAction,
+				content: picker.dataset.tutorialDescription,
+			})
+		);
+		observer.observe(picker, {
+			attributes: true,
+			attributeFilter: ["data-tutorial-action", "data-tutorial-description"],
+		});
+		return () => observer.disconnect();
+	}, [picker]);
+	const action = presentation.action;
+	const anchor = action
+		? picker.querySelector<HTMLElement>(`[data-tutorial-target="${action}"]`)
+		: null;
+	if (!anchor) {
+		return null;
+	}
+	return (
+		<GuidedTarget
+			actions={null}
+			composing={false}
+			content={presentation.content}
+			portalElement={picker}
+			target={anchor}
+			title="Tutorial"
 		/>
 	);
 }
@@ -388,12 +426,14 @@ function GuidedTarget({
 	title,
 	content,
 	actions,
+	portalElement,
 }: {
 	target: HTMLElement;
 	composing: boolean;
 	title: string;
 	content: ReactNode;
 	actions: ReactNode;
+	portalElement?: HTMLElement;
 }) {
 	const anchor = composing
 		? (target.closest<HTMLElement>('[data-slot="space-composer-section"]') ??
@@ -413,6 +453,7 @@ function GuidedTarget({
 					spotlightPadding: 6,
 					zIndex: 40,
 				}}
+				portalElement={portalElement}
 				run
 				steps={[
 					{
@@ -424,6 +465,7 @@ function GuidedTarget({
 						content,
 					},
 				]}
+				styles={portalElement ? { overlay: { position: "fixed" } } : undefined}
 				tooltipComponent={GuideTooltip}
 			/>
 		</GuideActions.Provider>

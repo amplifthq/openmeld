@@ -61,6 +61,11 @@ export function PeopleAgentPickerDialog(input: {
 	const [creating, setCreating] = useState(false);
 	const [creationBusy, setCreationBusy] = useState(false);
 	const isSubmitting = input.isSubmitting || creationBusy;
+	const tutorial = pickerTutorialPresentation(
+		creating,
+		input.tutorialAction,
+		isSubmitting
+	);
 	return (
 		<Dialog
 			onOpenChange={(open) => {
@@ -74,7 +79,9 @@ export function PeopleAgentPickerDialog(input: {
 			open={input.open}
 		>
 			<DialogContent
-				className="@container flex max-h-[min(46rem,calc(100dvh-2rem))] flex-col overflow-hidden sm:max-w-2xl"
+				className={`@container flex max-h-[min(46rem,calc(100dvh-2rem))] flex-col overflow-hidden sm:max-w-2xl ${tutorial.className}`}
+				data-tutorial-action={tutorial.action}
+				data-tutorial-description={input.description}
 				data-walkthrough="people-agent-picker"
 				finalFocus={input.finalFocus}
 				id={input.id}
@@ -106,6 +113,7 @@ export function PeopleAgentPickerDialog(input: {
 							<div className="flex flex-wrap items-center gap-2">
 								{input.onAgentCreated && (
 									<Button
+										data-tutorial-target="create"
 										disabled={isSubmitting || input.selectionDisabled}
 										onClick={() => setCreating(true)}
 										size="xs"
@@ -153,21 +161,23 @@ export function PeopleAgentPickerDialog(input: {
 						{input.isLoading ? (
 							<SkeletonRows label="Loading people and agents" />
 						) : (
-							<SpaceAddMembersCandidates
-								candidateGroups={input.candidateGroups}
-								emptyMessage={input.emptyMessage}
-								includeAgentOwners={input.includeAgentOwners}
-								isSubmitting={
-									input.isSubmitting || input.selectionDisabled === true
-								}
-								onToggle={(id) => {
-									if (!(input.isSubmitting || input.selectionDisabled)) {
-										input.onToggle(id);
+							<div data-tutorial-target="select">
+								<SpaceAddMembersCandidates
+									candidateGroups={input.candidateGroups}
+									emptyMessage={input.emptyMessage}
+									includeAgentOwners={input.includeAgentOwners}
+									isSubmitting={
+										input.isSubmitting || input.selectionDisabled === true
 									}
-								}}
-								searchActive={input.query.trim().length > 0}
-								selectedProfileIds={input.selectedProfileIds}
-							/>
+									onToggle={(id) => {
+										if (!(input.isSubmitting || input.selectionDisabled)) {
+											input.onToggle(id);
+										}
+									}}
+									searchActive={input.query.trim().length > 0}
+									selectedProfileIds={input.selectedProfileIds}
+								/>
+							</div>
 						)}
 						<div className="flex @min-[20rem]:flex-row flex-col @min-[20rem]:items-center items-stretch @min-[20rem]:justify-between gap-2">
 							<span className="@min-[20rem]:w-auto w-full text-muted-foreground text-xs">
@@ -189,6 +199,7 @@ export function PeopleAgentPickerDialog(input: {
 									))}
 								<Button
 									className="min-w-0 @min-[20rem]:flex-none flex-1"
+									data-tutorial-target="submit"
 									disabled={!input.canSubmit || input.isSubmitting}
 									onClick={input.onSubmit}
 									size="sm"
@@ -206,4 +217,20 @@ export function PeopleAgentPickerDialog(input: {
 
 function newAgentVariant(action: string | undefined) {
 	return action === "create" ? ("default" as const) : ("outline" as const);
+}
+
+function pickerTutorialPresentation(
+	creating: boolean,
+	action: string | undefined,
+	isSubmitting: boolean
+) {
+	const nextAction = action && isSubmitting ? "submit" : action;
+	return {
+		action: creating ? undefined : nextAction,
+		// A transform would make the modal a containing block for Joyride's
+		// fixed overlay. Auto margins preserve centering without that boundary.
+		className: action
+			? "inset-0 m-auto h-fit translate-none data-open:animate-none"
+			: "",
+	};
 }

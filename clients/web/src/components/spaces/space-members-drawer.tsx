@@ -1442,7 +1442,6 @@ type SpaceAddProfilesDialogProps = {
 
 function useWalkthroughPickerGuidance(
 	spaceId: string | undefined,
-	isSubmitting: boolean,
 	groups: SpaceAddMembersCandidateGroups,
 	selectedCount: number
 ) {
@@ -1464,22 +1463,7 @@ function useWalkthroughPickerGuidance(
 				isOwnLocalAgent(candidate, organization?.currentUserId)
 		)
 	);
-	const copy = pickerTutorialCopy(record.step, selectedCount, hasLocalAgent);
-	return {
-		...copy,
-		action: (
-			<Button
-				disabled={walkthrough.pending || isSubmitting}
-				onClick={() =>
-					walkthrough.progress(record.step, true).catch(() => undefined)
-				}
-				size="sm"
-				variant="secondary"
-			>
-				Pause tutorial
-			</Button>
-		),
-	};
+	return pickerTutorialCopy(record.step, selectedCount, hasLocalAgent);
 }
 
 function pickerTutorialCopy(
@@ -1489,8 +1473,11 @@ function pickerTutorialCopy(
 ): { nextAction?: "create" | "select" | "submit"; description: string } {
 	if (step === "add-center-agent") {
 		return {
+			nextAction: selectedCount > 0 ? "submit" : "select",
 			description:
-				"Add your Center Agent to get started. You can change the selection.",
+				selectedCount > 0
+					? "Your Center Agent is selected. Add it to this Space."
+					: "Select your Center Agent, then select Add.",
 		};
 	}
 	if (selectedCount > 0) {
@@ -1528,7 +1515,6 @@ function isOwnLocalAgent(
 function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 	const guidance = useWalkthroughPickerGuidance(
 		input.spaceId,
-		input.isSubmitting,
 		input.candidateGroups,
 		input.selectedCount
 	);
@@ -1602,7 +1588,6 @@ function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 			onToggle={input.onToggle}
 			open={input.open}
 			query={input.addQuery}
-			secondaryAction={guidance?.action}
 			selectedProfileIds={input.selectedProfileIds}
 			submitLabel={resolveAddMembersSubmitLabel(input)}
 			title="Add People or Agents"
