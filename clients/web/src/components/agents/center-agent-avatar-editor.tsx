@@ -196,14 +196,14 @@ export function CenterAgentAvatarEditor(input: {
 						render={
 							<button
 								aria-label="Edit avatar"
-								className="relative shrink-0 rounded-full focus-visible:outline-2 focus-visible:outline-ring"
+								className="group/avatar-edit relative inline-flex size-16 shrink-0 items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-ring"
 								disabled={input.saving}
 								type="button"
 							/>
 						}
 					>
 						{savedAvatar(64)}
-						<span className="absolute -right-1 -bottom-1 grid size-6 place-items-center rounded-full border border-border bg-background shadow-sm">
+						<span className="pointer-events-none absolute right-0 bottom-0 grid size-6 place-items-center rounded-full border border-border bg-background opacity-0 shadow-sm group-hover/avatar-edit:opacity-100 group-focus-visible/avatar-edit:opacity-100">
 							<PencilSimpleIcon className="size-3.5" />
 						</span>
 					</DialogTrigger>
