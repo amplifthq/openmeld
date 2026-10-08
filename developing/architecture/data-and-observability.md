@@ -2222,6 +2222,18 @@ Unknown, running and completed native executions do not enter this path. Web
 action controls, Inbox re-promotion and restarting the original work are not
 implemented by this tool.
 
+An exact Space coordinator `remote_agent.computer.command_cleanup_failed`
+terminal delivery may request that same single restricted summary automatically.
+Its native delivery and idempotency key must match the settled source
+subscription. Native terminal projection and subscription settlement share this
+check, including their existing durable retries, because the failed callback
+can precede settlement. A settled subscription confirms continuation delivery;
+the native delivery owner still determines coordinator execution and publication.
+Automatic and requester-driven recovery share one summary identity and current
+authorization. Original failure, child outcomes and verified published results
+are retained. A summary cannot recover itself. Stop, input-needed work, budget
+limits, unknown execution and unsupported receivers remain terminal or unavailable.
+
 An exact Center-authored Wake uses one `center_agent_audit_journal` row with ID
 `center-agent-wake:<clientMessageId>`. Core records validated `onBehalfOf`
 attribution before a direct Space publication; delegated publication writes
@@ -2672,6 +2684,17 @@ and the provider result pointer. It never returns prompt text, reply text,
 tokens, raw provider payloads, another member's history, or Routine history.
 Execution status, failure evidence, and publication are independent facts; a
 reader must not infer any one from the others or from user-facing copy.
+
+Callers that opt in with `includeTaskContinuation: true` also receive the
+admitted Task continuation's subscription, watched Task Handle, child terminal
+outcome and bounded delegation snapshot. These are frozen source facts from
+the existing envelope, not another execution authority. The enclosing turn
+status remains the coordinator's status. Child execution completion does not
+prove the business goal is complete; a published blocker is still a result.
+Current authorized result reads remain required before describing its contents.
+Missing runtime evidence does not establish a context failure or missing result.
+Legacy callers, dispatch traces and Routine diagnostics keep their existing
+shape because they do not request this projection.
 
 For an interactive Center Agent turn, that self-diagnostic projection also
 joins bounded exact runtime evidence by the native-delivery submission id. Core

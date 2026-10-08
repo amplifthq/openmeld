@@ -11,7 +11,9 @@ import { resolveRemoteAgentNativeDeliveryRuntimeConversationId } from "./remote-
 import { readRemoteAgentRuntimeDiagnosticsForConversation } from "./remote-agent-runtime-diagnostics-service";
 
 export async function attachCenterAgentTurnRuntimeEvidence(input: {
+  currentDelivery?: RemoteAgentNativeDeliveryRecord;
   deliveries: RemoteAgentNativeDeliveryRecord[];
+  includeTaskContinuation?: boolean;
   remoteAgentWorker: CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"] | undefined;
 }): Promise<CenterAgentTurnDiagnostic[]> {
   const runtimeSourceByConversationId = new Map<
@@ -31,7 +33,11 @@ export async function attachCenterAgentTurnRuntimeEvidence(input: {
     }
     return {
       runtimeConversationId,
-      turn: projectRemoteAgentNativeDeliveryTurnDiagnostic(delivery),
+      turn: projectRemoteAgentNativeDeliveryTurnDiagnostic(
+        delivery,
+        input.currentDelivery ?? delivery,
+        input.includeTaskContinuation
+      ),
     };
   });
   const runtimeDiagnosticsByConversationId = new Map<

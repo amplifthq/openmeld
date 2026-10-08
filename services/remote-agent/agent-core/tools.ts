@@ -4112,6 +4112,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             input.coreWorker,
             "centerAgentReadTurnDiagnostics",
             {
+              includeTaskContinuation: true as const,
               ...(request.limit === undefined ? {} : { limit: request.limit }),
               context,
             },

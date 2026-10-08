@@ -1609,7 +1609,21 @@ receiver. Unknown execution, Stop, revoked access or an old receiver is not a
 summary-recovery candidate. Existing Flue model retries remain the only bounded
 inference retry; no outer turn replay is added.
 
-Ordinary Space and Direct Message `turn_not_completed` callbacks use deterministic
+Core also requests this same single summary automatically after an exact Space
+coordinator continuation has published a confirmed
+`remote_agent.computer.command_cleanup_failed` terminal failure. The failed
+delivery must match the settled source subscription's delivery and idempotency
+identity. Native failure projection and continuation settlement call the same
+helper; existing callback and Queue retries cover either arrival order. They
+reuse the manual recovery identity, so the requester and automatic path cannot
+create two summaries. The original failure and child outcomes remain visible.
+The summary does not resume implementation, replay children or recover again.
+Stop, revoked access, unsettled children, input-needed work, unknown execution,
+and budget or model limits do not authorize this automatic path. This first
+automatic path stays Space-only and original-requester-only.
+
+Ordinary Space and Direct Message `turn_not_completed` and Computer cleanup
+failure callbacks use deterministic
 failure facts. They explain that processing was interrupted, earlier actions may
 have taken effect, and the remaining work/final summary is unconfirmed. Child
 links require the persisted subscription/delegation, matching child author,

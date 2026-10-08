@@ -1932,7 +1932,9 @@ export async function rpcCenterAgentReadTurnDiagnostics(
       limit: parsed.data.limit ?? CENTER_AGENT_TURN_DIAGNOSTICS_DEFAULT_LIMIT,
     });
   const turns = await attachCenterAgentTurnRuntimeEvidence({
+    currentDelivery,
     deliveries: [currentDelivery, ...previousDeliveries],
+    includeTaskContinuation: parsed.data.includeTaskContinuation,
     remoteAgentWorker: env.OPENMELD_REMOTE_AGENT_WORKER,
   });
   return centerAgentReadTurnDiagnosticsResponseSchema.parse({

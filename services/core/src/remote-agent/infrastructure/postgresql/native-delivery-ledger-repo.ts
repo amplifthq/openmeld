@@ -3197,9 +3197,13 @@ export async function readRemoteAgentNativeDeliveryBySubmissionId(input: {
 }
 export function projectRemoteAgentNativeDeliveryTurnDiagnostic(
   delivery: RemoteAgentNativeDeliveryRecord,
-  currentDelivery: RemoteAgentNativeDeliveryRecord = delivery
+  currentDelivery: RemoteAgentNativeDeliveryRecord = delivery,
+  includeTaskContinuation = false
 ): CenterAgentTurnDiagnostic {
   const failureDetail = delivery.failureDetail?.trim() || null;
+  const trigger = (
+    delivery.workerSubmitRequest ?? delivery.executionRecoverySubmitRequest
+  )?.turnEnvelope?.trigger;
   const failureDetailTruncated =
     failureDetail !== null &&
     failureDetail.length >
@@ -3234,6 +3238,21 @@ export function projectRemoteAgentNativeDeliveryTurnDiagnostic(
     status: delivery.status,
     submissionId: delivery.submissionId,
     submittedAtMs: delivery.submittedAtMs,
+    ...(includeTaskContinuation
+      ? {
+          taskContinuation:
+            trigger?.source === "task_continuation"
+              ? {
+                  delegation: trigger.delegation ?? null,
+                  delegationId: trigger.delegationId,
+                  outcome: trigger.outcome,
+                  subscriptionId: trigger.subscriptionId,
+                  summaryOnly: trigger.summaryOnly === true,
+                  watchedTask: trigger.watchedTask,
+                }
+              : null,
+        }
+      : {}),
     triggerMessageId: delivery.triggerMessageId,
     updatedAtMs: delivery.updatedAtMs,
   };

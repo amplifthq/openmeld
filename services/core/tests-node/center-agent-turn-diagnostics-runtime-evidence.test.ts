@@ -4,13 +4,62 @@ import type {
   RemoteAgentWorkerRuntimeDiagnosticsResponse,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
+import { createSubmitTurnRequestV2 } from "../../remote-agent/tests/fixtures";
 import {
   attachCenterAgentTurnRuntimeEvidence,
   projectCenterAgentTurnRuntimeEvidence,
 } from "../src/remote-agent/application/center-agent-turn-diagnostics";
-import type { RemoteAgentNativeDeliveryRecord } from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
+import {
+  projectRemoteAgentNativeDeliveryTurnDiagnostic,
+  type RemoteAgentNativeDeliveryRecord,
+} from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 
 describe("Center Agent turn runtime evidence", () => {
+  it("keeps the admitted child outcome separate from the failed coordinator and preserves legacy readers", () => {
+    const failed = delivery("failed-coordinator");
+    const request = createSubmitTurnRequestV2();
+    request.turnEnvelope.trigger = {
+      source: "task_continuation",
+      subscriptionId: "subscription-child",
+      delegationId: "delegation-child",
+      watchedTask: {
+        kind: "native_delivery",
+        v: 1,
+        deliveryId: "delivery-child",
+      },
+      outcome: {
+        status: "completed",
+        errorCode: null,
+        eventId: "child-completed",
+        occurredAtMs: 80,
+        publishedSignalId: "published-child-blocker",
+      },
+    };
+    failed.workerSubmitRequest = request;
+    failed.status = "failed";
+    failed.failureCode = "remote_agent.computer.command_cleanup_failed";
+    failed.publishedSignalId = "published-coordinator-failure";
+    const legacy = projectRemoteAgentNativeDeliveryTurnDiagnostic(failed);
+    expect(legacy).not.toHaveProperty("taskContinuation");
+    const current = projectRemoteAgentNativeDeliveryTurnDiagnostic(
+      failed,
+      failed,
+      true
+    );
+    expect(current).toMatchObject({
+      status: "failed",
+      publishedResultId: "published-coordinator-failure",
+      runtimeEvidenceStatus: "not_recorded",
+      taskContinuation: {
+        subscriptionId: "subscription-child",
+        summaryOnly: false,
+        outcome: {
+          status: "completed",
+          publishedSignalId: "published-child-blocker",
+        },
+      },
+    });
+  });
   it("joins exact submission evidence across the current and previous turns", () => {
     const result = projectCenterAgentTurnRuntimeEvidence({
       runtimeDiagnosticsByConversationId: new Map([
@@ -89,6 +138,41 @@ describe("Center Agent turn runtime evidence", () => {
     expect(result).toMatchObject([
       { runtimeEvidenceStatus: "available" },
       { runtimeEvidenceStatus: "available" },
+    ]);
+  });
+  it("attributes separate Slack threads to the explicitly selected current delivery", async () => {
+    const current = {
+      ...delivery("current"),
+      conversationKind: "slack" as const,
+      slackTeamId: "team-1",
+      slackChannelId: "channel-1",
+      slackThreadTs: "100.1",
+    };
+    const previous = {
+      ...current,
+      deliveryId: "delivery-previous",
+      slackThreadTs: "99.1",
+    };
+    const turns = await attachCenterAgentTurnRuntimeEvidence({
+      currentDelivery: current,
+      deliveries: [previous, current],
+      remoteAgentWorker: undefined,
+    });
+    expect(turns.map((entry) => entry.conversationSource)).toEqual([
+      {
+        kind: "slack",
+        teamId: "team-1",
+        channelId: "channel-1",
+        threadTs: "99.1",
+        isCurrentConversation: false,
+      },
+      {
+        kind: "slack",
+        teamId: "team-1",
+        channelId: "channel-1",
+        threadTs: "100.1",
+        isCurrentConversation: true,
+      },
     ]);
   });
 });

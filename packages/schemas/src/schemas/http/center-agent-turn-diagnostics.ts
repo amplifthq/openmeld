@@ -1,5 +1,10 @@
 import * as z from "zod/v4";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
+import {
+  agentDelegationSnapshotSchema,
+  agentTaskHandleSchema,
+  agentTaskTerminalOutcomeSchema,
+} from "../runtime/agent-task-coordination";
 import { messageChannelConversationLocatorSchema } from "../runtime/message-channel";
 import { remoteAgentTurnRuntimeEvidenceSchema } from "../runtime/remote-agent-worker";
 
@@ -74,12 +79,24 @@ export const centerAgentTurnDiagnosticSchema = z.strictObject({
   status: centerAgentTurnDiagnosticStatusSchema,
   submissionId: nullableIdentifierSchema,
   submittedAtMs: nullableTimestampMsSchema,
+  taskContinuation: z
+    .strictObject({
+      delegation: agentDelegationSnapshotSchema.nullable(),
+      delegationId: z.string().trim().min(1),
+      outcome: agentTaskTerminalOutcomeSchema,
+      subscriptionId: z.string().trim().min(1),
+      summaryOnly: z.boolean(),
+      watchedTask: agentTaskHandleSchema,
+    })
+    .nullable()
+    .optional(),
   triggerMessageId: z.string().trim().min(1),
   updatedAtMs: z.number().int().nonnegative(),
 });
 
 export const centerAgentReadTurnDiagnosticsRpcInputSchema = z.strictObject({
   context: openMeldRequestContextSchema,
+  includeTaskContinuation: z.literal(true).optional(),
   limit: z
     .number()
     .int()
