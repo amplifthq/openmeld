@@ -3,7 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { PrivacyPolicyPage } from "#/components/legal/privacy-policy-page";
 
 const PRIVACY_DESCRIPTION =
-	"How OpenMeld handles account, Space, connected-computer, agent, diagnostic, and support information for its experimental collaboration service.";
+	"How OpenMeld handles workspace content, local and hosted AI agents, connected services, memory, privacy controls, and account deletion.";
 
 export const Route = createFileRoute("/privacy")({
 	head: () => ({

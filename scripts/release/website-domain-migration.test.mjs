@@ -28,6 +28,7 @@ const invalidPosthogMetadata = /PostHog OAuth/u;
 // Public fields captured from the production CIMD document on 2026-10-03.
 const posthogMetadata = {
   client_id: "https://openmeld.ai/.well-known/posthog-client.json",
+  logo_uri: "https://openmeld.ai/icon-512.png",
   redirect_uris: ["https://connectors.openmeld.ai/oauth/callback"],
 };
 function healthyEndpoint(url) {
@@ -38,7 +39,20 @@ function healthyEndpoint(url) {
 
 test("domain health preserves the existing PostHog client URL and rejects HTML, redirects, or changed callbacks", async () => {
   await checkWebsiteDomainEndpoints(names, healthyEndpoint);
+  await checkWebsiteDomainEndpoints(names, (url) =>
+    url.endsWith("/.well-known/posthog-client.json")
+      ? Response.json({
+          ...posthogMetadata,
+          logo_uri: "https://openmeld.ai/brand/openmeld-letter-o-dark-1024.png",
+        })
+      : healthyEndpoint(url)
+  );
   for (const invalid of [
+    () =>
+      Response.json({
+        ...posthogMetadata,
+        logo_uri: "https://example.test/unreviewed.png",
+      }),
     () =>
       new Response("<html>Website</html>", {
         headers: { "Content-Type": "text/html" },

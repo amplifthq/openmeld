@@ -44,6 +44,7 @@ import { Route as AgentInterfaceGuideDotmdRouteImport } from './routes/agent-int
 import { Route as ApiWaitlistRouteImport } from './routes/api/waitlist'
 import { Route as CliManifestDotjsonRouteImport } from './routes/cli/manifest[.json]'
 import { Route as DesktopDownloadRouteImport } from './routes/desktop/download'
+import { Route as DesktopReleasesDotjsonRouteImport } from './routes/desktop/releases[.json]'
 import { Route as DesktopUpdateDotjsonRouteImport } from './routes/desktop/update[.json]'
 import { Route as DeviceApproveRouteImport } from './routes/device/approve'
 import { Route as GuidesLocalAgentsRouteImport } from './routes/guides/local-agents'
@@ -358,6 +359,11 @@ const CliManifestDotjsonRoute = CliManifestDotjsonRouteImport.update({
 const DesktopDownloadRoute = DesktopDownloadRouteImport.update({
   id: '/download',
   path: '/download',
+  getParentRoute: () => DesktopRoute,
+} as any)
+const DesktopReleasesDotjsonRoute = DesktopReleasesDotjsonRouteImport.update({
+  id: '/releases.json',
+  path: '/releases.json',
   getParentRoute: () => DesktopRoute,
 } as any)
 const DesktopUpdateDotjsonRoute = DesktopUpdateDotjsonRouteImport.update({
@@ -1155,6 +1161,7 @@ export interface FileRoutesByFullPath {
   '/api/waitlist': typeof ApiWaitlistRoute
   '/cli/manifest.json': typeof CliManifestDotjsonRoute
   '/desktop/download': typeof DesktopDownloadRoute
+  '/desktop/releases.json': typeof DesktopReleasesDotjsonRoute
   '/desktop/update.json': typeof DesktopUpdateDotjsonRoute
   '/device/approve': typeof DeviceApproveRoute
   '/guides/local-agents': typeof GuidesLocalAgentsRouteWithChildren
@@ -1330,6 +1337,7 @@ export interface FileRoutesByTo {
   '/api/waitlist': typeof ApiWaitlistRoute
   '/cli/manifest.json': typeof CliManifestDotjsonRoute
   '/desktop/download': typeof DesktopDownloadRoute
+  '/desktop/releases.json': typeof DesktopReleasesDotjsonRoute
   '/desktop/update.json': typeof DesktopUpdateDotjsonRoute
   '/device/approve': typeof DeviceApproveRoute
   '/guides/local-agents': typeof GuidesLocalAgentsRouteWithChildren
@@ -1495,6 +1503,7 @@ export interface FileRoutesById {
   '/api/waitlist': typeof ApiWaitlistRoute
   '/cli/manifest.json': typeof CliManifestDotjsonRoute
   '/desktop/download': typeof DesktopDownloadRoute
+  '/desktop/releases.json': typeof DesktopReleasesDotjsonRoute
   '/desktop/update.json': typeof DesktopUpdateDotjsonRoute
   '/device/approve': typeof DeviceApproveRoute
   '/guides/local-agents': typeof GuidesLocalAgentsRouteWithChildren
@@ -1673,6 +1682,7 @@ export interface FileRouteTypes {
     | '/api/waitlist'
     | '/cli/manifest.json'
     | '/desktop/download'
+    | '/desktop/releases.json'
     | '/desktop/update.json'
     | '/device/approve'
     | '/guides/local-agents'
@@ -1848,6 +1858,7 @@ export interface FileRouteTypes {
     | '/api/waitlist'
     | '/cli/manifest.json'
     | '/desktop/download'
+    | '/desktop/releases.json'
     | '/desktop/update.json'
     | '/device/approve'
     | '/guides/local-agents'
@@ -2012,6 +2023,7 @@ export interface FileRouteTypes {
     | '/api/waitlist'
     | '/cli/manifest.json'
     | '/desktop/download'
+    | '/desktop/releases.json'
     | '/desktop/update.json'
     | '/device/approve'
     | '/guides/local-agents'
@@ -2462,6 +2474,13 @@ declare module '@tanstack/react-router' {
       path: '/download'
       fullPath: '/desktop/download'
       preLoaderRoute: typeof DesktopDownloadRouteImport
+      parentRoute: typeof DesktopRoute
+    }
+    '/desktop/releases.json': {
+      id: '/desktop/releases.json'
+      path: '/releases.json'
+      fullPath: '/desktop/releases.json'
+      preLoaderRoute: typeof DesktopReleasesDotjsonRouteImport
       parentRoute: typeof DesktopRoute
     }
     '/desktop/update.json': {
@@ -3454,6 +3473,7 @@ const AgentInterfaceRouteWithChildren = AgentInterfaceRoute._addFileChildren(
 
 interface DesktopRouteChildren {
   DesktopDownloadRoute: typeof DesktopDownloadRoute
+  DesktopReleasesDotjsonRoute: typeof DesktopReleasesDotjsonRoute
   DesktopUpdateDotjsonRoute: typeof DesktopUpdateDotjsonRoute
   DesktopUpdatesLatestMacDotymlRoute: typeof DesktopUpdatesLatestMacDotymlRoute
   DesktopUpdatesCandidateDesktopDotzipRoute: typeof DesktopUpdatesCandidateDesktopDotzipRoute
@@ -3465,6 +3485,7 @@ interface DesktopRouteChildren {
 
 const DesktopRouteChildren: DesktopRouteChildren = {
   DesktopDownloadRoute: DesktopDownloadRoute,
+  DesktopReleasesDotjsonRoute: DesktopReleasesDotjsonRoute,
   DesktopUpdateDotjsonRoute: DesktopUpdateDotjsonRoute,
   DesktopUpdatesLatestMacDotymlRoute: DesktopUpdatesLatestMacDotymlRoute,
   DesktopUpdatesCandidateDesktopDotzipRoute:

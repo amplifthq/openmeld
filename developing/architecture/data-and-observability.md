@@ -20,6 +20,17 @@
 - Source of truth: This file owns the durable architecture boundary for data
   ownership and observability.
 
+## Background alarm failure scheduling
+
+Space background alarm failures retain per-step retry deadlines in local
+Durable Object storage. Deadline selection and step admission honor the same
+persisted cooldown: five seconds initially, doubling to at most five minutes,
+and cleared after a successful step. Other owners' due work remains eligible.
+Failure logs include the retry deadline. Upload cleanup reads an indexed,
+bounded batch, retains failed records, and attempts the other records in that
+batch before reporting failure. These retry records are operational scheduling
+state, not Space, membership, or execution truth, and are not a billing cap.
+
 ## Personal cloud Computer ownership
 
 Core's PostgreSQL `cloud_computers` table owns the stable Computer ID, unique

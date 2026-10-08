@@ -14,57 +14,8 @@ import {
 import { useMediaQuery } from "@openmeld/ui/hooks/use-media-query";
 import { PlusIcon } from "@phosphor-icons/react";
 import { motion, useInView } from "motion/react";
-import {
-	lazy,
-	type ReactNode,
-	Suspense,
-	useEffect,
-	useRef,
-	useState,
-} from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import "./product-showcases.css";
-
-const MeshGradient = lazy(() =>
-	import("@paper-design/shaders-react").then((module) => ({
-		default: module.MeshGradient,
-	}))
-);
-
-// One low-resolution shader per visible scene. Static lighting remains available
-// before hydration, without WebGL, and when the visitor requests less motion.
-export function SceneLighting() {
-	const ref = useRef<HTMLDivElement>(null);
-	const inView = useInView(ref);
-	const reduced = useMediaQuery("(prefers-reduced-motion: reduce)");
-	const [visible, setVisible] = useState(false);
-	useEffect(() => {
-		const update = () => setVisible(!document.hidden);
-		update();
-		document.addEventListener("visibilitychange", update);
-		return () => document.removeEventListener("visibilitychange", update);
-	}, []);
-	return (
-		<div aria-hidden className="meld-scene-light" ref={ref}>
-			{inView && visible && !reduced && (
-				<Suspense fallback={null}>
-					<MeshGradient
-						colors={["#101010", "#333333", "#514b44", "#252b28"]}
-						distortion={0.55}
-						frame={14_000}
-						grainMixer={0}
-						grainOverlay={0.08}
-						height="100%"
-						maxPixelCount={320_000}
-						minPixelRatio={1}
-						speed={0.12}
-						swirl={0.15}
-						width="100%"
-					/>
-				</Suspense>
-			)}
-		</div>
-	);
-}
 
 function ShowcaseStage({
 	className,
@@ -82,7 +33,6 @@ function ShowcaseStage({
 			viewport={{ once: true, amount: 0.15 }}
 			whileInView={{ opacity: 1, transform: "translateY(0px)" }}
 		>
-			<SceneLighting />
 			{children}
 		</motion.div>
 	);
@@ -94,7 +44,7 @@ const surfaces = {
 		width: 1100,
 		height: 438,
 		responsive: false,
-		label: "Amplift Team files",
+		label: "OpenMeld Team files",
 	},
 	skill: {
 		scene: "ShowcaseSkill",
@@ -122,6 +72,9 @@ type Surface = (typeof surfaces)[keyof typeof surfaces];
 
 function useDemoFrameHeight(initialHeight: number) {
 	const frame = useRef<HTMLIFrameElement>(null);
+	// Native iframe lazy loading starts several viewports ahead. Keep expensive
+	// frozen App initialization out of the hero's entrance, then load nearby.
+	const inView = useInView(frame, { once: true, margin: "300px 0px" });
 	const [height, setHeight] = useState(initialHeight);
 	useEffect(() => {
 		const element = frame.current;
@@ -156,7 +109,7 @@ function useDemoFrameHeight(initialHeight: number) {
 			element?.removeEventListener("load", requestHeight);
 		};
 	}, []);
-	return { frame, height };
+	return { frame, height, inView };
 }
 
 // The frozen demo renders real App DOM in its own CSS boundary. Scale the
@@ -170,15 +123,18 @@ function ProductSurface({
 }) {
 	const host = useRef<HTMLElement>(null);
 	const [width, setWidth] = useState(surface.width);
-	const { frame, height } = useDemoFrameHeight(surface.height);
+	const { frame, height, inView } = useDemoFrameHeight(surface.height);
 	useEffect(() => {
 		const element = host.current;
 		if (!element) {
 			return;
 		}
-		const observer = new ResizeObserver(([entry]) =>
-			setWidth(entry.contentRect.width)
-		);
+		const observer = new ResizeObserver(([entry]) => {
+			// A hidden Sheet has no viewport to scale. Keep its last visible size.
+			if (entry.contentRect.width > 0) {
+				setWidth(entry.contentRect.width);
+			}
+		});
 		observer.observe(element);
 		return () => observer.disconnect();
 	}, []);
@@ -189,7 +145,7 @@ function ProductSurface({
 	return (
 		<figure
 			aria-label={surface.label}
-			className={`meld-scene-panel ${className}`}
+			className={`meld-scene-panel meld-demo-blend ${className}`}
 			ref={host}
 			style={{ height: height * scale }}
 		>
@@ -199,7 +155,9 @@ function ProductSurface({
 				ref={frame}
 				referrerPolicy="no-referrer"
 				sandbox="allow-scripts allow-same-origin"
-				src={`/product-demo/index.html?scene=${surface.scene}`}
+				src={
+					inView ? `/product-demo/index.html?scene=${surface.scene}` : undefined
+				}
 				style={{
 					width: viewportWidth,
 					height,
@@ -213,16 +171,18 @@ function ProductSurface({
 }
 
 export function AgentShowcase() {
-	const { frame, height } = useDemoFrameHeight(560);
+	const { frame, height, inView } = useDemoFrameHeight(560);
 	return (
 		<ShowcaseStage className="meld-agent-stage">
-			<div className="meld-agent-canvas">
+			<div className="meld-agent-canvas meld-demo-blend">
 				<iframe
 					loading="lazy"
 					ref={frame}
 					referrerPolicy="no-referrer"
 					sandbox="allow-scripts allow-same-origin"
-					src="/product-demo/index.html?scene=CreateAgent"
+					src={
+						inView ? "/product-demo/index.html?scene=CreateAgent" : undefined
+					}
 					style={{ height }}
 					title="Choose a local or remote agent"
 				/>
@@ -240,16 +200,18 @@ function InteractiveShowcase({
 	title: string;
 	height: number;
 }) {
-	const { frame, height } = useDemoFrameHeight(initialHeight);
+	const { frame, height, inView } = useDemoFrameHeight(initialHeight);
 	return (
-		<ShowcaseStage className={`meld-${scene.toLowerCase()}-stage`}>
+		<ShowcaseStage
+			className={`meld-${scene.toLowerCase()}-stage meld-demo-blend`}
+		>
 			<iframe
 				className="meld-interactive-showcase"
 				loading="lazy"
 				ref={frame}
 				referrerPolicy="no-referrer"
 				sandbox="allow-scripts allow-same-origin"
-				src={`/product-demo/index.html?scene=${scene}`}
+				src={inView ? `/product-demo/index.html?scene=${scene}` : undefined}
 				style={{ height }}
 				title={title}
 			/>
