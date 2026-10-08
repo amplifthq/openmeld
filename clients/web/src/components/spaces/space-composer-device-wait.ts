@@ -12,6 +12,11 @@ import type {
 export type SpaceComposerSendOptions = {
 	deviceWait?: WakeDeviceWait;
 	contextSelection?: import("@openmeld/schemas/types").ExecutionContextSelection;
+	contextSelections?: Record<
+		string,
+		import("@openmeld/schemas/types").ExecutionContextSelection
+	>;
+	taskDraft?: import("@openmeld/schemas/types").SignalText["data"]["taskDraft"];
 	/** Local UI notification after the exact outgoing message has been staged. */
 	onMessageStaged?: (clientMessageId: string) => void;
 };

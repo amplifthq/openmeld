@@ -7,15 +7,11 @@ import {
   type RemoteAgentGitTransferGrant,
   remoteAgentGitPackStatusSchema,
 } from "@openmeld/schemas";
-import type { CenterAgentOrganizationDocumentsComputerSnapshotResponse } from "@openmeld/schemas/types";
 import type { RemoteAgentCallbackContext } from "../agent-core/callback-context";
 import { createAgentComputerFileHandoff } from "./computer-file-handoff";
 import { ensureAgentComputerLayout } from "./computer-workspace";
 import { createMemberProfileReportComputerFileStore } from "./member-profile-report-computer-files";
-import {
-  type OrganizationDocumentsComputerSnapshot,
-  prepareOrganizationDocumentsComputerSnapshot,
-} from "./organization-document-computer-snapshot";
+import type { OrganizationDocumentsComputerSnapshot } from "./organization-document-computer-snapshot";
 import {
   createOrganizationDocumentComputerWorkingCopyStore,
   type OrganizationDocumentComputerWorkingCopyStore,
@@ -122,10 +118,8 @@ export function createFixedAgentComputerWorkspaceAccess(
 
 export async function materializeAgentComputerWorkspace(input: {
   context: RemoteAgentCallbackContext;
-  organizationDocumentsSnapshot: CenterAgentOrganizationDocumentsComputerSnapshotResponse | null;
   workspaceAccess: AgentComputerWorkspaceAccess;
 }): Promise<{
-  documents: OrganizationDocumentsComputerSnapshot | null;
   workingDirectory: string;
 }> {
   let lastError: unknown;
@@ -145,12 +139,7 @@ export async function materializeAgentComputerWorkspace(input: {
             spaceId: input.context.spaceId ?? null,
           }
         );
-        const documents = input.organizationDocumentsSnapshot
-          ? prepareOrganizationDocumentsComputerSnapshot(
-              input.organizationDocumentsSnapshot
-            )
-          : null;
-        return { documents, workingDirectory };
+        return { workingDirectory };
       });
     } catch (error) {
       lastError = error;

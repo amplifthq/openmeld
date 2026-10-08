@@ -7,6 +7,7 @@ import {
   serviceExecutionHostMethods,
   serviceExecutionHostOwnerSchema,
   serviceExecutionHostRequestSchema,
+  serviceExecutionHostRouteSchema,
 } from "../src/service-execution-host";
 
 describe("execution host process boundary", () => {
@@ -149,6 +150,89 @@ describe("execution host process boundary", () => {
       serviceExecutionHostCatalogSchema.safeParse({
         ...empty,
         profileIds: ["missing-profile"],
+      }).success
+    ).toBe(false);
+  });
+
+  it("carries an unavailable Default Project folder as a current route fact", () => {
+    const catalog = {
+      revision: 1,
+      expectedRoutesContractVersion: "v4",
+      profileIds: ["agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],
+      skippedProfiles: [],
+      routes: [
+        {
+          agentControllerRef: "builtin:codex",
+          contextIdMappingSpec: {
+            mappingVersion: 1,
+            sourceField: "OPENMELD_CLI_CONTEXT_ID",
+          },
+          profileId: "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          streamingMode: "final",
+          transportMode: "local-cli",
+          workingFolderRuntime: {
+            configPath: null,
+            configuredWorkspacePath: null,
+            defaultProjectFailureReason: "missing_connection",
+            defaultProjectId: "project-default",
+            reasonCode: "workspace.missing",
+            reasonText: "No local connection",
+            status: "missing",
+            workingFolderFact: {
+              defaultProjectId: "project-default",
+              localProjectBindingGeneration: null,
+              observedAtMs: 100,
+              reasonCode: "project.local_connection.missing",
+              source: "default_project",
+              status: "missing",
+            },
+            workingFolderSource: "default_project",
+            workspaceMode: null,
+          },
+        },
+      ],
+    };
+
+    const [route] = catalog.routes;
+    if (!route) {
+      throw new Error("Expected one catalog route");
+    }
+    const parsed = serviceExecutionHostCatalogSchema.safeParse(catalog);
+    expect(parsed).toMatchObject({ success: true });
+    expect(
+      serviceExecutionHostRouteSchema.safeParse({
+        ...route,
+        workingFolderRuntime: {
+          configPath: "/tmp/profile-workspace.json",
+          configuredWorkspacePath: null,
+          reasonCode: "workspace.missing",
+          reasonText: "No Profile workspace",
+          status: "missing",
+          workingFolderFact: {
+            defaultProjectId: null,
+            localProjectBindingGeneration: null,
+            observedAtMs: 100,
+            reasonCode: "profile.workspace.missing",
+            source: "profile_workspace",
+            status: "missing",
+          },
+          workingFolderSource: "profile_workspace",
+          workspaceMode: null,
+        },
+      }).success
+    ).toBe(true);
+    expect(
+      serviceExecutionHostCatalogSchema.safeParse({
+        ...catalog,
+        routes: [
+          {
+            ...route,
+            workingFolderRuntime: {
+              ...route.workingFolderRuntime,
+              status: "ready",
+            },
+          },
+        ],
       }).success
     ).toBe(false);
   });

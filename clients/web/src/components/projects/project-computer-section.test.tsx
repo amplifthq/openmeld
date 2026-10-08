@@ -3,18 +3,43 @@ import type {
 	LocalProjectControlProjectDiscovery,
 	Project,
 } from "@openmeld/schemas/types";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	cleanup,
 	fireEvent,
-	render,
 	screen,
+	render as testingRender,
 	waitFor,
 } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { selectLocalFolders } from "#/lib/connect/local-folder-picker";
+import { projectQueryKeys } from "#/query/organizations/projects";
 import { ProjectComputerSection } from "./project-computer-section";
 
 const REPLACEMENT_PATH_PATTERN = /\/work\/openmeld-feature/iu;
+
+function render(content: ReactElement) {
+	const client = new QueryClient({
+		defaultOptions: { queries: { retry: false } },
+	});
+	client.setQueryData(projectQueryKeys.repositories("org-1", "project-1"), {
+		settings: {
+			projectId: "project-1",
+			repositories: [],
+			legacyDefaultFingerprint: null,
+		},
+	});
+	const wrap = (element: ReactElement) => (
+		<QueryClientProvider client={client}>{element}</QueryClientProvider>
+	);
+	const rendered = testingRender(wrap(content));
+	return {
+		...rendered,
+		client,
+		rerender: (element: ReactElement) => rendered.rerender(wrap(element)),
+	};
+}
 
 const {
 	connectCandidate,
@@ -159,6 +184,68 @@ describe("ProjectComputerSection", () => {
 		);
 
 		expect(screen.getByLabelText("Folder path")).toBeTruthy();
+	});
+
+	it("connects a folder to the explicitly selected second repository", async () => {
+		discoveryController.projectView.mockReturnValue({
+			connections: [],
+			discovery: discovery("not_found"),
+			status: "ready",
+		});
+		connectPath.mockResolvedValue({
+			bindingGeneration: "binding-repository-b",
+			canonicalPath: "/work/repository-b",
+			isDefault: true,
+			status: "connected",
+		});
+		const selectedFingerprint = `sha256:${"b".repeat(64)}`;
+		const view = render(
+			<ProjectComputerSection
+				organizationId="org-1"
+				project={project()}
+				projects={[project()]}
+			/>
+		);
+		view.client.setQueryData(
+			projectQueryKeys.repositories("org-1", "project-1"),
+			{
+				settings: {
+					projectId: "project-1",
+					repositories: [
+						{
+							repositoryFingerprint: `sha256:${"a".repeat(64)}`,
+							repositoryUrl: "https://github.com/amplifthq/repository-a",
+							isDefault: true,
+						},
+						{
+							repositoryFingerprint: selectedFingerprint,
+							repositoryUrl: "https://github.com/amplifthq/repository-b",
+							isDefault: false,
+						},
+					],
+					legacyDefaultFingerprint: null,
+				},
+			}
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Connect folder" }));
+		fireEvent.change(
+			screen.getByRole("combobox", { name: "Repository for this folder" }),
+			{
+				target: { value: selectedFingerprint },
+			}
+		);
+		fireEvent.change(screen.getByLabelText("Folder path"), {
+			target: { value: "/work/repository-b" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Check and connect" }));
+		await waitFor(() =>
+			expect(connectPath).toHaveBeenCalledWith(
+				expect.objectContaining({
+					declaredPath: "/work/repository-b",
+					repositoryFingerprint: selectedFingerprint,
+				})
+			)
+		);
 	});
 
 	it.each([
@@ -565,6 +652,56 @@ describe("ProjectComputerSection", () => {
 				"Agents using that Project on this computer won’t be able to start until another folder is connected."
 			)
 		).toBeNull();
+	});
+
+	it("keeps the existing Project when a member explicitly shares one folder", async () => {
+		discoveryController.projectView.mockReturnValue({
+			connections: [],
+			discovery: discovery("not_found"),
+			status: "ready",
+		});
+		connectPath
+			.mockResolvedValueOnce({
+				code: "path_conflict",
+				conflictingProjectSlug: "client-app",
+				conflictScope: "same_organization",
+				message: "path conflict",
+				moveConfirmationToken: "move-confirmation-1",
+				shareConfirmationToken: "share-confirmation-1",
+				moveImpact: "only_connection",
+				status: "rejected",
+			})
+			.mockResolvedValueOnce({
+				bindingGeneration: "binding-shared",
+				canonicalPath: "/work/shared",
+				isDefault: true,
+				status: "connected",
+			});
+		render(
+			<ProjectComputerSection
+				organizationId="org-1"
+				project={project()}
+				projects={[project()]}
+			/>
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Connect folder" }));
+		fireEvent.change(screen.getByLabelText("Folder path"), {
+			target: { value: "/work/shared" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Check and connect" }));
+		await screen.findByRole("heading", {
+			name: "Use this folder for OpenMeld?",
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: "Connect to both Projects" })
+		);
+		await waitFor(() => expect(connectPath).toHaveBeenCalledTimes(2));
+		expect(connectPath.mock.calls[1]?.[0]).toMatchObject({
+			shareConfirmationToken: "share-confirmation-1",
+		});
+		expect(connectPath.mock.calls[1]?.[0]).not.toHaveProperty(
+			"moveConfirmationToken"
+		);
 	});
 
 	it("closes a completed move confirmation when a later selected folder fails", async () => {

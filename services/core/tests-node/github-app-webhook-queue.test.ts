@@ -43,6 +43,7 @@ const task = {
   },
   description: null,
   externalWorkItems: [githubItem],
+  projectIds: [],
   needsHumanDecision: false,
   phase: "to_do" as const,
   requestedBy: {

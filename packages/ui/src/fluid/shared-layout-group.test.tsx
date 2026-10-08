@@ -1,11 +1,42 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { useState } from "react";
+import { Profiler, useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { SharedLayoutGroup, SharedLayoutItem } from "./shared-layout-group";
 
 afterEach(cleanup);
 
 describe("SharedLayoutGroup", () => {
+  it("updates only the two affected items when hover crosses a long group", () => {
+    const commits = new Set<string>();
+    const ids = Array.from({ length: 100 }, (_, index) => String(index));
+    const { container } = render(
+      <SharedLayoutGroup>
+        {ids.map((id) => (
+          <Profiler id={id} key={id} onRender={(itemId) => commits.add(itemId)}>
+            <SharedLayoutItem itemId={id}>
+              <button type="button">Item {id}</button>
+            </SharedLayoutItem>
+          </Profiler>
+        ))}
+      </SharedLayoutGroup>
+    );
+    const items = container.querySelectorAll(
+      '[data-slot="shared-layout-item"]'
+    );
+    const first = items[0];
+    const second = items[1];
+    if (!(first && second)) {
+      throw new Error("Expected the first two items.");
+    }
+    fireEvent.pointerEnter(first);
+    commits.clear();
+    fireEvent.pointerEnter(second);
+    expect([...commits].sort()).toEqual(["0", "1"]);
+    expect(second.getAttribute("data-active")).toBe("true");
+    expect(
+      container.querySelectorAll('[data-slot="shared-layout-background"]')
+    ).toHaveLength(1);
+  });
   it("does not highlight a disabled action", () => {
     render(
       <SharedLayoutGroup>

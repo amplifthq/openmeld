@@ -112,6 +112,26 @@ is not a future release strategy.
    `retained-context-runtime.test.ts` covers this public runtime boundary;
    `fixtures/retained-context-evaluation.md` records the paid experiment scope.
 
+   The 48,000-token estimate is the normal working target. Failed maintenance
+   may use an additional 8,000 estimated tokens, bounded by the selected route
+   and reviewed prompt-price limit. The provider's final-payload guard remains
+   separate. Within this band, one failed maintenance pass per operation is
+   deferred; growth past the ceiling requires successful reduction or fails
+   with the specific cause. Storage, authority and invariant failures do not
+   qualify for deferral. A candidate is measured before committing, so an
+   enlarged or over-ceiling summary never replaces usable context.
+
+   Active submission inputs, including accepted steering, are projected from
+   canonical originals after compaction. They retain their original role and
+   are not added twice when already in the kept tail. The projection is scoped
+   to the active submission and does not turn old requests into new authority.
+   Summary generation uses low reasoning separately from the main request.
+   Its Pi retry helper shares the configured model retry policy, observes each
+   actual attempt, handles returned and thrown transient errors, and honors
+   cancellation. Failed-attempt provider usage is retained by the existing
+   request metering owner; successful checkpoint usage sums its observed calls.
+   `context-recovery.test.ts` exercises these rules through the real runtime.
+
 10. `AgentStatics.modelRetry` configures the existing transient model-error loop.
    Center Agent allows five retries after the initial request, with exponential
    delays capped at 3, 6, 12, 24, and 30 seconds and upstream 75–100% jitter.
@@ -121,6 +141,17 @@ is not a future release strategy.
    another execution, retry ledger, or tool replay loop. Abort interrupts backoff;
    permanent errors retain upstream classification. Existing platform durability
    attempts are a separate budget and are not multiplied by an adapter retry.
+
+   A text response stopped by the output limit is incomplete. The same session
+   can request a complete, shorter answer twice, using its existing tool results.
+   Original assistant records own this continuation budget across restarts and
+   compactions. Exhaustion is a named failure, including during read-only recovery
+   classification; a partial answer cannot become a completed terminal result.
+   The existing replacement projection removes superseded partial text from live
+   and restored replies instead of concatenating it with the complete answer.
+   Truncated tool-call batches keep Pi's existing repair path. The tests in
+   `flue-output-limit-recovery.test.ts` cover successful completion, exhaustion,
+   preserved effects, and continuation after reopening a SQLite snapshot.
 
 Beta registry initialization, async defineAgent, implicit sandbox discovery,
 global provider registration, and permissive orphan-record reduction are not
@@ -293,3 +324,11 @@ must not inherit the running submission's tools or permission context.
 Task retirement is a separate product change; existing Task tools and entry
 points remain supported. Changes to sessions, Apps or Slack require their own
 authenticated acceptance. Passing runtime tests does not certify those paths.
+
+Computer capability admission freezes identity and checks authorization without
+opening the remote workspace, describing a browser, or loading document contents.
+The first Computer operation prepares the workspace. Concurrent operations share
+a successful preparation. A failed preparation can be attempted by a later call
+without replaying its business operation. Document checkout separately loads its
+authorized projection on demand. Required Space Work handoff files remain a
+precondition before execution. Each operation still checks current authorization.

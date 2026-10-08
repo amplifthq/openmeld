@@ -505,6 +505,8 @@ function resolveQueuedExecutionInput(input: {
 
 function buildNormalMessagePostInput(input: {
 	contextSelection?: SpaceComposerSendOptions["contextSelection"];
+	contextSelections?: SpaceComposerSendOptions["contextSelections"];
+	taskDraft?: SpaceComposerSendOptions["taskDraft"];
 	deviceWait?: SpaceComposerSendOptions["deviceWait"];
 	restoredFromSignalId?: string;
 	files: readonly SpaceMessageFileReference[];
@@ -532,6 +534,10 @@ function buildNormalMessagePostInput(input: {
 		...(input.contextSelection
 			? { contextSelection: input.contextSelection }
 			: {}),
+		...(input.contextSelections
+			? { contextSelections: input.contextSelections }
+			: {}),
+		...(input.taskDraft ? { taskDraft: input.taskDraft } : {}),
 	};
 }
 
@@ -769,7 +775,10 @@ function prepareMainComposerSubmission(input: {
 	missingMembersMessage: string;
 	pendingMessage: PendingSpaceMessage | undefined;
 }): PendingComposerSubmission {
-	if (input.messageSeed.text.length === 0) {
+	if (
+		input.messageSeed.text.length === 0 ||
+		!(input.pendingMessage || input.mentionAuthoring.composerText.trim())
+	) {
 		return input.mentionAuthoring.prepareFileOnlySubmission(
 			input.pendingMessage !== undefined
 		);
@@ -2001,7 +2010,10 @@ export function useSpaceLandingController(input: {
 	const sendInitialPendingMessage = useEffectEvent(
 		async (pendingMessage: PendingSpaceMessage) => {
 			input.onInitialPendingMessageConsumed?.();
-			await sendMessage({ pendingMessage });
+			await sendMessage({
+				pendingMessage,
+				taskDraft: pendingMessage.taskDraft,
+			});
 		}
 	);
 	useEffect(() => {
@@ -2952,6 +2964,8 @@ export function useSpaceLandingController(input: {
 	// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: send orchestration preserves ordered local staging, admission, publication, and recovery.
 	async function sendMessage(options?: {
 		contextSelection?: SpaceComposerSendOptions["contextSelection"];
+		contextSelections?: SpaceComposerSendOptions["contextSelections"];
+		taskDraft?: SpaceComposerSendOptions["taskDraft"];
 		deviceWait?: SpaceComposerSendOptions["deviceWait"];
 		onMessageStaged?: SpaceComposerSendOptions["onMessageStaged"];
 		pendingMessage?: PendingSpaceMessage;
@@ -2977,7 +2991,8 @@ export function useSpaceLandingController(input: {
 		const sendAttempt = prepareSpaceMessageSendAttempt({
 			composerFiles:
 				options?.retryFiles ?? pendingFiles ?? composerFilesController.files,
-			composerText: mentionAuthoring.composerText,
+			composerText:
+				mentionAuthoring.composerText || options?.taskDraft?.title || "",
 			pendingMessage: options?.pendingMessage,
 		});
 		if (sendAttempt.status !== "ready" && !options?.retrySubmission) {
@@ -2994,7 +3009,8 @@ export function useSpaceLandingController(input: {
 			return;
 		}
 		const messageSeed = createSpaceMessageSendSeed({
-			composerText: mentionAuthoring.composerText,
+			composerText:
+				mentionAuthoring.composerText || options?.taskDraft?.title || "",
 			pendingMessage: options?.pendingMessage,
 		});
 
@@ -3013,6 +3029,8 @@ export function useSpaceLandingController(input: {
 			const preparedSubmission: PendingComposerSubmission =
 				options?.retrySubmission ?? {
 					contextSelection: options?.contextSelection,
+					contextSelections: options?.contextSelections,
+					taskDraft: options?.taskDraft,
 					...applyDeviceWaitToSubmission(
 						prepareMainComposerSubmission({
 							mentionAuthoring,
@@ -3023,6 +3041,9 @@ export function useSpaceLandingController(input: {
 						options?.deviceWait
 					),
 				};
+			if (options?.taskDraft && !preparedSubmission.text.trim()) {
+				preparedSubmission.text = options.taskDraft.title;
+			}
 			pendingSubmission = preparedSubmission;
 			const queueTarget = resolveQueuedExecutionInput({
 				profileId: input.profileId,
@@ -3040,6 +3061,8 @@ export function useSpaceLandingController(input: {
 			if (
 				queueTarget &&
 				!preparedSubmission.contextSelection &&
+				!preparedSubmission.contextSelections &&
+				!preparedSubmission.taskDraft &&
 				!preparedSubmission.deviceWait
 			) {
 				try {
@@ -3379,6 +3402,8 @@ export function useSpaceLandingController(input: {
 			});
 			const postInput = buildNormalMessagePostInput({
 				contextSelection: sendInput.preparedSubmission.contextSelection,
+				contextSelections: sendInput.preparedSubmission.contextSelections,
+				taskDraft: sendInput.preparedSubmission.taskDraft,
 				deviceWait: sendInput.preparedSubmission.deviceWait,
 				restoredFromSignalId: sendInput.preparedSubmission.restoredFromSignalId,
 				files: sendInput.files,
@@ -4305,7 +4330,8 @@ function useSpaceThreadController(input: {
 		}
 		const thread = retry?.thread ?? activeThread;
 		const trimmedText =
-			retry?.submission.text ?? mentionAuthoring.composerText.trim();
+			retry?.submission.text ??
+			(mentionAuthoring.composerText.trim() || options?.taskDraft?.title || "");
 		const fileSubmission = buildComposerFileSubmission({
 			files: retry?.files ?? composerFilesController.files,
 			isPendingMessage: false,
@@ -4334,8 +4360,10 @@ function useSpaceThreadController(input: {
 			const preparedSubmission: PendingComposerSubmission =
 				retry?.submission ?? {
 					contextSelection: options?.contextSelection,
+					contextSelections: options?.contextSelections,
+					taskDraft: options?.taskDraft,
 					...applyDeviceWaitToSubmission(
-						trimmedText.length > 0
+						mentionAuthoring.composerText.trim().length > 0
 							? mentionAuthoring.prepareSubmission(
 									resolveMissingSpaceMembersMessage(input.membersErrorMessage)
 								)
@@ -4343,6 +4371,9 @@ function useSpaceThreadController(input: {
 						options?.deviceWait
 					),
 				};
+			if (options?.taskDraft && !preparedSubmission.text.trim()) {
+				preparedSubmission.text = options.taskDraft.title;
+			}
 			pendingSubmission = preparedSubmission;
 			submittedFiles = retry?.files ?? composerFilesController.files;
 			await sendPreparedThreadMessage({
@@ -4640,6 +4671,8 @@ function useSpaceThreadController(input: {
 			const postInput = {
 				body: {
 					contextSelection: sendInput.preparedSubmission.contextSelection,
+					contextSelections: sendInput.preparedSubmission.contextSelections,
+					taskDraft: sendInput.preparedSubmission.taskDraft,
 					...(sendInput.preparedSubmission.threadWakeContinuation
 						? { threadWakeContinuation: true as const }
 						: {}),

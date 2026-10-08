@@ -74,6 +74,15 @@ Do not redeploy unrelated services for ceremony. Broader validation may be
 appropriate for a cross-service contract change, but broader validation does
 not require a broader production rollout.
 
+Project workflow and Task receiver changes can share a release when their
+actual dependency edges remain acyclic. The guarded planner composes Core before
+Gateway and the local Service, Core before the Project issue action owner in
+Remote Agent, and Remote Agent before the Web issue settings. When shared-folder
+controls change with local capability v4, CLI publication also precedes Web.
+The first Core deployment retains the immutable published CLI projection; CLI
+publication activates its matching Core projection. Opposing receiver contracts
+still require separate stages. Do not narrow the release base to hide a conflict.
+
 ### Desktop release coverage
 
 The scoped planner and `release:status` cover Database, cloud services, and

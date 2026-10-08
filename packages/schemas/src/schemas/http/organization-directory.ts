@@ -7,6 +7,7 @@ import { agentProfileBindingModelSelectionSchema } from "./agent-profile-binding
 import { agentWorkloadSnapshotSchema } from "./agent-workload";
 import { centerAgentToolSpeakerSchema } from "./center-agent-speaker";
 import {
+  agentAvatarOptionsSchema,
   agentAvatarStyleSchema,
   authProfileManagedRoleSchema,
 } from "./profiles";
@@ -99,6 +100,7 @@ export const organizationDirectoryAgentProfileIdentitySchema = z.strictObject({
   ownerName: trimmedNonEmptyStringSchema.optional(),
   avatarUrl: trimmedNonEmptyStringSchema.optional(),
   avatarStyle: agentAvatarStyleSchema.nullable().optional(),
+  avatarOptions: agentAvatarOptionsSchema.nullable().optional(),
   avatarModelId: nullableTrimmedStringSchema.optional(),
   source: trimmedNonEmptyStringSchema,
   managedRole: z.union([authProfileManagedRoleSchema, z.null()]),

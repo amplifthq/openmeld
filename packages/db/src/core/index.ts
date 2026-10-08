@@ -120,6 +120,7 @@ export {
   CORE_ROUTINE_SCHEMA_DEFINITION_PATH,
   CORE_SPACE_ATTACHMENT_SCHEMA_DEFINITION_PATH,
   CORE_SPACE_TASK_GITHUB_SCHEMA_DEFINITION_PATH,
+  CORE_SPACE_TASK_PROJECT_SCHEMA_DEFINITION_PATH,
   getCoreDbMigrationSources,
   getCoreDbSchemaSources,
 } from "./fact-metadata.ts";
@@ -200,3 +201,7 @@ export {
   githubAppWebhookDeliveries,
   spaceTaskGitHubIssueLinks,
 } from "./space-task-github.schema.ts";
+export {
+  spaceTaskProjectLinks,
+  spaceTaskProjectProjectionStates,
+} from "./space-task-project.schema.ts";

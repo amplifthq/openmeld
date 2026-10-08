@@ -8,6 +8,7 @@ import {
   type HTMLAttributes,
   type ReactNode,
   use,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -71,6 +72,24 @@ export function FluidActionList({
 }: FluidActionListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const pointerFocus = useRef(false);
+  useEffect(() => {
+    const resetPointerFocus = (event: KeyboardEvent) => {
+      if (
+        !(
+          event.altKey ||
+          event.ctrlKey ||
+          event.metaKey ||
+          event.key === "Shift"
+        )
+      ) {
+        pointerFocus.current = false;
+      }
+    };
+    const document = containerRef.current?.ownerDocument;
+    document?.addEventListener("keydown", resetPointerFocus, true);
+    return () =>
+      document?.removeEventListener("keydown", resetPointerFocus, true);
+  }, []);
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
   const hover = useFluidHover(containerRef, {
     axis,
@@ -107,7 +126,6 @@ export function FluidActionList({
           if (containerRef.current?.contains(event.relatedTarget as Node)) {
             return;
           }
-          pointerFocus.current = false;
           setFocusedIndex(null);
           setActiveIndex(null);
         }}
@@ -189,6 +207,12 @@ export function FluidActionList({
           props.onPointerMoveCapture?.(event);
           // Base UI may focus hovered items. Clear the keyboard indicator
           // before that focus event, even if the browser retains :focus-visible.
+          pointerFocus.current = true;
+          setFocusedIndex(null);
+        }}
+        onPointerOverCapture={(event) => {
+          props.onPointerOverCapture?.(event);
+          // Submenus can focus on entry before the first pointermove arrives.
           pointerFocus.current = true;
           setFocusedIndex(null);
         }}

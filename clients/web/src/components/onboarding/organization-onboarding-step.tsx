@@ -439,7 +439,7 @@ function OrganizationChoice(input: {
 					<span className="block truncate font-medium text-sm">
 						{input.title ?? input.organization.name}
 					</span>
-					<span className="mt-0.5 block truncate text-muted-foreground text-xs">
+					<span className="mt-0.5 block text-muted-foreground text-xs/relaxed">
 						{input.description ?? `/${input.organization.slug}`}
 					</span>
 				</span>

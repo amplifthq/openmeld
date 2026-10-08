@@ -25,6 +25,7 @@ import {
 } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import { FolderOpenIcon, TrashIcon } from "@phosphor-icons/react";
+import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { LocalFolderPickerButton } from "#/components/local-runtimes/local-folder-picker-button";
 import { SelectedLocalFolder } from "#/components/local-runtimes/selected-local-folder";
@@ -39,6 +40,7 @@ import {
 	resolveLocalProjectControlErrorMessage,
 	setCurrentComputerProjectDefaultConnection,
 } from "#/lib/organizations/local-project-control";
+import { projectRepositorySettingsQueryOptions } from "#/query/organizations/projects";
 import { FolderMoveConfirmationDialog } from "./folder-move-confirmation-dialog";
 import { ProjectCandidatePicker } from "./project-candidate-picker";
 import {
@@ -72,6 +74,12 @@ export function ProjectComputerSection(input: {
 	project: Project;
 	projects: readonly Project[];
 }) {
+	const {
+		repositorySettingsQuery,
+		repositories,
+		repositoryFingerprint,
+		setSelectedRepositoryFingerprint,
+	} = useProjectConnectionRepositorySettings(input);
 	const controller = useProjectDiscovery({
 		organizationId: input.organizationId,
 		projects: input.projects,
@@ -132,7 +140,8 @@ export function ProjectComputerSection(input: {
 
 	const connectCandidates = async (moveConfirmation?: {
 		candidateId: string;
-		moveConfirmationToken: string;
+		moveConfirmationToken?: string;
+		shareConfirmationToken?: string;
 	}): Promise<void> => {
 		if (selectedCandidates.length === 0) {
 			return;
@@ -186,28 +195,36 @@ export function ProjectComputerSection(input: {
 
 	const connectDeclaredPath = async (
 		confirm: boolean,
-		moveConfirmationToken?: string
+		moveConfirmationToken?: string,
+		shareConfirmationToken?: string
 	): Promise<void> => {
-		if (
-			declaredPath.trim().length === 0 ||
-			!isAbsoluteProjectPath(declaredPath)
-		) {
-			setOperationError("Enter the full folder path on this computer.");
+		const validationError = validateDeclaredProjectConnection({
+			path: declaredPath,
+			repositoryCount: repositories.length,
+			repositoryFingerprint,
+			repositorySettingsUnavailable:
+				repositorySettingsQuery.isPending || repositorySettingsQuery.isError,
+		});
+		if (validationError) {
+			setOperationError(validationError);
 			return;
 		}
 		setOperation("connect-path");
 		setOperationError(null);
 		const clientGeneration = controller.claimMutationGeneration();
 		try {
-			const response = await connectCurrentComputerProjectPath({
-				clientGeneration,
-				...(confirm ? { confirmNonGit: true } : {}),
-				declaredPath,
-				expectedOrganizationId: input.organizationId,
-				idempotencyKey: createIdempotencyKey(),
-				...(moveConfirmationToken ? { moveConfirmationToken } : {}),
-				projectId: input.project.id,
-			});
+			const response = await connectCurrentComputerProjectPath(
+				buildDeclaredProjectConnectionRequest({
+					clientGeneration,
+					confirmNonGit: confirm,
+					declaredPath,
+					expectedOrganizationId: input.organizationId,
+					moveConfirmationToken,
+					projectId: input.project.id,
+					repositoryFingerprint,
+					shareConfirmationToken,
+				})
+			);
 			if (response.status === "rejected") {
 				setConnectDialogOpen(false);
 				setConfirmNonGit(false);
@@ -227,7 +244,7 @@ export function ProjectComputerSection(input: {
 			if (isLocalProjectControlFailureCode(error, "needs_confirmation")) {
 				setConfirmNonGit(true);
 			} else if (
-				moveConfirmationToken &&
+				(moveConfirmationToken || shareConfirmationToken) &&
 				isLocalProjectControlFailureCode(error, "binding_generation_stale")
 			) {
 				setPendingFolderMove(null);
@@ -467,6 +484,7 @@ export function ProjectComputerSection(input: {
 					}
 				}}
 				onPathChange={setDeclaredPath}
+				onRepositoryChange={setSelectedRepositoryFingerprint}
 				onSubmit={(confirm) => {
 					connectDeclaredPath(confirm).catch(() => undefined);
 				}}
@@ -474,6 +492,10 @@ export function ProjectComputerSection(input: {
 				path={declaredPath}
 				pending={operation === "connect-path"}
 				pickerDeviceId={pickerDeviceId}
+				repositories={repositories}
+				repositoryFingerprint={repositoryFingerprint}
+				repositorySettingsError={repositorySettingsQuery.isError}
+				repositorySettingsPending={repositorySettingsQuery.isPending}
 			/>
 
 			<ProjectDefaultFolderDialog
@@ -513,6 +535,25 @@ export function ProjectComputerSection(input: {
 						}
 						setOperationError(null);
 						setPendingFolderMove(null);
+					}
+				}}
+				onShare={() => {
+					const shareConfirmationToken =
+						pendingFolderMove?.conflict.shareConfirmationToken;
+					if (!shareConfirmationToken) {
+						return;
+					}
+					if (pendingFolderMove?.kind === "candidate") {
+						connectCandidates({
+							candidateId: pendingFolderMove.candidate.candidateId,
+							shareConfirmationToken,
+						}).catch(() => undefined);
+					} else if (pendingFolderMove?.kind === "declared_path") {
+						connectDeclaredPath(
+							pendingFolderMove.confirmNonGit,
+							undefined,
+							shareConfirmationToken
+						).catch(() => undefined);
 					}
 				}}
 				open={pendingFolderMove !== null}
@@ -583,6 +624,82 @@ export function ProjectComputerSection(input: {
 	);
 }
 
+function useProjectConnectionRepositorySettings(input: {
+	organizationId: string;
+	project: Project;
+}) {
+	const repositorySettingsQuery = useQuery(
+		projectRepositorySettingsQueryOptions({
+			organizationId: input.organizationId,
+			projectId: input.project.id,
+		})
+	);
+	const [selectedRepositoryFingerprint, setSelectedRepositoryFingerprint] =
+		useState("");
+	const repositories =
+		repositorySettingsQuery.data?.settings.repositories ?? [];
+	const repositoryFingerprint =
+		selectedRepositoryFingerprint ||
+		repositories.find((repository) => repository.isDefault)
+			?.repositoryFingerprint ||
+		(repositories.length === 1 ? repositories[0]?.repositoryFingerprint : "") ||
+		repositorySettingsQuery.data?.settings.legacyDefaultFingerprint ||
+		"";
+	return {
+		repositorySettingsQuery,
+		repositories,
+		repositoryFingerprint,
+		setSelectedRepositoryFingerprint,
+	};
+}
+
+function validateDeclaredProjectConnection(input: {
+	path: string;
+	repositoryCount: number;
+	repositoryFingerprint: string;
+	repositorySettingsUnavailable: boolean;
+}): string | null {
+	if (!(input.path.trim() && isAbsoluteProjectPath(input.path))) {
+		return "Enter the full folder path on this computer.";
+	}
+	if (
+		input.repositorySettingsUnavailable ||
+		(input.repositoryCount > 0 && !input.repositoryFingerprint)
+	) {
+		return "Choose an available repository for this connection.";
+	}
+	return null;
+}
+
+function buildDeclaredProjectConnectionRequest(input: {
+	clientGeneration: number;
+	confirmNonGit: boolean;
+	declaredPath: string;
+	expectedOrganizationId: string;
+	moveConfirmationToken?: string;
+	projectId: string;
+	repositoryFingerprint: string;
+	shareConfirmationToken?: string;
+}): Parameters<typeof connectCurrentComputerProjectPath>[0] {
+	return {
+		clientGeneration: input.clientGeneration,
+		...(input.confirmNonGit ? { confirmNonGit: true } : {}),
+		declaredPath: input.declaredPath,
+		expectedOrganizationId: input.expectedOrganizationId,
+		idempotencyKey: createIdempotencyKey(),
+		...(input.moveConfirmationToken
+			? { moveConfirmationToken: input.moveConfirmationToken }
+			: {}),
+		projectId: input.projectId,
+		...(input.repositoryFingerprint
+			? { repositoryFingerprint: input.repositoryFingerprint }
+			: {}),
+		...(input.shareConfirmationToken
+			? { shareConfirmationToken: input.shareConfirmationToken }
+			: {}),
+	};
+}
+
 function CandidateConnectionPicker(input: {
 	candidates: readonly LocalProjectControlCandidate[];
 	connecting: boolean;
@@ -626,7 +743,8 @@ async function connectProjectCandidates(input: {
 	clientGeneration: number;
 	moveConfirmation?: {
 		candidateId: string;
-		moveConfirmationToken: string;
+		moveConfirmationToken?: string;
+		shareConfirmationToken?: string;
 	};
 	organizationId: string;
 	projectId: string;
@@ -650,8 +768,18 @@ async function connectProjectCandidates(input: {
 				idempotencyKey: createIdempotencyKey(),
 				...(input.moveConfirmation?.candidateId === candidate.candidateId
 					? {
-							moveConfirmationToken:
-								input.moveConfirmation.moveConfirmationToken,
+							...(input.moveConfirmation.moveConfirmationToken
+								? {
+										moveConfirmationToken:
+											input.moveConfirmation.moveConfirmationToken,
+									}
+								: {}),
+							...(input.moveConfirmation.shareConfirmationToken
+								? {
+										shareConfirmationToken:
+											input.moveConfirmation.shareConfirmationToken,
+									}
+								: {}),
 						}
 					: {}),
 				projectId: input.projectId,
@@ -790,11 +918,20 @@ function ConnectFolderDialog(input: {
 	onBack: () => void;
 	onOpenChange: (open: boolean) => void;
 	onPathChange: (value: string) => void;
+	onRepositoryChange: (fingerprint: string) => void;
 	onSubmit: (confirmNonGit: boolean) => void;
 	open: boolean;
 	path: string;
 	pending: boolean;
 	pickerDeviceId: string | null;
+	repositories: readonly {
+		isDefault: boolean;
+		repositoryFingerprint: string;
+		repositoryUrl: string;
+	}[];
+	repositoryFingerprint: string;
+	repositorySettingsPending: boolean;
+	repositorySettingsError: boolean;
 }) {
 	const [manualPathOpen, setManualPathOpen] = useState(false);
 	const handleOpenChange = (open: boolean) => {
@@ -890,6 +1027,16 @@ function ConnectFolderDialog(input: {
 									/>
 								</div>
 							) : null}
+							<RepositoryConnectionChoice
+								onChange={input.onRepositoryChange}
+								repositories={input.repositories}
+								value={input.repositoryFingerprint}
+							/>
+							{input.repositorySettingsError ? (
+								<p className="text-destructive text-sm" role="alert">
+									Repository settings couldn't load. Refresh and try again.
+								</p>
+							) : null}
 							{input.errorMessage ? (
 								<p
 									className={resolveStatusToneStrongTextClassName("danger")}
@@ -906,7 +1053,16 @@ function ConnectFolderDialog(input: {
 								>
 									Cancel
 								</Button>
-								<Button disabled={input.pending} type="submit">
+								<Button
+									disabled={
+										input.pending ||
+										input.repositorySettingsPending ||
+										input.repositorySettingsError ||
+										(input.repositories.length > 0 &&
+											!input.repositoryFingerprint)
+									}
+									type="submit"
+								>
 									Check and connect
 								</Button>
 							</DialogFooter>
@@ -915,6 +1071,41 @@ function ConnectFolderDialog(input: {
 				)}
 			</DialogContent>
 		</Dialog>
+	);
+}
+
+function RepositoryConnectionChoice(input: {
+	onChange: (fingerprint: string) => void;
+	repositories: readonly {
+		isDefault: boolean;
+		repositoryFingerprint: string;
+		repositoryUrl: string;
+	}[];
+	value: string;
+}) {
+	if (input.repositories.length === 0) {
+		return null;
+	}
+	return (
+		<label className="grid gap-1.5 text-sm">
+			<span>Repository for this folder</span>
+			<select
+				className="h-9 rounded-md border bg-background px-3"
+				onChange={(event) => input.onChange(event.target.value)}
+				value={input.value}
+			>
+				<option value="">Choose a repository</option>
+				{input.repositories.map((repository) => (
+					<option
+						key={repository.repositoryFingerprint}
+						value={repository.repositoryFingerprint}
+					>
+						{repository.repositoryUrl}
+						{repository.isDefault ? " (default)" : ""}
+					</option>
+				))}
+			</select>
+		</label>
 	);
 }
 

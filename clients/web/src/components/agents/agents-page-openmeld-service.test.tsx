@@ -30,6 +30,17 @@ const setQueryDataMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 const desktop = vi.hoisted(() => ({ enabled: false, openWeb: vi.fn() }));
+const copyTextMock = vi.hoisted(() => vi.fn().mockResolvedValue(true));
+vi.mock("#/lib/clipboard", () => ({ copyTextToClipboard: copyTextMock }));
+vi.mock("#/env", () => ({
+	env: {
+		VITE_OPENMELD_HOME: "/tmp/openmeld-disconnect-test",
+		VITE_OPENMELD_SETUP_USER_FACING_COMMAND: "openmeld-dev",
+	},
+}));
+vi.mock("#/hooks/auth.hooks", () => ({
+	useAuthSession: () => ({ data: { user: { id: "owner-account" } } }),
+}));
 
 vi.mock("#/desktop/platform", () => ({
 	canConfigureLocalComputer: (eligible = true) => eligible && !desktop.enabled,
@@ -38,6 +49,7 @@ vi.mock("#/desktop/platform", () => ({
 }));
 
 vi.mock("@tanstack/react-router", () => ({
+	useNavigate: () => vi.fn().mockResolvedValue(undefined),
 	Link: ({ children, to, ...props }: { children: ReactNode; to: string }) => (
 		<a href={to} {...props}>
 			{children}
@@ -105,6 +117,25 @@ const queryClientStub = {
 } as unknown as QueryClient;
 
 describe("OpenMeldServiceCard", () => {
+	it("offers a target-bound disconnect command from the owner menu without executing it", async () => {
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness:
+				buildCurrentLocalRuntimeReplyReadiness(),
+			replyReadiness: READY_REPLY_READINESS,
+		});
+		fireEvent.click(screen.getByRole("button", { name: "OpenMeld options" }));
+		fireEvent.click(
+			screen.getByRole("menuitem", { name: "Disconnect Computer…" })
+		);
+		expect(await screen.findByRole("dialog")).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Copy command" }));
+		await waitFor(() =>
+			expect(copyTextMock).toHaveBeenCalledWith(
+				"OPENMELD_HOME=/tmp/openmeld-disconnect-test openmeld-dev computer disconnect --expected-account owner-account --device device-macbook-pro --runtime-lane dev-local"
+			)
+		);
+		expect(requestCurrentOpenMeldToolsUpdateMock).not.toHaveBeenCalled();
+	});
 	afterEach(() => {
 		desktop.enabled = false;
 		desktop.openWeb.mockReset();
@@ -1659,7 +1690,7 @@ describe("OpenMeldServiceCard", () => {
 		});
 
 		fireEvent.click(screen.getByRole("button", { name: "OpenMeld options" }));
-		const toggle = await screen.findByRole("switch", {
+		const toggle = await screen.findByRole("menuitemcheckbox", {
 			name: "Automatic updates",
 		});
 		expect(toggle.getAttribute("aria-checked")).toBe("true");
@@ -2027,7 +2058,10 @@ describe("OpenMeldServiceCard", () => {
 		fireEvent.click(screen.getByRole("button", { name: "OpenMeld options" }));
 		expect(
 			screen.getAllByRole("link", { name: "Reconnect Computer" })
-		).toHaveLength(2);
+		).toHaveLength(1);
+		expect(
+			screen.getByRole("menuitem", { name: "Reconnect Computer" })
+		).toBeTruthy();
 		expect(
 			screen.queryByRole("link", { name: "Reconnect OpenMeld Service" })
 		).toBeNull();

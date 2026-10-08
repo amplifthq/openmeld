@@ -29,6 +29,27 @@ describe("tutorial reply", () => {
 		);
 		expect(read([{ ...message, deliveryState: "pending" }, reply])).toBe(false);
 		expect(read([message, { ...reply, isAgentFinalReply: false }])).toBe(false);
+		for (const status of [
+			"streaming",
+			"failed",
+			"stopped",
+			"completed_but_publish_failed",
+		] as const) {
+			expect(
+				read([
+					message,
+					{
+						...reply,
+						agentStreamState: {
+							status,
+							sequence: 1,
+							streamId: "reply-stream",
+							reasonCode: null,
+						},
+					},
+				])
+			).toBe(false);
+		}
 		expect(read([{ ...message, wakeTargetProfileIds: [] }, reply])).toBe(false);
 		expect(read([message, reply])).toBe(true);
 		expect(

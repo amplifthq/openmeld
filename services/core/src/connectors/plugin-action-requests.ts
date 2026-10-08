@@ -25,7 +25,7 @@ import { pluginPermissionAllows, readPluginAccess } from "./plugin-access";
 
 const REQUEST_LIFETIME_MS = 60 * 60 * 1000;
 const TARGET_FIELD =
-  /^(?:project|workspace|repository|repo|issue|document|channel|folder|record|resource|target)(?:_?id|Id|ID)?$/u;
+  /^(?:owner|team|project|workspace|repository|repo|issue|document|channel|folder|record|resource|target)(?:_?id|Id|ID)?$/u;
 const TARGET_VALUE = /^[a-zA-Z0-9_.:/-]{1,120}$/u;
 const UNSAFE_LABEL_CHARACTERS = /[\p{Cc}\p{Cf}]/u;
 type RequestRow = {
@@ -336,7 +336,10 @@ async function projectRequest(
       attention: "action_required",
       occurredAtMs: row.created_at_ms,
       contextLabel: "Plugin request",
-      title: "Confirm a Plugin action",
+      title:
+        intent.purpose === "issue_destination"
+          ? "Confirm an issue destination"
+          : "Confirm a Plugin action",
       preview:
         "An Agent needs your confirmation for a new operation. Open the request to review it.",
     },
@@ -442,7 +445,10 @@ async function currentState(
     connection.userId !== intent.connection.ownerUserId ||
     connection.scope !== intent.connection.scope ||
     access.revision !== intent.accessRevision ||
-    !pluginPermissionAllows(access.policy.local_agent, intent.effect)
+    !pluginPermissionAllows(
+      access.policy[intent.consumer ?? "local_agent"],
+      intent.effect
+    )
   ) {
     return "revoked";
   }

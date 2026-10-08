@@ -718,6 +718,50 @@ describe("Local Agent Session Inventory provider adapters", () => {
     );
   });
 
+  it("attributes a shared-folder Codex Session only to its accepted Project", async () => {
+    const fingerprint = `sha256:${"a".repeat(64)}`;
+    const first = { ...binding, repositoryFingerprint: fingerprint };
+    const second = {
+      ...first,
+      bindingGeneration: "binding-generation-2",
+      isDefault: true,
+      projectId: "project-2",
+      projectSlug: "platform",
+    };
+    await recordOpenMeldCreatedLocalAgentSession({
+      agentControllerRef: "builtin:codex",
+      nativeSessionId: "codex-live",
+      projectAttribution: {
+        organizationId: "org-1",
+        projectId: "project-2",
+        repositoryFingerprint: fingerprint,
+      },
+      rootDir: root,
+    });
+    const serverPath = join(root, "fake-codex-shared-app-server.mjs");
+    await writeFile(
+      serverPath,
+      buildFakeCodexAppServer(repositoryPath),
+      "utf8"
+    );
+    const sessions = await discoverCodexThreads({
+      bindings: [first, second],
+      launchContract: {
+        argsPrefix: [serverPath],
+        commandPath: process.execPath,
+        kind: "executable",
+      },
+      nowMs: NOW_MS,
+      rootDir: root,
+    });
+    expect(sessions).toMatchObject([
+      {
+        binding: { projectId: "project-2" },
+        session: { nativeSessionId: "codex-live", origin: "openmeld" },
+      },
+    ]);
+  });
+
   it("rejects a malformed non-null Codex pagination cursor", async () => {
     const serverPath = join(root, "fake-codex-invalid-cursor.mjs");
     await writeFile(

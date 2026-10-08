@@ -6,8 +6,10 @@ declare const OPENMELD_LOCAL_COMPONENTS_RELEASE_MANIFEST_JSON:
   | string
   | undefined;
 
-const PREVIOUS_EXECUTION_EPOCH =
+const PRE_PERMISSION_MODE_EXECUTION_EPOCH =
   "runtime-transport-epoch-2026-09-image-geometry";
+const PRE_PROJECT_WORK_EXECUTION_EPOCH =
+  "runtime-transport-epoch-2026-09-space-files-1gib";
 
 // The guarded receiver-first deployment already supplies the immutable
 // published manifest. Use that same authority for protocol admission and
@@ -27,14 +29,17 @@ export function resolveCoreRuntimeContractRollout(): {
   const publishedEpoch =
     resolveCoreLocalComponentsReleaseManifest()?.components.service
       .runtimeContractEpoch;
-  const acceptsPreviousEpoch = publishedEpoch === PREVIOUS_EXECUTION_EPOCH;
+  const acceptsPreviousEpoch =
+    publishedEpoch === PRE_PERMISSION_MODE_EXECUTION_EPOCH ||
+    publishedEpoch === PRE_PROJECT_WORK_EXECUTION_EPOCH;
   return {
     expectedEpoch: acceptsPreviousEpoch
-      ? PREVIOUS_EXECUTION_EPOCH
+      ? publishedEpoch
       : CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
     acceptsPreviousEpoch,
     permissionWritesEnabled:
-      publishedEpoch === CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+      publishedEpoch === CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH ||
+      publishedEpoch === PRE_PROJECT_WORK_EXECUTION_EPOCH,
   };
 }
 

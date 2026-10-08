@@ -34,12 +34,12 @@ import { WelcomeLayout } from "#/components/welcome/welcome-layout";
 import { createOrganization } from "#/lib/organizations/auth-organizations";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
+	INVITE_PEOPLE_INTENT,
 	type OrganizationEntryIntent,
+	resolveOrganizationEntryDestination,
 	SLACK_INSTALL_INTENT,
 } from "#/lib/organizations/organization-entry-intent";
 import {
-	buildOrganizationChannelsPath,
-	buildOrganizationDefaultPath,
 	buildOrganizationNewOrganizationPath,
 	buildOrganizationOrganizationsPath,
 	buildOrganizationSpacesPath,
@@ -82,7 +82,6 @@ function OrganizationEntryPageContent(input: {
 		null
 	);
 	const normalizedName = organizationName.trim();
-	const isSlackInstallIntent = input.intent === SLACK_INSTALL_INTENT;
 	const intentSearch = input.intent ? { intent: input.intent } : {};
 	const createOrganizationMutation = useMutation({
 		mutationFn: (organizationInput: { name: string }) =>
@@ -108,9 +107,7 @@ function OrganizationEntryPageContent(input: {
 		openCreatedOrganizationAction.isPending;
 	async function openOrganization(organization: OrganizationSummary) {
 		await navigate({
-			to: isSlackInstallIntent
-				? buildOrganizationChannelsPath(organization.slug)
-				: buildOrganizationDefaultPath(organization.slug),
+			to: resolveOrganizationEntryDestination(organization.slug, input.intent),
 		});
 	}
 
@@ -249,7 +246,11 @@ function OrganizationEntryPageContent(input: {
 			>
 				<div className="mx-auto min-h-full w-full max-w-7xl px-4 pb-6 sm:px-6 lg:px-8">
 					<WelcomeLayout
-						subtitle="When you're ready to work with other people, create an organization to share agents, see people and agents in one directory, and let a Center Agent coordinate the loop."
+						subtitle={
+							input.intent === INVITE_PEOPLE_INTENT
+								? "Create an organization, then invite your teammates. Your Personal Workspace stays separate."
+								: "When you're ready to work with other people, create an organization to share agents, see people and agents in one directory, and let a Center Agent coordinate the loop."
+						}
 						title="Create an organization"
 					>
 						{createForm}
@@ -275,7 +276,7 @@ function OrganizationPicker(input: {
 				<h1 className="font-medium text-2xl text-foreground">Organizations</h1>
 				<p className="max-w-2xl text-muted-foreground text-sm leading-6">
 					{input.intent === SLACK_INSTALL_INTENT
-						? "Choose the organization to connect to your Slack workspace — usually your team's organization. Or create a new one."
+						? "Choose your team's organization to connect Slack, Lark, or Feishu, or create a new one."
 						: "Choose an organization to work with, or create a new one for shared agents and teammates."}
 				</p>
 			</section>
@@ -356,11 +357,10 @@ function OrganizationPickerCard(input: {
 			className={cardPickerCardClassName()}
 			data-testid={`organization-picker-card-${input.organization.id}`}
 			onClick={handleClick}
-			to={
-				input.intent === SLACK_INSTALL_INTENT
-					? buildOrganizationChannelsPath(input.organization.slug)
-					: buildOrganizationDefaultPath(input.organization.slug)
-			}
+			to={resolveOrganizationEntryDestination(
+				input.organization.slug,
+				input.intent
+			)}
 		>
 			<div className="flex h-full w-full min-w-0 flex-1 flex-col justify-between gap-3 px-3.5 pt-4 pb-3">
 				<div className="flex min-w-0 items-start gap-2.5">

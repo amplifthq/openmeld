@@ -63,6 +63,7 @@ export function LocalAgentTokenUsageCard(input: {
 	organizationId: string;
 	computerId?: string;
 	userId?: string;
+	showRefresh?: boolean;
 }) {
 	const [days, setDays] = useState(7);
 	const period = organizationUsageCalendarPeriod(days);
@@ -193,22 +194,23 @@ export function LocalAgentTokenUsageCard(input: {
 											</SelectItem>
 										</SelectContent>
 									</Select>
-									<Button
-										aria-busy={refreshing}
-										className="max-lg:h-11"
-										disabled={refreshing}
-										onClick={refresh}
-										size="default"
-										variant="outline"
-									>
-										<ArrowClockwiseIcon
-											aria-hidden="true"
-											className={
-												refreshing ? "motion-safe:animate-spin" : undefined
-											}
-										/>
-										Refresh
-									</Button>
+									{input.showRefresh !== false && (
+										<Button
+											aria-busy={refreshing}
+											className="max-lg:h-11"
+											disabled={refreshing}
+											onClick={refresh}
+											size="default"
+											variant="outline"
+										>
+											<ArrowClockwiseIcon
+												aria-hidden="true"
+												className="data-[refreshing=true]:motion-safe:animate-spin"
+												data-refreshing={refreshing}
+											/>
+											Refresh
+										</Button>
+									)}
 								</div>
 								<p className="text-muted-foreground text-xs">
 									Recorded through OpenMeld in this workspace. Dates use your

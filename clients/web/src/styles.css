@@ -3,7 +3,6 @@
 @import "shadcn/tailwind.css";
 @import "./styles/typeset.css";
 @import "./styles/content-typography.css";
-@import "./styles/composer.css";
 @import "./styles/conversation-floating-surface.css";
 @import "streamdown/styles.css";
 @import "@openmeld/ui/globals.css";

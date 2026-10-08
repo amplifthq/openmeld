@@ -1,4 +1,3 @@
-import { cn } from "@openmeld/ui/lib/utils";
 import {
 	FileAudioIcon,
 	FileCodeIcon,
@@ -12,9 +11,9 @@ import {
 	FileXlsIcon,
 	FileZipIcon,
 } from "@phosphor-icons/react";
-import { SPACE_ATTACHMENT_FILE_CLASS } from "./space-attachment-strip";
 import { SpaceFileHtmlBadge } from "./space-file-html-badge";
 import { formatFileSize } from "./space-file-utils";
+import { SpaceMessageResourceCard } from "./space-message-resource-card";
 
 function attachmentIcon(mimeType: string) {
 	if (mimeType.startsWith("image/")) {
@@ -108,28 +107,16 @@ export function SpaceAttachmentFileCard(input: {
 			</span>
 		</>
 	);
-	const className = cn(SPACE_ATTACHMENT_FILE_CLASS, input.className);
-	return input.onOpen ? (
-		<button
-			aria-label={`Open ${input.fileName} in Files`}
-			className={cn(
-				className,
-				"transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
-			)}
-			onClick={input.onOpen}
-			title={`${input.fileName} · Open in Files`}
-			type="button"
+	return (
+		<SpaceMessageResourceCard
+			className={input.className}
+			label={input.onOpen ? `Open ${input.fileName} in Files` : input.fileName}
+			onOpen={input.onOpen}
+			title={
+				input.onOpen ? `${input.fileName} · Open in Files` : input.fileName
+			}
 		>
 			{content}
-		</button>
-	) : (
-		<div
-			aria-label={input.fileName}
-			className={className}
-			role="img"
-			title={input.fileName}
-		>
-			{content}
-		</div>
+		</SpaceMessageResourceCard>
 	);
 }

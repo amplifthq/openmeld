@@ -11,6 +11,7 @@ import { useStartFlowState } from "#/components/app/start-flow-state";
 import { useSidebarPreferences } from "#/components/app/use-sidebar-preferences";
 import { CenterAgentDirectMessageIntro } from "#/components/spaces/center-agent-direct-message-intro";
 import { SpaceWindowHeader } from "#/components/spaces/space-header";
+import type { SpaceTaskDraft } from "#/components/spaces/space-task-draft-fields";
 import type { SpaceView } from "#/components/spaces/space-view";
 import {
 	ComposerFileDiscoveryError,
@@ -37,9 +38,11 @@ import { buildOrganizationCenterAgentChatPath } from "#/lib/organizations/organi
 import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
 import { resolveRequestedStopUiStatus } from "#/lib/spaces/wake-stop-target";
 import { centerAgentDirectMessageSpaceProjectionQueryOptions } from "#/query/organizations/center-agent";
+import { useCenterAgentAvatarProfile } from "#/query/profiles/agent-avatar-context";
 import { postWebSpaceWakeStop } from "#/query/spaces/wake-stop";
 import { CenterAgentChatHistory } from "./center-agent-chat-history";
 import { CenterAgentHeaderTabs } from "./center-agent-header-navigation";
+import { CenterAgentNewChatTasks } from "./center-agent-new-chat-tasks";
 import { CenterAgentOptimisticConversation } from "./center-agent-optimistic-conversation";
 import { ChatTitleEditor } from "./chat-title-editor";
 
@@ -68,6 +71,7 @@ export function CenterAgentNewChat({
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const { defaultHumanProfile } = useDefaultHumanProfile();
+	const centerAgentProfile = useCenterAgentAvatarProfile();
 	const { data: accountAvatar } = useAccountAvatar();
 	const sidebar = useSidebarPreferences(organization.id);
 	const [message, setMessage] = useState<ReturnType<
@@ -79,6 +83,7 @@ export function CenterAgentNewChat({
 		"stopping" | "stopped" | "unconfirmed"
 	>();
 	const [error, setError] = useState<string | null>(null);
+	const [taskDraft, setTaskDraft] = useState<SpaceTaskDraft | null>(null);
 	const attachments = useSpaceComposerFiles({
 		organizationSlug: organization.slug,
 		profileId: defaultHumanProfile?.openMeldProfileId ?? storageScope ?? "",
@@ -106,6 +111,8 @@ export function CenterAgentNewChat({
 	const titleDraft = useComposerDraft({
 		scope: draftScope ? { ...draftScope, sessionId: "new-chat-title" } : null,
 	});
+	const messageText = draft.content.text.trim() || taskDraft?.title || "";
+	const pendingTaskDraft = taskDraft ?? undefined;
 	const send = useMutation({
 		mutationFn: async ({
 			starterPrompt,
@@ -114,7 +121,7 @@ export function CenterAgentNewChat({
 			starterPrompt?: string;
 			attempt: NewChatSendAttempt;
 		}) => {
-			const text = (starterPrompt ?? draft.content.text).trim();
+			const text = (starterPrompt ?? messageText).trim();
 			if (!text && attachments.files.length === 0) {
 				return;
 			}
@@ -128,6 +135,7 @@ export function CenterAgentNewChat({
 			}
 			const pendingMessage = {
 				...intent.message,
+				taskDraft: pendingTaskDraft,
 				files: fileDrafts.map((draft) => draft.file),
 				fileDrafts,
 			};
@@ -312,6 +320,70 @@ export function CenterAgentNewChat({
 			),
 		[attachments.files.length, isSending]
 	);
+	const header = (
+		<SpaceWindowHeader
+			navigation={
+				<CenterAgentHeaderTabs
+					activeSectionId="chat"
+					activeSpaceView={view}
+					idPrefix="new-chat-view"
+					onSpaceViewChange={(nextView) => {
+						navigate({
+							to: buildOrganizationCenterAgentChatPath(organization.slug, {
+								draft: "new",
+								group,
+								view: nextView,
+							}),
+						});
+					}}
+					organizationSlug={organization.slug}
+				/>
+			}
+			secondaryContentClassName="overflow-x-auto"
+			title={titleDraft.content.text || "New chat"}
+			titleControl={
+				<CenterAgentChatHistory
+					disabled={isSending}
+					title={titleDraft.content.text || "New chat"}
+					titleAction={
+						<ChatTitleEditor
+							disabled={isSending}
+							onSave={(title) => {
+								titleDraft.setContent((current) => ({
+									...current,
+									text: title,
+								}));
+							}}
+							title={titleDraft.content.text || "New chat"}
+						/>
+					}
+				/>
+			}
+		/>
+	);
+	const taskMembers = [
+		...(defaultHumanProfile
+			? [
+					{
+						profileId: defaultHumanProfile.openMeldProfileId,
+						profileName: defaultHumanProfile.profileName,
+					},
+				]
+			: []),
+		...(centerAgentProfile ? [centerAgentProfile] : []),
+	];
+	if (view === "tasks") {
+		return (
+			<div className="flex min-h-0 w-full flex-1 flex-col">
+				{header}
+				<CenterAgentNewChatTasks
+					members={taskMembers}
+					profileId={defaultHumanProfile?.openMeldProfileId}
+				/>
+			</div>
+		);
+	}
+
 	return (
 		<div className="flex min-h-0 w-full flex-1 flex-col">
 			{error && (
@@ -324,70 +396,34 @@ export function CenterAgentNewChat({
 				composerText={isSending ? "" : draft.content.text}
 				empty
 				emptyContent={
-					view === "messages" ? (
-						<CenterAgentDirectMessageIntro
-							disabled={isSending}
-							isPersonalContext={organization.isPersonal === true}
-							onSelectStarterAction={startSend}
-							onStartComputerSetup={() => {
-								navigate({
-									to: buildConnectComputerPath({
-										orgSlug: organization.slug,
-										profileId: defaultHumanProfile?.openMeldProfileId,
-									}),
-								});
-							}}
-							showStarterActions
-							showStarterComputerSetup={false}
-						/>
-					) : (
-						<div className="py-12 text-center text-muted-foreground text-sm">
-							{view === "files"
-								? "Files shared in this chat will appear here."
-								: "Connections from this chat will appear here."}
-						</div>
-					)
-				}
-				header={
-					<SpaceWindowHeader
-						navigation={
-							<CenterAgentHeaderTabs
-								activeSectionId="chat"
-								activeSpaceView={view === "tasks" ? "messages" : view}
-								idPrefix="new-chat-view"
-								onSpaceViewChange={(nextView) => {
+					<>
+						{view === "messages" && (
+							<CenterAgentDirectMessageIntro
+								disabled={isSending}
+								isPersonalContext={organization.isPersonal === true}
+								onSelectStarterAction={startSend}
+								onStartComputerSetup={() => {
 									navigate({
-										to: buildOrganizationCenterAgentChatPath(
-											organization.slug,
-											{ draft: "new", group, view: nextView }
-										),
+										to: buildConnectComputerPath({
+											orgSlug: organization.slug,
+											profileId: defaultHumanProfile?.openMeldProfileId,
+										}),
 									});
 								}}
-								organizationSlug={organization.slug}
+								showStarterActions
+								showStarterComputerSetup={false}
 							/>
-						}
-						secondaryContentClassName="overflow-x-auto"
-						title={titleDraft.content.text || "New chat"}
-						titleControl={
-							<CenterAgentChatHistory
-								disabled={isSending}
-								title={titleDraft.content.text || "New chat"}
-								titleAction={
-									<ChatTitleEditor
-										disabled={isSending}
-										onSave={(title) => {
-											titleDraft.setContent((current) => ({
-												...current,
-												text: title,
-											}));
-										}}
-										title={titleDraft.content.text || "New chat"}
-									/>
-								}
-							/>
-						}
-					/>
+						)}
+						{(view === "files" || view === "graph") && (
+							<div className="py-12 text-center text-muted-foreground text-sm">
+								{view === "files"
+									? "Files shared in this chat will appear here."
+									: "Connections from this chat will appear here."}
+							</div>
+						)}
+					</>
 				}
+				header={header}
 				onComposerChange={(text) => {
 					if (!isSending) {
 						setMessage(null);
@@ -397,17 +433,23 @@ export function CenterAgentNewChat({
 				onSend={() => {
 					if (
 						!isSending &&
-						(draft.content.text.trim() || attachments.files.length)
+						(!taskDraft || taskDraft.title.trim()) &&
+						(taskDraft?.title.trim() ||
+							draft.content.text.trim() ||
+							attachments.files.length)
 					) {
 						setError(null);
 						startSend();
 					}
 				}}
 				onStop={stopSend}
+				onTaskDraftChange={setTaskDraft}
 				pendingMessage={message}
 				selfAvatarImageUrl={accountAvatar?.avatar}
 				selfProfile={defaultHumanProfile}
 				stopStatus={stopStatus}
+				taskDraft={taskDraft}
+				taskMembers={taskMembers}
 			/>
 		</div>
 	);

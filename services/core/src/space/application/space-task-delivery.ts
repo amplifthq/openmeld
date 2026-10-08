@@ -80,6 +80,12 @@ export function enqueueSpaceTaskDeliveries(input: {
     enqueue("github_projection");
   }
   if (
+    task.projectIds.length > 0 ||
+    (input.previous?.projectIds.length ?? 0) > 0
+  ) {
+    enqueue("project_projection");
+  }
+  if (
     (event.type === "result_submitted" && task.phase === "in_review") ||
     event.type === "changes_requested" ||
     event.type === "rework_continued"
