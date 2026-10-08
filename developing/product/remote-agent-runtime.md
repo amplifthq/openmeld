@@ -1636,8 +1636,11 @@ and budget or model limits do not authorize this automatic path. This first
 automatic path stays Space-only and original-requester-only.
 Transport errors, invalid receipts and unconfirmed evidence propagate to the
 existing callback or Queue retry. They cannot be acknowledged as an unsupported
-receiver. Explicit receiver capability refusal, revoked access, Stop and an
-already terminal summary end the attempt without another recovery identity.
+receiver. Explicit receiver capability refusal, revoked access, Stop, no
+verified child results and an already terminal summary end the attempt without
+another recovery identity. Legacy RPC can reduce a strict receiver's schema
+error to `ZodError`, without its field or path. That cannot prove unsupported
+summary recovery; update the receiver before enabling this producer.
 
 Ordinary Space and Direct Message `turn_not_completed` and Computer cleanup
 failure callbacks use deterministic

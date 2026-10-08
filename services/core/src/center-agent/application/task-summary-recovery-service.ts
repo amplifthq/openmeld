@@ -130,6 +130,7 @@ export async function recoverFailedTaskContinuationSummary(input: {
       "task_summary_recovery.receiver_unsupported",
       "task_summary_recovery.not_authorized",
       "task_summary_recovery.stopped",
+      "task_summary_recovery.no_verified_results",
     ].includes(receipt.reasonCode ?? "") &&
     !(
       receipt.subscriptionId &&
