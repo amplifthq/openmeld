@@ -28,11 +28,12 @@ if (
       "grant-runtime",
       "preserve-foundation",
       "seed-business",
+      "seed-smoke-identities",
     ].includes(action)
   )
 ) {
   throw new Error(
-    "Usage: cloud.mjs <inventory|prepare|hyperdrive> <staging|production>; cloud.mjs <preserve-foundation|migrate|grant-runtime|seed-business|accept> staging"
+    "Usage: cloud.mjs <inventory|prepare|hyperdrive> <staging|production>; cloud.mjs <preserve-foundation|migrate|grant-runtime|seed-business|seed-smoke-identities|accept> staging"
   );
 }
 const config = target === "staging" ? "stg" : "prd";
@@ -156,6 +157,7 @@ try {
       "grant-runtime",
       "preserve-foundation",
       "seed-business",
+      "seed-smoke-identities",
     ].includes(action)
   ) {
     if (target !== "staging") {

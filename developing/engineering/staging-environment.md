@@ -278,6 +278,10 @@ credentials with:
 pnpm staging:work-coordinator:prepare-identities
 ```
 
+Identity preparation uses the registered staging PostgreSQL migration role and
+one transaction. It does not write to the retained D1 database. This prepares
+login fixtures only; verify product behavior through the staging App afterward.
+
 That command is fixture preparation, not smoke evidence. Acceptance still uses
 the listed Staging Web routes and a Staging-aligned Service with a fresh
 temporary `OPENMELD_HOME`. Run the Service in the foreground or as a detached

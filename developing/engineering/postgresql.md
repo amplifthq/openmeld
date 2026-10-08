@@ -463,10 +463,10 @@ they do not add RPC methods. See
 - D1 tooling and its captured fixtures preserve the deployed revision's
   operational vocabulary. Current `db:*` commands use PostgreSQL or fail closed;
   the candidate does not authorize historical production operations.
-- Production Auth/Core configurations and generated types declare
-  the same native Hyperdrive binding and no D1 aliases. Shared-staging D1 config
-  stays historical and guarded against candidate deployment, not a runtime
-  fallback. Production now uses PostgreSQL as its sole relational authority.
+- Production and staging Auth/Core configurations and generated types declare
+  the native Hyperdrive binding and no D1 aliases. Each environment has its own
+  PostgreSQL database as its sole relational authority. Retained D1 databases
+  are historical sources, not runtime fallbacks.
 - Space, RuntimeTransportHub, and other Durable Objects retain private SQLite
   storage for their own state. OpenMeld Service's isolated local storage and R2
   file ownership also retain their existing boundaries.
