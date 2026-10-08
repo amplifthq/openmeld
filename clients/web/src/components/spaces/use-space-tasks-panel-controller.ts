@@ -24,6 +24,8 @@ import { spaceQueryKeys } from "#/query/spaces/status";
 import { mutateSpaceTaskWithConflictRefresh } from "./space-task-mutation";
 
 export type SpaceTasksPanelProps = {
+	selectedTaskId?: string | null;
+	onSelectTask?: (taskId: string | null) => void;
 	membersSnapshot: SpaceMembersSnapshot | null;
 	onOpenThread?: (threadId: string) => void;
 	openMeldProfileId?: string;
@@ -243,6 +245,32 @@ export function useSpaceTasksPanelController(
 	return {
 		addAndAssignTask,
 		commonAgentIds,
+		createTask: async (
+			body: import("@openmeld/schemas/types").CreateSpaceTaskBody
+		) => {
+			try {
+				const receipt = await api.createTask({ spaceId: input.spaceId, body });
+				queryClient.setQueryData(
+					spaceTaskQueryKeys.detail(
+						input.spaceId,
+						receipt.task.taskId,
+						input.openMeldProfileId
+					),
+					receipt
+				);
+				await queryClient.invalidateQueries({
+					queryKey: spaceTaskQueryKeys.space(input.spaceId),
+				});
+				return receipt.task;
+			} catch (error) {
+				toast.error(
+					error instanceof Error
+						? error.message
+						: "Couldn't create task. Try again."
+				);
+				return null;
+			}
+		},
 		detailQuery,
 		members,
 		mutateTask,

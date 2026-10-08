@@ -4527,8 +4527,21 @@ people, and only the controls
 the current profile can plausibly use. Completing or canceling a Task that
 still has an open GitHub issue prompts the person to close that issue in
 GitHub. Core remains authoritative and rejects stale or unauthorized
-mutations. Empty state copy sends the user back to Messages. Direct Messages
-omit the tab and normalize stale `tasks` view state back to Messages.
+mutations. Private conversations reuse this board, message cards, and creation
+flow. Center Agent navigation places Tasks after Messages. Before a chat exists,
+Tasks uses the same board empty state and creation dialog, without a transcript
+or composer. Submitting creates the chat and Task directly, then stays on Tasks;
+it does not send a message or start an Agent. Opening Tasks alone creates no chat.
+The Messages composer separately supports a Task in its first-message handoff.
+
+Agent mention menus keep execution settings separate from Tasks. **Files** offers
+**Use agent settings** and **No project files**. A readable configured Project
+adds its name and the supported **Edit a separate copy**, **Read files only**, and
+**Edit project files** modes. Without a resolved Project, Web does not guess a
+local folder or offer project operations. Each choice has a short shared Tooltip
+on hover and keyboard focus; the separate-copy hint explains that uncommitted
+changes are not included. These choices retain the existing execution contracts.
+
 The Project selector in Task detail supports zero or several associations and
 uses the current Task revision. Unavailable saved associations remain removable,
 including when no active Projects remain; saving never silently drops them.

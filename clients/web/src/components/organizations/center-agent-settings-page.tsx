@@ -25,7 +25,7 @@ import {
 	RobotIcon,
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { type FormEvent, useId, useState } from "react";
 import { toast } from "sonner";
 import { CenterAgentAvatarEditor } from "#/components/agents/center-agent-avatar-editor";
@@ -41,6 +41,10 @@ import {
 	updateCurrentCenterAgentOperatingState,
 	updateCurrentCenterAgentProfile,
 } from "#/lib/organizations/center-agent";
+import {
+	parseCenterAgentRouteSearch,
+	resolveSlackOAuthResult,
+} from "#/lib/organizations/center-agent-route-search";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { canManageOrganizationArea } from "#/lib/organizations/organization-permissions";
 import {
@@ -73,7 +77,10 @@ import {
 	resolveCenterAgentConnectionStatus,
 	resolveDesignatedCenterAgentProfile,
 } from "./center-agent-profile-presentation";
+import { CenterAgentRouteStateProvider } from "./center-agent-route-state";
+import { OrganizationMemoryPage } from "./organization-memory-page";
 import { OrganizationMemoryPolicySection } from "./organization-memory-policy-section";
+import { OrganizationMessageChannelsPage } from "./organization-message-channels-page";
 
 const CENTER_AGENT_STATUS_BADGE_CLASS_NAMES = {
 	Available: resolveStatusToneProminentBadgeClassName("ready"),
@@ -82,7 +89,7 @@ const CENTER_AGENT_STATUS_BADGE_CLASS_NAMES = {
 	Unavailable: resolveStatusToneProminentBadgeClassName("warning"),
 } as const satisfies Record<CenterAgentConnectionStatus, string>;
 
-export function CenterAgentSettingsPage() {
+function CenterAgentGeneralSettings() {
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const directoryQuery = useQuery(
 		organizationDirectoryQueryOptions({
@@ -1033,5 +1040,29 @@ function CenterAgentErrorState(input: {
 				Retry
 			</Button>
 		</div>
+	);
+}
+
+export function CenterAgentSettingsPage() {
+	const searchStr = useRouterState({
+		select: (state) => state.location.searchStr,
+	});
+	const search = Object.fromEntries(new URLSearchParams(searchStr));
+	return (
+		<CenterAgentRouteStateProvider
+			value={{
+				channelsSlackOAuthResult: resolveSlackOAuthResult(
+					parseCenterAgentRouteSearch(search)
+				),
+			}}
+		>
+			<CenterAgentGeneralSettings />
+			<section aria-label="Channels" className="mt-4 space-y-6" id="channels">
+				<OrganizationMessageChannelsPage />
+			</section>
+			<section aria-label="Memory" className="mt-4 space-y-6" id="memory">
+				<OrganizationMemoryPage />
+			</section>
+		</CenterAgentRouteStateProvider>
 	);
 }

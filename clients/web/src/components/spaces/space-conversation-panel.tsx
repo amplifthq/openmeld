@@ -90,6 +90,7 @@ import {
 	type SpaceWakeOutcomeIndex,
 	type SpaceWakeStopRequestStatus,
 } from "#/lib/spaces/wake-stop-target";
+import { useCenterAgentCurrentModelName } from "#/query/profiles/agent-avatar-context";
 import { SPACE_INITIAL_HISTORY_MAX_MESSAGES } from "#/query/spaces/history";
 import { spaceTaskQueryKeys } from "#/query/spaces/space-tasks";
 import { spaceThreadSignalsQueryOptions } from "#/query/spaces/threads";
@@ -241,6 +242,10 @@ import { SpaceGraphSkeleton } from "./space-panel-skeletons";
 import { resolveSpacePendingAgentActionIdentity } from "./space-pending-agent-action-model";
 import { SpacePinnedItemsBar } from "./space-pins";
 import { useSpaceReadingHeader } from "./space-reading-header";
+import {
+	SpaceMessageTaskReference,
+	SpaceTaskReferencesProvider,
+} from "./space-task-references";
 import { SpaceConversationUnreadControl } from "./space-unread-control";
 import { getSpaceViewIndex, type SpaceView } from "./space-view";
 import { SpaceComposerActiveWakes } from "./space-wake-bookmarks";
@@ -370,6 +375,7 @@ type SpaceConversationPanelResolvedProps = {
 	onMentionButtonClick: () => void;
 	onSend: (options?: SpaceComposerSendOptions) => Promise<void>;
 	onSendStarterPrompt: (prompt: string) => Promise<void>;
+	onOpenTask?: (taskId: string) => void;
 	onSpaceViewChange: (view: SpaceView) => void;
 	orgSlug?: string;
 	// The shared observer acknowledges only visible Core unread targets.
@@ -551,23 +557,26 @@ export function SpaceConversationPanel(
 			</SpaceMessageEditingScope>
 		</SpaceWakeStopScope>
 	);
-	return content;
+	return (
+		<SpaceTaskReferencesProvider
+			disabled={false}
+			onOpen={(taskId) => publicInput.onOpenTask?.(taskId)}
+			organizationSlug={publicInput.orgSlug}
+			profileId={publicInput.selfProfileId}
+			spaceId={publicInput.spaceId}
+		>
+			{content}
+		</SpaceTaskReferencesProvider>
+	);
 }
 
 function useSpaceMessageTaskAction(input: {
 	disabled: boolean;
-	onSpaceViewChange: (view: SpaceView) => void;
 	openMeldProfileId: string;
 	organizationSlug?: string;
 	spaceId?: string;
 }) {
-	const {
-		disabled,
-		onSpaceViewChange,
-		openMeldProfileId,
-		organizationSlug,
-		spaceId,
-	} = input;
+	const { disabled, openMeldProfileId, organizationSlug, spaceId } = input;
 	const queryClient = useQueryClient();
 	const [pendingSourceSignalId, setPendingSourceSignalId] = useState<
 		string | null
@@ -606,7 +615,6 @@ function useSpaceMessageTaskAction(input: {
 				await queryClient.invalidateQueries({
 					queryKey: spaceTaskQueryKeys.space(spaceId),
 				});
-				onSpaceViewChange("tasks");
 				toast.success("Task created from this message.");
 			} catch (error) {
 				toast.error(
@@ -620,7 +628,6 @@ function useSpaceMessageTaskAction(input: {
 		},
 		[
 			disabled,
-			onSpaceViewChange,
 			openMeldProfileId,
 			organizationSlug,
 			pendingSourceSignalId,
@@ -638,8 +645,7 @@ function SpaceConversationPanelContent(
 	const { viewState, ...props } = publicInput;
 	const timelineItems = useOptimisticSpaceMessages(props.timelineItems);
 	const taskAction = useSpaceMessageTaskAction({
-		disabled: viewState.isDirectMessage,
-		onSpaceViewChange: props.onSpaceViewChange,
+		disabled: false,
 		openMeldProfileId: props.selfProfileId,
 		organizationSlug: props.orgSlug,
 		spaceId: props.spaceId,
@@ -763,7 +769,11 @@ function SpaceConversationPanelContent(
 		status: conversationRestorationStatus,
 	});
 	const submitComposer = (options?: SpaceComposerSendOptions) => {
-		if (composerSendBlocked || !canSendMessage || input.isSendingMessage) {
+		const blocked = resolveSpaceComposerSendBlocked({
+			files: input.composerFiles,
+			text: input.composerText || options?.taskDraft?.title || "",
+		});
+		if (blocked || !canSendMessage || input.isSendingMessage) {
 			return;
 		}
 		input.onSend(options).catch((error) => {
@@ -3031,6 +3041,11 @@ function ConversationBubbleContent(input: {
 			ref={(element) => {
 				parent.registerMessageElement(input.item.id, element);
 			}}
+			references={
+				<SpaceMessageTaskReference
+					signalId={input.item.recalledAt ? undefined : input.item.id}
+				/>
+			}
 			tabIndex={-1}
 		>
 			{!parent.isDirectMessage && (
@@ -3157,7 +3172,11 @@ function ConversationSpeakerHeader(input: {
 	selfAvatarImageUrl: string | null;
 	selfProfileId: string;
 }) {
+	const centerAgentModelName = useCenterAgentCurrentModelName(
+		input.run.speaker.profileId
+	);
 	const agentAttribution = formatSpaceAgentAttribution({
+		centerAgentModelName,
 		agentControllerRef: input.run.speaker.agentControllerRef,
 		ownerName: input.run.items[0]?.actorOwnerName ?? null,
 		profileKind: input.run.speaker.profileKind,
@@ -3532,7 +3551,7 @@ function renderConversationMessageFooter(input: {
 							label:
 								input.taskCreationSourceSignalId === input.item.id
 									? "Creating Task…"
-									: "Add to Tasks",
+									: "Create task",
 							onSelect: () =>
 								input.onAddMessageToTasks?.(
 									input.item,

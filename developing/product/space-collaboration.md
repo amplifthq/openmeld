@@ -104,11 +104,11 @@ Agent Direct Message mutation rules to an ordinary Space.
 
 ## Space Tasks
 
-An ordinary shared Space may own **Tasks** as durable collaboration
-commitments. Messages remains the default place to ask, discuss, and complete
+Shared Spaces and private conversations, including Center Agent chats, may own
+**Tasks** as durable collaboration commitments. Messages remains the default place to ask, discuss, and complete
 small work. A Task records a clear deliverable that needs continuing ownership,
-progress, review, or later closure. Direct Messages and specialized private
-Center Agent sessions do not expose or accept Space Tasks.
+progress, review, or later closure. Tasks inherit the source conversation's
+membership and visibility; private tasks do not become Organization-shared.
 
 A Task preserves the trusted requester and creator, one optional assignee, one
 optional independent reviewer, its source message and Thread, completion
@@ -120,16 +120,42 @@ means the declared completion boundary was met; **Canceled** means the accepted
 commitment is no longer being pursued. Reopening is explicit. Assignment alone
 does not start an Agent or claim that work is running.
 
-The source Message or Thread remains the collaboration surface. **Add to
-Tasks** captures one message explicitly. Agents create a Task automatically
-only when the current request is a clear, discrete deliverable; questions,
-exploration, acknowledgements, and tiny same-turn actions stay in Messages.
+The source Message or Thread remains the collaboration surface. The composer
+offers **Create task** in its existing attachment/add menu. It opens an inline
+draft with a title and optional assignee and reviewer. Closing the draft keeps
+the message, mentions, and attachments. **Create task** publishes the message
+and Task together; **Create and start** also activates the explicitly addressed
+Wake targets. The message, Task, and dispatch outbox share one transaction.
+Retries use the message identity and do not create another Task.
+
+The Tasks view also offers **New task**, and the message menu can capture an
+existing message. Ordinary message sending never infers Task creation. Agents
+create Tasks through the existing Task API when explicitly requested.
 Several Tasks may share one Thread, but a mutation must identify one exact Task.
 Project association is a revision-checked Task scope change owned by the Space.
 Existing Tasks remain unassociated until an authorized person or Agent makes an
 explicit choice. A Task's Project list order never selects an external target;
 one operation resolves its own relevant Project. Project association does not
 change Space visibility, membership, Task permissions, or execution authority.
+
+The composer has no global Task or Session mode selector. Each Agent mention
+keeps its Wake/Mention only menu. For supported local controllers, Session and
+Access & workspace appear directly below a divider. Each Wake target owns its
+selection; one Agent's selection never applies to another Agent. No selection
+is required to send a normal message. A Task is a work record, not an execution
+session. Marking it In progress changes its phase; it does not launch an Agent.
+
+Composer authoring adds optional `taskDraft` and `contextSelections` fields.
+Task creation and the original message's dispatch commit together. Dispatch
+context names the existing Task, assignee, and reviewer so Agents can update it
+without creating another record. This adds no separate message or Wake.
+The latter is keyed by explicitly activated Agent profile IDs and cannot be
+combined with the legacy shared `contextSelection`. Core resolves one selection
+for each dispatch; downstream controller contracts stay unchanged. Public
+message read projections omit these authoring controls for existing strict
+readers. New cloud accepts old writers; old cloud rejects the new fields.
+Deploy the cloud changes before the new Web client. No local component update
+or database migration is required.
 
 The requester, assignee, reviewer, and Space owner have action-specific
 permissions. The assignee starts work and submits results. With no reviewer,

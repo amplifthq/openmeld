@@ -1,3 +1,8 @@
+import {
+	DropdownMenu,
+	DropdownMenuTrigger,
+} from "@openmeld/ui/components/dropdown-menu";
+import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
@@ -15,60 +20,219 @@ import { projectQueryKeys } from "#/query/organizations/projects";
 import { SpaceComposer } from "./space-composer";
 import type { SpaceComposerSendOptions } from "./space-composer-device-wait";
 import type { SpaceComposerEditorHandle } from "./space-composer-editor";
-import { SpaceComposerTaskMenu } from "./space-composer-task-menu";
+import { SpaceComposerAgentOptions } from "./space-composer-task-menu";
 import {
 	SpaceWakeRecommendationScope,
 	useSpaceWakeRecommendation,
 } from "./space-wake-recommendation";
+import type { SpaceComposerAddressingTarget } from "./use-space-mention-authoring";
 
 afterEach(cleanup);
+// The interaction harness supplies a known project; directory reads have their own owner.
+vi.mock("./space-composer-agent-options", () => ({
+	SpaceComposerAgentOptionsWithProject: (
+		props: Parameters<typeof SpaceComposerAgentOptions>[0]
+	) => <SpaceComposerAgentOptions {...props} projectName="OpenMeld" />,
+}));
+const ACCESS_WORKSPACE_MENU = /^Files/;
+
+it("can fork a previous session without resuming it", async () => {
+	const onChange = vi.fn();
+	render(
+		<DropdownMenu>
+			<DropdownMenuTrigger>Options</DropdownMenuTrigger>
+			<FluidDropdownMenuContent>
+				<SpaceComposerAgentOptions
+					onChange={onChange}
+					sources={[
+						{
+							targetProfileId: "agent",
+							sourceWakeId: "wake-previous",
+							label: "Review upload",
+						},
+					]}
+					supportsCurrentFolder
+					targetProfileId="agent"
+				/>
+			</FluidDropdownMenuContent>
+		</DropdownMenu>
+	);
+	fireEvent.click(screen.getByRole("button", { name: "Options" }));
+	fireEvent.click(await screen.findByText("Session"));
+	const choices = await screen.findAllByRole("menuitemradio", {
+		name: "Review upload",
+	});
+	const forkChoice = choices[1];
+	if (!forkChoice) {
+		throw new Error("Fork choice missing");
+	}
+	fireEvent.click(forkChoice);
+	expect(onChange).toHaveBeenCalledWith({
+		targetProfileId: "agent",
+		label: "Fork: Review upload",
+		selection: { mode: "fork", sourceWakeId: "wake-previous" },
+	});
+});
 
 it.each([
 	{
-		choice: "New task",
-		label: "New task",
+		projectName: undefined,
 		supportsCurrentFolder: true,
-		selection: { mode: "new" },
+		labels: ["Use agent settings", "No project files"],
 	},
 	{
-		choice: "New task",
-		label: "New task",
+		projectName: "OpenMeld",
 		supportsCurrentFolder: false,
-		selection: { mode: "new" },
+		labels: ["Use agent settings", "No project files", "Edit a separate copy"],
 	},
-	{
-		choice: "Isolated project worktree",
-		label: "Isolated project task",
-		supportsCurrentFolder: false,
-		selection: { mode: "new", access: "workspace", workspace: "isolated" },
-	},
-	{
-		choice: "Space context only",
-		label: "New Space-only task",
-		supportsCurrentFolder: false,
-		selection: { mode: "new", access: "space_context", workspace: "isolated" },
-	},
-] as const)("makes $choice explicit in the Task menu", async (input) => {
-	const onChange = vi.fn();
+])("only offers file modes supported by the project and agent: $projectName / $supportsCurrentFolder", async ({
+	labels,
+	...capabilities
+}) => {
 	render(
-		<SpaceComposerTaskMenu
-			disabled={false}
-			onChange={onChange}
-			requiresProjectContainer={true}
-			sources={[]}
-			supportsCurrentFolder={input.supportsCurrentFolder}
-			targetProfileId="agent"
+		<DropdownMenu>
+			<DropdownMenuTrigger>Options</DropdownMenuTrigger>
+			<FluidDropdownMenuContent>
+				<SpaceComposerAgentOptions
+					{...capabilities}
+					onChange={vi.fn()}
+					sources={[]}
+					targetProfileId="agent"
+				/>
+			</FluidDropdownMenuContent>
+		</DropdownMenu>
+	);
+	fireEvent.click(screen.getByRole("button", { name: "Options" }));
+	fireEvent.click(
+		await screen.findByRole("menuitem", { name: ACCESS_WORKSPACE_MENU })
+	);
+	expect(
+		(await screen.findAllByRole("menuitemradio")).map(
+			(item) => item.textContent
+		)
+	).toEqual(labels);
+});
+
+it("keeps two agents' session choices independent and sends without a task by default", async () => {
+	const onSubmit = vi.fn<(options?: SpaceComposerSendOptions) => void>();
+	render(<MultiAgentHarness onSubmit={onSubmit} />);
+	expect(screen.queryByRole("menu")).toBeNull();
+	fireEvent.click(
+		screen.getByRole("button", { name: "Change relation for Engineer" })
+	);
+	fireEvent.click(await screen.findByText("Session"));
+	fireEvent.click(await screen.findByText("Start new"));
+	fireEvent.click(
+		screen.getByRole("button", { name: "Change relation for QA" })
+	);
+	fireEvent.click(
+		await screen.findByRole("menuitem", { name: ACCESS_WORKSPACE_MENU })
+	);
+	fireEvent.click(await screen.findByText("Read files only"));
+	fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+	expect(onSubmit.mock.calls[0]?.[0]).toMatchObject({
+		contextSelections: {
+			[agentTargets[0].profileId]: { mode: "new" },
+			[agentTargets[1].profileId]: {
+				mode: "new",
+				access: "read_only",
+				workspace: "current",
+			},
+		},
+	});
+	expect(onSubmit.mock.calls[0]?.[0]?.taskDraft).toBeUndefined();
+});
+
+const agentTargets: SpaceComposerAddressingTarget[] = [
+	["agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "Engineer"],
+	["agt_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "QA"],
+].map(([profileId, profileName]) => ({
+	profileId: profileId ?? "",
+	profileName: profileName ?? "",
+	agentControllerRef: "builtin:codex",
+	primaryMentionLabel: "Wake",
+	allowedRelations: { wake: true, reference: true, mention: false },
+	relation: "wake",
+	wakeAvailability: { status: "ready", reasonCodes: [], reasonText: null },
+}));
+
+function MultiAgentHarness(input: {
+	onSubmit: (options?: SpaceComposerSendOptions) => void;
+}) {
+	const composerRef = useRef<SpaceComposerEditorHandle>(null);
+	const [draft, setDraft] = useState({
+		text: "@Engineer @QA Review this.",
+		authoredMentions: [
+			{
+				profileId: agentTargets[0]?.profileId ?? "",
+				relation: "wake" as const,
+				text: "@Engineer",
+				start: 0,
+				end: 9,
+			},
+			{
+				profileId: agentTargets[1]?.profileId ?? "",
+				relation: "wake" as const,
+				text: "@QA",
+				start: 10,
+				end: 13,
+			},
+		] as ComposerDraftAuthoredMention[],
+	});
+	return (
+		<SpaceComposer
+			actions={{ onEditorChange: setDraft, onSubmit: input.onSubmit }}
+			availability={{
+				canSendMessage: true,
+				fileLimitReached: false,
+				isSendingMessage: false,
+				sendBlocked: false,
+			}}
+			centerAgentProfileId={null}
+			composerRef={composerRef}
+			content={{
+				...draft,
+				addressingTargets: agentTargets,
+				files: [],
+				mentionPickerItems: [],
+			}}
+			context={{ conversationKind: "space", placement: "conversation" }}
 		/>
 	);
-	fireEvent.click(screen.getByRole("button", { name: "Task context" }));
-	if (input.choice !== "New task") {
-		fireEvent.click(await screen.findByText("Limit task access"));
-	}
-	fireEvent.click(await screen.findByText(input.choice));
+}
+
+it("keeps access restrictions when starting a new session", async () => {
+	const onChange = vi.fn();
+	render(
+		<DropdownMenu>
+			<DropdownMenuTrigger>Agent options</DropdownMenuTrigger>
+			<FluidDropdownMenuContent>
+				<SpaceComposerAgentOptions
+					choice={{
+						targetProfileId: "agent",
+						label: "Automatic",
+						selection: {
+							mode: "auto",
+							access: "read_only",
+							workspace: "current",
+						},
+					}}
+					onChange={onChange}
+					projectName="OpenMeld"
+					sources={[]}
+					supportsCurrentFolder={true}
+					targetProfileId="agent"
+				/>
+			</FluidDropdownMenuContent>
+		</DropdownMenu>
+	);
+	fireEvent.click(screen.getByRole("button", { name: "Agent options" }));
+	fireEvent.click(await screen.findByText("Session"));
+	fireEvent.click(await screen.findByText("Start new"));
 	expect(onChange).toHaveBeenCalledWith({
-		label: input.label,
-		selection: input.selection,
 		targetProfileId: "agent",
+		label: "Start new",
+		selection: { mode: "new", access: "read_only", workspace: "current" },
 	});
 });
 
@@ -102,19 +266,23 @@ it("sends the chosen Project and repository fingerprint with a new task", async 
 	const onChange = vi.fn();
 	render(
 		<QueryClientProvider client={queryClient}>
-			<SpaceComposerTaskMenu
-				disabled={false}
-				onChange={onChange}
-				organizationId={organizationId}
-				requiresProjectContainer={false}
-				sources={[]}
-				supportsCurrentFolder
-				targetProfileId="agent"
-			/>
+			<DropdownMenu>
+				<DropdownMenuTrigger>Agent options</DropdownMenuTrigger>
+				<FluidDropdownMenuContent>
+					<SpaceComposerAgentOptions
+						onChange={onChange}
+						organizationId={organizationId}
+						sources={[]}
+						supportsCurrentFolder
+						targetProfileId="agent"
+					/>
+				</FluidDropdownMenuContent>
+			</DropdownMenu>
 		</QueryClientProvider>
 	);
-	fireEvent.click(screen.getByRole("button", { name: "Task context" }));
-	fireEvent.click(await screen.findByText("Choose Project and repository…"));
+	fireEvent.click(screen.getByRole("button", { name: "Agent options" }));
+	fireEvent.click(await screen.findByText("Files"));
+	fireEvent.click(await screen.findByText("Choose Project…"));
 	fireEvent.change(await screen.findByRole("combobox", { name: "Project" }), {
 		target: { value: projectId },
 	});

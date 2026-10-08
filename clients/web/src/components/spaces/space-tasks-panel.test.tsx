@@ -1,4 +1,5 @@
 import { spaceTaskSchema } from "@openmeld/schemas/schemas";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
 	cleanup,
@@ -8,10 +9,15 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { spaceTaskQueryKeys } from "#/query/spaces/space-tasks";
 import {
 	SpaceTaskDetailDrawer,
 	type SpaceTaskDetailDrawerProps,
 } from "./space-task-detail-drawer";
+import {
+	SpaceMessageTaskReference,
+	SpaceTaskReferencesProvider,
+} from "./space-task-references";
 import { SpaceTasksPanel } from "./space-tasks-panel";
 import { useSpaceTasksPanelController } from "./use-space-tasks-panel-controller";
 
@@ -216,6 +222,77 @@ describe("SpaceTasksPanel", () => {
 		expect(screen.queryByText(message)).toBeNull();
 	});
 
+	it("preserves every task on one message and opens the exact selected task", () => {
+		const client = new QueryClient();
+		const second = {
+			...task,
+			taskId: "tsk_66666666-6666-4666-8666-666666666666",
+			title: "Finished follow-up",
+			phase: "done" as const,
+		};
+		client.setQueryData(spaceTaskQueryKeys.list("space-1"), {
+			tasks: [task, second],
+			truncated: false,
+		});
+		const onOpen = vi.fn();
+		render(
+			<QueryClientProvider client={client}>
+				<SpaceTaskReferencesProvider
+					disabled={false}
+					onOpen={onOpen}
+					profileId={requester.profileId}
+					spaceId="space-1"
+				>
+					<SpaceMessageTaskReference signalId="signal-1" />
+				</SpaceTaskReferencesProvider>
+			</QueryClientProvider>
+		);
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Open task: Follow the GitHub issue linkage",
+			})
+		);
+		expect(onOpen).toHaveBeenLastCalledWith(task.taskId);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Open task: Finished follow-up" })
+		);
+		expect(onOpen).toHaveBeenLastCalledWith(second.taskId);
+		expect(screen.getByText("Task · To do")).toBeTruthy();
+		expect(screen.getByText("Task · Done")).toBeTruthy();
+	});
+
+	it.each([
+		false,
+		true,
+	])("gates creation by active membership (%s), while opening a task outside the board list", (isMember) => {
+		vi.mocked(useSpaceTasksPanelController).mockReturnValue({
+			members: isMember ? [requester] : [],
+			mutateTask: vi.fn(),
+			pendingTaskId: null,
+			detailQuery: {
+				data: { task, events: [], allowedActions: [] },
+				isPending: false,
+			},
+			tasksQuery: { data: { tasks: [], truncated: false }, isPending: false },
+		} as unknown as ReturnType<typeof useSpaceTasksPanelController>);
+		render(
+			<SpaceTasksPanel
+				membersSnapshot={null}
+				onSelectTask={vi.fn()}
+				openMeldProfileId={requester.profileId}
+				selectedTaskId={task.taskId}
+				spaceId="space-1"
+			/>
+		);
+		expect(
+			Boolean(screen.queryByRole("button", { name: "New task", hidden: true }))
+		).toBe(isMember);
+		expect(screen.getByTestId("space-task-detail-drawer")).toBeTruthy();
+		expect(
+			screen.getByText(task.description ?? "Missing description")
+		).toBeTruthy();
+	});
+
 	it("keeps board cards compact until a card is opened for details", () => {
 		vi.mocked(useSpaceTasksPanelController).mockReturnValue({
 			addAndAssignTask: vi.fn(),
@@ -256,9 +333,7 @@ describe("SpaceTasksPanel", () => {
 				name: "Open details for Follow the GitHub issue linkage",
 			})
 		).toBeTruthy();
-		expect(
-			screen.getByText("Waiting for Amplifth Center Agent to start")
-		).toBeTruthy();
+		expect(screen.getByText("Amplifth Center Agent")).toBeTruthy();
 		expect(screen.getByText("amplifthq/openmeld#1143")).toBeTruthy();
 		expect(
 			screen.queryByText(
@@ -266,7 +341,7 @@ describe("SpaceTasksPanel", () => {
 			)
 		).toBeNull();
 		expect(screen.queryByText("Done when")).toBeNull();
-		expect(screen.queryByRole("button", { name: "Cancel Task" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "Cancel task" })).toBeNull();
 
 		fireEvent.click(
 			screen.getByRole("button", {
@@ -287,11 +362,11 @@ describe("SpaceTasksPanel", () => {
 		expect(
 			screen.getByRole("link", { name: "amplifthq/openmeld#1143" })
 		).toBeTruthy();
-		expect(screen.getByRole("button", { name: "Cancel Task" })).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Cancel task" })).toBeTruthy();
 
 		fireEvent.click(screen.getByRole("button", { name: "Close task details" }));
 		expect(screen.queryByText("Done when")).toBeNull();
-		expect(screen.queryByRole("button", { name: "Cancel Task" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "Cancel task" })).toBeNull();
 	});
 
 	it("filters this Space's Tasks by their explicit Project association", () => {
@@ -427,9 +502,7 @@ describe("SpaceTasksPanel", () => {
 		).toBeTruthy();
 		expect(screen.getByText("OpenMeld will retry automatically.")).toBeTruthy();
 		expect(
-			screen
-				.getByRole("link", { name: "Open source message" })
-				.getAttribute("href")
+			screen.getByRole("link", { name: "View message" }).getAttribute("href")
 		).toContain("focusSignalId=signal-1");
 		fireEvent.click(
 			screen.getByRole("button", { name: "Authorize another correction" })

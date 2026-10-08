@@ -2417,6 +2417,11 @@ export async function rpcMutateSpaceMessage(
 }
 export type PostSignalInput = {
   contextSelection?: import("@openmeld/schemas/types").ExecutionContextSelection;
+  contextSelections?: Record<
+    string,
+    import("@openmeld/schemas/types").ExecutionContextSelection
+  >;
+  taskDraft?: import("@openmeld/schemas/types").SignalText["data"]["taskDraft"];
   deviceWait?: SignalText["data"]["deviceWait"];
   agentStreamId?: string;
   spaceId: string;
@@ -2508,6 +2513,11 @@ export type StartUsageExhaustedContinuationInput = {
    * branch explicitly, because `auto` would resolve back to the same context.
    */
   contextSelection?: import("@openmeld/schemas/types").ExecutionContextSelection;
+  contextSelections?: Record<
+    string,
+    import("@openmeld/schemas/types").ExecutionContextSelection
+  >;
+  taskDraft?: import("@openmeld/schemas/types").SignalText["data"]["taskDraft"];
   interruptedClientMessageId: string;
   interruptedDispatchId: string;
   interruptedSourceSignalId: string;
@@ -19525,6 +19535,8 @@ export async function rpcPostSignal(
     ...(input.contextSelection
       ? { contextSelection: input.contextSelection }
       : {}),
+    contextSelections: input.contextSelections,
+    taskDraft: input.taskDraft,
     authoringPolicy: input.authoringPolicy,
     ...(attachments ? { attachments } : {}),
     ...(input.files ? { files: input.files } : {}),
@@ -19576,6 +19588,8 @@ export async function rpcPostSignalOnceByClientMessageId(
     ...(input.contextSelection
       ? { contextSelection: input.contextSelection }
       : {}),
+    contextSelections: input.contextSelections,
+    taskDraft: input.taskDraft,
     ...(input.agentStreamId === undefined
       ? {}
       : { agentStreamId: input.agentStreamId }),

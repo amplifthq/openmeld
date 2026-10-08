@@ -173,6 +173,7 @@ import {
 	SpaceLandingLoadingShell,
 	SpacePasswordRecoverySurface,
 } from "./space-state-surfaces";
+import { SpaceTaskReferencesProvider } from "./space-task-references";
 import { SpaceThreadLoadingPanel } from "./space-thread-loading";
 import { SpaceThreadPanel } from "./space-thread-panel";
 import type { SpaceView } from "./space-view";
@@ -232,6 +233,8 @@ function DelayedSpaceFilesFallback() {
 }
 
 function SpaceTasksPanelSlot(input: {
+	selectedTaskId: string | null;
+	onSelectTask: (taskId: string | null) => void;
 	enabled: boolean;
 	membersSnapshot: SpaceMembersSnapshot | null;
 	onOpenThread: (threadId: string) => void;
@@ -250,9 +253,11 @@ function SpaceTasksPanelSlot(input: {
 				key={input.spaceId}
 				membersSnapshot={input.membersSnapshot}
 				onOpenThread={input.onOpenThread}
+				onSelectTask={input.onSelectTask}
 				openMeldProfileId={input.openMeldProfileId}
 				organizationId={input.organizationId ?? undefined}
 				organizationSlug={input.organizationSlug}
+				selectedTaskId={input.selectedTaskId}
 				spaceId={input.spaceId}
 				spaceName={input.spaceName}
 			/>
@@ -516,6 +521,16 @@ function resolveSpaceInboxUnreadDestination(input: {
 }
 
 function useSpaceLandingState(input: SpaceLandingInput) {
+	const [taskSelection, setTaskSelection] = useState<{
+		spaceId: string | undefined;
+		taskId: string | null;
+	} | null>(null);
+	const selectedTaskId =
+		taskSelection?.spaceId === input.spaceId
+			? (taskSelection?.taskId ?? null)
+			: null;
+	const setSelectedTaskId = (taskId: string | null) =>
+		setTaskSelection({ spaceId: input.spaceId, taskId });
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const generatedSpaceViewId = useId();
@@ -1370,11 +1385,6 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 			directMessageConvertedAt: controller.status.directMessageConvertedAt,
 			purpose: controller.status.spacePurpose,
 		});
-	useEffect(() => {
-		if (isDirectMessage && spaceView === "tasks") {
-			changeSpaceView("messages");
-		}
-	}, [changeSpaceView, isDirectMessage, spaceView]);
 	const spaceMemberRemovalHandler = resolveSpaceMemberRemovalHandler({
 		canRemoveMembers: canCurrentProfileRemoveSpaceMembers,
 		isDirectMessage,
@@ -1419,6 +1429,8 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		spaceFileNavigation,
 		spaceInboxReadPosition,
 		spaceReferencesById,
+		selectedTaskId,
+		setSelectedTaskId,
 		spaceView,
 		spaceViewIdPrefix,
 		wakeDisplayOverrideByProfileId,
@@ -1813,9 +1825,7 @@ function SpaceLandingConversationShell({
 								currentSpaceIsCenterAgentDirectMessage && input.orgSlug ? (
 									<CenterAgentHeaderTabs
 										activeSectionId="chat"
-										activeSpaceView={resolveCenterAgentConversationView(
-											spaceView
-										)}
+										activeSpaceView={spaceView}
 										className="h-full shrink-0 gap-5"
 										idPrefix={spaceViewIdPrefix}
 										onSpaceViewChange={spaceFileNavigation.changeSpaceView}
@@ -1827,7 +1837,7 @@ function SpaceLandingConversationShell({
 										className="shrink-0"
 										idPrefix={spaceViewIdPrefix}
 										onViewChange={spaceFileNavigation.changeSpaceView}
-										tasksEnabled={!isDirectMessage}
+										tasksEnabled
 									/>
 								)
 							}
@@ -2328,6 +2338,10 @@ function SpaceLandingConversation({
 			onLoadEarlierHistory={controller.onLoadEarlierHistory}
 			onMentionButtonClick={controller.onMentionButtonClick}
 			onOpenSpaceFile={openSpaceFile}
+			onOpenTask={(taskId) => {
+				state.setSelectedTaskId(taskId);
+				spaceFileNavigation.changeSpaceView("tasks");
+			}}
 			onOpenThread={controller.onOpenThread}
 			onOpenUnreadThread={controller.onOpenUnreadThread}
 			onPrepareMarkAllRead={
@@ -2415,15 +2429,17 @@ function SpaceLandingConversation({
 			spaceViewIdPrefix={spaceViewIdPrefix}
 			tasks={
 				<SpaceTasksPanelSlot
-					enabled={!isDirectMessage}
+					enabled
 					membersSnapshot={controller.presentationMembersSnapshot}
 					onOpenThread={(threadId) => {
 						spaceFileNavigation.changeSpaceView("messages");
 						controller.onOpenThread(threadId);
 					}}
+					onSelectTask={state.setSelectedTaskId}
 					openMeldProfileId={controller.profileId}
 					organizationId={organizationId}
 					organizationSlug={input.orgSlug}
+					selectedTaskId={state.selectedTaskId}
 					spaceId={controller.spaceId}
 					spaceName={spaceName}
 				/>
@@ -2673,12 +2689,6 @@ function resolveReadySpaceEmptyStateDescription(input: {
 		: resolveSpaceConversationEmptyStateDescription(input);
 }
 
-function resolveCenterAgentConversationView(
-	view: SpaceView
-): Exclude<SpaceView, "tasks"> {
-	return view === "tasks" ? "messages" : view;
-}
-
 type AgentOwnerDirectMessageJoinState = {
 	defaultName: string;
 	errorMessage: string | null;
@@ -2911,122 +2921,141 @@ function SpaceLandingSecondaryPanels({
 	};
 	return (
 		<>
-			<SpaceThreadPanel
-				actionableAgentInteractionPlacement="pending-surface"
-				activeThread={controller.activeThread}
-				agentRecoveryPlansByProfileId={agentRecoveryPlansByProfileId}
-				agentStreams={controller.agentStreams}
-				automaticWakeConversationKind={
-					state.isDirectMessage ? automaticWakeConversationKind : null
-				}
-				centerAgentProfileId={centerAgentState.centerAgentProfileId}
-				composerAddressingTargets={controller.threadComposerAddressingTargets}
-				composerAuthoredMentions={controller.threadComposerAuthoredMentions}
-				composerBlockedWakeProfileId={
-					controller.threadComposerBlockedWakeProfileId
-				}
-				composerErrorMessage={controller.threadComposerErrorMessage}
-				composerFileCleanup={controller.threadComposerFileCleanup}
-				composerFileLimitReached={controller.threadComposerFileLimitReached}
-				composerFileRestorationError={
-					controller.threadComposerFileRestorationError
-				}
-				composerFiles={controller.threadComposerFiles}
-				composerHasAuthoredMentions={
-					controller.threadComposerHasAuthoredMentions
-				}
-				composerMembers={
-					controller.membersSnapshot
-						? undefined
-						: {
-								state: controller.membersError ? "error" : "loading",
-								onRetry: controller.onRefreshMembers,
-							}
-				}
-				composerMentionPickerItems={controller.threadComposerMentionPickerItems}
-				composerText={controller.threadComposerText}
-				currentOwnerUserId={currentOwnerUserId}
-				ephemeralActivityItems={controller.presentedWakeProgressItems}
-				filePreviewUrlsById={controller.threadFilePreviewUrlsById}
-				initialFocusRequestId={
-					controller.threadUnreadFocus?.requestId ?? input.initialFocusRequestId
-				}
-				initialFocusSignalId={
-					controller.threadUnreadFocus?.signalId ?? input.initialFocusSignalId
-				}
-				initialFocusThreadRootSignalId={
-					controller.threadUnreadFocus?.rootSignalId ??
-					input.initialFocusThreadRootSignalId
-				}
-				isAgentRecoveryPending={controller.isAgentRecoveryPending}
-				isCenterAgentDirectMessage={currentSpaceIsCenterAgentDirectMessage}
-				isDiagnosticReportPending={controller.isDiagnosticReportPending}
-				isDiagnosticReportSent={controller.isDiagnosticReportSent}
-				isDirectMessage={state.isDirectMessage}
-				isPersonalContext={input.isPersonalContext === true}
-				isSendingMessage={controller.isSendingThreadMessage}
-				membersSnapshot={controller.presentationMembersSnapshot}
-				modelCatalog={modelCatalog}
-				onAddComposerFiles={controller.onAddThreadComposerFiles}
-				onAddPeopleOrAgents={currentSpaceControls.onAddAgentsFromBanner}
-				onAgentInteractionResponse={controller.onAgentInteractionResponse}
-				onAgentRecoveryAction={handleAgentRecoveryAction}
-				onClose={controller.onCloseThread}
-				onComposeExpiredDeviceWait={
-					controller.status?.allowedActions.includes("post_message")
-						? controller.onThreadComposeExpiredDeviceWait
-						: undefined
-				}
-				onComposerEditorChange={controller.onThreadComposerEditorChange}
-				onMentionButtonClick={controller.onThreadMentionButtonClick}
-				onOpenSpaceFile={(fileId, revision) => {
+			<SpaceTaskReferencesProvider
+				disabled={!controller.threadPanelOpen}
+				onOpen={(taskId) => {
+					state.setSelectedTaskId(taskId);
 					controller.onCloseThread();
-					openSpaceFile(fileId, revision);
+					state.spaceFileNavigation.changeSpaceView("tasks");
 				}}
-				onRecoverExecution={controller.onRecoverExecution}
-				onRemoveComposerFile={controller.onRemoveThreadComposerFile}
-				onReportMessage={controller.onReportMessage}
-				onRetryComposerFile={controller.onRetryThreadComposerFile}
-				onRetryComposerFileCleanup={controller.onRetryThreadComposerFileCleanup}
-				onRetryComposerFileRestoration={
-					controller.onRetryThreadComposerFileRestoration
-				}
-				onSend={controller.onThreadSend}
-				onSendText={controller.onThreadSendText}
-				onShowMessageInMain={onShowMessageInMain}
-				onViewedUpdates={
-					input.readingEnabled !== false
-						? controller.onConversationViewedUpdates
-						: undefined
-				}
-				onWakeStopRequest={controller.onWakeStopRequest}
-				open={controller.threadPanelOpen}
-				organizationId={organizationId}
-				orgSlug={input.orgSlug}
-				pendingActionSurface={pendingActionSurface}
-				prepareSetupHref={prepareSetupHref}
-				profileControl={composerProfileControl}
-				readOnly={!currentProfileIsActiveSpaceMember}
-				selfAvatarImageUrl={currentUserAvatarImageUrl}
-				selfProfileId={controller.profileId}
-				signals={controller.threadSignals}
-				signalsErrorMessage={controller.threadSignalsErrorMessage}
-				signalsIsLoading={controller.threadSignalsIsLoading}
-				spaceReferencesById={spaceReferencesById}
-				spaceTimelineItems={controller.timelineItems}
-				textareaRef={controller.threadTextareaRef}
-				unreadBoundaryVersion={spaceInboxReadPosition.readBoundaryVersion}
-				unreadScopes={spaceInboxReadPosition.scopes}
-				unreadStateReady={spaceInboxReadPosition.isReady}
-				unreadTargets={spaceInboxReadPosition.targets}
-				wakeFailureTargetContextsByProfileId={
-					wakeFailureTargetContextsByProfileId
-				}
-				wakeRecommendationsEnabled={controller.threadWakeRecommendationsEnabled}
-				wakeStopRequestStatusBySelectorKey={
-					controller.wakeStopRequestStatusBySelectorKey
-				}
-			/>
+				organizationSlug={input.orgSlug}
+				profileId={controller.profileId}
+				spaceId={controller.spaceId}
+			>
+				<SpaceThreadPanel
+					actionableAgentInteractionPlacement="pending-surface"
+					activeThread={controller.activeThread}
+					agentRecoveryPlansByProfileId={agentRecoveryPlansByProfileId}
+					agentStreams={controller.agentStreams}
+					automaticWakeConversationKind={
+						state.isDirectMessage ? automaticWakeConversationKind : null
+					}
+					centerAgentProfileId={centerAgentState.centerAgentProfileId}
+					composerAddressingTargets={controller.threadComposerAddressingTargets}
+					composerAuthoredMentions={controller.threadComposerAuthoredMentions}
+					composerBlockedWakeProfileId={
+						controller.threadComposerBlockedWakeProfileId
+					}
+					composerErrorMessage={controller.threadComposerErrorMessage}
+					composerFileCleanup={controller.threadComposerFileCleanup}
+					composerFileLimitReached={controller.threadComposerFileLimitReached}
+					composerFileRestorationError={
+						controller.threadComposerFileRestorationError
+					}
+					composerFiles={controller.threadComposerFiles}
+					composerHasAuthoredMentions={
+						controller.threadComposerHasAuthoredMentions
+					}
+					composerMembers={
+						controller.membersSnapshot
+							? undefined
+							: {
+									state: controller.membersError ? "error" : "loading",
+									onRetry: controller.onRefreshMembers,
+								}
+					}
+					composerMentionPickerItems={
+						controller.threadComposerMentionPickerItems
+					}
+					composerText={controller.threadComposerText}
+					currentOwnerUserId={currentOwnerUserId}
+					ephemeralActivityItems={controller.presentedWakeProgressItems}
+					filePreviewUrlsById={controller.threadFilePreviewUrlsById}
+					initialFocusRequestId={
+						controller.threadUnreadFocus?.requestId ??
+						input.initialFocusRequestId
+					}
+					initialFocusSignalId={
+						controller.threadUnreadFocus?.signalId ?? input.initialFocusSignalId
+					}
+					initialFocusThreadRootSignalId={
+						controller.threadUnreadFocus?.rootSignalId ??
+						input.initialFocusThreadRootSignalId
+					}
+					isAgentRecoveryPending={controller.isAgentRecoveryPending}
+					isCenterAgentDirectMessage={currentSpaceIsCenterAgentDirectMessage}
+					isDiagnosticReportPending={controller.isDiagnosticReportPending}
+					isDiagnosticReportSent={controller.isDiagnosticReportSent}
+					isDirectMessage={state.isDirectMessage}
+					isPersonalContext={input.isPersonalContext === true}
+					isSendingMessage={controller.isSendingThreadMessage}
+					membersSnapshot={controller.presentationMembersSnapshot}
+					modelCatalog={modelCatalog}
+					onAddComposerFiles={controller.onAddThreadComposerFiles}
+					onAddPeopleOrAgents={currentSpaceControls.onAddAgentsFromBanner}
+					onAgentInteractionResponse={controller.onAgentInteractionResponse}
+					onAgentRecoveryAction={handleAgentRecoveryAction}
+					onClose={controller.onCloseThread}
+					onComposeExpiredDeviceWait={
+						controller.status?.allowedActions.includes("post_message")
+							? controller.onThreadComposeExpiredDeviceWait
+							: undefined
+					}
+					onComposerEditorChange={controller.onThreadComposerEditorChange}
+					onMentionButtonClick={controller.onThreadMentionButtonClick}
+					onOpenSpaceFile={(fileId, revision) => {
+						controller.onCloseThread();
+						openSpaceFile(fileId, revision);
+					}}
+					onRecoverExecution={controller.onRecoverExecution}
+					onRemoveComposerFile={controller.onRemoveThreadComposerFile}
+					onReportMessage={controller.onReportMessage}
+					onRetryComposerFile={controller.onRetryThreadComposerFile}
+					onRetryComposerFileCleanup={
+						controller.onRetryThreadComposerFileCleanup
+					}
+					onRetryComposerFileRestoration={
+						controller.onRetryThreadComposerFileRestoration
+					}
+					onSend={controller.onThreadSend}
+					onSendText={controller.onThreadSendText}
+					onShowMessageInMain={onShowMessageInMain}
+					onViewedUpdates={
+						input.readingEnabled !== false
+							? controller.onConversationViewedUpdates
+							: undefined
+					}
+					onWakeStopRequest={controller.onWakeStopRequest}
+					open={controller.threadPanelOpen}
+					organizationId={organizationId}
+					orgSlug={input.orgSlug}
+					pendingActionSurface={pendingActionSurface}
+					prepareSetupHref={prepareSetupHref}
+					profileControl={composerProfileControl}
+					readOnly={!currentProfileIsActiveSpaceMember}
+					selfAvatarImageUrl={currentUserAvatarImageUrl}
+					selfProfileId={controller.profileId}
+					signals={controller.threadSignals}
+					signalsErrorMessage={controller.threadSignalsErrorMessage}
+					signalsIsLoading={controller.threadSignalsIsLoading}
+					spaceReferencesById={spaceReferencesById}
+					spaceTimelineItems={controller.timelineItems}
+					textareaRef={controller.threadTextareaRef}
+					unreadBoundaryVersion={spaceInboxReadPosition.readBoundaryVersion}
+					unreadScopes={spaceInboxReadPosition.scopes}
+					unreadStateReady={spaceInboxReadPosition.isReady}
+					unreadTargets={spaceInboxReadPosition.targets}
+					wakeFailureTargetContextsByProfileId={
+						wakeFailureTargetContextsByProfileId
+					}
+					wakeRecommendationsEnabled={
+						controller.threadWakeRecommendationsEnabled
+					}
+					wakeStopRequestStatusBySelectorKey={
+						controller.wakeStopRequestStatusBySelectorKey
+					}
+				/>
+			</SpaceTaskReferencesProvider>
 			{input.orgSlug ? (
 				<SpaceLandingMembersChrome
 					drawerProps={{
