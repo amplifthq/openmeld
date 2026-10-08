@@ -197,12 +197,17 @@ export {
   DESKTOP_UPDATE_FEED_URL,
   DESKTOP_WINDOWS_INTERNAL_PREVIEW_KEY,
   type DesktopCandidateManifest,
+  type DesktopDownloadRelease,
+  type DesktopDownloads,
   type DesktopReleasePlatform,
   desktopCandidateIdSchema,
   desktopCandidateLocation,
   desktopCandidateManifestKey,
   desktopCandidateManifestSchema,
   desktopCandidateUpdateArtifact,
+  desktopDownloadQuerySchema,
+  desktopDownloadReleaseSchema,
+  desktopDownloadsSchema,
   desktopPlatformUpdateFeedUrl,
   desktopPromotedReleaseKey,
   desktopPromotedReleaseSchema,
@@ -409,6 +414,7 @@ export {
   cloudComputerSchema,
   cloudComputerStorageSchema,
   cloudComputerWorkerRequestSchema,
+  REMOTE_AGENT_COMPUTER_CLEANUP_FAILED_CODE,
 } from "./schemas/runtime/cloud-computer";
 export {
   pluginConnectionDescriptionSchema,
@@ -557,6 +563,17 @@ export {
   spaceWorkSelectionSchema,
 } from "./space-work-handoff";
 export type * from "./types/index";
+export {
+  normalizeUserTimeZone,
+  observeUserTimeZone,
+  resolveUserTimeContext,
+  USER_TIME_ZONE_INTERACTIVE_PRIORITY_MS,
+  userRequestTimeContextSchema,
+  userTimeContextSchema,
+  userTimeZoneObservationSchema,
+  userTimeZoneObservationSourceSchema,
+  userTimeZoneSchema,
+} from "./user-time-context";
 export {
   WEB_APPLICATION_ERROR_MAX_BYTES,
   WEB_APPLICATION_ERROR_PATH,

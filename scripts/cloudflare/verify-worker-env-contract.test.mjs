@@ -19,13 +19,16 @@ const root = path.resolve(import.meta.dirname, "../..");
 const owner = "src/organizations/account-deletion.ts";
 const AVATAR_CONTRACT_ERROR =
   /@openmeld\/core (?:top-level|env\.prod).*OPENMELD_ACCOUNT_AVATARS/u;
+const POSTGRESQL_CONTRACT_ERROR = /OPENMELD_POSTGRESQL/u;
 
 for (const scenario of [
   "historical-without-owner",
   "owner-missing-binding",
   "owner-wrong-bucket",
+  "historical-staging",
+  "production-missing-postgresql",
 ]) {
-  test(`current verifier validates product-owned Core avatar storage: ${scenario}`, () => {
+  test(`current verifier validates production source contracts: ${scenario}`, () => {
     const product = mkdtempSync(
       path.join(tmpdir(), "openmeld-worker-env-source-")
     );
@@ -79,11 +82,20 @@ for (const scenario of [
           section.r2_buckets.find(
             ({ binding }) => binding === "OPENMELD_ACCOUNT_AVATARS"
           ).bucket_name = "wrong-avatar-bucket";
-        } else {
+        } else if (
+          scenario !== "historical-staging" &&
+          scenario !== "production-missing-postgresql"
+        ) {
           section.r2_buckets = section.r2_buckets.filter(
             ({ binding }) => binding !== "OPENMELD_ACCOUNT_AVATARS"
           );
         }
+      }
+      if (scenario === "historical-staging") {
+        config.env.stg.hyperdrive = undefined;
+      }
+      if (scenario === "production-missing-postgresql") {
+        config.env.prod.hyperdrive = undefined;
       }
       writeFileSync(path.join(core, "wrangler.jsonc"), JSON.stringify(config));
       const result = spawnSync(
@@ -104,11 +116,37 @@ for (const scenario of [
       assert.equal(result.error, undefined);
       assert.equal(
         result.status,
-        scenario === "historical-without-owner" ? 0 : 1,
+        ["historical-without-owner", "historical-staging"].includes(scenario)
+          ? 0
+          : 1,
         result.stderr
       );
-      if (scenario !== "historical-without-owner") {
+      if (scenario.startsWith("owner-")) {
         assert.match(result.stderr, AVATAR_CONTRACT_ERROR);
+      }
+      if (scenario === "production-missing-postgresql") {
+        assert.match(result.stderr, POSTGRESQL_CONTRACT_ERROR);
+      }
+      if (scenario === "historical-staging") {
+        const all = spawnSync(
+          process.execPath,
+          [
+            path.join(
+              root,
+              "scripts/cloudflare/verify-worker-env-contract.mjs"
+            ),
+            "--profile",
+            "all",
+          ],
+          {
+            cwd: product,
+            env: { ...process.env, OPENMELD_VERIFICATION_ROOT: product },
+            encoding: "utf8",
+            timeout: 10_000,
+          }
+        );
+        assert.equal(all.status, 1);
+        assert.match(all.stderr, POSTGRESQL_CONTRACT_ERROR);
       }
     } finally {
       rmSync(product, { recursive: true, force: true });

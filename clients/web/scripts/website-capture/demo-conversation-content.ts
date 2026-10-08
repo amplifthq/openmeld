@@ -14,6 +14,63 @@ type DemoSampleMessage = {
 	wakeTargetProfileIds?: readonly string[];
 };
 
+export type DemoThread = {
+	id: string;
+	rootIndex: number;
+	replies: readonly (DemoSampleMessage & { index: number })[];
+};
+
+export const demoCheckoutThreads: readonly DemoThread[] = [
+	{
+		id: "billing-review",
+		rootIndex: 1,
+		replies: [
+			{
+				name: "Claude Code",
+				kind: "agent",
+				text: "I’ll check partial refunds and zero-dollar orders against your billing spec.",
+				index: 1.5,
+			},
+			{
+				name: "Maya Chen",
+				kind: "human",
+				text: "Include a full refund too. The total should always match the original charge.",
+				index: 2,
+			},
+			{
+				name: "Claude Code",
+				kind: "agent",
+				text: "Confirmed. Partial refunds, full refunds, and zero-dollar orders all match the spec.",
+				index: 3.5,
+			},
+		],
+	},
+	{
+		id: "patch-review",
+		rootIndex: 3,
+		replies: [
+			{
+				name: "James Lee",
+				kind: "human",
+				text: "What caused the rounding error? Any database changes?",
+				index: 3.5,
+			},
+			{
+				name: "Codex",
+				kind: "agent",
+				text: "The checkout rounded before applying the refund. The patch rounds the final total. No database changes.",
+				index: 4,
+			},
+			{
+				name: "Maya Chen",
+				kind: "human",
+				text: "Billing review passed. Keep the release on hold until James approves the patch.",
+				index: 4.5,
+			},
+		],
+	},
+];
+
 export const demoSampleMessages: Record<string, readonly DemoSampleMessage[]> =
 	{
 		release: [

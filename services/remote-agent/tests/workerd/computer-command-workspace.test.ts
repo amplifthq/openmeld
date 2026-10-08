@@ -3,7 +3,11 @@ import { expect, it } from "vitest";
 import { verifyDurableCommandResults } from "../fixtures/computer-command-results";
 import { verifyRetainedCommandPolling } from "../fixtures/computer-command-workspace";
 
-it("retains the result through a failed SDK pull and expired native record under workerd", async () => {
+it.each([
+  "complete",
+  "ENOENT",
+  "EEXEC_LOST",
+] as const)("retains the result after sync ends as %s under workerd", async (syncOutcome) => {
   const namespace = (env as { COMPUTER_PROBE: DurableObjectNamespace })
     .COMPUTER_PROBE;
   const stub = namespace.get(namespace.newUniqueId());
@@ -19,7 +23,8 @@ it("retains the result through a failed SDK pull and expired native record under
         transactionSync: (operation) =>
           state.storage.transactionSync(operation),
       },
-      state.storage.sql
+      state.storage.sql,
+      syncOutcome
     );
   });
   expect(result.pending).toMatchObject({
@@ -27,10 +32,17 @@ it("retains the result through a failed SDK pull and expired native record under
     syncPending: true,
     exitCode: 0,
   });
+  expect(result.pendingCleanup).toEqual({
+    unfinished: 1,
+    lostDuringCleanup: false,
+  });
   expect(result.recovered).toMatchObject({
-    status: "completed",
+    status: syncOutcome === "complete" ? "completed" : "running",
     stdout: "DONE\n",
     exitCode: 0,
+    ...(syncOutcome === "complete"
+      ? {}
+      : { syncError: syncOutcome, nextAction: "inspect" }),
   });
   expect(result.cleanup).toEqual({ unfinished: 0, lostDuringCleanup: false });
   expect(result.starts).toBe(1);

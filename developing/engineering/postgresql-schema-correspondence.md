@@ -69,6 +69,12 @@ lists, and does not invent provider receipts or Task associations. The two new
 projection tables participate in native inventory and fresh-target emptiness
 checks; read-only reconciliation preserves later PostgreSQL writes.
 
+Migration `0029_user_time_context` adds the PostgreSQL-only `user_time_contexts`
+table. Historical D1 has no timezone observations to import. The table participates
+in native inventory and fresh-target emptiness checks, while read-only
+reconciliation preserves later observations. Fresh imports leave it empty rather
+than inventing a user's timezone.
+
 Migration `0016` adds the PostgreSQL-only `cloud_computers` account directory.
 It has no historical D1 rows. The D1 importer explicitly includes this table in
 its native inventory and fresh-target emptiness checks, while copying and

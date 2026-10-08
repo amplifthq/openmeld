@@ -68,9 +68,20 @@ describe("exact-execution input intake", () => {
     const firstSource = createRemoteAgentSteeringSource({ storage, context });
     const pending = await firstSource.claim();
     expect(pending).toHaveLength(1);
-    expect(pending[0]?.input.message).toEqual({
+    const message = pending[0]?.input.message;
+    expect(message).toMatchObject({
       kind: "user",
-      body: request.text,
+      body: expect.stringContaining(request.text),
+    });
+    expect(message).toMatchObject({
+      body: expect.stringContaining(
+        "Request received at UTC: 1970-01-01T00:00:00.200Z"
+      ),
+    });
+    expect(message).toMatchObject({
+      body: expect.stringContaining(
+        "Request timezone: UTC (UTC fallback: no valid user timezone)"
+      ),
     });
     const rebuilt = createRemoteAgentSteeringSource({ storage, context });
     expect(await rebuilt.claim()).toEqual(pending);
@@ -93,6 +104,52 @@ describe("exact-execution input intake", () => {
         nowMs: 300,
       })
     ).resolves.toEqual({ status: "rejected", reason: "input_conflict" });
+  });
+
+  it("keeps an active Steer's accepted timezone and timestamp through replay and a rebuilt source", async () => {
+    const { storage, context, request } = await fixture();
+    const accepted = {
+      ...request,
+      requestTimeContext: {
+        submittedAtMs: 150,
+        userTime: {
+          timeZone: "Asia/Taipei",
+          source: "desktop" as const,
+          observedAtMs: 150,
+        },
+      },
+    };
+    await receiveRemoteAgentExecutionInput({
+      storage,
+      request: accepted,
+      nowMs: 200,
+    });
+    await receiveRemoteAgentExecutionInput({
+      storage,
+      request: accepted,
+      nowMs: 10_000,
+    });
+    const first = await createRemoteAgentSteeringSource({
+      storage,
+      context,
+    }).claim();
+    const rebuilt = await createRemoteAgentSteeringSource({
+      storage,
+      context,
+    }).claim();
+    expect(first).toEqual(rebuilt);
+    const message = first[0]?.input.message;
+    expect(message).toMatchObject({
+      body: expect.stringContaining(
+        "Request received at UTC: 1970-01-01T00:00:00.150Z"
+      ),
+    });
+    expect(message).toMatchObject({
+      body: expect.stringContaining(
+        "Request timezone: Asia/Taipei (authenticated desktop observation)"
+      ),
+    });
+    expect(JSON.stringify(message)).not.toContain("1970-01-01T00:00:10.000Z");
   });
 
   it("rejects a different sender and does not broaden the original execution's authority", async () => {

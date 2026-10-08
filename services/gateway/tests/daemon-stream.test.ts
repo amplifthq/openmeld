@@ -31,6 +31,7 @@ function createAuthWorkerMock(input?: Partial<AuthRpcMock>) {
       ok: true,
       claims: {
         authenticated: true,
+        callerPrincipalId: "owner-001",
         requestId: "req-test",
         profileId: "11111111-1111-4111-8111-111111111111",
         profileKind: "human",
@@ -126,7 +127,13 @@ describe("gateway daemon stream", () => {
 
     const response = await app.fetch(
       new Request("http://local/v1/daemon/stream", {
-        headers: { Upgrade: "websocket" },
+        headers: {
+          Upgrade: "websocket",
+          "x-openmeld-user-time-zone": "Asia/Taipei",
+          "x-openmeld-user-time-zone-source": "desktop",
+          "x-openmeld-caller-principal-id": "spoofed-user",
+          "x-openmeld-owner-user-id": "spoofed-user",
+        },
       }),
       env,
       TEST_EXECUTION_CONTEXT
@@ -144,6 +151,18 @@ describe("gateway daemon stream", () => {
     }
     expect(new URL(upstreamRequest.url).pathname).toBe("/v1/daemon/stream");
     expect(upstreamRequest.headers.get("Upgrade")).toBe("websocket");
+    expect(upstreamRequest.headers.get("x-openmeld-user-time-zone")).toBe(
+      "Asia/Taipei"
+    );
+    expect(
+      upstreamRequest.headers.get("x-openmeld-user-time-zone-source")
+    ).toBe("desktop");
+    expect(upstreamRequest.headers.get("x-openmeld-caller-principal-id")).toBe(
+      "owner-001"
+    );
+    expect(upstreamRequest.headers.get("x-openmeld-owner-user-id")).toBe(
+      "owner-001"
+    );
   });
 
   it("forwards the recognized Computer file access capability to Core", async () => {

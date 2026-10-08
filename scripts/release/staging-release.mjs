@@ -2,7 +2,6 @@
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { assertProductDatabaseReleaseSupported } from "./database-backend-admission.mjs";
 import { executeWithProductionScopeLeases } from "./production-release.mjs";
 import {
   admitWebsiteDomainRelease,
@@ -178,27 +177,18 @@ export function buildStagingDeployStepSpecs(input = {}) {
       label: "Create staging Worker identities",
       mutates: true,
     }),
-    stagingComponentStep({
-      args: [
-        "--filter",
-        "@openmeld/auth-worker",
-        "exec",
-        "wrangler",
-        "d1",
-        "migrations",
-        "apply",
-        "OPENMELD_DB",
-        "--config",
-        "wrangler.jsonc",
-        "--env",
-        "stg",
-        "--remote",
-      ],
-      command: "pnpm",
-      component: "auth",
+    {
+      args: ["tooling/postgresql/cloud.mjs", "migrate", "staging"],
+      command: "node",
       label: "Apply staging database migrations",
       mutates: true,
-    }),
+    },
+    {
+      args: ["tooling/postgresql/cloud.mjs", "grant-runtime", "staging"],
+      command: "node",
+      label: "Grant staging runtime access",
+      mutates: true,
+    },
     workerDeployStep("auth", "@openmeld/auth-worker", "Auth"),
     workerDeployStep("core", "@openmeld/core", "Core"),
     workerDeployStep("gateway", "@openmeld/gateway", "Gateway"),
@@ -235,7 +225,6 @@ async function runStagingRelease(input) {
     return;
   }
   if (input.command === "deploy") {
-    assertProductDatabaseReleaseSupported();
     assertCleanWorktree();
     if (!process.env.CLOUDFLARE_API_TOKEN) {
       runStep(

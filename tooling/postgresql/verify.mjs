@@ -6,7 +6,11 @@ import { pathToFileURL } from "node:url";
 import { parseJsoncObject } from "../../packages/db/src/tooling/parse-jsonc.ts";
 
 const hyperdriveIdPattern = /^[a-f0-9]{32}$/u;
-export function verifyPostgresqlEnvironment(root) {
+export function verifyPostgresqlEnvironment(root, { profile = "all" } = {}) {
+  assert(
+    ["all", "production"].includes(profile),
+    "Unknown environment profile"
+  );
   const directory = path.join(root, "tooling/postgresql");
   const inventory = JSON.parse(
     readFileSync(path.join(directory, "resources.json"), "utf8")
@@ -86,6 +90,19 @@ export function verifyPostgresqlEnvironment(root) {
         section.d1_databases,
         undefined,
         `${service} must have one relational authority`
+      );
+    }
+    if (profile === "all") {
+      assert.deepEqual(config.env.stg.hyperdrive, [
+        {
+          binding: "OPENMELD_POSTGRESQL",
+          id: inventory.environments.staging.hyperdriveId,
+        },
+      ]);
+      assert.equal(
+        config.env.stg.d1_databases,
+        undefined,
+        `${service} staging must have one relational authority`
       );
     }
   }

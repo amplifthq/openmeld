@@ -3,6 +3,9 @@
 @import "fumadocs-ui/css/preset.css";
 @import "@openmeld/ui/fonts.css";
 @source "../../../../packages/ui/src/components/openmeld-wordmark.tsx";
+@source "../../../../packages/ui/src/components/open-app-button.tsx";
+@source "../../../../packages/ui/src/components/platform-badge.tsx";
+@source "../../../../packages/ui/src/components/button.tsx";
 
 @theme inline {
   --font-sans: var(--font-ui-sans);
