@@ -60,7 +60,10 @@ import {
 	type SpaceMessageReferencesById,
 	SpaceMessageReferenceText,
 } from "./space-message-reference";
-import { SpaceMessageTaskReference } from "./space-task-references";
+import {
+	taskMessageBodyText,
+	useSpaceMessageTask,
+} from "./space-task-references";
 import { useSpaceWakeStopRequestStatuses } from "./space-wake-stop-control";
 import { usePluginConnectionReply } from "./use-plugin-connection-reply";
 import { useSpaceStreamDisplayText } from "./use-space-stream-display-text";
@@ -412,6 +415,7 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 	}
 ) {
 	const text = input.textPresentation;
+	const task = useSpaceMessageTask(input.item.id);
 	const references = useSpaceMessageReferencePresentation(input);
 	const className = cn(
 		"break-words content-space-message [overflow-wrap:anywhere]",
@@ -464,7 +468,13 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 		renderProfileTrigger: input.renderProfileTrigger,
 		referencesById: references.spaceReferencesById,
 		renderInternalLink: references.renderInternalLink,
-		renderedText: text.renderedText,
+		renderedText: taskMessageBodyText(
+			task,
+			input.item.text,
+			references.profileMentionProfilesById.size,
+			text.renderedText,
+			input.includeAttachments === false
+		),
 		shouldRenderMarkdown,
 	});
 	const inlineTargetIds = new Set(
@@ -514,13 +524,7 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 			attachments={attachments}
 			body={
 				<>
-					<SpaceMessageTaskReference
-						preserveBody={references.profileMentionProfilesById.size > 0}
-						signalId={input.item.id}
-						text={input.item.text}
-					>
-						{addressedBody}
-					</SpaceMessageTaskReference>
+					{addressedBody}
 					{isStoppedSpaceReply(input.item) ? (
 						<p
 							className="text-muted-foreground text-xs leading-5"

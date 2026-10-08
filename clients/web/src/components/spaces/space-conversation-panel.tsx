@@ -241,7 +241,10 @@ import { SpaceGraphSkeleton } from "./space-panel-skeletons";
 import { resolveSpacePendingAgentActionIdentity } from "./space-pending-agent-action-model";
 import { SpacePinnedItemsBar } from "./space-pins";
 import { useSpaceReadingHeader } from "./space-reading-header";
-import { SpaceTaskReferencesProvider } from "./space-task-references";
+import {
+	SpaceMessageTaskReference,
+	SpaceTaskReferencesProvider,
+} from "./space-task-references";
 import { SpaceConversationUnreadControl } from "./space-unread-control";
 import { getSpaceViewIndex, type SpaceView } from "./space-view";
 import { SpaceComposerActiveWakes } from "./space-wake-bookmarks";
@@ -3034,6 +3037,11 @@ function ConversationBubbleContent(input: {
 			ref={(element) => {
 				parent.registerMessageElement(input.item.id, element);
 			}}
+			references={
+				<SpaceMessageTaskReference
+					signalId={input.item.recalledAt ? undefined : input.item.id}
+				/>
+			}
 			tabIndex={-1}
 		>
 			{!parent.isDirectMessage && (

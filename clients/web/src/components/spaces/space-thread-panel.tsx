@@ -172,6 +172,7 @@ import {
 } from "./space-outcome-row";
 import { resolveSpaceOutcomeRowTone } from "./space-outcome-tone";
 import { resolveSpacePendingAgentActionIdentity } from "./space-pending-agent-action-model";
+import { SpaceMessageTaskReference } from "./space-task-references";
 import {
 	ThreadMessagesLoading,
 	ThreadPanelHeader,
@@ -1649,6 +1650,13 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 										ref={(element) => {
 											input.registerMessageElement(input.item.id, element);
 										}}
+										references={
+											<SpaceMessageTaskReference
+												signalId={
+													input.item.recalledAt ? undefined : input.item.id
+												}
+											/>
+										}
 										tabIndex={-1}
 									>
 										{input.item.actorProfileKind === "agent" ? (

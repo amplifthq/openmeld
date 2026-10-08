@@ -1,5 +1,4 @@
 import type { SpaceTask } from "@openmeld/schemas/types";
-import { CheckSquareIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { createContext, type ReactNode, useContext, useMemo } from "react";
 import {
@@ -7,6 +6,8 @@ import {
 	createUnscopedWebSpaceApi,
 } from "#/lib/spaces/api";
 import { spaceTaskQueryKeys } from "#/query/spaces/space-tasks";
+import { SpaceMessageResourceCard } from "./space-message-resource-card";
+import { formatSpaceTaskPhase } from "./space-task-presentation";
 
 const TaskReferences = createContext<{
 	bySource: ReadonlyMap<string, SpaceTask>;
@@ -57,33 +58,48 @@ export function SpaceTaskReferencesProvider(input: {
 	);
 }
 
-export function SpaceMessageTaskReference(input: {
-	signalId?: string;
-	text: string;
-	preserveBody?: boolean;
-	children: ReactNode;
-}) {
+export function useSpaceMessageTask(signalId?: string) {
+	const references = useContext(TaskReferences);
+	return signalId ? references?.bySource.get(signalId) : undefined;
+}
+
+export function taskMessageBodyText(
+	task: SpaceTask | undefined,
+	text: string,
+	mentionCount: number,
+	renderedText: string,
+	hasSeparateCard: boolean
+) {
+	return hasSeparateCard &&
+		task &&
+		mentionCount === 0 &&
+		text.trim() === task.title
+		? ""
+		: renderedText;
+}
+
+export function SpaceMessageTaskReference(input: { signalId?: string }) {
 	const references = useContext(TaskReferences);
 	const task = input.signalId
 		? references?.bySource.get(input.signalId)
 		: undefined;
 	if (!task) {
-		return input.children;
+		return null;
 	}
 	return (
-		<>
-			<button
-				className="mb-2 flex max-w-full items-center gap-2 rounded-md border border-border px-3 py-2 text-left text-sm hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-				onClick={references?.onOpen}
-				type="button"
-			>
-				<CheckSquareIcon aria-hidden="true" className="size-4 shrink-0" />
-				<span className="truncate">{task.title}</span>
-				<span className="text-muted-foreground text-xs">Task</span>
-			</button>
-			{!input.preserveBody && input.text.trim() === task.title
-				? null
-				: input.children}
-		</>
+		<SpaceMessageResourceCard
+			className="h-auto w-80 max-w-full whitespace-normal py-3 group-data-[align=end]/bubble:self-end"
+			label={`Open task: ${task.title}`}
+			onOpen={references?.onOpen}
+		>
+			<span className="min-w-0">
+				<span className="line-clamp-2 break-words font-medium text-sm leading-5">
+					{task.title}
+				</span>
+				<span className="mt-1 block text-muted-foreground text-xs">
+					Task · {formatSpaceTaskPhase(task.phase)}
+				</span>
+			</span>
+		</SpaceMessageResourceCard>
 	);
 }
