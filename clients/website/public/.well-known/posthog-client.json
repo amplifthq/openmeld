@@ -1,7 +1,7 @@
 {
   "client_id": "https://openmeld.ai/.well-known/posthog-client.json",
   "client_name": "OpenMeld",
-  "logo_uri": "https://openmeld.ai/icon-512.png",
+  "logo_uri": "https://openmeld.ai/brand/openmeld-letter-o-dark-1024.png",
   "redirect_uris": ["https://connectors.openmeld.ai/oauth/callback"],
   "token_endpoint_auth_method": "none",
   "grant_types": ["authorization_code"],

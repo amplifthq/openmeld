@@ -26,6 +26,13 @@ outputs. `scripts/vite/shared-public-assets.mjs` materializes ignored client
 copies when Vite loads. Edit shared sources, not generated copies. Shared font
 declarations live in `packages/ui/src/styles/fonts.css`.
 
+Static brand exports follow [the brand asset guide](../../packages/ui/brand/README.md).
+Run `pnpm brand:generate` to update the shared public images and the existing
+Desktop resources; `pnpm brand:preview` renders the approved surface matrix.
+Browser tabs and menu bars use the wider monochrome O. Large brand images and
+Desktop retain the outlined glow treatment. The generator and interactive logo
+share `lib/openmeld-logo-lines.ts`; clients must not introduce private masters.
+
 Docs also consumes the wordmark, fonts, and shared public assets. It retains
 Fumadocs' layout CSS and accessible compound components. See `docs.md` for
 the boundary when composing Fluid primitives with its Base UI version.
