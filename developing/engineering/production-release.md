@@ -1942,6 +1942,13 @@ downstream patch from the next OpenMeld release branch, and validate that exact
 remote SHA before deployment. Synchronizing the fork alone never requires a
 production redeploy.
 
+The reviewed runtime supports managed authorization requests and event subscription
+maintenance. Keep the once-per-minute `triggers.crons` in both tracked deployment
+configs. The guarded command applies pending migrations before deploying the
+scheduled handler. After deployment, verify scheduled invocations and maintenance
+progress separately from HTTP health. Do not configure a managed-cloud project or
+expand OAuth grants as part of an ordinary source upgrade.
+
 The command regenerates the provider catalog, builds and copies the Web assets,
 applies pending remote D1 migrations, and deploys the Worker with the tracked
 policy while preserving Cloudflare secrets. When every canonical secret is
