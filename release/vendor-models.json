@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-07T05:38:41.987Z",
+  "updatedAt": "2026-10-08T09:50:35Z",
   "agentControllers": {
     "antigravity": {
       "defaultModelId": "gemini-3.8-flash-high",
@@ -273,6 +273,14 @@
       },
       "models": [
         {
+          "id": "claude-haiku-5-5",
+          "displayName": "Claude Haiku 5.5",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+          "minCliVersion": "2.1.293"
+        },
+        {
           "id": "claude-sonnet-5-5",
           "displayName": "Claude Sonnet 5.5",
           "unavailable": false,
@@ -373,6 +381,14 @@
     "cursor": {
       "defaultModelId": "default[]",
       "models": [
+        {
+          "id": "claude-haiku-5-5[thinking=true,context=300k,reasoning_effort=high]",
+          "displayName": "Claude Haiku 5.5",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": [],
+          "minCliVersion": "2026.09.28"
+        },
         {
           "id": "claude-opus-5-5[context=300k,effort=medium,fast=false]",
           "displayName": "Claude Opus 5.5",
@@ -700,6 +716,22 @@
     "opencode": {
       "defaultModelId": "opencode/mimo-v2.6-flash-free",
       "models": [
+        {
+          "id": "opencode/claude-haiku-5-5",
+          "displayName": "Claude Haiku 5.5 (Zen)",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+          "minCliVersion": "1.18.34"
+        },
+        {
+          "id": "opencode-go/claude-haiku-5-5",
+          "displayName": "Claude Haiku 5.5 (Go)",
+          "badgeLabel": "New",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+          "minCliVersion": "1.18.34"
+        },
         {
           "id": "opencode/mistral-large-4",
           "displayName": "OpenCode Mistral Large 4",
@@ -1367,6 +1399,21 @@
         "personalRemoteAgentDefaultModelId": "openai/gpt-6-sol"
       },
       "models": [
+        {
+          "id": "anthropic/claude-haiku-5.5",
+          "displayName": "Claude Haiku 5.5",
+          "badgeLabel": "New",
+          "hostedRuntime": {
+            "provider": "openrouter",
+            "inputModalities": ["text", "image"],
+            "contextWindow": 1000000,
+            "maxOutputTokens": 16384,
+            "reasoningLevel": "medium"
+          },
+          "unavailable": false,
+          "supportedReasoningLevels": ["max", "xhigh", "high", "medium", "low"],
+          "minCliVersion": null
+        },
         {
           "id": "openai/gpt-6.1-sol-pro",
           "displayName": "GPT-6.1 Sol (Pro mode)",

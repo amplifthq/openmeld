@@ -6,7 +6,7 @@
   "scripts": {
     "pg": "node cli.mjs",
     "test": "node local.mjs check && pnpm run test:d1-migration",
-    "test:d1-migration": "node local.mjs run node --test --test-concurrency=1 d1-rehearsal.test.mjs d1-remote.test.mjs",
+    "test:d1-migration": "node local.mjs run node --test --test-concurrency=1 database.test.mjs d1-rehearsal.test.mjs d1-remote.test.mjs",
     "cf-typegen": "wrangler types worker-configuration.d.ts",
     "check": "tsc --noEmit"
   },
