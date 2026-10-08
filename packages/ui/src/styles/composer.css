@@ -1,0 +1,12 @@
+/* One clean edge for product composers and their Website demonstrations. */
+.composer-surface {
+  background-color: #fcfcfc;
+  border: 1px solid rgb(0 0 0 / 0.065);
+  border-radius: 18px;
+  box-shadow: none;
+}
+
+.dark .composer-surface {
+  background-color: #1e1e1e;
+  border-color: rgb(255 255 255 / 0.0314);
+}

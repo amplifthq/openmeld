@@ -7,7 +7,6 @@ import { AppLogo } from "@openmeld/ui/components/app-logo";
 import { BrainIcon, FileTextIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { AgentAvatarEditor } from "../../src/components/agents/agent-avatar-editor";
-import type { AgentAvatarStyle } from "../../src/components/agents/remote-agent-avatar";
 import {
 	HostedModelSelect,
 	personalRemoteModelChoices,
@@ -18,6 +17,7 @@ import {
 	AgentConfigurationGrid,
 	AgentConfigurationReadoutCard,
 } from "../../src/components/profiles/agent-configuration-card";
+import { useDemoCenterAvatar } from "./demo-center-identity";
 import { demoModelCatalog } from "./demo-model-catalog";
 
 const modelChoices = personalRemoteModelChoices(demoModelCatalog);
@@ -34,7 +34,7 @@ const channels = [
 
 export function DemoCenterAgent() {
 	const [model, setModel] = useState("openai/gpt-6-astra");
-	const [avatar, setAvatar] = useState<AgentAvatarStyle>("cloud");
+	const [avatar, setAvatar] = useDemoCenterAvatar();
 	return (
 		<div className="demo-center-agent">
 			<header className="demo-center-identity">

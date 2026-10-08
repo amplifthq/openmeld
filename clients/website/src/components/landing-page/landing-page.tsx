@@ -16,6 +16,7 @@ import {
 	FluidDropdownMenuItem,
 } from "@openmeld/ui/fluid/dropdown-menu";
 import { FluidHoverHighlight } from "@openmeld/ui/fluid/fluid-hover-highlight";
+import { Surface } from "@openmeld/ui/fluid/surface";
 import {
 	useFluidHover,
 	useRegisterFluidHoverItem,
@@ -32,13 +33,14 @@ import {
 import { MotionConfig } from "motion/react";
 import { type ReactNode, useRef } from "react";
 import { appUrl } from "#/lib/app-url";
+import { CliShowcase } from "./cli-showcase";
 import { ConnectorShowcase } from "./connector-showcase";
 import { HeroDescription } from "./hero-copy";
 import { LandingFooter } from "./landing-footer";
+import { LandingAsciiCanvas } from "./landing-page-ascii-canvas";
 import {
 	ChannelShowcase,
 	ComputerBento,
-	HeroAgents,
 	PlatformMetalBadge,
 } from "./landing-showcases";
 import {
@@ -154,7 +156,7 @@ function ProductDemo({
 	title: string;
 	hero?: boolean;
 }) {
-	return (
+	const demo = (
 		<div
 			className={`meld-demo meld-demo-${scene.toLowerCase()} ${hero ? "meld-demo-hero" : ""}`}
 		>
@@ -167,6 +169,7 @@ function ProductDemo({
 			/>
 		</div>
 	);
+	return hero ? <Surface className="meld-demo-surface">{demo}</Surface> : demo;
 }
 
 export function LandingPage() {
@@ -202,12 +205,10 @@ export function LandingPage() {
 								]}
 							/>
 						</nav>
-						<OpenAppButton compact />
 					</div>
 				</header>
 				<main id="main-content">
 					<section aria-labelledby="hero-title" className="meld-hero meld-wrap">
-						<HeroAgents />
 						<h1 className="meld-hero-title" id="hero-title">
 							{homePageCopy.tagline}
 						</h1>
@@ -266,14 +267,15 @@ export function LandingPage() {
 					>
 						<div className="meld-section-heading">
 							<h2 id="center-agent-title">
-								One Center Agent.
+								Your 24/7 SI team lead.
 								<br />
-								<span>For your whole team.</span>
+								<span>Assigns work. Reports back.</span>
 							</h2>
 							<p>
-								Your organization’s own agent. It works with your shared
-								context, uses connected apps, and joins your team through
-								Channels. You choose the model.
+								Tell your Center Agent what needs to happen. It finds the right
+								people and agents, delegates tasks, and brings you the results.
+								Coordinate work across Spaces and connected apps from the
+								channels you already use—without chasing every update.
 							</p>
 						</div>
 						<CenterAgentShowcase />
@@ -327,6 +329,7 @@ export function LandingPage() {
 					>
 						<ConnectorShowcase />
 					</section>
+					<CliShowcase />
 					<section
 						aria-labelledby="computer-title"
 						className="meld-section meld-wrap meld-computer-section"
@@ -387,11 +390,14 @@ export function LandingPage() {
 							))}
 						</Accordion>
 					</section>
-					<section className="meld-start meld-wrap">
+					<section className="meld-start meld-wrap" id="start">
+						<div aria-hidden="true" className="meld-start-loop">
+							<LandingAsciiCanvas scene="collaboration-loop" />
+						</div>
 						<h2>
-							Bring a real task.
+							Your team. Your agents.
 							<br />
-							<span>See where it goes.</span>
+							<span>Meld into one.</span>
 						</h2>
 						<AppActions />
 					</section>
