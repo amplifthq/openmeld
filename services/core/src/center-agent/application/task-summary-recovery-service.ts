@@ -114,7 +114,7 @@ export async function recoverFailedTaskContinuationSummary(input: {
   ) {
     return;
   }
-  await continueTaskSummary({
+  const receipt = await continueTaskSummary({
     actorProfileId: delivery.profileId,
     db: input.db,
     env: input.env,
@@ -124,6 +124,26 @@ export async function recoverFailedTaskContinuationSummary(input: {
     organizationId: delivery.organizationId,
     sourceSubscriptionId: source.subscriptionId,
   });
+  if (
+    receipt.status === "unavailable" &&
+    ![
+      "task_summary_recovery.receiver_unsupported",
+      "task_summary_recovery.not_authorized",
+      "task_summary_recovery.stopped",
+    ].includes(receipt.reasonCode ?? "") &&
+    !(
+      receipt.subscriptionId &&
+      [
+        "task_summary_recovery.cancelled",
+        "task_summary_recovery.failed",
+        "task_summary_recovery.completed",
+      ].includes(receipt.reasonCode ?? "")
+    )
+  ) {
+    // Unknown evidence is not a terminal refusal. Keep the existing callback
+    // or settled-source Queue message retryable, without creating another run.
+    throw new Error(receipt.reasonCode ?? "task_summary_recovery.unavailable");
+  }
 }
 /** Starts a fresh summary continuation, never a replay of the child request. */
 export async function continueTaskSummary(input: {
@@ -381,23 +401,18 @@ async function readSummaryReceiverRejection(
   if (request.turnEnvelope.trigger.source !== "task_continuation") {
     return "task_summary_recovery.receiver_unsupported";
   }
-  // Probe the existing read-only receipt, without changing its identity or
-  // creating admission. Old strict receivers reject this opt-in field.
-  let support: Awaited<ReturnType<typeof readRemoteAgentWorkerAdmissionStop>>;
-  try {
-    support = await readRemoteAgentWorkerAdmissionStop({
-      worker,
-      request: {
-        ...request,
-        turnEnvelope: {
-          ...request.turnEnvelope,
-          trigger: { ...request.turnEnvelope.trigger, summaryOnly: true },
-        },
+  // The receipt owner recognizes a missing receiver method. Transport and
+  // validation errors must propagate; neither proves unsupported recovery.
+  const support = await readRemoteAgentWorkerAdmissionStop({
+    worker,
+    request: {
+      ...request,
+      turnEnvelope: {
+        ...request.turnEnvelope,
+        trigger: { ...request.turnEnvelope.trigger, summaryOnly: true },
       },
-    });
-  } catch {
-    return "task_summary_recovery.receiver_unsupported";
-  }
+    },
+  });
   if (
     !(support?.summaryOnlySupported && support.summaryRecoveryFenceSupported)
   ) {

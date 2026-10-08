@@ -104,7 +104,7 @@ describe("Agent Task continuation service", () => {
     "missing_result",
     "revoked_result",
     "old_receiver",
-    "old_receiver_rejects",
+    "old_receiver_missing_method",
     "stopped",
     "parent_stop_during_reconciliation",
     "missing_fence",
@@ -120,6 +120,10 @@ describe("Agent Task continuation service", () => {
     "running_recovery",
     "automatic_available",
     "automatic_before_settlement",
+    "automatic_probe_retry",
+    "automatic_fence_retry",
+    "automatic_manual_race",
+    "automatic_old_receiver",
     "automatic_denied",
     "automatic_stopped",
     "automatic_budget",
@@ -296,7 +300,21 @@ describe("Agent Task continuation service", () => {
         completedAtMs: scenario === "running" ? null : 1150,
         cancellationReason: null,
       };
+      let firstReconciliations = 0;
+      let releaseFirstReconciliations: (() => void) | undefined;
+      const firstReconciliationBarrier = new Promise<void>((resolve) => {
+        releaseFirstReconciliations = resolve;
+      });
       const reconcile = vi.fn(async () => {
+        if (scenario === "automatic_manual_race" && firstReconciliations < 2) {
+          // Both callers have read no recovery through real PostgreSQL before
+          // either can record an intent, fence the source or insert a summary.
+          firstReconciliations += 1;
+          if (firstReconciliations === 2) {
+            releaseFirstReconciliations?.();
+          }
+          await firstReconciliationBarrier;
+        }
         if (scenario === "parent_stop_during_reconciliation") {
           await recordAgentTaskTerminalOutcome({
             db: harness.db,
@@ -317,6 +335,7 @@ describe("Agent Task continuation service", () => {
       });
       let recoveryFenceId: string | undefined;
       let fenceReadFailed = false;
+      let probeReadFailed = false;
       const cancel = vi.fn((query: { summaryRecoveryId?: string }) => {
         recoveryFenceId = query.summaryRecoveryId;
         return Promise.resolve({ status: "not_stoppable", execution });
@@ -334,11 +353,20 @@ describe("Agent Task continuation service", () => {
               trigger: { ...request.turnEnvelope.trigger, summaryOnly: true },
             },
           });
-          if (scenario === "old_receiver") {
+          if (
+            scenario === "old_receiver" ||
+            scenario === "automatic_old_receiver"
+          ) {
             return Promise.resolve({ v: 1, status: "not_found" });
           }
-          if (scenario === "old_receiver_rejects") {
-            throw new Error("Unrecognized key: summaryOnly");
+          if (scenario === "old_receiver_missing_method") {
+            throw new Error(
+              'The RPC receiver does not implement the method "readAdmissionStop".'
+            );
+          }
+          if (scenario === "automatic_probe_retry" && !probeReadFailed) {
+            probeReadFailed = true;
+            throw new Error("temporary receiver probe failure");
           }
           return Promise.resolve(
             scenario === "stopped" ||
@@ -374,6 +402,10 @@ describe("Agent Task continuation service", () => {
           );
         }
         expect(frozen).toEqual(request);
+        if (scenario === "automatic_fence_retry" && !fenceReadFailed) {
+          fenceReadFailed = true;
+          return Promise.resolve({ v: 1, status: "not_found" });
+        }
         if (
           ["fence_read_failure", "user_stop_after_recovery_fence"].includes(
             scenario
@@ -454,7 +486,12 @@ describe("Agent Task continuation service", () => {
         if (scenario === "automatic_identity_mismatch") {
           delivery.deliveryId = "unrelated-delivery";
         }
-        if (scenario === "automatic_before_settlement") {
+        const beforeSettlement = [
+          "automatic_before_settlement",
+          "automatic_probe_retry",
+          "automatic_fence_retry",
+        ].includes(scenario);
+        if (beforeSettlement) {
           await harness.db.query({
             text: `UPDATE "openmeld"."agent_task_completion_subscriptions"
               SET state = 'continuation_claimed', continuation_task_handle_json = NULL,
@@ -465,16 +502,50 @@ describe("Agent Task continuation service", () => {
           await recoverFailedTaskContinuationSummary({ ...input, delivery });
           expect(cancel).not.toHaveBeenCalled();
           expect(send).not.toHaveBeenCalled();
-          await processAgentTaskContinuationQueueMessage({
+          const queued = {
             ...input,
             message: buildQueueMessage(source.subscriptionId),
-          });
+          };
+          if (scenario !== "automatic_before_settlement") {
+            await expect(
+              processAgentTaskContinuationQueueMessage(queued)
+            ).rejects.toThrow(
+              scenario === "automatic_probe_retry"
+                ? "temporary receiver probe failure"
+                : "task_summary_recovery.stop_unconfirmed"
+            );
+            await expect(
+              readAgentTaskCompletionSubscription({
+                db: harness.db,
+                subscriptionId: source.subscriptionId,
+              })
+            ).resolves.toMatchObject({ state: "settled" });
+            expect(send).not.toHaveBeenCalled();
+            expect(
+              (
+                await harness.db.query({
+                  text: `SELECT subscription_id FROM "openmeld"."agent_task_completion_subscriptions"
+                    WHERE subscription_id <> $1`,
+                  values: [source.subscriptionId],
+                })
+              ).rows
+            ).toHaveLength(0);
+          }
+          // Redelivery must use the settled-source hook, not replay admission.
+          await processAgentTaskContinuationQueueMessage(queued);
+        } else if (scenario === "automatic_manual_race") {
+          await Promise.all([
+            recoverFailedTaskContinuationSummary({ ...input, delivery }),
+            continueTaskSummary({ ...input, inspectOnly: false }),
+          ]);
+          expect(firstReconciliations).toBe(2);
         } else {
           await recoverFailedTaskContinuationSummary({ ...input, delivery });
         }
         const recovers =
           scenario === "automatic_available" ||
-          scenario === "automatic_before_settlement";
+          beforeSettlement ||
+          scenario === "automatic_manual_race";
         if (recovers) {
           await Promise.all([
             recoverFailedTaskContinuationSummary({ ...input, delivery }),
@@ -484,9 +555,10 @@ describe("Agent Task continuation service", () => {
             }),
           ]);
           const recoveries = await harness.db.query<{
+            subscription_id: string;
             continuation_json: string;
           }>({
-            text: `SELECT continuation_json FROM "openmeld"."agent_task_completion_subscriptions"
+            text: `SELECT subscription_id, continuation_json FROM "openmeld"."agent_task_completion_subscriptions"
               WHERE subscription_id <> $1`,
             values: [source.subscriptionId],
           });
@@ -515,10 +587,68 @@ describe("Agent Task continuation service", () => {
               })
             )?.outcome
           ).toEqual(source.outcome);
-          expect(cancel).toHaveBeenCalledTimes(1);
-          expect(submitContinuation).toHaveBeenCalledTimes(
-            scenario === "automatic_before_settlement" ? 2 : 1
+          expect(cancel).toHaveBeenCalledTimes(
+            ["automatic_fence_retry", "automatic_manual_race"].includes(
+              scenario
+            )
+              ? 2
+              : 1
           );
+          expect(submitContinuation).toHaveBeenCalledTimes(
+            beforeSettlement ? 2 : 1
+          );
+          if (scenario === "automatic_manual_race") {
+            const recoveryId = recoveries.rows[0]?.subscription_id;
+            if (!recoveryId) {
+              throw new Error("Missing shared recovery identity");
+            }
+            expect(cancel.mock.calls.map(([query]) => query)).toEqual([
+              expect.objectContaining({ summaryRecoveryId: recoveryId }),
+              expect.objectContaining({ summaryRecoveryId: recoveryId }),
+            ]);
+            submitContinuation.mockImplementation(async (admission) => {
+              expect(admission).toMatchObject({
+                subscriptionId: recoveryId,
+                summaryOnly: true,
+              });
+              await insertContinuationDelivery({
+                db: harness.db,
+                idempotencyKey: admission.idempotencyKey,
+                deliveryId: "summary-delivery",
+              });
+              return {
+                task: {
+                  kind: "native_delivery",
+                  deliveryId: "summary-delivery",
+                  v: 1,
+                },
+              };
+            });
+            const recoveryMessage = {
+              ...input,
+              message: buildQueueMessage(recoveryId),
+              nowMs: 1400,
+            };
+            await Promise.all([
+              processAgentTaskContinuationQueueMessage(recoveryMessage),
+              processAgentTaskContinuationQueueMessage(recoveryMessage),
+            ]);
+            await processAgentTaskContinuationQueueMessage(recoveryMessage);
+            expect(submitContinuation).toHaveBeenCalledTimes(2);
+            await expect(
+              readAgentTaskCompletionSubscription({
+                db: harness.db,
+                subscriptionId: recoveryId,
+              })
+            ).resolves.toMatchObject({
+              state: "settled",
+              continuationTask: {
+                kind: "native_delivery",
+                deliveryId: "summary-delivery",
+                v: 1,
+              },
+            });
+          }
           expect(activateFallbackWake).not.toHaveBeenCalled();
         } else {
           expect(cancel).not.toHaveBeenCalled();

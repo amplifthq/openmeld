@@ -1621,6 +1621,10 @@ The summary does not resume implementation, replay children or recover again.
 Stop, revoked access, unsettled children, input-needed work, unknown execution,
 and budget or model limits do not authorize this automatic path. This first
 automatic path stays Space-only and original-requester-only.
+Transport errors, invalid receipts and unconfirmed evidence propagate to the
+existing callback or Queue retry. They cannot be acknowledged as an unsupported
+receiver. Explicit receiver capability refusal, revoked access, Stop and an
+already terminal summary end the attempt without another recovery identity.
 
 Ordinary Space and Direct Message `turn_not_completed` and Computer cleanup
 failure callbacks use deterministic
