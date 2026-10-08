@@ -108,7 +108,7 @@ describe("SpaceTasksPanel", () => {
 			)
 		).toBeNull();
 		expect(screen.queryByText("Done when")).toBeNull();
-		expect(screen.queryByRole("button", { name: "Cancel Task" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "Cancel task" })).toBeNull();
 
 		fireEvent.click(
 			screen.getByRole("button", {
@@ -129,11 +129,11 @@ describe("SpaceTasksPanel", () => {
 		expect(
 			screen.getByRole("link", { name: "amplifthq/openmeld#1143" })
 		).toBeTruthy();
-		expect(screen.getByRole("button", { name: "Cancel Task" })).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Cancel task" })).toBeTruthy();
 
 		fireEvent.click(screen.getByRole("button", { name: "Close task details" }));
 		expect(screen.queryByText("Done when")).toBeNull();
-		expect(screen.queryByRole("button", { name: "Cancel Task" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "Cancel task" })).toBeNull();
 	});
 
 	it("lets a Space owner resume an Agent-requested Task and reach its source message", () => {

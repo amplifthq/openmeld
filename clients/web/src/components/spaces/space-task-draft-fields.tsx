@@ -8,7 +8,7 @@ import {
 	SelectTrigger,
 } from "@openmeld/ui/fluid/select";
 import { XIcon } from "@phosphor-icons/react";
-import { useId, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 
 export type SpaceTaskDraft = NonNullable<SignalText["data"]["taskDraft"]>;
 export type TaskDraftMember = { profileId: string; profileName: string };
@@ -77,25 +77,34 @@ export function SpaceTaskDraftFields(input: {
 	members: readonly TaskDraftMember[];
 	disabled?: boolean;
 	onChange: (draft: SpaceTaskDraft) => void;
-	onClose: () => void;
+	onClose?: () => void;
 	closeLabel?: string;
+	children?: ReactNode;
 }) {
 	const id = useId();
 	return (
-		<div className="mb-3 space-y-3 border-border border-b pb-3">
-			<div className="flex items-center justify-between">
-				<span className="font-medium text-sm">New task</span>
-				<Button
-					aria-label={input.closeLabel ?? "Back to message"}
-					disabled={input.disabled}
-					onClick={input.onClose}
-					size="icon-sm"
-					type="button"
-					variant="ghost"
-				>
-					<XIcon aria-hidden="true" />
-				</Button>
-			</div>
+		<div
+			className={
+				input.onClose
+					? "mb-3 space-y-3 border-border border-b pb-3"
+					: "space-y-4"
+			}
+		>
+			{input.onClose ? (
+				<div className="flex items-center justify-between">
+					<span className="font-medium text-sm">New task</span>
+					<Button
+						aria-label={input.closeLabel ?? "Back to message"}
+						disabled={input.disabled}
+						onClick={input.onClose}
+						size="icon-sm"
+						type="button"
+						variant="ghost"
+					>
+						<XIcon aria-hidden="true" />
+					</Button>
+				</div>
+			) : null}
 			<div>
 				<label className="text-muted-foreground text-xs" htmlFor={id}>
 					Title
@@ -111,6 +120,7 @@ export function SpaceTaskDraftFields(input: {
 					value={input.draft.title}
 				/>
 			</div>
+			{input.children}
 			<div className="grid grid-cols-2 gap-3">
 				<TaskMemberSelect
 					disabled={input.disabled}
