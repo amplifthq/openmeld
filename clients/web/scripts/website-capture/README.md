@@ -6,7 +6,7 @@ Website publishes the resulting static artifact, not a second product app.
 
 ## Provenance and refresh
 
-This revision starts from product UI at `c0732ec03` on origin/main. All sample
+This revision starts from product UI at `82e7d9f51` on origin/main. All sample
 people, messages, files, Skills, and Routine results belong to a fictional team.
 Amplift appears only in the organization switcher; public-facing demo labels use OpenMeld.
 No production account, captured conversation, or private asset is included.
