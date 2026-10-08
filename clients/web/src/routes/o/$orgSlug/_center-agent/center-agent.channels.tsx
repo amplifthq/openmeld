@@ -1,27 +1,14 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { appShellStaticData } from "#/components/app/shell-layout";
-import { CenterAgentSectionFrame } from "#/components/organizations/center-agent-section-frame";
-import { OrganizationMessageChannelsPage } from "#/components/organizations/organization-message-channels-page";
-import {
-	parseCenterAgentRouteSearch,
-	resolveSlackOAuthResult,
-} from "#/lib/organizations/center-agent-route-search";
-
+import { createFileRoute, redirect } from "@tanstack/react-router";
+import { buildOrganizationCenterAgentSettingsPath } from "#/lib/organizations/organization-routes";
 export const Route = createFileRoute(
 	"/o/$orgSlug/_center-agent/center-agent/channels"
 )({
-	staticData: appShellStaticData.centerAgent,
-	validateSearch: parseCenterAgentRouteSearch,
-	component: ChannelsRoute,
+	beforeLoad: ({ params, location }) => {
+		const search = new URLSearchParams(location.searchStr);
+		search.set("panel", "channels");
+		throw redirect({
+			replace: true,
+			href: `${buildOrganizationCenterAgentSettingsPath(params.orgSlug)}?${search}`,
+		});
+	},
 });
-
-function ChannelsRoute() {
-	const slackOAuthResult = resolveSlackOAuthResult(Route.useSearch());
-	return (
-		<CenterAgentSectionFrame
-			routeState={{ channelsSlackOAuthResult: slackOAuthResult }}
-		>
-			<OrganizationMessageChannelsPage />
-		</CenterAgentSectionFrame>
-	);
-}

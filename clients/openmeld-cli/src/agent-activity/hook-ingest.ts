@@ -2,6 +2,7 @@ import type {
   AgentActivityEvent,
   AgentActivityProvider,
 } from "@openmeld/schemas/types";
+import { getAuthSessionState } from "../config/auth-session";
 import { buildControllerTaskLifecycleEvent } from "./controller-task-lifecycle-hook";
 import { enqueueControllerTaskLifecycleEventWhileLocked } from "./controller-task-lifecycle-store";
 import { enqueueAgentActivityHookEvent } from "./hook-inbox";
@@ -18,6 +19,10 @@ import {
   normalizeSharedSessionTitle,
   readCodexSessionTitles,
 } from "./provider-session-titles";
+import {
+  readOpenMeldCreatedLocalAgentSessionProjectAttributions,
+  resolveOpenMeldCreatedLocalAgentSessionProjectAttribution,
+} from "./session-inventory-origin-store";
 
 export class AgentControllerTaskLifecycleDurabilityError extends Error {
   constructor(cause: unknown) {
@@ -31,6 +36,7 @@ export class AgentControllerTaskLifecycleDurabilityError extends Error {
 export async function ingestAgentActivityHook(input: {
   homeDir?: string;
   nowMs?: number;
+  ownerUserId?: string;
   payload: unknown;
   provider: AgentActivityProvider;
   rootDir?: string;
@@ -57,9 +63,31 @@ export async function ingestAgentActivityHook(input: {
   const bindings = await listProjectBindings({
     rootDir: input.rootDir,
   });
-  const binding = await resolveObservedAgentActivityBinding(cwd, bindings);
+  const projectAttribution =
+    resolveOpenMeldCreatedLocalAgentSessionProjectAttribution({
+      agentControllerRef: `builtin:${input.provider}`,
+      nativeSessionId: providerSessionId,
+      projectAttributions:
+        await readOpenMeldCreatedLocalAgentSessionProjectAttributions({
+          rootDir: input.rootDir,
+        }),
+    });
+  const binding = await resolveObservedAgentActivityBinding(
+    cwd,
+    bindings,
+    projectAttribution
+  );
   if (!binding) {
     return "unbound";
+  }
+  if (binding.ownerUserId) {
+    const currentOwnerUserId =
+      input.ownerUserId ??
+      (await getAuthSessionState({ validateRemote: false }).catch(() => null))
+        ?.session?.user?.id;
+    if (currentOwnerUserId !== binding.ownerUserId) {
+      return "unbound";
+    }
   }
   const lifecycleOutcome = await enqueueControllerTaskLifecycleForHook({
     bindingGeneration: binding.bindingGeneration,
@@ -100,6 +128,7 @@ export async function ingestAgentActivityHook(input: {
   const event = await buildAgentActivityEvent({
     bindings: [binding],
     observed,
+    projectAttribution,
   });
   if (!event) {
     return lifecycleOutcome ?? "ignored";

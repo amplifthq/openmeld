@@ -97,7 +97,7 @@ import { openMeldDaemonTaskResultEnvelopeSchema } from "./task-result";
 
 export const RUNTIME_TRANSPORT_SCHEMA_VERSION = 1 as const;
 export const CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH =
-  "runtime-transport-epoch-2026-09-space-files-1gib" as const;
+  "runtime-transport-epoch-2026-09-project-work-v1" as const;
 
 export const daemonRuntimeContractSchema = z.strictObject({
   epoch: z.string().min(1),

@@ -6,8 +6,10 @@ import { ArrowSquareOutIcon, LinkIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { copyAppLinkWithFeedback } from "#/lib/copy-app-link";
+import { useAppLinkCapability } from "./app-link-capability";
 
 export function ObjectMenuItems(input: { href?: string; onOpen?: () => void }) {
+	const canCopyLink = useAppLinkCapability();
 	const navigate = useNavigate();
 	const href = input.href;
 	const open =
@@ -29,7 +31,7 @@ export function ObjectMenuItems(input: { href?: string; onOpen?: () => void }) {
 				<ArrowSquareOutIcon aria-hidden="true" />
 				Open
 			</FluidDropdownMenuItem>
-			{href && (
+			{href && canCopyLink && (
 				<FluidDropdownMenuItem
 					index={1}
 					onClick={() => copyAppLinkWithFeedback(href)}

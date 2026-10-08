@@ -28,7 +28,7 @@ export function LandingPageFooterLogo() {
 	const shouldReduceMotion = useReducedMotion();
 
 	const updateGradientPosition = (event: ReactPointerEvent<HTMLDivElement>) => {
-		if (shouldReduceMotion) {
+		if (shouldReduceMotion || event.pointerType !== "mouse") {
 			return;
 		}
 
@@ -46,20 +46,18 @@ export function LandingPageFooterLogo() {
 	return (
 		<div
 			aria-hidden="true"
-			className="relative h-[clamp(7.5rem,18.75vw,30rem)] w-full overflow-hidden text-foreground after:absolute after:bottom-0 after:h-px after:w-full after:bg-current/15"
+			className="meld-footer-fluid-logo"
 			data-testid="landing-footer-fluid-logo"
-			onPointerDown={updateGradientPosition}
 			onPointerLeave={resetGradientPosition}
 			onPointerMove={updateGradientPosition}
 		>
 			<LazyMotion features={domAnimation} strict>
 				<svg
-					className="size-full translate-y-[37.5%] select-none"
+					aria-hidden="true"
 					fill="none"
 					viewBox={`0 0 ${FOOTER_LOGO_VIEWBOX_WIDTH} ${FOOTER_LOGO_VIEWBOX_HEIGHT}`}
 					xmlns="http://www.w3.org/2000/svg"
 				>
-					<title>Decorative OpenMeld fluid gradient logo</title>
 					<text
 						dominantBaseline="central"
 						fill={`url(#${gradientId})`}
@@ -68,9 +66,7 @@ export function LandingPageFooterLogo() {
 						stroke="currentColor"
 						strokeOpacity="0.1"
 						strokeWidth="2"
-						style={{
-							fontFamily: "Helvetica, Arial, sans-serif",
-						}}
+						style={{ fontFamily: "Helvetica, Arial, sans-serif" }}
 						textAnchor="middle"
 						x="50%"
 						y="50%"

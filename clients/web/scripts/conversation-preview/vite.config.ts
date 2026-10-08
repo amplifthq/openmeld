@@ -59,7 +59,9 @@ export default defineConfig({
 			enforce: "pre",
 			resolveId(source) {
 				const name = source.split("/").at(-1);
-				return name && mocks[name] ? `\0conversation-preview:${name}` : null;
+				return name && Object.hasOwn(mocks, name)
+					? `\0conversation-preview:${name}`
+					: null;
 			},
 			load(id) {
 				return id.startsWith("\0conversation-preview:")

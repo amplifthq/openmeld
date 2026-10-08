@@ -59,6 +59,41 @@ import {
 import { withTempHome } from "./helpers/fs";
 
 describe("agents registry resolve target state", () => {
+  it("delivers a target before another installation finishes and limits discovery to requested targets", async () => {
+    await withTempHome(async () => {
+      let release!: (value: string[]) => void;
+      const slow = new Promise<string[]>((resolve) => {
+        release = resolve;
+      });
+      detectInstalledRuntimeAgentsMock.mockImplementation(async (registry) =>
+        Object.hasOwn(registry, "cursor") ? await slow : []
+      );
+      const onState = vi.fn(async (_state: AgentTargetState) => undefined);
+      const listing = listAgentTargetStates({
+        agentIds: ["codex", "cursor"],
+        onState,
+      });
+      try {
+        await vi.waitFor(() =>
+          expect(onState).toHaveBeenCalledWith(
+            expect.objectContaining({ agentId: "codex" })
+          )
+        );
+        expect(onState).toHaveBeenCalledTimes(1);
+      } finally {
+        release([]);
+        await listing;
+      }
+      expect(
+        onState.mock.calls.map(([state]) => (state as AgentTargetState).agentId)
+      ).toEqual(["codex", "cursor"]);
+      expect(
+        detectInstalledRuntimeAgentsMock.mock.calls.flatMap(([registry]) =>
+          Object.keys(registry)
+        )
+      ).toEqual(["codex", "cursor"]);
+    });
+  });
   beforeEach(() => {
     detectInstalledRuntimeAgentsMock.mockResolvedValue(["codex"]);
     refreshBuiltinControllerPersistedLaunchContractMock.mockImplementation(

@@ -1,5 +1,4 @@
 import type { LocalDaemonAdapterContainer } from "@openmeld/local-service";
-import { reconcileNewRunnableBuiltinAgentRegistrations } from "../../agents/registry";
 import type { AgentControllerInterfaceProbePolicy } from "../inventory/agent-controller-interface";
 import {
   collectLocalAgentControllerInventory,
@@ -8,6 +7,7 @@ import {
 import {
   notifyRuntimeReportingAttemptObserver,
   type RuntimeAgentControllerReportSubmission,
+  type RuntimeReportingAttempt,
   type RuntimeReportingAttemptObserver,
   submitRuntimeAgentControllerReports,
 } from "./runtime-agent-controller-reporting-submission";
@@ -36,19 +36,53 @@ export async function syncLocalServiceRuntimeAgentControllerReports(input: {
   // OPENMELD_SERVICE_THIN_CORE: runtime Agent Controller report evidence.
   // This reports detected local controller capabilities for the current
   // service identity. It must remain evidence, not Binding truth or final Ready.
-  let inventory: Awaited<
-    ReturnType<typeof collectLocalAgentControllerInventory>
-  >;
+  const submissions: RuntimeAgentControllerReportSubmission[] = [];
+  let failedAttempt: RuntimeReportingAttempt | undefined;
+  const onAttempt: RuntimeReportingAttemptObserver = async (attempt) => {
+    if (attempt.status === "failed") {
+      failedAttempt ??= attempt;
+    }
+    // A later controller's success must not hide a failure in this scan.
+    await notifyRuntimeReportingAttemptObserver(
+      input.onAttempt,
+      failedAttempt ?? attempt
+    );
+  };
   try {
-    // Discovery belongs to the existing background inventory pass, not route
-    // registration. Slow unrelated install probes must not strand new Wakes.
-    // Newly registered controllers notify the carrier through the normal
-    // lane-local catalog-change signal; explicit disabled choices stay intact.
-    await reconcileNewRunnableBuiltinAgentRegistrations();
-    inventory = await collectLocalAgentControllerInventory({
+    await collectLocalAgentControllerInventory({
+      reconcileNewRegistrations: true,
       includeControllerInterface: true,
       localAdapterContainer: input.localAdapterContainer,
       probePolicy: input.probePolicy,
+      onCapability: async (capability) => {
+        if (!(capability.registered && capability.agentControllerRef)) {
+          return;
+        }
+        const decision = resolveLocalAgentControllerReportDecision(capability, {
+          requireEnabled: true,
+        });
+        // Publish each completed check; an unrelated controller must not hold
+        // back evidence that is already available. Core still owns readiness.
+        submissions.push(
+          ...(await submitRuntimeAgentControllerReports({
+            ...(input.onAttempt ? { onAttempt } : {}),
+            reports: [
+              {
+                agentControllerRef: capability.agentControllerRef,
+                ...(capability.agentControllerInterface
+                  ? {
+                      agentControllerInterface:
+                        capability.agentControllerInterface,
+                    }
+                  : {}),
+                enabled: capability.enabled,
+                localParticipationState: decision.localParticipationState,
+                reasonCodes: decision.reasonCodes,
+              },
+            ],
+          }))
+        );
+      },
     });
   } catch (error) {
     await notifyRuntimeReportingAttemptObserver(input.onAttempt, {
@@ -60,29 +94,7 @@ export async function syncLocalServiceRuntimeAgentControllerReports(input: {
     });
     throw error;
   }
-  const reports = inventory.capabilities
-    .filter((capability) => capability.registered)
-    .map((capability) => {
-      if (!capability.agentControllerRef) {
-        return null;
-      }
-      const reportDecision = resolveLocalAgentControllerReportDecision(
-        capability,
-        { requireEnabled: true }
-      );
-      return {
-        agentControllerRef: capability.agentControllerRef,
-        ...(capability.agentControllerInterface
-          ? { agentControllerInterface: capability.agentControllerInterface }
-          : {}),
-        enabled: capability.enabled,
-        localParticipationState: reportDecision.localParticipationState,
-        reasonCodes: reportDecision.reasonCodes,
-      };
-    })
-    .filter((report): report is NonNullable<typeof report> => report !== null);
-
-  if (reports.length === 0) {
+  if (submissions.length === 0) {
     await notifyRuntimeReportingAttemptObserver(input.onAttempt, {
       authenticationRejected: false,
       family: "runtime_agent_controller",
@@ -99,10 +111,6 @@ export async function syncLocalServiceRuntimeAgentControllerReports(input: {
     };
   }
 
-  const submissions = await submitRuntimeAgentControllerReports({
-    ...(input.onAttempt ? { onAttempt: input.onAttempt } : {}),
-    reports,
-  });
   return summarizeSubmissions(submissions);
 }
 

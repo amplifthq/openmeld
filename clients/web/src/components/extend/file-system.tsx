@@ -173,6 +173,8 @@ export type FileSystemProps = {
   /** Actionable empty state supplied by the owning Files location. */
   emptyContent?: React.ReactNode
   defaultView?: FileSystemView
+  /** Folders expanded on the first list view of the initial location. */
+  defaultExpandedPaths?: readonly string[]
   view?: FileSystemView
   onViewChange?: (view: FileSystemView) => void
   /** Folder prefix to open initially, e.g. `"invoices/"`. */
@@ -1262,6 +1264,7 @@ export function FileSystem({
   emptyLabel = "This folder is empty",
   emptyContent,
   defaultView = "icons",
+  defaultExpandedPaths = [],
   view: viewProp,
   onViewChange,
   defaultPath = "",
@@ -1859,7 +1862,7 @@ export function FileSystem({
   // The list view tree saves its expanded folders here when it unmounts
   // (view switches, navigation) so returning to the list view — or to a
   // previously visited folder — restores the same disclosure state.
-  const treeExpansionRef = React.useRef(new Map<string, readonly string[]>())
+  const treeExpansionRef = React.useRef(new Map<string, readonly string[]>([[defaultPath, defaultExpandedPaths]]))
   const viewProps: FileSystemViewProps = {
     attachedStagePaths,
     currentPath,
@@ -3750,17 +3753,22 @@ function FileSystemPierreTree({
         content: attr(title);
         text-align: left;
       }
-      button[data-type='item'][data-item-type='folder'] [data-item-section='content'] {
-        display: flex;
-        align-items: center;
-        min-width: 0;
+      /* Keep one icon column at every depth. Disclosure sits in the gutter,
+         rather than taking the file icon's place and shifting folder names. */
+      button[data-type='item'][data-item-type='folder'] [data-item-section='icon'] {
+        position: relative;
       }
-      button[data-type='item'][data-item-type='folder'] [data-item-section='content']::before {
+      button[data-type='item'][data-item-type='folder'] [data-item-section='icon'] > svg {
+        position: absolute;
+        inset-inline-end: calc(100% + 3px);
+        width: 12px;
+        height: 12px;
+      }
+      button[data-type='item'][data-item-type='folder'] [data-item-section='icon']::before {
         content: "";
         flex: none;
-        width: 18px;
+        width: 16px;
         height: 14px;
-        margin-right: 4px;
         background: url("${FOLDER_GLYPH_DATA_URL}") center / contain no-repeat;
       }
     `,

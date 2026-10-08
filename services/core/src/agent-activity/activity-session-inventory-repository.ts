@@ -489,7 +489,11 @@ export async function acceptAgentActivitySessionReconciliation(input: {
       `Agent Activity Session reconciliation expected page ${expectedPageIndex}.`
     );
   }
-  if (input.reconciliation.result !== "sessions") {
+
+  if (
+    input.reconciliation.result !== "sessions" &&
+    input.reconciliation.result !== "partial"
+  ) {
     return await acceptTerminalCoverageResult({
       ...input,
       expectedCurrentReconciliationId:
@@ -570,7 +574,9 @@ export async function acceptAgentActivitySessionReconciliation(input: {
   await publishStagedSessions({
     db: input.db,
     nowMs: input.nowMs,
+    problemCode: input.reconciliation.problemCode ?? null,
     reconciliationId: input.reconciliation.reconciliationId,
+    result: input.reconciliation.result,
     sourceScopeKey,
   });
   const publishedSessionCount = await countPublishedSessions({
@@ -695,7 +701,9 @@ async function stageSessionPage(input: {
 async function publishStagedSessions(input: {
   db: PostgresDatabase;
   nowMs: number;
+  problemCode: string | null;
   reconciliationId: string;
+  result: "partial" | "sessions";
   sourceScopeKey: string;
 }): Promise<void> {
   await input.db.transaction(
@@ -830,7 +838,7 @@ async function publishStagedSessions(input: {
         await client.query({
           text: `
           UPDATE "openmeld"."agent_activity_session_inventory_sources"
-          SET state = 'current', problem_code = NULL,
+          SET state = $8, problem_code = $9,
               last_complete_at_ms = $1, updated_at_ms = $2
           WHERE source_scope_key = $3
             AND current_reconciliation_id = $4
@@ -857,6 +865,8 @@ async function publishStagedSessions(input: {
             input.sourceScopeKey,
             input.reconciliationId,
             input.sourceScopeKey,
+            input.result === "partial" ? "error" : "current",
+            input.problemCode,
           ],
         }),
         await client.query({
@@ -907,9 +917,9 @@ async function publishStagedSessions(input: {
       ] as const
   );
   const source = await input.db
-    .query<SourceRow>({
+    .query<SourceRow & { problem_code: string | null }>({
       text: `
-        SELECT current_reconciliation_id, next_page_index, state
+        SELECT current_reconciliation_id, next_page_index, state, problem_code
         FROM "openmeld"."agent_activity_session_inventory_sources"
         WHERE source_scope_key = $1
         LIMIT 1
@@ -919,9 +929,10 @@ async function publishStagedSessions(input: {
     .then((result) => result.rows[0] ?? null);
   if (
     source?.current_reconciliation_id !== input.reconciliationId ||
-    source.state !== "current"
+    source.state !== (input.result === "partial" ? "error" : "current") ||
+    source.problem_code !== input.problemCode
   ) {
-    if (source?.state === "error") {
+    if (source?.problem_code === "session_identity_conflict") {
       throw new Error(
         "Agent Activity Session identity is already claimed by another current source."
       );

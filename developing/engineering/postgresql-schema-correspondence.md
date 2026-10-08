@@ -61,6 +61,14 @@ migration SQL must use the actual PostgreSQL names.
 
 ## Deliberate native representations
 
+Migration `0027_project_workflow` adds Project preferences, the nullable Linear
+operation receipt, and two key-only Task/Project projections. Historical Project
+IDs, repositories and permissions remain unchanged. The historical D1 importer
+initializes the new preferences with null destinations, zero revisions and empty
+lists, and does not invent provider receipts or Task associations. The two new
+projection tables participate in native inventory and fresh-target emptiness
+checks; read-only reconciliation preserves later PostgreSQL writes.
+
 Migration `0016` adds the PostgreSQL-only `cloud_computers` account directory.
 It has no historical D1 rows. The D1 importer explicitly includes this table in
 its native inventory and fresh-target emptiness checks, while copying and

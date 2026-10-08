@@ -1,16 +1,13 @@
 import { cn } from "@openmeld/ui/lib/utils";
 import { useEffect, useRef } from "react";
-import {
-	drawAgentActivityField,
-	drawCollaborationLoop,
-} from "./landing-page-ascii-scenes";
+import { drawCollaborationLoop } from "./landing-page-ascii-scenes";
 
 const MAX_DEVICE_PIXEL_RATIO = 1.5;
 const FRAME_INTERVAL_MS = 1000 / 28;
 const STATIC_TIME_SECONDS = 4.2;
 const POINTER_SMOOTHING = 0.075;
 
-type LandingAsciiScene = "activity-field" | "collaboration-loop";
+type LandingAsciiScene = "collaboration-loop";
 
 type LandingAsciiCanvasProps = {
 	className?: string;
@@ -52,10 +49,7 @@ export function LandingAsciiCanvas({
 			targetPointerY: 0,
 			width: 1,
 		};
-		const drawScene =
-			scene === "collaboration-loop"
-				? drawCollaborationLoop
-				: drawAgentActivityField;
+		const drawScene = drawCollaborationLoop;
 
 		const draw = (timeSeconds: number) => {
 			drawScene({
@@ -84,7 +78,12 @@ export function LandingAsciiCanvas({
 		};
 
 		const renderFrame = (now: number) => {
-			if (state.disposed || !state.isInView || shouldReduceMotion()) {
+			if (
+				state.disposed ||
+				document.hidden ||
+				!state.isInView ||
+				shouldReduceMotion()
+			) {
 				state.frameId = null;
 				return;
 			}
@@ -105,7 +104,12 @@ export function LandingAsciiCanvas({
 		};
 
 		const startAnimation = () => {
-			if (state.frameId === null && state.isInView && !shouldReduceMotion()) {
+			if (
+				state.frameId === null &&
+				!document.hidden &&
+				state.isInView &&
+				!shouldReduceMotion()
+			) {
 				state.frameId = window.requestAnimationFrame(renderFrame);
 			}
 		};
@@ -169,6 +173,9 @@ export function LandingAsciiCanvas({
 			startAnimation();
 		};
 
+		const handleVisibility = () =>
+			document.hidden ? stopAnimation() : startAnimation();
+		document.addEventListener("visibilitychange", handleVisibility);
 		resize();
 		const resizeObserver =
 			"ResizeObserver" in window ? new ResizeObserver(resize) : null;
@@ -216,6 +223,7 @@ export function LandingAsciiCanvas({
 		startAnimation();
 
 		return () => {
+			document.removeEventListener("visibilitychange", handleVisibility);
 			state.disposed = true;
 			stopAnimation();
 			resizeObserver?.disconnect();

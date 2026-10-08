@@ -6,6 +6,7 @@ type TutorialTimelineItem = Pick<
 	| "actorProfileId"
 	| "deliveryState"
 	| "isAgentFinalReply"
+	| "agentStreamState"
 	| "replyToSignalId"
 	| "wakeSourceSignalId"
 	| "wakeTargetProfileIds"
@@ -31,6 +32,7 @@ export function hasTutorialReply(input: {
 			item.actorProfileId === input.centerId &&
 			item.deliveryState === "sent" &&
 			item.isAgentFinalReply &&
+			!item.agentStreamState &&
 			((item.replyToSignalId !== null &&
 				sentMessages.has(item.replyToSignalId)) ||
 				(item.wakeSourceSignalId !== null &&

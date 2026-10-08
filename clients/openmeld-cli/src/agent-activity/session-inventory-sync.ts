@@ -48,7 +48,7 @@ type InventorySourceStore = {
 
 type CurrentInventorySource = StoredInventorySource & {
   problemCode?: string;
-  result: "error" | "sessions" | "unsupported";
+  result: "error" | "partial" | "sessions" | "unsupported";
   sessions: ObservedLocalAgentSession[];
 };
 
@@ -298,6 +298,9 @@ function bindingsOwnedByCurrentUser(input: {
     ownersByConnection.set(source.localConnectionId, owners);
   }
   return input.bindings.filter((binding) => {
+    if (binding.ownerUserId && binding.ownerUserId !== input.ownerUserId) {
+      return false;
+    }
     const knownOwners = ownersByConnection.get(buildLocalConnectionId(binding));
     return (
       knownOwners === undefined ||
@@ -312,9 +315,40 @@ function buildCurrentSources(input: {
   ownerUserId: string;
 }): CurrentInventorySource[] {
   const sources: CurrentInventorySource[] = [];
+  const projectIdsByPath = new Map<string, Set<string>>();
+  for (const binding of input.bindings) {
+    const projectIds =
+      projectIdsByPath.get(binding.repositoryPath) ?? new Set<string>();
+    projectIds.add(binding.projectId);
+    projectIdsByPath.set(binding.repositoryPath, projectIds);
+  }
   for (const binding of input.bindings) {
     for (const discovery of input.discoveries) {
       const common = sourceFromBinding(binding, discovery, input.ownerUserId);
+      if ((projectIdsByPath.get(binding.repositoryPath)?.size ?? 0) > 1) {
+        sources.push(
+          discovery.result === "sessions"
+            ? {
+                ...common,
+                problemCode: "project_attribution_ambiguous",
+                result: "partial",
+                sessions: discovery.sessions
+                  .filter(
+                    (candidate) =>
+                      candidate.binding.bindingGeneration ===
+                      binding.bindingGeneration
+                  )
+                  .map((candidate) => candidate.session),
+              }
+            : {
+                ...common,
+                problemCode: discovery.problemCode,
+                result: "error",
+                sessions: [],
+              }
+        );
+        continue;
+      }
       if (discovery.result !== "sessions") {
         sources.push({
           ...common,
@@ -370,7 +404,7 @@ async function submitCurrentSource(input: {
   source: CurrentInventorySource;
 }): Promise<void> {
   const reconciliationId = randomUUID();
-  if (input.source.result !== "sessions") {
+  if (input.source.result !== "sessions" && input.source.result !== "partial") {
     await input.api.submitAgentActivitySessionReconciliation({
       ...submissionCommon(input),
       pageIndex: 0,
@@ -388,8 +422,11 @@ async function submitCurrentSource(input: {
     await input.api.submitAgentActivitySessionReconciliation({
       ...submissionCommon(input),
       pageIndex,
+      ...(input.source.result === "partial"
+        ? { problemCode: input.source.problemCode }
+        : {}),
       reconciliationId,
-      result: "sessions",
+      result: input.source.result,
       sessions,
       terminal: pageIndex === pages.length - 1,
     });

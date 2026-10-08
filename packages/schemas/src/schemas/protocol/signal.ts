@@ -341,6 +341,32 @@ const buildSignalTextDataSchema = <TMetaSchema extends z.ZodTypeAny>(
       // meta.deviceWait only as a read-only compatibility mirror.
       deviceWait: wakeDeviceWaitSchema.optional(),
       contextSelection: executionContextSelectionSchema.optional(),
+      contextSelections: z
+        .record(z.string().min(1).max(256), executionContextSelectionSchema)
+        .refine(
+          (value) => Object.keys(value).length <= 16,
+          "Choose settings for up to 16 agents"
+        )
+        .optional(),
+      taskDraft: z
+        .strictObject({
+          title: z.string().trim().min(1).max(200),
+          assigneeProfileId: z
+            .string()
+            .trim()
+            .min(1)
+            .max(256)
+            .nullable()
+            .optional(),
+          reviewerProfileId: z
+            .string()
+            .trim()
+            .min(1)
+            .max(256)
+            .nullable()
+            .optional(),
+        })
+        .optional(),
       attachments: spaceMessageAttachmentsSchema.optional(),
       files: spaceMessageFileReferencesSchema.optional(),
       messageEnvelope: messageEnvelopeSchema.optional(),
@@ -348,7 +374,35 @@ const buildSignalTextDataSchema = <TMetaSchema extends z.ZodTypeAny>(
       meta: metaSchema.optional(),
     })
     .superRefine(addSignalTextContentIssues)
-    .superRefine(addSignalTextMessageEnvelopeIssues);
+    .superRefine(addSignalTextMessageEnvelopeIssues)
+    .superRefine((value, context) => {
+      if (value.contextSelection && value.contextSelections) {
+        context.addIssue({
+          code: "custom",
+          path: ["contextSelections"],
+          message: "Use either shared or per-agent settings",
+        });
+      }
+      for (const target of Object.keys(value.contextSelections ?? {})) {
+        if (!value.messageEnvelope?.activationTargets.includes(target)) {
+          context.addIssue({
+            code: "custom",
+            path: ["contextSelections", target],
+            message: "Settings require a Wake target",
+          });
+        }
+      }
+      if (
+        value.taskDraft?.assigneeProfileId &&
+        value.taskDraft.assigneeProfileId === value.taskDraft.reviewerProfileId
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["taskDraft", "reviewerProfileId"],
+          message: "Choose a different reviewer",
+        });
+      }
+    });
 
 export const signalTextDataSchema =
   buildSignalTextDataSchema(signalTextMetaSchema);

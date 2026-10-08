@@ -7,14 +7,20 @@ import {
   type HTMLAttributes,
   type ReactNode,
   use,
+  useCallback,
+  useEffect,
   useId,
+  useLayoutEffect,
+  useMemo,
   useState,
+  useSyncExternalStore,
 } from "react";
+import { createActiveItemStore } from "#lib/active-item-store";
 import { springs } from "#lib/springs";
 import { cn } from "#lib/utils";
 
 type SharedLayoutGroupContextValue = {
-  activeItemId: string | null;
+  activeItems: ReturnType<typeof createActiveItemStore<string>>;
   indicatorLayoutId: string;
   reduceMotion: boolean;
   setActiveItemId?: (itemId: string | null) => void;
@@ -35,6 +41,8 @@ type SharedLayoutItemProps = HTMLAttributes<HTMLDivElement> & {
 
 const SharedLayoutGroupContext =
   createContext<SharedLayoutGroupContextValue | null>(null);
+const useIsoLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 function useSharedLayoutGroup() {
   const context = use(SharedLayoutGroupContext);
@@ -70,16 +78,22 @@ const SharedLayoutGroup = forwardRef<HTMLDivElement, SharedLayoutGroupProps>(
         : onActiveItemIdChange;
     const generatedId = useId();
     const reduceMotion = useReducedMotion() === true;
+    const [activeItems] = useState(() => createActiveItemStore(activeItemId));
+    useIsoLayoutEffect(() => {
+      activeItems.set(activeItemId);
+    }, [activeItems, activeItemId]);
+    const context = useMemo(
+      () => ({
+        activeItems,
+        indicatorLayoutId: `shared-layout-background-${generatedId}`,
+        reduceMotion,
+        setActiveItemId,
+      }),
+      [activeItems, generatedId, reduceMotion, setActiveItemId]
+    );
 
     return (
-      <SharedLayoutGroupContext.Provider
-        value={{
-          activeItemId,
-          indicatorLayoutId: `shared-layout-background-${generatedId}`,
-          reduceMotion,
-          setActiveItemId,
-        }}
-      >
+      <SharedLayoutGroupContext.Provider value={context}>
         {/* biome-ignore lint/a11y/noNoninteractiveElementInteractions: the group owns shared hover and focus state for its child links and buttons. */}
         {/* biome-ignore lint/a11y/noStaticElementInteractions: child links and buttons retain all activation semantics. */}
         <div
@@ -123,9 +137,17 @@ const SharedLayoutItem = forwardRef<HTMLDivElement, SharedLayoutItemProps>(
     },
     ref
   ) => {
-    const { activeItemId, indicatorLayoutId, reduceMotion, setActiveItemId } =
+    const { activeItems, indicatorLayoutId, reduceMotion, setActiveItemId } =
       useSharedLayoutGroup();
-    const active = !disabled && activeItemId === itemId;
+    const subscribe = useCallback(
+      (notify: () => void) => activeItems.subscribe(itemId, notify),
+      [activeItems, itemId]
+    );
+    const getActive = useCallback(
+      () => !disabled && activeItems.isActive(itemId),
+      [activeItems, disabled, itemId]
+    );
+    const active = useSyncExternalStore(subscribe, getActive, getActive);
 
     return (
       <>

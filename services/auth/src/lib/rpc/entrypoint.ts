@@ -235,6 +235,8 @@ type UpdateCenterAgentProfileInOrganizationRpcInput = {
   profileId?: string | null;
   profileName?: string | null;
   avatarStyle?: string | null;
+  avatarOptions?: import("@openmeld/schemas/types").AuthProfileView["avatarOptions"];
+  expectedAvatarOptions?: import("@openmeld/schemas/types").AuthProfileView["avatarOptions"];
 };
 type EnsureManagedAgentProfileRpcResult =
   | {
@@ -485,6 +487,7 @@ type OrganizationDirectoryMemberIdentityRow = {
 };
 type OrganizationDirectoryAgentProfileIdentityRow = {
   avatar_style: string | null;
+  avatar_options: import("@openmeld/schemas/types").AuthProfileView["avatarOptions"];
   created_at: number;
   created_by_user_id: string | null;
   creator_profile_id: string | null;
@@ -1608,7 +1611,13 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
               organizationId,
               profileId,
               ...(profileName ? { profileName } : {}),
-              ...(input.avatarStyle ? { avatarStyle: input.avatarStyle } : {}),
+              ...(input.avatarStyle
+                ? {
+                    avatarStyle: input.avatarStyle,
+                    avatarOptions: input.avatarOptions,
+                    expectedAvatarOptions: input.expectedAvatarOptions,
+                  }
+                : {}),
             }
           );
         return {
@@ -2559,6 +2568,7 @@ function toOpenMeldProfileRpcItem(
     managedRole?: unknown;
     defaultProjectId?: string | null;
     avatarStyle?: string | null;
+    avatarOptions?: import("@openmeld/schemas/types").AuthProfileView["avatarOptions"];
     createdByUserId: string | null;
     creationActorProfileId: string | null;
     creatorProfileId: string | null;
@@ -2592,7 +2602,10 @@ function toOpenMeldProfileRpcItem(
     source: profile.source,
     managedRole,
     ...(profile.profileKind === "agent" && options?.includeAvatarStyle
-      ? { avatarStyle: profile.avatarStyle ?? null }
+      ? {
+          avatarStyle: profile.avatarStyle ?? null,
+          avatarOptions: profile.avatarOptions ?? null,
+        }
       : {}),
     ...(profile.profileKind === "agent" && managedRole === null
       ? { defaultProjectId: normalizeOptionalText(profile.defaultProjectId) }
@@ -2726,6 +2739,7 @@ function isTrustedDeletedByCurrentProfileInput(input: {
 function toAuthRpcProfileFact(
   profile: Omit<AuthRpcProfileFact, "avatarStyle"> & {
     avatarStyle?: string | null;
+    avatarOptions?: import("@openmeld/schemas/types").AuthProfileView["avatarOptions"];
     managedRole?: string | null;
   },
   includeAvatarStyle = false
@@ -2743,7 +2757,9 @@ function toAuthRpcProfileFact(
     ownerUserId: profile.ownerUserId,
     organizationId: normalizeOptionalText(profile.organizationId),
     managedRole: normalizeProfileManagedRole(profile.managedRole),
-    ...(includeAvatarStyle ? { avatarStyle } : {}),
+    ...(includeAvatarStyle
+      ? { avatarStyle, avatarOptions: profile.avatarOptions ?? null }
+      : {}),
     ...(profile.profileKind === "agent" &&
     normalizeProfileManagedRole(profile.managedRole) === null
       ? { defaultProjectId: normalizeOptionalText(profile.defaultProjectId) }
@@ -2808,6 +2824,7 @@ function buildOrganizationDirectoryAgentProfileIdentitySql(
       profiles.profile_id,
       profiles.profile_name,
       profiles.avatar_style,
+      profiles.avatar_options,
       profiles.profile_handle,
       profiles.status,
       profiles.owner_user_id,
@@ -2904,7 +2921,9 @@ function mapOrganizationDirectoryAgentProfileIdentityRow(
     profileId: row.profile_id,
     profileKind: "agent" as const,
     profileName: row.profile_name,
-    ...(includeAvatarStyle ? { avatarStyle: row.avatar_style } : {}),
+    ...(includeAvatarStyle
+      ? { avatarStyle: row.avatar_style, avatarOptions: row.avatar_options }
+      : {}),
     source: row.source,
     status: row.status,
     updatedAt: toRequiredIsoString(row.updated_at, "Agent Profile updatedAt"),

@@ -191,6 +191,7 @@ function createInMemoryRepository(
         creationIdempotencyKey: null,
         defaultProjectId: null,
         avatarStyle: null,
+        avatarOptions: null,
         managedRole: null,
         source: input.source ?? "auth_bootstrap",
         lastUsedAt: null,
@@ -243,6 +244,7 @@ function createInMemoryRepository(
         creationIdempotencyKey: input.creationIdempotencyKey ?? null,
         defaultProjectId: null,
         avatarStyle: null,
+        avatarOptions: null,
         managedRole: input.managedRole ?? null,
         source: input.source ?? "cli_create",
         lastUsedAt: null,
@@ -276,6 +278,7 @@ function createInMemoryRepository(
         creationIdempotencyKey: null,
         defaultProjectId: null,
         avatarStyle: null,
+        avatarOptions: null,
         managedRole: null,
         source: input.source ?? "cli_create",
         lastUsedAt: null,
@@ -312,6 +315,9 @@ function createInMemoryRepository(
       );
       if (profile) {
         profile.avatarStyle = avatarStyle;
+        if ("avatarOptions" in scope) {
+          profile.avatarOptions = scope.avatarOptions ?? null;
+        }
       }
       return Promise.resolve();
     },
@@ -1200,9 +1206,11 @@ describe("OpenMeld profile service", () => {
         profileId: center.profileId,
         managedRole: "center_agent",
         avatarStyle: "ghost",
+        avatarOptions: { palette: "balanced" },
       }
     );
     expect(centerUpdated.avatarStyle).toBe("ghost");
+    expect(centerUpdated.avatarOptions).toEqual({ palette: "balanced" });
     await expect(
       service.updateManagedAgentProfileInOrganization({
         organizationId: "org_other",

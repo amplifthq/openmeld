@@ -147,6 +147,23 @@ describe("AppearanceSection", () => {
 		}
 	});
 
+	it("keeps the selected Bot palette when Appearance is reopened", () => {
+		renderAppearance();
+		fireEvent.click(screen.getByRole("radio", { name: "Slate" }));
+		cleanup();
+		renderAppearance();
+		expect(
+			screen.getByRole("radio", { name: "Slate" }).getAttribute("aria-checked")
+		).toBe("true");
+		fireEvent.keyDown(screen.getByRole("radio", { name: "Slate" }), {
+			key: "ArrowRight",
+		});
+		expect(
+			screen.getByRole("radio", { name: "Sand" }).getAttribute("aria-checked")
+		).toBe("true");
+		fireEvent.click(screen.getByRole("radio", { name: "Soft" }));
+	});
+
 	it("defaults to rounded corners and changes the shared shape context", () => {
 		renderAppearance();
 

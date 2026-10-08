@@ -4,7 +4,10 @@ import {
 } from "@openmeld/schemas/schemas";
 import type { SpaceTask } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
-import { describeSpaceTaskAttention } from "./space-task-presentation";
+import {
+	describeSpaceTaskAttention,
+	formatSpaceTaskExternalIssueRefs,
+} from "./space-task-presentation";
 
 const requester = {
 	ownerUserId: "user-ming",
@@ -77,7 +80,7 @@ describe("describeSpaceTaskAttention", () => {
 			task: createTask({ phase: "in_progress" }),
 		},
 		{
-			expected: "Builder is advancing this",
+			expected: "In progress",
 			name: "In progress assigned to someone else",
 			selfProfileId: requester.profileId,
 			task: createTask({ phase: "in_progress" }),
@@ -115,6 +118,25 @@ describe("describeSpaceTaskAttention", () => {
 });
 
 describe("describeLinkedGitHubIssueClosePrompt", () => {
+	it("shows a Linear identifier without claiming GitHub close behavior", () => {
+		const task = createTask({
+			externalWorkItems: [
+				{
+					id: "73c7947f-5bba-4e67-a668-9392b70cd424",
+					identifier: "PAY-82",
+					teamId: "a86813e7-c458-4af2-8cfa-73a796d81201",
+					provider: "linear",
+					url: "https://linear.app/acme/issue/PAY-82/fix-payment",
+					lastObservedAt: null,
+					lastObservedState: null,
+				},
+			],
+			phase: "done",
+		});
+		expect(formatSpaceTaskExternalIssueRefs(task)).toEqual(["PAY-82"]);
+		expect(describeLinkedGitHubIssueClosePrompt(task)).toBeNull();
+	});
+
 	it("asks to close still-open GitHub issues after the Task is closed", () => {
 		expect(
 			describeLinkedGitHubIssueClosePrompt(
