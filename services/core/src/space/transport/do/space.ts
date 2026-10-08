@@ -14298,6 +14298,7 @@ export class Space extends DurableObject<CoreBindings> {
       try {
         await this.publishTextSignal(signal, {
           authoringPolicy: "user_authored",
+          verifiedRequestContext: input.context,
           sourceDispatchChainContext: resolveSourceDispatchChainContext(
             input.context
           ),
