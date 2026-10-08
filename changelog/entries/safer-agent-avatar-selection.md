@@ -6,5 +6,5 @@ areas: ["center-agent", "web"]
 audiences: ["users"]
 ---
 
-Avatar selection uses smaller arrows and a separate Save button below the
-preview, keeping browsing and saving apart.
+Avatar selection keeps the arrow controls separate from a Save button directly
+below the preview, keeping browsing and saving apart.

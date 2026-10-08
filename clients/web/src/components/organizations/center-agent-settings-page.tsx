@@ -818,11 +818,17 @@ function CenterAgentConnectionSection(input: {
 						<p className="mt-1 truncate text-muted-foreground text-sm">
 							@{input.profile.profileHandle}
 						</p>
-						<Badge
-							className={`mt-3 ${status === "Status unavailable" ? resolveStatusToneProminentBadgeClassName("muted") : CENTER_AGENT_STATUS_BADGE_CLASS_NAMES[status]}`}
-						>
-							{status}
-						</Badge>
+						<div className="mt-2 flex h-7 items-center max-lg:h-11">
+							<Badge
+								className={
+									status === "Status unavailable"
+										? resolveStatusToneProminentBadgeClassName("muted")
+										: CENTER_AGENT_STATUS_BADGE_CLASS_NAMES[status]
+								}
+							>
+								{status}
+							</Badge>
+						</div>
 					</div>
 				</div>
 				<Button

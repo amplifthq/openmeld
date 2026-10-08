@@ -45,10 +45,10 @@ export function AgentAvatarEditor(input: {
 		setCandidate(choices[(index + step + choices.length) % choices.length]);
 		setOpen(true);
 	};
-	const navigationClassName = `absolute top-1/2 z-10 grid size-6 -translate-y-1/2 place-items-center text-foreground before:absolute before:size-5 before:rounded-full before:bg-background/85 before:shadow-sm [@media(hover:none)]:opacity-100 focus-visible:outline-2 focus-visible:outline-ring ${open ? "opacity-100" : "opacity-0 group-focus-within/avatar-editor:opacity-100 group-hover/avatar-editor:opacity-100"}`;
+	const navigationClassName = `absolute top-1/2 z-10 grid size-6 -translate-y-1/2 place-items-center rounded-full bg-background/85 text-foreground shadow-sm [@media(hover:none)]:opacity-100 focus-visible:outline-2 focus-visible:outline-ring ${open ? "opacity-100" : "opacity-0 group-focus-within/avatar-editor:opacity-100 group-hover/avatar-editor:opacity-100"}`;
 	return (
 		<div
-			className="group/avatar-editor flex shrink-0 flex-col items-center gap-2"
+			className="group/avatar-editor flex shrink-0 flex-col items-center"
 			style={{ width: size }}
 		>
 			<div className="relative" style={{ width: size, height: size }}>
@@ -81,7 +81,7 @@ export function AgentAvatarEditor(input: {
 						>
 							<CaretLeftIcon
 								aria-hidden="true"
-								className="relative size-3"
+								className="size-3.5"
 								weight="bold"
 							/>
 						</button>
@@ -97,7 +97,7 @@ export function AgentAvatarEditor(input: {
 						>
 							<CaretRightIcon
 								aria-hidden="true"
-								className="relative size-3"
+								className="size-3.5"
 								weight="bold"
 							/>
 						</button>
