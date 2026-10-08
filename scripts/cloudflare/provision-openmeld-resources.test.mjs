@@ -87,7 +87,7 @@ test("keeps staging infrastructure isolated from production", () => {
     OPENMELD_STAGING_RESOURCES.filter((resource) => resource.kind === "D1").map(
       (resource) => resource.name
     ),
-    ["openmeld-db-stg"]
+    []
   );
   assert.deepEqual(
     OPENMELD_STAGING_RESOURCES.filter(

@@ -12,8 +12,9 @@ explicitly; login defaults are not the resource owner.
 The architecture is decided: Cloudflare Hyperdrive connects Workers to
 PlanetScale PostgreSQL. Start from current source, not a new vendor comparison
 or the superseded D1 capacity threshold. Production has used PostgreSQL since
-the 2026-10-04 cutover. Shared staging remains on its deployed D1 revision;
-current-source staging deployment is blocked pending its own migration.
+the 2026-10-04 cutover. Shared staging reuses `openmeld-postgresql-stg` through
+its own Hyperdrive binding and the guarded `pnpm staging:deploy` workflow.
+The former staging D1 database is retained for historical test-data inspection.
 Use standard PlanetScale Postgres for this foundation. Neki preview enrollment
 does not change the chosen engine or authorize a sharded database migration.
 The staging/local baseline is PostgreSQL 18 at the latest supported stable minor.

@@ -20,8 +20,8 @@
 
 Production completed the authorized Hyperdrive + PlanetScale PostgreSQL cutover
 on 2026-10-04. `openmeld-postgresql-prod` is the live shared relational authority,
-with Hyperdrive query caching disabled. Shared staging remains on its deployed
-D1 revision; the isolated `openmeld-postgresql-stg` foundation is separate.
+with Hyperdrive query caching disabled. Shared staging reuses the existing
+`openmeld-postgresql-stg` target through its own cache-disabled Hyperdrive.
 Do not attach the foundation probe to production. Exact migration and delivery
 evidence is in the [production cutover record](postgresql-cutover.md#current-production-state).
 The production `status: ready-empty` field in `resources.json` is the historical
@@ -131,8 +131,8 @@ with its explicit isolated connection variables. Legacy production D1 commands
 fail closed. Historical D1 SQL, physical-requirement snapshots, and diagnostic
 tooling remain evidence for the historical D1 revision; they cannot generate or
 apply the PostgreSQL model. The first production release verified frozen capture
-and native import through the existing release owner. Shared-staging deployment
-stays blocked pending its own migration. Isolated development and the foundation
+and native import through the existing release owner. Shared staging applies
+migrations and runtime grants through `pnpm staging:deploy`. Isolated development and the foundation
 probe remain validation paths; an implemented command is not production authorization.
 
 `pnpm --filter @openmeld/db auth:generate` runs the official CLI at the installed
@@ -293,7 +293,7 @@ The existing isolated `openmeld-postgresql-stg` database and branch are
 `e74a33891b4c7a16b1fe853c41011f52`. Reuse Hyperdrive
 `6af2d43ec8d8498b9607c653ca231e73`, migration role
 `pscale_api_m7rr7fm14at8` and runtime role `pscale_api_0hf13zdprg79`.
-This foundation is separate from shared D1 product staging. No new database,
+Shared product staging now reuses this foundation. No new database,
 branch, role, Hyperdrive, KV, R2, Queue or container is needed.
 
 On 2026-10-04, read-only inspection found the original one-row

@@ -88,6 +88,17 @@ export function verifyPostgresqlEnvironment(root) {
         `${service} must have one relational authority`
       );
     }
+    assert.deepEqual(config.env.stg.hyperdrive, [
+      {
+        binding: "OPENMELD_POSTGRESQL",
+        id: inventory.environments.staging.hyperdriveId,
+      },
+    ]);
+    assert.equal(
+      config.env.stg.d1_databases,
+      undefined,
+      `${service} staging must have one relational authority`
+    );
   }
   console.log(
     "PASS isolated PostgreSQL resource and Worker environment contracts"
