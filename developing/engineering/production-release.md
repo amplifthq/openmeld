@@ -656,9 +656,12 @@ capability gates and frozen-request replay remain unchanged. The planner checks
 that exact baseline and the reviewed source digest of all listed request owners
 in `scripts/release/remote-agent-request-compatibility.mjs`. Unknown baselines,
 unreadable source, or any changed owner preserve the dependency and block a
-cycle. Never update the digest merely to pass a gate: repeat the published-schema
-and mixed-version audit. `compatibilityBridges` in plan/status records the exact
-source witness; Core metering and Web/Gateway result-reader edges remain intact.
+cycle. This witness does not waive the separate imported turn-envelope or
+execution-input producer dependencies, or Core's Gateway request-context
+receiver dependency. Never update the digest merely to pass a gate: repeat the
+published-schema and mixed-version audit. `compatibilityBridges` in plan/status
+records the exact source witness; Core metering and Web/Gateway result-reader
+edges remain intact.
 
 For this bridge, retain the completed compatible Web readers and additive DB
 migrations, deploy Core and verify its readers/usage receiver, record that exact

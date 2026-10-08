@@ -293,15 +293,11 @@ export function resolveProductionCompatibilityDependencies(
   const invitation = isSpaceInvitationReceiverFirstDiff(changedPaths);
   const remoteRequestReceiverFirst =
     isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths, context);
-  const remoteReceiverRequired =
-    (remoteRequestReceiverFirst ||
-      changedPaths.some(isRemoteAgentReceiverFirstContractPath)) &&
-    !resolveRemoteAgentRequestCompatibilityBridge({
-      ...context,
-      readGitFile:
-        context.readGitFile ??
-        ((ref, path) => runGit(["show", `${ref}:${path}`])),
-    });
+  const remoteReceiverRequired = requiresRemoteAgentRequestReceiver(
+    changedPaths,
+    context,
+    remoteRequestReceiverFirst
+  );
   const dependencyGroups = [
     {
       enabled: isProjectIssueWorkflowDiff(changedPaths),
@@ -2403,13 +2399,8 @@ function isRemoteAgentWorkerRequestReceiverFirstDiff(
   changedPaths,
   context = {}
 ) {
-  const executionInputDirection = hasRemoteExecutionInputOwners(changedPaths)
-    ? inspectRemoteExecutionInputSchemaDirection(context)
-    : null;
   return (
-    hasRemoteTurnEnvelopeOwners(changedPaths) ||
-    (executionInputDirection?.requestChanged === true &&
-      executionInputDirection.responseChanged === false) ||
+    isImportedRemoteAgentRequestReceiverFirstDiff(changedPaths, context) ||
     (changedPaths.some((path) =>
       REMOTE_AGENT_WORKER_REQUEST_SCHEMA_PATHS.has(path)
     ) &&
@@ -2417,6 +2408,28 @@ function isRemoteAgentWorkerRequestReceiverFirstDiff(
       changedPaths.some((path) =>
         REMOTE_AGENT_WORKER_REQUEST_PRODUCER_PATHS.has(path)
       ))
+  );
+}
+function isImportedRemoteAgentRequestReceiverFirstDiff(paths, context) {
+  const direction = hasRemoteExecutionInputOwners(paths)
+    ? inspectRemoteExecutionInputSchemaDirection(context)
+    : null;
+  return (
+    hasRemoteTurnEnvelopeOwners(paths) ||
+    (direction?.requestChanged === true && direction.responseChanged === false)
+  );
+}
+function requiresRemoteAgentRequestReceiver(paths, context, requestChanged) {
+  return (
+    // The native-request bridge does not witness these separate producers.
+    isImportedRemoteAgentRequestReceiverFirstDiff(paths, context) ||
+    ((requestChanged || paths.some(isRemoteAgentReceiverFirstContractPath)) &&
+      !resolveRemoteAgentRequestCompatibilityBridge({
+        ...context,
+        readGitFile:
+          context.readGitFile ??
+          ((ref, path) => runGit(["show", `${ref}:${path}`])),
+      }))
   );
 }
 function hasRemoteTurnEnvelopeOwners(paths) {
