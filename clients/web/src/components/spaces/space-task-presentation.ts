@@ -48,9 +48,6 @@ export function describeSpaceTaskAttention(input: {
 			if (task.assignee?.profileId === input.selfProfileId) {
 				return "Submit the result when it's ready";
 			}
-			if (task.assignee) {
-				return `${task.assignee.profileName} is advancing this`;
-			}
 			return "In progress";
 		}
 		case "in_review": {

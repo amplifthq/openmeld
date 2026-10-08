@@ -2,7 +2,14 @@
 
 import type { SpaceTask, SpaceTaskPhase } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
+import { Textarea } from "@openmeld/ui/components/textarea";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+} from "@openmeld/ui/fluid/select";
 import {
 	CheckCircleIcon,
 	CircleIcon,
@@ -18,6 +25,10 @@ import { useDelayedPending } from "#/lib/use-delayed-pending";
 import { SpaceTasksSkeleton } from "./space-panel-skeletons";
 import { SpaceTaskCard } from "./space-task-card";
 import { SpaceTaskDetailDrawer } from "./space-task-detail-drawer";
+import {
+	type SpaceTaskDraft,
+	SpaceTaskDraftFields,
+} from "./space-task-draft-fields";
 import { formatSpaceTaskPhase } from "./space-task-presentation";
 import {
 	type SpaceTasksPanelProps,
@@ -90,11 +101,7 @@ function EmptyTasksBoard(input: { phase?: SpaceTaskPhase }) {
 					{input.phase ? (
 						"Choose another phase to see more work."
 					) : (
-						<>
-							Tasks begin in Messages when someone gives a person or Agent a
-							clear deliverable. Small questions and quick actions stay in the
-							conversation.
-						</>
+						<>Create a task here or from a message.</>
 					)}
 				</p>
 			</div>
@@ -145,10 +152,20 @@ function shouldBlockTasksRead(input: {
 }
 
 export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
+	const [draft, setDraft] = useState<SpaceTaskDraft | null>(null);
+	const [description, setDescription] = useState("");
+	const [creating, setCreating] = useState(false);
+	const [operationId, setOperationId] = useState(() => crypto.randomUUID());
 	const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 	const [phase, setPhase] = useState<SpaceTaskPhase | undefined>();
-	const { detailQuery, members, mutateTask, pendingTaskId, tasksQuery } =
-		useSpaceTasksPanelController(input, { phase, taskId: selectedTaskId });
+	const {
+		createTask,
+		detailQuery,
+		members,
+		mutateTask,
+		pendingTaskId,
+		tasksQuery,
+	} = useSpaceTasksPanelController(input, { phase, taskId: selectedTaskId });
 	const showPending = useDelayedPending(
 		tasksQuery.isPending && tasksQuery.fetchStatus !== "paused"
 	);
@@ -194,6 +211,11 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 					onRetry={() => tasksQuery.refetch()}
 				/>
 				<TaskBoardHeader
+					onCreateTask={
+						input.openMeldProfileId && !draft
+							? () => setDraft({ title: "" })
+							: undefined
+					}
 					onPhaseChange={setPhase}
 					phase={phase}
 					tasks={tasks}
@@ -207,6 +229,60 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 					</p>
 				) : null}
 
+				{draft ? (
+					<form
+						className="mb-6 max-w-lg"
+						onSubmit={async (event) => {
+							event.preventDefault();
+							if (creating || !draft.title.trim()) {
+								return;
+							}
+							setCreating(true);
+							const task = await createTask({
+								...draft,
+								operationId,
+								description: description.trim() || null,
+							});
+							setCreating(false);
+							if (task) {
+								setDraft(null);
+								setDescription("");
+								setOperationId(crypto.randomUUID());
+								setSelectedTaskId(task.taskId);
+							}
+						}}
+					>
+						<SpaceTaskDraftFields
+							closeLabel="Cancel task draft"
+							disabled={creating}
+							draft={draft}
+							members={members}
+							onChange={setDraft}
+							onClose={() => setDraft(null)}
+						/>
+						<label
+							className="text-muted-foreground text-xs"
+							htmlFor="task-description"
+						>
+							Description
+						</label>
+						<Textarea
+							className="mt-1"
+							id="task-description"
+							maxLength={8000}
+							onChange={(event) => setDescription(event.target.value)}
+							value={description}
+						/>
+						<Button
+							className="mt-3"
+							disabled={creating || !draft.title.trim()}
+							size="sm"
+							type="submit"
+						>
+							Create task
+						</Button>
+					</form>
+				) : null}
 				{tasks.length === 0 ? (
 					<EmptyTasksBoard phase={phase} />
 				) : (
@@ -295,6 +371,7 @@ function resolveSelectedTask(
 }
 
 function TaskBoardHeader(input: {
+	onCreateTask?: () => void;
 	onPhaseChange: (phase: SpaceTaskPhase | undefined) => void;
 	phase?: SpaceTaskPhase;
 	tasks: readonly SpaceTask[];
@@ -303,11 +380,11 @@ function TaskBoardHeader(input: {
 	const activeCount = input.tasks.filter(
 		(task) => task.phase !== "done" && task.phase !== "canceled"
 	).length;
-	let summary = "No active commitments";
+	let summary = "No active tasks";
 	if (input.phase) {
-		summary = `${input.tasks.length}${input.truncated ? "+" : ""} ${formatSpaceTaskPhase(input.phase)} Tasks`;
+		summary = `${input.tasks.length}${input.truncated ? "+" : ""} ${input.tasks.length === 1 ? "task" : "tasks"}`;
 	} else if (activeCount > 0) {
-		summary = `${activeCount} active ${activeCount === 1 ? "commitment" : "commitments"}${input.truncated ? " shown" : ""}`;
+		summary = `${activeCount} active ${activeCount === 1 ? "task" : "tasks"}${input.truncated ? " shown" : ""}`;
 	}
 	return (
 		<header className="mb-4 flex items-start justify-between gap-4">
@@ -315,29 +392,41 @@ function TaskBoardHeader(input: {
 				<h2 className="font-semibold text-base">Tasks</h2>
 				<p className="mt-1 text-muted-foreground text-sm">{summary}</p>
 			</div>
-			<label className="text-muted-foreground text-xs">
-				Phase
-				<select
-					className="mt-1 block h-8 rounded-md border border-input bg-background px-2 text-foreground text-sm"
-					onChange={(event) =>
+			<div className="flex items-center gap-2">
+				<Select
+					onValueChange={(value) =>
 						input.onPhaseChange(
-							event.target.value
-								? (event.target.value as SpaceTaskPhase)
-								: undefined
+							value === "all" ? undefined : (value as SpaceTaskPhase)
 						)
 					}
-					value={input.phase ?? ""}
+					value={input.phase ?? "all"}
 				>
-					<option value="">All phases</option>
-					{(
-						["to_do", "in_progress", "in_review", "done", "canceled"] as const
-					).map((value) => (
-						<option key={value} value={value}>
-							{formatSpaceTaskPhase(value)}
-						</option>
-					))}
-				</select>
-			</label>
+					<SelectTrigger
+						aria-label="Filter tasks by status"
+						className="h-8 text-xs"
+						displayValue={
+							input.phase ? formatSpaceTaskPhase(input.phase) : "All statuses"
+						}
+					/>
+					<SelectContent>
+						<SelectItem index={0} value="all">
+							All statuses
+						</SelectItem>
+						{(
+							["to_do", "in_progress", "in_review", "done", "canceled"] as const
+						).map((value, index) => (
+							<SelectItem index={index + 1} key={value} value={value}>
+								{formatSpaceTaskPhase(value)}
+							</SelectItem>
+						))}
+					</SelectContent>
+				</Select>
+				{input.onCreateTask ? (
+					<Button onClick={input.onCreateTask} size="sm">
+						New task
+					</Button>
+				) : null}
+			</div>
 		</header>
 	);
 }
@@ -361,14 +450,11 @@ function TaskColumn(input: {
 					>
 						{input.column.title} · {input.tasks.length}
 					</h3>
-					<p className="text-muted-foreground text-xs">
-						{input.column.description}
-					</p>
 				</div>
 			</div>
 			<div className="space-y-3">
 				{input.tasks.length === 0 ? (
-					<div className="rounded-lg border border-border border-dashed px-4 py-8 text-center text-muted-foreground text-xs">
+					<div className="px-3 py-6 text-muted-foreground text-xs">
 						Nothing here
 					</div>
 				) : null}
@@ -396,14 +482,11 @@ function TaskHistory(
 		return null;
 	}
 	return (
-		<details
-			className="rounded-lg border border-border"
-			open={input.open || undefined}
-		>
-			<summary className="cursor-pointer px-4 py-3 font-medium text-sm">
+		<details className="border-border border-t" open={input.open || undefined}>
+			<summary className="cursor-pointer px-1 py-2 font-medium text-sm">
 				{input.label} · {input.tasks.length}
 			</summary>
-			<div className="grid gap-3 border-border border-t p-3 md:grid-cols-2 xl:grid-cols-3">
+			<div className="space-y-1 py-2">
 				{input.tasks.map((task) => (
 					<SpaceTaskCard
 						key={task.taskId}

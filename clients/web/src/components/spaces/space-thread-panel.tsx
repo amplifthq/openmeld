@@ -1908,7 +1908,11 @@ function ThreadComposer(input: {
 		text: input.composerText,
 	});
 	const submitComposer = (options?: SpaceComposerSendOptions) => {
-		if (!input.canSendMessage || input.isSendingMessage || sendBlocked) {
+		const blocked = resolveSpaceComposerSendBlocked({
+			files: input.composerFiles,
+			text: input.composerText || options?.taskDraft?.title || "",
+		});
+		if (!input.canSendMessage || input.isSendingMessage || blocked) {
 			return;
 		}
 		input.onSend(options).catch((error) => {

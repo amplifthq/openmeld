@@ -1,22 +1,16 @@
-import { AGENT_PROFILE_WORK_CONCURRENCY_LIMIT } from "@openmeld/agent-runtime";
 import { buildTargetWakeLifecycleId } from "@openmeld/schemas";
 import type { ExecutionContextSelection } from "@openmeld/schemas/types";
-import { Button } from "@openmeld/ui/components/button";
 import {
-	DropdownMenu,
-	DropdownMenuGroup,
-	DropdownMenuLabel,
+	DropdownMenuRadioGroup,
 	DropdownMenuSeparator,
 	DropdownMenuSub,
-	DropdownMenuSubTrigger,
-	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
 import {
-	FluidDropdownMenuContent,
-	FluidDropdownMenuItem,
+	FluidDropdownMenuGroup,
+	FluidDropdownMenuRadioItem,
 	FluidDropdownMenuSubContent,
+	FluidDropdownMenuSubTrigger,
 } from "@openmeld/ui/fluid/dropdown-menu";
-import { GitBranchIcon } from "@phosphor-icons/react";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 
 export type SpaceTaskSource = {
@@ -51,175 +45,171 @@ export function buildSpaceTaskSources(
 					sourceSignalId: item.id,
 					targetProfileId,
 				}),
-				label: item.text.trim().slice(0, 72) || "File task",
+				label: item.text.trim().slice(0, 72) || "File request",
 			}))
 		);
 }
 
-export function SpaceComposerTaskMenu(input: {
-	supportsCurrentFolder: boolean;
-	requiresProjectContainer: boolean;
+/** Execution settings belong to the recipient's existing mention menu. */
+export function SpaceComposerAgentOptions(input: {
 	targetProfileId: string;
-	disabled: boolean;
+	supportsCurrentFolder: boolean;
 	sources: readonly SpaceTaskSource[];
 	choice?: SpaceComposerTaskChoice;
 	onChange: (choice: SpaceComposerTaskChoice | undefined) => void;
 }) {
-	const choose = (selection: ExecutionContextSelection, label: string) =>
-		input.onChange({
-			selection,
-			label,
-			targetProfileId: input.targetProfileId,
-		});
+	const selection = input.choice?.selection;
 	const sources = input.sources.filter(
 		(source) => source.targetProfileId === input.targetProfileId
 	);
-	const selection = input.choice?.selection;
-	const changeAccess = (
-		access: "space_context" | "read_only" | "workspace",
-		workspace: "current" | "isolated"
-	) => {
-		const next =
-			selection && selection.mode !== "resume"
-				? selection
-				: { mode: "new" as const };
-		let label = input.choice?.label ?? "New task";
-		if (next.mode === "new") {
-			if (access === "space_context") {
-				label = "New Space-only task";
-			} else if (access === "workspace" && workspace === "isolated") {
-				label = "Isolated project task";
-			} else if (access === "read_only") {
-				label = "Read current folder";
-			} else {
-				label = "Work in current folder";
-			}
-		}
-		choose({ ...next, access, workspace }, label);
+	const choose = (next: ExecutionContextSelection, label: string) =>
+		input.onChange({
+			selection: next,
+			label,
+			targetProfileId: input.targetProfileId,
+		});
+	const sessionValue =
+		selection?.mode === "resume" || selection?.mode === "fork"
+			? `${selection.mode}:${selection.sourceWakeId}`
+			: (selection?.mode ?? "auto");
+	const accessValue =
+		selection && selection.mode !== "resume" && selection.access
+			? `${selection.access}:${selection.workspace ?? "isolated"}`
+			: "defaults";
+	const accessLabels: Record<string, string> = {
+		defaults: "Agent defaults",
+		"space_context:isolated": "Space only",
+		"workspace:isolated": "Isolated worktree",
+		"read_only:current": "Read current folder",
+		"workspace:current": "Current folder",
 	};
 	return (
-		<DropdownMenu>
-			<DropdownMenuTrigger
-				render={
-					<Button
-						aria-label="Task context"
-						disabled={input.disabled}
-						size="sm"
-						type="button"
-						variant="ghost"
-					/>
-				}
-			>
-				<GitBranchIcon aria-hidden="true" />
-				<span className="max-w-36 truncate">
-					{input.choice?.label ?? "Task"}
-				</span>
-			</DropdownMenuTrigger>
-			<FluidDropdownMenuContent
-				align="start"
-				className="w-80 max-w-[calc(100vw-2rem)]"
-			>
-				<FluidDropdownMenuItem
-					index={0}
-					onClick={() => input.onChange(undefined)}
-				>
-					Continue automatically
-				</FluidDropdownMenuItem>
-				<FluidDropdownMenuItem
-					index={1}
-					onClick={() => choose({ mode: "new" }, "New task")}
-				>
-					New task
-				</FluidDropdownMenuItem>
-				<p className="px-2 py-1 text-muted-foreground text-xs">
-					{`New tasks keep the Agent's tools and permissions. Up to ${AGENT_PROFILE_WORK_CONCURRENCY_LIMIT} tasks can run together; tasks writing to the same folder wait for each other.`}
-				</p>
-				{sources.length > 0 ? (
-					<>
-						<DropdownMenuSeparator />
-						<DropdownMenuGroup>
-							<DropdownMenuLabel>
-								Tasks from this conversation
-							</DropdownMenuLabel>
-							{sources.map((source) => (
-								<DropdownMenuSub key={source.sourceWakeId}>
-									<DropdownMenuSubTrigger className="max-w-xs">
-										<span className="truncate">{source.label}</span>
-									</DropdownMenuSubTrigger>
-									<FluidDropdownMenuSubContent>
-										<FluidDropdownMenuItem
-											index={0}
-											onClick={() =>
-												choose(
-													{ mode: "resume", sourceWakeId: source.sourceWakeId },
-													`Continue: ${source.label}`
-												)
-											}
-										>
-											Continue task
-										</FluidDropdownMenuItem>
-										<FluidDropdownMenuItem
-											index={1}
-											onClick={() =>
-												choose(
-													{ mode: "fork", sourceWakeId: source.sourceWakeId },
-													`Fork: ${source.label}`
-												)
-											}
-										>
-											Fork from completed history
-										</FluidDropdownMenuItem>
-									</FluidDropdownMenuSubContent>
-								</DropdownMenuSub>
-							))}
-						</DropdownMenuGroup>
-					</>
-				) : null}
-				{selection?.mode !== "resume" ? (
-					<>
-						<DropdownMenuSeparator />
-						<DropdownMenuSub>
-							<DropdownMenuSubTrigger>Limit task access</DropdownMenuSubTrigger>
-							<FluidDropdownMenuSubContent className="w-80 max-w-[calc(100vw-2rem)]">
-								<FluidDropdownMenuItem
-									index={0}
-									onClick={() => changeAccess("space_context", "isolated")}
-								>
-									Space context only
-								</FluidDropdownMenuItem>
-								<FluidDropdownMenuItem
-									index={1}
-									onClick={() => changeAccess("workspace", "isolated")}
-								>
-									Isolated project worktree
-								</FluidDropdownMenuItem>
-								<FluidDropdownMenuItem
-									disabled={!input.supportsCurrentFolder}
-									index={2}
-									onClick={() => changeAccess("read_only", "current")}
-								>
-									Read current folder · Codex
-								</FluidDropdownMenuItem>
-								<FluidDropdownMenuItem
-									disabled={!input.supportsCurrentFolder}
-									index={3}
-									onClick={() => changeAccess("workspace", "current")}
-								>
-									Limit to current folder · Codex
-								</FluidDropdownMenuItem>
-								<p className="px-2 py-1 text-muted-foreground text-xs">
-									Project worktrees start from the connected repository's
-									current commit. Unsaved changes and local configuration are
-									not copied.
-									{input.requiresProjectContainer
-										? " Only isolated Claude project tasks need Docker or Podman."
-										: " Current-folder work waits for conflicting local tasks."}
-								</p>
-							</FluidDropdownMenuSubContent>
-						</DropdownMenuSub>
-					</>
-				) : null}
-			</FluidDropdownMenuContent>
-		</DropdownMenu>
+		<>
+			<DropdownMenuSeparator />
+			<FluidDropdownMenuGroup>
+				<DropdownMenuSub>
+					<FluidDropdownMenuSubTrigger index={0}>
+						Session{" "}
+						<span className="ml-auto max-w-36 truncate text-muted-foreground">
+							{input.choice?.label ?? "Automatic"}
+						</span>
+					</FluidDropdownMenuSubTrigger>
+					<FluidDropdownMenuSubContent className="w-64">
+						<DropdownMenuRadioGroup
+							onValueChange={(value) => {
+								if (value === "auto" || value === "new") {
+									const restrictions =
+										selection && selection.mode !== "resume"
+											? {
+													access: selection.access,
+													workspace: selection.workspace,
+												}
+											: {};
+									choose(
+										{ mode: value, ...restrictions },
+										value === "auto" ? "Automatic" : "Start new"
+									);
+								} else {
+									const source = sources.find(
+										(item) => value === `resume:${item.sourceWakeId}`
+									);
+									if (source) {
+										choose(
+											{ mode: "resume", sourceWakeId: source.sourceWakeId },
+											source.label
+										);
+									}
+								}
+							}}
+							value={sessionValue}
+						>
+							<FluidDropdownMenuRadioItem closeOnClick index={0} value="auto">
+								Automatic
+							</FluidDropdownMenuRadioItem>
+							<FluidDropdownMenuRadioItem closeOnClick index={1} value="new">
+								Start new
+							</FluidDropdownMenuRadioItem>
+							{sources.length ? (
+								<>
+									<DropdownMenuSeparator />
+									<p className="px-2 py-1 text-muted-foreground text-xs">
+										Continue previous
+									</p>
+									<FluidDropdownMenuGroup>
+										{sources.map((source, index) => (
+											<FluidDropdownMenuRadioItem
+												closeOnClick
+												index={index}
+												key={source.sourceWakeId}
+												value={`resume:${source.sourceWakeId}`}
+											>
+												<span className="truncate">{source.label}</span>
+											</FluidDropdownMenuRadioItem>
+										))}
+									</FluidDropdownMenuGroup>
+								</>
+							) : null}
+						</DropdownMenuRadioGroup>
+					</FluidDropdownMenuSubContent>
+				</DropdownMenuSub>
+				<DropdownMenuSub>
+					<FluidDropdownMenuSubTrigger
+						disabled={selection?.mode === "resume"}
+						index={1}
+					>
+						Access &amp; workspace{" "}
+						<span className="ml-auto text-muted-foreground">
+							{selection?.mode === "resume"
+								? "From session"
+								: accessLabels[accessValue]}
+						</span>
+					</FluidDropdownMenuSubTrigger>
+					<FluidDropdownMenuSubContent className="w-56">
+						<DropdownMenuRadioGroup
+							onValueChange={(value) => {
+								if (selection?.mode === "resume") {
+									return;
+								}
+								const next = selection ?? { mode: "auto" as const };
+								if (value === "defaults") {
+									const {
+										access: _access,
+										workspace: _workspace,
+										...rest
+									} = next;
+									choose(rest, input.choice?.label ?? "Automatic");
+									return;
+								}
+								const [access, workspace] = value.split(":") as [
+									"space_context" | "read_only" | "workspace",
+									"current" | "isolated",
+								];
+								choose(
+									{ ...next, access, workspace },
+									input.choice?.label ?? "Automatic"
+								);
+							}}
+							value={accessValue}
+						>
+							{Object.entries(accessLabels)
+								.filter(
+									([key]) =>
+										input.supportsCurrentFolder || !key.endsWith(":current")
+								)
+								.map(([key, label], index) => (
+									<FluidDropdownMenuRadioItem
+										closeOnClick
+										index={index}
+										key={key}
+										value={key}
+									>
+										{label}
+									</FluidDropdownMenuRadioItem>
+								))}
+						</DropdownMenuRadioGroup>
+					</FluidDropdownMenuSubContent>
+				</DropdownMenuSub>
+			</FluidDropdownMenuGroup>
+		</>
 	);
 }

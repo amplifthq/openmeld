@@ -100,9 +100,7 @@ describe("SpaceTasksPanel", () => {
 				name: "Open details for Follow the GitHub issue linkage",
 			})
 		).toBeTruthy();
-		expect(
-			screen.getByText("Waiting for Amplifth Center Agent to start")
-		).toBeTruthy();
+		expect(screen.getByText("Amplifth Center Agent")).toBeTruthy();
 		expect(screen.getByText("amplifthq/openmeld#1143")).toBeTruthy();
 		expect(
 			screen.queryByText(
@@ -217,9 +215,7 @@ describe("SpaceTasksPanel", () => {
 		).toBeTruthy();
 		expect(screen.getByText("OpenMeld will retry automatically.")).toBeTruthy();
 		expect(
-			screen
-				.getByRole("link", { name: "Open source message" })
-				.getAttribute("href")
+			screen.getByRole("link", { name: "View message" }).getAttribute("href")
 		).toContain("focusSignalId=signal-1");
 		fireEvent.click(
 			screen.getByRole("button", { name: "Authorize another correction" })

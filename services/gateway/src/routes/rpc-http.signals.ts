@@ -85,6 +85,10 @@ const buildPostSignalCoreRpcInput = (input: {
     ...(input.parsed.contextSelection
       ? { contextSelection: input.parsed.contextSelection }
       : {}),
+    ...(input.parsed.contextSelections
+      ? { contextSelections: input.parsed.contextSelections }
+      : {}),
+    ...(input.parsed.taskDraft ? { taskDraft: input.parsed.taskDraft } : {}),
     authoringPolicy: "user_authored" as const,
     ...(input.parsed.attachments
       ? { attachments: input.parsed.attachments }

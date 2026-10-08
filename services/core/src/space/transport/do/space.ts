@@ -634,6 +634,10 @@ import {
   taskMutationMayNeedDelivery,
 } from "../../application/space-task-delivery";
 import {
+  createSpaceTaskForMessage,
+  withSpaceTaskDispatchContext,
+} from "../../application/space-task-message";
+import {
   type ApplyGitHubIssueObservationInput,
   type ApplyGitHubIssueObservationResult,
   type CreateSpaceTaskContext,
@@ -1286,11 +1290,14 @@ function createPreparedDispatchOutboxRecordForDecision(input: {
     activeMemberByProfileId: input.activeMemberByProfileId,
     targetProfileId: input.decision.targetProfileId,
   });
+  const contextSelection =
+    input.signal.type === "signal.text"
+      ? (input.signal.data.contextSelections?.[
+          input.decision.targetProfileId
+        ] ?? input.signal.data.contextSelection)
+      : undefined;
   return createDispatchOutboxRecord({
-    ...(input.signal.type === "signal.text" &&
-    input.signal.data.contextSelection
-      ? { contextSelection: input.signal.data.contextSelection }
-      : {}),
+    ...(contextSelection ? { contextSelection } : {}),
     bindingEnabled: true,
     ...(input.signal.type === "signal.text" &&
     input.signal.data.deviceWait?.targetProfileId ===
@@ -5247,6 +5254,8 @@ export class Space extends DurableObject<CoreBindings> {
           text: normalizedText,
           ...(input.deviceWait ? { deviceWait: input.deviceWait } : {}),
           contextSelection: input.contextSelection,
+          contextSelections: input.contextSelections,
+          taskDraft: input.taskDraft,
           ...(input.attachments ? { attachments: input.attachments } : {}),
           ...(input.files ? { files: input.files } : {}),
           ...(input.messageEnvelope
@@ -5579,7 +5588,10 @@ export class Space extends DurableObject<CoreBindings> {
           ...(input.spaceAccess ? { spaceAccess: input.spaceAccess } : {}),
         });
         const resolution = await this.blockConcurrencyWithPostgres(
-          async (): Promise<IdempotentPostSignalResolution> => {
+          async (): Promise<
+            | IdempotentPostSignalResolution
+            | { status: "failed"; error: unknown }
+          > => {
             const pluginContinuation = input.pluginContinuation
               ? new PluginConnectionContinuationRepository(
                   this.ctx.storage.sql
@@ -5618,12 +5630,17 @@ export class Space extends DurableObject<CoreBindings> {
               clientMessageId,
               input,
             });
-            return {
-              signal: await postSignal(postInput),
-              status: "accepted",
-            };
+            // A rejected draft must not break the Durable Object input gate.
+            // The message/task transaction has already rolled back.
+            return await postSignal(postInput).then(
+              (signal) => ({ signal, status: "accepted" as const }),
+              (error: unknown) => ({ status: "failed" as const, error })
+            );
           }
         );
+        if (resolution.status === "failed") {
+          throw resolution.error;
+        }
         if (resolution.status === "rejected") {
           throw createCoreRpcHttpError({
             status: 409,
@@ -5646,6 +5663,10 @@ export class Space extends DurableObject<CoreBindings> {
       ...(input.input.contextSelection
         ? { contextSelection: input.input.contextSelection }
         : {}),
+      ...(input.input.contextSelections
+        ? { contextSelections: input.input.contextSelections }
+        : {}),
+      ...(input.input.taskDraft ? { taskDraft: input.input.taskDraft } : {}),
       ...(input.agentStreamId ? { agentStreamId: input.agentStreamId } : {}),
       authoringPolicy: input.input.authoringPolicy,
       ...(input.input.attachments
@@ -5872,6 +5893,10 @@ export class Space extends DurableObject<CoreBindings> {
         ...(input.contextSelection
           ? { contextSelection: input.contextSelection }
           : {}),
+        ...(input.contextSelections
+          ? { contextSelections: input.contextSelections }
+          : {}),
+        ...(input.taskDraft ? { taskDraft: input.taskDraft } : {}),
         ...(input.deviceWait ? { deviceWait: input.deviceWait } : {}),
         ...(input.attachments ? { attachments: input.attachments } : {}),
         ...(input.files
@@ -9292,6 +9317,51 @@ export class Space extends DurableObject<CoreBindings> {
     }
     return context;
   }
+  /** Runs inside the same SQLite transaction as message and dispatch persistence. */
+  private createTaskForPublishedMessage(
+    signal: SignalEnvelope,
+    context: SignalPublishContext | undefined,
+    dispatches: OpenMeldDaemonDispatchOutboxRecord[]
+  ): OpenMeldDaemonDispatchOutboxRecord[] {
+    if (signal.type !== "signal.text" || !signal.data.taskDraft) {
+      return dispatches;
+    }
+    if (context?.authoringPolicy !== "user_authored") {
+      throw new SpaceSignalAuthoringError({
+        code: "space_task.invalid_author",
+        status: 403,
+        message: "Create tasks through the Task API for system messages.",
+      });
+    }
+    const member = readSpaceMemberRecord(
+      this.ctx.storage.sql,
+      signal.profile.profileId
+    );
+    try {
+      const taskContext = this.buildSpaceTaskMemberContext(
+        signal.profile.profileId,
+        member?.ownerUserIdSnapshot
+      );
+      const receipt = createSpaceTaskForMessage({
+        sql: this.ctx.storage.sql,
+        signal,
+        context: taskContext,
+        threadId: context?.threadContext?.threadId ?? null,
+      });
+      return receipt
+        ? withSpaceTaskDispatchContext(receipt.task, dispatches)
+        : dispatches;
+    } catch (error) {
+      if (error instanceof SpaceTaskWorkflowError) {
+        throw new SpaceSignalAuthoringError({
+          code: "space_task.invalid_draft",
+          message: error.message,
+          status: error.status,
+        });
+      }
+      throw error;
+    }
+  }
   private admitSpaceTaskSignal(
     signal: SignalEnvelope,
     context?: SignalPublishContext
@@ -9499,6 +9569,15 @@ export class Space extends DurableObject<CoreBindings> {
   private buildSpaceTaskMutationContext(
     context: CoreRpcContextInput
   ): SpaceTaskMutationContext {
+    return this.buildSpaceTaskMemberContext(
+      context.actorContext.openMeldProfileId,
+      context.actorContext.ownerUserId
+    );
+  }
+  private buildSpaceTaskMemberContext(
+    profileIdInput: string | null | undefined,
+    ownerUserId: string | null | undefined
+  ): SpaceTaskMutationContext {
     const meta = this.readSpaceMetaRecord();
     if (!meta) {
       throw new SpaceTaskWorkflowError({
@@ -9523,7 +9602,7 @@ export class Space extends DurableObject<CoreBindings> {
         status: 409,
       });
     }
-    const profileId = context.actorContext.openMeldProfileId?.trim();
+    const profileId = profileIdInput?.trim();
     const member = profileId
       ? activeMembers.find((candidate) => candidate.profileId === profileId)
       : null;
@@ -9532,7 +9611,7 @@ export class Space extends DurableObject<CoreBindings> {
       (member.profileKindSnapshot !== "human" &&
         member.profileKindSnapshot !== "agent") ||
       (member.ownerUserIdSnapshot !== null &&
-        member.ownerUserIdSnapshot !== context.actorContext.ownerUserId)
+        member.ownerUserIdSnapshot !== ownerUserId)
     ) {
       throw new SpaceTaskWorkflowError({
         code: "space.membership_required",
@@ -14117,6 +14196,8 @@ export class Space extends DurableObject<CoreBindings> {
         {
           deviceWait: parsed.data.deviceWait,
           contextSelection: parsed.data.contextSelection,
+          contextSelections: parsed.data.contextSelections,
+          taskDraft: parsed.data.taskDraft,
           ...(parsed.data.messageEnvelope
             ? { messageEnvelope: parsed.data.messageEnvelope }
             : {}),
@@ -20015,6 +20096,10 @@ export class Space extends DurableObject<CoreBindings> {
         ...(options?.contextSelection
           ? { contextSelection: options.contextSelection }
           : {}),
+        ...(options?.contextSelections
+          ? { contextSelections: options.contextSelections }
+          : {}),
+        ...(options?.taskDraft ? { taskDraft: options.taskDraft } : {}),
         ...(options?.attachments ? { attachments: options.attachments } : {}),
         ...(options?.files ? { files: options.files } : {}),
         ...(options?.messageEnvelope
@@ -20445,6 +20530,11 @@ export class Space extends DurableObject<CoreBindings> {
               signal.id
             );
             this.insertThreadPlacementForPublishedSignal(signal, signalContext);
+            const taskDispatches = this.createTaskForPublishedMessage(
+              signal,
+              signalContext,
+              preparedDispatchOutboxPlan.outboxRecords
+            );
             repostedSource = completeRecalledMessageRepost(
               this.ctx.storage.sql,
               signal
@@ -20458,7 +20548,7 @@ export class Space extends DurableObject<CoreBindings> {
               return;
             }
             this.collectInsertedDispatchMessages(
-              preparedDispatchOutboxPlan.outboxRecords,
+              taskDispatches,
               dispatchMessages,
               stoppedNotices
             );
@@ -20498,6 +20588,11 @@ export class Space extends DurableObject<CoreBindings> {
     this.finishEarlyWakeStops(stoppedNotices, signalContext);
     if (persistedSignal) {
       this.scheduleInitialSessionTitle(signal, signalContext);
+      if (signal.type === "signal.text" && signal.data.taskDraft) {
+        this.ctx.waitUntil(
+          this.broadcastSpaceTasksChanged("space.task.created")
+        );
+      }
     }
     this.maybeEmitRetentionWarningSignal({
       signal,
@@ -20803,6 +20898,11 @@ export class Space extends DurableObject<CoreBindings> {
               signal.id
             );
             this.insertThreadPlacementForPublishedSignal(signal, signalContext);
+            const taskDispatches = this.createTaskForPublishedMessage(
+              signal,
+              signalContext,
+              preparedDispatchOutboxPlan.outboxRecords
+            );
             repostedSource = completeRecalledMessageRepost(
               this.ctx.storage.sql,
               signal
@@ -20816,7 +20916,7 @@ export class Space extends DurableObject<CoreBindings> {
               return;
             }
             this.collectInsertedDispatchMessages(
-              preparedDispatchOutboxPlan.outboxRecords,
+              taskDispatches,
               dispatchMessages,
               stoppedNotices
             );
@@ -20895,6 +20995,11 @@ export class Space extends DurableObject<CoreBindings> {
     });
     if (persistedSignal) {
       this.scheduleInitialSessionTitle(signal, signalContext);
+      if (signal.type === "signal.text" && signal.data.taskDraft) {
+        this.ctx.waitUntil(
+          this.broadcastSpaceTasksChanged("space.task.created")
+        );
+      }
       if (
         signal.type === "signal.text" &&
         supportsDurableObjectAlarms(this.ctx?.storage)

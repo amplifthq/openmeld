@@ -28,6 +28,7 @@ import {
 } from "@phosphor-icons/react";
 import { type CSSProperties, useState } from "react";
 import { Drawer } from "vaul";
+import { TaskMemberSelect } from "./space-task-draft-fields";
 import {
 	describeSpaceTaskAttention,
 	formatSpaceTaskPhase,
@@ -70,13 +71,13 @@ export function SpaceTaskDetailDrawer(input: SpaceTaskDetailDrawerProps) {
 		<Drawer.Root
 			autoFocus
 			direction="right"
+			modal={false}
 			onOpenChange={input.onOpenChange}
 			open={input.open}
 		>
 			<Drawer.Portal>
-				<Drawer.Overlay className="fixed inset-0 z-40 bg-background/55 backdrop-blur-[2px] motion-reduce:transition-none" />
 				<Drawer.Content
-					className="fixed top-0 right-0 bottom-0 z-50 flex border-border border-l bg-background shadow-2xl outline-none motion-reduce:transition-none"
+					className="fixed top-0 right-0 bottom-0 z-50 flex border-border border-l bg-background shadow-sm outline-none motion-reduce:transition-none"
 					data-testid="space-task-detail-drawer"
 					style={
 						{
@@ -130,7 +131,7 @@ export function SpaceTaskDetailDrawer(input: SpaceTaskDetailDrawerProps) {
 							data-vaul-no-drag
 							orientation="vertical"
 						>
-							{input.loading ? (
+							{input.loading && !task ? (
 								<output className="mb-4 block text-muted-foreground text-sm">
 									Loading Task details…
 								</output>
@@ -281,12 +282,12 @@ function SpaceTaskDetailBody(
 				</section>
 			) : null}
 			<div className="mt-4 grid gap-2 text-xs sm:grid-cols-2">
-				<TaskRole label="Assignee" value={task.assignee} />
-				<TaskRole
-					fallback="Submission completes the Task"
-					label="Reviewer"
-					value={task.reviewer}
-				/>
+				{input.allowedActions.includes("assign") ? null : (
+					<TaskRole label="Assignee" value={task.assignee} />
+				)}
+				{input.allowedActions.includes("set_reviewer") ? null : (
+					<TaskRole fallback="None" label="Reviewer" value={task.reviewer} />
+				)}
 			</div>
 			{input.pendingActions.length > 0 ? (
 				<section
@@ -325,7 +326,7 @@ function SpaceTaskDetailBody(
 					onClick={() => input.mutate({ action: "mark_in_progress" })}
 					size="sm"
 				>
-					Start work
+					Mark in progress
 				</Button>
 			) : null}
 			{input.allowedActions.includes("submit_result") ? (
@@ -510,7 +511,7 @@ function TaskAssignmentControls(
 			{input.allowedActions.includes("assign") ? (
 				<MemberSelect
 					disabled={input.busy}
-					label="Assign"
+					label="Assignee"
 					members={input.members.filter(
 						(member) => member.profileId !== input.task.reviewer?.profileId
 					)}
@@ -523,7 +524,7 @@ function TaskAssignmentControls(
 			{input.allowedActions.includes("set_reviewer") ? (
 				<MemberSelect
 					disabled={input.busy}
-					label="Review by"
+					label="Reviewer"
 					members={input.members.filter(
 						(member) => member.profileId !== input.task.assignee?.profileId
 					)}
@@ -652,7 +653,7 @@ function TaskLifecycleControls(input: TaskControlInput) {
 				size="sm"
 				variant="ghost"
 			>
-				Cancel Task
+				Cancel task
 			</Button>
 		);
 	}
@@ -667,7 +668,7 @@ function TaskLifecycleControls(input: TaskControlInput) {
 				size="sm"
 				variant="outline"
 			>
-				Reopen Task
+				Reopen task
 			</Button>
 		);
 	}
@@ -708,7 +709,7 @@ function TaskSourceLink(input: {
 					className="inline-flex items-center gap-1 text-sm underline underline-offset-2"
 					href={input.sourceHref}
 				>
-					<ArrowSquareOutIcon aria-hidden="true" /> Open source message
+					<ArrowSquareOutIcon aria-hidden="true" /> View message
 				</a>
 			) : null}
 			{input.threadId && input.onOpenThread ? (
@@ -718,7 +719,7 @@ function TaskSourceLink(input: {
 					size="sm"
 					variant="link"
 				>
-					Open source Thread
+					Open discussion
 				</Button>
 			) : null}
 		</div>
@@ -732,25 +733,7 @@ function MemberSelect(input: {
 	onChange: (profileId: string | null) => void;
 	value: string;
 }) {
-	return (
-		<label className="text-muted-foreground text-xs">
-			{input.label}
-			<select
-				className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-foreground text-sm"
-				disabled={input.disabled}
-				onChange={(event) => input.onChange(event.target.value || null)}
-				value={input.value}
-			>
-				<option value="">None</option>
-				{input.members.map((member) => (
-					<option key={member.profileId} value={member.profileId}>
-						{member.profileName} ·{" "}
-						{member.profileKind === "agent" ? "Agent" : "Person"}
-					</option>
-				))}
-			</select>
-		</label>
-	);
+	return <TaskMemberSelect {...input} />;
 }
 
 function formatTaskEvent(type: SpaceTaskEvent["type"]): string {

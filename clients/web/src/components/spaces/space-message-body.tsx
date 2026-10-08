@@ -60,6 +60,7 @@ import {
 	type SpaceMessageReferencesById,
 	SpaceMessageReferenceText,
 } from "./space-message-reference";
+import { SpaceMessageTaskReference } from "./space-task-references";
 import { useSpaceWakeStopRequestStatuses } from "./space-wake-stop-control";
 import { usePluginConnectionReply } from "./use-plugin-connection-reply";
 import { useSpaceStreamDisplayText } from "./use-space-stream-display-text";
@@ -513,7 +514,13 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 			attachments={attachments}
 			body={
 				<>
-					{addressedBody}
+					<SpaceMessageTaskReference
+						preserveBody={references.profileMentionProfilesById.size > 0}
+						signalId={input.item.id}
+						text={input.item.text}
+					>
+						{addressedBody}
+					</SpaceMessageTaskReference>
 					{isStoppedSpaceReply(input.item) ? (
 						<p
 							className="text-muted-foreground text-xs leading-5"

@@ -241,6 +241,7 @@ import { SpaceGraphSkeleton } from "./space-panel-skeletons";
 import { resolveSpacePendingAgentActionIdentity } from "./space-pending-agent-action-model";
 import { SpacePinnedItemsBar } from "./space-pins";
 import { useSpaceReadingHeader } from "./space-reading-header";
+import { SpaceTaskReferencesProvider } from "./space-task-references";
 import { SpaceConversationUnreadControl } from "./space-unread-control";
 import { getSpaceViewIndex, type SpaceView } from "./space-view";
 import { SpaceComposerActiveWakes } from "./space-wake-bookmarks";
@@ -550,23 +551,26 @@ export function SpaceConversationPanel(
 			</SpaceMessageEditingScope>
 		</SpaceWakeStopScope>
 	);
-	return content;
+	return (
+		<SpaceTaskReferencesProvider
+			disabled={publicInput.viewState.isDirectMessage}
+			onOpen={() => publicInput.onSpaceViewChange("tasks")}
+			organizationSlug={publicInput.orgSlug}
+			profileId={publicInput.selfProfileId}
+			spaceId={publicInput.spaceId}
+		>
+			{content}
+		</SpaceTaskReferencesProvider>
+	);
 }
 
 function useSpaceMessageTaskAction(input: {
 	disabled: boolean;
-	onSpaceViewChange: (view: SpaceView) => void;
 	openMeldProfileId: string;
 	organizationSlug?: string;
 	spaceId?: string;
 }) {
-	const {
-		disabled,
-		onSpaceViewChange,
-		openMeldProfileId,
-		organizationSlug,
-		spaceId,
-	} = input;
+	const { disabled, openMeldProfileId, organizationSlug, spaceId } = input;
 	const queryClient = useQueryClient();
 	const [pendingSourceSignalId, setPendingSourceSignalId] = useState<
 		string | null
@@ -605,7 +609,6 @@ function useSpaceMessageTaskAction(input: {
 				await queryClient.invalidateQueries({
 					queryKey: spaceTaskQueryKeys.space(spaceId),
 				});
-				onSpaceViewChange("tasks");
 				toast.success("Task created from this message.");
 			} catch (error) {
 				toast.error(
@@ -619,7 +622,6 @@ function useSpaceMessageTaskAction(input: {
 		},
 		[
 			disabled,
-			onSpaceViewChange,
 			openMeldProfileId,
 			organizationSlug,
 			pendingSourceSignalId,
@@ -638,7 +640,6 @@ function SpaceConversationPanelContent(
 	const timelineItems = useOptimisticSpaceMessages(props.timelineItems);
 	const taskAction = useSpaceMessageTaskAction({
 		disabled: viewState.isDirectMessage,
-		onSpaceViewChange: props.onSpaceViewChange,
 		openMeldProfileId: props.selfProfileId,
 		organizationSlug: props.orgSlug,
 		spaceId: props.spaceId,
@@ -762,7 +763,11 @@ function SpaceConversationPanelContent(
 		status: conversationRestorationStatus,
 	});
 	const submitComposer = (options?: SpaceComposerSendOptions) => {
-		if (composerSendBlocked || !canSendMessage || input.isSendingMessage) {
+		const blocked = resolveSpaceComposerSendBlocked({
+			files: input.composerFiles,
+			text: input.composerText || options?.taskDraft?.title || "",
+		});
+		if (blocked || !canSendMessage || input.isSendingMessage) {
 			return;
 		}
 		input.onSend(options).catch((error) => {
@@ -3530,7 +3535,7 @@ function renderConversationMessageFooter(input: {
 							label:
 								input.taskCreationSourceSignalId === input.item.id
 									? "Creating Task…"
-									: "Add to Tasks",
+									: "Create task",
 							onSelect: () =>
 								input.onAddMessageToTasks?.(
 									input.item,

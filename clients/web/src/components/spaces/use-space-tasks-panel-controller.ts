@@ -124,6 +124,32 @@ export function useSpaceTasksPanelController(
 	};
 
 	return {
+		createTask: async (
+			body: import("@openmeld/schemas/types").CreateSpaceTaskBody
+		) => {
+			try {
+				const receipt = await api.createTask({ spaceId: input.spaceId, body });
+				queryClient.setQueryData(
+					spaceTaskQueryKeys.detail(
+						input.spaceId,
+						receipt.task.taskId,
+						input.openMeldProfileId
+					),
+					receipt
+				);
+				await queryClient.invalidateQueries({
+					queryKey: spaceTaskQueryKeys.space(input.spaceId),
+				});
+				return receipt.task;
+			} catch (error) {
+				toast.error(
+					error instanceof Error
+						? error.message
+						: "Couldn't create task. Try again."
+				);
+				return null;
+			}
+		},
 		detailQuery,
 		members,
 		mutateTask,
