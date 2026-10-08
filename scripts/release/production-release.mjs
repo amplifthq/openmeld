@@ -1421,6 +1421,7 @@ function appendDatabaseDeploySteps(input) {
       input.steps.push({
         command: "node",
         args: ["tooling/postgresql/cutover.mjs", command],
+        controlPath: "tooling/postgresql/cutover.mjs",
         label: `PostgreSQL database: ${command}`,
       });
     }
