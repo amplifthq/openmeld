@@ -1,16 +1,23 @@
-import type { Project } from "@openmeld/schemas/types";
+import type {
+	OrganizationProfileDirectoryResponse,
+	Project,
+} from "@openmeld/schemas/types";
 import {
 	cleanup,
 	fireEvent,
 	render,
 	screen,
 	waitFor,
+	within,
 } from "@testing-library/react";
 import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readCurrentOrganizationProfileDirectory } from "#/lib/organizations/organization-directory";
 import {
 	archiveCurrentProject,
 	listCurrentProjects,
+	readCurrentProjectCommonAgents,
+	updateCurrentProjectCommonAgents,
 } from "#/lib/organizations/projects";
 import { TestQueryClientProvider } from "#/test-support/query-client";
 import { ProjectDetailPage } from "./project-detail-page";
@@ -98,6 +105,7 @@ vi.mock("#/lib/organizations/projects", async (importOriginal) => {
 			],
 		})),
 		updateCurrentProject: vi.fn(),
+		updateCurrentProjectCommonAgents: vi.fn(),
 	};
 });
 
@@ -140,6 +148,93 @@ afterEach(() => {
 });
 
 describe("ProjectDetailPage", () => {
+	it.each([
+		false,
+		true,
+	])("removes inactive Common Agents even with no active choices (replacement=%s)", async (replacement) => {
+		vi.mocked(listCurrentProjects).mockResolvedValueOnce({
+			organizationId: "org-acme",
+			projects: [project({})],
+		});
+		const inactive: OrganizationProfileDirectoryResponse["agentProfiles"][number] =
+			{
+				organizationId: "org-acme",
+				profileId: "agt_11111111-1111-4111-8111-111111111111",
+				profileName: "Inactive Agent",
+				profileHandle: "inactive-agent",
+				profileKind: "agent",
+				isDefault: false,
+				status: "disabled",
+				ownerUserId: "user-1",
+				source: "local",
+				managedRole: null,
+				createdByUserId: "user-1",
+				creatorProfileId: null,
+				lastUsedAt: null,
+				createdAt: "2026-07-14T00:00:00.000Z",
+				updatedAt: "2026-07-14T00:00:00.000Z",
+				agentControllerRef: null,
+			};
+		const active = {
+			...inactive,
+			profileId: "agt_22222222-2222-4222-8222-222222222222",
+			profileName: "Active Agent",
+			status: "active" as const,
+		};
+		vi.mocked(readCurrentOrganizationProfileDirectory).mockResolvedValueOnce({
+			organizationId: "org-acme",
+			generatedAt: "2026-07-14T00:00:00.000Z",
+			members: [],
+			agentProfiles: replacement ? [inactive, active] : [inactive],
+		});
+		const commonAgents = {
+			projectId: "project-1",
+			agentProfileIds: [inactive.profileId],
+			revision: 3,
+			updatedAtMs: null,
+			updatedByUserId: null,
+		};
+		vi.mocked(readCurrentProjectCommonAgents).mockResolvedValueOnce({
+			commonAgents,
+		});
+		vi.mocked(updateCurrentProjectCommonAgents).mockImplementationOnce(
+			async (input) => ({
+				commonAgents: {
+					...commonAgents,
+					agentProfileIds: input.agentProfileIds,
+					revision: 4,
+				},
+			})
+		);
+		renderPage();
+		await screen.findByText("Unavailable Agent");
+		const section = within(
+			screen.getByRole("region", { name: "Common Agents" })
+		);
+		fireEvent.click(section.getByRole("button", { name: "Edit" }));
+		fireEvent.click(
+			section.getByRole("button", { name: "Remove unavailable Agent" })
+		);
+		if (replacement) {
+			fireEvent.click(
+				section.getByLabelText("Active Agent · Organization Agent")
+			);
+		}
+		fireEvent.click(section.getByText("Save Common Agents"));
+		await waitFor(() =>
+			expect(updateCurrentProjectCommonAgents).toHaveBeenCalledWith({
+				expectedOrganizationId: "org-acme",
+				projectId: "project-1",
+				expectedRevision: 3,
+				agentProfileIds: replacement ? [active.profileId] : [],
+			})
+		);
+		await waitFor(() =>
+			expect(section.queryByText("Save Common Agents")).toBeNull()
+		);
+		expect(section.queryByText("Unavailable Agent")).toBeNull();
+	});
+
 	it("renders Project configuration and the server-projected archive boundary", async () => {
 		vi.mocked(listCurrentProjects).mockResolvedValueOnce({
 			organizationId: "org-acme",

@@ -14,3 +14,7 @@ account and destination in Inbox. That choice applies to the operation and
 keeps the Project default unchanged. On one computer,
 an owner can confirm that two Projects use the same local folder without
 duplicating the checkout.
+
+Remove unavailable Projects or Common Agents from saved selections. When an
+Agent joins a Space but Task assignment fails, the result and recovery guidance
+remain visible after membership refresh.

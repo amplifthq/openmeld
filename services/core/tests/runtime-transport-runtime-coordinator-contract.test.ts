@@ -4199,16 +4199,18 @@ describe("runtime transport runtime coordinator transport contract", () => {
         },
       },
     });
-    const olderService = await createContextHarness({ contextVersion: 2 });
-    expect(
-      await (
-        await fetchRuntimeTransportJson(
-          olderService.hub,
-          "/runtime-coordinator/head/accept",
-          request
-        )
-      ).json()
-    ).toMatchObject({ ok: false, reasonCode: "service.update_required" });
+    for (const contextVersion of [2, 3] as const) {
+      const olderService = await createContextHarness({ contextVersion });
+      expect(
+        await (
+          await fetchRuntimeTransportJson(
+            olderService.hub,
+            "/runtime-coordinator/head/accept",
+            request
+          )
+        ).json()
+      ).toMatchObject({ ok: false, reasonCode: "service.update_required" });
+    }
     const currentService = await createContextHarness({ contextVersion: 4 });
     expect(
       await (

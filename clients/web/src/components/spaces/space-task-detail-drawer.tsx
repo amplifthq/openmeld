@@ -178,6 +178,7 @@ export function SpaceTaskDetailDrawer(input: SpaceTaskDetailDrawerProps) {
 									busy={input.busy}
 									commonAgentIds={input.commonAgentIds}
 									events={input.detail?.events ?? []}
+									key={task.taskId}
 									members={input.members}
 									mutate={mutate}
 									onAddAndAssign={input.onAddAndAssign}
@@ -449,7 +450,9 @@ function TaskProjectsSection(input: {
 		<section className="mt-4 border-border border-t pt-4">
 			<div className="flex items-center justify-between gap-2">
 				<h3 className="font-medium text-muted-foreground text-xs">Projects</h3>
-				{input.allowed && input.projects.length > 0 && !editing ? (
+				{input.allowed &&
+				(input.projects.length > 0 || input.task.projectIds.length > 0) &&
+				!editing ? (
 					<Button
 						onClick={() => {
 							setSelected(input.task.projectIds);
@@ -484,6 +487,32 @@ function TaskProjectsSection(input: {
 						Choose the work scope for this Task. This does not start an Agent or
 						change access.
 					</p>
+					{selected
+						.filter(
+							(id) => !input.projects.some((project) => project.id === id)
+						)
+						.map((id) => (
+							<div
+								className="flex items-center justify-between gap-2 text-sm"
+								key={id}
+							>
+								<span>Unavailable Project</span>
+								<Button
+									aria-label="Remove unavailable Project"
+									disabled={input.busy}
+									onClick={() =>
+										setSelected((current) =>
+											current.filter((projectId) => projectId !== id)
+										)
+									}
+									size="sm"
+									type="button"
+									variant="outline"
+								>
+									Remove
+								</Button>
+							</div>
+						))}
 					{input.projects.map((project) => (
 						<label className="flex items-center gap-2 text-sm" key={project.id}>
 							<input
@@ -727,8 +756,10 @@ function TaskAssignmentControls(
 								</Button>
 							</div>
 						))}
-					{outcome ? <output>{outcome}</output> : null}
 				</div>
+			) : null}
+			{outcome ? (
+				<output className="text-sm sm:col-span-2">{outcome}</output>
 			) : null}
 		</div>
 	);

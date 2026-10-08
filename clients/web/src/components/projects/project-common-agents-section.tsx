@@ -74,7 +74,10 @@ export function ProjectCommonAgentsSection(input: {
 						Common Agents
 					</h2>
 				</div>
-				{input.canManage && commonAgents && agents.length > 0 && !editing ? (
+				{input.canManage &&
+				commonAgents &&
+				(agents.length > 0 || commonAgents.agentProfileIds.length > 0) &&
+				!editing ? (
 					<Button
 						onClick={() => {
 							setSelected(commonAgents.agentProfileIds);
@@ -138,6 +141,30 @@ export function ProjectCommonAgentsSection(input: {
 						save.mutate();
 					}}
 				>
+					{selected
+						.filter((id) => !agents.some((agent) => agent.profileId === id))
+						.map((id) => (
+							<div
+								className="flex items-center justify-between gap-2 text-sm"
+								key={id}
+							>
+								<span>Unavailable Agent</span>
+								<Button
+									aria-label="Remove unavailable Agent"
+									disabled={save.isPending}
+									onClick={() =>
+										setSelected((current) =>
+											current.filter((profileId) => profileId !== id)
+										)
+									}
+									size="sm"
+									type="button"
+									variant="outline"
+								>
+									Remove
+								</Button>
+							</div>
+						))}
 					{agents.map((agent) => (
 						<label
 							className="flex items-center gap-2 text-sm"

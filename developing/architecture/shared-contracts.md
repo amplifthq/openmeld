@@ -2480,6 +2480,20 @@ association. A same-Organization shared-folder use needs a separate, stale-safe
 share confirmation token; the move token cannot authorize sharing. The new
 Project subroutes remain additive to the legacy Project list contract.
 
+Receiver-first Core deploys pin the published local-components manifest. When
+that manifest declares `runtime-transport-epoch-2026-09-space-files-1gib`
+(including Service 0.3.248), Core accepts that exact epoch and the new
+`runtime-transport-epoch-2026-09-project-work-v1` epoch. Previously released
+Antigravity permission modes remain writable. The earlier image-geometry
+receiver transition retains its existing writer hold only when that epoch is
+explicitly pinned. Unknown or invalid pinned manifests do not authorize an
+additional epoch. Ordinary published-Service Wakes, setup and diagnostics
+remain compatible during the transition; explicit Project-work admission
+still requires Execution Context capability v4. The CLI, Service and Skills
+publication follows the receivers. Once Core switches to the new manifest,
+the normal current-epoch requirement applies. No new payload or database
+contract is introduced by this rollout correction.
+
 ### Center Agent Project Tool Contracts
 
 `packages/schemas/src/schemas/http/center-agent-projects.ts` owns the

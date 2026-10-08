@@ -3296,6 +3296,9 @@ destination, and Common Agents. Each manager edit uses its section revision;
 the page does not treat a saved preference as provider permission, Space
 membership, or a connected local folder. The current-computer section retains
 its owner-self connection status and authority.
+The Common Agents editor keeps unavailable saved selections visible with a
+Remove action, even when no active Agent choices remain. Removing a selection
+changes only this preference and cannot grant access or reactivate a Profile.
 The same continuous page shows up to twenty recent, viewer-authorized Task
 links back to their owning Spaces. Core rechecks current Space access and Task
 association before returning titles or phases; Web shows no private-Space
@@ -4527,11 +4530,15 @@ GitHub. Core remains authoritative and rejects stale or unauthorized
 mutations. Empty state copy sends the user back to Messages. Direct Messages
 omit the tab and normalize stale `tasks` view state back to Messages.
 The Project selector in Task detail supports zero or several associations and
-uses the current Task revision. Common Agents from those Projects are
+uses the current Task revision. Unavailable saved associations remain removable,
+including when no active Projects remain; saving never silently drops them.
+Common Agents from those Projects are
 prioritized among existing Space members. For an Agent outside the Space, the
 same assignment flow shows that Agent and its owner as incoming members before
 offering **Add and assign**. It reports a successful membership write followed
-by a failed Task assignment as a partial outcome. Linear issue links show their
+by a failed Task assignment as a partial outcome. The outcome stays visible
+independently of remaining candidates and membership refresh, for that Task.
+Linear issue links show their
 exact identifier and that status is not monitored.
 
 Every retained text message in an eligible Space has a secondary **Add to
