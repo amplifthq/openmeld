@@ -645,11 +645,11 @@ The Center Agent has one Web product home with complementary destinations:
   Its header contains **Messages, Tasks, Graph, Files**. Skills management belongs
   to Team at `/o/{orgSlug}/skills`. Conversation information remains on the
   conversation surface.
-- **App Settings → Center Agent** owns **General, Channels, Memory**. General
+- **App Settings → Center Agent** shows one page with **Channels** and **Memory** sections below the general settings. The general settings
   contains model information, identity, the Audit Log, and the reversible
   **Pause Center Agent** control. Channels and Memory reuse the existing provider
   cards and memory controls. Legacy Channel and Memory URLs redirect to the
-  corresponding settings panel, preserving OAuth callback results. Current Organization owners and
+  settings page, preserving OAuth callback results. Current Organization owners and
   admins may pause or resume it. Web and Core enforce the same current membership
   permission. Creation history grants no additional authority.
 

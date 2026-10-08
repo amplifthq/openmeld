@@ -14,7 +14,6 @@ import {
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
 import { SkeletonForm } from "@openmeld/ui/components/skeleton-content";
-import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
 import { resolveStatusToneProminentBadgeClassName } from "@openmeld/ui/lib/status-tone";
 import {
 	CaretDownIcon,
@@ -1044,34 +1043,21 @@ export function CenterAgentSettingsPage() {
 		select: (state) => state.location.searchStr,
 	});
 	const search = Object.fromEntries(new URLSearchParams(searchStr));
-	const [section, setSection] = useState(() =>
-		Math.max(0, ["general", "channels", "memory"].indexOf(search.panel))
-	);
 	return (
-		<>
-			<TabsSubtle
-				aria-label="Center Agent settings"
-				className="gap-5"
-				idPrefix="center-agent-settings"
-				onSelect={setSection}
-				selectedIndex={section}
-				variant="underline"
-			>
-				<TabsSubtleItem index={0} label="General" labelClassName="text-sm" />
-				<TabsSubtleItem index={1} label="Channels" labelClassName="text-sm" />
-				<TabsSubtleItem index={2} label="Memory" labelClassName="text-sm" />
-			</TabsSubtle>
-			<CenterAgentRouteStateProvider
-				value={{
-					channelsSlackOAuthResult: resolveSlackOAuthResult(
-						parseCenterAgentRouteSearch(search)
-					),
-				}}
-			>
-				{section === 0 && <CenterAgentGeneralSettings />}
-				{section === 1 && <OrganizationMessageChannelsPage />}
-				{section === 2 && <OrganizationMemoryPage />}
-			</CenterAgentRouteStateProvider>
-		</>
+		<CenterAgentRouteStateProvider
+			value={{
+				channelsSlackOAuthResult: resolveSlackOAuthResult(
+					parseCenterAgentRouteSearch(search)
+				),
+			}}
+		>
+			<CenterAgentGeneralSettings />
+			<section aria-label="Channels" className="mt-4 space-y-6" id="channels">
+				<OrganizationMessageChannelsPage />
+			</section>
+			<section aria-label="Memory" className="mt-4 space-y-6" id="memory">
+				<OrganizationMemoryPage />
+			</section>
+		</CenterAgentRouteStateProvider>
 	);
 }

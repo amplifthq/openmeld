@@ -42,7 +42,7 @@ content column and keeps **Center Agent / Inbox** together at the far-right
 edge, and
 the **Personal / current Organization name** Settings groups defined in
 `developing/clients/web.md`. Center Agent uses the shared Spaces list; **Messages /
-Tasks / Graph / Files** live in its header. **Channels** and **Memory** reuse their existing cards inside App Settings → Center Agent, alongside **General**. Legacy management URLs redirect there and preserve channel OAuth results. Chat
+Tasks / Graph / Files** live in its header. **Channels** and **Memory** reuse their existing cards inside App Settings → Center Agent, below the general settings. Legacy management URLs redirect there and preserve channel OAuth results. Chat
 settings remain in the compact menu on conversation surfaces only. Center Agent settings live in
 the global App Settings destination, grouped under the current Organization
 (or Personal in a Personal Workspace).
