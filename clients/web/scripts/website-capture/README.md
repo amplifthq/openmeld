@@ -6,8 +6,9 @@ Website publishes the resulting static artifact, not a second product app.
 
 ## Provenance and refresh
 
-This revision starts from product UI at `c0732ec03` on origin/main. All sample
-people, messages, files, Skills, and Routine results belong to fictional Amplift.
+This revision starts from product UI at `82e7d9f51` on origin/main. All sample
+people, messages, files, Skills, and Routine results belong to a fictional team.
+Amplift appears only in the organization switcher; public-facing demo labels use OpenMeld.
 No production account, captured conversation, or private asset is included.
 Human avatars use local Pexels stock portraits. Photo credits, license, and
 fictional-profile usage are recorded in [avatars/SOURCES.md](avatars/SOURCES.md).
@@ -41,7 +42,9 @@ demo builds against the same output directory at once.
 - Shell: `AppSurfaceLayout`, `AppRailNavigationGroup`, `ConversationsSidebar`,
   `PeopleSidebar`, and `SpaceWindowHeader`. The harness composes their slots.
 - Spaces: `SpaceDirectory`, message primitives, `SpaceAttachmentFileCard`, and
-  `SpaceComposer` with the real editor.
+  `SpaceComposer` with the real editor. Threads reuse `ThreadPanelHeader` and
+  `SpaceInlineSidePanel`; the compact reply preview adapts the product's private
+  `ThreadPreview` markup without its live queries.
 - Rail: `OrganizationSwitcher` with the shared pointer-reactive O avatar,
   `SidebarUserFooter`, and `DitherProfileAvatar`.
 - Inbox: `InboxPage`, its feed, filters, item menus, and read-state mutations.
@@ -62,6 +65,8 @@ demo builds against the same output directory at once.
   is shared across the same tab's demo frames through a dedicated sessionStorage
   key; model selection remains in memory. Connected apps and Channels are
   fictional readouts using the public catalog's shared logos.
+  The initial avatar is the Original blue clover, and the settings card shows
+  OpenMeld with the handle `@openmeld`.
 - Usage: the real `RemoteUsageCard` and `LocalAgentTokenUsageCard`, including
   their shared ECharts SVG charts, Fluid scope tabs, Details accordions, period
   selection, and tables. Refresh is hidden through the cards' `showRefresh` prop.
@@ -72,13 +77,22 @@ demo builds against the same output directory at once.
 
 The demo supplies fictional content through real header slots. The Space member
 button opens the product's resizable member panel or mobile drawer. The panel
-starts open on desktop at the product's minimum width (17rem). The module sidebar
-starts at 200px, enough to show Customer research in full. The 28px user avatar
+starts open on desktop at a demo-specific minimum width of 12rem. Live and You
+labels are hidden in demo member rows. Thread starts at 21rem with a 20rem resize
+minimum. The product's default resize limits and labels remain unchanged. The
+module sidebar starts at 200px, enough to show Customer research in full. The 28px user avatar
 shares the rail's centerline with the organization switcher and navigation.
 Claude Code and Codex messages show their human owner.
 The first Space follows a checkout regression: James reports the failure, Maya
 sets the review requirements, and Center Agent delegates to Codex and Claude Code
-before reporting to both people. A pinned Center Agent private chat links to
+before reporting to both people. Billing review and patch review have compact
+reply previews and an Open thread action. Threads start closed, open between the
+main conversation and Members, and reuse the same message rows and Composer. The main conversation
+stays widest, Thread is next, and Members is narrowest at their initial sizes.
+Thread and Members widths remain draggable through the product's sidebar rail.
+A thread reply stays in its thread and updates its main-timeline preview. Closing
+and reopening a thread retains replies for the current demo session.
+A pinned Center Agent private chat links to
 Release handoff, a three-agent Space with no human composer. A prefilled Wake draft lets
 visitors send the next step with one click. Optimistic messages and replies use
 the same transcript layout. Each requested Agent starts with Working inside its
@@ -104,11 +118,17 @@ Internal memory-router navigation remains available.
 ## Data boundary
 
 Memory adapters replace server functions, Inbox/catalog/Routine/usage API calls, organization
-context, sidebar preferences, cookies, and browser preferences. A memory router
-keeps product links inside the demo. The composer reuses the product mention
-picker and Wake/Reference tokens. Sending adds an optimistic message, then locally
+context, sidebar preferences, cookies, and browser preferences.
+The demo's Bot palette starts at Original, matching the hero description. Avatar
+previews, messages, member panels, and sidebars use the same shared color owner.
+A memory router keeps product links inside the demo. The composer reuses the product mention
+picker and Wake/Reference tokens. Relation labels and controls are hidden only in
+the demo to keep the presentation simple; addressing behavior is unchanged.
+Sending adds an optimistic message, then locally
 simulates Thinking, Working, and a short template reply for each addressed Agent.
-One in-memory request drives the transcript and sidebar state. Human mentions and
+One in-memory request drives the transcript, thread previews, and sidebar state.
+Thread placement is retained in that request, so simulated Agent replies return
+to the same thread. Human mentions and
 Reference tokens do not start replies. The attachment button is disabled.
 Reloading clears conversation edits. The Center Agent avatar choice lasts for
 the browser tab and updates messages, member panels, and sidebar previews together.

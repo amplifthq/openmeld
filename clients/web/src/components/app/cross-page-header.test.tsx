@@ -23,19 +23,21 @@ describe("CrossPageHeader", () => {
 		cleanup();
 	});
 
-	it("renders the app status label by default", () => {
+	it("uses the public brand without a legacy status label by default", () => {
 		render(<CrossPageHeader showNavigation={false} />);
 
-		expect(screen.getByText("Experimental")).toBeTruthy();
+		expect(screen.queryByText("Experimental")).toBeNull();
 		expect(screen.getByRole("img", { name: "OpenMeld" })).toBeTruthy();
 		expect(
 			screen.getByRole("link", { name: "Go to OpenMeld homepage" }).className
 		).toContain("max-lg:min-h-11");
 	});
 
-	it("allows Space chrome to hide the app status label", () => {
-		render(<CrossPageHeader brandStatusLabel={null} showNavigation={false} />);
+	it("shows a status label only when the caller requests one", () => {
+		render(
+			<CrossPageHeader brandStatusLabel="Experimental" showNavigation={false} />
+		);
 
-		expect(screen.queryByText("Experimental")).toBeNull();
+		expect(screen.getByText("Experimental")).toBeTruthy();
 	});
 });

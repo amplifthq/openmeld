@@ -57,6 +57,10 @@ home, article, and mobile layouts. The logo links to the configured Website
 origin; the separate Docs link returns to `/`. Use the light/dark wordmark
 exports from `packages/ui/public/brand` and the shared favicon URLs.
 
+The Open App navigation item uses Fumadocs' custom-link slot to compose the
+compact shared `OpenAppButton` with its static Web badge. It retains the same
+public App destination and does not introduce Website shader dependencies.
+
 For new product primitives, inspect the shared Fluid component first. Add
 eligible standalone components through the MDX component map. Keep Fumadocs
 compound slots inside their own Base UI roots. Its dependency version differs
