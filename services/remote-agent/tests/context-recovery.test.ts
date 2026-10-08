@@ -80,6 +80,34 @@ it("retains the exact active request across repeated lossy summaries", async () 
     useTool(read);
     return "Follow the current request exactly.";
   }
+  const correction = "Use EUR. Keep budget as a number. Do not send messages.";
+  let correctionApplied = false;
+  ProtectedRequest.joinQueuedDeliveries = false;
+  ProtectedRequest.steeringSource = (submissionId: string) => ({
+    claim: async () =>
+      bounded && reads > 0 && !correctionApplied
+        ? [
+            {
+              targetSubmissionId: submissionId,
+              status: "joining" as const,
+              input: {
+                kind: "dispatch" as const,
+                submissionId: "budget-correction",
+                agent: "ProtectedRequest",
+                id: "protected",
+                acceptedAt: new Date().toISOString(),
+                message: { kind: "user" as const, body: correction },
+              },
+            },
+          ]
+        : [],
+    listUnresolved: async () => [],
+    finalize: () => {
+      correctionApplied = true;
+      return Promise.resolve();
+    },
+    revert: async () => undefined,
+  });
   const runtime = await start({
     agents: [ProtectedRequest],
     providers: [provider.provider],
@@ -99,21 +127,25 @@ it("retains the exact active request across repeated lossy summaries", async () 
     const request =
       'Read two documents. Return JSON with "budget": 100 as a number. Do not publish.';
     let summaries = 0;
-    const lossySummary = () => {
-      summaries++;
-      return fauxAssistantMessage("Documents are being read.");
-    };
-    provider.setResponses([
-      fauxAssistantMessage(fauxToolCall("read", {}), { stopReason: "toolUse" }),
-      lossySummary,
-      (context) => {
-        expect(JSON.stringify(context.messages)).toContain("budget");
-        return fauxAssistantMessage(fauxToolCall("read", {}), {
-          stopReason: "toolUse",
-        });
-      },
-      lossySummary,
-      (context) => {
+    provider.setResponses(
+      Array.from({ length: 10 }, () => (context) => {
+        if (
+          context.messages.some(
+            (message) =>
+              message.role === "system" &&
+              JSON.stringify(message.content).includes(
+                "context summarization assistant"
+              )
+          )
+        ) {
+          summaries++;
+          return fauxAssistantMessage("Documents are being read.");
+        }
+        if (reads < 3) {
+          return fauxAssistantMessage(fauxToolCall("read", {}), {
+            stopReason: "toolUse",
+          });
+        }
         const texts = context.messages.flatMap((message) =>
           message.role === "user" && Array.isArray(message.content)
             ? message.content
@@ -122,15 +154,16 @@ it("retains the exact active request across repeated lossy summaries", async () 
             : []
         );
         expect(texts.filter((text) => text === request)).toHaveLength(1);
+        expect(texts.filter((text) => text === correction)).toHaveLength(1);
         return fauxAssistantMessage('{"budget":100}');
-      },
-    ]);
+      })
+    );
     expect((await agent.read(await agent.dispatch(request))).text).toBe(
       '{"budget":100}'
     );
-    expect(reads).toBe(2);
-    expect(summaries).toBe(2);
-    expect(provider.getPendingResponseCount()).toBe(0);
+    expect(reads).toBe(3);
+    expect(summaries).toBeGreaterThanOrEqual(2);
+    expect(correctionApplied).toBe(true);
   } finally {
     await runtime.stop();
     await rm(directory, { recursive: true, force: true });
@@ -139,6 +172,9 @@ it("retains the exact active request across repeated lossy summaries", async () 
 
 it.each([
   "transient",
+  "exhausted",
+  "cancelled",
+  "permanent",
   "empty",
   "truncated",
   "oversized",
@@ -179,9 +215,20 @@ it.each([
     useTool(record);
     return "Complete the task using recorded evidence.";
   }
-  Recovery.modelRetry = { maxRetries: 1, baseDelayMs: 1, maxDelayMs: 1 };
+  Recovery.modelRetry = {
+    maxRetries: 1,
+    baseDelayMs: failure === "cancelled" ? 10_000 : 1,
+    maxDelayMs: failure === "cancelled" ? 10_000 : 1,
+  };
+  const retryScheduled = Promise.withResolvers<void>();
   const events: string[] = [];
   const unsubscribe = observe((event) => {
+    if (
+      event.type === "log" &&
+      event.message === "[flue:compaction] Retrying summary request"
+    ) {
+      retryScheduled.resolve();
+    }
     if (event.type === "compaction") {
       events.push(event.isError ? "failed" : "committed");
     }
@@ -213,22 +260,43 @@ it.each([
           empty: "",
           truncated: "Partial summary",
           transient: "Partial summary",
+          exhausted: "Partial summary",
+          cancelled: "Partial summary",
+          permanent: "Partial summary",
           oversized: "Invalid enlarged checkpoint. ".repeat(6000),
         }[failure],
         {
           stopReason: (
             {
               transient: "error",
+              exhausted: "error",
+              cancelled: "error",
+              permanent: "error",
               empty: "stop",
               truncated: "length",
               oversized: "stop",
             } as const
           )[failure],
-          ...(failure === "transient"
-            ? { errorMessage: "503 Service unavailable" }
+          ...(["transient", "exhausted", "cancelled", "permanent"].includes(
+            failure
+          )
+            ? {
+                errorMessage:
+                  failure === "permanent"
+                    ? "401 Unauthorized"
+                    : "503 Service unavailable",
+              }
             : {}),
         }
       ),
+      ...(failure === "exhausted"
+        ? [
+            fauxAssistantMessage("", {
+              stopReason: "error",
+              errorMessage: "503 Service unavailable",
+            }),
+          ]
+        : []),
       ...(failure === "transient"
         ? [
             fauxAssistantMessage(
@@ -251,7 +319,18 @@ it.each([
         return fauxAssistantMessage('{"budget":100,"receipt":"COMPLETE-781"}');
       },
     ]);
-    expect((await agent.read(await agent.dispatch(request))).text).toBe(
+    const receipt = await agent.dispatch(request);
+    if (failure === "cancelled") {
+      const read = agent.read(receipt).catch((error: unknown) => error);
+      await retryScheduled.promise;
+      await agent.abort();
+      expect(await read).toMatchObject({ outcome: "aborted" });
+      expect(executions).toBe(1);
+      expect(provider.getPendingResponseCount()).toBe(1);
+      expect(events).not.toContain("committed");
+      return;
+    }
+    expect((await agent.read(receipt)).text).toBe(
       '{"budget":100,"receipt":"COMPLETE-781"}'
     );
     expect(executions).toBe(1);
