@@ -4,6 +4,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 import { verifyHostedPostgresqlCliDatabase } from "./database-backend-admission.mjs";
 
 const PENDING_EVIDENCE_LIMIT = 4000;
@@ -44,7 +45,12 @@ async function requirePostgresqlDatabaseCurrent(input, cwd) {
   }
   const result = (input.runCommand ?? runCommand)({
     command: process.execPath,
-    args: [path.join(cwd, "tooling/postgresql/cutover.mjs"), "verify"],
+    args: [
+      fileURLToPath(
+        new URL("../../tooling/postgresql/cutover.mjs", import.meta.url)
+      ),
+      "verify",
+    ],
     cwd,
   });
   if (result.status !== 0) {

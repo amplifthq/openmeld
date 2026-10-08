@@ -4527,8 +4527,21 @@ people, and only the controls
 the current profile can plausibly use. Completing or canceling a Task that
 still has an open GitHub issue prompts the person to close that issue in
 GitHub. Core remains authoritative and rejects stale or unauthorized
-mutations. Empty state copy sends the user back to Messages. Direct Messages
-omit the tab and normalize stale `tasks` view state back to Messages.
+mutations. Private conversations reuse this board, message cards, and creation
+flow. Center Agent navigation places Tasks after Messages. Before a chat exists,
+Tasks uses the same board empty state and creation dialog, without a transcript
+or composer. Submitting creates the chat and Task directly, then stays on Tasks;
+it does not send a message or start an Agent. Opening Tasks alone creates no chat.
+The Messages composer separately supports a Task in its first-message handoff.
+
+Agent mention menus keep execution settings separate from Tasks. **Files** offers
+**Use agent settings** and **No project files**. A readable configured Project
+adds its name and the supported **Edit a separate copy**, **Read files only**, and
+**Edit project files** modes. Without a resolved Project, Web does not guess a
+local folder or offer project operations. Each choice has a short shared Tooltip
+on hover and keyboard focus; the separate-copy hint explains that uncommitted
+changes are not included. These choices retain the existing execution contracts.
+
 The Project selector in Task detail supports zero or several associations and
 uses the current Task revision. Unavailable saved associations remain removable,
 including when no active Projects remain; saving never silently drops them.
@@ -5271,8 +5284,8 @@ selection travels as an accepted Execution Context fact, not as a change to
 the Agent Profile's Default Project. The Service must find the matching local
 connection on the Agent's computer or return a visible failure.
 
-The Task menu explains that automatic continuation can retain an earlier
-task's restrictions. Message details shows the admitted task access and
+The Agent's Session options explain that automatic continuation can retain an
+earlier session's restrictions. Message details shows the admitted task access and
 workspace separately from the Service's new/continued native-conversation
 observation. Missing diagnostics remain unavailable; the client never infers
 network or GitHub access from a working folder.
@@ -6648,6 +6661,14 @@ Use the scoped owner documents for deeper rules:
 - A visible Wake problem should end with a clear outcome, one next action, and a
   diagnostic path, not internal subsystem vocabulary.
 ## Computer session history
+
+The owner Computer connection menu offers **Disconnect Computer…** when an
+exact device and runtime lane are resolved. It shows a copyable, account-bound
+CLI command to run on that Computer. Copying does not execute the command or
+change connection status. The CLI owns controlled Service shutdown and local
+credential cleanup; the cloud Computer record, Web session, and Desktop session
+remain. Other members' Computers do not expose this action. New Web guidance
+requires publication of the additive CLI options described in `cli.md` first.
 
 Computer owners manage Session history access beside File access. History starts
 off, requires selected connected Projects, and optionally permits selected

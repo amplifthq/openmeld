@@ -380,6 +380,8 @@ export type SpaceApi = {
       text: PostNormalMessageBody["text"];
       deviceWait?: PostNormalMessageBody["deviceWait"];
       contextSelection?: PostNormalMessageBody["contextSelection"];
+      contextSelections?: PostNormalMessageBody["contextSelections"];
+      taskDraft?: PostNormalMessageBody["taskDraft"];
       attachments?: PostNormalMessageBody["attachments"];
       files?: PostNormalMessageBody["files"];
       messageEnvelope?: PostNormalMessageBody["messageEnvelope"];

@@ -81,6 +81,7 @@ export async function applySavedAgentAvatarProfile(
 						? {
 								...entry,
 								avatarStyle: profile.avatarStyle,
+								avatarOptions: profile.avatarOptions,
 								updatedAt: profile.updatedAt,
 							}
 						: entry
@@ -113,6 +114,7 @@ function patchAvatar<T extends { profileId: string }>(
 			? {
 					...entry,
 					avatarStyle: profile.avatarStyle,
+					avatarOptions: profile.avatarOptions,
 					updatedAt: profile.updatedAt,
 				}
 			: entry

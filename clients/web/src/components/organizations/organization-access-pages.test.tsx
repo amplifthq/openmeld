@@ -122,6 +122,7 @@ vi.mock("#/lib/organizations/organization-context", () => ({
 	useAppOrganization: () => ({
 		currentOrganization,
 		currentUserId: "user-123",
+		organizations: [currentOrganization],
 	}),
 }));
 
@@ -361,7 +362,7 @@ describe("organization access management pages", () => {
 		expect(
 			screen.getByRole("heading", {
 				level: 2,
-				name: "Create an organization to connect Channels",
+				name: "Connect Channels in an organization",
 			})
 		).toBeTruthy();
 		expect(
@@ -395,7 +396,7 @@ describe("organization access management pages", () => {
 
 		expect(
 			await screen.findByText(
-				"Slack is connected to this Personal Workspace from an earlier setup. Create an organization, then connect the same Slack workspace there to move it."
+				"Slack is connected to this Personal Workspace from an earlier setup. Create or choose an organization, then connect the same Slack workspace there to move it."
 			)
 		).toBeTruthy();
 		expect(screen.getByText("Move required")).toBeTruthy();

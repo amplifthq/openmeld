@@ -79,6 +79,7 @@ import { prepareReadinessRuntimeIdSchema } from "./prepare-readiness";
 import {
   authProfileViewSchema,
   CENTER_AGENT_BOT_AVATAR_TYPES,
+  centerAgentAvatarSelectionSchema,
 } from "./profiles";
 import { projectIssueDestinationSchema } from "./projects";
 import { agentControllerTaskLifecycleEventSourceSchema } from "./runtime-reporting";
@@ -622,10 +623,13 @@ export const centerAgentUpdateProfileBodySchema = z
   .strictObject({
     profileName: trimmedNonEmptyStringSchema.optional(),
     avatarStyle: z.enum(["fluid", ...CENTER_AGENT_BOT_AVATAR_TYPES]).optional(),
+    avatar: centerAgentAvatarSelectionSchema.optional(),
   })
   .refine(
     (value) =>
-      value.profileName !== undefined || value.avatarStyle !== undefined,
+      value.profileName !== undefined ||
+      value.avatarStyle !== undefined ||
+      value.avatar !== undefined,
     {
       message: "Choose a profile name or avatar.",
     }

@@ -80,7 +80,7 @@ describe("describeSpaceTaskAttention", () => {
 			task: createTask({ phase: "in_progress" }),
 		},
 		{
-			expected: "Builder is advancing this",
+			expected: "In progress",
 			name: "In progress assigned to someone else",
 			selfProfileId: requester.profileId,
 			task: createTask({ phase: "in_progress" }),

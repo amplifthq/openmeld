@@ -90,7 +90,6 @@ export const OPENMELD_STAGING_RESOURCES = [
     "private",
     "staging"
   ),
-  d1("openmeld-db-stg", "shared", "staging"),
   kv("openmeld-auth-kv-stg", "auth", "staging"),
   r2("openmeld-space-attachments-stg", "shared", "confidential", "staging"),
   r2("openmeld-organization-skills-stg", "shared", "private", "staging"),

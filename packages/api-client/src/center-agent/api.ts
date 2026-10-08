@@ -220,6 +220,7 @@ export const createCenterAgentApi: CreateCenterAgentApi = (
       body: JSON.stringify({
         ...(request.profileName ? { profileName: request.profileName } : {}),
         ...(request.avatarStyle ? { avatarStyle: request.avatarStyle } : {}),
+        ...(request.avatar ? { avatar: request.avatar } : {}),
       }),
       schema: centerAgentUpdateProfileResponseSchema,
       invalidMessage: "Invalid Center Agent profile update response.",
@@ -484,6 +485,7 @@ function validateUpdateProfileInput(
   const parsed = centerAgentUpdateProfileBodySchema.safeParse({
     profileName: input.profileName,
     avatarStyle: input.avatarStyle,
+    avatar: input.avatar,
   });
   if (!parsed.success) {
     throw new Error(

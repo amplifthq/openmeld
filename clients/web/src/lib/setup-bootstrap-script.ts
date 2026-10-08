@@ -37,6 +37,7 @@ type OpenMeldSetupBootstrapPlatform = "posix" | "windows";
 type OpenMeldSetupDistribution = "npm" | "binary";
 
 type OpenMeldSetupBootstrapScriptConfig = {
+	webAppUrl?: string;
 	openMeldHome?: string;
 	authUrl?: string;
 	binaryManifestUrl?: string;
@@ -147,6 +148,7 @@ export function resolveOpenMeldSetupBootstrapScriptConfig(
 
 	return {
 		config: {
+			webAppUrl: input.webAppUrl,
 			...(openMeldHome ? { openMeldHome } : {}),
 			binaryManifestUrl,
 			distribution,
@@ -187,6 +189,7 @@ OPENMELD_SETUP_DISTRIBUTION=${shellSingleQuote(distribution)}
 OPENMELD_SETUP_BINARY_MANIFEST_URL=${shellSingleQuote(binaryManifestUrl)}
 OPENMELD_SETUP_GATEWAY_URL=${shellSingleQuote(input.gatewayUrl ?? "")}
 OPENMELD_SETUP_AUTH_URL=${shellSingleQuote(input.authUrl ?? "")}
+export OPENMELD_SETUP_WEB_URL=${shellSingleQuote(input.webAppUrl ?? "")}
 OPENMELD_SETUP_OPENMELD_HOME=${shellSingleQuote(input.openMeldHome ?? "")}
 OPENMELD_SETUP_PREPARE_COMMAND_HINT=${shellSingleQuote(OPENMELD_SETUP_PREPARE_COMMAND_HINT)}
 OPENMELD_SETUP_PACKAGE_DOWNLOAD_NOTICE=${shellSingleQuote(OPENMELD_SETUP_PACKAGE_DOWNLOAD_NOTICE)}
@@ -1037,6 +1040,7 @@ function Invoke-CleanOpenMeldEnv {
   $previousOpenMeldHome = [Environment]::GetEnvironmentVariable('OPENMELD_HOME', 'Process')
   $previousGatewayUrl = [Environment]::GetEnvironmentVariable('OPENMELD_GATEWAY_URL', 'Process')
   $previousAuthUrl = [Environment]::GetEnvironmentVariable('OPENMELD_AUTH_URL', 'Process')
+  $previousSetupWebUrl = [Environment]::GetEnvironmentVariable('OPENMELD_SETUP_WEB_URL', 'Process')
   $previousUserFacingCommand = [Environment]::GetEnvironmentVariable('OPENMELD_USER_FACING_CLI_COMMAND', 'Process')
   $previousSetupFollowUpCommand = [Environment]::GetEnvironmentVariable('OPENMELD_SETUP_FOLLOW_UP_CLI_COMMAND', 'Process')
   $previousEnvPreset = [Environment]::GetEnvironmentVariable('OPENMELD_ENV_PRESET', 'Process')
@@ -1045,6 +1049,7 @@ function Invoke-CleanOpenMeldEnv {
     Remove-Item -Path Env:OPENMELD_HOME -ErrorAction SilentlyContinue
     Remove-Item -Path Env:OPENMELD_GATEWAY_URL -ErrorAction SilentlyContinue
     Remove-Item -Path Env:OPENMELD_AUTH_URL -ErrorAction SilentlyContinue
+    $env:OPENMELD_SETUP_WEB_URL = ${powerShellString(input.webAppUrl ?? "")}
     Remove-Item -Path Env:OPENMELD_USER_FACING_CLI_COMMAND -ErrorAction SilentlyContinue
     Remove-Item -Path Env:OPENMELD_SETUP_FOLLOW_UP_CLI_COMMAND -ErrorAction SilentlyContinue
 
@@ -1089,6 +1094,7 @@ function Invoke-CleanOpenMeldEnv {
     Restore-EnvValue 'OPENMELD_HOME' $previousOpenMeldHome
     Restore-EnvValue 'OPENMELD_GATEWAY_URL' $previousGatewayUrl
     Restore-EnvValue 'OPENMELD_AUTH_URL' $previousAuthUrl
+    Restore-EnvValue 'OPENMELD_SETUP_WEB_URL' $previousSetupWebUrl
     Restore-EnvValue 'OPENMELD_USER_FACING_CLI_COMMAND' $previousUserFacingCommand
     Restore-EnvValue 'OPENMELD_SETUP_FOLLOW_UP_CLI_COMMAND' $previousSetupFollowUpCommand
     Restore-EnvValue 'OPENMELD_ENV_PRESET' $previousEnvPreset

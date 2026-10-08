@@ -293,6 +293,20 @@ export function resolveProductionCompatibilityDependencies(
   const invitation = isSpaceInvitationReceiverFirstDiff(changedPaths);
   const dependencyGroups = [
     {
+      enabled: isProjectIssueWorkflowDiff(changedPaths),
+      edges: [
+        ["core", "remote-agent"],
+        ["remote-agent", "web"],
+      ],
+    },
+    {
+      enabled: isProjectSharedFolderDiff(changedPaths),
+      edges: [
+        ["core", "cli"],
+        ["cli", "web"],
+      ],
+    },
+    {
       enabled: isRemoteAiUsageDiff(changedPaths),
       edges: [["core", "remote-agent"]],
     },
@@ -1407,6 +1421,7 @@ function appendDatabaseDeploySteps(input) {
       input.steps.push({
         command: "node",
         args: ["tooling/postgresql/cutover.mjs", command],
+        controlPath: "tooling/postgresql/cutover.mjs",
         label: `PostgreSQL database: ${command}`,
       });
     }
@@ -1557,6 +1572,8 @@ function resolveProductionDeployScopeOrder(
   }
   if (
     !(
+      isProjectIssueWorkflowDiff(changedPaths) ||
+      isProjectSharedFolderDiff(changedPaths) ||
       isWorkingFolderRecoveryDiff(changedPaths) ||
       isNpmSetupArtifactDiff(changedPaths) ||
       isRemoteAiUsageDiff(changedPaths) ||
@@ -1655,6 +1672,7 @@ function resolveProductionDeployOrderProfile(
         "core-worker-response-reader-first",
         "device-wait-receivers-first",
         "people-computers-receivers-first",
+        "local-service-runtime-receiver-first",
       ].includes(otherProfile)
     ) {
       throw new Error(
@@ -2133,6 +2151,22 @@ function isWakeProgressOptInContractDiff(changedPaths) {
 
 function isSpaceHistoryQueryContractDiff(changedPaths) {
   return changedPaths.includes(SPACE_HISTORY_QUERY_SCHEMA_PATH);
+}
+
+// Project issue settings expose a Core receiver and a Remote Agent action owner.
+function isProjectIssueWorkflowDiff(paths) {
+  return [
+    "services/core/src/projects/project-issue-action-routing.ts",
+    "services/remote-agent/agent-core/project-issue-routing.ts",
+    "clients/web/src/components/projects/project-issue-routing-section.tsx",
+  ].every((path) => paths.includes(path));
+}
+function isProjectSharedFolderDiff(paths) {
+  return [
+    "packages/schemas/src/schemas/daemon/runtime-transport.ts",
+    "clients/openmeld-cli/src/local-service/projects/local-project-discovery.ts",
+    "clients/web/src/components/projects/project-computer-section.tsx",
+  ].every((path) => paths.includes(path));
 }
 
 function isSpaceTaskReceiverFirstDiff(changedPaths) {

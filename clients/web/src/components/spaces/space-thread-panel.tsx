@@ -61,6 +61,7 @@ import {
 	type SpaceWakeStopRequestStatus,
 	type SpaceWakeStopTargetResolution,
 } from "#/lib/spaces/wake-stop-target";
+import { useCenterAgentCurrentModelName } from "#/query/profiles/agent-avatar-context";
 import {
 	type CenterAgentComputerSetupContext,
 	resolveLatestComputerSetupActionSignalId,
@@ -172,6 +173,7 @@ import {
 } from "./space-outcome-row";
 import { resolveSpaceOutcomeRowTone } from "./space-outcome-tone";
 import { resolveSpacePendingAgentActionIdentity } from "./space-pending-agent-action-model";
+import { SpaceMessageTaskReference } from "./space-task-references";
 import {
 	ThreadMessagesLoading,
 	ThreadPanelHeader,
@@ -1484,7 +1486,11 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 				item: input.item,
 				timelineItems: input.allItems,
 			});
+	const centerAgentModelName = useCenterAgentCurrentModelName(
+		input.item.actorProfileId
+	);
 	const agentAttribution = formatSpaceAgentAttribution({
+		centerAgentModelName,
 		agentControllerRef: input.item.actorAgentControllerRef,
 		ownerName: input.item.actorOwnerName,
 		profileKind: input.item.actorProfileKind,
@@ -1652,6 +1658,13 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 										ref={(element) => {
 											input.registerMessageElement(input.item.id, element);
 										}}
+										references={
+											<SpaceMessageTaskReference
+												signalId={
+													input.item.recalledAt ? undefined : input.item.id
+												}
+											/>
+										}
 										tabIndex={-1}
 									>
 										{input.item.actorProfileKind === "agent" ? (
@@ -1912,7 +1925,11 @@ function ThreadComposer(input: {
 		text: input.composerText,
 	});
 	const submitComposer = (options?: SpaceComposerSendOptions) => {
-		if (!input.canSendMessage || input.isSendingMessage || sendBlocked) {
+		const blocked = resolveSpaceComposerSendBlocked({
+			files: input.composerFiles,
+			text: input.composerText || options?.taskDraft?.title || "",
+		});
+		if (!input.canSendMessage || input.isSendingMessage || blocked) {
 			return;
 		}
 		input.onSend(options).catch((error) => {

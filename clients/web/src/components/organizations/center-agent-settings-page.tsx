@@ -25,11 +25,10 @@ import {
 	RobotIcon,
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { type FormEvent, useId, useState } from "react";
 import { toast } from "sonner";
-import { AgentAvatarEditor } from "#/components/agents/agent-avatar-editor";
-import type { AgentAvatarStyle } from "#/components/agents/remote-agent-avatar";
+import { CenterAgentAvatarEditor } from "#/components/agents/center-agent-avatar-editor";
 import { AppPageHeader } from "#/components/app/app-page-header";
 import {
 	AgentConfigurationCard,
@@ -42,6 +41,10 @@ import {
 	updateCurrentCenterAgentOperatingState,
 	updateCurrentCenterAgentProfile,
 } from "#/lib/organizations/center-agent";
+import {
+	parseCenterAgentRouteSearch,
+	resolveSlackOAuthResult,
+} from "#/lib/organizations/center-agent-route-search";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { canManageOrganizationArea } from "#/lib/organizations/organization-permissions";
 import {
@@ -74,7 +77,10 @@ import {
 	resolveCenterAgentConnectionStatus,
 	resolveDesignatedCenterAgentProfile,
 } from "./center-agent-profile-presentation";
+import { CenterAgentRouteStateProvider } from "./center-agent-route-state";
+import { OrganizationMemoryPage } from "./organization-memory-page";
 import { OrganizationMemoryPolicySection } from "./organization-memory-policy-section";
+import { OrganizationMessageChannelsPage } from "./organization-message-channels-page";
 
 const CENTER_AGENT_STATUS_BADGE_CLASS_NAMES = {
 	Available: resolveStatusToneProminentBadgeClassName("ready"),
@@ -83,7 +89,7 @@ const CENTER_AGENT_STATUS_BADGE_CLASS_NAMES = {
 	Unavailable: resolveStatusToneProminentBadgeClassName("warning"),
 } as const satisfies Record<CenterAgentConnectionStatus, string>;
 
-export function CenterAgentSettingsPage() {
+function CenterAgentGeneralSettings() {
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const directoryQuery = useQuery(
 		organizationDirectoryQueryOptions({
@@ -315,6 +321,7 @@ export function CenterAgentSettingsContent(input: {
 		mutationFn: async (variables: {
 			profileName?: string;
 			avatarStyle?: CenterAgentUpdateProfileBody["avatarStyle"];
+			avatar?: CenterAgentUpdateProfileBody["avatar"];
 		}) =>
 			await updateCurrentCenterAgentProfile({
 				organizationId: input.organizationId,
@@ -327,7 +334,7 @@ export function CenterAgentSettingsContent(input: {
 			setMutationError(null);
 		},
 		onSuccess: async (response, variables) => {
-			if (variables.avatarStyle) {
+			if (variables.avatarStyle || variables.avatar) {
 				await applySavedAgentAvatarProfile(
 					queryClient,
 					response.profile,
@@ -362,7 +369,7 @@ export function CenterAgentSettingsContent(input: {
 			);
 			await invalidateCenterAgentFacts();
 			toast.success(
-				variables.avatarStyle
+				variables.avatarStyle || variables.avatar
 					? "Avatar updated."
 					: "Center Agent profile updated."
 			);
@@ -415,11 +422,8 @@ export function CenterAgentSettingsContent(input: {
 						operatingStateQuery.data?.operatingState !== "active"
 					}
 					onMessage={() => dmMutation.mutate()}
-					onSaveAvatar={async (avatarStyle) => {
-						if (avatarStyle === "automatic") {
-							throw new Error("Center Agent requires a selected avatar.");
-						}
-						await updateProfileMutation.mutateAsync({ avatarStyle });
+					onSaveAvatar={async (avatar) => {
+						await updateProfileMutation.mutateAsync({ avatar });
 					}}
 					operatingState={
 						operatingStateQuery.isError
@@ -782,7 +786,9 @@ function resolveRemoteConnectionDescription(input: {
 
 function CenterAgentConnectionSection(input: {
 	canManage: boolean;
-	onSaveAvatar: (style: AgentAvatarStyle) => Promise<void>;
+	onSaveAvatar: (
+		avatar: NonNullable<CenterAgentUpdateProfileBody["avatar"]>
+	) => Promise<void>;
 	savingAvatar: boolean;
 	disableMessage: boolean;
 	onMessage: () => void;
@@ -802,10 +808,10 @@ function CenterAgentConnectionSection(input: {
 			<p className="text-muted-foreground text-xs">Center Agent settings</p>
 			<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 				<div className="flex min-w-0 items-start gap-4">
-					<AgentAvatarEditor
+					<CenterAgentAvatarEditor
+						avatarOptions={input.profile.avatarOptions}
 						avatarStyle={input.profile.avatarStyle}
 						canEdit={input.canManage}
-						centerAgent
 						onSave={input.onSaveAvatar}
 						profileId={input.profile.profileId}
 						profileName={input.profile.profileName}
@@ -818,11 +824,17 @@ function CenterAgentConnectionSection(input: {
 						<p className="mt-1 truncate text-muted-foreground text-sm">
 							@{input.profile.profileHandle}
 						</p>
-						<Badge
-							className={`mt-3 ${status === "Status unavailable" ? resolveStatusToneProminentBadgeClassName("muted") : CENTER_AGENT_STATUS_BADGE_CLASS_NAMES[status]}`}
-						>
-							{status}
-						</Badge>
+						<div className="mt-2 flex items-center">
+							<Badge
+								className={
+									status === "Status unavailable"
+										? resolveStatusToneProminentBadgeClassName("muted")
+										: CENTER_AGENT_STATUS_BADGE_CLASS_NAMES[status]
+								}
+							>
+								{status}
+							</Badge>
+						</div>
 					</div>
 				</div>
 				<Button
@@ -1028,5 +1040,29 @@ function CenterAgentErrorState(input: {
 				Retry
 			</Button>
 		</div>
+	);
+}
+
+export function CenterAgentSettingsPage() {
+	const searchStr = useRouterState({
+		select: (state) => state.location.searchStr,
+	});
+	const search = Object.fromEntries(new URLSearchParams(searchStr));
+	return (
+		<CenterAgentRouteStateProvider
+			value={{
+				channelsSlackOAuthResult: resolveSlackOAuthResult(
+					parseCenterAgentRouteSearch(search)
+				),
+			}}
+		>
+			<CenterAgentGeneralSettings />
+			<section aria-label="Channels" className="mt-4 space-y-6" id="channels">
+				<OrganizationMessageChannelsPage />
+			</section>
+			<section aria-label="Memory" className="mt-4 space-y-6" id="memory">
+				<OrganizationMemoryPage />
+			</section>
+		</CenterAgentRouteStateProvider>
 	);
 }

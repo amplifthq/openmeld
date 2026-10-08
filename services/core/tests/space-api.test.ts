@@ -1151,6 +1151,139 @@ async function openPendingSpaceSocket(
   return socket;
 }
 describe("OpenMeld Core", () => {
+  it.each([
+    "space",
+    "direct_message",
+  ] as const)("creates a composer task through the ordinary signal RPC exactly once in %s", async (kind) => {
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const spaceId =
+      kind === "space"
+        ? await createSpace({ name: "Composer task RPC" })
+        : namespace.newUniqueId().toString();
+    const context = createRpcContext({
+      requestId: "composer-task-rpc",
+      profileId: DEFAULT_HUMAN_PROFILE_ID,
+      profileKind: "human",
+      profileName: "Test User",
+      ownerUserId: "owner-test-default",
+    });
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    if (kind === "direct_message") {
+      await stub.rpcInitializeDirectMessageMeta({
+        creator: {
+          kind: "human",
+          profileId: DEFAULT_HUMAN_PROFILE_ID,
+          profileName: "Test User",
+          ownerUserId: "owner-test-default",
+          ownerName: "Test User",
+        },
+        guide: "",
+        name: "Private task RPC",
+        organizationId: DEFAULT_TEST_ORGANIZATION_ID,
+        pairKey: `${DEFAULT_HUMAN_PROFILE_ID}:${SECOND_HUMAN_PROFILE_ID}`,
+        purpose: "openmeld_dm_space",
+        spaceId,
+        visibility: "private",
+      });
+      await stub.rpcPostMembers({
+        spaceId,
+        context,
+        members: [
+          {
+            agentControllerRef: null,
+            ownerName: "Test User",
+            ownerUserId: "owner-test-default",
+            profileId: DEFAULT_HUMAN_PROFILE_ID,
+            profileKind: "human",
+            profileName: "Test User",
+          },
+        ],
+      });
+    }
+    const taskMessageId = randomUUID();
+    const input = {
+      spaceId,
+      context,
+      authoringPolicy: "user_authored" as const,
+      profile: {
+        kind: "human" as const,
+        profileId: DEFAULT_HUMAN_PROFILE_ID,
+        profileName: "Test User",
+      },
+      text: "Check loading and retry states.",
+      clientMessageId: taskMessageId,
+      meta: { clientMessageId: taskMessageId },
+      taskDraft: {
+        title: "Review image uploads",
+        assigneeProfileId: DEFAULT_HUMAN_PROFILE_ID,
+      },
+    };
+    const first = await stub.rpcPostSignalOnceByClientMessageId(input);
+    const repeated = await stub.rpcPostSignalOnceByClientMessageId(input);
+    expect(repeated.id).toBe(first.id);
+    const list = await stub.rpcListTasks({ spaceId, context });
+    expect(list.tasks).toHaveLength(1);
+    expect(list.tasks[0]).toMatchObject({
+      title: "Review image uploads",
+      sourceSignalId: first.id,
+      phase: "to_do",
+      assignee: { profileId: DEFAULT_HUMAN_PROFILE_ID },
+    });
+    const invalidMessageId = randomUUID();
+    const invalidDraftError = await stub
+      .rpcPostSignalOnceByClientMessageId({
+        ...input,
+        clientMessageId: invalidMessageId,
+        meta: { clientMessageId: invalidMessageId },
+        taskDraft: {
+          title: "Invalid owner",
+          assigneeProfileId: SECOND_HUMAN_PROFILE_ID,
+        },
+      })
+      .then(
+        () => null,
+        (error: Error) => error.message
+      );
+    expect(invalidDraftError).toContain("space_task.invalid_draft");
+    expect((await stub.rpcListTasks({ spaceId, context })).tasks).toHaveLength(
+      1
+    );
+    if (kind === "direct_message") {
+      const outsider = createRpcContext({
+        requestId: "private-task-outsider",
+        profileId: SECOND_HUMAN_PROFILE_ID,
+        profileKind: "human",
+        profileName: "Outsider",
+        ownerUserId: "outside-owner",
+      });
+      const readError = await stub
+        .rpcListTasks({ spaceId, context: outsider })
+        .then(
+          () => null,
+          (error: Error) => error.message
+        );
+      expect(readError).toContain("space.membership_required");
+      const outsiderMessageId = randomUUID();
+      const writeError = await stub
+        .rpcPostSignalOnceByClientMessageId({
+          ...input,
+          context: outsider,
+          profile: {
+            kind: "human",
+            profileId: SECOND_HUMAN_PROFILE_ID,
+            profileName: "Outsider",
+          },
+          clientMessageId: outsiderMessageId,
+          meta: { clientMessageId: outsiderMessageId },
+        })
+        .then(
+          () => null,
+          (error: Error) => error.message
+        );
+      expect(writeError).toContain("space.membership_required");
+    }
+  });
+
   it("authorizes manual summary recovery only for a current matching human member", async () => {
     const spaceId = await createSpace({
       name: "summary-recovery-access",

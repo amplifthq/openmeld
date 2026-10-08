@@ -175,6 +175,14 @@ org" direction):
 - Collaboration always starts by **creating a new organization**. The
   personal context stays the user's private garden forever — a stable mental
   anchor.
+- Personal invitation entry points remain discoverable. Account and Team menus,
+  People, and Space invitations reuse the Organization invitation dialog or its
+  shared Personal Workspace guidance. The guidance explains the solo boundary
+  and links to creation or an existing Organization. An explicit invitation
+  intent survives creation and selection, opening the destination Organization's
+  invitation settings. It never carries a Personal Space or its members into
+  that Organization. Channels and restricted Organization settings reuse the
+  same guidance and action presentation with their own destination intent.
 - **Growth path**: collaboration starts with new Organization-scoped Agent
   Profiles. Existing Personal Workspace Agent Profiles remain private to the
   Personal Workspace and are never imported, synchronized, or authorized into
