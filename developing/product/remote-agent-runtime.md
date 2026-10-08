@@ -483,15 +483,28 @@ The status stays `running` with `syncPending` for existing clients; it does not
 mean the process still runs. Cleanup never signals a command with an observed
 exit. Loss delivered to the model permits its final explanation to publish.
 Loss first discovered by cleanup keeps the explicit failed outcome.
+An authoritative completed synchronization receipt clears uncommitted command
+loss markers. Cleanup checks the current receipts before reporting loss. This
+does not change an execution whose failed outcome was already committed.
 The cleanup owner uses `remote_agent.computer.command_cleanup_failed` only for
 confirmed command loss. Transport timeouts and pending Stop keep their separate
 errors. User cancellation retains priority.
 Workspace acquisition and native observation share a bounded operation budget.
+The public command entrypoint enters this owner before native readiness or
+directory preparation. Only a new launch prepares its directory, within its
+launch budget, and checks timeout and Stop again before dispatch.
 Reader cancellation has a 100 ms grace period before local detachment. The
 collector observes up to four existing identities concurrently so a hung native
 call does not prevent collection of the other receipts. Neither budget permits
 another launch. A launch acknowledgement received after Stop still addresses
 the original command identity through a fresh Workspace client.
+The command receipt retains the requested Stop signal and its native delivery
+acknowledgement. After an acquisition timeout, polling and collection continue
+the pending Stop for that same identity. A short native inspection can avoid
+signalling an exited command; failed or timed-out inspection does not prevent
+signal delivery. An acknowledgement prevents repeat signals on each poll, but
+does not prove exit. An older signal acknowledgement cannot consume a request
+for a different signal.
 Structured diagnostics include command and submission IDs, backend, observation
 and exit times, exit code, synchronization state and failure phase. They exclude
 command text, output, credentials and temporary transport URLs. Background
