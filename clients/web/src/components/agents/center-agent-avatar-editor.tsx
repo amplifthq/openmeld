@@ -308,15 +308,21 @@ export function CenterAgentAvatarEditor(input: {
 								<h2 className="mb-3 font-medium text-muted-foreground text-xs">
 									Custom
 								</h2>
-								<Button
-									disabled={input.saving}
-									onClick={() => fileInput.current?.click()}
-									size="sm"
-									variant="secondary"
-								>
-									<UploadSimpleIcon className="size-3.5" />
-									Upload image
-								</Button>
+								<div className="flex items-center gap-3">
+									<Button
+										className="shrink-0"
+										disabled={input.saving}
+										onClick={() => fileInput.current?.click()}
+										size="sm"
+										variant="secondary"
+									>
+										<UploadSimpleIcon className="size-3.5" />
+										Upload image
+									</Button>
+									<p className="text-muted-foreground text-xs">
+										JPG, PNG, or WebP. Up to 5 MB.
+									</p>
+								</div>
 								<input
 									accept="image/jpeg,image/png,image/webp"
 									aria-label="Choose avatar image"
@@ -329,9 +335,6 @@ export function CenterAgentAvatarEditor(input: {
 									tabIndex={-1}
 									type="file"
 								/>
-								<p className="mt-2 text-muted-foreground text-xs">
-									JPG, PNG, or WebP. Up to 5 MB.
-								</p>
 							</section>
 						</div>
 						<aside className="flex flex-col items-center border-border border-t bg-foreground/3 p-5 sm:border-t-0 sm:border-l sm:px-7 sm:pt-12 sm:pb-7">
