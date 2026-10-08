@@ -241,6 +241,16 @@ export async function admitWebsiteDomainRelease(input) {
   const names = websiteDomainNames(input.environment);
   const state = await readWebsiteDomainState(client, names);
   const evidence = await loadEvidence(input, client);
+  // Internal staging can replace the full stack in one maintenance window.
+  // Ownership is still checked above, and deployment read-back verifies both hosts.
+  if (
+    input.environment === "stg" &&
+    ["auth", "core", "gateway", "web", "website"].every((scope) =>
+      input.scopes.includes(scope)
+    )
+  ) {
+    return { client, names, state, evidence };
+  }
   if (!state.app) {
     throw new Error(
       "Prepare and verify the App hostname before publishing App-origin configuration."

@@ -107,7 +107,7 @@ test("prints only non-secret scenario facts", () => {
     authUrl: "https://auth.staging.openmeld.ai",
     directMessage: {
       id: "efe0d0fb79a2fc78a080e16161851349d6900f0a920ed5ae83b460e33d9360cf",
-      url: "https://staging.openmeld.ai/o/work-coordinator-v2-staging/direct-messages/efe0d0fb79a2fc78a080e16161851349d6900f0a920ed5ae83b460e33d9360cf?profileId=467668a1-5469-48a3-b730-3bf63f3bc0c6",
+      url: "https://app.staging.openmeld.ai/o/work-coordinator-v2-staging/direct-messages/efe0d0fb79a2fc78a080e16161851349d6900f0a920ed5ae83b460e33d9360cf?profileId=467668a1-5469-48a3-b730-3bf63f3bc0c6",
     },
     organizationId: "b9c7f5a1-5b6d-438e-9fa7-714fab555c1d",
     organizationSlug: "work-coordinator-v2-staging",
@@ -125,14 +125,14 @@ test("prints only non-secret scenario facts", () => {
       {
         id: "1b37d852c9d8462d8f98b6aa51d8d17eea0bcbc2743d26fab9b95e5c5557cc47",
         name: "Work Coordinator FIFO A",
-        url: "https://staging.openmeld.ai/o/work-coordinator-v2-staging/spaces/1b37d852c9d8462d8f98b6aa51d8d17eea0bcbc2743d26fab9b95e5c5557cc47?profileId=467668a1-5469-48a3-b730-3bf63f3bc0c6",
+        url: "https://app.staging.openmeld.ai/o/work-coordinator-v2-staging/spaces/1b37d852c9d8462d8f98b6aa51d8d17eea0bcbc2743d26fab9b95e5c5557cc47?profileId=467668a1-5469-48a3-b730-3bf63f3bc0c6",
       },
       {
         id: "d4a9bd45a6bb356b5ebe8879ad35d88f5492037d61fb690b34b415d529865ef2",
         name: "Work Coordinator FIFO B",
-        url: "https://staging.openmeld.ai/o/work-coordinator-v2-staging/spaces/d4a9bd45a6bb356b5ebe8879ad35d88f5492037d61fb690b34b415d529865ef2?profileId=467668a1-5469-48a3-b730-3bf63f3bc0c6",
+        url: "https://app.staging.openmeld.ai/o/work-coordinator-v2-staging/spaces/d4a9bd45a6bb356b5ebe8879ad35d88f5492037d61fb690b34b415d529865ef2?profileId=467668a1-5469-48a3-b730-3bf63f3bc0c6",
       },
     ],
-    webUrl: "https://staging.openmeld.ai/o/work-coordinator-v2-staging",
+    webUrl: "https://app.staging.openmeld.ai/o/work-coordinator-v2-staging",
   });
 });

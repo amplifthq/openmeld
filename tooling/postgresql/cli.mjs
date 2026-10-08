@@ -56,9 +56,14 @@ try {
       "inspect",
       "preserve-foundation",
       "seed-business",
+      "seed-smoke-identities",
     ].includes(command) &&
     ["local", "staging"].includes(target) &&
-    (!["preserve-foundation", "seed-business"].includes(command) ||
+    (![
+      "preserve-foundation",
+      "seed-business",
+      "seed-smoke-identities",
+    ].includes(command) ||
       target === "staging") &&
     extra.length === 0
   ) {
@@ -101,6 +106,23 @@ try {
       }
       if (command === "seed-business") {
         console.log(JSON.stringify(await seedBusinessFixture(client)));
+      }
+      if (command === "seed-smoke-identities") {
+        const { buildIdentitySeedSql, readFixtureSecrets } = await import(
+          "../../scripts/e2e/staging-work-coordinator-fixture.mjs"
+        );
+        const sql = await buildIdentitySeedSql({
+          secrets: readFixtureSecrets(),
+        });
+        await client.query("BEGIN; SET LOCAL search_path TO openmeld, public");
+        try {
+          await client.query(sql);
+          await client.query("COMMIT");
+        } catch (error) {
+          await client.query("ROLLBACK");
+          throw error;
+        }
+        console.log("Staging smoke identities prepared in PostgreSQL");
       }
       if (command === "migrate") {
         console.log(JSON.stringify(await migrate(client)));

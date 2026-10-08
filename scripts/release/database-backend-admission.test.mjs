@@ -240,7 +240,6 @@ test("the PostgreSQL candidate blocks unsupported release lanes before external 
   }
   for (const args of [
     ["scripts/release/production-db.mjs"],
-    ["scripts/release/staging-release.mjs", "deploy"],
     [
       "scripts/release/hosted-production-preflight.mjs",
       "--release-source",

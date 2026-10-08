@@ -66,7 +66,7 @@ test("domain health preserves the existing PostHog client URL and rejects HTML, 
 });
 
 // Domain/deployment shapes captured from the isolated Cloudflare domain trial.
-function fixture() {
+function fixture(names = websiteDomainNames()) {
   const domains = [
     {
       id: "root-domain",
@@ -130,6 +130,34 @@ function fixture() {
   };
   return { client, domains, writes, versions };
 }
+
+test("only a complete staging refresh can replace the old domain layout without session continuity", async () => {
+  const staging = fixture(websiteDomainNames("stg"));
+  const scopes = ["auth", "core", "gateway", "web", "website"];
+  const input = {
+    client: staging.client,
+    sourceSha,
+    scopes,
+    environment: "stg",
+  };
+  assert.ok(await admitWebsiteDomainRelease(input));
+  assert.equal(staging.writes.length, 0);
+  for (const missing of scopes) {
+    await assert.rejects(
+      admitWebsiteDomainRelease({
+        ...input,
+        scopes: scopes.filter((scope) => scope !== missing),
+      }),
+      needsPreparation
+    );
+  }
+  await assert.rejects(
+    admitWebsiteDomainRelease({ client: fixture().client, sourceSha, scopes }),
+    needsPreparation
+  );
+  staging.domains[0].service = "unrelated-worker";
+  await assert.rejects(admitWebsiteDomainRelease(input), unexpectedOwner);
+});
 
 test("preparation preserves the existing deployment and is resumable; cutover requires current App evidence", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "website-domains-"));

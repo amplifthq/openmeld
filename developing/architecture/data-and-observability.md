@@ -388,8 +388,8 @@ message text the only way to understand what happened.
 ## Data Ownership Rule
 
 Production uses Hyperdrive + PlanetScale PostgreSQL in the Amplift organization.
-Shared staging retains its deployed D1 revision and the production D1 source is
-frozen migration/recovery evidence; see [physical-db-split.md](physical-db-split.md).
+Shared staging uses its separate PostgreSQL target. Former D1 databases remain
+historical evidence; see [physical-db-split.md](physical-db-split.md).
 The storage change does not transfer logical ownership, move Space Durable Object/R2 state, or
 make a relational projection a second execution authority.
 

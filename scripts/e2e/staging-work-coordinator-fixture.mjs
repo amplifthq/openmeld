@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -71,7 +69,7 @@ export const STAGING_WORK_COORDINATOR_FIXTURE = Object.freeze({
       name: "Work Coordinator FIFO B",
     },
   },
-  webUrl: "https://staging.openmeld.ai",
+  webUrl: "https://app.staging.openmeld.ai",
 });
 
 const REQUIRED_SECRET_NAMES = Object.freeze({
@@ -122,7 +120,6 @@ export async function buildIdentitySeedSql(input) {
   const fixture = input.fixture ?? STAGING_WORK_COORDINATOR_FIXTURE;
 
   return [
-    "PRAGMA foreign_keys = ON;",
     upsertUserSql({
       email: input.secrets.ownerEmail,
       fixture: fixture.owner,
@@ -214,34 +211,14 @@ export function buildSanitizedFixtureSummary(
   };
 }
 
-async function prepareIdentities() {
+function prepareIdentities() {
   assertStagingFixtureTarget();
-  const secrets = readFixtureSecrets();
-  const sql = await buildIdentitySeedSql({ secrets });
-  const temporaryRoot = await mkdtemp(
-    path.join(tmpdir(), "openmeld-staging-work-coordinator-")
-  );
-  const sqlPath = path.join(temporaryRoot, "seed.sql");
-  try {
-    await writeFile(sqlPath, sql, { encoding: "utf8", mode: 0o600 });
-    runCommand("pnpm", [
-      "exec",
-      "wrangler",
-      "d1",
-      "execute",
-      "OPENMELD_DB",
-      "--config",
-      "services/auth/wrangler.jsonc",
-      "--env",
-      "stg",
-      "--remote",
-      "--yes",
-      "--file",
-      sqlPath,
-    ]);
-  } finally {
-    await rm(temporaryRoot, { force: true, recursive: true });
-  }
+  readFixtureSecrets();
+  runCommand(process.execPath, [
+    "tooling/postgresql/cloud.mjs",
+    "seed-smoke-identities",
+    "staging",
+  ]);
   process.stdout.write(
     `${JSON.stringify({ ok: true, ...buildSanitizedFixtureSummary() }, null, 2)}\n`
   );
@@ -295,7 +272,7 @@ function runCommand(command, args) {
   }
 }
 
-async function main() {
+function main() {
   const command = process.argv[2] ?? "summary";
   if (command === "summary") {
     assertStagingFixtureTarget();
@@ -305,17 +282,19 @@ async function main() {
     return;
   }
   if (command === "prepare-identities") {
-    await prepareIdentities();
+    prepareIdentities();
     return;
   }
   throw new Error(`Unknown command: ${command}`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === SCRIPT_PATH) {
-  main().catch((error) => {
+  try {
+    main();
+  } catch (error) {
     process.stderr.write(
       `${error instanceof Error ? error.message : String(error)}\n`
     );
     process.exitCode = 1;
-  });
+  }
 }
