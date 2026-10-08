@@ -1059,7 +1059,9 @@ Unexpected background-phase failures persist a per-owner retry deadline in
 the Durable Object. Retries back off from five seconds to five minutes and
 reset after success. Alarm deadline selection and phase admission both honor
 that deadline, including after hibernation; an overdue work record must not
-override it. Healthy phases continue independently. Work-budget continuations
+override it. Computer incident observation and context migration have their own
+failure owners; context migration failures must not be swallowed by the work
+promotion phase. Healthy phases continue independently. Work-budget continuations
 retain their normal one-second cadence. A failure outside an individual phase
 uses the same durable backoff for the alarm as a whole. These records control
 background retry timing only: they do not fail a running Wake, change

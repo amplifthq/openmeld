@@ -806,6 +806,8 @@ function parseRuntimeTransportDispatchLiveActivity(
   return parsed.success ? parsed.data : null;
 }
 type RuntimeTransportHubHousekeepingAlarmPhase =
+  | "computer_connection_incidents"
+  | "context_migration"
   | "local_agent_stream_closure_retry"
   | "runtime_coordinator_agent_profile_work_recovery_inbox"
   | "runtime_coordinator_agent_profile_work_promotion"
@@ -1710,12 +1712,19 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       const run = this.createHousekeepingAlarmRun(nowMs);
       this.scheduledHousekeepingAlarmAtMs = null;
       try {
-        await this.observeComputerConnectionIncidents();
+        await this.runHousekeepingAlarmPhase(
+          run,
+          "computer_connection_incidents",
+          () => this.observeComputerConnectionIncidents(true)
+        );
         this.reapExpiredLeases(nowMs);
         await this.runHousekeepingAlarmPhase(
           run,
           "runtime_coordinator_finalization_retry",
           () => this.processRuntimeCoordinatorFinalizationRetryAlarm(nowMs, run)
+        );
+        await this.runHousekeepingAlarmPhase(run, "context_migration", () =>
+          this.processAgentProfileContextMigrationAlarm(run)
         );
         await this.runHousekeepingAlarmPhase(
           run,
@@ -18360,8 +18369,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       })
     );
   }
-  private async processAgentProfileWorkPromotionAlarm(
-    nowMs: number,
+  private async processAgentProfileContextMigrationAlarm(
     run?: RuntimeTransportHubHousekeepingAlarmRun
   ): Promise<void> {
     for (const profile of await listDrainingAgentProfileContextMigrations(
@@ -18369,22 +18377,17 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     )) {
       if (
         run &&
-        !this.reserveHousekeepingAlarmWorkUnit(
-          run,
-          "runtime_coordinator_agent_profile_work_promotion"
-        )
+        !this.reserveHousekeepingAlarmWorkUnit(run, "context_migration")
       ) {
         return;
       }
-      try {
-        await this.reconcileAgentProfileContextMigration(profile);
-      } catch (error) {
-        console.warn("[core.execution_context.migration_retry]", {
-          targetProfileId: profile.targetProfileId,
-          reasonCode: error instanceof Error ? error.message : String(error),
-        });
-      }
+      await this.reconcileAgentProfileContextMigration(profile);
     }
+  }
+  private async processAgentProfileWorkPromotionAlarm(
+    nowMs: number,
+    run?: RuntimeTransportHubHousekeepingAlarmRun
+  ): Promise<void> {
     const pendingPromotions = (
       await readPendingAgentProfileWorkPromotions(this.ctx.storage)
     ).sort(
@@ -19250,7 +19253,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
     return this.computerConnectionIncidents;
   }
-  private async observeComputerConnectionIncidents(): Promise<void> {
+  private async observeComputerConnectionIncidents(
+    propagateFailure = false
+  ): Promise<void> {
     try {
       await this.getComputerConnectionIncidents()?.observe(
         this.state.sessionsById.values()
@@ -19259,6 +19264,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       console.warn("[core.computer_connection.incident_observation_failed]", {
         error,
       });
+      if (propagateFailure) {
+        throw error;
+      }
     }
   }
   private readonly cleanupExpiredPendingDispatches = (nowMs: number): void => {

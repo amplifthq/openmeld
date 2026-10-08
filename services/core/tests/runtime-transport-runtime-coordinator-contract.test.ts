@@ -5771,7 +5771,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
     }
   });
 
-  it("backs off a failed housekeeping phase while healthy phases continue", async () => {
+  it.each([
+    "processRuntimeCoordinatorFinalizationRetryAlarm",
+    "processAgentProfileContextMigrationAlarm",
+    "observeComputerConnectionIncidents",
+  ])("backs off failed housekeeping %s while healthy phases continue", async (failedMethod) => {
     const nowMs = 1_700_000_000_000;
     const dateNow = vi.spyOn(Date, "now").mockReturnValue(nowMs);
     try {
@@ -5783,9 +5787,17 @@ describe("runtime transport runtime coordinator transport contract", () => {
       const watchdogPhase = vi.fn(() => Promise.resolve());
       Object.defineProperty(
         hub,
-        "processRuntimeCoordinatorFinalizationRetryAlarm",
+        failedMethod === "observeComputerConnectionIncidents"
+          ? "getComputerConnectionIncidents"
+          : failedMethod,
         {
-          value: finalizationPhase,
+          value:
+            failedMethod === "observeComputerConnectionIncidents"
+              ? () => ({
+                  observe: finalizationPhase,
+                  nextAlarmAtMs: () => null,
+                })
+              : finalizationPhase,
         }
       );
       Object.defineProperty(hub, "processRuntimeCoordinatorWatchdogAlarm", {
@@ -5830,7 +5842,6 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it.each([
-    "observeComputerConnectionIncidents",
     "syncHousekeepingAlarm",
   ])("persists global alarm failure backoff across reconstruction when %s fails", async (method) => {
     const nowMs = 1_700_000_000_000;
@@ -12540,11 +12551,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).toBe(expiresAtMs);
     const clock = vi.spyOn(Date, "now").mockReturnValue(expiresAtMs + 1);
     try {
-      await (
-        restarted.hub as unknown as {
-          processAgentProfileWorkPromotionAlarm(now: number): Promise<void>;
-        }
-      ).processAgentProfileWorkPromotionAlarm(expiresAtMs + 1);
+      await (restarted.hub as unknown as RuntimeTransportHub).alarm();
       expect(
         await (
           restarted.hub as unknown as RuntimeTransportHub

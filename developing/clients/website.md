@@ -156,9 +156,12 @@ Stable installer, Auth, API, and download paths remain forwarded independently.
 
 The website also owns `/.well-known/posthog-client.json`. PostHog uses that
 exact production root URL as its OAuth client ID and does not follow redirects
-when fetching it. Preserve the JSON bytes, stable Connector callback, and shared
-`/icon-512.png` logo. This is one public metadata owner, not a wildcard proxy for
-all well-known paths. Migration and rollback health verify its direct JSON response.
+when fetching it. Preserve the client identity, stable Connector callback, and
+other OAuth metadata. The approved branding migration replaces the monochrome
+`/icon-512.png` logo with `/brand/openmeld-letter-o-dark-1024.png`. Migration and
+rollback health accept only those two reviewed logo URIs and verify the direct
+JSON response. This is one public metadata owner, not a wildcard proxy for all
+well-known paths.
 
 ## Local development
 
