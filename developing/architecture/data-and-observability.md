@@ -3961,6 +3961,17 @@ commands derived from those Wake pointers. It must not use a Diagnostic Report
 ID as a Wake correlation field, and it must stay a resolver into the shared
 trace model, not a second Dispatch Ledger reader.
 
+The helper reads the current PostgreSQL report/pointer tables with bound
+parameters and a read-only transaction. Remote lookup uses the existing
+Doppler `openmeld-release` runtime URL for `prd`/`stg`, checked against the
+registered target in `tooling/postgresql/resources.json`. Local lookup requires
+an isolated loopback PostgreSQL lane. It does not query the retired D1 tables.
+Generated trace commands explicitly use `--view agent` and never print a Space
+password. The global operator trace default and explicit human/detail views
+remain available. Obtain customer consent before investigating content through
+these higher-privilege paths; a Send report action shares minimal diagnostics,
+not blanket consent to inspect conversation history.
+
 ## Setup Failure Diagnostics
 
 A prepare-session step failure may carry a bounded, whitelist-only diagnostics
@@ -4188,18 +4199,30 @@ business storage and explicitly query detailed traces. Obtain the external
 user's consent before such content investigation. This is not end-to-end
 encryption, an access grant system, or a claim that operators cannot read data.
 
-Do not log, persist, or include in diagnostic payloads:
+Never deliberately copy system credentials into logs, diagnostic storage, or
+diagnostic payloads:
 
 - access tokens
 - one-time tokens
 - passwords
 - cookies
+
+Outside the specific Remote Agent content-diagnostics exception above, also
+omit these content copies from diagnostics:
+
 - full message text
 - prompt bodies
 - arbitrary request or response payload dumps
 
 Use non-sensitive identifiers, counts, status values, reason codes, and bounded
 sanitized pointers.
+
+Routine Remote Agent errors keep fixed events and operation names, safe error
+types, validated HTTP status or fixed native error codes, and execution IDs.
+For external production Organizations they omit raw message/body/stack text.
+The business failure state and the explanation returned to the authorized
+caller remain available. Rich error summaries use the existing credential
+redactor; arbitrary provider error codes are not treated as safe metadata.
 
 Runtime Agent Controller reporting follows the same minimization rule. Local
 command paths, launch arguments, provider account email/labels,

@@ -980,6 +980,26 @@ describe("remote agent model routing", () => {
     expect(headers["cf-aig-metadata"]).not.toContain("must-not-be-logged");
   });
 
+  it.each([
+    undefined,
+    "",
+    "invalid",
+    " 00000000-0000-4000-8000-000000000001 ",
+  ])("omits content when the production internal Organization configuration is %s", (configuredOrganizationId) => {
+    const headers = buildRemoteAgentAiGatewayHeaders({
+      env: {
+        CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "token_123",
+        OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS: "openrouter",
+        OPENMELD_WORKER_ENVIRONMENT: "prod",
+        CLOUDFLARE_OPENMELD_INTERNAL_DIAGNOSTICS_ORGANIZATION_ID:
+          configuredOrganizationId,
+      },
+      organizationId: "00000000-0000-4000-8000-000000000001",
+    });
+    expect(headers["cf-aig-collect-log"]).toBe("true");
+    expect(headers["cf-aig-collect-log-payload"]).toBe("false");
+  });
+
   it("tags AI Gateway metadata with the organization for per-org usage attribution", () => {
     const metadata = buildRemoteAgentGatewayMetadata({
       organizationId: "org_123",
