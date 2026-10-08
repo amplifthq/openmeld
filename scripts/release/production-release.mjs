@@ -1353,6 +1353,7 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
         isWorkingFolderRecoveryDiff(changedPaths) ||
         isLocalServiceRuntimeReceiverFirstDiff(changedPaths) ||
         deployOrderProfile === "core-worker-response-reader-first" ||
+        deployOrderProfile === "remote-agent-receiver-first" ||
         isInboxSourceTargetReceiverFirstDiff(changedPaths),
       deployOrderProfile,
       releaseSha: input.releaseSha,
@@ -2832,6 +2833,9 @@ export function buildProductionReleasePlan(input) {
     taskInboxRetired,
     compatibilityContext
   );
+  const coreCurrentCliProjection =
+    deployOrderProfile === "core-worker-response-reader-first" ||
+    deployOrderProfile === "remote-agent-receiver-first";
   return {
     ...describeProductionReleaseImpact(context),
     coreProjectionFromCli: scopes.includes("cli"),
@@ -2847,8 +2851,7 @@ export function buildProductionReleasePlan(input) {
       releaseSha: sourceSha,
     }),
     preflightSteps: buildProductionPreflightStepSpecs({
-      coreCurrentCliProjection:
-        deployOrderProfile === "core-worker-response-reader-first",
+      coreCurrentCliProjection,
       databaseCutoverRestoreCrons: input.databaseCutoverRestoreCrons,
       changedPaths,
       releaseSha: sourceSha,
@@ -2856,8 +2859,7 @@ export function buildProductionReleasePlan(input) {
       taskInboxRetired,
     }),
     verifySteps: buildProductionVerifyStepSpecs({
-      coreCurrentCliProjection:
-        deployOrderProfile === "core-worker-response-reader-first",
+      coreCurrentCliProjection,
       changedPaths,
       scopes,
       taskInboxRetired,

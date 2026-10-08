@@ -35,6 +35,12 @@ PostgreSQL bindings. A database migration alone does not require redeploying
 both services. CLI admission checks these facts before publication and Core
 activation.
 
+For local release, pass `CLOUDFLARE_ACCOUNT_ID` and
+`CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN` from `openmeld-release/prd`. In that
+scoped child environment, also map the same release token to
+`CLOUDFLARE_API_TOKEN` for Wrangler and Website domain admission; retain the
+scoped variable for Hyperdrive inspection. Do not write either token to disk.
+
 The CLI workflow records Core activation through the existing component receipt
 owner. If a prior attempt applied this exact source but failed its remaining
 health checks, database admission checks that recorded identity against the live
@@ -609,6 +615,13 @@ early Core stage preserves the current published CLI projection. This edge
 comes from the Core deployment in CLI publication, not from optional headers.
 Other shared schemas and Core's native-delivery service are not directional
 path signals because they carry contracts in both directions.
+
+This profile also preserves that projection when CLI is excluded from the
+cloud stage. Preflight and verification leave published-channel checks to the
+same current-projection owner, instead of requiring the candidate CLI to exist
+first. With PostgreSQL, use the guarded local cloud stage, then the official
+GitHub CLI workflow after its receiver receipts are verified. Keep the same
+release source, pre-feature base and complete train declaration across stages.
 
 Personal cloud Computer has the opposite capability direction: its Remote
 Agent requires Core's account Computer identity response. The planner selects
