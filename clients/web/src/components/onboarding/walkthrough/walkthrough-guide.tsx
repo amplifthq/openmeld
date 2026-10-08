@@ -274,9 +274,11 @@ function usePauseOnEscape(
 export function WalkthroughGuide({
 	spaceProgress,
 	onConnectAgent,
+	onAddAgents,
 }: {
 	spaceProgress?: ReturnType<typeof useWalkthroughSpaceProgress>;
 	onConnectAgent?: () => void;
+	onAddAgents?: () => void;
 } = {}) {
 	const guide = useWalkthrough();
 	const noticeAnchor = guide?.noticeAnchor;
@@ -363,13 +365,15 @@ export function WalkthroughGuide({
 		target.dataset.walkthrough,
 		spaceProgress,
 		guide,
-		onConnectAgent
+		onConnectAgent,
+		onAddAgents
 	);
 	return (
 		<GuidedTarget
 			actions={actions}
 			composing={composing}
 			content={content}
+			key={record.step}
 			target={target}
 			title={title}
 		/>
@@ -465,7 +469,12 @@ function GuidedTarget({
 						content,
 					},
 				]}
-				styles={portalElement ? { overlay: { position: "fixed" } } : undefined}
+				styles={{
+					// Positioning can reset while a target or its portal changes. Do
+					// not fade stale coordinates through the next frame.
+					floater: { transition: "none" },
+					...(portalElement ? { overlay: { position: "fixed" as const } } : {}),
+				}}
 				tooltipComponent={GuideTooltip}
 			/>
 		</GuideActions.Provider>
@@ -495,7 +504,8 @@ function spaceGuidePresentation(
 	targetName: string | undefined,
 	spaceProgress: ReturnType<typeof useWalkthroughSpaceProgress> | undefined,
 	guide: NonNullable<ReturnType<typeof useWalkthrough>>,
-	onConnectAgent?: () => void
+	onConnectAgent?: () => void,
+	onAddAgents?: () => void
 ) {
 	const showingLocalReply =
 		record.step === "local-task" && spaceProgress?.localSent;
@@ -521,40 +531,31 @@ function spaceGuidePresentation(
 			</>
 		);
 		actions = (
-			<>
-				<Button
-					disabled={guide.pending}
-					onClick={advance("review-replies")}
-					size="sm"
-					variant="secondary"
-				>
-					Not now
-				</Button>
-				<Button
-					disabled={guide.pending}
-					onClick={() => {
-						guide
-							.progress(spaceProgress?.local ? "local-task" : "add-local-agent")
-							.then(() => onConnectAgent?.())
-							.catch(() => undefined);
-					}}
-					size="sm"
-				>
-					Connect an agent
-				</Button>
-			</>
-		);
-	}
-	if (record.step === "add-local-agent") {
-		content = "Select the + button to add or create your agent.";
-		actions = (
 			<Button
 				disabled={guide.pending}
-				onClick={advance("review-replies")}
+				onClick={() => {
+					guide
+						.progress(spaceProgress?.local ? "local-task" : "add-local-agent")
+						.then(() => onConnectAgent?.())
+						.catch(() => undefined);
+				}}
 				size="sm"
-				variant="secondary"
 			>
-				Not now
+				Connect an agent
+			</Button>
+		);
+	}
+	if (record.step === "add-local-agent" || record.step === "add-center-agent") {
+		if (record.step === "add-local-agent") {
+			content = "Select + or Next to add your agent.";
+		}
+		actions = (
+			<Button
+				disabled={guide.pending || !onAddAgents}
+				onClick={onAddAgents}
+				size="sm"
+			>
+				Next
 			</Button>
 		);
 	}
@@ -564,14 +565,13 @@ function spaceGuidePresentation(
 			Boolean(showingLocalReply),
 			Boolean(spaceProgress?.localReplied)
 		);
-		actions = (
+		actions = showingLocalReply && (
 			<Button
 				disabled={guide.pending}
 				onClick={advance("review-replies")}
 				size="sm"
-				variant="secondary"
 			>
-				{showingLocalReply ? "Read Center Agent reply" : "Not now"}
+				Next
 			</Button>
 		);
 	}
