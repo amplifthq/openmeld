@@ -356,6 +356,7 @@ async function runOpenRouterResearch(input: {
       Object.entries(
         buildRemoteAgentAiGatewayHeaders({
           env,
+          organizationId: turn.context.activeOrganizationId,
           metadata: buildRemoteAgentGatewayMetadata({
             modelId,
             organizationId: turn.context.activeOrganizationId,

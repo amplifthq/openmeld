@@ -46,6 +46,7 @@ export async function generateCenterAgentSessionTitle(input: {
   const request = parsed.data;
   const headers = buildRemoteAgentAiGatewayHeaders({
     env: input.env,
+    organizationId: request.organizationId,
     metadata: {
       ...buildRemoteAgentGatewayMetadata({
         modelId: CENTER_AGENT_SESSION_TITLE_MODEL,

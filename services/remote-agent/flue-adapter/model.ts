@@ -328,6 +328,7 @@ export async function registerRemoteAgentCloudflareProvider(input: {
           baseUrl: resolveRemoteAgentAiGatewayOpenRouterBaseUrl(input.env),
           headers: buildRemoteAgentAiGatewayHeaders({
             env: input.env,
+            organizationId: input.organizationId,
             metadata,
           }) as Record<string, string>,
           reasoning: input.modelRoute?.reasoningLevel !== "off",

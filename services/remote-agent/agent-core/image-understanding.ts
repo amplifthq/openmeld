@@ -88,6 +88,7 @@ export async function understandRemoteAgentImages(input: {
     Object.entries(
       buildRemoteAgentAiGatewayHeaders({
         env: input.env,
+        organizationId: input.organizationId,
         metadata: buildRemoteAgentGatewayMetadata({
           modelId: input.model.modelId,
           organizationId: input.organizationId,

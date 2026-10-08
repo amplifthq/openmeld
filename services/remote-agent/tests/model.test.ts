@@ -941,11 +941,43 @@ describe("remote agent model routing", () => {
       "cf-aig-authorization": "Bearer token_123",
       "cf-aig-byok-alias": "openrouter",
       "cf-aig-collect-log": "true",
+      "cf-aig-collect-log-payload": "false",
       "cf-aig-metadata": JSON.stringify({
         model: REMOTE_AGENT_OPENROUTER_MODEL_ID,
         worker: "openmeld-remote-agent",
       }),
     });
+  });
+
+  it.each([
+    ["prod", "00000000-0000-4000-8000-000000000002", false],
+    ["prod", "00000000-0000-4000-8000-000000000001", true],
+    ["local", undefined, true],
+    ["dev", undefined, true],
+    ["stg", undefined, true],
+    [undefined, "00000000-0000-4000-8000-000000000001", false],
+    ["production", "00000000-0000-4000-8000-000000000001", false],
+    ["prod", undefined, false],
+    ["prod", "invalid", false],
+  ])("keeps usage logs and applies content privacy for %s / %s", (environment, organizationId, allowed) => {
+    const headers = buildRemoteAgentAiGatewayHeaders({
+      env: {
+        CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "token_123",
+        OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS: "openrouter",
+        OPENMELD_WORKER_ENVIRONMENT: environment,
+        CLOUDFLARE_OPENMELD_INTERNAL_DIAGNOSTICS_ORGANIZATION_ID:
+          "00000000-0000-4000-8000-000000000001",
+      },
+      organizationId,
+      // Attribution metadata cannot grant the internal Organization exception.
+      metadata: {
+        organizationId: "00000000-0000-4000-8000-000000000001",
+        Authorization: "Bearer must-not-be-logged",
+      },
+    });
+    expect(headers["cf-aig-collect-log"]).toBe("true");
+    expect(headers["cf-aig-collect-log-payload"]).toBe(String(allowed));
+    expect(headers["cf-aig-metadata"]).not.toContain("must-not-be-logged");
   });
 
   it("tags AI Gateway metadata with the organization for per-org usage attribution", () => {
