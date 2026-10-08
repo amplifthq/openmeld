@@ -505,6 +505,7 @@ import { parseRpcErrorPayload } from "../../../shared/rpc/rpc-json";
 import { attemptSpaceIndexProjectionOutboxRecord } from "../../../space-index/space-index-projection-outbox-service";
 import { captureSpaceMessagePreview } from "../../../space-index/space-message-preview";
 import { SPACE_OUTBOX_ALARM_REDRIVE_INTERVAL_MS } from "../../../strategy-constants";
+import { resolveUserRequestTimeContext } from "../../../user-time-context/user-time-context-repository";
 import { buildAcceptedDispatchFinalizationQueueMessage } from "../../application/accepted-dispatch-finalization";
 import {
   type AgentStreamProjectionInvalidRecord,
@@ -1310,6 +1311,7 @@ function createPreparedDispatchOutboxRecordForDecision(input: {
     targetProfileId: input.decision.targetProfileId,
     senderProfileId: input.senderProfileId,
     sourceSignalSnapshot: buildDispatchSourceSignalSnapshot({
+      requestTimeContext: input.signalContext?.requestTimeContext,
       callerContext: input.callerContext,
       quotedMessage: input.quotedMessage,
       contextMessages: input.contextMessages,
@@ -1426,6 +1428,7 @@ function resolveDispatchReplyStalenessMeta(input: {
     : {};
 }
 function buildDispatchSourceSignalSnapshot(input: {
+  requestTimeContext?: SignalPublishContext["requestTimeContext"];
   contextMessages?: DispatchSourceSignalSnapshotInput["contextMessages"];
   callerContext: NonNullable<
     OpenMeldDaemonDispatchQueueMessage["sourceSignalSnapshot"]
@@ -1457,6 +1460,9 @@ function buildDispatchSourceSignalSnapshot(input: {
       ? input.signal.data.meta?.centerAgentInteractionSource
       : undefined;
   return {
+    ...(input.requestTimeContext
+      ? { requestTimeContext: input.requestTimeContext }
+      : {}),
     text:
       input.normalizedSourceText.length > 0
         ? input.normalizedSourceText
@@ -2352,6 +2358,21 @@ export const handleWebSocketTextSignal = async (input: {
   try {
     await input.publishTextSignal(signal, {
       authoringPolicy: "user_authored",
+      verifiedRequestContext: {
+        actorContext: {
+          requestId: crypto.randomUUID(),
+          // Legacy human attachments already carry Gateway's verified owner;
+          // authorizeLiveSession rechecks it before this handler runs.
+          callerPrincipalId:
+            input.session.callerPrincipalId ??
+            (input.profile.kind === "human"
+              ? input.session.viewerOwnerUserId
+              : undefined),
+          ownerUserId: input.session.viewerOwnerUserId,
+          openMeldProfileId: input.profile.profileId,
+          profileKind: input.profile.kind,
+        },
+      },
       supportsCurrentSpaceAddressing:
         input.session.supportsSpaceMessageAddressing,
       ...(input.session.spacePassword
@@ -5932,6 +5953,13 @@ export class Space extends DurableObject<CoreBindings> {
     const spacePassword = resolveRpcInputSpacePassword(input);
     try {
       await this.publishTextSignal(signal, {
+        requestTimeContext: await resolveUserRequestTimeContext({
+          db: getPostgresDatabase(this.bindings),
+          context: input.spaceAccess
+            ? getSpaceAccessRequestContext(input.spaceAccess)
+            : input.context,
+          submittedAtMs: signal.ts,
+        }),
         workRecoveryQueueHandoff,
         ...(input.agentStreamId ? { agentStreamId: input.agentStreamId } : {}),
         authoringPolicy: input.authoringPolicy,
@@ -8046,7 +8074,8 @@ export class Space extends DurableObject<CoreBindings> {
 
   private async enqueueLocalExecutionInput(
     signal: SignalEnvelope,
-    context: CoreRpcContextInput
+    context: CoreRpcContextInput,
+    requestTimeContext?: SignalPublishContext["requestTimeContext"]
   ): Promise<void> {
     if (signal.type !== "signal.text") {
       throw new Error("Queued input requires a text signal.");
@@ -8084,6 +8113,7 @@ export class Space extends DurableObject<CoreBindings> {
       authorProfileId: signal.profile.profileId,
     });
     const request: LocalSpaceExecutionInput = {
+      ...(requestTimeContext ? { requestTimeContext } : {}),
       kind: "local",
       target: { ...binding, spaceId: this.spaceId },
       inputId,
@@ -8547,6 +8577,11 @@ export class Space extends DurableObject<CoreBindings> {
         },
       }
     );
+    const requestTimeContext = await resolveUserRequestTimeContext({
+      db: getPostgresDatabase(this.bindings),
+      context,
+      submittedAtMs: signal.ts,
+    });
     // The admitted execution owns routing. Fresh chats may lack a member
     // controller display snapshot.
     const db = getPostgresDatabase(this.bindings);
@@ -8566,12 +8601,12 @@ export class Space extends DurableObject<CoreBindings> {
     if (nativeDelivery || dm?.centerAgentProfileId === target.targetProfileId) {
       await this.publishExecutionInput(
         signal,
-        { authoringPolicy: "user_authored" },
+        { authoringPolicy: "user_authored", requestTimeContext },
         true
       );
       return;
     }
-    await this.enqueueLocalExecutionInput(signal, context);
+    await this.enqueueLocalExecutionInput(signal, context, requestTimeContext);
   }
 
   private async mutateQueuedExecutionInput(
@@ -13676,6 +13711,7 @@ export class Space extends DurableObject<CoreBindings> {
           : {}),
         sourceDispatchChainContext:
           resolveSourceDispatchChainContext(requestContext),
+        verifiedRequestContext: requestContext,
         ...(options.finalOutcomeAuthority
           ? { finalOutcomeAuthority: options.finalOutcomeAuthority }
           : {}),
@@ -16653,7 +16689,8 @@ export class Space extends DurableObject<CoreBindings> {
       resolved.context.actorContext.openMeldProfileId,
       viewerCreatorProfileIdsByProfileId,
       resolved.context.actorContext.ownerName,
-      resolved.spacePassword
+      resolved.spacePassword,
+      resolved.context.actorContext.callerPrincipalId
     );
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
@@ -16664,7 +16701,8 @@ export class Space extends DurableObject<CoreBindings> {
     viewerProfileId?: string,
     viewerCreatorProfileIdsByProfileId?: Record<string, string | null>,
     ownerName?: string,
-    spacePassword?: string
+    spacePassword?: string,
+    callerPrincipalId?: string
   ): void {
     this.ctx.acceptWebSocket(webSocket);
     upsertJoinedSpaceMember({
@@ -16680,6 +16718,7 @@ export class Space extends DurableObject<CoreBindings> {
     const blocked: NonNullable<Session["blocked"]> = [];
     const session = createPendingSpaceWebSocketSession({
       blocked,
+      callerPrincipalId,
       enforcedProfile,
       viewerOwnerUserId,
       viewerProfileId,
@@ -24781,6 +24820,9 @@ export class Space extends DurableObject<CoreBindings> {
       }
       insertSpaceExecutionInput(this.ctx.storage.sql, {
         request: {
+          ...(signalContext?.requestTimeContext
+            ? { requestTimeContext: signalContext.requestTimeContext }
+            : {}),
           target: { ...target, v: 1 },
           inputId,
           authorProfileId: signal.profile.profileId,
@@ -24943,6 +24985,7 @@ export class Space extends DurableObject<CoreBindings> {
           await this.assertLocalQueuedInputAuthority(item.request);
         }
         await this.publishTextSignal(signal, {
+          requestTimeContext: item.request.requestTimeContext,
           authoringPolicy: "user_authored",
           queuedInputHandoff: {
             inputId,
@@ -25122,8 +25165,23 @@ export class Space extends DurableObject<CoreBindings> {
 
   private async publishTextSignal(
     signal: SignalEnvelope,
-    signalContext?: SignalPublishContext
+    signalContextInput?: SignalPublishContext
   ): Promise<void> {
+    // Freeze legacy HTTP/RPC/WebSocket input here, before ordinary dispatch or
+    // active Steer. Queue promotion already carries its original accepted anchor.
+    const signalContext =
+      signal.type === "signal.text" && !signalContextInput?.requestTimeContext
+        ? {
+            ...signalContextInput,
+            requestTimeContext: await resolveUserRequestTimeContext({
+              db: signalContextInput?.verifiedRequestContext
+                ? getPostgresDatabase(this.bindings)
+                : null,
+              context: signalContextInput?.verifiedRequestContext,
+              submittedAtMs: signal.ts,
+            }),
+          }
+        : signalContextInput;
     if (signal.type === "signal.text" && signal.data.meta?.workHandoff) {
       await validateSpaceWorkHandoff({
         env: this.env,

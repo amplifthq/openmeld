@@ -35,12 +35,14 @@ import {
   continueTaskSummary,
   readInterruptedTaskResults,
   readVerifiedSummaryResults,
+  recoverFailedTaskContinuationSummary,
 } from "../src/center-agent/application/task-summary-recovery-service";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
   readRemoteAgentNativeDeliveryByDeliveryId,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
 } from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
+import { legacySummaryReceiverRequestSchema } from "./helpers/legacy-summary-receiver.test-support";
 import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 const submitContinuation = vi.hoisted(() => vi.fn());
@@ -103,6 +105,7 @@ describe("Agent Task continuation service", () => {
     "missing_result",
     "revoked_result",
     "old_receiver",
+    "old_receiver_missing_method",
     "old_receiver_rejects",
     "stopped",
     "parent_stop_during_reconciliation",
@@ -117,7 +120,24 @@ describe("Agent Task continuation service", () => {
     "unverified_result_recovery",
     "revoked_result_recovery",
     "running_recovery",
-  ] as const)("manual summary uses exact native evidence and retained Space results: %s", async (scenario) => {
+    "automatic_available",
+    "automatic_before_settlement",
+    "automatic_probe_retry",
+    "automatic_fence_retry",
+    "automatic_manual_race",
+    "automatic_old_receiver",
+    "automatic_old_receiver_rejects",
+    "automatic_missing_result",
+    "automatic_revoked_result",
+    "automatic_wrong_result",
+    "automatic_result_rpc_retry",
+    "automatic_denied",
+    "automatic_stopped",
+    "automatic_budget",
+    "automatic_unpublished",
+    "automatic_identity_mismatch",
+    "automatic_recursive",
+  ] as const)("summary recovery uses exact native evidence and retained Space results: %s", async (scenario) => {
     const harness = await createHarness();
     try {
       await arrangeReadySubscription(harness.db, "summary-source");
@@ -228,18 +248,23 @@ describe("Agent Task continuation service", () => {
         },
         diagnostics: { signalId: "signal-child-result", traceSelectors: [] },
       });
+      let resultReadFailed = false;
       const readResult = vi.fn(() => {
-        if (scenario === "missing_result") {
+        if (["missing_result", "automatic_missing_result"].includes(scenario)) {
           throw new Error("HTTP 404: result missing");
         }
-        if (scenario === "revoked_result") {
+        if (["revoked_result", "automatic_revoked_result"].includes(scenario)) {
           throw new Error("HTTP 403: access revoked");
+        }
+        if (scenario === "automatic_result_rpc_retry" && !resultReadFailed) {
+          resultReadFailed = true;
+          throw new Error("temporary result RPC failure");
         }
         return Promise.resolve(resultDetails);
       });
       resolveSpace.mockReturnValue({
         rpcCheckTaskSummaryRecoveryAccess: vi.fn(async () => ({
-          allowed: true,
+          allowed: scenario !== "automatic_denied",
         })),
         rpcGetMessageDetails: readResult,
         rpcGetDispatchLookup: vi.fn(async () => ({
@@ -265,10 +290,11 @@ describe("Agent Task continuation service", () => {
         })),
         rpcReadFinalReplyClaimOutcome: vi.fn(async () => ({
           outcome: "success",
-          signalId:
-            scenario === "wrong_result"
-              ? "unrelated-result"
-              : "signal-child-result",
+          signalId: ["wrong_result", "automatic_wrong_result"].includes(
+            scenario
+          )
+            ? "unrelated-result"
+            : "signal-child-result",
         })),
       });
       const execution = {
@@ -287,7 +313,21 @@ describe("Agent Task continuation service", () => {
         completedAtMs: scenario === "running" ? null : 1150,
         cancellationReason: null,
       };
+      let firstReconciliations = 0;
+      let releaseFirstReconciliations: (() => void) | undefined;
+      const firstReconciliationBarrier = new Promise<void>((resolve) => {
+        releaseFirstReconciliations = resolve;
+      });
       const reconcile = vi.fn(async () => {
+        if (scenario === "automatic_manual_race" && firstReconciliations < 2) {
+          // Both callers have read no recovery through real PostgreSQL before
+          // either can record an intent, fence the source or insert a summary.
+          firstReconciliations += 1;
+          if (firstReconciliations === 2) {
+            releaseFirstReconciliations?.();
+          }
+          await firstReconciliationBarrier;
+        }
         if (scenario === "parent_stop_during_reconciliation") {
           await recordAgentTaskTerminalOutcome({
             db: harness.db,
@@ -308,6 +348,7 @@ describe("Agent Task continuation service", () => {
       });
       let recoveryFenceId: string | undefined;
       let fenceReadFailed = false;
+      let probeReadFailed = false;
       const cancel = vi.fn((query: { summaryRecoveryId?: string }) => {
         recoveryFenceId = query.summaryRecoveryId;
         return Promise.resolve({ status: "not_stoppable", execution });
@@ -325,14 +366,31 @@ describe("Agent Task continuation service", () => {
               trigger: { ...request.turnEnvelope.trigger, summaryOnly: true },
             },
           });
-          if (scenario === "old_receiver") {
+          if (
+            scenario === "old_receiver" ||
+            scenario === "automatic_old_receiver"
+          ) {
             return Promise.resolve({ v: 1, status: "not_found" });
           }
-          if (scenario === "old_receiver_rejects") {
-            throw new Error("Unrecognized key: summaryOnly");
+          if (scenario === "old_receiver_missing_method") {
+            throw new Error(
+              'The RPC receiver does not implement the method "readAdmissionStop".'
+            );
+          }
+          if (
+            ["old_receiver_rejects", "automatic_old_receiver_rejects"].includes(
+              scenario
+            )
+          ) {
+            legacySummaryReceiverRequestSchema.parse(input);
+          }
+          if (scenario === "automatic_probe_retry" && !probeReadFailed) {
+            probeReadFailed = true;
+            throw new Error("temporary receiver probe failure");
           }
           return Promise.resolve(
             scenario === "stopped" ||
+              scenario === "automatic_stopped" ||
               (cancel.mock.calls.length > 0 &&
                 [
                   "fence_read_failure",
@@ -364,6 +422,10 @@ describe("Agent Task continuation service", () => {
           );
         }
         expect(frozen).toEqual(request);
+        if (scenario === "automatic_fence_retry" && !fenceReadFailed) {
+          fenceReadFailed = true;
+          return Promise.resolve({ v: 1, status: "not_found" });
+        }
         if (
           ["fence_read_failure", "user_stop_after_recovery_fence"].includes(
             scenario
@@ -412,6 +474,241 @@ describe("Agent Task continuation service", () => {
         organizationId: "org-1",
         sourceSubscriptionId: source.subscriptionId,
       };
+      if (scenario.startsWith("automatic_")) {
+        if (
+          scenario === "automatic_recursive" &&
+          request.turnEnvelope.trigger.source === "task_continuation"
+        ) {
+          request.turnEnvelope.trigger.summaryOnly = true;
+        }
+        await harness.db.query({
+          text: `UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger"
+            SET failure_code = $1, published_signal_id = $2,
+              execution_recovery_submit_request_json = $3
+            WHERE delivery_id = 'delivery-continuation-race'`,
+          values: [
+            scenario === "automatic_budget"
+              ? "remote_agent.turn.output_limit_exceeded"
+              : "remote_agent.computer.command_cleanup_failed",
+            scenario === "automatic_unpublished"
+              ? null
+              : "signal-coordinator-failure",
+            JSON.stringify(request),
+          ],
+        });
+        const delivery = await readRemoteAgentNativeDeliveryByDeliveryId({
+          db: harness.db,
+          deliveryId: "delivery-continuation-race",
+        });
+        if (!delivery) {
+          throw new Error("Missing failed coordinator");
+        }
+        if (scenario === "automatic_identity_mismatch") {
+          delivery.deliveryId = "unrelated-delivery";
+        }
+        if (scenario === "automatic_old_receiver_rejects") {
+          await expect(
+            recoverFailedTaskContinuationSummary({ ...input, delivery })
+          ).rejects.toThrow();
+          await expect(
+            processAgentTaskContinuationQueueMessage({
+              ...input,
+              message: buildQueueMessage(source.subscriptionId),
+            })
+          ).rejects.toThrow();
+          expect(cancel).not.toHaveBeenCalled();
+          expect(send).not.toHaveBeenCalled();
+          expect(submitContinuation).toHaveBeenCalledTimes(1);
+          return;
+        }
+        const beforeSettlement = [
+          "automatic_before_settlement",
+          "automatic_probe_retry",
+          "automatic_fence_retry",
+          "automatic_result_rpc_retry",
+        ].includes(scenario);
+        if (beforeSettlement) {
+          await harness.db.query({
+            text: `UPDATE "openmeld"."agent_task_completion_subscriptions"
+              SET state = 'continuation_claimed', continuation_task_handle_json = NULL,
+                continuation_task_key = NULL, claim_id = 'original-claim', claim_expires_at_ms = 1200
+              WHERE subscription_id = $1`,
+            values: [source.subscriptionId],
+          });
+          await recoverFailedTaskContinuationSummary({ ...input, delivery });
+          expect(cancel).not.toHaveBeenCalled();
+          expect(send).not.toHaveBeenCalled();
+          const queued = {
+            ...input,
+            message: buildQueueMessage(source.subscriptionId),
+          };
+          if (scenario !== "automatic_before_settlement") {
+            let rejection = "task_summary_recovery.stop_unconfirmed";
+            if (scenario === "automatic_probe_retry") {
+              rejection = "temporary receiver probe failure";
+            } else if (scenario === "automatic_result_rpc_retry") {
+              rejection = "temporary result RPC failure";
+            }
+            await expect(
+              processAgentTaskContinuationQueueMessage(queued)
+            ).rejects.toThrow(rejection);
+            await expect(
+              readAgentTaskCompletionSubscription({
+                db: harness.db,
+                subscriptionId: source.subscriptionId,
+              })
+            ).resolves.toMatchObject({ state: "settled" });
+            expect(send).not.toHaveBeenCalled();
+            expect(
+              (
+                await harness.db.query({
+                  text: `SELECT subscription_id FROM "openmeld"."agent_task_completion_subscriptions"
+                    WHERE subscription_id <> $1`,
+                  values: [source.subscriptionId],
+                })
+              ).rows
+            ).toHaveLength(0);
+          }
+          // Redelivery must use the settled-source hook, not replay admission.
+          await processAgentTaskContinuationQueueMessage(queued);
+        } else if (scenario === "automatic_manual_race") {
+          await Promise.all([
+            recoverFailedTaskContinuationSummary({ ...input, delivery }),
+            continueTaskSummary({ ...input, inspectOnly: false }),
+          ]);
+          expect(firstReconciliations).toBe(2);
+        } else {
+          await recoverFailedTaskContinuationSummary({ ...input, delivery });
+          if (
+            [
+              "automatic_missing_result",
+              "automatic_revoked_result",
+              "automatic_wrong_result",
+            ].includes(scenario)
+          ) {
+            await expect(
+              processAgentTaskContinuationQueueMessage({
+                ...input,
+                message: buildQueueMessage(source.subscriptionId),
+              })
+            ).resolves.toMatchObject({ status: "completed" });
+            expect(submitContinuation).toHaveBeenCalledTimes(1);
+          }
+        }
+        const recovers =
+          scenario === "automatic_available" ||
+          beforeSettlement ||
+          scenario === "automatic_manual_race";
+        if (recovers) {
+          await Promise.all([
+            recoverFailedTaskContinuationSummary({ ...input, delivery }),
+            processAgentTaskContinuationQueueMessage({
+              ...input,
+              message: buildQueueMessage(source.subscriptionId),
+            }),
+          ]);
+          const recoveries = await harness.db.query<{
+            subscription_id: string;
+            continuation_json: string;
+          }>({
+            text: `SELECT subscription_id, continuation_json FROM "openmeld"."agent_task_completion_subscriptions"
+              WHERE subscription_id <> $1`,
+            values: [source.subscriptionId],
+          });
+          expect(recoveries.rows).toHaveLength(1);
+          expect(
+            JSON.parse(recoveries.rows[0]?.continuation_json ?? "{}")
+          ).toMatchObject({
+            summaryRecovery: {
+              sourceSubscriptionId: source.subscriptionId,
+              operatorUserId: "user-parent",
+            },
+          });
+          const retained = await readRemoteAgentNativeDeliveryByDeliveryId({
+            db: harness.db,
+            deliveryId: delivery.deliveryId,
+          });
+          expect(retained).toMatchObject({
+            status: "failed",
+            publishedSignalId: "signal-coordinator-failure",
+          });
+          expect(
+            (
+              await readAgentTaskCompletionSubscription({
+                db: harness.db,
+                subscriptionId: source.subscriptionId,
+              })
+            )?.outcome
+          ).toEqual(source.outcome);
+          expect(cancel).toHaveBeenCalledTimes(
+            ["automatic_fence_retry", "automatic_manual_race"].includes(
+              scenario
+            )
+              ? 2
+              : 1
+          );
+          expect(submitContinuation).toHaveBeenCalledTimes(
+            beforeSettlement ? 2 : 1
+          );
+          if (scenario === "automatic_manual_race") {
+            const recoveryId = recoveries.rows[0]?.subscription_id;
+            if (!recoveryId) {
+              throw new Error("Missing shared recovery identity");
+            }
+            expect(cancel.mock.calls.map(([query]) => query)).toEqual([
+              expect.objectContaining({ summaryRecoveryId: recoveryId }),
+              expect.objectContaining({ summaryRecoveryId: recoveryId }),
+            ]);
+            submitContinuation.mockImplementation(async (admission) => {
+              expect(admission).toMatchObject({
+                subscriptionId: recoveryId,
+                summaryOnly: true,
+              });
+              await insertContinuationDelivery({
+                db: harness.db,
+                idempotencyKey: admission.idempotencyKey,
+                deliveryId: "summary-delivery",
+              });
+              return {
+                task: {
+                  kind: "native_delivery",
+                  deliveryId: "summary-delivery",
+                  v: 1,
+                },
+              };
+            });
+            const recoveryMessage = {
+              ...input,
+              message: buildQueueMessage(recoveryId),
+              nowMs: 1400,
+            };
+            await Promise.all([
+              processAgentTaskContinuationQueueMessage(recoveryMessage),
+              processAgentTaskContinuationQueueMessage(recoveryMessage),
+            ]);
+            await processAgentTaskContinuationQueueMessage(recoveryMessage);
+            expect(submitContinuation).toHaveBeenCalledTimes(2);
+            await expect(
+              readAgentTaskCompletionSubscription({
+                db: harness.db,
+                subscriptionId: recoveryId,
+              })
+            ).resolves.toMatchObject({
+              state: "settled",
+              continuationTask: {
+                kind: "native_delivery",
+                deliveryId: "summary-delivery",
+                v: 1,
+              },
+            });
+          }
+          expect(activateFallbackWake).not.toHaveBeenCalled();
+        } else {
+          expect(cancel).not.toHaveBeenCalled();
+          expect(send).not.toHaveBeenCalled();
+        }
+        return;
+      }
       const observer = await readRemoteAgentNativeDeliveryByDeliveryId({
         db: harness.db,
         deliveryId: "delivery-parent",
@@ -487,6 +784,15 @@ describe("Agent Task continuation service", () => {
         text: "UPDATE \"openmeld\".\"openMeldRemoteAgent_native_delivery_ledger\" SET space_id = 'space-parent' WHERE delivery_id = 'delivery-parent'",
         values: [],
       });
+      if (scenario === "old_receiver_rejects") {
+        await expect(continueTaskSummary(input)).rejects.toThrow();
+        await expect(
+          continueTaskSummary({ ...input, inspectOnly: false })
+        ).rejects.toThrow();
+        expect(cancel).not.toHaveBeenCalled();
+        expect(send).not.toHaveBeenCalled();
+        return;
+      }
       const inspected = await continueTaskSummary(input);
       expect(cancel).not.toHaveBeenCalled();
       expect(send).not.toHaveBeenCalled();

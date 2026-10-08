@@ -1,3 +1,4 @@
+import { REMOTE_AGENT_COMPUTER_CLEANUP_FAILED_CODE } from "@openmeld/schemas";
 import type {
   RemoteAgentCallbackContext,
   RemoteAgentStorage,
@@ -32,10 +33,13 @@ export async function finishRemoteAgentComputerCommands(input: {
     if (cleanup.lostDuringCleanup) {
       await requestRemoteAgentExecutionFailure({
         identity: buildRemoteAgentExecutionIdentity(input.context),
-        failure: createRemoteAgentTerminalFailureFact({
-          status: "failed",
-          error: new ConfirmedLostComputerCommandsError([]),
-        }),
+        failure: {
+          ...createRemoteAgentTerminalFailureFact({
+            status: "failed",
+            error: new ConfirmedLostComputerCommandsError([]),
+          }),
+          code: REMOTE_AGENT_COMPUTER_CLEANUP_FAILED_CODE,
+        },
         storage: input.storage,
       });
     }
@@ -47,10 +51,15 @@ export async function finishRemoteAgentComputerCommands(input: {
   } catch (error) {
     await requestRemoteAgentExecutionFailure({
       identity: buildRemoteAgentExecutionIdentity(input.context),
-      failure: createRemoteAgentTerminalFailureFact({
-        status: "failed",
-        error,
-      }),
+      failure: {
+        ...createRemoteAgentTerminalFailureFact({
+          status: "failed",
+          error,
+        }),
+        ...(error instanceof ConfirmedLostComputerCommandsError
+          ? { code: REMOTE_AGENT_COMPUTER_CLEANUP_FAILED_CODE }
+          : {}),
+      },
       storage: input.storage,
     });
     // Leave the execution stoppable and the callback pending. The existing

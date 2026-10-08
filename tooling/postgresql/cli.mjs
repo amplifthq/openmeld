@@ -6,7 +6,13 @@ import {
   readD1ImportCompletion,
   reconcileD1Snapshot,
 } from "./d1-import.mjs";
-import { connect, grantRuntime, migrate, readMigrations } from "./database.mjs";
+import {
+  closeMigrationClient,
+  connect,
+  grantRuntime,
+  migrate,
+  readMigrations,
+} from "./database.mjs";
 
 const [command, target, ...extra] = process.argv.slice(2);
 const resources = JSON.parse(
@@ -145,7 +151,7 @@ try {
         console.log(JSON.stringify({ target, ...result.rows[0] }));
       }
     } finally {
-      await client.end();
+      await closeMigrationClient(client);
     }
   } else {
     throw new Error(

@@ -1,28 +1,28 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-08T09:28:27.074Z",
+  "updatedAt": "2026-10-08T18:37:25.420Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-project-work-v1",
-      "packageVersion": "0.3.249",
-      "updatePolicy": "required",
-      "reason": "Project-aware command and shared-folder capability v4 contracts require the updated CLI before accepting new work."
+      "packageVersion": "0.3.250",
+      "updatePolicy": "available",
+      "reason": "New timezone request headers are optional and older cloud receivers ignore them; no CLI command or authentication contract changes."
     },
     "service": {
-      "bundleHash": "d55b270b83fd2ab6a32c1816b2f6acbc8f8270cf982341738783bc9cae836833",
-      "portableBundleHash": "a40088928fbc80bf73f976417e7198ffefc9d46e178266b9646135c5c30b52fc",
-      "bundleVersion": "0.3.249",
+      "bundleHash": "915eba436d1e788b43622a7e5dcc41b0620f8bc95e7aee110aef80ac157e6997",
+      "portableBundleHash": "9fb8f4f620bacca06e36d8f4c40cffb16a4216b612ad2006cc36874c608404f7",
+      "bundleVersion": "0.3.250",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
       "serviceContractVersion": "openmeld-service-contract-2026-09-project-work-v1",
-      "updatePolicy": "required",
-      "reason": "Project-aware Runtime Transport and shared-folder capability v4 require the updated Service for new Wakes while preserving accepted work."
+      "updatePolicy": "available",
+      "reason": "Timezone observations are optional and cloud input metadata is projected away before existing local Service delivery; existing dispatch, execution, and publication contracts remain valid."
     },
     "skills": {
-      "bundleHash": "7a89eb86c43daf33e04984b7f04cbfd9752ec8bcf617004f85bee8007359ddb6",
+      "bundleHash": "b13d1bdc2c5871161859831b398c847fb0df321983f11559a8de1b16f7125ae9",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Project and Computer guidance remains compatible with existing commands."
+      "reason": "The guidance clarifies local-first execution and renewal of existing Plugin connection grants; it introduces no new required tool or CLI command."
     }
   }
 }

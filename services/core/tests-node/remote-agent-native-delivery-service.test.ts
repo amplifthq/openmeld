@@ -159,6 +159,8 @@ import { prepareRemoteAgentMemberRequest } from "../src/remote-agent/application
 import { requireRemoteAgentToolCaller } from "../src/remote-agent/application/remote-agent-tool-caller";
 
 const UNSUPPORTED_INTERRUPTION_DETAIL = /502|overloaded|Please try again/u;
+const INTERRUPTION_REPLAY_CAUTION =
+  /actions may have taken effect.*Check.*before repeating/s;
 describe("Remote Agent native delivery callback service", () => {
   it("finishes an accepted legacy Remote turn across a Core upgrade without redispatch or duplicate publication", async () => {
     const harness = await createPostgresHarness();
@@ -10705,9 +10707,7 @@ describe("Remote Agent native delivery callback service", () => {
               "Cloudflare AI binding request failed with 502 Bad Gateway.",
             purpose: REMOTE_AGENT_FAILURE_PURPOSE,
           }),
-          text: expect.stringContaining(
-            "Earlier actions may have taken effect."
-          ),
+          text: expect.stringMatching(INTERRUPTION_REPLAY_CAUTION),
           threadContext: THREAD_CONTEXT,
         })
       );
@@ -10717,9 +10717,7 @@ describe("Remote Agent native delivery callback service", () => {
         terminal: {
           kind: "failed",
           reasonCode: "remote_agent.turn_not_completed",
-          noticeText: expect.stringContaining(
-            "Earlier actions may have taken effect."
-          ),
+          noticeText: expect.stringMatching(INTERRUPTION_REPLAY_CAUTION),
         },
       });
       await expect(
@@ -10740,8 +10738,9 @@ describe("Remote Agent native delivery callback service", () => {
         env.__spaceStub.rpcPostSignal.mock.calls[0]?.[0]?.text;
       expect(publishedText).not.toMatch(UNSUPPORTED_INTERRUPTION_DETAIL);
       if (retainedChild) {
-        expect(publishedText).toContain("[View child result 1](");
-        expect(publishedText).toContain("signal-child-result");
+        expect(publishedText).toContain(
+          `](/spaces/${SPACE_ID}?signalId=signal-child-result)`
+        );
       } else {
         expect(publishedText).not.toContain("signal-child-result");
       }

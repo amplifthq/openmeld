@@ -54,6 +54,7 @@ describe("space websocket session", () => {
 
   it("marks the session ready after hello and keeps the enforced profile", () => {
     const session = createPendingSpaceWebSocketSession({
+      callerPrincipalId: "authenticated-user-1",
       enforcedProfile: ENFORCED_PROFILE,
       viewerCreatorProfileIdsByProfileId: {
         "agt-child": "hum-viewer-1",
@@ -77,6 +78,11 @@ describe("space websocket session", () => {
       profile: ENFORCED_PROFILE,
       enforcedProfile: ENFORCED_PROFILE,
     });
+    expect(
+      restoreSpaceWebSocketSessionFromAttachment(
+        buildSpaceWebSocketSessionAttachment(session)
+      ).callerPrincipalId
+    ).toBe("authenticated-user-1");
     expect(buildSpaceWebSocketSessionAttachment(session)).not.toHaveProperty(
       "viewerCreatorProfileIdsByProfileId"
     );
