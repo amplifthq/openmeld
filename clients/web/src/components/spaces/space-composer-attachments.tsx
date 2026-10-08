@@ -13,7 +13,12 @@ import {
 	FluidDropdownMenuItem,
 } from "@openmeld/ui/fluid/dropdown-menu";
 import { cn } from "@openmeld/ui/lib/utils";
-import { FileIcon, PlusIcon, UsersThreeIcon } from "@phosphor-icons/react";
+import {
+	FileIcon,
+	GitBranchIcon,
+	PlusIcon,
+	UsersThreeIcon,
+} from "@phosphor-icons/react";
 import type { ClipboardEvent, DragEvent } from "react";
 import { useRef, useState } from "react";
 import { PromptInputAction } from "#/components/ibelick/prompt-input";
@@ -87,6 +92,7 @@ export function SpaceComposerAddMenu(input: {
 	disabledReason?: string;
 	limitReached: boolean;
 	onAddPeopleOrAgents?: () => void;
+	onCreateTask?: () => void;
 }) {
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
 	return (
@@ -140,6 +146,12 @@ export function SpaceComposerAddMenu(input: {
 						>
 							<UsersThreeIcon aria-hidden="true" />
 							People or agents
+						</FluidDropdownMenuItem>
+					) : null}
+					{input.onCreateTask ? (
+						<FluidDropdownMenuItem index={2} onClick={input.onCreateTask}>
+							<GitBranchIcon aria-hidden="true" />
+							Create task
 						</FluidDropdownMenuItem>
 					) : null}
 					{input.disabled || input.limitReached ? (

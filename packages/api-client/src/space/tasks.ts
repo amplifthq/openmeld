@@ -2,6 +2,7 @@ import {
   createSpaceTaskBodySchema,
   listSpaceTasksResponseSchema,
   mutateSpaceTaskBodySchema,
+  SPACE_TASK_WORKFLOW_CONTRACT_VERSION,
   spaceTaskMutationReceiptSchema,
   spaceTaskResponseSchema,
 } from "@openmeld/schemas";
@@ -18,9 +19,12 @@ export async function listSpaceTasks(
   client: OpenMeldApiClientFoundation,
   input: SpaceRequestInput & { phase?: SpaceTaskPhase }
 ) {
-  const query = input.phase ? `?phase=${encodeURIComponent(input.phase)}` : "";
+  const query = new URLSearchParams({
+    taskContractVersion: String(SPACE_TASK_WORKFLOW_CONTRACT_VERSION),
+    ...(input.phase ? { phase: input.phase } : {}),
+  }).toString();
   return await client.requestJson({
-    url: `/v1/spaces/${encodeURIComponent(input.spaceId)}/tasks${query}`,
+    url: `/v1/spaces/${encodeURIComponent(input.spaceId)}/tasks?${query}`,
     operation: "space.tasks.list",
     method: "GET",
     requestContext: input.requestContext,
@@ -37,7 +41,12 @@ export async function getSpaceTask(
   input: SpaceRequestInput & SpaceTaskDetailOptions & { taskId: string }
 ) {
   return await client.requestJson({
-    url: `/v1/spaces/${encodeURIComponent(input.spaceId)}/tasks/${encodeURIComponent(input.taskId)}${input.includeAffordances ? "?includeAffordances=1" : ""}`,
+    url: `/v1/spaces/${encodeURIComponent(input.spaceId)}/tasks/${encodeURIComponent(input.taskId)}?${new URLSearchParams(
+      {
+        taskContractVersion: String(SPACE_TASK_WORKFLOW_CONTRACT_VERSION),
+        ...(input.includeAffordances ? { includeAffordances: "1" } : {}),
+      }
+    ).toString()}`,
     operation: "space.tasks.get",
     method: "GET",
     requestContext: input.requestContext,
@@ -54,7 +63,7 @@ export async function createSpaceTask(
   input: SpaceRequestInput & { body: CreateSpaceTaskBody }
 ) {
   return await client.requestJson({
-    url: `/v1/spaces/${encodeURIComponent(input.spaceId)}/tasks`,
+    url: `/v1/spaces/${encodeURIComponent(input.spaceId)}/tasks?taskContractVersion=${SPACE_TASK_WORKFLOW_CONTRACT_VERSION}`,
     operation: "space.tasks.create",
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -76,7 +85,7 @@ export async function mutateSpaceTask(
   }
 ) {
   return await client.requestJson({
-    url: `/v1/spaces/${encodeURIComponent(input.spaceId)}/tasks/${encodeURIComponent(input.taskId)}`,
+    url: `/v1/spaces/${encodeURIComponent(input.spaceId)}/tasks/${encodeURIComponent(input.taskId)}?taskContractVersion=${SPACE_TASK_WORKFLOW_CONTRACT_VERSION}`,
     operation: "space.tasks.mutate",
     method: "PATCH",
     headers: { "content-type": "application/json" },

@@ -175,7 +175,12 @@ Every mutation compares the expected Task revision inside the Space transaction.
 An operation id may replay only the exact same request and returns the retained
 receipt without appending another event.
 The same transaction writes `space_task_delivery_outbox` rows for necessary
-handoff, completion, GitHub link projection, and authorized Stop effects.
+handoff, completion, GitHub issue and Project link projections, and authorized
+Stop effects. The Project link PostgreSQL projection contains only Organization,
+Project, Space, and Task keys plus Task revision and update time. Its versioned
+write rejects an older Task revision; a Project read rechecks Space membership
+and the Task's current Project set before showing any Task content. It is not
+another Task store or a source of private Space counts.
 The Space alarm retries due rows, and Task detail exposes pending or failed
 effects without treating their state as execution truth. Deterministic Signal
 IDs prevent duplicate publication after a retry. Immediately before inserting
@@ -571,7 +576,7 @@ Deleting a personal group removes its presentation association only.
 | Information Protection             | Built-in disclosure guidance plus bounded Organization classification hints.                                                                                                                        | `packages/agent-runtime` owns built-in prompt semantics; Core PostgreSQL owns the optional Organization policy and owner/admin read/write authority.                                                                                                                                                                                                                           |
 | Connector Connections              | Organization- and member-scoped external account registrations.                                                                                                                                     | Core owns non-secret ownership and status; OpenConnector owns credentials and action execution.                                                                                                                                                                                                                                                                        |
 | Connector App Requests             | Member-attributed demand for Apps that OpenMeld cannot connect yet.                                                                                                                                 | Core owns the Organization-scoped request ledger and stable requester attribution; the catalog and future requester notifications are read and delivery projections, not request truth.                                                                                                                                                                                |
-| Connector Action Operations        | Recoverable generic App action attempts and final outcomes.                                                                                                                                         | Core owns the non-secret operation ledger; OpenConnector owns provider execution and durable result replay.                                                                                                                                                                                                                                                            |
+| Connector Action Operations        | Recoverable generic App action attempts and final outcomes, including a minimal Linear issue receipt for completed issue creation. | Core owns the non-secret operation ledger and bounded Linear receipt; OpenConnector owns provider execution and its limited-time result replay. |
 | Evaluation Reports                 | Settled Organization quality snapshots for human review.                                                                                                                                            | Core owns the immutable weekly snapshot; RuntimeCoordinator, Space, and Space Index facts remain inputs and retain their normal authority.                                                                                                                                                                                                                             |
 | Diagnostics                        | User-submitted Diagnostic Report events.                                                                                                                                                            | Diagnostics-owned source of truth for the report event.                                                                                                                                                                                                                                                                                                                |
 | Space Attachments                  | Private image bytes and their authorization metadata.                                                                                                                                               | Core owns PostgreSQL metadata; Gateway owns writes and authenticated user byte transfer; the Remote Agent worker is a read-only internal consumer for Core-authorized native delivery; Space DO membership remains the access truth.                                                                                                                                           |
@@ -949,14 +954,22 @@ requests. It does not reinterpret an existing operation as
 provider-attributed.
 
 OpenConnector receives that operation ID as its idempotency key and owns the
-provider execution ID plus durable result replay. The action catalog carries
-the output schema; a successful execution response carries data and execution
-metadata without a schema. Core stores only the provider execution ID and
-`pending`, `completed`, `failed`, or `outcome_unknown` status;
-it does not copy provider output, its output schema, credentials, or action
-input. A later provider replay may reconcile `outcome_unknown` to `completed`
-or `failed`. Audit history may therefore show the earlier uncertainty and later
-confirmed outcome while the operation row remains the current read truth.
+provider execution ID plus a 24-hour result replay window, as declared by
+[OpenConnector's action idempotency contract](https://github.com/amplifthq/open-connector/blob/83a5dbcaa320b5fc98ccb8c5846fc9589c58443f/src/server/actions/action-idempotency.ts).
+The action catalog
+carries the output schema; a successful execution response carries data and
+execution metadata without a schema. Core stores the provider execution ID and
+`pending`, `completed`, `failed`, or `outcome_unknown` status. For a completed
+`linear.create_linear_issue`, Core also stores only the validated issue ID,
+identifier, team, optional Linear project, and URL needed to recover its Task
+association. It does not copy general provider output, its output schema,
+credentials, or action input. A completed Linear issue operation reuses Core's
+receipt without invoking the provider again. Pending or uncertain Linear issue
+operations past the safe provider replay window require reconciliation, never
+another automatic create. A timely provider replay may reconcile
+`outcome_unknown` to `completed` or `failed`. Audit history may therefore show
+the earlier uncertainty and later confirmed outcome while the operation row
+remains the current read truth.
 
 Organization membership and connection-owner display remain Auth-owned inputs.
 Connector code must consume them through the centralized Organization

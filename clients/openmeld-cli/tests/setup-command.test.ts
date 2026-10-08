@@ -1,5 +1,5 @@
 import { setupPlanAgentViewPayloadSchema } from "@openmeld/schemas";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   assertSetupServiceUpdateCompleteMock,
@@ -1200,7 +1200,13 @@ describe("setup command", () => {
     }
   });
 
-  it("shows background local-agent syncing without claiming that no agent is installed", async () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it.each([
+    undefined,
+    "http://wt-example.localhost:29520/",
+  ])("shows background syncing and the visible return URL (%s)", async (webUrl) => {
+    vi.stubEnv("OPENMELD_SETUP_WEB_URL", webUrl);
     resolveRuntimeContextMock.mockResolvedValue({
       resolvedView: "human",
       viewMode: "human",
@@ -1234,7 +1240,7 @@ describe("setup command", () => {
       "",
       "Local agents are syncing in the background.",
       "",
-      "Open OpenMeld Web: OpenMeld Web.",
+      `Continue in OpenMeld: ${webUrl ?? "https://gateway.openmeld.test/"}`,
     ]);
     expect(completionLines.join("\n")).not.toContain("None connected");
     expect(completionLines.join("\n")).not.toContain("Install guide");
@@ -1271,7 +1277,7 @@ describe("setup command", () => {
       "",
       "Local agents connected: Codex.",
       "",
-      "Open OpenMeld Web: OpenMeld Web.",
+      "Continue in OpenMeld: https://gateway.openmeld.test/",
     ]);
     const output = presenter.line.mock.calls
       .map(([line]) => (line as { text: string }).text)
@@ -1330,7 +1336,7 @@ describe("setup command", () => {
       "",
       "Next: Run openmeld setup.",
       "",
-      "Open OpenMeld Web: OpenMeld Web.",
+      "Continue in OpenMeld: https://gateway.openmeld.test/",
     ]);
     expect(completionLines.join("\n")).not.toContain("🎉");
     expect(completionLines.join("\n")).not.toContain("complete");
@@ -1417,7 +1423,7 @@ describe("setup command", () => {
       "",
       "Install a local agent: https://gateway.openmeld.test/guides/local-agents",
       "",
-      "Open OpenMeld Web: OpenMeld Web.",
+      "Continue in OpenMeld: https://gateway.openmeld.test/",
     ]);
   });
 

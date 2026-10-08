@@ -12,6 +12,7 @@ import {
 } from "@openmeld/ui/components/alert-dialog";
 import { XIcon } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
+import { useWalkthrough } from "#/components/onboarding/walkthrough/walkthrough-context";
 import {
 	dismissInboxBrowserNotificationPrompt,
 	readInboxBrowserNotificationPromptDismissed,
@@ -25,6 +26,7 @@ type PromptState = {
 };
 
 export function InboxBrowserNotificationPrompt(input: { userId: string }) {
+	const tutorial = useWalkthrough();
 	const { error, isPending, setEnabled, settings } =
 		useInboxNotificationSettings(input.userId);
 	const [promptState, setPromptState] = useState<PromptState>({
@@ -47,7 +49,11 @@ export function InboxBrowserNotificationPrompt(input: { userId: string }) {
 
 	const dismissed =
 		promptState.userId === input.userId && promptState.dismissed;
-	const open = settings?.permission === "default" && !dismissed;
+	const tutorialPending =
+		tutorial?.loading ||
+		Boolean(tutorial?.record && tutorial.record.step !== "complete");
+	const open =
+		settings?.permission === "default" && !dismissed && !tutorialPending;
 	const dismiss = () => {
 		dismissInboxBrowserNotificationPrompt({ userId: input.userId });
 		setPromptState({ dismissed: true, userId: input.userId });

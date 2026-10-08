@@ -250,6 +250,7 @@ describe("Agent Activity local Project bindings", () => {
       },
     });
     expect(conflict?.pathConflict?.moveConfirmationToken).toBeTruthy();
+    expect(conflict?.pathConflict?.shareConfirmationToken).toBeUndefined();
 
     await expect(
       bindProject({
@@ -328,7 +329,7 @@ describe("Agent Activity local Project bindings", () => {
   });
 });
 
-describe("Project binding store v3 migration", () => {
+describe("Project binding store v4 migration", () => {
   const legacyBinding = {
     boundAtMs: 1_783_892_400_000,
     organizationId: "org-1",
@@ -338,7 +339,7 @@ describe("Project binding store v3 migration", () => {
     repositoryPath: "/Users/felix/work/openmeld",
   };
 
-  it("migrates v1 and v2 single bindings to one default v3 connection", () => {
+  it("migrates v1 and v2 single bindings to one default v4 connection", () => {
     const v1 = parseProjectBindingStore(
       { bindings: [legacyBinding], version: 1 },
       "project-bindings.json"
@@ -360,11 +361,11 @@ describe("Project binding store v3 migration", () => {
           isDefault: true,
         },
       ],
-      version: 3,
+      version: 4,
     });
     expect(v2).toMatchObject({
       bindings: [{ bindingGeneration: "binding-2", isDefault: true }],
-      version: 3,
+      version: 4,
     });
   });
 
@@ -394,7 +395,7 @@ describe("Project binding store v3 migration", () => {
         { bindingGeneration: "binding-default", isDefault: true },
         { bindingGeneration: "binding-worktree", isDefault: false },
       ],
-      version: 3,
+      version: 4,
     });
   });
 
@@ -442,13 +443,13 @@ describe("Project binding store v3 migration", () => {
   it("requires a same-machine update before reading a newer store", () => {
     expect(() =>
       parseProjectBindingStore(
-        { bindings: [], version: 4 },
+        { bindings: [], version: 5 },
         "project-bindings.json"
       )
     ).toThrow(ProjectBindingStoreUpdateRequiredError);
     try {
       parseProjectBindingStore(
-        { bindings: [], version: 4 },
+        { bindings: [], version: 5 },
         "project-bindings.json"
       );
     } catch (error) {
@@ -458,7 +459,7 @@ describe("Project binding store v3 migration", () => {
     }
   });
 
-  it("keeps a real v2 file unchanged until the first mutation writes v3", async () => {
+  it("keeps a real v2 file unchanged until the first mutation writes v4", async () => {
     const rootDir = await tempRoot();
     const firstPath = join(rootDir, "first");
     const secondPath = join(rootDir, "second");
@@ -495,7 +496,7 @@ describe("Project binding store v3 migration", () => {
         { bindingGeneration: "binding-v2", isDefault: true },
         { isDefault: false },
       ],
-      version: 3,
+      version: 4,
     });
   });
 
@@ -519,7 +520,7 @@ describe("Project binding store v3 migration", () => {
     );
     expect(JSON.parse(await readFile(path, "utf8"))).toMatchObject({
       bindings: [{ bindingGeneration: "binding-v2", isDefault: true }],
-      version: 3,
+      version: 4,
     });
     await expect(migrateProjectBindingStore({ rootDir })).resolves.toBe(
       "current"
@@ -527,7 +528,90 @@ describe("Project binding store v3 migration", () => {
   });
 });
 
-describe("Project binding store v3 connection invariants", () => {
+describe("Project binding store v4 connection invariants", () => {
+  it("shares one canonical folder only after same-Organization confirmation and preserves the other use on removal", async () => {
+    const rootDir = await tempRoot();
+    const repositoryPath = join(rootDir, "shared-repository");
+    await mkdir(repositoryPath);
+    const first = await bindProject({
+      organizationId: "org-1",
+      projectId: "project-1",
+      projectSlug: "payments",
+      ownerUserId: "user-1",
+      repositoryFingerprint: null,
+      repositoryPath,
+      rootDir,
+    });
+    await expect(
+      bindProject({
+        organizationId: "org-1",
+        ownerUserId: "user-2",
+        projectId: "project-2",
+        projectSlug: "platform",
+        repositoryFingerprint: null,
+        repositoryPath,
+        rootDir,
+      })
+    ).rejects.toMatchObject({ code: "owner_mismatch" });
+    let conflict: ProjectBindingOperationError | null = null;
+    try {
+      await bindProject({
+        organizationId: "org-1",
+        projectId: "project-2",
+        projectSlug: "platform",
+        ownerUserId: "user-1",
+        repositoryFingerprint: null,
+        repositoryPath,
+        rootDir,
+      });
+    } catch (error) {
+      conflict = error as ProjectBindingOperationError;
+    }
+    expect(conflict?.pathConflict).toMatchObject({
+      conflictScope: "same_organization",
+      shareConfirmationToken: expect.any(String),
+    });
+    await expect(
+      bindProject({
+        organizationId: "org-1",
+        projectId: "project-2",
+        projectSlug: "platform",
+        ownerUserId: "user-1",
+        repositoryFingerprint: null,
+        repositoryPath,
+        rootDir,
+        shareConfirmationToken: "stale-share-token",
+      })
+    ).rejects.toMatchObject({ code: "binding_generation_stale" });
+    const second = await bindProject({
+      organizationId: "org-1",
+      projectId: "project-2",
+      projectSlug: "platform",
+      ownerUserId: "user-1",
+      repositoryFingerprint: null,
+      repositoryPath,
+      rootDir,
+      shareConfirmationToken:
+        conflict?.pathConflict?.shareConfirmationToken ?? "",
+    });
+    expect(await listProjectBindings({ rootDir })).toMatchObject([
+      { projectId: "project-1", repositoryPath: first.repositoryPath },
+      { projectId: "project-2", repositoryPath: second.repositoryPath },
+    ]);
+    await expect(
+      resolveObservedAgentActivityBinding(repositoryPath, [first, second])
+    ).resolves.toBeNull();
+    await removeProjectConnection({
+      expectedBindingGeneration: second.bindingGeneration,
+      organizationId: "org-1",
+      projectId: "project-2",
+      rootDir,
+    });
+    expect(await listProjectBindings({ rootDir })).toMatchObject([
+      { bindingGeneration: first.bindingGeneration, projectId: "project-1" },
+    ]);
+  });
+
   it("fails closed when two connections reuse one binding generation", () => {
     expect(() =>
       parseProjectBindingStore(

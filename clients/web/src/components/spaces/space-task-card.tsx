@@ -1,13 +1,11 @@
 "use client";
 
 import type { SpaceTask } from "@openmeld/schemas/types";
-import { Badge } from "@openmeld/ui/components/badge";
 import { cn } from "@openmeld/ui/lib/utils";
 import { CaretRightIcon, RobotIcon, UserIcon } from "@phosphor-icons/react";
 import {
 	describeSpaceTaskAttention,
-	formatSpaceTaskGitHubIssueRefs,
-	formatSpaceTaskPhase,
+	formatSpaceTaskExternalIssueRefs,
 } from "./space-task-presentation";
 
 export type SpaceTaskCardProps = {
@@ -23,7 +21,7 @@ export function SpaceTaskCard(input: SpaceTaskCardProps) {
 		selfProfileId: input.selfProfileId,
 		task,
 	});
-	const githubIssueRefs = formatSpaceTaskGitHubIssueRefs(task);
+	const issueRefs = formatSpaceTaskExternalIssueRefs(task);
 	const assigneeName = task.assignee?.profileName ?? "Unassigned";
 	const AssigneeIcon =
 		task.assignee?.profileKind === "agent" ? RobotIcon : UserIcon;
@@ -35,7 +33,7 @@ export function SpaceTaskCard(input: SpaceTaskCardProps) {
 				aria-haspopup="dialog"
 				aria-label={`Open details for ${task.title}`}
 				className={cn(
-					"w-full rounded-lg border border-border bg-card p-3 text-left shadow-xs transition-colors",
+					"w-full rounded-md border border-border bg-card p-3 text-left transition-colors motion-reduce:transition-none",
 					"hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
 					input.selected === true && "border-foreground/20 bg-muted/30"
 				)}
@@ -48,26 +46,17 @@ export function SpaceTaskCard(input: SpaceTaskCardProps) {
 							<h3 className="line-clamp-2 font-medium text-sm leading-5">
 								{task.title}
 							</h3>
-							<Badge className="shrink-0" variant="outline">
-								{formatSpaceTaskPhase(task.phase)}
-							</Badge>
 						</div>
 						<p className="mt-1.5 flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
 							<AssigneeIcon aria-hidden="true" className="size-3.5 shrink-0" />
-							<span className="truncate">
-								{assigneeName}
-								<span className="text-muted-foreground/80">
-									{" "}
-									· Requested by {task.requestedBy.profileName}
-								</span>
-							</span>
+							<span className="truncate">{assigneeName}</span>
 						</p>
-						<p className="mt-1 truncate text-foreground/80 text-xs">
-							{attention}
-						</p>
-						{githubIssueRefs.length > 0 ? (
+						{task.needsHumanDecision || task.phase === "in_review" ? (
+							<p className="mt-1 text-xs">{attention}</p>
+						) : null}
+						{issueRefs.length > 0 ? (
 							<p className="mt-1 truncate text-muted-foreground text-xs">
-								{githubIssueRefs.join(" · ")}
+								{issueRefs.join(" · ")}
 							</p>
 						) : null}
 					</div>

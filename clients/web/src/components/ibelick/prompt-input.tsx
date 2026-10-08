@@ -103,10 +103,7 @@ function PromptInput({
 			>
 				<SurfaceProvider value={2}>
 					<div
-						className={cn(
-							"composer-surface rounded-2xl border border-transparent p-2",
-							className
-						)}
+						className={cn("composer-surface p-2", className)}
 						data-slot="prompt-input"
 						onPointerDown={handleSurfacePointerDown}
 					>

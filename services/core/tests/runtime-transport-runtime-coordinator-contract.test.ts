@@ -2114,7 +2114,7 @@ const registerCompatibleRoute = (input: {
 
 const createContextHarness = async (
   input?: Parameters<typeof createHarness>[0] & {
-    contextVersion?: 1 | 2 | 3 | null;
+    contextVersion?: 1 | 2 | 3 | 4 | null;
   }
 ) => {
   const harness = await createHarness(input);
@@ -4173,8 +4173,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
     }
   });
 
-  it("keeps the accepted context through linking and retains its fork checkpoint after Head retirement", async () => {
-    const { hub, storageRecords } = await createContextHarness();
+  it("requires a v4 Service and freezes exact Project repository work on admission", async () => {
+    const projectWork = {
+      projectId: "project-payments",
+      repositoryFingerprint: `sha256:${"a".repeat(64)}`,
+    };
     const request = buildRuntimeCoordinatorHeadAcceptRequest({
       acceptedDispatchSnapshot: {
         ...buildAcceptedDispatchSnapshot({ fingerprint: "7" }),
@@ -4187,7 +4190,68 @@ describe("runtime transport runtime coordinator transport contract", () => {
             targetProfileId: TARGET_AGENT_PROFILE_ID,
             threadId: null,
           },
-          selection: { mode: "new", access: "space_context" },
+          selection: {
+            mode: "new",
+            access: "workspace",
+            workspace: "isolated",
+            projectWork,
+          },
+        },
+      },
+    });
+    for (const contextVersion of [2, 3] as const) {
+      const olderService = await createContextHarness({ contextVersion });
+      expect(
+        await (
+          await fetchRuntimeTransportJson(
+            olderService.hub,
+            "/runtime-coordinator/head/accept",
+            request
+          )
+        ).json()
+      ).toMatchObject({ ok: false, reasonCode: "service.update_required" });
+    }
+    const currentService = await createContextHarness({ contextVersion: 4 });
+    expect(
+      await (
+        await fetchRuntimeTransportJson(
+          currentService.hub,
+          "/runtime-coordinator/head/accept",
+          request
+        )
+      ).json()
+    ).toMatchObject({
+      status: "accepted",
+      executionContext: { projectWork },
+    });
+  });
+
+  it("keeps the accepted context through linking and retains its fork checkpoint after Head retirement", async () => {
+    const { hub, storageRecords } = await createContextHarness({
+      contextVersion: 4,
+    });
+    const projectWork = {
+      projectId: "project-payments",
+      repositoryFingerprint: `sha256:${"a".repeat(64)}`,
+    };
+    const request = buildRuntimeCoordinatorHeadAcceptRequest({
+      acceptedDispatchSnapshot: {
+        ...buildAcceptedDispatchSnapshot({ fingerprint: "7" }),
+        contextRequest: {
+          required: true,
+          scope: {
+            organizationId: "org",
+            requesterProfileId: "human",
+            spaceId: HEX_SPACE_ID,
+            targetProfileId: TARGET_AGENT_PROFILE_ID,
+            threadId: null,
+          },
+          selection: {
+            mode: "new",
+            access: "workspace",
+            workspace: "isolated",
+            projectWork,
+          },
         },
       },
     });
@@ -4198,7 +4262,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         request
       )
     ).json()) as { executionContext: { id: string; access: string } };
-    expect(response.executionContext.access).toBe("space_context");
+    expect(response.executionContext.access).toBe("workspace");
     const key = buildRuntimeCoordinatorHeadLifecycleStorageKey(
       request.targetWakeLifecycleIdentity.targetWakeLifecycleId
     );
@@ -4259,7 +4323,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
       spaceId: HEX_SPACE_ID,
       targetProfileId: TARGET_AGENT_PROFILE_ID,
     });
-    const planFork = (requesterProfileId: string) =>
+    const planFork = (
+      requesterProfileId: string,
+      selectedProjectWork?: typeof projectWork
+    ) =>
       storage.transaction((transaction) =>
         prepareExecutionContextAssignment({
           storage: transaction,
@@ -4276,6 +4343,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
                 selection: {
                   mode: "fork",
                   sourceWakeId: original.targetWakeLifecycleId,
+                  ...(selectedProjectWork
+                    ? { projectWork: selectedProjectWork }
+                    : {}),
                 },
               },
             },
@@ -4286,6 +4356,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(
       fork.record.acceptedDispatchSnapshot?.executionContext
     ).toMatchObject({
+      projectWork,
       forkSource: {
         contextId: response.executionContext.id,
         nativeConversationId: "native-parent",
@@ -4295,6 +4366,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
     await expect(planFork("another-human")).rejects.toThrow(
       "source_scope_mismatch"
     );
+    await expect(
+      planFork("human", {
+        ...projectWork,
+        repositoryFingerprint: `sha256:${"b".repeat(64)}`,
+      })
+    ).rejects.toThrow("project_work_changed_requires_new_task");
     await expect(
       recordExecutionContextCompletion({
         storage,

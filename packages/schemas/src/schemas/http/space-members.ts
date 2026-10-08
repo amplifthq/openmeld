@@ -16,7 +16,7 @@ import {
   wakeRouteStatusSchema,
 } from "./agent-execution-readiness";
 import { agentProfileBindingModelSelectionSchema } from "./agent-profile-binding";
-import { agentAvatarStyleSchema } from "./profiles";
+import { agentAvatarOptionsSchema, agentAvatarStyleSchema } from "./profiles";
 import {
   spaceMentionLabelSchema,
   spaceMentionLabelSourceSchema,
@@ -163,6 +163,7 @@ export const spaceMemberAgentSnapshotSchema =
         agentControllerConversationId: nullableTrimmedStringSchema,
         modelSelection: agentProfileBindingModelSelectionSchema.optional(),
         avatarStyle: agentAvatarStyleSchema.nullable().optional(),
+        avatarOptions: agentAvatarOptionsSchema.nullable().optional(),
         avatarModelId: nullableTrimmedStringSchema.optional(),
         workingDirectory: profileWorkingDirectorySchema.nullable().optional(),
         agentWakeAvailability:

@@ -21,6 +21,12 @@ import vendorModelCatalog from "../../../../../release/vendor-models.json";
 import { CenterAgentModelSection } from "./center-agent-model-section";
 import { CenterAgentSettingsContent } from "./center-agent-settings-page";
 
+// JSDOM does not implement the browser scrolling API used by Fluid Select.
+Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+	configurable: true,
+	value: vi.fn(),
+});
+
 const designateCurrentCenterAgentMock = vi.hoisted(() => vi.fn());
 const listCurrentCenterAgentAuditJournalMock = vi.hoisted(() => vi.fn());
 const navigateMock = vi.hoisted(() => vi.fn());

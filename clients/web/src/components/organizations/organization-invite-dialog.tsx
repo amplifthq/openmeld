@@ -9,9 +9,11 @@ import { SkeletonForm } from "@openmeld/ui/components/skeleton-content";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { useQuery } from "@tanstack/react-query";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
+import { INVITE_PEOPLE_INTENT } from "#/lib/organizations/organization-entry-intent";
 import { canManageOrganizationArea } from "#/lib/organizations/organization-permissions";
 import { organizationMemberRoleQueryOptions } from "#/query/organizations/organization-directory";
 import { OrganizationInviteControls } from "./organization-invite-controls";
+import { PersonalWorkspaceOrganizationGuidance } from "./personal-workspace-organization-guidance";
 
 export function OrganizationInviteDialog(input: {
 	open: boolean;
@@ -33,7 +35,14 @@ export function OrganizationInviteDialog(input: {
 			organizationId={currentOrganization.id}
 		/>
 	);
-	if (role.isPending) {
+	if (currentOrganization.isPersonal) {
+		content = (
+			<PersonalWorkspaceOrganizationGuidance
+				description="Create or choose an organization to invite teammates. You can send invitations after opening it."
+				intent={INVITE_PEOPLE_INTENT}
+			/>
+		);
+	} else if (role.isPending) {
 		content = <SkeletonForm fields={2} label="Loading invitation options" />;
 	} else if (role.error) {
 		content = <p role="alert">{role.error.message}</p>;
@@ -47,10 +56,14 @@ export function OrganizationInviteDialog(input: {
 				>
 					<DialogHeader>
 						<DialogTitle>
-							Invite people to {currentOrganization.name}
+							{currentOrganization.isPersonal
+								? "Invite teammates"
+								: `Invite people to ${currentOrganization.name}`}
 						</DialogTitle>
 						<DialogDescription>
-							Send an email invitation or share an invite link.
+							{currentOrganization.isPersonal
+								? "Work together in an organization."
+								: "Send an email invitation or share an invite link."}
 						</DialogDescription>
 					</DialogHeader>
 					{content}

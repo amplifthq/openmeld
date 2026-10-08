@@ -5,11 +5,28 @@ import {
   createProjectResponseSchema,
   listProjectsResponseSchema,
   projectRouteParamsSchema,
+  readProjectCommonAgentsResponseSchema,
+  readProjectIssueRoutingResponseSchema,
+  readProjectRecentTasksResponseSchema,
+  readProjectRepositorySettingsResponseSchema,
   updateProjectBodySchema,
+  updateProjectCommonAgentsBodySchema,
+  updateProjectCommonAgentsResponseSchema,
+  updateProjectIssueRoutingBodySchema,
+  updateProjectIssueRoutingResponseSchema,
+  updateProjectRepositorySettingsBodySchema,
+  updateProjectRepositorySettingsResponseSchema,
   updateProjectResponseSchema,
 } from "@openmeld/schemas";
 import type { OpenMeldApiClientFoundation } from "../client";
-import { buildProjectPath, buildProjectsPath } from "./routes";
+import {
+  buildProjectCommonAgentsPath,
+  buildProjectIssueRoutingPath,
+  buildProjectPath,
+  buildProjectRecentTasksPath,
+  buildProjectRepositoriesPath,
+  buildProjectsPath,
+} from "./routes";
 import type { CreateProjectsApi, ProjectRequestInput } from "./types";
 
 export const createProjectsApi: CreateProjectsApi = (
@@ -24,6 +41,124 @@ export const createProjectsApi: CreateProjectsApi = (
       schema: listProjectsResponseSchema,
       url: buildProjectsPath(),
     }),
+
+  readIssueRouting: async (input) => {
+    const projectId = requireProjectId(input.projectId);
+    return await client.requestJson({
+      ...requestOptions(input),
+      invalidMessage: "invalid Project issue routing response",
+      method: "GET",
+      operation: "project.issue-routing.read",
+      schema: readProjectIssueRoutingResponseSchema,
+      url: buildProjectIssueRoutingPath(projectId),
+    });
+  },
+
+  updateIssueRouting: async (input) => {
+    const projectId = requireProjectId(input.projectId);
+    const body = requireValidInput(
+      updateProjectIssueRoutingBodySchema,
+      {
+        expectedOrganizationId: input.expectedOrganizationId,
+        expectedRevision: input.expectedRevision,
+        destination: input.destination,
+      },
+      "Project issue routing request is invalid."
+    );
+    return await client.requestJson({
+      ...requestOptions(input),
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json" },
+      invalidMessage: "invalid Project issue routing update response",
+      method: "PUT",
+      operation: "project.issue-routing.update",
+      schema: updateProjectIssueRoutingResponseSchema,
+      url: buildProjectIssueRoutingPath(projectId),
+    });
+  },
+
+  readRepositorySettings: async (input) => {
+    const projectId = requireProjectId(input.projectId);
+    return await client.requestJson({
+      ...requestOptions(input),
+      invalidMessage: "invalid Project repository settings response",
+      method: "GET",
+      operation: "project.repositories.read",
+      schema: readProjectRepositorySettingsResponseSchema,
+      url: buildProjectRepositoriesPath(projectId),
+    });
+  },
+
+  updateRepositorySettings: async (input) => {
+    const projectId = requireProjectId(input.projectId);
+    const body = requireValidInput(
+      updateProjectRepositorySettingsBodySchema,
+      {
+        expectedOrganizationId: input.expectedOrganizationId,
+        expectedRevision: input.expectedRevision,
+        repositoryUrls: input.repositoryUrls,
+        defaultRepositoryUrl: input.defaultRepositoryUrl,
+      },
+      "Project repository settings request is invalid."
+    );
+    return await client.requestJson({
+      ...requestOptions(input),
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json" },
+      invalidMessage: "invalid Project repository settings update response",
+      method: "PUT",
+      operation: "project.repositories.update",
+      schema: updateProjectRepositorySettingsResponseSchema,
+      url: buildProjectRepositoriesPath(projectId),
+    });
+  },
+
+  readCommonAgents: async (input) => {
+    const projectId = requireProjectId(input.projectId);
+    return await client.requestJson({
+      ...requestOptions(input),
+      invalidMessage: "invalid Project Common Agents response",
+      method: "GET",
+      operation: "project.common-agents.read",
+      schema: readProjectCommonAgentsResponseSchema,
+      url: buildProjectCommonAgentsPath(projectId),
+    });
+  },
+
+  readRecentTasks: async (input) => {
+    const projectId = requireProjectId(input.projectId);
+    return await client.requestJson({
+      ...requestOptions(input),
+      invalidMessage: "invalid Project recent Tasks response",
+      method: "GET",
+      operation: "project.recent-tasks.read",
+      schema: readProjectRecentTasksResponseSchema,
+      url: buildProjectRecentTasksPath(projectId),
+    });
+  },
+
+  updateCommonAgents: async (input) => {
+    const projectId = requireProjectId(input.projectId);
+    const body = requireValidInput(
+      updateProjectCommonAgentsBodySchema,
+      {
+        expectedOrganizationId: input.expectedOrganizationId,
+        expectedRevision: input.expectedRevision,
+        agentProfileIds: input.agentProfileIds,
+      },
+      "Project Common Agents request is invalid."
+    );
+    return await client.requestJson({
+      ...requestOptions(input),
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json" },
+      invalidMessage: "invalid Project Common Agents update response",
+      method: "PUT",
+      operation: "project.common-agents.update",
+      schema: updateProjectCommonAgentsResponseSchema,
+      url: buildProjectCommonAgentsPath(projectId),
+    });
+  },
 
   create: async (input) => {
     const body = requireValidInput(

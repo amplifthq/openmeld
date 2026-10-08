@@ -367,8 +367,12 @@ function buildFakeRecovery(
 		// from an unselected computer must never supply the creation catalog.
 		selectedExecutionTarget: null,
 		currentComputer: null,
-		currentDeviceTargetQuery: { data: undefined, fetchStatus },
-		currentLocalRuntimeReplyReadinessQuery: { data: undefined, fetchStatus },
+		currentDeviceTargetQuery: { data: undefined, fetchStatus, isPending: true },
+		currentLocalRuntimeReplyReadinessQuery: {
+			data: undefined,
+			fetchStatus,
+			isPending: true,
+		},
 		localRuntimesQuery: {
 			data: {
 				currentDeviceId: null,

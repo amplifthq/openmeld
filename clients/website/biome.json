@@ -3,6 +3,7 @@
   "extends": "//",
   "files": {
     "includes": [
+      "!!**/public/product-demo",
       "**/src/**/*",
       "**/vite.config.ts",
       "**/vitest.config.ts",

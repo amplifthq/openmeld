@@ -11,7 +11,10 @@ import type {
   SubmitAgentActivityEventResult,
   SubmitAgentActivityEventsResponse,
 } from "@openmeld/schemas/types";
-import { readProjectRecord } from "../projects/project-repository";
+import {
+  readProjectRecord,
+  readProjectRepositorySettingsRecord,
+} from "../projects/project-repository";
 import type { VerifiedRuntimeReportingAuthority } from "../runtime-reporting/runtime-reporting-authority";
 import { acceptAgentActivityEventRecord } from "./activity-event-repository";
 import { linkAcceptedAgentActivityExecutions } from "./activity-execution-link-repository";
@@ -117,9 +120,26 @@ async function acceptValidatedEvent(input: {
   if (project.archivedAtMs !== null) {
     return reject(input, "project_archived", "permanent_rejected");
   }
+  const settings = await readProjectRepositorySettingsRecord({
+    db: input.db,
+    organizationId: input.event.organizationId,
+    projectId: input.event.projectId,
+  });
+  if (!settings) {
+    return reject(input, "project_missing", "permanent_rejected");
+  }
+  const associatedFingerprints = [
+    ...(settings.legacyDefaultFingerprint
+      ? [settings.legacyDefaultFingerprint]
+      : []),
+    ...settings.repositories.map(
+      (repository) => repository.repositoryFingerprint
+    ),
+  ];
   if (
-    project.repositoryFingerprint !== null &&
-    project.repositoryFingerprint !== input.event.repositoryFingerprint
+    associatedFingerprints.length > 0 &&
+    (input.event.repositoryFingerprint === null ||
+      !associatedFingerprints.includes(input.event.repositoryFingerprint))
   ) {
     return reject(
       input,

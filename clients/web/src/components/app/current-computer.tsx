@@ -26,6 +26,7 @@ import { resolveCurrentExecutionTarget } from "#/components/agents/agents-page-c
 import { useLocalRuntimeQueries } from "#/components/agents/use-local-runtime-queries";
 import { useStartFlowState } from "#/components/app/start-flow-state";
 import { getDesktopPlatform } from "#/desktop/platform";
+import { useDesktopComputerConnection } from "#/desktop/use-computer-connection";
 import {
 	type ComputerSummaryStatus,
 	resolveCurrentLocalRuntimeComputerSummaryStatus,
@@ -97,6 +98,7 @@ function useCurrentComputerPresentation(
 	orgSlug: string
 ): CurrentComputerPresentation {
 	const { state, storageScope } = useStartFlowState();
+	const desktopConnection = useDesktopComputerConnection();
 	const displaySnapshotQuery = useQuery(
 		currentComputerToolbarDisplaySnapshotQueryOptions({ storageScope })
 	);
@@ -152,7 +154,7 @@ function useCurrentComputerPresentation(
 		);
 	}
 
-	let destination = deviceId
+	let destination: string | undefined = deviceId
 		? buildOrganizationComputerPath({
 				deviceId,
 				orgSlug,
@@ -162,7 +164,7 @@ function useCurrentComputerPresentation(
 				session: "fresh",
 			});
 	if (getDesktopPlatform()) {
-		destination = buildConnectComputerPath({ orgSlug });
+		destination = desktopComputerDestination(desktopConnection, orgSlug);
 	}
 	const deviceLabel = computer?.deviceDisplayName ?? "Computer";
 	const statusLabel =
@@ -180,6 +182,21 @@ function useCurrentComputerPresentation(
 		connected: deviceId ? readiness?.service.connected : false,
 	};
 }
+function desktopComputerDestination(
+	connection: ReturnType<typeof useDesktopComputerConnection>,
+	orgSlug: string
+): string | undefined {
+	if (connection.isPending || connection.isError) {
+		return undefined;
+	}
+	return connection.data?.status === "available"
+		? buildOrganizationComputerPath({
+				orgSlug,
+				deviceId: connection.data.target.deviceId,
+			})
+		: buildConnectComputerPath({ orgSlug });
+}
+
 export function CurrentComputerMenuStatus() {
 	const computer = useCurrentComputer();
 	if (!computer) {
