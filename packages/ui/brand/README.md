@@ -62,6 +62,12 @@ Additional exports include:
 - `openmeld-letter-o-mono-{white,black}-{size}.png`
 - `openmeld-social-1200x630.png`
 
+Third-party OAuth applications use the opaque
+`openmeld-letter-o-dark-1024.png` export. PostHog's client metadata at
+`clients/website/public/.well-known/posthog-client.json` points to that asset
+on the Website. Keep these application logos independent of browser favicon
+and menu-bar treatments.
+
 Existing `favicon.ico`, `favicon-16x16.png`, `favicon-32x32.png`,
 `apple-touch-icon.png`, `icon-192.png`, and `icon-512.png` stay at their old
 paths. Desktop retains `resources/icon.png`, `resources/icon.icns`, and
