@@ -8,7 +8,7 @@ import {
 	type SpaceView,
 } from "#/components/spaces/space-view";
 
-type CenterAgentConversationView = Exclude<SpaceView, "tasks">;
+type CenterAgentConversationView = SpaceView;
 
 import type { CenterAgentSectionId } from "#/lib/organizations/center-agent-navigation";
 import {
@@ -17,8 +17,8 @@ import {
 	buildOrganizationMemoryPath,
 } from "#/lib/organizations/organization-routes";
 
-const CHANNELS_TAB_INDEX = 3;
-const MEMORY_TAB_INDEX = 4;
+const CHANNELS_TAB_INDEX = 4;
+const MEMORY_TAB_INDEX = 5;
 
 export function CenterAgentHeaderTabs(input: {
 	activeSectionId: CenterAgentSectionId;
@@ -62,11 +62,8 @@ export function CenterAgentHeaderTabs(input: {
 			idPrefix={input.idPrefix}
 			indicatorLayoutId={`center-agent-header-${input.organizationSlug}`}
 			onSelect={(index) => {
-				if (index <= 2) {
+				if (index < CHANNELS_TAB_INDEX) {
 					const view = resolveSpaceView(index);
-					if (view === "tasks") {
-						return;
-					}
 					if (input.onSpaceViewChange) {
 						input.onSpaceViewChange(view);
 						return;
@@ -99,22 +96,23 @@ export function CenterAgentHeaderTabs(input: {
 			variant="underline"
 		>
 			<TabsSubtleItem index={0} label="Messages" labelClassName="text-sm" />
+			<TabsSubtleItem index={3} label="Tasks" labelClassName="text-sm" />
 			<TabsSubtleItem index={1} label="Graph" labelClassName="text-sm" />
 			<TabsSubtleItem index={2} label="Files" labelClassName="text-sm" />
 
 			<TabsSubtleItem
-				index={3}
+				index={CHANNELS_TAB_INDEX}
 				label="Channels"
 				labelClassName="text-sm"
-				onFocus={() => preloadSection(3)}
-				onPointerEnter={() => preloadSection(3)}
+				onFocus={() => preloadSection(CHANNELS_TAB_INDEX)}
+				onPointerEnter={() => preloadSection(CHANNELS_TAB_INDEX)}
 			/>
 			<TabsSubtleItem
-				index={4}
+				index={MEMORY_TAB_INDEX}
 				label="Memory"
 				labelClassName="text-sm"
-				onFocus={() => preloadSection(4)}
-				onPointerEnter={() => preloadSection(4)}
+				onFocus={() => preloadSection(MEMORY_TAB_INDEX)}
+				onPointerEnter={() => preloadSection(MEMORY_TAB_INDEX)}
 			/>
 		</TabsSubtle>
 	);

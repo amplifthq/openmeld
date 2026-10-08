@@ -4500,8 +4500,10 @@ conditions, linked GitHub issues, current result, people, and only the controls
 the current profile can plausibly use. Completing or canceling a Task that
 still has an open GitHub issue prompts the person to close that issue in
 GitHub. Core remains authoritative and rejects stale or unauthorized
-mutations. Empty state copy sends the user back to Messages. Direct Messages
-omit the tab and normalize stale `tasks` view state back to Messages.
+mutations. Private conversations reuse this board, message cards, and creation
+flow. Center Agent navigation places Tasks after Messages. New-chat drafts can
+capture a Task before a conversation exists; only submission creates the chat
+and publishes the message and Task. Opening Tasks alone creates no chat.
 
 Every retained text message in an eligible Space has a secondary **Add to
 Tasks** action. The created Task preserves that Signal as its source, inherits

@@ -2,6 +2,7 @@ import {
 	createCenterAgentApi,
 	toStructuredApiClientFailure,
 } from "@openmeld/api-client";
+import { Button } from "@openmeld/ui/components/button";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -11,6 +12,7 @@ import { useStartFlowState } from "#/components/app/start-flow-state";
 import { useSidebarPreferences } from "#/components/app/use-sidebar-preferences";
 import { CenterAgentDirectMessageIntro } from "#/components/spaces/center-agent-direct-message-intro";
 import { SpaceWindowHeader } from "#/components/spaces/space-header";
+import type { SpaceTaskDraft } from "#/components/spaces/space-task-draft-fields";
 import type { SpaceView } from "#/components/spaces/space-view";
 import {
 	ComposerFileDiscoveryError,
@@ -37,6 +39,7 @@ import { buildOrganizationCenterAgentChatPath } from "#/lib/organizations/organi
 import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
 import { resolveRequestedStopUiStatus } from "#/lib/spaces/wake-stop-target";
 import { centerAgentDirectMessageSpaceProjectionQueryOptions } from "#/query/organizations/center-agent";
+import { useCenterAgentAvatarProfile } from "#/query/profiles/agent-avatar-context";
 import { postWebSpaceWakeStop } from "#/query/spaces/wake-stop";
 import { CenterAgentChatHistory } from "./center-agent-chat-history";
 import { CenterAgentHeaderTabs } from "./center-agent-header-navigation";
@@ -68,6 +71,7 @@ export function CenterAgentNewChat({
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const { defaultHumanProfile } = useDefaultHumanProfile();
+	const centerAgentProfile = useCenterAgentAvatarProfile();
 	const { data: accountAvatar } = useAccountAvatar();
 	const sidebar = useSidebarPreferences(organization.id);
 	const [message, setMessage] = useState<ReturnType<
@@ -79,6 +83,7 @@ export function CenterAgentNewChat({
 		"stopping" | "stopped" | "unconfirmed"
 	>();
 	const [error, setError] = useState<string | null>(null);
+	const [taskDraft, setTaskDraft] = useState<SpaceTaskDraft | null>(null);
 	const attachments = useSpaceComposerFiles({
 		organizationSlug: organization.slug,
 		profileId: defaultHumanProfile?.openMeldProfileId ?? storageScope ?? "",
@@ -106,6 +111,8 @@ export function CenterAgentNewChat({
 	const titleDraft = useComposerDraft({
 		scope: draftScope ? { ...draftScope, sessionId: "new-chat-title" } : null,
 	});
+	const messageText = draft.content.text.trim() || taskDraft?.title || "";
+	const pendingTaskDraft = taskDraft ?? undefined;
 	const send = useMutation({
 		mutationFn: async ({
 			starterPrompt,
@@ -114,7 +121,7 @@ export function CenterAgentNewChat({
 			starterPrompt?: string;
 			attempt: NewChatSendAttempt;
 		}) => {
-			const text = (starterPrompt ?? draft.content.text).trim();
+			const text = (starterPrompt ?? messageText).trim();
 			if (!text && attachments.files.length === 0) {
 				return;
 			}
@@ -128,6 +135,7 @@ export function CenterAgentNewChat({
 			}
 			const pendingMessage = {
 				...intent.message,
+				taskDraft: pendingTaskDraft,
 				files: fileDrafts.map((draft) => draft.file),
 				fileDrafts,
 			};
@@ -324,36 +332,54 @@ export function CenterAgentNewChat({
 				composerText={isSending ? "" : draft.content.text}
 				empty
 				emptyContent={
-					view === "messages" ? (
-						<CenterAgentDirectMessageIntro
-							disabled={isSending}
-							isPersonalContext={organization.isPersonal === true}
-							onSelectStarterAction={startSend}
-							onStartComputerSetup={() => {
-								navigate({
-									to: buildConnectComputerPath({
-										orgSlug: organization.slug,
-										profileId: defaultHumanProfile?.openMeldProfileId,
-									}),
-								});
-							}}
-							showStarterActions
-							showStarterComputerSetup={false}
-						/>
-					) : (
-						<div className="py-12 text-center text-muted-foreground text-sm">
-							{view === "files"
-								? "Files shared in this chat will appear here."
-								: "Connections from this chat will appear here."}
-						</div>
-					)
+					<>
+						{view === "tasks" && (
+							<div className="m-auto space-y-3 p-6 text-center">
+								<p className="text-muted-foreground text-sm">No tasks yet</p>
+								<Button
+									onClick={() =>
+										setTaskDraft({
+											title: draft.content.text.trim().slice(0, 200),
+										})
+									}
+									size="sm"
+								>
+									New task
+								</Button>
+							</div>
+						)}
+						{view === "messages" && (
+							<CenterAgentDirectMessageIntro
+								disabled={isSending}
+								isPersonalContext={organization.isPersonal === true}
+								onSelectStarterAction={startSend}
+								onStartComputerSetup={() => {
+									navigate({
+										to: buildConnectComputerPath({
+											orgSlug: organization.slug,
+											profileId: defaultHumanProfile?.openMeldProfileId,
+										}),
+									});
+								}}
+								showStarterActions
+								showStarterComputerSetup={false}
+							/>
+						)}
+						{(view === "files" || view === "graph") && (
+							<div className="py-12 text-center text-muted-foreground text-sm">
+								{view === "files"
+									? "Files shared in this chat will appear here."
+									: "Connections from this chat will appear here."}
+							</div>
+						)}
+					</>
 				}
 				header={
 					<SpaceWindowHeader
 						navigation={
 							<CenterAgentHeaderTabs
 								activeSectionId="chat"
-								activeSpaceView={view === "tasks" ? "messages" : view}
+								activeSpaceView={view}
 								idPrefix="new-chat-view"
 								onSpaceViewChange={(nextView) => {
 									navigate({
@@ -397,17 +423,33 @@ export function CenterAgentNewChat({
 				onSend={() => {
 					if (
 						!isSending &&
-						(draft.content.text.trim() || attachments.files.length)
+						(!taskDraft || taskDraft.title.trim()) &&
+						(taskDraft?.title.trim() ||
+							draft.content.text.trim() ||
+							attachments.files.length)
 					) {
 						setError(null);
 						startSend();
 					}
 				}}
 				onStop={stopSend}
+				onTaskDraftChange={setTaskDraft}
 				pendingMessage={message}
 				selfAvatarImageUrl={accountAvatar?.avatar}
 				selfProfile={defaultHumanProfile}
 				stopStatus={stopStatus}
+				taskDraft={taskDraft}
+				taskMembers={[
+					...(defaultHumanProfile
+						? [
+								{
+									profileId: defaultHumanProfile.openMeldProfileId,
+									profileName: defaultHumanProfile.profileName,
+								},
+							]
+						: []),
+					...(centerAgentProfile ? [centerAgentProfile] : []),
+				]}
 			/>
 		</div>
 	);

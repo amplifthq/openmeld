@@ -7,6 +7,7 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { readCenterAgentPendingMessage } from "#/lib/organizations/center-agent-pending-message";
 import type { ComposerFileDraft } from "#/lib/spaces/composer-file-drafts";
 import { CenterAgentNewChat } from "./center-agent-new-chat";
 
@@ -128,6 +129,39 @@ beforeEach(() => {
 	navigate.mockResolvedValue(undefined);
 });
 afterEach(cleanup);
+it("keeps a title-only task draft local, then includes it in the first-message handoff", async () => {
+	const client = new QueryClient({
+		defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+	});
+	render(
+		<QueryClientProvider client={client}>
+			<CenterAgentNewChat view="tasks" />
+		</QueryClientProvider>
+	);
+	expect(createSession).not.toHaveBeenCalled();
+	fireEvent.click(screen.getByRole("button", { name: "New task" }));
+	expect(screen.getByRole("button", { name: "Create task" })).toHaveProperty(
+		"disabled",
+		true
+	);
+	fireEvent.change(screen.getByRole("textbox", { name: "Title" }), {
+		target: { value: "Review private work" },
+	});
+	expect(createSession).not.toHaveBeenCalled();
+	fireEvent.click(screen.getByRole("button", { name: "Create task" }));
+	await waitFor(() => expect(navigate).toHaveBeenCalled());
+	expect(createSession).toHaveBeenCalledOnce();
+	expect(
+		readCenterAgentPendingMessage(client, {
+			organizationId: "org-1",
+			organizationSlug: "acme",
+			sessionId: "chat-1",
+		})
+	).toMatchObject({
+		text: "Review private work",
+		taskDraft: { title: "Review private work" },
+	});
+});
 function mount() {
 	return render(
 		<QueryClientProvider

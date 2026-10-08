@@ -2010,7 +2010,10 @@ export function useSpaceLandingController(input: {
 	const sendInitialPendingMessage = useEffectEvent(
 		async (pendingMessage: PendingSpaceMessage) => {
 			input.onInitialPendingMessageConsumed?.();
-			await sendMessage({ pendingMessage });
+			await sendMessage({
+				pendingMessage,
+				taskDraft: pendingMessage.taskDraft,
+			});
 		}
 	);
 	useEffect(() => {

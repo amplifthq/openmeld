@@ -9589,19 +9589,6 @@ export class Space extends DurableObject<CoreBindings> {
     const activeMembers = listSpaceMemberRecords(this.ctx.storage.sql, {
       status: "active",
     });
-    if (
-      isDirectMessageSpace({
-        purpose: meta.purpose,
-        directMessageConvertedAt: meta.directMessage?.convertedAt,
-        activeMemberCount: activeMembers.length,
-      })
-    ) {
-      throw new SpaceTaskWorkflowError({
-        code: "space_task.unsupported_space",
-        message: "Tasks are available in shared Spaces.",
-        status: 409,
-      });
-    }
     const profileId = profileIdInput?.trim();
     const member = profileId
       ? activeMembers.find((candidate) => candidate.profileId === profileId)

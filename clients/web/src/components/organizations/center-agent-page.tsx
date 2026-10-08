@@ -193,9 +193,6 @@ function CenterAgentDirectMessageEntry(input: {
 			: input.sessionId;
 	const handleSpaceViewCommitted = useCallback(
 		(view: SpaceView) => {
-			if (view === "tasks") {
-				return;
-			}
 			navigate({
 				replace: true,
 				to: buildOrganizationCenterAgentChatPath(input.organizationSlug, {

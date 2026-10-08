@@ -1366,11 +1366,6 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 			directMessageConvertedAt: controller.status.directMessageConvertedAt,
 			purpose: controller.status.spacePurpose,
 		});
-	useEffect(() => {
-		if (isDirectMessage && spaceView === "tasks") {
-			changeSpaceView("messages");
-		}
-	}, [changeSpaceView, isDirectMessage, spaceView]);
 	const spaceMemberRemovalHandler = resolveSpaceMemberRemovalHandler({
 		canRemoveMembers: canCurrentProfileRemoveSpaceMembers,
 		isDirectMessage,
@@ -1799,9 +1794,7 @@ function SpaceLandingConversationShell({
 								currentSpaceIsCenterAgentDirectMessage && input.orgSlug ? (
 									<CenterAgentHeaderTabs
 										activeSectionId="chat"
-										activeSpaceView={resolveCenterAgentConversationView(
-											spaceView
-										)}
+										activeSpaceView={spaceView}
 										className="h-full shrink-0 gap-5"
 										idPrefix={spaceViewIdPrefix}
 										onSpaceViewChange={spaceFileNavigation.changeSpaceView}
@@ -1813,7 +1806,7 @@ function SpaceLandingConversationShell({
 										className="shrink-0"
 										idPrefix={spaceViewIdPrefix}
 										onViewChange={spaceFileNavigation.changeSpaceView}
-										tasksEnabled={!isDirectMessage}
+										tasksEnabled
 									/>
 								)
 							}
@@ -2398,7 +2391,7 @@ function SpaceLandingConversation({
 			spaceViewIdPrefix={spaceViewIdPrefix}
 			tasks={
 				<SpaceTasksPanelSlot
-					enabled={!isDirectMessage}
+					enabled
 					membersSnapshot={controller.presentationMembersSnapshot}
 					onOpenThread={(threadId) => {
 						spaceFileNavigation.changeSpaceView("messages");
@@ -2654,12 +2647,6 @@ function resolveReadySpaceEmptyStateDescription(input: {
 		: resolveSpaceConversationEmptyStateDescription(input);
 }
 
-function resolveCenterAgentConversationView(
-	view: SpaceView
-): Exclude<SpaceView, "tasks"> {
-	return view === "tasks" ? "messages" : view;
-}
-
 type AgentOwnerDirectMessageJoinState = {
 	defaultName: string;
 	errorMessage: string | null;
@@ -2891,7 +2878,7 @@ function SpaceLandingSecondaryPanels({
 	return (
 		<>
 			<SpaceTaskReferencesProvider
-				disabled={state.isDirectMessage || !controller.threadPanelOpen}
+				disabled={!controller.threadPanelOpen}
 				onOpen={() => {
 					controller.onCloseThread();
 					state.spaceFileNavigation.changeSpaceView("tasks");

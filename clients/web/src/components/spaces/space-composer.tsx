@@ -291,14 +291,8 @@ function ComposerTaskSubmit(input: {
 		</Button>
 	);
 }
-function taskCreateAction(
-	input: SpaceComposerProps,
-	draft: SpaceTaskDraft | null,
-	onCreate: () => void
-) {
-	return input.context.conversationKind === "space" && !draft
-		? onCreate
-		: undefined;
+function taskCreateAction(draft: SpaceTaskDraft | null, onCreate: () => void) {
+	return draft ? undefined : onCreate;
 }
 function ComposerTaskDraft(input: {
 	composer: SpaceComposerProps;
@@ -548,7 +542,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 									}
 									limitReached={input.availability.fileLimitReached}
 									onAddPeopleOrAgents={input.actions.onAddPeopleOrAgents}
-									onCreateTask={taskCreateAction(input, taskDraft, () =>
+									onCreateTask={taskCreateAction(taskDraft, () =>
 										setTaskDraft(createComposerTaskDraft(input))
 									)}
 								/>

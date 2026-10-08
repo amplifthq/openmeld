@@ -104,11 +104,11 @@ Agent Direct Message mutation rules to an ordinary Space.
 
 ## Space Tasks
 
-An ordinary shared Space may own **Tasks** as durable collaboration
-commitments. Messages remains the default place to ask, discuss, and complete
+Shared Spaces and private conversations, including Center Agent chats, may own
+**Tasks** as durable collaboration commitments. Messages remains the default place to ask, discuss, and complete
 small work. A Task records a clear deliverable that needs continuing ownership,
-progress, review, or later closure. Direct Messages and specialized private
-Center Agent sessions do not expose or accept Space Tasks.
+progress, review, or later closure. Tasks inherit the source conversation's
+membership and visibility; private tasks do not become Organization-shared.
 
 A Task preserves the trusted requester and creator, one optional assignee, one
 optional independent reviewer, its source message and Thread, completion

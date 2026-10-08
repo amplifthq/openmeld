@@ -556,7 +556,7 @@ export function SpaceConversationPanel(
 	);
 	return (
 		<SpaceTaskReferencesProvider
-			disabled={publicInput.viewState.isDirectMessage}
+			disabled={false}
 			onOpen={() => publicInput.onSpaceViewChange("tasks")}
 			organizationSlug={publicInput.orgSlug}
 			profileId={publicInput.selfProfileId}
@@ -642,7 +642,7 @@ function SpaceConversationPanelContent(
 	const { viewState, ...props } = publicInput;
 	const timelineItems = useOptimisticSpaceMessages(props.timelineItems);
 	const taskAction = useSpaceMessageTaskAction({
-		disabled: viewState.isDirectMessage,
+		disabled: false,
 		openMeldProfileId: props.selfProfileId,
 		organizationSlug: props.orgSlug,
 		spaceId: props.spaceId,

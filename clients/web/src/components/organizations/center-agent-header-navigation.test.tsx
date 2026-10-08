@@ -58,6 +58,7 @@ describe("CenterAgentHeaderTabs", () => {
 
 		expect(screen.getAllByRole("tab")).toEqual([
 			screen.getByRole("tab", { name: "Messages" }),
+			screen.getByRole("tab", { name: "Tasks" }),
 			screen.getByRole("tab", { name: "Graph" }),
 			screen.getByRole("tab", { name: "Files" }),
 			screen.getByRole("tab", { name: "Channels" }),
