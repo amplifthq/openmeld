@@ -26,6 +26,16 @@ outputs. `scripts/vite/shared-public-assets.mjs` materializes ignored client
 copies when Vite loads. Edit shared sources, not generated copies. Shared font
 declarations live in `packages/ui/src/styles/fonts.css`.
 
+Public and retained cross-page headers reuse `OpenMeldLogoStrong`, the Website's
+glowing wordmark. They omit a status label by default; an explicit label remains
+available to the caller. `PublicPageHeader` accepts an optional navigation slot
+and app-entry slot. `OpenAppButton` owns the public app-entry appearance: the
+homepage uses its hero size; Website and Docs headers use its compact size and
+regular control corners. The shared `PlatformBadge` supplies the Web label.
+Website composes its existing lazy metal effect through the badge slot, with a
+static reduced-motion fallback. These presentation slots do not own navigation
+destinations or change the App's Log in action.
+
 Docs also consumes the wordmark, fonts, and shared public assets. It retains
 Fumadocs' layout CSS and accessible compound components. See `docs.md` for
 the boundary when composing Fluid primitives with its Base UI version.
@@ -506,10 +516,13 @@ click feedback and pointer following are independent. The shared default is Fabr
 its `shading` prop also supports Plastic. Both rendering paths use the same palette
 and the library's material-specific lighting defaults. Still-frame cache keys include
 the material and palette so changing either cannot reuse an old finish.
-`lib/bot-avatar-palette` owns all eighteen muted Bot colors for Website and Web.
-Appearance offers Soft, Slate, and Sand palettes through the existing browser
+`lib/bot-avatar-palette` owns all eighteen Bot colors for Website and Web.
+The cloud uses a neutral white in Original and Soft, with material lighting
+providing its depth. Appearance offers Original, Balanced, Soft, Slate, and Sand
+palettes through the existing browser
 preference store; this is a viewer preference, not a change to saved Profile identity.
-Both preview and saved rendering use the selected colors without extra saturation.
+Both preview and saved rendering use the same selected colors. The Website demo
+starts with Original to match the hero; the product keeps its existing Soft default.
 The regular renderer includes an SVG first frame using the vendor's shape and
 face placement in server HTML, then replaces it with the rendered canvas on mount.
 Space/sidebar avatars

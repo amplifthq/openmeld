@@ -1,4 +1,9 @@
+.meld-codex-stage {
+	position: relative;
+}
 .meld-codex-demo {
+	position: relative;
+	isolation: isolate;
 	border: 1px solid #ffffff18;
 	border-radius: 16px;
 	overflow: hidden;
@@ -175,7 +180,10 @@
 	background: #eee;
 }
 .meld-codex-playback {
-	margin-left: auto;
+	/* Playback is a real control, outside the decorative UI mask. */
+	position: absolute;
+	top: 10px;
+	right: 18px;
 	flex-shrink: 0;
 	display: flex;
 	align-items: center;

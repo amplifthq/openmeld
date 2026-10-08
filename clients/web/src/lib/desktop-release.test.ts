@@ -3,6 +3,7 @@ import {
 	desktopCandidateManifestSchema,
 } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
+import { getDesktopDownloads } from "./desktop-downloads";
 import {
 	buildDesktopUpdateManifest,
 	buildDesktopUpdaterFeed,
@@ -50,6 +51,12 @@ describe("Desktop promoted release", () => {
 	it("projects the same release into the public page, legacy JSON and updater feed", async () => {
 		const store = storeWith();
 		const page = await readAvailableDesktopRelease(store);
+		const catalogResponse = await getDesktopDownloads(
+			new Request("https://app.openmeld.ai/desktop/releases.json"),
+			store
+		);
+		const catalog = await catalogResponse.json();
+		expect(catalog).toEqual({ releases: [page] });
 		const release = await readDesktopPreviewReleaseManifest({ store });
 		const promoted = await readPromotedDesktopRelease(store);
 		if (!(release && promoted)) {

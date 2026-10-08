@@ -1,3 +1,4 @@
+import { OpenAppButton } from "@openmeld/ui/components/open-app-button";
 import { OpenMeldWordmark } from "@openmeld/ui/components/openmeld-wordmark";
 import type { BaseLayoutProps } from "fumadocs-ui/layouts/shared";
 
@@ -18,7 +19,12 @@ export function baseOptions(): BaseLayoutProps {
         text: "Changelog",
         url: `${import.meta.env.VITE_WEBSITE_URL}/changelog`,
       },
-      { text: "Open app", url: import.meta.env.VITE_APP_URL },
+      {
+        type: "custom",
+        children: (
+          <OpenAppButton href={import.meta.env.VITE_APP_URL} size="compact" />
+        ),
+      },
     ],
   };
 }

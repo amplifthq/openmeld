@@ -39,15 +39,6 @@
 .meld-skip:focus {
 	top: 12px;
 }
-.meld-header {
-	border-bottom: 1px solid var(--meld-line);
-}
-.meld-header-inner {
-	height: 60px;
-	display: flex;
-	align-items: center;
-	gap: 32px;
-}
 .meld-brand {
 	display: inline-flex;
 	color: inherit;
@@ -61,22 +52,6 @@
 	font-size: 16px;
 	color: inherit;
 	letter-spacing: -0.04em;
-}
-.meld-header nav {
-	margin-left: auto;
-}
-.meld-nav-items {
-	position: relative;
-	display: flex;
-	gap: 2px;
-}
-.meld-nav-items a {
-	position: relative;
-	z-index: 1;
-	display: block;
-	padding: 10px 14px;
-	font-size: 13px;
-	color: var(--muted-foreground);
 }
 .meld-nav-highlight {
 	background: #252525;
@@ -134,53 +109,6 @@
 .meld-button:hover {
 	background: color-mix(in srgb, var(--unread), white 12%);
 }
-.meld-button-web {
-	background: #eeeeef;
-	border-color: #eeeeef;
-	color: #18181b;
-}
-.meld-button-web:hover {
-	background: #fff;
-}
-.meld-web-badge {
-	padding: 3px 8px;
-	border-radius: 999px;
-	background: #dcdcdf;
-	font-size: 11px;
-	line-height: 1;
-	font-weight: 500;
-}
-.meld-metal-badge .meld-web-badge {
-	background: #d5d5d8;
-}
-.meld-platform-badge {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	min-height: 22px;
-	padding: 3px 9px;
-	border-radius: 999px;
-	background: linear-gradient(
-		155deg,
-		#eff4f7 8%,
-		#aebdc9 32%,
-		#fff 54%,
-		#c5cbd2 76%,
-		#eef2f5
-	);
-	box-shadow:
-		inset 0 0 0 1px #ffffff80,
-		inset 0 1px 0 #ffffffc7;
-	color: #25282c;
-	font-size: 11px;
-	line-height: 1;
-	font-weight: 600;
-}
-.meld-button-compact {
-	padding: 10px 15px;
-	font-size: 13px;
-	flex-shrink: 0;
-}
 .meld-download-menu {
 	--meld-download-radius: 24px;
 	width: 274px;
@@ -224,12 +152,13 @@
 	pointer-events: none;
 	inset: -260px calc((100% - 100vw) / 2) -100px;
 	background:
-		radial-gradient(ellipse 88% 58% at 50% 44%, #a6a9ad48, transparent 100%),
-		radial-gradient(ellipse 95% 65% at 50% 85%, #73787e38, transparent 85%);
+		radial-gradient(ellipse 88% 58% at 50% 44%, #a6a9ad20, transparent 100%),
+		radial-gradient(ellipse 95% 65% at 50% 85%, #73787e18, transparent 85%);
 	mask-image: linear-gradient(transparent, #000 18%, #000 78%, transparent);
 }
 .meld-demo {
 	position: relative;
+	isolation: isolate;
 	border: 1px solid #303030;
 	border-radius: 12px;
 	overflow: hidden;
@@ -412,12 +341,6 @@
 	.meld-wrap {
 		width: calc(100% - 48px);
 	}
-	.meld-header-inner {
-		gap: 18px;
-	}
-	.meld-nav-items a {
-		padding: 10px;
-	}
 	.meld-hero {
 		padding-top: 76px;
 	}
@@ -434,13 +357,6 @@
 @media (max-width: 600px) {
 	.meld-wrap {
 		width: calc(100% - 32px);
-	}
-	.meld-header-inner {
-		height: 56px;
-		justify-content: space-between;
-	}
-	.meld-header nav {
-		display: none;
 	}
 	.meld-brand [role="img"] {
 		font-size: 14px;
@@ -609,21 +525,6 @@
 	color: #808087;
 	font-size: 11px;
 }
-.meld-metal-badge {
-	display: inline-flex !important;
-	vertical-align: middle;
-}
-.meld-metal-badge .meld-platform-badge {
-	background: radial-gradient(
-		ellipse 49% 49% at 50% 50%,
-		#fffffff0 46%,
-		#ffffff00 100%
-	);
-	box-shadow:
-		inset 0 0 7px #ffffff69,
-		inset 0 0 0 1px #ffffff80,
-		inset 0 1px 0 #ffffffc7;
-}
 .meld-channel-showcase {
 	display: grid;
 	grid-template-columns: minmax(250px, 0.8fr) minmax(0, 1.7fr);
@@ -670,6 +571,8 @@
 	white-space: normal;
 }
 .meld-chat-preview {
+	position: relative;
+	isolation: isolate;
 	min-width: 0;
 	height: 460px;
 	border: 1px solid #373038;
@@ -784,9 +687,7 @@
 	border-radius: 6px;
 }
 .meld-chat-agent {
-	background: #324a57;
-	color: #a6dcf1;
-	font-size: 18px;
+	background: transparent;
 }
 .meld-chat-author {
 	display: flex;
@@ -899,7 +800,7 @@
 	justify-content: space-between;
 	isolation: isolate;
 }
-.meld-bento-machine > div:not(.meld-scene-light) {
+.meld-bento-machine > div:not(.meld-computer-ambient) {
 	position: relative;
 	z-index: 1;
 }

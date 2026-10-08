@@ -164,7 +164,7 @@ this presentation change does not change their permissions or execution flow.
 ## Boundary
 
 The account avatar's top-level **Download Desktop** item appears only on Web and
-opens the public `/desktop` page. That page, the default DMG route, legacy update
+opens the website's public `/downloads` page. Its Web metadata projection, the default DMG route, legacy update
 JSON and macOS updater feed read the single promoted Desktop release in R2.
 Explicit candidate selectors remain strict and never fall back to the promoted
 release. Desktop's shared renderer exposes Updates through its native bridge;
@@ -6131,37 +6131,37 @@ normal Prepare flow; it never silently reruns an existing Wake.
 
 ## Desktop Download Entry
 
-Web owns the public, account-free preview page at
-`/desktop?candidate=<64-character lowercase sha256>`. It reuses the strict
-candidate selector, manifest parser, derived artifact keys, and artifact size
-verification used by GET/HEAD `/desktop/download?candidate=<hash>`. Version,
-size, and the download button come from that same verified candidate. Missing,
-invalid, repeated, or mismatched selectors never select another package.
+The Website owns the single account-free download page at `/downloads`.
+Web's legacy `/desktop` route redirects there, preserving the raw query and
+fragment. The account menu links directly to the Website page.
 
-The plain `/desktop` page reads the existing default manifest. When no default
-release exists, it may offer the separately published unsigned Windows x64
-internal installer on Windows only, with a clear warning and no automatic
-updates. Other platforms still explain that a full preview invitation link is
-needed. Candidate pages do not select a default, write
-`desktop/update.json`, add marketing navigation, or require login or Access.
-The page is marked noindex while the preview is shared directly.
+Web owns anonymous `GET /desktop/releases.json`, a read-only projection of the
+existing `OPENMELD_DESKTOP_DOWNLOADS` store. The shared download schema covers
+version, platform, size, derived download path, and release notices. It reuses
+the manifest and artifact-size checks used by the existing download route.
+A strict `candidate` selector chooses only that candidate. Missing, invalid,
+repeated, mismatched, or corrupt selectors never choose a promoted replacement.
+The default projection reads each platform's existing promoted release, with
+the existing explicitly labeled unsigned Windows x64 internal preview when no
+promoted Windows x64 build exists. It does not publish or promote artifacts.
 
-The existing private R2 binding `OPENMELD_DESKTOP_DOWNLOADS` remains the artifact
-owner. Missing manifests or artifacts show an unavailable page; corrupt metadata
-or storage failures reach the route error boundary, which offers no download.
-The server function independently validates its candidate input. Web keeps no
-second release version, package identity, or object-key registry.
+Website reads this projection through its fixed App service binding. Its
+platform cards retain version/file-size information, installation instructions,
+and Windows notices, including unsigned-installer and automatic-update limits.
+macOS is not labeled Preview. Windows is labeled Preview under the current
+release policy. Candidate views remain noindex and show only the selected build.
+Missing metadata offers no download; storage or schema failures produce an
+unavailable result rather than invented version information.
 
-The page identifies the build as a Preview for macOS Apple silicon and gives
-brief DMG installation instructions. Do not promise stability, zero setup, or
-unverified capabilities. Default-release notices may come from the existing
-manifest `message`; immutable candidate manifests currently have no notice field,
-so the page must not hard-code temporary limitations for one candidate.
+Web must deploy this additive reader before Website uses it. Existing
+Desktop download/update protocols, CLI, Service, managed Skills, Core, Gateway,
+setup, Wake, Space actions, and diagnostic contracts remain compatible.
+No local-component contract bump is required. Rollback removes the Website
+caller before removing the Web metadata endpoint.
 
-Validation covers anonymous candidate and default pages, narrow and wide
-layouts, a real candidate manifest and artifact, matching button/download
-identity, absent candidates, malformed/repeated selectors, and size mismatch.
-Download and update endpoint contracts remain unchanged.
+Validation covers default and exact-candidate projections, strict selectors,
+artifact size mismatch, unavailable builds, redirected legacy links, and
+narrow/wide page layouts. Download and update endpoint contracts remain unchanged.
 
 Web must not claim setup success because the app was downloaded. A local Wake
 still requires computer/agent setup and a reply or explicit outcome through the

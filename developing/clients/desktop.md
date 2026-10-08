@@ -504,8 +504,9 @@ exact clean merged release SHA and rejects disposable settings. Its signed sourc
 record binds the release SHA, production identity, and renderer fingerprint;
 publication uses the immutable
 candidate workflow in [Development Workflow](../engineering/development-workflow.md#desktop-preview-release-workflow).
-Building and uploading do not select a default update. Web offers an account-free
-page at `/desktop`, with an immutable `/desktop?candidate=<hash>` override.
+Building and uploading do not select a default update. Website offers an account-free
+page at `/downloads`, with an immutable `/downloads?candidate=<hash>` override.
+Existing `/desktop` page links redirect there without changing the selector.
 An explicit promotion selects the default download and update feed together.
 
 ### Windows package and release boundary

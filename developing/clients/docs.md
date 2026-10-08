@@ -52,6 +52,10 @@ components. `@openmeld/ui` owns the wordmark, fonts, and copied public assets.
 Fumadocs CSS remains scoped to this client. Do not import the complete App shell
 or replace shared tokens globally.
 
+The Open App navigation item uses Fumadocs' custom-link slot to compose the
+compact shared `OpenAppButton` with its static Web badge. It retains the same
+public App destination and does not introduce Website shader dependencies.
+
 For new product primitives, inspect the shared Fluid component first. Add
 eligible standalone components through the MDX component map. Keep Fumadocs
 compound slots inside their own Base UI roots. Its dependency version differs

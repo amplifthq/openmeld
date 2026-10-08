@@ -148,13 +148,18 @@ describe("AppearanceSection", () => {
 	});
 
 	it("keeps the selected Bot palette when Appearance is reopened", () => {
-		renderAppearance();
-		fireEvent.click(screen.getByRole("radio", { name: "Slate" }));
-		cleanup();
-		renderAppearance();
-		expect(
-			screen.getByRole("radio", { name: "Slate" }).getAttribute("aria-checked")
-		).toBe("true");
+		for (const name of ["Original", "Balanced", "Slate"]) {
+			renderAppearance();
+			fireEvent.click(screen.getByRole("radio", { name }));
+			cleanup();
+			renderAppearance();
+			expect(
+				screen.getByRole("radio", { name }).getAttribute("aria-checked")
+			).toBe("true");
+			if (name !== "Slate") {
+				cleanup();
+			}
+		}
 		fireEvent.keyDown(screen.getByRole("radio", { name: "Slate" }), {
 			key: "ArrowRight",
 		});

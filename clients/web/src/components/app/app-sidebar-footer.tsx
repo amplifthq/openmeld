@@ -73,7 +73,7 @@ function PlatformAppMenuItem(input: { index: number; webPath: string }) {
 					);
 					return;
 				}
-				window.location.assign("/desktop");
+				window.location.assign(`${import.meta.env.VITE_WEBSITE_URL}/downloads`);
 			}}
 		>
 			{desktop ? <GlobeHemisphereWestIcon /> : <DesktopTowerIcon />}

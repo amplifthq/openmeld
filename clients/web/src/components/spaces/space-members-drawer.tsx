@@ -235,6 +235,7 @@ export function SpaceMembersToggleButton(input: {
 
 export function SpaceMembersSidePanel(
 	input: SpaceMembersSurfaceProps & {
+		minPanelWidth?: string;
 		onOpenChange: (open: boolean) => void;
 		onPanelWidthChange: (width: string) => void;
 		open: boolean;
@@ -250,7 +251,7 @@ export function SpaceMembersSidePanel(
 			className="hidden xl:flex"
 			id="space-members-panel"
 			maxWidth={widthMetrics.maxWidth}
-			minWidth={widthMetrics.minWidth}
+			minWidth={input.minPanelWidth ?? widthMetrics.minWidth}
 			onWidthChange={input.onPanelWidthChange}
 			open={input.open}
 			resizeHandleLabel="Resize Members panel"
