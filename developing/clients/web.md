@@ -5271,6 +5271,26 @@ selection travels as an accepted Execution Context fact, not as a change to
 the Agent Profile's Default Project. The Service must find the matching local
 connection on the Agent's computer or return a visible failure.
 
+The Task menu explains that automatic continuation can retain an earlier
+task's restrictions. Message details shows the admitted task access and
+workspace separately from the Service's new/continued native-conversation
+observation. Missing diagnostics remain unavailable; the client never infers
+network or GitHub access from a working folder.
+
+For a recorded Space-only Wake, a writable viewer can review the readable
+source request and its shared file revisions, then explicitly send it to the
+same target as a new task using the Agent's current permitted settings.
+The confirmation names the destination and possible repeated work. It uses
+normal Space/thread authoring. Browser session storage retains only the pending
+request id, keyed by the reviewed source, requester, target and placement.
+An uncertain response or page refresh retries that same id. Accepted publication
+removes the retry record, so a later separately confirmed task gets a new id.
+The reviewed request is pinned even if details refresh before confirmation.
+The action preserves the user's composer draft and never clears the retained
+Context. Recalled sources, managed file handoffs and unsupported legacy
+attachments do not receive an automatic request-copy action; the ordinary
+composer remains available for a deliberately authored new task.
+
 Draft editing and opening the `+` and `@` tools do not require permission to
 send. The `+` menu explains why file selection is unavailable when uploads are
 not authorized or a message is still sending. Send and upload authorization

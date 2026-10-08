@@ -3929,6 +3929,45 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).json()) as { status: string; executionContext?: { access: string } };
     expect(spaceOnlyResponse.status).toBe("accepted");
     expect(spaceOnlyResponse.executionContext?.access).toBe("space_context");
+    const traceRequest = {
+      v: spaceOnlyRequest.v,
+      targetWakeLifecycleIdentity: spaceOnlyRequest.targetWakeLifecycleIdentity,
+    };
+    const readTrace = async (path: string) =>
+      (await (
+        await fetchRuntimeTransportJson(
+          explicitSpaceOnly.hub,
+          path,
+          traceRequest
+        )
+      ).json()) as {
+        readStatus: string;
+        executionContext?: unknown;
+      };
+    expect(
+      (await readTrace("/runtime-coordinator/head/trace")).executionContext
+    ).toBeUndefined();
+    const beforeRetirement = await readTrace(
+      "/runtime-coordinator/head/trace?executionContext=1"
+    );
+    expect(beforeRetirement.executionContext).toMatchObject({
+      readStatus: "found",
+      access: "space_context",
+      workspace: "isolated",
+      permissionSource: "context_restriction",
+    });
+    explicitSpaceOnly.storageRecords.delete(
+      buildRuntimeCoordinatorHeadLifecycleStorageKey(
+        traceRequest.targetWakeLifecycleIdentity.targetWakeLifecycleId
+      )
+    );
+    const afterRetirement = await readTrace(
+      "/runtime-coordinator/head/trace?executionContext=1"
+    );
+    expect(afterRetirement.readStatus).toBe("missing");
+    expect(afterRetirement.executionContext).toEqual(
+      beforeRetirement.executionContext
+    );
   });
 
   it.each([

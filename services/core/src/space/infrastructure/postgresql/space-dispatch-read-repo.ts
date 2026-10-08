@@ -952,6 +952,9 @@ function toRuntimeCoordinatorHeadLifecycleTraceRecord(
 ): DispatchTraceRuntimeCoordinatorHeadLifecycleRecord {
   if (response.readStatus === "missing") {
     return {
+      ...(response.executionContext
+        ? { executionContext: response.executionContext }
+        : {}),
       factSource: "runtime_coordinator_head_lifecycle",
       readStatus: "missing",
       reasonCode: response.reasonCode,
@@ -960,6 +963,9 @@ function toRuntimeCoordinatorHeadLifecycleTraceRecord(
   }
   if (response.readStatus === "authority_unavailable") {
     return {
+      ...(response.executionContext
+        ? { executionContext: response.executionContext }
+        : {}),
       factSource: "runtime_coordinator_head_lifecycle",
       readStatus: "authority_unavailable",
       reasonCode: response.reasonCode,
@@ -994,6 +1000,9 @@ function toRuntimeCoordinatorHeadLifecycleTraceRecord(
     };
   }
   return {
+    ...(response.executionContext
+      ? { executionContext: response.executionContext }
+      : {}),
     createdAt: toIsoDateTime(response.lifecycle.createdAtMs),
     duplicateDispatchCount: response.lifecycle.duplicateDispatchCount,
     executionLinkedAt: toNullableIsoDateTime(
@@ -1149,8 +1158,9 @@ async function readSpaceNativeDeliveryTrace(
 ): Promise<SpaceDispatchTraceResponse | null> {
   if (
     input.db &&
-    input.responseContractVersion ===
-      SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION
+    (input.responseContractVersion ===
+      SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION ||
+      input.responseContractVersion === 6)
   ) {
     const delivery =
       await readRemoteAgentNativeDeliveryByDispatchAndConversation({
@@ -1228,9 +1238,18 @@ function projectSpaceDispatchTraceResponseForContractVersion(input: {
     return input.response;
   }
   let response = input.response;
+  const currentHead = response.trace?.runtimeCoordinatorHeadLifecycle;
+  if (response.trace && currentHead?.executionContext) {
+    const { executionContext: _executionContext, ...legacyHead } = currentHead;
+    response = {
+      ...response,
+      trace: { ...response.trace, runtimeCoordinatorHeadLifecycle: legacyHead },
+    };
+  }
   if (
     input.responseContractVersion ===
-    SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS
+      SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS ||
+    input.responseContractVersion === 5
   ) {
     return response;
   }

@@ -2873,6 +2873,7 @@ export {
 export {
   executionContextAssignmentSchema,
   executionContextCompletionSchema,
+  executionContextDiagnosticsSchema,
   executionContextGitMetadataSchema,
   executionContextLegacyAssociationSchema,
   executionContextRequestSchema,

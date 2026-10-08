@@ -358,6 +358,7 @@ export type SpaceApi = {
   getMessageDetails: (
     input: SpaceRequestInput & {
       signalId: string;
+      executionContextVersion?: 1;
     }
   ) => Promise<GetSpaceMessageDetailsResponse>;
   getLinkPreviews: (

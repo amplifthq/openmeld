@@ -11677,6 +11677,9 @@ export class Space extends DurableObject<CoreBindings> {
         this.applySpaceRef(input.spaceId);
         const url = new URL("https://openmeld.local/message-details");
         url.searchParams.set("signalId", input.signalId);
+        if (input.executionContextVersion === 1) {
+          url.searchParams.set("executionContextVersion", "1");
+        }
         const request = this.buildDirectRpcRequest({
           path: `${url.pathname}${url.search}`,
           method: "GET",
@@ -16218,6 +16221,13 @@ export class Space extends DurableObject<CoreBindings> {
         const parsed = getSpaceMessageDetailsInputSchema.safeParse({
           spaceId: this.spaceId,
           signalId: url.searchParams.get("signalId"),
+          ...(url.searchParams.has("executionContextVersion")
+            ? {
+                executionContextVersion: Number(
+                  url.searchParams.get("executionContextVersion")
+                ),
+              }
+            : {}),
         });
         if (!parsed.success) {
           return new Response(
@@ -16228,6 +16238,7 @@ export class Space extends DurableObject<CoreBindings> {
         }
         const details = await this.readSpaceMessageDetails({
           signalId: parsed.data.signalId,
+          executionContextVersion: parsed.data.executionContextVersion,
           viewer: await this.resolveReadViewerIdentity(spaceAccess),
         });
         if (!details) {
@@ -22872,6 +22883,7 @@ export class Space extends DurableObject<CoreBindings> {
       readRuntimeCoordinatorHeadLifecycleTrace: (input) =>
         readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace({
           env: this.bindings,
+          includeExecutionContext: options.responseContractVersion === 7,
           ownerUserId: input.ownerUserId,
           request: input.request,
         }),
@@ -24146,6 +24158,7 @@ export class Space extends DurableObject<CoreBindings> {
   }
   private async readSpaceMessageDetails(input: {
     signalId: string;
+    executionContextVersion?: 1;
     viewer?: SpaceReadViewerIdentity;
   }): Promise<GetSpaceMessageDetailsResponse | null> {
     const signal = this.readSignalById(input.signalId);
@@ -24183,6 +24196,7 @@ export class Space extends DurableObject<CoreBindings> {
       ? (
           await this.readSpaceWakeTraceWaterfall({
             agentLocalOriginFactsViewer: input.viewer,
+            executionContextVersion: input.executionContextVersion,
             ...(wakeClientMessageId
               ? { clientMessageId: wakeClientMessageId }
               : { sourceSignalId: wakeSourceSignal.id }),
@@ -24208,7 +24222,23 @@ export class Space extends DurableObject<CoreBindings> {
         viewerOwnerUserId: input.viewer?.viewerOwnerUserId,
         wakeTraceItems,
       });
+    const visibleWakeSource =
+      input.executionContextVersion === 1 && wakeSourceSignal
+        ? redactSignalForViewer({ signal: wakeSourceSignal, ...input.viewer })
+        : null;
     return projectSpaceMessageDetails({
+      ...(visibleWakeSource?.type === "signal.text"
+        ? {
+            newTaskSource: {
+              signal: visibleWakeSource,
+              threadId:
+                this.resolveThreadContextForSignal(signal.id)?.threadId ??
+                this.resolveThreadContextForSignal(visibleWakeSource.id)
+                  ?.threadId ??
+                null,
+            },
+          }
+        : {}),
       originalErrorByTargetProfileId,
       replySignal,
       signal,
@@ -24302,6 +24332,7 @@ export class Space extends DurableObject<CoreBindings> {
   }
   private async readSpaceWakeTraceWaterfall(input: {
     agentLocalOriginFactsViewer?: SpaceReadViewerIdentity;
+    executionContextVersion?: 1;
     clientMessageId?: string | null;
     sourceSignalId?: string | null;
     targetProfileId?: string;
@@ -24364,7 +24395,9 @@ export class Space extends DurableObject<CoreBindings> {
           match.dispatchId,
           await this.readSpaceDispatchTrace(match.dispatchId, {
             responseContractVersion:
-              SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
+              input.executionContextVersion === 1
+                ? SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION
+                : 6,
           })
         );
       } catch {

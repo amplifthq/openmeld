@@ -1500,7 +1500,10 @@ describe("runtime transport split clients call fallback behavior", () => {
     });
   });
 
-  it("reads RuntimeCoordinator head lifecycle trace from the owner shard without mutation fields", async () => {
+  it.each([
+    false,
+    true,
+  ])("reads owner trace without mutation fields and context opt-in %s", async (includeExecutionContext) => {
     const { env, stub } = createEnv();
     const targetWakeLifecycleIdentity = projectTargetWakeLifecycleIdentity({
       clientMessageId: "client-message-1",
@@ -1550,6 +1553,7 @@ describe("runtime transport split clients call fallback behavior", () => {
     const response =
       await readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace({
         env,
+        includeExecutionContext,
         ownerUserId: "owner",
         request: {
           v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
@@ -1571,8 +1575,16 @@ describe("runtime transport split clients call fallback behavior", () => {
     }
     const [url, init] = firstCall;
     expect(url).toBe(
-      "https://runtime-transport.internal/runtime-coordinator/head/trace"
+      `https://runtime-transport.internal/runtime-coordinator/head/trace${includeExecutionContext ? "?executionContext=1" : ""}`
     );
+    if (includeExecutionContext) {
+      expect(response.executionContext).toEqual({
+        readStatus: "authority_unavailable",
+        reasonCode: "execution_context.diagnostics_not_reported",
+      });
+    } else {
+      expect(response).not.toHaveProperty("executionContext");
+    }
     expect(JSON.parse(String(init?.body))).toEqual({
       v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
       targetWakeLifecycleIdentity,

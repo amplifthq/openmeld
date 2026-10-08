@@ -1099,7 +1099,7 @@ describe("space dispatch read repo", () => {
       waitingCategory: "space_access_unavailable",
       waitingFor: "space_access_check",
     },
-  ])("exposes $reasonCode only in trace version 5", async (waiting) => {
+  ])("negotiates $reasonCode and task context without changing older trace shapes", async (waiting) => {
     vi.mocked(listRecentOpenMeldDaemonOpsDecisions).mockResolvedValue([]);
     const readRuntimeCoordinatorHeadLifecycleTrace = vi
       .fn()
@@ -1107,6 +1107,13 @@ describe("space dispatch read repo", () => {
         Promise.resolve({
           ok: true,
           readStatus: "found",
+          executionContext: {
+            readStatus: "found",
+            contextId: "11111111-1111-4111-8111-111111111111",
+            access: "space_context",
+            permissionSource: "context_restriction",
+            workspace: "isolated",
+          },
           lifecycle: {
             createdAtMs: 1_700_000_001_100,
             duplicateDispatchCount: 0,
@@ -1134,7 +1141,7 @@ describe("space dispatch read repo", () => {
           },
         })
       );
-    for (const version of [undefined, 2, 3, 4, 5] as const) {
+    for (const version of [undefined, 2, 3, 4, 5, 6, 7] as const) {
       const result = await readSpaceDispatchTrace({
         db: createTraceDb({ runtimeCoordinatorExecutionRow: undefined }),
         dispatchId: "dispatch-1",
@@ -1147,7 +1154,7 @@ describe("space dispatch read repo", () => {
         status: "waiting",
         runtimeCoordinatorExecutionId: null,
         waitingBoundary:
-          version === 5
+          version !== undefined && version >= 5
             ? {
                 reasonCode: waiting.reasonCode,
                 waitingFor: waiting.waitingFor,
@@ -1155,6 +1162,18 @@ describe("space dispatch read repo", () => {
               }
             : null,
       });
+      if (version === 7) {
+        expect(
+          result.trace?.runtimeCoordinatorHeadLifecycle?.executionContext
+        ).toMatchObject({
+          access: "space_context",
+          permissionSource: "context_restriction",
+        });
+      } else {
+        expect(
+          result.trace?.runtimeCoordinatorHeadLifecycle
+        ).not.toHaveProperty("executionContext");
+      }
     }
   });
 

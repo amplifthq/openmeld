@@ -115,6 +115,12 @@ it("tells a Space-only parallel task when repository review is unavailable", () 
   expect(plan.userPrompt).toContain(
     "Do not claim to have reviewed code or a PR diff"
   );
+  expect(plan.userPrompt).toContain(
+    "The requester can choose New task to use the Agent's current permitted settings"
+  );
+  expect(plan.userPrompt).toContain(
+    "verify those tools before claiming access"
+  );
 });
 
 it("passes the accepted Project to Task association guidance without granting access", () => {

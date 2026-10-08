@@ -666,6 +666,7 @@ export const recordRuntimeTransportRuntimeCoordinatorHeadWaiting =
 export const readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace =
   async (input: {
     env: CoreBindings;
+    includeExecutionContext?: boolean;
     ownerUserId: string;
     request: RuntimeTransportRuntimeCoordinatorHeadLifecycleTraceRequest;
   }): Promise<RuntimeTransportRuntimeCoordinatorHeadLifecycleTraceResponse> => {
@@ -687,7 +688,9 @@ export const readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace =
     const response = await callRuntimeTransportApi({
       env: input.env,
       ownerUserId: input.ownerUserId,
-      path: "/runtime-coordinator/head/trace",
+      path: input.includeExecutionContext
+        ? "/runtime-coordinator/head/trace?executionContext=1"
+        : "/runtime-coordinator/head/trace",
       body: parsedRequest.data,
     });
     const parsed =
@@ -701,6 +704,15 @@ export const readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace =
         reasonCode: "runtime_coordinator.head_lifecycle_trace_unavailable",
         targetWakeLifecycleId:
           parsedRequest.data.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+      };
+    }
+    if (input.includeExecutionContext && !parsed.data.executionContext) {
+      return {
+        ...parsed.data,
+        executionContext: {
+          readStatus: "authority_unavailable",
+          reasonCode: "execution_context.diagnostics_not_reported",
+        },
       };
     }
     return parsed.data;

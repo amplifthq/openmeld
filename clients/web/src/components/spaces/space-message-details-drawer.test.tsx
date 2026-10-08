@@ -10,6 +10,7 @@ import type {
 	GetSpaceMessageDetailsResponse,
 	PostSpaceWakeStopResponse,
 } from "@openmeld/schemas/types";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	cleanup,
 	fireEvent,
@@ -30,6 +31,8 @@ import type { SpaceWakeStopTargetResolution } from "#/lib/spaces/wake-stop-targe
 import { SpaceMessageDetailsDrawer } from "./space-message-details-drawer";
 
 const CODE_MODE_PATTERN = /codemode/iu;
+const SPACE_ONLY_PATTERN = /Space context only/;
+const CONTINUED_CONVERSATION_PATTERN = /Continued conversation/;
 const { copyTextToClipboardMock, toastMock } = vi.hoisted(() => ({
 	copyTextToClipboardMock: vi.fn(),
 	toastMock: {
@@ -42,6 +45,13 @@ import type { SpaceExecutionRecoveryHandler } from "./space-execution-recovery-a
 import type { SpaceMessageReferencesById } from "./space-message-reference";
 
 const useQueryMock = vi.hoisted(() => vi.fn());
+const postNewTaskMessageMock = vi.hoisted(() => vi.fn());
+vi.mock("#/lib/spaces/api", () => ({
+	createUnscopedWebSpaceApi: () => ({
+		postNormalMessage: postNewTaskMessageMock,
+		postThreadSignal: postNewTaskMessageMock,
+	}),
+}));
 const REPORT_POINTER_COPY_PATTERN = /Message text is not included/;
 const COMPUTERS_RECOVERY_HREF_PATTERN = /\/computers$/u;
 const REFERENCED_SPACE_ID = "d".repeat(64);
@@ -102,6 +112,78 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 describe("SpaceMessageDetailsDrawer", () => {
+	it("reviews a Space-only request before sending one new task with current Agent settings", async () => {
+		const details = createWakeSuccessReplyDetails();
+		const target = details.wakeContext.targets[0];
+		if (!target) {
+			throw new Error("Expected a Wake target");
+		}
+		target.taskContext = {
+			assignment: {
+				readStatus: "found",
+				contextId: null,
+				access: "space_context",
+				permissionSource: "context_restriction",
+				workspace: "isolated",
+			},
+			conversationResume: { status: "continued" },
+		};
+		details.newTaskSource = {
+			sourceSignalId: "sig-source",
+			sourceRevision: 1,
+			threadId: null,
+			text: "Review the exact PR with permitted GitHub tools.",
+		};
+		useQueryMock.mockReturnValue(createQueryResult({ data: details }));
+		let resolvePending: ((value: unknown) => void) | undefined;
+		const pending = new Promise<unknown>((resolve) => {
+			resolvePending = resolve;
+		});
+		postNewTaskMessageMock.mockReturnValue(pending);
+		renderMessageDetailsPanel({
+			item: createAgentReplyTimelineItem(),
+			canStartNewTask: true,
+			profileId: "human-1",
+		});
+		expect(screen.getByText(SPACE_ONLY_PATTERN)).toBeTruthy();
+		expect(screen.getByText(CONTINUED_CONVERSATION_PATTERN)).toBeTruthy();
+		fireEvent.click(screen.getByText("Start a new task"));
+		expect(screen.getByText(details.newTaskSource.text)).toBeTruthy();
+		expect(postNewTaskMessageMock).not.toHaveBeenCalled();
+		const reviewedText = details.newTaskSource.text;
+		// A cache update after review must not replace the confirmed request.
+		details.newTaskSource.text = "A different request that was not reviewed.";
+		details.newTaskSource.sourceRevision = 3;
+		const send = screen.getByText("Send new task");
+		fireEvent.click(send);
+		fireEvent.click(send);
+		await waitFor(() =>
+			expect(postNewTaskMessageMock).toHaveBeenCalledTimes(1)
+		);
+		expect(postNewTaskMessageMock.mock.calls[0]?.[0]).toMatchObject({
+			contextSelection: { mode: "new" },
+			text: reviewedText,
+			messageEnvelope: { activationTargets: [target.targetProfileId] },
+		});
+		resolvePending?.({
+			v: 1,
+			id: "sig-new-task",
+			spaceId: "space-123",
+			ts: 1_700_000_000_000,
+			profile: { kind: "human", profileId: "human-1" },
+			type: "signal.text",
+			data: { text: reviewedText },
+		});
+		await waitFor(() =>
+			expect(
+				screen.getByText(
+					"New task sent. Follow its progress in the conversation."
+				)
+			).toBeTruthy()
+		);
+		expect(screen.queryByText("Start a new task")).toBeNull();
+		expect(screen.getByText(CONTINUED_CONVERSATION_PATTERN)).toBeTruthy();
+	});
 	afterEach(() => {
 		cleanup();
 		copyTextToClipboardMock.mockReset();
@@ -1804,6 +1886,8 @@ function createReviewComputerPlan(input: {
 }
 
 function renderMessageDetailsPanel(input?: {
+	canStartNewTask?: boolean;
+	profileId?: string;
 	agentRecoveryPlansByProfileId?: ReadonlyMap<
 		string,
 		AgentProfileReplyRecoveryPlan
@@ -1832,38 +1916,42 @@ function renderMessageDetailsPanel(input?: {
 }) {
 	const item = input?.item ?? createTimelineItem({ id: "sig-human" });
 	return render(
-		<SpaceMessageDetailsDrawer
-			agentRecoveryPlansByProfileId={input?.agentRecoveryPlansByProfileId}
-			canJumpToMessage={
-				input?.canJumpToMessage ??
-				((signalId) =>
-					signalId === "sig-source" || signalId === "sig-agent-reply")
-			}
-			diagnosticReportStatus="idle"
-			errorLogMessage="message details report failed"
-			item={item}
-			onJumpToMessage={input?.onJumpToMessage ?? vi.fn()}
-			onOpenChange={input?.onOpenChange ?? vi.fn()}
-			onRecoverExecution={input?.onRecoverExecution}
-			onReportMessage={input?.onReportMessage ?? vi.fn()}
-			onViewInGraph={input?.onViewInGraph}
-			onWakeStopRequest={input?.onWakeStopRequest}
-			open={true}
-			orgSlug="acme"
-			replyItems={input?.replyItems ?? []}
-			spaceId="space-123"
-			spaceReferencesById={input?.spaceReferencesById}
-			targetProfileDisplayNamesByProfileId={
-				input?.targetProfileDisplayNamesByProfileId
-			}
-			threadRootSignalId={input?.threadRootSignalId}
-			wakeFailureTargetContextsByProfileId={
-				input?.wakeFailureTargetContextsByProfileId
-			}
-			wakeIssueEntries={input?.wakeIssueEntries}
-			wakeProgressEntries={input?.wakeProgressEntries}
-			wakeStopTarget={input?.wakeStopTarget}
-		/>
+		<QueryClientProvider client={new QueryClient()}>
+			<SpaceMessageDetailsDrawer
+				agentRecoveryPlansByProfileId={input?.agentRecoveryPlansByProfileId}
+				canJumpToMessage={
+					input?.canJumpToMessage ??
+					((signalId) =>
+						signalId === "sig-source" || signalId === "sig-agent-reply")
+				}
+				canStartNewTask={input?.canStartNewTask}
+				diagnosticReportStatus="idle"
+				errorLogMessage="message details report failed"
+				item={item}
+				onJumpToMessage={input?.onJumpToMessage ?? vi.fn()}
+				onOpenChange={input?.onOpenChange ?? vi.fn()}
+				onRecoverExecution={input?.onRecoverExecution}
+				onReportMessage={input?.onReportMessage ?? vi.fn()}
+				onViewInGraph={input?.onViewInGraph}
+				onWakeStopRequest={input?.onWakeStopRequest}
+				open={true}
+				openMeldProfileId={input?.profileId}
+				orgSlug="acme"
+				replyItems={input?.replyItems ?? []}
+				spaceId="space-123"
+				spaceReferencesById={input?.spaceReferencesById}
+				targetProfileDisplayNamesByProfileId={
+					input?.targetProfileDisplayNamesByProfileId
+				}
+				threadRootSignalId={input?.threadRootSignalId}
+				wakeFailureTargetContextsByProfileId={
+					input?.wakeFailureTargetContextsByProfileId
+				}
+				wakeIssueEntries={input?.wakeIssueEntries}
+				wakeProgressEntries={input?.wakeProgressEntries}
+				wakeStopTarget={input?.wakeStopTarget}
+			/>
+		</QueryClientProvider>
 	);
 }
 

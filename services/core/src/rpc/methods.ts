@@ -2797,6 +2797,7 @@ export type GetSpaceWakeTraceWaterfallInput = {
 export type GetSpaceMessageDetailsInput = {
   spaceId: string;
   signalId: string;
+  executionContextVersion?: 1;
   password?: string;
   context?: CoreRpcContextInput;
   spaceAccess?: SpaceAccessContext;
@@ -22045,6 +22046,9 @@ export async function rpcGetSpaceMessageDetails(
   const parsed = getSpaceMessageDetailsInputSchema.safeParse({
     spaceId: input.spaceId,
     signalId: input.signalId,
+    ...(input.executionContextVersion
+      ? { executionContextVersion: input.executionContextVersion }
+      : {}),
   });
   if (!parsed.success) {
     throw createCoreRpcHttpError({
@@ -22063,6 +22067,9 @@ export async function rpcGetSpaceMessageDetails(
   return await stub.rpcGetMessageDetails({
     spaceId,
     signalId: parsed.data.signalId,
+    ...(parsed.data.executionContextVersion
+      ? { executionContextVersion: parsed.data.executionContextVersion }
+      : {}),
     ...access,
   });
 }

@@ -13,6 +13,7 @@ import {
   MAX_PROFILE_NAME_LENGTH,
   MAX_TEXT_LENGTH,
 } from "../protocol/constants";
+import { executionContextDiagnosticsSchema } from "../protocol/execution-context";
 import { targetWakeLifecycleIdentitySchema } from "../protocol/target-wake-lifecycle";
 import { remoteAgentWorkerRuntimeDiagnosticsResponseSchema } from "../runtime/remote-agent-worker";
 import { centerAgentTurnDiagnosticSchema } from "./center-agent-turn-diagnostics";
@@ -24,9 +25,9 @@ const trimmedNonEmptyStringSchema = z.string().trim().min(1);
 const SPACE_DISPATCH_TRACE_TIMEOUT_POLICY_MAX_MS = 604_800_000;
 const SPACE_DISPATCH_TRACE_PROMPT_LENGTH_MAX = 1_000_000 as const;
 export const SPACE_DISPATCH_TRACE_PROMPT_PREVIEW_MAX_CHARS = 1200 as const;
-export const SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION = 6 as const;
+export const SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION = 7 as const;
 export const SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS =
-  5 as const;
+  6 as const;
 export const SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_HEADER =
   "x-openmeld-space-dispatch-trace-response-version";
 const SPACE_DISPATCH_TRACE_INVALID_OUTPUT_PREVIEW_MAX_CHARS = 180 as const;
@@ -35,6 +36,7 @@ export const spaceDispatchTraceResponseContractVersionSchema = z.union([
   z.literal(2),
   z.literal(3),
   z.literal(4),
+  z.literal(5),
   z.literal(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS),
   z.literal(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION),
 ]);
@@ -43,6 +45,7 @@ export const spaceDispatchTraceResponseContractVersionHeaderSchema = z
     "2",
     "3",
     "4",
+    "5",
     String(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS),
     String(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION),
   ])
@@ -740,6 +743,7 @@ const spaceDispatchTraceRuntimeCoordinatorHeadWaitingBoundarySchema =
   ]);
 
 const spaceDispatchTraceRuntimeCoordinatorHeadFoundCommonShape = {
+  executionContext: executionContextDiagnosticsSchema.optional(),
   createdAt: ISO_DATE_TIME_SCHEMA,
   duplicateDispatchCount: z.int().min(0),
   executionLinkedAt: nullableIsoDateTimeSchema,
@@ -763,6 +767,7 @@ const spaceDispatchTraceRuntimeCoordinatorHeadFoundCommonShape = {
 } as const;
 
 const spaceDispatchTraceRuntimeCoordinatorHeadMissingSchema = z.strictObject({
+  executionContext: executionContextDiagnosticsSchema.optional(),
   factSource: z.literal("runtime_coordinator_head_lifecycle"),
   readStatus: z.literal("missing"),
   reasonCode: z.literal("runtime_coordinator.head_lifecycle_not_found"),
@@ -771,6 +776,7 @@ const spaceDispatchTraceRuntimeCoordinatorHeadMissingSchema = z.strictObject({
 
 const spaceDispatchTraceRuntimeCoordinatorHeadAuthorityUnavailableSchema =
   z.strictObject({
+    executionContext: executionContextDiagnosticsSchema.optional(),
     factSource: z.literal("runtime_coordinator_head_lifecycle"),
     readStatus: z.literal("authority_unavailable"),
     reasonCode: trimmedNonEmptyStringSchema.max(160),

@@ -710,6 +710,7 @@ function ThreadSelectedMessageDetails(input: {
 				Boolean(panelInput.onShowMessageInMain) &&
 				signalId === input.activeThread?.rootSignalId
 			}
+			canStartNewTask={panelInput.readOnly !== true}
 			diagnosticReportStatus={resolveMessageDetailsDiagnosticReportStatus({
 				isPending: panelInput.isDiagnosticReportPending(
 					input.messageDetailsItem.id

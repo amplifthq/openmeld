@@ -8514,8 +8514,8 @@ maintainability without weakening UX.
 `packages/schemas/src/schemas/http/space-dispatch-trace.ts` owns both the
 legacy and current strict trace response schemas. A caller requests the current
 contract by sending
-`x-openmeld-space-dispatch-trace-response-version: 3`. Core also accepts the
-frozen version `2`; without the header, Core projects the legacy version `1`
+`x-openmeld-space-dispatch-trace-response-version: 7`. Core also accepts
+versions `2` through `6`; without the header, Core projects the legacy version `1`
 subset. Version `2` omits every version-3-only head no-execution detail,
 including disabled-Local-Agent, reliable Usage, and newer canonical blocker
 families, while retaining the surrounding generic dispatch and attempt
@@ -8524,14 +8524,41 @@ schema and omit newer values instead of substituting a misleading historical
 Binding reason or sending a payload an already-published strict CLI cannot
 parse.
 
-The current schema accepts the legacy subset, so a new CLI remains compatible
-with an older Core that ignores the header. A new Core remains compatible with
-an older CLI because an explicit version `2` request receives the frozen
-projection and a missing header selects version `1`. Deploy Core and Gateway
-receivers before a new CLI starts requesting version `3`; rollback to a
-version-2 CLI remains safe while those cloud receivers continue accepting both
-versions. Clients must not rebuild current waiting truth from historical
-dispatch attempts when the current head projection is absent.
+Version 7 adds optional `executionContext` diagnostics to the Head trace,
+including a `missing` Head whose exact Wake-to-Context association remains.
+The owner reads that association and validates its Space and target. The
+projection contains only Context id, assigned access, permission source and
+workspace; it contains no native history or new execution authority. A legacy
+assignment without `permissionSource` is reported as `context_restriction`,
+without asserting that a human explicitly chose that restriction. Responses
+negotiated as v1–6 omit this field. The v6 native-delivery projection and v5
+waiting evidence retain their existing version gates.
+
+The existing internal Head trace route accepts the opt-in
+`?executionContext=1` query. Its request body is unchanged. Old callers
+receive their original strict shape; an older shard that ignores the query
+reports no Context diagnostics, which the new reader presents as unavailable.
+This adds no storage writer, migration, or dependency on retaining transient
+Heads.
+
+Message details opts in separately with `executionContextVersion=1`. New
+Gateway/Core readers forward it; old readers ignore it and keep their original
+response. Only opted-in responses add each target's task-context projection
+and an eligible readable `newTaskSource`. Existing local-origin redaction
+also removes Context identifiers for non-owners. The source copy preserves
+Space-owned text/file revision facts and grants no permission; its new Wake
+uses the existing message-authoring contract.
+
+Contract impact: deploy Core and Gateway trace-v7 receivers before publishing
+a CLI that requests v7; old Gateways reject unknown trace versions. Existing
+CLIs continue requesting v2–6, and old/new Services retain setup, Wake, Space
+Action, status and recovery compatibility. Web's Message details opt-in
+degrades to the old details when older readers ignore it. No execution epoch,
+required Service/Skills update, or new Cloudflare resource is needed. The
+updated local prompt guidance is an advisory available component change.
+Rollback the new CLI caller before removing v7 receivers; Web can roll back
+independently. Clients must not rebuild missing Context or waiting truth from
+current Profile preferences or historical dispatch attempts.
 
 ## OpenMeld Request Context Header Text Encoding
 

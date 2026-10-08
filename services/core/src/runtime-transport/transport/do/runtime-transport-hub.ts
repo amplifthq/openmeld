@@ -414,6 +414,7 @@ import {
 } from "../../application/deleted-agent-profile-wake-cancellation";
 import {
   ExecutionContextSelectionError,
+  readWakeExecutionContextDiagnostics,
   recordExecutionContextCandidate,
   recordExecutionContextCompletionInTransaction,
   resolveExecutionContextTask,
@@ -12185,7 +12186,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         };
       return Response.json(response, { status: 400 });
     }
-    const response = await this.readRuntimeCoordinatorHeadLifecycleTrace(
+    let response = await this.readRuntimeCoordinatorHeadLifecycleTrace(
       parsed.data.targetWakeLifecycleIdentity.targetWakeLifecycleId
     ).catch((error) => {
       console.warn(
@@ -12206,6 +12207,24 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           parsed.data.targetWakeLifecycleIdentity.targetWakeLifecycleId,
       } satisfies RuntimeTransportRuntimeCoordinatorHeadLifecycleTraceResponse;
     });
+    // Old callers retain their exact response shape. Old shards ignore this
+    // opt-in query and return the existing trace, without the new projection.
+    if (new URL(request.url).searchParams.get("executionContext") === "1") {
+      const identity = parsed.data.targetWakeLifecycleIdentity;
+      const executionContext = await readWakeExecutionContextDiagnostics({
+        storage: this.ctx.storage,
+        targetWakeLifecycleId: identity.targetWakeLifecycleId,
+        spaceId: identity.spaceId,
+        targetProfileId: identity.targetProfileId,
+      }).catch((error) => ({
+        readStatus: "authority_unavailable" as const,
+        reasonCode:
+          error instanceof ExecutionContextSelectionError
+            ? error.reasonCode
+            : "execution_context.diagnostics_unavailable",
+      }));
+      response = { ...response, executionContext };
+    }
     const validated =
       runtimeTransportRuntimeCoordinatorHeadLifecycleTraceResponseSchema.safeParse(
         response

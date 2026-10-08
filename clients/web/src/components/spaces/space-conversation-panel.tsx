@@ -976,6 +976,7 @@ function SpaceConversationPanelContent(
 					canJumpToMessage={(signalId) =>
 						loadedMainTimelineSignalIds.has(signalId)
 					}
+					canStartNewTask={canSendMessage}
 					diagnosticReportStatus={resolveMessageDetailsDiagnosticReportStatus({
 						isPending: input.isDiagnosticReportPending(messageDetailsItem.id),
 						isSent: input.isDiagnosticReportSent(messageDetailsItem.id),

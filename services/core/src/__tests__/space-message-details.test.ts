@@ -12,6 +12,81 @@ const SPACE_ID = "space-1";
 const SENT_AT_MS = Date.UTC(2026, 5, 4, 6, 8);
 
 describe("space Message Details projection", () => {
+  it.each([
+    "ready",
+    "recalled",
+    "unrestricted",
+    "not_opted_in",
+  ] as const)("offers a reviewed request copy only for eligible Space-only work (%s)", (state) => {
+    const source = createTextSignal({
+      id: "sig-restricted-source",
+      profile: humanProfile(),
+      text: "Review the PR using permitted tools.",
+      messageEnvelope: {
+        activationTargets: ["agt-codex"],
+        referenceTargets: [],
+        text: "Review the PR using permitted tools.",
+      },
+    });
+    source.data.meta = {
+      clientMessageId: "client-restricted",
+      messageRevision: 2,
+    };
+    source.data.files = [
+      {
+        fileId: "review-notes",
+        revision: 3,
+        name: "notes.md",
+        mimeType: "text/markdown",
+        sizeBytes: 42,
+      },
+    ];
+    if (state === "recalled") {
+      source.data.meta.recalledAt = SENT_AT_MS;
+    }
+    const trace = createWakeTraceItem({
+      reasonCode: null,
+      status: "replied",
+      targetLabel: "Codex",
+      targetProfileId: "agt-codex",
+      terminalStep: "reply_signal",
+    });
+    trace.executionContext.taskContext = {
+      assignment: {
+        readStatus: "found",
+        contextId: null,
+        access: state === "unrestricted" ? "workspace" : "space_context",
+        permissionSource:
+          state === "unrestricted" ? "agent_settings" : "context_restriction",
+        workspace: "isolated",
+      },
+      conversationResume: { status: "continued" },
+    };
+    const details = projectSpaceMessageDetails({
+      signal: source,
+      visibleSignal: source,
+      replySignal: null,
+      visibleReplySignal: null,
+      spaceId: SPACE_ID,
+      wakeSourceSignal: source,
+      wakeTraceItems: [trace],
+      newTaskSource:
+        state === "not_opted_in"
+          ? undefined
+          : { signal: source, threadId: "thread-1" },
+    });
+    if (state === "ready") {
+      expect(details.newTaskSource).toEqual({
+        sourceSignalId: source.id,
+        sourceRevision: 2,
+        threadId: "thread-1",
+        text: source.data.text,
+        files: source.data.files,
+      });
+    } else {
+      expect(details).not.toHaveProperty("newTaskSource");
+    }
+  });
   it("keeps a bounded Local Agent original error owner-only in Message Details", () => {
     const wakeSourceSignal = createTextSignal({
       id: "sig-original-error",

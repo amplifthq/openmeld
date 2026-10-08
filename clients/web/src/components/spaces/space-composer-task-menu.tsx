@@ -122,7 +122,7 @@ export function SpaceComposerTaskMenu(input: {
 				>
 					<GitBranchIcon aria-hidden="true" />
 					<span className="max-w-36 truncate">
-						{input.choice?.label ?? "Task"}
+						{input.choice?.label ?? "Continue automatically"}
 					</span>
 				</DropdownMenuTrigger>
 				<FluidDropdownMenuContent
@@ -151,6 +151,11 @@ export function SpaceComposerTaskMenu(input: {
 					) : null}
 					<p className="px-2 py-1 text-muted-foreground text-xs">
 						{`New tasks keep the Agent's tools and permissions. Up to ${AGENT_PROFILE_WORK_CONCURRENCY_LIMIT} tasks can run together; tasks writing to the same folder wait for each other.`}
+					</p>
+					<p className="px-2 py-1 text-muted-foreground text-xs">
+						Automatic continuation keeps an earlier task's restrictions,
+						including Space-only access. Choose New task to use the Agent's
+						current settings.
 					</p>
 					{sources.length > 0 ? (
 						<>

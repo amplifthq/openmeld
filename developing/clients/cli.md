@@ -1889,7 +1889,10 @@ CLI trace reads the shared observability model. It must not become a direct Post
 reader, direct Durable Object reader, or second trace system.
 
 The current CLI explicitly requests dispatch-trace response contract version
-`3`. Its default Agent View surfaces an authoritative RuntimeCoordinator
+`7`. The detailed trace includes the Core-owned retained task assignment when
+available, alongside the Service's existing conversation and working-directory
+observations. An unavailable Context projection is not current Agent settings.
+Its default Agent View surfaces an authoritative RuntimeCoordinator
 head-waiting reason, hard deadline, wait target, and recovery action before it
 considers historical attempt errors. An older Core may return the legacy
 subset; the CLI must still parse that response and report only the evidence it

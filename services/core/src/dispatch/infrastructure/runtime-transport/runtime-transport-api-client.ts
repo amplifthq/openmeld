@@ -37,6 +37,7 @@ export type RuntimeTransportApiPath =
   | "/runtime-coordinator/head/pre-agent-stop"
   | "/runtime-coordinator/head/waiting"
   | "/runtime-coordinator/head/trace"
+  | "/runtime-coordinator/head/trace?executionContext=1"
   | "/runtime-coordinator/interaction/read"
   | "/runtime-coordinator/execution-input/resolve"
   | "/runtime-coordinator/execution-input"
