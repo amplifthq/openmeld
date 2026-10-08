@@ -2685,16 +2685,12 @@ tokens, raw provider payloads, another member's history, or Routine history.
 Execution status, failure evidence, and publication are independent facts; a
 reader must not infer any one from the others or from user-facing copy.
 
-Callers that opt in with `includeTaskContinuation: true` also receive the
-admitted Task continuation's subscription, watched Task Handle, child terminal
-outcome and bounded delegation snapshot. These are frozen source facts from
-the existing envelope, not another execution authority. The enclosing turn
-status remains the coordinator's status. Child execution completion does not
-prove the business goal is complete; a published blocker is still a result.
-Current authorized result reads remain required before describing its contents.
-Missing runtime evidence does not establish a context failure or missing result.
-Legacy callers, dispatch traces and Routine diagnostics keep their existing
-shape because they do not request this projection.
+The admitted Task continuation context and existing authorized result readers
+provide child execution evidence. The native turn diagnostic remains the
+coordinator's evidence. Child execution completion does not prove the business
+goal is complete; a published blocker is still a result. Current authorized
+result reads remain required before describing its contents. Missing runtime
+evidence does not establish a context failure or missing result.
 
 For an interactive Center Agent turn, that self-diagnostic projection also
 joins bounded exact runtime evidence by the native-delivery submission id. Core

@@ -13,7 +13,6 @@ import { readRemoteAgentRuntimeDiagnosticsForConversation } from "./remote-agent
 export async function attachCenterAgentTurnRuntimeEvidence(input: {
   currentDelivery?: RemoteAgentNativeDeliveryRecord;
   deliveries: RemoteAgentNativeDeliveryRecord[];
-  includeTaskContinuation?: boolean;
   remoteAgentWorker: CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"] | undefined;
 }): Promise<CenterAgentTurnDiagnostic[]> {
   const runtimeSourceByConversationId = new Map<
@@ -35,8 +34,7 @@ export async function attachCenterAgentTurnRuntimeEvidence(input: {
       runtimeConversationId,
       turn: projectRemoteAgentNativeDeliveryTurnDiagnostic(
         delivery,
-        input.currentDelivery ?? delivery,
-        input.includeTaskContinuation
+        input.currentDelivery ?? delivery
       ),
     };
   });

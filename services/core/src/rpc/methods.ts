@@ -1934,7 +1934,6 @@ export async function rpcCenterAgentReadTurnDiagnostics(
   const turns = await attachCenterAgentTurnRuntimeEvidence({
     currentDelivery,
     deliveries: [currentDelivery, ...previousDeliveries],
-    includeTaskContinuation: parsed.data.includeTaskContinuation,
     remoteAgentWorker: env.OPENMELD_REMOTE_AGENT_WORKER,
   });
   return centerAgentReadTurnDiagnosticsResponseSchema.parse({

@@ -1313,15 +1313,6 @@ remains readable only for the still-deployed beta runtime. These bounded
 diagnostics are observations, never proof that an entire deployment target is
 drained or that pending callbacks and delegated work have finished.
 
-The Center Agent self-diagnostic RPC accepts optional
-`includeTaskContinuation: true`. Its updated Remote tool opts in to receive
-optional `taskContinuation` source evidence from the frozen native envelope.
-The source child outcome and enclosing coordinator status remain distinct.
-Omitting the opt-in preserves the exact existing response shape, including
-dispatch-trace and Routine callers. Deploy the Core reader/projector before the
-Remote opt-in caller. No CLI, Service, setup, Wake or publication wire floor
-changes; old local clients retain their current diagnostics.
-
 The dispatch-trace HTTP response can embed this diagnostic contract when the
 caller explicitly requests runtime diagnostics. Dispatch-trace response
 contract 4 admits both runtime diagnostic versions. Gateway requires version 4
