@@ -901,6 +901,8 @@ function SpaceComposerProfileToken(
 						agentControllerRef:
 							pickerItem?.memberEntry.agentControllerRef ?? null,
 						avatarImageUrl: pickerItem?.memberEntry.avatarUrl ?? null,
+						avatarStyle: pickerItem?.memberEntry.avatarStyle,
+						avatarModelId: pickerItem?.memberEntry.avatarModelId,
 						isCenterAgent: element.profileId === context.centerAgentProfileId,
 						profileId: element.profileId,
 						profileKind,
@@ -1091,6 +1093,8 @@ function SpaceComposerMentionGroup(input: {
 					<SpaceProfileIcon
 						agentControllerRef={item.memberEntry.agentControllerRef}
 						avatarImageUrl={item.memberEntry.avatarUrl}
+						avatarModelId={item.memberEntry.avatarModelId}
+						avatarStyle={item.memberEntry.avatarStyle}
 						className="mr-2 size-5"
 						isCenterAgent={
 							item.suggestion.profileId === context.centerAgentProfileId

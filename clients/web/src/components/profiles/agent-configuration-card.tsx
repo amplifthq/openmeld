@@ -59,7 +59,12 @@ export function AgentConfigurationEditorCard(input: {
 					input.className
 				)}
 			>
-				<div className="flex items-start gap-3">
+				<div
+					className={cn(
+						"flex gap-3",
+						input.description ? "items-start" : "items-center"
+					)}
+				>
 					<span className="grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground [&_svg]:size-4">
 						{input.icon}
 					</span>
@@ -207,7 +212,12 @@ export function AgentConfigurationCard(input: {
 					initialFocus={input.initialFocus}
 				>
 					<SurfaceProvider value={surface + 1}>
-						<div className="mb-4 flex items-start gap-3 pr-8">
+						<div
+							className={cn(
+								"mb-4 flex gap-3 pr-8",
+								input.description ? "items-start" : "items-center"
+							)}
+						>
 							<span className="grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground [&_svg]:size-4">
 								{input.icon}
 							</span>

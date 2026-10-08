@@ -20,7 +20,7 @@ import {
 } from "../../src/components/spaces/space-active-wake-presentation";
 import type { ComposerDraftAuthoredMention } from "../../src/lib/composer-draft-storage";
 import { demoTemplateReply } from "./demo-conversation-content";
-import { buildDemoSpaceMembers } from "./demo-members";
+import { buildDemoSpaceMembers, DEMO_CENTER_PROFILE_ID } from "./demo-members";
 
 const WORD_BOUNDARY = /\s+/u;
 
@@ -83,7 +83,9 @@ export function DemoConversationProvider({
 			});
 			const id = crypto.randomUUID();
 			const wakeTargetProfileIds =
-				submission.messageEnvelope?.activationTargets ?? [];
+				input.spaceId === "center-agent"
+					? [DEMO_CENTER_PROFILE_ID]
+					: (submission.messageEnvelope?.activationTargets ?? []);
 			const replies = snapshot.agents
 				.filter((agent) => wakeTargetProfileIds.includes(agent.profileId))
 				.map((agent) => ({

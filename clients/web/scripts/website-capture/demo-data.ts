@@ -11,10 +11,12 @@ import {
 	useConversationSidebarFixture,
 } from "../../src/test-support/conversation-sidebar-fixture";
 import { demoHumanAvatars } from "./demo-avatars";
+import { useDemoCenterAvatar } from "./demo-center-identity";
 import { DEMO_PRIMARY_SPACE_NAME } from "./demo-conversation-content";
 import { useDemoConversationState } from "./demo-conversation-state";
 import {
 	buildDemoSpaceMembers,
+	DEMO_CENTER_PROFILE_ID,
 	DEMO_CLAUDE_PROFILE_ID,
 	DEMO_CODEX_PROFILE_ID,
 } from "./demo-members";
@@ -43,9 +45,9 @@ export const demoAgentProfiles: AuthProfileView[] = [
 export const spaceNames = [
 	DEMO_PRIMARY_SPACE_NAME,
 	"Customer research",
-	"Website refresh",
+	"Release handoff",
 ];
-const ids = ["release", "research", "website"];
+const ids = ["release", "research", "agent-work"];
 const members = buildDemoSpaceMembers("release");
 const memberPreviews = [
 	...members.humans.map((member) => ({
@@ -63,21 +65,53 @@ const memberPreviews = [
 ];
 export const demoSpaces = spaceNames.map((name, index) => ({
 	...fixtureSpace(ids[index], name, index === 0),
-	memberPreviews,
-	activeMemberCount: 5,
-	activeHumanCount: 2,
+	memberPreviews:
+		index === 2
+			? memberPreviews.filter((member) => member.profileKind === "agent")
+			: memberPreviews,
+	activeMemberCount: index === 2 ? 3 : 5,
+	activeHumanCount: index === 2 ? 0 : 2,
 	activeAgentCount: 3,
 }));
 export function useDemoConversations() {
+	const [avatarStyle] = useDemoCenterAvatar();
 	const fixture = useConversationSidebarFixture();
 	const { activeWakeSummaryBySpaceId } = useDemoConversationState();
-	const [pinned, setPinned] = useState(new Set(["release"]));
+	const [pinned, setPinned] = useState(new Set(["release", "center-agent"]));
 	const pathname = useRouterState({ select: (s) => s.location.pathname });
 	return {
 		...fixture,
 		directMessages: {
 			...fixture.directMessages,
-			directory: { ...fixture.directMessages.directory, data: demoDirectory },
+			directory: {
+				...fixture.directMessages.directory,
+				data: {
+					...demoDirectory,
+					agentProfiles: buildDemoSpaceMembers("release").agents.map(
+						(agent) => ({
+							organizationId: "org",
+							profileId: agent.profileId,
+							profileName: agent.profileName,
+							profileHandle: agent.profileId,
+							profileKind: "agent" as const,
+							isDefault: false as const,
+							status: "active" as const,
+							ownerUserId: agent.ownerUserId,
+							ownerName: agent.ownerName,
+							avatarStyle:
+								agent.profileId === DEMO_CENTER_PROFILE_ID ? avatarStyle : null,
+							agentControllerRef: agent.agentControllerRef,
+							source: "web_create",
+							managedRole: null,
+							createdByUserId: "preview",
+							creatorProfileId: null,
+							lastUsedAt: null,
+							createdAt: "2026-10-01T00:00:00.000Z",
+							updatedAt: "2026-10-01T00:00:00.000Z",
+						})
+					),
+				},
+			},
 			indicators: {
 				...fixture.directMessages.indicators,
 				activeWakeSummaryBySpaceId,
@@ -102,23 +136,42 @@ export function useDemoConversations() {
 				return next;
 			}),
 		selected: pathname.split("/").at(-1),
-		conversations: demoSpaces.map((item) => ({
-			kind: "space" as const,
-			item: {
-				...item,
-				pinnedAt: pinned.has(item.spaceId) ? "2026-10-01" : null,
+		conversations: [
+			{
+				kind: "direct-message" as const,
+				chat: {
+					spaceId: "center-agent",
+					name: "Center Agent",
+					createdAt: null,
+					session: true,
+					centerAgentProfileId: DEMO_CENTER_PROFILE_ID,
+					centerAgentProfileName: "Center Agent",
+					centerAgentAvatarStyle: avatarStyle,
+				},
+				spaceId: "center-agent",
+				title: "Center Agent",
+				activity: 100,
+				profileId: "human",
+				url: "/o/test/chats/center-agent",
 			},
-			spaceId: item.spaceId,
-			title: item.spaceName,
-			activity: 100,
-			profileId: "human",
-			url: `/o/test/spaces/${item.spaceId}`,
-		})),
+			...demoSpaces.map((item) => ({
+				kind: "space" as const,
+				item: {
+					...item,
+					pinnedAt: pinned.has(item.spaceId) ? "2026-10-01" : null,
+				},
+				spaceId: item.spaceId,
+				title: item.spaceName,
+				activity: 100,
+				profileId: "human",
+				url: `/o/test/spaces/${item.spaceId}`,
+			})),
+		],
 	};
 }
 export function useDemoSidebarPreferences() {
 	const [preferences, save] = useState({
-		pinned: { sort: "manual", spaceIds: ["release"] },
+		pinned: { sort: "manual", spaceIds: ["release", "center-agent"] },
 		spaces: { sort: "priority", spaceIds: [] },
 		groups: [],
 	});
@@ -191,16 +244,16 @@ let routines = [
 	}),
 	routineManagementSchema.parse({
 		...routine,
-		id: "website-check",
-		name: "Website launch check",
+		id: "release-check",
+		name: "Release handoff check",
 		instructions:
-			"Review the website launch checklist and flag anything that needs a decision. Post the summary to Website refresh.",
+			"Review the release handoff and flag anything that needs a decision. Post the summary to Release handoff.",
 		cronExpression: "0 10 * * 3",
-		targetSpaceId: "website",
+		targetSpaceId: "agent-work",
 		nextDueAt: Date.UTC(2026, 9, 14, 17),
 		lastRun: {
 			...routine.lastRun,
-			id: "website-1",
+			id: "release-check-1",
 			scheduledFor: Date.UTC(2026, 9, 7, 17),
 			startedAtMs: Date.UTC(2026, 9, 7, 17),
 			finishedAtMs: Date.UTC(2026, 9, 7, 17, 2),

@@ -9,13 +9,12 @@ import {
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import "./hero-copy.css";
 
-const cloudAgents: readonly { type: BotAvatarType; color?: string }[] = [
-	{ type: "clover" },
-	{ type: "flower" },
-	{ type: "ghost" },
-	// Square uses the Puddle palette.
-	{ type: "square", color: "#EE8BDB" },
-	{ type: "star" },
+const cloudAgents: readonly BotAvatarType[] = [
+	"clover",
+	"drop",
+	"cat",
+	"cloud",
+	"puddle",
 ];
 
 export function HeroDescription() {
@@ -29,11 +28,11 @@ export function HeroDescription() {
 						<BotAvatar
 							aria-hidden="true"
 							className="meld-hero-copy-bot"
-							color={agent.color}
-							key={agent.type}
+							key={agent}
+							palette="original"
 							preview
 							size={28}
-							type={agent.type}
+							type={agent}
 						/>
 					))}
 				</span>
