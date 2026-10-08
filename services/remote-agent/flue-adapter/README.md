@@ -313,3 +313,11 @@ must not inherit the running submission's tools or permission context.
 Task retirement is a separate product change; existing Task tools and entry
 points remain supported. Changes to sessions, Apps or Slack require their own
 authenticated acceptance. Passing runtime tests does not certify those paths.
+
+Computer capability admission freezes identity and checks authorization without
+opening the remote workspace, describing a browser, or loading document contents.
+The first Computer operation prepares the workspace. Concurrent operations share
+a successful preparation. A failed preparation can be attempted by a later call
+without replaying its business operation. Document checkout separately loads its
+authorized projection on demand. Required Space Work handoff files remain a
+precondition before execution. Each operation still checks current authorization.
