@@ -18,6 +18,8 @@ import { spaceTaskQueryKeys } from "#/query/spaces/space-tasks";
 import { mutateSpaceTaskWithConflictRefresh } from "./space-task-mutation";
 
 export type SpaceTasksPanelProps = {
+	selectedTaskId?: string | null;
+	onSelectTask?: (taskId: string | null) => void;
 	membersSnapshot: SpaceMembersSnapshot | null;
 	onOpenThread?: (threadId: string) => void;
 	openMeldProfileId?: string;

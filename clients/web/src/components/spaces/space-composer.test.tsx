@@ -34,6 +34,44 @@ vi.mock("./space-composer-agent-options", () => ({
 }));
 const ACCESS_WORKSPACE_MENU = /^Files/;
 
+it("can fork a previous session without resuming it", async () => {
+	const onChange = vi.fn();
+	render(
+		<DropdownMenu>
+			<DropdownMenuTrigger>Options</DropdownMenuTrigger>
+			<FluidDropdownMenuContent>
+				<SpaceComposerAgentOptions
+					onChange={onChange}
+					sources={[
+						{
+							targetProfileId: "agent",
+							sourceWakeId: "wake-previous",
+							label: "Review upload",
+						},
+					]}
+					supportsCurrentFolder
+					targetProfileId="agent"
+				/>
+			</FluidDropdownMenuContent>
+		</DropdownMenu>
+	);
+	fireEvent.click(screen.getByRole("button", { name: "Options" }));
+	fireEvent.click(await screen.findByText("Session"));
+	const choices = await screen.findAllByRole("menuitemradio", {
+		name: "Review upload",
+	});
+	const forkChoice = choices[1];
+	if (!forkChoice) {
+		throw new Error("Fork choice missing");
+	}
+	fireEvent.click(forkChoice);
+	expect(onChange).toHaveBeenCalledWith({
+		targetProfileId: "agent",
+		label: "Fork: Review upload",
+		selection: { mode: "fork", sourceWakeId: "wake-previous" },
+	});
+});
+
 it.each([
 	{
 		projectName: undefined,
@@ -94,7 +132,7 @@ it("keeps two agents' session choices independent and sends without a task by de
 		contextSelections: {
 			[agentTargets[0].profileId]: { mode: "new" },
 			[agentTargets[1].profileId]: {
-				mode: "auto",
+				mode: "new",
 				access: "read_only",
 				workspace: "current",
 			},

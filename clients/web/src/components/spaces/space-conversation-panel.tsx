@@ -374,6 +374,7 @@ type SpaceConversationPanelResolvedProps = {
 	onMentionButtonClick: () => void;
 	onSend: (options?: SpaceComposerSendOptions) => Promise<void>;
 	onSendStarterPrompt: (prompt: string) => Promise<void>;
+	onOpenTask?: (taskId: string) => void;
 	onSpaceViewChange: (view: SpaceView) => void;
 	orgSlug?: string;
 	// The shared observer acknowledges only visible Core unread targets.
@@ -558,7 +559,7 @@ export function SpaceConversationPanel(
 	return (
 		<SpaceTaskReferencesProvider
 			disabled={false}
-			onOpen={() => publicInput.onSpaceViewChange("tasks")}
+			onOpen={(taskId) => publicInput.onOpenTask?.(taskId)}
 			organizationSlug={publicInput.orgSlug}
 			profileId={publicInput.selfProfileId}
 			spaceId={publicInput.spaceId}

@@ -232,6 +232,8 @@ function DelayedSpaceFilesFallback() {
 }
 
 function SpaceTasksPanelSlot(input: {
+	selectedTaskId: string | null;
+	onSelectTask: (taskId: string | null) => void;
 	enabled: boolean;
 	membersSnapshot: SpaceMembersSnapshot | null;
 	onOpenThread: (threadId: string) => void;
@@ -248,8 +250,10 @@ function SpaceTasksPanelSlot(input: {
 				key={input.spaceId}
 				membersSnapshot={input.membersSnapshot}
 				onOpenThread={input.onOpenThread}
+				onSelectTask={input.onSelectTask}
 				openMeldProfileId={input.openMeldProfileId}
 				organizationSlug={input.organizationSlug}
+				selectedTaskId={input.selectedTaskId}
 				spaceId={input.spaceId}
 			/>
 		</Suspense>
@@ -512,6 +516,16 @@ function resolveSpaceInboxUnreadDestination(input: {
 }
 
 function useSpaceLandingState(input: SpaceLandingInput) {
+	const [taskSelection, setTaskSelection] = useState<{
+		spaceId: string | undefined;
+		taskId: string | null;
+	} | null>(null);
+	const selectedTaskId =
+		taskSelection?.spaceId === input.spaceId
+			? (taskSelection?.taskId ?? null)
+			: null;
+	const setSelectedTaskId = (taskId: string | null) =>
+		setTaskSelection({ spaceId: input.spaceId, taskId });
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const generatedSpaceViewId = useId();
@@ -1410,6 +1424,8 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		spaceFileNavigation,
 		spaceInboxReadPosition,
 		spaceReferencesById,
+		selectedTaskId,
+		setSelectedTaskId,
 		spaceView,
 		spaceViewIdPrefix,
 		wakeDisplayOverrideByProfileId,
@@ -2305,6 +2321,10 @@ function SpaceLandingConversation({
 			onLoadEarlierHistory={controller.onLoadEarlierHistory}
 			onMentionButtonClick={controller.onMentionButtonClick}
 			onOpenSpaceFile={openSpaceFile}
+			onOpenTask={(taskId) => {
+				state.setSelectedTaskId(taskId);
+				spaceFileNavigation.changeSpaceView("tasks");
+			}}
 			onOpenThread={controller.onOpenThread}
 			onOpenUnreadThread={controller.onOpenUnreadThread}
 			onPrepareMarkAllRead={
@@ -2397,8 +2417,10 @@ function SpaceLandingConversation({
 						spaceFileNavigation.changeSpaceView("messages");
 						controller.onOpenThread(threadId);
 					}}
+					onSelectTask={state.setSelectedTaskId}
 					openMeldProfileId={controller.profileId}
 					organizationSlug={input.orgSlug}
+					selectedTaskId={state.selectedTaskId}
 					spaceId={controller.spaceId}
 				/>
 			}
@@ -2879,7 +2901,8 @@ function SpaceLandingSecondaryPanels({
 		<>
 			<SpaceTaskReferencesProvider
 				disabled={!controller.threadPanelOpen}
-				onOpen={() => {
+				onOpen={(taskId) => {
+					state.setSelectedTaskId(taskId);
 					controller.onCloseThread();
 					state.spaceFileNavigation.changeSpaceView("tasks");
 				}}

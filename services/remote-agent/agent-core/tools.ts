@@ -2092,9 +2092,9 @@ async function executeManageSpaceTasksTool(input: {
     toolName: "openmeld_manage_space_tasks",
   });
   const space = toolContext.turnEnvelope?.space;
-  if (space?.kind !== "space") {
+  if (!space || (space.kind !== "space" && space.kind !== "dm")) {
     throw new Error(
-      "Space Tasks are available only in the current shared OpenMeld Space."
+      "Tasks are available only in the current OpenMeld conversation."
     );
   }
   if (request.action === "list") {
@@ -4135,7 +4135,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_manage_space_tasks",
       description:
-        "Manage durable commitments in the current shared OpenMeld Space. Create a Task when the current message asks for a clear, discrete deliverable that will outlive an immediate conversational answer or needs ownership, progress, review, or later closure. Creating a GitHub issue in this Space records a linked Task only when that GitHub tool result's spaceTask.created is true; use attach_external_work_item or detach_external_work_item to associate an existing issue. When a Task linked to an open GitHub issue is completed or canceled, close that issue with github_update_issue unless the result says it is already closed. Do not create Tasks for questions, tiny same-turn actions, exploratory discussion, acknowledgements, or every Agent tool call. A created Task is assigned to you by default but remains To do; call mark_in_progress when work actually begins, then submit_result with the concrete result and verification. Assignment alone never starts execution. Read the Task before changing it and pass its expectedRevision. Review must also pass the resultRevision you actually read as expectedResultRevision. A conflict requires reading the changed Task and deciding again. The Space delivers review and rework handoffs through the normal Wake path. Do not issue another Wake for those transitions or wake more work when needsHumanDecision is true. Two automatic Agent rework rounds are allowed before a human must decide. This tool is limited to this conversation's shared Space and does not control Agent execution truth.",
+        "Manage durable commitments in the current OpenMeld conversation, including private chats. Create a Task when the current message asks for a clear, discrete deliverable that will outlive an immediate conversational answer or needs ownership, progress, review, or later closure. Creating a GitHub issue in this Space records a linked Task only when that GitHub tool result's spaceTask.created is true; use attach_external_work_item or detach_external_work_item to associate an existing issue. When a Task linked to an open GitHub issue is completed or canceled, close that issue with github_update_issue unless the result says it is already closed. Do not create Tasks for questions, tiny same-turn actions, exploratory discussion, acknowledgements, or every Agent tool call. A created Task is assigned to you by default but remains To do; call mark_in_progress when work actually begins, then submit_result with the concrete result and verification. Assignment alone never starts execution. Read the Task before changing it and pass its expectedRevision. Review must also pass the resultRevision you actually read as expectedResultRevision. A conflict requires reading the changed Task and deciding again. The Space delivers review and rework handoffs through the normal Wake path. Do not issue another Wake for those transitions or wake more work when needsHumanDecision is true. Two automatic Agent rework rounds are allowed before a human must decide. This tool is limited to the current conversation and its authorized members and does not control Agent execution truth.",
       input: manageSpaceTasksToolInputSchema,
       execute: async (payload) =>
         await executeManageSpaceTasksTool({

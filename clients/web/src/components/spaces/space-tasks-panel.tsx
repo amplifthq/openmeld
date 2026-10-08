@@ -145,7 +145,10 @@ function shouldBlockTasksRead(input: {
 
 export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 	const [creatingTask, setCreatingTask] = useState(false);
-	const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+	const [localTaskId, setLocalTaskId] = useState<string | null>(null);
+	const selectedTaskId =
+		input.selectedTaskId === undefined ? localTaskId : input.selectedTaskId;
+	const setSelectedTaskId = input.onSelectTask ?? setLocalTaskId;
 	const [phase, setPhase] = useState<SpaceTaskPhase | undefined>();
 	const {
 		createTask,
@@ -176,6 +179,9 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 		);
 	}
 
+	const canCreateTask = members.some(
+		(member) => member.profileId === input.openMeldProfileId
+	);
 	const tasks = tasksQuery.data?.tasks ?? [];
 	const selectedTask = resolveSelectedTask(
 		tasks,
@@ -198,9 +204,7 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 					onRetry={() => tasksQuery.refetch()}
 				/>
 				<TaskBoardHeader
-					onCreateTask={
-						input.openMeldProfileId ? () => setCreatingTask(true) : undefined
-					}
+					onCreateTask={canCreateTask ? () => setCreatingTask(true) : undefined}
 					onPhaseChange={setPhase}
 					phase={phase}
 					tasks={tasks}
@@ -214,7 +218,7 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 					</p>
 				) : null}
 
-				{creatingTask && (
+				{creatingTask && canCreateTask && (
 					<SpaceTaskCreateDialog
 						members={members}
 						onClose={() => setCreatingTask(false)}

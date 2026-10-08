@@ -144,21 +144,33 @@ export function SpaceComposerAgentOptions(input: {
 										{ mode: value, ...restrictions },
 										value === "auto" ? "Automatic" : "Start new"
 									);
-								} else {
-									const source = sources.find(
-										(item) => value === `resume:${item.sourceWakeId}`
+									return;
+								}
+								const source = sources.find(
+									(item) =>
+										value === `resume:${item.sourceWakeId}` ||
+										value === `fork:${item.sourceWakeId}`
+								);
+								if (source) {
+									choose(
+										{
+											mode: value.startsWith("fork:") ? "fork" : "resume",
+											sourceWakeId: source.sourceWakeId,
+										},
+										value.startsWith("fork:")
+											? `Fork: ${source.label}`
+											: source.label
 									);
-									if (source) {
-										choose(
-											{ mode: "resume", sourceWakeId: source.sourceWakeId },
-											source.label
-										);
-									}
 								}
 							}}
 							value={sessionValue}
 						>
-							<FluidDropdownMenuRadioItem closeOnClick index={0} value="auto">
+							<FluidDropdownMenuRadioItem
+								closeOnClick
+								disabled={accessValue !== "defaults"}
+								index={0}
+								value="auto"
+							>
 								Automatic
 							</FluidDropdownMenuRadioItem>
 							<FluidDropdownMenuRadioItem closeOnClick index={1} value="new">
@@ -180,6 +192,26 @@ export function SpaceComposerAgentOptions(input: {
 											>
 												<span className="truncate">{source.label}</span>
 											</FluidDropdownMenuRadioItem>
+										))}
+									</FluidDropdownMenuGroup>
+									<DropdownMenuSeparator />
+									<p className="px-2 py-1 text-muted-foreground text-xs">
+										Fork previous
+									</p>
+									<FluidDropdownMenuGroup>
+										{sources.map((source, index) => (
+											<TooltipHint
+												content="Start an independent session with this history."
+												key={source.sourceWakeId}
+											>
+												<FluidDropdownMenuRadioItem
+													closeOnClick
+													index={index}
+													value={`fork:${source.sourceWakeId}`}
+												>
+													<span className="truncate">{source.label}</span>
+												</FluidDropdownMenuRadioItem>
+											</TooltipHint>
 										))}
 									</FluidDropdownMenuGroup>
 								</>
@@ -228,8 +260,12 @@ export function SpaceComposerAgentOptions(input: {
 									"current" | "isolated",
 								];
 								choose(
-									{ ...next, access, workspace },
-									input.choice?.label ?? "Automatic"
+									selection?.mode === "fork"
+										? { ...selection, access, workspace }
+										: { mode: "new", access, workspace },
+									selection?.mode === "fork"
+										? (input.choice?.label ?? "Fork previous")
+										: "Start new"
 								);
 							}}
 							value={accessValue}
