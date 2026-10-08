@@ -43,7 +43,7 @@ export async function syncLocalServiceProviderConversationProofs(input: {
             return null;
           }
           const workspace = route.workingFolderRuntime;
-          if (!workspace) {
+          if (workspace?.status !== "ready") {
             return null;
           }
           const proof = await resolveLocalProviderConversationProof({

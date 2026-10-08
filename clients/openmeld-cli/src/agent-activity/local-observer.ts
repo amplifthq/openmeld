@@ -14,6 +14,7 @@ import {
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { Worker } from "node:worker_threads";
+import { getAuthSessionState } from "../config/auth-session";
 import { resolveOpenMeldRootDir } from "../config/paths";
 import { drainAgentActivityHookInbox } from "./hook-inbox";
 import { isCoveredByRecentAgentActivityHook } from "./hook-projection-store";
@@ -26,8 +27,13 @@ import {
   resolveObservedAgentActivityBinding,
 } from "./observer-adapters";
 import { resolveOpenCodeDatabasePath } from "./opencode-storage";
+import { canonicalizeLocalProjectPath } from "./project-binding-resolution";
 import { listProjectBindings } from "./project-bindings";
 import { readCodexSessionTitles } from "./provider-session-titles";
+import {
+  readOpenMeldCreatedLocalAgentSessionProjectAttributions,
+  resolveOpenMeldCreatedLocalAgentSessionProjectAttribution,
+} from "./session-inventory-origin-store";
 
 const STARTUP_RECONCILIATION_WINDOW_MS = 10 * 60_000;
 const MAX_PROVIDER_FILES_PER_PROVIDER = 2000;
@@ -54,6 +60,19 @@ export type AgentActivityObserverResult = {
   queuedCount: number;
 };
 
+async function listCurrentOwnerProjectBindings(input: { rootDir?: string }) {
+  const bindings = await listProjectBindings({ rootDir: input.rootDir });
+  if (!bindings.some((binding) => binding.ownerUserId)) {
+    return bindings;
+  }
+  const ownerUserId = (
+    await getAuthSessionState({ validateRemote: false }).catch(() => null)
+  )?.session?.user?.id;
+  return bindings.filter(
+    (binding) => !binding.ownerUserId || binding.ownerUserId === ownerUserId
+  );
+}
+
 export async function scanLocalAgentActivity(
   input: ObserverInput = {}
 ): Promise<AgentActivityObserverResult> {
@@ -65,9 +84,7 @@ export async function scanLocalAgentActivity(
           nowMs,
           rootDir: input.rootDir,
         });
-  const bindings = await listProjectBindings({
-    rootDir: input.rootDir,
-  });
+  const bindings = await listCurrentOwnerProjectBindings(input);
   if (bindings.length === 0) {
     return {
       changedFileCount: 0,
@@ -185,10 +202,17 @@ async function observeChangedTranscriptFile(input: {
     input.file.path,
     input.file.provider
   ).catch(() => null);
+  const canonicalIdentityCwd = identityCwd
+    ? await canonicalizeLocalProjectPath(identityCwd)
+    : null;
   if (
     !(
-      identityCwd &&
-      (await resolveObservedAgentActivityBinding(identityCwd, input.bindings))
+      canonicalIdentityCwd &&
+      input.bindings.some(
+        (binding) =>
+          canonicalIdentityCwd === binding.repositoryPath ||
+          canonicalIdentityCwd.startsWith(`${binding.repositoryPath}${sep}`)
+      )
     )
   ) {
     return empty;
@@ -222,6 +246,15 @@ async function observeChangedTranscriptFile(input: {
   const event = await buildAgentActivityEvent({
     bindings: input.bindings,
     observed,
+    projectAttribution:
+      resolveOpenMeldCreatedLocalAgentSessionProjectAttribution({
+        agentControllerRef: `builtin:${observed.provider}`,
+        nativeSessionId: observed.providerSessionId,
+        projectAttributions:
+          await readOpenMeldCreatedLocalAgentSessionProjectAttributions({
+            rootDir: input.rootDir,
+          }),
+      }),
   });
   if (!event) {
     return { ...empty, changedFileCount: 1, observedCount: 1 };
@@ -340,9 +373,7 @@ async function observeWatchedTranscriptFile(input: {
   provider: "claude" | "codex";
   rootDir?: string;
 }) {
-  const bindings = await listProjectBindings({
-    rootDir: input.rootDir,
-  });
+  const bindings = await listCurrentOwnerProjectBindings(input);
   if (bindings.length === 0) {
     return;
   }

@@ -1,6 +1,7 @@
 import { env } from "cloudflare:test";
 import type { QueryResult } from "@openmeld/db/postgresql";
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
+import { buildRepositoryFingerprint } from "@openmeld/projects";
 import type { AgentActivityEvent } from "@openmeld/schemas/types";
 import { afterEach, describe, expect, it } from "vitest";
 import { runAgentActivityDigestTick } from "../src/agent-activity/activity-digest-service";
@@ -553,6 +554,34 @@ describe("Core Agent Activity event ingestion", () => {
         },
       ],
     });
+    const defaultUrl = "https://github.com/amplifthq/payments";
+    const secondUrl = "https://github.com/amplifthq/sdk";
+    const defaultFingerprint = await buildRepositoryFingerprint(defaultUrl);
+    const secondFingerprint = await buildRepositoryFingerprint(secondUrl);
+    if (!(defaultFingerprint && secondFingerprint)) {
+      throw new Error("Expected canonical repository fingerprints.");
+    }
+    await getPostgresDatabase(env).query({
+      text: 'UPDATE "openmeld"."projects" SET repository_url = $1, repository_fingerprint = $2, additional_repository_urls_json = $3 WHERE id = $4',
+      values: [
+        defaultUrl,
+        defaultFingerprint,
+        JSON.stringify([secondUrl]),
+        fixture.projectId,
+      ],
+    });
+    await expect(
+      rpcSubmitAgentActivityEvents(
+        env as CoreBindings,
+        submission(fixture, [
+          {
+            ...event,
+            eventId: `${event.eventId}_second_repository`,
+            repositoryFingerprint: secondFingerprint,
+          },
+        ])
+      )
+    ).resolves.toMatchObject({ events: [{ outcome: "accepted" }] });
   });
   it("uses accepted sequence to order same-millisecond session updates and ignores reused retries", async () => {
     const fixture = await seedFixture();

@@ -254,6 +254,7 @@ function createThreadExecutionRecoveryHandler(input: {
 }
 
 type SpaceThreadPanelProps = {
+	organizationId?: string | null;
 	open?: boolean;
 	wakeRecommendationsEnabled?: boolean;
 	activeThread: SpaceThread | null;
@@ -984,6 +985,7 @@ function renderThreadComposer(
 			onMentionButtonClick={input.onMentionButtonClick}
 			onRemoveComposerFile={input.onRemoveComposerFile}
 			onSend={input.onSend}
+			organizationId={input.organizationId}
 			orgSlug={input.orgSlug}
 			pendingActionSurface={input.pendingActionSurface}
 			prepareSetupHref={input.prepareSetupHref}
@@ -1860,6 +1862,7 @@ function resolveThreadMessageAvatarImageUrl(input: {
 }
 
 function ThreadComposer(input: {
+	organizationId?: string | null;
 	taskSources: readonly SpaceTaskSource[];
 	canSendMessage: boolean;
 	composerMembers?: SpaceComposerProps["members"];
@@ -1956,6 +1959,7 @@ function ThreadComposer(input: {
 				placement: "thread",
 			}}
 			members={input.composerMembers}
+			organizationId={input.organizationId}
 			presentation={{
 				className: "space-conversation-inline-padding py-4",
 				dataSlot: "thread-composer",

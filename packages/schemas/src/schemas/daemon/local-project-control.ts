@@ -142,9 +142,11 @@ export const localProjectControlDiscoverProjectsResponseSchema = z.strictObject(
 const localProjectControlConnectBaseShape = {
   expectedOrganizationId: boundedIdentifierSchema,
   projectId: boundedIdentifierSchema,
+  repositoryFingerprint: repositoryFingerprintSchema.optional(),
   clientGeneration: clientGenerationSchema,
   idempotencyKey: boundedIdentifierSchema,
   moveConfirmationToken: boundedIdentifierSchema.optional(),
+  shareConfirmationToken: boundedIdentifierSchema.optional(),
 };
 
 export const localProjectControlConnectCandidateRequestSchema = z.strictObject({
@@ -272,6 +274,7 @@ export const localProjectControlErrorCodeSchema = z.enum([
   "candidate_unavailable",
   "binding_not_found",
   "binding_generation_stale",
+  "owner_mismatch",
   "replacement_required",
   "replacement_invalid",
   "default_missing_requires_replacement",
@@ -292,6 +295,7 @@ export const localProjectControlPathConflictResponseSchema = z.strictObject({
   conflictingProjectSlug: projectSlugSchema,
   conflictScope: z.enum(["same_organization", "another_organization"]),
   moveConfirmationToken: boundedIdentifierSchema,
+  shareConfirmationToken: boundedIdentifierSchema.optional(),
   moveImpact: z.enum([
     "additional_connection",
     "default_connection",

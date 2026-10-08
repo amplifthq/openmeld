@@ -200,14 +200,16 @@ describe("route catalog", () => {
       quiet: true,
     });
 
-    expect(catalog.profileIds).toEqual([]);
-    expect(catalog.skippedProfiles).toEqual([
-      {
-        profileId: "agt-missing-folder",
-        profileName: "Missing Folder",
-        skipReason: "workspace.missing",
+    expect(catalog.profileIds).toEqual(["agt-missing-folder"]);
+    expect(catalog.skippedProfiles).toEqual([]);
+    expect(
+      catalog.routeByProfileId.get("agt-missing-folder")?.workingFolderRuntime
+    ).toMatchObject({
+      status: "missing",
+      workingFolderFact: {
+        reasonCode: "project.local_connection.folder_missing",
       },
-    ]);
+    });
     expect(catalog.workingFolderObservations).toEqual([
       {
         bindingId: "bind-missing-folder",

@@ -67,8 +67,10 @@ export function describeSpaceTaskAttention(input: {
 	}
 }
 
-export function formatSpaceTaskGitHubIssueRefs(task: SpaceTask): string[] {
-	return task.externalWorkItems
-		.filter((item) => item.provider === "github")
-		.map((item) => formatSpaceTaskGitHubIssueLabel(item));
+export function formatSpaceTaskExternalIssueRefs(task: SpaceTask): string[] {
+	return task.externalWorkItems.map((item) =>
+		item.provider === "github"
+			? formatSpaceTaskGitHubIssueLabel(item)
+			: item.identifier
+	);
 }

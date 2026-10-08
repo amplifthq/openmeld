@@ -17,7 +17,9 @@ import {
 	FluidDropdownMenuSubContent,
 } from "@openmeld/ui/fluid/dropdown-menu";
 import { GitBranchIcon } from "@phosphor-icons/react";
+import { useState } from "react";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
+import { SpaceComposerProjectWorkDialog } from "./space-composer-project-work-dialog";
 
 export type SpaceTaskSource = {
 	sourceWakeId: string;
@@ -57,6 +59,7 @@ export function buildSpaceTaskSources(
 }
 
 export function SpaceComposerTaskMenu(input: {
+	organizationId?: string | null;
 	supportsCurrentFolder: boolean;
 	requiresProjectContainer: boolean;
 	targetProfileId: string;
@@ -65,6 +68,7 @@ export function SpaceComposerTaskMenu(input: {
 	choice?: SpaceComposerTaskChoice;
 	onChange: (choice: SpaceComposerTaskChoice | undefined) => void;
 }) {
+	const [projectWorkOpen, setProjectWorkOpen] = useState(false);
 	const choose = (selection: ExecutionContextSelection, label: string) =>
 		input.onChange({
 			selection,
@@ -95,131 +99,177 @@ export function SpaceComposerTaskMenu(input: {
 				label = "Work in current folder";
 			}
 		}
+		if (access === "space_context" && "projectWork" in next) {
+			const { projectWork: _projectWork, ...withoutProjectWork } = next;
+			choose({ ...withoutProjectWork, access, workspace }, label);
+			return;
+		}
 		choose({ ...next, access, workspace }, label);
 	};
 	return (
-		<DropdownMenu>
-			<DropdownMenuTrigger
-				render={
-					<Button
-						aria-label="Task context"
-						disabled={input.disabled}
-						size="sm"
-						type="button"
-						variant="ghost"
-					/>
-				}
-			>
-				<GitBranchIcon aria-hidden="true" />
-				<span className="max-w-36 truncate">
-					{input.choice?.label ?? "Task"}
-				</span>
-			</DropdownMenuTrigger>
-			<FluidDropdownMenuContent
-				align="start"
-				className="w-80 max-w-[calc(100vw-2rem)]"
-			>
-				<FluidDropdownMenuItem
-					index={0}
-					onClick={() => input.onChange(undefined)}
+		<>
+			<DropdownMenu>
+				<DropdownMenuTrigger
+					render={
+						<Button
+							aria-label="Task context"
+							disabled={input.disabled}
+							size="sm"
+							type="button"
+							variant="ghost"
+						/>
+					}
 				>
-					Continue automatically
-				</FluidDropdownMenuItem>
-				<FluidDropdownMenuItem
-					index={1}
-					onClick={() => choose({ mode: "new" }, "New task")}
+					<GitBranchIcon aria-hidden="true" />
+					<span className="max-w-36 truncate">
+						{input.choice?.label ?? "Task"}
+					</span>
+				</DropdownMenuTrigger>
+				<FluidDropdownMenuContent
+					align="start"
+					className="w-80 max-w-[calc(100vw-2rem)]"
 				>
-					New task
-				</FluidDropdownMenuItem>
-				<p className="px-2 py-1 text-muted-foreground text-xs">
-					{`New tasks keep the Agent's tools and permissions. Up to ${AGENT_PROFILE_WORK_CONCURRENCY_LIMIT} tasks can run together; tasks writing to the same folder wait for each other.`}
-				</p>
-				{sources.length > 0 ? (
-					<>
-						<DropdownMenuSeparator />
-						<DropdownMenuGroup>
-							<DropdownMenuLabel>
-								Tasks from this conversation
-							</DropdownMenuLabel>
-							{sources.map((source) => (
-								<DropdownMenuSub key={source.sourceWakeId}>
-									<DropdownMenuSubTrigger className="max-w-xs">
-										<span className="truncate">{source.label}</span>
-									</DropdownMenuSubTrigger>
-									<FluidDropdownMenuSubContent>
-										<FluidDropdownMenuItem
-											index={0}
-											onClick={() =>
-												choose(
-													{ mode: "resume", sourceWakeId: source.sourceWakeId },
-													`Continue: ${source.label}`
-												)
-											}
-										>
-											Continue task
-										</FluidDropdownMenuItem>
-										<FluidDropdownMenuItem
-											index={1}
-											onClick={() =>
-												choose(
-													{ mode: "fork", sourceWakeId: source.sourceWakeId },
-													`Fork: ${source.label}`
-												)
-											}
-										>
-											Fork from completed history
-										</FluidDropdownMenuItem>
-									</FluidDropdownMenuSubContent>
-								</DropdownMenuSub>
-							))}
-						</DropdownMenuGroup>
-					</>
-				) : null}
-				{selection?.mode !== "resume" ? (
-					<>
-						<DropdownMenuSeparator />
-						<DropdownMenuSub>
-							<DropdownMenuSubTrigger>Limit task access</DropdownMenuSubTrigger>
-							<FluidDropdownMenuSubContent className="w-80 max-w-[calc(100vw-2rem)]">
-								<FluidDropdownMenuItem
-									index={0}
-									onClick={() => changeAccess("space_context", "isolated")}
-								>
-									Space context only
-								</FluidDropdownMenuItem>
-								<FluidDropdownMenuItem
-									index={1}
-									onClick={() => changeAccess("workspace", "isolated")}
-								>
-									Isolated project worktree
-								</FluidDropdownMenuItem>
-								<FluidDropdownMenuItem
-									disabled={!input.supportsCurrentFolder}
-									index={2}
-									onClick={() => changeAccess("read_only", "current")}
-								>
-									Read current folder · Codex
-								</FluidDropdownMenuItem>
-								<FluidDropdownMenuItem
-									disabled={!input.supportsCurrentFolder}
-									index={3}
-									onClick={() => changeAccess("workspace", "current")}
-								>
-									Limit to current folder · Codex
-								</FluidDropdownMenuItem>
-								<p className="px-2 py-1 text-muted-foreground text-xs">
-									Project worktrees start from the connected repository's
-									current commit. Unsaved changes and local configuration are
-									not copied.
-									{input.requiresProjectContainer
-										? " Only isolated Claude project tasks need Docker or Podman."
-										: " Current-folder work waits for conflicting local tasks."}
-								</p>
-							</FluidDropdownMenuSubContent>
-						</DropdownMenuSub>
-					</>
-				) : null}
-			</FluidDropdownMenuContent>
-		</DropdownMenu>
+					<FluidDropdownMenuItem
+						index={0}
+						onClick={() => input.onChange(undefined)}
+					>
+						Continue automatically
+					</FluidDropdownMenuItem>
+					<FluidDropdownMenuItem
+						index={1}
+						onClick={() => choose({ mode: "new" }, "New task")}
+					>
+						New task
+					</FluidDropdownMenuItem>
+					{input.organizationId ? (
+						<FluidDropdownMenuItem
+							index={2}
+							onClick={() => setProjectWorkOpen(true)}
+						>
+							Choose Project and repository…
+						</FluidDropdownMenuItem>
+					) : null}
+					<p className="px-2 py-1 text-muted-foreground text-xs">
+						{`New tasks keep the Agent's tools and permissions. Up to ${AGENT_PROFILE_WORK_CONCURRENCY_LIMIT} tasks can run together; tasks writing to the same folder wait for each other.`}
+					</p>
+					{sources.length > 0 ? (
+						<>
+							<DropdownMenuSeparator />
+							<DropdownMenuGroup>
+								<DropdownMenuLabel>
+									Tasks from this conversation
+								</DropdownMenuLabel>
+								{sources.map((source) => (
+									<DropdownMenuSub key={source.sourceWakeId}>
+										<DropdownMenuSubTrigger className="max-w-xs">
+											<span className="truncate">{source.label}</span>
+										</DropdownMenuSubTrigger>
+										<FluidDropdownMenuSubContent>
+											<FluidDropdownMenuItem
+												index={0}
+												onClick={() =>
+													choose(
+														{
+															mode: "resume",
+															sourceWakeId: source.sourceWakeId,
+														},
+														`Continue: ${source.label}`
+													)
+												}
+											>
+												Continue task
+											</FluidDropdownMenuItem>
+											<FluidDropdownMenuItem
+												index={1}
+												onClick={() =>
+													choose(
+														{ mode: "fork", sourceWakeId: source.sourceWakeId },
+														`Fork: ${source.label}`
+													)
+												}
+											>
+												Fork from completed history
+											</FluidDropdownMenuItem>
+										</FluidDropdownMenuSubContent>
+									</DropdownMenuSub>
+								))}
+							</DropdownMenuGroup>
+						</>
+					) : null}
+					{selection?.mode !== "resume" ? (
+						<>
+							<DropdownMenuSeparator />
+							<DropdownMenuSub>
+								<DropdownMenuSubTrigger>
+									Limit task access
+								</DropdownMenuSubTrigger>
+								<FluidDropdownMenuSubContent className="w-80 max-w-[calc(100vw-2rem)]">
+									<FluidDropdownMenuItem
+										index={0}
+										onClick={() => changeAccess("space_context", "isolated")}
+									>
+										Space context only
+									</FluidDropdownMenuItem>
+									<FluidDropdownMenuItem
+										index={1}
+										onClick={() => changeAccess("workspace", "isolated")}
+									>
+										Isolated project worktree
+									</FluidDropdownMenuItem>
+									<FluidDropdownMenuItem
+										disabled={!input.supportsCurrentFolder}
+										index={2}
+										onClick={() => changeAccess("read_only", "current")}
+									>
+										Read current folder · Codex
+									</FluidDropdownMenuItem>
+									<FluidDropdownMenuItem
+										disabled={!input.supportsCurrentFolder}
+										index={3}
+										onClick={() => changeAccess("workspace", "current")}
+									>
+										Limit to current folder · Codex
+									</FluidDropdownMenuItem>
+									<p className="px-2 py-1 text-muted-foreground text-xs">
+										Project worktrees start from the connected repository's
+										current commit. Unsaved changes and local configuration are
+										not copied.
+										{input.requiresProjectContainer
+											? " Only isolated Claude project tasks need Docker or Podman."
+											: " Current-folder work waits for conflicting local tasks."}
+									</p>
+								</FluidDropdownMenuSubContent>
+							</DropdownMenuSub>
+						</>
+					) : null}
+				</FluidDropdownMenuContent>
+			</DropdownMenu>
+			{projectWorkOpen && input.organizationId ? (
+				<SpaceComposerProjectWorkDialog
+					initialProjectId={
+						selection && "projectWork" in selection
+							? selection.projectWork?.projectId
+							: undefined
+					}
+					onOpenChange={setProjectWorkOpen}
+					onSelect={(selected) =>
+						choose(
+							{
+								mode: "new",
+								access: "workspace",
+								workspace: "isolated",
+								projectWork: {
+									projectId: selected.projectId,
+									repositoryFingerprint: selected.repositoryFingerprint,
+								},
+							},
+							`${selected.projectName} · ${selected.repositoryLabel.replace("https://github.com/", "")}`
+						)
+					}
+					open
+					organizationId={input.organizationId}
+				/>
+			) : null}
+		</>
 	);
 }

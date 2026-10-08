@@ -57,6 +57,7 @@ import type {
 } from "./use-space-mention-authoring";
 
 export type SpaceComposerProps = {
+	organizationId?: string | null;
 	taskSources?: readonly SpaceTaskSource[];
 	members?: { state: "loading" | "error"; onRetry: () => void };
 	recovery?: Omit<
@@ -218,6 +219,7 @@ function useComposerTaskChoice(input: SpaceComposerProps) {
 					input.availability.isSendingMessage
 				}
 				onChange={setChoice}
+				organizationId={input.organizationId}
 				requiresProjectContainer={
 					target.agentControllerRef === "builtin:claude-code"
 				}

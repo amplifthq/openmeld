@@ -235,8 +235,10 @@ function SpaceTasksPanelSlot(input: {
 	membersSnapshot: SpaceMembersSnapshot | null;
 	onOpenThread: (threadId: string) => void;
 	openMeldProfileId: string;
+	organizationId: string | null;
 	organizationSlug?: string;
 	spaceId: string;
+	spaceName: string | null;
 }) {
 	if (!input.enabled) {
 		return null;
@@ -248,8 +250,10 @@ function SpaceTasksPanelSlot(input: {
 				membersSnapshot={input.membersSnapshot}
 				onOpenThread={input.onOpenThread}
 				openMeldProfileId={input.openMeldProfileId}
+				organizationId={input.organizationId ?? undefined}
 				organizationSlug={input.organizationSlug}
 				spaceId={input.spaceId}
+				spaceName={input.spaceName}
 			/>
 		</Suspense>
 	);
@@ -1870,6 +1874,7 @@ function SpaceLandingConversationShell({
 								currentSpaceControls={currentSpaceControls}
 								input={input}
 								onShowMessageInMain={onShowMessageInMain}
+								organizationId={organizationId}
 								pendingActionSurface={threadPendingActionSurface}
 								prepareSetupHref={prepareSetupHref}
 								state={state}
@@ -2127,6 +2132,7 @@ function SpaceLandingConversation({
 		isDirectMessage,
 		modelCatalog,
 		openSpaceFile,
+		organizationId,
 		recovery,
 		setupRecallNonce,
 		spaceName,
@@ -2334,6 +2340,7 @@ function SpaceLandingConversation({
 					: undefined
 			}
 			onWakeStopRequest={controller.onWakeStopRequest}
+			organizationId={organizationId}
 			orgSlug={input.orgSlug}
 			pendingActionSurface={pendingActionSurface}
 			prepareSetupHref={prepareSetupHref}
@@ -2404,8 +2411,10 @@ function SpaceLandingConversation({
 						controller.onOpenThread(threadId);
 					}}
 					openMeldProfileId={controller.profileId}
+					organizationId={organizationId}
 					organizationSlug={input.orgSlug}
 					spaceId={controller.spaceId}
+					spaceName={spaceName}
 				/>
 			}
 			textareaRef={controller.textareaRef}
@@ -2795,6 +2804,7 @@ function AgentOwnerDirectMessageJoinDialog(input: {
 }
 
 function SpaceLandingSecondaryPanels({
+	organizationId,
 	automaticWakeConversationKind,
 	agentProfileEditContext,
 	composerProfileControl,
@@ -2807,6 +2817,7 @@ function SpaceLandingSecondaryPanels({
 	prepareSetupHref,
 	state,
 }: {
+	organizationId: string | null;
 	automaticWakeConversationKind: ReturnType<
 		typeof resolveAutomaticWakeConversationKind
 	>;
@@ -2979,6 +2990,7 @@ function SpaceLandingSecondaryPanels({
 				}
 				onWakeStopRequest={controller.onWakeStopRequest}
 				open={controller.threadPanelOpen}
+				organizationId={organizationId}
 				orgSlug={input.orgSlug}
 				pendingActionSurface={pendingActionSurface}
 				prepareSetupHref={prepareSetupHref}

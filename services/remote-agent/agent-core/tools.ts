@@ -197,6 +197,7 @@ import {
   SPACE_TASK_RESULT_SUMMARY_MAX_CHARS,
   SPACE_TASK_REVIEW_FEEDBACK_MAX_CHARS,
   SPACE_TASK_TITLE_MAX_CHARS,
+  SPACE_TASK_WORKFLOW_CONTRACT_VERSION,
   setAgentProfileCreationApprovalPreferenceResponseSchema,
   setOrganizationWorkingLanguagePreferenceBodySchema,
   spaceInputQueueMutationSchema,
@@ -1896,6 +1897,7 @@ const manageSpaceTasksToolInputSchema = strictObject({
     "list",
     "create",
     "assign",
+    "set_projects",
     "update_brief",
     "set_reviewer",
     "mark_in_progress",
@@ -1907,6 +1909,8 @@ const manageSpaceTasksToolInputSchema = strictObject({
     "attach_external_work_item",
     "detach_external_work_item",
     "observe_external_work_item",
+    "attach_linear_external_work_item",
+    "detach_linear_external_work_item",
   ] as const),
   assigneeProfileId: optional(nullable(nonEmptyStringSchema)),
   completionConditions: optional(
@@ -1948,6 +1952,11 @@ const manageSpaceTasksToolInputSchema = strictObject({
   lastObservedState: optional(picklist(["open", "closed"] as const)),
   number: optional(pipe(number(), integer(), minValue(1))),
   owner: optional(pipe(string(), trim(), minLength(1), maxLength(100))),
+  projectIds: optional(pipe(array(nonEmptyStringSchema), maxLength(12))),
+  linearIssueId: optional(nonEmptyStringSchema),
+  linearIdentifier: optional(nonEmptyStringSchema),
+  linearTeamId: optional(nonEmptyStringSchema),
+  linearProjectId: optional(nonEmptyStringSchema),
   reason: optional(pipe(string(), trim(), minLength(1), maxLength(1000))),
   repo: optional(pipe(string(), trim(), minLength(1), maxLength(100))),
   reviewerProfileId: optional(nullable(nonEmptyStringSchema)),
@@ -1986,6 +1995,12 @@ function buildSpaceTaskMutationFromTool(input: ManageSpaceTasksToolInput) {
         ...base,
         action: input.action,
         assigneeProfileId: input.assigneeProfileId ?? null,
+      });
+    case "set_projects":
+      return mutateSpaceTaskBodySchema.parse({
+        ...base,
+        action: "set_projects",
+        projectIds: input.projectIds ?? [],
       });
     case "update_brief":
       return mutateSpaceTaskBodySchema.parse({
@@ -2042,6 +2057,30 @@ function buildSpaceTaskMutationFromTool(input: ManageSpaceTasksToolInput) {
           repo: input.repo,
           url: input.url,
         },
+      });
+    case "attach_linear_external_work_item":
+      return mutateSpaceTaskBodySchema.parse({
+        ...base,
+        action: "attach_external_work_item",
+        item: {
+          id: input.linearIssueId,
+          identifier: input.linearIdentifier,
+          teamId: input.linearTeamId,
+          ...(input.linearProjectId
+            ? { projectId: input.linearProjectId }
+            : {}),
+          provider: "linear",
+          url: input.url,
+          lastObservedAt: null,
+          lastObservedState: null,
+        },
+      });
+    case "detach_linear_external_work_item":
+      return mutateSpaceTaskBodySchema.parse({
+        ...base,
+        action: "detach_linear_external_work_item",
+        id: input.linearIssueId,
+        provider: "linear",
       });
     case "detach_external_work_item":
       return mutateSpaceTaskBodySchema.parse({
@@ -2103,7 +2142,11 @@ async function executeManageSpaceTasksTool(input: {
       "listSpaceTasks"
     );
     return listSpaceTasksResponseSchema.parse(
-      await rpc({ context: toolContext.context, spaceId: space.id })
+      await rpc({
+        context: toolContext.context,
+        spaceId: space.id,
+        taskContractVersion: SPACE_TASK_WORKFLOW_CONTRACT_VERSION,
+      })
     );
   }
   if (request.action === "create") {
@@ -2137,6 +2180,9 @@ async function createSpaceTaskFromTool(input: {
     ...(input.request.completionConditions === undefined
       ? {}
       : { completionConditions: input.request.completionConditions }),
+    ...(input.request.projectIds === undefined
+      ? {}
+      : { projectIds: input.request.projectIds }),
     assigneeProfileId:
       input.request.assigneeProfileId === undefined
         ? input.toolContext.context.actorContext.openMeldProfileId
@@ -2173,6 +2219,7 @@ async function createSpaceTaskFromTool(input: {
         body,
         context: input.toolContext.context,
         spaceId: input.spaceId,
+        taskContractVersion: SPACE_TASK_WORKFLOW_CONTRACT_VERSION,
       })
     )
   );
@@ -2196,6 +2243,7 @@ async function mutateSpaceTaskFromTool(input: {
         context: input.toolContext.context,
         spaceId: input.spaceId,
         taskId: input.request.taskId,
+        taskContractVersion: SPACE_TASK_WORKFLOW_CONTRACT_VERSION,
       })
     )
   );
@@ -4135,7 +4183,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_manage_space_tasks",
       description:
-        "Manage durable commitments in the current shared OpenMeld Space. Create a Task when the current message asks for a clear, discrete deliverable that will outlive an immediate conversational answer or needs ownership, progress, review, or later closure. Creating a GitHub issue in this Space records a linked Task only when that GitHub tool result's spaceTask.created is true; use attach_external_work_item or detach_external_work_item to associate an existing issue. When a Task linked to an open GitHub issue is completed or canceled, close that issue with github_update_issue unless the result says it is already closed. Do not create Tasks for questions, tiny same-turn actions, exploratory discussion, acknowledgements, or every Agent tool call. A created Task is assigned to you by default but remains To do; call mark_in_progress when work actually begins, then submit_result with the concrete result and verification. Assignment alone never starts execution. Read the Task before changing it and pass its expectedRevision. Review must also pass the resultRevision you actually read as expectedResultRevision. A conflict requires reading the changed Task and deciding again. The Space delivers review and rework handoffs through the normal Wake path. Do not issue another Wake for those transitions or wake more work when needsHumanDecision is true. Two automatic Agent rework rounds are allowed before a human must decide. This tool is limited to this conversation's shared Space and does not control Agent execution truth.",
+        "Manage durable commitments in the current shared OpenMeld Space. Create a Task when the current message asks for a clear, discrete deliverable that will outlive an immediate conversational answer or needs ownership, progress, review, or later closure. Use projectIds on create or set_projects after an explicit Project decision; a Task may have several Projects, and their order does not choose an external destination. Creating a GitHub issue in this Space records a linked Task only when that GitHub tool result's spaceTask.created is true; use attach_external_work_item or detach_external_work_item for an existing GitHub issue. Use attach_linear_external_work_item with the verified Linear issue UUID, identifier, team UUID and URL, or detach_linear_external_work_item; Linear links are not monitored. When a Task linked to an open GitHub issue is completed or canceled, close that issue with github_update_issue unless the result says it is already closed. Do not create Tasks for questions, tiny same-turn actions, exploratory discussion, acknowledgements, or every Agent tool call. A created Task is assigned to you by default but remains To do; call mark_in_progress when work actually begins, then submit_result with the concrete result and verification. Assignment alone never starts execution. Read the Task before changing it and pass its expectedRevision. Review must also pass the resultRevision you actually read as expectedResultRevision. A conflict requires reading the changed Task and deciding again. The Space delivers review and rework handoffs through the normal Wake path. Do not issue another Wake for those transitions or wake more work when needsHumanDecision is true. Two automatic Agent rework rounds are allowed before a human must decide. This tool is limited to this conversation's shared Space and does not control Agent execution truth.",
       input: manageSpaceTasksToolInputSchema,
       execute: async (payload) =>
         await executeManageSpaceTasksTool({

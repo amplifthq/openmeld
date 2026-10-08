@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
 	cleanup,
@@ -10,6 +11,7 @@ import { useRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
+import { projectQueryKeys } from "#/query/organizations/projects";
 import { SpaceComposer } from "./space-composer";
 import type { SpaceComposerSendOptions } from "./space-composer-device-wait";
 import type { SpaceComposerEditorHandle } from "./space-composer-editor";
@@ -66,6 +68,67 @@ it.each([
 	expect(onChange).toHaveBeenCalledWith({
 		label: input.label,
 		selection: input.selection,
+		targetProfileId: "agent",
+	});
+});
+
+it("sends the chosen Project and repository fingerprint with a new task", async () => {
+	const organizationId = "org-1";
+	const projectId = "project-payments";
+	const repositoryFingerprint = `sha256:${"a".repeat(64)}`;
+	const queryClient = new QueryClient({
+		defaultOptions: { queries: { retry: false } },
+	});
+	queryClient.setQueryData(projectQueryKeys.organization(organizationId), {
+		organizationId,
+		projects: [{ id: projectId, name: "Payments" }],
+	});
+	queryClient.setQueryData(
+		projectQueryKeys.repositories(organizationId, projectId),
+		{
+			settings: {
+				projectId,
+				repositories: [
+					{
+						repositoryFingerprint,
+						repositoryUrl: "https://github.com/amplifthq/payments",
+						isDefault: true,
+					},
+				],
+				legacyDefaultFingerprint: null,
+			},
+		}
+	);
+	const onChange = vi.fn();
+	render(
+		<QueryClientProvider client={queryClient}>
+			<SpaceComposerTaskMenu
+				disabled={false}
+				onChange={onChange}
+				organizationId={organizationId}
+				requiresProjectContainer={false}
+				sources={[]}
+				supportsCurrentFolder
+				targetProfileId="agent"
+			/>
+		</QueryClientProvider>
+	);
+	fireEvent.click(screen.getByRole("button", { name: "Task context" }));
+	fireEvent.click(await screen.findByText("Choose Project and repository…"));
+	fireEvent.change(await screen.findByRole("combobox", { name: "Project" }), {
+		target: { value: projectId },
+	});
+	fireEvent.click(
+		await screen.findByRole("button", { name: "Use for new task" })
+	);
+	expect(onChange).toHaveBeenCalledWith({
+		label: "Payments · amplifthq/payments",
+		selection: {
+			mode: "new",
+			access: "workspace",
+			workspace: "isolated",
+			projectWork: { projectId, repositoryFingerprint },
+		},
 		targetProfileId: "agent",
 	});
 });

@@ -304,7 +304,13 @@ export type {
   UpdateAgentProfileDefaultProjectInput,
 } from "./profiles/types";
 export { createProjectsApi } from "./projects/api";
-export { buildProjectPath, buildProjectsPath } from "./projects/routes";
+export {
+  buildProjectCommonAgentsPath,
+  buildProjectIssueRoutingPath,
+  buildProjectPath,
+  buildProjectRepositoriesPath,
+  buildProjectsPath,
+} from "./projects/routes";
 export type {
   ArchiveProjectInput,
   CreateProjectInput,
@@ -312,7 +318,13 @@ export type {
   ListProjectsInput,
   ProjectRequestInput,
   ProjectsApi,
+  ReadProjectCommonAgentsInput,
+  ReadProjectIssueRoutingInput,
+  ReadProjectRepositorySettingsInput,
+  UpdateProjectCommonAgentsInput,
   UpdateProjectInput,
+  UpdateProjectIssueRoutingInput,
+  UpdateProjectRepositorySettingsInput,
 } from "./projects/types";
 export { publicSpaceUrls } from "./public-space-urls";
 export { createReasoningStreamApi } from "./reasoning-stream";

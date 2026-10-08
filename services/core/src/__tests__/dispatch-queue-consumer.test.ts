@@ -682,7 +682,8 @@ describe("handleDispatchQueueBatch", () => {
       | "usage_checking"
       | "usage_exhausted"
       | "working_folder.report_stale"
-      | "working_folder.observation_coverage_invalid";
+      | "working_folder.observation_coverage_invalid"
+      | "workspace.missing";
     targetProfileId: string;
   }): CoreAgentExecutionReadiness => {
     const agentControllerRef = input.agentControllerRef ?? "builtin:codex";
@@ -743,25 +744,27 @@ describe("handleDispatchQueueBatch", () => {
     return {
       agentControllerRef,
       agentExecutionReadiness,
-      agentWakeRouteRegistration: input.runtimeReasonCode
-        ? {
-            daemonSessionId: "daemon-session-1",
-            deviceId: "daemon-device-1",
-            lane: "dev-local",
-            reasonCode: input.runtimeReasonCode,
-            reportedAtMs: Date.now(),
-            serviceVersion: "999.0.0",
-            status: "skipped",
-          }
-        : {
-            daemonSessionId: "daemon-session-1",
-            deviceId: "daemon-device-1",
-            lane: "dev-local",
-            reasonCode: null,
-            reportedAtMs: Date.now(),
-            serviceVersion: "999.0.0",
-            status: "registered",
-          },
+      agentWakeRouteRegistration:
+        input.runtimeReasonCode &&
+        input.runtimeReasonCode !== "workspace.missing"
+          ? {
+              daemonSessionId: "daemon-session-1",
+              deviceId: "daemon-device-1",
+              lane: "dev-local",
+              reasonCode: input.runtimeReasonCode,
+              reportedAtMs: Date.now(),
+              serviceVersion: "999.0.0",
+              status: "skipped",
+            }
+          : {
+              daemonSessionId: "daemon-session-1",
+              deviceId: "daemon-device-1",
+              lane: "dev-local",
+              reasonCode: null,
+              reportedAtMs: Date.now(),
+              serviceVersion: "999.0.0",
+              status: "registered",
+            },
       daemonRouteObservation: {
         observedAt: new Date().toISOString(),
         reasonCode: "online",
@@ -9463,6 +9466,7 @@ describe("handleDispatchQueueBatch", () => {
             automaticModelFallback: false,
             displayName: "DeepSeek V4 Flash",
             imageUnderstandingModel: expect.objectContaining({
+              inputModalities: expect.arrayContaining(["image"]),
               modelId: "openai/gpt-6-luna",
             }),
             modelId: "deepseek/deepseek-v4-flash",
@@ -10383,6 +10387,131 @@ describe("handleDispatchQueueBatch", () => {
       ok: false,
       errorCode: "controller.registry.disabled",
     });
+  });
+
+  it("admits an explicit Project with a missing Default Project folder while preserving other Wake blockers", async () => {
+    const targetProfileId = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const message = createDispatchBody({
+      dispatchId: "selected-project-missing-default",
+      sourceEventId: "selected-project-missing-default-source",
+      targetProfileId,
+      visitedProfileIdsHash: "stable32:selected-project-missing-default",
+    });
+    const selectedMessage = {
+      ...message,
+      contextSelection: {
+        mode: "new" as const,
+        access: "read_only" as const,
+        projectWork: {
+          projectId: "project-selected",
+          repositoryFingerprint: `sha256:${"a".repeat(64)}`,
+        },
+        workspace: "isolated" as const,
+      },
+    };
+    const baseReadiness = createCanonicalWorkstationReadiness({
+      runtimeReasonCode: "workspace.missing",
+      targetProfileId,
+    });
+    const readiness = {
+      ...baseReadiness,
+      agentExecutionReadiness: {
+        ...baseReadiness.agentExecutionReadiness,
+        facts: {
+          ...baseReadiness.agentExecutionReadiness.facts,
+          binding: {
+            ...baseReadiness.agentExecutionReadiness.facts.binding,
+            reasonCodes: ["agent_profile_binding.command_eligible"],
+          },
+          runtime: {
+            ...baseReadiness.agentExecutionReadiness.facts.runtime,
+            reasonCodes: [
+              "runtime.ready",
+              "capability.ready",
+              "service.ready",
+              "project.local_connection.missing",
+            ],
+          },
+        },
+        reasonCodes: [
+          "agent_profile_binding.command_eligible",
+          "runtime.ready",
+          "capability.ready",
+          "service.ready",
+          "project.local_connection.missing",
+        ],
+      },
+    };
+    const read = vi.mocked(
+      agentExecutionReadinessService.resolveCoreAgentExecutionReadinessForProfile
+    );
+
+    read.mockResolvedValueOnce(readiness);
+    await expect(
+      runDispatchExecutionPreflightGate({
+        env: makeEnvWithBindings(),
+        message,
+      })
+    ).resolves.toMatchObject({
+      ok: false,
+      errorCode: "project.local_connection.missing",
+    });
+    read.mockResolvedValueOnce(readiness);
+    const selectedResult = await runDispatchExecutionPreflightGate({
+      env: makeEnvWithBindings(),
+      message: selectedMessage,
+    });
+    expect(selectedResult).toMatchObject({ ok: true });
+
+    for (const mode of ["resume", "fork"] as const) {
+      read.mockResolvedValueOnce(readiness);
+      await expect(
+        runDispatchExecutionPreflightGate({
+          env: makeEnvWithBindings(),
+          message: {
+            ...message,
+            contextSelection: {
+              mode,
+              sourceWakeId: "twl_v1:previous-selected-project-wake",
+            },
+          },
+        })
+      ).resolves.toMatchObject({ ok: true });
+    }
+
+    read.mockResolvedValueOnce({
+      ...readiness,
+      agentExecutionReadiness: {
+        ...readiness.agentExecutionReadiness,
+        facts: {
+          ...readiness.agentExecutionReadiness.facts,
+          runtime: {
+            ...readiness.agentExecutionReadiness.facts.runtime,
+            reasonCodes: [
+              "runtime.ready",
+              "capability.ready",
+              "service.ready",
+              "project.local_connection.missing",
+              "service.update_required",
+            ],
+          },
+        },
+        reasonCodes: [
+          "agent_profile_binding.command_eligible",
+          "runtime.ready",
+          "capability.ready",
+          "service.ready",
+          "project.local_connection.missing",
+          "service.update_required",
+        ],
+      },
+    });
+    await expect(
+      runDispatchExecutionPreflightGate({
+        env: makeEnvWithBindings(),
+        message: selectedMessage,
+      })
+    ).resolves.toMatchObject({ ok: false });
   });
 
   it("does not admit execution when an offline refreshing projection falls through device waiting", async () => {

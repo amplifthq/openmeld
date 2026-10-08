@@ -243,6 +243,16 @@ describe("Agent Activity CLI presentation", () => {
       "/work/repository",
       "--allow-unverified",
     ]);
+    await program.parseAsync([
+      "node",
+      "openmeld",
+      "projects",
+      "bind",
+      "openmeld",
+      "--repository",
+      "https://github.com/amplifthq/sdk",
+      "--share",
+    ]);
 
     expect(bind).toHaveBeenNthCalledWith(
       1,
@@ -259,6 +269,15 @@ describe("Agent Activity CLI presentation", () => {
       expect.objectContaining({
         allowUnverified: true,
         path: "/work/repository",
+      }),
+      expect.any(Command)
+    );
+    expect(bind).toHaveBeenNthCalledWith(
+      3,
+      "openmeld",
+      expect.objectContaining({
+        repository: "https://github.com/amplifthq/sdk",
+        share: true,
       }),
       expect.any(Command)
     );

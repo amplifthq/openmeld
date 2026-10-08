@@ -30,6 +30,8 @@ const postgresqlOnlyTables = [
   { name: "first_work_experiences" },
   { name: "cloud_computers" },
   { name: "account_deletion_requests" },
+  { name: "space_task_project_links" },
+  { name: "space_task_project_projection_states" },
 ];
 
 function csv(value) {
@@ -58,6 +60,9 @@ function sourceColumn(column) {
   }
   if (column.source === "new_zero") {
     return `0 AS ${quote(column.name)}`;
+  }
+  if (column.source === "new_empty_array") {
+    return `'[]' AS ${quote(column.name)}`;
   }
   if (column.source === "routine_scope") {
     return `CASE WHEN agent_profile_id IS NULL THEN 'team' ELSE 'personal' END AS ${quote(column.name)}`;
@@ -286,6 +291,60 @@ async function lockEmptyTarget(client, catalog) {
 
 function nativeColumns(table, targetColumns) {
   const columns = [...table.columns];
+  if (table.name === "projects") {
+    // Historical Projects retain their repository and identity. Workflow
+    // preferences begin unset; importing data never grants new access.
+    columns.push(
+      ...[
+        "issue_destination_json",
+        "issue_destination_updated_by_user_id",
+        "repository_settings_updated_by_user_id",
+        "common_agents_updated_by_user_id",
+      ].map((name) => ({
+        name,
+        type: "TEXT",
+        hidden: 0,
+        source: "new_nullable",
+      })),
+      ...[
+        "issue_destination_updated_at_ms",
+        "repository_settings_updated_at_ms",
+        "common_agents_updated_at_ms",
+      ].map((name) => ({
+        name,
+        type: "INTEGER",
+        hidden: 0,
+        source: "new_nullable",
+      })),
+      ...[
+        "issue_destination_revision",
+        "repository_settings_revision",
+        "common_agents_revision",
+      ].map((name) => ({
+        name,
+        type: "INTEGER",
+        hidden: 0,
+        source: "new_zero",
+      })),
+      ...[
+        "additional_repository_urls_json",
+        "common_agent_profile_ids_json",
+      ].map((name) => ({
+        name,
+        type: "TEXT",
+        hidden: 0,
+        source: "new_empty_array",
+      }))
+    );
+  }
+  if (table.name === "center_agent_connector_action_operations") {
+    columns.push({
+      name: "linear_issue_receipt_json",
+      type: "TEXT",
+      hidden: 0,
+      source: "new_nullable",
+    });
+  }
   if (table.name === "space_index_spaces") {
     columns.push({
       name: "recent_message_previews_json",

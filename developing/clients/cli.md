@@ -920,9 +920,13 @@ previous successful password entry must not silently authorize this operation.
 ### Agent Activity
 
 `openmeld projects` owns explicit local Project opt-in. `bind` resolves a real,
-readable directory to its canonical path, rejects a path already bound to any
-other Organization or Project, stores only local mode-0600 binding state, and
-uploads at most the Project id plus an optional safe repository fingerprint.
+readable directory to its canonical path and checks the selected repository
+against current Project settings. `--repository <url>` names one associated
+repository when a Project has several. A same-Organization folder already
+connected to another Project requires the owner to see the conflict first and
+repeat `bind` with `--share`; cross-Organization sharing and cross-account
+reuse remain forbidden. The store remains local mode-0600 state and uploads at
+most the Project id plus an optional safe repository fingerprint.
 The same successful `bind` action installs OpenMeld-owned Codex and Claude Code
 hooks, Cursor hooks, and the OpenCode plugin. Grok Build does not add a managed
 hook or become an Agent Activity provider in this phase; its Wake lifecycle
@@ -1666,6 +1670,16 @@ A missing member, conflicting relation, or incompatible Profile kind fails
 before upload/publication. Repeating an ID in one relation is deduplicated.
 Dispatch-owned replies still use their prompt-owned context and publication
 boundary; generic send cannot replace a dispatch action.
+
+For a new code task, `space send` and its `send` alias accept
+`--project <slug>` and optional `--repository <url>`. The CLI reads the current
+Project repository settings, uses the configured default or sole repository
+when no URL is supplied, and asks for an exact URL when several repositories
+remain. It freezes the Project ID and repository fingerprint in the Execution
+Context selection. This option requires one `--wake` and `--new-task`; it
+cannot move a continued or forked Context. Core and the current local
+Service still verify the Project, repository, owner-local connection, and file
+policy before execution. No CLI flag grants repository access by itself.
 
 Message text is literal, including old `@Name(wake)` syntax, code, and examples.
 `--plain` optionally asserts that no recipient flags were supplied. Plain sends

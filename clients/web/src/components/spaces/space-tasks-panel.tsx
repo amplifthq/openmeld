@@ -73,35 +73,6 @@ function TasksRefreshNotice(input: {
 	);
 }
 
-function EmptyTasksBoard(input: { phase?: SpaceTaskPhase }) {
-	return (
-		<div className="flex min-h-80 items-center justify-center rounded-lg border border-border border-dashed px-6 text-center">
-			<div className="max-w-md">
-				<CheckCircleIcon
-					aria-hidden="true"
-					className="mx-auto size-8 text-muted-foreground"
-				/>
-				<h3 className="mt-3 font-medium text-sm">
-					{input.phase
-						? `No ${formatSpaceTaskPhase(input.phase)} Tasks`
-						: "No Tasks yet"}
-				</h3>
-				<p className="mt-1 text-muted-foreground text-sm leading-6">
-					{input.phase ? (
-						"Choose another phase to see more work."
-					) : (
-						<>
-							Tasks begin in Messages when someone gives a person or Agent a
-							clear deliverable. Small questions and quick actions stay in the
-							conversation.
-						</>
-					)}
-				</p>
-			</div>
-		</div>
-	);
-}
-
 function TasksReadGate(input: {
 	isPaused: boolean;
 	isPending: boolean;
@@ -146,9 +117,24 @@ function shouldBlockTasksRead(input: {
 
 export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 	const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+	const [selectedProjectId, setSelectedProjectId] = useState("");
 	const [phase, setPhase] = useState<SpaceTaskPhase | undefined>();
-	const { detailQuery, members, mutateTask, pendingTaskId, tasksQuery } =
-		useSpaceTasksPanelController(input, { phase, taskId: selectedTaskId });
+	const {
+		addAndAssignTask,
+		commonAgentIds,
+		detailQuery,
+		members,
+		mutateTask,
+		outsideCommonAgents,
+		pendingTaskId,
+		projects,
+		tasksQuery,
+	} = useSpaceTasksPanelController(input, { phase, taskId: selectedTaskId });
+	const effectiveProjectId = projects.some(
+		(project) => project.id === selectedProjectId
+	)
+		? selectedProjectId
+		: "";
 	const showPending = useDelayedPending(
 		tasksQuery.isPending && tasksQuery.fetchStatus !== "paused"
 	);
@@ -170,14 +156,17 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 		);
 	}
 
-	const tasks = tasksQuery.data?.tasks ?? [];
-	const doneTasks = tasks.filter((task) => task.phase === "done");
-	const canceledTasks = tasks.filter((task) => task.phase === "canceled");
+	const tasks = (tasksQuery.data?.tasks ?? []).filter(
+		(task) =>
+			!effectiveProjectId || task.projectIds.includes(effectiveProjectId)
+	);
 	const selectedTask = resolveSelectedTask(
 		tasks,
 		selectedTaskId,
 		detailQuery.data?.task
 	);
+	const doneTasks = tasks.filter((task) => task.phase === "done");
+	const canceledTasks = tasks.filter((task) => task.phase === "canceled");
 	const spaceHref = input.organizationSlug
 		? buildOrganizationSpacePath({
 				orgSlug: input.organizationSlug,
@@ -195,7 +184,13 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 				/>
 				<TaskBoardHeader
 					onPhaseChange={setPhase}
+					onProjectChange={(projectId) => {
+						setSelectedProjectId(projectId);
+						setSelectedTaskId(null);
+					}}
 					phase={phase}
+					projects={projects}
+					selectedProjectId={effectiveProjectId}
 					tasks={tasks}
 					truncated={tasksQuery.data?.truncated ?? false}
 				/>
@@ -208,7 +203,11 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 				) : null}
 
 				{tasks.length === 0 ? (
-					<EmptyTasksBoard phase={phase} />
+					<TaskBoardEmptyState
+						phase={phase}
+						selectedProjectId={effectiveProjectId}
+						truncated={tasksQuery.data?.truncated ?? false}
+					/>
 				) : (
 					<>
 						<div className="grid items-start gap-4 md:grid-cols-3">
@@ -254,32 +253,34 @@ export function SpaceTasksPanel(input: SpaceTasksPanelProps) {
 				)}
 			</div>
 			<SpaceTaskDetailDrawer
-				busy={selectedTask !== null && pendingTaskId === selectedTask.taskId}
+				busy={isTaskPending(selectedTask, pendingTaskId)}
+				commonAgentIds={commonAgentIds}
 				detail={detailQuery.data}
 				error={detailQuery.isError}
 				key={selectedTaskId ?? "closed"}
 				loading={selectedTaskId !== null && detailQuery.isPending}
 				members={members}
-				onMutate={async (body) => {
-					if (!selectedTaskId) {
-						return false;
-					}
-					return await mutateTask(selectedTaskId, body);
-				}}
-				onOpenChange={(open) => {
-					if (!open) {
-						setSelectedTaskId(null);
-					}
-				}}
+				onAddAndAssign={(profileId) =>
+					addAndAssignSelectedTask(selectedTask, profileId, addAndAssignTask)
+				}
+				onMutate={(body) =>
+					mutateSelectedTask(selectedTaskId, body, mutateTask)
+				}
+				onOpenChange={(open) =>
+					handleTaskDrawerOpenChange(open, setSelectedTaskId)
+				}
 				onOpenThread={input.onOpenThread}
 				onRefresh={() => detailQuery.refetch()}
 				open={selectedTaskId !== null}
+				outsideCommonAgents={outsideCommonAgents}
+				projects={projects}
 				selfProfileId={input.openMeldProfileId}
 				sourceHref={
 					selectedTask?.sourceSignalId
 						? buildSpaceMessageFocusHref(spaceHref, selectedTask.sourceSignalId)
 						: undefined
 				}
+				spaceName={input.spaceName ?? "this Space"}
 				task={selectedTask}
 			/>
 		</ScrollArea>
@@ -294,9 +295,96 @@ function resolveSelectedTask(
 	return detailTask ?? tasks.find((task) => task.taskId === taskId) ?? null;
 }
 
+async function addAndAssignSelectedTask(
+	task: SpaceTask | null,
+	profileId: string,
+	addAndAssignTask: ReturnType<
+		typeof useSpaceTasksPanelController
+	>["addAndAssignTask"]
+) {
+	if (!task) {
+		return {
+			membership: "unknown" as const,
+			assigned: false,
+			message: "Task details are unavailable.",
+		};
+	}
+	return await addAndAssignTask(task.taskId, profileId, task.revision);
+}
+
+async function mutateSelectedTask(
+	taskId: string | null,
+	body: Parameters<
+		ReturnType<typeof useSpaceTasksPanelController>["mutateTask"]
+	>[1],
+	mutateTask: ReturnType<typeof useSpaceTasksPanelController>["mutateTask"]
+): Promise<boolean> {
+	if (!taskId) {
+		return false;
+	}
+	return await mutateTask(taskId, body);
+}
+
+function handleTaskDrawerOpenChange(
+	open: boolean,
+	setSelectedTaskId: (taskId: string | null) => void
+): void {
+	if (!open) {
+		setSelectedTaskId(null);
+	}
+}
+
+function isTaskPending(
+	task: SpaceTask | null,
+	pendingTaskId: string | null
+): boolean {
+	return task !== null && pendingTaskId === task.taskId;
+}
+
+function TaskBoardEmptyState(input: {
+	phase?: SpaceTaskPhase;
+	selectedProjectId: string;
+	truncated: boolean;
+}) {
+	let title = "No Tasks yet";
+	let description =
+		"Tasks begin in Messages when someone gives a person or Agent a clear deliverable. Small questions and quick actions stay in the conversation.";
+	if (input.phase) {
+		title = `No ${formatSpaceTaskPhase(input.phase)} Tasks`;
+		description = "Choose another phase to see more work.";
+	}
+	if (input.selectedProjectId) {
+		if (!input.phase) {
+			title = input.truncated
+				? "No matching Tasks in this page"
+				: "No Tasks for this Project";
+		}
+		description = input.truncated
+			? "Older Tasks may not be included. Choose a phase or clear the Project filter to inspect more work."
+			: "Choose another Project or clear the filter to see more work in this Space.";
+	}
+	return (
+		<div className="flex min-h-80 items-center justify-center rounded-lg border border-border border-dashed px-6 text-center">
+			<div className="max-w-md">
+				<CheckCircleIcon
+					aria-hidden="true"
+					className="mx-auto size-8 text-muted-foreground"
+				/>
+				<h3 className="mt-3 font-medium text-sm">{title}</h3>
+				<p className="mt-1 text-muted-foreground text-sm leading-6">
+					{description}
+				</p>
+			</div>
+		</div>
+	);
+}
+
 function TaskBoardHeader(input: {
+	onProjectChange: (projectId: string) => void;
 	onPhaseChange: (phase: SpaceTaskPhase | undefined) => void;
 	phase?: SpaceTaskPhase;
+	projects: readonly { id: string; name: string }[];
+	selectedProjectId: string;
 	tasks: readonly SpaceTask[];
 	truncated: boolean;
 }) {
@@ -315,29 +403,48 @@ function TaskBoardHeader(input: {
 				<h2 className="font-semibold text-base">Tasks</h2>
 				<p className="mt-1 text-muted-foreground text-sm">{summary}</p>
 			</div>
-			<label className="text-muted-foreground text-xs">
-				Phase
-				<select
-					className="mt-1 block h-8 rounded-md border border-input bg-background px-2 text-foreground text-sm"
-					onChange={(event) =>
-						input.onPhaseChange(
-							event.target.value
-								? (event.target.value as SpaceTaskPhase)
-								: undefined
-						)
-					}
-					value={input.phase ?? ""}
-				>
-					<option value="">All phases</option>
-					{(
-						["to_do", "in_progress", "in_review", "done", "canceled"] as const
-					).map((value) => (
-						<option key={value} value={value}>
-							{formatSpaceTaskPhase(value)}
-						</option>
-					))}
-				</select>
-			</label>
+			<div className="flex gap-3">
+				{input.projects.length > 0 ? (
+					<label className="text-muted-foreground text-xs">
+						Project
+						<select
+							className="mt-1 block h-8 rounded-md border border-input bg-background px-2 text-foreground text-sm"
+							onChange={(event) => input.onProjectChange(event.target.value)}
+							value={input.selectedProjectId}
+						>
+							<option value="">All Projects</option>
+							{input.projects.map((project) => (
+								<option key={project.id} value={project.id}>
+									{project.name}
+								</option>
+							))}
+						</select>
+					</label>
+				) : null}
+				<label className="text-muted-foreground text-xs">
+					Phase
+					<select
+						className="mt-1 block h-8 rounded-md border border-input bg-background px-2 text-foreground text-sm"
+						onChange={(event) =>
+							input.onPhaseChange(
+								event.target.value
+									? (event.target.value as SpaceTaskPhase)
+									: undefined
+							)
+						}
+						value={input.phase ?? ""}
+					>
+						<option value="">All phases</option>
+						{(
+							["to_do", "in_progress", "in_review", "done", "canceled"] as const
+						).map((value) => (
+							<option key={value} value={value}>
+								{formatSpaceTaskPhase(value)}
+							</option>
+						))}
+					</select>
+				</label>
+			</div>
 		</header>
 	);
 }
