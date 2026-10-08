@@ -65,6 +65,7 @@ describe("local Agent Controller report resolution", () => {
       ],
     });
     expect(collectLocalAgentControllerInventoryMock).toHaveBeenCalledWith({
+      agentIds: ["codex"],
       includeControllerInterface: true,
     });
   });

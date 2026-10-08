@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-07T18:27:26.898Z",
+  "updatedAt": "2026-10-08T07:30:38.825Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
       "packageVersion": "0.3.248",
       "updatePolicy": "available",
-      "reason": "Existing commands remain compatible; new conversation readers are optional and their cloud receivers deploy before CLI publication."
+      "reason": "Existing setup commands and report payloads remain compatible; local discovery can return one controller at a time."
     },
     "service": {
-      "bundleHash": "a24cc02a780dae13075b1a3b091235d8676286f5de115033330ebc8ad04ea25f",
-      "portableBundleHash": "84772ec25550dd28160cc8eaa2285dc01d3d9817e888797d99e1fa804d0e243d",
+      "bundleHash": "a6248049e69cb81204dc51d3b28d3f99e65b2949480a2dfd3d97c26f2e195db1",
+      "portableBundleHash": "2d8ab2196bfb7104aadc69c11790608a8be9c6365dde7343faa4c6d38c83bbb3",
       "bundleVersion": "0.3.248",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
       "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
       "updatePolicy": "available",
-      "reason": "Conversation history v3 is capability-gated; old Services retain safe existing Wake, setup, approval and recovery behavior while new cloud receivers deploy first."
+      "reason": "Each completed controller check uses the existing report endpoint; Core retains readiness authority and old clients remain compatible."
     },
     "skills": {
       "bundleHash": "7a89eb86c43daf33e04984b7f04cbfd9752ec8bcf617004f85bee8007359ddb6",

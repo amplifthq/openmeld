@@ -205,10 +205,18 @@ function LocalAgentSelectionStatePanel(input: {
 	const className =
 		"grid min-h-40 content-center gap-4 rounded-md border border-border/70 border-dashed bg-card/25 px-6 py-7";
 
-	if (state.kind === "computer" && input.computerRecovery) {
+	if (
+		input.computerRecovery &&
+		(state.kind === "computer" ||
+			(state.kind === "checking" &&
+				input.computerRecovery.state === "local_agents"))
+	) {
 		return (
 			<div className={className}>
-				<AgentCreationComputerRecoveryPanel recovery={input.computerRecovery} />
+				<AgentCreationComputerRecoveryPanel
+					recovery={input.computerRecovery}
+					waitingForAgents={state.kind === "checking"}
+				/>
 			</div>
 		);
 	}

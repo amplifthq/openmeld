@@ -908,6 +908,7 @@ function useCreateProfileDialogController(
 			isPending: creationComputerReadiness.isPending,
 			sessionComputerId: sessionPreset?.computerId,
 			onRetry: retryCreationConnection,
+			refreshReadiness: creationComputerReadiness.refetch,
 		});
 	const recoveryActionHref = buildConnectComputerPath({
 		connectedComputerId: reconnectComputerId,
@@ -2352,14 +2353,22 @@ function resolveLocalAgentSelectionState(input: {
 		return {
 			...base,
 			blocksCreation: true,
-			kind: "computer",
+			kind:
+				input.computerRecovery.state === "checking" ||
+				input.computerRecovery.state === "check_failed"
+					? input.computerRecovery.state
+					: "computer",
 		};
 	}
 	if (!input.bindingTarget) {
 		return {
 			...base,
 			blocksCreation: true,
-			kind: input.isResolvingLocalAgents ? "checking" : "computer",
+			kind:
+				input.computerRecovery?.state === "local_agents" ||
+				input.isResolvingLocalAgents
+					? "checking"
+					: "computer",
 		};
 	}
 	return resolveLocalAgentSelectionStateForTarget({
@@ -4333,9 +4342,13 @@ function isResolvingCreateProfileLocalAgents(
 	recovery: RecoveryController
 ): boolean {
 	return (
-		recovery.currentDeviceTargetQuery.fetchStatus === "fetching" ||
-		recovery.localRuntimesQuery.fetchStatus === "fetching" ||
-		recovery.currentLocalRuntimeReplyReadinessQuery.fetchStatus === "fetching"
+		(recovery.currentDeviceTargetQuery.isPending &&
+			recovery.currentDeviceTargetQuery.fetchStatus === "fetching") ||
+		(recovery.localRuntimesQuery.isPending &&
+			recovery.localRuntimesQuery.fetchStatus === "fetching") ||
+		(recovery.currentLocalRuntimeReplyReadinessQuery.isPending &&
+			recovery.currentLocalRuntimeReplyReadinessQuery.fetchStatus ===
+				"fetching")
 	);
 }
 

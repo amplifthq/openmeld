@@ -23,6 +23,50 @@ import { useAgentCreationComputerRecovery } from "./use-agent-creation-computer-
 afterEach(cleanup);
 
 describe("Agent creation computer recovery", () => {
+	it("refreshes both projections after connection until the agent is ready", async () => {
+		vi.useFakeTimers();
+		const recovery = agentCreationRecoveryFixture({
+			computers: [],
+			deviceId: null,
+			onSelect: vi.fn(),
+		});
+		const inventory = vi.spyOn(recovery.localRuntimesQuery, "refetch");
+		const readiness = vi.fn().mockResolvedValue(undefined);
+		const { result, rerender, unmount } = renderHook(
+			({ ready }) =>
+				useAgentCreationComputerRecovery({
+					enabled: true,
+					recovery,
+					guidance: ready ? "set_up_local_agents" : "connect_computer",
+					hasLocalAgents: ready,
+					isPending: false,
+					onRetry: vi.fn(),
+					refreshReadiness: readiness,
+				}),
+			{ initialProps: { ready: false } }
+		);
+		try {
+			const provider = result.current.computerRecovery?.setup as ReactElement<{
+				children: ReactElement<{ onCompleted: (snapshot: unknown) => void }>;
+			}>;
+			act(() =>
+				provider.props.children.props.onCompleted({
+					deviceId: "new-device",
+					runtimeLane: "dev-local",
+				})
+			);
+			await act(() => vi.advanceTimersByTimeAsync(3000));
+			expect(inventory).toHaveBeenCalledOnce();
+			expect(readiness).toHaveBeenCalledOnce();
+			rerender({ ready: true });
+			await act(() => vi.advanceTimersByTimeAsync(6000));
+			expect(inventory).toHaveBeenCalledOnce();
+			expect(readiness).toHaveBeenCalledOnce();
+		} finally {
+			unmount();
+			vi.useRealTimers();
+		}
+	});
 	it.each([
 		["connect_computer", false, "connect"],
 		["connect_computer", true, "connect"],
@@ -81,9 +125,10 @@ describe("Agent creation computer recovery", () => {
 		expect(provider.props.routeIntent.connectedComputerId).toBeUndefined();
 		expect(result.current.reconnectComputerId).toBeUndefined();
 		render(result.current.computerRecovery?.computerChoices);
-		expect(screen.getByDisplayValue("Connect a new computer")).toBe(
+		expect(
 			screen.getByRole("combobox", { name: "Computer to reconnect" })
-		);
+				.textContent
+		).toContain("Connect a new computer");
 	});
 	// The Service sync filters unregistered controllers and submits no report
 	// when none are installed. Thus both fresh/no-report and checked/no-install
@@ -138,9 +183,7 @@ describe("Agent creation computer recovery", () => {
 			throw new Error("Expected recovery guidance for unavailable details");
 		}
 		render(<AgentCreationComputerRecoveryPanel recovery={recovery} />);
-		expect(
-			screen.getByText("Local agent details aren’t available")
-		).toBeTruthy();
+		expect(screen.getByText("Computer connected")).toBeTruthy();
 		expect(screen.queryByText("No supported agents detected")).toBeNull();
 		expect(
 			screen.getByText(
@@ -202,10 +245,10 @@ describe("Agent creation computer recovery", () => {
 			}
 		);
 		render(result.current.computerRecovery?.computerChoices);
-		fireEvent.change(
-			screen.getByRole("combobox", { name: "Computer to reconnect" }),
-			{ target: { value: "office-mac" } }
+		fireEvent.click(
+			screen.getByRole("combobox", { name: "Computer to reconnect" })
 		);
+		fireEvent.click(screen.getByRole("option", { name: "Office Mac" }));
 		const provider = result.current.computerRecovery?.setup as ReactElement<{
 			routeIntent: { connectedComputerId: string };
 			children: ReactElement<{ onCompleted: (snapshot: unknown) => void }>;
@@ -229,6 +272,10 @@ describe("Agent creation computer recovery", () => {
 		});
 		expect(onRetry).toHaveBeenCalledOnce();
 		expect(result.current.computerRecovery?.setup).toBeUndefined();
+		// A stale readiness refresh must not silently start another installation.
+		rerender({ guidance: "connect_computer" });
+		expect(result.current.computerRecovery?.setup).toBeUndefined();
+		expect(result.current.computerRecovery?.computerChoices).toBeUndefined();
 	});
 	it("shows setup immediately when open and never mounts it while closed", () => {
 		const base = {

@@ -10,7 +10,15 @@ const { resolveAgentControllerInterfaceSnapshotMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("../src/agents/registry", () => ({
-  listAgentTargetStates: listAgentTargetStatesMock,
+  listAgentTargetStates: async (input: {
+    onState?: (state: never) => Promise<void>;
+  }) => {
+    const states = await listAgentTargetStatesMock(input);
+    for (const state of states) {
+      await input.onState?.(state as never);
+    }
+    return states;
+  },
 }));
 
 vi.mock("../src/local-service/inventory/agent-controller-interface", () => ({
@@ -233,6 +241,60 @@ describe("LocalAgentControllerInventory", () => {
         probePolicy: "background",
       })
     );
+  });
+
+  it.each([
+    "background",
+    "fresh",
+  ] as const)("delivers completed evidence before an unrelated slow probe finishes (%s)", async (probePolicy) => {
+    listAgentTargetStatesMock.mockResolvedValue(
+      ["codex", "cursor"].map((agentId) =>
+        buildAgentTargetState({
+          agentId,
+          displayName: agentId,
+          enabled: true,
+          registered: true,
+        })
+      )
+    );
+    const snapshot = agentControllerInterfaceSnapshot({
+      authStatus: "authenticated",
+      status: "ready",
+    });
+    let finishSlowProbe!: (value: typeof snapshot) => void;
+    const slowProbe = new Promise<typeof snapshot>((resolve) => {
+      finishSlowProbe = resolve;
+    });
+    resolveAgentControllerInterfaceSnapshotMock.mockImplementation(
+      ({ agentControllerRef }) =>
+        agentControllerRef === "builtin:codex"
+          ? Promise.resolve(snapshot)
+          : slowProbe
+    );
+    const onCapability = vi.fn(async () => undefined);
+    const { collectLocalAgentControllerInventory } = await import(
+      "../src/local-service/inventory/agent-controller-inventory"
+    );
+    const collection = collectLocalAgentControllerInventory({
+      includeControllerInterface: true,
+      probePolicy,
+      onCapability,
+    });
+    try {
+      await vi.waitFor(() =>
+        expect(onCapability).toHaveBeenCalledWith(
+          expect.objectContaining({
+            agentControllerRef: "builtin:codex",
+            agentControllerInterface: snapshot,
+          })
+        )
+      );
+      expect(onCapability).toHaveBeenCalledTimes(1);
+    } finally {
+      finishSlowProbe(snapshot);
+      await collection;
+    }
+    expect(onCapability).toHaveBeenCalledTimes(2);
   });
 
   it("keeps enabled-controller policy outside launchability detection", async () => {
