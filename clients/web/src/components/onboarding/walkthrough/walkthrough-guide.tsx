@@ -7,6 +7,11 @@ import type { FirstWorkRecord, OrganizationSummary } from "@openmeld/schemas";
 import { AppLogo } from "@openmeld/ui/components/app-logo";
 import { Button } from "@openmeld/ui/components/button";
 import { Popover, PopoverContent } from "@openmeld/ui/components/popover";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@openmeld/ui/components/tooltip";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowRightIcon, TimerIcon, XIcon } from "@phosphor-icons/react";
@@ -99,16 +104,58 @@ function useWalkthroughTarget(step: string | undefined) {
 
 const GuideActions = createContext<ReactNode>(undefined);
 
+function TutorialPassButton() {
+	const guide = useWalkthrough();
+	return (
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					<Button
+						aria-label="Pass tutorial"
+						disabled={guide?.pending}
+						onClick={() =>
+							guide?.record &&
+							guide.progress(guide.record.step, true).catch(() => undefined)
+						}
+						size="icon-xs"
+						type="button"
+						variant="secondary"
+					>
+						<XIcon aria-hidden="true" />
+					</Button>
+				}
+			/>
+			<TooltipContent>Pass</TooltipContent>
+		</Tooltip>
+	);
+}
+
+function tutorialStepNumber(step: string | undefined) {
+	switch (step) {
+		case "create-space":
+			return 1;
+		case "add-center-agent":
+			return 2;
+		case "first-task":
+			return 3;
+		case "local-agent":
+		case "add-local-agent":
+		case "local-task":
+			return 4;
+		case "review-replies":
+			return 5;
+		case "options":
+			return 6;
+		default:
+			return null;
+	}
+}
+
 function GuideTooltip({ step, tooltipProps }: TooltipRenderProps) {
 	const actions = useContext(GuideActions);
 	const guide = useWalkthrough();
 	const currentStep = guide?.record?.step;
-	let exitLabel = "Pause tutorial";
-	let exitStep = currentStep;
-	if (currentStep === "options") {
-		exitLabel = "Finish tutorial";
-		exitStep = "complete";
-	}
+	const stepNumber = tutorialStepNumber(currentStep);
 	return (
 		<section
 			{...tooltipProps}
@@ -121,39 +168,27 @@ function GuideTooltip({ step, tooltipProps }: TooltipRenderProps) {
 		>
 			<div className="flex items-start justify-between gap-4">
 				<h2 className="font-medium text-sm">{step.title}</h2>
-				<Button
-					aria-label="Close tutorial"
-					disabled={guide?.pending}
-					onClick={() =>
-						guide &&
-						currentStep &&
-						guide.progress(currentStep, true).catch(() => undefined)
-					}
-					size="icon-xs"
-					type="button"
-					variant="secondary"
-				>
-					<XIcon aria-hidden="true" />
-				</Button>
+				<TutorialPassButton />
 			</div>
 			<div className="mt-2 text-sm leading-relaxed">{step.content}</div>
-			<div className="mt-4 flex flex-wrap justify-end gap-2">
-				{actions ?? (
-					<Button
-						disabled={guide?.pending}
-						onClick={() =>
-							guide &&
-							exitStep &&
-							guide
-								.progress(exitStep, currentStep !== "options")
-								.catch(() => undefined)
-						}
-						size="sm"
-						variant="secondary"
-					>
-						{exitLabel}
-					</Button>
-				)}
+			<div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+				<span className="text-muted-foreground text-xs">
+					{stepNumber ? `Step ${stepNumber} of 6` : null}
+				</span>
+				<div className="ml-auto flex flex-wrap justify-end gap-2">
+					{actions ??
+						(currentStep === "options" && (
+							<Button
+								disabled={guide?.pending}
+								onClick={() =>
+									guide?.progress("complete").catch(() => undefined)
+								}
+								size="sm"
+							>
+								Finish tutorial
+							</Button>
+						))}
+				</div>
 			</div>
 		</section>
 	);
@@ -283,27 +318,21 @@ export function WalkthroughGuide({
 		return null;
 	}
 
-	const pause = () => guide.progress(record.step, true).catch(() => undefined);
 	// Configuration pages retain their complete accessible UI, including OAuth,
 	// permissions, and local setup. Returning does not claim they were configured.
 	if (!onSpace && record.step !== "create-space") {
 		return noticeAnchor ? (
 			<WalkthroughNotice anchor={noticeAnchor}>
-				<p>Your progress is saved. Continue the tutorial from Help.</p>
+				<div className="flex items-start justify-between gap-3">
+					<p>Your progress is saved. Continue the tutorial from Help.</p>
+					<TutorialPassButton />
+				</div>
 				<div className="mt-3 flex flex-wrap justify-end gap-2">
 					<Button
 						onClick={() => guide.resume().catch(() => undefined)}
 						size="sm"
 					>
 						Back to tutorial
-					</Button>
-					<Button
-						disabled={guide.pending}
-						onClick={pause}
-						size="sm"
-						variant="secondary"
-					>
-						Pause tutorial
 					</Button>
 				</div>
 			</WalkthroughNotice>
