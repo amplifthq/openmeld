@@ -568,7 +568,6 @@ export {
   observeUserTimeZone,
   resolveUserTimeContext,
   USER_TIME_ZONE_INTERACTIVE_PRIORITY_MS,
-  USER_TIME_ZONE_OBSERVATION_REFRESH_MS,
   userRequestTimeContextSchema,
   userTimeContextSchema,
   userTimeZoneObservationSchema,

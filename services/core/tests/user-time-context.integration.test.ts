@@ -1,9 +1,13 @@
 import { env } from "cloudflare:test";
+import type { Profile, SignalEnvelope } from "@openmeld/protocol";
+import { USER_TIME_ZONE_INTERACTIVE_PRIORITY_MS } from "@openmeld/schemas";
+import { expect, it, vi } from "vitest";
+import type { SignalTextBuildOptions } from "../src/space/application/space-signal-service";
+import type { SignalPublishContext } from "../src/space/application/types";
 import {
-  USER_TIME_ZONE_INTERACTIVE_PRIORITY_MS,
-  USER_TIME_ZONE_OBSERVATION_REFRESH_MS,
-} from "@openmeld/schemas";
-import { expect, it } from "vitest";
+  handleWebSocketTextSignal,
+  Space,
+} from "../src/space/transport/do/space";
 import {
   readUserTimeContext,
   recordUserTimeZoneObservation,
@@ -11,7 +15,177 @@ import {
 } from "../src/user-time-context/user-time-context-repository";
 import { createWorkerPostgresFixture } from "./postgresql.test-support";
 
-it("stores one authenticated user zone with atomic interactive priority and bounded refresh", async () => {
+const signalMethods = Space.prototype as unknown as {
+  buildTextSignal(
+    this: { spaceId: string; lastTimestamp: number },
+    profile: Profile,
+    text: string,
+    options?: SignalTextBuildOptions
+  ): SignalEnvelope;
+  publishTextSignal(
+    this: unknown,
+    signal: SignalEnvelope,
+    context?: SignalPublishContext
+  ): Promise<void>;
+};
+
+it.each([
+  ["dispatch", false],
+  ["steer", false],
+  ["dispatch", true],
+  ["steer", true],
+] as const)("freezes legacy WS %s input at acceptance (old session: %s)", async (mode, legacySession) => {
+  const fixture = await createWorkerPostgresFixture(env);
+  const userId = crypto.randomUUID();
+  await fixture.operator.query({
+    text: 'INSERT INTO "openmeld"."users" (id, name, email, email_verified, created_at, updated_at) VALUES ($1, $1, $2, 1, 1000, 1000)',
+    values: [userId, `${userId}@example.test`],
+  });
+  await recordUserTimeZoneObservation({
+    db: fixture.db,
+    userId,
+    nowMs: 100,
+    observation: { source: "web", timeZone: "Asia/Taipei" },
+  });
+  const captured: SignalPublishContext[] = [];
+  const capture = (_signal: SignalEnvelope, context?: SignalPublishContext) => {
+    captured.push(context ?? {});
+  };
+  const target = {
+    bindings: { OPENMELD_POSTGRESQL: fixture.binding },
+    ctx: { waitUntil: vi.fn() },
+    spaceId: "space-time-test",
+    assertRemoteAgentFinalReplyWasNotStopped: vi.fn(),
+    publishExecutionInput: vi.fn(capture),
+    persistSignalWithOptionalOutbox: (
+      signal: SignalEnvelope,
+      _createOutboxRecord: boolean,
+      context?: SignalPublishContext
+    ) => {
+      capture(signal, context);
+      return {
+        persistedSignal: true,
+        duplicateFinalReplyBlocked: false,
+        dispatchMessages: [],
+      };
+    },
+    flushPendingDispatchOutbox: vi.fn(),
+    recordOrganizationMemberHumanActivity: vi.fn(),
+    broadcastSignal: vi.fn(),
+  };
+  const builder = { spaceId: target.spaceId, lastTimestamp: 0 };
+  const profile: Profile = {
+    kind: "human",
+    profileId: "hum-time-test",
+    profileName: "Morgan",
+  };
+  const clock = vi.spyOn(Date, "now").mockReturnValue(120);
+  try {
+    await handleWebSocketTextSignal({
+      webSocket: { send: vi.fn() } as unknown as WebSocket,
+      session: {
+        ...(legacySession ? {} : { callerPrincipalId: userId }),
+        viewerOwnerUserId: userId,
+        helloAccepted: true,
+        supportsLiveSignalHistory: false,
+        supportsSpaceMessageAddressing: false,
+      },
+      profile,
+      payload: {
+        type: "signal.text",
+        ts: 9999,
+        actorContext: { callerPrincipalId: "forged-user" },
+        requestTimeContext: {
+          submittedAtMs: 9999,
+          userTime: {
+            timeZone: "America/Los_Angeles",
+            source: "web",
+            observedAtMs: 9999,
+          },
+        },
+        data: {
+          text: "Please run this in 10 minutes.",
+          ...(mode === "steer"
+            ? {
+                meta: {
+                  clientMessageId: "accepted-steer",
+                  centerAgentExecutionInput: {
+                    dispatchId: "dispatch",
+                    targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
+                  },
+                },
+              }
+            : {}),
+        },
+      },
+      buildTextSignal: (acceptedProfile, text, options) =>
+        signalMethods.buildTextSignal.call(
+          builder,
+          acceptedProfile,
+          text,
+          options
+        ),
+      publishTextSignal: (signal, context) =>
+        signalMethods.publishTextSignal.call(target, signal, context),
+    });
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.requestTimeContext).toEqual({
+      submittedAtMs: 120,
+      userTime: { timeZone: "Asia/Taipei", source: "web", observedAtMs: 100 },
+    });
+    await recordUserTimeZoneObservation({
+      db: fixture.db,
+      userId,
+      nowMs: 200,
+      observation: { source: "desktop", timeZone: "America/Los_Angeles" },
+    });
+    expect((await readUserTimeContext(fixture.db, userId)).timeZone).toBe(
+      "America/Los_Angeles"
+    );
+    expect(captured[0]?.requestTimeContext?.userTime.timeZone).toBe(
+      "Asia/Taipei"
+    );
+    // Verified Queue/RPC input must keep its original anchor on republish.
+    await signalMethods.publishTextSignal.call(
+      target,
+      signalMethods.buildTextSignal.call(builder, profile, "Retry"),
+      captured[0]
+    );
+    expect(captured[1]?.requestTimeContext).toEqual(
+      captured[0]?.requestTimeContext
+    );
+  } finally {
+    clock.mockRestore();
+  }
+});
+
+it("rejects a delayed zone change after a newer same-zone SQL observation", async () => {
+  const fixture = await createWorkerPostgresFixture(env);
+  const userId = crypto.randomUUID();
+  await fixture.operator.query({
+    text: 'INSERT INTO "openmeld"."users" (id, name, email, email_verified, created_at, updated_at) VALUES ($1, $1, $2, 1, 1000, 1000)',
+    values: [userId, `${userId}@example.test`],
+  });
+  for (const [nowMs, timeZone] of [
+    [100, "Asia/Taipei"],
+    [120, "Asia/Taipei"],
+    [110, "America/Los_Angeles"],
+  ] as const) {
+    await recordUserTimeZoneObservation({
+      db: fixture.db,
+      userId,
+      observation: { source: "web", timeZone },
+      nowMs,
+    });
+  }
+  expect(await readUserTimeContext(fixture.db, userId)).toEqual({
+    timeZone: "Asia/Taipei",
+    source: "web",
+    observedAtMs: 120,
+  });
+});
+
+it("stores one authenticated user zone with atomic interactive priority", async () => {
   const fixture = await createWorkerPostgresFixture(env);
   const userId = crypto.randomUUID();
   await fixture.operator.query({
@@ -45,22 +219,9 @@ it("stores one authenticated user zone with atomic interactive priority and boun
   await observe("service", "America/New_York", nowMs + 10);
   await observe("desktop", "Asia/Taipei", nowMs + 20);
   expect((await readUserTimeContext(fixture.db, userId)).observedAtMs).toBe(
-    nowMs + 1
+    nowMs + 20
   );
-  await observe(
-    "web",
-    "Asia/Taipei",
-    nowMs + USER_TIME_ZONE_OBSERVATION_REFRESH_MS + 1
-  );
-  const refreshed = await readUserTimeContext(fixture.db, userId);
-  expect(refreshed.observedAtMs).toBe(
-    nowMs + USER_TIME_ZONE_OBSERVATION_REFRESH_MS + 1
-  );
-  const offlineAt =
-    nowMs +
-    USER_TIME_ZONE_OBSERVATION_REFRESH_MS +
-    USER_TIME_ZONE_INTERACTIVE_PRIORITY_MS +
-    2;
+  const offlineAt = nowMs + 20 + USER_TIME_ZONE_INTERACTIVE_PRIORITY_MS + 1;
   expect((await readUserTimeContext(fixture.db, userId)).timeZone).toBe(
     "Asia/Taipei"
   );

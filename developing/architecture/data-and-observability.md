@@ -33,9 +33,10 @@ One atomic upsert rejects older in-flight observations at the same priority;
 interactive observations can preempt racing Service writes. Browser/Desktop
 updates take precedence over Service during the next 30 days. Service can fill a missing
 row or update it after that priority window. A valid saved zone remains usable
-offline regardless of age. Zone changes are saved immediately; same-zone
-observations refresh at most daily, except that an interactive observation can
-immediately replace a Service source. The initiating client's valid observation
+offline regardless of age. Each accepted observation advances the row's timestamp,
+including an unchanged zone, so a delayed change cannot overwrite newer context.
+Existing activity, message and Service sampling supplies these observations;
+there is no separate polling timer. The initiating client's valid observation
 always supplies its own request, even if the canonical row rejects that write.
 Missing or invalid saved context resolves to an explicit UTC fallback.
 

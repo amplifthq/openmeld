@@ -2358,6 +2358,21 @@ export const handleWebSocketTextSignal = async (input: {
   try {
     await input.publishTextSignal(signal, {
       authoringPolicy: "user_authored",
+      verifiedRequestContext: {
+        actorContext: {
+          requestId: crypto.randomUUID(),
+          // Legacy human attachments already carry Gateway's verified owner;
+          // authorizeLiveSession rechecks it before this handler runs.
+          callerPrincipalId:
+            input.session.callerPrincipalId ??
+            (input.profile.kind === "human"
+              ? input.session.viewerOwnerUserId
+              : undefined),
+          ownerUserId: input.session.viewerOwnerUserId,
+          openMeldProfileId: input.profile.profileId,
+          profileKind: input.profile.kind,
+        },
+      },
       supportsCurrentSpaceAddressing:
         input.session.supportsSpaceMessageAddressing,
       ...(input.session.spacePassword
@@ -13696,11 +13711,7 @@ export class Space extends DurableObject<CoreBindings> {
           : {}),
         sourceDispatchChainContext:
           resolveSourceDispatchChainContext(requestContext),
-        requestTimeContext: await resolveUserRequestTimeContext({
-          db: getPostgresDatabase(this.bindings),
-          context: requestContext,
-          submittedAtMs: Date.now(),
-        }),
+        verifiedRequestContext: requestContext,
         ...(options.finalOutcomeAuthority
           ? { finalOutcomeAuthority: options.finalOutcomeAuthority }
           : {}),
@@ -16678,7 +16689,8 @@ export class Space extends DurableObject<CoreBindings> {
       resolved.context.actorContext.openMeldProfileId,
       viewerCreatorProfileIdsByProfileId,
       resolved.context.actorContext.ownerName,
-      resolved.spacePassword
+      resolved.spacePassword,
+      resolved.context.actorContext.callerPrincipalId
     );
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
@@ -16689,7 +16701,8 @@ export class Space extends DurableObject<CoreBindings> {
     viewerProfileId?: string,
     viewerCreatorProfileIdsByProfileId?: Record<string, string | null>,
     ownerName?: string,
-    spacePassword?: string
+    spacePassword?: string,
+    callerPrincipalId?: string
   ): void {
     this.ctx.acceptWebSocket(webSocket);
     upsertJoinedSpaceMember({
@@ -16705,6 +16718,7 @@ export class Space extends DurableObject<CoreBindings> {
     const blocked: NonNullable<Session["blocked"]> = [];
     const session = createPendingSpaceWebSocketSession({
       blocked,
+      callerPrincipalId,
       enforcedProfile,
       viewerOwnerUserId,
       viewerProfileId,
@@ -25151,8 +25165,23 @@ export class Space extends DurableObject<CoreBindings> {
 
   private async publishTextSignal(
     signal: SignalEnvelope,
-    signalContext?: SignalPublishContext
+    signalContextInput?: SignalPublishContext
   ): Promise<void> {
+    // Freeze legacy HTTP/RPC/WebSocket input here, before ordinary dispatch or
+    // active Steer. Queue promotion already carries its original accepted anchor.
+    const signalContext =
+      signal.type === "signal.text" && !signalContextInput?.requestTimeContext
+        ? {
+            ...signalContextInput,
+            requestTimeContext: await resolveUserRequestTimeContext({
+              db: signalContextInput?.verifiedRequestContext
+                ? getPostgresDatabase(this.bindings)
+                : null,
+              context: signalContextInput?.verifiedRequestContext,
+              submittedAtMs: signal.ts,
+            }),
+          }
+        : signalContextInput;
     if (signal.type === "signal.text" && signal.data.meta?.workHandoff) {
       await validateSpaceWorkHandoff({
         env: this.env,

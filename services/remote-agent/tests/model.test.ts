@@ -144,12 +144,25 @@ describe("remote agent model routing", () => {
         expect(
           (payload.messages as { role: string; content: unknown }[]).filter(
             (message) =>
-              message.role === "system" &&
+              message.role === "user" &&
               typeof message.content === "string" &&
-              message.content.startsWith("[OpenMeld turn context]")
+              message.content.startsWith("[OpenMeld runtime clock]")
           )
         ).toHaveLength(1);
+        const clockMessage = (payload.messages as Record<string, unknown>[]).at(
+          -1
+        );
+        expect(clockMessage).toMatchObject({
+          role: "user",
+          content: expect.stringContaining("[OpenMeld runtime clock]"),
+        });
+        expect(clockMessage).not.toHaveProperty("cache_control");
       }
+      const retainedMessages = (payload: Record<string, unknown> | undefined) =>
+        (payload?.messages as unknown[] | undefined)?.slice(0, -1);
+      expect(retainedMessages(payloads[1])).toEqual(
+        retainedMessages(payloads[0])
+      );
       expect(context.messages).toHaveLength(1);
       expect(context.systemPrompt).toBe("Stable system instruction.");
     } finally {
@@ -527,8 +540,8 @@ describe("remote agent model routing", () => {
               ],
             },
             {
-              role: "system",
-              content: expect.stringContaining("[OpenMeld turn context]"),
+              role: "user",
+              content: expect.stringContaining("[OpenMeld runtime clock]"),
             },
           ],
         });
@@ -549,8 +562,8 @@ describe("remote agent model routing", () => {
             { content: "Stable system instruction." },
             { role: "user", content: "Current question." },
             {
-              role: "system",
-              content: expect.stringContaining("[OpenMeld turn context]"),
+              role: "user",
+              content: expect.stringContaining("[OpenMeld runtime clock]"),
             },
           ],
         });

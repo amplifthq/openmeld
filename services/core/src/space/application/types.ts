@@ -1,4 +1,5 @@
 import type {
+  OpenMeldRequestContext,
   SpaceSignalAuthoringPolicy,
   SpaceThreadContext,
   SpaceThreadSignalPlacementKind,
@@ -25,6 +26,8 @@ export type FinalOutcomeWriteAuthority =
   | "approved_compatibility";
 
 export type SignalPublishContext = {
+  // Core-owned authorization context; never read from a signal payload.
+  verifiedRequestContext?: OpenMeldRequestContext | null;
   requestTimeContext?: UserRequestTimeContext;
   queuedInputHandoff?: { inputId: string; afterDispatchId: string };
   workRecoveryQueueHandoff?: {

@@ -4249,6 +4249,11 @@ describe("space signal consistency matrix", () => {
         authoringPolicy: "user_authored",
         spacePassword: "secret-123",
         supportsCurrentSpaceAddressing: false,
+        verifiedRequestContext: expect.objectContaining({
+          actorContext: expect.objectContaining({
+            openMeldProfileId: profile.profileId,
+          }),
+        }),
       }
     );
     expect(webSocket.send).not.toHaveBeenCalled();
@@ -4306,6 +4311,11 @@ describe("space signal consistency matrix", () => {
       {
         authoringPolicy: "user_authored",
         supportsCurrentSpaceAddressing: false,
+        verifiedRequestContext: expect.objectContaining({
+          actorContext: expect.objectContaining({
+            openMeldProfileId: "hum-open-1",
+          }),
+        }),
       }
     );
   });

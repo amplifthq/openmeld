@@ -45,11 +45,18 @@ Gateway binds a valid observation to the authenticated caller. The source is a
 claimed client environment, not extra authority or a user identity selector.
 
 Core freezes `requestTimeContext` with accepted Space input. It contains the
-server `submittedAtMs` and resolved timezone/source/observation time. The shared
+server `submittedAtMs` and resolved timezone/source/observation time. The
+text-signal acceptance boundary fills missing context for HTTP and legacy
+WebSocket authoring from Core's generated signal time and verified actor.
+WebSocket sessions retain the Gateway principal through hibernation; legacy
+human sessions use their verified owner after the existing live access check.
+Client payload timestamps, identities and time blocks do not supply authority.
+Already captured RPC and Queue context is retained. The shared
 dispatch snapshot, Remote Agent turn envelope and exact-execution input carry
 that same optional object. Queue promotion and retries keep the accepted anchor;
 active Steer gets its own anchor. Relative dates use this anchor. Each model
-request gets one fresh UTC system-clock message in its outgoing provider payload,
+request gets one fresh UTC runtime-clock data message at the end of its outgoing
+provider payload, with the same static system guidance across requests,
 without changing retained history. Explicit timezone in a user's request takes
 precedence; saved Routine schedules retain their timezone.
 

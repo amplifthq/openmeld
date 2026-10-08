@@ -3973,7 +3973,9 @@ tooling, not a user surface and not availability truth.
   boundaries) must agree semantically with the local wake-injected role
   template — reviewed side by side, not shared code yet.
 - Every model request gets one fresh authoritative UTC ISO instant in its
-  outgoing system payload, including requests after long tool sequences. It is
+  final temporary user runtime-clock data message, including requests after long
+  tool sequences. Static system guidance identifies this generated message and
+  its use; system instructions do not change with the clock. It is
   not appended to retained conversation history. The admitted user input carries
   its separate server acceptance time and resolved IANA timezone. Queue promotion,
   retry and Steer replay preserve that anchor; each new Steer input has its own.

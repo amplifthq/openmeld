@@ -2,7 +2,6 @@ import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   resolveUserTimeContext,
   USER_TIME_ZONE_INTERACTIVE_PRIORITY_MS,
-  USER_TIME_ZONE_OBSERVATION_REFRESH_MS,
   userTimeZoneObservationSchema,
 } from "@openmeld/schemas";
 import type {
@@ -48,10 +47,10 @@ export async function recordUserTimeZoneObservation(input: {
   if (!parsed.success) {
     return;
   }
-  // One atomic writer handles precedence and refresh limits. In-flight older
+  // One atomic writer handles precedence. In-flight older
   // requests cannot overwrite a newer observation from the same priority.
   // Interactive observations can preempt racing Service writes. Same-value
-  // calls do not update the row during the daily refresh interval.
+  // observations must advance the timestamp to reject delayed zone changes.
   await input.db.query({
     text: `INSERT INTO "openmeld"."user_time_contexts" AS current (user_id, time_zone, source, observed_at_ms)
       VALUES ($1, $2, $3, $4)
@@ -60,17 +59,13 @@ export async function recordUserTimeZoneObservation(input: {
       WHERE (EXCLUDED.observed_at_ms >= current.observed_at_ms
           OR (current.source = 'service' AND EXCLUDED.source <> 'service'))
         AND (EXCLUDED.source <> 'service' OR current.source = 'service'
-          OR current.observed_at_ms <= $5)
-        AND (EXCLUDED.time_zone <> current.time_zone
-          OR (current.source = 'service' AND EXCLUDED.source <> 'service')
-          OR current.observed_at_ms <= $6)`,
+          OR current.observed_at_ms <= $5)`,
     values: [
       input.userId,
       parsed.data.timeZone,
       parsed.data.source,
       input.nowMs,
       input.nowMs - USER_TIME_ZONE_INTERACTIVE_PRIORITY_MS,
-      input.nowMs - USER_TIME_ZONE_OBSERVATION_REFRESH_MS,
     ],
   });
 }

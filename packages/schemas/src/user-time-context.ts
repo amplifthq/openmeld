@@ -2,7 +2,6 @@ import * as z from "zod/v4";
 
 // Age limits priority, not validity. A valid zone remains useful offline.
 export const USER_TIME_ZONE_INTERACTIVE_PRIORITY_MS = 30 * 24 * 60 * 60 * 1000;
-export const USER_TIME_ZONE_OBSERVATION_REFRESH_MS = 24 * 60 * 60 * 1000;
 
 export function normalizeUserTimeZone(value: unknown): string | null {
   if (typeof value !== "string" || value.length > 128) {
