@@ -3972,12 +3972,17 @@ tooling, not a user surface and not availability truth.
   standalone. Its role definition (what a Center Agent is, its posture, its
   boundaries) must agree semantically with the local wake-injected role
   template — reviewed side by side, not shared code yet.
-- Every turn's prompt includes the authoritative current UTC ISO instant. The
-  model calculates relative times from that instant, never from a guessed
-  wall-clock time, and applies a timezone only when user or trusted conversation
-  context supplies it. A successful Routine tool result is confirmed from its
-  exact returned `runAtMs`, using the user's explicit timezone or UTC when none
-  was provided.
+- Every model request gets one fresh authoritative UTC ISO instant in its
+  outgoing system payload, including requests after long tool sequences. It is
+  not appended to retained conversation history. The admitted user input carries
+  its separate server acceptance time and resolved IANA timezone. Queue promotion,
+  retry and Steer replay preserve that anchor; each new Steer input has its own.
+  The model calculates relative dates and delays from accepted input, and current
+  date/time from the fresh clock. Explicit user timezone takes precedence over
+  request context; missing/invalid context is labelled UTC fallback. A successful
+  Routine tool result is confirmed from its exact returned `runAtMs`. Saved
+  Routine schedule timezones remain fixed. The shared source and persistence
+  contract is defined in [Shared Contracts](../architecture/shared-contracts.md#user-time-context).
 - Every interactive and Routine system prompt includes one generic execution
   routing protocol. The Center Agent derives a plan from the current task's
   data, identity, side-effect, and environment requirements; the live tool,

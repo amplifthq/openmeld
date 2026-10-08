@@ -1359,6 +1359,7 @@ import {
   upsertOwnedDeviceRegistryRecord,
 } from "../start/infrastructure/postgresql/owned-device-registry-repo";
 import { rpcReadOrganizationUsageOverview as readOrganizationUsageOverview } from "../usage/organization-usage-overview-rpc";
+import { recordUserTimeZoneObservation } from "../user-time-context/user-time-context-repository";
 import {
   requireCurrentLocalRuntimeExecutionTarget,
   requireCurrentLocalRuntimeServiceTarget,
@@ -7244,6 +7245,14 @@ export async function rpcRecordCurrentOrganizationWebActivity(
   const { context, activeOrganization, humanProfileId } =
     await requireCurrentHumanActivityContext(env, input);
   const nowMs = Date.now();
+  if (context.userTimeZoneObservation) {
+    await recordUserTimeZoneObservation({
+      db: requireIdentityDb(env),
+      userId: activeOrganization.userId,
+      observation: context.userTimeZoneObservation,
+      nowMs,
+    });
+  }
   try {
     await recordOrganizationMemberActivity({
       db: requireIdentityDb(env),

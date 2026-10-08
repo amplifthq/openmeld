@@ -211,7 +211,13 @@ export async function acceptAccountDeletion(input: {
         `deleted-${crypto.randomUUID()}@account.invalid`,
       ],
     });
-    for (const table of ["sessions", "accounts", "passkeys", "device_codes"]) {
+    for (const table of [
+      "sessions",
+      "accounts",
+      "passkeys",
+      "device_codes",
+      "user_time_contexts",
+    ]) {
       await client.query({
         text: `DELETE FROM "openmeld"."${table}" WHERE user_id = $1`,
         values: [input.userId],

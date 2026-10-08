@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { electronClient, handleDeepLink } from "@better-auth/electron/client";
 import { storage } from "@better-auth/electron/storage";
+import { observeUserTimeZoneHeaders } from "@openmeld/gateway-contract";
 import {
   type DesktopInstalledTarget,
   desktopAuthIdentity,
@@ -139,6 +140,11 @@ export function createPilotAuth(
       path: string,
       request: { method: string; headers: Headers; body?: ArrayBuffer }
     ): Promise<Response> {
+      for (const [name, value] of Object.entries(
+        observeUserTimeZoneHeaders("desktop")
+      )) {
+        request.headers.set(name, value);
+      }
       let raw: Response | undefined;
       // The pinned Electron patch persists response cookies in onResponse,
       // before status handling. Await the SDK before returning the raw clone;

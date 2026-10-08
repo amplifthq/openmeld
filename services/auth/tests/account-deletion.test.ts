@@ -99,6 +99,10 @@ describe("account deletion", () => {
     );
     expect(preview.deleteOrganizations).toHaveLength(1);
     expect(preview.requiresPassword).toBe(true);
+    await context.harness.query({
+      text: 'INSERT INTO "openmeld"."user_time_contexts" (user_id, time_zone, source, observed_at_ms) VALUES ($1, $2, $3, $4)',
+      values: [context.userId, "Asia/Taipei", "desktop", Date.now()],
+    });
     const body = {
       confirmation: "DELETE",
       confirmationToken: preview.confirmationToken,
@@ -134,6 +138,7 @@ describe("account deletion", () => {
       "passkeys",
       "device_codes",
       "openmeld_profiles",
+      "user_time_contexts",
     ]) {
       expect(
         (

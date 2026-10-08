@@ -33,6 +33,43 @@ absorbed into the native baseline; they are not D1 commands to run now. New
 changes use the native journal and scoped database release in the
 [PostgreSQL workflow](../engineering/postgresql.md). Receiver-first service and client compatibility requirements still apply.
 
+## User time context
+
+`packages/schemas/src/user-time-context.ts` owns the common IANA timezone
+observation and accepted request context. Web observes browser `Intl`, Desktop
+observes Electron main-process `Intl` at its shared cloud-request boundary, and
+the CLI/OpenMeld Service observes its own process `Intl`. All use the same
+`x-openmeld-user-time-zone` and `x-openmeld-user-time-zone-source` headers. Web
+SSR only forwards the browser observation; it must not substitute server time.
+Gateway binds a valid observation to the authenticated caller. The source is a
+claimed client environment, not extra authority or a user identity selector.
+
+Core freezes `requestTimeContext` with accepted Space input. It contains the
+server `submittedAtMs` and resolved timezone/source/observation time. The shared
+dispatch snapshot, Remote Agent turn envelope and exact-execution input carry
+that same optional object. Queue promotion and retries keep the accepted anchor;
+active Steer gets its own anchor. Relative dates use this anchor. Each model
+request gets one fresh UTC system-clock message in its outgoing provider payload,
+without changing retained history. Explicit timezone in a user's request takes
+precedence; saved Routine schedules retain their timezone.
+
+The canonical user row and observation precedence are defined in
+[Data And Observability](data-and-observability.md#user-time-context).
+Missing or invalid context uses explicit `UTC`/`utc`/`null` fallback. No local
+current time is transported or persisted, and no online laptop is needed.
+
+Contract impact: headers and time fields are optional. New receivers accept old
+requests; older Gateway ignores the observation headers. New Core omits the
+hosted-only time field from workstation dispatch snapshots, so existing Service
+receivers keep their strict wire contract. Wake, setup, status, traces, Space
+actions, CLI commands and helper skills keep their existing contracts; no local
+contract epoch bump or required-client update is needed. Updated Desktop/Service
+artifacts are available updates. Cloud rollout is receiver-first: Remote Agent,
+then native migration `0029_user_time_context`, Auth and Core, then Gateway/Web and
+client artifacts. Remote Agent callbacks do not change, so this order introduces
+no reverse dependency. Rollback removes newer callers before their receivers and
+retains the additive table. No historical backfill is required.
+
 ## Personal cloud Computer operations
 
 `cloudComputerSchema` and `cloudComputerOperationSchema` own the account Computer

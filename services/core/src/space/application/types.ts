@@ -2,6 +2,7 @@ import type {
   SpaceSignalAuthoringPolicy,
   SpaceThreadContext,
   SpaceThreadSignalPlacementKind,
+  UserRequestTimeContext,
 } from "@openmeld/schemas/types";
 import type { SpaceMetaRecord } from "../infrastructure/sql/space-meta-repo";
 
@@ -24,6 +25,7 @@ export type FinalOutcomeWriteAuthority =
   | "approved_compatibility";
 
 export type SignalPublishContext = {
+  requestTimeContext?: UserRequestTimeContext;
   queuedInputHandoff?: { inputId: string; afterDispatchId: string };
   workRecoveryQueueHandoff?: {
     previousDispatchId: string;

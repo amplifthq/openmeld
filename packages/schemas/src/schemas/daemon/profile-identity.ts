@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { userTimeZoneObservationSchema } from "../../user-time-context";
 import { MAX_VISITED_PROFILE_IDS } from "../protocol/constants";
 import {
   openMeldRuntimeProfileIdSchema,
@@ -82,4 +83,5 @@ export const openMeldRequestContextSchema = z.strictObject({
   actorContext: openMeldActorContextSchema,
   activeOrganizationId: nonEmptyTextSchema.optional(),
   agentControllerConversationId: nonEmptyTextSchema.optional(),
+  userTimeZoneObservation: userTimeZoneObservationSchema.optional(),
 });

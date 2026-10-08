@@ -205,3 +205,4 @@ export {
   spaceTaskProjectLinks,
   spaceTaskProjectProjectionStates,
 } from "./space-task-project.schema.ts";
+export { userTimeContexts } from "./user-time-context.schema.ts";

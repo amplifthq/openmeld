@@ -20,6 +20,31 @@
 - Source of truth: This file owns the durable architecture boundary for data
   ownership and observability.
 
+## User time context
+
+Core's PostgreSQL `user_time_contexts` table owns one observed timezone per
+authenticated user, with its claimed client source and server observation time.
+Auth erases this observation in the account-deletion transaction; the user
+foreign key also cascades on physical user deletion. This row is context, not a
+clock, location record, explicit preference or per-device history. Routine
+timezone remains in each Routine's schedule.
+
+One atomic upsert rejects older in-flight observations at the same priority;
+interactive observations can preempt racing Service writes. Browser/Desktop
+updates take precedence over Service during the next 30 days. Service can fill a missing
+row or update it after that priority window. A valid saved zone remains usable
+offline regardless of age. Zone changes are saved immediately; same-zone
+observations refresh at most daily, except that an interactive observation can
+immediately replace a Service source. The initiating client's valid observation
+always supplies its own request, even if the canonical row rejects that write.
+Missing or invalid saved context resolves to an explicit UTC fallback.
+
+Core stores accepted request time with the existing dispatch/input owners, so
+queue delays and retries cannot move relative-date interpretation. The current
+UTC clock is generated for each outgoing model payload and is never stored as a
+continuously ticking client value. Both hosted personal and Center Agents use
+the same Core turn-envelope resolver and provider-payload clock boundary.
+
 ## Background alarm failure scheduling
 
 Space background alarm failures retain per-step retry deadlines in local

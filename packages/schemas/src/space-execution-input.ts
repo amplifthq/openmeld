@@ -1,6 +1,7 @@
 import * as z from "zod/v4";
 import { localExecutionInputBindingSchema } from "./local-execution-input";
 import { remoteAgentWorkerExecutionInputRequestSchema } from "./schemas/runtime/remote-agent-execution-input";
+import { userRequestTimeContextSchema } from "./user-time-context";
 
 // Stored in the existing Space input outbox. The kind selects a carrier, not
 // a different queue or an execution authority.
@@ -19,6 +20,7 @@ export const localSpaceExecutionInputSchema = z.strictObject({
   requesterUserId: z.string().min(1),
   sourceSignalId: z.string().min(1),
   text: z.string().trim().min(1).max(100_000),
+  requestTimeContext: userRequestTimeContextSchema.optional(),
 });
 export const spaceExecutionInputRequestSchema = z.union([
   remoteAgentWorkerExecutionInputRequestSchema.extend({

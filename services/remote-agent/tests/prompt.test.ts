@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { REMOTE_AGENT_MODEL_DISPLAY_NAME } from "../agent-core/model";
 import {
+  buildRemoteAgentRequestTimeContext,
   buildRemoteAgentSystemPrompt,
   buildRemoteAgentTurnTimeContext,
+  withRemoteAgentProviderTimeContext,
 } from "../agent-core/prompt";
 import {
   REMOTE_AGENT_IDENTITY_ORGANIZATION_PROMPT,
@@ -442,7 +444,7 @@ describe("remote agent system prompt", () => {
     );
   });
 
-  it("anchors every turn to one authoritative current time", () => {
+  it("separates accepted request time from the current model time", () => {
     const prompt = buildTestSystemPrompt();
     const turnTime = buildRemoteAgentTurnTimeContext(
       "2026-07-15T02:04:00.000Z"
@@ -452,11 +454,44 @@ describe("remote agent system prompt", () => {
       "Authoritative UTC time for this turn: 2026-07-15T02:04:00.000Z"
     );
     expect(prompt).toContain(
-      'For relative requests such as "in 10 minutes", calculate from that timestamp.'
+      'For relative requests such as "in 10 minutes", calculate from that input\'s received timestamp.'
     );
     expect(prompt).toContain("Never guess the current time");
+    const requestTime = buildRemoteAgentRequestTimeContext({
+      submittedAtMs: Date.parse("2026-07-06T12:00:00.000Z"),
+      userTime: {
+        timeZone: "America/Los_Angeles",
+        source: "web",
+        observedAtMs: 1,
+      },
+    });
+    const payload = { messages: [{ role: "user", content: requestTime }] };
+    const first = withRemoteAgentProviderTimeContext(
+      payload,
+      Date.parse("2026-07-06T12:01:00.000Z")
+    );
+    const later = withRemoteAgentProviderTimeContext(
+      payload,
+      Date.parse("2026-07-06T12:11:00.000Z")
+    );
+    expect(payload.messages).toHaveLength(1);
+    expect(first.messages).toHaveLength(2);
+    expect(later.messages).toHaveLength(2);
+    expect(JSON.stringify(first)).toContain("2026-07-06T12:01:00.000Z");
+    expect(JSON.stringify(later)).toContain("2026-07-06T12:11:00.000Z");
+    expect(payload.messages[0]?.content).toBe(requestTime);
+    expect(requestTime).toContain(
+      "Request received at UTC: 2026-07-06T12:00:00.000Z"
+    );
+    expect(requestTime).toContain("Request timezone: America/Los_Angeles");
+    expect(
+      buildRemoteAgentRequestTimeContext({
+        submittedAtMs: 1,
+        userTime: { timeZone: "invalid", source: "web", observedAtMs: 1 },
+      })
+    ).toContain("UTC fallback: no valid user timezone");
     expect(prompt).toContain(
-      "After a Routine tool succeeds, confirm its exact returned runAtMs as a date and time; use the user's explicit timezone when one was provided, otherwise label the time as UTC."
+      "After a Routine tool succeeds, confirm its exact returned runAtMs as a date and time in that timezone; label an explicit UTC fallback as UTC."
     );
   });
 
@@ -571,7 +606,7 @@ describe("remote agent system prompt", () => {
     expect(firstTurnPrompt).toBe(secondTurnPrompt);
     expect(firstTurnPrompt).not.toContain("2026-07-15T02:04:00.000Z");
     expect(firstTurnPrompt).toContain(
-      "OpenMeld appends the authoritative UTC time to each admitted turn"
+      "OpenMeld supplies fresh authoritative UTC time in a system message for each model request"
     );
   });
 

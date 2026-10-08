@@ -43,6 +43,10 @@ function enqueue(sql: SqlStorage, inputId: string, queued = true) {
       authorProfileId: "human-1",
       sourceSignalId: `signal-${inputId}`,
       text: inputId,
+      requestTimeContext: {
+        submittedAtMs: 1,
+        userTime: { timeZone: "Asia/Taipei", source: "web", observedAtMs: 1 },
+      },
       target: {
         v: 1,
         organizationId: "org",
@@ -74,6 +78,22 @@ function enqueue(sql: SqlStorage, inputId: string, queued = true) {
 }
 
 describe("Space pending input ownership", () => {
+  it("retains the accepted time after a queued input is claimed and delivery is retried", () => {
+    fixture((sql) => {
+      enqueue(sql, "clock");
+      expect(claimQueuedSpaceExecutionInput(sql, "clock", "steer")).toBe(true);
+      expect(
+        settleQueuedSpaceExecutionInput(sql, "clock", "steer", "unconfirmed")
+      ).toBe(true);
+      expect(
+        readSpaceExecutionInput(sql, "clock")?.request.requestTimeContext
+      ).toEqual({
+        submittedAtMs: 1,
+        userTime: { timeZone: "Asia/Taipei", source: "web", observedAtMs: 1 },
+      });
+    });
+  });
+
   it("carries only untouched local drafts to a continuation and preserves uncertain delivery on its original task", () => {
     fixture((sql) => {
       for (const id of ["pending", "uncertain", "delivered", "other"]) {
