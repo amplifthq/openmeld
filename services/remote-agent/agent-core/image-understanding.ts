@@ -6,6 +6,10 @@ import {
   type RemoteAiUsageScope,
 } from "./ai-usage";
 import {
+  allowsRemoteAgentContentDiagnostics,
+  remoteAgentDiagnosticErrorFields,
+} from "./diagnostics-content-policy";
+import {
   buildRemoteAgentAiGatewayHeaders,
   buildRemoteAgentGatewayMetadata,
   type RemoteAgentModelEnv,
@@ -241,12 +245,28 @@ async function requestRemoteAgentImageUnderstandingBatch(input: {
       method: "POST",
       signal: AbortSignal.timeout(IMAGE_UNDERSTANDING_TIMEOUT_MS),
     }
-  );
+  ).catch((error: unknown) => {
+    if (allowsRemoteAgentContentDiagnostics(input)) {
+      throw error;
+    }
+    const fields = remoteAgentDiagnosticErrorFields(error, input);
+    throw Object.assign(
+      new Error(
+        `Image understanding request failed for ${input.model.modelId}.${fields.status ? ` HTTP ${fields.status}.` : ""}${fields.errorCode ? ` ${fields.errorCode}.` : ""}`
+      ),
+      fields
+    );
+  });
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
-    const providerError = resolveImageUnderstandingProviderError(payload);
-    throw new Error(
-      `Image understanding failed for ${input.model.modelId} with HTTP ${response.status}.${providerError ? ` Provider: ${providerError}` : ""}`
+    const providerError = allowsRemoteAgentContentDiagnostics(input)
+      ? resolveImageUnderstandingProviderError(payload)
+      : null;
+    throw Object.assign(
+      new Error(
+        `Image understanding failed for ${input.model.modelId} with HTTP ${response.status}.${providerError ? ` Provider: ${providerError}` : ""}`
+      ),
+      { status: response.status }
     );
   }
   const parsed = imageUnderstandingResponseSchema.safeParse(payload);

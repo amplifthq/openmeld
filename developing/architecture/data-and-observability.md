@@ -4224,6 +4224,14 @@ The business failure state and the explanation returned to the authorized
 caller remain available. Rich error summaries use the existing credential
 redactor; arbitrary provider error codes are not treated as safe metadata.
 
+Provider failures must be reduced at the scoped model or image-request boundary
+before SDK logging or cross-service propagation. This includes initialization
+and stream-iteration throws, their causes, and compaction failures. Preserve
+normal content, usage, stop reasons, context-overflow detection, and the existing
+retry decisions. Retain only fixed recovery classifications and correlate through
+the existing request/submission observations; raw provider text is not required
+in the authorized caller's failure explanation.
+
 Runtime Agent Controller reporting follows the same minimization rule. Local
 command paths, launch arguments, provider account email/labels,
 controller-provided model or skill inventories, and free-text local probe

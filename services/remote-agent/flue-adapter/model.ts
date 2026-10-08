@@ -11,7 +11,10 @@ import { getCloudflareContext } from "@flue/runtime/cloudflare";
 import type { CenterAgentModelRoute } from "@openmeld/schemas/types";
 import * as z from "zod/v4";
 import { readRemoteAgentCallbackContext } from "../agent-core/callback-context";
-import { remoteAgentDiagnosticErrorFields } from "../agent-core/diagnostics-content-policy";
+import {
+  allowsRemoteAgentContentDiagnostics,
+  remoteAgentDiagnosticErrorFields,
+} from "../agent-core/diagnostics-content-policy";
 import {
   buildRemoteAgentAiGatewayHeaders,
   buildRemoteAgentGatewayMetadata,
@@ -43,6 +46,7 @@ import {
   resolveRemoteAgentCompactionReserveTokens,
   resolveRemoteAgentProviderContextCapacity,
 } from "./provider-context-capacity";
+import { guardRemoteAgentProviderStream } from "./provider-failure";
 import { retryCompletedEmptyAssistantStreamOnce } from "./provider-stream-retry";
 import { createRemoteAgentSqlStorage } from "./storage";
 
@@ -163,6 +167,7 @@ type FetchModelMetadata = (
 
 const modelRuntimeConfigCache = new Map<string, CachedModelRuntimeConfig>();
 type RegisteredRemoteAgentModelCapabilities = {
+  allowContentDiagnostics: boolean;
   meterFetch: (fetch?: typeof globalThis.fetch) => typeof globalThis.fetch;
   reportCompletion: (
     completion: ReturnType<typeof projectProviderCompletion>
@@ -202,6 +207,7 @@ export async function registerRemoteAgentCloudflareProvider(input: {
     (model) => model.id === modelId && model.api === "openai-completions"
   ) as Model<"openai-completions"> | undefined;
   registeredRemoteAgentModelCapabilities.set(providerId, {
+    allowContentDiagnostics: allowsRemoteAgentContentDiagnostics(input),
     meterFetch: (fetch) =>
       createFlueMeteredFetch({
         env: input.env,
@@ -823,11 +829,24 @@ function createRemoteAgentModelCapabilitiesApi(): ReturnType<
           capabilities?.reportCompletion(
             projectProviderCompletion({ ...completion, callId, submissionId })
           ),
-        createAttempt: () =>
-          base.stream(resolvedModel, context, {
-            ...resolvedOptions,
-            fetch: capabilities?.meterFetch(options?.fetch),
-          }),
+        createAttempt: () => {
+          const fetch =
+            capabilities?.meterFetch(options?.fetch) ??
+            options?.fetch ??
+            globalThis.fetch;
+          const createAttempt = (requestFetch: typeof globalThis.fetch) =>
+            base.stream(resolvedModel, context, {
+              ...resolvedOptions,
+              fetch: requestFetch,
+            });
+          return capabilities?.allowContentDiagnostics
+            ? createAttempt(fetch)
+            : guardRemoteAgentProviderStream({
+                createAttempt,
+                fetch,
+                model: resolvedModel,
+              });
+        },
         onRetry: () => logCompletedEmptyProviderRetry(resolvedModel.id),
         signal: resolvedOptions?.signal,
       });
@@ -850,11 +869,24 @@ function createRemoteAgentModelCapabilitiesApi(): ReturnType<
           capabilities?.reportCompletion(
             projectProviderCompletion({ ...completion, callId, submissionId })
           ),
-        createAttempt: () =>
-          base.streamSimple(resolvedModel, context, {
-            ...resolvedOptions,
-            fetch: capabilities?.meterFetch(options?.fetch),
-          }),
+        createAttempt: () => {
+          const fetch =
+            capabilities?.meterFetch(options?.fetch) ??
+            options?.fetch ??
+            globalThis.fetch;
+          const createAttempt = (requestFetch: typeof globalThis.fetch) =>
+            base.streamSimple(resolvedModel, context, {
+              ...resolvedOptions,
+              fetch: requestFetch,
+            });
+          return capabilities?.allowContentDiagnostics
+            ? createAttempt(fetch)
+            : guardRemoteAgentProviderStream({
+                createAttempt,
+                fetch,
+                model: resolvedModel,
+              });
+        },
         onRetry: () => logCompletedEmptyProviderRetry(resolvedModel.id),
         signal: resolvedOptions?.signal,
       });
