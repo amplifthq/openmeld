@@ -50,6 +50,8 @@ import {
   agentProfileBindingRouteParamsSchema,
   agentProfileExecutionModeResponseSchema,
   authRpcResolveUserDisplayNameResultSchema,
+  buildAccountAvatarObjectKey,
+  buildAccountAvatarPublicPath,
   buildAgentTaskKey,
   buildSpaceComposerPublishedFileId,
   buildSpaceFileEntryIdForMutation,
@@ -274,6 +276,7 @@ import {
   organizationSpaceDirectoryWithMemberCountsResponseSchema,
   ownerComputerDiagnosticsSchema,
   type PluginConnectionContinuationBinding,
+  parseAccountAvatarReferenceFromUrl,
   parseSlackThreadPublicationPermalink,
   patchSpaceContractBodySchema,
   patchSpaceMetaBodySchema,
@@ -10116,6 +10119,67 @@ export async function rpcDesignateCenterAgent(
   }
   return validated.data;
 }
+async function prepareCenterAgentAvatar(
+  env: CoreBindings,
+  body: import("@openmeld/schemas/types").CenterAgentUpdateProfileBody,
+  profileId: string
+) {
+  const avatar = body.avatar;
+  let avatarStyle: string | undefined = body.avatarStyle;
+  let avatarOptions: import("@openmeld/schemas/types").AuthProfileView["avatarOptions"];
+  let storedKey: string | undefined;
+  if (avatar?.kind === "bot") {
+    avatarStyle = avatar.type;
+    avatarOptions = { palette: avatar.palette };
+  } else if (avatar?.kind === "color") {
+    avatarStyle = "fluid";
+    avatarOptions = { color: avatar.color };
+  } else if (avatar?.kind === "image") {
+    const bucket = env.OPENMELD_ACCOUNT_AVATARS;
+    if (!(bucket && env.OPENMELD_GATEWAY_URL)) {
+      throw createCoreRpcHttpError({
+        status: 503,
+        code: "center_agent.avatar_unavailable",
+        reason: "Image upload is temporarily unavailable.",
+      });
+    }
+    // Gateway has decoded and normalized this to a metadata-free WebP.
+    if (!avatar.dataUrl.startsWith("data:image/webp;base64,")) {
+      throw createCoreRpcHttpError({
+        status: 400,
+        code: "invalid_payload",
+        reason: "Upload a processed avatar image.",
+      });
+    }
+    const bytes = Uint8Array.from(
+      atob(avatar.dataUrl.slice("data:image/webp;base64,".length)),
+      (char) => char.charCodeAt(0)
+    );
+    const address = {
+      profileId,
+      assetId: crypto.randomUUID(),
+    };
+    storedKey = buildAccountAvatarObjectKey(address);
+    const stored = await bucket.put(storedKey, bytes, {
+      httpMetadata: {
+        contentType: "image/webp",
+        cacheControl: "public, max-age=31536000, immutable",
+      },
+    });
+    if (!stored) {
+      throw new Error("The avatar image could not be stored.");
+    }
+    avatarStyle = "custom";
+    avatarOptions = {
+      imageUrl: new URL(
+        buildAccountAvatarPublicPath(address),
+        env.OPENMELD_GATEWAY_URL
+      ).toString(),
+    };
+  }
+  return { avatarStyle, avatarOptions, storedKey };
+}
+
 export async function rpcUpdateCenterAgentProfile(
   env: CoreBindings,
   input: UpdateCenterAgentProfileInput
@@ -10124,6 +10188,7 @@ export async function rpcUpdateCenterAgentProfile(
   const body = centerAgentUpdateProfileBodySchema.safeParse({
     profileName: input.profileName,
     avatarStyle: input.avatarStyle,
+    avatar: input.avatar,
   });
   if (!body.success) {
     throw createCoreRpcHttpError({
@@ -10163,6 +10228,8 @@ export async function rpcUpdateCenterAgentProfile(
       code: "center_agent.profile_not_found",
     });
   }
+  const { avatarStyle, avatarOptions, storedKey } =
+    await prepareCenterAgentAvatar(env, body.data, managedProfile.profileId);
   const updated = await callRequiredAuthWorkerRpc({
     authWorker: env.OPENMELD_AUTH_WORKER,
     call: (authWorker) =>
@@ -10172,8 +10239,12 @@ export async function rpcUpdateCenterAgentProfile(
         ...(body.data.profileName
           ? { profileName: body.data.profileName }
           : {}),
-        ...(body.data.avatarStyle
-          ? { avatarStyle: body.data.avatarStyle }
+        ...(avatarStyle
+          ? {
+              avatarStyle,
+              avatarOptions,
+              expectedAvatarOptions: managedProfile.avatarOptions ?? null,
+            }
           : {}),
       }),
     unavailable: {
@@ -10182,11 +10253,34 @@ export async function rpcUpdateCenterAgentProfile(
     },
   });
   if (!updated.ok) {
+    if (storedKey) {
+      await env.OPENMELD_ACCOUNT_AVATARS?.delete(storedKey);
+    }
     throw createCoreRpcHttpError({
       status: updated.code === "profile.not_found" ? 404 : 409,
       reason: updated.message,
       code: `center_agent.${updated.code}`,
     });
+  }
+  if (
+    avatarStyle &&
+    managedProfile.avatarOptions?.imageUrl &&
+    managedProfile.avatarOptions.imageUrl !== avatarOptions?.imageUrl
+  ) {
+    const previous = parseAccountAvatarReferenceFromUrl(
+      managedProfile.avatarOptions.imageUrl
+    );
+    if (previous?.profileId === managedProfile.profileId) {
+      try {
+        await env.OPENMELD_ACCOUNT_AVATARS?.delete(
+          buildAccountAvatarObjectKey(previous)
+        );
+      } catch {
+        console.warn("Center Agent previous avatar cleanup failed.", {
+          profileId: managedProfile.profileId,
+        });
+      }
+    }
   }
   const response: CenterAgentUpdateProfileResponse = {
     organizationId: activeOrganization.organizationId,
@@ -23351,6 +23445,7 @@ function requireActiveOrganizationMemberId(
 type ManagedCenterAgentProfileRecord = {
   organizationId: string;
   profileId: string;
+  avatarOptions?: import("@openmeld/schemas/types").AuthProfileView["avatarOptions"];
 };
 async function requireOrganizationPermission(input: {
   context: CoreRpcContextInput;
@@ -23916,12 +24011,14 @@ async function readManagedCenterAgentProfileByIdForOrganization(input: {
 }): Promise<ManagedCenterAgentProfileRecord | null> {
   const row = await input.db
     .query<{
+      avatar_options: import("@openmeld/schemas/types").AuthProfileView["avatarOptions"];
       owner_user_id: string;
       profile_id: string;
     }>({
       text: `
         SELECT
           profile_id,
+          avatar_options,
           owner_user_id
         FROM "openmeld"."openmeld_profiles"
         WHERE organization_id = $1
@@ -23939,7 +24036,13 @@ async function readManagedCenterAgentProfileByIdForOrganization(input: {
     })
     .then((result) => result.rows[0] ?? null);
   const profileId = normalizeOptionalText(row?.profile_id);
-  return profileId ? { organizationId: input.organizationId, profileId } : null;
+  return profileId
+    ? {
+        organizationId: input.organizationId,
+        profileId,
+        avatarOptions: row?.avatar_options ?? null,
+      }
+    : null;
 }
 async function readManagedCenterAgentProfileForOrganization(input: {
   db: PostgresDatabase;

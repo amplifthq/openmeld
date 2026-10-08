@@ -28,8 +28,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useId, useState } from "react";
 import { toast } from "sonner";
-import { AgentAvatarEditor } from "#/components/agents/agent-avatar-editor";
-import type { AgentAvatarStyle } from "#/components/agents/remote-agent-avatar";
+import { CenterAgentAvatarEditor } from "#/components/agents/center-agent-avatar-editor";
 import { AppPageHeader } from "#/components/app/app-page-header";
 import {
 	AgentConfigurationCard,
@@ -315,6 +314,7 @@ export function CenterAgentSettingsContent(input: {
 		mutationFn: async (variables: {
 			profileName?: string;
 			avatarStyle?: CenterAgentUpdateProfileBody["avatarStyle"];
+			avatar?: CenterAgentUpdateProfileBody["avatar"];
 		}) =>
 			await updateCurrentCenterAgentProfile({
 				organizationId: input.organizationId,
@@ -327,7 +327,7 @@ export function CenterAgentSettingsContent(input: {
 			setMutationError(null);
 		},
 		onSuccess: async (response, variables) => {
-			if (variables.avatarStyle) {
+			if (variables.avatarStyle || variables.avatar) {
 				await applySavedAgentAvatarProfile(
 					queryClient,
 					response.profile,
@@ -362,7 +362,7 @@ export function CenterAgentSettingsContent(input: {
 			);
 			await invalidateCenterAgentFacts();
 			toast.success(
-				variables.avatarStyle
+				variables.avatarStyle || variables.avatar
 					? "Avatar updated."
 					: "Center Agent profile updated."
 			);
@@ -415,11 +415,8 @@ export function CenterAgentSettingsContent(input: {
 						operatingStateQuery.data?.operatingState !== "active"
 					}
 					onMessage={() => dmMutation.mutate()}
-					onSaveAvatar={async (avatarStyle) => {
-						if (avatarStyle === "automatic") {
-							throw new Error("Center Agent requires a selected avatar.");
-						}
-						await updateProfileMutation.mutateAsync({ avatarStyle });
+					onSaveAvatar={async (avatar) => {
+						await updateProfileMutation.mutateAsync({ avatar });
 					}}
 					operatingState={
 						operatingStateQuery.isError
@@ -782,7 +779,9 @@ function resolveRemoteConnectionDescription(input: {
 
 function CenterAgentConnectionSection(input: {
 	canManage: boolean;
-	onSaveAvatar: (style: AgentAvatarStyle) => Promise<void>;
+	onSaveAvatar: (
+		avatar: NonNullable<CenterAgentUpdateProfileBody["avatar"]>
+	) => Promise<void>;
 	savingAvatar: boolean;
 	disableMessage: boolean;
 	onMessage: () => void;
@@ -802,10 +801,10 @@ function CenterAgentConnectionSection(input: {
 			<p className="text-muted-foreground text-xs">Center Agent settings</p>
 			<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 				<div className="flex min-w-0 items-start gap-4">
-					<AgentAvatarEditor
+					<CenterAgentAvatarEditor
+						avatarOptions={input.profile.avatarOptions}
 						avatarStyle={input.profile.avatarStyle}
 						canEdit={input.canManage}
-						centerAgent
 						onSave={input.onSaveAvatar}
 						profileId={input.profile.profileId}
 						profileName={input.profile.profileName}
@@ -818,7 +817,7 @@ function CenterAgentConnectionSection(input: {
 						<p className="mt-1 truncate text-muted-foreground text-sm">
 							@{input.profile.profileHandle}
 						</p>
-						<div className="mt-2 flex h-7 items-center max-lg:h-11">
+						<div className="mt-2 flex items-center">
 							<Badge
 								className={
 									status === "Status unavailable"

@@ -6,5 +6,7 @@ areas: ["center-agent", "web"]
 audiences: ["users"]
 ---
 
-Avatar selection keeps the arrow controls separate from a Save button directly
-below the preview, keeping browsing and saving apart.
+Center Agent settings now include an avatar picker with Bots, Colors, and custom
+image uploads. Preview a Bot, choose Original, Balanced, or Soft colors, and save
+when you are ready. Selection uses a subtle border and stays distinct from hover.
+Bot antennae now render consistently in settings, chats, and the sidebar.

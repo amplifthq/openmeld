@@ -14,7 +14,6 @@ import {
   drawBotAvatarFrame,
   BotAvatar as NativeBotAvatar,
   restPose,
-  shade,
 } from "bot-avatars";
 import {
   type ComponentPropsWithoutRef,
@@ -25,6 +24,7 @@ import {
   useRef,
 } from "react";
 import { useMediaQuery } from "#hooks/use-media-query";
+import { type BotAvatarPalette, botAvatarColor } from "#lib/bot-avatar-palette";
 
 export type { BotAvatarType } from "bot-avatars";
 export type BotAvatarMaterial = "fabric" | "plastic";
@@ -65,6 +65,7 @@ type BotAvatarProps = Omit<ComponentPropsWithoutRef<"canvas">, "type"> & {
   working?: boolean;
   motionEnabled?: boolean;
   shading?: BotAvatarMaterial;
+  palette?: BotAvatarPalette;
   followPointer?: boolean;
   /** Keep the library's existing full interaction in the avatar editor. */
   preview?: boolean;
@@ -77,6 +78,7 @@ export const BotAvatar = forwardRef<HTMLCanvasElement, BotAvatarProps>(
       working = false,
       motionEnabled = true,
       shading = "fabric",
+      palette = "original",
       followPointer,
       ...props
     },
@@ -91,13 +93,14 @@ export const BotAvatar = forwardRef<HTMLCanvasElement, BotAvatarProps>(
         <NativeBotAvatar
           {...props}
           brightness={1}
+          color={botAvatarColor(props.type, palette)}
           data-bot-material={shading}
           interactive={!reducedMotion}
           jumpEvery={working ? 8 : 0}
           key={`${working}:${reducedMotion}`}
           paused={reducedMotion}
           ref={ref}
-          saturation={1.5}
+          saturation={1}
           shading={shading}
           state={working ? "working" : "default"}
         />
@@ -107,6 +110,7 @@ export const BotAvatar = forwardRef<HTMLCanvasElement, BotAvatarProps>(
       <InteractiveBotAvatar
         {...props}
         followPointer={followPointer}
+        palette={palette}
         reducedMotion={reducedMotion}
         ref={ref}
         shading={shading}
@@ -127,6 +131,7 @@ const InteractiveBotAvatar = forwardRef<
     followPointer = false,
     reducedMotion,
     shading = "fabric",
+    palette = "original",
     style,
     ...props
   },
@@ -151,7 +156,7 @@ const InteractiveBotAvatar = forwardRef<
     canvas.width = canvas.height = Math.round(size * BOT_AVATAR_OVERSCAN * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const preset = botAvatarPresets[type];
-    const color = shade(preset.color, 0, 0.25);
+    const color = botAvatarColor(type, palette);
     const config: BotAvatarDrawConfig = {
       ...preset,
       path: new Path2D(botAvatarShapes[type]),
@@ -171,7 +176,7 @@ const InteractiveBotAvatar = forwardRef<
     };
     const state = working ? "working" : "default";
     const stillFrame = restingFrame(
-      `${type}:${size}:${dpr}:${state}:${shading}`,
+      `${type}:${palette}:${size}:${dpr}:${state}:${shading}`,
       size,
       restPose(state),
       config
@@ -338,7 +343,7 @@ const InteractiveBotAvatar = forwardRef<
       stop();
       handlers.current = {};
     };
-  }, [followPointer, id, reducedMotion, shading, size, type, working]);
+  }, [followPointer, id, palette, reducedMotion, shading, size, type, working]);
 
   const margin = (BOT_AVATAR_OVERSCAN - 1) / 2;
   return (
