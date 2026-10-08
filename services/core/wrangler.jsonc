@@ -273,27 +273,10 @@
         "WEB_APP_URL": "https://app.staging.openmeld.ai",
         "CORS_ORIGINS": "https://gateway.staging.openmeld.ai"
       },
-      "d1_databases": [
+      "hyperdrive": [
         {
-          "binding": "OPENMELD_DB",
-          "database_name": "openmeld-db-stg",
-          "database_id": "10da3483-0644-459a-8523-381a2a17ac39",
-          "migrations_dir": "../../packages/db/drizzle"
-        },
-        {
-          "binding": "OPENMELD_LOCAL_STATE_DB",
-          "database_name": "openmeld-db-stg",
-          "database_id": "10da3483-0644-459a-8523-381a2a17ac39"
-        },
-        {
-          "binding": "OPENMELD_WAKE_EVIDENCE_DB",
-          "database_name": "openmeld-db-stg",
-          "database_id": "10da3483-0644-459a-8523-381a2a17ac39"
-        },
-        {
-          "binding": "OPENMELD_PROJECTIONS_DB",
-          "database_name": "openmeld-db-stg",
-          "database_id": "10da3483-0644-459a-8523-381a2a17ac39"
+          "binding": "OPENMELD_POSTGRESQL",
+          "id": "6af2d43ec8d8498b9607c653ca231e73"
         }
       ],
       "durable_objects": {

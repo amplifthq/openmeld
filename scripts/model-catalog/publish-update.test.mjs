@@ -83,7 +83,7 @@ test("publication skips evidence-only scans and recovers meaningful proposals wi
       "biome.jsonc"
     );
     await mkdir("node_modules");
-    for (const name of [".bin", "@biomejs", "ultracite"]) {
+    for (const name of [".bin", ".pnpm", "@biomejs", "ultracite"]) {
       await symlink(
         fileURLToPath(new URL(`../../node_modules/${name}`, import.meta.url)),
         join(repo, "node_modules", name),

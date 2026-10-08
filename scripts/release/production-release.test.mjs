@@ -1272,6 +1272,22 @@ test("fails fast on current CLI channel truth before expensive Core verification
   ]);
 });
 
+test("uses current trusted control for PostgreSQL recovery without changing operation identity", () => {
+  const steps = buildProductionDeployStepSpecs(["db"], {
+    databaseBackend: "postgresql",
+  });
+  assert.deepEqual(
+    steps.map(({ command, args }) => ({ command, args })),
+    ["migrate", "grant-runtime", "verify"].map((operation) => ({
+      command: "node",
+      args: ["tooling/postgresql/cutover.mjs", operation],
+    }))
+  );
+  for (const step of steps) {
+    assert.equal(step.controlPath, "tooling/postgresql/cutover.mjs");
+  }
+});
+
 test("gives every hosted-eligible preflight step a trusted control path", () => {
   for (const scope of ["auth", "core", "gateway", "remote-agent", "web"]) {
     const steps = buildProductionPreflightStepSpecs({

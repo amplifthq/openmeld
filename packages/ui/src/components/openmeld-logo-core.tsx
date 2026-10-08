@@ -2,25 +2,8 @@
 
 import { useReducedMotion } from "framer-motion";
 import { type CSSProperties, useEffect, useMemo, useRef } from "react";
+import { OPENMELD_LOGO_LINES } from "#lib/openmeld-logo-lines";
 import { cn } from "#lib/utils";
-
-export const OPENMELD_LOGO_LINES = [
-  " ██████╗ ██████╗ ███████╗███╗   ██╗███╗   ███╗███████╗██╗     ██████╗",
-  "██╔═══██╗██╔══██╗██╔════╝████╗  ██║████╗ ████║██╔════╝██║     ██╔══██╗",
-  "██║   ██║██████╔╝█████╗  ██╔██╗ ██║██╔████╔██║█████╗  ██║     ██║  ██║",
-  "██║   ██║██╔═══╝ ██╔══╝  ██║╚██╗██║██║╚██╔╝██║██╔══╝  ██║     ██║  ██║",
-  "╚██████╔╝██║     ███████╗██║ ╚████║██║ ╚═╝ ██║███████╗███████╗██████╔╝",
-  " ╚═════╝ ╚═╝     ╚══════╝╚═╝  ╚═══╝╚═╝     ╚═╝╚══════╝╚══════╝╚═════╝ ",
-] as const;
-
-export const OPENMELD_LETTER_O_LOGO_LINES = [
-  " ██████╗",
-  "██╔═══██╗",
-  "██║   ██║",
-  "██║   ██║",
-  "╚██████╔╝",
-  " ╚═════╝ ",
-] as const;
 
 export const OPENMELD_LOGO_CURRENT_COLOR = [
   "currentColor",

@@ -1,0 +1,96 @@
+.meld-hero {
+	--meld-reveal-ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+.meld-hero h1 .meld-hero-title-line {
+	display: block;
+	color: inherit;
+	animation: meld-hero-reveal 1000ms var(--meld-reveal-ease) 400ms backwards;
+}
+.meld-hero h1 .meld-hero-title-line + .meld-hero-title-line {
+	animation-delay: 500ms;
+}
+.meld-hero-description {
+	animation: meld-hero-reveal 1000ms var(--meld-reveal-ease) 600ms backwards;
+}
+.meld-hero > .meld-actions {
+	animation: meld-hero-reveal 1000ms var(--meld-reveal-ease) 750ms backwards;
+}
+.meld-hero > .meld-open-source {
+	animation: meld-hero-reveal 1000ms var(--meld-reveal-ease) 850ms backwards;
+}
+.meld-hero .meld-demo-surface {
+	/* Linear reveals the UI with opacity, not a blur over the entire live app. */
+	animation: meld-hero-fade 1500ms cubic-bezier(0.455, 0.03, 0.515, 0.955)
+		1300ms backwards;
+}
+.meld-demo-hero::before {
+	content: "";
+	position: absolute;
+	inset: 0;
+	z-index: 2;
+	border-radius: inherit;
+	pointer-events: none;
+	background:
+		linear-gradient(
+			90deg,
+			#101010b3,
+			transparent 25%,
+			transparent 75%,
+			#101010b3
+		),
+		linear-gradient(#10101066, transparent 30%, #10101080);
+	opacity: 0;
+	animation: meld-app-unveil 1500ms cubic-bezier(0.455, 0.03, 0.515, 0.955)
+		1300ms backwards;
+}
+.meld-hero:not([data-hero-ready]) .meld-hero-title-line,
+.meld-hero:not([data-hero-ready]) .meld-hero-description,
+.meld-hero:not([data-hero-ready]) > .meld-actions,
+.meld-hero:not([data-hero-ready]) > .meld-open-source,
+.meld-hero:not([data-hero-ready]) .meld-demo-surface,
+.meld-hero:not([data-hero-ready]) .meld-demo-hero::before {
+	animation-play-state: paused;
+}
+@keyframes meld-hero-reveal {
+	from {
+		opacity: 0;
+		filter: blur(10px);
+		transform: translateY(20%);
+	}
+	to {
+		opacity: 1;
+		filter: none;
+		transform: translateY(0);
+	}
+}
+@keyframes meld-app-unveil {
+	from {
+		opacity: 1;
+	}
+	to {
+		opacity: 0;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.meld-demo-hero::before {
+		animation: none;
+	}
+	.meld-hero h1 .meld-hero-title-line + .meld-hero-title-line {
+		animation-delay: 0ms;
+	}
+	.meld-hero h1 .meld-hero-title-line,
+	.meld-hero-description,
+	.meld-hero > .meld-actions,
+	.meld-hero > .meld-open-source,
+	.meld-hero .meld-demo-surface {
+		animation: meld-hero-fade 160ms ease-out backwards;
+	}
+}
+@keyframes meld-hero-fade {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}

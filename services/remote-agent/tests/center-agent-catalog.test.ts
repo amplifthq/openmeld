@@ -28,6 +28,7 @@ import {
 } from "../flue-adapter/model";
 import capturedModels from "./fixtures/openrouter-center-agent-models-2026-09-14.json";
 import gpt6Models from "./fixtures/openrouter-gpt-6-sol-luna-2026-09-23.json";
+import haiku55 from "./fixtures/openrouter-haiku-5.5-2026-10-08.json";
 import additionalModels from "./fixtures/openrouter-hosted-models-2026-09-22.json";
 import octoberModels from "./fixtures/openrouter-models-2026-10-01.json";
 import opus55 from "./fixtures/openrouter-opus-5.5-2026-09-23.json";
@@ -56,6 +57,7 @@ describe("curated Center Agent provider models", () => {
     ...opus55.data,
     ...gpt6Models.data,
     ...octoberModels.data,
+    ...haiku55.data,
   ])("routes $id with captured capabilities and a tool continuation", async (evidence) => {
     const resolved = resolveCenterAgentModelRoute({
       catalog,
@@ -216,7 +218,7 @@ describe("curated Center Agent provider models", () => {
     );
     expect(ids).toEqual(
       expect.arrayContaining(
-        [...additionalModels.data, ...octoberModels.data].map(
+        [...additionalModels.data, ...octoberModels.data, ...haiku55.data].map(
           (model) => model.id
         )
       )

@@ -4,6 +4,7 @@ import {
 } from "@openmeld/product-catalog/site";
 import { buttonVariants } from "@openmeld/ui/components/button";
 import { TooltipProvider } from "@openmeld/ui/components/tooltip";
+import { FAVICON_32_URL, FAVICON_VERSION } from "@openmeld/ui/lib/favicon";
 import { OPENMELD_LOGO_THEME_COLORS } from "@openmeld/ui/lib/openmeld-logo-theme";
 import type { QueryClient } from "@tanstack/react-query";
 import {
@@ -34,7 +35,6 @@ import { TanStackDevtoolsSlot } from "#/integrations/tanstack-devtools/devtools-
 import { APPEARANCE_SHAPE_BOOTSTRAP_SCRIPT } from "#/lib/appearance/shape-preference";
 import { SIDEBAR_PREFERENCE_BOOTSTRAP_SCRIPT } from "#/lib/appearance/sidebar-preference";
 import { TOOLBAR_PREFERENCE_BOOTSTRAP_SCRIPT } from "#/lib/appearance/toolbar-preference";
-import { FAVICON_32_URL, FAVICON_VERSION } from "#/lib/favicon";
 import {
 	summarizeApplicationError,
 	WEB_ERROR_BUILD,

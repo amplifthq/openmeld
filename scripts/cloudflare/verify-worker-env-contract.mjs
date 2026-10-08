@@ -1,12 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { AUTH_DB_MIGRATIONS_PATH } from "../../packages/db/src/auth/fact-metadata.ts";
-import {
-  SHARED_DB_BINDING_NAME,
-  SHARED_DB_DATABASE_ID,
-  SHARED_DB_DATABASE_NAME,
-} from "../../packages/db/src/shared/fact-metadata.ts";
 import { parseJsoncObject as parseJsoncSource } from "../../packages/db/src/tooling/parse-jsonc.ts";
 import { ORGANIZATION_JOIN_LINK_ACCEPT_RATE_LIMIT } from "../../services/auth/src/lib/organization-join-link-accept-rate-limit.ts";
 import { FEEDBACK_SUBMIT_RATE_LIMITS } from "../../services/gateway/src/feedback/feedback-submit-rate-limiter.ts";
@@ -21,7 +15,7 @@ const hasCoreAccountDeletion = existsSync(
   path.join(repoRoot, "services/core/src/organizations/account-deletion.ts")
 );
 const verificationProfile = parseVerificationProfile(process.argv.slice(2));
-verifyPostgresqlEnvironment(repoRoot);
+verifyPostgresqlEnvironment(repoRoot, { profile: verificationProfile });
 const verifiesStaging = verificationProfile === "all";
 const DEV_VAR_KEY_PATTERN = /^([A-Z0-9_]+)=/u;
 const CONFIG_ENV_LABEL_PREFIX_PATTERN = /^env\./u;
@@ -67,8 +61,6 @@ const MESSAGE_CHANNEL_EVENTS_PROD_QUEUE_NAME =
   "openmeld-message-channel-events-prod";
 const MESSAGE_CHANNEL_EVENTS_STAGING_QUEUE_NAME =
   "openmeld-message-channel-events-stg";
-const STAGING_DB_DATABASE_ID = "10da3483-0644-459a-8523-381a2a17ac39";
-const STAGING_DB_DATABASE_NAME = "openmeld-db-stg";
 const FEEDBACK_RATE_LIMIT_BINDINGS = [
   {
     name: "OPENMELD_FEEDBACK_IP_RATE_LIMITER",
@@ -97,34 +89,13 @@ const GATEWAY_RATE_LIMIT_BINDINGS = [
   },
 ];
 
-// Current product aliases remain on shared D1 until the separately authorized
-// PostgreSQL cutover. Isolated foundation provisioning must not change them.
-const AUTH_IDENTITY_DB_BINDING = {
-  binding: "OPENMELD_IDENTITY_DB",
-  database_name: SHARED_DB_DATABASE_NAME,
-  database_id: SHARED_DB_DATABASE_ID,
-};
-const CORE_LOCAL_STATE_DB_BINDING = {
-  binding: "OPENMELD_LOCAL_STATE_DB",
-  database_name: SHARED_DB_DATABASE_NAME,
-  database_id: SHARED_DB_DATABASE_ID,
-};
-const CORE_WAKE_EVIDENCE_DB_BINDING = {
-  binding: "OPENMELD_WAKE_EVIDENCE_DB",
-  database_name: SHARED_DB_DATABASE_NAME,
-  database_id: SHARED_DB_DATABASE_ID,
-};
-const CORE_PROJECTIONS_DB_BINDING = {
-  binding: "OPENMELD_PROJECTIONS_DB",
-  database_name: SHARED_DB_DATABASE_NAME,
-  database_id: SHARED_DB_DATABASE_ID,
-};
+// Historical binding names must not return to PostgreSQL product Workers.
 const D1_BINDING_NAMES = [
-  SHARED_DB_BINDING_NAME,
-  AUTH_IDENTITY_DB_BINDING.binding,
-  CORE_LOCAL_STATE_DB_BINDING.binding,
-  CORE_WAKE_EVIDENCE_DB_BINDING.binding,
-  CORE_PROJECTIONS_DB_BINDING.binding,
+  "OPENMELD_DB",
+  "OPENMELD_IDENTITY_DB",
+  "OPENMELD_LOCAL_STATE_DB",
+  "OPENMELD_WAKE_EVIDENCE_DB",
+  "OPENMELD_PROJECTIONS_DB",
 ];
 
 const workerPackages = [
@@ -239,25 +210,11 @@ const workerPackages = [
       "AUTH_EMAIL",
       "OPENMELD_POSTGRESQL",
       "OPENMELD_AUTH_KV",
-      "OPENMELD_DB",
-      "OPENMELD_IDENTITY_DB",
       "OPENMELD_OBSERVABILITY",
       "OPENMELD_ORGANIZATION_JOIN_LINK_ACCEPT_RATE_LIMITER",
     ],
     forbiddenGeneratedBindings: [],
-    expectedD1Bindings: ({ environment, wranglerConfigPath }) =>
-      environment === "stg"
-        ? [
-            buildSharedD1BindingForWorkerConfig(
-              wranglerConfigPath,
-              environment
-            ),
-            buildAliasedD1Binding(
-              AUTH_IDENTITY_DB_BINDING.binding,
-              environment
-            ),
-          ]
-        : [],
+    expectedD1Bindings: () => [],
     expectedR2Bindings: () => [],
     expectedRateLimitBindings: AUTH_RATE_LIMIT_BINDINGS,
   },
@@ -300,10 +257,6 @@ const workerPackages = [
       "OPENMELD_REMOTE_AGENT_WORKER",
       "OPENMELD_RUNTIME_TRANSPORT",
       "OPENMELD_POSTGRESQL",
-      "OPENMELD_DB",
-      "OPENMELD_LOCAL_STATE_DB",
-      "OPENMELD_WAKE_EVIDENCE_DB",
-      "OPENMELD_PROJECTIONS_DB",
       "OPENMELD_OBSERVABILITY",
       "OPENMELD_ORGANIZATION_SKILLS",
       "OPENMELD_SPACE_ATTACHMENTS",
@@ -325,27 +278,7 @@ const workerPackages = [
       "ZEP_OPENMELD_API_KEY",
     ],
     forbiddenGeneratedBindings: [],
-    expectedD1Bindings: ({ environment, wranglerConfigPath }) =>
-      environment === "stg"
-        ? [
-            buildSharedD1BindingForWorkerConfig(
-              wranglerConfigPath,
-              environment
-            ),
-            buildAliasedD1Binding(
-              CORE_LOCAL_STATE_DB_BINDING.binding,
-              environment
-            ),
-            buildAliasedD1Binding(
-              CORE_WAKE_EVIDENCE_DB_BINDING.binding,
-              environment
-            ),
-            buildAliasedD1Binding(
-              CORE_PROJECTIONS_DB_BINDING.binding,
-              environment
-            ),
-          ]
-        : [],
+    expectedD1Bindings: () => [],
     expectedR2Bindings: ({ environment }) => [
       {
         binding: SPACE_ATTACHMENTS_R2_BINDING,
@@ -1237,34 +1170,6 @@ function expectedGatewayQueueProducers(environment) {
       queue: names.messageChannelEvents,
     },
   ];
-}
-
-function buildSharedD1BindingForWorkerConfig(wranglerConfigPath, environment) {
-  const database = expectedDatabase(environment);
-  return {
-    binding: SHARED_DB_BINDING_NAME,
-    database_id: database.id,
-    database_name: database.name,
-    migrations_dir: path.posix.relative(
-      path.posix.dirname(wranglerConfigPath),
-      AUTH_DB_MIGRATIONS_PATH
-    ),
-  };
-}
-
-function buildAliasedD1Binding(binding, environment) {
-  const database = expectedDatabase(environment);
-  return {
-    binding,
-    database_id: database.id,
-    database_name: database.name,
-  };
-}
-
-function expectedDatabase(environment) {
-  return environment === "stg"
-    ? { id: STAGING_DB_DATABASE_ID, name: STAGING_DB_DATABASE_NAME }
-    : { id: SHARED_DB_DATABASE_ID, name: SHARED_DB_DATABASE_NAME };
 }
 
 function expectedResourceName(environment, values) {

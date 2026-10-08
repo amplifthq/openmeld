@@ -1,56 +1,36 @@
-import { copyFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+	brandDirectory,
 	buildIco,
-	renderMasterPng,
-	renderSimplePng,
-} from "./logo-pipeline.mjs";
+	copyBrandAsset,
+	resizeBrandAsset,
+} from "../../../packages/ui/scripts/brand-assets.mjs";
 
-// Regenerates the shared website and App favicon set from the single logo source of truth.
-// Small sizes render the legible SIMPLE variant; large sizes downscale the
-// approved glow master. SVG favicons are intentionally retired (the glow cannot
-// be reproduced as a vector) — every browser size is shipped as a native PNG.
-
-const here = dirname(fileURLToPath(import.meta.url));
-const publicDir = resolve(here, "../../../packages/ui/public");
-const tmp = tmpdir();
-
-// Tiny sizes: solid O, slightly fuller as the canvas shrinks so it stays legible.
-const ico16 = renderSimplePng(16, join(tmp, "openmeld-fav-16.png"), {
-	content: 0.86,
-});
-const ico32 = renderSimplePng(32, join(tmp, "openmeld-fav-32.png"), {
-	content: 0.82,
-});
-const ico48 = renderSimplePng(48, join(tmp, "openmeld-fav-48.png"), {
-	content: 0.8,
-});
-
-copyFileSync(ico16, join(publicDir, "favicon-16x16.png"));
-copyFileSync(ico32, join(publicDir, "favicon-32x32.png"));
-buildIco(
-	[
-		{ size: 16, path: ico16 },
-		{ size: 32, path: ico32 },
-		{ size: 48, path: ico48 },
-	],
-	join(publicDir, "favicon.ico")
+const publicDirectory = resolve(
+	dirname(fileURLToPath(import.meta.url)),
+	"../../../packages/ui/public"
 );
-
-// Large sizes: faithful glow master.
-renderMasterPng(180, join(publicDir, "apple-touch-icon.png"));
-renderMasterPng(192, join(publicDir, "icon-192.png"));
-renderMasterPng(512, join(publicDir, "icon-512.png"));
-
-for (const line of [
-	"favicon-16x16.png",
-	"favicon-32x32.png",
-	"favicon.ico",
-	"apple-touch-icon.png",
-	"icon-192.png",
-	"icon-512.png",
-]) {
-	console.log(`Generated ${join(publicDir, line)}`);
+const entries = [16, 32, 48].map((size) => ({
+	size,
+	path: join(brandDirectory, `openmeld-favicon-${size}.png`),
+}));
+for (const size of [16, 32]) {
+	copyBrandAsset(
+		`openmeld-favicon-${size}.png`,
+		join(publicDirectory, `favicon-${size}x${size}.png`)
+	);
 }
+buildIco(entries, join(publicDirectory, "favicon.ico"));
+for (const [size, name] of [
+	[180, "apple-touch-icon.png"],
+	[192, "icon-192.png"],
+	[512, "icon-512.png"],
+]) {
+	resizeBrandAsset(
+		"openmeld-letter-o-dark-1024.png",
+		size,
+		join(publicDirectory, name)
+	);
+}
+console.log("Generated Web icons from shared brand assets.");

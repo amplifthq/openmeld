@@ -4,6 +4,7 @@ import {
 } from "@openmeld/ui/lib/page-frame";
 import { PublicPageHeader } from "#/components/public-page-header";
 import { appUrl } from "#/lib/app-url";
+import { LEGAL_CONTACT_EMAIL } from "./legal-policy-details";
 
 type LegalPolicySummaryItem = {
 	label: string;
@@ -85,14 +86,35 @@ export function LegalPolicyPage({
 							))}
 						</div>
 
-						<div className="mt-12 border-foreground/10 border-t pt-6">
+						<nav
+							aria-label="Legal and support"
+							className="mt-12 flex flex-wrap gap-x-6 gap-y-3 border-foreground/10 border-t pt-6 text-muted-foreground text-sm"
+						>
 							<a
-								className="text-muted-foreground text-sm transition-colors hover:text-foreground"
+								className="underline underline-offset-4 hover:text-foreground"
+								href="/privacy"
+							>
+								Privacy Policy
+							</a>
+							<a
+								className="underline underline-offset-4 hover:text-foreground"
+								href="/terms"
+							>
+								Terms of Service
+							</a>
+							<a
+								className="underline underline-offset-4 hover:text-foreground"
+								href={`mailto:${LEGAL_CONTACT_EMAIL}`}
+							>
+								Contact us
+							</a>
+							<a
+								className="underline underline-offset-4 hover:text-foreground"
 								href={appUrl("/login")}
 							>
-								Back to login
+								Open app
 							</a>
-						</div>
+						</nav>
 					</div>
 				</div>
 			</section>

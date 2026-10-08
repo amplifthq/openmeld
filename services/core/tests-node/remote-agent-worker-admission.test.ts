@@ -1,5 +1,6 @@
 import type { RemoteAgentWorkerSubmitTurnRequest } from "@openmeld/schemas/types";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
+import { createSubmitTurnRequestV2 } from "../../remote-agent/tests/fixtures";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
   readRemoteAgentWorkerAdmission,
@@ -8,6 +9,7 @@ import {
   submitRemoteAgentWorkerAdmission,
 } from "../src/remote-agent/application/remote-agent-worker-admission";
 import type { RemoteAgentNativeDeliveryRecord } from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
+import { legacySummaryReceiverRequestSchema } from "./helpers/legacy-summary-receiver.test-support";
 import {
   createPostgresHarness,
   observeNativePostgresQueries,
@@ -67,6 +69,48 @@ describe("Remote Agent worker admission", () => {
         },
       })
     ).resolves.toEqual({ v: 1, status: "not_found" });
+  });
+  it.each([
+    "local_schema",
+    "rpc_message",
+  ] as const)("preserves an unclassified legacy schema rejection without inventing receiver support: %s", async (failure) => {
+    const request = createSubmitTurnRequestV2();
+    request.turnEnvelope.trigger = {
+      source: "task_continuation",
+      delegationId: "delegation-1",
+      subscriptionId: "subscription-1",
+      summaryOnly: true,
+      watchedTask: { v: 1, kind: "native_delivery", deliveryId: "child" },
+      outcome: {
+        status: "succeeded",
+        errorCode: null,
+        eventId: "child-completed",
+        occurredAtMs: 1100,
+        publishedSignalId: "signal-child",
+      },
+    };
+    const parsed = legacySummaryReceiverRequestSchema.safeParse(request);
+    if (parsed.success) {
+      throw new Error("The strict legacy receiver accepted summaryOnly");
+    }
+    expect(parsed.error.issues).toMatchObject([
+      {
+        code: "unrecognized_keys",
+        keys: ["summaryOnly"],
+        path: ["turnEnvelope", "trigger"],
+      },
+    ]);
+    expect(parsed.error.issues).toHaveLength(1);
+    let error: Error = parsed.error;
+    if (failure === "rpc_message") {
+      // Current legacy Workers RPC loses both the issues and their JSON message.
+      error = new Error("ZodError");
+    }
+    const lookup = readRemoteAgentWorkerAdmissionStop({
+      request,
+      worker: { readAdmissionStop: vi.fn(() => Promise.reject(error)) },
+    });
+    await expect(lookup).rejects.toBe(error);
   });
   it.each([
     "organizationId",

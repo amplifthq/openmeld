@@ -126,7 +126,7 @@ export function DocumentDialog({
 				<DialogHeader>
 					<DialogTitle>{name}</DialogTitle>
 					<DialogDescription className="sr-only">
-						Amplift workspace document
+						OpenMeld workspace document
 					</DialogDescription>
 				</DialogHeader>
 				<div className="px-2 py-4">

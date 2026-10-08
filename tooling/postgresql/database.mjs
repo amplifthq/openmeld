@@ -50,6 +50,34 @@ export async function connect(connectionString, local = false) {
   return client;
 }
 
+// PlanetScale can send a TLS close error after all queries have completed.
+// Listen only during explicit shutdown: live query/transaction failures retain
+// their normal fatal boundary, and every other shutdown error still rejects.
+export async function closeMigrationClient(client, warn = console.warn) {
+  const errors = [];
+  const onError = (error) => errors.push(error);
+  client.on("error", onError);
+  try {
+    await client.end();
+  } finally {
+    client.removeListener("error", onError);
+  }
+  const unexpected = errors.filter(
+    (error) => error.code !== "ERR_SSL_DECRYPTION_FAILED_OR_BAD_RECORD_MAC"
+  );
+  if (unexpected.length) {
+    throw new AggregateError(
+      unexpected,
+      "PostgreSQL connection shutdown failed"
+    );
+  }
+  if (errors.length) {
+    warn(
+      "PostgreSQL TLS peer reported ERR_SSL_DECRYPTION_FAILED_OR_BAD_RECORD_MAC during explicit connection shutdown."
+    );
+  }
+}
+
 export async function readMigrations(directory = migrationDirectory) {
   const journal = JSON.parse(
     await readFile(`${directory}/meta/_journal.json`, "utf8")

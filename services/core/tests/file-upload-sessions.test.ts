@@ -1,13 +1,105 @@
 import { env, runInDurableObject } from "cloudflare:test";
 import { SPACE_FILE_UPLOAD_PART_BYTES } from "@openmeld/schemas";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { FileUploadSessions } from "../src/files/file-upload-sessions";
+import { AlarmFailureBackoff } from "../src/lib/alarm-failure-backoff";
 import type { CoreBindings } from "../src/lib/bindings";
 import type { Space } from "../src/space/transport/do/space";
 
 const bindings = env as unknown as CoreBindings & {
   OPENMELD_SPACE_ATTACHMENTS: R2Bucket;
 };
+
+it("backs off failed Space cleanup durably without blocking healthy work, then stops after recovery", async () => {
+  const stub = bindings.OPENMELD_SPACES.get(
+    bindings.OPENMELD_SPACES.newUniqueId()
+  );
+  await runInDurableObject(stub, async (instance: Space, state) => {
+    // Keep virtual deadlines ahead of Workerd's real-clock past-alarm normalization.
+    const start = Date.now() + 60_000;
+    const clock = vi.spyOn(Date, "now").mockReturnValue(start);
+    try {
+      const uploads = new FileUploadSessions(
+        state.storage.sql,
+        bindings.OPENMELD_SPACE_ATTACHMENTS
+      );
+      const key = `cleanup-test/${crypto.randomUUID()}`;
+      await bindings.OPENMELD_SPACE_ATTACHMENTS.put(key, "expired");
+      state.storage.sql.exec(
+        "INSERT INTO space_file_upload_sessions VALUES (?, ?, ?)",
+        "bad",
+        start - 2,
+        "invalid json"
+      );
+      state.storage.sql.exec(
+        "INSERT INTO space_file_upload_sessions VALUES (?, ?, ?)",
+        "good",
+        start - 1,
+        JSON.stringify({ key, response: { cancelled: false } })
+      );
+
+      // Manual handler calls must consume the scheduled alarm as Workerd does on delivery.
+      await state.storage.deleteAlarm();
+      await instance.alarm();
+      expect(await state.storage.getAlarm()).toBe(start + 5000);
+      expect(await bindings.OPENMELD_SPACE_ATTACHMENTS.head(key)).toBeNull();
+      expect(uploads.hasUploads()).toBe(true);
+
+      // Another event wakes the object during cooldown. The failed lane must not run again.
+      await instance.alarm();
+      expect(await state.storage.getAlarm()).toBe(start + 5000);
+      let backoff = new AlarmFailureBackoff(state.storage);
+      expect(await backoff.canRun("file_upload_cleanup", start + 4999)).toBe(
+        false
+      );
+      expect(
+        await backoff.nextAlarmAt({
+          healthy: start + 1000,
+          file_upload_cleanup: start - 2,
+        })
+      ).toBe(start + 1000);
+
+      clock.mockReturnValue(start + 5000);
+      await state.storage.deleteAlarm();
+      await instance.alarm();
+      expect(await state.storage.getAlarm()).toBe(start + 15_000);
+      backoff = new AlarmFailureBackoff(state.storage);
+      expect(await backoff.canRun("file_upload_cleanup", start + 14_999)).toBe(
+        false
+      );
+
+      let retryAtMs = start + 15_000;
+      for (const delayMs of [
+        20_000, 40_000, 80_000, 160_000, 300_000, 300_000,
+      ]) {
+        clock.mockReturnValue(retryAtMs);
+        await state.storage.deleteAlarm();
+        await instance.alarm();
+        expect(await state.storage.getAlarm()).toBe(retryAtMs + delayMs);
+        retryAtMs += delayMs;
+      }
+      // Repair the retained corrupt record; no new upload or user request is required.
+      state.storage.sql.exec(
+        "UPDATE space_file_upload_sessions SET state = ? WHERE id = ?",
+        JSON.stringify({ key, response: { cancelled: true } }),
+        "bad"
+      );
+      clock.mockReturnValue(retryAtMs);
+      await state.storage.deleteAlarm();
+      await instance.alarm();
+      expect(uploads.hasUploads()).toBe(false);
+      expect(await state.storage.getAlarm()).toBeNull();
+      expect(
+        await new AlarmFailureBackoff(state.storage).retryAt(
+          "file_upload_cleanup"
+        )
+      ).toBeNull();
+    } finally {
+      clock.mockRestore();
+      await state.storage.deleteAlarm();
+    }
+  });
+});
 function stream(value: string | Uint8Array) {
   return new Blob([value]).stream();
 }

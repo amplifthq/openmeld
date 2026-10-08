@@ -1,6 +1,7 @@
 import type * as zod from "zod/v4";
 import * as z from "../../lazy-zod";
 import { openMeldWebUrlSchema } from "../../navigation-action";
+import { userRequestTimeContextSchema } from "../../user-time-context";
 import {
   CENTER_AGENT_ROUTINE_NAME_MAX_CHARS,
   centerAgentRoutineAuthorizedActionsSchema,
@@ -232,7 +233,7 @@ export const remoteAgentTurnEnvelopeTriggerSchema = z.discriminatedUnion(
       delegationId: nonEmptyStringSchema,
       outcome: agentTaskTerminalOutcomeSchema,
       source: z.literal("task_continuation"),
-      // Set by the task owner for manual summary recovery, never model input.
+      // Set by the task owner for restricted summary recovery, never model input.
       summaryOnly: z.literal(true).optional(),
       subscriptionId: nonEmptyStringSchema,
       watchedTask: agentTaskHandleSchema,
@@ -294,6 +295,7 @@ export const remoteAgentTurnEnvelopeMemorySchema = z.strictObject({
 export const remoteAgentTurnEnvelopeSchema = z
   .strictObject({
     sender: remoteAgentTurnEnvelopeSenderSchema,
+    requestTimeContext: userRequestTimeContextSchema.optional(),
     space: remoteAgentTurnEnvelopeSpaceSchema,
     organization: remoteAgentTurnEnvelopeOrganizationSchema,
     centerAgent: remoteAgentTurnEnvelopeCenterAgentSchema,

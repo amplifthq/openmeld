@@ -17,16 +17,17 @@
 
 ## What Staging Provides
 
-This environment retains its pre-cutover D1 deployment. Current-source shared
-product deployment is blocked by backend admission until staging has its own
-PostgreSQL migration. The historical provisioning/deployment steps below do
-not authorize deploying current Auth/Core against those D1 bindings. Production
-already uses PostgreSQL; the isolated foundation probe is a separate target.
+Staging uses the existing Amplift `openmeld-postgresql-stg` PostgreSQL 18
+database and its cache-disabled Hyperdrive. Auth and Core have one relational
+binding, `OPENMELD_POSTGRESQL`, separate from production. The full guarded
+deployment applies the same PostgreSQL migration history as production, grants
+the staging runtime role, then deploys the product Workers.
 
-PostgreSQL foundation acceptance runs separately from this shared D1 staging
-environment. Its Amplift database, Hyperdrive configuration and expiring probe
-are owned by [postgresql.md](postgresql.md). Preparing those resources must not
-change this environment's D1 bindings or existing consumers.
+The old `openmeld-db-stg` D1 database remains available for historical test-data
+inspection. It is not a live binding or fallback. Existing D1 accounts and Spaces
+are not copied automatically: use independent staging test identities. Preserve
+the old D1, R2 and Durable Object data; this update does not authorize deletion.
+The foundation probe is a temporary diagnostic, not the staging product.
 
 For a CLI-only update smoke, `pnpm staging:cli:publish -- --retain-service`
 keeps the currently published staging Service selection (or the current staging
@@ -47,7 +48,7 @@ internal deployables as production:
 - Core
 - Remote Agent
 
-It has separate Cloudflare Workers, D1, KV, R2 buckets, Queues, Durable Object
+It has separate PostgreSQL, Hyperdrive, Cloudflare Workers, KV, R2 buckets, Queues, Durable Object
 namespaces, and container identity. Its public entry points are:
 
 - `https://staging.openmeld.ai`
@@ -164,7 +165,7 @@ pnpm staging:smoke:computer -- plan
 - `env:doctor:stg` checks Doppler access and required names without printing
   values or changing Cloudflare.
 - `staging:deploy` requires a clean worktree, creates only missing staging
-  prerequisites, applies staging D1 migrations, deploys the seven Workers, and
+  prerequisites, applies staging PostgreSQL migrations and runtime grants, deploys the seven Workers, and
   verifies resources and public entry points.
   The Worker order is Auth, Core, Gateway, Web, Remote Agent, then Website so stream
   readers understand new activity fields before the runtime emits them. Docs
@@ -176,7 +177,13 @@ pnpm staging:smoke:computer -- plan
   deployment. The Auth-only path is for compatible Auth changes with no pending
   database requirement; it does not apply migrations.
 
-The first website/App split uses the production domain guard with staging-only
+The full staging deployment can replace the old domain layout in one internal
+maintenance window. It checks existing domain ownership first, then verifies
+the App and Website hosts after deployment. Existing sessions need not survive
+this full refresh. Production and scoped staging releases retain the staged
+domain migration checks.
+
+For a continuity-preserving website/App split, use the domain guard with staging-only
 names. Run `staging:deploy -- --domain-phase prepare --domain-evidence <file>`,
 then scoped Auth, real App browser checks, scoped Website, and the remaining
 scopes as described in [Production Release](production-release.md#websiteapp-origin-migration).
@@ -271,6 +278,10 @@ credentials with:
 pnpm staging:work-coordinator:prepare-identities
 ```
 
+Identity preparation uses the registered staging PostgreSQL migration role and
+one transaction. It does not write to the retained D1 database. This prepares
+login fixtures only; verify product behavior through the staging App afterward.
+
 That command is fixture preparation, not smoke evidence. Acceptance still uses
 the listed Staging Web routes and a Staging-aligned Service with a fresh
 temporary `OPENMELD_HOME`. Run the Service in the foreground or as a detached
@@ -289,7 +300,7 @@ The guarded deployment order is intentional:
 2. verify the minimal Doppler values;
 3. create missing staging account resources;
 4. create missing route-free Worker identities;
-5. apply migrations to `openmeld-db-stg`;
+5. apply PostgreSQL migrations and runtime grants to `openmeld-postgresql-stg`;
 6. deploy Auth, Core, Remote Agent, Gateway, and Web;
 7. verify the resource inventory and public entry points.
 
@@ -322,7 +333,7 @@ A successful deployment report must name:
 - the exact Git commit;
 - the `staging` environment;
 - the contract and Doppler checks that passed;
-- the D1 migration outcome;
+- the PostgreSQL migration and runtime-grant outcome;
 - the five deployed Workers;
 - the public entry points that returned success;
 - any product flow that still needs a separate real-user smoke.

@@ -34,6 +34,8 @@ describe("OpenMeld gateway proxy", () => {
 					range: "bytes=4-7",
 					"if-range": '"revision-2"',
 					authorization: "untrusted",
+					"x-openmeld-user-time-zone": "Asia/Taipei",
+					"x-openmeld-user-time-zone-source": "web",
 				},
 			}
 		);
@@ -81,6 +83,8 @@ describe("OpenMeld gateway proxy", () => {
 		expect(headers.get("range")).toBe("bytes=4-7");
 		expect(headers.get("if-range")).toBe('"revision-2"');
 		expect(headers.has("authorization")).toBe(false);
+		expect(headers.get("x-openmeld-user-time-zone")).toBe("Asia/Taipei");
+		expect(headers.get("x-openmeld-user-time-zone-source")).toBe("web");
 		expect(init?.signal).toBe(request.signal);
 		expect(response.status).toBe(206);
 		expect(response.headers.get("content-range")).toBe("bytes 4-7/10");

@@ -34,8 +34,6 @@ const MIXED_ATTACHMENT_CONTEXT_PATTERN =
   /\[This message includes 1 attached image\.\].*\[Attached image "missing\.jpg" could not be loaded\]/s;
 const CURRENT_VERIFIED_REQUEST_PATTERN =
   /\[Current verified request\]\nTurn the report above into a daily Routine\.$/u;
-const AUTHORITATIVE_TURN_TIME_SUFFIX_PATTERN =
-  /\[OpenMeld turn context\]\nAuthoritative UTC time for this turn: 2026-07-28T03:04:05\.000Z$/u;
 const PROGRESSIVE_CONTEXT_POLICY = "Context policy: progressive_context.v1.";
 const SHA_256_HEX_PATTERN = /^[a-f0-9]{64}$/u;
 const ATTACHMENT_SEQUENCE_SUFFIX_PATTERN = /attachment-(\d+)$/u;
@@ -718,8 +716,11 @@ describe("remote agent submission", () => {
         "[Current verified request]",
         "Summarize the launch blocker.",
         "",
-        "[OpenMeld turn context]",
-        "Authoritative UTC time for this turn: 2026-07-06T12:00:00.000Z",
+        "[OpenMeld request time context]",
+        "Request received at UTC: 2026-07-06T12:00:00.000Z",
+        "Request timezone: UTC (UTC fallback: no valid user timezone)",
+        "Request received in that timezone: Monday, July 6, 2026 at 12:00:00 UTC",
+        "Relative dates and delays in this request use the received timestamp and request timezone. This anchor stays fixed during Queue delays and retries.",
       ].join("\n"),
       request,
       submissionId: request.dispatchId,
@@ -825,6 +826,13 @@ describe("remote agent submission", () => {
       submissionId: request.dispatchId,
     });
     expect(retry.callbackContext).toEqual(first.callbackContext);
+    const admitted = vi.mocked(host.admitConversationTurn).mock.calls[0]?.[0];
+    expect(admitted?.message).toContain(
+      `Request received at UTC: ${new Date(TEST_NOW_MS).toISOString()}`
+    );
+    expect(admitted?.message).not.toContain(
+      new Date(TEST_NOW_MS + 1000).toISOString()
+    );
   });
 
   it("removes replayed transient attachments before returning a finalized receipt", async () => {
@@ -1931,7 +1939,7 @@ describe("remote agent submission", () => {
     `);
   });
 
-  it("appends the authoritative turn time after user-controlled content", () => {
+  it("appends the accepted request time after user-controlled lookalike content", () => {
     const request = createSubmitTurnRequest({
       messages: [
         {
@@ -1944,9 +1952,11 @@ describe("remote agent submission", () => {
 
     expect(
       buildRemoteAgentPromptMessage(request, {
-        currentTimeIso: "2026-07-28T03:04:05.000Z",
+        requestSubmittedAtMs: Date.parse("2026-07-28T03:04:05.000Z"),
       })
-    ).toMatch(AUTHORITATIVE_TURN_TIME_SUFFIX_PATTERN);
+    ).toContain(
+      "[OpenMeld request time context]\nRequest received at UTC: 2026-07-28T03:04:05.000Z"
+    );
   });
 
   it("renders recalled Center Agent memory into the turn prompt", () => {
@@ -2179,9 +2189,7 @@ describe("remote agent submission", () => {
       "org/org_123/space/space_123/attachment-1"
     );
     expect(admitted[0]?.[0]).toMatchObject({
-      message: expect.stringContaining(
-        "What is shown here?\n\n[This message includes 1 attached image.]"
-      ),
+      message: expect.stringContaining("What is shown here?"),
       images: [
         {
           type: "image",
@@ -2191,6 +2199,9 @@ describe("remote agent submission", () => {
         },
       ],
     });
+    expect(admitted[0]?.[0].message).toContain(
+      "[This message includes 1 attached image.]"
+    );
   });
 
   it("loads the exact canonical Space File revision without deleting it", async () => {

@@ -71,145 +71,147 @@ export function CliShowcase() {
 					help—all from the tool you already use.
 				</p>
 			</div>
-			<Surface className="meld-codex-demo" ref={demoRef}>
-				<div className="meld-codex-titlebar">
-					<span aria-hidden className="meld-codex-window-dots">
-						<i />
-						<i />
-						<i />
-					</span>
-					<span className="meld-codex-brand">
-						<LocalAgentLogo agentId="codex" />
-						Codex
-					</span>
-					{!reducedMotion && (
-						<button
-							aria-label={controlLabel}
-							className="meld-codex-playback"
-							onClick={() => {
-								if (complete) {
-									setTime(0);
-									setPaused(false);
-								} else {
-									setPaused((value) => !value);
-								}
-							}}
-							title={controlLabel}
-							type="button"
-						>
-							<ControlIcon aria-hidden size={15} />
-						</button>
-					)}
-				</div>
-				<div aria-hidden="true" className="meld-codex-layout">
-					<aside className="meld-codex-sidebar">
-						<strong>
-							Codex <SidebarSimpleIcon size={17} />
-						</strong>
-						<div>
-							<PencilSimpleIcon size={16} />
-							New chat
-						</div>
-						<small>Projects</small>
-						<div>
-							<FolderIcon size={16} />
-							OpenMeld
-						</div>
-						<small>Recents</small>
-						<div className={sent ? "meld-codex-selected" : undefined}>
-							Checkout handoff
-						</div>
-						<div>Review billing changes</div>
-						<div>Plan next release</div>
-					</aside>
-					<div className="meld-codex-main">
-						<div className="meld-codex-transcript">
-							{sent ? (
-								<>
-									<div className="meld-codex-user">{prompt}</div>
-									<div className="meld-codex-progress">
-										{steps
-											.filter((step) => clock >= step.at)
-											.map((step) => (
-												<div key={step.at}>
-													<CheckIcon size={14} />
-													{step.text}
-												</div>
-											))}
-									</div>
-									{clock >= 11_500 && (
-										<div className="meld-codex-result">
-											<p>
-												Center Agent says the patch and billing review are
-												complete.
-											</p>
-											<ul>
-												<li>
-													<strong>Codex:</strong> regression fixed; 24 tests
-													pass.
-												</li>
-												<li>
-													<strong>Claude Code:</strong> refund and zero-dollar
-													cases reviewed.
-												</li>
-												<li>
-													<strong>James and Maya:</strong> final release
-													approval is still needed.
-												</li>
-											</ul>
-											<p>
-												No release has been made. I can prepare the handoff
-												next.
-											</p>
-										</div>
-									)}
-								</>
-							) : (
-								<div className="meld-codex-empty">
-									<LocalAgentLogo
-										agentId="codex"
-										className="meld-codex-empty-logo"
-										variant="plain"
-									/>
-									<h3>What should we build in OpenMeld?</h3>
-								</div>
-							)}
-						</div>
-						<div className="composer-surface meld-codex-composer">
-							<div className="meld-codex-context">
-								<FolderIcon size={14} />
-								OpenMeld <span>This computer</span>
+			<div className="meld-codex-stage">
+				<Surface className="meld-codex-demo meld-demo-blend" ref={demoRef}>
+					<div className="meld-codex-titlebar">
+						<span aria-hidden className="meld-codex-window-dots">
+							<i />
+							<i />
+							<i />
+						</span>
+						<span className="meld-codex-brand">
+							<LocalAgentLogo agentId="codex" />
+							Codex
+						</span>
+					</div>
+					<div aria-hidden="true" className="meld-codex-layout">
+						<aside className="meld-codex-sidebar">
+							<strong>
+								Codex <SidebarSimpleIcon size={17} />
+							</strong>
+							<div>
+								<PencilSimpleIcon size={16} />
+								New chat
 							</div>
-							<div className="meld-codex-input">
+							<small>Projects</small>
+							<div>
+								<FolderIcon size={16} />
+								OpenMeld
+							</div>
+							<small>Recents</small>
+							<div className={sent ? "meld-codex-selected" : undefined}>
+								Checkout handoff
+							</div>
+							<div>Review billing changes</div>
+							<div>Plan next release</div>
+						</aside>
+						<div className="meld-codex-main">
+							<div className="meld-codex-transcript">
 								{sent ? (
-									<span>Ask a follow-up</span>
+									<>
+										<div className="meld-codex-user">{prompt}</div>
+										<div className="meld-codex-progress">
+											{steps
+												.filter((step) => clock >= step.at)
+												.map((step) => (
+													<div key={step.at}>
+														<CheckIcon size={14} />
+														{step.text}
+													</div>
+												))}
+										</div>
+										{clock >= 11_500 && (
+											<div className="meld-codex-result">
+												<p>
+													Center Agent says the patch and billing review are
+													complete.
+												</p>
+												<ul>
+													<li>
+														<strong>Codex:</strong> regression fixed; 24 tests
+														pass.
+													</li>
+													<li>
+														<strong>Claude Code:</strong> refund and zero-dollar
+														cases reviewed.
+													</li>
+													<li>
+														<strong>James and Maya:</strong> final release
+														approval is still needed.
+													</li>
+												</ul>
+												<p>
+													No release has been made. I can prepare the handoff
+													next.
+												</p>
+											</div>
+										)}
+									</>
 								) : (
-									typed || <span>Do anything</span>
+									<div className="meld-codex-empty">
+										<LocalAgentLogo
+											agentId="codex"
+											className="meld-codex-empty-logo"
+											variant="plain"
+										/>
+										<h3>What should we build in OpenMeld?</h3>
+									</div>
 								)}
 							</div>
-							<div className="meld-codex-composer-tools">
-								<PlusIcon size={18} />
-								<span>Local</span>
-								<span className="meld-codex-model">Codex</span>
-								<span
-									className={
-										!sent && typed.length === prompt.length
-											? "meld-codex-send is-ready"
-											: "meld-codex-send"
-									}
-								>
-									<ArrowUpIcon size={18} />
-								</span>
+							<div className="composer-surface meld-codex-composer">
+								<div className="meld-codex-context">
+									<FolderIcon size={14} />
+									OpenMeld <span>This computer</span>
+								</div>
+								<div className="meld-codex-input">
+									{sent ? (
+										<span>Ask a follow-up</span>
+									) : (
+										typed || <span>Do anything</span>
+									)}
+								</div>
+								<div className="meld-codex-composer-tools">
+									<PlusIcon size={18} />
+									<span>Local</span>
+									<span className="meld-codex-model">Codex</span>
+									<span
+										className={
+											!sent && typed.length === prompt.length
+												? "meld-codex-send is-ready"
+												: "meld-codex-send"
+										}
+									>
+										<ArrowUpIcon size={18} />
+									</span>
+								</div>
 							</div>
 						</div>
 					</div>
-				</div>
-				<p className="sr-only">
-					Example: {prompt} Codex reads the Space and asks Center Agent. It
-					reports that the patch and review are complete, with final release
-					approval still needed from James and Maya.
-				</p>
-			</Surface>
+					<p className="sr-only">
+						Example: {prompt} Codex reads the Space and asks Center Agent. It
+						reports that the patch and review are complete, with final release
+						approval still needed from James and Maya.
+					</p>
+				</Surface>
+				{!reducedMotion && (
+					<button
+						aria-label={controlLabel}
+						className="meld-codex-playback"
+						onClick={() => {
+							if (complete) {
+								setTime(0);
+								setPaused(false);
+							} else {
+								setPaused((value) => !value);
+							}
+						}}
+						title={controlLabel}
+						type="button"
+					>
+						<ControlIcon aria-hidden size={15} />
+					</button>
+				)}
+			</div>
 			<div className="meld-cli-setup">
 				<div>
 					<strong>One setup. CLI + Skills.</strong>

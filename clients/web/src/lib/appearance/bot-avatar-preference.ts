@@ -1,5 +1,8 @@
 import type { BotAvatarMaterial } from "@openmeld/ui/components/bot-avatar";
-import type { BotAvatarPalette } from "@openmeld/ui/lib/bot-avatar-palette";
+import {
+	BOT_AVATAR_PALETTES,
+	type BotAvatarPalette,
+} from "@openmeld/ui/lib/bot-avatar-palette";
 import { useBrowserPreference } from "#/lib/use-browser-preference";
 
 export const BOT_MATERIAL_CHOICES = [
@@ -19,10 +22,9 @@ export function useBotAvatarPreference() {
 	const [storedPalette, writePalette] = useBrowserPreference(
 		"openmeld.appearance.bot-palette"
 	);
-	const palette: BotAvatarPalette =
-		storedPalette === "slate" || storedPalette === "sand"
-			? storedPalette
-			: "soft";
+	const palette =
+		BOT_AVATAR_PALETTES.find((choice) => choice.value === storedPalette)
+			?.value ?? "soft";
 	return {
 		palette,
 		setPalette: (next: BotAvatarPalette) => writePalette(next),
