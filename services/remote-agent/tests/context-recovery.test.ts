@@ -125,7 +125,7 @@ it("retains the exact active request across repeated lossy summaries", async () 
     }
     bounded = true;
     const request =
-      'Read two documents. Return JSON with "budget": 100 as a number. Do not publish.';
+      'Read three documents. Return JSON with "budget": 100 as a number. Do not publish.';
     let summaries = 0;
     provider.setResponses(
       Array.from({ length: 10 }, () => (context) => {
@@ -178,7 +178,7 @@ it.each([
   "empty",
   "truncated",
   "oversized",
-] as const)("continues the original task after a %s summary without replaying its tool", async (failure) => {
+] as const)("handles %s summary behavior without replaying its tool", async (failure) => {
   const directory = await mkdtemp(join(tmpdir(), "flue-context-recovery-"));
   const provider = fauxProvider({
     provider: `context-recovery-${failure}`,
