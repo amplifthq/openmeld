@@ -37,10 +37,13 @@ import { useWalkthrough } from "./walkthrough-context";
 // DOM discovery controls presentation only. Product success is observed by the
 // owning surfaces, never inferred from clicks or the presence of a selector.
 function useWalkthroughTarget(step: string | undefined) {
-	const [target, setTarget] = useState<HTMLElement | null>(null);
+	const [match, setMatch] = useState<{
+		step: string;
+		target: HTMLElement | null;
+	} | null>(null);
 	useEffect(() => {
 		if (!step) {
-			setTarget(null);
+			setMatch(null);
 			return;
 		}
 		let frame = 0;
@@ -68,13 +71,17 @@ function useWalkthroughTarget(step: string | undefined) {
 				];
 			}
 			const found =
-				selectors
+				['[data-walkthrough="people-agent-picker"]', ...selectors]
 					.flatMap((selector) =>
 						Array.from(document.querySelectorAll<HTMLElement>(selector))
 					)
 					.find((element) => element.getBoundingClientRect().height > 0) ??
 				null;
-			setTarget((previous) => (previous === found ? previous : found));
+			setMatch((previous) =>
+				previous?.step === step && previous.target === found
+					? previous
+					: { step, target: found }
+			);
 		};
 		const observer = new MutationObserver(() => {
 			cancelAnimationFrame(frame);
@@ -87,7 +94,7 @@ function useWalkthroughTarget(step: string | undefined) {
 			cancelAnimationFrame(frame);
 		};
 	}, [step]);
-	return target;
+	return match && match.step === step ? match.target : null;
 }
 
 const GuideActions = createContext<ReactNode>(undefined);
@@ -231,8 +238,10 @@ function usePauseOnEscape(
 
 export function WalkthroughGuide({
 	spaceProgress,
+	onConnectAgent,
 }: {
 	spaceProgress?: ReturnType<typeof useWalkthroughSpaceProgress>;
+	onConnectAgent?: () => void;
 } = {}) {
 	const guide = useWalkthrough();
 	const noticeAnchor = guide?.noticeAnchor;
@@ -310,11 +319,17 @@ export function WalkthroughGuide({
 		return null;
 	}
 	const picker = target.dataset.walkthrough === "people-agent-picker";
+	// Membership can refresh before saved progress. Never briefly redisplay the
+	// old Members instruction after the user has already added their agent.
+	if (awaitingLocalStep(record.step, spaceProgress)) {
+		return null;
+	}
 	const { content, actions, title, composing } = spaceGuidePresentation(
 		record,
 		target.dataset.walkthrough,
 		spaceProgress,
-		guide
+		guide,
+		onConnectAgent
 	);
 	// The real picker owns its description, preselection, actions, and focus.
 	if (picker) {
@@ -329,6 +344,13 @@ export function WalkthroughGuide({
 			title={title}
 		/>
 	);
+}
+
+function awaitingLocalStep(
+	step: string,
+	progress: ReturnType<typeof useWalkthroughSpaceProgress> | undefined
+) {
+	return step === "add-local-agent" && Boolean(progress?.local);
 }
 
 function GuidedTarget({
@@ -401,7 +423,8 @@ function spaceGuidePresentation(
 	record: FirstWorkRecord,
 	targetName: string | undefined,
 	spaceProgress: ReturnType<typeof useWalkthroughSpaceProgress> | undefined,
-	guide: NonNullable<ReturnType<typeof useWalkthrough>>
+	guide: NonNullable<ReturnType<typeof useWalkthrough>>,
+	onConnectAgent?: () => void
 ) {
 	const showingLocalReply =
 		record.step === "local-task" && spaceProgress?.localSent;
@@ -438,9 +461,12 @@ function spaceGuidePresentation(
 				</Button>
 				<Button
 					disabled={guide.pending}
-					onClick={advance(
-						spaceProgress?.local ? "local-task" : "add-local-agent"
-					)}
+					onClick={() => {
+						guide
+							.progress(spaceProgress?.local ? "local-task" : "add-local-agent")
+							.then(() => onConnectAgent?.())
+							.catch(() => undefined);
+					}}
 					size="sm"
 				>
 					Connect an agent
@@ -449,8 +475,7 @@ function spaceGuidePresentation(
 		);
 	}
 	if (record.step === "add-local-agent") {
-		content =
-			"Open Members, then Add people or agents. Choose your agent, or select New Agent to connect this computer.";
+		content = "Select the + button to add or create your agent.";
 		actions = (
 			<Button
 				disabled={guide.pending}

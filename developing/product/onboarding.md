@@ -58,8 +58,12 @@ membership. The shared welcome draft builder fills an editable greeting with a
 real Wake mention. Existing text, attachments, replies, and sent messages prevent
 insertion. Only Send publishes it. The accepted Center Agent message advances
 to the optional local-agent choice without waiting for a reply. Replies do not
-interrupt that choice or local setup. Members guidance remains until the person
-acts; it is not a timed slide. Composer guidance highlights the editable draft
+interrupt that choice or local setup. Connect an agent opens Members directly.
+The picker preselects an existing local agent owned by the person; otherwise New
+Agent is the primary action. Tutorial additions keep the picker open until the
+observed membership advances saved progress, so the old Members instruction
+does not flash during handoff. Members guidance remains until the person acts;
+it is not a timed slide. Composer guidance highlights the editable draft
 and Send control. Adding that person's local controller enables a prepared
 local greeting; another person's or a hosted Agent does not satisfy this step.
 Membership alone claims no readiness or execution success.

@@ -43,6 +43,7 @@ export function PeopleAgentPickerDialog(input: {
 	submitLabel: string;
 	emptySelectionLabel?: string;
 	canSubmit: boolean;
+	tutorialAction?: "create" | "select" | "submit";
 	secondaryAction?: ReactNode;
 	isSubmitting: boolean;
 	selectionDisabled?: boolean;
@@ -108,7 +109,7 @@ export function PeopleAgentPickerDialog(input: {
 										disabled={isSubmitting || input.selectionDisabled}
 										onClick={() => setCreating(true)}
 										size="xs"
-										variant="outline"
+										variant={newAgentVariant(input.tutorialAction)}
 									>
 										<PlusIcon aria-hidden="true" />
 										New Agent
@@ -125,7 +126,7 @@ export function PeopleAgentPickerDialog(input: {
 							<Input
 								aria-label="Search people and agents"
 								autoComplete="off"
-								autoFocus
+								autoFocus={!input.tutorialAction}
 								className="pl-9"
 								disabled={input.isSubmitting || input.selectionDisabled}
 								onChange={(event) => input.onQueryChange(event.target.value)}
@@ -201,4 +202,8 @@ export function PeopleAgentPickerDialog(input: {
 			</DialogContent>
 		</Dialog>
 	);
+}
+
+function newAgentVariant(action: string | undefined) {
+	return action === "create" ? ("default" as const) : ("outline" as const);
 }

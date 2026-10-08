@@ -1501,7 +1501,10 @@ function SpaceLandingContent(input: SpaceLandingInput) {
 				input={input}
 				state={state}
 			/>
-			<WalkthroughGuide spaceProgress={tutorialProgress} />
+			<WalkthroughGuide
+				onConnectAgent={() => state.handleMembersOpenChange(true)}
+				spaceProgress={tutorialProgress}
+			/>
 		</>
 	);
 }
