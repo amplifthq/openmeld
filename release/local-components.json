@@ -1,28 +1,28 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-08T07:56:38.139Z",
+  "updatedAt": "2026-10-08T09:28:27.074Z",
   "components": {
     "cli": {
-      "commandContractVersion": "openmeld-cli-command-contract-2026-09-space-files-1gib-v1",
+      "commandContractVersion": "openmeld-cli-command-contract-2026-09-project-work-v1",
       "packageVersion": "0.3.249",
-      "updatePolicy": "available",
-      "reason": "Local discovery reports controllers progressively; account- and device-checked Computer disconnect is additive. Existing clients remain compatible."
+      "updatePolicy": "required",
+      "reason": "Project-aware command and shared-folder capability v4 contracts require the updated CLI before accepting new work."
     },
     "service": {
-      "bundleHash": "efd1c7d08e54949962dd59a2d6b1f247d978c4172a3c62792f8e5701fdf8d30a",
-      "portableBundleHash": "3d6e45e9bb8a8d7c52fc6116d6394fcb50e5c54987f15b4ab76aa37690bf43d7",
+      "bundleHash": "d55b270b83fd2ab6a32c1816b2f6acbc8f8270cf982341738783bc9cae836833",
+      "portableBundleHash": "a40088928fbc80bf73f976417e7198ffefc9d46e178266b9646135c5c30b52fc",
       "bundleVersion": "0.3.249",
-      "runtimeContractEpoch": "runtime-transport-epoch-2026-09-space-files-1gib",
-      "serviceContractVersion": "openmeld-service-contract-2026-09-local-install-recovery-v1",
-      "updatePolicy": "available",
-      "reason": "Each completed controller check uses the existing report endpoint; Core retains readiness authority and old clients remain compatible."
+      "runtimeContractEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
+      "serviceContractVersion": "openmeld-service-contract-2026-09-project-work-v1",
+      "updatePolicy": "required",
+      "reason": "Project-aware Runtime Transport and shared-folder capability v4 require the updated Service for new Wakes while preserving accepted work."
     },
     "skills": {
       "bundleHash": "7a89eb86c43daf33e04984b7f04cbfd9752ec8bcf617004f85bee8007359ddb6",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Computer, Plugin and project guidance is additive and keeps existing Wake and Space action contracts."
+      "reason": "Project and Computer guidance remains compatible with existing commands."
     }
   }
 }
