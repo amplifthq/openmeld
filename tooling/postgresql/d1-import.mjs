@@ -459,10 +459,12 @@ function nativeColumns(table, targetColumns) {
     const native = target.find(
       (candidate) => candidate.column_name === column.name
     );
-    const valid =
-      column.type === "TEXT"
-        ? native.data_type === "text"
-        : ["integer", "bigint"].includes(native.data_type);
+    let valid = ["integer", "bigint"].includes(native.data_type);
+    if (column.type === "JSONB") {
+      valid = native.data_type === "jsonb";
+    } else if (column.type === "TEXT") {
+      valid = native.data_type === "text";
+    }
     if (
       !valid ||
       (native.is_generated === "ALWAYS") !== (column.hidden === 3)

@@ -266,6 +266,9 @@ describe("SpaceTasksPanel", () => {
 		true,
 	])("gates creation by active membership (%s), while opening a task outside the board list", (isMember) => {
 		vi.mocked(useSpaceTasksPanelController).mockReturnValue({
+			projects: [],
+			commonAgentIds: new Set(),
+			outsideCommonAgents: [],
 			members: isMember ? [requester] : [],
 			mutateTask: vi.fn(),
 			pendingTaskId: null,
@@ -369,7 +372,7 @@ describe("SpaceTasksPanel", () => {
 		expect(screen.queryByRole("button", { name: "Cancel task" })).toBeNull();
 	});
 
-	it("filters this Space's Tasks by their explicit Project association", () => {
+	it("filters this Space's Tasks by their explicit Project association", async () => {
 		const payments = spaceTaskSchema.parse({
 			...task,
 			projectIds: ["project-payments"],
@@ -412,9 +415,10 @@ describe("SpaceTasksPanel", () => {
 				spaceId="space-1"
 			/>
 		);
-		fireEvent.change(screen.getByRole("combobox", { name: "Project" }), {
-			target: { value: "project-platform" },
-		});
+		fireEvent.click(
+			screen.getByRole("combobox", { name: "Filter tasks by Project" })
+		);
+		fireEvent.click(await screen.findByRole("option", { name: "Platform" }));
 		expect(screen.getByText("Review Platform")).toBeTruthy();
 		expect(screen.queryByText("Review Payments")).toBeNull();
 	});

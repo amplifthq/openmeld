@@ -77,6 +77,8 @@ export function SpaceComposerAgentOptions(input: {
 			targetProfileId: input.targetProfileId,
 		});
 	const restrictions = executionRestrictions(selection);
+	const inheritsSession =
+		selection?.mode === "resume" || selection?.mode === "fork";
 	const sessionValue =
 		selection?.mode === "resume" || selection?.mode === "fork"
 			? `${selection.mode}:${selection.sourceWakeId}`
@@ -85,41 +87,10 @@ export function SpaceComposerAgentOptions(input: {
 		selection && selection.mode !== "resume" && selection.access
 			? `${selection.access}:${selection.workspace ?? "isolated"}`
 			: "defaults";
-	const accessOptions = [
-		{
-			key: "defaults",
-			label: "Use agent settings",
-			hint: "Use this agent’s saved file access and working folder.",
-		},
-		{
-			key: "space_context:isolated",
-			label: "No project files",
-			hint: "Work without access to your local project files.",
-		},
-		...(input.projectName
-			? [
-					{
-						key: "workspace:isolated",
-						label: "Edit a separate copy",
-						hint: "Edit a copy of committed code. Uncommitted changes stay behind.",
-					},
-					...(input.supportsCurrentFolder
-						? [
-								{
-									key: "read_only:current",
-									label: "Read files only",
-									hint: "Read the project, including uncommitted changes, without editing files.",
-								},
-								{
-									key: "workspace:current",
-									label: "Edit project files",
-									hint: "Edit the project directly, alongside your existing changes.",
-								},
-							]
-						: []),
-				]
-			: []),
-	];
+	const accessOptions = fileAccessOptions(
+		input.projectName,
+		input.supportsCurrentFolder
+	);
 	const selectedAccess = accessOptions.find(
 		(option) => option.key === accessValue
 	);
@@ -153,7 +124,6 @@ export function SpaceComposerAgentOptions(input: {
 								if (source) {
 									choose(
 										{
-											...(value.startsWith("fork:") ? restrictions : {}),
 											mode: value.startsWith("fork:") ? "fork" : "resume",
 											sourceWakeId: source.sourceWakeId,
 										},
@@ -220,13 +190,10 @@ export function SpaceComposerAgentOptions(input: {
 					</FluidDropdownMenuSubContent>
 				</DropdownMenuSub>
 				<DropdownMenuSub>
-					<FluidDropdownMenuSubTrigger
-						disabled={selection?.mode === "resume"}
-						index={1}
-					>
+					<FluidDropdownMenuSubTrigger disabled={inheritsSession} index={1}>
 						<span className="min-w-0 flex-1">Files</span>
 						<span className="text-muted-foreground">
-							{selection?.mode === "resume"
+							{inheritsSession
 								? "From session"
 								: (selectedAccess?.label ?? "Custom")}
 						</span>
@@ -360,4 +327,45 @@ function executionRestrictions(
 				projectWork: selection.projectWork,
 			}
 		: {};
+}
+
+function fileAccessOptions(
+	projectName: string | null | undefined,
+	supportsCurrentFolder: boolean
+) {
+	return [
+		{
+			key: "defaults",
+			label: "Use agent settings",
+			hint: "Use this agent’s saved file access and working folder.",
+		},
+		{
+			key: "space_context:isolated",
+			label: "No project files",
+			hint: "Work without access to your local project files.",
+		},
+		...(projectName
+			? [
+					{
+						key: "workspace:isolated",
+						label: "Edit a separate copy",
+						hint: "Edit a copy of committed code. Uncommitted changes stay behind.",
+					},
+					...(supportsCurrentFolder
+						? [
+								{
+									key: "read_only:current",
+									label: "Read files only",
+									hint: "Read the project, including uncommitted changes, without editing files.",
+								},
+								{
+									key: "workspace:current",
+									label: "Edit project files",
+									hint: "Edit the project directly, alongside your existing changes.",
+								},
+							]
+						: []),
+				]
+			: []),
+	];
 }

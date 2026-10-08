@@ -36,13 +36,33 @@ vi.mock("./space-composer-agent-options", () => ({
 }));
 const ACCESS_WORKSPACE_MENU = /^Files/;
 
-it("can fork a previous session without resuming it", async () => {
+it.each([
+	false,
+	true,
+])("forks source history without carrying another Project (%s)", async (hasProject) => {
 	const onChange = vi.fn();
 	render(
 		<DropdownMenu>
 			<DropdownMenuTrigger>Options</DropdownMenuTrigger>
 			<FluidDropdownMenuContent>
 				<SpaceComposerAgentOptions
+					choice={
+						hasProject
+							? {
+									targetProfileId: "agent",
+									label: "Project A",
+									selection: {
+										mode: "new",
+										access: "workspace",
+										workspace: "isolated",
+										projectWork: {
+											projectId: "project-a",
+											repositoryFingerprint: `sha256:${"a".repeat(64)}`,
+										},
+									},
+								}
+							: undefined
+					}
 					onChange={onChange}
 					sources={[
 						{
@@ -72,6 +92,34 @@ it("can fork a previous session without resuming it", async () => {
 		label: "Fork: Review upload",
 		selection: { mode: "fork", sourceWakeId: "wake-previous" },
 	});
+});
+
+it.each([
+	"resume",
+	"fork",
+] as const)("inherits files and Project when using %s", async (mode) => {
+	render(
+		<DropdownMenu>
+			<DropdownMenuTrigger>Options</DropdownMenuTrigger>
+			<FluidDropdownMenuContent>
+				<SpaceComposerAgentOptions
+					choice={{
+						targetProfileId: "agent",
+						label: "Source B",
+						selection: { mode, sourceWakeId: "wake-b" },
+					}}
+					onChange={vi.fn()}
+					projectName="Project B"
+					sources={[]}
+					supportsCurrentFolder
+					targetProfileId="agent"
+				/>
+			</FluidDropdownMenuContent>
+		</DropdownMenu>
+	);
+	fireEvent.click(screen.getByRole("button", { name: "Options" }));
+	const files = (await screen.findByText("Files")).closest("[role=menuitem]");
+	expect(files?.getAttribute("aria-disabled")).toBe("true");
 });
 
 it.each([

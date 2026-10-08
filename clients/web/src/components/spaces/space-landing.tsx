@@ -233,6 +233,7 @@ function DelayedSpaceFilesFallback() {
 }
 
 function SpaceTasksPanelSlot(input: {
+	canAddMembers: boolean;
 	selectedTaskId: string | null;
 	onSelectTask: (taskId: string | null) => void;
 	enabled: boolean;
@@ -250,6 +251,7 @@ function SpaceTasksPanelSlot(input: {
 	return (
 		<Suspense fallback={<DelayedSpaceTasksFallback />}>
 			<SpaceTasksPanel
+				canAddMembers={input.canAddMembers}
 				key={input.spaceId}
 				membersSnapshot={input.membersSnapshot}
 				onOpenThread={input.onOpenThread}
@@ -2429,6 +2431,7 @@ function SpaceLandingConversation({
 			spaceViewIdPrefix={spaceViewIdPrefix}
 			tasks={
 				<SpaceTasksPanelSlot
+					canAddMembers={!isDirectMessage}
 					enabled
 					membersSnapshot={controller.presentationMembersSnapshot}
 					onOpenThread={(threadId) => {

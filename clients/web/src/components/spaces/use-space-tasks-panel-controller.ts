@@ -24,6 +24,7 @@ import { spaceQueryKeys } from "#/query/spaces/status";
 import { mutateSpaceTaskWithConflictRefresh } from "./space-task-mutation";
 
 export type SpaceTasksPanelProps = {
+	canAddMembers?: boolean;
 	selectedTaskId?: string | null;
 	onSelectTask?: (taskId: string | null) => void;
 	membersSnapshot: SpaceMembersSnapshot | null;
@@ -130,6 +131,7 @@ export function useSpaceTasksPanelController(
 	const outsideCommonAgents = (profileDirectory.data?.agentProfiles ?? [])
 		.filter(
 			(profile) =>
+				input.canAddMembers === true &&
 				profile.status === "active" &&
 				commonAgentIds.has(profile.profileId) &&
 				!members.some((member) => member.profileId === profile.profileId)
