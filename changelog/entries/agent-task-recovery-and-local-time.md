@@ -16,6 +16,7 @@ lost, the Center Agent can make one restricted attempt to summarize the complete
 Agents' published results. This does not restart their work or override Stop.
 
 Web, Desktop, and Local Service share the same user time-zone record. Remote
-Agents receive the user's local time and the original request time, including
-queued messages. Local Agents are guided to use the user's local environment
+Agents receive that time zone, the original request time, and a fresh current
+time for each model request. Queued messages retain their original time context.
+Local Agents are guided to use the user's local environment
 unless the task calls for Cloud Computer.
