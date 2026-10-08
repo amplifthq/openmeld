@@ -1548,6 +1548,9 @@ async function inspectAndStopComputerCommand(input: {
             key: `${commandPrefix(input.context.submissionId)}${encodeURIComponent(command.key)}`,
             workspace,
             signal,
+            // A prior signal acknowledgement is not an exit receipt. When
+            // inspection finds no record, confirm this exact ID is gone.
+            force: recordMissing,
           });
         } catch (error) {
           if (

@@ -1475,7 +1475,10 @@ describe("retained Computer commands", () => {
     expect(f.killExec).toHaveBeenCalledTimes(commandCount);
   });
 
-  it("acknowledges Stop and publishes one aborted outcome when a retained command is gone", async () => {
+  it.each([
+    false,
+    true,
+  ])("acknowledges Stop and publishes one aborted outcome when a retained command is gone (prior Stop acknowledged=%s)", async (priorStopAcknowledged) => {
     const f = fixture();
     const executionContext = context("execution-a");
     const identity = buildRemoteAgentExecutionIdentity(executionContext);
@@ -1488,6 +1491,12 @@ describe("retained Computer commands", () => {
     await f
       .tool()
       .execute({ action: "start", key: "long", command: "sleep 300" });
+    if (priorStopAcknowledged) {
+      await expect(
+        f.tool().execute({ action: "stop", key: "long" })
+      ).resolves.toMatchObject({ status: "stop_requested" });
+      expect(f.killExec).toHaveBeenCalledOnce();
+    }
     const missing = Object.assign(new Error("no exec record"), {
       code: "ENOENT",
     });
