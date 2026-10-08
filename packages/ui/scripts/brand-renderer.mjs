@@ -153,12 +153,10 @@ export function renderBrandAssets({ letter, word }) {
     silhouetteContext.drawImage(strokes, 0, 0);
     silhouetteContext.drawImage(mask, 0, 0);
     const box = bounds(silhouette);
-    // Art direction: retain 40% of the complete-outline centering correction.
-    // The bright body carries more visual weight than the thin recessed lines.
-    // This is an optical alignment choice, not a claim of equal outer margins.
-    const outlineWeight = simple ? 0 : 0.4;
-    const dx = ((width - box.left - box.right) / 2) * outlineWeight;
-    const dy = ((height - box.top - box.bottom) / 2) * outlineWeight;
+    // Retain 92% of the complete-outline horizontal correction. The bright
+    // face has more visual weight, so shift slightly right of equal margins.
+    const dx = simple ? 0 : ((width - box.left - box.right) / 2) * 0.92;
+    const dy = simple ? 0 : ((height - box.top - box.bottom) / 2) * 0.4;
     const result = makeCanvas(width, height);
     const context = result.getContext("2d");
     context.translate(dx, dy);

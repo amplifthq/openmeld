@@ -44,9 +44,10 @@ its generation environment. `brand:preview` creates review sheets in the ignored
 Transparent white assets are for dark backgrounds; use the ink variant for light
 backgrounds. The monochrome side projections are widened by one quarter of a
 cell on each side. Inner opening and top/bottom bars are unchanged. Full artwork
-retains 40% of the complete-outline centering correction: the bright face has
-more visual weight than its fine recessed lines. Unequal outer margins are
-intentional optical alignment, not a crop error.
+retains 92% of the complete-outline horizontal centering correction. This places
+the bright face slightly right of equal outer margins. Vertically it
+retains 40% of the complete-outline centering correction to preserve the approved
+balance. Monochrome marks remain centered on their symmetric silhouette.
 
 ## Reuse
 
