@@ -61,7 +61,7 @@ export function PeopleAgentPickerDialog(input: {
 	const [creating, setCreating] = useState(false);
 	const [creationBusy, setCreationBusy] = useState(false);
 	const isSubmitting = input.isSubmitting || creationBusy;
-	const tutorial = pickerTutorialPresentation(
+	const tutorialAction = pickerTutorialAction(
 		creating,
 		input.tutorialAction,
 		isSubmitting
@@ -79,8 +79,10 @@ export function PeopleAgentPickerDialog(input: {
 			open={input.open}
 		>
 			<DialogContent
-				className={`@container flex max-h-[min(46rem,calc(100dvh-2rem))] flex-col overflow-hidden sm:max-w-2xl ${tutorial.className}`}
-				data-tutorial-action={tutorial.action}
+				// Keep the same containing block through progress changes and exit.
+				// A closing scale/translate would move the nested fixed tutorial.
+				className="@container translate-none inset-0 m-auto flex h-fit max-h-[min(46rem,calc(100dvh-2rem))] flex-col overflow-hidden data-closed:animate-none data-open:animate-none sm:max-w-2xl"
+				data-tutorial-action={tutorialAction}
 				data-tutorial-description={input.description}
 				data-walkthrough="people-agent-picker"
 				finalFocus={input.finalFocus}
@@ -219,18 +221,11 @@ function newAgentVariant(action: string | undefined) {
 	return action === "create" ? ("default" as const) : ("outline" as const);
 }
 
-function pickerTutorialPresentation(
+function pickerTutorialAction(
 	creating: boolean,
 	action: string | undefined,
 	isSubmitting: boolean
 ) {
 	const nextAction = action && isSubmitting ? "submit" : action;
-	return {
-		action: creating ? undefined : nextAction,
-		// A transform would make the modal a containing block for Joyride's
-		// fixed overlay. Auto margins preserve centering without that boundary.
-		className: action
-			? "inset-0 m-auto h-fit translate-none data-open:animate-none"
-			: "",
-	};
+	return creating ? undefined : nextAction;
 }
