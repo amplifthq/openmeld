@@ -79,7 +79,18 @@ export function PlatformMetalBadge({
 	);
 }
 
-const agents = listLocalAgentInstallGuides();
+const heroAgentOrder = [
+	"antigravity",
+	"claude-code",
+	"grok-build",
+	"opencode",
+	"codex",
+	"cursor",
+];
+const agents = [...listLocalAgentInstallGuides()].sort(
+	(a, b) =>
+		heroAgentOrder.indexOf(a.agentId) - heroAgentOrder.indexOf(b.agentId)
+);
 export function HeroAgents() {
 	const ref = useRef<HTMLDivElement>(null);
 	const reduced = useMediaQuery("(prefers-reduced-motion: reduce)");
@@ -144,7 +155,12 @@ function FloatingAgent({
 				rotate: [-12, 10, -7, 14, 8, -12][index],
 			}}
 		>
-			<LocalAgentLogo agentId={`builtin:${agentId}`} />
+			<LocalAgentLogo
+				agentId={`builtin:${agentId}`}
+				className="meld-floating-agent-mark"
+				codexLogo="openai"
+				variant="plain"
+			/>
 		</motion.div>
 	);
 }

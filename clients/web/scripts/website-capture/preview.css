@@ -1,9 +1,6 @@
 @import "../../src/styles.css";
 @source "../../src";
 @source ".";
-html {
-	color-scheme: dark;
-}
 body {
 	margin: 0;
 }

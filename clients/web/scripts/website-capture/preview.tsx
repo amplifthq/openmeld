@@ -81,6 +81,7 @@ import { SPACE_PANEL_WIDTH_METRICS } from "../../src/lib/spaces/panel-width-stor
 import { demoHumanAvatars } from "./demo-avatars";
 import { demoProfileDirectory } from "./demo-catalogs";
 import { DemoCenterAgent } from "./demo-center-agent";
+import { useDemoCenterAvatar } from "./demo-center-identity";
 import {
 	buildDemoConversationDraft,
 	DEMO_PRIMARY_SPACE_NAME,
@@ -104,6 +105,7 @@ import {
 	SpaceDirectory,
 	TeamScene,
 } from "./demo-scenes";
+import { DemoSpaceCard } from "./demo-space-card";
 import { DemoUsage } from "./demo-usage";
 import "./preview.css";
 
@@ -190,11 +192,6 @@ const people: DirectoryHumanProfileRow[] = [
 	agentProfilesPath: "/o/test/agents",
 	computer: { count: 1, label: "Connected", path: null, state: "connected" },
 }));
-const resultFiles = {
-	release: "Launch brief.md",
-	research: "Customer interviews.md",
-	website: "Launch brief.md",
-};
 
 function TranscriptMessage({
 	name,
@@ -205,6 +202,7 @@ function TranscriptMessage({
 	createdAtMs,
 	working,
 	file,
+	spaceCard,
 }: {
 	name: string;
 	kind: "human" | "agent";
@@ -214,8 +212,10 @@ function TranscriptMessage({
 	createdAtMs?: number;
 	working?: boolean;
 	file?: { name: string; sizeBytes: number; onOpen: () => void };
+	spaceCard?: boolean;
 }) {
 	const isCenterAgent = name === "Center Agent";
+	const [centerAvatar] = useDemoCenterAvatar();
 	const agent = buildDemoSpaceMembers("release").agents.find(
 		(member) => member.profileName === name
 	);
@@ -226,7 +226,7 @@ function TranscriptMessage({
 					<SpaceMessageProfileAvatar
 						agentControllerRef={agent?.agentControllerRef ?? null}
 						avatarImageUrl={kind === "human" ? demoHumanAvatars[name] : null}
-						avatarStyle={isCenterAgent ? "star" : undefined}
+						avatarStyle={isCenterAgent ? centerAvatar : undefined}
 						displayName={name}
 						isCenterAgent={isCenterAgent}
 						profileId={agent?.profileId ?? `demo-${name}`}
@@ -270,12 +270,23 @@ function TranscriptMessage({
 						)}
 					</SpaceMessageSurface>
 				</Bubble>
+				{spaceCard && <DemoSpaceCard />}
 			</MessageContent>
 		</Message>
 	);
 }
 
+function demoConversationTitle(spaceId: string) {
+	return spaceId === "center-agent"
+		? "Center Agent"
+		: (demoSpaces.find((space) => space.spaceId === spaceId)?.spaceName ??
+				DEMO_PRIMARY_SPACE_NAME);
+}
+function demoConversationVisibility(spaceId: string) {
+	return spaceId === "center-agent" ? "Private chat" : "Invite only";
+}
 function Preview() {
+	useDemoCenterAvatar();
 	const conversationState = useDemoConversationState();
 	const inboxAttention = useDemoInboxAttention();
 	const navigate = useNavigate();
@@ -326,9 +337,7 @@ function Preview() {
 		open: membersOpen,
 		onOpenChange: setMembersOpen,
 	};
-	let title =
-		demoSpaces.find((s) => s.spaceId === spaceId)?.spaceName ??
-		DEMO_PRIMARY_SPACE_NAME;
+	let title = demoConversationTitle(spaceId);
 	let content = (
 		<div className="flex min-h-0 flex-1">
 			<div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -449,7 +458,10 @@ function Preview() {
 															? "space-members-panel"
 															: "space-members-drawer"
 													}
-													memberCount={5}
+													memberCount={
+														membersProps.snapshot.humans.length +
+														membersProps.snapshot.agents.length
+													}
 													onOpenChange={setMembersOpen}
 													open={membersOpen}
 												/>
@@ -469,7 +481,7 @@ function Preview() {
 										titleAdornment={
 											scene === "Conversation" ? (
 												<span className="text-muted-foreground text-xs">
-													Invite only
+													{demoConversationVisibility(spaceId)}
 												</span>
 											) : undefined
 										}
@@ -500,7 +512,11 @@ function DemoMessageText({
 	referenceTargetProfileIds?: readonly string[];
 	mentionTargetProfileIds?: readonly string[];
 }) {
-	const snapshot = useMemo(() => buildDemoSpaceMembers(spaceId), [spaceId]);
+	const [centerAvatar] = useDemoCenterAvatar();
+	const snapshot = useMemo(
+		() => buildDemoSpaceMembers(spaceId, centerAvatar),
+		[spaceId, centerAvatar]
+	);
 	const profiles = useMemo(
 		() =>
 			buildSpaceMessageProfileMentionProfiles({
@@ -587,6 +603,8 @@ function Conversation({
 	spaceId: string;
 	onOpen: (file: string) => void;
 }) {
+	const [centerAvatar] = useDemoCenterAvatar();
+	const navigate = useNavigate();
 	const isReport = useRouterState({
 		select: (state) =>
 			state.location.searchStr.includes("focusSignalId=report"),
@@ -600,7 +618,10 @@ function Conversation({
 		buildDemoConversationDraft(!isReport && turns.length === 0 ? spaceId : "")
 	);
 	const [sendError, setSendError] = useState<string | null>(null);
-	const snapshot = useMemo(() => buildDemoSpaceMembers(spaceId), [spaceId]);
+	const snapshot = useMemo(
+		() => buildDemoSpaceMembers(spaceId, centerAvatar),
+		[spaceId, centerAvatar]
+	);
 	const mentionPickerItems = useMemo(
 		() => buildSpaceMentionTargetItems({ snapshot, query: "" }),
 		[snapshot]
@@ -620,15 +641,14 @@ function Conversation({
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const followLatest = useRef(true);
 	useLayoutEffect(() => {
-		if (followLatest.current && scrollRef.current) {
+		if (turns.length > 0 && followLatest.current && scrollRef.current) {
 			scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
 		}
 	});
 	useLayoutEffect(() => {
 		sendLock.current = isSending;
 	}, [isSending]);
-	const id =
-		spaceId === "research" || spaceId === "website" ? spaceId : "release";
+	const id = Object.hasOwn(demoSampleMessages, spaceId) ? spaceId : "release";
 	return (
 		<>
 			<div
@@ -656,19 +676,26 @@ function Conversation({
 					).map(({ name, kind, text, wakeTargetProfileIds }, index) => (
 						<TranscriptMessage
 							file={
-								name === "Center Agent" && (isReport || id !== "release")
+								name === "Center Agent" && (isReport || id === "research")
 									? {
-											name: isReport ? "Weekly review.md" : resultFiles[id],
+											name: isReport
+												? "Weekly review.md"
+												: "Customer interviews.md",
 											sizeBytes: isReport ? 3200 : 1800,
 											onOpen: () =>
-												onOpen(isReport ? "Weekly review.md" : resultFiles[id]),
+												onOpen(
+													isReport
+														? "Weekly review.md"
+														: "Customer interviews.md"
+												),
 										}
 									: undefined
 							}
 							index={index}
-							key={name}
+							key={`${name}-${text}`}
 							kind={kind}
 							name={name}
+							spaceCard={id === "center-agent" && name === "Center Agent"}
 							text={text}
 						>
 							{!isReport && (
@@ -686,83 +713,101 @@ function Conversation({
 				</div>
 			</div>
 			<div className="w-full px-6 pb-4">
-				<SpaceComposer
-					actions={{
-						onEditorChange: (nextDraft) => {
-							// The simulated send clears immediately. Ignore the old editor's
-							// focus/change event while that replacement is settling.
-							if (!sendLock.current) {
-								setDraft(nextDraft);
-							}
-						},
-						onMentionButtonClick: () =>
-							composerRef.current?.insertMentionTrigger(),
-						onSubmit: (options) => {
-							if (!draft.text.trim() || sendLock.current) {
-								return;
-							}
-							try {
-								sendLock.current = true;
-								const messageId = state.send({
-									spaceId,
-									text: draft.text,
-									authoredMentions: draft.authoredMentions,
-								});
-								options?.onMessageStaged?.(messageId);
-								followLatest.current = true;
-								setDraft({
-									text: "",
-									authoredMentions: [],
-									selection: { start: 0, end: 0 },
-								});
-								setSendError(null);
-							} catch (error) {
-								sendLock.current = false;
-								setSendError(
-									error instanceof Error
-										? error.message
-										: "Unable to send this demo message."
-								);
-							}
-						},
-					}}
-					availability={{
-						canSendMessage: true,
-						canUploadFiles: false,
-						fileLimitReached: false,
-						isSendingMessage: isSending,
-						sendBlocked: !draft.text.trim(),
-					}}
-					centerAgentProfileId={DEMO_CENTER_PROFILE_ID}
-					composerRef={composerRef}
-					content={{
-						addressingTargets,
-						authoredMentions: draft.authoredMentions,
-						hasAuthoredMentions: draft.authoredMentions.length > 0,
-						files: [],
-						mentionPickerItems,
-						text: draft.text,
-					}}
-					context={{ conversationKind: "space", placement: "conversation" }}
-					slots={{
-						attachmentAction: (
-							<Button
-								aria-label="Add"
-								disabled
-								size="icon-sm"
-								type="button"
-								variant="ghost"
-							>
-								<PlusIcon aria-hidden="true" />
-							</Button>
-						),
-						error: sendError ? (
-							<p className="text-destructive text-xs" role="alert">
-								{sendError}
-							</p>
-						) : null,
-					}}
-				/>
+				{id === "agent-work" ? (
+					<Button
+						onClick={() =>
+							navigate({
+								to: "/o/$orgSlug/chats/$spaceId",
+								params: { orgSlug: "test", spaceId: "center-agent" },
+							})
+						}
+						variant="outline"
+					>
+						Back to Center Agent
+					</Button>
+				) : (
+					<SpaceComposer
+						actions={{
+							onEditorChange: (nextDraft) => {
+								// The simulated send clears immediately. Ignore the old editor's
+								// focus/change event while that replacement is settling.
+								if (!sendLock.current) {
+									setDraft(nextDraft);
+								}
+							},
+							onMentionButtonClick: () =>
+								composerRef.current?.insertMentionTrigger(),
+							onSubmit: (options) => {
+								if (!draft.text.trim() || sendLock.current) {
+									return;
+								}
+								try {
+									sendLock.current = true;
+									const messageId = state.send({
+										spaceId,
+										text: draft.text,
+										authoredMentions: draft.authoredMentions,
+									});
+									options?.onMessageStaged?.(messageId);
+									followLatest.current = true;
+									setDraft({
+										text: "",
+										authoredMentions: [],
+										selection: { start: 0, end: 0 },
+									});
+									setSendError(null);
+								} catch (error) {
+									sendLock.current = false;
+									setSendError(
+										error instanceof Error
+											? error.message
+											: "Unable to send this demo message."
+									);
+								}
+							},
+						}}
+						availability={{
+							canSendMessage: true,
+							canUploadFiles: false,
+							fileLimitReached: false,
+							isSendingMessage: isSending,
+							sendBlocked: !draft.text.trim(),
+						}}
+						centerAgentProfileId={DEMO_CENTER_PROFILE_ID}
+						composerRef={composerRef}
+						content={{
+							addressingTargets,
+							authoredMentions: draft.authoredMentions,
+							hasAuthoredMentions: draft.authoredMentions.length > 0,
+							files: [],
+							mentionPickerItems,
+							text: draft.text,
+						}}
+						context={{
+							conversationKind:
+								id === "center-agent" ? "center_agent_direct_message" : "space",
+							placement: "conversation",
+						}}
+						slots={{
+							attachmentAction: (
+								<Button
+									aria-label="Add"
+									disabled
+									size="icon-sm"
+									type="button"
+									variant="ghost"
+								>
+									<PlusIcon aria-hidden="true" />
+								</Button>
+							),
+							error: sendError ? (
+								<p className="text-destructive text-xs" role="alert">
+									{sendError}
+								</p>
+							) : null,
+						}}
+					/>
+				)}
 			</div>
 		</>
 	);

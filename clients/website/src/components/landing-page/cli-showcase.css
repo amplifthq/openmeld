@@ -1,0 +1,258 @@
+.meld-codex-demo {
+	border: 1px solid #ffffff18;
+	border-radius: 16px;
+	overflow: hidden;
+	background: #101010;
+}
+.meld-codex-titlebar {
+	display: flex;
+	align-items: center;
+	gap: 20px;
+	padding: 8px 20px;
+	min-height: 47px;
+	background: #202020;
+	color: #aaa;
+	font-size: 12px;
+}
+.meld-codex-brand {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+}
+.meld-codex-window-dots {
+	display: flex;
+	gap: 7px;
+}
+.meld-codex-window-dots i {
+	width: 9px;
+	height: 9px;
+	border-radius: 50%;
+	background: #666;
+}
+.meld-codex-layout {
+	display: grid;
+	grid-template-columns: 210px minmax(0, 1fr);
+}
+.meld-codex-sidebar {
+	padding: 24px 16px;
+	background: #151515;
+	border-right: 1px solid #ffffff0d;
+	color: #aaa;
+	font-size: 13px;
+}
+.meld-codex-sidebar strong {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	padding: 0 10px 20px;
+	color: #eee;
+	font-size: 17px;
+}
+.meld-codex-sidebar > div {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 9px 10px;
+	border-radius: 7px;
+}
+.meld-codex-sidebar small {
+	display: block;
+	padding: 24px 10px 8px;
+	color: #777;
+}
+.meld-codex-selected {
+	background: #262626;
+	color: #eee;
+}
+.meld-codex-main {
+	padding: 24px clamp(20px, 4vw, 64px);
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+}
+.meld-codex-transcript {
+	min-height: 390px;
+	font-size: 14px;
+	line-height: 1.65;
+}
+.meld-codex-empty {
+	min-height: 365px;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 18px;
+	text-align: center;
+}
+.meld-codex-empty-logo {
+	width: 40px;
+	height: 40px;
+}
+.meld-codex-empty h3 {
+	margin: 0;
+	font-size: clamp(20px, 2vw, 27px);
+	font-weight: 500;
+	letter-spacing: -0.025em;
+}
+.meld-codex-user {
+	margin-left: auto;
+	max-width: 90%;
+	padding: 14px 20px;
+	background: #262626;
+	border-radius: 18px;
+	color: #eee;
+}
+.meld-codex-progress {
+	margin: 22px 0;
+	display: grid;
+	gap: 8px;
+	color: #929292;
+	font-size: 13px;
+}
+.meld-codex-progress > div {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+}
+.meld-codex-progress svg {
+	flex-shrink: 0;
+}
+.meld-codex-result {
+	color: #ddd;
+}
+.meld-codex-result p {
+	margin: 12px 0;
+}
+.meld-codex-result ul {
+	padding-left: 20px;
+	margin: 12px 0;
+}
+.meld-codex-composer {
+	margin-top: auto;
+	padding: 14px 16px;
+}
+.meld-codex-context {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 12px;
+	color: #bbb;
+}
+.meld-codex-context span {
+	margin-left: 12px;
+	color: #999;
+}
+.meld-codex-input {
+	min-height: 76px;
+	padding-top: 14px;
+	font-size: 14px;
+	line-height: 1.6;
+	color: #eee;
+}
+.meld-codex-input > span {
+	color: #888;
+}
+.meld-codex-composer-tools {
+	display: flex;
+	align-items: center;
+	gap: 14px;
+	color: #aaa;
+	font-size: 12px;
+}
+.meld-codex-model {
+	margin-left: auto;
+}
+.meld-codex-send {
+	display: grid;
+	place-items: center;
+	width: 28px;
+	height: 28px;
+	border-radius: 50%;
+	background: #777;
+	color: #191919;
+}
+.meld-codex-send.is-ready {
+	background: #eee;
+}
+.meld-codex-playback {
+	margin-left: auto;
+	flex-shrink: 0;
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	padding: 6px 9px;
+	border: 0;
+	border-radius: 5px;
+	background: transparent;
+	color: #ddd;
+	cursor: pointer;
+	font: inherit;
+}
+.meld-codex-playback:hover {
+	background: #ffffff0a;
+}
+.meld-codex-playback:focus-visible {
+	outline: 2px solid #aaa;
+	outline-offset: 2px;
+}
+.meld-cli-setup {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 24px;
+	padding: 28px 0;
+	font-size: 14px;
+}
+.meld-cli-setup strong {
+	color: #ddd;
+	font-weight: 500;
+}
+.meld-cli-setup p {
+	margin: 6px 0 0;
+	color: #999;
+	font-size: 13px;
+	line-height: 1.6;
+}
+.meld-cli-setup pre {
+	margin: 0;
+	font-size: 13px;
+	line-height: 1.9;
+	color: #bbb;
+}
+.meld-cli-setup .meld-link {
+	white-space: nowrap;
+	font-size: 13px;
+}
+@media (max-width: 760px) {
+	.meld-codex-layout {
+		grid-template-columns: minmax(0, 1fr);
+	}
+	.meld-codex-sidebar {
+		display: none;
+	}
+	.meld-codex-main {
+		padding: 20px 16px;
+	}
+	.meld-codex-transcript {
+		min-height: 490px;
+		font-size: 13px;
+	}
+	.meld-codex-empty {
+		min-height: 465px;
+	}
+	.meld-codex-empty h3 {
+		font-size: 20px;
+	}
+	.meld-codex-user {
+		max-width: 100%;
+		padding: 12px 14px;
+	}
+	.meld-codex-input {
+		min-height: 112px;
+		font-size: 13px;
+	}
+	.meld-cli-setup {
+		flex-direction: column;
+		align-items: flex-start;
+	}
+}

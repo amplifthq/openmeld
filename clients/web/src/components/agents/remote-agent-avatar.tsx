@@ -98,7 +98,7 @@ function AgentAvatarPresentation({
 	...props
 }: AgentAvatarProps) {
 	const botCanvas = useRef<HTMLCanvasElement>(null);
-	const { motionEnabled, shading } = useBotAvatarPreference();
+	const { motionEnabled, shading, palette } = useBotAvatarPreference();
 	const identity = resolveAgentAvatarIdentity({
 		agentControllerRef,
 		avatarStyle,
@@ -146,6 +146,7 @@ function AgentAvatarPresentation({
 				aria-hidden="true"
 				followPointer={followPointer}
 				motionEnabled={motionEnabled}
+				palette={palette}
 				preview={clickable && followPointer === undefined}
 				ref={botCanvas}
 				shading={shading}
