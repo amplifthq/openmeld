@@ -379,7 +379,7 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 						</div>
 					</footer>
 				) : (
-					<footer className="mt-4 flex shrink-0 justify-end border-border/60 border-t pt-4">
+					<footer className="mt-4 hidden shrink-0 justify-end border-border/60 border-t pt-4 has-[button]:flex">
 						<div ref={setInviteSubmitTarget} />
 					</footer>
 				)}
