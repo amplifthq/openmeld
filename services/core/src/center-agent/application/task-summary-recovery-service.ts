@@ -4,6 +4,7 @@ import {
   type centerAgentContinueTaskSummaryResponseSchema,
   getSpaceDispatchLookupResponseSchema,
   getSpaceMessageDetailsResponseSchema,
+  REMOTE_AGENT_COMPUTER_CLEANUP_FAILED_CODE,
   remoteAgentWorkerExecutionQueryResponseSchema,
   taskSummaryRecoveryAccessResponseSchema,
 } from "@openmeld/schemas";
@@ -86,7 +87,7 @@ export async function recoverFailedTaskContinuationSummary(input: {
   )?.turnEnvelope?.trigger;
   if (
     delivery.status !== "failed" ||
-    delivery.failureCode !== "remote_agent.computer.command_cleanup_failed" ||
+    delivery.failureCode !== REMOTE_AGENT_COMPUTER_CLEANUP_FAILED_CODE ||
     delivery.conversationKind !== "space" ||
     delivery.routineRunId ||
     !delivery.publishedSignalId ||

@@ -28,6 +28,7 @@ import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   type NavigationAction,
+  REMOTE_AGENT_COMPUTER_CLEANUP_FAILED_CODE,
   REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE,
   REMOTE_AGENT_FAILURE_PURPOSE,
   REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_PUBLIC_COPY,
@@ -12435,7 +12436,7 @@ async function resolveInterruptedCallbackFailureText(input: {
     input.delivery.routineRunId ||
     ![
       "remote_agent.turn_not_completed",
-      "remote_agent.computer.command_cleanup_failed",
+      REMOTE_AGENT_COMPUTER_CLEANUP_FAILED_CODE,
     ].includes(input.body.failureCode)
   ) {
     return undefined;
