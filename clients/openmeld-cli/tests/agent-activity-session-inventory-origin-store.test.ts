@@ -2,7 +2,11 @@ import { mkdtemp, readFile, rename, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { recordOpenMeldCreatedLocalAgentSession } from "../src/agent-activity/session-inventory-origin-store";
+import {
+  readOpenMeldCreatedLocalAgentSessionProjectAttributions,
+  recordOpenMeldCreatedLocalAgentSession,
+  resolveOpenMeldCreatedLocalAgentSessionProjectAttribution,
+} from "../src/agent-activity/session-inventory-origin-store";
 
 let root: string | null = null;
 
@@ -14,6 +18,38 @@ afterEach(async () => {
 });
 
 describe("Session Inventory origin store", () => {
+  it("attributes an OpenMeld Session to its exact Project and refuses a later conflicting label", async () => {
+    root = await mkdtemp(join(tmpdir(), "openmeld-session-origin-project-"));
+    const identity = {
+      agentControllerRef: "builtin:codex",
+      nativeSessionId: "native-shared-folder",
+      rootDir: root,
+    };
+    const first = {
+      organizationId: "org-1",
+      projectId: "project-payments",
+      repositoryFingerprint: `sha256:${"a".repeat(64)}`,
+    };
+    await recordOpenMeldCreatedLocalAgentSession({
+      ...identity,
+      projectAttribution: first,
+    });
+    const readAttribution = async () =>
+      resolveOpenMeldCreatedLocalAgentSessionProjectAttribution({
+        ...identity,
+        projectAttributions:
+          await readOpenMeldCreatedLocalAgentSessionProjectAttributions({
+            rootDir: root ?? undefined,
+          }),
+      });
+    expect(await readAttribution()).toEqual(first);
+    await recordOpenMeldCreatedLocalAgentSession({
+      ...identity,
+      projectAttribution: { ...first, projectId: "project-platform" },
+    });
+    expect(await readAttribution()).toBeNull();
+  });
+
   it("preserves existing provenance when the store cannot be read", async () => {
     root = await mkdtemp(join(tmpdir(), "openmeld-session-origin-store-"));
     await recordOpenMeldCreatedLocalAgentSession({

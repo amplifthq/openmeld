@@ -1476,6 +1476,8 @@ registerProjectCommands(program, {
           allowUnverified: opts.allowUnverified,
           path: opts.path,
           projectSlug,
+          repository: opts.repository,
+          share: opts.share,
         });
       },
     });
@@ -1633,28 +1635,61 @@ computerCmd
   .description(
     "Disconnect this computer from its reviewed account without forgetting its record."
   )
-  .requiredOption(
+  .option(
     "--connection-intent <json>",
     "Account and exact Computer session reviewed for disconnection"
   )
-  .action(async (opts: { connectionIntent: string }) => {
-    const view = getGlobalViewOption();
-    await runCommandWithEntryChecks({
-      routeTokens: ["computer", "disconnect"],
-      view,
-      run: async () => {
-        const { runComputerDisconnect } = await import(
-          "./commands/computer-disconnect"
-        );
-        await runComputerDisconnect(
-          computerConnectionIntentSchema.parse(
-            JSON.parse(opts.connectionIntent)
-          ),
-          view
-        );
-      },
-    });
-  });
+  .option("--expected-account <id>", "Account shown in OpenMeld Web")
+  .option("--device <id>", "Computer device shown in OpenMeld Web")
+  .option(
+    "--runtime-lane <lane>",
+    "Computer runtime lane shown in OpenMeld Web"
+  )
+  .action(
+    async (opts: {
+      connectionIntent?: string;
+      expectedAccount?: string;
+      device?: string;
+      runtimeLane?: string;
+    }) => {
+      const view = getGlobalViewOption();
+      await runCommandWithEntryChecks({
+        routeTokens: ["computer", "disconnect"],
+        view,
+        run: async () => {
+          const { runComputerDisconnect, runComputerDisconnectTarget } =
+            await import("./commands/computer-disconnect");
+          if (!opts.connectionIntent) {
+            const { desktopComputerDisconnectRequestSchema } = await import(
+              "@openmeld/schemas"
+            );
+            await runComputerDisconnectTarget(
+              desktopComputerDisconnectRequestSchema.parse({
+                expectedAccount: opts.expectedAccount,
+                expectedConnection: {
+                  deviceId: opts.device,
+                  runtimeLane: opts.runtimeLane,
+                },
+              }),
+              view
+            );
+            return;
+          }
+          if (opts.expectedAccount || opts.device || opts.runtimeLane) {
+            throw new Error(
+              "Use either a connection intent or an explicit Computer target."
+            );
+          }
+          await runComputerDisconnect(
+            computerConnectionIntentSchema.parse(
+              JSON.parse(opts.connectionIntent)
+            ),
+            view
+          );
+        },
+      });
+    }
+  );
 
 computerCmd.addHelpText(
   "after",
@@ -3971,6 +4006,8 @@ withSpaceProfileOption(
       "--task-workspace <mode>",
       "Task folder: isolated (private project worktree for local work) or current"
     )
+    .option("--project <slug>", "Project for a new code task")
+    .option("--repository <url>", "Repository associated with --project")
     .argument("[space]", "Space ID (64-character hex)")
     .argument("[text...]", "Text to send")
     .option(
@@ -4033,6 +4070,11 @@ withSpaceProfileOption(
     profile: cliOptions.profile,
     gatewayUrl: cliOptions.gatewayUrl,
     run: async () => {
+      const projectWork = await resolveCliProjectWork({
+        baseUrl: cliOptions.gatewayUrl,
+        projectSlug: opts.project,
+        repositoryUrl: opts.repository,
+      });
       await runSpaceSend({
         clientMessageId:
           typeof opts.clientMessage === "string"
@@ -4050,6 +4092,7 @@ withSpaceProfileOption(
           continueFrom: opts.continueFrom,
           taskAccess: opts.taskAccess,
           taskWorkspace: opts.taskWorkspace,
+          projectWork,
         }),
         password: cliOptions.password,
         text: textValue,
@@ -4765,6 +4808,8 @@ program
     "--task-workspace <mode>",
     "Task folder: isolated (private project worktree for local work) or current"
   )
+  .option("--project <slug>", "Project for a new code task")
+  .option("--repository <url>", "Repository associated with --project")
   .argument("[text...]", "Text to send")
   .option("--profile <id>", "OpenMeld profile ID")
   .option("--base-url <url>", "OpenMeld gateway URL")
@@ -4814,6 +4859,8 @@ program
         continueFrom?: string;
         taskAccess?: string;
         taskWorkspace?: string;
+        project?: string;
+        repository?: string;
         file?: string[];
         textFile?: string;
         plain?: boolean;
@@ -4834,6 +4881,11 @@ program
         profile: opts.profile,
         gatewayUrl: opts.baseUrl,
         run: async () => {
+          const projectWork = await resolveCliProjectWork({
+            baseUrl: opts.baseUrl,
+            projectSlug: opts.project,
+            repositoryUrl: opts.repository,
+          });
           await runSpaceSend({
             profile: opts.profile,
             contextSelection: resolveSpaceTaskSelection({
@@ -4844,6 +4896,7 @@ program
               continueFrom: opts.continueFrom,
               taskAccess: opts.taskAccess,
               taskWorkspace: opts.taskWorkspace,
+              projectWork,
             }),
             baseUrl: opts.baseUrl,
             space,
@@ -6207,4 +6260,7 @@ main().catch((error: unknown) => {
 
 import { runAgentActivityHistory } from "./agent-activity/command";
 import { registerPluginCommands } from "./plugins/registration";
-import { resolveSpaceTaskSelection } from "./space/send-input";
+import {
+  resolveCliProjectWork,
+  resolveSpaceTaskSelection,
+} from "./space/send-input";

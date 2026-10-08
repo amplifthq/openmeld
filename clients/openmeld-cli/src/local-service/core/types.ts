@@ -145,10 +145,7 @@ export type DaemonProfileRouteConfig = {
   profileId: string;
   streamingMode: RuntimeAgentStreamingMode;
   transportMode: RuntimeAgentTransportMode;
-  workingFolderRuntime?: Extract<
-    import("../../profile-workspace/effective-runtime-resolution").CurrentEffectiveProfileWorkingFolderRuntimeResolution,
-    { status: "ready" }
-  >;
+  workingFolderRuntime?: import("../../profile-workspace/effective-runtime-resolution").CurrentEffectiveProfileWorkingFolderRuntimeResolution;
 };
 
 export type DaemonProfileRouteResolution =
@@ -290,6 +287,9 @@ export type DispatchPromptBootstrapInput = {
   executionContextAccess?: NonNullable<
     ParsedDispatchTask["executionContext"]
   >["access"];
+  projectWork?: NonNullable<
+    ParsedDispatchTask["executionContext"]
+  >["projectWork"];
   callerContext?: ParsedDispatchTask["callerContext"];
   continuitySnapshot?: OpenMeldDaemonDispatchContinuitySnapshot | null;
   dispatchTriggerSource: "activation_targets" | "listen_all";

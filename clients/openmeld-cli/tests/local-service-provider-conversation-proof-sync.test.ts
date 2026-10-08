@@ -162,7 +162,7 @@ describe("local service provider conversation proof sync", () => {
     });
   });
 
-  it("does not invent a workspace proof when the route lacks a current working-folder fact", async () => {
+  it("does not invent a provider proof for a route without a ready working folder", async () => {
     const { syncLocalServiceProviderConversationProofs } = await import(
       "../src/local-service/reporting/provider-conversation-proof-sync"
     );
@@ -183,6 +183,35 @@ describe("local service provider conversation proof sync", () => {
                 },
                 profileId: "agt_codex",
                 transportMode: "codex-app-server",
+              },
+            ],
+            [
+              "agt_codex_missing_default",
+              {
+                agentControllerConversationId: "thread_2",
+                agentControllerRef: "builtin:codex",
+                bindingId: "binding_2",
+                profileId: "agt_codex_missing_default",
+                transportMode: "codex-app-server",
+                workingFolderRuntime: {
+                  configPath: null,
+                  configuredWorkspacePath: null,
+                  defaultProjectFailureReason: "missing_connection",
+                  defaultProjectId: "project-2",
+                  reasonCode: "workspace.missing",
+                  reasonText: "missing",
+                  status: "missing",
+                  workingFolderFact: {
+                    defaultProjectId: "project-2",
+                    localProjectBindingGeneration: null,
+                    observedAtMs: 1,
+                    reasonCode: "project.local_connection.missing",
+                    source: "default_project",
+                    status: "missing",
+                  },
+                  workingFolderSource: "default_project",
+                  workspaceMode: null,
+                },
               },
             ],
           ]),

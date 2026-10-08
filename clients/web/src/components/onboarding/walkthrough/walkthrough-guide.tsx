@@ -7,13 +7,28 @@ import type { FirstWorkRecord, OrganizationSummary } from "@openmeld/schemas";
 import { AppLogo } from "@openmeld/ui/components/app-logo";
 import { Button } from "@openmeld/ui/components/button";
 import { Popover, PopoverContent } from "@openmeld/ui/components/popover";
-import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@openmeld/ui/components/tooltip";
+import {
+	FluidActionList,
+	FluidActionListItem,
+} from "@openmeld/ui/fluid/action-list";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowRightIcon, TimerIcon, XIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { type ReactNode, useEffect, useState } from "react";
+import {
+	createContext,
+	type ReactNode,
+	useContext,
+	useEffect,
+	useState,
+} from "react";
 import { Joyride, type TooltipRenderProps } from "react-joyride";
+import { LocalAgentLogoStack } from "#/components/profiles/local-agent-logo-stack";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { canManageOrganizationArea } from "#/lib/organizations/organization-permissions";
 import {
@@ -24,22 +39,35 @@ import {
 } from "#/lib/organizations/organization-routes";
 import { buildSettingsRoutes } from "#/lib/settings-routes";
 import { organizationMemberRoleQueryOptions } from "#/query/organizations/organization-directory";
+import type { useWalkthroughSpaceProgress } from "./use-walkthrough-space-progress";
 import { useWalkthrough } from "./walkthrough-context";
 
 // DOM discovery controls presentation only. Product success is observed by the
 // owning surfaces, never inferred from clicks or the presence of a selector.
+const WALKTHROUGH_ANCHOR_SELECTOR =
+	'[data-walkthrough], [aria-label^="Members"], [aria-label="Add People or Agents"], [aria-label="Send message"], [role="log"]';
+
 function useWalkthroughTarget(step: string | undefined) {
-	const [target, setTarget] = useState<HTMLElement | null>(null);
+	const [match, setMatch] = useState<{
+		step: string;
+		target: HTMLElement | null;
+	} | null>(null);
 	useEffect(() => {
 		if (!step) {
-			setTarget(null);
+			setMatch(null);
 			return;
 		}
 		let frame = 0;
 		const find = () => {
 			let selectors = [
-				'[data-walkthrough="conversation"] [data-slot="space-composer-section"]',
+				'[data-walkthrough="conversation"] [aria-label="Send message"]',
 			];
+			if (step === "local-agent") {
+				selectors = ['[aria-label^="Members"]'];
+			}
+			if (step === "review-replies" || step === "local-reply") {
+				selectors = ['[data-walkthrough="conversation"] [role="log"]'];
+			}
 			if (step === "create-space") {
 				selectors = [
 					'[data-walkthrough="create-space-form"]',
@@ -54,15 +82,32 @@ function useWalkthroughTarget(step: string | undefined) {
 				];
 			}
 			const found =
-				selectors
+				['[data-walkthrough="people-agent-picker"]', ...selectors]
 					.flatMap((selector) =>
 						Array.from(document.querySelectorAll<HTMLElement>(selector))
 					)
 					.find((element) => element.getBoundingClientRect().height > 0) ??
 				null;
-			setTarget((previous) => (previous === found ? previous : found));
+			setMatch((previous) =>
+				previous?.step === step && previous.target === found
+					? previous
+					: { step, target: found }
+			);
 		};
-		const observer = new MutationObserver(() => {
+		const observer = new MutationObserver((mutations) => {
+			// Streaming messages and hover highlights do not change tutorial
+			// anchors. Avoid a document query and layout read for those updates.
+			const changesAnchor = mutations.some((mutation) =>
+				[...mutation.addedNodes, ...mutation.removedNodes].some(
+					(node) =>
+						node instanceof Element &&
+						(node.matches(WALKTHROUGH_ANCHOR_SELECTOR) ||
+							node.querySelector(WALKTHROUGH_ANCHOR_SELECTOR))
+				)
+			);
+			if (!changesAnchor) {
+				return;
+			}
 			cancelAnimationFrame(frame);
 			frame = requestAnimationFrame(find);
 		});
@@ -73,25 +118,63 @@ function useWalkthroughTarget(step: string | undefined) {
 			cancelAnimationFrame(frame);
 		};
 	}, [step]);
-	return target;
+	return match && match.step === step ? match.target : null;
+}
+
+const GuideActions = createContext<ReactNode>(undefined);
+
+function TutorialPassButton() {
+	const guide = useWalkthrough();
+	return (
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					<Button
+						aria-label="Pass tutorial"
+						disabled={guide?.pending}
+						onClick={() =>
+							guide?.record &&
+							guide.progress(guide.record.step, true).catch(() => undefined)
+						}
+						size="icon-xs"
+						type="button"
+						variant="secondary"
+					>
+						<XIcon aria-hidden="true" />
+					</Button>
+				}
+			/>
+			<TooltipContent>Pass</TooltipContent>
+		</Tooltip>
+	);
+}
+
+function tutorialStepNumber(step: string | undefined) {
+	switch (step) {
+		case "create-space":
+			return 1;
+		case "add-center-agent":
+			return 2;
+		case "first-task":
+			return 3;
+		case "local-agent":
+		case "add-local-agent":
+		case "local-task":
+			return 4;
+		case "review-replies":
+			return 5;
+		case "options":
+			return 6;
+		default:
+			return null;
+	}
 }
 
 function GuideTooltip({ step, tooltipProps }: TooltipRenderProps) {
+	const actions = useContext(GuideActions);
 	const guide = useWalkthrough();
-	const { currentOrganization } = useAppOrganization();
-	const navigate = useNavigate();
 	const currentStep = guide?.record?.step;
-	const optionalAgent =
-		currentStep === "local-agent" || currentStep === "add-local-agent";
-	let exitLabel = "Pause tutorial";
-	let exitStep = currentStep;
-	if (optionalAgent) {
-		exitLabel = "Skip this step";
-		exitStep = "options";
-	} else if (currentStep === "options") {
-		exitLabel = "Finish tutorial";
-		exitStep = "complete";
-	}
+	const stepNumber = tutorialStepNumber(currentStep);
 	return (
 		<section
 			{...tooltipProps}
@@ -104,56 +187,27 @@ function GuideTooltip({ step, tooltipProps }: TooltipRenderProps) {
 		>
 			<div className="flex items-start justify-between gap-4">
 				<h2 className="font-medium text-sm">{step.title}</h2>
-				<Button
-					aria-label="Close tutorial"
-					disabled={guide?.pending}
-					onClick={() =>
-						guide &&
-						currentStep &&
-						guide.progress(currentStep, true).catch(() => undefined)
-					}
-					size="icon-xs"
-					type="button"
-					variant="secondary"
-				>
-					<XIcon aria-hidden="true" />
-				</Button>
+				<TutorialPassButton />
 			</div>
 			<div className="mt-2 text-sm leading-relaxed">{step.content}</div>
-			<p className="mt-3 text-muted-foreground text-xs">
-				Continue or replay the tutorial from Help.
-			</p>
-			<div className="mt-4 flex flex-wrap justify-end gap-2">
-				<Button
-					disabled={guide?.pending}
-					onClick={() =>
-						guide &&
-						exitStep &&
-						guide
-							.progress(exitStep, !(optionalAgent || currentStep === "options"))
-							.catch(() => undefined)
-					}
-					size="sm"
-					variant="secondary"
-				>
-					{exitLabel}
-				</Button>
-				{currentStep === "local-agent" && (
-					<Button
-						disabled={guide?.pending}
-						onClick={async () => {
-							await guide?.progress("add-local-agent");
-							await navigate({
-								to: buildOrganizationAgentCreationPath(
-									currentOrganization.slug
-								),
-							});
-						}}
-						size="sm"
-					>
-						Connect agent
-					</Button>
-				)}
+			<div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+				<span className="text-muted-foreground text-xs">
+					{stepNumber ? `Step ${stepNumber} of 6` : null}
+				</span>
+				<div className="ml-auto flex flex-wrap justify-end gap-2">
+					{actions ??
+						(currentStep === "options" && (
+							<Button
+								disabled={guide?.pending}
+								onClick={() =>
+									guide?.progress("complete").catch(() => undefined)
+								}
+								size="sm"
+							>
+								Finish tutorial
+							</Button>
+						))}
+				</div>
 			</div>
 		</section>
 	);
@@ -213,21 +267,11 @@ function WalkthroughNotice({
 	);
 }
 
-export function WalkthroughGuide() {
-	const guide = useWalkthrough();
-	const noticeAnchor = guide?.noticeAnchor;
-	const record = guide?.record;
-	const { currentOrganization: organization } = useAppOrganization();
-	const location = useLocation();
-	const onSpace = Boolean(
-		record && location.pathname.endsWith(`/spaces/${record.spaceId}`)
-	);
-	const active = isActiveGuide(
-		record ?? null,
-		location.pathname,
-		organization.slug
-	);
-	const target = useWalkthroughTarget(active ? record?.step : undefined);
+function usePauseOnEscape(
+	active: boolean,
+	record: FirstWorkRecord | null | undefined,
+	guide: ReturnType<typeof useWalkthrough>
+) {
 	useEffect(() => {
 		if (!(active && record)) {
 			return;
@@ -244,7 +288,36 @@ export function WalkthroughGuide() {
 		document.addEventListener("keydown", onKey);
 		return () => document.removeEventListener("keydown", onKey);
 	}, [active, record, guide]);
-	if (guide?.pauseNotice && record?.paused && noticeAnchor) {
+}
+
+export function WalkthroughGuide({
+	spaceProgress,
+	onConnectAgent,
+	onAddAgents,
+}: {
+	spaceProgress?: ReturnType<typeof useWalkthroughSpaceProgress>;
+	onConnectAgent?: () => void;
+	onAddAgents?: () => void;
+} = {}) {
+	const guide = useWalkthrough();
+	const noticeAnchor = guide?.noticeAnchor;
+	const record = guide?.record;
+	const { currentOrganization: organization } = useAppOrganization();
+	const location = useLocation();
+	const onSpace = Boolean(
+		record && location.pathname.endsWith(`/spaces/${record.spaceId}`)
+	);
+	const active =
+		(!onSpace || Boolean(spaceProgress)) &&
+		isActiveGuide(record ?? null, location.pathname, organization.slug);
+	const showingLocalReply =
+		record?.step === "local-task" && spaceProgress?.localSent;
+	const targetStep = showingLocalReply ? "local-reply" : record?.step;
+	const target = useWalkthroughTarget(
+		active && targetStep !== "options" ? targetStep : undefined
+	);
+	usePauseOnEscape(active, record, guide);
+	if (!spaceProgress && guide?.pauseNotice && record?.paused && noticeAnchor) {
 		return (
 			<WalkthroughNotice anchor={noticeAnchor}>
 				<div className="flex items-start gap-3">
@@ -268,13 +341,15 @@ export function WalkthroughGuide() {
 		return null;
 	}
 
-	const pause = () => guide.progress(record.step, true).catch(() => undefined);
 	// Configuration pages retain their complete accessible UI, including OAuth,
 	// permissions, and local setup. Returning does not claim they were configured.
 	if (!onSpace && record.step !== "create-space") {
 		return noticeAnchor ? (
 			<WalkthroughNotice anchor={noticeAnchor}>
-				<p>Your progress is saved. Continue the tutorial from Help.</p>
+				<div className="flex items-start justify-between gap-3">
+					<p>Your progress is saved. Continue the tutorial from Help.</p>
+					<TutorialPassButton />
+				</div>
 				<div className="mt-3 flex flex-wrap justify-end gap-2">
 					<Button
 						onClick={() => guide.resume().catch(() => undefined)}
@@ -282,22 +357,11 @@ export function WalkthroughGuide() {
 					>
 						Back to tutorial
 					</Button>
-					<Button
-						disabled={guide.pending}
-						onClick={pause}
-						size="sm"
-						variant="secondary"
-					>
-						Pause tutorial
-					</Button>
 				</div>
 			</WalkthroughNotice>
 		) : null;
 	}
-	if (
-		(record.step === "local-agent" || record.step === "options") &&
-		target?.isConnected
-	) {
+	if (record.step === "options") {
 		return <WalkthroughChoices organization={organization} record={record} />;
 	}
 
@@ -307,43 +371,250 @@ export function WalkthroughGuide() {
 		return null;
 	}
 	const picker = target.dataset.walkthrough === "people-agent-picker";
-	const content = guideCopy(record.step, target.dataset.walkthrough);
-	// The real picker owns its description, preselection, actions, and focus.
+	// Keep the guide inside the modal's focus boundary. The picker still owns
+	// selection and submission; its public anchors only control presentation.
 	if (picker) {
+		return <PickerGuide picker={target} />;
+	}
+	// Membership can refresh before saved progress. Never briefly redisplay the
+	// old Members instruction after the user has already added their agent.
+	if (awaitingLocalStep(record.step, spaceProgress)) {
+		return null;
+	}
+	const { content, actions, title, composing } = spaceGuidePresentation(
+		record,
+		target.dataset.walkthrough,
+		spaceProgress,
+		guide,
+		onConnectAgent,
+		onAddAgents
+	);
+	return (
+		<GuidedTarget
+			actions={actions}
+			composing={composing}
+			content={content}
+			key={record.step}
+			target={target}
+			title={title}
+		/>
+	);
+}
+
+function PickerGuide({ picker }: { picker: HTMLElement }) {
+	const [presentation, setPresentation] = useState(() => ({
+		action: picker.dataset.tutorialAction,
+		content: picker.dataset.tutorialDescription,
+	}));
+	useEffect(() => {
+		const observer = new MutationObserver(() =>
+			setPresentation({
+				action: picker.dataset.tutorialAction,
+				content: picker.dataset.tutorialDescription,
+			})
+		);
+		observer.observe(picker, {
+			attributes: true,
+			attributeFilter: ["data-tutorial-action", "data-tutorial-description"],
+		});
+		return () => observer.disconnect();
+	}, [picker]);
+	const action = presentation.action;
+	const anchor = action
+		? picker.querySelector<HTMLElement>(`[data-tutorial-target="${action}"]`)
+		: null;
+	if (!anchor) {
 		return null;
 	}
 	return (
-		<Joyride
-			key={`${record.step}:${target.dataset.walkthrough ?? target.getAttribute("aria-label")}`}
-			options={{
-				arrowColor: "var(--popover)",
-				skipBeacon: true,
-				disableFocusTrap: true,
-				overlayClickAction: false,
-				dismissKeyAction: false,
-				scrollDuration: 0,
-				skipScroll: record.step === "first-task",
-				spotlightPadding: 6,
-				zIndex: 40,
-			}}
-			run
-			steps={[
-				{
-					target,
-					spotlightTarget:
-						record.step === "first-task"
-							? (target.closest<HTMLElement>(
-									'[data-walkthrough="conversation"]'
-								) ?? target)
-							: target,
-					placement: record.step === "first-task" ? "top" : "auto",
-					title: "Tutorial",
-					content,
-				},
-			]}
-			tooltipComponent={GuideTooltip}
+		<GuidedTarget
+			actions={null}
+			composing={false}
+			content={presentation.content}
+			portalElement={picker}
+			target={anchor}
+			title="Tutorial"
 		/>
 	);
+}
+
+function awaitingLocalStep(
+	step: string,
+	progress: ReturnType<typeof useWalkthroughSpaceProgress> | undefined
+) {
+	return step === "add-local-agent" && Boolean(progress?.local);
+}
+
+function GuidedTarget({
+	target,
+	composing,
+	title,
+	content,
+	actions,
+	portalElement,
+}: {
+	target: HTMLElement;
+	composing: boolean;
+	title: string;
+	content: ReactNode;
+	actions: ReactNode;
+	portalElement?: HTMLElement;
+}) {
+	const anchor = composing
+		? (target.closest<HTMLElement>('[data-slot="space-composer-section"]') ??
+			target)
+		: target;
+	return (
+		<GuideActions.Provider value={actions}>
+			<Joyride
+				options={{
+					arrowColor: "var(--popover)",
+					skipBeacon: true,
+					disableFocusTrap: true,
+					overlayClickAction: false,
+					dismissKeyAction: false,
+					scrollDuration: 0,
+					skipScroll: true,
+					spotlightPadding: 6,
+					zIndex: 40,
+				}}
+				portalElement={portalElement}
+				run
+				steps={[
+					{
+						target: anchor,
+						spotlightTarget: anchor,
+						placement: guidePlacement(target, composing),
+						floatingOptions: { shiftOptions: { crossAxis: true, padding: 12 } },
+						title,
+						content,
+					},
+				]}
+				styles={{
+					// Positioning can reset while a target or its portal changes. Do
+					// not fade stale coordinates through the next frame.
+					floater: { transition: "none" },
+					...(portalElement ? { overlay: { position: "fixed" as const } } : {}),
+				}}
+				tooltipComponent={GuideTooltip}
+			/>
+		</GuideActions.Provider>
+	);
+}
+
+function guidePlacement(target: HTMLElement, composing: boolean) {
+	if (composing) {
+		return "top-end" as const;
+	}
+	return target.getAttribute("role") === "log"
+		? ("bottom-end" as const)
+		: ("auto" as const);
+}
+
+function localTaskCopy(sent: boolean, replied: boolean) {
+	if (!sent) {
+		return "A short message is ready. Select Send to try your local agent.";
+	}
+	return replied
+		? "Your agent replied. Read its message below."
+		: "Your message is sent. Replies and any errors appear in this conversation.";
+}
+
+function spaceGuidePresentation(
+	record: FirstWorkRecord,
+	targetName: string | undefined,
+	spaceProgress: ReturnType<typeof useWalkthroughSpaceProgress> | undefined,
+	guide: NonNullable<ReturnType<typeof useWalkthrough>>,
+	onConnectAgent?: () => void,
+	onAddAgents?: () => void
+) {
+	const showingLocalReply =
+		record.step === "local-task" && spaceProgress?.localSent;
+	let content: ReactNode = guideCopy(record.step, targetName);
+	let actions: ReactNode;
+	let title = "Tutorial";
+	const advance = (step: Parameters<typeof guide.progress>[0]) => () =>
+		guide.progress(step).catch(() => undefined);
+	if (record.step === "local-agent") {
+		title = "Try an agent on your computer";
+		content = (
+			<>
+				<p>
+					Your message is sent. While your Center Agent replies, you can connect
+					a local agent.
+				</p>
+				<div className="mt-3">
+					<LocalAgentLogoStack />
+				</div>
+				<p className="mt-2 text-muted-foreground text-xs">
+					Codex, Claude Code, and more.
+				</p>
+			</>
+		);
+		actions = (
+			<Button
+				disabled={guide.pending}
+				onClick={() => {
+					guide
+						.progress(spaceProgress?.local ? "local-task" : "add-local-agent")
+						.then(() => onConnectAgent?.())
+						.catch(() => undefined);
+				}}
+				size="sm"
+			>
+				Connect an agent
+			</Button>
+		);
+	}
+	if (record.step === "add-local-agent" || record.step === "add-center-agent") {
+		if (record.step === "add-local-agent") {
+			content = "Select + or Next to add your agent.";
+		}
+		actions = (
+			<Button
+				disabled={guide.pending || !onAddAgents}
+				onClick={onAddAgents}
+				size="sm"
+			>
+				Next
+			</Button>
+		);
+	}
+	if (record.step === "local-task") {
+		title = showingLocalReply ? "Your local agent" : "Say hello to your agent";
+		content = localTaskCopy(
+			Boolean(showingLocalReply),
+			Boolean(spaceProgress?.localReplied)
+		);
+		actions = showingLocalReply && (
+			<Button
+				disabled={guide.pending}
+				onClick={advance("review-replies")}
+				size="sm"
+			>
+				Next
+			</Button>
+		);
+	}
+	if (record.step === "review-replies") {
+		title = "Your first conversation";
+		content = spaceProgress?.centerReplied
+			? "Your Center Agent replied. Read its message, then continue when you’re ready."
+			: "Your message is sent. Replies and any errors appear here. You can keep exploring.";
+		actions = (
+			<Button disabled={guide.pending} onClick={advance("options")} size="sm">
+				{spaceProgress?.centerReplied ? "Continue" : "Explore next steps"}
+			</Button>
+		);
+	}
+	const composing =
+		record.step === "first-task" ||
+		(record.step === "local-task" && !showingLocalReply);
+	if (record.step === "first-task" && spaceProgress?.centerSent) {
+		content = "Message sent. Next, you can try a local agent.";
+	}
+
+	return { content, actions, title, composing };
 }
 
 function guideCopy(step: string, target: string | undefined) {
@@ -389,11 +660,10 @@ function WalkthroughChoices({
 	organization: OrganizationSummary;
 }) {
 	const navigate = useNavigate();
-	const local = record.step === "local-agent";
 	const { currentUserId } = useAppOrganization();
 	const role = useQuery(
 		organizationMemberRoleQueryOptions({
-			enabled: !(local || organization.isPersonal),
+			enabled: !organization.isPersonal,
 			organizationId: organization.id,
 			userId: currentUserId,
 		})
@@ -460,65 +730,58 @@ function WalkthroughChoices({
 				{
 					target: "body",
 					placement: "center",
-					title: local ? "Connect your agent" : "What’s next?",
+					title: "What’s next?",
 					content: (
 						<>
-							<p>
-								{local
-									? "Connect an agent on your computer to work in this Space."
-									: "Choose an option, or finish the tutorial."}
-							</p>
-							{!local && (
-								<FluidCardGroup
+							<p>Choose an option, or finish the tutorial.</p>
+							{
+								<FluidActionList
+									axis="xy"
 									className={cn(
 										"mt-4 grid grid-cols-1 gap-3",
 										canConnectChannels ? "sm:grid-cols-3" : "sm:grid-cols-2"
 									)}
 								>
-									{actions.map((action) => (
-										<FluidCardItem
-											className="border"
-											itemId={action.label}
+									{actions.map((action, index) => (
+										<FluidActionListItem
+											className="flex h-full w-full flex-col items-start rounded-md border p-4 text-left"
+											index={index}
 											key={action.path}
+											onClick={async () => {
+												if (action.label === "Plugins") {
+													await navigate({
+														to: "/o/$orgSlug/plugins",
+														params: { orgSlug: organization.slug },
+														search: {
+															scope: canManageSharedPlugins
+																? "organization"
+																: "personal",
+														},
+													});
+													return;
+												}
+												await navigate({ to: action.path });
+											}}
+											type="button"
 										>
-											<button
-												className="flex h-full w-full flex-col items-start rounded-md p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-												onClick={async () => {
-													if (action.label === "Plugins") {
-														await navigate({
-															to: "/o/$orgSlug/plugins",
-															params: { orgSlug: organization.slug },
-															search: {
-																scope: canManageSharedPlugins
-																	? "organization"
-																	: "personal",
-															},
-														});
-														return;
-													}
-													await navigate({ to: action.path });
-												}}
-												type="button"
-											>
-												<span className="mb-4 flex h-8 items-center gap-2">
-													{action.icon}
-												</span>
-												<span className="flex w-full items-center justify-between gap-2 font-medium">
-													{action.label}
-													<ArrowRightIcon
-														aria-hidden="true"
-														className="size-4 text-muted-foreground"
-													/>
-												</span>
-												<span className="mt-1 text-muted-foreground text-xs leading-5">
-													{action.description}
-												</span>
-											</button>
-										</FluidCardItem>
+											<span className="mb-4 flex h-8 items-center gap-2">
+												{action.icon}
+											</span>
+											<span className="flex w-full items-center justify-between gap-2 font-medium">
+												{action.label}
+												<ArrowRightIcon
+													aria-hidden="true"
+													className="size-4 text-muted-foreground"
+												/>
+											</span>
+											<span className="mt-1 text-muted-foreground text-xs leading-5">
+												{action.description}
+											</span>
+										</FluidActionListItem>
 									))}
-								</FluidCardGroup>
-							)}
-							{!local && canManageTeam && (
+								</FluidActionList>
+							}
+							{canManageTeam && (
 								<div className="mt-4 pt-4">
 									<p className="font-medium">For your team</p>
 									<p className="mt-1 text-muted-foreground text-xs">

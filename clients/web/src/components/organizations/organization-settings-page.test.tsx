@@ -251,8 +251,8 @@ vi.mock(
 	})
 );
 
-vi.mock("#/components/directory/directory-members-overview", () => ({
-	InvitationForm: () => <form>Invite form</form>,
+vi.mock("./organization-invitation-form", () => ({
+	OrganizationInvitationForm: () => <form>Invite form</form>,
 }));
 
 describe("OrganizationSettingsPage", () => {

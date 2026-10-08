@@ -1,5 +1,5 @@
 import { relations, sql } from "drizzle-orm";
-import { check, index, text, uniqueIndex } from "drizzle-orm/pg-core";
+import { check, index, jsonb, text, uniqueIndex } from "drizzle-orm/pg-core";
 import {
   applicationTable,
   currentTimestampMilliseconds,
@@ -81,6 +81,11 @@ export const openMeldProfiles = applicationTable(
     creationIdempotencyKey: text("creation_idempotency_key"),
     defaultProjectId: text("default_project_id"),
     avatarStyle: text("avatar_style"),
+    avatarOptions: jsonb("avatar_options").$type<{
+      palette?: "original" | "balanced" | "soft";
+      color?: "sage" | "sky" | "lavender" | "rose" | "amber" | "clay";
+      imageUrl?: string;
+    }>(),
     lastUsedAt: epochMilliseconds("last_used_at"),
     createdAt: epochMilliseconds("created_at")
       .default(currentTimestampMilliseconds)

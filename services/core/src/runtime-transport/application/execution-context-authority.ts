@@ -687,10 +687,24 @@ function createContext(
       ? ({ access: "workspace", workspace: "current" } as const)
       : {};
   const preferences: Partial<
-    Pick<ExecutionContextAssignment, "access" | "workspace">
+    Pick<ExecutionContextAssignment, "access" | "projectWork" | "workspace">
   > =
     selection.mode === "resume" ? {} : { ...implicitPreferences, ...selection };
   const forkSource = forkCheckpoint(request, source);
+  if (
+    selection.mode === "fork" &&
+    preferences.projectWork &&
+    !sameProjectWork(
+      preferences.projectWork,
+      source?.context.assignment.projectWork
+    )
+  ) {
+    throw new ExecutionContextSelectionError(
+      "execution_context.project_work_changed_requires_new_task"
+    );
+  }
+  const projectWork =
+    preferences.projectWork ?? source?.context.assignment.projectWork;
   return {
     assignment: {
       version: 1,
@@ -703,6 +717,7 @@ function createContext(
         preferences.access ??
         source?.context.assignment.access ??
         "space_context",
+      ...(projectWork ? { projectWork } : {}),
       workspace: preferences.workspace ?? "isolated",
       ...(forkSource ? { forkSource } : {}),
     },
@@ -726,6 +741,16 @@ function supportsContextAccess(
   );
 }
 
+function sameProjectWork(
+  left: ExecutionContextAssignment["projectWork"],
+  right: ExecutionContextAssignment["projectWork"]
+): boolean {
+  return (
+    left?.projectId === right?.projectId &&
+    left?.repositoryFingerprint === right?.repositoryFingerprint
+  );
+}
+
 function assertContextPreferences(
   context: ContextRecord,
   request: ContextRequest,
@@ -735,6 +760,11 @@ function assertContextPreferences(
   if (!supportsContextAccess(context.agentControllerRef, assignment.access)) {
     throw new ExecutionContextSelectionError(
       "execution_context.controller_access_unsupported"
+    );
+  }
+  if (assignment.projectWork && assignment.access === "space_context") {
+    throw new ExecutionContextSelectionError(
+      "execution_context.project_work_requires_workspace_access"
     );
   }
   if (
@@ -767,6 +797,14 @@ function assertContextPreferences(
   if (selection.workspace && selection.workspace !== assignment.workspace) {
     throw new ExecutionContextSelectionError(
       "execution_context.workspace_changed_requires_new_task"
+    );
+  }
+  if (
+    selection.projectWork &&
+    !sameProjectWork(selection.projectWork, assignment.projectWork)
+  ) {
+    throw new ExecutionContextSelectionError(
+      "execution_context.project_work_changed_requires_new_task"
     );
   }
 }

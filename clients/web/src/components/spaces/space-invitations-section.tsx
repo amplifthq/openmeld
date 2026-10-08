@@ -22,6 +22,7 @@ import { Link } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { InvitationRequestLink } from "#/components/organizations/invitation-request-link";
+import { OrganizationInviteDialog } from "#/components/organizations/organization-invite-dialog";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { requestOrganizationJoinRequests } from "#/lib/organizations/organization-join-requests";
 import { canManageOrganizationArea } from "#/lib/organizations/organization-permissions";
@@ -64,8 +65,22 @@ export function SpaceInvitationsSection({
 	triggerLabel?: string;
 }) {
 	const organization = useOptionalAppOrganization()?.currentOrganization;
-	if (!organization || organization.isPersonal) {
+	const [open, setOpen] = useState(false);
+	if (!organization) {
 		return null;
+	}
+	if (organization.isPersonal) {
+		return (
+			<>
+				<Button onClick={() => setOpen(true)} size="xs" variant="outline">
+					<EnvelopeSimpleIcon aria-hidden="true" />
+					Invite people
+				</Button>
+				{open ? (
+					<OrganizationInviteDialog onOpenChange={setOpen} open={open} />
+				) : null}
+			</>
+		);
 	}
 	return (
 		<Dialog>

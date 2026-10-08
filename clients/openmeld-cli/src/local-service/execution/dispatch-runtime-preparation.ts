@@ -1,10 +1,12 @@
 import type { OpenClawGatewayVisibility } from "@openmeld/local-service";
 import { providerDispatchRuntimeContextSchema } from "@openmeld/schemas";
 import type {
+  ExecutionContextTask,
   OpenMeldDaemonDispatchControllerSnapshot,
   ProviderDispatchRuntimeContext,
   RuntimeTransportDeliveryExecutionIdentity,
 } from "@openmeld/schemas/types";
+import { listProjectConnectionsWithStatus } from "../../agent-activity/project-bindings";
 import {
   resolveCurrentEffectiveProfileWorkingFolderRuntime,
   resolveEffectiveProfileWorkingFolderRuntime,
@@ -99,6 +101,8 @@ export async function resolveDispatchWorkingFolderRuntimeContext(input: {
   controllerSnapshot: OpenMeldDaemonDispatchControllerSnapshot;
   defaultProjectId: string | null;
   defaultProjectIdWasProvided: boolean;
+  executionContext?: ExecutionContextTask;
+  ownerUserId?: string;
   executionIdentity: RuntimeTransportDeliveryExecutionIdentity;
   nowMs?: number;
   onCurrentWorkingFolderFactRejected?: () => void;
@@ -164,15 +168,18 @@ export async function resolveDispatchWorkingFolderRuntimeContext(input: {
       openMeldProfileId: input.targetProfileId,
     });
   const currentFact = currentWorkingFolder.workingFolderFact;
+  const observedFact = workingFolderRuntime.workingFolderFact;
   if (
-    currentWorkingFolder.status !== "ready" ||
-    currentFact.source !== workingFolderRuntime.workingFolderFact.source ||
-    currentFact.defaultProjectId !==
-      workingFolderRuntime.workingFolderFact.defaultProjectId ||
+    currentFact.status !== observedFact.status ||
+    currentFact.source !== observedFact.source ||
+    currentFact.defaultProjectId !== observedFact.defaultProjectId ||
     currentFact.localProjectBindingGeneration !==
-      workingFolderRuntime.workingFolderFact.localProjectBindingGeneration ||
-    currentWorkingFolder.runtimeContext.providerRuntimeWorkingDirectory !==
-      workingFolderRuntime.runtimeContext.providerRuntimeWorkingDirectory
+      observedFact.localProjectBindingGeneration ||
+    currentFact.reasonCode !== observedFact.reasonCode ||
+    (workingFolderRuntime.status === "ready" &&
+      (currentWorkingFolder.status !== "ready" ||
+        currentWorkingFolder.runtimeContext.providerRuntimeWorkingDirectory !==
+          workingFolderRuntime.runtimeContext.providerRuntimeWorkingDirectory))
   ) {
     rejectCurrentWorkingFolderFact(
       input,
@@ -180,7 +187,83 @@ export async function resolveDispatchWorkingFolderRuntimeContext(input: {
       "the effective working folder changed after this route was observed"
     );
   }
+  if (input.executionContext?.projectWork) {
+    return await resolveSelectedProjectWorkingFolder(
+      input.executionContext,
+      input.ownerUserId
+    );
+  }
+  if (workingFolderRuntime.status !== "ready") {
+    const reasonCode =
+      observedFact.reasonCode ??
+      (workingFolderRuntime.status === "missing"
+        ? "profile.workspace.missing"
+        : "profile.workspace.invalid");
+    throw new DaemonServiceRunError({ code: reasonCode, message: reasonCode });
+  }
   return workingFolderRuntime.runtimeContext;
+}
+
+async function resolveSelectedProjectWorkingFolder(
+  executionContext: ExecutionContextTask,
+  ownerUserId: string | undefined
+): Promise<ProviderDispatchRuntimeContext> {
+  const selected = executionContext.projectWork;
+  if (!selected) {
+    throw new Error("A selected Project repository is required.");
+  }
+  const matches = (
+    await listProjectConnectionsWithStatus({
+      organizationId: executionContext.scope.organizationId,
+    })
+  ).filter(
+    (connection) =>
+      connection.projectId === selected.projectId &&
+      connection.ownerUserId === ownerUserId &&
+      connection.repositoryFingerprint === selected.repositoryFingerprint
+  );
+  const connection =
+    matches.find((candidate) => candidate.isDefault) ??
+    (matches.length === 1 ? matches[0] : null);
+  if (!connection) {
+    throw new DaemonServiceRunError({
+      code:
+        matches.length > 1
+          ? "project.local_connection.invalid"
+          : "project.local_connection.missing",
+      message:
+        matches.length > 1
+          ? "Several local folders match this Project repository. Choose one default connection before starting work."
+          : "The selected Project repository has no local folder connection on this computer.",
+      projectFailureContext: { projectId: selected.projectId },
+    });
+  }
+  if (connection.status === "missing") {
+    throw new DaemonServiceRunError({
+      code: "project.local_connection.folder_missing",
+      message:
+        "The local folder for the selected Project repository is missing on this computer.",
+      projectFailureContext: {
+        bindingGeneration: connection.bindingGeneration,
+        projectId: selected.projectId,
+      },
+    });
+  }
+  const parsed = providerDispatchRuntimeContextSchema.safeParse({
+    providerRuntimeWorkingDirectory: connection.repositoryPath,
+  });
+  if (!parsed.success) {
+    throw new DaemonServiceRunError({
+      code: "project.local_connection.invalid",
+      message:
+        "The selected Project repository is not a valid runtime working folder.",
+      projectFailureContext: {
+        bindingGeneration: connection.bindingGeneration,
+        projectId: selected.projectId,
+      },
+    });
+  }
+  return parsed.data;
 }
 
 function rejectCurrentWorkingFolderFact(

@@ -14,6 +14,7 @@ describe("Agent Profile avatar response versioning", () => {
     source: "web_create",
     managedRole: null,
     avatarStyle: "fluid",
+    avatarOptions: { color: "sage" as const },
     createdByUserId: "user-1",
     creationActorProfileId: null,
     creatorProfileId: null,
@@ -24,6 +25,10 @@ describe("Agent Profile avatar response versioning", () => {
 
   it("keeps the old response shape until the caller opts in", () => {
     expect(toProfileView(profile)).not.toHaveProperty("avatarStyle");
+    expect(toProfileView(profile)).not.toHaveProperty("avatarOptions");
+    expect(
+      toProfileView(profile, { includeAvatarStyle: true }).avatarOptions
+    ).toEqual({ color: "sage" });
     expect(toProfileView(profile, { includeAvatarStyle: true })).toHaveProperty(
       "avatarStyle",
       "fluid"

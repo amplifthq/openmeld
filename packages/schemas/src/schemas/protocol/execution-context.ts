@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { repositoryFingerprintSchema } from "../http/projects";
 
 const reference = z.string().trim().min(1).max(2048);
 // Local workspace owner facts, not client-selected paths or Computer policy.
@@ -16,8 +17,13 @@ export const executionContextAccessSchema = z.enum([
   "workspace",
 ]);
 const workspace = z.enum(["current", "isolated"]);
+export const executionContextProjectWorkSchema = z.strictObject({
+  projectId: reference,
+  repositoryFingerprint: repositoryFingerprintSchema,
+});
 const preferences = {
   access: executionContextAccessSchema.optional(),
+  projectWork: executionContextProjectWorkSchema.optional(),
   workspace: workspace.optional(),
 };
 export const executionContextSelectionSchema = z.discriminatedUnion("mode", [
@@ -54,6 +60,7 @@ export const executionContextAssignmentSchema = z
     id: z.string().uuid(),
     scope: executionContextScopeSchema,
     access: executionContextAccessSchema,
+    projectWork: executionContextProjectWorkSchema.optional(),
     // Absent on retained tasks: their original folder boundary still applies.
     permissionSource: z.literal("agent_settings").optional(),
     workspace,

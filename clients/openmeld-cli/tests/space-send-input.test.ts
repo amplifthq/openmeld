@@ -1,7 +1,86 @@
 import { describe, expect, it, vi } from "vitest";
-import { resolveSpaceSendText } from "../src/space/send-input";
+import {
+  resolveSpaceSendText,
+  resolveSpaceTaskSelection,
+  selectCliProjectWork,
+} from "../src/space/send-input";
 
 describe("space send input resolver", () => {
+  it("selects one configured Project repository and freezes it in a new CLI task", () => {
+    const project = {
+      archivedAtMs: null,
+      canArchive: false,
+      canManage: false,
+      createdAtMs: 1,
+      createdByUserId: "user-1",
+      id: "project-1",
+      name: "Payments",
+      organizationId: "org-1",
+      repositoryFingerprint: null,
+      slug: "payments",
+      updatedAtMs: 1,
+    };
+    const settings = {
+      projectId: project.id,
+      repositories: [
+        {
+          isDefault: false,
+          repositoryFingerprint: `sha256:${"a".repeat(64)}`,
+          repositoryUrl: "https://github.com/acme/payments",
+        },
+        {
+          isDefault: true,
+          repositoryFingerprint: `sha256:${"b".repeat(64)}`,
+          repositoryUrl: "https://github.com/acme/sdk",
+        },
+      ],
+      legacyDefaultFingerprint: null,
+      revision: 1,
+      updatedAtMs: 1,
+      updatedByUserId: "user-1",
+    };
+    const selected = selectCliProjectWork({ project, settings });
+    expect(selected.repositoryFingerprint).toBe(`sha256:${"b".repeat(64)}`);
+    const explicit = selectCliProjectWork({
+      project,
+      settings,
+      repositoryUrl: "git@github.com:acme/payments.git",
+    });
+    expect(explicit.repositoryFingerprint).toBe(`sha256:${"a".repeat(64)}`);
+    expect(
+      resolveSpaceTaskSelection({
+        space: "a".repeat(64),
+        wakeTargets: ["agt_11111111-1111-4111-8111-111111111111"],
+        newTask: true,
+        projectWork: explicit,
+      })
+    ).toMatchObject({
+      mode: "new",
+      access: "workspace",
+      workspace: "isolated",
+      projectWork: explicit,
+    });
+    expect(() =>
+      resolveSpaceTaskSelection({
+        space: "a".repeat(64),
+        wakeTargets: ["agt_11111111-1111-4111-8111-111111111111"],
+        projectWork: explicit,
+      })
+    ).toThrow("--new-task");
+    expect(() =>
+      selectCliProjectWork({
+        project,
+        settings: {
+          ...settings,
+          legacyDefaultFingerprint: `sha256:${"c".repeat(64)}`,
+          repositories: settings.repositories.map((repository) => ({
+            ...repository,
+            isDefault: false,
+          })),
+        },
+      })
+    ).toThrow("Choose one with --repository");
+  });
   it("uses positional text when provided", async () => {
     await expect(
       resolveSpaceSendText({

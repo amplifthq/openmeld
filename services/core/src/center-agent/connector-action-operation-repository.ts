@@ -1,13 +1,22 @@
 import type { PostgresDatabase, QueryConfig } from "@openmeld/db/postgresql";
+import { spaceTaskExternalWorkItemSchema } from "@openmeld/schemas";
 import type {
   CenterAgentAction,
   CenterAgentAttribution,
   CenterAgentConnectorActionExecutionConnection,
   CenterAgentConnectorActionOperationStatus,
+  ProjectIssueDestination,
+  SpaceTaskExternalWorkItem,
 } from "@openmeld/schemas/types";
 import type { PluginRequestExecutionGuard } from "../connectors/plugin-action-requests";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import { prepareCenterAgentAuditJournalEntryIfMissingStatement } from "./center-agent-repository";
+
+type LinearIssueReceipt = Extract<
+  SpaceTaskExternalWorkItem,
+  { provider: "linear" }
+>;
+
 /** The pinned OpenConnector reserves an action before execution for 24 hours. */
 export function resolveConnectorActionReplayWindowRemainingMs(
   createdAtMs: number,
@@ -49,12 +58,19 @@ export type CenterAgentConnectorActionOperationRecord =
     executionConnection: CenterAgentConnectorActionExecutionConnection | null;
     connectionUpdatedAtMs: number | null;
     id: string;
+    linearIssueReceipt: LinearIssueReceipt | null;
     providerExecutionId: string | null;
     requestSignature: string;
     service: string;
     status: CenterAgentConnectorActionOperationStatus;
     updatedAtMs: number;
   };
+
+type ProjectIssueRoutingDecision = {
+  projectId: string;
+  revision: number;
+  destination: ProjectIssueDestination;
+};
 type CenterAgentConnectorActionOperationRow = {
   action_id: string;
   actor_profile_id: string;
@@ -65,6 +81,7 @@ type CenterAgentConnectorActionOperationRow = {
   connection_updated_at_ms: number | null;
   created_at_ms: number;
   id: string;
+  linear_issue_receipt_json: string | null;
   operation_id: string;
   organization_id: string;
   provider_execution_id: string | null;
@@ -213,9 +230,11 @@ export async function recordCenterAgentConnectorActionOperation(input: {
   operationId: string;
   organizationId: string;
   outcome: "attempted" | "completed" | "failed" | "outcome_unknown";
+  linearIssueReceipt?: LinearIssueReceipt;
   providerExecutionId: string | null;
   requester: CenterAgentConnectorActionRequester;
   requestSignature: string;
+  issueRoutingDecision?: ProjectIssueRoutingDecision;
   service: string;
   sourceNativeDeliveryId?: string | null;
   sourceSpaceId?: string | null;
@@ -269,41 +288,65 @@ export async function recordCenterAgentConnectorActionOperation(input: {
     });
     const executionConnection = requireNewOperationExecutionConnection(input);
     const auditAction = resolveAuditAction(input.outcome);
-    const [insertResult] = await input.db.transaction(
-      async (client) =>
-        [
-          await client.query(
-            prepareInsertOperationStatement({
-              ...input,
-              attribution,
-              executionConnection,
-              id: recordId,
-              requesterAttributionKey: scope.requesterAttributionKey,
-              representedUserId: scope.representedUserId,
-              sourceNativeDeliveryId: scope.sourceNativeDeliveryId,
-              status: "pending",
-            })
-          ),
-          await client.query(
-            prepareFinalizeAuditStatement({
-              action: auditAction,
-              operationRecordId: recordId,
-              executionGuard: input.executionGuard,
-              attribution,
-              db: input.db,
-              id: `${recordId}:attempted`,
-              nowMs: input.nowMs,
-              organizationId: input.organizationId,
-              resource: operationAuditResource(input),
-              sourceNativeDeliveryId: auditSourceNativeDeliveryId(
-                input.sourceNativeDeliveryId,
-                scope.sourceNativeDeliveryId
-              ),
-              sourceSpaceId: input.sourceSpaceId ?? null,
-            })
-          ),
-        ] as const
-    );
+    const [insertResult] = await input.db.transaction(async (client) => {
+      const routing = input.issueRoutingDecision;
+      if (routing) {
+        // Lock the current default through the operation claim. A concurrent
+        // Project edit must finish before this check or wait for this claim.
+        const target = await client.query({
+          text: `SELECT id FROM "openmeld"."projects"
+              WHERE id = $1 AND organization_id = $2 AND archived_at_ms IS NULL
+                AND issue_destination_revision = $3 AND issue_destination_json = $4
+              FOR SHARE`,
+          values: [
+            routing.projectId,
+            input.organizationId,
+            routing.revision,
+            JSON.stringify(routing.destination),
+          ],
+        });
+        if (target.rowCount !== 1) {
+          throw createCoreRpcHttpError({
+            code: "project.issue_destination_changed",
+            reason:
+              "The Project issue destination changed before this action was accepted. Read its current target and try again.",
+            status: 409,
+          });
+        }
+      }
+      return [
+        await client.query(
+          prepareInsertOperationStatement({
+            ...input,
+            attribution,
+            executionConnection,
+            id: recordId,
+            requesterAttributionKey: scope.requesterAttributionKey,
+            representedUserId: scope.representedUserId,
+            sourceNativeDeliveryId: scope.sourceNativeDeliveryId,
+            status: "pending",
+          })
+        ),
+        await client.query(
+          prepareFinalizeAuditStatement({
+            action: auditAction,
+            operationRecordId: recordId,
+            executionGuard: input.executionGuard,
+            attribution,
+            db: input.db,
+            id: `${recordId}:attempted`,
+            nowMs: input.nowMs,
+            organizationId: input.organizationId,
+            resource: operationAuditResource(input),
+            sourceNativeDeliveryId: auditSourceNativeDeliveryId(
+              input.sourceNativeDeliveryId,
+              scope.sourceNativeDeliveryId
+            ),
+            sourceSpaceId: input.sourceSpaceId ?? null,
+          })
+        ),
+      ] as const;
+    });
     // The row ID also fences a new operation ID for the same task/effect.
     // Read the winning row, preserving its original account and operation ID.
     const operation = await readClaimedOperation({ ...input, scope, recordId });
@@ -323,7 +366,9 @@ export async function recordCenterAgentConnectorActionOperation(input: {
   }
   if (
     existing.status === input.outcome &&
-    existing.providerExecutionId === input.providerExecutionId
+    existing.providerExecutionId === input.providerExecutionId &&
+    JSON.stringify(existing.linearIssueReceipt) ===
+      JSON.stringify(input.linearIssueReceipt ?? null)
   ) {
     return {
       attribution: requireExistingAttribution(existingAttribution),
@@ -353,6 +398,7 @@ export async function recordCenterAgentConnectorActionOperation(input: {
         id: existing.id,
         nowMs: input.nowMs,
         outcome,
+        linearIssueReceipt: input.linearIssueReceipt ?? null,
         providerExecutionId: input.providerExecutionId,
       })
     );
@@ -383,7 +429,9 @@ export async function recordCenterAgentConnectorActionOperation(input: {
   assertSameRequest(operation, input);
   if (
     operation.status !== input.outcome ||
-    operation.providerExecutionId !== input.providerExecutionId
+    operation.providerExecutionId !== input.providerExecutionId ||
+    JSON.stringify(operation.linearIssueReceipt) !==
+      JSON.stringify(input.linearIssueReceipt ?? null)
   ) {
     throw operationConflict(
       "This connector action operation was finalized concurrently with a different outcome."
@@ -631,6 +679,7 @@ function prepareInsertOperationStatement(input: {
   representedUserId: string | null;
   requesterAttributionKey: string;
   requestSignature: string;
+  issueRoutingDecision?: ProjectIssueRoutingDecision;
   service: string;
   sourceNativeDeliveryId: string | null;
   status: CenterAgentConnectorActionOperationStatus;
@@ -690,16 +739,25 @@ function prepareFinalizeOperationStatement(input: {
   id: string;
   nowMs: number;
   outcome: Exclude<CenterAgentConnectorActionOperationStatus, "pending">;
+  linearIssueReceipt: LinearIssueReceipt | null;
   providerExecutionId: string | null;
 }): QueryConfig {
   return {
     text: `
         UPDATE "openmeld"."center_agent_connector_action_operations"
-        SET status = $1, provider_execution_id = $2, updated_at_ms = $3
+        SET status = $1, provider_execution_id = $2, updated_at_ms = $3, linear_issue_receipt_json = $5
         WHERE id = $4
           AND status IN ('pending', 'outcome_unknown')
       `,
-    values: [input.outcome, input.providerExecutionId, input.nowMs, input.id],
+    values: [
+      input.outcome,
+      input.providerExecutionId,
+      input.nowMs,
+      input.id,
+      input.linearIssueReceipt
+        ? JSON.stringify(input.linearIssueReceipt)
+        : null,
+    ],
   };
 }
 async function requireOperation(input: {
@@ -852,6 +910,7 @@ function mapOperation(
     executionConnection: mapExecutionConnection(row),
     connectionUpdatedAtMs: row.connection_updated_at_ms,
     id: row.id,
+    linearIssueReceipt: parseLinearIssueReceipt(row.linear_issue_receipt_json),
     operationId: row.operation_id,
     organizationId: row.organization_id,
     providerExecutionId: row.provider_execution_id,
@@ -861,6 +920,19 @@ function mapOperation(
     status: row.status,
     updatedAtMs: Number(row.updated_at_ms),
   };
+}
+
+function parseLinearIssueReceipt(
+  value: string | null
+): LinearIssueReceipt | null {
+  if (value === null) {
+    return null;
+  }
+  const parsed = spaceTaskExternalWorkItemSchema.safeParse(JSON.parse(value));
+  if (!parsed.success || parsed.data.provider !== "linear") {
+    throw new Error("Stored Linear issue receipt is invalid.");
+  }
+  return parsed.data;
 }
 function mapExecutionConnection(
   row: CenterAgentConnectorActionOperationRow

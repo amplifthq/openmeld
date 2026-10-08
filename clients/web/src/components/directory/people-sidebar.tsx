@@ -66,7 +66,7 @@ export function PeopleSidebar(input: {
 	loading: boolean;
 	error: string | null;
 	onSelect: (id: string) => void;
-	onChat: (id: string) => Promise<void>;
+	onChat?: (id: string) => Promise<void>;
 	chatPending: boolean;
 }) {
 	const { currentOrganization, currentUserId } = useAppOrganization();
@@ -242,10 +242,12 @@ export function PeopleSidebar(input: {
 									key={member.id}
 									member={member}
 									onChat={
-										member.profileStatus === "active" && !member.isCurrentUser
+										input.onChat &&
+										member.profileStatus === "active" &&
+										!member.isCurrentUser
 											? () => {
 													input
-														.onChat(member.id)
+														.onChat?.(member.id)
 														.catch((error) =>
 															toast.error(
 																error instanceof Error

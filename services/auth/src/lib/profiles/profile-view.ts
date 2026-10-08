@@ -18,6 +18,7 @@ export function toProfileView(
     managedRole?: unknown;
     defaultProjectId?: string | null;
     avatarStyle?: string | null;
+    avatarOptions?: import("@openmeld/schemas/types").AuthProfileView["avatarOptions"];
     createdByUserId: string | null;
     creationActorProfileId: string | null;
     creatorProfileId: string | null;
@@ -42,7 +43,10 @@ export function toProfileView(
     source: profile.source,
     managedRole,
     ...(profile.profileKind === "agent" && options?.includeAvatarStyle
-      ? { avatarStyle: profile.avatarStyle ?? null }
+      ? {
+          avatarStyle: profile.avatarStyle ?? null,
+          avatarOptions: profile.avatarOptions ?? null,
+        }
       : {}),
     ...(profile.profileKind === "agent" && managedRole === null
       ? { defaultProjectId: normalizeOptionalText(profile.defaultProjectId) }

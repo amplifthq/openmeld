@@ -140,6 +140,7 @@ function assertSpaceTaskActionAllowed(
   switch (action) {
     case "assign":
     case "update_brief":
+    case "set_projects":
     case "cancel":
     case "attach_external_work_item":
       requireManager(task, context);
@@ -208,6 +209,7 @@ function assertSpaceTaskActionAllowed(
       }
       return;
     case "detach_external_work_item":
+    case "detach_linear_external_work_item":
     case "observe_external_work_item":
       requireManager(task, context);
       return;
@@ -531,12 +533,9 @@ function reopenTask({
 
 function matchingExternalWorkItemIndex(
   items: readonly SpaceTaskExternalWorkItem[],
-  identity: {
-    number: number;
-    owner: string;
-    provider: string;
-    repo: string;
-  }
+  identity:
+    | { number: number; owner: string; provider: "github"; repo: string }
+    | { id: string; provider: "linear" }
 ): number {
   const key = spaceTaskExternalWorkItemIdentityKey(identity);
   return items.findIndex(
@@ -561,7 +560,7 @@ function attachExternalWorkItem({
       current: task,
       next: { ...task, externalWorkItems: nextItems },
       eventType: "external_work_item_observed",
-      detail: formatSpaceTaskGitHubIssueLabel(command.item),
+      detail: externalWorkItemLabel(command.item),
       now,
     });
   }
@@ -570,7 +569,7 @@ function attachExternalWorkItem({
   ) {
     fail(
       "space_task.external_work_item_limit",
-      `A Task can link at most ${SPACE_TASK_EXTERNAL_WORK_ITEM_MAX_ITEMS} GitHub issues.`,
+      `A Task can link at most ${SPACE_TASK_EXTERNAL_WORK_ITEM_MAX_ITEMS} external issues.`,
       400
     );
   }
@@ -581,7 +580,44 @@ function attachExternalWorkItem({
       externalWorkItems: [...task.externalWorkItems, command.item],
     },
     eventType: "external_work_item_attached",
-    detail: formatSpaceTaskGitHubIssueLabel(command.item),
+    detail: externalWorkItemLabel(command.item),
+    now,
+  });
+}
+
+function externalWorkItemLabel(item: SpaceTaskExternalWorkItem): string {
+  return item.provider === "github"
+    ? formatSpaceTaskGitHubIssueLabel(item)
+    : item.identifier;
+}
+
+function detachLinearExternalWorkItem({
+  command,
+  now,
+  task,
+}: CommandHandlerInput<"detach_linear_external_work_item">): SpaceTaskMutationResult {
+  const existingIndex = matchingExternalWorkItemIndex(
+    task.externalWorkItems,
+    command
+  );
+  if (existingIndex < 0) {
+    fail(
+      "space_task.external_work_item_not_found",
+      "This Task is not linked to that Linear issue.",
+      404
+    );
+  }
+  const item = task.externalWorkItems[existingIndex];
+  return finishMutation({
+    current: task,
+    next: {
+      ...task,
+      externalWorkItems: task.externalWorkItems.filter(
+        (_candidate, index) => index !== existingIndex
+      ),
+    },
+    eventType: "external_work_item_detached",
+    detail: item?.provider === "linear" ? item.identifier : null,
     now,
   });
 }
@@ -633,7 +669,7 @@ function observeExternalWorkItem({
     );
   }
   const current = task.externalWorkItems[existingIndex];
-  if (!current) {
+  if (!current || current.provider !== "github") {
     return fail(
       "space_task.external_work_item_not_found",
       "This Task is not linked to that GitHub issue.",
@@ -685,7 +721,7 @@ export function applyGitHubIssueProviderObservation(input: {
     return { cancel: null, observe: null, skipReason: "not_linked" };
   }
   const current = input.task.externalWorkItems[existingIndex];
-  if (!current) {
+  if (!current || current.provider !== "github") {
     return { cancel: null, observe: null, skipReason: "not_linked" };
   }
   if (current.lastObservedAt && current.lastObservedAt > input.observedAt) {
@@ -701,7 +737,7 @@ export function applyGitHubIssueProviderObservation(input: {
         next: {
           ...input.task,
           externalWorkItems: input.task.externalWorkItems.map((item, index) =>
-            index === existingIndex
+            index === existingIndex && item.provider === "github"
               ? {
                   ...item,
                   lastObservedAt: input.observedAt,
@@ -774,6 +810,14 @@ export function mutateSpaceTask(input: {
       return assignTask({ command, context, now, task });
     case "update_brief":
       return updateTaskBrief({ command, context, now, task });
+    case "set_projects":
+      return finishMutation({
+        current: task,
+        next: { ...task, projectIds: [...command.projectIds].sort() },
+        eventType: "projects_set",
+        detail: null,
+        now,
+      });
     case "set_reviewer":
       return setTaskReviewer({ command, context, now, task });
     case "mark_in_progress":
@@ -792,6 +836,8 @@ export function mutateSpaceTask(input: {
       return attachExternalWorkItem({ command, context, now, task });
     case "detach_external_work_item":
       return detachExternalWorkItem({ command, context, now, task });
+    case "detach_linear_external_work_item":
+      return detachLinearExternalWorkItem({ command, context, now, task });
     case "observe_external_work_item":
       return observeExternalWorkItem({ command, context, now, task });
     default:

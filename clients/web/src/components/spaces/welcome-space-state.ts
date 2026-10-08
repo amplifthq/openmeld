@@ -105,7 +105,10 @@ export function resolveWelcomeRecipients<T extends WelcomeMember>(
 	);
 }
 
-export function buildWelcomeSpaceDraft(members: readonly WelcomeMember[]) {
+export function buildWelcomeSpaceDraft(
+	members: readonly WelcomeMember[],
+	greeting = "Hi! Please briefly introduce yourself and how you can help here."
+) {
 	let text = "";
 	const authoredMentions: ComposerDraftAuthoredMention[] = [];
 	for (const member of members) {
@@ -119,7 +122,7 @@ export function buildWelcomeSpaceDraft(members: readonly WelcomeMember[]) {
 		});
 		text += `${label} `;
 	}
-	text += "Hi! Please briefly introduce yourself and how you can help here.";
+	text += greeting;
 	return {
 		text,
 		authoredMentions,

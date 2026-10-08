@@ -185,6 +185,47 @@ test("historical D1 capture to native PG18 preserves business data and rolls bac
           assert.deepEqual(
             (
               await client.query(
+                "SELECT avatar_options FROM openmeld.openmeld_profiles WHERE profile_id=$1",
+                [fixture.center]
+              )
+            ).rows,
+            [{ avatar_options: null }]
+          );
+          assert.deepEqual(
+            (
+              await client.query(
+                `SELECT id, repository_url, issue_destination_json,
+                issue_destination_revision, additional_repository_urls_json,
+                repository_settings_revision, common_agent_profile_ids_json,
+                common_agents_revision FROM openmeld.projects WHERE id = $1`,
+                [fixture.project]
+              )
+            ).rows,
+            [
+              {
+                id: fixture.project,
+                repository_url:
+                  "https://github.com/example/migration-rehearsal",
+                issue_destination_json: null,
+                issue_destination_revision: 0,
+                additional_repository_urls_json: "[]",
+                repository_settings_revision: 0,
+                common_agent_profile_ids_json: "[]",
+                common_agents_revision: 0,
+              },
+            ]
+          );
+          assert.equal(
+            (
+              await client.query(
+                "SELECT linear_issue_receipt_json FROM openmeld.center_agent_connector_action_operations WHERE id = 'migration-plugin-receipt'"
+              )
+            ).rows[0].linear_issue_receipt_json,
+            null
+          );
+          assert.deepEqual(
+            (
+              await client.query(
                 "SELECT id,scope,executor_kind,status,next_due_at FROM openmeld.routines ORDER BY id"
               )
             ).rows,

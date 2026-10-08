@@ -15,7 +15,7 @@ export function useOrganizationInviteEntry(
 ) {
 	const [open, setOpen] = useState(false);
 	const context = useOptionalAppOrganization();
-	const available = context && !context.currentOrganization.isPersonal;
+	const available = Boolean(context);
 	return {
 		nextMenuIndex: available ? 2 : 1,
 		menuItem: available ? (

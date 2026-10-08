@@ -45,19 +45,55 @@ CRUD, or reinterpret existing Activity evidence.
 
 ### Project
 
-A Project is the Organization-scoped cloud identity for a shared body of work. It
-may carry a safe canonical Repository URL and its stable repository
-fingerprint, but it never contains an absolute local path.
+A Project is the Organization-scoped cloud identity for a shared body of work.
+It can be non-code work or associate several canonical repositories. A
+repository can belong to several Projects in one Organization. Project identity
+is independent of repository identity, so a repository match need not identify
+one Project. The Project never contains an absolute local path.
+
+The Project owns one optional default issue destination and an explicit Common
+Agents shortlist. Existing Project managers configure both. The destination
+selects a target for new issues; it does not grant a provider connection or
+permission to write. The shortlist suggests Agent Profiles before work history
+exists; it does not make an Agent a Space member, assign a Task, or start work.
 
 ### Repository Identity
 
 Repository identity is a fingerprint used to decide whether local Git
-repositories belong to the same Project. OpenMeld also stores the normalized
-HTTPS Repository URL so people can see which repository they configured and
-edit it without re-entering it. The original pasted value is never stored:
+repositories match a Project association. A Project can save several normalized
+HTTPS Repository URLs and one optional default code repository. The legacy
+`repositoryUrl` and `repositoryFingerprint` Project fields remain the default
+repository projection for existing clients; additional URLs are separate
+associations under the same Project writer. A Project without a default or any
+repository is valid. The original pasted value is never stored:
 credentials, query, fragment, protocol-specific syntax, surrounding slashes,
 and the `.git` suffix are removed before upload. Core recomputes the fingerprint
-from that safe URL and rejects a mismatched pair atomically.
+from that safe URL and rejects a mismatched pair atomically. A cloud repository
+association alone does not register a local folder or permit code execution.
+Current local connections still require their own verified fingerprint and
+owner-self authorization. A legacy fingerprint-only Project must set its URL
+before its repository association list can be changed.
+
+### Issue Destination
+
+One optional Project default names an exact GitHub repository or Linear team
+and optional Linear project. Supported OpenMeld-controlled issue-creation
+actions re-read the admitted operation and current Project configuration before
+claiming a new provider operation. One complete, verified source Task Project
+association can select its exact configured default. Free text, repository URLs,
+provider names, and model arguments do not establish an override or select a
+Project for write authority. Missing, ambiguous or incomplete Task scope, and a
+different proposed destination, require an exact-target confirmation through
+the existing private Plugin request in the requester's Inbox. The confirmation
+binds the actor, operation, account, complete target and input identity; it does
+not change the Project default. A later chat message is not that confirmation.
+Users do not need to type Linear UUIDs into their request. The Agent discovers
+the target and the requester reviews the concrete account and identifiers.
+No Task is required merely to create an issue: the same confirmation path works
+without one. A Routine without a verified interactive requester cannot invent
+consent for an unresolved target. Connection, actor and write permission remain
+checked by their existing owners. Accepted retries keep their frozen exact
+target and operation identity rather than consulting a later Project default.
 
 ### Local Project Connection
 
@@ -66,12 +102,32 @@ the current OpenMeld lane on the current computer. It is an owner-self,
 device-local, lane-local execution fact. One Project may have many Local
 Project Connections, including a normal clone and multiple worktrees.
 
-One canonical local folder may belong to only one Project scope at a time,
-even across Organizations. Route Registry remains a separate global map from a
-repository path to one OpenMeld lane root; it resolves lane ambiguity and must
-never become a second Project-connection truth. A user may explicitly move a
-folder to another Project after OpenMeld identifies the existing connection,
-explains the impact, and receives a second confirmation.
+One canonical local folder may have several explicitly authorized Project
+uses only for the same owner, Organization, Computer, and lane. A cloud
+repository association alone cannot grant this local use. The local owner
+confirms the exact same-Organization share challenge before a second Project
+connection is written. Moving a folder remains a separate confirmed action;
+cross-Organization sharing is forbidden. Removing one Project connection
+preserves the folder and every other legitimate connection. Local binding
+store v4 records the Project uses under one canonical path; an older Service
+must fail closed on that store until updated. Route Registry remains a
+separate global map from a repository path to one OpenMeld lane root. It
+resolves lane ambiguity without choosing a Project from a shared folder.
+New connections record the current account owner locally. A connection known
+to belong to another account is hidden from that account's discovery and
+cannot be moved, shared, or used for selected code work. A legacy connection
+without owner evidence remains readable for compatibility, but must be
+explicitly reconnected by the current account before it can authorize new
+Project-selected execution or sharing.
+
+A selected code execution uses one Project and one repository fingerprint
+frozen with its Execution Context. Core verifies that the repository remains
+associated with the active Project, and the current local Service resolves
+one matching owner-local connection. A missing, changed, or ambiguous local
+connection blocks execution; neither Profile Default Project nor another
+repository becomes a fallback. Current-folder writers retain the Service's
+single exclusive local workspace boundary across Project labels. Isolated
+tasks use separate worktrees.
 
 ### Default Local Project Connection
 
@@ -90,7 +146,12 @@ report Agent Activity.
 Default Project is an Organization-scoped cloud preference on a local Agent
 Profile. It tells OpenMeld which Project future Wakes and new sessions should
 use by default. It is not a local path, is not a permanent assignment, and does
-not move an existing session.
+not move an existing session. An explicit Project and repository on a new
+Execution Context can use its own verified local connection even when this
+preference has no usable folder. An ordinary Wake still requires the Default
+Project folder to be available. An explicit continuation or fork retains the
+authorized source Context's Project selection; it cannot acquire a different
+repository from the Profile default.
 
 ### Working Folder
 
@@ -142,8 +203,15 @@ unique; matching names always show their different slugs.
 
 The detail route is one continuous page with no tabs:
 
-- **Project**: name, slug, saved safe Repository URL or an explicit legacy
-  URL-unavailable state, creator, and Edit;
+- **Project**: name, slug, creator, and Edit;
+- **Repositories**: canonical associations, optional default code repository,
+  and an explicit legacy URL-unavailable state;
+- **Where issues go**: one optional, versioned GitHub or Linear default;
+- **Common Agents**: the explicitly configured shortlist, separate from
+  observed work and current Space membership;
+- **Recent Tasks**: a bounded list of current Task links from Spaces the viewer
+  can access, with each link returning to its owning Space; it does not claim
+  complete Task history or expose private Space counts;
 - **This Computer**: computer name, Service state, discovery state, default
   folder, additional folders or worktrees, Connect folder, Add another folder,
   Make default, and Remove connection;
@@ -154,6 +222,13 @@ The detail route is one continuous page with no tabs:
 Projects links to filtered Activity and related Agent Profile surfaces instead
 of duplicating Activity lists, Agent Profile lists, Organization members,
 session history, or statistics dashboards.
+
+The Project page reads recent Task candidates from a key-only Core projection.
+Each candidate is rechecked against the owning Space's current Task and the
+viewer's current Space access before its title or phase is returned. Revoked
+Space membership, removed Project association, and deleted Tasks cannot be
+shown from stale projection rows. The recent list makes no completeness or
+private-Space count claim.
 
 Current-computer presentation distinguishes these states:
 

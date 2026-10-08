@@ -4,7 +4,6 @@ import type { StructuredApiClientFailure } from "@openmeld/api-client";
 import type { LarkPlatformProvider } from "@openmeld/schemas/types";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { AppPageHeader } from "#/components/app/app-page-header";
 import {
 	connectCurrentCenterAgentSlackWorkspace,
 	disconnectCurrentCenterAgentSlackWorkspace,
@@ -13,7 +12,6 @@ import {
 import { resolveMessageChannelErrorMessage } from "#/lib/organizations/message-channels";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { canManageOrganizationArea } from "#/lib/organizations/organization-permissions";
-import { buildOrganizationNewOrganizationPath } from "#/lib/organizations/organization-routes";
 import { resolveVisibleChannelsSlackOAuthResult } from "#/lib/organizations/slack-oauth-result";
 import {
 	centerAgentDesignationQueryOptions,
@@ -85,12 +83,12 @@ function PersonalWorkspaceMessageChannelsContent(input: {
 	});
 	return (
 		<>
-			<AppPageHeader
-				description="Channels let you choose where to talk to your Agent."
-				descriptionWidth="full"
-				eyebrow="Personal workspace"
-				title="Channels"
-			/>
+			<header className="space-y-1">
+				<h2 className="font-medium text-base">Channels</h2>
+				<p className="text-muted-foreground text-sm">
+					Choose where to talk to your Agent.
+				</p>
+			</header>
 			<SlackOAuthResultSurface
 				canManage={false}
 				organizationName={input.organizationName}
@@ -98,9 +96,6 @@ function PersonalWorkspaceMessageChannelsContent(input: {
 				result={slackOAuthResult}
 			/>
 			<PersonalWorkspaceChannelsGuidance
-				createOrganizationPath={buildOrganizationNewOrganizationPath(
-					input.organizationSlug
-				)}
 				hasExistingSlackConnection={hasExistingSlackConnection}
 			/>
 			{channelsQuery.isPending ? <ChannelsSkeleton /> : null}
@@ -242,12 +237,12 @@ function OrganizationMessageChannelsContent(input: {
 		channelsQuery.error ?? activeRegistrationsQuery.error;
 	return (
 		<>
-			<AppPageHeader
-				description="Channels let you choose where to talk to your Agent."
-				descriptionWidth="full"
-				eyebrow="Organization"
-				title="Channels"
-			/>
+			<header className="space-y-1">
+				<h2 className="font-medium text-base">Channels</h2>
+				<p className="text-muted-foreground text-sm">
+					Choose where to talk to your Agent.
+				</p>
+			</header>
 			<SlackOAuthResultSurface
 				canManage={canManage}
 				organizationName={input.organizationName}

@@ -11,9 +11,13 @@ import {
 } from "../src/agent-activity/local-observer";
 import { bindProject } from "../src/agent-activity/project-bindings";
 
+const getAuthSessionState = vi.hoisted(() => vi.fn());
+vi.mock("../src/config/auth-session", () => ({ getAuthSessionState }));
+
 let root: string | null = null;
 
 afterEach(async () => {
+  getAuthSessionState.mockReset();
   if (root) {
     await rm(root, { force: true, recursive: true });
     root = null;
@@ -21,6 +25,30 @@ afterEach(async () => {
 });
 
 describe("Agent Activity local observer", () => {
+  it("does not scan a folder connected under another OpenMeld account", async () => {
+    root = await mkdtemp(join(tmpdir(), "openmeld-other-owner-observer-"));
+    const repositoryPath = join(root, "repository");
+    const openMeldRoot = join(root, "openmeld-home");
+    await mkdir(repositoryPath);
+    await bindProject({
+      organizationId: "org-1",
+      ownerUserId: "user-1",
+      projectId: "project-1",
+      projectSlug: "openmeld",
+      repositoryFingerprint: null,
+      repositoryPath,
+      rootDir: openMeldRoot,
+    });
+    getAuthSessionState.mockResolvedValue({
+      session: { user: { id: "user-2" } },
+      state: "valid",
+    });
+    await expect(
+      scanLocalAgentActivity({ homeDir: root, rootDir: openMeldRoot })
+    ).resolves.toMatchObject({ observedCount: 0, queuedCount: 0 });
+    expect(getAuthSessionState).toHaveBeenCalledOnce();
+  });
+
   it("attaches a watcher after a fresh provider creates its session root", async () => {
     const close = vi.fn();
     const watcher = {
