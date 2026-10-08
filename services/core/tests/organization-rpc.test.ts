@@ -3444,6 +3444,80 @@ describe("organization Core RPC", () => {
       profileId: AGENT_PROFILE_ID,
       profileName: "Operations Center Agent",
     });
+    await rpcUpdateCenterAgentProfile(env, {
+      context: buildContext({
+        activeOrganizationId: "org-a",
+        userId: "user-a",
+      }),
+      avatar: { kind: "bot", type: "mech", palette: "balanced" },
+    });
+    expect(
+      authWorker.updateCenterAgentProfileInOrganization
+    ).toHaveBeenLastCalledWith({
+      organizationId: "org-a",
+      profileId: AGENT_PROFILE_ID,
+      avatarStyle: "mech",
+      avatarOptions: { palette: "balanced" },
+      expectedAvatarOptions: null,
+    });
+  });
+
+  it("rolls back a Center Agent profile image only after an explicit rejected save", async () => {
+    const update = vi.fn().mockResolvedValue({
+      ok: false,
+      code: "profile.validation_error",
+      message: "This avatar changed.",
+    });
+    const env = await buildEnv({
+      agentProfiles: [managedCenterAgentProfileRow()],
+      authWorker: { updateCenterAgentProfileInOrganization: update },
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "owner")],
+    });
+    const put = vi.fn().mockResolvedValue({});
+    const remove = vi.fn().mockResolvedValue(undefined);
+    env.OPENMELD_ACCOUNT_AVATARS = {
+      put,
+      delete: remove,
+    } as unknown as R2Bucket;
+    env.OPENMELD_GATEWAY_URL = "https://gateway.openmeld.invalid";
+    const input = {
+      context: buildContext({
+        activeOrganizationId: "org-a",
+        userId: "user-a",
+      }),
+      avatar: {
+        kind: "image" as const,
+        dataUrl: "data:image/webp;base64,UklGRgAAAABXRUJQ",
+      },
+    };
+    await expect(rpcUpdateCenterAgentProfile(env, input)).rejects.toMatchObject(
+      { status: 409 }
+    );
+    expect(put).toHaveBeenCalledTimes(1);
+    expect(remove).toHaveBeenCalledWith(put.mock.calls[0]?.[0]);
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        avatarStyle: "custom",
+        expectedAvatarOptions: null,
+        avatarOptions: {
+          imageUrl: expect.stringContaining(
+            "https://gateway.openmeld.invalid/"
+          ),
+        },
+      })
+    );
+    // A lost reply can follow a committed write. Do not delete that image.
+    update.mockRejectedValueOnce(new Error("reply lost"));
+    await expect(rpcUpdateCenterAgentProfile(env, input)).rejects.toThrow();
+    expect(put).toHaveBeenCalledTimes(2);
+    expect(remove).toHaveBeenCalledTimes(1);
   });
 
   it("maps an unavailable Auth profile-update RPC method to the stable Center Agent error", async () => {
@@ -3508,7 +3582,10 @@ describe("organization Core RPC", () => {
           activeOrganizationId: "org-a",
           userId: "user-a",
         }),
-        profileName: "Operations Center Agent",
+        avatar: {
+          kind: "image",
+          dataUrl: "data:image/webp;base64,UklGRgAAAABXRUJQ",
+        },
       })
     ).rejects.toMatchObject({
       code: "organization.role_required",

@@ -20,6 +20,10 @@
 
 | Term | Definition | Code anchor |
 | --- | --- | --- |
+| Project | A named, shared body of work with a stable identity inside one Organization, identified independently of its associated code repositories. Use **Project** for this product object; **Execution Context** describes the separate continuity of an Agent's work. | `developing/product/projects.md`, `packages/schemas/src/schemas/http/projects.ts` |
+| Common Agents | A Project's explicitly chosen shortlist of Agent Profiles for work assignment. It expresses a preference independently of past work, Space membership, or permission to execute. | `developing/product/project-workflow-design.md` (confirmed design term; implementation pending) |
+| Default code repository | A Project's optional repository choice for new code work when the request supplies no more specific repository selection. | `developing/product/project-workflow-design.md` (confirmed design term; implementation pending) |
+| Default issue destination | A Project's optional exact provider target for creating issues when the current request supplies no explicit destination. | `developing/product/project-workflow-design.md` (confirmed design term; implementation pending) |
 | carrier | The carrier is the local OpenMeld Service layer that owns the daemon-facing entrypoint, adapter container, socket session, heartbeat, reconnect, and local dispatch plumbing needed to carry accepted work to local agents. | `runtime/local-service/src/index.ts:1` |
 | continuation | Continuation is the decision about whether a local execution context is a fresh context, a stable resume, an explicit heal, or an implicit rotation that should warn. | `runtime/local-service/src/dispatch-continuity.ts:1` |
 | Execution Context | Core-owned work continuity beneath one Agent Profile: exact requester/discussion scope, native conversation association, workspace identity, and completed-prefix fork lineage. It is not a Profile, process, or execution authority. | `packages/schemas/src/schemas/protocol/execution-context.ts`, `services/core/src/runtime-transport/application/execution-context-authority.ts` |

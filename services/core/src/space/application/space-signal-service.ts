@@ -26,6 +26,8 @@ export const SPACE_FINAL_OUTCOME_STOPPED_ERROR_CODE =
   "space.final_outcome_stopped" as const;
 export class SpaceSignalAuthoringError extends Error {
   readonly code:
+    | "space_task.invalid_author"
+    | "space_task.invalid_draft"
     | "space.execution_input.invalid"
     | typeof SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE
     | typeof SPACE_WAKE_TARGET_INVALID_ERROR_CODE
@@ -38,6 +40,8 @@ export class SpaceSignalAuthoringError extends Error {
 
   constructor(input: {
     code:
+      | "space_task.invalid_author"
+      | "space_task.invalid_draft"
       | "space.execution_input.invalid"
       | typeof SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE
       | typeof SPACE_WAKE_TARGET_INVALID_ERROR_CODE
@@ -63,6 +67,8 @@ export class SpaceSignalAuthoringError extends Error {
 
 export type SignalTextBuildOptions = {
   contextSelection?: SignalTextData["contextSelection"];
+  contextSelections?: SignalTextData["contextSelections"];
+  taskDraft?: SignalTextData["taskDraft"];
   deviceWait?: SignalTextData["deviceWait"];
   attachments?: SignalTextData["attachments"];
   files?: SignalTextData["files"];
@@ -127,6 +133,8 @@ export const buildSignalTextOptions = (
       data.attachments ||
       data.deviceWait ||
       data.contextSelection ||
+      data.contextSelections ||
+      data.taskDraft ||
       data.files ||
       data.messageEnvelope ||
       meta ||
@@ -140,6 +148,10 @@ export const buildSignalTextOptions = (
     ...(data.contextSelection
       ? { contextSelection: data.contextSelection }
       : {}),
+    ...(data.contextSelections
+      ? { contextSelections: data.contextSelections }
+      : {}),
+    ...(data.taskDraft ? { taskDraft: data.taskDraft } : {}),
     ...(data.deviceWait ? { deviceWait: data.deviceWait } : {}),
     ...(data.attachments ? { attachments: data.attachments } : {}),
     ...(data.files ? { files: data.files } : {}),

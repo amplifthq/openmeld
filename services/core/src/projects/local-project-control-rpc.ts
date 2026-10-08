@@ -1,3 +1,4 @@
+import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   localProjectControlConnectCandidateRpcInputSchema,
   localProjectControlConnectDeclaredPathRpcInputSchema,
@@ -22,6 +23,7 @@ import type {
   LocalProjectControlSetDefaultConnectionResponse,
   LocalProjectControlSetDefaultConnectionRpcInput,
   Project,
+  ProjectRepositorySettings,
 } from "@openmeld/schemas/types";
 import {
   connectRuntimeTransportProjectCandidate,
@@ -33,6 +35,7 @@ import {
 } from "../dispatch/infrastructure/runtime-transport/runtime-transport-client";
 import type { CoreBindings } from "../lib/bindings";
 import { createCoreRpcHttpError } from "../rpc/errors";
+import { readProjectRepositorySettingsRecord } from "./project-repository";
 import { prepareExpectedHumanProjectRequest } from "./project-request-preparation";
 
 type LocalProjectControlCapability =
@@ -93,6 +96,12 @@ export function createLocalProjectControlRpc(
           request: buildCanonicalLocalProjectConnectRequest({
             project,
             request,
+            repositoryFingerprint: await requireProjectConnectionFingerprint({
+              env,
+              organizationId: request.expectedOrganizationId,
+              project,
+              requestedFingerprint: request.repositoryFingerprint,
+            }),
           }),
           runtimeLane: target.runtimeLane,
         })
@@ -132,6 +141,12 @@ export function createLocalProjectControlRpc(
           request: buildCanonicalLocalProjectConnectRequest({
             project,
             request,
+            repositoryFingerprint: await requireProjectConnectionFingerprint({
+              env,
+              organizationId: request.expectedOrganizationId,
+              project,
+              requestedFingerprint: request.repositoryFingerprint,
+            }),
           }),
           runtimeLane: target.runtimeLane,
         })
@@ -296,12 +311,86 @@ export function buildCanonicalLocalProjectConnectRequest<
   TRequest extends
     | Omit<LocalProjectControlConnectCandidateRpcInput, "context">
     | Omit<LocalProjectControlConnectDeclaredPathRpcInput, "context">,
->(input: { project: Project; request: TRequest }) {
+>(input: {
+  project: Project;
+  repositoryFingerprint?: string | null;
+  request: TRequest;
+}) {
   return {
     ...input.request,
     projectSlug: input.project.slug,
-    repositoryFingerprint: input.project.repositoryFingerprint,
+    repositoryFingerprint:
+      input.repositoryFingerprint === undefined
+        ? input.project.repositoryFingerprint
+        : input.repositoryFingerprint,
   };
+}
+
+async function requireProjectConnectionFingerprint(input: {
+  env: CoreBindings;
+  organizationId: string;
+  project: Project;
+  requestedFingerprint?: string;
+}): Promise<string | null> {
+  const db = getPostgresDatabase(input.env);
+  if (!db) {
+    throw createCoreRpcHttpError({
+      code: "project.store_unavailable",
+      reason: "Project repository settings are unavailable.",
+      status: 503,
+    });
+  }
+  const settings = await readProjectRepositorySettingsRecord({
+    db,
+    organizationId: input.organizationId,
+    projectId: input.project.id,
+  });
+  if (!settings) {
+    throw createCoreRpcHttpError({
+      code: "project.not_found",
+      reason: "This Project is no longer available.",
+      status: 404,
+    });
+  }
+  return selectProjectConnectionFingerprint({
+    project: input.project,
+    requestedFingerprint: input.requestedFingerprint,
+    settings,
+  });
+}
+
+export function selectProjectConnectionFingerprint(input: {
+  project: Project;
+  requestedFingerprint?: string;
+  settings: ProjectRepositorySettings;
+}): string | null {
+  const selected =
+    input.requestedFingerprint ??
+    input.project.repositoryFingerprint ??
+    (input.settings.repositories.length === 1
+      ? input.settings.repositories[0]?.repositoryFingerprint
+      : undefined);
+  if (
+    selected &&
+    (selected === input.settings.legacyDefaultFingerprint ||
+      input.settings.repositories.some(
+        (repository) => repository.repositoryFingerprint === selected
+      ))
+  ) {
+    return selected;
+  }
+  if (!selected && input.settings.repositories.length === 0) {
+    return null;
+  }
+  throw createCoreRpcHttpError({
+    code: selected
+      ? "project.repository_unavailable"
+      : "project.repository_selection_required",
+    reason: selected
+      ? "The selected repository is no longer associated with this Project."
+      : "Choose one repository for this Project connection.",
+    status: 409,
+  });
 }
 async function prepareRequest(input: {
   context: LocalProjectControlDiscoverProjectsRpcInput["context"];

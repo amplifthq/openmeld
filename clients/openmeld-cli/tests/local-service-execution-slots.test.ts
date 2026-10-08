@@ -41,6 +41,46 @@ function requestTask(
 }
 
 describe("local execution slots", () => {
+  it("serializes current-folder writers across distinct Profile and Project work labels", async () => {
+    const started: string[] = [];
+    const waiting: string[] = [];
+    const queue = createLocalExecutionSlots({
+      limits: { contextConcurrency: 5, globalConcurrency: 2, queueMax: 10 },
+      onTaskStarted: (event) => started.push(event.taskId),
+    });
+    const first = createDeferred();
+    const second = createDeferred();
+    for (const [index, completion] of [first, second].entries()) {
+      requestTask(queue, {
+        adapterId: "codex",
+        attemptId: `attempt-${index}`,
+        controllerKey: "builtin:codex",
+        dispatchId: `dispatch-${index}`,
+        localExecutionLaneKey: `project-context-${index}`,
+        onQueued: (event) => {
+          waiting.push(event.localQueue.waitReason);
+          return undefined;
+        },
+        profileId: `profile-${index}`,
+        resourceScope: "exclusive",
+        spaceId: `space-${index}`,
+        targetLabel: `@project-${index}`,
+        taskId: `task-${index}`,
+        transportMode: "codex-app-server",
+        run: async () => {
+          await completion.promise;
+          return undefined;
+        },
+      });
+    }
+    await vi.waitFor(() => expect(started).toEqual(["task-0"]));
+    await vi.waitFor(() => expect(waiting).toContain("workspace_conflict"));
+    first.resolve();
+    await vi.waitFor(() => expect(started).toEqual(["task-0", "task-1"]));
+    second.resolve();
+    await queue.drain();
+  });
+
   it("runs five independent contexts, holds their slots until native completion, and queues conflicting local work", async () => {
     const started: string[] = [];
     const queue = createLocalExecutionSlots({

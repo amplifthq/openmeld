@@ -1,5 +1,9 @@
 import type { SpaceComposerEditorChange } from "../../src/components/spaces/space-composer-editor";
-import { DEMO_CLAUDE_PROFILE_ID, DEMO_CODEX_PROFILE_ID } from "./demo-members";
+import {
+	DEMO_CENTER_PROFILE_ID,
+	DEMO_CLAUDE_PROFILE_ID,
+	DEMO_CODEX_PROFILE_ID,
+} from "./demo-members";
 
 export const DEMO_PRIMARY_SPACE_NAME = "Checkout fix";
 
@@ -16,24 +20,34 @@ export const demoSampleMessages: Record<string, readonly DemoSampleMessage[]> =
 			{
 				name: "James Lee",
 				kind: "human",
-				text: "Checkout broke after yesterday’s deploy. My Codex has the branch.",
+				text: "Checkout broke after yesterday’s deploy. @Center Agent My Codex has the branch. Can you coordinate the fix?",
+				wakeTargetProfileIds: [DEMO_CENTER_PROFILE_ID],
 			},
 			{
 				name: "Maya Chen",
 				kind: "human",
-				text: "@Codex Find the regression in James’s branch.",
-				wakeTargetProfileIds: [DEMO_CODEX_PROFILE_ID],
+				text: "I’ll own billing review. My Claude Code has the spec. Check refunds and zero-dollar orders before we ship.",
+			},
+			{
+				name: "Center Agent",
+				kind: "agent",
+				text: "@Codex Fix the regression and add those tests. @Claude Code Review the patch against Maya’s spec.",
+				wakeTargetProfileIds: [DEMO_CODEX_PROFILE_ID, DEMO_CLAUDE_PROFILE_ID],
 			},
 			{
 				name: "Codex",
 				kind: "agent",
-				text: "Fixed a rounding bug. @Claude Code Check it against the billing spec.",
-				wakeTargetProfileIds: [DEMO_CLAUDE_PROFILE_ID],
+				text: "Fixed the rounding error. Refund and zero-dollar tests pass: 24/24.",
 			},
 			{
 				name: "Claude Code",
 				kind: "agent",
-				text: "Matches the spec. Add tests for refunds and zero-dollar orders.",
+				text: "Reviewed the patch. Both edge cases match the billing spec.",
+			},
+			{
+				name: "Center Agent",
+				kind: "agent",
+				text: "James, the patch is ready. Maya, billing review passed. Please give the final go-ahead before release.",
 			},
 		],
 		research: [
@@ -48,16 +62,39 @@ export const demoSampleMessages: Record<string, readonly DemoSampleMessage[]> =
 				text: "Three themes: easier setup, clearer handoffs, and files kept with the work.",
 			},
 		],
-		website: [
+		"center-agent": [
 			{
 				name: "Maya Chen",
 				kind: "human",
-				text: "Review the website brief before we start the next draft.",
+				text: "Create a Space for the release handoff. Work with Codex and Claude Code there, then report back to me. No release without approval.",
 			},
 			{
 				name: "Center Agent",
 				kind: "agent",
-				text: "The brief is ready. Maya owns the final review.",
+				text: "Created Release handoff with Codex and Claude Code. I’ll coordinate the work there and bring you the result.",
+			},
+		],
+		"agent-work": [
+			{
+				name: "Center Agent",
+				kind: "agent",
+				text: "Maya asked for a release handoff. @Codex Summarize the patch and test results. @Claude Code Check the risks and rollback steps.",
+				wakeTargetProfileIds: [DEMO_CODEX_PROFILE_ID, DEMO_CLAUDE_PROFILE_ID],
+			},
+			{
+				name: "Codex",
+				kind: "agent",
+				text: "Patch summary ready. All 24 checkout tests pass. No database changes.",
+			},
+			{
+				name: "Claude Code",
+				kind: "agent",
+				text: "Reviewed the risks. Rollback is the previous build; no data migration is needed.",
+			},
+			{
+				name: "Center Agent",
+				kind: "agent",
+				text: "Handoff ready. I’ll bring the summary to Maya for approval. Nothing has been released.",
 			},
 		],
 	};
@@ -72,13 +109,13 @@ export function buildDemoConversationDraft(
 			selection: { start: 0, end: 0 },
 		};
 	}
-	const mention = "@Codex";
-	const text = `${mention} Add those two tests and run the suite.`;
+	const mention = "@Center Agent";
+	const text = `${mention} Prepare the release handoff for James.`;
 	return {
 		text,
 		authoredMentions: [
 			{
-				profileId: DEMO_CODEX_PROFILE_ID,
+				profileId: DEMO_CENTER_PROFILE_ID,
 				relation: "wake",
 				start: 0,
 				end: mention.length,
@@ -93,8 +130,8 @@ export function demoTemplateReply(profileId: string, spaceId: string) {
 	if (spaceId === "research") {
 		return "Reviewed six interviews. Setup and handoffs came up most. Examples are in the summary.";
 	}
-	if (spaceId === "website") {
-		return "Checked the brief. The copy is ready for Maya’s review.";
+	if (spaceId === "center-agent" || spaceId === "agent-work") {
+		return "The release handoff is ready: patch summary, 24 passing tests, and rollback steps. James owns the code review; Maya gives final approval. Nothing has been released.";
 	}
 	if (profileId === DEMO_CODEX_PROFILE_ID) {
 		return "Added refund and zero-dollar tests. Checkout suite passes: 24/24.";

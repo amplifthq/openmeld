@@ -80,6 +80,7 @@ const task = (overrides: Partial<SpaceTask> = {}): SpaceTask => ({
   automaticReworkRounds: 0,
   needsHumanDecision: false,
   externalWorkItems: [],
+  projectIds: [],
   revision: 1,
   createdAt: "2026-09-15T00:00:00.000Z",
   updatedAt: "2026-09-15T00:00:00.000Z",
@@ -100,6 +101,68 @@ const apply = (
   }).task;
 
 describe("Space Task workflow", () => {
+  it("records an explicit Project set and rejects stale scope changes", () => {
+    const associated = apply(
+      task(),
+      {
+        action: "set_projects",
+        expectedRevision: 1,
+        operationId: "associate-projects",
+        projectIds: ["project-b", "project-a"],
+      },
+      requester
+    );
+    expect(associated.projectIds).toEqual(["project-a", "project-b"]);
+    expect(associated.revision).toBe(2);
+    expect(() =>
+      apply(
+        associated,
+        {
+          action: "set_projects",
+          expectedRevision: 1,
+          operationId: "stale-projects",
+          projectIds: ["project-c"],
+        },
+        requester
+      )
+    ).toThrow("revision 1 to 2");
+  });
+
+  it("keeps a Linear issue reference without inventing provider observation", () => {
+    const linearIssue = {
+      id: "73c7947f-5bba-4e67-a668-9392b70cd424",
+      identifier: "PAY-82",
+      teamId: "a86813e7-c458-4af2-8cfa-73a796d81201",
+      provider: "linear" as const,
+      url: "https://linear.app/acme/issue/PAY-82/fix-payment",
+      lastObservedAt: null,
+      lastObservedState: null,
+    };
+    const linked = apply(
+      task(),
+      {
+        action: "attach_external_work_item",
+        expectedRevision: 1,
+        item: linearIssue,
+        operationId: "attach-linear",
+      },
+      requester
+    );
+    expect(linked.externalWorkItems).toEqual([linearIssue]);
+    const detached = apply(
+      linked,
+      {
+        action: "detach_linear_external_work_item",
+        expectedRevision: 2,
+        id: linearIssue.id,
+        operationId: "detach-linear",
+        provider: "linear",
+      },
+      requester
+    );
+    expect(detached.externalWorkItems).toEqual([]);
+  });
+
   it("keeps assignment separate from starting work and returns reassigned work to To do", () => {
     const assigned = apply(
       task({ assignee: null }),

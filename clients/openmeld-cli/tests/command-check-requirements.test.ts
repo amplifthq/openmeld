@@ -26,6 +26,12 @@ describe("command check requirements", () => {
     expect(requirementEntryNames).toEqual(routeEntryNames);
   });
 
+  it("requires sign-in before offering a plugin connection", () => {
+    expect(getCommandCheckRequirements("plugins.connect")).toMatchObject({
+      signIn: { mode: "required", stage: "before-entry" },
+    });
+  });
+
   it("requires sign-in and a selected profile for interactive space commands", () => {
     expect(getCommandCheckRequirements("space.create")).toMatchObject({
       cliUpdate: { mode: "optional", stage: "before-entry" },

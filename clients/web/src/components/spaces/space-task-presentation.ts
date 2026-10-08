@@ -48,9 +48,6 @@ export function describeSpaceTaskAttention(input: {
 			if (task.assignee?.profileId === input.selfProfileId) {
 				return "Submit the result when it's ready";
 			}
-			if (task.assignee) {
-				return `${task.assignee.profileName} is advancing this`;
-			}
 			return "In progress";
 		}
 		case "in_review": {
@@ -67,8 +64,10 @@ export function describeSpaceTaskAttention(input: {
 	}
 }
 
-export function formatSpaceTaskGitHubIssueRefs(task: SpaceTask): string[] {
-	return task.externalWorkItems
-		.filter((item) => item.provider === "github")
-		.map((item) => formatSpaceTaskGitHubIssueLabel(item));
+export function formatSpaceTaskExternalIssueRefs(task: SpaceTask): string[] {
+	return task.externalWorkItems.map((item) =>
+		item.provider === "github"
+			? formatSpaceTaskGitHubIssueLabel(item)
+			: item.identifier
+	);
 }

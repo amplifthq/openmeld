@@ -20,6 +20,50 @@ const REQUEST_CONTEXT = {
 };
 
 describe("api-client Center Agent api", () => {
+  it("sends the complete avatar choice to the profile owner", async () => {
+    const transport = vi.fn().mockResolvedValue(
+      jsonResponse({
+        organizationId: "org-1",
+        profile: {
+          openMeldProfileId: AGENT_PROFILE_ID,
+          profileName: "Center Agent",
+          profileHandle: "center-agent",
+          profileKind: "agent",
+          isDefault: false,
+          status: "active",
+          ownerUserId: null,
+          organizationId: "org-1",
+          source: "center_agent_create",
+          managedRole: "center_agent",
+          createdByUserId: null,
+          creatorProfileId: null,
+          lastUsedAt: null,
+          createdAt: "2026-10-08T00:00:00.000Z",
+          updatedAt: "2026-10-08T00:00:00.000Z",
+          avatarStyle: "mech",
+          avatarOptions: { palette: "balanced" },
+        },
+      })
+    );
+    const api = createCenterAgentApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+    const avatar = {
+      kind: "bot" as const,
+      type: "mech" as const,
+      palette: "balanced" as const,
+    };
+    const result = await api.updateProfile({ avatar });
+    expect(transport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        init: expect.objectContaining({ body: JSON.stringify({ avatar }) }),
+      })
+    );
+    expect(result.profile.avatarOptions).toEqual({ palette: "balanced" });
+  });
   it("forwards the chat-list cursor unchanged and bounds page size", async () => {
     const transport = vi.fn().mockResolvedValue(
       jsonResponse({

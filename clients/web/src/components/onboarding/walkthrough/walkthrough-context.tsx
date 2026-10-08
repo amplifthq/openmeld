@@ -107,12 +107,18 @@ function ScopedWalkthroughProvider({ children }: PropsWithChildren) {
 		enabled: Boolean(profile),
 		retry: false,
 	});
+	const progressErrorToastId = `tutorial-progress-${organization.id}`;
 	const update = useMutation({
 		mutationFn: api.update,
-		onSuccess: (data) => client.setQueryData(queryKey, data),
-		onError: (error, action) =>
+		onSuccess: (data) => {
+			client.setQueryData(queryKey, data);
+			toast.dismiss(progressErrorToastId);
+		},
+		onError: (_error, action) =>
 			toast.error("Couldn't save tutorial progress", {
-				description: error.message,
+				id: progressErrorToastId,
+				description: "Try again to save your place in the tutorial.",
+				closeButton: true,
 				action:
 					action.action === "progress"
 						? {

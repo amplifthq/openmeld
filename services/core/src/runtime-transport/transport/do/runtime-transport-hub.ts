@@ -1525,6 +1525,22 @@ function parseStoredAutomaticToolsUpdateUnavailableRetry(
   }
   return candidate as StoredAutomaticToolsUpdateUnavailableRetry;
 }
+
+function requiredExecutionContextVersion(
+  record: RuntimeCoordinatorHeadLifecycleRecord
+): 2 | 3 | 4 {
+  if (record.acceptedDispatchSnapshot?.executionContext?.projectWork) {
+    return 4;
+  }
+  if (
+    record.acceptedDispatchSnapshot?.controllerSnapshot.agentControllerRef ===
+      "builtin:claude-code" &&
+    record.acceptedDispatchSnapshot.executionContext?.access === "workspace"
+  ) {
+    return 3;
+  }
+  return 2;
+}
 export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   private readonly state = createRuntimeTransportHubMutableState();
   private readonly currentDeviceOperationWaiters = new Map<
@@ -2548,7 +2564,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     ownerUserId: string;
     targetProfileId: string;
     agentControllerRef: string;
-    requiredContextVersion?: 2 | 3;
+    requiredContextVersion?: 2 | 3 | 4;
     requirePermissionInheritance?: boolean;
   }): string | null {
     const route = lookupRoute(
@@ -12246,13 +12262,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           agentControllerRef:
             record.acceptedDispatchSnapshot?.controllerSnapshot
               .agentControllerRef ?? "",
-          requiredContextVersion:
-            record.acceptedDispatchSnapshot?.controllerSnapshot
-              .agentControllerRef === "builtin:claude-code" &&
-            record.acceptedDispatchSnapshot?.executionContext?.access ===
-              "workspace"
-              ? 3
-              : 2,
+          requiredContextVersion: requiredExecutionContextVersion(record),
           requirePermissionInheritance:
             record.acceptedDispatchSnapshot?.executionContext
               ?.permissionSource === "agent_settings",

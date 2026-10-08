@@ -248,7 +248,10 @@ describe("OrganizationEntryPage", () => {
 		});
 	});
 
-	it("excludes Personal Workspaces and preserves intent on the create link in Slack install mode", async () => {
+	it.each([
+		["slack-install", "/o/acme-labs/center-agent/channels"],
+		["invite-people", "/o/acme-labs/settings/invitations"],
+	] as const)("preserves %s when selecting or creating an organization", async (intent, destination) => {
 		organizations = [
 			currentOrganization,
 			{
@@ -258,33 +261,30 @@ describe("OrganizationEntryPage", () => {
 			},
 		];
 
-		renderSlackInstallPage();
+		render(
+			<TestQueryClientProvider>
+				<OrganizationEntryPage intent={intent} />
+			</TestQueryClientProvider>
+		);
 
-		expect(
-			screen.getByText(
-				"Choose the organization to connect to your Slack workspace — usually your team's organization. Or create a new one."
-			)
-		).toBeTruthy();
 		expect(
 			screen.queryByRole("link", { name: "Open Solo organization" })
 		).toBeNull();
 		const acmeLink = screen.getByRole("link", {
 			name: "Open Acme Labs organization",
 		});
-		expect(acmeLink.getAttribute("href")).toBe(
-			"/o/acme-labs/center-agent/channels"
-		);
+		expect(acmeLink.getAttribute("href")).toBe(destination);
 		expect(
 			screen
 				.getByRole("link", { name: CREATE_AN_ORGANIZATION_LABEL })
 				.getAttribute("href")
-		).toBe("/o/solo/new-organization?intent=slack-install");
+		).toBe(`/o/solo/new-organization?intent=${intent}`);
 
 		fireEvent.click(acmeLink);
 
 		await waitFor(() => {
 			expect(navigateMock).toHaveBeenCalledWith({
-				to: "/o/acme-labs/center-agent/channels",
+				to: destination,
 			});
 		});
 	});
@@ -378,8 +378,15 @@ describe("OrganizationEntryPage", () => {
 		).toBeLessThan(navigateMock.mock.invocationCallOrder[0] ?? 0);
 	});
 
-	it("opens Channels after creating an organization in Slack install mode", async () => {
-		renderSlackInstallNewOrganizationPage();
+	it.each([
+		["slack-install", "/o/acme-labs/center-agent/channels"],
+		["invite-people", "/o/acme-labs/settings/invitations"],
+	] as const)("continues %s after creating an organization", async (intent, destination) => {
+		render(
+			<TestQueryClientProvider>
+				<NewOrganizationPage intent={intent} />
+			</TestQueryClientProvider>
+		);
 
 		fireEvent.change(screen.getByLabelText("Organization name"), {
 			target: { value: "Acme Labs" },
@@ -392,7 +399,7 @@ describe("OrganizationEntryPage", () => {
 
 		await waitFor(() => {
 			expect(navigateMock).toHaveBeenCalledWith({
-				to: "/o/acme-labs/center-agent/channels",
+				to: destination,
 			});
 		});
 	});
@@ -575,14 +582,6 @@ function renderPage() {
 	return render(
 		<TestQueryClientProvider>
 			<OrganizationEntryPage />
-		</TestQueryClientProvider>
-	);
-}
-
-function renderSlackInstallPage() {
-	return render(
-		<TestQueryClientProvider>
-			<OrganizationEntryPage intent="slack-install" />
 		</TestQueryClientProvider>
 	);
 }

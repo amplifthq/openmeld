@@ -7,6 +7,8 @@ import {
 export type SpaceCollaborationProfilePresentation = {
 	agentControllerRef: string | null;
 	avatarImageUrl: string | null;
+	avatarStyle?: SpaceMemberDirectoryEntry["avatarStyle"];
+	avatarModelId?: SpaceMemberDirectoryEntry["avatarModelId"];
 	isCenterAgent: boolean;
 	profileId: string;
 	profileKind: "agent" | "human";
@@ -74,6 +76,8 @@ export function buildSpaceCollaborationProfilePresentations(input: {
 		presentations.set(profileId, {
 			agentControllerRef: entry.agentControllerRef,
 			avatarImageUrl: entry.avatarUrl,
+			avatarStyle: entry.avatarStyle,
+			avatarModelId: entry.avatarModelId,
 			isCenterAgent: profileId === input.centerAgentProfileId,
 			profileId,
 			profileKind: entry.profileKind,

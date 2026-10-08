@@ -57,6 +57,7 @@ export async function handleLocalProjectControlFrame(
   input: {
     deviceId: string;
     frame: unknown;
+    ownerUserId?: string;
     rootDir?: string;
   },
   dependencies: HandlerDependencies = {}
@@ -83,7 +84,7 @@ async function executeIdempotentRequestFrame(
     RequestFrame,
     { code: "daemon.local_project_control.discover_projects" }
   >,
-  input: { deviceId: string; rootDir?: string },
+  input: { deviceId: string; ownerUserId?: string; rootDir?: string },
   dependencies: HandlerDependencies
 ): Promise<LocalProjectControlDaemonFrame> {
   const request = frame.payload.request;
@@ -116,7 +117,7 @@ async function executeIdempotentRequestFrame(
 
 async function executeRequestFrame(
   frame: RequestFrame,
-  input: { deviceId: string; rootDir?: string },
+  input: { deviceId: string; ownerUserId?: string; rootDir?: string },
   dependencies: HandlerDependencies
 ): Promise<LocalProjectControlDaemonFrame> {
   switch (frame.code) {
@@ -142,7 +143,7 @@ async function handleDiscoverFrame(
     RequestFrame,
     { code: "daemon.local_project_control.discover_projects" }
   >,
-  input: { deviceId: string; rootDir?: string },
+  input: { deviceId: string; ownerUserId?: string; rootDir?: string },
   dependencies: HandlerDependencies
 ): Promise<LocalProjectControlDaemonFrame> {
   const epoch =
@@ -154,6 +155,7 @@ async function handleDiscoverFrame(
   const response = await (dependencies.discover ?? discoverLocalProjects)({
     ...frame.payload.request,
     deviceId: input.deviceId,
+    ownerUserId: input.ownerUserId,
     requestId: frame.payload.requestId,
     rootDir: input.rootDir,
   });
@@ -175,7 +177,7 @@ async function handleConnectCandidateFrame(
     RequestFrame,
     { code: "daemon.local_project_control.connect_candidate" }
   >,
-  input: { rootDir?: string },
+  input: { ownerUserId?: string; rootDir?: string },
   dependencies: HandlerDependencies
 ): Promise<LocalProjectControlDaemonFrame> {
   const request = frame.payload.request;
@@ -223,6 +225,7 @@ async function handleConnectCandidateFrame(
   const result = await connectValidatedPath({
     bind: dependencies.bind,
     connection,
+    ownerUserId: input.ownerUserId,
     request,
     rootDir: input.rootDir,
   });
@@ -238,7 +241,7 @@ async function handleConnectDeclaredPathFrame(
     RequestFrame,
     { code: "daemon.local_project_control.connect_declared_path" }
   >,
-  input: { rootDir?: string },
+  input: { ownerUserId?: string; rootDir?: string },
   dependencies: HandlerDependencies
 ): Promise<LocalProjectControlDaemonFrame> {
   const request = frame.payload.request;
@@ -252,6 +255,7 @@ async function handleConnectDeclaredPathFrame(
   const result = await connectValidatedPath({
     bind: dependencies.bind,
     connection,
+    ownerUserId: input.ownerUserId,
     request,
     rootDir: input.rootDir,
   });
@@ -405,9 +409,11 @@ function rebuildResultFrame(
 async function connectValidatedPath(input: {
   bind?: typeof bindProject;
   connection: Awaited<ReturnType<typeof validateLocalProjectConnectionPath>>;
+  ownerUserId?: string;
   request: {
     expectedOrganizationId: string;
     moveConfirmationToken?: string;
+    shareConfirmationToken?: string;
     projectId: string;
     projectSlug: string;
   };
@@ -424,7 +430,9 @@ async function connectValidatedPath(input: {
   );
   const binding = await (input.bind ?? bindProject)({
     moveConfirmationToken: input.request.moveConfirmationToken,
+    shareConfirmationToken: input.request.shareConfirmationToken,
     organizationId: input.request.expectedOrganizationId,
+    ...(input.ownerUserId ? { ownerUserId: input.ownerUserId } : {}),
     projectId: input.request.projectId,
     projectSlug: input.request.projectSlug,
     repositoryFingerprint: input.connection.repositoryFingerprint,
@@ -444,7 +452,7 @@ async function connectValidatedPath(input: {
 
 async function projectConnections(
   request: { expectedOrganizationId: string; projectId: string },
-  input: { rootDir?: string },
+  input: { ownerUserId?: string; rootDir?: string },
   dependencies: HandlerDependencies
 ): Promise<LocalProjectControlConnection[]> {
   return (
@@ -453,7 +461,12 @@ async function projectConnections(
       rootDir: input.rootDir,
     })
   )
-    .filter((connection) => connection.projectId === request.projectId)
+    .filter(
+      (connection) =>
+        connection.projectId === request.projectId &&
+        (!connection.ownerUserId ||
+          connection.ownerUserId === input.ownerUserId)
+    )
     .map((connection) => ({
       bindingGeneration: connection.bindingGeneration,
       isDefault: connection.isDefault,
