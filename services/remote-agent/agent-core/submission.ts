@@ -23,6 +23,10 @@ import {
 } from "./callback-context";
 import { renderChannelContext } from "./channel-context";
 import {
+  type RemoteAgentDiagnosticsEnv,
+  remoteAgentDiagnosticErrorFields,
+} from "./diagnostics-content-policy";
+import {
   assertRemoteAgentAdmissionNotStopped,
   buildRemoteAgentExecutionIdentity,
   initializeRemoteAgentExecutionState,
@@ -91,6 +95,7 @@ export type RemoteAgentAdmissionStageReporter = (
 ) => void;
 
 export type RemoteAgentSubmitConversationTurnInput = {
+  env?: RemoteAgentDiagnosticsEnv;
   agentName: string;
   attachmentBucket?: Pick<R2Bucket, "delete" | "get">;
   host: RemoteAgentAdmissionHost;
@@ -595,6 +600,7 @@ export async function submitRemoteAgentConversationTurn(
       });
       if (repeated.status === "finalized") {
         await cleanupFinalizedRemoteAgentSubmissionAttachments({
+          env: input.env,
           attachmentBucket: input.attachmentBucket,
           request,
         });
@@ -616,6 +622,7 @@ export async function submitRemoteAgentConversationTurn(
     submittedAtMs: originalSubmittedAtMs,
   });
   const attachmentResolution = await resolveRemoteAgentAdmissionImages({
+    env: input.env,
     attachmentBucket: input.attachmentBucket,
     request,
   });
@@ -689,6 +696,7 @@ export async function submitRemoteAgentConversationTurn(
         accepted: false,
       });
   await deleteTransientRemoteAgentAttachments({
+    env: input.env,
     attachmentBucket: input.attachmentBucket,
     objectKeys: attachmentResolution.transientObjectKeys,
     request,
@@ -936,6 +944,7 @@ type RemoteAgentAttachmentResolution = {
 };
 
 async function resolveRemoteAgentAdmissionImages(input: {
+  env?: RemoteAgentDiagnosticsEnv;
   attachmentBucket?: Pick<R2Bucket, "delete" | "get">;
   request: RemoteAgentWorkerSubmitTurnRequest;
 }): Promise<RemoteAgentAttachmentResolution> {
@@ -960,6 +969,7 @@ async function resolveRemoteAgentAdmissionImages(input: {
       continue;
     }
     logRemoteAgentAttachmentLoadDegradation({
+      env: input.env,
       attachment,
       reason: result.reason,
       request: input.request,
@@ -968,6 +978,7 @@ async function resolveRemoteAgentAdmissionImages(input: {
     if (attachment.objectKey !== undefined) {
       const sourceLabel = attachment.fileName ?? attachment.id;
       await deleteTransientRemoteAgentAttachments({
+        env: input.env,
         attachmentBucket: input.attachmentBucket,
         objectKeys: transientObjectKeys,
         request: input.request,
@@ -983,6 +994,7 @@ async function resolveRemoteAgentAdmissionImages(input: {
 }
 
 async function deleteTransientRemoteAgentAttachments(input: {
+  env?: RemoteAgentDiagnosticsEnv;
   attachmentBucket?: Pick<R2Bucket, "delete">;
   objectKeys: readonly string[];
   request: RemoteAgentWorkerSubmitTurnRequest;
@@ -1004,16 +1016,17 @@ async function deleteTransientRemoteAgentAttachments(input: {
       dispatchId: input.request.dispatchId,
       objectKey: input.objectKeys[index],
       organizationId: input.request.organizationId,
-      reason:
-        result.reason instanceof Error
-          ? result.reason.message
-          : String(result.reason),
+      ...remoteAgentDiagnosticErrorFields(result.reason, {
+        env: input.env,
+        organizationId: input.request.organizationId,
+      }),
       spaceId: input.request.spaceId,
     });
   }
 }
 
 export async function cleanupFinalizedRemoteAgentSubmissionAttachments(input: {
+  env?: RemoteAgentDiagnosticsEnv;
   attachmentBucket?: Pick<R2Bucket, "delete">;
   request: RemoteAgentWorkerSubmitTurnRequest;
 }): Promise<void> {
@@ -1037,6 +1050,7 @@ export async function cleanupFinalizedRemoteAgentSubmissionAttachments(input: {
   await deleteTransientRemoteAgentAttachments({
     attachmentBucket: input.attachmentBucket,
     objectKeys,
+    env: input.env,
     request: input.request,
   });
 }
@@ -1217,6 +1231,7 @@ function encodeArrayBufferAsBase64(buffer: ArrayBuffer): string {
 }
 
 function logRemoteAgentAttachmentLoadDegradation(input: {
+  env?: RemoteAgentDiagnosticsEnv;
   attachment: RemoteAgentWorkerInputAttachment;
   error?: string;
   reason: string;
@@ -1229,6 +1244,11 @@ function logRemoteAgentAttachmentLoadDegradation(input: {
     organizationId: input.request.organizationId,
     reason: input.reason,
     spaceId: input.request.spaceId,
-    ...(input.error ? { error: input.error } : {}),
+    ...(input.error
+      ? remoteAgentDiagnosticErrorFields(input.error, {
+          env: input.env,
+          organizationId: input.request.organizationId,
+        })
+      : {}),
   });
 }

@@ -27,6 +27,7 @@ import type {
   RemoteAgentCallbackContext,
   RemoteAgentStorage,
 } from "../agent-core/callback-context";
+import { remoteAgentDiagnosticErrorFields } from "../agent-core/diagnostics-content-policy";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 import {
   type AgentComputerNamespace,
@@ -1082,9 +1083,7 @@ async function stopAndRecordComputerCommand(input: {
     console.warn("[remote_agent.computer_command_cleanup_error]", {
       submissionId: input.context.submissionId,
       commandId: input.command.id,
-      errorName: error instanceof Error ? error.name : "UnknownError",
-      errorCode:
-        error instanceof Error && "code" in error ? error.code : undefined,
+      ...remoteAgentDiagnosticErrorFields(error, {}),
     });
     throw error;
   }

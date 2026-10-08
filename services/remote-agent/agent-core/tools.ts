@@ -4956,6 +4956,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         const organizationId = requireFeedbackOrganizationId(context);
         const policyResult = await readFeedbackReportingPolicyForTool({
           coreWorker: input.coreWorker,
+          env: input.env,
           organizationId,
         });
         if (!policyResult.ok) {
@@ -4980,7 +4981,10 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         });
         return await submitFeedbackThroughPublicEndpoint({
           config: input.feedbackSubmission,
+          env: input.env,
+          organizationId,
           request,
+          submissionId: input.submissionId,
         });
       },
     }),
@@ -5049,7 +5053,10 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           );
           return feedbackIssueRecordSchema.parse(await rpc(request));
         } catch (error) {
-          return feedbackIssueUpdateFailure(error);
+          return feedbackIssueUpdateFailure(error, {
+            env: input.env,
+            organizationId: context.activeOrganizationId,
+          });
         }
       },
     }),
@@ -6362,6 +6369,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
       submissionId: input.submissionId,
     }),
     ...getRemoteAgentGitHubToolDefinitions({
+      env: input.env,
       connectorExecution: input.connectorExecution,
       coreWorker: input.coreWorker,
       storage: input.storage,

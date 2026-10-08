@@ -2,8 +2,13 @@ import type { FlueObservation } from "@flue/runtime";
 import {
   type RemoteAgentCallbackContext,
   type RemoteAgentStorage,
+  readRemoteAgentCallbackContext,
   recordRemoteAgentConversationCompaction,
 } from "../agent-core/callback-context";
+import {
+  type RemoteAgentDiagnosticsEnv,
+  remoteAgentDiagnosticErrorFields,
+} from "../agent-core/diagnostics-content-policy";
 import { normalizeRemoteAgentErrorMessage } from "../agent-core/error-message";
 
 type FlueConversationCompactionStartObservation = Extract<
@@ -37,6 +42,7 @@ type ConversationCompactionIssueCode =
 export type RemoteAgentConversationCompactionObserver = {
   drain(submissionId: string): Promise<void>;
   enqueue(input: {
+    env?: RemoteAgentDiagnosticsEnv;
     event: ConversationCompactionObservation;
     storage: RemoteAgentStorage;
   }): void;
@@ -76,6 +82,7 @@ export function createRemoteAgentConversationCompactionObserver(): RemoteAgentCo
             return;
           }
           await recordConversationCompactionCompletion({
+            env: input.env,
             event: input.event,
             storage: input.storage,
             submissionId,
@@ -85,7 +92,7 @@ export function createRemoteAgentConversationCompactionObserver(): RemoteAgentCo
           console.error(
             "[remote_agent.conversation_compaction.persistence_failed]",
             {
-              error: toErrorMessage(error),
+              ...remoteAgentDiagnosticErrorFields(error, { env: input.env }),
               eventIndex: input.event.eventIndex,
               eventType: input.event.type,
               submissionId,
@@ -133,6 +140,7 @@ async function recordConversationCompactionStart(input: {
 }
 
 async function recordConversationCompactionCompletion(input: {
+  env?: RemoteAgentDiagnosticsEnv;
   event: FlueConversationCompactionObservation;
   storage: RemoteAgentStorage;
   submissionId: string;
@@ -146,6 +154,10 @@ async function recordConversationCompactionCompletion(input: {
       ? storedStart
       : null;
   if (input.event.isError) {
+    const context = await readRemoteAgentCallbackContext(
+      input.storage,
+      input.submissionId
+    );
     await clearMatchingConversationCompactionStart({
       start,
       storage: input.storage,
@@ -153,7 +165,13 @@ async function recordConversationCompactionCompletion(input: {
     });
     console.warn("[remote_agent.conversation_compaction.failed]", {
       durationMs: input.event.durationMs,
-      error: normalizeRemoteAgentErrorMessage(input.event.error).slice(0, 2000),
+      ...remoteAgentDiagnosticErrorFields(
+        normalizeRemoteAgentErrorMessage(input.event.error),
+        {
+          env: input.env,
+          organizationId: context?.organizationId,
+        }
+      ),
       eventIndex: input.event.eventIndex,
       messagesAfter: input.event.messagesAfter,
       messagesBefore: input.event.messagesBefore,
@@ -255,10 +273,6 @@ function isConversationCompactionStart(
     typeof candidate.observedAtMs === "number" &&
     typeof candidate.eventIndex === "number"
   );
-}
-
-function toErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 export const remoteAgentConversationCompactionObserver =

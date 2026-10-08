@@ -23,12 +23,16 @@ type CompactionStartObservation = Extract<
 type CompactionObservation = Extract<FlueObservation, { type: "compaction" }>;
 
 describe("Remote Agent conversation compaction", () => {
-  it("keeps the failed summary's cause in the existing diagnostic projection", async () => {
+  it.each([
+    "local",
+    "prod",
+  ])("keeps failed compaction correlation in %s", async (environment) => {
     const storage = await createStorageWithCallbackContext();
     const observer = createRemoteAgentConversationCompactionObserver();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     try {
       observer.enqueue({
+        env: { OPENMELD_WORKER_ENVIRONMENT: environment },
         storage,
         event: {
           ...compactionCompletedObservation(2, 24, 24),
@@ -42,10 +46,19 @@ describe("Remote Agent conversation compaction", () => {
       expect(warn).toHaveBeenCalledWith(
         "[remote_agent.conversation_compaction.failed]",
         expect.objectContaining({
-          error: "context.compaction_failed: Incomplete summary (length)",
+          ...(environment === "local"
+            ? {
+                error: "context.compaction_failed: Incomplete summary (length)",
+              }
+            : { errorName: "Error" }),
           submissionId: SUBMISSION_ID,
         })
       );
+      if (environment === "prod") {
+        expect(JSON.stringify(warn.mock.calls)).not.toContain(
+          "Incomplete summary"
+        );
+      }
     } finally {
       warn.mockRestore();
     }

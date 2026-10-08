@@ -181,6 +181,7 @@ async function requestRemoteAgentImageUnderstandingBatch(input: {
     ].join(": ")
   );
   const response = await createMeteredRemoteFetch({
+    env: input.env,
     ...input.usageDurability,
     coreWorker: input.env.OPENMELD_CORE_WORKER,
     fetch: input.fetch,

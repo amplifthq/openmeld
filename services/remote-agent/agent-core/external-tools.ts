@@ -38,6 +38,10 @@ import {
 } from "./callback-context";
 import { callCoreRpc } from "./core-rpc";
 import {
+  type RemoteAgentDiagnosticsEnv,
+  remoteAgentDiagnosticErrorFields,
+} from "./diagnostics-content-policy";
+import {
   buildRemoteAgentAiGatewayHeaders,
   buildRemoteAgentGatewayMetadata,
   type RemoteAgentModelEnv,
@@ -387,6 +391,7 @@ async function runOpenRouterResearch(input: {
       throw new Error("Web research requires durable AI usage attribution.");
     }
     const response = await createMeteredRemoteFetch({
+      env,
       coreWorker: env.OPENMELD_CORE_WORKER,
       fetch: input.fetch,
       model: modelId,
@@ -411,8 +416,11 @@ async function runOpenRouterResearch(input: {
     );
     const body = (await response.json()) as unknown;
     if (!response.ok) {
-      throw new Error(
-        `OpenRouter ${input.operation} failed with HTTP ${response.status}: ${summarizeUnknown(body)}`
+      throw Object.assign(
+        new Error(
+          `OpenRouter ${input.operation} failed with HTTP ${response.status}: ${summarizeUnknown(body)}`
+        ),
+        { status: response.status }
       );
     }
     const parsedResult = parseResearchResponse(body);
@@ -495,8 +503,11 @@ async function runBrowserJsonAction(input: {
     browserMs = readBrowserMs(response);
     const body = (await response.json()) as unknown;
     if (!response.ok) {
-      throw new Error(
-        `Cloudflare Browser Run ${input.action} failed with HTTP ${response.status}: ${summarizeUnknown(body)}`
+      throw Object.assign(
+        new Error(
+          `Cloudflare Browser Run ${input.action} failed with HTTP ${response.status}: ${summarizeUnknown(body)}`
+        ),
+        { status: response.status }
       );
     }
     const bounded = boundBrowserResult(body);
@@ -648,6 +659,8 @@ async function captureBrowserScreenshot(input: {
   } catch (error) {
     if (bucket) {
       await cleanUpBrowserScreenshotArtifacts({
+        env,
+        organizationId: turn.context.activeOrganizationId,
         bucket,
         coreWorker: input.coreWorker,
         descriptor,
@@ -731,15 +744,22 @@ function buildDefaultScreenshotFileName(format: "jpeg" | "png"): string {
 }
 
 async function cleanUpBrowserScreenshotArtifacts(input: {
+  env?: RemoteAgentDiagnosticsEnv;
+  organizationId?: string | null;
   bucket: AttachmentBucket;
   coreWorker: RemoteAgentCoreWorkerBinding;
   descriptor: SpaceAttachmentDescriptor | null;
   objectKey: string | null;
 }): Promise<void> {
-  const failures: string[] = [];
+  const failures: Array<
+    { operation: string } & ReturnType<typeof remoteAgentDiagnosticErrorFields>
+  > = [];
   if (input.objectKey) {
     await input.bucket.delete(input.objectKey).catch((error) => {
-      failures.push(`R2 object cleanup failed: ${summarizeUnknown(error)}`);
+      failures.push({
+        operation: "r2_delete",
+        ...remoteAgentDiagnosticErrorFields(error, input),
+      });
     });
   }
   if (input.descriptor) {
@@ -751,9 +771,10 @@ async function cleanUpBrowserScreenshotArtifacts(input: {
       },
       (binding, request) => binding.deleteSpaceAttachmentRecord?.(request)
     ).catch((error) => {
-      failures.push(
-        `Core attachment metadata cleanup failed: ${summarizeUnknown(error)}`
-      );
+      failures.push({
+        operation: "attachment_metadata_delete",
+        ...remoteAgentDiagnosticErrorFields(error, input),
+      });
     });
   }
   if (failures.length > 0) {

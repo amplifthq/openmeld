@@ -56,6 +56,7 @@ export async function generateCenterAgentSessionTitle(input: {
     },
   });
   const response = await createMeteredRemoteFetch({
+    env: input.env,
     ...input.usageDurability,
     coreWorker: input.env.OPENMELD_CORE_WORKER,
     fetch: input.fetch,

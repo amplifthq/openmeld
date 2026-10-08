@@ -11,6 +11,7 @@ import { getCloudflareContext } from "@flue/runtime/cloudflare";
 import type { CenterAgentModelRoute } from "@openmeld/schemas/types";
 import * as z from "zod/v4";
 import { readRemoteAgentCallbackContext } from "../agent-core/callback-context";
+import { remoteAgentDiagnosticErrorFields } from "../agent-core/diagnostics-content-policy";
 import {
   buildRemoteAgentAiGatewayHeaders,
   buildRemoteAgentGatewayMetadata,
@@ -203,6 +204,7 @@ export async function registerRemoteAgentCloudflareProvider(input: {
   registeredRemoteAgentModelCapabilities.set(providerId, {
     meterFetch: (fetch) =>
       createFlueMeteredFetch({
+        env: input.env,
         coreWorker: input.env.OPENMELD_CORE_WORKER,
         model: modelId,
         fetch,
@@ -620,7 +622,7 @@ function refreshRemoteAgentModelRuntimeConfig(input: {
     })
     .catch((error: unknown) => {
       console.warn("[remote_agent.model.metadata_refresh_failed]", {
-        error: error instanceof Error ? error.message : String(error),
+        ...remoteAgentDiagnosticErrorFields(error, { env: input.env }),
         modelId: input.modelId,
       });
     })

@@ -7,6 +7,10 @@ import type {
   RemoteAgentStorage,
 } from "./callback-context";
 import { callCoreRpc } from "./core-rpc";
+import {
+  type RemoteAgentDiagnosticsEnv,
+  remoteAgentDiagnosticErrorFields,
+} from "./diagnostics-content-policy";
 
 const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 // OpenRouter usage is part of the existing JSON response or final SSE chunk.
@@ -80,6 +84,7 @@ export async function flushRemoteAiUsage(input: {
 }
 
 export function createMeteredRemoteFetch(input: {
+  env?: RemoteAgentDiagnosticsEnv;
   coreWorker: unknown;
   scope: RemoteAiUsageScope;
   model: string;
@@ -142,7 +147,10 @@ export function createMeteredRemoteFetch(input: {
         console.error("[remote_agent.ai_usage.settlement_pending]", {
           eventId: record.eventId,
           organizationId: record.organizationId,
-          error: error instanceof Error ? error.message : String(error),
+          ...remoteAgentDiagnosticErrorFields(error, {
+            env: input.env,
+            organizationId: record.organizationId,
+          }),
           durableRetry: Boolean(input.storage),
         });
       }
