@@ -809,6 +809,57 @@ Cursor's native named
 model probe was rejected because the review account is on a free plan that
 permits only Auto; this does not establish global unavailability.
 
+#### October 8 Haiku 5.5 review
+
+The online catalog adds the October 7 release of Claude Haiku 5.5 across
+Claude Code, Cursor, OpenCode Zen and Go, and the shared hosted catalog.
+
+[Claude Code's official model configuration](https://code.claude.com/docs/en/model-config)
+establishes `claude-haiku-5-5`, the 2.1.293 minimum version, and `low`, `medium`,
+`high`, `xhigh`, and `max` effort values. The review machine has Claude Code
+2.1.289 without a signed-in account, so no Claude Code inference is claimed.
+The existing SDK transport passes the selected executable, model, and effort;
+this addition needs no adapter or SDK change.
+
+Authenticated Cursor 2026.09.28-64d2043 returns
+`claude-haiku-5-5[thinking=true,context=300k,reasoning_effort=high]` in both the
+session model inventory and the model config option. Its reasoning stays in the
+exact ID. The named-model native probe is blocked by the review account's free
+plan, which permits only Auto; inventory does not establish paid entitlement.
+
+OpenCode 1.18.34's refreshed native metadata exposes
+`opencode/claude-haiku-5-5` and `opencode-go/claude-haiku-5-5`, each with
+`low`, `medium`, `high`, `xhigh`, and `max` variant keys. The version is the
+observed compatibility floor. Paid Zen inventory uses an explicit noncredential
+placeholder because no Zen credential is configured. The Go inventory uses the
+existing credential. A native Go probe returns HTTP 403 because that account
+has no active Go subscription; this is not global model withdrawal. No Zen or
+Go inference succeeded. The vendor-shaped local capture is
+`packages/schemas/tests/fixtures/haiku-5.5-local-model-catalog-2026.10.08.json`.
+
+Captured OpenRouter metadata for `anthropic/claude-haiku-5.5` declares text/image
+input, tool calling, a 1M context window, a 128K output limit, and the same five
+efforts. The shared Center Agent and personal Remote Agent route keeps the
+existing 16,384 output budget and uses `medium` by default. Its capture is
+`services/remote-agent/tests/fixtures/openrouter-haiku-5.5-2026-10-08.json`.
+The existing provider test verifies model registration and tool-continuation
+serialization against that capture; it does not prove live inference.
+
+All five choices receive New for the October 7 release. The existing October
+1–6 labels remain appropriate; older channel additions receive no new labels.
+Codex and Grok Build have no new candidates in the refreshed configured scan.
+Codex Sol/Luna retain their authenticated 0.155.1 floor. GPT-5.5's October 14
+retirement remains advisory and scoped to ChatGPT sign-in; it does not disable
+API access or replace a saved model.
+
+Contract impact: this changes data and optional labels in the existing online
+catalog schema. Existing defaults, saved selections, offline data, local
+components, transport, database, and provider adapters remain unchanged. Old
+and new CLI/Service/Skills can read old and new Core/Gateway/Web catalogs.
+Hosted admission freezes the selected route through the existing contract.
+No contract bump or deployment-order dependency is required. Delivery selects
+Core only. Real OpenMeld create/edit and Wake acceptance remain unverified.
+
 ### 5.9 Claude Opus 5.5
 
 The September 23 catalog adds `claude-opus-5-5` for Claude Code 2.1.280
