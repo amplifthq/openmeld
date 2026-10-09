@@ -107,6 +107,8 @@ export function SendFeedbackDialog(input: {
 					<DialogTitle>Send feedback</DialogTitle>
 					<DialogDescription>
 						Share a bug, experience, idea, or question with the OpenMeld team.
+						Your conversation history is not attached. Share only the details
+						you want the team to see.
 					</DialogDescription>
 				</DialogHeader>
 				<form

@@ -117,6 +117,7 @@ export async function handleCenterAgentObservation(input: {
   }
   if (isConversationCompactionObservation(event)) {
     conversationCompactionObserver.enqueue({
+      env: resolveDependencies(input.resolveDependencies).env,
       event,
       storage: resolveDependencies(input.resolveDependencies).storage,
     });
@@ -236,6 +237,7 @@ async function handleCenterAgentToolPart(input: {
     });
   if (activatedOrganizationSkillName) {
     await recordOrganizationSkillActivation({
+      env,
       context,
       coreWorker,
       skillName: activatedOrganizationSkillName,
@@ -577,6 +579,7 @@ async function handleCenterAgentPromptCompletion(input: {
   try {
     completed = (
       await projectRemoteAgentTerminalOutcomeToCallback({
+        env: input.dependencies.env,
         coreWorker,
         nowMs: completedAtMs,
         outcome,

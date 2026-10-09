@@ -27,6 +27,7 @@ import type {
   RemoteAgentCallbackContext,
   RemoteAgentStorage,
 } from "../agent-core/callback-context";
+import { remoteAgentDiagnosticErrorFields } from "../agent-core/diagnostics-content-policy";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 import {
   type AgentComputerNamespace,
@@ -76,10 +77,18 @@ const OBSERVATION_SETUP_BUDGET_MS = 5000;
 const STOP_INSPECTION_BUDGET_MS = 1000;
 const READER_CANCEL_BUDGET_MS = 100;
 const COLLECTION_CONCURRENCY = 4;
+const COMMAND_ACTIONS = ["start", "poll", "stop", "list"] as const;
+const COMMAND_DIAGNOSTIC_PHASES = [
+  "workspace-acquisition",
+  "launch",
+  "poll",
+  "stop",
+  "cleanup",
+] as const;
 // Flue requires an object at the tool boundary. The action-specific schema
 // in packages/schemas is the shared execution validator, including forbidden fields.
 const commandToolSchema = strictObject({
-  action: picklist(["start", "poll", "stop", "list"]),
+  action: picklist(COMMAND_ACTIONS),
   key: optional(pipe(string(), minLength(1))),
   command: optional(pipe(string(), minLength(1))),
   backend: optional(
@@ -1074,18 +1083,21 @@ export function createComputerCommandTool(input: {
       );
     }
     if (source === "tool" || (isCommandLoss(error) && !command?.loss)) {
+      const action =
+        COMMAND_ACTIONS.find((candidate) => candidate === rawInput.action) ??
+        "invalid_request";
+      const reportedPhase =
+        error instanceof Error && "phase" in error ? error.phase : undefined;
       console.warn("[remote_agent.computer_command_failed]", {
         source,
         submissionId: input.context.submissionId,
-        action: rawInput.action,
+        action,
         ...commandDiagnostics(command),
         phase:
-          error instanceof Error && "phase" in error
-            ? error.phase
-            : rawInput.action,
-        errorName: error instanceof Error ? error.name : "UnknownError",
-        errorCode:
-          error instanceof Error && "code" in error ? error.code : undefined,
+          COMMAND_DIAGNOSTIC_PHASES.find(
+            (candidate) => candidate === reportedPhase
+          ) ?? action,
+        ...remoteAgentDiagnosticErrorFields(error, {}),
       });
     }
   };
@@ -1504,9 +1516,7 @@ async function stopAndRecordComputerCommand(input: {
       submissionId: input.context.submissionId,
       ...commandDiagnostics(current),
       phase: "cleanup",
-      errorName: error instanceof Error ? error.name : "UnknownError",
-      errorCode:
-        error instanceof Error && "code" in error ? error.code : undefined,
+      ...remoteAgentDiagnosticErrorFields(error, {}),
     });
     throw error;
   }

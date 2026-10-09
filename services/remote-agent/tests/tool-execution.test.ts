@@ -14,6 +14,7 @@ import {
   readRemoteAgentExecutionState,
   readRemoteAgentRequestedExecutionFailure,
 } from "../agent-core/execution-state";
+import { getRemoteAgentExternalToolDefinitions } from "../agent-core/external-tools";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 import {
   beginRemoteAgentToolAttempt,
@@ -32,12 +33,70 @@ import {
   executeRemoteAgentToolDefinition,
   toBoundedRemoteAgentToolResult,
 } from "../flue-adapter/tool-execution";
-import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
+import {
+  createSubmitTurnRequest,
+  TEST_NOW_MS,
+  TEST_REMOTE_AGENT_AI_GATEWAY_ENV,
+} from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
 
 const SUBMISSION_ID = "submission-turn-end";
 
 describe("Remote Agent tool execution", () => {
+  it.each([
+    401, 429, 503,
+  ])("keeps HTTP %s actionable without copying the provider body", async (status) => {
+    const { storage } = await createToolExecutionTestContext();
+    const env = {
+      ...TEST_REMOTE_AGENT_AI_GATEWAY_ENV,
+      OPENMELD_WORKER_ENVIRONMENT: "prod",
+    };
+    const tools = getRemoteAgentExternalToolDefinitions({
+      env,
+      coreWorker: env.OPENMELD_CORE_WORKER,
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              message: "PRIVATE_PROVIDER_BODY",
+              code: "PRIVATE_PROVIDER_CODE",
+            },
+          }),
+          { status, headers: { "content-type": "application/json" } }
+        ),
+      storage,
+      submissionId: SUBMISSION_ID,
+    });
+    const definition = tools.find((tool) => tool.name === "web_search");
+    if (!definition) {
+      throw new Error("The web_search tool must be available.");
+    }
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      await expect(
+        executeRemoteAgentToolDefinition({
+          env,
+          definition,
+          storage,
+          submissionId: SUBMISSION_ID,
+          toolInput: { query: "PRIVATE_USER_QUERY" },
+        })
+      ).rejects.toThrow(`HTTP ${status}`);
+      expect(warn).toHaveBeenCalledWith(
+        "[remote_agent.tool_execution_failed]",
+        {
+          errorName: "Error",
+          status,
+          source: "direct",
+          submissionId: SUBMISSION_ID,
+          toolName: "web_search",
+        }
+      );
+      expect(JSON.stringify(warn.mock.calls)).not.toContain("PRIVATE_");
+    } finally {
+      warn.mockRestore();
+    }
+  });
   it.each([
     "direct",
     "code_mode",

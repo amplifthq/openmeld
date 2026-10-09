@@ -10,6 +10,7 @@ import type {
   RemoteAgentCoreWorkerBinding,
   RemoteAgentStorage,
 } from "../agent-core/callback-context";
+import type { RemoteAgentDiagnosticsEnv } from "../agent-core/diagnostics-content-policy";
 import type { RemoteAgentExternalToolEnv } from "../agent-core/external-tools";
 import type { RemoteAgentImagePreparer } from "../agent-core/image-understanding";
 import {
@@ -156,6 +157,7 @@ export async function getRemoteAgentFlueTools(input: {
     ...capabilityDiscoveryDefinitions,
   ].map((definition) =>
     toFlueTool({
+      env: input.env,
       callLimit,
       coreWorker: input.coreWorker,
       definition,
@@ -193,6 +195,7 @@ const SUMMARY_ONLY_TOOL_NAMES = new Set([
 ]);
 
 function toFlueTool(input: {
+  env?: RemoteAgentDiagnosticsEnv;
   callLimit?: number;
   coreWorker: RemoteAgentCoreWorkerBinding;
   definition: RemoteAgentToolDefinition;
@@ -212,6 +215,7 @@ function toFlueTool(input: {
           submissionId: input.submissionId,
           toolName: definition.name,
           value: await executeRemoteAgentToolDefinition({
+            env: input.env,
             callLimit: input.callLimit,
             definition,
             signal,

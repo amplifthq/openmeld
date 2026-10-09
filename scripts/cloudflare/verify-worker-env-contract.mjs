@@ -344,6 +344,9 @@ const workerPackages = [
     ],
     secretOwned: true,
     stagingSecretOwned: true,
+    optionalProductionSecretNames: [
+      "CLOUDFLARE_OPENMELD_INTERNAL_DIAGNOSTICS_ORGANIZATION_ID",
+    ],
     requiredSecretNames: [
       "OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN",
       "CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN",
@@ -665,6 +668,12 @@ for (const workerPackage of workerPackages) {
 
       const definedKeys = readDefinedEnvKeys(relativePath);
       const expectedKeys = workerPackage.requiredSecretNames ?? [];
+      const allowedKeys = [
+        ...expectedKeys,
+        ...(fileName === ".dev.vars.prod.example"
+          ? (workerPackage.optionalProductionSecretNames ?? [])
+          : []),
+      ];
 
       for (const secretName of expectedKeys) {
         ensure(
@@ -675,7 +684,7 @@ for (const workerPackage of workerPackages) {
 
       for (const definedKey of definedKeys) {
         ensure(
-          expectedKeys.includes(definedKey),
+          allowedKeys.includes(definedKey),
           `${relativePath} must not define unexpected key ${definedKey}.`
         );
       }

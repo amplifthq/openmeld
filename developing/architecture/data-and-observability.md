@@ -4008,6 +4008,17 @@ commands derived from those Wake pointers. It must not use a Diagnostic Report
 ID as a Wake correlation field, and it must stay a resolver into the shared
 trace model, not a second Dispatch Ledger reader.
 
+The helper reads the current PostgreSQL report/pointer tables with bound
+parameters and a read-only transaction. Remote lookup uses the existing
+Doppler `openmeld-release` runtime URL for `prd`/`stg`, checked against the
+registered target in `tooling/postgresql/resources.json`. Local lookup requires
+an isolated loopback PostgreSQL lane. It does not query the retired D1 tables.
+Generated trace commands explicitly use `--view agent` and never print a Space
+password. The global operator trace default and explicit human/detail views
+remain available. Obtain customer consent before investigating content through
+these higher-privilege paths; a Send report action shares minimal diagnostics,
+not blanket consent to inspect conversation history.
+
 ## Setup Failure Diagnostics
 
 A prepare-session step failure may carry a bounded, whitelist-only diagnostics
@@ -4209,18 +4220,64 @@ correlation-friendly:
 
 Diagnostics must not leak sensitive data.
 
-Do not log, persist, or include in diagnostic payloads:
+Remote Agent ordinary content diagnostics use the server-owned Worker
+environment and the admitted Core Organization identity. Production requests
+from external Organizations use metadata-only AI Gateway logs. All native
+model paths, including compaction, titles, activity digests, image understanding,
+and web research, apply the same policy. Usage, costs, statuses, timings, and
+Organization attribution remain available; `cf-aig-collect-log` stays enabled
+while `cf-aig-collect-log-payload` controls the extra prompt/response copy.
+Flue tracing keeps `content: false` in every environment.
+
+Only a known `local`, `dev`, or `stg` environment, or production with an exact
+match to the optional internal Organization ID maintained in Doppler, permits
+richer content diagnostics. Missing or invalid environment or production
+Organization context is private by default. Attribution metadata and public
+feedback fields cannot grant this exception. It does not permit copying
+system credentials, authorization headers, cookies, or secret environment
+values. Raw model payload logging in the approved internal and non-production
+environments can contain private data or secrets a person puts in message
+text; this policy does not claim to detect arbitrary secrets in business text.
+
+These restrictions apply to ordinary diagnostic copies. Business services
+still read and retain authorized conversation content to execute tasks and
+serve history. Highest-privilege infrastructure operators can still access
+business storage and explicitly query detailed traces. Obtain the external
+user's consent before such content investigation. This is not end-to-end
+encryption, an access grant system, or a claim that operators cannot read data.
+
+Never deliberately copy system credentials into logs, diagnostic storage, or
+diagnostic payloads:
 
 - access tokens
 - one-time tokens
 - passwords
 - cookies
+
+Outside the specific Remote Agent content-diagnostics exception above, also
+omit these content copies from diagnostics:
+
 - full message text
 - prompt bodies
 - arbitrary request or response payload dumps
 
 Use non-sensitive identifiers, counts, status values, reason codes, and bounded
 sanitized pointers.
+
+Routine Remote Agent errors keep fixed events and operation names, safe error
+types, validated HTTP status or fixed native error codes, and execution IDs.
+For external production Organizations they omit raw message/body/stack text.
+The business failure state and the explanation returned to the authorized
+caller remain available. Rich error summaries use the existing credential
+redactor; arbitrary provider error codes are not treated as safe metadata.
+
+Provider failures must be reduced at the scoped model or image-request boundary
+before SDK logging or cross-service propagation. This includes initialization
+and stream-iteration throws, their causes, and compaction failures. Preserve
+normal content, usage, stop reasons, context-overflow detection, and the existing
+retry decisions. Retain only fixed recovery classifications and correlate through
+the existing request/submission observations; raw provider text is not required
+in the authorized caller's failure explanation.
 
 Runtime Agent Controller reporting follows the same minimization rule. Local
 command paths, launch arguments, provider account email/labels,

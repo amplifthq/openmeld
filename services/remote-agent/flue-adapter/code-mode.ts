@@ -168,6 +168,7 @@ export async function createRemoteAgentCodeModeFlueTool(input: {
           description: CODE_MODE_DESCRIPTION,
           executor,
           tools: buildCodeModeToolSet({
+            env: input.env,
             definitions: input.definitions,
             coreWorker: input.coreWorker,
             onToolCall: () => {
@@ -247,6 +248,7 @@ export async function createRemoteAgentCodeModeFlueTool(input: {
 }
 
 function buildCodeModeToolSet(input: {
+  env?: RemoteAgentToolUsageObservabilityEnv;
   signal?: AbortSignal;
   coreWorker?: RemoteAgentCoreWorkerBinding;
   definitions: RemoteAgentToolDefinition[];
@@ -293,6 +295,7 @@ function buildCodeModeToolSet(input: {
           let result: unknown;
           try {
             result = await executeRemoteAgentToolDefinition({
+              env: input.env,
               definition,
               // Code Mode 0.5.1 invokes tools without execution options.
               // Bind cancellation to this invocation, not to SDK forwarding.

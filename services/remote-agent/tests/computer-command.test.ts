@@ -168,6 +168,71 @@ function fixture() {
 
 describe("retained Computer commands", () => {
   it.each([
+    {
+      code: "ECONNRESET",
+      phase: "launch",
+      expectedCode: "ECONNRESET",
+      expectedPhase: "launch",
+    },
+    {
+      code: "private transport details",
+      phase: "private transport details",
+      expectedCode: undefined,
+      expectedPhase: "start",
+    },
+    {
+      code: "computer.observation_timeout",
+      phase: "workspace-acquisition",
+      expectedCode: "computer.observation_timeout",
+      expectedPhase: "workspace-acquisition",
+    },
+  ])("keeps Computer failure diagnostics bounded ($code)", async ({
+    code,
+    phase,
+    expectedCode,
+    expectedPhase,
+  }) => {
+    const privateText = "Private Project Cedar command output";
+    const f = fixture();
+    const error = Object.assign(new Error(privateText), {
+      name: privateText,
+      code,
+      phase,
+    });
+    f.exec.mockRejectedValueOnce(error);
+    const warning = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    try {
+      await expect(
+        f
+          .tool()
+          .execute({ action: "start", key: "privacy", command: "run task" })
+      ).rejects.toBe(error);
+      const fields = warning.mock.calls.find(
+        ([event]) => event === "[remote_agent.computer_command_failed]"
+      )?.[1];
+      expect(fields).toMatchObject({
+        submissionId: "execution-a",
+        action: "start",
+        phase: expectedPhase,
+        errorName: "Error",
+      });
+      expect(fields).toHaveProperty("commandId");
+      expect(fields).not.toHaveProperty("error");
+      expect(JSON.stringify(fields)).not.toContain(privateText);
+      expect(JSON.stringify(fields)).not.toContain("private transport details");
+      if (expectedCode) {
+        expect(fields).toMatchObject({ errorCode: expectedCode });
+      } else {
+        expect(fields).not.toHaveProperty("errorCode");
+      }
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it.each([
     { action: "start", recovery: "poll", inspection: "ready" },
     { action: "stop", recovery: "poll", inspection: "ready" },
     { action: "stop", recovery: "collector", inspection: "ready" },
