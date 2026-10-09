@@ -19692,6 +19692,19 @@ export class Space extends DurableObject<CoreBindings> {
         userIds,
       })
     );
+    if (
+      record.eventType === "space.created" ||
+      record.eventType === "space.members_updated"
+    ) {
+      this.ctx.waitUntil(
+        publishAccountInvalidation({
+          env: this.bindings,
+          frame: { type: "inbox.changed" },
+          organizationId,
+          userIds,
+        })
+      );
+    }
   }
   private async projectActiveSpaceIndexBackfillSnapshot(input: {
     memberRecords: readonly SpaceMemberRecord[];

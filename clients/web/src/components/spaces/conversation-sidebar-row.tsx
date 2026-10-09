@@ -236,7 +236,7 @@ function ConversationSidebarRowContent(
 									aria-label={[
 										input.title,
 										resolveInboxAttentionLabel(input.attentionTone),
-										hasUnread ? "unread messages" : null,
+										hasUnread ? "unread updates" : null,
 										presentation?.label,
 									]
 										.filter(Boolean)

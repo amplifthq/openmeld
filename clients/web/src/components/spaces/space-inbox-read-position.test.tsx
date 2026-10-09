@@ -1,7 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	InboxVisibleConversationProvider,
+	usePublishInboxVisibleConversation,
+} from "#/components/inbox/inbox-visible-conversation";
 import { inboxQueryKeys } from "#/query/organizations/inbox";
 import { useSpaceInboxReadPosition } from "./use-space-inbox-read-position";
 
@@ -22,7 +26,7 @@ const later = {
 	occurredAtMs: 20,
 	threadRootSignalId: "root",
 };
-function setup() {
+function setup(joined = false) {
 	const client = new QueryClient({
 		defaultOptions: {
 			queries: { retry: false, staleTime: Number.POSITIVE_INFINITY },
@@ -35,20 +39,31 @@ function setup() {
 		targets: [first, later],
 		totalUnreadCount: 2,
 		hasMoreTargets: false,
+		...(joined ? { joinedItems: [{ itemId: "joined", occurredAtMs: 5 }] } : {}),
 	});
 	// Keep the test at the mutation boundary: cached facts are refreshed by the real query invalidation.
 	const invalidate = vi.spyOn(client, "invalidateQueries").mockResolvedValue();
 	const hook = renderHook(
-		() =>
-			useSpaceInboxReadPosition({
+		() => {
+			usePublishInboxVisibleConversation(
+				joined
+					? { kind: "space", spaceId: "space", threadRootSignalId: null }
+					: null
+			);
+			return useSpaceInboxReadPosition({
 				organizationId: "org",
 				profileId: "profile",
 				spaceId: "space",
 				destination: "ordinary-space",
-			}),
+			});
+		},
 		{
 			wrapper: ({ children }: { children: ReactNode }) => (
-				<QueryClientProvider client={client}>{children}</QueryClientProvider>
+				<QueryClientProvider client={client}>
+					<InboxVisibleConversationProvider>
+						{children}
+					</InboxVisibleConversationProvider>
+				</QueryClientProvider>
 			),
 		}
 	);
@@ -60,6 +75,29 @@ beforeEach(() =>
 		.mockResolvedValue({ operation: "read", markedReadCount: 1 })
 );
 describe("Space unread writes", () => {
+	it("acknowledges an empty membership notice when its Space becomes visible and focused", async () => {
+		const focus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
+		try {
+			const { client, key } = setup(true);
+			await waitFor(() =>
+				expect(mutate).toHaveBeenCalledWith({
+					organizationId: "org",
+					body: {
+						operation: "read",
+						spaceId: "space",
+						items: [{ itemId: "joined", occurredAtMs: 5 }],
+					},
+				})
+			);
+			expect(client.getQueryData(key)).toMatchObject({
+				joinedItems: [],
+				targets: [first, later],
+				totalUnreadCount: 2,
+			});
+		} finally {
+			focus.mockRestore();
+		}
+	});
 	it("acknowledges a viewed thread reply without clearing an earlier main update", async () => {
 		const { result, client, key } = setup();
 		await act(() => result.current.markViewed([later]));

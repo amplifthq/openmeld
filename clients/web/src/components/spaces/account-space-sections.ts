@@ -203,7 +203,10 @@ export type AccountSpacePresentationSections = {
 
 export type SpaceUnreadById = ReadonlyMap<
 	string,
-	Pick<SpaceInboxSummaryItem, "latestUnreadOccurredAtMs" | "unreadCount">
+	Pick<
+		SpaceInboxSummaryItem,
+		"latestUnreadOccurredAtMs" | "unreadCount" | "messageUnreadCount"
+	>
 >;
 
 export type AccountSpaceTrailingStatus = "pinned" | "unread" | "working" | null;

@@ -428,6 +428,10 @@ export function SpaceDirectory(input: {
 													item={item}
 													key={item.spaceId}
 													layout={layout}
+													messageUnreadCount={
+														indicators.unreadBySpaceId.get(item.spaceId)
+															?.messageUnreadCount
+													}
 													preferences={preferences}
 													preview={previews.get(item.spaceId)}
 													save={sidebar.save}
@@ -642,6 +646,7 @@ function JoinedRow(input: {
 	preview: { text: string; timestamp: number } | null | undefined;
 	summary?: SpaceSidebarActiveWakeSummary;
 	unread: number;
+	messageUnreadCount?: number;
 	appearances: ReadonlyMap<string, SpaceMemberAppearance>;
 	input: DirectoryInput;
 	preferences?: AccountSidebarPreferences;
@@ -710,8 +715,12 @@ function JoinedRow(input: {
 								{input.unread > 0 && (
 									<span className="relative z-10 flex shrink-0 items-center">
 										<SpaceUnreadLink
-											count={input.unread}
-											showCount
+											count={
+												input.messageUnreadCount
+													? input.messageUnreadCount
+													: input.unread
+											}
+											showCount={input.messageUnreadCount !== 0}
 											spaceId={item.spaceId}
 											url={`${route.to}?${new URLSearchParams(route.search)}`}
 										/>

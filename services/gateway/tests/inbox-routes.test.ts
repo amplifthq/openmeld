@@ -72,6 +72,43 @@ const ITEM = {
   updatedAt: "2026-08-04T01:00:00.000Z",
 };
 
+it.each([
+  undefined,
+  "1",
+  "2",
+])("projects membership notices for Inbox item capability %s", async (version) => {
+  const { coreRpc, env } = makeEnv();
+  const item = {
+    ...ITEM,
+    kind: "space_joined" as const,
+    attention: "update" as const,
+    resolutionStatus: "not_applicable" as const,
+    sourceTarget: { kind: "space" as const, spaceId: "space-1" },
+  };
+  coreRpc.getInboxItem.mockResolvedValue({ item });
+  const response = await app.fetch(
+    new Request("http://local/v1/inbox/items/inbox-item-1", {
+      headers: {
+        "x-openmeld-inbox-source-target-version": "10",
+        ...(version ? { "x-openmeld-inbox-item-kind-version": version } : {}),
+      },
+    }),
+    env,
+    TEST_EXECUTION_CONTEXT
+  );
+  expect(response.status).toBe(200);
+  const result = (await response.json()) as GetInboxItemResponse;
+  expect(result.item).toMatchObject({
+    id: item.id,
+    title: item.title,
+    sourceTarget: item.sourceTarget,
+    kind: version === "2" ? "space_joined" : "system_issue",
+  });
+  expect(coreRpc.getInboxItem).toHaveBeenCalledWith(
+    expect.objectContaining({ includeMembershipNotices: true })
+  );
+});
+
 const MESSAGE_CHANNEL_ITEM = {
   ...ITEM,
   id: "inbox-item-2",

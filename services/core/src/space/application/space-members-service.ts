@@ -2025,7 +2025,10 @@ function buildNextSpaceMemberRecord(input: {
         : null,
     status: "active",
     memberSource: input.existing?.memberSource ?? input.defaultSource,
-    addedAt: input.existing?.addedAt ?? input.defaultAddedAt,
+    addedAt:
+      input.existing?.status === "active"
+        ? input.existing.addedAt
+        : input.defaultAddedAt,
     removedAt: null,
     addedByProfileId:
       input.existing?.addedByProfileId ?? input.addedByProfileId ?? null,

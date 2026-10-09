@@ -117,7 +117,7 @@ async function reconcileTable(client, database, table, columns) {
     )
     .join(",");
   await client.query(
-    `DECLARE migration_rows NO SCROLL CURSOR FOR SELECT ${columns.map((column) => `${quote(column.name)}::text AS ${quote(column.name)}`).join(",")} FROM openmeld.${quote(table.name)} AS source ORDER BY ${order}`
+    `DECLARE migration_rows NO SCROLL CURSOR FOR SELECT ${columns.map((column) => `${quote(column.name)}::text AS ${quote(column.name)}`).join(",")} FROM openmeld.${quote(table.name)} AS source ${table.name === "inbox_items" ? "WHERE source.kind <> 'space_joined'" : ""} ORDER BY ${order}`
   );
   const expected = sourceRows(database, table, columns, true);
   let count = 0;
@@ -733,6 +733,25 @@ async function processD1Snapshot(
       importData,
     });
     await reconcileIdentities(client, manifest, importData, layout.identities);
+    if (importData) {
+      // Native migrations precede the frozen import. Baseline its historical
+      // membership generations after the original rows have been reconciled.
+      const baseline = (
+        await readFile(
+          new URL(
+            "../../packages/db/postgresql/migrations/0031_space_joined_inbox.sql",
+            import.meta.url
+          ),
+          "utf8"
+        )
+      )
+        .split("--> statement-breakpoint")
+        .at(-1);
+      if (!baseline) {
+        throw new Error("Missing Space membership baseline");
+      }
+      await client.query(baseline);
+    }
     const receipt = {
       ...binding,
       tables: imported,

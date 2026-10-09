@@ -27,6 +27,18 @@
 
 ## Storage and migration references
 
+Space membership notifications add `space_joined` to Inbox kinds. Space summary
+adds optional `messageUnreadCount`; exact unread-target receivers also get
+optional `joinedItems` when they request item IDs. Existing message targets,
+scopes, and message totals keep their meaning. The Space membership projection
+outbox owns retries; Inbox owns read state. No client membership or read ledger
+is introduced. Deploy the database migration and receiving Core/Gateway before
+the new Web client and writer. Inbox item-kind version 2 opts in to the new kind;
+older HTTP and RPC receivers get the existing generic update kind with the same
+title and Space target. Historical migration/import baselines are read.
+Older CLI, Service, and Skills retain their previous Space, setup, Wake, and
+diagnostic contracts; no local component update is required by this addition.
+
 Production shared relational storage is PostgreSQL. Numeric migration references
 from the original D1 rollout describe historical schema dependencies already
 absorbed into the native baseline; they are not D1 commands to run now. New
