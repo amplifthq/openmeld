@@ -315,6 +315,10 @@ grid height; the title follows directly, with one latest-message preview row
 only when messages exist. Discover cards and rows expose the same Preview and
 Join actions, pending state, and access checks. Responsive member grids mount
 each avatar once; CSS changes visible slots without duplicating avatar drawing.
+The App's read-only Discover preview omits the Agent-facing Space context
+disclosure and structured JSON link. The standalone public reader retains them;
+the existing presentation context owns this distinction without changing read
+access or the context API.
 The Agents directory uses the same store to remember grouped versus expanded
 presentation per viewer, Organization, and person. Search and temporary filters
 do not become saved layout preferences.

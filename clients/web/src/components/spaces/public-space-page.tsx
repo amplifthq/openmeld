@@ -738,6 +738,7 @@ type PublicSpaceOpenViewProps = {
 };
 
 function PublicSpaceOpenView(input: PublicSpaceOpenViewProps) {
+	const presentation = useContext(ReadOnlyPresentationContext);
 	return (
 		<PublicSpaceChrome
 			focus={{
@@ -771,13 +772,15 @@ function PublicSpaceOpenView(input: PublicSpaceOpenViewProps) {
 				/>
 			) : (
 				<div className="flex min-h-0 min-w-0 flex-1 flex-col">
-					<PublicSpaceContext
-						focus={{
-							signalId: input.initialFocusSignalId,
-							threadRootSignalId: input.initialFocusThreadRootSignalId,
-						}}
-						spaceId={input.spaceId}
-					/>
+					{!presentation && (
+						<PublicSpaceContext
+							focus={{
+								signalId: input.initialFocusSignalId,
+								threadRootSignalId: input.initialFocusThreadRootSignalId,
+							}}
+							spaceId={input.spaceId}
+						/>
+					)}
 					<div className="flex min-h-0 flex-1">
 						<PublicSpacePanels input={input} />
 					</div>
