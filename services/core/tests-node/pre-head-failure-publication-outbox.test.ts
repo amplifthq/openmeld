@@ -108,6 +108,18 @@ describe("pre-head failure publication operational outbox", () => {
       stored: false,
       fault: "legacy_identity",
     },
+    {
+      claim: "failure",
+      status: "failed",
+      stored: false,
+      fault: "legacy_unpublished",
+    },
+    {
+      claim: "failure",
+      status: "failed",
+      stored: false,
+      fault: "old_receiver",
+    },
     { claim: "success", status: "succeeded", stored: true, fault: null },
     { claim: "stopped", status: "stopped", stored: true, fault: null },
     { claim: "failure", status: "failed", stored: false, fault: "task_write" },
@@ -162,7 +174,7 @@ describe("pre-head failure publication operational outbox", () => {
       idempotencyKey: message.idempotencyKey,
       publicationCommand: {
         context,
-        ...(fault === "legacy_identity"
+        ...(fault === "legacy_identity" || fault === "legacy_unpublished"
           ? {}
           : {
               preHeadFailurePublication: {
@@ -196,7 +208,7 @@ describe("pre-head failure publication operational outbox", () => {
       claim !== "failure" ||
       fault === "other_producer" ||
       fault === "legacy_identity";
-    const publishedSignalId = foreignProducer
+    let publishedSignalId = foreignProducer
       ? `saved-${claim}`
       : "86c5b365-4f68-4fd7-8cd2-0f1a72f471b3";
     const errorCode = {
@@ -215,7 +227,36 @@ describe("pre-head failure publication operational outbox", () => {
     const space: Pick<
       Space,
       "rpcPostSystemNoticeSignal" | "rpcReadFinalReplyClaimOutcome"
-    > = {
+    > &
+      Partial<Pick<Space, "rpcPostPreHeadFailureNoticeSignal">> = {
+      rpcPostPreHeadFailureNoticeSignal: vi.fn(async (request) => {
+        const frozen = await readPreHeadFailurePublicationState({
+          db: harness.db,
+          dispatchId: message.dispatchId,
+        });
+        expect(frozen).toMatchObject({
+          status: "pending",
+          intent: {
+            publicationCommand: {
+              preHeadFailurePublication: {
+                signalId: request.preHeadFailurePublication.signalId,
+              },
+            },
+          },
+        });
+        if (fault === "legacy_unpublished") {
+          publishedSignalId = request.preHeadFailurePublication.signalId;
+        }
+        return {
+          v: 1 as const,
+          id: request.preHeadFailurePublication.signalId,
+          ts: 1000,
+          spaceId: message.spaceId,
+          profile: request.profile,
+          type: "signal.system_notice" as const,
+          data: request.data,
+        };
+      }),
       rpcPostSystemNoticeSignal: vi.fn(async () => ({
         v: 1 as const,
         id: "visible-failure",
@@ -287,6 +328,15 @@ describe("pre-head failure publication operational outbox", () => {
           outcome: "unknown",
           signalId: publishedSignalId,
         });
+      } else if (fault === "legacy_unpublished") {
+        vi.mocked(space.rpcReadFinalReplyClaimOutcome).mockResolvedValueOnce({
+          outcome: null,
+          signalId: null,
+        });
+      }
+      const supportedReceiver = space.rpcPostPreHeadFailureNoticeSignal;
+      if (fault === "old_receiver") {
+        Reflect.deleteProperty(space, "rpcPostPreHeadFailureNoticeSignal");
       }
       const ack = vi.fn();
       const input = {
@@ -305,6 +355,38 @@ describe("pre-head failure publication operational outbox", () => {
         env,
       };
       await handleDispatchQueueBatch(input);
+      if (fault === "legacy_identity") {
+        expect(
+          await readPreHeadFailurePublicationState({
+            db: harness.db,
+            dispatchId: message.dispatchId,
+          })
+        ).toMatchObject({
+          status: "needs_attention",
+          reasonCode: "dispatch.pre_head_failure_legacy_claim_unattributed",
+        });
+        expect(
+          await readAgentTaskTerminalOutcome({
+            db: harness.db,
+            taskKey: buildAgentTaskKey(task),
+          })
+        ).toBeNull();
+        expect(queueSend).not.toHaveBeenCalled();
+        expect(space.rpcPostSystemNoticeSignal).not.toHaveBeenCalled();
+        expect(space.rpcPostPreHeadFailureNoticeSignal).not.toHaveBeenCalled();
+        expect(
+          await retryPendingPreHeadFailurePublications({
+            db: harness.db,
+            env,
+            nowMs: 90_000,
+          })
+        ).toEqual({ enqueued: 0, errors: 0, scanned: 0 });
+        clock.mockReturnValue(90_000);
+        await handleDispatchQueueBatch(input);
+        expect(ack).toHaveBeenCalledTimes(2);
+        expect(queueSend).not.toHaveBeenCalled();
+        return;
+      }
       if (fault === "task_conflict") {
         expect(
           await readPreHeadFailurePublicationState({
@@ -324,7 +406,10 @@ describe("pre-head failure publication operational outbox", () => {
         );
         return;
       }
-      if (fault || (!stored && foreignProducer)) {
+      if (
+        (fault && fault !== "legacy_unpublished") ||
+        (!stored && foreignProducer)
+      ) {
         expect(
           await readPreHeadFailurePublicationState({
             db: harness.db,
@@ -343,6 +428,10 @@ describe("pre-head failure publication operational outbox", () => {
         );
         await removeWriteFault?.();
         removeWriteFault = undefined;
+        if (fault === "old_receiver") {
+          expect(space.rpcPostSystemNoticeSignal).not.toHaveBeenCalled();
+          space.rpcPostPreHeadFailureNoticeSignal = supportedReceiver;
+        }
         if (foreignProducer) {
           // The original producer replays after saving a visible claim but
           // before writing Task state. Use its real writer, not a synthesized
@@ -418,7 +507,10 @@ describe("pre-head failure publication operational outbox", () => {
         })
       ).toEqual({ status: "completed" });
       expect(ack).toHaveBeenCalledTimes(
-        fault || (!stored && foreignProducer) ? 2 : 1
+        (fault && fault !== "legacy_unpublished") ||
+          (!stored && foreignProducer)
+          ? 2
+          : 1
       );
     } finally {
       clock.mockRestore();

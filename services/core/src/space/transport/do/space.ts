@@ -6046,6 +6046,22 @@ export class Space extends DurableObject<CoreBindings> {
       Space.#executeRpcPostSystemNoticeSignal(this, input)
     );
   }
+  async rpcPostPreHeadFailureNoticeSignal(
+    input: PostSystemNoticeSignalInput & {
+      preHeadFailurePublication: import("@openmeld/schemas/types").PreHeadFailurePublicationIdentity;
+    }
+  ): Promise<SignalEnvelope> {
+    if (
+      !preHeadFailurePublicationIdentitySchema.safeParse(
+        input.preHeadFailurePublication
+      ).success
+    ) {
+      throw new Error(
+        "dispatch.pre_head_failure_publication_identity_required"
+      );
+    }
+    return await this.rpcPostSystemNoticeSignal(input);
+  }
   static async #executeRpcPostSystemNoticeSignal(
     owner: Space,
     input: PostSystemNoticeSignalInput

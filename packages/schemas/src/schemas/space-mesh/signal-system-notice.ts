@@ -21,6 +21,7 @@ export const signalSystemNoticeGeneratedBySchema = z.literal("openmeld");
 // can distinguish their own saved failure from another final-outcome producer.
 export const preHeadFailurePublicationIdentitySchema = z.strictObject({
   signalId: z.uuid(),
+  legacyUpgrade: z.literal(true).optional(),
 });
 export type PreHeadFailurePublicationIdentity = z.infer<
   typeof preHeadFailurePublicationIdentitySchema

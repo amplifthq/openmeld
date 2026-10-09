@@ -73,8 +73,10 @@ import {
   createPreHeadFailurePublicationIntent,
   createPreHeadFailureRedriveMessage,
   ensurePreHeadFailurePublicationIntent,
+  freezePreHeadFailurePublicationIdentity,
   listDuePreHeadFailurePublicationIntents,
   markPreHeadFailurePublicationCompleted,
+  markPreHeadFailurePublicationNeedsAttention,
   PRE_HEAD_FAILURE_PUBLICATION_PENDING_ERROR_CODE,
   type PreHeadFailurePublicationCommand,
   type PreHeadFailurePublicationIntent,
@@ -1449,7 +1451,7 @@ const resumeExistingPreHeadFailurePublication = async (input: {
   if (state.status === "missing") {
     return null;
   }
-  if (state.status === "completed") {
+  if (state.status === "completed" || state.status === "needs_attention") {
     return {
       controllerWaitPromise: null,
       shouldAck: true,
@@ -4868,17 +4870,96 @@ const resumePreHeadFailurePublication = async (input: {
     dispatchId: input.intent.dispatchId,
     nowMs: input.nowMs,
   });
-  if (claim.outcome === "busy" || claim.outcome === "completed") {
+  if (
+    claim.outcome === "busy" ||
+    claim.outcome === "completed" ||
+    claim.outcome === "needs_attention"
+  ) {
     return true;
   }
   if (claim.outcome === "missing") {
     throw new Error("dispatch.pre_head_failure_publication_intent_missing");
   }
-  const intent = claim.intent;
-  const publication = await emitFrozenPreHeadFailurePublication({
-    env: input.env,
-    intent,
-  });
+  let intent = claim.intent;
+  let publication: "persisted" | "retry_required";
+  try {
+    if (!input.env.OPENMELD_SPACES) {
+      throw new Error("dispatch.pre_head_failure_space_unavailable");
+    }
+    const identity = intent.publicationCommand.preHeadFailurePublication;
+    const legacyClaim =
+      !identity || identity.legacyUpgrade
+        ? await readSpaceFinalOutcomeClaim({
+            dispatchId: intent.dispatchId,
+            env: input.env,
+            spaceId: intent.redriveMessage.spaceId,
+            targetProfileId: intent.redriveMessage.targetProfileId,
+          })
+        : null;
+    if (
+      legacyClaim &&
+      legacyClaim.signalId !== identity?.signalId &&
+      intent.redriveMessage.sourceClientMessageId
+    ) {
+      const stored = await readAgentTaskTerminalOutcome({
+        db: input.recoveryDb,
+        taskKey: buildAgentTaskKey({
+          kind: "space_wake",
+          sourceClientMessageId: intent.redriveMessage.sourceClientMessageId,
+          spaceId: intent.redriveMessage.spaceId,
+          targetProfileId: intent.redriveMessage.targetProfileId,
+          v: 1,
+        }),
+      });
+      if (!stored) {
+        const reasonCode =
+          "dispatch.pre_head_failure_legacy_claim_unattributed";
+        await markPreHeadFailurePublicationNeedsAttention({
+          db: input.recoveryDb,
+          intent,
+          nowMs: input.nowMs,
+          reasonCode,
+        });
+        console.warn(
+          "[core.openMeldDaemon.dispatch_queue.pre_head_failure_needs_attention]",
+          {
+            dispatchId: intent.dispatchId,
+            publishedSignalId: legacyClaim.signalId,
+            reasonCode,
+          }
+        );
+        return true;
+      }
+    }
+    if (legacyClaim) {
+      publication = "persisted";
+    } else {
+      intent = await freezePreHeadFailurePublicationIdentity({
+        db: input.recoveryDb,
+        intent,
+        nowMs: input.nowMs,
+      });
+      publication = await emitFrozenPreHeadFailurePublication({
+        env: input.env,
+        intent,
+      });
+    }
+  } catch (error) {
+    console.warn(
+      "[core.openMeldDaemon.dispatch_queue.pre_head_failure_prepare_failed]",
+      {
+        dispatchId: intent.dispatchId,
+        error: toErrorMessage(error),
+      }
+    );
+    return await redrivePreHeadFailurePublication({
+      env: input.env,
+      intent,
+      message: input.message,
+      nowMs: input.nowMs,
+      recoveryDb: input.recoveryDb,
+    });
+  }
   if (publication === "retry_required") {
     await markDispatchStatus({
       attemptId: intent.attemptId,

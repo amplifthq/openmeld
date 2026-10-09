@@ -2385,14 +2385,32 @@ only that exact saved failure allows it to create a pre-head-owned Task event.
 A competing success, stopped result, or failure remains with its original
 producer. If that producer has not written its Task outcome yet, recovery stays
 pending until the original command replays. Older frozen commands without this
-identity cannot claim ownership of a saved notice. They can complete once an
-existing compatible Task outcome is present; they never invent one.
+identity cannot claim ownership of a saved notice. Before any publication, a
+legacy intent with no saved claim freezes its identity under the same outbox
+claim and version check. Publication uses a named required Space RPC that
+reuses the existing system-notice implementation. An older receiver rejects
+the call before any visible write; there is no ordinary-RPC fallback.
+An already-published legacy claim can complete when a compatible Task outcome
+exists. Without that evidence, the original notice cannot identify its Task
+event owner. The outbox records `needs_attention` with
+`dispatch.pre_head_failure_legacy_claim_unattributed`, releases its claim, and
+stops automatic enqueue and publication attempts. This remains an unrepaired
+Task result, not success or completed recovery. Its original command, visible
+claim, and failure reason remain available for diagnosis. It never invents an
+event or silently rewrites historical results.
 An existing compatible task outcome retains its original event and timestamp;
 conflicting task evidence keeps recovery pending. A failed claim read, missing or
 unknown claim, or failed task projection also keeps the frozen publication
 recoverable. Task subscriptions and their continuation queue use the existing
 Agent Task Coordination owner. Legacy input without a client message id has no
 exact Space Wake task handle and retains its publication-only contract.
+
+Native migration `0032` adds the nullable recovery blocker and extends the
+existing outbox status/completion constraints. Apply it before Core. Pending
+and completed rows retain their previous meaning. Older Core does not enqueue
+the new attention status; rollback does not resume these rows or repair their
+Task outcomes. Core and Space must retain the required publication receiver
+while upgraded callers or frozen identities remain in use.
 
 When accepted-result publication exhausts its repair window, Space first owns
 the atomic visible-outcome choice. Its existing final claim wins, or Space

@@ -29,6 +29,7 @@ export const openMeldDaemonPreHeadFailurePublicationOutbox = applicationTable(
     publicationCommandJson: text("publication_command_json").notNull(),
     redriveMessageJson: text("redrive_message_json").notNull(),
     status: text("status").notNull(),
+    recoveryBlockerReason: text("recovery_blocker_reason"),
     attemptCount: bigint("attempt_count", { mode: "number" }).notNull(),
     nextAttemptAtMs: bigint("next_attempt_at_ms", { mode: "number" }).notNull(),
     claimId: text("claim_id"),
@@ -40,7 +41,7 @@ export const openMeldDaemonPreHeadFailurePublicationOutbox = applicationTable(
   (table) => [
     check(
       "openMeldDaemon_pre_head_failure_publication_outbox_status_check",
-      sql`${table.status} IN ('pending', 'completed')`
+      sql`${table.status} IN ('pending', 'completed', 'needs_attention')`
     ),
     check(
       "openMeldDaemon_pre_head_failure_publication_outbox_failure_context_check",
@@ -60,7 +61,7 @@ export const openMeldDaemonPreHeadFailurePublicationOutbox = applicationTable(
     ),
     check(
       "openMeldDaemon_pre_head_failure_publication_outbox_completion_check",
-      sql`(${table.status} = 'pending' AND ${table.completedAtMs} IS NULL) OR (${table.status} = 'completed' AND ${table.completedAtMs} IS NOT NULL AND ${table.claimId} IS NULL AND ${table.claimExpiresAtMs} IS NULL)`
+      sql`(${table.status} = 'pending' AND ${table.completedAtMs} IS NULL AND ${table.recoveryBlockerReason} IS NULL) OR (${table.status} = 'completed' AND ${table.completedAtMs} IS NOT NULL AND ${table.claimId} IS NULL AND ${table.claimExpiresAtMs} IS NULL AND ${table.recoveryBlockerReason} IS NULL) OR (${table.status} = 'needs_attention' AND ${table.completedAtMs} IS NULL AND ${table.claimId} IS NULL AND ${table.claimExpiresAtMs} IS NULL AND ${table.recoveryBlockerReason} IS NOT NULL)`
     ),
     index("openMeldDaemon_pre_head_failure_publication_outbox_due_idx").on(
       table.status,

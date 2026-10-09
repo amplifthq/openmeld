@@ -19750,13 +19750,20 @@ export async function rpcPostSystemNoticeSignal(
       },
     });
   }
+  if (input.preHeadFailurePublication) {
+    // The named required receiver rejects an older Space before publication.
+    // An optional field on the ordinary RPC would be silently ignored there.
+    return await stub.rpcPostPreHeadFailureNoticeSignal({
+      ...input,
+      context,
+      spaceId,
+      preHeadFailurePublication: input.preHeadFailurePublication,
+    });
+  }
   return await stub.rpcPostSystemNoticeSignal({
     spaceId,
     profile: input.profile,
     data: input.data,
-    ...(input.preHeadFailurePublication
-      ? { preHeadFailurePublication: input.preHeadFailurePublication }
-      : {}),
     ...(input.finalOutcomeAuthority
       ? { finalOutcomeAuthority: input.finalOutcomeAuthority }
       : {}),

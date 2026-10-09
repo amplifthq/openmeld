@@ -370,6 +370,16 @@ function nativeColumns(table, targetColumns) {
       source: "new_nullable",
     });
   }
+  if (table.name === "openMeldDaemon_pre_head_failure_publication_outbox") {
+    // Import keeps the historical publication state. Attribution is reviewed
+    // by the owning recovery command, never inferred by the migration.
+    columns.push({
+      name: "recovery_blocker_reason",
+      type: "TEXT",
+      hidden: 0,
+      source: "new_nullable",
+    });
+  }
   // Historical accounts and Organizations have not requested deletion.
   const deletionColumn = {
     users: "deleted_at",
