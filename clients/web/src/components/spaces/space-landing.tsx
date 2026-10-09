@@ -2970,6 +2970,7 @@ function SpaceLandingSecondaryPanels({
 					composerMentionPickerItems={
 						controller.threadComposerMentionPickerItems
 					}
+					composerReplyToSignalId={controller.threadComposerReplyToSignalId}
 					composerText={controller.threadComposerText}
 					currentOwnerUserId={currentOwnerUserId}
 					ephemeralActivityItems={controller.presentedWakeProgressItems}
@@ -2998,6 +2999,7 @@ function SpaceLandingSecondaryPanels({
 					onAddPeopleOrAgents={currentSpaceControls.onAddAgentsFromBanner}
 					onAgentInteractionResponse={controller.onAgentInteractionResponse}
 					onAgentRecoveryAction={handleAgentRecoveryAction}
+					onClearComposerReplyTo={controller.onClearThreadComposerReplyTo}
 					onClose={controller.onCloseThread}
 					onComposeExpiredDeviceWait={
 						controller.status?.allowedActions.includes("post_message")
@@ -3010,8 +3012,10 @@ function SpaceLandingSecondaryPanels({
 						controller.onCloseThread();
 						openSpaceFile(fileId, revision);
 					}}
+					onOpenUnreadThread={controller.onOpenUnreadThread}
 					onRecoverExecution={controller.onRecoverExecution}
 					onRemoveComposerFile={controller.onRemoveThreadComposerFile}
+					onReplyToMessage={controller.onThreadReplyToMessage}
 					onReportMessage={controller.onReportMessage}
 					onRetryComposerFile={controller.onRetryThreadComposerFile}
 					onRetryComposerFileCleanup={

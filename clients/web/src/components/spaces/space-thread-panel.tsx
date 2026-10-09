@@ -89,8 +89,10 @@ import type {
 	SpaceComposerEditorChange,
 	SpaceComposerInputRef,
 } from "./space-composer-editor";
+import { SpaceComposerReplyBanner } from "./space-composer-reply-banner";
 import { SpaceConversationCompactionMarker } from "./space-conversation-compaction-marker";
 import {
+	SpaceConversationSendScrollController,
 	type SpaceMessageScrollAction,
 	SpaceMessageScrollController,
 	scrollMessageIntoConversationViewport,
@@ -100,6 +102,7 @@ import {
 	SpaceDeviceWaitOutcomeScope,
 } from "./space-device-wait-outcome";
 import type { SpaceExecutionRecoveryHandler } from "./space-execution-recovery-actions";
+import { SpaceHistoryJumpControl } from "./space-history-jump-control";
 import { SpaceInlineSidePanel } from "./space-inline-side-panel";
 import { SPACE_MESSAGE_ROW_LAYOUT_CLASS } from "./space-message-bubble-style";
 import { SpaceMessageDetailsDrawer } from "./space-message-details-drawer";
@@ -118,16 +121,19 @@ import {
 	ThreadMessagesLoading,
 	ThreadPanelHeader,
 } from "./space-thread-loading";
+import { SpaceConversationUnreadControl } from "./space-unread-control";
 import { SpaceComposerActiveWakes } from "./space-wake-bookmarks";
 import { SpaceWakeRecommendationScope } from "./space-wake-recommendation";
 import {
 	type SpaceWakeStopRequestHandler,
 	SpaceWakeStopScope,
 } from "./space-wake-stop-control";
+import { useSpaceConversationPosition } from "./use-space-conversation-position";
 import type {
 	SpaceComposerAddressingTarget,
 	SpaceMentionPickerItem,
 } from "./use-space-mention-authoring";
+import { useSpaceMessageTaskAction } from "./use-space-message-task-action";
 import { useSpacePanelWidth } from "./use-space-panel-width";
 import { useSpaceProfileDetailsPopover } from "./use-space-profile-details-popover";
 import { useSpaceUnread } from "./use-space-unread";
@@ -214,6 +220,8 @@ type SpaceThreadPanelProps = {
 	composerMembers?: SpaceComposerProps["members"];
 	composerHasAuthoredMentions?: boolean;
 	composerText: string;
+	composerReplyToSignalId?: string | null;
+	onClearComposerReplyTo?: () => void;
 	composerFiles: readonly SpaceComposerFile[];
 	composerFileLimitReached: boolean;
 	currentOwnerUserId: string | null;
@@ -239,12 +247,12 @@ type SpaceThreadPanelProps = {
 	modelCatalog: ModelCatalog | null;
 	onClose: () => void;
 	onShowMessageInMain?: (signalId: string) => void;
+	onOpenUnreadThread?: (input: {
+		rootSignalId: string;
+		signalId: string;
+		threadId?: string;
+	}) => boolean | Promise<boolean>;
 	onReplyToMessage?: (item: SpaceTimelineItem) => void;
-	onAddMessageToTasks?: (
-		item: SpaceTimelineItem,
-		threadId: string | null
-	) => void;
-	taskCreationSourceSignalId?: string | null;
 	onComposeExpiredDeviceWait?: ComposeExpiredDeviceWait;
 	onAgentRecoveryAction: (
 		plan: SpaceAgentProfileBindingRecoveryPlan
@@ -323,14 +331,18 @@ export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
 
 function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 	const panelWidth = useSpacePanelWidth({ panel: "thread" });
-	const { registerMessageElement, jumpToMessage, messageScrollActionRef } =
-		useThreadInitialFocus({
-			signals: input.signals,
-			activeThread: input.activeThread,
-			initialFocusRequestId: input.initialFocusRequestId,
-			initialFocusSignalId: input.initialFocusSignalId,
-			initialFocusThreadRootSignalId: input.initialFocusThreadRootSignalId,
-		});
+	const {
+		registerMessageElement,
+		jumpToMessage,
+		messageScrollActionRef,
+		messageElementsRef,
+	} = useThreadInitialFocus({
+		signals: input.signals,
+		activeThread: input.activeThread,
+		initialFocusRequestId: input.initialFocusRequestId,
+		initialFocusSignalId: input.initialFocusSignalId,
+		initialFocusThreadRootSignalId: input.initialFocusThreadRootSignalId,
+	});
 	const activeThreadId = input.activeThread?.threadId ?? null;
 	const activeThreadRootSignalId = input.activeThread?.rootSignalId ?? null;
 	const onRecoverExecution = useMemo(
@@ -569,7 +581,9 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 					isLoading={input.signalsIsLoading}
 					isPersonalContext={input.isPersonalContext === true}
 					items={threadTimelineItems}
+					key={`${input.selfProfileId}:${input.activeThread?.spaceId}:${activeThreadRootSignalId}`}
 					membersSnapshot={input.membersSnapshot}
+					messageElementsRef={messageElementsRef}
 					messageScrollActionRef={messageScrollActionRef}
 					modelCatalog={input.modelCatalog}
 					onAgentInteractionResponse={input.onAgentInteractionResponse}
@@ -596,6 +610,7 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 					selfAvatarImageUrl={input.selfAvatarImageUrl ?? null}
 					selfProfileId={input.selfProfileId}
 					spaceReferencesById={input.spaceReferencesById}
+					unreadScopes={input.unreadScopes}
 					unreadTargets={activeUnreadTargets}
 					wakeFailureTargetContextsByProfileId={
 						input.wakeFailureTargetContextsByProfileId
@@ -608,7 +623,13 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 				/>
 				{renderThreadComposer(
 					input,
-					buildSpaceTaskSources(rawThreadTimelineItems, input.selfProfileId)
+					buildSpaceTaskSources(rawThreadTimelineItems, input.selfProfileId),
+					<SpaceComposerReplyBanner
+						onClear={input.onClearComposerReplyTo ?? (() => undefined)}
+						profilePresentationsById={profilePresentationsById}
+						signalId={input.composerReplyToSignalId ?? null}
+						timelineItems={threadTimelineItems}
+					/>
 				)}
 				<ThreadSelectedMessageDetails
 					activeThread={input.activeThread}
@@ -895,12 +916,18 @@ function useThreadInitialFocus(input: {
 		}
 		element?.focus({ preventScroll: true });
 	}, []);
-	return { registerMessageElement, jumpToMessage, messageScrollActionRef };
+	return {
+		registerMessageElement,
+		jumpToMessage,
+		messageScrollActionRef,
+		messageElementsRef: messageElements,
+	};
 }
 
 function renderThreadComposer(
 	input: SpaceThreadPanelProps,
-	taskSources: readonly SpaceTaskSource[]
+	taskSources: readonly SpaceTaskSource[],
+	replyBanner: ReactNode
 ): ReactNode {
 	if (input.readOnly) {
 		return null;
@@ -915,7 +942,9 @@ function renderThreadComposer(
 			composerAddressingTargets={input.composerAddressingTargets ?? []}
 			composerAuthoredMentions={input.composerAuthoredMentions ?? []}
 			composerErrorMessage={input.composerErrorMessage}
+			composerFileCleanup={input.composerFileCleanup}
 			composerFileLimitReached={input.composerFileLimitReached}
+			composerFileRestorationError={input.composerFileRestorationError}
 			composerFiles={input.composerFiles}
 			composerHasAuthoredMentions={input.composerHasAuthoredMentions}
 			composerMembers={input.composerMembers}
@@ -931,12 +960,16 @@ function renderThreadComposer(
 			onComposerEditorChange={input.onComposerEditorChange}
 			onMentionButtonClick={input.onMentionButtonClick}
 			onRemoveComposerFile={input.onRemoveComposerFile}
+			onRetryComposerFile={input.onRetryComposerFile}
+			onRetryComposerFileCleanup={input.onRetryComposerFileCleanup}
+			onRetryComposerFileRestoration={input.onRetryComposerFileRestoration}
 			onSend={input.onSend}
 			organizationId={input.organizationId}
 			orgSlug={input.orgSlug}
 			pendingActionSurface={input.pendingActionSurface}
 			prepareSetupHref={input.prepareSetupHref}
 			profileControl={input.profileControl}
+			replyBanner={replyBanner}
 			taskSources={taskSources}
 			textareaRef={input.textareaRef}
 		/>
@@ -1042,6 +1075,7 @@ function resolveThreadComputerSetupActionSignalId(input: {
 }
 
 function ThreadTimeline(input: {
+	messageElementsRef: { current: Map<string, HTMLElement> };
 	panelInput: SpaceThreadPanelProps;
 	membersSnapshot: SpaceMembersSnapshot | null;
 	modelCatalog: ModelCatalog | null;
@@ -1105,7 +1139,9 @@ function ThreadTimeline(input: {
 	>;
 	wakeStopTargetLabelsByProfileId: ReadonlyMap<string, string>;
 }) {
-	const [scrollElement, setScrollElement] = useState<HTMLElement | null>(null);
+	const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(
+		null
+	);
 	const wakeProblemSourceSignalIds = useMemo(
 		() =>
 			buildWakeProblemSourceSignalIds({
@@ -1144,6 +1180,58 @@ function ThreadTimeline(input: {
 		[input.items]
 	);
 	const panel = input.panelInput;
+	const taskAction = useSpaceMessageTaskAction({
+		disabled: input.readOnly,
+		openMeldProfileId: input.selfProfileId,
+		organizationSlug: panel.orgSlug,
+		spaceId: panel.activeThread?.spaceId,
+	});
+	const conversationPosition = useSpaceConversationPosition({
+		historyIsPending: input.isLoading,
+		isLiveHistory: true,
+		historyVersion: input.items,
+		hasExplicitFocus: Boolean(panel.initialFocusSignalId),
+		messageElementsRef: input.messageElementsRef,
+		restorationId: `space-thread:${panel.activeThread?.spaceId}:${panel.activeThread?.threadId}`,
+		selfProfileId: input.selfProfileId,
+		viewport: scrollElement,
+	});
+	const [navigationError, setNavigationError] = useState<string | null>(null);
+	const unreadCount =
+		input.unreadScopes?.find(
+			(scope) => scope.threadRootSignalId === panel.activeThread?.rootSignalId
+		)?.unreadCount ?? input.unreadTargets.length;
+	const navigateUnread = async (
+		target: SpaceInboxUnreadTarget
+	): Promise<boolean> => {
+		conversationPosition.releaseReadingPosition();
+		setNavigationError(null);
+		try {
+			if (input.messageElementsRef.current.has(target.signalId)) {
+				input.onJumpToMessage(target.signalId);
+				return true;
+			}
+			if (
+				target.threadRootSignalId &&
+				(await panel.onOpenUnreadThread?.({
+					rootSignalId: target.threadRootSignalId,
+					signalId: target.signalId,
+				}))
+			) {
+				return true;
+			}
+			throw new Error(
+				"Couldn’t find this unread reply. Refresh this Thread and try again."
+			);
+		} catch (error) {
+			setNavigationError(
+				error instanceof Error
+					? error.message
+					: "Couldn’t open this unread reply. Try again."
+			);
+			return false;
+		}
+	};
 	if (input.errorMessage) {
 		return (
 			<p className="m-4 rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-destructive text-sm">
@@ -1152,21 +1240,57 @@ function ThreadTimeline(input: {
 		);
 	}
 	return (
-		<MessageScrollerProvider autoScroll={true} defaultScrollPosition="end">
+		<MessageScrollerProvider
+			autoScroll={conversationPosition.autoScroll}
+			defaultScrollPosition={conversationPosition.defaultScrollPosition}
+		>
+			<SpaceConversationSendScrollController
+				isSendingMessage={panel.isSendingMessage}
+				onSendStart={conversationPosition.followLatest}
+			/>
 			<SpaceMessageScrollController
 				actionRef={input.messageScrollActionRef}
+				latestMessageId={input.items.at(-1)?.id}
 				scrollElement={scrollElement}
 			/>
 			<MessageScroller className="min-h-0 flex-1">
 				<MessageScrollerViewport
+					aria-label="Thread history"
+					aria-live="polite"
 					className="space-conversation-inline-padding py-4"
+					onScroll={(event) =>
+						conversationPosition.onScroll(event.currentTarget)
+					}
+					onScrollEnd={(event) =>
+						conversationPosition.onScrollEnd(event.currentTarget)
+					}
 					ref={setScrollElement}
+					role="log"
 				>
 					<SpaceMessageReadObserver
 						key={input.readScopeKey}
-						onViewedUpdates={input.onViewedUpdates}
+						onViewedUpdates={
+							conversationPosition.restorationStatus === "ready"
+								? input.onViewedUpdates
+								: undefined
+						}
 						unreadTargets={input.unreadTargets}
 					/>
+					<div className="pointer-events-none sticky top-0 z-20 flex justify-center">
+						<SpaceConversationUnreadControl
+							count={unreadCount}
+							firstUnreadSignalId={input.firstUnreadSignalId}
+							onNavigate={navigateUnread}
+							scope="thread"
+							targets={input.unreadTargets}
+							threadRootSignalId={panel.activeThread?.rootSignalId}
+						/>
+					</div>
+					{navigationError && (
+						<p className="text-destructive text-sm" role="alert">
+							{navigationError}
+						</p>
+					)}
 					<MessageScrollerContent className="gap-0">
 						{input.isLoading && input.items.length === 0 ? (
 							<ThreadMessagesLoading />
@@ -1261,7 +1385,7 @@ function ThreadTimeline(input: {
 										loadedMainTimelineSignalIds={loadedSignalIds}
 										membersSnapshot={input.membersSnapshot}
 										modelCatalog={input.modelCatalog}
-										onAddMessageToTasks={panel.onAddMessageToTasks}
+										onAddMessageToTasks={taskAction.onAdd}
 										onAgentInteractionResponse={
 											input.onAgentInteractionResponse
 										}
@@ -1309,7 +1433,7 @@ function ThreadTimeline(input: {
 										spaceId={panel.activeThread?.spaceId}
 										spaceReferencesById={input.spaceReferencesById}
 										taskCreationSourceSignalId={
-											panel.taskCreationSourceSignalId
+											taskAction.pendingSourceSignalId
 										}
 										threadId={panel.activeThread?.threadId}
 										threadPreviewByThreadId={EMPTY_THREAD_PREVIEWS}
@@ -1335,12 +1459,14 @@ function ThreadTimeline(input: {
 						})}
 					</MessageScrollerContent>
 				</MessageScrollerViewport>
+				<SpaceHistoryJumpControl />
 			</MessageScroller>
 		</MessageScrollerProvider>
 	);
 }
 
 function ThreadComposer(input: {
+	replyBanner: ReactNode;
 	organizationId?: string | null;
 	taskSources: readonly SpaceTaskSource[];
 	canSendMessage: boolean;
@@ -1458,6 +1584,7 @@ function ThreadComposer(input: {
 			}}
 			slots={{
 				pendingActionSurface: input.pendingActionSurface,
+				beforeInput: input.replyBanner,
 				beforePrimaryAction: <SpaceComposerActiveWakes placement="thread" />,
 				error: input.composerErrorMessage ? (
 					<p className="text-destructive text-sm" role="alert">

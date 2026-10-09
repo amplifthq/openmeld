@@ -1341,6 +1341,9 @@ export type SpaceLandingConversationController = {
 	threadComposerErrorMessage: string | null;
 	threadComposerHasAuthoredMentions: boolean;
 	threadComposerText: string;
+	threadComposerReplyToSignalId: string | null;
+	onClearThreadComposerReplyTo: () => void;
+	onThreadReplyToMessage: (item: SpaceTimelineItem) => void;
 	threadComposerFiles: readonly SpaceComposerFile[];
 	threadComposerFileLimitReached: boolean;
 	threadComposerFileCleanup: readonly ComposerFileDraftCleanup[];
@@ -2922,6 +2925,10 @@ export function useSpaceLandingController(input: {
 		threadComposerHasAuthoredMentions:
 			threadController.threadComposerHasAuthoredMentions,
 		threadComposerText: threadController.threadComposerText,
+		threadComposerReplyToSignalId:
+			threadController.threadComposerReplyToSignalId,
+		onClearThreadComposerReplyTo: threadController.onClearThreadComposerReplyTo,
+		onThreadReplyToMessage: threadController.onThreadReplyToMessage,
 		threadComposerFiles: threadController.threadComposerFiles,
 		threadComposerFileLimitReached:
 			threadController.threadComposerFileLimitReached,
@@ -4171,6 +4178,14 @@ function useSpaceThreadController(input: {
 		threadComposerErrorMessage: composerErrorMessage,
 		threadComposerHasAuthoredMentions: mentionAuthoring.hasAuthoredMentions,
 		threadComposerText: mentionAuthoring.composerText,
+		threadComposerReplyToSignalId: mentionAuthoring.replyTo?.signalId ?? null,
+		onClearThreadComposerReplyTo: mentionAuthoring.onClearReplyTo,
+		onThreadReplyToMessage: (item: SpaceTimelineItem) =>
+			mentionAuthoring.onReplyToSignal({
+				signalId: item.id,
+				wakeTargetProfileId:
+					item.actorProfileKind === "agent" ? item.actorProfileId : null,
+			}),
 		threadComposerFiles: composerFilesController.files,
 		threadComposerFileLimitReached: composerFilesController.isAtLimit,
 		threadComposerFileCleanup: composerFilesController.cleanup,

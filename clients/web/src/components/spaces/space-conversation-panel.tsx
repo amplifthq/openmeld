@@ -1,5 +1,4 @@
 import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
-import { SPACE_TASK_TITLE_MAX_CHARS } from "@openmeld/schemas";
 import type {
 	ModelCatalog,
 	SpaceInboxUnreadTarget,
@@ -15,8 +14,7 @@ import {
 import { Button } from "@openmeld/ui/components/button";
 import { useMediaQuery } from "@openmeld/ui/hooks/use-media-query";
 import { cn } from "@openmeld/ui/lib/utils";
-import { InfoIcon, XIcon } from "@phosphor-icons/react";
-import { useQueryClient } from "@tanstack/react-query";
+import { InfoIcon } from "@phosphor-icons/react";
 import {
 	Activity,
 	Fragment,
@@ -31,7 +29,6 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { toast } from "sonner";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
 import { useSpaceConversationOpenPaint } from "#/lib/observability/use-space-open-paint";
 import { getSpaceConversationHistorySignalId } from "#/lib/space-conversation-position";
@@ -40,10 +37,7 @@ import {
 	isWakeProgressInConversation,
 	resolveWakeReplyThreadRoot,
 } from "#/lib/spaces/active-wake-conversation";
-import {
-	createOrganizationScopedWebSpaceApi,
-	createUnscopedWebSpaceApi,
-} from "#/lib/spaces/api";
+import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { ComposerFileDraftCleanup } from "#/lib/spaces/composer-file-drafts";
 import type { SpaceConversationVisibleStreamProjection } from "#/lib/spaces/conversation-stream";
@@ -70,7 +64,6 @@ import {
 	type SpaceWakeStopRequestStatus,
 } from "#/lib/spaces/wake-stop-target";
 import { SPACE_INITIAL_HISTORY_MAX_MESSAGES } from "#/query/spaces/history";
-import { spaceTaskQueryKeys } from "#/query/spaces/space-tasks";
 import {
 	type CenterAgentComputerSetupContext,
 	resolveLatestComputerSetupActionSignalId,
@@ -116,6 +109,7 @@ import type {
 	SpaceComposerEditorChange,
 	SpaceComposerInputRef,
 } from "./space-composer-editor";
+import { SpaceComposerReplyBanner } from "./space-composer-reply-banner";
 import { buildSpaceTaskSources } from "./space-composer-task-menu";
 import { SpaceConversationCompactionMarker } from "./space-conversation-compaction-marker";
 import { resolveLocalDateKey } from "./space-conversation-date";
@@ -155,7 +149,6 @@ import {
 	readMessageDetailsProgressEntries,
 	resolveCenterAgentComputerSetupContext,
 	resolveReplyItemsForMessage,
-	resolveReplyPreviewText,
 	SpaceMessageRun,
 } from "./space-message-run";
 import {
@@ -186,6 +179,7 @@ import type {
 	SpaceComposerAddressingTarget,
 	SpaceMentionPickerItem,
 } from "./use-space-mention-authoring";
+import { useSpaceMessageTaskAction } from "./use-space-message-task-action";
 
 const SpaceGraph = lazy(() =>
 	import("./space-graph").then((module) => ({ default: module.SpaceGraph }))
@@ -487,74 +481,6 @@ export function SpaceConversationPanel(
 			{content}
 		</SpaceTaskReferencesProvider>
 	);
-}
-
-function useSpaceMessageTaskAction(input: {
-	disabled: boolean;
-	openMeldProfileId: string;
-	organizationSlug?: string;
-	spaceId?: string;
-}) {
-	const { disabled, openMeldProfileId, organizationSlug, spaceId } = input;
-	const queryClient = useQueryClient();
-	const [pendingSourceSignalId, setPendingSourceSignalId] = useState<
-		string | null
-	>(null);
-	const onAdd = useCallback(
-		async (item: SpaceTimelineItem, threadId: string | null) => {
-			if (disabled || !spaceId || pendingSourceSignalId) {
-				return;
-			}
-			setPendingSourceSignalId(item.id);
-			try {
-				const compactText = item.text.replace(/\s+/gu, " ").trim();
-				const title =
-					compactText.length > SPACE_TASK_TITLE_MAX_CHARS
-						? `${compactText.slice(0, SPACE_TASK_TITLE_MAX_CHARS - 1).trimEnd()}…`
-						: compactText || `Follow up on ${item.actorName}'s message`;
-				const taskApi = organizationSlug
-					? createOrganizationScopedWebSpaceApi({
-							organizationSlug,
-							openMeldProfileId,
-						})
-					: createUnscopedWebSpaceApi({ openMeldProfileId });
-				await taskApi.createTask({
-					spaceId,
-					body: {
-						operationId: crypto.randomUUID(),
-						title,
-						sourceSignalId: item.id,
-						threadId,
-						assigneeProfileId:
-							item.wakeTargetProfileIds.length === 1
-								? (item.wakeTargetProfileIds[0] ?? null)
-								: null,
-					},
-				});
-				await queryClient.invalidateQueries({
-					queryKey: spaceTaskQueryKeys.space(spaceId),
-				});
-				toast.success("Task created from this message.");
-			} catch (error) {
-				toast.error(
-					error instanceof Error && error.message
-						? error.message
-						: "OpenMeld couldn't create a Task from this message."
-				);
-			} finally {
-				setPendingSourceSignalId(null);
-			}
-		},
-		[
-			disabled,
-			openMeldProfileId,
-			organizationSlug,
-			pendingSourceSignalId,
-			queryClient,
-			spaceId,
-		]
-	);
-	return { onAdd: disabled ? undefined : onAdd, pendingSourceSignalId };
 }
 
 function SpaceConversationPanelContent(
@@ -2029,7 +1955,7 @@ function SpaceComposerSection(input: {
 							<SpaceComposerActiveWakes placement="conversation" />
 						),
 						beforeInput: (
-							<ComposerReplyBanner
+							<SpaceComposerReplyBanner
 								onClear={() => {
 									panel.onClearComposerReplyTo();
 									panel.textareaRef.current?.focus();
@@ -2051,52 +1977,6 @@ function SpaceComposerSection(input: {
 					)}
 				/>
 			</div>
-		</div>
-	);
-}
-
-function ComposerReplyBanner(input: {
-	onClear: () => void;
-	profilePresentationsById: ReadonlyMap<
-		string,
-		SpaceCollaborationProfilePresentation
-	>;
-	signalId: string | null;
-	timelineItems: readonly SpaceTimelineItem[];
-}) {
-	if (!input.signalId) {
-		return null;
-	}
-	const item = input.timelineItems.find(
-		(candidate) => candidate.id === input.signalId
-	);
-	const preview = resolveReplyPreviewText(
-		item?.text ?? "",
-		item,
-		input.profilePresentationsById
-	)
-		.replace(/\s+/g, " ")
-		.trim();
-	const excerpt = preview.length > 100 ? `${preview.slice(0, 100)}…` : preview;
-	return (
-		<div
-			className="mx-1 mb-2 flex min-w-0 items-center gap-2 border-border border-b pb-2 text-muted-foreground text-xs"
-			data-slot="composer-reply-banner"
-		>
-			<Button
-				aria-label="Cancel reply"
-				className="size-6 shrink-0 [&_svg]:size-3.5"
-				onClick={input.onClear}
-				size="icon-sm"
-				type="button"
-				variant="ghost"
-			>
-				<XIcon aria-hidden="true" />
-			</Button>
-			<p className="min-w-0 truncate border-border border-l pl-2">
-				Replying {item?.actorName ?? "earlier message"}
-				{excerpt ? `: ${excerpt}` : ""}
-			</p>
 		</div>
 	);
 }
