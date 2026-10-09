@@ -6,7 +6,13 @@ import { Switch } from "@openmeld/ui/components/switch";
 import { RadioGroup, RadioItem } from "@openmeld/ui/fluid/radio-group";
 import { useMediaQuery } from "@openmeld/ui/hooks/use-media-query";
 import { cn } from "@openmeld/ui/lib/utils";
-import { ArrowUpIcon, PlusIcon } from "@phosphor-icons/react";
+import {
+	ArrowRightIcon,
+	ArrowUpIcon,
+	PlusIcon,
+	RobotIcon,
+	UserCircleIcon,
+} from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useMemo, useState, useSyncExternalStore } from "react";
 import { AppPageHeader } from "#/components/app/app-page-header";
@@ -182,28 +188,34 @@ export function SpacesSection() {
 					layout="stacked"
 					showDivider
 				/>
-				<SettingsRow
-					control={
-						query.data ? (
-							<Switch
-								aria-label="Automatically wake the only Agent"
-								checked={query.data.automaticWakeEnabled}
-								disabled={unavailable || mutation.isPending}
-								onCheckedChange={(value) => mutation.mutate(value)}
-							/>
-						) : (
-							<Skeleton className="h-5 w-9 rounded-full" />
-						)
-					}
-					description="When a Space or direct message has only you and one Agent, your messages ask that Agent to work without an @mention. Turn this off to wake the Agent only when you mention it. Applies across your organizations."
-					error={
-						unavailable
-							? "Couldn't load this preference."
-							: mutation.error?.message
-					}
-					label="Automatically wake the only Agent"
-					status={status}
-				/>
+				<div>
+					<SettingsRow
+						control={
+							query.data ? (
+								<Switch
+									aria-label="Automatically wake the only Agent"
+									checked={query.data.automaticWakeEnabled}
+									disabled={unavailable || mutation.isPending}
+									onCheckedChange={(value) => mutation.mutate(value)}
+								/>
+							) : (
+								<Skeleton className="h-5 w-9 rounded-full" />
+							)
+						}
+						description="When only you and one Agent are in a conversation, your messages ask it to work without an @mention. Turn this off to require a mention. Applies across your organizations."
+						error={
+							unavailable
+								? "Couldn't load this preference."
+								: mutation.error?.message
+						}
+						label="Automatically wake the only Agent"
+						showDivider={false}
+						status={status}
+					/>
+					{query.data && !unavailable && (
+						<AutomaticWakePreview enabled={query.data.automaticWakeEnabled} />
+					)}
+				</div>
 				{unavailable || mutation.isError ? (
 					<Button
 						className="self-start"
@@ -398,6 +410,47 @@ function SendShortcutPreview(input: { modified: boolean }) {
 			message="Review this draft."
 			shortcut={input.modified ? "Cmd/Ctrl + Enter" : "Enter"}
 		/>
+	);
+}
+
+function AutomaticWakePreview(input: { enabled: boolean }) {
+	return (
+		<div aria-hidden="true" className="max-w-2xl space-y-2">
+			<div className="flex items-center gap-1.5 text-muted-foreground text-xs">
+				<UserCircleIcon className="size-4" />
+				<span>You</span>
+				<PlusIcon className="mx-1 size-3" />
+				<RobotIcon className="size-4" />
+				<span>1 Agent</span>
+				<span className="ml-auto text-[10px]">Example</span>
+			</div>
+			<div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+				<ComposerPreview
+					message={
+						<>
+							{!input.enabled && (
+								<span className="mr-1 rounded bg-primary/10 px-1 py-0.5 text-foreground">
+									@Agent
+								</span>
+							)}
+							Review this draft.
+						</>
+					}
+				/>
+				<div className="flex shrink-0 items-center gap-3 text-xs">
+					<ArrowRightIcon className="size-4 text-muted-foreground" />
+					<span className="flex flex-col gap-1">
+						<span className="flex items-center gap-1.5 text-foreground">
+							<RobotIcon className="size-4" />
+							Agent responds
+						</span>
+						<span className="text-muted-foreground">
+							{input.enabled ? "No @mention needed" : "@mention required"}
+						</span>
+					</span>
+				</div>
+			</div>
+		</div>
 	);
 }
 

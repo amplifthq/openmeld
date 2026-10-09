@@ -1552,6 +1552,11 @@ by default and uses the shared Settings row and Switch. Its account-owned value
 applies across organizations. Conversation guidance uses Core's Space status
 projection, so turning it off removes automatic-Wake guidance as well as implicit
 work admission. Explicit Agent mentions remain available.
+The row shows a static one-Human/one-Agent composer example for the saved choice:
+plain text when enabled, an explicit Agent mention when disabled. It is a visual
+explanation, not an editor or an execution-status projection. Send-shortcut cards
+use the same decorative composer, with the product send icon and one keyboard
+hint for the option's sending action; they do not repeat the newline shortcut.
 
 The same section owns personal conversation preferences. Reading contains
 **Conversation layout**, **Your messages**, and **History slider**, moved from
