@@ -7,6 +7,7 @@ import {
   buildProductionReleasePlan,
   resolveAutomaticReleaseScopes,
   resolveProductionCompatibilityDependencies,
+  resolveProductionCompatibilityObligations,
   resolveProductionCompatibilityReceiverWitnesses,
 } from "./production-release.mjs";
 import { assertProductionStageAdmission } from "./production-stage-admission.mjs";
@@ -679,6 +680,8 @@ test("accepts an already deployed folder-recovery receiver only with matching ev
       state: "pending",
       sha: baselineSha,
       compatibilityDependencies: [["core", "cli"]],
+      compatibilityObligations:
+        resolveProductionCompatibilityObligations(FOLDER_RECOVERY),
       compatibilityReceiverWitnesses: [
         {
           ...witness,
@@ -750,6 +753,32 @@ test("adds only the Space Task dependency for the changed caller", () => {
       ["core", "gateway"],
       ["gateway", "cli"],
     ]
+  );
+});
+
+test("retains all contracts on a deduplicated receiver/producer edge", () => {
+  const changedPaths = [
+    ...REMOTE_AI_USAGE,
+    "packages/schemas/src/schemas/runtime/personal-remote-agent.ts",
+    "services/core/src/remote-agent/application/remote-agent-tool-caller.ts",
+    "services/remote-agent/agent-core/personal-remote-agent-tools.ts",
+    ...SPACE_TASK_RECEIVERS,
+    "services/remote-agent/agent-core/tools.ts",
+  ];
+  assert.deepEqual(resolveProductionCompatibilityDependencies(changedPaths), [
+    ["core", "remote-agent"],
+  ]);
+  assert.deepEqual(
+    resolveProductionCompatibilityObligations(changedPaths).map(
+      ({ contract }) => contract
+    ),
+    ["remote-ai-usage", "space-task", "personal-remote-tools"]
+  );
+  const witnesses =
+    resolveProductionCompatibilityReceiverWitnesses(changedPaths);
+  assert.deepEqual(
+    witnesses.map(({ contracts }) => contracts),
+    [["remote-ai-usage"]]
   );
 });
 
@@ -947,6 +976,7 @@ test("attaches exact Remote receiver content witnesses and preserves reviewed co
       {
         producer: "core",
         receiver: "remote-agent",
+        contracts: ["remote-agent-request"],
         receiverPaths: [
           "packages/schemas/src/schemas/runtime/remote-agent-worker.ts",
           "services/remote-agent/flue-adapter/execution-reconciliation.ts",

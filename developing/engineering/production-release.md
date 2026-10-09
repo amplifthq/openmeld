@@ -376,6 +376,16 @@ including a verified compatible Core receiver before Remote. The database stage
 still checks live pending migrations and the committed schema before applying
 anything. Missing, conflicting, or unverified receipts remain unknown.
 
+Receiver witnesses cover named contracts, not a whole receiver/producer pair.
+The dependency owner retains every triggered contract before projecting the
+deployment graph. A pending receiver needs matching, source-bound evidence for
+each contract, including contracts without an available witness. AI usage can
+reuse a verified Core deployment only when its complete receiver owners,
+entrypoint registration, production binding and dependency resolutions remain
+unchanged. This conservative proof rejects unrelated schema or entrypoint edits
+too; it does not certify a combined feature rollout or remove receiver-first
+dependencies. Missing contract metadata cannot admit a pending receiver.
+
 The baseline is component-specific. Each scope starts from its latest verified
 deployment receipt or legacy hosted deployment evidence, so Database, CLI,
 Workers, and Web may legitimately be at different release sources such as R,

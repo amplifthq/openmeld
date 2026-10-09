@@ -34,6 +34,7 @@ import {
   resolvePersonalCloudComputerRequestCompatibility,
   resolveRemoteAgentRequestCompatibilityBridge,
 } from "./remote-agent-request-compatibility.mjs";
+import { REMOTE_AI_USAGE_RECEIVER_PATHS } from "./remote-ai-usage-compatibility.mjs";
 import { requireMainlineReleaseSha } from "./require-mainline-release-sha.mjs";
 import {
   admitWebsiteDomainRelease,
@@ -270,21 +271,11 @@ const INBOX_SCHEMA_PATH = "packages/schemas/src/schemas/http/inbox.ts";
 
 // Preferred scheduling order is not a compatibility dependency. Accumulate
 // only contract directions proven by the changed producer and receiver paths.
-export function resolveProductionCompatibilityDependencies(
+export function resolveProductionCompatibilityObligations(
   changedPaths,
   taskInboxRetired = false,
   context = {}
 ) {
-  const edges = [];
-  const edgeKeys = new Set();
-  const addEdge = (receiver, producer) => {
-    const key = `${receiver}\0${producer}`;
-    if (!edgeKeys.has(key)) {
-      edgeKeys.add(key);
-      edges.push([receiver, producer]);
-    }
-  };
-
   const spaceTask = isSpaceTaskReceiverFirstDiff(changedPaths);
   const callerContext = isSpaceCallerContextDiff(changedPaths);
   const spaceTaskCli = changedPaths.includes(
@@ -300,6 +291,7 @@ export function resolveProductionCompatibilityDependencies(
   );
   const dependencyGroups = [
     {
+      contract: "project-issue-workflow",
       enabled: isProjectIssueWorkflowDiff(changedPaths),
       edges: [
         ["core", "remote-agent"],
@@ -307,6 +299,7 @@ export function resolveProductionCompatibilityDependencies(
       ],
     },
     {
+      contract: "project-shared-folder",
       enabled: isProjectSharedFolderDiff(changedPaths),
       edges: [
         ["core", "cli"],
@@ -314,20 +307,24 @@ export function resolveProductionCompatibilityDependencies(
       ],
     },
     {
+      contract: "remote-ai-usage",
       enabled: isRemoteAiUsageDiff(changedPaths),
       edges: [["core", "remote-agent"]],
     },
     {
+      contract: "working-folder-recovery",
       enabled: isWorkingFolderRecoveryDiff(changedPaths),
       edges: [["core", "cli"]],
     },
     {
+      contract: "npm-setup-artifact",
       enabled:
         isNpmSetupArtifactDiff(changedPaths) &&
         !isReviewedWindowsPreviewOnlyNpmSetupDiff(changedPaths, context),
       edges: [["cli", "web"]],
     },
     {
+      contract: "inbox-notification-observation",
       enabled: isInboxNotificationObservationDiff(changedPaths),
       edges: [
         ["core", "gateway"],
@@ -335,20 +332,24 @@ export function resolveProductionCompatibilityDependencies(
       ],
     },
     {
+      contract: "gateway-request-context",
       enabled: isGatewayRequestContextReceiverFirstDiff(changedPaths, context),
       edges: [["core", "gateway"]],
     },
     {
+      contract: "remote-execution-input-response",
       enabled:
         hasRemoteExecutionInputOwners(changedPaths) &&
         inspectRemoteExecutionInputSchemaDirection(context)?.responseChanged,
       edges: [["core", "remote-agent"]],
     },
     {
+      contract: "center-agent-evidence",
       enabled: isCenterAgentEvidenceDiff(changedPaths),
       edges: [["core", "remote-agent"]],
     },
     {
+      contract: "space-message-search",
       enabled: isSpaceMessageSearchReceiverFirstDiff(changedPaths),
       edges: [
         ["core", "gateway"],
@@ -356,6 +357,7 @@ export function resolveProductionCompatibilityDependencies(
       ],
     },
     {
+      contract: "space-task",
       enabled:
         spaceTask &&
         (spaceTaskCli ||
@@ -365,16 +367,19 @@ export function resolveProductionCompatibilityDependencies(
       edges: [["core", "gateway"]],
     },
     {
+      contract: "space-task",
       enabled: spaceTask && spaceTaskCli,
       edges: [["gateway", "cli"]],
     },
     {
+      contract: "space-task",
       enabled:
         spaceTask &&
         changedPaths.includes("services/remote-agent/agent-core/tools.ts"),
       edges: [["core", "remote-agent"]],
     },
     {
+      contract: "space-caller-context",
       enabled: callerContext,
       edges: [
         ["auth", "cli"],
@@ -383,10 +388,12 @@ export function resolveProductionCompatibilityDependencies(
       ],
     },
     {
+      contract: "personal-remote-tools",
       enabled: isPersonalRemoteToolsReceiverFirstDiff(changedPaths),
       edges: [["core", "remote-agent"]],
     },
     {
+      contract: "personal-cloud-computer",
       enabled: isPersonalCloudComputerDiff(changedPaths),
       edges: [
         ["db", "core"],
@@ -400,6 +407,7 @@ export function resolveProductionCompatibilityDependencies(
       ],
     },
     {
+      contract: "task-inbox-retirement",
       enabled: taskInboxRetired,
       edges: [
         ["core", "gateway"],
@@ -407,10 +415,12 @@ export function resolveProductionCompatibilityDependencies(
       ],
     },
     {
+      contract: "device-wait",
       enabled: isDeviceWaitReceiverFirstDiff(changedPaths),
       edges: [["core", "gateway"]],
     },
     {
+      contract: "device-wait",
       enabled:
         isDeviceWaitReceiverFirstDiff(changedPaths) &&
         changedPaths.some(
@@ -420,16 +430,19 @@ export function resolveProductionCompatibilityDependencies(
       edges: [["gateway", "web"]],
     },
     {
+      contract: "people-computers",
       enabled: isPeopleComputersReceiverFirstDiff(changedPaths),
       edges: [["core", "gateway"]],
     },
     {
+      contract: "space-invitation",
       // Caller Context has a reviewed opposite order: Auth and the signed
       // Service precede the Core projection in the combined rollout.
       enabled: invitation && !callerContext,
       edges: [["core", "auth"]],
     },
     {
+      contract: "space-invitation",
       enabled:
         invitation &&
         changedPaths.includes(
@@ -438,6 +451,7 @@ export function resolveProductionCompatibilityDependencies(
       edges: [["auth", "cli"]],
     },
     {
+      contract: "space-invitation",
       enabled:
         invitation &&
         changedPaths.some(
@@ -447,6 +461,7 @@ export function resolveProductionCompatibilityDependencies(
       edges: [["auth", "web"]],
     },
     {
+      contract: "center-agent-context-manifest",
       enabled: changedPaths.some(
         (path) =>
           path.startsWith("services/core/") &&
@@ -455,6 +470,7 @@ export function resolveProductionCompatibilityDependencies(
       edges: [["remote-agent", "core"]],
     },
     {
+      contract: "center-agent-cli",
       enabled: changedPaths.some(
         (path) =>
           path.startsWith("clients/openmeld-cli/") &&
@@ -466,10 +482,12 @@ export function resolveProductionCompatibilityDependencies(
       ],
     },
     {
+      contract: "connect-computer",
       enabled: isConnectComputerCliReceiverFirstDiff(changedPaths),
       edges: [["cli", "web"]],
     },
     {
+      contract: "core-worker-response",
       enabled: isCoreWorkerResponseReaderFirstDiff(changedPaths),
       edges: [
         ["core", "remote-agent"],
@@ -478,6 +496,7 @@ export function resolveProductionCompatibilityDependencies(
       ],
     },
     {
+      contract: "wake-progress-opt-in",
       enabled: isWakeProgressOptInContractDiff(changedPaths),
       edges: [
         ["gateway", "core"],
@@ -485,6 +504,7 @@ export function resolveProductionCompatibilityDependencies(
       ],
     },
     {
+      contract: "space-history-query",
       enabled: isSpaceHistoryQueryContractDiff(changedPaths),
       edges: [
         ["gateway", "cli"],
@@ -492,6 +512,7 @@ export function resolveProductionCompatibilityDependencies(
       ],
     },
     {
+      contract: "inbox-source-target",
       enabled:
         isInboxSourceTargetReceiverFirstDiff(changedPaths) && !taskInboxRetired,
       edges: [
@@ -500,20 +521,24 @@ export function resolveProductionCompatibilityDependencies(
       ],
     },
     {
+      contract: "local-service-runtime",
       enabled: isLocalServiceRuntimeReceiverFirstDiff(changedPaths),
       edges: [["core", "cli"]],
     },
     {
+      contract: "remote-agent-request",
       enabled: remoteReceiverRequired,
       edges: [["remote-agent", "core"]],
     },
     {
+      contract: "remote-agent-request",
       // CLI publication deploys the candidate Core projection. It must not
       // activate that strict request producer before the Remote receiver.
       enabled: remoteRequestReceiverFirst && remoteReceiverRequired,
       edges: [["remote-agent", "cli"]],
     },
     {
+      contract: "independent-skill-bridge",
       enabled: isIndependentSkillBridgeDiff(changedPaths),
       edges: [
         ["gateway", "cli"],
@@ -521,15 +546,41 @@ export function resolveProductionCompatibilityDependencies(
       ],
     },
   ];
-  for (const group of dependencyGroups) {
-    if (!group.enabled) {
-      continue;
+  return dependencyGroups
+    .filter((group) => group.enabled)
+    .flatMap((group) =>
+      group.edges.map(([receiver, producer]) => ({
+        contract: group.contract,
+        receiver,
+        producer,
+      }))
+    );
+}
+
+function projectCompatibilityDependencies(obligations) {
+  const keys = new Set();
+  return obligations.flatMap(({ receiver, producer }) => {
+    const key = `${receiver}\0${producer}`;
+    if (keys.has(key)) {
+      return [];
     }
-    for (const [receiver, producer] of group.edges) {
-      addEdge(receiver, producer);
-    }
-  }
-  return edges;
+    keys.add(key);
+    return [[receiver, producer]];
+  });
+}
+
+export function resolveProductionCompatibilityDependencies(
+  changedPaths,
+  taskInboxRetired = false,
+  context = {}
+) {
+  return projectCompatibilityDependencies(
+    resolveProductionCompatibilityObligations(
+      changedPaths,
+      taskInboxRetired,
+      context
+    )
+  );
 }
 
 export function resolveProductionCompatibilityReceiverWitnesses(
@@ -541,6 +592,7 @@ export function resolveProductionCompatibilityReceiverWitnesses(
         {
           receiver: "core",
           producer: "cli",
+          contracts: ["working-folder-recovery"],
           receiverPaths: [
             "packages/schemas/src/working-folder-recovery.ts",
             "packages/schemas/src/public-agent-failure-reason.ts",
@@ -555,7 +607,17 @@ export function resolveProductionCompatibilityReceiverWitnesses(
     witnesses.push({
       receiver: "core",
       producer: "gateway",
+      contracts: ["gateway-request-context"],
       receiverPaths: [GATEWAY_REQUEST_CONTEXT_SCHEMA_PATH],
+    });
+  }
+  if (isRemoteAiUsageDiff(changedPaths)) {
+    witnesses.push({
+      receiver: "core",
+      producer: "remote-agent",
+      contracts: ["remote-ai-usage"],
+      kind: "remote-ai-usage-receiver",
+      receiverPaths: [...REMOTE_AI_USAGE_RECEIVER_PATHS],
     });
   }
   if (
@@ -576,12 +638,14 @@ export function resolveProductionCompatibilityReceiverWitnesses(
     witnesses.push({
       producer: "core",
       receiver: "remote-agent",
+      contracts: ["remote-agent-request"],
       receiverPaths,
     });
     if (isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths, context)) {
       witnesses.push({
         producer: "cli",
         receiver: "remote-agent",
+        contracts: ["remote-agent-request"],
         receiverPaths,
       });
     }
@@ -2733,16 +2797,20 @@ function resolveProductionReleaseContext(input) {
 }
 
 function describeProductionReleaseImpact(context) {
+  const compatibilityObligations = resolveProductionCompatibilityObligations(
+    context.compatibilityChangedPaths,
+    context.taskInboxRetired,
+    context.compatibilityContext
+  );
   return {
     affectedPackages: context.affectedPackages,
     base: context.base,
     changedPaths: context.changedPaths,
     compatibilityBridges: context.requestBridge ? [context.requestBridge] : [],
-    compatibilityDependencies: resolveProductionCompatibilityDependencies(
-      context.compatibilityChangedPaths,
-      context.taskInboxRetired,
-      context.compatibilityContext
+    compatibilityDependencies: projectCompatibilityDependencies(
+      compatibilityObligations
     ),
+    compatibilityObligations,
     compatibilityPathSignals: describeCompatibilityPathSignals(
       context.compatibilityChangedPaths
     ),
@@ -2770,6 +2838,7 @@ export function buildProductionReleaseImpact(input) {
         changedPaths,
       }).filter((scope) => scope === input.componentScope),
       compatibilityDependencies: [],
+      compatibilityObligations: [],
       compatibilityBridges: [],
       compatibilityReceiverWitnesses: [],
     };

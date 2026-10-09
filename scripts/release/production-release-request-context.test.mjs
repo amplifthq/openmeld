@@ -178,6 +178,7 @@ test("stage admission blocks both Core and the CLI Core projection until Remote 
     sha: fixture.provenance.productionBase,
     state: "pending",
     compatibilityDependencies: plan.compatibilityDependencies,
+    compatibilityObligations: plan.compatibilityObligations,
     compatibilityReceiverWitnesses: plan.compatibilityReceiverWitnesses,
   }));
   const admit = (selectedScopes) =>
