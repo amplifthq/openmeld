@@ -27,7 +27,8 @@ export function resolveSpaceAccess(input: {
   return {
     canDiscover:
       input.activeMember || organizationJoin || input.invited === true,
-    canRead: input.activeMember || publicRead || passwordAccess,
+    canRead:
+      input.activeMember || organizationJoin || publicRead || passwordAccess,
     canJoin:
       input.activeMember ||
       organizationJoin ||

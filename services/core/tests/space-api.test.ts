@@ -2238,6 +2238,108 @@ describe("OpenMeld Core", () => {
     ]);
     expect(payload.agents).toEqual([]);
   });
+  it("previews Organization-public history without joining or granting write access", async () => {
+    const host: Partial<TestAuthProfile> = {
+      profileId: SECOND_HUMAN_PROFILE_ID,
+      openMeldProfileId: SECOND_HUMAN_PROFILE_ID,
+      profileKind: "human",
+      profileName: "Host",
+      ownerUserId: "preview-host",
+    };
+    const viewer: Partial<TestAuthProfile> = {
+      profileId: THIRD_HUMAN_PROFILE_ID,
+      openMeldProfileId: THIRD_HUMAN_PROFILE_ID,
+      profileKind: "human",
+      profileName: "Colleague",
+      ownerUserId: "preview-colleague",
+    };
+    const spaceId = await createSpace(
+      {
+        name: "Preview history",
+        visibility: "public",
+        accessMode: "members_only",
+      },
+      host
+    );
+    const posted = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          profile: {
+            kind: "human",
+            profileId: SECOND_HUMAN_PROFILE_ID,
+            profileName: "Host",
+          },
+          type: "signal.text",
+          data: { text: "Planning is ready for review." },
+        }),
+      },
+      host
+    );
+    expect(posted.status).toBe(200);
+    for (const path of ["meta", "status", "signals", "members", "threads"]) {
+      const response = await fetchWithOpenMeldAuth(
+        `${BASE_URL}/v1/spaces/${spaceId}/${path}`,
+        undefined,
+        viewer
+      );
+      expect(response.status, path).toBe(200);
+      if (path === "signals") {
+        expect(JSON.stringify(await response.json())).toContain(
+          "Planning is ready for review."
+        );
+      } else {
+        await response.json();
+      }
+    }
+    const blocked = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          profile: {
+            kind: "human",
+            profileId: THIRD_HUMAN_PROFILE_ID,
+            profileName: "Colleague",
+          },
+          type: "signal.text",
+          data: { text: "Must not publish" },
+        }),
+      },
+      viewer
+    );
+    expect(blocked.status).toBe(403);
+    await expect(blocked.json()).resolves.toMatchObject({
+      code: "space.membership_required",
+    });
+    const stream = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/stream`,
+      { headers: { Upgrade: "websocket" } },
+      viewer
+    );
+    expect(stream.status).toBe(403);
+    const members = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/members`,
+      undefined,
+      host
+    );
+    await expect(members.json()).resolves.toMatchObject({
+      summary: { totalCount: 1 },
+    });
+    const privateId = await createSpace(
+      { visibility: "private", accessMode: "members_only" },
+      host
+    );
+    const hidden = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${privateId}/signals`,
+      undefined,
+      viewer
+    );
+    expect(hidden.status).toBe(403);
+  });
   it("marks directly joined profiles live after foreground activity", async () => {
     const creatorProfile: Partial<TestAuthProfile> = {
       profileId: SECOND_HUMAN_PROFILE_ID,

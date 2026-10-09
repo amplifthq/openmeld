@@ -1983,7 +1983,9 @@ export {
   updateOrganizationSkillRpcInputSchema,
 } from "./http/organization-skills";
 export {
+  getCurrentOrganizationSpaceDirectoryRpcInputSchema,
   organizationSpaceDirectoryItemSchema,
+  organizationSpaceDirectoryQuerySchema,
   organizationSpaceDirectoryResponseSchema,
   organizationSpaceDirectoryWithMemberCountsItemSchema,
   organizationSpaceDirectoryWithMemberCountsResponseSchema,

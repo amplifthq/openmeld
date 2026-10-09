@@ -821,6 +821,7 @@ export type {
 } from "./organization-skills";
 export type {
   OrganizationSpaceDirectoryItem,
+  OrganizationSpaceDirectoryQuery,
   OrganizationSpaceDirectoryResponse,
   OrganizationSpaceDirectoryWithMemberCountsItem,
   OrganizationSpaceDirectoryWithMemberCountsResponse,

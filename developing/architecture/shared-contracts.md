@@ -2967,7 +2967,11 @@ other Directory administration fields.
 
 The old Space Directory HTTP/RPC shape remains unchanged. The nullable count is
 available only through the new Core method and versioned Gateway route, so
-existing Center Agent and Remote Agent consumers remain compatible. Deploy Core
+existing Center Agent and Remote Agent consumers remain compatible. The member-count
+route can opt into `includeMemberPreviews=true`. Core reuses the bounded Space
+Index member projection for already authorized directory candidates; the default
+response omits previews for strict older receivers. Web resolves appearance through
+the existing Profile Directory and reuses Space member avatars. Deploy Core
 first, then Gateway, then Web; roll back Web before Gateway or Core. These cloud
 additions do not change CLI, OpenMeld Service, daemon, Prepare, Wake dispatch,
 Space action, or diagnostic semantics.
@@ -8677,13 +8681,15 @@ surfaces and CLI Agent/Human View reuse this builder so a copied destination has
 one cross-client form while authorization remains owned by the resolver and
 the eventual read endpoint.
 
-For an Organization member outside a listed Space, `membership_required` view
-can accompany `self_join_available` participation. This permits a Join action,
-not a content preview. Space membership POST verifies the actual Organization
+For a verified Organization member outside an active listed Space, `allowed`
+view with the `public` experience accompanies `self_join_available` participation.
+This permits a read-only preview. Preview does not create membership and cannot
+open a writable WebSocket, post messages, Wake Agents, or mutate content.
+Deleted Spaces retain their original-member read gate. Space membership POST verifies the actual Organization
 membership and rechecks canonical Space visibility after that lookup, admitting
 only the caller's own Human Profile. Directory projections and URL targets do
 not grant authority. Private Spaces, outsiders, Agent actors, and member batches
-do not receive this grant. Existing password/access grants retain their own rules.
+do not receive the self-join grant. Existing password/access grants retain their own rules.
 
 Web resolves tenant-neutral links before mounting a public viewer. When the
 resolution supplies the caller's Organization slug, it opens the App Space

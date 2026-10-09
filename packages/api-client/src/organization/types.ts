@@ -27,6 +27,7 @@ import type {
   OrganizationLogoMimeType,
   OrganizationLogoResponse,
   OrganizationMemberOpenMeldServiceStatusesResponse,
+  OrganizationSpaceDirectoryQuery,
   OrganizationSpaceDirectoryResponse,
   OrganizationSpaceDirectoryWithMemberCountsResponse,
   SetAgentProfileCreationApprovalPreferenceBody,
@@ -156,7 +157,7 @@ export type OrganizationApi = {
     input?: OrganizationRequestInput
   ) => Promise<OrganizationSpaceDirectoryResponse>;
   listCurrentSpacesWithMemberCounts: (
-    input?: OrganizationRequestInput
+    input?: OrganizationRequestInput & OrganizationSpaceDirectoryQuery
   ) => Promise<OrganizationSpaceDirectoryWithMemberCountsResponse>;
   listCurrentMessageChannels: (
     input?: OrganizationRequestInput

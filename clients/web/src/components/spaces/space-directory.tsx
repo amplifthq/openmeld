@@ -359,6 +359,7 @@ export function SpaceDirectory(input: {
 				)}
 				{discovering && (
 					<DiscoverList
+						appearances={appearances}
 						input={input}
 						layout={layout}
 						onPreview={setPreview}
@@ -472,9 +473,13 @@ export function SpaceDirectory(input: {
 				)}
 			</ScrollArea>
 			<SpaceDirectoryPreview
-				accountProfiles={input.accountProfiles}
+				joinPending={input.pendingJoinSpaceId === preview?.spaceId}
 				onClose={() => setPreview(null)}
-				orgSlug={input.orgSlug}
+				onJoinSpace={() => {
+					if (preview) {
+						input.onJoinSpace(preview.spaceId);
+					}
+				}}
 				profileId={input.profileId}
 				space={preview}
 			/>
@@ -1018,12 +1023,14 @@ function MemberPreview(input: {
 }
 
 function DiscoverList({
+	appearances,
 	spaces,
 	input,
 	layout,
 	onPreview,
 	searching,
 }: {
+	appearances: ReturnType<typeof resolveSpaceMemberAppearances>;
 	spaces: readonly DirectorySpace[];
 	input: DirectoryInput;
 	layout: DirectoryLayout;
@@ -1051,11 +1058,16 @@ function DiscoverList({
 						<div className="flex min-h-52 flex-col gap-3 p-4">
 							<button
 								aria-label={space.name}
-								className="flex flex-1 flex-col items-start gap-3 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+								className="flex flex-1 flex-col items-start gap-3 rounded-sm text-left outline-none after:absolute after:inset-0 after:rounded-md focus-visible:ring-2 focus-visible:ring-ring"
 								onClick={() => onPreview(space)}
 								type="button"
 							>
-								<ChatCircleTextIcon className="mb-auto size-10 text-muted-foreground" />
+								<SpaceMemberAvatars
+									appearances={appearances}
+									layout="grid"
+									memberCount={space.activeMemberCount}
+									members={space.memberPreviews ?? []}
+								/>
 								<span className="line-clamp-2 font-medium text-sm">
 									{space.name}
 								</span>
@@ -1065,11 +1077,7 @@ function DiscoverList({
 										: `${space.activeMemberCount} ${space.activeMemberCount === 1 ? "member" : "members"}`}
 								</span>
 							</button>
-							<DiscoverActions
-								input={input}
-								onPreview={onPreview}
-								space={space}
-							/>
+							<DiscoverActions input={input} space={space} />
 							{input.joinError?.spaceId === space.spaceId && (
 								<p className="text-destructive text-xs" role="alert">
 									{input.joinError.message}
@@ -1122,11 +1130,7 @@ function DiscoverList({
 							)}
 						</TableCell>
 						<TableCell>
-							<DiscoverActions
-								input={input}
-								onPreview={onPreview}
-								space={space}
-							/>
+							<DiscoverActions input={input} space={space} />
 						</TableCell>
 					</TableRow>
 				))}
@@ -1138,22 +1142,12 @@ function DiscoverList({
 function DiscoverActions({
 	input,
 	space,
-	onPreview,
 }: {
 	input: DirectoryInput;
 	space: DirectorySpace;
-	onPreview: (space: DirectorySpace) => void;
 }) {
 	return (
-		<div className="flex items-center gap-2">
-			<Button
-				aria-label={`Preview ${space.name}`}
-				onClick={() => onPreview(space)}
-				size="sm"
-				variant="ghost"
-			>
-				Preview
-			</Button>
+		<div className="relative z-20 flex items-center gap-2">
 			<Button
 				aria-label={`Join ${space.name}`}
 				disabled={
@@ -1161,7 +1155,7 @@ function DiscoverActions({
 				}
 				onClick={() => input.onJoinSpace(space.spaceId)}
 				size="sm"
-				variant="outline"
+				variant="default"
 			>
 				{input.pendingJoinSpaceId === space.spaceId ? "Joining…" : "Join"}
 			</Button>

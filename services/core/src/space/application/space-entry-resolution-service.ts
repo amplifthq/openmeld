@@ -59,9 +59,7 @@ export function buildSpaceEntryResolution(input: {
     ) {
       participation = { state: "owner_add_required" };
     }
-    const memberExperience =
-      input.access.activeMember ||
-      input.access.meta.accessMode === "members_only";
+    const memberExperience = input.access.activeMember;
     return {
       target: input.target,
       view: {

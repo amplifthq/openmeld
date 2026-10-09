@@ -1041,9 +1041,9 @@ Space Access defines what a link visitor can do before they have joined the
 Space. Organization visibility and link access are separate controls:
 `visibility = private` makes the Space invite-only in the Organization, while
 `accessMode = members_only` prevents an unadmitted visitor from reading content.
-An authenticated Organization member can explicitly join a listed (`public`)
-Space from the directory or its destination link, independently of external
-link access. Core verifies current Organization membership and canonical Space
+An authenticated Organization member can preview a listed (`public`) Space
+before explicitly joining from the directory or its destination link, independently of external
+link access. Preview is read only and never creates membership. Core verifies current Organization membership and canonical Space
 policy; this grant admits only the caller's own Human Profile. It cannot add
 someone else, an Agent, or members to an unconverted Direct Message.
 The common UI asks **Who can read this Space?** and **Who can join this Space?**
@@ -1070,8 +1070,8 @@ migrated, and visibility and access mode remain independently owned facts.
 
 OpenMeld has four access modes:
 
-- `members_only`: only an active member or another active Profile
-  owned by the same account can view the Space. New participants must be added
+- `members_only`: an active member or another active Profile
+  owned by the same account can view the Space. Current Organization members can also preview Organization-public Spaces. New participants must be added
   explicitly or self-join under the Organization-public policy above.
 - `public`: anyone with the link can view the Space. Signed-in external visitors
   can explicitly join only while external guest access is enabled.

@@ -48,6 +48,7 @@ export async function authorizeSpaceAccessProof(input: {
   });
 }
 export type ProtectedSpaceAccessGrantReason =
+  | "organization_preview"
   | "unprotected_space"
   | "valid_password"
   | "active_member_profile"
@@ -65,6 +66,7 @@ export type ProtectedSpaceAccessAuthorizationResult =
         | "space.password_invalid";
     };
 export async function authorizeProtectedSpaceAccess(input: {
+  organizationMember?: boolean;
   context?: OpenMeldRequestContext;
   hasActiveMemberForOwnerUserId: (ownerUserId: string) => boolean;
   meta: SpaceMetaRecord;
@@ -75,7 +77,13 @@ export async function authorizeProtectedSpaceAccess(input: {
     proof: NonNullable<SpaceMetaRecord["passwordProof"]>
   ) => Promise<boolean>;
 }): Promise<ProtectedSpaceAccessAuthorizationResult> {
-  if (input.meta.deletedAt || input.meta.accessMode === "members_only") {
+  if (input.meta.deletedAt) {
+    return authorizeMembersOnlySpaceAccess(input);
+  }
+  if (input.organizationMember === true && input.meta.visibility === "public") {
+    return { ok: true, reason: "organization_preview" };
+  }
+  if (input.meta.accessMode === "members_only") {
     return authorizeMembersOnlySpaceAccess(input);
   }
   if (

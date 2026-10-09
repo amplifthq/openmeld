@@ -211,6 +211,7 @@ import {
   getCenterAgentDesignationResponseSchema,
   getCenterAgentDirectMessageSpaceProjectionResponseSchema,
   getCenterAgentOperatingStateResponseSchema,
+  type getCurrentOrganizationSpaceDirectoryRpcInputSchema,
   getLocalRuntimeExpectedRoutesQuerySchema,
   getPrepareReadinessQuerySchema,
   getPrepareReadinessResponseSchema,
@@ -773,6 +774,7 @@ import {
   OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
   type SpaceAccessContext,
 } from "@openmeld/space";
+import type { z } from "zod/v4";
 import {
   rpcCenterAgentListAgentActivitySessions as centerAgentListAgentActivitySessions,
   rpcCenterAgentReadAgentActivity as centerAgentReadAgentActivity,
@@ -3229,9 +3231,9 @@ export type GetCurrentOrganizationComputersInput = {
 export type GetCurrentOrganizationMemberOpenMeldServiceStatusesInput = {
   context?: CoreRpcContextInput;
 };
-export type GetCurrentOrganizationSpaceDirectoryInput = {
-  context?: CoreRpcContextInput;
-};
+export type GetCurrentOrganizationSpaceDirectoryInput = z.infer<
+  typeof getCurrentOrganizationSpaceDirectoryRpcInputSchema
+>;
 export type JoinOrganizationPublicSpaceInput = {
   spaceId: string;
   password?: string;
@@ -7546,7 +7548,11 @@ export async function rpcGetCurrentOrganizationSpaceDirectory(
     generatedAt: response.generatedAt,
     organizationId: response.organizationId,
     spaces: response.spaces.map(
-      ({ activeMemberCount: _activeMemberCount, ...space }) => space
+      ({
+        activeMemberCount: _activeMemberCount,
+        memberPreviews: _memberPreviews,
+        ...space
+      }) => space
     ),
   };
   const validated = organizationSpaceDirectoryResponseSchema.safeParse(
@@ -7597,6 +7603,7 @@ async function readCurrentOrganizationSpaceDirectoryWithMemberCounts(
   const response = await listOrganizationSpacesFromSpaceIndex({
     db: requireSpaceIndexDb(env),
     generatedAt: new Date().toISOString(),
+    includeMemberPreviews: input.includeMemberPreviews,
     limit: ORGANIZATION_SPACE_DIRECTORY_LIMIT,
     organizationId: directoryCaller.organizationId,
     ownerUserId: directoryCaller.userId,

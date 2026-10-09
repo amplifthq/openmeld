@@ -1,4 +1,3 @@
-import type { AuthProfileView } from "@openmeld/schemas/types";
 import {
 	Dialog,
 	DialogContent,
@@ -9,15 +8,17 @@ import { lazy, Suspense } from "react";
 import { SpaceConversationSkeleton } from "./space-conversation-skeleton";
 import { SpaceEntryGate } from "./space-entry-gate";
 
-const SpaceLanding = lazy(() =>
-	import("./space-landing").then((module) => ({ default: module.SpaceLanding }))
+const SpaceReadOnlyConversation = lazy(() =>
+	import("./public-space-page").then((module) => ({
+		default: module.SpaceReadOnlyConversation,
+	}))
 );
 
 export function SpaceDirectoryPreview(input: {
-	accountProfiles: readonly AuthProfileView[];
 	space: { spaceId: string; name: string } | null;
 	profileId: string;
-	orgSlug: string;
+	onJoinSpace: () => void;
+	joinPending: boolean;
 	onClose: () => void;
 }) {
 	const space = input.space;
@@ -50,7 +51,7 @@ export function SpaceDirectoryPreview(input: {
 							signInHref="/login"
 							spaceId={space.spaceId}
 						>
-							{() => (
+							{(resolution) => (
 								<Suspense
 									fallback={
 										<SkeletonRegion
@@ -61,10 +62,10 @@ export function SpaceDirectoryPreview(input: {
 										</SkeletonRegion>
 									}
 								>
-									<SpaceLanding
-										accountProfiles={input.accountProfiles}
-										orgSlug={input.orgSlug}
-										profileId={input.profileId}
+									<SpaceReadOnlyConversation
+										entryResolution={resolution}
+										joinPending={input.joinPending}
+										onJoinSpace={input.onJoinSpace}
 										spaceId={space.spaceId}
 									/>
 								</Suspense>

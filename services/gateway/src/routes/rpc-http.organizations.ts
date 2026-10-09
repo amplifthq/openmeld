@@ -28,6 +28,7 @@ import {
   organizationMemberPresenceWriteResponseSchema,
   organizationMemberWebActivityResponseSchema,
   organizationProfileDirectoryResponseSchema,
+  organizationSpaceDirectoryQuerySchema,
   organizationSpaceDirectoryResponseSchema,
   organizationSpaceDirectoryWithMemberCountsResponseSchema,
   setAgentProfileCreationApprovalPreferenceBodySchema,
@@ -562,6 +563,7 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
         await c.var.coreRpc.getCurrentOrganizationSpaceDirectoryWithMemberCounts(
           {
             context: buildCoreRpcContext(c),
+            ...organizationSpaceDirectoryQuerySchema.parse(c.req.query()),
           }
         ),
     })

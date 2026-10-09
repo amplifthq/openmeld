@@ -345,7 +345,7 @@ export const createOrganizationApi: CreateOrganizationApi = (
     }),
   listCurrentSpacesWithMemberCounts: async (input = {}) =>
     await client.requestJson({
-      url: buildCurrentOrganizationSpacesWithMemberCountsPath(),
+      url: `${buildCurrentOrganizationSpacesWithMemberCountsPath()}${input.includeMemberPreviews ? "?includeMemberPreviews=true" : ""}`,
       operation: "organization.spaces_with_member_counts.list",
       method: "GET",
       requestContext: input.requestContext,

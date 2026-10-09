@@ -1150,7 +1150,7 @@ async function authorizeRpcSignalWrite(input: {
     const accessResult = await input.authorizeWritableSpaceAccess(
       input.spaceAccess
     );
-    await assertRpcSpaceAccessAuthorized(accessResult);
+    await assertRpcSpaceWriteAccessAuthorized(accessResult);
     return author;
   }
   const author = requireRpcAuthorProfile(input.context);
@@ -1160,8 +1160,20 @@ async function authorizeRpcSignalWrite(input: {
     requestId,
     ...(input.password === undefined ? {} : { spacePassword: input.password }),
   });
-  await assertRpcSpaceAccessAuthorized(accessResult);
+  await assertRpcSpaceWriteAccessAuthorized(accessResult);
   return author;
+}
+async function assertRpcSpaceWriteAccessAuthorized(
+  accessResult: PasswordAuthorizationResult
+): Promise<void> {
+  await assertRpcSpaceAccessAuthorized(accessResult);
+  if (accessResult.ok && accessResult.organizationPreview) {
+    throw createCoreRpcHttpError({
+      status: 403,
+      code: "space.membership_required",
+      reason: "Join this Space before participating.",
+    });
+  }
 }
 async function assertRpcSpaceAccessAuthorized(
   accessResult: PasswordAuthorizationResult
@@ -7278,7 +7290,7 @@ export class Space extends DurableObject<CoreBindings> {
             ? {}
             : { spacePassword: input.password }),
         });
-    await assertRpcSpaceAccessAuthorized(accessResult);
+    await assertRpcSpaceWriteAccessAuthorized(accessResult);
     const transientSignalPayload = parseSignalText({
       type: "signal.text",
       data: {
@@ -13420,6 +13432,15 @@ export class Space extends DurableObject<CoreBindings> {
     if (!accessResult.ok) {
       return { ok: false, response: accessResult.response };
     }
+    if (request.method !== "GET" && accessResult.organizationPreview) {
+      return {
+        ok: false,
+        response: this.spaceAccessAuthorizationFailureResponse({
+          code: "space.membership_required",
+          requestId: resolved.context.actorContext.requestId,
+        }),
+      };
+    }
     return {
       ok: true,
       resolved: {
@@ -13570,6 +13591,17 @@ export class Space extends DurableObject<CoreBindings> {
     const accessResult = await this.authorizeSpaceAccess(spaceAccess);
     if (!accessResult.ok) {
       return accessResult;
+    }
+    if (accessResult.organizationPreview) {
+      return {
+        ok: false,
+        response: this.spaceAccessAuthorizationFailureResponse({
+          code: "space.membership_required",
+          requestId:
+            getSpaceAccessRequestContext(spaceAccess)?.actorContext.requestId ??
+            resolveRequestId(),
+        }),
+      };
     }
     if (this.readSpaceMetaRecord()?.deletedAt) {
       return { ok: false, response: this.deletedSpaceWriteResponse() };
@@ -16726,6 +16758,12 @@ export class Space extends DurableObject<CoreBindings> {
       return accessResult.response;
     }
     const enforcedProfile = toProtocolProfile(resolved.context);
+    if (accessResult.organizationPreview) {
+      return this.spaceAccessAuthorizationFailureResponse({
+        code: "space.membership_required",
+        requestId: resolved.context.actorContext.requestId,
+      });
+    }
     const viewerCreatorProfileIdsByProfileId =
       await this.resolveViewerCreatorProfileIdsByProfileId({
         viewerOwnerUserId: resolved.context.actorContext.ownerUserId,
@@ -19834,6 +19872,37 @@ export class Space extends DurableObject<CoreBindings> {
       toPublicSpaceCursor,
     });
   }
+  private async isRetainedExternalSpaceMember(
+    meta: SpaceMetaRecord,
+    context: CoreRpcContextInput | undefined,
+    userId: string
+  ): Promise<boolean> {
+    if (
+      meta.allowGuests &&
+      [
+        ...this.ctx.storage.sql.exec(
+          "SELECT user_id FROM space_guest_users WHERE user_id = ?",
+          userId
+        ),
+      ].length > 0
+    ) {
+      return true;
+    }
+    const profileId = context?.actorContext.openMeldProfileId;
+    const db = getPostgresDatabase(this.bindings);
+    if (context?.actorContext.profileKind !== "agent" || !profileId || !db) {
+      return false;
+    }
+    const agent = await readAgentProfileOrganizationContext({
+      agentProfileId: profileId,
+      db,
+    });
+    return (
+      agent?.profileKind === "agent" &&
+      agent.managedRole !== null &&
+      agent.organizationId === meta.organizationId
+    );
+  }
   private async authorizeCurrentSpaceMembership(input: {
     context?: CoreRpcContextInput;
     requestId: string;
@@ -19844,9 +19913,14 @@ export class Space extends DurableObject<CoreBindings> {
       return { ok: false, response: this.spaceNotFoundResponse() };
     }
     const userId = input.context?.actorContext.ownerUserId;
+    let activeOwner = Boolean(
+      userId &&
+        hasActiveSpaceMemberRecordForOwnerUserId(this.ctx.storage.sql, userId)
+    );
+    let organizationPreview = false;
     if (
       userId &&
-      hasActiveSpaceMemberRecordForOwnerUserId(this.ctx.storage.sql, userId)
+      (activeOwner || (!meta.deletedAt && meta.visibility === "public"))
     ) {
       const membership = await resolveOrganizationMembershipById({
         env: this.bindings,
@@ -19858,7 +19932,16 @@ export class Space extends DurableObject<CoreBindings> {
       if (!meta) {
         return { ok: false, response: this.spaceNotFoundResponse() };
       }
-      if (!membership.ok) {
+      activeOwner = hasActiveSpaceMemberRecordForOwnerUserId(
+        this.ctx.storage.sql,
+        userId
+      );
+      organizationPreview =
+        membership.ok &&
+        !activeOwner &&
+        meta.visibility === "public" &&
+        !meta.deletedAt;
+      if (!membership.ok && (activeOwner || membership.status === 503)) {
         if (membership.status === 503) {
           throw createCoreRpcHttpError({
             status: 503,
@@ -19866,28 +19949,13 @@ export class Space extends DurableObject<CoreBindings> {
             reason: membership.message,
           });
         }
-        const guest =
-          meta.allowGuests &&
-          [
-            ...this.ctx.storage.sql.exec(
-              "SELECT user_id FROM space_guest_users WHERE user_id = ?",
-              userId
-            ),
-          ].length > 0;
-        const profileId = input.context?.actorContext.openMeldProfileId;
-        const db = getPostgresDatabase(this.bindings);
-        const agent =
-          input.context?.actorContext.profileKind === "agent" && profileId && db
-            ? await readAgentProfileOrganizationContext({
-                agentProfileId: profileId,
-                db,
-              })
-            : null;
-        const managedAgent =
-          agent?.profileKind === "agent" &&
-          agent.managedRole !== null &&
-          agent.organizationId === meta.organizationId;
-        if (!(guest || managedAgent)) {
+        if (
+          !(await this.isRetainedExternalSpaceMember(
+            meta,
+            input.context,
+            userId
+          ))
+        ) {
           return {
             ok: false,
             response: this.spaceAccessAuthorizationFailureResponse({
@@ -19898,7 +19966,7 @@ export class Space extends DurableObject<CoreBindings> {
         }
       }
     }
-    return { ok: true, meta };
+    return { ok: true, meta, organizationPreview };
   }
   private async authorizeSpacePasswordAccess(input: {
     context?: CoreRpcContextInput;
@@ -19911,6 +19979,7 @@ export class Space extends DurableObject<CoreBindings> {
     }
     const meta = membership.meta;
     const authorization = await authorizeProtectedSpaceAccess({
+      organizationMember: membership.organizationPreview,
       context: input.context,
       hasActiveMemberForOwnerUserId: (ownerUserId) =>
         hasActiveSpaceMemberRecordForOwnerUserId(
@@ -19932,7 +20001,11 @@ export class Space extends DurableObject<CoreBindings> {
         }),
       };
     }
-    return { ok: true, meta };
+    return {
+      ok: true,
+      meta,
+      organizationPreview: membership.organizationPreview,
+    };
   }
   private authorizeSpaceManagement(
     context: CoreRpcContextInput
@@ -20401,7 +20474,7 @@ export class Space extends DurableObject<CoreBindings> {
         },
       },
     });
-    return access.ok;
+    return access.ok && !access.organizationPreview;
   }
   private async deliverAuthorizedLiveMessage(
     message: Parameters<Space["encodeLiveMessageForSession"]>[0]

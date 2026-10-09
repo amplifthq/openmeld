@@ -750,7 +750,10 @@ export async function listAccountSpacesFromSpaceIndex(
 // members per Space, in stable membership order; never fan out to Space DOs.
 async function attachSpaceMemberPreviews(
   db: PostgresDatabase,
-  items: AccountSpaceIndexResponse["spaceItems"],
+  items: Pick<
+    AccountSpaceIndexResponse["spaceItems"][number],
+    "spaceId" | "memberPreviews" | "recentMessagePreviews"
+  >[],
   directoryPreviews: boolean
 ): Promise<void> {
   for (let offset = 0; offset < items.length; offset += 90) {
@@ -817,6 +820,7 @@ async function attachSpaceMemberPreviews(
 export async function listOrganizationSpacesFromSpaceIndex(input: {
   db: PostgresDatabase;
   generatedAt: string;
+  includeMemberPreviews?: boolean;
   limit: number;
   organizationId: string;
   ownerUserId: string | null;
@@ -881,7 +885,7 @@ export async function listOrganizationSpacesFromSpaceIndex(input: {
       ],
     }
   );
-  return {
+  const response: OrganizationSpaceDirectoryWithMemberCountsResponse = {
     organizationId: input.organizationId,
     generatedAt: input.generatedAt,
     spaces: (results ?? [])
@@ -899,6 +903,10 @@ export async function listOrganizationSpacesFromSpaceIndex(input: {
         updatedAt: timestampMsToIso(row.source_updated_at_ms),
       })),
   };
+  if (input.includeMemberPreviews) {
+    await attachSpaceMemberPreviews(input.db, response.spaces, false);
+  }
+  return response;
 }
 export async function readSpaceIndexNamesByIds(input: {
   db: PostgresDatabase;
