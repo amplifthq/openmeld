@@ -327,7 +327,7 @@ describe("pre-head failure publication operational outbox", () => {
           },
           db: harness.db,
           idempotencyKey: "observe-pre-head-attention",
-          nowMs: 1000,
+          nowMs: 2000,
           observerTask: {
             kind: "native_delivery",
             deliveryId: "parent-delivery",
@@ -430,7 +430,7 @@ describe("pre-head failure publication operational outbox", () => {
         const observation = {
           attentionCode: "dispatch.pre_head_failure_legacy_claim_unattributed",
           eventId: `pre-head:${message.dispatchId}:legacy-claim:${publishedSignalId}`,
-          occurredAtMs: intent.createdAtMs,
+          occurredAtMs: fault === "legacy_attention_write" ? 90_000 : 5000,
           status: "needs_attention",
         };
         expect(

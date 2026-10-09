@@ -2395,8 +2395,10 @@ exists. Without that evidence, the original notice cannot identify its Task
 event owner. The outbox records `needs_attention` with
 `dispatch.pre_head_failure_legacy_claim_unattributed` only after the existing
 Agent Task owner durably records a nonterminal needs-attention observation.
-The event identity includes the dispatch and saved claim; its time retains the
-original outbox creation time across retries. Existing and later attention
+The event identity includes the dispatch and saved claim. Its occurrence time
+is when recovery first discovers this blocker, distinct from the old failure
+time. Replay reads and reuses the existing Task observation's time; it does not
+relax the immutable-event or stale-observation checks. Existing and later attention
 watches receive that same observation. A failed observation write or attention
 transition keeps the original outbox pending. Queue delivery uses the existing
 ready-subscription redrive, including after the outbox stops retrying.

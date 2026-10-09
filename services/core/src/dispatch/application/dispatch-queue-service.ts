@@ -22,6 +22,7 @@ import {
 } from "@openmeld/schemas";
 import type {
   AgentTaskContinuationQueueMessage,
+  AgentTaskHandle,
   AgentTaskObservationRedriveQueueMessage,
   AgentTaskTerminalOutcome,
   OpenMeldDaemonAcceptedDispatchSnapshot,
@@ -32,7 +33,10 @@ import type {
 import { processAgentTaskContinuationQueueMessage } from "../../agent-task-coordination/application/agent-task-continuation-service";
 import { recordAndEnqueueAgentTaskNeedsAttentionObservation } from "../../agent-task-coordination/application/agent-task-needs-attention-observation-service";
 import { recordAndEnqueueAgentTaskTerminalOutcomeIfMatching } from "../../agent-task-coordination/application/agent-task-terminal-outcome-service";
-import { readAgentTaskTerminalOutcome } from "../../agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo";
+import {
+  readAgentTaskNeedsAttentionObservation,
+  readAgentTaskTerminalOutcome,
+} from "../../agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo";
 import type { CoreBindings } from "../../lib/bindings";
 import { createConfiguredMessageChannelProviderRegistry } from "../../remote-agent/application/message-channel-provider-runtime";
 import {
@@ -4913,18 +4917,12 @@ const resumePreHeadFailurePublication = async (input: {
         }),
       });
       if (!stored) {
-        const reasonCode =
-          "dispatch.pre_head_failure_legacy_claim_unattributed";
-        await recordAndEnqueueAgentTaskNeedsAttentionObservation({
+        await recordLegacyPreHeadRecoveryAttention({
           db: input.recoveryDb,
           env: input.env,
+          intent,
           nowMs: input.nowMs,
-          observation: {
-            attentionCode: reasonCode,
-            eventId: `pre-head:${intent.dispatchId}:legacy-claim:${legacyClaim.signalId}`,
-            occurredAtMs: intent.createdAtMs,
-            status: "needs_attention",
-          },
+          publishedSignalId: legacyClaim.signalId,
           task: {
             kind: "space_wake",
             sourceClientMessageId: intent.redriveMessage.sourceClientMessageId,
@@ -4933,20 +4931,6 @@ const resumePreHeadFailurePublication = async (input: {
             v: 1,
           },
         });
-        await markPreHeadFailurePublicationNeedsAttention({
-          db: input.recoveryDb,
-          intent,
-          nowMs: input.nowMs,
-          reasonCode,
-        });
-        console.warn(
-          "[core.openMeldDaemon.dispatch_queue.pre_head_failure_needs_attention]",
-          {
-            dispatchId: intent.dispatchId,
-            publishedSignalId: legacyClaim.signalId,
-            reasonCode,
-          }
-        );
         return true;
       }
     }
@@ -5071,6 +5055,48 @@ const resumePreHeadFailurePublication = async (input: {
       recoveryDb: input.recoveryDb,
     });
   }
+};
+const recordLegacyPreHeadRecoveryAttention = async (input: {
+  db: PostgresDatabase;
+  env: CoreBindings;
+  intent: PreHeadFailurePublicationIntent;
+  nowMs: number;
+  publishedSignalId: string;
+  task: Extract<AgentTaskHandle, { kind: "space_wake" }>;
+}): Promise<void> => {
+  const reasonCode = "dispatch.pre_head_failure_legacy_claim_unattributed";
+  const eventId = `pre-head:${input.intent.dispatchId}:legacy-claim:${input.publishedSignalId}`;
+  const priorObservation = await readAgentTaskNeedsAttentionObservation({
+    db: input.db,
+    eventId,
+    taskKey: buildAgentTaskKey(input.task),
+  });
+  await recordAndEnqueueAgentTaskNeedsAttentionObservation({
+    db: input.db,
+    env: input.env,
+    nowMs: input.nowMs,
+    observation: {
+      attentionCode: reasonCode,
+      eventId,
+      occurredAtMs: priorObservation?.observation.occurredAtMs ?? input.nowMs,
+      status: "needs_attention",
+    },
+    task: input.task,
+  });
+  await markPreHeadFailurePublicationNeedsAttention({
+    db: input.db,
+    intent: input.intent,
+    nowMs: input.nowMs,
+    reasonCode,
+  });
+  console.warn(
+    "[core.openMeldDaemon.dispatch_queue.pre_head_failure_needs_attention]",
+    {
+      dispatchId: input.intent.dispatchId,
+      publishedSignalId: input.publishedSignalId,
+      reasonCode,
+    }
+  );
 };
 const recordPreHeadPublicationTaskOutcome = async (input: {
   db: PostgresDatabase;
