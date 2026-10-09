@@ -66,6 +66,7 @@ export type CenterAgentProductOperationDeps = {
   setAgentProfileDefaultProject?(input: {
     agentProfileId: string;
     defaultProjectId: string | null;
+    expectedBindingTarget?: import("../../agent-profile-binding/application/agent-profile-binding-target").AgentProfileBindingTarget;
   }): Promise<void>;
   setAgentProfileWorkspace?(input: {
     agentProfileId: string;
@@ -76,6 +77,7 @@ export type CenterAgentProductOperationDeps = {
   }): Promise<
     SetCurrentAgentProfileWorkspaceResponse & {
       target?: import("@openmeld/schemas/types").PeopleComputerTarget;
+      bindingTarget?: import("../../agent-profile-binding/application/agent-profile-binding-target").AgentProfileBindingTarget;
     }
   >;
   updateAgentControllerCollaborationMode(input: {
@@ -610,7 +612,11 @@ async function updateAgentProfileWorkspaceMutation(input: {
     });
     return { status: "failed" };
   }
-  let workspace: SetCurrentAgentProfileWorkspaceResponse;
+  let workspace: Awaited<
+    ReturnType<
+      NonNullable<CenterAgentProductOperationDeps["setAgentProfileWorkspace"]>
+    >
+  >;
   try {
     workspace = await input.setAgentProfileWorkspace({
       agentProfileId: input.agentProfileId,
@@ -634,6 +640,9 @@ async function updateAgentProfileWorkspaceMutation(input: {
     await input.setAgentProfileDefaultProject({
       agentProfileId: input.agentProfileId,
       defaultProjectId: null,
+      ...(workspace.bindingTarget
+        ? { expectedBindingTarget: workspace.bindingTarget }
+        : {}),
     });
   } catch (error) {
     input.steps.push(

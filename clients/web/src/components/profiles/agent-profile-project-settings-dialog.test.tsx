@@ -1,12 +1,29 @@
-import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/schemas";
-import type { AuthProfileView } from "@openmeld/schemas/types";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+	getAgentExecutionReadinessBatchResponseSchema,
+	HOSTED_CENTER_AGENT_CONTROLLER_REF,
+} from "@openmeld/schemas";
+import type {
+	AuthProfileView,
+	GetAgentExecutionReadinessBatchResponse,
+	GetAgentProfileControllerChangeEligibilityResponse,
+} from "@openmeld/schemas/types";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AgentWorkingFolderRecoveryAction } from "#/components/spaces/agent-working-folder-recovery-action";
 import {
 	readPendingAgentProfileCreationLocalSetup,
 	rememberPendingAgentProfileCreationLocalSetup,
 } from "#/lib/profiles/agent-profile-creation-local-setup";
+import { agentExecutionReadinessQueryKeys } from "#/query/agents/execution-readiness";
 import { projectQueryKeys } from "#/query/organizations/projects";
+import { agentProfilePrimaryBindingQueryKeys } from "#/query/profiles/primary-binding";
+import readinessCapture from "#/test-support/local-agent-readiness.fixture.json";
 import {
 	createTestQueryClient,
 	TestQueryClientProvider,
@@ -16,10 +33,25 @@ import { AgentProfileProjectSettingsDialog } from "./agent-profile-project-setti
 
 const updateDefaultProjectMock = vi.hoisted(() => vi.fn());
 const updateWorkspaceMock = vi.hoisted(() => vi.fn());
+const readReadinessMock = vi.hoisted(() => vi.fn());
+const readEligibilityMock = vi.hoisted(() => vi.fn());
+const spaceEditMock = vi.hoisted(() => vi.fn());
+const RECOVERY_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
+const SAVING_BUTTON_NAME = /saving/i;
 const ACTIVE_WAKE_FOLDER_CHANGE_MESSAGE =
 	/wait until this task finishes to change a folder on this computer/i;
 
 afterEach(cleanup);
+
+vi.mock("#/lib/agents/agent-execution-readiness", () => ({
+	readAgentExecutionReadinessBatch: readReadinessMock,
+}));
+vi.mock("#/lib/profiles/agent-profile-primary-binding", () => ({
+	readAgentProfileControllerChangeEligibility: readEligibilityMock,
+}));
+vi.mock("#/components/spaces/space-agent-profile-edit-context", () => ({
+	useOptionalSpaceAgentProfileEditContext: spaceEditMock,
+}));
 
 vi.mock("#/lib/profiles/update-default-project", () => ({
 	updateAgentProfileDefaultProject: updateDefaultProjectMock,
@@ -267,6 +299,224 @@ describe("AgentProfileProjectSettingsDialog", () => {
 	});
 });
 
+describe("Working folder recovery Query lifecycle", () => {
+	beforeEach(() => {
+		updateWorkspaceMock.mockReset().mockResolvedValue(undefined);
+		updateDefaultProjectMock
+			.mockReset()
+			.mockResolvedValue(profileFixture({ defaultProjectId: null }));
+		readReadinessMock.mockReset().mockResolvedValue(readinessFixture());
+		readEligibilityMock.mockReset().mockResolvedValue(eligibilityFixture());
+		spaceEditMock.mockReturnValue({
+			context: {
+				actorProfileId: "human-1",
+				deviceId: "device-current",
+				executionTarget: null,
+				organizationId: "organization-1",
+				runtimeLane: "dev-local",
+				storageScope: "account-1",
+				onSaved: vi.fn(async () => undefined),
+			},
+			profilesById: new Map([
+				[
+					RECOVERY_PROFILE_ID,
+					profileFixture({
+						openMeldProfileId: RECOVERY_PROFILE_ID,
+						defaultProjectId: null,
+					}),
+				],
+			]),
+		});
+	});
+
+	it("retains the edited draft, pending save and failed-save error through real Query refetches", async () => {
+		const queryClient = await renderRecovery();
+		const draft = "/private/chosen-folder";
+		editCustomFolder(draft);
+		const readiness = deferred<GetAgentExecutionReadinessBatchResponse>();
+		const eligibility =
+			deferred<GetAgentProfileControllerChangeEligibilityResponse>();
+		readReadinessMock.mockReturnValueOnce(readiness.promise);
+		readEligibilityMock.mockReturnValueOnce(eligibility.promise);
+		let refresh!: Promise<unknown>;
+		await act(async () => {
+			refresh = refreshRecovery(queryClient);
+			await Promise.resolve();
+		});
+		await screen.findByText("Checking this Agent’s current Computer…");
+		expect(
+			(screen.getByLabelText("Custom working folder path") as HTMLInputElement)
+				.value
+		).toBe(draft);
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Save changes",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(true);
+		await act(async () => {
+			readiness.resolve(readinessFixture());
+			eligibility.resolve(eligibilityFixture());
+			await refresh;
+		});
+		await vi.waitFor(() =>
+			expect(
+				(
+					screen.getByRole("button", {
+						name: "Save changes",
+					}) as HTMLButtonElement
+				).disabled
+			).toBe(false)
+		);
+
+		const save = deferred<void>();
+		updateWorkspaceMock.mockReturnValueOnce(save.promise);
+		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+		await vi.waitFor(() =>
+			expect(updateWorkspaceMock).toHaveBeenCalledTimes(1)
+		);
+		await act(async () => {
+			await refreshRecovery(queryClient);
+		});
+		expect(
+			(screen.getByLabelText("Custom working folder path") as HTMLInputElement)
+				.value
+		).toBe(draft);
+		expect(
+			(
+				screen.getByRole("button", {
+					name: SAVING_BUTTON_NAME,
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(true);
+		act(() => {
+			save.reject(new Error("The chosen folder is unavailable."));
+		});
+		await screen.findByText("The chosen folder is unavailable.");
+		await act(async () => {
+			await refreshRecovery(queryClient);
+		});
+		expect(screen.getByText("The chosen folder is unavailable.")).toBeTruthy();
+		expect(
+			(screen.getByLabelText("Custom working folder path") as HTMLInputElement)
+				.value
+		).toBe(draft);
+		expect(updateDefaultProjectMock).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		"computer",
+		"binding",
+	] as const)("blocks an old draft after a %s change and requires reopening before saving", async (change) => {
+		const queryClient = await renderRecovery();
+		editCustomFolder("/private/old-draft");
+		const changed = readinessFixture();
+		const current = changed.items[0];
+		if (!current?.primaryBinding) {
+			throw new Error("Missing captured Binding");
+		}
+		if (change === "computer") {
+			current.routeDeviceId = "device-second";
+		}
+		current.primaryBinding.bindingId = "binding-second";
+		readReadinessMock.mockResolvedValue(changed);
+		await act(async () => {
+			await refreshRecovery(queryClient);
+		});
+		await screen.findByText(
+			"This Agent’s Computer or local agent changed. Close and reopen Working folder to review its current settings."
+		);
+		expect(
+			(screen.getByLabelText("Custom working folder path") as HTMLInputElement)
+				.value
+		).toBe("/private/old-draft");
+		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+		expect(updateWorkspaceMock).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Review working folder" })
+		);
+		await screen.findByRole("combobox", { name: "Folder source" });
+		editCustomFolder("/private/new-draft");
+		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+		await vi.waitFor(() =>
+			expect(updateWorkspaceMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					workspacePath: "/private/new-draft",
+					target: {
+						deviceId:
+							change === "computer" ? "device-second" : "device-current",
+						runtimeLane: "dev-local",
+					},
+				})
+			)
+		);
+	});
+});
+
+function readinessFixture() {
+	// Captured from the isolated Core HTTP response on 2026-10-09. Only synthetic
+	// identifiers and display names are replaced; the shared schema guards drift.
+	return getAgentExecutionReadinessBatchResponseSchema.parse(
+		structuredClone(readinessCapture)
+	);
+}
+function eligibilityFixture(): GetAgentProfileControllerChangeEligibilityResponse {
+	return {
+		agentProfileId: RECOVERY_PROFILE_ID,
+		reasonCode: "agent_profile_binding.controller_change_allowed",
+		status: "allowed",
+	};
+}
+async function renderRecovery() {
+	const queryClient = createSettingsQueryClient();
+	render(
+		<TestQueryClientProvider queryClient={queryClient}>
+			<AgentWorkingFolderRecoveryAction profileId={RECOVERY_PROFILE_ID} />
+		</TestQueryClientProvider>
+	);
+	fireEvent.click(
+		screen.getByRole("button", { name: "Review working folder" })
+	);
+	await screen.findByRole("combobox", { name: "Folder source" });
+	return queryClient;
+}
+function refreshRecovery(
+	queryClient: ReturnType<typeof createTestQueryClient>
+) {
+	return Promise.all([
+		queryClient.invalidateQueries({
+			queryKey: agentExecutionReadinessQueryKeys.batchesForOrganization(
+				"account-1",
+				"organization-1"
+			),
+		}),
+		queryClient.invalidateQueries({
+			queryKey: agentProfilePrimaryBindingQueryKeys.controllerChangeEligibility(
+				"account-1",
+				RECOVERY_PROFILE_ID
+			),
+		}),
+	]);
+}
+function editCustomFolder(path: string) {
+	selectSource("On this computer");
+	fireEvent.change(screen.getByLabelText("Custom working folder path"), {
+		target: { value: path },
+	});
+}
+
+function deferred<T>() {
+	let resolve!: (value: T) => void;
+	let reject!: (reason: unknown) => void;
+	const promise = new Promise<T>((onResolve, onReject) => {
+		resolve = onResolve;
+		reject = onReject;
+	});
+	return { promise, resolve, reject };
+}
+
 function renderSettings(
 	executionTargetChangeEligibilityStatus:
 		| "allowed"
@@ -275,26 +525,8 @@ function renderSettings(
 	overrides: Partial<AuthProfileView> = {},
 	currentWorkingFolder: string | null = "/repo"
 ) {
-	const queryClient = createTestQueryClient();
+	const queryClient = createSettingsQueryClient();
 	const onProfileUpdated = vi.fn();
-	queryClient.setQueryData(projectQueryKeys.organization("organization-1"), {
-		organizationId: "organization-1",
-		projects: [
-			{
-				archivedAtMs: null,
-				canArchive: true,
-				canManage: true,
-				createdAtMs: 1,
-				createdByUserId: "user-1",
-				id: "project-1",
-				name: "OpenMeld",
-				organizationId: "organization-1",
-				repositoryFingerprint: null,
-				slug: "openmeld",
-				updatedAtMs: 1,
-			},
-		],
-	});
 	render(
 		<TestQueryClientProvider queryClient={queryClient}>
 			<AgentProfileProjectSettingsDialog
@@ -313,6 +545,29 @@ function renderSettings(
 		</TestQueryClientProvider>
 	);
 	return { onProfileUpdated };
+}
+
+function createSettingsQueryClient() {
+	const queryClient = createTestQueryClient();
+	queryClient.setQueryData(projectQueryKeys.organization("organization-1"), {
+		organizationId: "organization-1",
+		projects: [
+			{
+				archivedAtMs: null,
+				canArchive: true,
+				canManage: true,
+				createdAtMs: 1,
+				createdByUserId: "user-1",
+				id: "project-1",
+				name: "OpenMeld",
+				organizationId: "organization-1",
+				repositoryFingerprint: null,
+				slug: "openmeld",
+				updatedAtMs: 1,
+			},
+		],
+	});
+	return queryClient;
 }
 
 function profileFixture(

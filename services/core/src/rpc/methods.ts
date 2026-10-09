@@ -817,6 +817,7 @@ import {
   type AgentProfileBindingLookupResult,
   lookupPrimaryAgentProfileBinding,
 } from "../agent-profile-binding/application/agent-profile-binding-lookup-service";
+import { requireSameAgentProfileBindingTarget } from "../agent-profile-binding/application/agent-profile-binding-target";
 import {
   rememberAgentProfileCreationDefaults,
   resolveFirstUseAgentProfileCreationDefaults,
@@ -1461,7 +1462,8 @@ export function rpcArchiveProject(
 }
 export async function rpcUpdateAgentProfileDefaultProject(
   env: CoreBindings,
-  input: UpdateAgentProfileDefaultProjectInput
+  input: UpdateAgentProfileDefaultProjectInput,
+  expectedBindingTarget?: import("../agent-profile-binding/application/agent-profile-binding-target").AgentProfileBindingTarget
 ): Promise<UpdateAgentProfileDefaultProjectResponse> {
   const parsedRequest =
     updateAgentProfileDefaultProjectRpcInputSchema.safeParse(input);
@@ -1484,6 +1486,7 @@ export async function rpcUpdateAgentProfileDefaultProject(
     authority,
     defaultProjectId: request.defaultProjectId,
     onlyIfUnmodified: request.onlyIfUnmodified,
+    expectedBindingTarget,
     env,
     service,
   });
@@ -4556,7 +4559,8 @@ function requireLocalAgentInstallationSelectionStatus(
 export async function rpcSetCurrentAgentProfileWorkspace(
   env: CoreBindings,
   input: SetCurrentAgentProfileWorkspaceInput,
-  target?: PeopleComputerTarget
+  target?: PeopleComputerTarget,
+  expectedBindingTarget?: import("../agent-profile-binding/application/agent-profile-binding-target").AgentProfileBindingTarget
 ): Promise<SetCurrentAgentProfileWorkspaceResponse> {
   const routeParams =
     setCurrentAgentProfileWorkspaceRouteParamsSchema.safeParse({
@@ -4579,7 +4583,7 @@ export async function rpcSetCurrentAgentProfileWorkspace(
       code: "invalid_payload",
     });
   }
-  const { request } = await requireAgentProfileWorkspaceScope(env, {
+  const { db, request } = await requireAgentProfileWorkspaceScope(env, {
     agentProfileId: routeParams.data.agentProfileId,
     context: input.context,
   });
@@ -4606,6 +4610,21 @@ export async function rpcSetCurrentAgentProfileWorkspace(
   }
   let releaseExecutionTargetMutationAdmission = false;
   try {
+    if (expectedBindingTarget) {
+      // This check is serialized with Binding changes by the existing owner
+      // admission. A known refusal must release it without calling Service.
+      releaseExecutionTargetMutationAdmission = true;
+      const currentBinding = await readPrimaryAgentProfileBindingRecord({
+        agentProfileId: routeParams.data.agentProfileId,
+        db,
+        owner: { id: userId, kind: "owner_account" },
+      });
+      requireSameAgentProfileBindingTarget(
+        currentBinding,
+        expectedBindingTarget
+      );
+    }
+    releaseExecutionTargetMutationAdmission = false;
     const transportResult = await setRuntimeTransportProfileWorkspace({
       deviceId: currentTarget.deviceId,
       env,
@@ -5378,6 +5397,12 @@ async function resolveBoundAgentProfileComputerTarget(
   env: CoreBindings,
   input: GetAgentProfilePrimaryBindingInput
 ): Promise<PeopleComputerTarget> {
+  return (await resolveBoundAgentProfileComputerContext(env, input)).target;
+}
+async function resolveBoundAgentProfileComputerContext(
+  env: CoreBindings,
+  input: GetAgentProfilePrimaryBindingInput
+) {
   const response = await rpcGetAgentProfilePrimaryBinding(env, input);
   const executionTarget = response.binding.executionTarget;
   const unavailable = () =>
@@ -5386,7 +5411,11 @@ async function resolveBoundAgentProfileComputerTarget(
       reason: "OpenMeld could not confirm the Computer that runs this Agent.",
       status: 409,
     });
-  if (response.status !== "found" || !executionTarget) {
+  if (
+    response.status !== "found" ||
+    !executionTarget ||
+    !response.binding.bindingId
+  ) {
     throw unavailable();
   }
   const runtime = await resolveAgentExecutionTargetRuntimeContext({
@@ -5403,7 +5432,16 @@ async function resolveBoundAgentProfileComputerTarget(
   if (!runtime) {
     throw unavailable();
   }
-  return { deviceId: runtime.deviceId, runtimeLane: runtime.lane };
+  return {
+    target: { deviceId: runtime.deviceId, runtimeLane: runtime.lane },
+    bindingTarget: {
+      bindingId: response.binding.bindingId,
+      agentControllerRef: executionTarget.agentControllerRef,
+      agentControllerConversationId:
+        executionTarget.agentControllerConversationId ?? null,
+      openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId.value,
+    },
+  };
 }
 export async function rpcGetCurrentAgentProfileSession(
   env: CoreBindings,
@@ -12689,13 +12727,18 @@ function buildCenterAgentProductOperationDeps(
           setAgentProfileDefaultProject: async ({
             agentProfileId,
             defaultProjectId,
+            expectedBindingTarget,
           }) => {
-            await rpcUpdateAgentProfileDefaultProject(env, {
-              agentProfileId,
-              context: representedContext,
-              defaultProjectId,
-              expectedOrganizationId: organizationId,
-            });
+            await rpcUpdateAgentProfileDefaultProject(
+              env,
+              {
+                agentProfileId,
+                context: representedContext,
+                defaultProjectId,
+                expectedOrganizationId: organizationId,
+              },
+              expectedBindingTarget
+            );
           },
         }
       : {}),
@@ -12704,10 +12747,11 @@ function buildCenterAgentProductOperationDeps(
       workspaceMode,
       workspacePath,
     }) => {
-      const target = await resolveBoundAgentProfileComputerTarget(env, {
-        agentProfileId,
-        context: ownerContext,
-      });
+      const { target, bindingTarget } =
+        await resolveBoundAgentProfileComputerContext(env, {
+          agentProfileId,
+          context: ownerContext,
+        });
       const workspace = await rpcSetCurrentAgentProfileWorkspace(
         env,
         {
@@ -12716,9 +12760,10 @@ function buildCenterAgentProductOperationDeps(
           workspaceMode,
           ...(workspacePath === undefined ? {} : { workspacePath }),
         },
-        target
+        target,
+        bindingTarget
       );
-      return { ...workspace, target };
+      return { ...workspace, target, bindingTarget };
     },
     updateAgentControllerPermissionMode: async ({
       agentControllerPermissionMode,

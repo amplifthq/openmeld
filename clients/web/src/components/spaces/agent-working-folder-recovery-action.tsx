@@ -1,6 +1,10 @@
 "use client";
 
-import type { AuthProfileView } from "@openmeld/schemas/types";
+import type {
+	AuthProfileView,
+	GetAgentExecutionReadinessResponse,
+	PeopleComputerTarget,
+} from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	Dialog,
@@ -10,7 +14,7 @@ import {
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { AgentProfileEditDialogContext } from "#/components/agents/agent-profile-edit-dialog-controller";
 import { AgentProfileProjectSettingsDialog } from "#/components/profiles/agent-profile-project-settings-dialog";
 import { agentExecutionReadinessBatchQueryOptions } from "#/query/agents/execution-readiness";
@@ -36,6 +40,7 @@ export function AgentWorkingFolderRecoveryAction(input: {
 		<OwnerWorkingFolderRecoveryAction
 			className={input.className}
 			context={edit.context}
+			key={profile.openMeldProfileId}
 			profile={profile}
 		/>
 	);
@@ -47,6 +52,13 @@ function OwnerWorkingFolderRecoveryAction(input: {
 	profile: AuthProfileView;
 }) {
 	const [open, setOpen] = useState(false);
+	// This is the folder draft's frozen target, not a replacement for Core's
+	// current readiness. Refreshes must neither reset it nor retarget the draft.
+	const [draftTarget, setDraftTarget] = useState<{
+		target: PeopleComputerTarget;
+		agentControllerRef: string | null;
+		bindingKey: string | null;
+	} | null>(null);
 	const readiness = useQuery({
 		...agentExecutionReadinessBatchQueryOptions({
 			agentProfileIds: [input.profile.openMeldProfileId],
@@ -79,6 +91,42 @@ function OwnerWorkingFolderRecoveryAction(input: {
 		eligibility.isPending ||
 		readiness.isFetching ||
 		eligibility.isFetching;
+	const bindingKey = folderDraftBindingKey(current);
+	useEffect(() => {
+		if (!open) {
+			setDraftTarget(null);
+			return;
+		}
+		if (
+			!(draftTarget || loading || readiness.isError || eligibility.isError) &&
+			target &&
+			eligibility.data
+		) {
+			setDraftTarget({
+				target,
+				agentControllerRef: current?.agentControllerRef ?? null,
+				bindingKey,
+			});
+		}
+	}, [
+		open,
+		draftTarget,
+		loading,
+		readiness.isError,
+		eligibility.isError,
+		target,
+		eligibility.data,
+		current?.agentControllerRef,
+		bindingKey,
+	]);
+	const saveBlockedReason = resolveFolderDraftBlockReason({
+		draftTarget,
+		currentTarget: target,
+		currentAgentControllerRef: current?.agentControllerRef ?? null,
+		currentBindingKey: bindingKey,
+		checking: loading,
+		failed: readiness.isError || eligibility.isError,
+	});
 	return (
 		<>
 			<Button
@@ -89,14 +137,14 @@ function OwnerWorkingFolderRecoveryAction(input: {
 			>
 				Review working folder
 			</Button>
-			{!(loading || readiness.isError || eligibility.isError) &&
-			target &&
-			eligibility.data ? (
+			{draftTarget ? (
 				<AgentProfileProjectSettingsDialog
 					actorProfileId={input.context.actorProfileId}
-					agentControllerRef={current?.agentControllerRef ?? null}
+					agentControllerRef={draftTarget.agentControllerRef}
 					currentWorkingFolder={null}
-					executionTargetChangeEligibilityStatus={eligibility.data.status}
+					executionTargetChangeEligibilityStatus={
+						eligibility.data?.status ?? "unavailable"
+					}
 					onOpenChange={setOpen}
 					onProfileUpdated={() => {
 						input.context
@@ -111,7 +159,8 @@ function OwnerWorkingFolderRecoveryAction(input: {
 					open={open}
 					organizationId={input.context.organizationId}
 					profile={input.profile}
-					target={target}
+					saveBlockedReason={saveBlockedReason}
+					target={draftTarget.target}
 				/>
 			) : (
 				<Dialog onOpenChange={setOpen} open={open}>
@@ -151,4 +200,51 @@ function OwnerWorkingFolderRecoveryAction(input: {
 			)}
 		</>
 	);
+}
+
+function resolveFolderDraftBlockReason(input: {
+	draftTarget: {
+		target: PeopleComputerTarget;
+		agentControllerRef: string | null;
+		bindingKey: string | null;
+	} | null;
+	currentTarget: PeopleComputerTarget | null;
+	currentAgentControllerRef: string | null;
+	currentBindingKey: string | null;
+	checking: boolean;
+	failed: boolean;
+}): string | undefined {
+	if (!input.draftTarget) {
+		return undefined;
+	}
+	if (input.checking) {
+		return "Checking this Agent’s current Computer…";
+	}
+	if (input.failed || !input.currentTarget) {
+		return "Couldn’t confirm this Agent’s current Computer. Your changes are still here. Close and reopen Working folder to try again.";
+	}
+	if (
+		input.currentTarget.deviceId !== input.draftTarget.target.deviceId ||
+		input.currentTarget.runtimeLane !== input.draftTarget.target.runtimeLane ||
+		input.currentAgentControllerRef !== input.draftTarget.agentControllerRef ||
+		input.currentBindingKey !== input.draftTarget.bindingKey
+	) {
+		return "This Agent’s Computer or local agent changed. Close and reopen Working folder to review its current settings.";
+	}
+	return undefined;
+}
+
+function folderDraftBindingKey(
+	readiness: GetAgentExecutionReadinessResponse | undefined
+): string | null {
+	const binding = readiness?.primaryBinding;
+	if (!binding?.executionTarget) {
+		return null;
+	}
+	return JSON.stringify([
+		binding.bindingId ?? null,
+		binding.executionTarget.openMeldServiceRuntimeId.value,
+		binding.executionTarget.agentControllerRef,
+		binding.executionTarget.agentControllerConversationId ?? null,
+	]);
 }

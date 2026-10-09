@@ -10,7 +10,10 @@ import type {
   RuntimeTransportLookupOwnerServiceResponse,
 } from "@openmeld/schemas/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ensurePrimaryAgentProfileBindingRecord } from "../src/agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
+import {
+  ensurePrimaryAgentProfileBindingRecord,
+  reconnectPrimaryAgentProfileBindingRecord,
+} from "../src/agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
   rpcCenterAgentCheckAgentProfileReadiness,
@@ -27,6 +30,8 @@ describe("Center Agent PeopleComputers authorization", () => {
     "missing",
     "old_service",
     "wrong_device",
+    "binding_changed_before_admission",
+    "binding_changed_before_project_clear",
   ] as const)("reads only the bound Computer's saved Project connection (%s) without exposing paths", async (state) => {
     const fixture = await seedFixture();
     const organizationId = fixture.context.activeOrganizationId;
@@ -221,29 +226,70 @@ describe("Center Agent PeopleComputers authorization", () => {
       }
     );
     expect(legacy).not.toHaveProperty("defaultProjectConnection");
-    if (state !== "available" && state !== "wrong_device") {
+    if (state === "missing" || state === "old_service") {
       return;
+    }
+    const switchBinding = async () => {
+      const switched = await reconnectPrimaryAgentProfileBindingRecord({
+        db,
+        acquireExecutionTargetMutationAdmission: async () => undefined,
+        record: {
+          agentProfileId,
+          bindingId: `binding-${crypto.randomUUID()}`,
+          agentControllerRef: "builtin:codex",
+          createdAtMs: Date.now(),
+          updatedAtMs: Date.now(),
+          owner: { id: fixture.member.userId, kind: "owner_account" },
+          openMeldServiceRuntimeId: `${fixture.member.runtimeId}-second`,
+        },
+      });
+      expect(switched.status).toBe("accepted");
+    };
+    // Both interleavings use the actual canonical Binding writer. The second
+    // owned Computer is fixture data; no old/new target is synthesized by RPC.
+    if (state.startsWith("binding_changed")) {
+      await db.query({
+        text: "INSERT INTO \"openmeld\".\"openMeldDaemon_runtime_registry_records\" (openmeld_service_runtime_id, owner_kind, owner_id, device_id, lane, created_at_ms, last_registered_at_ms, updated_at_ms) VALUES ($1, 'owner_account', $2, $3, 'prod', $4, $4, $4)",
+        values: [
+          `${fixture.member.runtimeId}-second`,
+          fixture.member.userId,
+          `${fixture.member.deviceId}-second`,
+          Date.now(),
+        ],
+      });
     }
     vi.spyOn(
       transport,
       "acquireRuntimeTransportAgentProfileExecutionTargetMutation"
-    ).mockImplementation(async ({ operationId }) => ({
-      status: "acquired",
-      operationId,
-      expiresAtMs: Date.now() + 60_000,
-    }));
+    ).mockImplementation(async ({ operationId }) => {
+      if (state === "binding_changed_before_admission") {
+        await switchBinding();
+      }
+      return {
+        status: "acquired",
+        operationId,
+        expiresAtMs: Date.now() + 60_000,
+      };
+    });
     vi.spyOn(
       transport,
       "acquireRuntimeTransportAgentProfileFutureWorkSettingsMutation"
-    ).mockImplementation(async ({ operationId }) => ({
-      status: "acquired",
-      operationId,
-      expiresAtMs: Date.now() + 60_000,
-    }));
-    vi.spyOn(
-      transport,
-      "releaseRuntimeTransportAgentProfileExecutionTargetMutation"
-    ).mockResolvedValue({ status: "released" });
+    ).mockImplementation(async ({ operationId }) => {
+      if (state === "binding_changed_before_project_clear") {
+        await switchBinding();
+      }
+      return {
+        status: "acquired",
+        operationId,
+        expiresAtMs: Date.now() + 60_000,
+      };
+    });
+    const release = vi
+      .spyOn(
+        transport,
+        "releaseRuntimeTransportAgentProfileExecutionTargetMutation"
+      )
+      .mockResolvedValue({ status: "released" });
     const save = vi
       .spyOn(transport, "setRuntimeTransportProfileWorkspace")
       .mockResolvedValue({
@@ -266,12 +312,25 @@ describe("Center Agent PeopleComputers authorization", () => {
       }
     );
     expect(JSON.stringify(update)).not.toContain("/private/member/managed");
-    if (state === "wrong_device") {
+    if (
+      state === "wrong_device" ||
+      state === "binding_changed_before_admission"
+    ) {
       expect(update.status).toBe("blocked");
       expect(save).not.toHaveBeenCalled();
       expect(
         auth.updateAgentProfileDefaultProjectInOrganization
       ).not.toHaveBeenCalled();
+      if (state === "binding_changed_before_admission") {
+        expect(update.steps).toContainEqual(
+          expect.objectContaining({
+            name: "update_agent_profile_workspace",
+            reasonCode: "agent_profile_binding.target_changed",
+            status: "failed",
+          })
+        );
+        expect(release).toHaveBeenCalled();
+      }
     } else {
       expect(update.workspace).toEqual({
         agentProfileId,
@@ -288,6 +347,27 @@ describe("Center Agent PeopleComputers authorization", () => {
           workspaceMode: "openmeld_managed",
         })
       );
+      if (state === "binding_changed_before_project_clear") {
+        expect(update.status).toBe("blocked");
+        expect(update.steps).toContainEqual(
+          expect.objectContaining({
+            name: "update_agent_profile_workspace",
+            status: "completed",
+          })
+        );
+        expect(update.steps).toContainEqual(
+          expect.objectContaining({
+            name: "update_agent_profile_default_project",
+            reasonCode: "agent_profile_binding.target_changed",
+            status: "failed",
+          })
+        );
+        expect(
+          auth.updateAgentProfileDefaultProjectInOrganization
+        ).not.toHaveBeenCalled();
+        expect(release).toHaveBeenCalledTimes(2);
+        return;
+      }
       expect(
         auth.updateAgentProfileDefaultProjectInOrganization
       ).toHaveBeenCalledWith({

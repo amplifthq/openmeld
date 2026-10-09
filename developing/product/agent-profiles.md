@@ -896,6 +896,19 @@ ID, not a second custom-folder preference. Changing its device default is a
 separate, explicitly confirmed Project mutation affecting future work for all
 Agents using that Project on that computer.
 
+An open recovery selector retains its draft, pending save, and error while
+readiness or mutation eligibility refreshes. It keeps the original Profile and
+Binding target; changed or unavailable target evidence blocks Save without
+silently moving the draft to another Computer. The owner closes and reopens the
+selector to review a changed target.
+
+Center Agent working-folder writes verify their automatic Binding target inside
+the existing execution-target mutation admission before calling Service. The
+subsequent Default Project clear verifies that same target inside its existing
+future-work settings admission. These are two ordered writes, not one atomic
+transaction. If the target changes between them, the local save receipt remains
+visible, the Project is not cleared, and setup reports partial failure.
+
 `defaultProjectId` is a separate Organization-scoped cloud preference for a
 local Agent Profile. It identifies the Project that future Wakes and new
 sessions should use by default. It does not store a folder, permanently assign

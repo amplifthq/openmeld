@@ -28,6 +28,7 @@ import {
 } from "./agent-profile-project-settings";
 
 type SettingsInput = {
+	saveBlockedReason?: string;
 	target?: PeopleComputerTarget;
 	actorProfileId: string | null;
 	agentControllerRef: string | null;
@@ -91,7 +92,9 @@ function LocalAgentProfileProjectSettingsDialog(input: SettingsInput) {
 			connection,
 			fallback,
 			path,
-		}) && !(localFolderChangesBlocked && !projectId);
+		}) &&
+		!(localFolderChangesBlocked && !projectId) &&
+		!input.saveBlockedReason;
 	const save = async () => {
 		// The displayed choice does not prove that the Service has a usable
 		// workspace. Explicit Save may reapply it to initialize or repair it.
@@ -226,6 +229,11 @@ function LocalAgentProfileProjectSettingsDialog(input: SettingsInput) {
 						<p className="text-destructive text-sm" role="alert">
 							{error}
 						</p>
+					) : null}
+					{input.saveBlockedReason ? (
+						<output className="text-muted-foreground text-sm">
+							{input.saveBlockedReason}
+						</output>
 					) : null}
 				</div>
 				<DialogFooter>
