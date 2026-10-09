@@ -752,6 +752,9 @@ async function processD1Snapshot(
         throw new Error("Missing Space membership baseline");
       }
       await client.query(baseline);
+      // Derived Inbox baseline rows consume native identities after the import.
+      // Re-establish an uncalled next identity before the receipt is committed.
+      await reconcileIdentities(client, manifest, true, layout.identities);
     }
     const receipt = {
       ...binding,
