@@ -733,6 +733,7 @@ export const setRuntimeTransportProfileWorkspace = async (input: {
   targetProfileId: string;
   workspaceMode: "custom" | "openmeld_managed";
   workspacePath?: string;
+  onlyIfUnconfigured?: boolean;
 }): Promise<RuntimeTransportSetProfileWorkspaceResponse> => {
   const parsedRequest =
     runtimeTransportSetProfileWorkspaceRequestSchema.safeParse({
@@ -742,6 +743,7 @@ export const setRuntimeTransportProfileWorkspace = async (input: {
       lane: input.runtimeLane,
       targetProfileId: input.targetProfileId,
       workspaceMode: input.workspaceMode,
+      ...(input.onlyIfUnconfigured ? { onlyIfUnconfigured: true } : {}),
       ...(input.workspacePath === undefined
         ? {}
         : { workspacePath: input.workspacePath }),

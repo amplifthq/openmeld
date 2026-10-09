@@ -106,6 +106,29 @@ describe("Center Agent product operations", () => {
       ],
       organizationId: ORGANIZATION_ID,
     });
+    expect(response.candidates[0]).not.toHaveProperty("modelOptions");
+    const modelOptions = {
+      defaultModelId: "test-model",
+      models: [
+        {
+          id: "test-model",
+          displayName: "Test Model",
+          supportedReasoningLevels: ["medium", "high"],
+          minCliVersion: null,
+          unavailable: false,
+        },
+      ],
+    };
+    const withModels = projectCenterAgentLocalAgentConnectionCandidates({
+      peopleComputers: createPeopleComputersResponse(),
+      organizationId: ORGANIZATION_ID,
+      modelCatalog: {
+        schemaVersion: 1,
+        updatedAt: NOW_ISO,
+        agentControllers: { codex: modelOptions },
+      },
+    });
+    expect(withModels.candidates[0]?.modelOptions).toEqual(modelOptions);
   });
 
   it("projects update and reconnect actions from current computer truth", () => {
@@ -293,10 +316,12 @@ describe("Center Agent product operations", () => {
 
   it("reports partial progress when runtime settings fail after a successful Binding update", async () => {
     const binding = acceptedBindingResponse();
+    const setAgentProfileDefaultProject = vi.fn();
 
     const response = await updateAgentProfileRuntimeSettingsOperation({
       deps: {
         checkAgentProfileReadiness: vi.fn(),
+        setAgentProfileDefaultProject,
         setAgentProfileWorkspace: vi.fn(() =>
           Promise.reject(
             new Error(
@@ -328,12 +353,66 @@ describe("Center Agent product operations", () => {
           status: "completed",
         },
         {
-          message: "Local OpenMeld Service could not set the Project folder.",
+          message:
+            "The working folder could not be saved on the target Computer.",
           name: "update_agent_profile_workspace",
           status: "failed",
         },
       ],
     });
+    expect(setAgentProfileDefaultProject).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "custom",
+    "openmeld_managed",
+  ] as const)("makes the %s folder effective without returning private local facts", async (workspaceMode) => {
+    const calls: string[] = [];
+    const setAgentProfileDefaultProject = vi.fn(() => {
+      calls.push("clear_project");
+      return Promise.resolve();
+    });
+    const response = await updateAgentProfileRuntimeSettingsOperation({
+      deps: {
+        checkAgentProfileReadiness: vi.fn(() => {
+          calls.push("read_readiness");
+          return Promise.resolve(readyReadinessResponse());
+        }),
+        setAgentProfileDefaultProject,
+        setAgentProfileWorkspace: () => {
+          calls.push("save_folder");
+          return Promise.resolve({
+            agentProfileId: AGENT_PROFILE_ID,
+            status: "updated",
+            workspaceMode,
+            workspacePath: "/private/test-account/repository",
+          });
+        },
+        updateAgentControllerCollaborationMode: vi.fn(),
+        updateAgentControllerPermissionMode: vi.fn(),
+        updateModelSelection: vi.fn(),
+        updateOpenCodePermission: vi.fn(),
+      },
+      organizationId: ORGANIZATION_ID,
+      request: {
+        agentProfileId: AGENT_PROFILE_ID,
+        workspaceMode,
+        ...(workspaceMode === "custom"
+          ? { workspacePath: "/private/test-account/repository" }
+          : {}),
+      },
+    });
+    expect(calls).toEqual(["save_folder", "clear_project", "read_readiness"]);
+    expect(setAgentProfileDefaultProject).toHaveBeenCalledWith({
+      agentProfileId: AGENT_PROFILE_ID,
+      defaultProjectId: null,
+    });
+    expect(response.workspace).toEqual({
+      agentProfileId: AGENT_PROFILE_ID,
+      status: "updated",
+    });
+    expect(response.status).toBe("completed");
+    expect(JSON.stringify(response)).not.toContain("/private/test-account");
   });
 
   it("updates Codex Collaboration Mode as an independent runtime setting", async () => {
@@ -369,6 +448,47 @@ describe("Center Agent product operations", () => {
       canReply: true,
       status: "completed",
     });
+  });
+
+  it("reports a saved folder as partial setup when Default Project cannot be cleared", async () => {
+    const checkAgentProfileReadiness = vi.fn();
+    const response = await updateAgentProfileRuntimeSettingsOperation({
+      deps: {
+        checkAgentProfileReadiness,
+        setAgentProfileDefaultProject: () =>
+          Promise.reject(
+            new Error("Private diagnostic: /private/test-account/repository")
+          ),
+        setAgentProfileWorkspace: () =>
+          Promise.resolve({
+            agentProfileId: AGENT_PROFILE_ID,
+            status: "updated",
+            workspaceMode: "custom",
+            workspacePath: "/private/test-account/repository",
+          }),
+        updateAgentControllerCollaborationMode: vi.fn(),
+        updateAgentControllerPermissionMode: vi.fn(),
+        updateModelSelection: vi.fn(),
+        updateOpenCodePermission: vi.fn(),
+      },
+      organizationId: ORGANIZATION_ID,
+      request: {
+        agentProfileId: AGENT_PROFILE_ID,
+        workspaceMode: "custom",
+        workspacePath: "/private/test-account/repository",
+      },
+    });
+    expect(checkAgentProfileReadiness).not.toHaveBeenCalled();
+    expect(response).toMatchObject({
+      status: "blocked",
+      canReply: false,
+      workspace: { agentProfileId: AGENT_PROFILE_ID, status: "updated" },
+      steps: [
+        { name: "update_agent_profile_workspace", status: "completed" },
+        { name: "update_agent_profile_default_project", status: "failed" },
+      ],
+    });
+    expect(JSON.stringify(response)).not.toContain("/private/test-account");
   });
 });
 

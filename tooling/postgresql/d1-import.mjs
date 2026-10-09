@@ -300,6 +300,13 @@ function nativeColumns(table, targetColumns) {
       hidden: 0,
       source: "new_nullable",
     });
+    // A historical null does not prove that the owner never cleared Project.
+    columns.push({
+      name: "default_project_revision",
+      type: "INTEGER",
+      hidden: 0,
+      source: "new_nullable",
+    });
   }
   if (table.name === "projects") {
     // Historical Projects retain their repository and identity. Workflow

@@ -145,6 +145,7 @@ export const authProfileViewSchema = z
 export const updateAgentProfileDefaultProjectBodySchema = z.strictObject({
   expectedOrganizationId: z.string().trim().min(1),
   defaultProjectId: z.string().trim().min(1).nullable(),
+  onlyIfUnmodified: z.boolean().optional(),
 });
 
 const updateAgentProfileDefaultProjectRouteParamsShape = {

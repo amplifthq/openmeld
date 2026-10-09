@@ -39,8 +39,7 @@ import { messageEnvelopeSchema } from "../protocol/message-envelope";
 import {
   agentProfileIdSchema,
   profileHandleSchema,
-  profileWorkingDirectorySchema,
-  profileWorkspaceModeSchema,
+  profileWorkspaceWriteSchema,
 } from "../protocol/profile";
 import { targetWakeLifecycleIdentitySchema } from "../protocol/target-wake-lifecycle";
 import { workingLanguageGuidanceSchema } from "../runtime/working-language";
@@ -473,6 +472,7 @@ export const runtimeTransportBaseCapabilitiesSchema = z.strictObject({
       resumeControllerConversation: z.literal(true).optional(),
       setEnabled: z.literal(true).optional(),
       setProfileWorkspace: z.literal(true).optional(),
+      initializeProfileWorkspace: z.literal(true).optional(),
     })
     .optional(),
   localProjectControl: z
@@ -903,32 +903,13 @@ export const runtimeTransportRefreshLocalAgentCatalogResponseSchema =
     }),
   ]);
 
-export const runtimeTransportSetProfileWorkspaceRequestSchema = z
-  .strictObject({
+export const runtimeTransportSetProfileWorkspaceRequestSchema =
+  profileWorkspaceWriteSchema.safeExtend({
     v: z.literal(RUNTIME_TRANSPORT_SCHEMA_VERSION),
     ownerUserId: z.string().min(1),
     deviceId: z.string().min(1),
     lane: daemonServiceLaneSchema,
     targetProfileId: agentProfileIdSchema,
-    workspaceMode: profileWorkspaceModeSchema,
-    workspacePath: profileWorkingDirectorySchema.optional(),
-  })
-  .superRefine((value, context) => {
-    if (value.workspaceMode === "custom" && !value.workspacePath) {
-      context.addIssue({
-        code: "custom",
-        message: "workspacePath is required for a custom profile workspace",
-        path: ["workspacePath"],
-      });
-    }
-    if (value.workspaceMode === "openmeld_managed" && value.workspacePath) {
-      context.addIssue({
-        code: "custom",
-        message:
-          "workspacePath must be omitted for an OpenMeld-managed profile workspace",
-        path: ["workspacePath"],
-      });
-    }
   });
 
 export const runtimeTransportSetProfileWorkspaceResponseSchema =

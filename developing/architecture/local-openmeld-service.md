@@ -1791,6 +1791,13 @@ or an explicit CLI agent enable command may reverse it.
 
 ## Current-Device Project Operations
 
+Profile workspace controls advertise `initializeProfileWorkspace` separately
+from ordinary `setProfileWorkspace`. Creation uses `onlyIfUnconfigured` with
+the exact selected device and lane. The Service compares and initializes under
+the existing Profile workspace writer lock, preserves later configuration, and
+rejects malformed local metadata. An unsupported Service fails closed. This
+capability does not create readiness or execution authority.
+
 Project controls expose an additive `readConnections` capability. A
 `discover_projects` request with `includeCandidates: false` reads the
 existing owner/device/lane-local connection store and checks path availability

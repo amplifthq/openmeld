@@ -1047,6 +1047,7 @@ export {
   decideAgentProfileCreationRequestBodySchema,
   getAgentProfileCreationApprovalPreferenceResponseSchema,
   listAgentProfileCreationRequestsResponseSchema,
+  retryAgentProfileCreationRequestBodySchema,
   setAgentProfileCreationApprovalPreferenceBodySchema,
   setAgentProfileCreationApprovalPreferenceResponseSchema,
   TEAMMATE_AGENT_REQUESTS_ENABLED,
@@ -1099,6 +1100,7 @@ export {
   authRpcResolveUserDisplayNameResultSchema,
   authRpcSendInboxUrgentEmailInputSchema,
   authRpcSendInboxUrgentEmailResultSchema,
+  authRpcUpdateAgentProfileDefaultProjectInputSchema,
   openMeldRequestedOrganizationSelectorSchema,
 } from "./http/auth-rpc";
 export { catchupResponseSchema } from "./http/catchup-response";

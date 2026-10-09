@@ -84,6 +84,7 @@ export const agentProfileBindingOpenCodePermissionSchema =
   openCodePermissionConfigSchema;
 
 export const agentProfileBindingWriteModeSchema = z.enum([
+  "initialize",
   "ensure",
   "reconnect",
 ]);

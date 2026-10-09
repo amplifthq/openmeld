@@ -1714,6 +1714,7 @@ export async function runDaemonSocketSession(input: {
     targetProfileId: string;
     workspaceMode: "custom" | "openmeld_managed";
     workspacePath?: string;
+    onlyIfUnconfigured?: boolean;
   }): Promise<OpenMeldDaemonSetProfileWorkspacePayload> => {
     try {
       const result =
@@ -1724,6 +1725,7 @@ export async function runDaemonSocketSession(input: {
             })
           : await ensureOpenMeldManagedProfileWorkspace({
               openMeldProfileId: controlInput.targetProfileId,
+              onlyIfUnconfigured: controlInput.onlyIfUnconfigured,
             });
       requestLocalExecutionEvidenceRefresh({
         reason: "local_state_changed",

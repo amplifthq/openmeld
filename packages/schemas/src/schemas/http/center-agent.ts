@@ -5,7 +5,10 @@ import {
   spaceEvidenceReferenceSchema,
   spaceEvidenceReferencesSchema,
 } from "../../space-evidence";
-import { hostedModelReasoningLevelSchema } from "../config/model-catalog";
+import {
+  hostedModelReasoningLevelSchema,
+  modelCatalogAgentControllerSchema,
+} from "../config/model-catalog";
 import { agentControllerRefSchema } from "../daemon/agent-controller-ref";
 import { computerCareObservationSchema } from "../daemon/computer-care";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
@@ -1295,6 +1298,7 @@ export const centerAgentProductOperationStepNameSchema = z.enum([
   "authorize_agent_profile_for_organization",
   "update_agent_profile_runtime_settings",
   "update_agent_profile_workspace",
+  "update_agent_profile_default_project",
   "add_agent_profile_to_space",
   "check_agent_profile_readiness",
 ]);
@@ -1302,6 +1306,7 @@ export const centerAgentProductOperationStepNameSchema = z.enum([
 export const centerAgentProductOperationStepSchema = z.strictObject({
   name: centerAgentProductOperationStepNameSchema,
   status: z.enum(["completed", "failed", "skipped"]),
+  reasonCode: trimmedNonEmptyStringSchema.optional(),
   message: trimmedNonEmptyStringSchema.optional(),
   nextAction: trimmedNonEmptyStringSchema.optional(),
 });
@@ -1315,6 +1320,7 @@ export const centerAgentLocalAgentConnectionCandidateSchema = z.strictObject({
   deviceId: trimmedNonEmptyStringSchema,
   freshness: z.enum(["fresh", "stale", "unknown"]),
   lastObservedAtMs: z.number().int().nonnegative().nullable(),
+  modelOptions: modelCatalogAgentControllerSchema.optional(),
   reasonCodes: z.array(trimmedNonEmptyStringSchema),
   runtimeLane: trimmedNonEmptyStringSchema,
   status: z.enum(["ready", "not_ready", "stale", "unknown"]),
@@ -1354,6 +1360,7 @@ export const centerAgentComputerSetupOptionSchema = z
 
 export const centerAgentListLocalAgentConnectionCandidatesBodySchema =
   z.strictObject({
+    includeModelOptions: z.boolean().optional(),
     memberUserId: trimmedNonEmptyStringSchema.optional(),
     speakerMember: centerAgentToolSpeakerSchema,
   });
@@ -1614,6 +1621,12 @@ const centerAgentProductOperationStatusSchema = z.enum([
   "blocked",
 ]);
 
+const centerAgentWorkspaceMutationResponseSchema =
+  setCurrentAgentProfileWorkspaceResponseSchema.omit({
+    workspaceMode: true,
+    workspacePath: true,
+  });
+
 export const centerAgentConnectAgentProfileToLocalAgentResponseSchema =
   z.strictObject({
     agentProfileId: agentProfileIdSchema,
@@ -1635,7 +1648,7 @@ export const centerAgentUpdateAgentProfileRuntimeSettingsResponseSchema =
     readiness: centerAgentCheckAgentProfileReadinessResponseSchema.optional(),
     status: centerAgentProductOperationStatusSchema,
     steps: z.array(centerAgentProductOperationStepSchema),
-    workspace: setCurrentAgentProfileWorkspaceResponseSchema.optional(),
+    workspace: centerAgentWorkspaceMutationResponseSchema.optional(),
   });
 
 export const centerAgentCreateConfiguredAgentProfileResponseSchema =
@@ -1650,7 +1663,7 @@ export const centerAgentCreateConfiguredAgentProfileResponseSchema =
     spaceId: trimmedNonEmptyStringSchema,
     status: centerAgentProductOperationStatusSchema,
     steps: z.array(centerAgentProductOperationStepSchema),
-    workspace: setCurrentAgentProfileWorkspaceResponseSchema.optional(),
+    workspace: centerAgentWorkspaceMutationResponseSchema.optional(),
   });
 
 export const centerAgentConciergeActionResponseSchema = z.strictObject({

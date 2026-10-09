@@ -200,6 +200,11 @@ export const createOrganizationApi: CreateOrganizationApi = (
     }),
   retryAgentProfileCreationRequest: async (input) =>
     await client.requestJson({
+      body: JSON.stringify({
+        expectedUpdatedAt: input.expectedUpdatedAt,
+        modelSelection: input.modelSelection,
+      }),
+      headers: { "content-type": "application/json" },
       invalidMessage: "invalid Agent Profile creation request retry response",
       method: "POST",
       operation: "agent_profile.creation_request.retry",

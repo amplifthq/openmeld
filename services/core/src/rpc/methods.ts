@@ -1482,6 +1482,7 @@ export async function rpcUpdateAgentProfileDefaultProject(
     agentProfileId: request.agentProfileId,
     authority,
     defaultProjectId: request.defaultProjectId,
+    onlyIfUnmodified: request.onlyIfUnmodified,
     env,
     service,
   });
@@ -4546,6 +4547,7 @@ export async function rpcSetCurrentAgentProfileWorkspace(
     });
   const parsed = setCurrentAgentProfileWorkspaceBodySchema.safeParse({
     workspaceMode: input.workspaceMode,
+    ...(input.onlyIfUnconfigured ? { onlyIfUnconfigured: true } : {}),
     ...(input.workspacePath === undefined
       ? {}
       : { workspacePath: input.workspacePath }),
@@ -4594,6 +4596,7 @@ export async function rpcSetCurrentAgentProfileWorkspace(
       runtimeLane: currentTarget.runtimeLane,
       targetProfileId: routeParams.data.agentProfileId,
       workspaceMode: parsed.data.workspaceMode,
+      ...(parsed.data.onlyIfUnconfigured ? { onlyIfUnconfigured: true } : {}),
       ...(parsed.data.workspacePath === undefined
         ? {}
         : { workspacePath: parsed.data.workspacePath }),
@@ -11947,6 +11950,7 @@ export async function rpcCenterAgentListLocalAgentConnectionCandidates(
 ): Promise<CenterAgentListLocalAgentConnectionCandidatesResponse> {
   const parsed =
     centerAgentListLocalAgentConnectionCandidatesBodySchema.safeParse({
+      includeModelOptions: input.includeModelOptions,
       speakerMember: input.speakerMember,
       ...(input.memberUserId ? { memberUserId: input.memberUserId } : {}),
     });
@@ -11980,6 +11984,9 @@ export async function rpcCenterAgentListLocalAgentConnectionCandidates(
   const response = projectCenterAgentLocalAgentConnectionCandidates({
     peopleComputers: await listPeopleComputersForOwnerUser({ env, userId }),
     organizationId: authorization.activeOrganization.organizationId,
+    ...(parsed.data.includeModelOptions
+      ? { modelCatalog: readModelCatalog({ retirement: true }) }
+      : {}),
   });
   const validated =
     centerAgentListLocalAgentConnectionCandidatesResponseSchema.safeParse(

@@ -13,8 +13,8 @@ import {
 } from "../local-components";
 import {
   agentProfileIdSchema,
-  profileWorkingDirectorySchema,
   profileWorkspaceModeSchema,
+  profileWorkspaceWriteSchema,
 } from "../protocol/profile";
 import { agentControllerInterfaceSnapshotSchema } from "../runtime/agent-controller-interface";
 import { localAgentCatalogWithLifecycleSchema } from "../runtime/local-agent-catalog";
@@ -220,28 +220,8 @@ export const setCurrentAgentProfileWorkspaceRouteParamsSchema = z.strictObject({
   agentProfileId: agentProfileIdSchema,
 });
 
-export const setCurrentAgentProfileWorkspaceBodySchema = z
-  .strictObject({
-    workspaceMode: profileWorkspaceModeSchema,
-    workspacePath: profileWorkingDirectorySchema.optional(),
-  })
-  .superRefine((value, context) => {
-    if (value.workspaceMode === "custom" && !value.workspacePath) {
-      context.addIssue({
-        code: "custom",
-        message: "workspacePath is required for a custom profile workspace",
-        path: ["workspacePath"],
-      });
-    }
-    if (value.workspaceMode === "openmeld_managed" && value.workspacePath) {
-      context.addIssue({
-        code: "custom",
-        message:
-          "workspacePath must be omitted for an OpenMeld-managed profile workspace",
-        path: ["workspacePath"],
-      });
-    }
-  });
+export const setCurrentAgentProfileWorkspaceBodySchema =
+  profileWorkspaceWriteSchema;
 
 export const setCurrentLocalAgentEnabledResponseSchema = z.strictObject({
   agentId: z.string().trim().min(1).max(256),

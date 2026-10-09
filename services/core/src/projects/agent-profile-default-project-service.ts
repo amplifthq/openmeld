@@ -19,6 +19,7 @@ export async function updateAgentProfileDefaultProjectForAuthority(input: {
   agentProfileId: string;
   authority: ProjectAuthority;
   defaultProjectId: string | null;
+  onlyIfUnmodified?: boolean;
   env: CoreBindings;
   service: ProjectService;
 }): Promise<UpdateAgentProfileDefaultProjectResponse> {
@@ -76,13 +77,19 @@ export async function updateAgentProfileDefaultProjectForAuthority(input: {
     }
     const updated = await callRequiredAuthWorkerRpc({
       authWorker: input.env.OPENMELD_AUTH_WORKER,
-      call: (authWorker) =>
-        authWorker.updateAgentProfileDefaultProjectInOrganization({
+      call: (authWorker) => {
+        const request = {
           defaultProjectId: input.defaultProjectId,
           organizationId: input.authority.organizationId,
           ownerUserId: input.authority.userId,
           profileId: input.agentProfileId,
-        }),
+        };
+        return input.onlyIfUnmodified
+          ? authWorker.initializeAgentProfileDefaultProjectInOrganization(
+              request
+            )
+          : authWorker.updateAgentProfileDefaultProjectInOrganization(request);
+      },
       unavailable: {
         code: "profile.default_project_unavailable",
         reason: "Agent Profile settings are unavailable.",

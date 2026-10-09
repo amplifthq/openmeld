@@ -18,6 +18,7 @@ import {
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   listAgentProfileCreationRequestsResponseSchema,
   openMeldRequestContextSchema,
+  retryAgentProfileCreationRequestBodySchema,
   setAgentProfileCreationApprovalPreferenceBodySchema,
   setAgentProfileCreationApprovalPreferenceResponseSchema,
 } from "@openmeld/schemas";
@@ -37,6 +38,7 @@ import type {
   GetAgentProfileCreationApprovalPreferenceResponse,
   ListAgentProfileCreationRequestsResponse,
   OpenMeldRequestContext,
+  RetryAgentProfileCreationRequestBody,
   SetAgentProfileCreationApprovalPreferenceBody,
   SetAgentProfileCreationApprovalPreferenceResponse,
   SetCurrentAgentProfileWorkspaceResponse,
@@ -44,10 +46,12 @@ import type {
 import { digestCanonicalJson } from "@openmeld/utils";
 import { resolveAgentActivitySessionInventoryExecutionSelection } from "../agent-activity/activity-session-inventory-repository";
 import { rememberAgentProfileCreationDefaults } from "../agent-profile-binding/application/agent-profile-creation-defaults-service";
+import { readPrimaryAgentProfileBindingRecord } from "../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import { projectCenterAgentLocalAgentConnectionCandidates } from "../center-agent/application/product-operations";
 import { resolveCenterAgentAuditAttribution } from "../center-agent/center-agent-audit";
 import { requireCurrentDesignatedCenterAgentCaller } from "../center-agent/current-designated-center-agent";
-import { readModelCatalog } from "../config/model-catalog";
+import { validateAgentModelSelection } from "../config/agent-model-availability";
+import { readAuthoredModelCatalog } from "../config/model-catalog";
 import { forkRuntimeTransportAgentSession } from "../dispatch/infrastructure/runtime-transport/runtime-transport-client";
 import type { CoreBindings } from "../lib/bindings";
 import { createPersonalRemoteAgentBinding } from "../remote-agent/application/personal-remote-agent-binding";
@@ -124,13 +128,15 @@ export type CenterAgentCreateAgentProfileCreationRequestRpcInput = {
 export type CenterAgentListAgentProfileCreationRequestsRpcInput = {
   context?: OpenMeldRequestContext;
   onBehalfOf: CenterAgentOnBehalfOfInput;
+  requestId?: string;
 };
-export type CenterAgentManageAgentProfileCreationRequestRpcInput = {
-  action: "approve" | "decline" | "cancel" | "retry";
-  context?: OpenMeldRequestContext;
-  onBehalfOf: CenterAgentOnBehalfOfInput;
-  requestId: string;
-};
+export type CenterAgentManageAgentProfileCreationRequestRpcInput =
+  RetryAgentProfileCreationRequestBody & {
+    action: "approve" | "decline" | "cancel" | "retry";
+    context?: OpenMeldRequestContext;
+    onBehalfOf: CenterAgentOnBehalfOfInput;
+    requestId: string;
+  };
 export type CenterAgentGetAgentProfileCreationApprovalPreferenceRpcInput = {
   context?: OpenMeldRequestContext;
   onBehalfOf: CenterAgentOnBehalfOfInput;
@@ -277,12 +283,14 @@ function assertRequestedModelCompatibility(input: {
     );
   const controllerInterface = capability?.agentControllerInterface ?? null;
   const guard = evaluateAgentProfileCreationModelGuard({
+    agentControllerRef: input.target.agentControllerRef,
     agentDisplayName: input.target.agentDisplayName,
-    catalogControllers: readModelCatalog().agentControllers,
+    catalogControllers: readAuthoredModelCatalog().agentControllers,
     controllerId: controllerInterface?.controllerId ?? parsedRef.id,
     controllerInterfaceVersion: controllerInterface?.version ?? null,
     deviceDisplayName: input.target.deviceDisplayName,
     modelId,
+    reasoningLevel: input.configuration.reasoningLevel,
     reportedModelIds:
       controllerInterface?.models.flatMap((model) =>
         model.id ? [model.id] : []
@@ -291,11 +299,7 @@ function assertRequestedModelCompatibility(input: {
   if (!guard) {
     return;
   }
-  throw createCoreRpcHttpError({
-    code: guard.code,
-    reason: guard.reason,
-    status: 409,
-  });
+  throw new AgentProfileCreationRequestStateError(guard.reason);
 }
 export async function rpcCenterAgentListAgentProfileCreationRequests(
   env: CoreBindings,
@@ -309,6 +313,7 @@ export async function rpcCenterAgentListAgentProfileCreationRequests(
   return await rpcListAgentProfileCreationRequests(env, {
     context: prepared.context,
     organizationId: prepared.organizationId,
+    ...(input.requestId !== undefined ? { requestId: input.requestId } : {}),
   });
 }
 export async function rpcCenterAgentManageAgentProfileCreationRequest(
@@ -325,6 +330,15 @@ export async function rpcCenterAgentManageAgentProfileCreationRequest(
     organizationId: prepared.organizationId,
     requestId: input.requestId,
   };
+  if (
+    input.action !== "retry" &&
+    (input.modelSelection !== undefined ||
+      input.expectedUpdatedAt !== undefined)
+  ) {
+    throw invalidPayload(
+      "Model corrections apply only to a failed request retry."
+    );
+  }
   switch (input.action) {
     case "approve":
     case "decline":
@@ -335,7 +349,11 @@ export async function rpcCenterAgentManageAgentProfileCreationRequest(
     case "cancel":
       return await rpcCancelAgentProfileCreationRequest(env, request);
     case "retry":
-      return await rpcRetryAgentProfileCreationRequest(env, request);
+      return await rpcRetryAgentProfileCreationRequest(env, {
+        ...request,
+        modelSelection: input.modelSelection,
+        expectedUpdatedAt: input.expectedUpdatedAt,
+      });
     default:
       throw invalidPayload("Unsupported Agent Profile request action.");
   }
@@ -511,7 +529,8 @@ export async function rpcCancelAgentProfileCreationRequest(
 }
 export async function rpcRetryAgentProfileCreationRequest(
   env: CoreBindings,
-  input: MutateAgentProfileCreationRequestRpcInput
+  input: MutateAgentProfileCreationRequestRpcInput &
+    RetryAgentProfileCreationRequestBody
 ): Promise<AgentProfileCreationRequestMutationResponse> {
   const context = requireContext(input.context);
   const organizationId = requireIdentifier(
@@ -522,8 +541,16 @@ export async function rpcRetryAgentProfileCreationRequest(
   const db = requireDb(env);
   const userId = requireCallerUserId(context);
   await requireOrganizationMember({ db, organizationId, userId });
+  const body = retryAgentProfileCreationRequestBodySchema.safeParse({
+    expectedUpdatedAt: input.expectedUpdatedAt,
+    modelSelection: input.modelSelection,
+  });
+  if (!body.success) {
+    throw invalidPayload(body.error.issues[0]?.message);
+  }
   try {
     const request = await createService(env, db).retry({
+      ...body.data,
       organizationId,
       requestId,
       userId,
@@ -585,7 +612,47 @@ function createService(env: CoreBindings, db: PostgresDatabase) {
   const inboxProjection =
     createPostgresAgentProfileCreationRequestInboxProjectionService({ db });
   return createAgentProfileCreationRequestService({
+    validateRetryConfiguration: async ({ current, configuration }) => {
+      if (!current.createdAgentProfileId) {
+        return;
+      }
+      const binding = await readPrimaryAgentProfileBindingRecord({
+        agentProfileId: current.createdAgentProfileId,
+        db,
+        owner: { id: current.targetOwnerUserId, kind: "owner_account" },
+      });
+      if (
+        binding &&
+        (binding.modelId !== configuration.modelId ||
+          binding.reasoningLevel !== configuration.reasoningLevel)
+      ) {
+        throw new AgentProfileCreationRequestStateError(
+          "This Agent already has model settings. Change its model in Agent settings, then retry setup."
+        );
+      }
+    },
     validateNewRequest: async ({ body, organizationId }) => {
+      const configuration = body.configuration;
+      if (
+        configuration?.agentControllerRef &&
+        configuration.modelId &&
+        configuration.agentControllerRef !== HOSTED_REMOTE_AGENT_CONTROLLER_REF
+      ) {
+        const issue = validateAgentModelSelection({
+          agentControllerRef: configuration.agentControllerRef,
+          catalog: readAuthoredModelCatalog(),
+          modelId: configuration.modelId,
+          nowMs: Date.now(),
+          reasoningLevel: configuration.reasoningLevel,
+        });
+        if (issue) {
+          throw createCoreRpcHttpError({
+            code: issue.code,
+            reason: issue.reason,
+            status: 400,
+          });
+        }
+      }
       if (body.sessionStrategy !== "new") {
         await requireRequestedSessionSelection({
           configuration: body.configuration,
@@ -906,7 +973,7 @@ async function connectRequestedAgentProfile(input: {
     deviceId: candidate.deviceId,
     lane: candidate.runtimeLane,
     openMeldServiceRuntimeId: candidate.openMeldServiceRuntimeId,
-    writeMode: "reconnect",
+    writeMode: "initialize",
     ...(configuration.agentControllerCollaborationMode
       ? {
           agentControllerCollaborationMode:
@@ -949,11 +1016,19 @@ async function connectRequestedAgentProfile(input: {
       }),
     completed: progress,
     setWorkspace: async () =>
-      await rpcSetCurrentAgentProfileWorkspace(input.env, {
-        agentProfileId: input.agentProfileId,
-        context: targetContext,
-        workspaceMode: "openmeld_managed",
-      }),
+      await rpcSetCurrentAgentProfileWorkspace(
+        input.env,
+        {
+          agentProfileId: input.agentProfileId,
+          context: targetContext,
+          workspaceMode: "openmeld_managed",
+          onlyIfUnconfigured: true,
+        },
+        {
+          deviceId: candidate.deviceId,
+          runtimeLane: daemonServiceLaneSchema.parse(candidate.runtimeLane),
+        }
+      ),
     ...(configuration.defaultProjectId
       ? {
           updateDefaultProject: async () =>
@@ -961,6 +1036,7 @@ async function connectRequestedAgentProfile(input: {
               agentProfileId: input.agentProfileId,
               context: targetContext,
               defaultProjectId: configuration.defaultProjectId,
+              onlyIfUnmodified: true,
               expectedOrganizationId: input.request.organizationId,
             }),
         }
@@ -1020,8 +1096,21 @@ async function prepareRequestedLocalAgentConnection(input: {
       `${candidate.agentDisplayName} on ${candidate.deviceDisplayName} is not ready to connect.`
     );
   }
+  const retainedBinding = input.request.createdAgentProfileId
+    ? await readPrimaryAgentProfileBindingRecord({
+        agentProfileId: input.request.createdAgentProfileId,
+        db: requireDb(input.env),
+        owner: { id: input.request.targetOwnerUserId, kind: "owner_account" },
+      })
+    : null;
   assertRequestedModelCompatibility({
-    configuration,
+    configuration: retainedBinding
+      ? {
+          ...configuration,
+          modelId: retainedBinding.modelId ?? null,
+          reasoningLevel: retainedBinding.reasoningLevel ?? null,
+        }
+      : configuration,
     deviceId: candidate.deviceId,
     runtimeLane: candidate.runtimeLane,
     peopleComputers,

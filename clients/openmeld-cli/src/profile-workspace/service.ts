@@ -95,6 +95,7 @@ export type ProfileWorkspaceMigrationResult =
     };
 
 export type ProfileWorkspaceWriteResult = {
+  changed: boolean;
   path: string;
   updatedAt: string;
   value: ProfileWorkspaceConfig;
@@ -201,25 +202,26 @@ export async function setOpenMeldManagedProfileWorkspace(input: {
   account?: OpenMeldAccountKey;
   openMeldProfileId: string;
   updatedAt?: string;
+  onlyIfUnconfigured?: boolean;
 }): Promise<ProfileWorkspaceWriteResult> {
   const account = await resolveAccountKey(input.account);
   const openMeldProfileId = normalizeOpenMeldProfileId(input.openMeldProfileId);
   const value: ProfileWorkspaceConfig = { mode: "openmeld_managed" };
   const updatedAt = normalizeUpdatedAt(input.updatedAt);
-  await writeProfileWorkspaceConfigForAccount({
+  const saved = await writeProfileWorkspaceConfigForAccount({
     account,
     openMeldProfileId,
     updatedAt,
     value,
+    onlyIfUnconfigured: input.onlyIfUnconfigured,
   });
   return {
     path: accountProfileLocalMetaPath(account, openMeldProfileId),
-    updatedAt,
-    value,
+    ...saved,
     workspacePath: resolveConfiguredProfileWorkspacePathForAccount({
       account,
       openMeldProfileId,
-      value,
+      value: saved.value,
     }),
   };
 }
@@ -244,7 +246,7 @@ export async function setCustomProfileWorkspace(input: {
     mode: "custom",
   };
   const updatedAt = normalizeUpdatedAt(input.updatedAt);
-  await writeProfileWorkspaceConfigForAccount({
+  const saved = await writeProfileWorkspaceConfigForAccount({
     account,
     openMeldProfileId,
     updatedAt,
@@ -252,8 +254,7 @@ export async function setCustomProfileWorkspace(input: {
   });
   return {
     path: accountProfileLocalMetaPath(account, openMeldProfileId),
-    updatedAt,
-    value,
+    ...saved,
     workspacePath: validation.value,
   };
 }
@@ -262,20 +263,20 @@ export async function ensureOpenMeldManagedProfileWorkspace(input: {
   account?: OpenMeldAccountKey;
   openMeldProfileId: string;
   updatedAt?: string;
+  onlyIfUnconfigured?: boolean;
 }): Promise<ProfileWorkspaceWriteResult> {
   const account = await resolveAccountKey(input.account);
   const openMeldProfileId = normalizeOpenMeldProfileId(input.openMeldProfileId);
-  const workspacePath = accountProfileWorkspacePath(account, openMeldProfileId);
-  await mkdir(workspacePath, { recursive: true });
   const result = await setOpenMeldManagedProfileWorkspace({
     account,
     openMeldProfileId,
     updatedAt: input.updatedAt,
+    onlyIfUnconfigured: input.onlyIfUnconfigured,
   });
-  return {
-    ...result,
-    workspacePath,
-  };
+  if (result.value.mode === "openmeld_managed") {
+    await mkdir(result.workspacePath, { recursive: true });
+  }
+  return result;
 }
 
 export async function migrateLegacyProfileWorkspaceConfigIfNeeded(input: {
@@ -344,19 +345,40 @@ async function writeProfileWorkspaceConfigForAccount(input: {
   openMeldProfileId: string;
   updatedAt: string;
   value: ProfileWorkspaceConfig;
-}): Promise<void> {
+  onlyIfUnconfigured?: boolean;
+}): Promise<
+  Pick<ProfileWorkspaceWriteResult, "changed" | "updatedAt" | "value">
+> {
   const openMeldProfileId = normalizeOpenMeldProfileId(input.openMeldProfileId);
   const lock = await acquireLock({
     openMeldProfileId,
     key: PROFILE_WORKSPACE_CONFIG_LOCK_KEY,
   });
-  await runWithHeldLock({
+  return await runWithHeldLock({
     lock,
     run: async () => {
       const path = accountProfileLocalMetaPath(
         input.account,
         openMeldProfileId
       );
+      if (input.onlyIfUnconfigured) {
+        const current = await readProfileWorkspaceConfigForAccount({
+          account: input.account,
+          openMeldProfileId,
+        });
+        if (current.status === "invalid") {
+          throw new Error(
+            `The working folder settings are invalid (${current.reason}). Repair them before retrying setup.`
+          );
+        }
+        if (current.status === "valid") {
+          return {
+            changed: false,
+            updatedAt: current.updatedAt,
+            value: current.value,
+          };
+        }
+      }
       const existingDraft = await readExistingEnvelopeDraft({
         openMeldProfileId,
         path,
@@ -381,6 +403,7 @@ async function writeProfileWorkspaceConfigForAccount(input: {
         await rm(tempPath, { force: true }).catch(() => undefined);
         throw error;
       }
+      return { changed: true, updatedAt: input.updatedAt, value: input.value };
     },
     releaseContext: {
       account: input.account,

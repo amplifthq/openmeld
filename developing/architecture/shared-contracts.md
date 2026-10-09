@@ -7444,6 +7444,29 @@ cloud contract.
 `createdAgentProfileId`; no new strict response enum is required for older CLI
 and cloud readers to understand the payload.
 
+The failed-request retry body optionally carries `expectedUpdatedAt` and one
+paired `modelSelection` (`modelId`, nullable `reasoningLevel`). Both fields are
+required for a correction. Core validates the canonical selection, ownership,
+failed state, exact version, and any retained Binding before atomically saving
+the correction with the new attempt. Ordinary retries retain their empty body.
+Center reads can select the exact `requestId`; local candidates opt into the
+existing catalog's `modelOptions` with `includeModelOptions`.
+
+Local workspace request validators share `profileWorkspaceWriteSchema`.
+Creation's `onlyIfUnconfigured` flag requires the Service's
+`initializeProfileWorkspace` capability. Runtime Transport must reject an old
+Service rather than strip the flag or fall back to an ordinary write. Binding
+`initialize` reuses an identical target while preserving current settings.
+Auth's required `initializeAgentProfileDefaultProjectInOrganization` RPC owns
+the field-specific compare-and-set. Core must not fall back to the ordinary
+Auth setter when that receiver is missing. The nullable database revision has
+no zero default; only the supporting Auth creation writer records zero.
+
+Center runtime-settings responses project local workspace writes to Profile ID
+and status. The owner-self workspace response retains its private fields.
+Operation steps distinguish a saved folder from a failed Default Project clear
+and use path-free failure copy with a reason code when known.
+
 The Center Agent RPC wrapper does not create a second state machine. It verifies
 the current designation, resolves the represented member, preserves the Center
 Agent Profile as actor, and delegates to the same Core request operations.

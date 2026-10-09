@@ -1,9 +1,11 @@
 import {
+  agentProfileCreationConfigurationSchema,
   agentProfileCreationIntentSchema,
   agentProfileCreationRequestSchema,
   createAgentProfileCreationRequestBodySchema,
   DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+  retryAgentProfileCreationRequestBodySchema,
   setAgentProfileCreationApprovalPreferenceBodySchema,
   TEAMMATE_AGENT_REQUESTS_ENABLED,
 } from "@openmeld/schemas";
@@ -18,6 +20,7 @@ import type {
   AgentProfileCreationRequestStatusReason,
   AgentProfileCreationSessionStrategy,
   CreateAgentProfileCreationRequestBody,
+  RetryAgentProfileCreationRequestBody,
   SetAgentProfileCreationApprovalPreferenceBody,
 } from "@openmeld/schemas/types";
 import { assertAgentControllerPermissionModeReleased } from "../local-components/runtime-contract-rollout";
@@ -251,6 +254,10 @@ export function createAgentProfileCreationRequestService(input: {
     body: CreateAgentProfileCreationRequestBody;
     organizationId: string;
   }) => Promise<void>;
+  validateRetryConfiguration?: (request: {
+    current: AgentProfileCreationRequestRecord;
+    configuration: AgentProfileCreationConfiguration;
+  }) => Promise<void>;
   scheduleExecution: (
     request: AgentProfileCreationRequestRecord
   ) => Promise<void>;
@@ -282,6 +289,42 @@ export function createAgentProfileCreationRequestService(input: {
     }
   };
   const randomUuid = input.randomUuid ?? (() => crypto.randomUUID());
+
+  const prepareRetryConfiguration = async (
+    current: AgentProfileCreationRequestRecord,
+    request: RetryAgentProfileCreationRequestBody & { userId: string }
+  ): Promise<AgentProfileCreationConfiguration> => {
+    const correction = retryAgentProfileCreationRequestBodySchema.parse({
+      expectedUpdatedAt: request.expectedUpdatedAt,
+      modelSelection: request.modelSelection,
+    });
+    if (!correction.modelSelection) {
+      return current.configuration;
+    }
+    if (current.targetOwnerUserId !== request.userId) {
+      throw new AgentProfileCreationRequestForbiddenError(
+        "Only the Agent's owner can correct its model settings."
+      );
+    }
+    if (
+      current.status !== "failed" ||
+      Date.parse(correction.expectedUpdatedAt ?? "") !== current.updatedAtMs
+    ) {
+      throw new AgentProfileCreationRequestStateError(
+        "This request changed. Read its current status before correcting setup."
+      );
+    }
+    const configuration = agentProfileCreationConfigurationSchema.parse({
+      ...current.configuration,
+      ...correction.modelSelection,
+    });
+    await input.validateNewRequest({
+      body: { ...current, configuration },
+      organizationId: current.organizationId,
+    });
+    await input.validateRetryConfiguration?.({ current, configuration });
+    return configuration;
+  };
 
   const completeApprovedRequest = async (
     record: AgentProfileCreationRequestRecord
@@ -733,11 +776,13 @@ export function createAgentProfileCreationRequestService(input: {
       return records.filter(isReleased).map(toPublicRequest);
     },
 
-    retry: async (request: {
-      organizationId: string;
-      requestId: string;
-      userId: string;
-    }): Promise<AgentProfileCreationRequest> => {
+    retry: async (
+      request: RetryAgentProfileCreationRequestBody & {
+        organizationId: string;
+        requestId: string;
+        userId: string;
+      }
+    ): Promise<AgentProfileCreationRequest> => {
       const current = await requireRequest({
         id: request.requestId,
         organizationId: request.organizationId,
@@ -751,6 +796,7 @@ export function createAgentProfileCreationRequestService(input: {
         );
       }
       requireReleased(current);
+      const configuration = await prepareRetryConfiguration(current, request);
       if (current.status === "approved") {
         if (current.profileCreationStartedAtMs !== null) {
           throw new AgentProfileCreationRequestStateError(
@@ -773,6 +819,7 @@ export function createAgentProfileCreationRequestService(input: {
         expectedUpdatedAtMs: current.updatedAtMs,
         requestId: current.id,
         update: {
+          configuration,
           failureMessage: null,
           profileCreationStartedAtMs: null,
           status: "approved",

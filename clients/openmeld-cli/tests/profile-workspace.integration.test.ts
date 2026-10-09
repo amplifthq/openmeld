@@ -1,4 +1,11 @@
-import { access, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  mkdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import process from "node:process";
 import { MAX_PROFILE_WORKING_DIRECTORY_LENGTH } from "@openmeld/schemas";
@@ -390,6 +397,53 @@ describe("profile workspace service", () => {
           mode: "openmeld_managed",
         },
       });
+    });
+  });
+
+  it("initializes setup once and preserves a later custom choice even when its folder is missing", async () => {
+    await withTempHome(async (home) => {
+      const openMeldProfileId = "agt-workspace-initialize";
+      expect(
+        await ensureOpenMeldManagedProfileWorkspace({
+          openMeldProfileId,
+          onlyIfUnconfigured: true,
+        })
+      ).toMatchObject({ changed: true, value: { mode: "openmeld_managed" } });
+      const customWorkspacePath = join(home, "chosen-repo");
+      await mkdir(customWorkspacePath);
+      const chosen = await setCustomProfileWorkspace({
+        customWorkspacePath,
+        openMeldProfileId,
+      });
+      await rm(customWorkspacePath, { recursive: true });
+      const before = await readLocalMetaFile(openMeldProfileId);
+      expect(
+        await ensureOpenMeldManagedProfileWorkspace({
+          openMeldProfileId,
+          onlyIfUnconfigured: true,
+        })
+      ).toEqual({ ...chosen, changed: false });
+      expect(await readLocalMetaFile(openMeldProfileId)).toEqual(before);
+    });
+  });
+
+  it("rejects setup initialization without replacing invalid saved folder settings", async () => {
+    await withTempHome(async () => {
+      const openMeldProfileId = "agt-workspace-initialize-invalid";
+      const payload = {
+        openMeldProfileId,
+        updatedAt: "2026-10-09T04:00:00.000Z",
+        v: 2,
+        workspace: { mode: "unknown" },
+      };
+      await writeLocalMetaFile({ openMeldProfileId, payload });
+      await expect(
+        ensureOpenMeldManagedProfileWorkspace({
+          openMeldProfileId,
+          onlyIfUnconfigured: true,
+        })
+      ).rejects.toThrow("The working folder settings are invalid");
+      expect(await readLocalMetaFile(openMeldProfileId)).toEqual(payload);
     });
   });
 

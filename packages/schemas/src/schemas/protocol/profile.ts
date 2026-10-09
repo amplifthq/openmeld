@@ -43,6 +43,40 @@ export const profileWorkingDirectorySchema = z
     message: "workingDirectory must not contain NUL bytes",
   });
 
+export const profileWorkspaceWriteSchema = z
+  .strictObject({
+    workspaceMode: profileWorkspaceModeSchema,
+    workspacePath: profileWorkingDirectorySchema.optional(),
+    onlyIfUnconfigured: z.boolean().optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.workspaceMode === "custom" && !value.workspacePath) {
+      context.addIssue({
+        code: "custom",
+        message: "workspacePath is required for a custom profile workspace",
+        path: ["workspacePath"],
+      });
+    }
+    if (value.workspaceMode === "openmeld_managed" && value.workspacePath) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "workspacePath must be omitted for an OpenMeld-managed profile workspace",
+        path: ["workspacePath"],
+      });
+    }
+    if (
+      value.onlyIfUnconfigured &&
+      value.workspaceMode !== "openmeld_managed"
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Only an OpenMeld-managed working folder can be initialized.",
+        path: ["onlyIfUnconfigured"],
+      });
+    }
+  });
+
 export const normalizeOptionalWorkingDirectory = (
   value: unknown
 ): string | undefined => {

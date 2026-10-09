@@ -119,6 +119,7 @@ export type {
   AgentProfileBindingRuntimeId,
   AgentProfileBindingSessionInventorySelection,
   AgentProfileBindingState,
+  AgentProfileBindingWriteMode,
   AgentProfileCreationDefaults,
   AgentProfileCreationPreferenceSelection,
   CurrentAgentProfileSessionLookupQuery,
@@ -157,6 +158,7 @@ export type {
   DecideAgentProfileCreationRequestBody,
   GetAgentProfileCreationApprovalPreferenceResponse,
   ListAgentProfileCreationRequestsResponse,
+  RetryAgentProfileCreationRequestBody,
   SetAgentProfileCreationApprovalPreferenceBody,
   SetAgentProfileCreationApprovalPreferenceResponse,
 } from "./agent-profile-creation-request";
@@ -199,6 +201,7 @@ export type {
   AuthRpcResolveUserDisplayNameResult,
   AuthRpcSendInboxUrgentEmailInput,
   AuthRpcSendInboxUrgentEmailResult,
+  AuthRpcUpdateAgentProfileDefaultProjectInput,
   OpenMeldRequestedOrganizationSelector,
 } from "./auth-rpc";
 export type { CatchupResponse } from "./catchup-response";

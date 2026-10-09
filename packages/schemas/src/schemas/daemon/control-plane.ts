@@ -1,8 +1,8 @@
 import * as z from "../../lazy-zod";
 import {
   agentProfileIdSchema,
-  profileWorkingDirectorySchema,
   profileWorkspaceModeSchema,
+  profileWorkspaceWriteSchema,
 } from "../protocol/profile";
 import { nonEmptyTrimmedStringFromUnknown } from "../protocol/shared";
 import { runtimeTransportModeSchema } from "./controller-contract";
@@ -134,28 +134,9 @@ export const openMeldDaemonManageLocalAgentInstallationRequestPayloadSchema =
     }),
   ]);
 
-export const openMeldDaemonSetProfileWorkspaceRequestPayloadSchema = z
-  .strictObject({
+export const openMeldDaemonSetProfileWorkspaceRequestPayloadSchema =
+  profileWorkspaceWriteSchema.safeExtend({
     targetProfileId: agentProfileIdSchema,
-    workspaceMode: profileWorkspaceModeSchema,
-    workspacePath: profileWorkingDirectorySchema.optional(),
-  })
-  .superRefine((value, context) => {
-    if (value.workspaceMode === "custom" && !value.workspacePath) {
-      context.addIssue({
-        code: "custom",
-        message: "workspacePath is required for a custom profile workspace",
-        path: ["workspacePath"],
-      });
-    }
-    if (value.workspaceMode === "openmeld_managed" && value.workspacePath) {
-      context.addIssue({
-        code: "custom",
-        message:
-          "workspacePath must be omitted for an OpenMeld-managed profile workspace",
-        path: ["workspacePath"],
-      });
-    }
   });
 
 export const openMeldDaemonConversationExecutionRuntimeWorkspaceReadySchema =

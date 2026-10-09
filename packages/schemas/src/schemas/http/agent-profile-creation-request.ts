@@ -320,6 +320,29 @@ export const decideAgentProfileCreationRequestBodySchema = z.strictObject({
   decision: z.enum(["approve", "decline"]),
 });
 
+export const retryAgentProfileCreationRequestBodySchema = z
+  .strictObject({
+    expectedUpdatedAt: isoDateTimeSchema.optional(),
+    modelSelection: z
+      .strictObject({
+        modelId: identifierSchema,
+        reasoningLevel: identifierSchema.nullable(),
+      })
+      .optional(),
+  })
+  .superRefine((value, context) => {
+    if (
+      (value.modelSelection !== undefined) !==
+      (value.expectedUpdatedAt !== undefined)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "A model correction requires the request's current updatedAt.",
+        path: ["expectedUpdatedAt"],
+      });
+    }
+  });
+
 export const agentProfileCreationRequestMutationResponseSchema = z.strictObject(
   {
     request: agentProfileCreationRequestSchema,

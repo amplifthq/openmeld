@@ -11202,7 +11202,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     this.reapExpiredLeases(Date.now());
     const session = this.resolveLocalAgentControlSession({
       ...parsed.data,
-      capability: "setProfileWorkspace",
+      capability: parsed.data.onlyIfUnconfigured
+        ? "initializeProfileWorkspace"
+        : "setProfileWorkspace",
       unsupportedMessage:
         "The current local OpenMeld Service does not support Project folder changes from OpenMeld Web.",
       updateRequiredMessage:
@@ -11226,6 +11228,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           payload: {
             targetProfileId: parsed.data.targetProfileId,
             workspaceMode: parsed.data.workspaceMode,
+            ...(parsed.data.onlyIfUnconfigured
+              ? { onlyIfUnconfigured: true }
+              : {}),
             ...(parsed.data.workspacePath === undefined
               ? {}
               : { workspacePath: parsed.data.workspacePath }),
@@ -21149,6 +21154,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       | "manageInstallationsSafely"
       | "refreshCatalog"
       | "setEnabled"
+      | "initializeProfileWorkspace"
       | "setProfileWorkspace";
     ownerUserId: string;
     deviceId: string;

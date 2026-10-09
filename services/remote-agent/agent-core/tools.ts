@@ -493,6 +493,20 @@ const manageAgentProfileRequestToolInputSchema = strictObject({
       : (["cancel", "retry"] as const)
   ),
   requestId: trimmedNonEmptyStringSchema,
+  expectedUpdatedAt: optional(
+    pipe(
+      trimmedNonEmptyStringSchema,
+      description(
+        "The exact updatedAt from the current failed request. Required with modelSelection."
+      )
+    )
+  ),
+  modelSelection: optional(
+    strictObject({
+      modelId: trimmedNonEmptyStringSchema,
+      reasoningLevel: nullable(trimmedNonEmptyStringSchema),
+    })
+  ),
 });
 const agentProfileRequestApprovalPreferencesToolInputSchema = strictObject({
   existingSessionPolicy: picklist([
@@ -974,9 +988,23 @@ const agentProfileCreationConfigurationToolInputSchema = strictObject({
   agentControllerCollaborationMode: collaborationModeSchema,
   agentControllerPermissionMode: permissionModeSchema,
   defaultProjectId: optionalNonEmptyStringSchema,
-  modelId: optionalNonEmptyStringSchema,
+  modelId: optional(
+    pipe(
+      nonEmptyStringSchema,
+      description(
+        "Exact model ID from the selected local candidate's modelOptions, or the Remote model list. Preserve the user's selected model."
+      )
+    )
+  ),
   openCodePermission: openCodePermissionSchema,
-  reasoningLevel: optionalNonEmptyStringSchema,
+  reasoningLevel: optional(
+    pipe(
+      nonEmptyStringSchema,
+      description(
+        "A supportedReasoningLevels value for the selected model. Omit for the model default."
+      )
+    )
+  ),
 });
 const agentProfileCreationConnectionSelectionToolInputSchema = union([
   strictObject({ candidateId: trimmedNonEmptyStringSchema }),
@@ -5788,7 +5816,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         (TEAMMATE_AGENT_REQUESTS_ENABLED
           ? "Create a working Agent through the owner-authorized creation request. Remote Agents remain self-owned only. "
           : "Create a working Agent owned by the verified represented member only. Creating for another member is not available. ") +
-        'For a new Agent, connectionSelection must be { kind: "remote" } for Remote or { candidateId } from a current Local Agent candidate. For Remote, read openmeld_list_hosted_models and optionally provide configuration.modelId with one of its supported reasoningLevel values; without a modelId, Core uses its current default. Remote does not use Local Project, permission, collaboration, or OpenCode settings. Local configuration expresses those supported settings and saved preferences. For local code work, select or create the Project and confirm the working folder points to its local repository; Default Project alone does not set that folder. Resume and Fork use the member\'s eligible sessionSelection instead: preserve nativeSessionId, projectId, computerId, and agentControllerRef from the same current Session row. Fork requires canFork; Resume requires canResume and an unbound Session. Optional requestedSpaceId uses normal Space membership authority. Returns a durable creation request: approved or pending is not completed; createdAgentProfileId proves identity creation, not current reply readiness. A failed request may already contain that identity; recover its setup rather than creating another. Completed means requested setup finished, not that a Wake ran. Use creation progress/retry tools and current readiness evidence when needed; no automatic parent continuation is promised. Primitive identity creation remains identity-only.',
+        'For a new Agent, connectionSelection must be { kind: "remote" } for Remote or { candidateId } from a current Local Agent candidate. For Remote, read openmeld_list_hosted_models and optionally provide configuration.modelId with one of its supported reasoningLevel values; without a modelId, Core uses its current default. Remote does not use Local Project, permission, collaboration, or OpenCode settings. Local configuration expresses those supported settings and saved preferences. For local code work, select or create the Project and confirm its default connection on the selected Computer. Default Project resolves future tasks to that local connection; it does not create a missing connection. Resume and Fork use the member\'s eligible sessionSelection instead: preserve nativeSessionId, projectId, computerId, and agentControllerRef from the same current Session row. Fork requires canFork; Resume requires canResume and an unbound Session. Optional requestedSpaceId uses normal Space membership authority. Returns a durable creation request: approved or pending is not completed; createdAgentProfileId proves identity creation, not current reply readiness. A failed request may already contain that identity; recover its setup rather than creating another. Completed means requested setup finished, not that a Wake ran. Read progress by the returned exact requestId. Refresh approved work no sooner than 15 seconds; pending awaits owner approval, failed needs recovery, and completed ends polling. No automatic parent continuation is promised. Primitive identity creation remains identity-only.',
       input: createAgentProfileRequestToolInputSchema,
       execute: async (payload) => {
         const requestInput = parseValibot(
@@ -5814,9 +5842,9 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_list_agent_profile_creation_requests",
       description:
-        "Read the represented member's own Agent creation progress, created Agent IDs, and setup failures. Teammate requests are not available.",
-      input: strictObject({}),
-      execute: async () => {
+        "Read the represented member's own Agent creation progress and setup failures. Pass requestId from creation or retry to read one request. Omit it only to list request history. Teammate requests are unavailable.",
+      input: strictObject({ requestId: optionalNonEmptyStringSchema }),
+      execute: async (payload) => {
         const toolContext = await buildRepresentedMemberAttributionToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
@@ -5827,7 +5855,12 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           "centerAgentListAgentProfileCreationRequests"
         );
         return listAgentProfileCreationRequestsResponseSchema.parse(
-          await rpc(toolContext)
+          await rpc({
+            ...toolContext,
+            ...(payload.requestId !== undefined
+              ? { requestId: payload.requestId }
+              : {}),
+          })
         );
       },
     }),
@@ -5835,7 +5868,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
       name: "openmeld_manage_agent_profile_creation_request",
       description: TEAMMATE_AGENT_REQUESTS_ENABLED
         ? "Approve, decline, cancel, or retry one Agent Profile creation request under Core-owned authority. Approve and decline are available only to the target owner. Cancel is available only to the requester. Retry is available only for a failed request involving the represented member. Read the request list first and follow its current status."
-        : "Cancel or retry setup of the represented member's own Agent. Read the request list first and follow its current status. Creating Agents for teammates and approving their requests are not available.",
+        : "Cancel or retry setup of the represented member's own Agent. Read its exact requestId first. For a failed model selection, pass modelSelection and its current updatedAt as expectedUpdatedAt. Retry keeps the original Profile and Project intent. Creating Agents for teammates is unavailable.",
       input: manageAgentProfileRequestToolInputSchema,
       execute: async (payload) => {
         const requestInput = parseValibot(
@@ -6115,8 +6148,11 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_list_local_agent_connection_candidates",
       description:
-        "List local agent connection candidates for the requesting member, or an explicitly selected Organization memberUserId from the directory. Includes current connection evidence and candidateId. Listing another member's candidates does not authorize connecting or creating their Agent. Only create Agents for the verified represented member.",
-      input: object({ memberUserId: optionalNonEmptyStringSchema }),
+        "List local agents for the requesting member or an exact Organization memberUserId. Includes connection evidence and candidateId. Set includeModelOptions when selecting a model to read canonical IDs, display names, and reasoning options. Listing another member's candidates does not authorize creating or connecting their Agent.",
+      input: object({
+        includeModelOptions: optional(boolean()),
+        memberUserId: optionalNonEmptyStringSchema,
+      }),
       execute: async (payload) => {
         const toolContext = await buildOpenMeldToolContext({
           storage: input.storage,
@@ -6139,6 +6175,9 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           await rpc({
             context: toolContext.context,
             speakerMember,
+            ...(payload.includeModelOptions !== undefined
+              ? { includeModelOptions: payload.includeModelOptions }
+              : {}),
             ...(payload.memberUserId
               ? { memberUserId: payload.memberUserId }
               : {}),
@@ -6180,7 +6219,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_update_agent_profile_runtime_settings",
       description:
-        "Update runtime settings for an existing OpenMeld Agent Profile, such as model, reasoning level, permission mode, Codex collaboration mode, OpenCode permissions, or working folder. For local code work, use workspacePath to correct a folder that does not point to the Project's local repository; Default Project alone does not set that folder. This does not create profiles or change Space membership.",
+        "Update the requesting member's existing Agent Profile model, reasoning, permission, collaboration, or local working folder. Default Project resolves future tasks through its default connection on the target Computer. To use that Project, select it with the existing Default Project tool; do not duplicate its path here. An explicit custom or managed folder change saves the local folder and then clears Default Project. Inspect both steps: a saved folder alone does not mean it is effective. The result omits private local paths. This does not create profiles or change Space membership.",
       input: object({
         agentControllerCollaborationMode: collaborationModeSchema,
         agentControllerPermissionMode: permissionModeSchema,

@@ -29,6 +29,7 @@ import type {
   OrganizationMemberOpenMeldServiceStatusesResponse,
   OrganizationSpaceDirectoryResponse,
   OrganizationSpaceDirectoryWithMemberCountsResponse,
+  RetryAgentProfileCreationRequestBody,
   SetAgentProfileCreationApprovalPreferenceBody,
   SetAgentProfileCreationApprovalPreferenceResponse,
   SetAgentProfileCreationDefaultsBody,
@@ -126,7 +127,8 @@ export type OrganizationApi = {
     input: AgentProfileCreationRequestRouteInput
   ) => Promise<AgentProfileCreationRequestMutationResponse>;
   retryAgentProfileCreationRequest: (
-    input: AgentProfileCreationRequestRouteInput
+    input: AgentProfileCreationRequestRouteInput &
+      RetryAgentProfileCreationRequestBody
   ) => Promise<AgentProfileCreationRequestMutationResponse>;
   getAgentProfileCreationApprovalPreference: (
     input: OrganizationRouteInput
