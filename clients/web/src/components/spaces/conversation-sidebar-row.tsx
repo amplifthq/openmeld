@@ -82,6 +82,7 @@ type ConversationSidebarRowProps = {
 	index: number;
 	profileId: string;
 	unreadCount: number;
+	messageUnreadCount?: number;
 	activeWakeSummary?: SpaceSidebarActiveWakeSummary;
 	conversation: Conversation;
 	dragDisabled?: boolean;
@@ -323,6 +324,7 @@ function ConversationSidebarRowContent(
 						) : (
 							<SpaceUnreadLink
 								count={input.unreadCount}
+								messageUnreadCount={input.messageUnreadCount}
 								spaceId={input.conversation.spaceId}
 								url={input.url}
 							/>

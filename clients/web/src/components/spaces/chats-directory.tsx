@@ -474,9 +474,10 @@ function ChatDirectoryCard({
 							{unread > 0 && (
 								<span className="relative z-10 flex shrink-0 items-center">
 									<SpaceUnreadLink
-										count={
+										count={unread}
+										messageUnreadCount={
 											model.indicators.unreadBySpaceId.get(chat.spaceId)
-												?.messageUnreadCount ?? unread
+												?.messageUnreadCount
 										}
 										spaceId={chat.spaceId}
 										url={href}

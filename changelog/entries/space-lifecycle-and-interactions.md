@@ -6,8 +6,9 @@ areas: ["spaces", "direct-messages", "inbox"]
 audiences: ["members", "admins"]
 ---
 
-Newly joined Spaces appear immediately with an unread indicator, even when they
-have no messages. Pinning and dragging respond immediately. Discover shows member
+Newly joined Spaces appear immediately with a New indicator until opened, even
+when they have no messages. Message badges count actual unread messages.
+Pinning and dragging respond immediately. Discover shows member
 avatars and a read-only preview; joining opens the full Space.
 
 Adding a third participant turns a Direct Message into a Space permanently.

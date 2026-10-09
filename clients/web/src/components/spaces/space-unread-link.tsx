@@ -13,8 +13,22 @@ export function SpaceUnreadLink(input: {
 	spaceId: string;
 	url: string;
 	count: number;
+	messageUnreadCount?: number;
 	variant?: "dot" | "badge";
 }) {
+	// The summary counts only messages and unread membership notices. Keep the
+	// membership notice in Inbox; present it as New when there are no messages.
+	const count = input.messageUnreadCount ?? input.count;
+	const isNew = input.count > 0 && input.messageUnreadCount === 0;
+	let label = count > 0 ? `${count} unread` : "Unread";
+	let accessibleLabel =
+		count > 0
+			? `${count} unread ${count === 1 ? "update" : "updates"}. Jump to first unread`
+			: "Unread updates. Jump to first unread";
+	if (isNew) {
+		label = "New";
+		accessibleLabel = "New Space. Open to view";
+	}
 	const organization = useOptionalAppOrganization();
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
@@ -41,11 +55,7 @@ export function SpaceUnreadLink(input: {
 	const destination = new URL(input.url, "https://openmeld.invalid");
 	return (
 		<Link
-			aria-label={
-				input.count > 0
-					? `${input.count} unread ${input.count === 1 ? "update" : "updates"}. Jump to first unread`
-					: "Unread updates. Jump to first unread"
-			}
+			aria-label={accessibleLabel}
 			className={
 				input.variant === "badge"
 					? cn(
@@ -118,7 +128,7 @@ export function SpaceUnreadLink(input: {
 						aria-hidden
 						className="size-1.5 shrink-0 rounded-full bg-unread"
 					/>
-					{input.count > 0 ? `${input.count} unread` : "Unread"}
+					{label}
 				</>
 			)}
 		</Link>

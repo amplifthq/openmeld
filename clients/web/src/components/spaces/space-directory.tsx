@@ -720,7 +720,8 @@ function JoinedRow(input: {
 								{input.unread > 0 && (
 									<span className="relative z-10 flex shrink-0 items-center">
 										<SpaceUnreadLink
-											count={input.messageUnreadCount ?? input.unread}
+											count={input.unread}
+											messageUnreadCount={input.messageUnreadCount}
 											spaceId={item.spaceId}
 											url={`${route.to}?${new URLSearchParams(route.search)}`}
 											variant="badge"
@@ -784,6 +785,7 @@ function JoinedRow(input: {
 				</Link>
 				<div className="mt-1 pl-6 lg:hidden">
 					<RowStatus
+						messageUnreadCount={input.messageUnreadCount}
 						route={route}
 						spaceId={item.spaceId}
 						status={status}
@@ -793,6 +795,7 @@ function JoinedRow(input: {
 			</TableCell>
 			<TableCell className="hidden lg:table-cell">
 				<RowStatus
+					messageUnreadCount={input.messageUnreadCount}
 					route={route}
 					spaceId={item.spaceId}
 					status={status}
@@ -864,6 +867,7 @@ function JoinedSpaceActions(input: React.ComponentProps<typeof JoinedRow>) {
 }
 
 function RowStatus(input: {
+	messageUnreadCount?: number;
 	spaceId: string;
 	status: ReturnType<typeof resolveSpaceActiveWakePresentation> | null;
 	unread: number;
@@ -885,10 +889,11 @@ function RowStatus(input: {
 				<span className="flex items-center gap-2 text-muted-foreground">
 					<SpaceUnreadLink
 						count={input.unread}
+						messageUnreadCount={input.messageUnreadCount}
 						spaceId={input.spaceId}
 						url={`${input.route.to}?${new URLSearchParams(input.route.search)}`}
+						variant="badge"
 					/>
-					{input.unread} unread
 				</span>
 			)}
 		</div>

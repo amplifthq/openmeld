@@ -851,6 +851,10 @@ export function ConversationsSidebar(
 														index={index}
 														key={item.spaceId}
 														memberAppearances={memberAppearances}
+														messageUnreadCount={
+															dm.indicators.unreadBySpaceId.get(item.spaceId)
+																?.messageUnreadCount
+														}
 														onArchive={
 															item.kind === "direct-message"
 																? () =>

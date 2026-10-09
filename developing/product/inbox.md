@@ -23,7 +23,9 @@ generation. Historical memberships are established as read during migration
 and after historical D1 import. No chat message or urgent email is fabricated.
 
 The Space indicator includes this update; message badges and unread-message
-positions count actual messages only. Opening the main conversation in a
+positions count actual messages only. The badge shows `New` until the membership
+notice is acknowledged when there are no unread messages. Actual unread messages
+take precedence, without a second New badge or a time-based expiry. Opening the main conversation in a
 focused window acknowledges its membership notice through the existing exact
 Inbox read operation. Unseen main and Thread messages remain unread. Mark all
 read also includes membership notices. The current source-access check remains
