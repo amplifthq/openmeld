@@ -95,6 +95,10 @@ export class SpaceSessionRuntime {
       throw new Error("SpaceSessionRuntime.start() can only be called once");
     }
     this.#started = true;
+    let finishInitialReplay: () => void = () => undefined;
+    this.#replayWork = new Promise<void>((resolve) => {
+      finishInitialReplay = resolve;
+    });
 
     const ws = await connectSpaceSessionWebSocket({
       url: this.#input.wsUrl,
@@ -184,8 +188,9 @@ export class SpaceSessionRuntime {
       this.#input.scheduleDeferredWork ??
       ((work: () => void) => setImmediate(work));
     scheduleDeferredWork(() => {
-      this.#replayWork = this.#startReplayAndDrain();
-      this.#replayWork.catch(() => undefined);
+      this.#startReplayAndDrain()
+        .catch(() => undefined)
+        .finally(finishInitialReplay);
     });
 
     return {
@@ -336,6 +341,11 @@ export class SpaceSessionRuntime {
     }
 
     this.#replayFinished = true;
+    if (!reconnect && this.#reconnectAttempt > 0) {
+      // Initial history establishes the resume anchor. The recovery read owns
+      // merging all live events, including those from the replacement socket.
+      return;
+    }
     this.#bufferLiveEventsUntilReplayComplete = false;
     const historyLoadedReason = resolveHistoryLoadedReason({
       replaySynced: replayState.synced,

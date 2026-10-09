@@ -117,9 +117,14 @@ describe("connect experience enhancements", () => {
   });
 
   it.each([
-    "human",
-    "agent",
-  ] as const)("resumes %s watch from its message anchor and dedupes the full gap", async (view) => {
+    { view: "human", initialHistoryPending: false },
+    { view: "agent", initialHistoryPending: false },
+    { view: "human", initialHistoryPending: true },
+    { view: "agent", initialHistoryPending: true },
+  ] as const)("resumes $view watch without skipping the gap (initial history pending=$initialHistoryPending)", async ({
+    view,
+    initialHistoryPending,
+  }) => {
     const first = createMessageStreamHarness();
     const second = createMessageStreamHarness();
     connectWebSocketMock
@@ -151,9 +156,19 @@ describe("connect experience enhancements", () => {
       throw new Error("missing fetch boundary");
     }
     const anchors: string[] = [];
+    const initialHistory = Promise.withResolvers<Response>();
+    let initialHistoryRequested = false;
     vi.mocked(globalThis.fetch).mockImplementation((request, init) => {
       const url = new URL(String(request));
       const after = url.searchParams.get("afterSignalId");
+      if (
+        initialHistoryPending &&
+        url.pathname.endsWith("/signals") &&
+        !after
+      ) {
+        initialHistoryRequested = true;
+        return initialHistory.promise;
+      }
       if (!(url.pathname.endsWith("/signals") && after)) {
         return ordinaryFetch(request, init);
       }
@@ -195,8 +210,21 @@ describe("connect experience enhancements", () => {
       }
     );
     await first.waitUntilReady();
-    await vi.waitFor(() => expect(output).toContain('"id":"watch-anchor"'));
-    first.close(1006, "network interrupted");
+    if (initialHistoryPending) {
+      await vi.waitFor(() => expect(initialHistoryRequested).toBe(true));
+      first.close(1006, "network interrupted before initial history completed");
+      await vi.waitFor(
+        () => expect(connectWebSocketMock).toHaveBeenCalledTimes(2),
+        { timeout: 4000 }
+      );
+      second.emit(JSON.stringify(gap[429]));
+      initialHistory.resolve(
+        Response.json({ signals: [anchor], nextCursor: null })
+      );
+    } else {
+      await vi.waitFor(() => expect(output).toContain('"id":"watch-anchor"'));
+      first.close(1006, "network interrupted");
+    }
     await vi.waitFor(() => expect(output).toContain('"id":"watch-gap-430"'), {
       timeout: 4000,
     });

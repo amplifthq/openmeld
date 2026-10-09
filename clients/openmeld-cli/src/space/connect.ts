@@ -1460,11 +1460,16 @@ export async function runConnect(input: {
     if (!replayState.synced) {
       pauseLiveCursorPersistence();
     }
-    isReplayingHistory = false;
-    for (const event of bufferedLiveEvents) {
-      handleIncomingEvent(event);
+    // A replacement socket can buffer later messages while the initial HTTP
+    // read is pending. Only its anchored catch-up may merge those messages;
+    // draining them here would skip the disconnect gap by moving the anchor.
+    if (!watchReadState.hasReconnected) {
+      isReplayingHistory = false;
+      for (const event of bufferedLiveEvents) {
+        handleIncomingEvent(event);
+      }
+      bufferedLiveEvents.length = 0;
     }
-    bufferedLiveEvents.length = 0;
     finishInitialReplay();
     let forceTerminateTimer: NodeJS.Timeout | null = null;
     const clearForceTerminate = () => {

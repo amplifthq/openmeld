@@ -215,8 +215,8 @@ Keep the command model stable across terminal use, Web handoff, and docs.
 `space watch` retains the same view, read anchor, deduplication set and command
 lock through a temporary socket interruption. The existing Space session
 connection retries at most five times per failure episode, with capped backoff
-and a five-second socket-open deadline. A connection that stays open for at
-least 30 seconds resets that retry budget. Current authentication headers are
+and a five-second socket-open deadline. Completed catch-up followed by at least
+30 seconds of stable connection resets that retry budget. Current authentication headers are
 resolved on each reconnect; access or protocol refusals fail without retry.
 
 Reconnect catches up from the last confirmed durable Signal ID, advances full

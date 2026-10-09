@@ -155,7 +155,10 @@ class SpaceSessionConnection implements WsClient {
       this.#finish(event);
       return;
     }
-    if (Date.now() - this.#connectedAt >= STABLE_CONNECTION_MS) {
+    if (
+      !this.#recovering &&
+      Date.now() - this.#connectedAt >= STABLE_CONNECTION_MS
+    ) {
       this.#attempts = 0;
     }
     if (this.#recovering) {
@@ -211,6 +214,9 @@ class SpaceSessionConnection implements WsClient {
         () => this.#client === client && !this.#finished && !this.#manualClose
       );
       if (this.#client === client && !this.#finished) {
+        // Stability starts after complete catch-up, rather than socket open.
+        // An unfinished recovery must consume the same bounded retry episode.
+        this.#connectedAt = Date.now();
         return;
       }
     }
