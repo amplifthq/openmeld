@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "controller": "opencode",
-  "observedAt": "2026-10-08T01:14:00.171Z",
-  "fingerprint": "f091d90d14c828822878318428b10011e3cf8da3adc64aa8d7b67289ebfe273c",
+  "observedAt": "2026-10-09T01:15:23.081Z",
+  "fingerprint": "783eefda1279d0fb4754a05975410a457d91079946e733b14d67943e06f93e2f",
   "sources": [
     {
       "url": "https://github.com/anomalyco/opencode/releases/tag/v1.18.35",
@@ -313,6 +313,7 @@
               "context": 1048576,
               "output": 131072
             },
+            "status": "deprecated",
             "cost": {
               "input": 0,
               "output": 0
@@ -1091,6 +1092,42 @@
               "cache_read": 0,
               "cache_write": 0
             }
+          },
+          "step-5-preview-free": {
+            "id": "step-5-preview-free",
+            "name": "Step 5 Preview Free",
+            "description": "StepFun's next-generation flagship base model for coding and professional knowledge work, with native text, image, and video input and a 1M-token context window",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": ["low", "medium", "high"]
+              }
+            ],
+            "tool_call": true,
+            "interleaved": {
+              "field": "reasoning_content"
+            },
+            "structured_output": true,
+            "release_date": "2026-09-16",
+            "last_updated": "2026-09-20",
+            "modalities": {
+              "input": ["text", "image", "video"],
+              "output": ["text"]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1000000,
+              "input": 1000000,
+              "output": 65536
+            },
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cache_read": 0
+            },
+            "canonical_model_id": "stepfun/step-5-preview"
           }
         },
         "opencode-go": {
@@ -2464,6 +2501,42 @@
               "cache_read": 0,
               "cache_write": 0
             }
+          },
+          "step-5-preview-free": {
+            "id": "step-5-preview-free",
+            "name": "Step 5 Preview Free",
+            "description": "StepFun's next-generation flagship base model for coding and professional knowledge work, with native text, image, and video input and a 1M-token context window",
+            "attachment": true,
+            "reasoning": true,
+            "reasoning_options": [
+              {
+                "type": "effort",
+                "values": ["low", "medium", "high"]
+              }
+            ],
+            "tool_call": true,
+            "interleaved": {
+              "field": "reasoning_content"
+            },
+            "structured_output": true,
+            "release_date": "2026-09-16",
+            "last_updated": "2026-09-20",
+            "modalities": {
+              "input": ["text", "image", "video"],
+              "output": ["text"]
+            },
+            "open_weights": false,
+            "limit": {
+              "context": 1000000,
+              "input": 1000000,
+              "output": 65536
+            },
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cache_read": 0
+            },
+            "canonical_model_id": "stepfun/step-5-preview"
           }
         },
         "openai": {
@@ -3248,6 +3321,19 @@
                       "reasoning": {
                         "mode": "pro"
                       }
+                    }
+                  }
+                },
+                "ultrafast": {
+                  "cost": {
+                    "input": 12,
+                    "output": 60,
+                    "cache_read": 0.6,
+                    "cache_write": 15
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "ultrafast"
                     }
                   }
                 }
