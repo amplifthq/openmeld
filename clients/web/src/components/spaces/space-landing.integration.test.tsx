@@ -3862,6 +3862,117 @@ describe("SpaceLanding", () => {
 		});
 	});
 
+	it("queues a Thread follow-up from Core's active-task projection without a local progress cache", async () => {
+		const root = createTextSignal({
+			id: "thread-root",
+			text: "Review the release",
+		});
+		const source = createTextSignal({
+			id: "thread-source",
+			text: "Check the build",
+		});
+		const item = createWakeProgressItem({
+			clientMessageId: "thread-request",
+			dispatchId: "thread-dispatch",
+			phase: "running",
+			sourceSignalId: source.id,
+			targetLabel: "Center Agent",
+			targetProfileId: DEFAULT_AGENT_PROFILE_ID,
+			updatedAtMs: RECENT_ACTIVITY_TS + 10,
+			sourceContext: {
+				profileId: DEFAULT_SPACE_PROFILE_ID,
+				profileKind: "human",
+				profileName: "Mira",
+				messagePreview: "Check the build",
+				threadId: "thread-1",
+			},
+		});
+		const postThreadSignal = vi.fn();
+		vi.mocked(readOrUpdateSpaceInputQueue).mockResolvedValue({
+			items: [],
+			conversationContextIncluded: true,
+		});
+		createWebSpaceApiMock.mockReturnValue({
+			postThreadSignal,
+			getUpdates: vi.fn().mockResolvedValue({ signals: [] }),
+		});
+		mockSpaceQueries({
+			centerAgentProfileId: DEFAULT_AGENT_PROFILE_ID,
+			activeWakeProgressSummary: createQueryResult({
+				isSuccess: true,
+				isFetchedAfterMount: true,
+				data: {
+					items: [item],
+					get presentationEpoch() {
+						return wakeProgressFixture.presentationEpoch;
+					},
+					query: { spaceId: "space-123", targetProfileId: null },
+				},
+			}),
+			status: createQueryResult({ isSuccess: true, data: createSpaceStatus() }),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot({
+					defaultAgentControllerRef: "hosted:center-agent",
+				}),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [root], nextCursor: null },
+			}),
+			threadSignals: createQueryResult({
+				isSuccess: true,
+				data: { signals: [root, source] },
+			}),
+			threads: createQueryResult({
+				isSuccess: true,
+				data: {
+					threads: [
+						{
+							createdAt: "2026-04-11T00:00:00.000Z",
+							createdByProfileId: DEFAULT_SPACE_PROFILE_ID,
+							rootSignalId: root.id,
+							spaceId: "space-123",
+							threadId: "thread-1",
+							updatedAt: "2026-04-11T00:00:00.000Z",
+						},
+					],
+				},
+			}),
+		});
+		renderSpaceLanding({ isCenterAgentDirectMessage: true });
+		fireEvent.click(
+			screen.getAllByRole("button", { name: "Open thread" })[0] as HTMLElement
+		);
+		const panel = screen.getByLabelText("Thread");
+		await setComposerValue(
+			within(panel).getByRole("textbox"),
+			"Only North America."
+		);
+		fireEvent.click(within(panel).getByRole("button", { name: "Send reply" }));
+		await waitFor(() =>
+			expect(readOrUpdateSpaceInputQueue).toHaveBeenCalledWith(
+				expect.anything(),
+				expect.objectContaining({
+					mutation: expect.objectContaining({
+						action: "enqueue",
+						text: "Only North America.",
+						target: {
+							dispatchId: "thread-dispatch",
+							targetProfileId: DEFAULT_AGENT_PROFILE_ID,
+						},
+					}),
+				})
+			)
+		);
+		expect(postThreadSignal).not.toHaveBeenCalled();
+		await waitFor(() =>
+			expect(within(panel).getByRole("textbox").textContent).not.toContain(
+				"Only North America."
+			)
+		);
+	});
+
 	it.each([
 		{
 			controller: "Center",
@@ -19458,6 +19569,9 @@ function mockSpaceQueries(input: {
 			select?: unknown;
 		}) => {
 			const queryKey = JSON.stringify(options.queryKey);
+			if (options.queryKey[0] === "space-tasks") {
+				return createQueryResult({ isPending: true });
+			}
 			if (
 				options.enabled === false &&
 				options.queryKey[0] === "spaces" &&

@@ -1797,24 +1797,36 @@ export function useSpaceLandingController(input: {
 			...(historySnapshot ? { data: historySnapshot } : {}),
 		},
 	});
+	const currentWakeProgressItems = useMemo(
+		() =>
+			mergeActiveWakeProgressPresentation({
+				detailedItems: wakeProgressItems,
+				summaryItems: readConfirmedWakeProgressItems({
+					presentation: wakeProgressPresentationQuery.data,
+					spaceSummary: activeWakeProgressSummaryQuery.data,
+					ownSummary: ownActiveWakeProgressQuery.data,
+					spaceSummaryFetchedAfterMount:
+						activeWakeProgressSummaryQuery.isFetchedAfterMount,
+					ownSummaryFetchedAfterMount:
+						ownActiveWakeProgressQuery.isFetchedAfterMount,
+					signals: [],
+				}),
+				signals: [],
+			}),
+		[
+			wakeProgressItems,
+			wakeProgressPresentationQuery.data,
+			activeWakeProgressSummaryQuery.data,
+			activeWakeProgressSummaryQuery.isFetchedAfterMount,
+			ownActiveWakeProgressQuery.data,
+			ownActiveWakeProgressQuery.isFetchedAfterMount,
+		]
+	);
 	const agentStreamProjections = useMemo(
 		() =>
 			projectAgentStreamReplyPlacements(
 				liveAgentStreamProjections,
-				mergeWakeProgressItemState({
-					currentItems: wakeProgressItems,
-					incomingItems: readConfirmedWakeProgressItems({
-						presentation: wakeProgressPresentationQuery.data,
-						spaceSummary: activeWakeProgressSummaryQuery.data,
-						ownSummary: ownActiveWakeProgressQuery.data,
-						spaceSummaryFetchedAfterMount:
-							activeWakeProgressSummaryQuery.isFetchedAfterMount,
-						ownSummaryFetchedAfterMount:
-							ownActiveWakeProgressQuery.isFetchedAfterMount,
-						signals: [],
-					}),
-					signals: [],
-				})
+				currentWakeProgressItems
 			).filter(
 				(stream) =>
 					!hasSpaceWakeProgressOutcome({
@@ -1830,12 +1842,8 @@ export function useSpaceLandingController(input: {
 			),
 		[
 			liveAgentStreamProjections,
-			wakeProgressItems,
+			currentWakeProgressItems,
 			wakeProgressPresentationQuery.data,
-			activeWakeProgressSummaryQuery.data,
-			activeWakeProgressSummaryQuery.isFetchedAfterMount,
-			ownActiveWakeProgressQuery.data,
-			ownActiveWakeProgressQuery.isFetchedAfterMount,
 		]
 	);
 	const historyNavigation = useSpaceHistoryNavigation({
@@ -2070,7 +2078,7 @@ export function useSpaceLandingController(input: {
 	const threadController = useSpaceThreadController({
 		inputQueue,
 		centerAgentProfileId: input.centerAgentProfileId,
-		queueProgressItems: wakeProgressItems,
+		queueProgressItems: currentWakeProgressItems,
 		entryConfirmed,
 		initialFocusRequestId: input.initialFocusRequestId,
 		isMembersLoading: membersLoading,
@@ -4360,6 +4368,9 @@ function useSpaceThreadController(input: {
 				},
 				onPosted: () => {
 					posted = true;
+					if (!submissionClaimed) {
+						mentionAuthoring.recordPendingSubmission(submittedAtMs);
+					}
 					completeSpaceSend(clientMessageId);
 					mentionAuthoring.recordSuccessfulSubmission(preparedSubmission);
 					composerFilesController.consumePublishedFiles(publishedLocalIds);
@@ -4569,7 +4580,11 @@ function useSpaceThreadController(input: {
 			members: input.membersSnapshot,
 			activationTargets: submission.messageEnvelope?.activationTargets ?? [],
 			hasFiles: Boolean(sendInput.composerFiles?.length),
-			items: input.queueProgressItems,
+			items: mergeWakeProgressItemState({
+				currentItems: input.queueProgressItems,
+				incomingItems: wakeProgressItems,
+				signals: threadSignals,
+			}),
 		});
 		if (
 			queueTarget &&
