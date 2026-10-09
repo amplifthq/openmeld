@@ -1,13 +1,138 @@
 import { describe, expect, it, onTestFinished } from "vitest";
 import {
   createSharedConnectorConnectionName,
+  markConnectorConnectionDisconnected,
   reconcileConnectorConnections,
   requireConnectorConnection,
+  requireConnectorConnectionForExecution,
+  selectActiveConnectorConnection,
+  upsertPendingConnectorConnection,
   upsertPendingSharedConnectorConnection,
 } from "../src/connectors/connector-connection-repository";
+import {
+  readPluginAccess,
+  requirePluginPermission,
+  updatePluginAccess,
+} from "../src/connectors/plugin-access";
 import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("connection authorization identity during status reconciliation", () => {
+  it("blocks shared mailbox authorization and legacy execution while preserving personal access and owner cleanup", async () => {
+    const harness = await createPostgresHarness();
+    onTestFinished(() => harness.close());
+    const db = harness.db;
+    await db.query(
+      `INSERT INTO "openmeld"."organizations" (id,name,slug,created_at) VALUES ('team','Team','team',1)`
+    );
+    await db.query(
+      `INSERT INTO "openmeld"."users" (id,name,email,created_at,updated_at) VALUES ('member','Member','member@example.test',1,1)`
+    );
+    const base = {
+      db,
+      organizationId: "team",
+      userId: "member",
+      service: "gmail",
+      nowMs: 1,
+    };
+    await expect(
+      upsertPendingSharedConnectorConnection({
+        ...base,
+        connectionName: "new-shared",
+      })
+    ).rejects.toThrow("plugin.connection_scope_forbidden");
+    expect(
+      (
+        await db.query(
+          'SELECT connection_name FROM "openmeld"."connector_connections"'
+        )
+      ).rows
+    ).toEqual([]);
+    const oldPolicy = {
+      center_agent: "write",
+      local_agent: "read",
+      remote_agent: "write",
+    } as const;
+    await db.query({
+      text: `INSERT INTO "openmeld"."connector_connections"
+        (connection_name,organization_id,user_id,scope,service,status,created_at_ms,updated_at_ms,access_policy)
+        VALUES ('old-shared','team','member','shared','gmail','active',1,1,$1)`,
+      values: [JSON.stringify(oldPolicy)],
+    });
+    const old = { db, organizationId: "team", connectionName: "old-shared" };
+    expect(await readPluginAccess(old)).toEqual({
+      policy: {
+        center_agent: "none",
+        local_agent: "none",
+        remote_agent: "none",
+      },
+      revision: 0,
+    });
+    await expect(requireConnectorConnectionForExecution(old)).rejects.toThrow(
+      "plugin.connection_scope_forbidden"
+    );
+    for (const consumer of [
+      "center_agent",
+      "local_agent",
+      "remote_agent",
+    ] as const) {
+      await expect(
+        requirePluginPermission({ ...old, consumer, effect: "read" })
+      ).rejects.toThrow("plugin.action_forbidden");
+    }
+    await expect(
+      updatePluginAccess({
+        ...old,
+        actorProfileId: "human",
+        actorUserId: "member",
+        expectedRevision: 0,
+        policy: oldPolicy,
+      })
+    ).rejects.toThrow("plugin.connection_scope_forbidden");
+    const selection = {
+      db,
+      organizationId: "team",
+      requesterUserId: "member",
+      service: "gmail",
+    };
+    expect(
+      await selectActiveConnectorConnection({
+        ...selection,
+        preference: "automatic",
+      })
+    ).toBeNull();
+    expect(
+      await selectActiveConnectorConnection({
+        ...selection,
+        preference: "shared",
+      })
+    ).toBeNull();
+    await upsertPendingConnectorConnection({
+      ...base,
+      connectionName: "personal",
+    });
+    await reconcileConnectorConnections({
+      ...base,
+      availableConnectionNames: ["old-shared", "personal"],
+      nowMs: 2,
+    });
+    expect(
+      (
+        await selectActiveConnectorConnection({
+          ...selection,
+          preference: "automatic",
+        })
+      )?.connection
+    ).toMatchObject({ connectionName: "personal", scope: "member" });
+    expect(
+      await requireConnectorConnectionForExecution({
+        ...old,
+        connectionName: "personal",
+      })
+    ).toMatchObject({ service: "gmail", scope: "member" });
+    expect(
+      await markConnectorConnectionDisconnected({ ...old, nowMs: 3 })
+    ).toMatchObject({ status: "disconnected", scope: "shared" });
+  });
   it("keeps a shared connection usable after its installer leaves and permits another member to reconnect", async () => {
     const harness = await createPostgresHarness();
     onTestFinished(() => harness.close());

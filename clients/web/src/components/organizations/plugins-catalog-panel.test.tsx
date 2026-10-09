@@ -17,6 +17,7 @@ import { PluginsCatalogPanel } from "./plugins-catalog-panel";
 
 const GITHUB_LINK_NAME = /GitHub/;
 const GOOGLE_DRIVE_LINK_NAME = /Google Drive/;
+const GOOGLE_SHEETS_LINK_NAME = /Google Sheets/;
 const GMAIL_LINK_NAME = /Gmail/;
 const FIGMA_LINK_NAME = /Figma/;
 const NOTION_LINK_NAME = /Notion/;
@@ -35,13 +36,15 @@ vi.mock("@tanstack/react-router", () => ({
 	Link: ({
 		children,
 		to,
+		search,
 		...props
 	}: {
 		children: ReactNode;
 		to: string;
+		search?: { scope?: string };
 		[key: string]: unknown;
 	}) => (
-		<a href={to} {...props}>
+		<a href={search?.scope ? `${to}?scope=${search.scope}` : to} {...props}>
 			{children}
 		</a>
 	),
@@ -69,13 +72,13 @@ describe("PluginsCatalogPanel", () => {
 		expect(screen.getAllByRole("link")).toHaveLength(PLUGINS.length);
 		expect(
 			screen.getByRole("link", { name: GITHUB_LINK_NAME }).getAttribute("href")
-		).toBe("/o/acme/plugins/github");
+		).toBe("/o/acme/plugins/github?scope=personal");
 		expect(screen.getByTestId("app-logo-googledrive").getAttribute("src")).toBe(
 			"/app-logos/google-drive.svg"
 		);
 		expect(
 			screen.getByRole("link", { name: SLACK_LINK_NAME }).getAttribute("href")
-		).toBe("/o/acme/plugins/slack");
+		).toBe("/o/acme/plugins/slack?scope=personal");
 		expect(screen.queryByRole("link", { name: TEAMS_LINK_NAME })).toBeNull();
 		expect(screen.queryByText("Details")).toBeNull();
 	});
@@ -97,6 +100,29 @@ describe("PluginsCatalogPanel", () => {
 			expect(appLink.closest("[data-fluid-card-item]")).toBeTruthy();
 		}
 		expect(catalog.matches('[data-slot="card"]')).toBe(false);
+	});
+	it("keeps personal mailboxes out of the organization catalog and retains a cleanup link for older shared connections", async () => {
+		scopeState.value = "organization";
+		listAppConnectionsMock.mockResolvedValue({
+			connections: [
+				{ ...activeConnection("gmail"), scope: "shared", canDisconnect: true },
+			],
+			currentUserId: "user-1",
+			organizationId: "org-acme",
+		});
+		renderCatalog();
+		expect(screen.queryByTestId("app-logo-gmail")).toBeNull();
+		expect(screen.queryByTestId("app-logo-outlook")).toBeNull();
+		expect(screen.queryByTestId("app-logo-googlecalendar")).toBeNull();
+		expect(screen.queryByTestId("app-logo-googlemeet")).toBeNull();
+		expect(
+			screen.getByRole("link", { name: GOOGLE_SHEETS_LINK_NAME })
+		).toBeTruthy();
+		expect(
+			(await screen.findByRole("link", { name: "Review Gmail" })).getAttribute(
+				"href"
+			)
+		).toBe("/o/acme/plugins/gmail?scope=organization");
 	});
 
 	it("preserves Plugin identity while progressively disclosing phone card chrome", () => {
@@ -236,7 +262,7 @@ describe("PluginsCatalogPanel", () => {
 			target: { value: "" },
 		});
 		fireEvent.click(screen.getByRole("button", { name: "Communication" }));
-		expect(screen.getAllByRole("link")).toHaveLength(2);
+		expect(screen.getAllByRole("link")).toHaveLength(4);
 		expect(screen.getByRole("link", { name: GMAIL_LINK_NAME })).toBeTruthy();
 		expect(screen.getByRole("link", { name: SLACK_LINK_NAME })).toBeTruthy();
 		expect(screen.queryByRole("link", { name: NOTION_LINK_NAME })).toBeNull();
@@ -268,7 +294,7 @@ function renderCatalog(queryClient = createTestQueryClient()) {
 	);
 }
 
-function activeConnection(service: "github" | "notion") {
+function activeConnection(service: "github" | "notion" | "gmail") {
 	return {
 		canDisconnect: true,
 		connectionName: `org_aaaaaaaaaaaaaaaaaa__user_bbbbbbbbbbbbbbbbbb__${service}`,

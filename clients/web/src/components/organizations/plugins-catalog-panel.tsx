@@ -7,6 +7,7 @@ import {
 	type PluginDefinition,
 	pluginFromProvider,
 } from "@openmeld/product-catalog/plugins";
+import { connectorConnectionScopeAllowed } from "@openmeld/schemas";
 import { AppLogo } from "@openmeld/ui/components/app-logo";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
@@ -55,9 +56,32 @@ export function PluginsCatalogPanel(input: {
 		scope
 	);
 	const connectionStatusIsPending = connectionsQuery.isPending;
+	const olderPersonalServices =
+		scope === "organization"
+			? [
+					...new Set(
+						connectionsQuery.data?.connections
+							.filter(
+								(connection) =>
+									connection.scope === "shared" &&
+									connection.status !== "disconnected" &&
+									connection.canDisconnect &&
+									!connectorConnectionScopeAllowed(
+										connection.service,
+										connection.scope
+									)
+							)
+							.map((connection) => connection.service) ?? []
+					),
+				]
+			: [];
 	const visiblePlugins = (
 		providersQuery.data?.providers.map(pluginFromProvider) ?? PLUGINS
 	).filter((plugin) => {
+		const matchesScope = connectorConnectionScopeAllowed(
+			plugin.service,
+			scope === "personal" ? "member" : "shared"
+		);
 		const matchesCategory =
 			activeCategory === "All" || plugin.category === activeCategory;
 		const matchesSearch =
@@ -65,7 +89,7 @@ export function PluginsCatalogPanel(input: {
 			`${plugin.name} ${plugin.description} ${plugin.category}`
 				.toLocaleLowerCase()
 				.includes(normalizedSearchQuery);
-		return matchesCategory && matchesSearch;
+		return matchesScope && matchesCategory && matchesSearch;
 	});
 
 	return (
@@ -146,6 +170,26 @@ export function PluginsCatalogPanel(input: {
 				</div>
 			) : null}
 
+			{olderPersonalServices.length > 0 ? (
+				<p className="text-muted-foreground text-xs">
+					Older personal-only connections are disabled.{" "}
+					{olderPersonalServices.map((service) => (
+						<Link
+							className="mr-3 underline underline-offset-4"
+							key={service}
+							search={{ scope: "organization" }}
+							to={buildOrganizationPluginPath({
+								orgSlug: input.organizationSlug,
+								service,
+							})}
+						>
+							Review{" "}
+							{PLUGINS.find((plugin) => plugin.service === service)?.name ??
+								service}
+						</Link>
+					))}
+				</p>
+			) : null}
 			{visiblePlugins.length > 0 ? (
 				<FluidCardGroup
 					className="grid gap-x-8 gap-y-1 sm:grid-cols-2"
@@ -304,7 +348,9 @@ export function PluginStatusBadge(input: {
 	if (
 		!input.connected &&
 		input.plugin.connection.auth.kind === "oauth" &&
-		input.plugin.connection.auth.configured === false
+		input.plugin.connection.auth.configured === false &&
+		!input.plugin.connection.auth.credentialFallback &&
+		!input.plugin.connection.credentials?.length
 	) {
 		return (
 			<span className="text-muted-foreground text-xs">Sign-in unavailable</span>

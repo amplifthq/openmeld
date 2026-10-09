@@ -9,6 +9,7 @@ import type {
 	NavigationAction,
 	OpenMeldNavigationTarget,
 } from "@openmeld/schemas";
+import { connectorConnectionScopeAllowed } from "@openmeld/schemas";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	Dialog,
@@ -247,7 +248,10 @@ function PluginConnectionSetup(input: {
 		if (input.target.scope !== "choose") {
 			return input.target.scope;
 		}
-		if (isPersonalWorkspace) {
+		if (
+			isPersonalWorkspace ||
+			!connectorConnectionScopeAllowed(input.plugin.service, "shared")
+		) {
 			return "member";
 		}
 		if (input.hasMemberConnection && input.hasSharedConnection) {
@@ -264,6 +268,14 @@ function PluginConnectionSetup(input: {
 		}
 		return "member";
 	});
+	if (scope && !connectorConnectionScopeAllowed(input.plugin.service, scope)) {
+		return (
+			<p className="py-3 text-muted-foreground text-sm">
+				{input.plugin.name} requires a personal account. This organization
+				request cannot use it.
+			</p>
+		);
+	}
 	if (!scope) {
 		return (
 			<div className="space-y-3 py-4">

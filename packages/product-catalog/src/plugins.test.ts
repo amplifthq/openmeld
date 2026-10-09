@@ -1,11 +1,39 @@
 import { connectorAppCatalogProviderSchema } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
+import capturedExpansionProviders from "../test-support/openconnector-expansion-providers.json";
 import capturedProviders from "../test-support/openconnector-providers.json";
-import { pluginFromProvider } from "./plugins";
+import { findPluginDefinition, pluginFromProvider } from "./plugins";
+
+const LOCAL_BRAND_MARK = /^\/app-logos\/.+\.svg$/;
 
 // Captured from the pinned OpenConnector runtime on 2026-10-09. The runtime's
 // connectionAuth.oauth is readiness; authTypes declares OAuth support.
 describe("Plugin sign-in readiness", () => {
+  it.each(
+    capturedExpansionProviders.data
+  )("uses the real connection contract for $service", (captured) => {
+    const provider = connectorAppCatalogProviderSchema.strip().parse(captured);
+    const plugin = pluginFromProvider(provider);
+    expect(findPluginDefinition(provider.service)).not.toBeNull();
+    expect(plugin.logoPath).toMatch(LOCAL_BRAND_MARK);
+    if (provider.authTypes.includes("oauth2")) {
+      expect(plugin.connection?.auth).toMatchObject({
+        kind: "oauth",
+        configured: false,
+      });
+    } else {
+      expect(plugin.connection?.auth).toMatchObject({
+        kind: "credential",
+        authType: "api_key",
+      });
+    }
+    expect(plugin.connection?.credentials).toEqual(
+      provider.connectionAuth?.credentials.map((option) => ({
+        kind: "credential",
+        ...option,
+      }))
+    );
+  });
   it.each([
     "slack",
     "lark",
