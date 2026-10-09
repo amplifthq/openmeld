@@ -13,3 +13,6 @@ Queued replies stay in their original conversation. Full-width messages reserve
 room for avatars on both sides, so long messages have matching content edges.
 Members can open an existing Team Brief, while creation stays with owners and
 admins.
+
+Center Agent Profile cards show the model and a cloud icon, with a direct
+settings action. Routine availability and default reasoning labels are omitted.

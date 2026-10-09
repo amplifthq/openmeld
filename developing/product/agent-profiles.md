@@ -89,6 +89,11 @@ it must not invent Controller branding.
 Local Agent message headers show the owner's name after a middle dot, without
 an owner avatar or prefix. Profile popovers place availability beside the Agent
 name and show `Owned by` with the owner's small Human Profile avatar and name.
+Center Agent popovers show a cloud icon and the current model, with a settings
+action that opens the current Organization's Center Agent section in App
+Settings. They omit routine availability and default reasoning labels, but
+retain unavailable or paused status and its explanation. This presentation is
+shared by message authors, mentions, and member rows, including Thread replies.
 Hosted Agents retain the `Hosted by OpenMeld` message attribution.
 Hosted Remote Agent default avatars use the selected model provider's logo,
 resolved from the exact provider namespace in the current `avatarModelId`.
