@@ -48,7 +48,7 @@ const ACTIVE_NAME_PATTERN_2 = /^Alpha, .*Wake/;
 const ACTIVE_NAME_PATTERN_3 = /^Alpha, (?=.*(?:Wake|working|waiting)).+/i;
 const ACTIVE_NAME_PATTERN_4 = /^Alpha, .*waiting/i;
 const ACTIVE_NAME_PATTERN_5 = /^Alpha, .*Wakes are active/;
-const ACTIVE_NAME_PATTERN_6 = /^Working, unread messages, .*Wake/;
+const ACTIVE_NAME_PATTERN_6 = /^Working, unread updates, .*Wake/;
 
 const OTHER_JOINED_PROFILE_TEXT = /Other joined profile/;
 const BROWSE_SPACES_TEXT = /Browse Spaces/;
@@ -446,7 +446,7 @@ describe("ConversationsSidebar", () => {
 		).toHaveLength(0);
 	});
 
-	it("[S03] moves unpinned Spaces with unread messages first and shows a static accessible indicator", async () => {
+	it("[S03] moves unpinned Spaces with unread updates first and shows a static accessible indicator", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [
@@ -476,7 +476,7 @@ describe("ConversationsSidebar", () => {
 		);
 
 		const beta = await screen.findByRole("link", {
-			name: "Beta, unread messages",
+			name: "Beta, unread updates",
 		});
 		const alpha = screen.getByRole("link", { name: "Alpha" });
 
@@ -524,7 +524,7 @@ describe("ConversationsSidebar", () => {
 
 		const alpha = await screen.findByRole("link", { name: "Alpha" });
 		const beta = screen.getByRole("link", {
-			name: "Beta, unread messages",
+			name: "Beta, unread updates",
 		});
 		expect(alpha.compareDocumentPosition(beta)).toBe(
 			Node.DOCUMENT_POSITION_FOLLOWING
@@ -572,10 +572,10 @@ describe("ConversationsSidebar", () => {
 		);
 
 		const newSpace = await screen.findByRole("link", {
-			name: "Launch Room, unread messages",
+			name: "Launch Room, unread updates",
 		});
 		const existingSpace = screen.getByRole("link", {
-			name: "Existing, unread messages",
+			name: "Existing, unread updates",
 		});
 		expect(newSpace.compareDocumentPosition(existingSpace)).toBe(
 			Node.DOCUMENT_POSITION_PRECEDING
@@ -683,7 +683,7 @@ describe("ConversationsSidebar", () => {
 			name: "Regular New",
 		});
 		const regularUnread = screen.getByRole("link", {
-			name: "Regular Unread, unread messages",
+			name: "Regular Unread, unread updates",
 		});
 		expect(pinnedNew.compareDocumentPosition(pinnedFirst)).toBe(
 			Node.DOCUMENT_POSITION_PRECEDING
@@ -720,7 +720,7 @@ describe("ConversationsSidebar", () => {
 			expect(
 				screen
 					.getByRole("link", {
-						name: "Regular Unread, unread messages",
+						name: "Regular Unread, unread updates",
 					})
 					.compareDocumentPosition(
 						screen.getByRole("link", { name: "Regular New" })
@@ -1946,7 +1946,7 @@ describe("ConversationsSidebar", () => {
 			name: ACTIVE_NAME_PATTERN_6,
 		});
 		const unread = screen.getByRole("link", {
-			name: "Unread, unread messages",
+			name: "Unread, unread updates",
 		});
 		const idle = screen.getByRole("link", { name: "Idle" });
 		expect(
