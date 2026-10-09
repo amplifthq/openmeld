@@ -1412,7 +1412,14 @@ drift.
 
 Core may project `Unavailable` before a new Wake when the exact current Agent
 Controller report contains a reliable, fresh Usage Limit that explicitly says
-Usage is exhausted. Missing, stale, expired, unavailable, or otherwise
+Usage is exhausted. For Codex, this requires one fresh account-level
+`usageAdmission.blocksNewWork: true` in that same report. Included windows
+remain exhausted at 100% when credits permit new work; an unrelated metered
+bucket cannot impose an account-wide block. A fresh false account verdict
+proves recovery, including when window measurements are unavailable. Null,
+missing, or stale admission cannot prove recovery. The Local Service must bind
+this account verdict to the same native account as its current ACI auth evidence;
+an email match alone cannot prove Codex workspace identity. Missing, stale, expired, unavailable, or otherwise
 unconfirmed Usage does not add an admission block to an otherwise ready Agent.
 The provider owns actual capacity enforcement; its auxiliary quota endpoint is
 not an execution prerequisite. Core and the Local Service consume the same
@@ -1439,12 +1446,14 @@ legacy report remains parseable, but cannot trigger automatic continuation
 under a newer Core capability matrix. Missing Usage must never release work
 already held after a proven exhausted execution.
 
-After a Wake is accepted, a provider failure changes later Wakeability only
-when the result carries fresh structured hard-blocker evidence for the exact
+After a Wake is accepted, a provider failure retains structured diagnostic
+evidence for the exact
 Agent Profile, Binding, device, runtime lane, OpenMeld Service Runtime, Agent
 Controller, and provider. Organization access disabled, subscription access
-unavailable, and exhausted hard quota/credit capacity may project
-`Unavailable`. A later accepted success for the same exact execution identity
+unavailable, and exhausted hard quota/credit capacity remain visible failure
+facts for that Wake. Historical failures do not decide current Wakeability;
+the current ACI and Core-owned authorization facts do. A later accepted success
+for the same exact execution identity
 may clear only evidence no newer than that success. Core durably retains the
 latest accepted-result watermark even when no failure row existed, so a delayed
 older failure cannot reopen cleared evidence. Accepted-result time is the

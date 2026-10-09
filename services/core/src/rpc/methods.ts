@@ -3781,11 +3781,14 @@ function omitLocalRuntimeUsageLimits(
     executionTargets: computer.executionTargets.map((target) => ({
       ...target,
       capabilities: target.capabilities.map((capability) => {
-        if (!capability.agentControllerInterface?.usageLimits) {
+        if (!capability.agentControllerInterface) {
           return capability;
         }
-        const { usageLimits: _usageLimits, ...agentControllerInterface } =
-          capability.agentControllerInterface;
+        const {
+          usageLimits: _usageLimits,
+          usageAdmission: _usageAdmission,
+          ...agentControllerInterface
+        } = capability.agentControllerInterface;
         return { ...capability, agentControllerInterface };
       }),
     })),
@@ -15449,10 +15452,13 @@ async function readCenterAgentProgressiveSpaceContext(input: {
       aroundSignalId: sourceSignalId,
       beforeCount: 0,
       afterCount: 0,
-      signalTypes: ["signal.text"],
+      signalTypes: ["signal.text", "signal.system_notice"],
     });
     const signal = page.signals.find((entry) => entry.id === sourceSignalId);
-    if (!signal || signal.type !== "signal.text") {
+    if (
+      !signal ||
+      (signal.type !== "signal.text" && signal.type !== "signal.system_notice")
+    ) {
       throw new Error(
         "space.evidence_unavailable: The requested message is unavailable."
       );

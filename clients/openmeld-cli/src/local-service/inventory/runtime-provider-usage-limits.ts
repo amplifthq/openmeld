@@ -1,5 +1,6 @@
 import type {
   AgentControllerInterfaceAuthSnapshot,
+  AgentControllerUsageAdmission,
   AgentControllerUsageLimits,
   RuntimeAgentControllerLaunchContract,
 } from "@openmeld/schemas/types";
@@ -13,8 +14,17 @@ export async function recordRuntimeProviderUsageLimits(input: {
   agentId: string;
   authSnapshot: AgentControllerInterfaceAuthSnapshot;
   launchContract: RuntimeAgentControllerLaunchContract;
+  usageAccountKey?: string;
+  usageAdmission?: AgentControllerUsageAdmission;
   usageLimits: AgentControllerUsageLimits;
 }): Promise<boolean> {
+  if (
+    input.agentId === "codex" &&
+    (!input.usageAccountKey ||
+      input.usageAccountKey !== input.authSnapshot.accountKey)
+  ) {
+    return false;
+  }
   const commandPath = resolveLaunchContractCommandPath(input.launchContract);
   const commandFingerprint = await resolveAgentControllerCommandFingerprint({
     commandPath,
@@ -30,6 +40,7 @@ export async function recordRuntimeProviderUsageLimits(input: {
       agentId: input.agentId,
       commandPath,
     }),
+    usageAdmission: input.usageAdmission,
     usageLimits: input.usageLimits,
   });
 }

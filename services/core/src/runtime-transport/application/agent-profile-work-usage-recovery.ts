@@ -43,6 +43,8 @@ export async function notifyAgentProfileWorkUsageRecoveryAvailable(input: {
   const report = {
     expiresAtMs: input.currentReport.expiresAtMs,
     status: input.currentReport.status,
+    usageAdmission:
+      input.currentReport.agentControllerInterface?.usageAdmission,
     usageLimits: input.currentReport.agentControllerInterface?.usageLimits,
     usageLimitsSupportMatrixVersion:
       input.currentReport.agentControllerInterface

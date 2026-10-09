@@ -3007,6 +3007,7 @@ export {
   agentControllerInterfaceStatusSchema,
   agentControllerInterfaceVersionAdvisorySchema,
   agentControllerInterfaceVersionAdvisoryStatusSchema,
+  agentControllerUsageAdmissionSchema,
   agentControllerUsageLimitSchema,
   agentControllerUsageLimitStatusSchema,
   agentControllerUsageLimitsSchema,

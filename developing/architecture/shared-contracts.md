@@ -1154,6 +1154,13 @@ recalled, or changed evidence fails explicitly; it never selects the latest
 version in place of a requested version. This adds a local tool, without adding
 a cloud route or granting access to another Space.
 
+Exact message evidence also accepts a visible `signal.system_notice`. The
+materializer returns its public text, system author and reply anchor through the
+existing manifest shape. It does not disclose diagnostic supplements, change
+Space authorization, or treat a notice as task approval. Center, personal Remote
+and local dispatch readers share this selection; status and presence signals
+remain outside message evidence. Existing text source versions are unchanged.
+
 Large local tool results remain transport snapshots. Before `read_result`
 discloses each cached page, it reruns the original source read with the original
 arguments and compares the result with the snapshot. Revocation, source changes,
@@ -6475,10 +6482,31 @@ project several providers without flattening their independent capacity.
 `Low` is derived by presentation code and is not stored. Missing provider facts
 remain null; they must not become zero, 100, or unlimited capacity.
 
+ACI may also carry one strict account-level `usageAdmission` object with
+`blocksNewWork: boolean | null` and `observedAt`. It belongs to this same Usage
+report, rather than individual windows or another readiness store. Matrix
+version 6 uses that fact for Codex admission and recovery: 100% included usage
+remains visible, while native account permission, credits, and spend control
+determine whether new work is blocked. No credit amount, payment fact, or
+account identifier crosses the Service boundary. A full unknown account read
+records null; sparse native rolling updates do not clear or refresh an older
+account verdict. Codex uses the same-session full native snapshot collector for
+probes and rolling observations. Matching native quota account ids bracket its
+account read, and an unchanged account-notification epoch fences collection and
+consumption. Missing or mismatched identity discards capacity evidence. The
+existing local ACI auth comparison may carry an opaque `accountKey`; cloud
+allowlists and legacy `agents show` projections omit it. Legacy machine output
+also omits `usageAdmission`, preserving older strict Desktop readers.
+Core's non-opted-in Local Runtime responses omit admission together with windows,
+including mutation responses that return the same legacy inventory.
+Missing or older matrix versions cannot authorize recovery.
+An older strict Core receiver may reject this optional field; the existing
+report compatibility retry omits windows, admission, and matrix together.
+
 Provider adapters may add evidence either from a dedicated native non-task
 probe or from a provider-native event passively observed during an ordinary
 already-running controller turn. Both sources must normalize into this same
-list before crossing the local Service boundary. A passive observation must
+Usage report before crossing the local Service boundary. A passive observation must
 not start work, modify the turn, retain its raw event, or create a second usage
 store. Claude Code's Agent SDK event is partial: a missing utilization value
 creates no percentage evidence, while allowlisted 0–1 utilization is normalized

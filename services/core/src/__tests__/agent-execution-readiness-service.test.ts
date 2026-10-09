@@ -1860,12 +1860,18 @@ describe("Core Agent Execution Readiness", () => {
     ).toEqual({ available: true });
   });
 
-  it("projects fresh exhausted Usage as unavailable Wakeability before a Wake", async () => {
+  it.each([
+    true,
+    false,
+    null,
+  ] as const)("uses Codex account capacity (%s) while retaining an exhausted window", async (blocksNewWork) => {
     mockReadyBindingAndRuntime("agt_usage_exhausted", "builtin:codex");
     mockOnlineRoute("device-1");
     vi.mocked(readCurrentRuntimeAgentControllerReports).mockResolvedValueOnce([
       createRuntimeReportWithUsage(
-        createUsageLimit({ status: "exhausted", usedPercent: 100 })
+        createUsageLimit({ status: "exhausted", usedPercent: 100 }),
+        "builtin:codex",
+        { blocksNewWork, observedAt: GENERATED_AT }
       ),
     ]);
 
@@ -1882,6 +1888,19 @@ describe("Core Agent Execution Readiness", () => {
       generatedAt: GENERATED_AT,
       profileId: "agt_usage_exhausted",
     });
+
+    if (blocksNewWork !== true) {
+      expect(readiness.agentExecutionReadiness).toMatchObject({
+        displayState: "ready",
+        primaryAction: "none",
+      });
+      expect(
+        resolveAgentWakeAdmissionBlockReasonCode(
+          readiness.agentExecutionReadiness
+        )
+      ).toBeNull();
+      return;
+    }
 
     expect(readiness.agentExecutionReadiness).toMatchObject({
       displayState: "not_ready",
@@ -2148,24 +2167,37 @@ describe("Core Agent Execution Readiness", () => {
     );
   });
 
-  it("keeps an earlier Codex Usage failure diagnostic behind current sign-in guidance", async () => {
+  it.each([
+    true,
+    false,
+  ])("preserves a proven Codex refusal as diagnostic evidence with current sign-in (%s)", async (signedIn) => {
     mockReadyBindingAndRuntime("agt_provider_access", "builtin:codex");
-    vi.mocked(readCurrentRuntimeAgentControllerReports).mockResolvedValueOnce([
-      {
-        agentControllerRef: "builtin:codex",
-        expiresAtMs: GENERATED_AT_MS + 60_000,
-        observedAtMs: GENERATED_AT_MS,
-        reasonCodes: [
-          "provider_account.access_required",
-          "controller.auth.unauthenticated",
-        ],
-        openMeldServiceRuntimeId: {
-          source: "runtime_registry_authority",
-          value: "runtime-1",
-        },
-        status: "unavailable",
-      },
-    ]);
+    vi.mocked(readCurrentRuntimeAgentControllerReports).mockResolvedValueOnce(
+      signedIn
+        ? [
+            createRuntimeReportWithUsage(
+              createUsageLimit({ status: "exhausted", usedPercent: 100 }),
+              "builtin:codex",
+              { blocksNewWork: false, observedAt: GENERATED_AT }
+            ),
+          ]
+        : [
+            {
+              agentControllerRef: "builtin:codex",
+              expiresAtMs: GENERATED_AT_MS + 60_000,
+              observedAtMs: GENERATED_AT_MS,
+              reasonCodes: [
+                "provider_account.access_required",
+                "controller.auth.unauthenticated",
+              ],
+              openMeldServiceRuntimeId: {
+                source: "runtime_registry_authority",
+                value: "runtime-1",
+              },
+              status: "unavailable",
+            },
+          ]
+    );
     mockOnlineRoute("device-1");
     vi.mocked(readFreshProviderAccessEvidenceForBinding).mockResolvedValueOnce({
       expiresAtMs: GENERATED_AT_MS + 60 * 60 * 1000,
@@ -2198,7 +2230,7 @@ describe("Core Agent Execution Readiness", () => {
       openMeldServiceRuntimeId: "runtime-1",
     });
     expect(readiness.agentExecutionReadiness).toMatchObject({
-      displayState: "not_ready",
+      displayState: signedIn ? "ready" : "not_ready",
       facts: {
         providerAccount: {
           blocked: true,
@@ -2207,7 +2239,7 @@ describe("Core Agent Execution Readiness", () => {
           source: "wake_failure",
         },
       },
-      primaryAction: "run_prepare",
+      primaryAction: signedIn ? "none" : "run_prepare",
     });
     expect(
       resolveAgentWakeAvailability({
@@ -2216,16 +2248,22 @@ describe("Core Agent Execution Readiness", () => {
         readiness: readiness.agentExecutionReadiness,
         wakeRouteStatus: readiness.wakeRouteStatus,
       })
-    ).toMatchObject({
-      action: "none",
-      badgeLabel: "Sign-in needed",
-      category: "unavailable",
-      phase: "provider_sign_in_needed",
-      reasonCode: "controller.auth.unauthenticated",
-      status: "unavailable_for_wake",
-      summary:
-        "Run codex login in a terminal on this computer to sign in to Codex.",
-    });
+    ).toMatchObject(
+      signedIn
+        ? {
+            status: "available_for_wake",
+          }
+        : {
+            action: "none",
+            badgeLabel: "Sign-in needed",
+            category: "unavailable",
+            phase: "provider_sign_in_needed",
+            reasonCode: "controller.auth.unauthenticated",
+            status: "unavailable_for_wake",
+            summary:
+              "Run codex login in a terminal on this computer to sign in to Codex.",
+          }
+    );
   });
 
   it("keeps historical execution impact diagnostic without deciding current Wakeability", async () => {
@@ -2648,19 +2686,19 @@ function resolveCoreAgentExecutionReadinessForProfile(
 }
 
 function createAgentProfileOrganizationBinding() {
-  return createProjectionPostgresBinding(({ text }) => {
+  return createProjectionPostgresBinding(({ text, values }) => {
     if (!text.includes('FROM "openmeld"."openmeld_profiles"')) {
       throw new Error(`Unexpected readiness test query: ${text}`);
     }
-    return [
-      {
-        managed_role: null,
-        organization_id: TEST_ORGANIZATION_ID,
-        owner_user_id: "owner-1",
-        profile_kind: "agent",
-        profile_name: "Readiness Test Agent",
-      },
-    ];
+    // The native batched SELECT returns the selected profile_id with each row.
+    return (values?.[0] as string[]).map((profileId) => ({
+      profile_id: profileId,
+      managed_role: null,
+      organization_id: TEST_ORGANIZATION_ID,
+      owner_user_id: "owner-1",
+      profile_kind: "agent",
+      profile_name: "Readiness Test Agent",
+    }));
   });
 }
 
@@ -2814,7 +2852,8 @@ function createUsageLimit(input: {
 
 function createRuntimeReportWithUsage(
   usageLimit: AgentControllerUsageLimit,
-  agentControllerRef = "builtin:codex"
+  agentControllerRef = "builtin:codex",
+  usageAdmission?: AgentControllerInterfaceSnapshot["usageAdmission"]
 ) {
   const agentControllerInterface = {
     agentControllerRef,
@@ -2844,6 +2883,7 @@ function createRuntimeReportWithUsage(
     schemaVersion: 1,
     skills: [],
     status: "ready",
+    ...(usageAdmission ? { usageAdmission } : {}),
     usageLimits: [usageLimit],
     usageLimitsSupportMatrixVersion:
       AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,

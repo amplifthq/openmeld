@@ -509,11 +509,11 @@ describe("public agent failure reason mapping", () => {
       {
         availabilityBadgeLabel: "Usage Limit reached",
         availabilitySummary:
-          "This agent reached a Usage Limit and cannot start new work. Review Usage Limits before waking it again.",
+          "This agent's AI account reached its Usage Limit. Review Usage Limits in agent settings before waking it again.",
       }
     );
     expect(resolveMappedPublicAgentFailureReason("usage_exhausted")).toBe(
-      "This agent reached a current Usage Limit and cannot start new work. Review Usage Limits before waking it again."
+      "This agent's AI account reached its Usage Limit. Review Usage Limits in agent settings before waking it again."
     );
     expect(
       resolvePublicAgentFailureRecovery({
@@ -521,7 +521,7 @@ describe("public agent failure reason mapping", () => {
         targetLabel: "Runner",
       })
     ).toEqual({
-      body: "Runner reached a current Usage Limit and cannot start new work. Review Usage Limits before waking it again.",
+      body: "Runner's AI account reached its Usage Limit. Review Usage Limits in agent settings before waking it again.",
       kind: "account_access",
       primaryActionId: "review_agent_settings",
       primaryActionLabel: "Review agent settings",

@@ -456,7 +456,27 @@ ACI must not own:
 Provider Usage Limits are capacity evidence, not execution authority. Each
 controller projects one optional list of stable limit keys, plain-English
 labels, 0–100 used percentages, reset times when reported, observation times,
-and honest states. A controller that hosts multiple model providers may also
+and honest states. The same report may carry one optional account-level
+`usageAdmission` observation: `blocksNewWork` is true, false, or null, and
+`observedAt` retains the provider observation time. It contains no balance or
+account identity. Codex window exhaustion records included usage, not an
+account-wide refusal when credits still permit new work. Its admission fact
+uses the native account permission plus credits and spend-control evidence;
+unrelated metered windows do not veto it. A full unknown account read records
+null and cannot prove recovery. Sparse rolling notifications do not clear or
+refresh an earlier account fact; explicit backend spend control may still block.
+Codex collects a full snapshot on the same native session when an account-limit
+notification arrives. One pending read coalesces further notifications. Native
+auxiliary reads have finite per-request deadlines; expiry removes the pending
+request and permits a later notification, without ending the business turn or
+creating new recovery evidence. Late replies to expired requests are ignored.
+Native
+account ids must match before and after the account read, and the native
+account-change epoch must remain unchanged through collection and consumption.
+An unknown or mismatched subject discards capacity evidence. The existing local
+ACI auth/keeper compares an opaque subject hash, including same-email workspace
+changes; neither that hash nor the raw native id enters cloud reports or legacy
+CLI JSON. No model-to-bucket mapping is guessed. A controller that hosts multiple model providers may also
 attach the provider's stable id and display name to each limit. Those fields
 group evidence; they do not carry authentication or account identity. An
 adapter must leave an unknown percentage or reset time
@@ -498,9 +518,11 @@ unconfirmed Usage does not block an otherwise ready Agent. A legacy Service
 report without that optional declaration remains
 valid during mixed-version rollout and does not acquire a new Usage admission
 condition solely from a newer Core matrix. When retrying against an older Core
-contract, the Service omits both the Usage projection and its support-matrix
+contract, the Service omits the Usage windows, account admission, and support-matrix
 declaration. For a
-controller whose matrix entry declares native Usage support, a reliable fresh
+controller whose matrix entry declares native Usage support, Codex requires a
+fresh explicit account admission verdict rather than a window percentage.
+For other supported controllers, a reliable fresh
 `available` observation proves current capacity and a reliable fresh explicitly
 `exhausted` observation blocks the Wake as `Unavailable`. Missing, stale,
 expired, unavailable, or otherwise unconfirmed Usage does not add a block;

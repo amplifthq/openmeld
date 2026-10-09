@@ -14,6 +14,11 @@ Custom and OpenMeld-managed folder changes correctly clear Default Project.
 Center Agent setup results keep local folder paths private and show which
 steps still need attention.
 
+Codex Agents can start work when their included usage is exhausted but account
+credits still permit it. Usage percentages remain visible, and account changes
+do not carry usage evidence between workspaces. Center Agents can read public
+OpenMeld failure messages when they check a delegated task's outcome.
+
 Missing or unavailable working folders now lead to the affected Agent’s folder
 settings. Center Agent can check a Project’s connection on that Agent’s Computer
 without receiving local paths.
