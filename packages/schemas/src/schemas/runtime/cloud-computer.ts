@@ -30,6 +30,36 @@ export const cloudComputerBackendSchema = z.enum([
   "worker-shell",
   "worker-javascript",
 ]);
+/** A receipt address, never execution or account authorization. */
+export const cloudComputerCommandReferenceSchema = z.strictObject({
+  invocationId: key,
+  key,
+  id: key,
+  backend: cloudComputerBackendSchema,
+});
+export type CloudComputerCommandReference = zod.infer<
+  typeof cloudComputerCommandReferenceSchema
+>;
+export const cloudComputerCommandPhaseSchema = z.enum([
+  "accepted",
+  "launch_unknown",
+  "running",
+  "process_exited",
+  "sync_pending",
+  "completed",
+  "result_unavailable",
+]);
+export type CloudComputerCommandPhase = zod.infer<
+  typeof cloudComputerCommandPhaseSchema
+>;
+export const cloudComputerCommandErrorSchema = z.strictObject({
+  status: z.number().int().min(400).max(599),
+  code: z.enum([
+    "computer.command_not_found",
+    "computer.command_reference_mismatch",
+  ]),
+  message: z.string().min(1),
+});
 export const cloudComputerCommandSchema = z.discriminatedUnion("action", [
   z.strictObject({
     action: z.literal("start"),
@@ -44,15 +74,20 @@ export const cloudComputerCommandSchema = z.discriminatedUnion("action", [
   z.strictObject({
     action: z.literal("poll"),
     key,
+    reference: cloudComputerCommandReferenceSchema.optional(),
     after: z.number().nonnegative().optional(),
     waitSeconds: z.number().int().min(0).max(20).optional(),
   }),
   z.strictObject({
     action: z.literal("stop"),
     key,
+    reference: cloudComputerCommandReferenceSchema.optional(),
     signal: z.enum(["SIGTERM", "SIGKILL", "SIGINT", "SIGHUP"]).optional(),
   }),
-  z.strictObject({ action: z.literal("list") }),
+  z.strictObject({
+    action: z.literal("list"),
+    includeReceiptDetails: z.boolean().optional(),
+  }),
 ]);
 export const cloudComputerOperationSchema = z.discriminatedUnion("action", [
   z.strictObject({ action: z.literal("describe") }),
@@ -121,10 +156,22 @@ export const cloudComputerOperationResultSchema = z.union([
   z.strictObject({ path, written: z.literal(true) }),
   z.strictObject({ path, replacements: z.number().int().positive() }),
   z.strictObject({ path, entries: z.array(z.string()) }),
-  z.array(z.strictObject({ id: key, key, createdAt: z.number() })),
+  z.array(
+    z.strictObject({
+      id: key,
+      key,
+      createdAt: z.number(),
+      reference: cloudComputerCommandReferenceSchema.optional(),
+      phase: cloudComputerCommandPhaseSchema.optional(),
+      recordExpiresAtMs: z.number().int().nonnegative().optional(),
+    })
+  ),
   z.object({
     id: key,
     key,
+    reference: cloudComputerCommandReferenceSchema.optional(),
+    phase: cloudComputerCommandPhaseSchema.optional(),
+    recordExpiresAtMs: z.number().int().nonnegative().optional(),
     status: z.enum(["running", "completed", "stop_requested"]),
     exitCode: z.number().nullable().optional(),
     stdout: z.string().optional(),

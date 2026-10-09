@@ -14,7 +14,10 @@ import {
 } from "@earendil-works/pi-ai";
 import { defineTool, init, useModel, useTool } from "@flue/runtime";
 import { sqlite, start } from "@flue/runtime/node";
-import { buildPersonalRemoteAgentConversationId } from "@openmeld/schemas";
+import {
+  buildPersonalRemoteAgentConversationId,
+  type CloudComputerCommandReference,
+} from "@openmeld/schemas";
 import { type GenericSchema, object, parse } from "valibot";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -339,8 +342,10 @@ describe("retained Computer commands", () => {
         ).resolves.toMatchObject({ status: "completed", exitCode: 137 });
         expect(f.killExec).toHaveBeenCalledOnce();
       }
-      expect(await tool.execute({ action: "list" })).toMatchObject([
-        { key: "late" },
+      expect(
+        await tool.execute({ action: "list", includeReceiptDetails: true })
+      ).toMatchObject([
+        { key: "late", ...(action === "start" ? { phase: "accepted" } : {}) },
       ]);
     } finally {
       acquired.resolve();
@@ -441,6 +446,9 @@ describe("retained Computer commands", () => {
       command: "printf recovered",
     });
     await expect(launch).rejects.toThrow("dispatch acknowledgement lost");
+    await expect(
+      f.tool().execute({ action: "list", includeReceiptDetails: true })
+    ).resolves.toMatchObject([{ key: "uncertain", phase: "launch_unknown" }]);
     f.getExec.mockRejectedValue(
       Object.assign(new Error("not dispatched yet"), { code: "ENOENT" })
     );
@@ -1703,26 +1711,69 @@ describe("retained Computer commands", () => {
       key: "report",
       command: "python3 report.py",
     };
-    await f.tool().execute(request);
+    const receipt = (await f.tool().execute(request)) as {
+      id: string;
+      reference: CloudComputerCommandReference;
+    };
+    expect(receipt).toMatchObject({
+      phase: "running",
+      reference: {
+        invocationId: "execution-a",
+        key: "report",
+        id: receipt.id,
+        backend: "container",
+      },
+    });
     await f.tool().execute(request);
     expect(f.exec).toHaveBeenCalledTimes(1);
     expect(f.getExec).toHaveBeenCalledTimes(1);
     expect(f.killExec).not.toHaveBeenCalled();
-    expect(await f.tool().execute({ action: "list" })).toMatchObject([
-      { key: "report" },
+    expect(
+      await f.tool().execute({ action: "list", includeReceiptDetails: true })
+    ).toMatchObject([
+      { key: "report", reference: receipt.reference, phase: "running" },
+    ]);
+    await expect(
+      f.tool().execute({
+        action: "poll",
+        key: "report",
+        reference: receipt.reference,
+        waitSeconds: 0,
+      })
+    ).resolves.toMatchObject({ reference: receipt.reference });
+    expect(f.exec).toHaveBeenCalledOnce();
+    await expect(f.tool().execute({ action: "list" })).resolves.toEqual([
+      { id: receipt.id, key: "report", createdAt: expect.any(Number) },
     ]);
   });
 
   it("rejects another execution's control key and rejects changed commands", async () => {
     const f = fixture();
-    await f.tool().execute({
+    const receipt = (await f.tool().execute({
       action: "start",
       key: "report",
       command: "python3 report.py",
-    });
+    })) as { reference: CloudComputerCommandReference };
     await expect(
       f.tool("execution-b").execute({ action: "stop", key: "report" })
-    ).rejects.toThrow("Unknown Computer command");
+    ).rejects.toMatchObject({
+      code: "computer.command_not_found",
+      cause: { status: 404, code: "computer.command_not_found" },
+    });
+    for (const changed of [
+      { invocationId: "execution-b" },
+      { key: "another-key" },
+      { id: "another-native-id" },
+      { backend: "worker-javascript" as const },
+    ]) {
+      await expect(
+        f.tool().execute({
+          action: "stop",
+          key: "report",
+          reference: { ...receipt.reference, ...changed },
+        })
+      ).rejects.toMatchObject({ code: "computer.command_reference_mismatch" });
+    }
     await expect(
       f
         .tool()

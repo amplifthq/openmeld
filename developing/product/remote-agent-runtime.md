@@ -468,6 +468,18 @@ mechanism. The runtime persists a dispatch key before spawn, scopes controls to
 the exact submission, and reconnects to the same native execution ID after a
 Worker replacement. An ambiguous spawn or lost container must never trigger an
 automatic replacement process. Polling is bounded and does not kill the command.
+Command results and opt-in list receipts include an exact reference (invocation, key,
+native execution ID, and backend) and a phase separate from the legacy status.
+Accepted receipt, uncertain launch, observed running process, exit, pending file
+sync, completed sync, and unavailable result remain distinct. Missing receipts
+return `computer.command_not_found`; they do not prove that dispatch never
+occurred. Owner CLI inspection can use a returned reference to address the
+original Remote invocation without adding the CLI's `local:` namespace. The
+reference is an address, not authority: account authorization remains unchanged,
+and the command owner checks every field against the saved receipt. Start never
+accepts a reference. Receipt writes report their current seven-day expiry;
+historical expiry stays unknown until the receipt is updated. This does not
+extend the provider's native result retention or promise recoverability after it.
 Completion requires its exit receipt and completed file synchronization; a stop
 acknowledgement is only a request. The Computer remains shared across sessions.
 The Computer collects results without depending on the model's next poll and

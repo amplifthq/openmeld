@@ -5,11 +5,15 @@ import type {
   WorkspaceRuntimeValue,
 } from "@cloudflare/computer";
 import {
+  type CloudComputerCommandPhase,
+  type CloudComputerCommandReference,
   type CloudComputerOperation,
   cloudComputerCleanupResultSchema,
+  cloudComputerCommandErrorSchema,
   cloudComputerCommandSchema,
 } from "@openmeld/schemas";
 import {
+  boolean,
   integer,
   maxValue,
   minLength,
@@ -77,6 +81,7 @@ const OBSERVATION_SETUP_BUDGET_MS = 5000;
 const STOP_INSPECTION_BUDGET_MS = 1000;
 const READER_CANCEL_BUDGET_MS = 100;
 const COLLECTION_CONCURRENCY = 4;
+const COMMAND_RECORD_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const COMMAND_ACTIONS = ["start", "poll", "stop", "list"] as const;
 const COMMAND_DIAGNOSTIC_PHASES = [
   "workspace-acquisition",
@@ -89,7 +94,16 @@ const COMMAND_DIAGNOSTIC_PHASES = [
 // in packages/schemas is the shared execution validator, including forbidden fields.
 const commandToolSchema = strictObject({
   action: picklist(COMMAND_ACTIONS),
+  includeReceiptDetails: optional(boolean()),
   key: optional(pipe(string(), minLength(1))),
+  reference: optional(
+    strictObject({
+      invocationId: pipe(string(), minLength(1)),
+      key: pipe(string(), minLength(1)),
+      id: pipe(string(), minLength(1)),
+      backend: picklist(["container", "worker-shell", "worker-javascript"]),
+    })
+  ),
   command: optional(pipe(string(), minLength(1))),
   backend: optional(
     picklist(["container", "worker-shell", "worker-javascript"])
@@ -110,6 +124,9 @@ type Command = {
   key: string;
   fingerprint: string;
   createdAt: number;
+  recordExpiresAtMs?: number;
+  launchRequestedAt?: number;
+  launchAcknowledgedAt?: number;
   observedAt?: number;
   exitedAt?: number;
   stopRequested?: boolean;
@@ -254,6 +271,68 @@ type StartCommand = Extract<
 
 function commandBackend(command: Pick<Command, "backend">) {
   return command.backend ?? AGENT_COMPUTER_CONTAINER_BACKEND_ID;
+}
+
+function commandReceiptAddress(command: Command, invocationId: string) {
+  const result = command.observation ?? command.terminalResult;
+  let phase: CloudComputerCommandPhase = "accepted";
+  if (isCommandComplete(command)) {
+    phase = "completed";
+  } else if (command.loss || result?.syncError) {
+    phase = "result_unavailable";
+  } else if (result?.syncPending) {
+    phase = "sync_pending";
+  } else if (result && result.exitCode !== null) {
+    phase = "process_exited";
+  } else if (result || command.launchAcknowledgedAt !== undefined) {
+    phase = "running";
+  } else if (command.launchRequestedAt !== undefined || command.collectable) {
+    phase = "launch_unknown";
+  }
+  return {
+    reference: {
+      invocationId,
+      key: command.key,
+      id: command.id,
+      backend: commandBackend(command),
+    } satisfies CloudComputerCommandReference,
+    phase,
+    ...(command.recordExpiresAtMs !== undefined
+      ? { recordExpiresAtMs: command.recordExpiresAtMs }
+      : {}),
+  };
+}
+
+function commandRequestError(value: unknown) {
+  const failure = cloudComputerCommandErrorSchema.parse(value);
+  return Object.assign(
+    new Error(
+      `HTTP ${failure.status}: ${JSON.stringify({ ok: false, error: failure })}`,
+      { cause: failure }
+    ),
+    { code: failure.code, status: failure.status }
+  );
+}
+
+function assertCommandReference(
+  reference: CloudComputerCommandReference | undefined,
+  command: Command,
+  invocationId: string
+) {
+  if (
+    reference &&
+    (reference.invocationId !== invocationId ||
+      reference.key !== command.key ||
+      reference.id !== command.id ||
+      reference.backend !== commandBackend(command))
+  ) {
+    throw commandRequestError({
+      status: 409,
+      code: "computer.command_reference_mismatch",
+      message:
+        "The command reference does not match this invocation's receipt. Use the original reference.",
+    });
+  }
 }
 
 function isCommandComplete(command: Command) {
@@ -436,16 +515,13 @@ async function updateCommand(
       throw new Error("Computer command receipt is missing.");
     }
     const next = update(current);
+    const expiresAtMs = Date.now() + COMMAND_RECORD_RETENTION_MS;
+    const retained = { ...next, recordExpiresAtMs: expiresAtMs };
     if (
       next === current ||
-      (await storage.compareAndSetExpiring(
-        key,
-        current,
-        next,
-        Date.now() + 7 * 24 * 60 * 60 * 1000
-      ))
+      (await storage.compareAndSetExpiring(key, current, retained, expiresAtMs))
     ) {
-      return next;
+      return next === current ? current : retained;
     }
   }
   throw new Error(
@@ -536,9 +612,12 @@ export function createComputerCommandTool(input: {
       `${prefix}${encodeURIComponent(key)}`
     );
     if (!command) {
-      throw new Error(
-        "Unknown Computer command for this execution. Use action list to recover its keys."
-      );
+      throw commandRequestError({
+        status: 404,
+        code: "computer.command_not_found",
+        message:
+          "No Computer command receipt was found for this invocation. Acceptance is unknown. Use list or the original command reference; do not restart automatically.",
+      });
     }
     return command;
   };
@@ -805,6 +884,15 @@ export function createComputerCommandTool(input: {
       throw new Error("Computer command was stopped during launch.");
     }
     observationSignal.throwIfAborted();
+    await updateCommand(
+      input.storage,
+      `${prefix}${encodeURIComponent(command.key)}`,
+      (current) => ({
+        ...current,
+        launchRequestedAt: Date.now(),
+      })
+    );
+    observationSignal.throwIfAborted();
     const handle = await workspace.runtime.exec(
       command.backend === AGENT_COMPUTER_CONTAINER_BACKEND_ID
         ? buildComputerCommandProcess(request.command)
@@ -823,7 +911,11 @@ export function createComputerCommandTool(input: {
     await updateCommand(
       input.storage,
       `${prefix}${encodeURIComponent(command.key)}`,
-      (current) => ({ ...current, collectable: true })
+      (current) => ({
+        ...current,
+        collectable: true,
+        launchAcknowledgedAt: Date.now(),
+      })
     );
     await input.scheduleCollection?.();
     let result: CommandResult;
@@ -887,10 +979,12 @@ export function createComputerCommandTool(input: {
       backend: request.backend ?? AGENT_COMPUTER_CONTAINER_BACKEND_ID,
       collectable: false,
     };
+    candidate.recordExpiresAtMs =
+      candidate.createdAt + COMMAND_RECORD_RETENTION_MS;
     const created = await input.storage.putIfAbsentExpiring(
       key,
       candidate,
-      Date.now() + 7 * 24 * 60 * 60 * 1000
+      candidate.createdAt + COMMAND_RECORD_RETENTION_MS
     );
     // Arm recovery before spawn or any other external I/O. Pending launches
     // can be inspected, but an absent record does not prove dispatch failed.
@@ -991,12 +1085,24 @@ export function createComputerCommandTool(input: {
       if (request.action === "list") {
         return [
           ...(await input.storage.list<Command>({ prefix })).values(),
-        ].map(({ key, id, createdAt }) => ({ key, id, createdAt }));
+        ].map((command) => ({
+          key: command.key,
+          id: command.id,
+          createdAt: command.createdAt,
+          ...(request.includeReceiptDetails
+            ? commandReceiptAddress(command, input.context.submissionId)
+            : {}),
+        }));
       }
       if (request.action === "start") {
         return await startCommand(request, options?.signal);
       }
       const command = await read(request.key);
+      assertCommandReference(
+        request.reference,
+        command,
+        input.context.submissionId
+      );
       if (command.observation?.syncError) {
         return await reportUnconfirmedSync(
           command,
@@ -1103,11 +1209,21 @@ export function createComputerCommandTool(input: {
   };
   return {
     ...definition,
+    description: `${definition.description} Replies include reference and phase. Keep the exact reference for later owner inspection; poll and stop validate it against this invocation's saved receipt. list with includeReceiptDetails:true returns references and phases. An accepted receipt is not proof of launch; launch_unknown does not permit replay. Missing receipt means acceptance is unknown, not an unreachable service. Receipt expiry does not extend native result retention.`,
     async execute(rawInput, options) {
       try {
         const result = await definition.execute(rawInput, options);
         await logResult(rawInput, result);
-        return result;
+        const command = await readDiagnosticCommand(rawInput.key);
+        return command &&
+          result &&
+          typeof result === "object" &&
+          !Array.isArray(result)
+          ? {
+              ...result,
+              ...commandReceiptAddress(command, input.context.submissionId),
+            }
+          : result;
       } catch (error) {
         await recordFailure(rawInput, error);
         throw error;
