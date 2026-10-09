@@ -550,7 +550,9 @@ Square.
 
 The outer rail's Spaces and Team resource popovers open on hover or Arrow Down/Space.
 Clicking Spaces still opens Your Spaces; clicking Team opens People.
-Spaces offers Direct messages and Discover using the existing `view` search parameter.
+Each popover starts with that primary destination: Your Spaces or People, without
+a pin toggle. Spaces then offers Direct messages and Discover using the existing
+`view` search parameter.
 The pinned Direct messages label is DMs. Discover is hidden in personal workspaces,
 including saved pins, without deleting the browser preference.
 Agents, Plugins, Skills, Files, and Routines link to the existing
