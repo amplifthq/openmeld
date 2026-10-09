@@ -365,9 +365,9 @@ export function LandingPage() {
 							<LandingAsciiCanvas scene="collaboration-loop" />
 						</div>
 						<h2>
-							Your team. Your agents.
+							Your team, your agents, your business
 							<br />
-							<span>Meld into one.</span>
+							<span>Meld into one</span>
 						</h2>
 						<AppActions />
 					</section>

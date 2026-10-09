@@ -1,0 +1,13 @@
+.meld-figure {
+	--hairline-plate: #151515;
+	--hairline-hi: #dedee2;
+	--hairline-edge: #85858e;
+	--hairline-mid: #62626c;
+	--hairline-lo: #34343c;
+	--hairline-stroke: 0.9;
+	width: 100%;
+	aspect-ratio: 5 / 4;
+}
+.meld-figure > div {
+	width: 100%;
+}

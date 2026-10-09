@@ -329,8 +329,13 @@ when collapsed, list-page work-area headers show the expand control beside that
 list's edge. Spaces uses this control in place of its decorative title icon,
 and Team uses the same placement. Toggling does not hide the application rail or
 remount the conversation. The existing Fluid sidebar engine owns resizing and
-keyboard shortcuts. Dragging the middle column can collapse it,
-and a 32px hover-intent strip along the content edge reveals a floating preview.
+keyboard shortcuts. The middle column has only expanded and hidden states,
+with a 200px minimum expanded width. Dragging below that minimum collapses it
+directly; returning past a small drag deadband restores the expanded column.
+Keyboard resizing uses the same bounds and skips the icon-only tier. Saved
+narrow widths are clamped to the readable minimum before rendering. Row titles
+remain single-line and use an ellipsis when space is limited. A 32px hover-intent
+strip along the content edge reveals a floating preview.
 The preview keeps the same title toggle, which restores the full column even on
 detail pages without a work-area header. The existing outer-sidebar cookie
 now stores middle-column geometry, with a 308px default; legacy icon mode maps

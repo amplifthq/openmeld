@@ -787,11 +787,21 @@
 		linear-gradient(135deg, #ffffff2a, #ffffff08 40%, #ffffff12) border-box;
 	border: 1px solid transparent;
 }
-.meld-bento-card h3 {
-	font-size: 23px;
+.meld-bento-heading {
+	display: grid;
+	grid-template-columns: 20px minmax(0, 1fr);
+	gap: 10px;
+	color: var(--foreground);
+	margin-bottom: 12px;
+}
+.meld-bento-heading > svg {
+	margin-top: 2px;
+}
+.meld-bento-heading h3 {
+	font-size: 19px;
 	line-height: 1.3;
 	font-weight: 500;
-	margin: 14px 0 10px;
+	margin: 0;
 	letter-spacing: -0.6px;
 }
 .meld-bento-card p {
@@ -801,38 +811,37 @@
 	margin: 0;
 }
 .meld-bento-machine {
-	grid-row: span 2;
+	grid-row: span 5;
 	display: flex;
 	flex-direction: column;
-	justify-content: space-between;
-	isolation: isolate;
 }
-.meld-bento-machine > div:not(.meld-computer-ambient) {
-	position: relative;
-	z-index: 1;
+.meld-bento-machine .meld-bento-body {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+}
+.meld-bento-body {
+	min-width: 0;
 }
 .meld-machine-art {
-	margin: -20px -25px 0;
-}
-.meld-machine-art svg {
-	width: 100%;
-	height: auto;
-}
-.meld-machine-cloud {
-	animation: meld-cloud-arrive 1.6s ease-out both;
-}
-.meld-bento-machine:hover .meld-machine-cloud {
-	animation: meld-cloud-lift 1.8s ease-in-out both;
+	margin: auto -25px;
 }
 .meld-bento-specs {
 	grid-column: span 2;
 }
-.meld-bento-eyebrow {
-	display: flex;
-	gap: 8px;
-	align-items: center;
-	color: #a2a5ae;
-	font-size: 13px;
+.meld-bento-terminal,
+.meld-bento-files {
+	display: grid;
+	grid-row: span 4;
+	grid-template-rows: subgrid;
+}
+.meld-bento-terminal .meld-bento-heading,
+.meld-bento-files .meld-bento-heading {
+	margin-bottom: 0;
+}
+.meld-bento-terminal .meld-bento-body,
+.meld-bento-files .meld-bento-body {
+	display: contents;
 }
 .meld-computer-specs {
 	display: grid;
@@ -864,14 +873,11 @@
 	gap: 9px;
 	font-family: ui-monospace, monospace;
 	font-size: 11px;
-	margin: 26px 0;
+	margin: 0;
 	line-height: 1.4;
 }
 .meld-terminal-lines b {
 	color: #70ba9c;
-}
-.meld-terminal-result {
-	color: #9a9ea6;
 }
 .meld-terminal-last {
 	color: #83c5ad;
@@ -880,47 +886,21 @@
 	gap: 5px;
 	animation: meld-result-arrive 0.8s ease-out both;
 }
-.meld-bento-terminal > p {
-	font-size: 11px;
+.meld-terminal-figure,
+.meld-result-figure {
+	display: grid;
+	place-items: center;
+	height: 176px;
 }
-.meld-bento-files h3 {
-	font-size: 19px;
+.meld-terminal-figure .meld-figure {
+	width: min(100%, 180px);
 }
-.meld-bento-files > svg {
-	color: #bbbbbb;
+.meld-result-figure .meld-figure {
+	width: min(100%, 220px);
 }
-.meld-result-file {
-	display: flex;
-	gap: 10px;
-	align-items: center;
-	padding: 13px;
-	margin-top: 20px;
-	border: 1px solid #3b3e44;
-	border-radius: 8px;
+.meld-bento-card .meld-result-caption {
+	align-self: end;
 	font-size: 12px;
-}
-.meld-result-file > svg:last-child {
-	margin-left: auto;
-	color: #83c5ad;
-}
-@keyframes meld-cloud-arrive {
-	from {
-		opacity: 0;
-		transform: translateY(18px);
-	}
-	to {
-		opacity: 1;
-		transform: translateY(0);
-	}
-}
-@keyframes meld-cloud-lift {
-	0%,
-	100% {
-		transform: translateY(0);
-	}
-	50% {
-		transform: translateY(-12px);
-	}
 }
 @keyframes meld-result-arrive {
 	from {
@@ -998,19 +978,16 @@
 	.meld-bento-machine {
 		grid-column: span 2;
 		grid-row: auto;
+	}
+	.meld-bento-machine .meld-bento-body {
 		flex-direction: row;
 		align-items: center;
+		gap: 14px;
 	}
 	.meld-machine-art {
 		width: 45%;
 		margin: 0;
 		flex-shrink: 0;
-	}
-	.meld-bento-machine h3 {
-		font-size: 20px;
-	}
-	.meld-bento-machine p {
-		font-size: 12px;
 	}
 	.meld-computer-specs strong {
 		font-size: 36px;
@@ -1024,8 +1001,6 @@
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.meld-machine-cloud,
-	.meld-bento-machine:hover .meld-machine-cloud,
 	.meld-terminal-last {
 		animation: none;
 	}

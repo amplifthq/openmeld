@@ -292,7 +292,10 @@ identifiable without requiring the magnification effect.
 `fluid/sidebar`, `fluid/sidebar-state`, `fluid/sidebar-group`, and
 `fluid/sidebar-menu` adapt the Fluid Functionalism Base UI Sidebar registry
 (retrieved September 5, 2026). They own resize/collapse/peek, slots, disclosures,
-and menu hover/focus mechanics. The three-mode geometry is injected and saved
+and menu hover/focus mechanics. Geometry, expanded-width bounds, and whether
+the icon-only snap tier is allowed are injected by the client. Web module lists
+disable that tier for pointer dragging and keyboard resizing; they use the same
+two-state contract in the Website demo. Geometry is saved
 by the client; these primitives do not read cookies, routes, account state or
 organization state. OpenMeld uses its existing Base UI/Motion dependencies and
 semantic shape, typography and color tokens. Menu highlights use transforms;

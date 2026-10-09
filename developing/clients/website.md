@@ -48,8 +48,11 @@ shared viewport.
 The Members panel stays open on desktop and uses a smaller demo-specific resize
 limit. Its Live and You labels are hidden to reserve more reading space for
 Thread, which has wider default and minimum widths.
-The Space sidebar starts at the product's minimum width and wraps long names;
-its search input is omitted. Product and demo Members and Thread headers reuse
+The Space sidebar starts at the product's 200px minimum and keeps titles on one
+line with an ellipsis, including when hover actions appear; its search input is
+omitted. The demo organization trigger starts 16px below the canvas top and
+keeps its 36px hit area while its O logo uses a smaller 5px glyph size.
+Product and demo Members and Thread headers reuse
 `SpaceInlineSidePanelHeader` at a fixed 56px height, including loading states.
 The demo Composer draws a soft colored BorderBeam around a sendable draft in a
 slow ten-second loop. It pauses while hidden or outside the viewport and fades out
@@ -130,7 +133,22 @@ Its composer keeps the project name, add icon, and send arrow; it omits inactive
 sidebar controls and extra device or model labels. Masks never
 depend on focus, filtering, playback, or iframe state, and keep the same profile
 after navigation and refresh. There are no per-demo WebGL lighting loops or
-foreground overlays. The computer illustration uses a static ambient gradient.
+foreground overlays.
+
+Cloud Computer uses Hairline's official Turntable figure, with Riffle illustrating
+files and finished work and a smaller Terminal figure above the video conversion
+example. The terminal and finished-work cards share grid rows so their figures
+stay vertically aligned even when the descriptions wrap differently.
+Its four cards share an icon-and-title heading with the same foreground
+color and type size. Privacy and Open Source use its Lockers
+and Branches figures. `LandingFigure` loads the installed React
+components within 300px of the viewport and reserves their 5:4 footprint before
+loading. Consumers set only the dark palette, accessible description and
+interaction intensity. The package owns geometry, pointer response, reduced
+motion, idle scheduling and offscreen pausing. The figures have no autoplay or
+additional blur or lighting loop. Keep the solid plate fill matched to the card
+background so the official occlusion remains correct. Computer specifications
+and terminal output remain outside the illustration.
 
 The privacy and open-source section follows Usage, before the FAQ and final
 app-entry section. It summarizes the customer production diagnostics policy:

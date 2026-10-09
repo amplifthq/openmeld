@@ -869,6 +869,9 @@ importers:
       '@cloudflare/vite-plugin':
         specifier: 1.54.6
         version: 1.54.6(vite@7.3.2(@types/node@24.10.13)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.21.0)(yaml@2.9.1))(wrangler@4.147.0(@cloudflare/workers-types@5.20261001.1)(@types/node@24.10.13))
+      '@lucasmarkes/hairline':
+        specifier: 0.5.0
+        version: 0.5.0(react@19.2.4)
       '@openmeld/api-client':
         specifier: workspace:*
         version: link:../../packages/api-client
@@ -5452,6 +5455,14 @@ packages:
       motion: ^12.0.0
       react: ^19.0.0
       react-dom: ^19.0.0
+
+  '@lucasmarkes/hairline@0.5.0':
+    resolution: {integrity: sha512-anXxRq2vRoBtjwt8q6CAlwcfpqVNmJIlM0HOaGpJFG6BNJVbjIoqD8m0JaFdYActPx6drUTpsaey55+ajWJ4pA==}
+    peerDependencies:
+      react: '>=18'
+    peerDependenciesMeta:
+      react:
+        optional: true
 
   '@malept/cross-spawn-promise@2.0.0':
     resolution: {integrity: sha512-1DpKU0Z5ThltBwjNySMC14g0CkbyhCaz9FkhxqNsZI6uAPJXFS8cMXlBKo26FJ8ZuW6S9GCMcR9IO5k2X5/9Fg==}
@@ -18401,6 +18412,10 @@ snapshots:
       - supports-color
       - svelte
       - vue
+
+  '@lucasmarkes/hairline@0.5.0(react@19.2.4)':
+    optionalDependencies:
+      react: 19.2.4
 
   '@malept/cross-spawn-promise@2.0.0':
     dependencies:
