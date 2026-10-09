@@ -1552,11 +1552,11 @@ by default and uses the shared Settings row and Switch. Its account-owned value
 applies across organizations. Conversation guidance uses Core's Space status
 projection, so turning it off removes automatic-Wake guidance as well as implicit
 work admission. Explicit Agent mentions remain available.
-The row shows a short example conversation for just you and one Agent. The
-composer contains a concrete request, followed by a sample Agent reply. The saved
-choice shows plain text when enabled and an explicit Agent mention when disabled,
-with one direct sentence explaining whether a mention is needed. This static
-example is not an editor or an execution-status projection. Send-shortcut cards
+The row uses one full-width composer preview. Its message explains the saved
+choice directly: automatic replies without a mention when enabled, or an explicit
+Agent mention to request a reply when disabled. This explanation remains available
+to assistive technology; the decorative toolbar is hidden from it. The static
+preview is not an editor or an execution-status projection. Send-shortcut cards
 use the same decorative composer, with the product send icon and one keyboard
 hint for the option's sending action; they do not repeat the newline shortcut.
 
