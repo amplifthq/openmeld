@@ -393,9 +393,8 @@ export function ComputerBento() {
 					<span>
 						<b>❯</b> ffmpeg -i demo.mov demo.mp4
 					</span>
-					<span className="meld-terminal-result">Saved demo.mp4</span>
 					<span className="meld-terminal-last">
-						<CheckIcon aria-hidden size={14} /> Ready to share
+						<CheckIcon aria-hidden size={14} /> Saved demo.mp4
 					</span>
 				</div>
 			</BentoCard>
@@ -411,6 +410,9 @@ export function ComputerBento() {
 						label="A tray of files. Hover or use the arrow keys to pull a file."
 					/>
 				</div>
+				<p className="meld-result-caption">
+					Reports, videos, and files your team can use.
+				</p>
 			</BentoCard>
 		</div>
 	);

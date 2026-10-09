@@ -879,9 +879,6 @@
 .meld-terminal-lines b {
 	color: #70ba9c;
 }
-.meld-terminal-result {
-	color: #9a9ea6;
-}
 .meld-terminal-last {
 	color: #83c5ad;
 	display: flex;
@@ -900,6 +897,10 @@
 }
 .meld-result-figure .meld-figure {
 	width: min(100%, 220px);
+}
+.meld-bento-card .meld-result-caption {
+	align-self: end;
+	font-size: 12px;
 }
 @keyframes meld-result-arrive {
 	from {
