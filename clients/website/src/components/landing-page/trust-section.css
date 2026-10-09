@@ -13,11 +13,12 @@
 	background: #151515;
 	box-shadow: none;
 }
-.meld-trust-card > svg {
-	color: #c5c5cb;
+.meld-trust-figure {
+	width: min(100%, 300px);
+	align-self: center;
 }
 .meld-trust-card h3 {
-	margin: 26px 0 18px;
+	margin: 18px 0;
 	font-size: 24px;
 	font-weight: 500;
 	line-height: 1.25;
@@ -54,6 +55,9 @@
 	}
 	.meld-trust-card {
 		padding: 26px;
+	}
+	.meld-trust-figure {
+		width: min(100%, 240px);
 	}
 	.meld-trust-card h3 {
 		font-size: 22px;

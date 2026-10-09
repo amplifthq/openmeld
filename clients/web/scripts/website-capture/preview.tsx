@@ -1,10 +1,7 @@
 import { Button } from "@openmeld/ui/components/button";
 import { TooltipProvider } from "@openmeld/ui/components/tooltip";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
-import {
-	SIDEBAR_ICON_WIDTH,
-	SIDEBAR_MIN_WIDTH,
-} from "@openmeld/ui/fluid/sidebar-state";
+import { SIDEBAR_ICON_WIDTH } from "@openmeld/ui/fluid/sidebar-state";
 import { useMediaQuery } from "@openmeld/ui/hooks/use-media-query";
 import { ChatCircleIcon, PlusIcon } from "@phosphor-icons/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -31,6 +28,7 @@ import {
 import { createRoot } from "react-dom/client";
 import { MessageResponse } from "../../src/components/ai/message-response";
 import { AppLinkCapability } from "../../src/components/app/app-link-capability";
+import { MODULE_SIDEBAR_MIN_WIDTH } from "../../src/components/app/app-module-sidebar";
 import { APP_APPLICATION_RAIL_CLASS_NAME } from "../../src/components/app/app-nav-item-style";
 import {
 	AppRailNavigationGroup,
@@ -412,7 +410,7 @@ function Preview() {
 							globalControls={null}
 							initialModuleSidebarState={{
 								tier: "expanded",
-								width: isTeam ? "200px" : `${SIDEBAR_MIN_WIDTH}px`,
+								width: `${MODULE_SIDEBAR_MIN_WIDTH}px`,
 							}}
 							moduleNavigation={
 								!isInbox &&

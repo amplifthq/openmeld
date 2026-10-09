@@ -272,7 +272,7 @@ function ConversationSidebarRowContent(
 							>
 								<span className="flex min-w-0 flex-1 items-center gap-1.5">
 									<span
-										className={`truncate text-foreground ${hasUnread ? "font-semibold" : ""}`}
+										className={`min-w-0 flex-1 truncate text-foreground ${hasUnread ? "font-semibold" : ""}`}
 										data-conversation-title="true"
 									>
 										{input.title}

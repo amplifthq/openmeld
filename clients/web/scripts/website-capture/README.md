@@ -80,13 +80,19 @@ button opens the product's resizable member panel or mobile drawer. The panel
 starts open on desktop at a demo-specific minimum width of 12rem. Live and You
 labels are hidden in demo member rows. Thread starts at 24rem with a 20rem resize
 minimum. The product's default resize limits and labels remain unchanged. The
-Space sidebar starts at the product's 160px minimum; long names wrap instead of
-truncating. Its search input is omitted through `ConversationsSidebar.showSearch`.
-Team retains its 200px sidebar. Product and demo reuse the same 16px trailing
+Space sidebar starts at the product's 200px minimum. Product and demo share
+expanded/hidden dragging and keyboard resizing, with no icon-only intermediate
+tier. Titles remain single-line with an ellipsis when needed; Center Agent fits
+at the minimum. Its search input is omitted through `ConversationsSidebar.showSearch`.
+Team uses the same minimum. Product and demo reuse the same 16px trailing
 header inset and fixed 56px `SpaceInlineSidePanelHeader` for Members and Thread,
 including the loading state. The demo adds no separate alignment override.
 The 28px user avatar
 shares the rail's centerline with the organization switcher and navigation.
+The organization trigger keeps its 36px hit area and starts 16px below the canvas
+top. Its pointer-reactive O logo uses a 5px glyph size to keep its visual weight
+close to the rail controls. Hover actions use the product's row layout: titles
+truncate without wrapping, and row heights stay fixed as the actions appear.
 Claude Code and Codex messages show their human owner.
 The first Space follows a checkout regression: James reports the failure, Maya
 sets the review requirements, and Center Agent delegates to Codex and Claude Code
