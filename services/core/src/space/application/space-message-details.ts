@@ -111,9 +111,10 @@ function projectNewTaskSource(
   wakeContext: SpaceMessageDetailsWakeContext,
   viewerProfileId: string | undefined
 ): GetSpaceMessageDetailsResponse["newTaskSource"] {
+  // Any authenticated viewer may copy the readable source. Normal message
+  // authoring checks the new sender's permissions, not the source author's.
   if (
-    !source ||
-    source.signal.profile.profileId !== viewerProfileId ||
+    !(source && viewerProfileId) ||
     source.signal.data.meta?.recalledAt ||
     source.signal.data.meta?.workHandoff ||
     // Legacy attachments have no reusable Space File revision. Only `files`

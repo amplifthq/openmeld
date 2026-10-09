@@ -125,9 +125,11 @@ export function SpaceMessageTaskContext(input: {
 						Start a new task with {review.target.targetLabel ?? "this Agent"}
 					</h4>
 					<p className="text-muted-foreground">
-						This sends the request below using the Agent's current settings and
-						computer access policy. It starts a separate conversation and may
-						repeat work already done.
+						You'll send this as a new request from your current profile. Your
+						permissions apply; the original requester's approvals aren't carried
+						over. The Agent uses its current settings and computer access
+						policy. This starts a separate conversation and may repeat work
+						already done.
 					</p>
 					<p className="text-muted-foreground">
 						If you already sent this recovery, it returns to the same new task.

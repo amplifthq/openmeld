@@ -81,7 +81,7 @@ describe("space Message Details projection", () => {
       viewerProfileId:
         state === "unknown_requester" ? undefined : viewerProfileId,
     });
-    if (state === "ready") {
+    if (state === "ready" || state === "other_requester") {
       expect(details.newTaskSource).toEqual({
         sourceSignalId: source.id,
         sourceRevision: 2,

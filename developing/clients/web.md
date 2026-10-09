@@ -5290,10 +5290,13 @@ workspace separately from the Service's new/continued native-conversation
 observation. Missing diagnostics remain unavailable; the client never infers
 network or GitHub access from a working folder.
 
-For a recorded Space-only Wake, only its original requester with message
-permission can review the source request and its shared file revisions, then send it to the
-same target as a new task using the Agent's current permitted settings.
-The confirmation names the destination and possible repeated work. It uses
+For a recorded Space-only Wake, any member who can read the request and send
+messages can review its shared file revisions and send it to the same target
+as a new task under their current acting Profile. Confirmation explains that
+the sender's permissions apply and the original requester's approvals do not
+carry over. Normal authoring rechecks message, file, and Wake authorization;
+the new task uses the Agent's current permitted settings and computer policy.
+The confirmation also names the destination and possible repeated work. It uses
 normal Space/thread authoring with a stable request id derived from the reviewed
 source revision and content, requester, target and placement. Reopening details,
 reloading, and retrying after either an uncertain or successful response reuse

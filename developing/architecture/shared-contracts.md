@@ -8547,12 +8547,15 @@ Heads.
 Message details opts in separately with `executionContextVersion=1`. New
 Gateway/Core readers forward it; old readers ignore it and keep their original
 response. Only opted-in responses add each target's task-context projection
-and an eligible readable `newTaskSource` only for the source author's authenticated
-acting Profile. A missing or different viewer Profile receives no recovery copy.
+and an eligible readable `newTaskSource` for an authenticated viewer Profile.
+The viewer need not be the source author. Source content is redacted for the
+viewer before projection; a missing viewer Profile receives no recovery copy.
 Existing local-origin redaction
 also removes Context identifiers for non-owners. The source copy preserves
 Space-owned text/file revision facts and grants no permission; its new Wake
-uses the existing message-authoring contract. Its stable client message id
+uses the existing message-authoring contract under the current acting Profile,
+with that sender's permissions and no inherited approvals from the source.
+Its stable client message id
 reuses the existing Space authoring receipt for the same reviewed request,
 requester, target and placement, including retries after accepted publication.
 

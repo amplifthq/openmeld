@@ -33,6 +33,8 @@ import { SpaceMessageDetailsDrawer } from "./space-message-details-drawer";
 const CODE_MODE_PATTERN = /codemode/iu;
 const SPACE_ONLY_PATTERN = /Space context only/;
 const CONTINUED_CONVERSATION_PATTERN = /Continued conversation/;
+const ACTING_PROFILE_PATTERN =
+	/You'll send this as a new request from your current profile/;
 const { copyTextToClipboardMock, toastMock } = vi.hoisted(() => ({
 	copyTextToClipboardMock: vi.fn(),
 	toastMock: {
@@ -46,11 +48,12 @@ import type { SpaceMessageReferencesById } from "./space-message-reference";
 
 const useQueryMock = vi.hoisted(() => vi.fn());
 const postNewTaskMessageMock = vi.hoisted(() => vi.fn());
+const createSpaceApiMock = vi.hoisted(() => vi.fn());
 vi.mock("#/lib/spaces/api", () => ({
-	createUnscopedWebSpaceApi: () => ({
+	createUnscopedWebSpaceApi: createSpaceApiMock.mockImplementation(() => ({
 		postNormalMessage: postNewTaskMessageMock,
 		postThreadSignal: postNewTaskMessageMock,
-	}),
+	})),
 }));
 const REPORT_POINTER_COPY_PATTERN = /Message text is not included/;
 const COMPUTERS_RECOVERY_HREF_PATTERN = /\/computers$/u;
@@ -112,7 +115,10 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 describe("SpaceMessageDetailsDrawer", () => {
-	it("reviews a Space-only request before sending one new task with current Agent settings", async () => {
+	it.each([
+		"human-1",
+		"human-2",
+	])("reviews a Space-only request and sends it under the acting profile %s", async (profileId) => {
 		const details = createWakeSuccessReplyDetails();
 		const target = details.wakeContext.targets[0];
 		if (!target) {
@@ -143,11 +149,12 @@ describe("SpaceMessageDetailsDrawer", () => {
 		renderMessageDetailsPanel({
 			item: createAgentReplyTimelineItem(),
 			canStartNewTask: true,
-			profileId: "human-1",
+			profileId,
 		});
 		expect(screen.getByText(SPACE_ONLY_PATTERN)).toBeTruthy();
 		expect(screen.getByText(CONTINUED_CONVERSATION_PATTERN)).toBeTruthy();
 		fireEvent.click(screen.getByText("Start a new task"));
+		expect(screen.getByText(ACTING_PROFILE_PATTERN)).toBeTruthy();
 		expect(screen.getByText(details.newTaskSource.text)).toBeTruthy();
 		expect(postNewTaskMessageMock).not.toHaveBeenCalled();
 		const reviewedText = details.newTaskSource.text;
@@ -160,6 +167,9 @@ describe("SpaceMessageDetailsDrawer", () => {
 		await waitFor(() =>
 			expect(postNewTaskMessageMock).toHaveBeenCalledTimes(1)
 		);
+		expect(createSpaceApiMock).toHaveBeenCalledWith({
+			openMeldProfileId: profileId,
+		});
 		expect(postNewTaskMessageMock.mock.calls[0]?.[0]).toMatchObject({
 			contextSelection: { mode: "new" },
 			text: reviewedText,
@@ -170,7 +180,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 			id: "sig-new-task",
 			spaceId: "space-123",
 			ts: 1_700_000_000_000,
-			profile: { kind: "human", profileId: "human-1" },
+			profile: { kind: "human", profileId },
 			type: "signal.text",
 			data: { text: reviewedText },
 		});
@@ -190,6 +200,8 @@ describe("SpaceMessageDetailsDrawer", () => {
 		toastMock.error.mockReset();
 		toastMock.success.mockReset();
 		useQueryMock.mockReset();
+		createSpaceApiMock.mockClear();
+		postNewTaskMessageMock.mockReset();
 	});
 
 	it("shows the owner-visible Local Agent original error without opening Technical details", () => {
