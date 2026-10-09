@@ -393,8 +393,12 @@ Space and direct-message pending routes retain the authorized conversation
 sidebar and use the loaded conversation's header and centered content/composer
 rails. They do not add an empty app header above the conversation header.
 Loading shells reserve persisted Members panel geometry without reading protected
-content or deciding membership. A later product-driven panel opening remains a
-separate interaction. The existing Space-open performance report also covers
+content or deciding membership. Loaded and loading Thread headers and the desktop
+Members header reuse `SpaceInlineSidePanelHeader` at a fixed 56px height. Their
+16px trailing inset matches `SpaceWindowHeader`, keeping the last Space action
+and panel close buttons on the same vertical centerline.
+A later product-driven panel opening remains a separate interaction. The
+existing Space-open performance report also covers
 Organization direct-message routes; Center Agent session routes are not Space
 IDs and are excluded from that route matcher.
 

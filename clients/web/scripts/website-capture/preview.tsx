@@ -495,7 +495,6 @@ function Preview() {
 												/>
 											) : undefined
 										}
-										contentClassName="pr-4"
 										navigation={
 											scene === "Conversation" ? (
 												<SpaceViewTabs

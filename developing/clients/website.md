@@ -43,8 +43,10 @@ The Members panel stays open on desktop and uses a smaller demo-specific resize
 limit. Its Live and You labels are hidden to reserve more reading space for
 Thread, which has wider default and minimum widths.
 The Space sidebar starts at the product's minimum width and wraps long names;
-its search input is omitted. Members and Thread headers share the same height,
-and the member toggle's trailing edge aligns with the panel's close button.
+its search input is omitted. Product and demo Members and Thread headers reuse
+`SpaceInlineSidePanelHeader` at a fixed 56px height, including loading states.
+`SpaceWindowHeader` uses the same 16px trailing inset, so its last action aligns
+with the panel's close button without a demo-specific override.
 The public Product anchor centers the complete demo frame in the viewport using
 the same responsive height that sizes its iframe.
 Wake/Reference labels are hidden in demo tokens, without changing the retained

@@ -94,7 +94,10 @@ import {
 } from "./people-agent-picker-model";
 import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recovery-action";
 import { buildSpaceMemberDirectoryEntryByProfileId } from "./space-collaboration-profile";
-import { SpaceInlineSidePanel } from "./space-inline-side-panel";
+import {
+	SpaceInlineSidePanel,
+	SpaceInlineSidePanelHeader,
+} from "./space-inline-side-panel";
 import { SpaceInvitationsSection } from "./space-invitations-section";
 import { SpaceMemberAdditions } from "./space-member-additions";
 import { isSameOwnerUserId } from "./space-member-ownership";
@@ -258,21 +261,9 @@ export function SpaceMembersSidePanel(
 			resizeHandleLabel="Resize Members panel"
 			width={input.panelWidth}
 		>
-			<header className="flex min-h-14 shrink-0 items-center border-border border-b px-4 py-3">
-				<div className="flex w-full items-center justify-between gap-2">
-					<div className="flex min-w-0 items-baseline gap-2">
-						<h2 className="min-w-0 whitespace-nowrap font-medium text-base">
-							Members
-						</h2>
-						<span
-							aria-hidden="true"
-							className="truncate text-muted-foreground text-xs tabular-nums"
-						>
-							{model.membersCountLabel}
-						</span>
-						<span className="sr-only">{model.membersCountDescription}</span>
-					</div>
-					<div className="flex shrink-0 items-center gap-1">
+			<SpaceInlineSidePanelHeader
+				actions={
+					<>
 						<SpaceMembersSearchHeaderButton
 							onToggle={() => model.setIsSearchOpen(!model.isSearchOpen)}
 							open={model.isSearchOpen}
@@ -287,9 +278,20 @@ export function SpaceMembersSidePanel(
 						<SpaceMembersCloseButton
 							onClose={() => input.onOpenChange(false)}
 						/>
-					</div>
-				</div>
-			</header>
+					</>
+				}
+			>
+				<h2 className="min-w-0 whitespace-nowrap font-medium text-base">
+					Members
+				</h2>
+				<span
+					aria-hidden="true"
+					className="truncate text-muted-foreground text-xs tabular-nums"
+				>
+					{model.membersCountLabel}
+				</span>
+				<span className="sr-only">{model.membersCountDescription}</span>
+			</SpaceInlineSidePanelHeader>
 
 			<SpaceMembersBody
 				accountProfiles={input.accountProfiles ?? []}

@@ -82,8 +82,9 @@ labels are hidden in demo member rows. Thread starts at 24rem with a 20rem resiz
 minimum. The product's default resize limits and labels remain unchanged. The
 Space sidebar starts at the product's 160px minimum; long names wrap instead of
 truncating. Its search input is omitted through `ConversationsSidebar.showSearch`.
-Team retains its 200px sidebar. The Space header's trailing inset matches the
-Members header, and Members and Thread use the same 56px header height.
+Team retains its 200px sidebar. Product and demo reuse the same 16px trailing
+header inset and fixed 56px `SpaceInlineSidePanelHeader` for Members and Thread,
+including the loading state. The demo adds no separate alignment override.
 The 28px user avatar
 shares the rail's centerline with the organization switcher and navigation.
 Claude Code and Codex messages show their human owner.
