@@ -24,6 +24,7 @@ import {
 import { agentExecutionReadinessQueryKeys } from "#/query/agents/execution-readiness";
 import { projectQueryKeys } from "#/query/organizations/projects";
 import { agentProfilePrimaryBindingQueryKeys } from "#/query/profiles/primary-binding";
+import { startQueryKeys } from "#/query/query-keys";
 import readinessCapture from "#/test-support/local-agent-readiness.fixture.json";
 import {
 	createTestQueryClient,
@@ -34,6 +35,7 @@ import { AgentProfileProjectSettingsDialog } from "./agent-profile-project-setti
 
 const updateDefaultProjectMock = vi.hoisted(() => vi.fn());
 const updateWorkspaceMock = vi.hoisted(() => vi.fn());
+const listProfilesMock = vi.hoisted(() => vi.fn());
 const readReadinessMock = vi.hoisted(() => vi.fn());
 const readEligibilityMock = vi.hoisted(() => vi.fn());
 const spaceEditMock = vi.hoisted(() => vi.fn());
@@ -56,6 +58,10 @@ vi.mock("#/components/spaces/space-agent-profile-edit-context", () => ({
 
 vi.mock("#/lib/profiles/update-default-project", () => ({
 	updateAgentProfileDefaultProject: updateDefaultProjectMock,
+}));
+
+vi.mock("#/lib/profiles/existing-profiles", () => ({
+	listStartProfiles: listProfilesMock,
 }));
 
 vi.mock("#/lib/profiles/update-profile-workspace", () => ({
@@ -94,10 +100,78 @@ describe("AgentProfileProjectSettingsDialog", () => {
 			.mockReset()
 			.mockResolvedValue(profileFixture({ defaultProjectId: null }));
 		updateWorkspaceMock.mockReset().mockResolvedValue(undefined);
+		listProfilesMock.mockReset().mockResolvedValue([profileFixture()]);
 	});
 
-	it("keeps managed and project sources separate", () => {
-		renderSettings();
+	it("requires a successful saved Project read before editing and retains the draft through later reads", async () => {
+		const fresh = deferred<readonly AuthProfileView[]>();
+		listProfilesMock.mockReturnValueOnce(fresh.promise);
+		const queryClient = createSettingsQueryClient();
+		queryClient.setQueryData(
+			startQueryKeys.profilesForStorageScope("account-1"),
+			[profileFixture({ defaultProjectId: null })]
+		);
+		render(
+			<TestQueryClientProvider queryClient={queryClient}>
+				<AgentProfileProjectSettingsDialog
+					actorProfileId="human-1"
+					agentControllerRef="builtin:codex"
+					currentWorkingFolder={null}
+					executionTargetChangeEligibilityStatus="allowed"
+					onOpenChange={vi.fn()}
+					onProfileUpdated={vi.fn()}
+					open={true}
+					organizationId="organization-1"
+					profile={profileFixture({ defaultProjectId: null })}
+					storageScope="account-1"
+				/>
+			</TestQueryClientProvider>
+		);
+		expect(screen.getByText("Loading the saved working folder…")).toBeTruthy();
+		expect(
+			screen
+				.getByRole("button", { name: "Save changes" })
+				.hasAttribute("disabled")
+		).toBe(true);
+		await act(async () => {
+			const failure: StructuredApiClientFailure = {
+				code: "auth.unauthenticated",
+				upstreamCode: null,
+				requestId: "expired-profile-read",
+				status: 401,
+				message: "Please sign in again.",
+			};
+			fresh.reject(failure);
+			await fresh.promise.catch(() => undefined);
+		});
+		await screen.findByText("Please sign in again.");
+		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+		expect(updateWorkspaceMock).not.toHaveBeenCalled();
+		expect(updateDefaultProjectMock).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+		await screen.findByRole("combobox", { name: "Project" });
+		expect(
+			screen.getByRole("combobox", { name: "Project" }).textContent
+		).toContain("OpenMeld");
+		await editCustomFolder("/private/edited-draft");
+		listProfilesMock.mockResolvedValue([
+			profileFixture({ defaultProjectId: null }),
+		]);
+		await act(async () => {
+			await queryClient.invalidateQueries({
+				queryKey: startQueryKeys.profilesForStorageScope("account-1"),
+			});
+		});
+		expect(
+			(screen.getByLabelText("Custom working folder path") as HTMLInputElement)
+				.value
+		).toBe("/private/edited-draft");
+		expect(updateWorkspaceMock).not.toHaveBeenCalled();
+		expect(updateDefaultProjectMock).not.toHaveBeenCalled();
+	});
+
+	it("keeps managed and project sources separate", async () => {
+		await renderSettings();
 		expect(
 			screen.getByRole("combobox", { name: "Folder source" })
 		).toBeTruthy();
@@ -110,7 +184,11 @@ describe("AgentProfileProjectSettingsDialog", () => {
 	});
 
 	it("applies the displayed managed choice only when explicitly saved, even without a draft change", async () => {
-		renderSettings("allowed", { defaultProjectId: null }, "OpenMeld managed");
+		await renderSettings(
+			"allowed",
+			{ defaultProjectId: null },
+			"OpenMeld managed"
+		);
 		expect(updateWorkspaceMock).not.toHaveBeenCalled();
 		const save = screen.getByRole("button", { name: "Save changes" });
 		expect((save as HTMLButtonElement).disabled).toBe(false);
@@ -126,7 +204,7 @@ describe("AgentProfileProjectSettingsDialog", () => {
 	});
 
 	it("selects a connected project without another folder click and saves only project intent", async () => {
-		renderSettings("allowed", { defaultProjectId: null });
+		await renderSettings("allowed", { defaultProjectId: null });
 		selectSource("From a project");
 		fireEvent.click(screen.getByRole("combobox", { name: "Project" }));
 		fireEvent.focus(screen.getByRole("option", { name: "OpenMeld" }));
@@ -158,7 +236,7 @@ describe("AgentProfileProjectSettingsDialog", () => {
 			workspacePath: "/Users/felix/Old Workspace",
 		});
 		window.sessionStorage.clear();
-		const { onProfileUpdated } = renderSettings();
+		const { onProfileUpdated } = await renderSettings();
 		selectSource("On this computer");
 		fireEvent.click(
 			screen.getByRole("button", { name: "Enter path manually" })
@@ -196,7 +274,7 @@ describe("AgentProfileProjectSettingsDialog", () => {
 	});
 
 	it("switches to the managed workspace before clearing the Default Project", async () => {
-		const { onProfileUpdated } = renderSettings();
+		const { onProfileUpdated } = await renderSettings();
 
 		selectSource("Let OpenMeld choose");
 		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
@@ -224,7 +302,7 @@ describe("AgentProfileProjectSettingsDialog", () => {
 	});
 
 	it("allows a future Project choice while blocking local folder changes during work", async () => {
-		renderSettings("blocked");
+		await renderSettings("blocked");
 
 		expect(screen.getByText(ACTIVE_WAKE_FOLDER_CHANGE_MESSAGE)).toBeTruthy();
 		expect(
@@ -254,8 +332,8 @@ describe("AgentProfileProjectSettingsDialog", () => {
 		expect(updateWorkspaceMock).not.toHaveBeenCalled();
 	});
 
-	it("keeps an unknown local folder unselected and blocks a local write during work", () => {
-		renderSettings("blocked", { defaultProjectId: null }, null);
+	it("keeps an unknown local folder unselected and blocks a local write during work", async () => {
+		await renderSettings("blocked", { defaultProjectId: null }, null);
 		expect(
 			screen.getByRole("combobox", { name: "Folder source" }).textContent
 		).toContain("Choose a folder source");
@@ -294,6 +372,7 @@ describe("AgentProfileProjectSettingsDialog", () => {
 				open={true}
 				organizationId="organization-1"
 				profile={profileFixture({ managedRole: "center_agent" })}
+				storageScope="account-1"
 			/>
 		);
 		expect(container.childElementCount).toBe(0);
@@ -308,6 +387,12 @@ describe("Working folder recovery Query lifecycle", () => {
 			.mockResolvedValue(profileFixture({ defaultProjectId: null }));
 		readReadinessMock.mockReset().mockResolvedValue(readinessFixture());
 		readEligibilityMock.mockReset().mockResolvedValue(eligibilityFixture());
+		listProfilesMock.mockReset().mockResolvedValue([
+			profileFixture({
+				openMeldProfileId: RECOVERY_PROFILE_ID,
+				defaultProjectId: null,
+			}),
+		]);
 		spaceEditMock.mockReturnValue({
 			context: {
 				actorProfileId: "human-1",
@@ -333,7 +418,7 @@ describe("Working folder recovery Query lifecycle", () => {
 	it("retains the edited draft, pending save and failed-save error through real Query refetches", async () => {
 		const queryClient = await renderRecovery();
 		const draft = "/private/chosen-folder";
-		editCustomFolder(draft);
+		await editCustomFolder(draft);
 		const readiness = deferred<GetAgentExecutionReadinessBatchResponse>();
 		const eligibility =
 			deferred<GetAgentProfileControllerChangeEligibilityResponse>();
@@ -411,7 +496,7 @@ describe("Working folder recovery Query lifecycle", () => {
 		"binding",
 	] as const)("blocks an old draft after a %s change and requires reopening before saving", async (change) => {
 		const queryClient = await renderRecovery();
-		editCustomFolder("/private/old-draft");
+		await editCustomFolder("/private/old-draft");
 		const changed = readinessFixture();
 		const current = changed.items[0];
 		if (!current?.primaryBinding) {
@@ -439,7 +524,10 @@ describe("Working folder recovery Query lifecycle", () => {
 			screen.getByRole("button", { name: "Review working folder" })
 		);
 		await screen.findByRole("combobox", { name: "Folder source" });
-		editCustomFolder("/private/new-draft");
+		await vi.waitFor(() =>
+			expect(screen.queryByText("Loading the saved working folder…")).toBeNull()
+		);
+		await editCustomFolder("/private/new-draft");
 		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 		await vi.waitFor(() =>
 			expect(updateWorkspaceMock).toHaveBeenCalledWith(
@@ -460,7 +548,7 @@ describe("Working folder recovery Query lifecycle", () => {
 		"after_local_save",
 	] as const)("keeps the frozen Binding during an in-flight save (%s)", async (changeAt) => {
 		const queryClient = await renderRecovery();
-		editCustomFolder("/private/retained-draft");
+		await editCustomFolder("/private/retained-draft");
 		const save = deferred<void>();
 		updateWorkspaceMock.mockReturnValueOnce(save.promise);
 		const captured = readinessFixture().items[0]?.primaryBinding;
@@ -554,12 +642,20 @@ async function renderRecovery() {
 		screen.getByRole("button", { name: "Review working folder" })
 	);
 	await screen.findByRole("combobox", { name: "Folder source" });
+	await vi.waitFor(() => {
+		if (screen.queryByText("Loading the saved working folder…")) {
+			throw new Error("The saved working folder has not been acquired.");
+		}
+	});
 	return queryClient;
 }
 function refreshRecovery(
 	queryClient: ReturnType<typeof createTestQueryClient>
 ) {
 	return Promise.all([
+		queryClient.invalidateQueries({
+			queryKey: startQueryKeys.profilesForStorageScope("account-1"),
+		}),
 		queryClient.invalidateQueries({
 			queryKey: agentExecutionReadinessQueryKeys.batchesForOrganization(
 				"account-1",
@@ -574,9 +670,14 @@ function refreshRecovery(
 		}),
 	]);
 }
-function editCustomFolder(path: string) {
+async function editCustomFolder(path: string) {
 	selectSource("On this computer");
-	fireEvent.change(screen.getByLabelText("Custom working folder path"), {
+	if (!screen.queryByLabelText("Custom working folder path")) {
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Enter path manually" })
+		);
+	}
+	fireEvent.change(await screen.findByLabelText("Custom working folder path"), {
 		target: { value: path },
 	});
 }
@@ -591,7 +692,7 @@ function deferred<T>() {
 	return { promise, resolve, reject };
 }
 
-function renderSettings(
+async function renderSettings(
 	executionTargetChangeEligibilityStatus:
 		| "allowed"
 		| "blocked"
@@ -600,6 +701,7 @@ function renderSettings(
 	currentWorkingFolder: string | null = "/repo"
 ) {
 	const queryClient = createSettingsQueryClient();
+	listProfilesMock.mockResolvedValue([profileFixture(overrides)]);
 	const onProfileUpdated = vi.fn();
 	render(
 		<TestQueryClientProvider queryClient={queryClient}>
@@ -615,9 +717,15 @@ function renderSettings(
 				open={true}
 				organizationId="organization-1"
 				profile={profileFixture(overrides)}
+				storageScope="account-1"
 			/>
 		</TestQueryClientProvider>
 	);
+	await vi.waitFor(() => {
+		if (screen.queryByText("Loading the saved working folder…")) {
+			throw new Error("The saved working folder has not been acquired.");
+		}
+	});
 	return { onProfileUpdated };
 }
 

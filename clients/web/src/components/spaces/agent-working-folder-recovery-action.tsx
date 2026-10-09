@@ -163,6 +163,7 @@ function OwnerWorkingFolderRecoveryAction(input: {
 					organizationId={input.context.organizationId}
 					profile={input.profile}
 					saveBlockedReason={saveBlockedReason}
+					storageScope={input.context.storageScope}
 					target={draftTarget.target}
 				/>
 			) : (

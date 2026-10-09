@@ -17,12 +17,13 @@ import {
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { clearPendingAgentProfileCreationLocalSetupForProfile } from "#/lib/profiles/agent-profile-creation-local-setup";
 import { updateAgentProfileDefaultProject } from "#/lib/profiles/update-default-project";
 import { updateAgentProfileWorkspace } from "#/lib/profiles/update-profile-workspace";
 import { projectsQueryOptions } from "#/query/organizations/projects";
+import { startProfilesQueryOptions } from "#/query/profiles/profiles";
 import { AgentProfileProjectSelector } from "./agent-profile-project-selector";
 import {
 	FUTURE_WAKES_PROJECT_SETTINGS_NOTICE,
@@ -42,6 +43,7 @@ type SettingsInput = {
 	open: boolean;
 	organizationId: string;
 	profile: AuthProfileView;
+	storageScope: string;
 };
 
 export function AgentProfileProjectSettingsDialog(input: SettingsInput) {
@@ -56,42 +58,95 @@ export function AgentProfileProjectSettingsDialog(input: SettingsInput) {
 	return (
 		<LocalAgentProfileProjectSettingsDialog
 			{...input}
-			key={`${input.organizationId}:${input.profile.openMeldProfileId}:${input.target?.deviceId}:${input.target?.runtimeLane}:${input.open}:${input.profile.defaultProjectId === undefined}`}
+			key={`${input.storageScope}:${input.organizationId}:${input.profile.openMeldProfileId}:${input.target?.deviceId}:${input.target?.runtimeLane}:${input.open}`}
 		/>
 	);
 }
 
 function LocalAgentProfileProjectSettingsDialog(input: SettingsInput) {
+	const profilesQuery = useQuery({
+		...startProfilesQueryOptions({
+			enabled: input.open,
+			storageScope: input.storageScope,
+		}),
+		staleTime: 0,
+		refetchOnMount: "always",
+	});
+	const savedProfile = profilesQuery.data?.find(
+		(profile) => profile.openMeldProfileId === input.profile.openMeldProfileId
+	);
 	const projectsQuery = useQuery(
 		projectsQueryOptions({
 			organizationId: input.organizationId,
 			enabled: input.open,
 		})
 	);
-	const initialProjectId = input.profile.defaultProjectId ?? "";
+	// null means the saved preference has not been acquired; an empty string
+	// is the owner's explicit non-Project draft.
+	const [projectId, setProjectId] = useState<string | null>(null);
+	const selectedProjectId = projectId ?? "";
 	const initialPath = resolveInitialCustomPath(
-		initialProjectId,
+		selectedProjectId,
 		input.currentWorkingFolder
 	);
-	const initialFallback = resolveInitialFallback(
-		initialPath,
-		input.currentWorkingFolder
-	);
-	const [projectId, setProjectId] = useState(initialProjectId);
 	const [fallback, setFallback] = useState<
 		"advanced" | "managed" | "project" | null
-	>(initialProjectId ? null : initialFallback);
-	const [path, setPath] = useState(initialPath);
+	>(null);
+	const [path, setPath] = useState("");
 	const [connection, setConnection] =
 		useState<LocalProjectControlConnection | null>(null);
 	const [pending, setPending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const disabled = pending || input.profile.defaultProjectId === undefined;
+	const acquired = projectId !== null;
+	useEffect(() => {
+		if (
+			acquired ||
+			!input.open ||
+			!profilesQuery.isFetchedAfterMount ||
+			profilesQuery.isFetching ||
+			profilesQuery.isError ||
+			!savedProfile ||
+			savedProfile.defaultProjectId === undefined
+		) {
+			return;
+		}
+		// Auth owns the saved preference. Acquire it once for this draft, then
+		// retain edits and pending writes through later Query refreshes.
+		const savedProjectId = savedProfile.defaultProjectId ?? "";
+		const savedPath = resolveInitialCustomPath(
+			savedProjectId,
+			input.currentWorkingFolder
+		);
+		setProjectId(savedProjectId);
+		setPath(savedPath);
+		setConnection(null);
+		setFallback(
+			savedProjectId
+				? null
+				: resolveInitialFallback(savedPath, input.currentWorkingFolder)
+		);
+	}, [
+		acquired,
+		input.open,
+		input.currentWorkingFolder,
+		profilesQuery.isFetchedAfterMount,
+		profilesQuery.isFetching,
+		profilesQuery.isError,
+		savedProfile,
+	]);
+	const savedProfileUnavailable =
+		!acquired &&
+		profilesQuery.isFetchedAfterMount &&
+		!profilesQuery.isFetching &&
+		(profilesQuery.isError ||
+			!savedProfile ||
+			savedProfile.defaultProjectId === undefined);
+	const disabled = pending || !acquired;
 	const localFolderChangesBlocked =
 		input.executionTargetChangeEligibilityStatus !== "allowed";
 	const valid =
 		isWorkingFolderDraftValid({
-			projectId,
+			projectId: selectedProjectId,
 			connection,
 			fallback,
 			path,
@@ -166,10 +221,23 @@ function LocalAgentProfileProjectSettingsDialog(input: SettingsInput) {
 					</DialogDescription>
 				</DialogHeader>
 				<div className="grid gap-4">
-					{input.profile.defaultProjectId === undefined ? (
+					{acquired || savedProfileUnavailable ? null : (
 						<output className="text-muted-foreground text-sm">
 							Loading the saved working folder…
 						</output>
+					)}
+					{savedProfileUnavailable ? (
+						<p className="text-destructive text-sm" role="alert">
+							{profilesQuery.error?.message ??
+								"The saved working folder is unavailable."}{" "}
+							<button
+								className="underline"
+								onClick={() => profilesQuery.refetch()}
+								type="button"
+							>
+								Try again
+							</button>
+						</p>
 					) : null}
 					<AgentProfileProjectSelector
 						disabled={disabled}
@@ -196,7 +264,7 @@ function LocalAgentProfileProjectSettingsDialog(input: SettingsInput) {
 						}}
 						onUseProjectWorkspace={() => setFallback("project")}
 						organizationId={input.organizationId}
-						projectId={projectId}
+						projectId={selectedProjectId}
 						projects={projectsQuery.data?.projects ?? []}
 						selectedBindingGeneration={connection?.bindingGeneration ?? null}
 						target={input.target}

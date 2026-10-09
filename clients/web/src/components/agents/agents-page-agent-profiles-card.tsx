@@ -3547,6 +3547,7 @@ function AgentProfileCardPresentation(input: {
 				open={input.presentationState.projectSettingsOpen}
 				organizationId={input.input.organizationId}
 				profile={input.input.profile}
+				storageScope={input.input.storageScope}
 				target={input.input.workingFolderTarget}
 			/>
 			<AgentProfileEditDialog
@@ -3946,6 +3947,7 @@ function AgentProfileWorkspacePresentation(input: {
 				open={input.presentationState.projectSettingsOpen}
 				organizationId={input.input.organizationId}
 				profile={input.input.profile}
+				storageScope={input.input.storageScope}
 				target={input.input.workingFolderTarget}
 			/>
 			<AgentProfileUnbindControllerDialog
