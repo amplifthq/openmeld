@@ -8,6 +8,7 @@ import type {
 	GetAgentExecutionReadinessBatchResponse,
 	GetAgentProfileControllerChangeEligibilityResponse,
 } from "@openmeld/schemas/types";
+import { QueryObserver } from "@tanstack/react-query";
 import {
 	act,
 	cleanup,
@@ -24,6 +25,7 @@ import {
 import { agentExecutionReadinessQueryKeys } from "#/query/agents/execution-readiness";
 import { projectQueryKeys } from "#/query/organizations/projects";
 import { agentProfilePrimaryBindingQueryKeys } from "#/query/profiles/primary-binding";
+import { startProfilesQueryOptions } from "#/query/profiles/profiles";
 import { startQueryKeys } from "#/query/query-keys";
 import readinessCapture from "#/test-support/local-agent-readiness.fixture.json";
 import {
@@ -101,6 +103,71 @@ describe("AgentProfileProjectSettingsDialog", () => {
 			.mockResolvedValue(profileFixture({ defaultProjectId: null }));
 		updateWorkspaceMock.mockReset().mockResolvedValue(undefined);
 		listProfilesMock.mockReset().mockResolvedValue([profileFixture()]);
+	});
+
+	it("does not acquire an Auth read that started before the dialog opened", async () => {
+		const previous = [profileFixture({ defaultProjectId: null })];
+		const oldRead = deferred<readonly AuthProfileView[]>();
+		const freshRead = deferred<readonly AuthProfileView[]>();
+		listProfilesMock
+			.mockReturnValueOnce(oldRead.promise)
+			.mockReturnValueOnce(freshRead.promise);
+		const queryClient = createSettingsQueryClient();
+		const options = startProfilesQueryOptions({
+			enabled: true,
+			storageScope: "account-1",
+		});
+		queryClient.setQueryData(options.queryKey, previous);
+		const observer = new QueryObserver(queryClient, {
+			...options,
+			staleTime: 0,
+		});
+		const unsubscribe = observer.subscribe(vi.fn());
+		await vi.waitFor(() => expect(listProfilesMock).toHaveBeenCalledTimes(1));
+		render(
+			<TestQueryClientProvider queryClient={queryClient}>
+				<AgentProfileProjectSettingsDialog
+					actorProfileId="human-1"
+					agentControllerRef="builtin:codex"
+					currentWorkingFolder={null}
+					executionTargetChangeEligibilityStatus="allowed"
+					onOpenChange={vi.fn()}
+					onProfileUpdated={vi.fn()}
+					open={true}
+					organizationId="organization-1"
+					profile={previous[0]}
+					storageScope="account-1"
+				/>
+			</TestQueryClientProvider>
+		);
+		act(() => oldRead.resolve(previous));
+		await vi.waitFor(() => expect(listProfilesMock).toHaveBeenCalledTimes(2));
+		expect(queryClient.getQueryState(options.queryKey)?.status).toBe("success");
+		expect(queryClient.getQueryState(options.queryKey)?.error).toBeNull();
+		expect(queryClient.getQueryState(options.queryKey)?.isInvalidated).toBe(
+			true
+		);
+		expect(screen.getByText("Loading the saved working folder…")).toBeTruthy();
+		expect(
+			screen
+				.getByRole("button", { name: "Save changes" })
+				.hasAttribute("disabled")
+		).toBe(true);
+		await act(async () => {
+			freshRead.resolve([profileFixture()]);
+			await freshRead.promise;
+		});
+		await screen.findByRole("combobox", { name: "Project" });
+		expect(
+			screen.getByRole("combobox", { name: "Project" }).textContent
+		).toContain("OpenMeld");
+		expect(queryClient.getQueryData(options.queryKey)).toEqual([
+			profileFixture(),
+		]);
+		expect(updateWorkspaceMock).not.toHaveBeenCalled();
+		expect(updateDefaultProjectMock).not.toHaveBeenCalled();
+		unsubscribe();
+		queryClient.clear();
 	});
 
 	it("requires a successful saved Project read before editing and retains the draft through later reads", async () => {

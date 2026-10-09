@@ -898,13 +898,16 @@ Agents using that Project on that computer.
 
 When the Working folder selector opens, it acquires the saved Default Project
 through the existing account-scoped Auth Profile query before enabling edits
-or Save. Cached display data is not the draft's starting preference. A failed
-read keeps Save disabled and provides retry with its diagnostic context.
+or Save. A pending read started before opening cannot initialize the draft:
+cancel that read, keep the existing display snapshot stale, then acquire the
+authorized snapshot for this opening. Cached display data is not the draft's
+starting preference. A failed read keeps Save disabled and provides retry with
+its diagnostic context.
 Once acquired, the selector retains its draft, pending save, and error while
 Profile, readiness, or mutation eligibility queries refresh. It keeps the
 original Profile and Binding target; changed or unavailable target evidence
-blocks Save without
-silently moving the draft to another Computer. The owner closes and reopens the
+blocks Save without silently moving the draft to another Computer. The owner
+closes and reopens the
 selector to review a changed target.
 
 Center Agent and Space recovery working-folder writes verify their Binding target inside

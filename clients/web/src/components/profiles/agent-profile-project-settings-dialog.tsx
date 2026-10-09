@@ -16,7 +16,11 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
-import { useQuery } from "@tanstack/react-query";
+import {
+	isCancelledError,
+	useQuery,
+	useQueryClient,
+} from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { clearPendingAgentProfileCreationLocalSetupForProfile } from "#/lib/profiles/agent-profile-creation-local-setup";
@@ -47,6 +51,7 @@ type SettingsInput = {
 };
 
 export function AgentProfileProjectSettingsDialog(input: SettingsInput) {
+	const [readRetry, setReadRetry] = useState(0);
 	if (
 		!shouldShowAgentProfileProjectSettings({
 			agentControllerRef: input.agentControllerRef,
@@ -58,20 +63,28 @@ export function AgentProfileProjectSettingsDialog(input: SettingsInput) {
 	return (
 		<LocalAgentProfileProjectSettingsDialog
 			{...input}
-			key={`${input.storageScope}:${input.organizationId}:${input.profile.openMeldProfileId}:${input.target?.deviceId}:${input.target?.runtimeLane}:${input.open}`}
+			key={`${input.storageScope}:${input.organizationId}:${input.profile.openMeldProfileId}:${input.target?.deviceId}:${input.target?.runtimeLane}:${input.open}:${readRetry}`}
+			onRetryRead={() => setReadRetry((retry) => retry + 1)}
 		/>
 	);
 }
 
-function LocalAgentProfileProjectSettingsDialog(input: SettingsInput) {
+function LocalAgentProfileProjectSettingsDialog(
+	input: SettingsInput & { onRetryRead: () => void }
+) {
+	const queryClient = useQueryClient();
+	// null means the saved preference has not been acquired; an empty string
+	// is the owner's explicit non-Project draft.
+	const [projectId, setProjectId] = useState<string | null>(null);
+	const acquired = projectId !== null;
 	const profilesQuery = useQuery({
 		...startProfilesQueryOptions({
-			enabled: input.open,
+			enabled: acquired,
 			storageScope: input.storageScope,
 		}),
-		staleTime: 0,
-		refetchOnMount: "always",
+		refetchOnMount: false,
 	});
+	const refetchProfiles = profilesQuery.refetch;
 	const savedProfile = profilesQuery.data?.find(
 		(profile) => profile.openMeldProfileId === input.profile.openMeldProfileId
 	);
@@ -81,9 +94,6 @@ function LocalAgentProfileProjectSettingsDialog(input: SettingsInput) {
 			enabled: input.open,
 		})
 	);
-	// null means the saved preference has not been acquired; an empty string
-	// is the owner's explicit non-Project draft.
-	const [projectId, setProjectId] = useState<string | null>(null);
 	const selectedProjectId = projectId ?? "";
 	const initialPath = resolveInitialCustomPath(
 		selectedProjectId,
@@ -97,42 +107,80 @@ function LocalAgentProfileProjectSettingsDialog(input: SettingsInput) {
 		useState<LocalProjectControlConnection | null>(null);
 	const [pending, setPending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const acquired = projectId !== null;
 	useEffect(() => {
-		if (
-			acquired ||
-			!input.open ||
-			!profilesQuery.isFetchedAfterMount ||
-			profilesQuery.isFetching ||
-			profilesQuery.isError ||
-			!savedProfile ||
-			savedProfile.defaultProjectId === undefined
-		) {
+		if (acquired || !input.open) {
 			return;
 		}
-		// Auth owns the saved preference. Acquire it once for this draft, then
-		// retain edits and pending writes through later Query refreshes.
-		const savedProjectId = savedProfile.defaultProjectId ?? "";
-		const savedPath = resolveInitialCustomPath(
-			savedProjectId,
-			input.currentWorkingFolder
-		);
-		setProjectId(savedProjectId);
-		setPath(savedPath);
-		setConnection(null);
-		setFallback(
-			savedProjectId
-				? null
-				: resolveInitialFallback(savedPath, input.currentWorkingFolder)
-		);
+		let disposed = false;
+		const acquire = async () => {
+			const { queryKey } = startProfilesQueryOptions({
+				enabled: true,
+				storageScope: input.storageScope,
+			});
+			// An existing request can predate this opening. Keep current display
+			// data while cancelling it, then start the authorized acquisition read.
+			const snapshot =
+				queryClient.getQueryState<readonly AuthProfileView[]>(queryKey);
+			const cancellation = queryClient.cancelQueries(
+				{ queryKey, exact: true },
+				{ silent: true }
+			);
+			if (snapshot?.data !== undefined) {
+				queryClient.setQueryData(queryKey, snapshot.data, {
+					updatedAt: snapshot.dataUpdatedAt,
+				});
+			}
+			// Cancellation is not a successful refresh, including if the owner
+			// closes this dialog before its new read can start.
+			await queryClient.invalidateQueries({
+				queryKey,
+				exact: true,
+				refetchType: "none",
+			});
+			await cancellation;
+			if (disposed) {
+				return;
+			}
+			const result = await refetchProfiles({ throwOnError: true });
+			const profile = result.data?.find(
+				(candidate) =>
+					candidate.openMeldProfileId === input.profile.openMeldProfileId
+			);
+			if (disposed || !profile || profile.defaultProjectId === undefined) {
+				return;
+			}
+			// Auth owns the saved preference; these fields now belong to the draft.
+			const savedProjectId = profile.defaultProjectId ?? "";
+			const savedPath = resolveInitialCustomPath(
+				savedProjectId,
+				input.currentWorkingFolder
+			);
+			setProjectId(savedProjectId);
+			setPath(savedPath);
+			setConnection(null);
+			setFallback(
+				savedProjectId
+					? null
+					: resolveInitialFallback(savedPath, input.currentWorkingFolder)
+			);
+		};
+		acquire().catch((failure) => {
+			if (!(disposed || isCancelledError(failure))) {
+				// The existing Query also retains this diagnostic for the retry UI.
+				console.error("Could not load saved working-folder settings.", failure);
+			}
+		});
+		return () => {
+			disposed = true;
+		};
 	}, [
 		acquired,
 		input.open,
 		input.currentWorkingFolder,
-		profilesQuery.isFetchedAfterMount,
-		profilesQuery.isFetching,
-		profilesQuery.isError,
-		savedProfile,
+		input.profile.openMeldProfileId,
+		input.storageScope,
+		queryClient,
+		refetchProfiles,
 	]);
 	const savedProfileUnavailable =
 		!acquired &&
@@ -232,7 +280,7 @@ function LocalAgentProfileProjectSettingsDialog(input: SettingsInput) {
 								"The saved working folder is unavailable."}{" "}
 							<button
 								className="underline"
-								onClick={() => profilesQuery.refetch()}
+								onClick={input.onRetryRead}
 								type="button"
 							>
 								Try again
