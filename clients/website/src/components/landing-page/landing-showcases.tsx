@@ -383,6 +383,12 @@ export function ComputerBento() {
 					Analyze data, build apps, and create videos with Python, Node.js, Git,
 					and FFmpeg.
 				</p>
+				<div className="meld-terminal-figure">
+					<LandingFigure
+						figure="terminal"
+						label="A terminal window. Move up or down to browse its history."
+					/>
+				</div>
 				<div className="meld-terminal-lines">
 					<span>
 						<b>❯</b> ffmpeg -i demo.mov demo.mp4
@@ -391,12 +397,6 @@ export function ComputerBento() {
 					<span className="meld-terminal-last">
 						<CheckIcon aria-hidden size={14} /> Ready to share
 					</span>
-				</div>
-				<div className="meld-terminal-figure">
-					<LandingFigure
-						figure="terminal"
-						label="A terminal window. Move up or down to browse its history."
-					/>
 				</div>
 			</BentoCard>
 			<BentoCard

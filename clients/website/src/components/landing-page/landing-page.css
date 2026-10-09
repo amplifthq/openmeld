@@ -811,7 +811,7 @@
 	margin: 0;
 }
 .meld-bento-machine {
-	grid-row: span 2;
+	grid-row: span 5;
 	display: flex;
 	flex-direction: column;
 }
@@ -828,6 +828,20 @@
 }
 .meld-bento-specs {
 	grid-column: span 2;
+}
+.meld-bento-terminal,
+.meld-bento-files {
+	display: grid;
+	grid-row: span 4;
+	grid-template-rows: subgrid;
+}
+.meld-bento-terminal .meld-bento-heading,
+.meld-bento-files .meld-bento-heading {
+	margin-bottom: 0;
+}
+.meld-bento-terminal .meld-bento-body,
+.meld-bento-files .meld-bento-body {
+	display: contents;
 }
 .meld-computer-specs {
 	display: grid;
@@ -859,7 +873,7 @@
 	gap: 9px;
 	font-family: ui-monospace, monospace;
 	font-size: 11px;
-	margin: 20px 0 12px;
+	margin: 0;
 	line-height: 1.4;
 }
 .meld-terminal-lines b {
@@ -875,13 +889,17 @@
 	gap: 5px;
 	animation: meld-result-arrive 0.8s ease-out both;
 }
-.meld-terminal-figure {
-	width: min(100%, 180px);
-	margin: 0 auto;
-}
+.meld-terminal-figure,
 .meld-result-figure {
+	display: grid;
+	place-items: center;
+	height: 176px;
+}
+.meld-terminal-figure .meld-figure {
+	width: min(100%, 180px);
+}
+.meld-result-figure .meld-figure {
 	width: min(100%, 220px);
-	margin: 12px auto 0;
 }
 @keyframes meld-result-arrive {
 	from {
