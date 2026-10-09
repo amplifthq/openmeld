@@ -686,7 +686,11 @@ function JoinedRow(input: {
 			: []);
 	if (input.layout === "cards") {
 		return (
-			<DirectoryCardItem className="border border-border" itemId={item.spaceId}>
+			<DirectoryCardItem
+				className="border border-border"
+				itemId={item.spaceId}
+				unread={input.unread > 0}
+			>
 				<FluidContextMenuScope
 					target={
 						<div

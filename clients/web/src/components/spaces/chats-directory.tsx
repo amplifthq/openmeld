@@ -442,7 +442,11 @@ function ChatDirectoryCard({
 		chat.recentMessagePreviews ??
 		(latest ? [{ ...latest, text: normalizeMessagePreview(latest.text) }] : []);
 	return (
-		<DirectoryCardItem className="border border-border" itemId={chat.spaceId}>
+		<DirectoryCardItem
+			className="border border-border"
+			itemId={chat.spaceId}
+			unread={unread > 0}
+		>
 			<FluidContextMenuScope
 				target={
 					<div className="@container/space-card group/directory-row relative flex h-full min-w-0 flex-col gap-3 rounded-md p-4">
