@@ -790,17 +790,16 @@ directMessage.pairKey = sorted profile ids for the intended pair
 That origin marker never changes. It records where the Space came from, not
 what the Space is allowed to become.
 
-Current DM state is derived from origin, membership, and the irreversible
+Current DM state is derived from origin and the irreversible
 conversion marker:
 
 ```text
 isDirectMessage = purpose is openmeld_dm_space
-  AND active member count is 2
   AND directMessage.convertedAt is absent
 ```
 
-Active member count uses the same active membership semantics as the normal
-Space member directory. This derived predicate is the single product meaning
+Removing or deleting a participant does not convert a Direct Message. Only the
+explicit conversion transaction changes its kind. This predicate is the single product meaning
 used by navigation and headers. Automatic Wake addressing is derived separately
 from active membership. Do not reimplement local
 "looks like a DM" checks from name, visibility, member types, or route shape.

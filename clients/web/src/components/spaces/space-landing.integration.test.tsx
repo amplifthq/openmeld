@@ -3378,7 +3378,7 @@ describe("SpaceLanding", () => {
 	it("restores a failed delete after optimistic navigation", async () => {
 		const deleteSpaceMock = vi.fn().mockRejectedValue({
 			code: "space.forbidden",
-			message: "only space creator can delete this space",
+			message: "Only a Space Owner can delete this Space.",
 		});
 		createWebSpaceApiMock.mockReturnValue({
 			deleteSpace: deleteSpaceMock,
@@ -3420,7 +3420,7 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(toastMock.error).toHaveBeenCalledWith(
-				"Delete failed: Only the space creator can delete this space.",
+				"Delete failed: Only a Space Owner can delete this Space.",
 				expect.objectContaining({
 					duration: Number.POSITIVE_INFINITY,
 					action: { label: "Open Space", onClick: expect.any(Function) },

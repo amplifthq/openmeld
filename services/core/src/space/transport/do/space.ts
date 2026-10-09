@@ -7789,15 +7789,11 @@ export class Space extends DurableObject<CoreBindings> {
         // metadata DTO; expose only the canonical current audience fact.
         const meta = await this.rpcGetMeta(input);
         const record = this.readSpaceMetaRecord();
-        const activeMembers = listSpaceMemberRecords(this.ctx.storage.sql, {
-          status: "active",
-        });
         return {
           meta,
           isDirectMessage: isDirectMessageSpace({
             purpose: record?.purpose,
             directMessageConvertedAt: record?.directMessage?.convertedAt,
-            activeMemberCount: activeMembers.length,
           }),
         };
       }
@@ -13571,7 +13567,6 @@ export class Space extends DurableObject<CoreBindings> {
     const isCurrentDirectMessage = isDirectMessageSpace({
       purpose: meta?.purpose,
       directMessageConvertedAt: meta?.directMessage?.convertedAt,
-      activeMemberCount: activeMembers.length,
     });
     const isActiveProfile = Boolean(
       profileId &&
@@ -21150,7 +21145,6 @@ export class Space extends DurableObject<CoreBindings> {
         directMessage: isDirectMessageSpace({
           purpose: metaRecord.purpose,
           directMessageConvertedAt: metaRecord.directMessage?.convertedAt,
-          activeMemberCount: activeMemberRecords.length,
         }),
         organizationId: metaRecord.organizationId,
         signal: input.signal,
@@ -21160,7 +21154,6 @@ export class Space extends DurableObject<CoreBindings> {
       directMessage: isDirectMessageSpace({
         purpose: metaRecord.purpose,
         directMessageConvertedAt: metaRecord.directMessage?.convertedAt,
-        activeMemberCount: activeMemberRecords.length,
       }),
       nowMs: input.nowMs,
       organizationId: metaRecord.organizationId,

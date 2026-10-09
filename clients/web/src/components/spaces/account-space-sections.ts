@@ -174,7 +174,6 @@ export function selectAccountSpaceSections(input: {
 
 export function isDirectMessageItem(item: AccountSpaceItem): boolean {
 	return isDirectMessageSpace({
-		activeMemberCount: item.activeMemberCount,
 		directMessageConvertedAt: item.directMessageConvertedAt,
 		purpose: item.spacePurpose,
 	});

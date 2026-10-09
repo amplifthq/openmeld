@@ -247,7 +247,6 @@ export function SpaceHeader(input: {
 		visibility: input.status.organizationVisibility,
 	});
 	const isDirectMessage = isDirectMessageSpace({
-		activeMemberCount: input.status.members.totalCount,
 		directMessageConvertedAt: input.status.directMessageConvertedAt,
 		purpose: input.status.spacePurpose,
 	});

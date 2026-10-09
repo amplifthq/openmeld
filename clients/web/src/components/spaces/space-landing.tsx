@@ -1383,7 +1383,6 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 	const isDirectMessage =
 		controller.mode === "ready" &&
 		isDirectMessageSpace({
-			activeMemberCount: controller.status.members.totalCount,
 			directMessageConvertedAt: controller.status.directMessageConvertedAt,
 			purpose: controller.status.spacePurpose,
 		});
