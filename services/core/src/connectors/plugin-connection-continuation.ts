@@ -241,7 +241,6 @@ async function readOriginalRequestGuard(
     aroundSignalId: input.signalId,
     beforeCount: 0,
     afterCount: 0,
-    limit: 1,
   });
   const original =
     signals.signals.find((signal) => signal.id === input.signalId) ?? null;
@@ -304,7 +303,6 @@ async function readContinuationSource(
     aroundSignalId: input.sourceSignalId,
     beforeCount: 0,
     afterCount: 0,
-    limit: 1,
   });
   const reply = signals.signals.find(
     (signal) => signal.id === input.sourceSignalId

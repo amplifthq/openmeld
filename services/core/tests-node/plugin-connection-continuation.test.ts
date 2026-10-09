@@ -2,11 +2,13 @@ import {
   appendPluginConnectionReplyLink,
   buildOpenMeldNavigationAction,
 } from "@openmeld/schemas";
+import { normalizeListSignalsReadQuerySemantics } from "@openmeld/schemas/schemas";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createSubmitTurnRequest } from "../../remote-agent/tests/fixtures";
 import { continuePluginConnection } from "../src/connectors/plugin-connection-continuation";
 import type { CoreBindings } from "../src/lib/bindings";
 import type { RemoteAgentNativeDeliveryRecord } from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
+import type { ListSignalsInput } from "../src/rpc/methods";
 
 const owner = vi.hoisted(() => ({
   membership: vi.fn(),
@@ -119,29 +121,40 @@ describe("Plugin continuation keeps existing identity and Wake owners", () => {
       role: "owner",
     });
     owner.slug.mockResolvedValue("acme");
-    owner.signals.mockResolvedValue({
-      signals: [
-        {
-          id: "reply-1",
-          type: "signal.text",
-          profile: { kind: "agent", profileId: request.agentProfileId },
-          data: {
-            text: appendPluginConnectionReplyLink({
-              text: "Connect GitHub for the remaining review.",
-              action: buildOpenMeldNavigationAction({
-                organizationWebUrl: "https://openmeld.ai/o/acme",
-                target: {
-                  kind: "plugin_connection",
-                  service: "github",
-                  scope: "member",
-                },
+    owner.signals.mockImplementation((_env, query: ListSignalsInput) => {
+      normalizeListSignalsReadQuerySemantics({
+        recentOnly: query.recent === true,
+        hasExplicitLimit: query.limit !== undefined,
+        limit: query.limit ?? null,
+        afterSignalId: query.afterSignalId ?? null,
+        aroundSignalId: query.aroundSignalId ?? null,
+        beforeCount: query.beforeCount ?? null,
+        afterCount: query.afterCount ?? null,
+      });
+      return {
+        signals: [
+          {
+            id: "reply-1",
+            type: "signal.text",
+            profile: { kind: "agent", profileId: request.agentProfileId },
+            data: {
+              text: appendPluginConnectionReplyLink({
+                text: "Connect GitHub for the remaining review.",
+                action: buildOpenMeldNavigationAction({
+                  organizationWebUrl: "https://openmeld.ai/o/acme",
+                  target: {
+                    kind: "plugin_connection",
+                    service: "github",
+                    scope: "member",
+                  },
+                }),
               }),
-            }),
-            meta: { dispatchId: request.dispatchId },
+              meta: { dispatchId: request.dispatchId },
+            },
           },
-        },
-      ],
-      nextCursor: null,
+        ],
+        nextCursor: null,
+      };
     });
     owner.directory.mockResolvedValue({
       members: [
