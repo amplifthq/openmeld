@@ -107,6 +107,9 @@ existing retention policy, and an older failed read cannot overwrite a newer
 manual recovery. No separate command queue or execution ledger is introduced.
 The alarm can recover a dispatch whose acknowledgement was lost, but an absent
 record during pending dispatch is not evidence that the execution was lost.
+Native result absence returns a structured result-unavailable error rather than
+an unreachable-upstream error. This projection preserves the saved command
+identity and its existing launch or loss evidence; it does not authorize replay.
 Output cursors select retained slices; clipping is explicit. Native log expiry
 does not invalidate a saved terminal receipt. Writes retain the existing
 seven-day retention marker, but command reads and lists do not filter it and

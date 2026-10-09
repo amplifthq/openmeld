@@ -21,3 +21,6 @@ without receiving local paths.
 Cloud commands return their exact receipt reference and execution phase. Owner
 inspection can query the original Remote command, and a missing receipt reports
 an unknown acceptance state instead of an unreachable service.
+If the native execution result is unavailable, the saved receipt remains
+available for inspection. This failure is distinct from an unreachable service
+and does not restart the command.

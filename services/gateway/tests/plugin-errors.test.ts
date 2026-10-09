@@ -23,6 +23,7 @@ describe("structured errors across Worker RPC", () => {
 
   it.each([
     [404, "computer.command_not_found"],
+    [404, "computer.execution_result_unavailable"],
     [409, "computer.command_reference_mismatch"],
   ] as const)("keeps Computer receipt error %s %s distinct from an unreachable upstream", (status, code) => {
     const message = "Inspect the original Computer command receipt.";

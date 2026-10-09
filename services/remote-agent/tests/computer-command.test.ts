@@ -1312,7 +1312,10 @@ describe("retained Computer commands", () => {
     }
     await expect(
       f.tool().execute({ action: "poll", key: "lost" })
-    ).rejects.toMatchObject({ code });
+    ).rejects.toMatchObject({
+      code: "computer.execution_result_unavailable",
+      cause: { status: 404, code: "computer.execution_result_unavailable" },
+    });
     cleanupAccess.mockReturnValue(f.workspaceAccess);
     await expect(
       stopRemoteAgentComputerCommands({
@@ -1767,6 +1770,61 @@ describe("retained Computer commands", () => {
     await expect(f.tool().execute({ action: "list" })).resolves.toEqual([
       { id: receipt.id, key: "report", createdAt: expect.any(Number) },
     ]);
+  });
+
+  it.each([
+    { acknowledged: false, nativeCode: "ENOENT", phase: "launch_unknown" },
+    {
+      acknowledged: true,
+      nativeCode: "EEXEC_LOST",
+      phase: "result_unavailable",
+    },
+  ] as const)("reports unavailable native results without changing $phase identity", async ({
+    acknowledged,
+    nativeCode,
+    phase,
+  }) => {
+    const f = fixture();
+    if (!acknowledged) {
+      f.exec.mockRejectedValueOnce(new Error("dispatch acknowledgement lost"));
+    }
+    const start = f.tool().execute({
+      action: "start",
+      key: "retained",
+      command: "python3 report.py",
+    });
+    if (acknowledged) {
+      await start;
+    } else {
+      await expect(start).rejects.toThrow("dispatch acknowledgement lost");
+    }
+    const listed = (await f
+      .tool()
+      .execute({ action: "list", includeReceiptDetails: true })) as {
+      reference: CloudComputerCommandReference;
+    }[];
+    const reference = listed[0]?.reference;
+    expect(reference).toBeDefined();
+    // This native error contract was observed on the actual container and is
+    // already used by the installed SDK's retained-execution boundary.
+    f.getExec.mockRejectedValueOnce(
+      Object.assign(new Error("native result is unavailable"), {
+        code: nativeCode,
+      })
+    );
+    await expect(
+      f
+        .tool()
+        .execute({ action: "poll", key: "retained", reference, waitSeconds: 0 })
+    ).rejects.toMatchObject({
+      code: "computer.execution_result_unavailable",
+      cause: { status: 404, code: "computer.execution_result_unavailable" },
+    });
+    await expect(
+      f.tool().execute({ action: "list", includeReceiptDetails: true })
+    ).resolves.toMatchObject([{ reference, phase }]);
+    expect(f.exec).toHaveBeenCalledOnce();
+    expect(f.killExec).not.toHaveBeenCalled();
   });
 
   it("rejects another execution's control key and rejects changed commands", async () => {

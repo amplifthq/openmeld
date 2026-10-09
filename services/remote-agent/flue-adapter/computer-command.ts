@@ -1271,6 +1271,16 @@ export function createComputerCommandTool(input: {
           : result;
       } catch (error) {
         await recordFailure(rawInput, error);
+        if (source === "tool" && isCommandLoss(error)) {
+          const command = await readDiagnosticCommand(rawInput.key);
+          if (command) {
+            throw commandRequestError({
+              status: 404,
+              code: "computer.execution_result_unavailable",
+              message: `No retained execution result is available for command ${command.id}. Keep its original reference and inspect existing output and files. Do not restart automatically.`,
+            });
+          }
+        }
         throw error;
       }
     },

@@ -473,7 +473,10 @@ native execution ID, and backend) and a phase separate from the legacy status.
 Accepted receipt, uncertain launch, observed running process, exit, pending file
 sync, completed sync, and unavailable result remain distinct. Missing receipts
 return `computer.command_not_found`; they do not prove that dispatch never
-occurred. Owner CLI inspection can use a returned reference to address the
+occurred. Missing native results return
+`computer.execution_result_unavailable`, preserve the receipt's existing phase,
+and direct inspection without implying an unreachable service or allowing replay.
+Owner CLI inspection can use a returned reference to address the
 original Remote invocation without adding the CLI's `local:` namespace. The
 reference is an address, not authority: account authorization remains unchanged,
 and the command owner checks every field against the saved receipt. Start never

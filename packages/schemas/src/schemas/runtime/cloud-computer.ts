@@ -65,6 +65,7 @@ export const cloudComputerCommandErrorSchema = z.strictObject({
   code: z.enum([
     "computer.command_not_found",
     "computer.command_reference_mismatch",
+    "computer.execution_result_unavailable",
   ]),
   message: z.string().min(1),
 });
