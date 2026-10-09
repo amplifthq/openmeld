@@ -86,11 +86,13 @@ import { OrganizationMemoryPolicySection } from "./organization-memory-policy-se
 import { OrganizationMessageChannelsPage } from "./organization-message-channels-page";
 
 const CENTER_AGENT_STATUS_BADGE_CLASS_NAMES = {
-	Available: resolveStatusToneProminentBadgeClassName("ready"),
 	Disconnected: resolveStatusToneProminentBadgeClassName("muted"),
 	Paused: resolveStatusToneProminentBadgeClassName("warning"),
 	Unavailable: resolveStatusToneProminentBadgeClassName("warning"),
-} as const satisfies Record<CenterAgentConnectionStatus, string>;
+} as const satisfies Record<
+	Exclude<CenterAgentConnectionStatus, "Available">,
+	string
+>;
 
 function CenterAgentGeneralSettings() {
 	const { currentOrganization, currentUserId } = useAppOrganization();
@@ -804,9 +806,8 @@ function CenterAgentConnectionSection(input: {
 	operatingState: "active" | "paused" | null;
 	profile: DirectoryAgentProfile;
 }) {
-	let status:
-		| keyof typeof CENTER_AGENT_STATUS_BADGE_CLASS_NAMES
-		| "Status unavailable" = "Status unavailable";
+	let status: CenterAgentConnectionStatus | "Status unavailable" =
+		"Status unavailable";
 	if (input.operatingState === "paused") {
 		status = "Paused";
 	} else if (input.operatingState === "active") {
@@ -833,17 +834,19 @@ function CenterAgentConnectionSection(input: {
 						<p className="mt-1 truncate text-muted-foreground text-sm">
 							@{input.profile.profileHandle}
 						</p>
-						<div className="mt-2 flex items-center">
-							<Badge
-								className={
-									status === "Status unavailable"
-										? resolveStatusToneProminentBadgeClassName("muted")
-										: CENTER_AGENT_STATUS_BADGE_CLASS_NAMES[status]
-								}
-							>
-								{status}
-							</Badge>
-						</div>
+						{status !== "Available" && (
+							<div className="mt-2 flex items-center">
+								<Badge
+									className={
+										status === "Status unavailable"
+											? resolveStatusToneProminentBadgeClassName("muted")
+											: CENTER_AGENT_STATUS_BADGE_CLASS_NAMES[status]
+									}
+								>
+									{status}
+								</Badge>
+							</div>
+						)}
 					</div>
 				</div>
 				<Button

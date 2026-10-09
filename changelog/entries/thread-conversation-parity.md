@@ -16,3 +16,4 @@ admins.
 
 Center Agent Profile cards show the model and a cloud icon, with a direct
 settings action. Routine availability and default reasoning labels are omitted.
+App Settings also omits the routine Available label.
