@@ -96,6 +96,7 @@ import {
   postSpaceThreadSignalBodySchema,
   postSpaceWakeStopInputSchema,
   postSpaceWakeStopResponseSchema,
+  preHeadFailurePublicationIdentitySchema,
   projectSpaceDispatchTraceFinalVisibleOutcome,
   projectTargetWakeLifecycleIdentity,
   putSpaceContractBodySchema,
@@ -6065,6 +6066,25 @@ export class Space extends DurableObject<CoreBindings> {
         `${parsedData.data.noticeType} is reserved for the execution recovery command`
       );
     }
+    const publication = preHeadFailurePublicationIdentitySchema
+      .optional()
+      .safeParse(input.preHeadFailurePublication);
+    if (
+      !publication.success ||
+      (publication.data &&
+        (input.finalOutcomeAuthority !==
+          "runtime_coordinator_failure_publication" ||
+          parsedData.data.noticeType !== "terminal_failure" ||
+          parsedData.data.failureStage !== "execution" ||
+          input.spaceAccess?.actor.kind !== "dispatch_continuation" ||
+          input.spaceAccess.actor.dispatchId !== parsedData.data.dispatchId ||
+          input.spaceAccess.actor.targetProfileId !==
+            parsedData.data.actorProfileId))
+    ) {
+      throw new Error(
+        "dispatch.pre_head_failure_publication_authority_required"
+      );
+    }
     const author = await authorizeRpcSignalWrite({
       authorizeSpacePasswordAccess:
         owner.authorizeSpacePasswordAccess.bind(owner),
@@ -6093,7 +6113,8 @@ export class Space extends DurableObject<CoreBindings> {
         ...(stoppedReplyTo && !parsedData.data.replyTo
           ? { replyTo: stoppedReplyTo }
           : {}),
-      }
+      },
+      publication.data?.signalId
     );
     // A pre-agent stop can be published after RuntimeCoordinator has discarded
     // its delivery payload. The authorized dispatch source still owns placement.

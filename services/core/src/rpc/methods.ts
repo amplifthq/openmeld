@@ -2481,6 +2481,8 @@ export type PostSystemNoticeSignalInput = {
   context?: CoreRpcContextInput;
   spaceAccess?: SpaceAccessContext;
   threadContext?: SpaceThreadContext;
+  /** Internal Core→Space only; never accepted from a public HTTP body. */
+  preHeadFailurePublication?: import("@openmeld/schemas/types").PreHeadFailurePublicationIdentity;
 };
 export type ExecutionRecoveryNoticeSignalData = SignalSystemNoticeData & {
   noticeType: "execution_recovery_available" | "execution_recovery_completed";
@@ -19729,6 +19731,9 @@ export async function rpcPostSystemNoticeSignal(
   const context = requireWritableRpcSpaceAccessContext(input);
   const password = resolveRpcSpaceAccessPassword(input);
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  if (input.preHeadFailurePublication && !input.spaceAccess) {
+    throw new Error("dispatch.pre_head_failure_publication_authority_required");
+  }
   if (!input.spaceAccess) {
     return await postFormalSignalWithFetch({
       stub,
@@ -19749,6 +19754,9 @@ export async function rpcPostSystemNoticeSignal(
     spaceId,
     profile: input.profile,
     data: input.data,
+    ...(input.preHeadFailurePublication
+      ? { preHeadFailurePublication: input.preHeadFailurePublication }
+      : {}),
     ...(input.finalOutcomeAuthority
       ? { finalOutcomeAuthority: input.finalOutcomeAuthority }
       : {}),

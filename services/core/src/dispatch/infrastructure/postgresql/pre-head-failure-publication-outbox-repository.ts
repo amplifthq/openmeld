@@ -2,12 +2,14 @@ import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   openMeldRequestContextSchema,
   parseOpenMeldDaemonDispatchQueueIngress,
+  preHeadFailurePublicationIdentitySchema,
   profileSchema,
   signalSystemNoticeDataSchema,
 } from "@openmeld/schemas";
 import type {
   OpenMeldDaemonDispatchQueueMessage,
   OpenMeldRequestContext,
+  PreHeadFailurePublicationIdentity,
   Profile,
   SignalSystemNoticeData,
 } from "@openmeld/schemas/types";
@@ -33,6 +35,7 @@ export type PreHeadFailurePublicationCommand = {
   profile: Profile;
   spaceAccess: SpaceAccessContext;
   spaceId: string;
+  preHeadFailurePublication?: PreHeadFailurePublicationIdentity;
 };
 export type PreHeadFailurePublicationIntent = {
   attemptId: string;
@@ -656,6 +659,9 @@ const parsePreHeadFailurePublicationCommand = (
   const context = openMeldRequestContextSchema.safeParse(record.context);
   const data = signalSystemNoticeDataSchema.safeParse(record.data);
   const profile = profileSchema.safeParse(record.profile);
+  const publication = preHeadFailurePublicationIdentitySchema
+    .optional()
+    .safeParse(record.preHeadFailurePublication);
   const spaceId = normalizeString(record.spaceId);
   const spaceAccess = record.spaceAccess;
   if (
@@ -663,6 +669,7 @@ const parsePreHeadFailurePublicationCommand = (
       context.success &&
       data.success &&
       profile.success &&
+      publication.success &&
       spaceId &&
       spaceAccess &&
       typeof spaceAccess === "object"
@@ -694,6 +701,9 @@ const parsePreHeadFailurePublicationCommand = (
     profile: profile.data,
     spaceAccess: typedSpaceAccess,
     spaceId,
+    ...(publication.data
+      ? { preHeadFailurePublication: publication.data }
+      : {}),
   };
 };
 const parsePreHeadFailureRedriveMessage = (

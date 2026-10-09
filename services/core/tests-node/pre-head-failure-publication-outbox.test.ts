@@ -1,7 +1,18 @@
-import { buildAgentTaskKey } from "@openmeld/schemas";
-import type { OpenMeldDaemonDispatchQueueMessage } from "@openmeld/schemas/types";
+import {
+  buildAgentTaskKey,
+  RUNTIME_COORDINATOR_FINALIZATION_COMMAND_MODEL_VERSION,
+} from "@openmeld/schemas";
+import type {
+  OpenMeldDaemonDispatchQueueMessage,
+  RuntimeCoordinatorFinalizationCommand,
+} from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import { retryReadyAgentTaskContinuations } from "../src/agent-task-coordination/application/agent-task-terminal-outcome-service";
+import {
+  recordRuntimeCoordinatorExecutionFailureTaskOutcome,
+  recordRuntimeCoordinatorFinalizationTaskOutcome,
+  recordRuntimeCoordinatorStoppedTaskOutcome,
+} from "../src/agent-task-coordination/application/runtime-coordinator-task-outcome";
 import {
   readAgentTaskCompletionSubscription,
   readAgentTaskTerminalOutcome,
@@ -85,6 +96,18 @@ describe("pre-head failure publication operational outbox", () => {
     { claim: "failure", status: "failed", stored: false, fault: null },
     { claim: "success", status: "succeeded", stored: false, fault: null },
     { claim: "stopped", status: "stopped", stored: false, fault: null },
+    {
+      claim: "failure",
+      status: "failed",
+      stored: false,
+      fault: "other_producer",
+    },
+    {
+      claim: "failure",
+      status: "failed",
+      stored: false,
+      fault: "legacy_identity",
+    },
     { claim: "success", status: "succeeded", stored: true, fault: null },
     { claim: "stopped", status: "stopped", stored: true, fault: null },
     { claim: "failure", status: "failed", stored: false, fault: "task_write" },
@@ -139,6 +162,13 @@ describe("pre-head failure publication operational outbox", () => {
       idempotencyKey: message.idempotencyKey,
       publicationCommand: {
         context,
+        ...(fault === "legacy_identity"
+          ? {}
+          : {
+              preHeadFailurePublication: {
+                signalId: "86c5b365-4f68-4fd7-8cd2-0f1a72f471b3",
+              },
+            }),
         data: {
           actorProfileId: message.targetProfileId,
           dispatchId: message.dispatchId,
@@ -162,7 +192,13 @@ describe("pre-head failure publication operational outbox", () => {
       },
     });
     const queueSend = vi.fn(async () => undefined);
-    const publishedSignalId = `saved-${claim}`;
+    const foreignProducer =
+      claim !== "failure" ||
+      fault === "other_producer" ||
+      fault === "legacy_identity";
+    const publishedSignalId = foreignProducer
+      ? `saved-${claim}`
+      : "86c5b365-4f68-4fd7-8cd2-0f1a72f471b3";
     const errorCode = {
       failure: "profile.workspace.missing",
       success: null,
@@ -172,7 +208,7 @@ describe("pre-head failure publication operational outbox", () => {
       status,
       errorCode,
       eventId: "original-terminal-event",
-      occurredAtMs: 800,
+      occurredAtMs: 1800,
       publishedSignalId:
         fault === "task_conflict" ? "prior-result" : publishedSignalId,
     };
@@ -288,7 +324,7 @@ describe("pre-head failure publication operational outbox", () => {
         );
         return;
       }
-      if (fault) {
+      if (fault || (!stored && foreignProducer)) {
         expect(
           await readPreHeadFailurePublicationState({
             db: harness.db,
@@ -307,6 +343,39 @@ describe("pre-head failure publication operational outbox", () => {
         );
         await removeWriteFault?.();
         removeWriteFault = undefined;
+        if (foreignProducer) {
+          // The original producer replays after saving a visible claim but
+          // before writing Task state. Use its real writer, not a synthesized
+          // recovery event: exact equality must still accept the replay.
+          if (claim === "success") {
+            const result =
+              await recordRuntimeCoordinatorFinalizationTaskOutcome({
+                command: buildSuccessfulFinalizationCommand(message),
+                db: harness.db,
+                env,
+                finalMessageKind: "success_reply",
+                publishedSignalId,
+                publishState: "reply_published",
+              });
+            expect(result?.matches).toBe(true);
+          } else {
+            const writer =
+              claim === "stopped"
+                ? recordRuntimeCoordinatorStoppedTaskOutcome
+                : recordRuntimeCoordinatorExecutionFailureTaskOutcome;
+            await writer({
+              db: harness.db,
+              env,
+              eventId: existingOutcome.eventId,
+              occurredAtMs: existingOutcome.occurredAtMs,
+              publishedSignalId,
+              reasonCode: errorCode ?? "unexpected_success",
+              sourceClientMessageId: message.sourceClientMessageId,
+              spaceId: message.spaceId,
+              targetProfileId: message.targetProfileId,
+            });
+          }
+        }
         clock.mockReturnValue(90_000);
         await handleDispatchQueueBatch(input);
       }
@@ -324,7 +393,7 @@ describe("pre-head failure publication operational outbox", () => {
         })
       ).toMatchObject({
         outcome: {
-          ...(stored ? existingOutcome : {}),
+          ...(stored || foreignProducer ? existingOutcome : {}),
           status,
           errorCode,
           publishedSignalId,
@@ -348,7 +417,9 @@ describe("pre-head failure publication operational outbox", () => {
           dispatchId: message.dispatchId,
         })
       ).toEqual({ status: "completed" });
-      expect(ack).toHaveBeenCalledTimes(fault ? 2 : 1);
+      expect(ack).toHaveBeenCalledTimes(
+        fault || (!stored && foreignProducer) ? 2 : 1
+      );
     } finally {
       clock.mockRestore();
       await removeWriteFault?.();
@@ -485,3 +556,66 @@ describe("pre-head failure publication operational outbox", () => {
     }
   });
 });
+
+function buildSuccessfulFinalizationCommand(
+  message: OpenMeldDaemonDispatchQueueMessage
+): RuntimeCoordinatorFinalizationCommand {
+  return {
+    acceptedResult: {
+      acceptedAtMs: 1800,
+      attemptId: "attempt-outbox-1",
+      daemonSessionId: "daemon-session-1",
+      dispatchId: message.dispatchId,
+      executionTokenFingerprint: "etfp_v1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      executionTokenRunId: "run-1",
+      leaseEpoch: 1,
+      runtimeCoordinatorExecutionId: "execution-1",
+      submittedConnectionGeneration: 1,
+      targetProfileId: message.targetProfileId,
+      taskId: message.taskId,
+      taskResult: {
+        code: "service.task_result",
+        payload: {
+          agentId: message.targetProfileId,
+          attemptId: "attempt-outbox-1",
+          deduped: false,
+          output: "Done",
+          sourceEventId: message.sourceEventId,
+          status: "success",
+          taskId: message.taskId,
+          telemetry: {
+            completedAtMs: 1800,
+            invokedAtMs: 1700,
+            resumedContext: false,
+          },
+        },
+        v: 4,
+      },
+    },
+    createdAtMs: 1850,
+    dispatchFact: {
+      attemptId: "attempt-outbox-1",
+      dispatchId: message.dispatchId,
+      dispatchOwner: { id: "owner-1", kind: "owner_account" },
+      enqueuedAtMs: message.enqueuedAtMs,
+      idempotencyKey: message.idempotencyKey,
+      sourceClientMessageId: message.sourceClientMessageId ?? null,
+      sourceEventId: message.sourceEventId,
+      spaceId: message.spaceId,
+      targetProfileId: message.targetProfileId,
+      taskId: message.taskId,
+    },
+    dispatchId: message.dispatchId,
+    executionTokenRunId: "run-1",
+    finalizationCommandId: "original-terminal-event",
+    modelVersion: RUNTIME_COORDINATOR_FINALIZATION_COMMAND_MODEL_VERSION,
+    publicationIdempotencyKey: "publication-1",
+    resultIdempotencyKey: "result-1",
+    runtimeCoordinatorExecutionId: "execution-1",
+    spaceId: message.spaceId,
+    targetOwnerUserId: "owner-1",
+    targetProfileId: message.targetProfileId,
+    targetProfileMentionLabel: null,
+    targetProfileName: "Child Agent",
+  };
+}

@@ -2380,7 +2380,13 @@ the authoritative Core database.
 For an exact user-authored Wake, this outbox completes only after the Space's
 saved final claim is projected into the existing Agent Task terminal outcome.
 The producer uses the saved claim's signal id, not the system-notice RPC's
-constructed return value. A saved success or stopped result remains authoritative.
+constructed return value. Its frozen internal command includes a signal id;
+only that exact saved failure allows it to create a pre-head-owned Task event.
+A competing success, stopped result, or failure remains with its original
+producer. If that producer has not written its Task outcome yet, recovery stays
+pending until the original command replays. Older frozen commands without this
+identity cannot claim ownership of a saved notice. They can complete once an
+existing compatible Task outcome is present; they never invent one.
 An existing compatible task outcome retains its original event and timestamp;
 conflicting task evidence keeps recovery pending. A failed claim read, missing or
 unknown claim, or failed task projection also keeps the frozen publication

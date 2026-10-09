@@ -16,6 +16,16 @@ export const signalSystemNoticeTypeSchema = z.enum([
 
 export const signalSystemNoticeGeneratedBySchema = z.literal("openmeld");
 
+// Internal Core→Space command identity. It is not public notice metadata.
+// The publication outbox freezes this id before the first write, so retries
+// can distinguish their own saved failure from another final-outcome producer.
+export const preHeadFailurePublicationIdentitySchema = z.strictObject({
+  signalId: z.uuid(),
+});
+export type PreHeadFailurePublicationIdentity = z.infer<
+  typeof preHeadFailurePublicationIdentitySchema
+>;
+
 // Distinguishes a failure that happened while the agent was executing (the
 // agent never produced a settled outcome) from a failure that happened after
 // the agent's outcome was already settled but OpenMeld's own reply

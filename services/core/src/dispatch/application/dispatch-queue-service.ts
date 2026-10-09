@@ -5022,6 +5022,17 @@ const recordPreHeadPublicationTaskOutcome = async (input: {
   ) {
     throw new Error("dispatch.pre_head_failure_task_outcome_conflict");
   }
+  if (
+    !stored &&
+    (claim.outcome !== "failure" ||
+      claim.signalId !==
+        input.intent.publicationCommand.preHeadFailurePublication?.signalId)
+  ) {
+    // Space publication and the original producer's Task write are separate
+    // durable steps. Do not invent that producer's event or completion time
+    // in the gap: its frozen command must remain replayable without conflict.
+    throw new Error("dispatch.pre_head_failure_task_outcome_owner_pending");
+  }
   const outcome: AgentTaskTerminalOutcome = stored?.outcome ?? {
     errorCode,
     eventId: `pre-head-final-outcome:${input.intent.dispatchId}:${claim.signalId}`,
@@ -5869,6 +5880,7 @@ const buildPreHeadFailurePublicationCommand = (input: {
   });
   return {
     context: requestContext,
+    preHeadFailurePublication: { signalId: crypto.randomUUID() },
     data: {
       noticeType: "terminal_failure",
       actorProfileId: input.message.targetProfileId,

@@ -3281,6 +3281,7 @@ export {
   spaceStatusSchema,
 } from "./space-mesh/signal-status";
 export {
+  preHeadFailurePublicationIdentitySchema,
   signalSystemNoticeDataSchema as signalSystemNoticeDataPayloadSchema,
   signalSystemNoticeFailureStageSchema,
   signalSystemNoticeGeneratedBySchema,
