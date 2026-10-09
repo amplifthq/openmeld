@@ -295,8 +295,12 @@ identifiable without requiring the magnification effect.
 and menu hover/focus mechanics. Geometry, expanded-width bounds, and whether
 the icon-only snap tier is allowed are injected by the client. Web module lists
 disable that tier for pointer dragging and keyboard resizing; they use the same
-two-state contract in the Website demo. Geometry is saved
-by the client; these primitives do not read cookies, routes, account state or
+two-state contract in the Website demo. The visible list stops shrinking at its
+readable minimum; collapsing requires the pointer to travel another third of
+that minimum width plus 16 px inward. Expansion retains its separate boundary
+at two-thirds of the minimum width plus 8 px, so outward dragging opens sooner
+without toggling around one boundary. Geometry is saved by the client; these
+primitives do not read cookies, routes, account state or
 organization state. OpenMeld uses its existing Base UI/Motion dependencies and
 semantic shape, typography and color tokens. Menu highlights use transforms;
 measured group height and sidebar width only change when layout must change.

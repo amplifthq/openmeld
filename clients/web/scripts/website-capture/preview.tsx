@@ -1031,7 +1031,7 @@ function DemoThreadPanel({
 	onClose: () => void;
 	onGoToMessage: () => void;
 }) {
-	const [width, setWidth] = useState("24rem");
+	const [width, setWidth] = useState("20rem");
 	const state = useDemoConversationState();
 	const turns = state.turns.filter(
 		(turn) => turn.spaceId === "release" && turn.threadId === thread?.id

@@ -34,10 +34,12 @@ export function resolveSidebarDrag(
   }: SidebarResizeOptions = {}
 ): SidebarMode {
   if (!allowIconMode) {
-    // Keep expanded content readable; a small return deadband prevents chatter.
-    return raw < minWidth + (previous === "hidden" ? 8 : 0)
-      ? "hidden"
-      : "expanded";
+    // Clamp the visible list at its readable floor while the pointer travels
+    // another third of that width plus 16 px inward. Keep outward dragging
+    // responsive with a separate reopening boundary to avoid mode oscillation.
+    const boundary = (minWidth * 2) / 3;
+    const threshold = previous === "hidden" ? boundary + 8 : boundary - 16;
+    return raw < threshold ? "hidden" : "expanded";
   }
   if (raw < (previous === "hidden" ? 38 : 26)) {
     return "hidden";
