@@ -1,4 +1,5 @@
 import { normalizeMessagePreview } from "@openmeld/protocol";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ChatCircleTextIcon, LockKeyIcon } from "@phosphor-icons/react";
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
@@ -32,11 +33,17 @@ export function SpaceDirectorySummary(input: {
 						className="size-4 shrink-0 text-muted-foreground"
 					/>
 				)}
-				<span
-					className={input.layout === "card" ? "min-w-0 truncate" : "truncate"}
-				>
-					{input.item.spaceName}
-				</span>
+				<TooltipHint content={input.item.spaceName}>
+					<span
+						className={
+							input.layout === "card"
+								? "relative z-10 min-w-0 truncate"
+								: "truncate"
+						}
+					>
+						{input.item.spaceName}
+					</span>
+				</TooltipHint>
 				<WelcomeSpaceLabel spaceId={input.item.spaceId} />
 				{input.item.deletedAt && <SpaceDeletedLabel />}
 				{input.item.visibility === "private" && (

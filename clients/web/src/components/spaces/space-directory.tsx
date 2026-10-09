@@ -1069,9 +1069,11 @@ function DiscoverList({
 									memberCount={space.activeMemberCount}
 									members={space.memberPreviews ?? []}
 								/>
-								<span className="line-clamp-2 font-medium text-sm">
-									{space.name}
-								</span>
+								<TooltipHint content={space.name}>
+									<span className="relative z-10 line-clamp-2 font-medium text-sm">
+										{space.name}
+									</span>
+								</TooltipHint>
 							</button>
 							<div className="flex items-center justify-between gap-3">
 								<span className="min-w-0 text-muted-foreground text-xs">
