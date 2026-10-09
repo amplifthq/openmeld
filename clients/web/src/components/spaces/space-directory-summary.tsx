@@ -2,6 +2,7 @@ import { normalizeMessagePreview } from "@openmeld/protocol";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ChatCircleTextIcon, LockKeyIcon } from "@phosphor-icons/react";
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
+import { SpaceDeletedLabel } from "./space-deleted-label";
 import { WelcomeSpaceLabel } from "./welcome-space-guide";
 
 /** Identity and latest-message preview shared by browsing and picking a Space. */
@@ -37,6 +38,7 @@ export function SpaceDirectorySummary(input: {
 					{input.item.spaceName}
 				</span>
 				<WelcomeSpaceLabel spaceId={input.item.spaceId} />
+				{input.item.deletedAt && <SpaceDeletedLabel />}
 				{input.item.visibility === "private" && (
 					<LockKeyIcon
 						aria-label="Invite-only in this organization"

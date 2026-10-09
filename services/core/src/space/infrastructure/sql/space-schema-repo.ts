@@ -75,6 +75,7 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
         CHECK (link_join_policy IN ('invite_only', 'access_mode')),
       password_proof_json TEXT NULL,
       archive_cursor_ts INTEGER NULL,
+      deleted_at INTEGER NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )
@@ -82,6 +83,9 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
   ensureSpaceMetaGuideColumn(sql);
   ensureSpaceMetaPurposeColumn(sql);
   ensureSpaceMetaDirectMessageColumn(sql);
+  if (!listTableColumnNames(sql, "space_meta").has("deleted_at")) {
+    sql.exec("ALTER TABLE space_meta ADD COLUMN deleted_at INTEGER NULL");
+  }
   ensureSpaceMetaPasswordProofColumn(sql);
   ensureSpaceMetaAccessModeColumn(sql);
   ensureSpaceMetaLinkJoinPolicyColumn(sql);

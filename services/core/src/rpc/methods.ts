@@ -2663,6 +2663,7 @@ export type DeleteSpaceResult = {
   deleted: true;
 };
 export type ListAccountSpacesInput = {
+  includeDeletedSpaces?: boolean;
   gatewayHost: string;
   ownerUserId: string;
   scope: AccountSpaceIndexQuery["scope"];
@@ -19944,6 +19945,7 @@ export async function rpcGetSpaceEntryResolution(
   }
   const target = parsed.data;
   const indexed = await readSpaceIndexOrganizationJoinTarget({
+    includeDeletedSpaces: true,
     db: requireSpaceIndexDb(env),
     spaceId: target.spaceId,
   });
@@ -19988,6 +19990,7 @@ export async function rpcGetSpaceEntryResolution(
     access,
     authenticated: Boolean(context),
     indexed: {
+      deletedAt: indexed.deletedAt,
       organizationId: indexed.organizationId,
       ...(organizationSlug ? { organizationSlug } : {}),
       ...(indexed.creatorProfileId
@@ -20335,6 +20338,7 @@ export async function rpcListAccountSpaces(
       ? Math.min(500, Math.max(1, Math.trunc(input.limit)))
       : 500;
   return await listAccountSpacesFromSpaceIndex({
+    includeDeletedSpaces: input.includeDeletedSpaces === true,
     db: requireSpaceIndexDb(env),
     gatewayHost,
     ownerUserId,

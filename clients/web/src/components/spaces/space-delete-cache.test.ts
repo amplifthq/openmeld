@@ -5,11 +5,42 @@ import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import {
+	optimisticallyDeleteSpaceInListCaches,
 	optimisticallyRemoveSpaceFromListCaches,
 	restoreSpaceListCaches,
 } from "./space-delete-cache";
 
 describe("Space delete list caches", () => {
+	it("marks a deleted Space in the personal list and rolls back only that item", async () => {
+		const queryClient = new QueryClient();
+		const key = accountSpaceQueryKeys.items("human-1", "account");
+		const before = createAccountSpaces();
+		queryClient.setQueryData(key, before);
+		const snapshot = await optimisticallyDeleteSpaceInListCaches({
+			organizationId: "org-1",
+			queryClient,
+			spaceId: "space-delete",
+		});
+		expect(
+			queryClient.getQueryData<AccountSpaceSections>(key)?.pinnedItems[0]
+		).toMatchObject({ spaceId: "space-delete", deletedAt: expect.any(String) });
+		queryClient.setQueryData<AccountSpaceSections>(
+			key,
+			(current) =>
+				current && {
+					...current,
+					spaceItems: [...current.spaceItems, createAccountSpace("new-space")],
+				}
+		);
+		restoreSpaceListCaches(queryClient, "org-1", snapshot);
+		expect(
+			queryClient.getQueryData<AccountSpaceSections>(key)?.pinnedItems
+		).toEqual(before.pinnedItems);
+		expect(
+			queryClient.getQueryData<AccountSpaceSections>(key)?.spaceItems.at(-1)
+				?.spaceId
+		).toBe("new-space");
+	});
 	it("removes the Space from sidebar and Browse caches, then restores exact snapshots", async () => {
 		const queryClient = new QueryClient();
 		const accountKey = accountSpaceQueryKeys.items("human-1", "account");

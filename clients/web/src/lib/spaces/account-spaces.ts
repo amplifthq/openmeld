@@ -17,6 +17,7 @@ export type AccountSpaceJoinedProfile = {
 };
 
 export type AccountSpaceItem = {
+	deletedAt?: string;
 	messagePreview?: AccountSpaceIndexItem["messagePreview"];
 	recentMessagePreviews?: AccountSpaceIndexItem["recentMessagePreviews"];
 	memberPreviews?: AccountSpaceIndexItem["memberPreviews"];
@@ -134,6 +135,7 @@ function toAccountSpaceSections(
 
 function toAccountSpaceItem(item: AccountSpaceIndexItem): AccountSpaceItem {
 	return {
+		...(item.deletedAt ? { deletedAt: item.deletedAt } : {}),
 		messagePreview: item.messagePreview,
 		recentMessagePreviews: item.recentMessagePreviews,
 		memberPreviews: item.memberPreviews,

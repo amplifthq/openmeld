@@ -171,7 +171,8 @@ function toActiveSpaceProjection(input: {
     directMessageConvertedAt:
       input.metaRecord.directMessage?.convertedAt ?? null,
     spaceUpdatedAt: input.metaRecord.updatedAt,
-    status: "active",
+    deletedAt: input.metaRecord.deletedAt ?? null,
+    status: input.metaRecord.deletedAt ? "deleted" : "active",
   };
 }
 function toDeletedSpaceProjection(input: {

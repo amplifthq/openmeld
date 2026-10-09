@@ -8728,6 +8728,23 @@ to decide when password is still required.
 
 ## Unified Space Access and Ownership
 
+### Deleted Space history
+
+The Space owner persists `deletedAt` in its canonical metadata. Deletion retains
+signals and original membership grants, disables all publication actions, and
+restricts reads to those grants. Removing a deleted Space leaves only this
+account's memberships. Account deletion remains a separate physical purge.
+The account index derives the deleted state from that metadata; subsequent
+member or signal projections cannot restore an active Space.
+
+Contract Impact Audit: metadata and status add optional `deletedAt`. Account
+list callers opt into retained entries with `includeDeletedSpaces`; older CLI
+callers retain their existing list shape. Status actions may be empty for a
+deleted Space. Core must precede new Gateway and Web readers. Old clients can
+read retained history but Core rejects their writes. No Service, Wake execution,
+live invalidation, or local component protocol changes. Rollback the new Web
+first; an older Core does not enforce the retained read-only state.
+
 ### Account Space preferences
 
 `packages/schemas` owns `SpacePreferences` and its authenticated RPC input.

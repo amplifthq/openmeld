@@ -86,6 +86,7 @@ import { SpaceFileRepository } from "../src/space/infrastructure/sql/space-file-
 import { readSpaceMemberRecord } from "../src/space/infrastructure/sql/space-member-repo";
 import { insertSignalRecord } from "../src/space/infrastructure/sql/space-signal-repo";
 import { Space } from "../src/space/transport/do/space";
+import { listAccountSpacesFromSpaceIndex } from "../src/space-index/space-index-repository";
 import { readUserTimeContext } from "../src/user-time-context/user-time-context-repository";
 import { postgresFixtureOperator } from "./postgresql.test-support";
 import { waitForJsonMessage } from "./test-support/ws-stream";
@@ -4984,13 +4985,160 @@ describe("OpenMeld Core", () => {
       undefined,
       creatorProfile
     );
-    expect(metaResponse.status).toBe(404);
-    const payload = (await metaResponse.json()) as {
-      code?: string;
-      message?: string;
+    expect(metaResponse.status).toBe(200);
+    expect(await metaResponse.json()).toMatchObject({
+      spaceId,
+      deletedAt: expect.any(String),
+    });
+  });
+  it("retains deleted Space history for original members and rejects new participation", async () => {
+    const spaceId = await createSpace({
+      name: "retained-team-history",
+      visibility: "public",
+    });
+    const message = await postTextSignal(
+      spaceId,
+      "Retained project decision: launch next week."
+    );
+    const member = {
+      profileId: THIRD_HUMAN_PROFILE_ID,
+      openMeldProfileId: THIRD_HUMAN_PROFILE_ID,
+      profileKind: "human" as const,
+      profileName: "Team Member",
+      ownerUserId: "owner-retained-history-member",
     };
-    expect(payload.code).toBe("space.not_found");
-    expect(payload.message).toBe("space not found");
+    const socket = await openSpaceSocket(
+      spaceId,
+      {
+        kind: "human",
+        profileId: member.profileId,
+        profileName: member.profileName,
+        owner: member.ownerUserId,
+      },
+      undefined,
+      member
+    );
+    const deleteResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}`,
+      { method: "DELETE" }
+    );
+    expect(deleteResponse.status).toBe(200);
+    await deleteResponse.text();
+    socket.close(1000, "done");
+    for (const viewer of [DEFAULT_TEST_AUTH_PROFILE, member]) {
+      if (!viewer.ownerUserId) {
+        throw new Error("Expected an account owner for the history reader.");
+      }
+      const history = await fetchWithOpenMeldAuth(
+        `${BASE_URL}/v1/spaces/${spaceId}/signals`,
+        undefined,
+        viewer
+      );
+      expect(history.status).toBe(200);
+      expect(await history.json()).toMatchObject({
+        signals: expect.arrayContaining([
+          expect.objectContaining({ id: message.id }),
+        ]),
+      });
+      const status = await fetchWithOpenMeldAuth(
+        `${BASE_URL}/v1/spaces/${spaceId}/status`,
+        undefined,
+        viewer
+      );
+      expect(status.status).toBe(200);
+      expect(await status.json()).toMatchObject({
+        deletedAt: expect.any(String),
+        allowedActions: [],
+      });
+      const list = await listAccountSpacesFromSpaceIndex({
+        db: getPostgresDatabase(env),
+        gatewayHost: "localhost",
+        ownerUserId: viewer.ownerUserId,
+        selectedProfileId: viewer.profileId,
+        scope: "account",
+        limit: 500,
+        includeDeletedSpaces: true,
+      });
+      expect([...list.pinnedItems, ...list.spaceItems]).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ spaceId, deletedAt: expect.any(String) }),
+        ])
+      );
+    }
+    const writes = [
+      {
+        path: "signals",
+        method: "POST",
+        body: {
+          type: "signal.text",
+          data: { text: "Should not send" },
+          profile: {
+            kind: "human",
+            profileId: DEFAULT_HUMAN_PROFILE_ID,
+            profileName: "alice",
+          },
+        },
+      },
+      { path: "meta", method: "PATCH", body: { name: "Should not rename" } },
+      {
+        path: "members",
+        method: "POST",
+        body: {
+          members: [
+            {
+              profileId: DEFAULT_HUMAN_PROFILE_ID,
+              profileName: "Test User",
+              profileKind: "human",
+              ownerUserId: "owner-test-default",
+              ownerName: null,
+              agentControllerRef: null,
+            },
+          ],
+        },
+      },
+    ];
+    for (const write of writes) {
+      const response = await fetchWithOpenMeldAuth(
+        `${BASE_URL}/v1/spaces/${spaceId}/${write.path}`,
+        {
+          method: write.method,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(write.body),
+        }
+      );
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ code: "space.deleted" });
+    }
+    const outsider = {
+      profileId: SECOND_HUMAN_PROFILE_ID,
+      openMeldProfileId: SECOND_HUMAN_PROFILE_ID,
+      ownerUserId: "owner-history-outsider",
+    };
+    const denied = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals`,
+      undefined,
+      outsider
+    );
+    expect(denied.status).toBe(403);
+    await denied.text();
+    const remove = await fetchSpaceDoWithOpenMeldAuth(
+      { spaceId, path: "/leave" },
+      { method: "POST" },
+      member
+    );
+    expect(remove.status).toBe(200);
+    await remove.text();
+    const remainingHistory = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals`
+    );
+    expect(remainingHistory.status).toBe(200);
+    await remainingHistory.text();
+    const ownerRemove = await fetchSpaceDoWithOpenMeldAuth(
+      { spaceId, path: "/leave" },
+      { method: "POST" }
+    );
+    expect(ownerRemove.status).toBe(200);
+    await ownerRemove.text();
   });
   it("rejects deletion by a profile without Space ownership", async () => {
     const creatorProfileId = "hum-space-owner-1";

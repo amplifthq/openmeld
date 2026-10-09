@@ -24,6 +24,7 @@ export type SpaceEntryAccessResult =
     };
 
 export type SpaceEntryIndexedContext = {
+  deletedAt?: string;
   organizationId: string;
   organizationSlug?: string;
   owner?: SpaceEntrySafeContext["owner"];
@@ -38,13 +39,15 @@ export function buildSpaceEntryResolution(input: {
   organizationMember: boolean;
   target: SpaceEntryTarget;
 }): GetSpaceEntryResolutionResponse {
-  const canJoinOrganizationSpace = resolveSpaceAccess({
-    visibility: input.indexed.visibility,
-    accessMode: "members_only",
-    organizationMember: input.organizationMember,
-    activeMember: false,
-    password: "missing",
-  }).canJoin;
+  const canJoinOrganizationSpace =
+    !input.indexed.deletedAt &&
+    resolveSpaceAccess({
+      visibility: input.indexed.visibility,
+      accessMode: "members_only",
+      organizationMember: input.organizationMember,
+      activeMember: false,
+      password: "missing",
+    }).canJoin;
   if (input.access.kind === "allowed") {
     let participation = resolveAllowedParticipation(input.access);
     if (canJoinOrganizationSpace && !input.access.activeMember) {

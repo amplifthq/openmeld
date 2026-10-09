@@ -69,6 +69,7 @@ import {
 	type SpaceActiveWakePresentation,
 	type SpaceSidebarActiveWakeSummary,
 } from "./space-active-wake-presentation";
+import { SpaceDeletedLabel } from "./space-deleted-label";
 import {
 	type SpaceMemberAppearance,
 	SpaceMemberAvatars,
@@ -275,6 +276,8 @@ function ConversationSidebarRowContent(
 									>
 										{input.title}
 									</span>
+									{input.conversation.kind === "space" &&
+										input.conversation.item.deletedAt && <SpaceDeletedLabel />}
 								</span>
 								{timestamp !== null && !presentation && (
 									<ConversationSidebarRowTime timestamp={timestamp} />

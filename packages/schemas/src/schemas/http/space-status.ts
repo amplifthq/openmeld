@@ -6,7 +6,7 @@ import {
 import { nonEmptyTrimmedStringFromUnknown } from "../protocol/shared";
 import { spaceDispatchPolicySchema } from "../space-mesh/dispatch-policy";
 import {
-  spaceAllowedActionsSchema,
+  spaceAllowedActionSchema,
   spacePublicationModeSchema,
 } from "../space-mesh/publication-policy";
 import { resultArchivePolicySchema } from "../space-mesh/result-archive-policy";
@@ -61,6 +61,7 @@ export const spaceStatusMembersSummarySchema = spaceMembersSummarySchema.extend(
 export const getSpaceStatusInputSchema = spaceRouteParamsSchema;
 
 export const getSpaceStatusResponseSchema = z.object({
+  deletedAt: z.iso.datetime({ offset: true }).optional(),
   spaceId: nonEmptyTrimmedStringFromUnknown,
   generatedAt: isoDateTimeSchema,
   centerAgentProfileId: agentProfileIdSchema.optional(),
@@ -76,7 +77,7 @@ export const getSpaceStatusResponseSchema = z.object({
   passwordProtected: z.boolean(),
   dispatchPolicy: spaceDispatchPolicySchema,
   publicationMode: spacePublicationModeSchema,
-  allowedActions: spaceAllowedActionsSchema,
+  allowedActions: z.array(spaceAllowedActionSchema),
   resultArchivePolicy: resultArchivePolicySchema,
   entryBrief: z.enum(["default", "none"]),
   dispatchBrief: z.enum(["default", "none"]),

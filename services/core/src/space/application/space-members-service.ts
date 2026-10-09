@@ -429,6 +429,7 @@ export const leaveSpaceUseCase = (input: {
 }): LeaveSpaceResponse => {
   const nowIso = input.nowIso ?? new Date().toISOString();
   if (
+    !input.metaRecord?.deletedAt &&
     input.actorOwnerUserId &&
     input.metaRecord?.ownerUserIds?.includes(input.actorOwnerUserId)
   ) {

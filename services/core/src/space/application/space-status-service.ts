@@ -119,6 +119,7 @@ export async function readSpaceStatusSummaryUseCase(input: {
     directMessageConvertedAt: input.metaRecord.directMessage?.convertedAt,
     spacePurpose: input.metaRecord.purpose,
     spaceId: input.spaceId,
+    deletedAt: input.metaRecord.deletedAt,
   });
 }
 
@@ -182,10 +183,12 @@ export async function readSpaceStatusSummaryFromMembersSnapshotUseCase(input: {
     directMessageConvertedAt: input.metaRecord.directMessage?.convertedAt,
     spacePurpose: input.metaRecord.purpose,
     spaceId: input.spaceId,
+    deletedAt: input.metaRecord.deletedAt,
   });
 }
 
 function buildSpaceStatusSummaryResponse(input: {
+  deletedAt?: string;
   automaticWakeEnabled?: boolean;
   ownerUserIds: string[];
   allowGuests: boolean;
@@ -203,6 +206,7 @@ function buildSpaceStatusSummaryResponse(input: {
   spaceId: string;
 }): GetSpaceStatusResponse {
   const parsed = getSpaceStatusResponseSchema.safeParse({
+    deletedAt: input.deletedAt,
     automaticWakeEnabled: input.automaticWakeEnabled,
     spaceId: input.spaceId,
     generatedAt: input.generatedAt,
@@ -222,7 +226,7 @@ function buildSpaceStatusSummaryResponse(input: {
     passwordProtected: input.accessMode === "protected",
     dispatchPolicy: input.contract.dispatchPolicy,
     publicationMode: input.contract.publicationMode,
-    allowedActions: input.contract.allowedActions,
+    allowedActions: input.deletedAt ? [] : input.contract.allowedActions,
     resultArchivePolicy: input.contract.resultArchivePolicy,
     entryBrief: input.contract.entryBrief,
     dispatchBrief: input.contract.dispatchBrief,

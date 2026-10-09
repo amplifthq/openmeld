@@ -1120,8 +1120,16 @@ Before Organization departure or account removal, the departing person must
 hand over every owned Space and become a Member. Organization deletion requires
 its ordinary Spaces to be deleted first; it cannot strand their history.
 
-Leaving or removing a member preserves shared history and files. Permanent Space
-deletion is a separate, human-owner-confirmed action affecting everyone. It must
+Leaving or removing a member preserves shared history and files. Delete Space is
+a human-owner-confirmed transition to a retained, read-only Space. The Space owns
+`deletedAt`; original members retain their existing read grant and can search past
+messages. Public links and passwords do not admit new readers after deletion.
+Deleted Spaces stay in members' lists with a small red `Deleted` label. Members
+can use `Remove from my list` to remove their account's memberships; other members'
+history is unchanged. The active-Space owner handoff rule does not block this
+personal removal. Shared message, file, member, and access mutations are rejected
+by the Space, not merely disabled in the client. Account erasure remains a separate
+trusted purge path and can physically clear data. Ordinary deletion must
 reject with `space.wakes_pending` while dispatch handoff/recovery, a workstation
 execution, a native delivery (including Routine runs and uncertain publication),
 an admitted Routine awaiting delivery or failure publication, a task continuation,

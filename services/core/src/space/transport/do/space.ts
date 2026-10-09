@@ -13432,12 +13432,20 @@ export class Space extends DurableObject<CoreBindings> {
   }
   private async dispatchPasswordProtectedMethod(
     request: Request,
-    handlers: PasswordProtectedMethodHandlers
+    handlers: PasswordProtectedMethodHandlers,
+    options: { allowDeleted?: boolean } = {}
   ): Promise<Response> {
     const authorization =
       await this.resolvePasswordAuthorizedOpenMeldContext(request);
     if (!authorization.ok) {
       return authorization.response;
+    }
+    if (
+      request.method !== "GET" &&
+      !options.allowDeleted &&
+      this.readSpaceMetaRecord()?.deletedAt
+    ) {
+      return this.deletedSpaceWriteResponse();
     }
     if (!isPasswordProtectedMethod(request.method)) {
       return this.methodNotAllowed();
@@ -13562,6 +13570,9 @@ export class Space extends DurableObject<CoreBindings> {
     const accessResult = await this.authorizeSpaceAccess(spaceAccess);
     if (!accessResult.ok) {
       return accessResult;
+    }
+    if (this.readSpaceMetaRecord()?.deletedAt) {
+      return { ok: false, response: this.deletedSpaceWriteResponse() };
     }
     const requestContext = getSpaceAccessRequestContext(spaceAccess);
     const ownerUserId = normalizeOptionalText(
@@ -14777,9 +14788,13 @@ export class Space extends DurableObject<CoreBindings> {
     });
   }
   private dispatchLeaveSpaceRequest(request: Request): Promise<Response> {
-    return this.dispatchPasswordProtectedMethod(request, {
-      POST: ({ context }) => this.handleLeaveSpace(context),
-    });
+    return this.dispatchPasswordProtectedMethod(
+      request,
+      {
+        POST: ({ context }) => this.handleLeaveSpace(context),
+      },
+      { allowDeleted: true }
+    );
   }
   private dispatchDispatchTraceRequest(
     request: Request,
@@ -16513,9 +16528,13 @@ export class Space extends DurableObject<CoreBindings> {
     return Response.json({ code, message }, { status });
   }
   private dispatchSpaceDeleteRequest(request: Request): Promise<Response> {
-    return this.dispatchPasswordProtectedMethod(request, {
-      DELETE: ({ context }) => this.handleDeleteSpace(request, context),
-    });
+    return this.dispatchPasswordProtectedMethod(
+      request,
+      {
+        DELETE: ({ context }) => this.handleDeleteSpace(request, context),
+      },
+      { allowDeleted: true }
+    );
   }
   private dispatchInitializeMetaRequest(
     request: Request,
@@ -18157,14 +18176,9 @@ export class Space extends DurableObject<CoreBindings> {
     const body = await request.json().catch(() => null);
     const parsed = postResolvedSpaceMembersBodySchema.safeParse(body);
     if (!parsed.success) {
-      return Response.json(
-        {
-          ok: false,
-          code: "invalid_payload",
-          message: parsed.error.issues[0]?.message ?? "Invalid members payload",
-          requestId: context.actorContext.requestId,
-        },
-        { status: 400 }
+      return invalidSpaceMembersPayloadResponse(
+        parsed.error.issues,
+        context.actorContext.requestId
       );
     }
     let metaRecord = this.readSpaceMetaRecord();
@@ -18219,6 +18233,9 @@ export class Space extends DurableObject<CoreBindings> {
     metaRecord = this.readSpaceMetaRecord();
     if (!metaRecord) {
       return this.spaceNotFoundResponse();
+    }
+    if (metaRecord.deletedAt) {
+      return this.deletedSpaceWriteResponse();
     }
     const externalLinkJoin = organizationMembership?.ok === false;
     if (externalLinkJoin && !allowsExternalSpaceLinkJoin(metaRecord)) {
@@ -18556,6 +18573,39 @@ export class Space extends DurableObject<CoreBindings> {
     const metaRecord = await this.readSpaceMetaRecord();
     if (!metaRecord) {
       return this.spaceNotFoundResponse();
+    }
+    if (metaRecord.deletedAt) {
+      // Removing a deleted Space affects this account's list, not shared history.
+      const members = listSpaceMemberRecords(this.ctx.storage.sql, {
+        status: "active",
+      }).filter(
+        (member) =>
+          member.ownerUserIdSnapshot === context.actorContext.ownerUserId
+      );
+      const response = leaveSpaceUseCase({
+        sql: this.ctx.storage.sql,
+        spaceId: this.spaceId,
+        actorProfileId: context.actorContext.openMeldProfileId,
+        actorOwnerUserId: context.actorContext.ownerUserId,
+        metaRecord,
+      });
+      for (const member of members) {
+        if (member.profileId !== context.actorContext.openMeldProfileId) {
+          leaveSpaceUseCase({
+            sql: this.ctx.storage.sql,
+            spaceId: this.spaceId,
+            actorProfileId: member.profileId,
+            actorOwnerUserId: context.actorContext.ownerUserId,
+            metaRecord,
+          });
+        }
+      }
+      await this.projectCurrentSpaceIndexSnapshot("space.members_updated");
+      await this.broadcastSpaceMembersChanged({
+        profileIds: members.map((member) => member.profileId),
+        reason: "space.members.left",
+      });
+      return Response.json(response);
     }
     const centerAgentDirectMessageBlock =
       await this.rejectDirectMessageMutation({
@@ -19196,6 +19246,9 @@ export class Space extends DurableObject<CoreBindings> {
         { status: 403 }
       );
     }
+    if (existing.deletedAt) {
+      return Response.json({ spaceId: this.spaceId, deleted: true as const });
+    }
     const pendingWork = {
       ...(await readSpaceDeletionPendingWork({
         db: this.requireSpaceIndexDb(),
@@ -19222,12 +19275,18 @@ export class Space extends DurableObject<CoreBindings> {
         { status: 409 }
       );
     }
-    await this.deleteSpaceStorage(existing, {
-      ownerUserId: context.actorContext.ownerUserId,
-      profileId: context.actorContext.openMeldProfileId,
-      profileName:
-        context.actorContext.profileName ?? context.actorContext.ownerName,
+    const deletedAt = new Date().toISOString();
+    upsertSpaceMetaRecord(this.ctx.storage.sql, {
+      ...existing,
+      deletedAt,
+      updatedAt: deletedAt,
     });
+    await this.projectCurrentSpaceIndexSnapshot("space.meta_updated");
+    await this.requireSpaceIndexDb().query({
+      text: 'DELETE FROM "openmeld"."space_owner_member_references" WHERE space_id = $1',
+      values: [this.spaceId],
+    });
+    await this.broadcastSpaceMetaChanged({ reason: "space.deleted" });
     return Response.json({ spaceId: this.spaceId, deleted: true as const });
   }
   private async deleteSpaceStorage(
@@ -19880,7 +19939,29 @@ export class Space extends DurableObject<CoreBindings> {
         ),
       };
     }
+    if (meta.deletedAt) {
+      return { ok: false, response: this.deletedSpaceWriteResponse() };
+    }
     return { ok: true, meta };
+  }
+  private deletedSpaceWriteResponse(): Response {
+    return Response.json(
+      {
+        ok: false,
+        code: "space.deleted",
+        message: "This Space was deleted. You can still read its history.",
+      },
+      { status: 409 }
+    );
+  }
+  private assertActiveSpaceForPublication(): void {
+    if (this.readSpaceMetaRecord()?.deletedAt) {
+      throw new SpaceSignalAuthoringError({
+        code: "space.deleted",
+        status: 409,
+        message: "This Space was deleted. You can still read its history.",
+      });
+    }
   }
   private resolveOpenMeldContextFromRequest(
     request: Request
@@ -20558,6 +20639,7 @@ export class Space extends DurableObject<CoreBindings> {
     duplicateFinalReplyBlocked: boolean;
     persistedSignal: boolean;
   } {
+    this.assertActiveSpaceForPublication();
     const dispatchMessages: OpenMeldDaemonDispatchQueueMessage[] = [];
     const stoppedNotices: SignalEnvelope[] = [];
     let duplicateFinalReplyBlocked = false;
@@ -20963,6 +21045,7 @@ export class Space extends DurableObject<CoreBindings> {
         message: "This message is still queued. Its Agent is not available.",
       });
     }
+    this.assertActiveSpaceForPublication();
     const retentionResult = persistSignalWithRetention({
       insertSignal: () => {
         const result = runAgentReplyObservationGuardedTransaction({
@@ -25222,6 +25305,7 @@ export class Space extends DurableObject<CoreBindings> {
     signal: SignalEnvelope,
     signalContextInput?: SignalPublishContext
   ): Promise<void> {
+    this.assertActiveSpaceForPublication();
     // Freeze legacy HTTP/RPC/WebSocket input here, before ordinary dispatch or
     // active Steer. Queue promotion already carries its original accepted anchor.
     const signalContext =
@@ -28118,6 +28202,21 @@ export function resolveSignalsPageFromEntries(input: {
     nextCursor: nextCursor ?? null,
   };
 }
+function invalidSpaceMembersPayloadResponse(
+  issues: readonly { message: string }[],
+  requestId: string
+): Response {
+  return Response.json(
+    {
+      ok: false,
+      code: "invalid_payload",
+      message: issues[0]?.message ?? "Invalid members payload",
+      requestId,
+    },
+    { status: 400 }
+  );
+}
+
 async function readOptionalDeleteSpaceBody(request: Request): Promise<
   | {
       ok: true;
@@ -28344,6 +28443,7 @@ function toPublicSpaceMeta(
     passwordProtected: meta.accessMode === "protected",
     createdAt: meta.createdAt,
     updatedAt: meta.updatedAt,
+    ...(meta.deletedAt ? { deletedAt: meta.deletedAt } : {}),
     storageUsage: {
       usedBytes: Math.max(0, Math.floor(databaseSizeBytes)),
       softLimitBytes: SOFT_LIMIT_BYTES,

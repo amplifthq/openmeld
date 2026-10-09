@@ -25,6 +25,26 @@ export async function optimisticallyRemoveSpaceFromListCaches(input: {
 	queryClient: QueryClient;
 	spaceId: string;
 }): Promise<SpaceDeleteCacheSnapshot> {
+	return await optimisticallyUpdateSpaceListCaches(input);
+}
+
+export async function optimisticallyDeleteSpaceInListCaches(input: {
+	organizationId: string | null;
+	queryClient: QueryClient;
+	spaceId: string;
+}): Promise<SpaceDeleteCacheSnapshot> {
+	return await optimisticallyUpdateSpaceListCaches({
+		...input,
+		deletedAt: new Date().toISOString(),
+	});
+}
+
+async function optimisticallyUpdateSpaceListCaches(input: {
+	organizationId: string | null;
+	queryClient: QueryClient;
+	spaceId: string;
+	deletedAt?: string;
+}): Promise<SpaceDeleteCacheSnapshot> {
 	const organizationSpacesKey = input.organizationId
 		? organizationQueryKeys.spaces(input.organizationId)
 		: null;
@@ -55,12 +75,8 @@ export async function optimisticallyRemoveSpaceFromListCaches(input: {
 				)
 					? {
 							...current,
-							pinnedItems: current.pinnedItems.filter(
-								(item) => item.spaceId !== input.spaceId
-							),
-							spaceItems: current.spaceItems.filter(
-								(item) => item.spaceId !== input.spaceId
-							),
+							pinnedItems: updateItems(current.pinnedItems, input),
+							spaceItems: updateItems(current.spaceItems, input),
 						}
 					: current
 		);
@@ -176,15 +192,28 @@ function restoreDeletedItem<T extends { spaceId: string }>(
 	before: readonly T[],
 	spaceId: string
 ): T[] {
-	if (current.some((item) => item.spaceId === spaceId)) {
-		return [...current];
-	}
 	const index = before.findIndex((item) => item.spaceId === spaceId);
 	const item = before[index];
 	if (!item) {
 		return [...current];
 	}
+	if (current.some((entry) => entry.spaceId === spaceId)) {
+		return current.map((entry) => (entry.spaceId === spaceId ? item : entry));
+	}
 	const restored = [...current];
 	restored.splice(Math.min(index, restored.length), 0, item);
 	return restored;
+}
+
+function updateItems(
+	items: AccountSpaceSections["spaceItems"],
+	input: { spaceId: string; deletedAt?: string }
+): AccountSpaceSections["spaceItems"] {
+	return input.deletedAt
+		? items.map((item) =>
+				item.spaceId === input.spaceId
+					? { ...item, deletedAt: input.deletedAt }
+					: item
+			)
+		: items.filter((item) => item.spaceId !== input.spaceId);
 }

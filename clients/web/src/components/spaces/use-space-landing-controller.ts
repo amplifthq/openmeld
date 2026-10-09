@@ -64,7 +64,6 @@ import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { ComposerFileDraftCleanup } from "#/lib/spaces/composer-file-drafts";
 import type { SpaceConversationVisibleStreamProjection } from "#/lib/spaces/conversation-stream";
-import { removeDeletedSpaceFromAccountHistory } from "#/lib/spaces/delete-space-history-cleanup";
 import type { SpaceEphemeralActivityItem } from "#/lib/spaces/dispatch-activity";
 import {
 	isCurrentSpaceAccessRejection,
@@ -153,7 +152,7 @@ import type {
 } from "./space-composer-editor";
 import { requireCurrentSpaceComposerWakeAdmission } from "./space-composer-wake-admission";
 import {
-	optimisticallyRemoveSpaceFromListCaches,
+	optimisticallyDeleteSpaceInListCaches,
 	restoreSpaceListCaches,
 } from "./space-delete-cache";
 import { useSpaceEntryConfirmation } from "./space-entry-confirmation";
@@ -2759,6 +2758,7 @@ export function useSpaceLandingController(input: {
 
 	const deleteActionVisibility = resolveSpaceDeleteActionVisibility({
 		currentProfileId: input.profileId,
+		deletedAt: statusSnapshot?.deletedAt,
 		membersSnapshot,
 		ownerUserIds: statusSnapshot?.ownerUserIds ?? [],
 	});
@@ -3756,11 +3756,11 @@ export function useSpaceLandingController(input: {
 		setDeleteSpaceErrorMessage(null);
 		let deleted = false;
 		let cacheSnapshot:
-			| Awaited<ReturnType<typeof optimisticallyRemoveSpaceFromListCaches>>
+			| Awaited<ReturnType<typeof optimisticallyDeleteSpaceInListCaches>>
 			| undefined;
 
 		try {
-			cacheSnapshot = await optimisticallyRemoveSpaceFromListCaches({
+			cacheSnapshot = await optimisticallyDeleteSpaceInListCaches({
 				organizationId: input.organizationId ?? null,
 				queryClient,
 				spaceId: input.spaceId,
@@ -3780,20 +3780,6 @@ export function useSpaceLandingController(input: {
 			});
 			deleted = true;
 			clearSpaceFileMediaResources(queryClient, input.spaceId);
-
-			try {
-				await removeDeletedSpaceFromAccountHistory({
-					currentProfileId: input.profileId,
-					reason: "deleted_space",
-					spaceId: input.spaceId,
-				});
-			} catch (error) {
-				toast.warning(
-					error instanceof Error
-						? `Space deleted, but OpenMeld could not update your sidebar history. ${error.message}`
-						: "Space deleted, but OpenMeld could not update your sidebar history."
-				);
-			}
 
 			await Promise.all([
 				input.organizationId

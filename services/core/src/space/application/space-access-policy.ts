@@ -75,7 +75,7 @@ export async function authorizeProtectedSpaceAccess(input: {
     proof: NonNullable<SpaceMetaRecord["passwordProof"]>
   ) => Promise<boolean>;
 }): Promise<ProtectedSpaceAccessAuthorizationResult> {
-  if (input.meta.accessMode === "members_only") {
+  if (input.meta.deletedAt || input.meta.accessMode === "members_only") {
     return authorizeMembersOnlySpaceAccess(input);
   }
   if (
