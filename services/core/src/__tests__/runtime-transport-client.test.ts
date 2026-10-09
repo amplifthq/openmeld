@@ -1591,6 +1591,123 @@ describe("runtime transport split clients call fallback behavior", () => {
     });
   });
 
+  it.each([
+    false,
+    true,
+  ])("keeps the five-second Head trace deadline with context opt-in %s", async (includeExecutionContext) => {
+    vi.useFakeTimers();
+    const warnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    const { env, stub } = createEnv();
+    let signal: AbortSignal | null | undefined;
+    stub.fetch.mockImplementation((_url: string, init?: RequestInit) => {
+      signal = init?.signal;
+      return new Promise<Response>((_resolve, reject) => {
+        signal?.addEventListener("abort", () =>
+          reject(new Error("request aborted"))
+        );
+      });
+    });
+    try {
+      const pending = readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace({
+        env,
+        includeExecutionContext,
+        ownerUserId: "owner",
+        request: {
+          v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+          targetWakeLifecycleIdentity: projectTargetWakeLifecycleIdentity({
+            clientMessageId: "client-message-1",
+            dispatchId: "dispatch-1",
+            sourceSignalId: "signal-1",
+            spaceId: "space-1",
+            targetProfileId: "agent-1",
+          }),
+        },
+      });
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(signal?.aborted).toBe(true);
+      expect(await pending).toMatchObject({
+        readStatus: "authority_unavailable",
+      });
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[core.runtime_transport_client.request_timeout]",
+        expect.objectContaining({
+          path: "/runtime-coordinator/head/trace",
+          timeoutMs: 5000,
+        })
+      );
+    } finally {
+      await vi.runAllTimersAsync();
+      vi.useRealTimers();
+      warnSpy.mockRestore();
+    }
+  });
+
+  it.each([
+    {
+      failure: "network",
+      status: 0,
+      reasonCode: "runtime_coordinator.head_lifecycle_trace_unavailable",
+    },
+    {
+      failure: "invalid_response",
+      status: 200,
+      reasonCode: "runtime_coordinator.head_lifecycle_trace_unavailable",
+    },
+    {
+      failure: "server_error",
+      status: 500,
+      reasonCode: "runtime_coordinator.head_lifecycle_trace_unavailable",
+    },
+    {
+      failure: "restarting",
+      status: 503,
+      reasonCode: "core.transport_restarting",
+    },
+  ])("reports unavailable Context and preserves the Head reason on $failure", async ({
+    failure,
+    status,
+    reasonCode,
+  }) => {
+    const { env, stub } = createEnv();
+    if (failure === "network") {
+      stub.fetch.mockRejectedValue(new Error("connection unavailable"));
+    } else {
+      stub.fetch.mockResolvedValue(new Response("not JSON", { status }));
+    }
+    const request = {
+      v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+      targetWakeLifecycleIdentity: projectTargetWakeLifecycleIdentity({
+        clientMessageId: "client-message-1",
+        dispatchId: "dispatch-1",
+        sourceSignalId: "signal-1",
+        spaceId: "space-1",
+        targetProfileId: "agent-1",
+      }),
+    };
+    const response =
+      await readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace({
+        env,
+        includeExecutionContext: true,
+        ownerUserId: "owner",
+        request,
+      });
+    expect(response).toMatchObject({
+      ok: false,
+      readStatus: "authority_unavailable",
+      reasonCode,
+      executionContext: { readStatus: "authority_unavailable", reasonCode },
+    });
+    const legacy =
+      await readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace({
+        env,
+        ownerUserId: "owner",
+        request,
+      });
+    expect(legacy).not.toHaveProperty("executionContext");
+  });
+
   it("returns timeout reason when wait response is non-JSON 409", async () => {
     const { env, stub } = createEnv();
     stub.fetch.mockResolvedValue(new Response("failed", { status: 409 }));

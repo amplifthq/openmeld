@@ -17,3 +17,5 @@ The Agent's Session options clarify that automatic continuation keeps earlier
 restrictions.
 CLI diagnostics can read retained task settings after the transient execution
 record has retired, while older trace clients keep their existing response.
+When task settings cannot be read, Message details shows that they are
+unavailable. A recovery cannot use another sender's publication receipt.

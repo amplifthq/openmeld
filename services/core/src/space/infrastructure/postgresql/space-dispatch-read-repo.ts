@@ -931,21 +931,24 @@ const readRuntimeCoordinatorHeadLifecycleTrace = async (input: {
       targetWakeLifecycleId: targetWakeLifecycleIdentity.targetWakeLifecycleId,
     };
   }
-  const response = await Promise.resolve(
-    input.readRuntimeCoordinatorHeadLifecycleTrace({
-      dispatch: input.dispatch,
-      ownerUserId,
-      request: {
-        v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
-        targetWakeLifecycleIdentity,
-      },
-    })
-  ).catch(() => ({
-    ok: false as const,
-    readStatus: "authority_unavailable" as const,
-    reasonCode: "runtime_coordinator.head_lifecycle_trace_unavailable",
-    targetWakeLifecycleId: targetWakeLifecycleIdentity.targetWakeLifecycleId,
-  }));
+  const reader = input.readRuntimeCoordinatorHeadLifecycleTrace;
+  const response = await Promise.resolve()
+    .then(() =>
+      reader({
+        dispatch: input.dispatch,
+        ownerUserId,
+        request: {
+          v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+          targetWakeLifecycleIdentity,
+        },
+      })
+    )
+    .catch(() => ({
+      ok: false as const,
+      readStatus: "authority_unavailable" as const,
+      reasonCode: "runtime_coordinator.head_lifecycle_trace_unavailable",
+      targetWakeLifecycleId: targetWakeLifecycleIdentity.targetWakeLifecycleId,
+    }));
   return toRuntimeCoordinatorHeadLifecycleTraceRecord(response);
 };
 function toRuntimeCoordinatorHeadLifecycleTraceRecord(
@@ -1227,18 +1230,43 @@ async function readSpaceNativeDeliveryTrace(
   return null;
 }
 
+function projectSpaceDispatchTraceExecutionContext(
+  response: SpaceDispatchTraceResponse
+): SpaceDispatchTraceResponse {
+  const head = response.trace?.runtimeCoordinatorHeadLifecycle;
+  if (!(response.trace && head) || head.executionContext) {
+    return response;
+  }
+  return {
+    ...response,
+    trace: {
+      ...response.trace,
+      runtimeCoordinatorHeadLifecycle: {
+        ...head,
+        executionContext: {
+          readStatus: "authority_unavailable",
+          reasonCode:
+            head.readStatus === "authority_unavailable"
+              ? head.reasonCode
+              : "execution_context.diagnostics_not_reported",
+        },
+      },
+    },
+  };
+}
+
 function projectSpaceDispatchTraceResponseForContractVersion(input: {
   response: SpaceDispatchTraceResponse;
   responseContractVersion?: SpaceDispatchTraceResponseContractVersion;
 }): SpaceDispatchTraceResponse {
+  const currentHead = input.response.trace?.runtimeCoordinatorHeadLifecycle;
   if (
     input.responseContractVersion ===
     SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION
   ) {
-    return input.response;
+    return projectSpaceDispatchTraceExecutionContext(input.response);
   }
   let response = input.response;
-  const currentHead = response.trace?.runtimeCoordinatorHeadLifecycle;
   if (response.trace && currentHead?.executionContext) {
     const { executionContext: _executionContext, ...legacyHead } = currentHead;
     response = {

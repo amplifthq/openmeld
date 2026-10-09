@@ -32,6 +32,7 @@ import { SpaceMessageDetailsDrawer } from "./space-message-details-drawer";
 
 const CODE_MODE_PATTERN = /codemode/iu;
 const SPACE_ONLY_PATTERN = /Space context only/;
+const TASK_CONTEXT_UNAVAILABLE_PATTERN = /Task context unavailable/;
 const CONTINUED_CONVERSATION_PATTERN = /Continued conversation/;
 const ACTING_PROFILE_PATTERN =
 	/You'll send this as a new request from your current profile/;
@@ -115,6 +116,34 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 describe("SpaceMessageDetailsDrawer", () => {
+	it("keeps unavailable task settings visible without offering recovery", () => {
+		const details = createWakeSuccessReplyDetails();
+		const target = details.wakeContext.targets[0];
+		if (!target) {
+			throw new Error("Expected a Wake target");
+		}
+		target.taskContext = {
+			assignment: {
+				readStatus: "authority_unavailable",
+				reasonCode: "runtime_coordinator.head_lifecycle_trace_unavailable",
+			},
+			conversationResume: null,
+		};
+		useQueryMock.mockReturnValue(createQueryResult({ data: details }));
+		renderMessageDetailsPanel({
+			item: createAgentReplyTimelineItem(),
+			canStartNewTask: true,
+			profileId: "human-1",
+		});
+		expect(screen.getByText(TASK_CONTEXT_UNAVAILABLE_PATTERN)).toBeTruthy();
+		expect(
+			screen.getByText(
+				"Effective task settings aren't available for this Wake."
+			)
+		).toBeTruthy();
+		expect(screen.queryByText("Start a new task")).toBeNull();
+	});
+
 	it.each([
 		"human-1",
 		"human-2",

@@ -8586,6 +8586,10 @@ The existing internal Head trace route accepts the opt-in
 `?executionContext=1` query. Its request body is unchanged. Old callers
 receive their original strict shape; an older shard that ignores the query
 reports no Context diagnostics, which the new reader presents as unavailable.
+The query does not change the Head trace's five-second read deadline or
+transport error classification. An unavailable owner or failed read remains an
+explicit unavailable task-context projection in v7; it does not remove the
+section from Message details. Versions 1–6 retain their original shapes.
 This adds no storage writer, migration, or dependency on retaining transient
 Heads.
 
@@ -8603,6 +8607,11 @@ with that sender's permissions and no inherited approvals from the source.
 Its stable client message id
 reuses the existing Space authoring receipt for the same reviewed request,
 requester, target and placement, including retries after accepted publication.
+Every Space and Thread publication receipt is checked against the authorized
+sender before replay. Reusing another sender's message identity returns an
+explicit conflict rather than a successful recovery. The client-generated id
+grants no authority and does not prevent another sender from attempting to use
+it; a conflict requires a new message from the composer.
 
 Contract impact: deploy Core and Gateway trace-v7 receivers before publishing
 a CLI that requests v7; old Gateways reject unknown trace versions. Existing

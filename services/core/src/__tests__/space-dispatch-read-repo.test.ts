@@ -1075,6 +1075,46 @@ describe("space dispatch read repo", () => {
   });
 
   it.each([
+    "missing_reader",
+    "rejected_read",
+    "thrown_read",
+  ])("keeps unavailable task Context in v7 after $0", async (failure) => {
+    const readRuntimeCoordinatorHeadLifecycleTrace =
+      failure === "missing_reader"
+        ? undefined
+        : vi.fn(() => {
+            const error = new Error("Head authority unavailable");
+            if (failure === "thrown_read") {
+              throw error;
+            }
+            return Promise.reject(error);
+          });
+    for (const version of [6, 7] as const) {
+      const result = await readSpaceDispatchTrace({
+        db: createTraceDb({ runtimeCoordinatorExecutionRow: undefined }),
+        dispatchId: "dispatch-1",
+        readReplySignalTrace: vi.fn().mockReturnValue(null),
+        readRuntimeCoordinatorHeadLifecycleTrace,
+        responseContractVersion: version,
+        spaceId: "space-1",
+      });
+      const head = result.trace?.runtimeCoordinatorHeadLifecycle;
+      expect(head?.readStatus).toBe("authority_unavailable");
+      if (version === 7) {
+        expect(head?.executionContext).toEqual({
+          readStatus: "authority_unavailable",
+          reasonCode:
+            failure === "missing_reader"
+              ? "runtime_coordinator.head_owner_evidence_unavailable"
+              : "runtime_coordinator.head_lifecycle_trace_unavailable",
+        });
+      } else {
+        expect(head).not.toHaveProperty("executionContext");
+      }
+    }
+  });
+
+  it.each([
     {
       reasonCode: "wake.device_wait.readiness_checking",
       trigger: "agent_readiness_reported",
@@ -1486,10 +1526,21 @@ describe("space dispatch read repo", () => {
       ...commonInput,
       responseContractVersion: 3,
     });
+    const {
+      executionContext: _executionContext,
+      ...currentHeadWithoutContext
+    } = currentResult.trace?.runtimeCoordinatorHeadLifecycle ?? {};
     expect(v3Result.trace?.runtimeCoordinatorHeadLifecycle).toEqual(
-      currentResult.trace?.runtimeCoordinatorHeadLifecycle
+      currentHeadWithoutContext
+    );
+    expect(v3Result.trace?.runtimeCoordinatorHeadLifecycle).not.toHaveProperty(
+      "executionContext"
     );
     expect(currentResult.trace?.runtimeCoordinatorHeadLifecycle).toMatchObject({
+      executionContext: {
+        readStatus: "authority_unavailable",
+        reasonCode: "execution_context.diagnostics_not_reported",
+      },
       noExecutionDecision: {
         publicationCategory: "workspace_unavailable",
         reasonCode: "workspace.invalid",

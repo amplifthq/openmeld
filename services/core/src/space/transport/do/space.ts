@@ -214,6 +214,7 @@ import type {
   OpenMeldRequestContext,
   PostSpaceDispatchOutboxRedriveResponse,
   PostSpaceMembersResponse,
+  PostSpaceThreadSignalBody,
   PostSpaceWakeStopBody,
   PostSpaceWakeStopResponse,
   PrepareSpaceFileWriteResponse,
@@ -609,6 +610,7 @@ import {
 } from "../../application/space-password-service";
 import { authorizeSpacePublicationModeChange } from "../../application/space-publication-mode-authorization";
 import { measureSpaceSchemaInitialization } from "../../application/space-schema-observability";
+import { assertSameSpaceSignalReplay } from "../../application/space-signal-idempotency";
 import {
   assertSpaceSignalNavigationActionPolicy,
   assertWakeDeviceWaitAuthoring,
@@ -664,10 +666,7 @@ import {
   readNativeSpaceWakeStopIntent,
   retainRetiredNativeWakeStopFence,
 } from "../../application/space-wake-stop-intent";
-import {
-  assertSameSpaceWorkHandoff,
-  validateSpaceWorkHandoff,
-} from "../../application/space-work-handoff";
+import { validateSpaceWorkHandoff } from "../../application/space-work-handoff";
 import { TransientAgentStreamReplay } from "../../application/transient-agent-stream-replay";
 import type {
   PasswordAuthorizationResult,
@@ -5620,7 +5619,7 @@ export class Space extends DurableObject<CoreBindings> {
             reason: policyResult.message,
           });
         }
-        await authorizeRpcSignalWrite({
+        const author = await authorizeRpcSignalWrite({
           authorizeSpacePasswordAccess:
             this.authorizeSpacePasswordAccess.bind(this),
           authorizeWritableSpaceAccess:
@@ -5634,50 +5633,51 @@ export class Space extends DurableObject<CoreBindings> {
             | IdempotentPostSignalResolution
             | { status: "failed"; error: unknown }
           > => {
-            const pluginContinuation = input.pluginContinuation
-              ? new PluginConnectionContinuationRepository(
-                  this.ctx.storage.sql
-                ).reserve(clientMessageId, input.pluginContinuation)
-              : null;
-            const existingSignal =
-              this.readSourceTextSignalByClientMessageId(clientMessageId);
-            if (existingSignal) {
-              if (pluginContinuation) {
-                if (pluginContinuation.signalId !== existingSignal.id) {
+            try {
+              const pluginContinuation = input.pluginContinuation
+                ? new PluginConnectionContinuationRepository(
+                    this.ctx.storage.sql
+                  ).reserve(clientMessageId, input.pluginContinuation)
+                : null;
+              const existingSignal =
+                this.readSourceTextSignalByClientMessageId(clientMessageId);
+              if (existingSignal) {
+                assertSameSpaceSignalReplay({
+                  existing: existingSignal,
+                  authorProfileId: author.profileId,
+                  handoff: input.meta?.workHandoff,
+                  evidenceRefs: input.meta?.evidenceRefs,
+                  text: input.text,
+                  targetProfileIds:
+                    input.messageEnvelope?.activationTargets ?? [],
+                });
+                if (
+                  pluginContinuation &&
+                  pluginContinuation.signalId !== existingSignal.id
+                ) {
                   throw pluginContinuationConflict();
                 }
                 return { signal: existingSignal, status: "accepted" };
               }
-              assertSameSpaceWorkHandoff({
-                existing: existingSignal,
-                authorProfileId: input.profile.profileId,
-                handoff: input.meta?.workHandoff,
-                evidenceRefs: input.meta?.evidenceRefs,
-                text: input.text,
-                targetProfileIds:
-                  input.messageEnvelope?.activationTargets ?? [],
+              if (
+                hasTextSignalClientMessageRejection(
+                  this.ctx.storage.sql,
+                  clientMessageId
+                )
+              ) {
+                return { status: "rejected" };
+              }
+              const postInput = this.buildIdempotentPostSignalInput({
+                agentStreamId,
+                clientMessageId,
+                input,
               });
-              return { signal: existingSignal, status: "accepted" };
+              const signal = await postSignal(postInput);
+              return { signal, status: "accepted" };
+            } catch (error) {
+              // Reject authoring and replay outside the Durable Object input gate.
+              return { status: "failed", error };
             }
-            if (
-              hasTextSignalClientMessageRejection(
-                this.ctx.storage.sql,
-                clientMessageId
-              )
-            ) {
-              return { status: "rejected" };
-            }
-            const postInput = this.buildIdempotentPostSignalInput({
-              agentStreamId,
-              clientMessageId,
-              input,
-            });
-            // A rejected draft must not break the Durable Object input gate.
-            // The message/task transaction has already rolled back.
-            return await postSignal(postInput).then(
-              (signal) => ({ signal, status: "accepted" as const }),
-              (error: unknown) => ({ status: "failed" as const, error })
-            );
           }
         );
         if (resolution.status === "failed") {
@@ -14238,16 +14238,10 @@ export class Space extends DurableObject<CoreBindings> {
         );
       }
       if (existingRetry.status === "replay") {
-        assertSameSpaceWorkHandoff({
-          existing: existingRetry.signal,
+        return this.replayThreadSignalResponse({
           authorProfileId: input.context.actorContext.openMeldProfileId,
-          handoff: parsed.data.workHandoff,
-          evidenceRefs: parsed.data.evidenceRefs,
-          text: parsed.data.text,
-          targetProfileIds:
-            parsed.data.messageEnvelope?.activationTargets ?? [],
-        });
-        return spaceAddressingJsonResponse(input.request, {
+          body: parsed.data,
+          request: input.request,
           signal: existingRetry.signal,
           placement: existingRetry.placement,
         });
@@ -14344,6 +14338,34 @@ export class Space extends DurableObject<CoreBindings> {
           createdAt: signalCreatedAt,
         }),
       });
+    });
+  }
+  private replayThreadSignalResponse(input: {
+    authorProfileId: string;
+    body: PostSpaceThreadSignalBody;
+    request: Request;
+    signal: Extract<SignalEnvelope, { type: "signal.text" }>;
+    placement: SpaceThreadSignalPlacement;
+  }): Response {
+    try {
+      assertSameSpaceSignalReplay({
+        existing: input.signal,
+        authorProfileId: input.authorProfileId,
+        handoff: input.body.workHandoff,
+        evidenceRefs: input.body.evidenceRefs,
+        text: input.body.text,
+        targetProfileIds: input.body.messageEnvelope?.activationTargets ?? [],
+      });
+    } catch (error) {
+      const response = this.coreRpcErrorResponse(error);
+      if (response) {
+        return response;
+      }
+      throw error;
+    }
+    return spaceAddressingJsonResponse(input.request, {
+      signal: input.signal,
+      placement: input.placement,
     });
   }
   private readSignalById(signalId: string): SignalEnvelope | null {

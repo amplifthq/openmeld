@@ -679,45 +679,64 @@ export const readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace =
       input.request.targetWakeLifecycleIdentity?.targetWakeLifecycleId ??
       "unknown";
     if (!parsedRequest.success) {
-      return {
-        ok: false,
-        readStatus: "authority_unavailable",
-        reasonCode: "runtime_coordinator.head_lifecycle_trace_request_invalid",
-        targetWakeLifecycleId,
-      };
+      return projectHeadTraceExecutionContext({
+        response: {
+          ok: false,
+          readStatus: "authority_unavailable",
+          reasonCode:
+            "runtime_coordinator.head_lifecycle_trace_request_invalid",
+          targetWakeLifecycleId,
+        },
+        includeExecutionContext: input.includeExecutionContext,
+      });
     }
     const response = await callRuntimeTransportApi({
       env: input.env,
       ownerUserId: input.ownerUserId,
-      path: input.includeExecutionContext
-        ? "/runtime-coordinator/head/trace?executionContext=1"
-        : "/runtime-coordinator/head/trace",
+      path: "/runtime-coordinator/head/trace",
+      ...(input.includeExecutionContext
+        ? { query: { executionContext: "1" } }
+        : {}),
       body: parsedRequest.data,
     });
     const parsed =
       runtimeTransportRuntimeCoordinatorHeadLifecycleTraceResponseSchema.safeParse(
         response
       );
-    if (!parsed.success) {
-      return {
-        ok: false,
-        readStatus: "authority_unavailable",
-        reasonCode: "runtime_coordinator.head_lifecycle_trace_unavailable",
-        targetWakeLifecycleId:
-          parsedRequest.data.targetWakeLifecycleIdentity.targetWakeLifecycleId,
-      };
-    }
-    if (input.includeExecutionContext && !parsed.data.executionContext) {
-      return {
-        ...parsed.data,
-        executionContext: {
-          readStatus: "authority_unavailable",
-          reasonCode: "execution_context.diagnostics_not_reported",
-        },
-      };
-    }
-    return parsed.data;
+    return projectHeadTraceExecutionContext({
+      includeExecutionContext: input.includeExecutionContext,
+      response: parsed.success
+        ? parsed.data
+        : {
+            ok: false,
+            readStatus: "authority_unavailable",
+            reasonCode: "runtime_coordinator.head_lifecycle_trace_unavailable",
+            targetWakeLifecycleId:
+              parsedRequest.data.targetWakeLifecycleIdentity
+                .targetWakeLifecycleId,
+          },
+    });
   };
+
+function projectHeadTraceExecutionContext(input: {
+  includeExecutionContext?: boolean;
+  response: RuntimeTransportRuntimeCoordinatorHeadLifecycleTraceResponse;
+}): RuntimeTransportRuntimeCoordinatorHeadLifecycleTraceResponse {
+  if (!input.includeExecutionContext || input.response.executionContext) {
+    return input.response;
+  }
+  return {
+    ...input.response,
+    executionContext: {
+      readStatus: "authority_unavailable",
+      reasonCode:
+        input.response.readStatus === "authority_unavailable"
+          ? input.response.reasonCode
+          : "execution_context.diagnostics_not_reported",
+    },
+  };
+}
+
 export const readRuntimeTransportRuntimeCoordinatorPublicationWakeStopEligibility =
   async (input: {
     env: CoreBindings;
