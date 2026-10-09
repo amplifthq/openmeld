@@ -25,6 +25,9 @@ Missing or unavailable working folders now lead to the affected Agent’s folder
 settings. Center Agent can check a Project’s connection on that Agent’s Computer
 without receiving local paths.
 
+Stop remains available after the same local OpenMeld Service reconnects and
+confirms that it still owns the running task.
+
 Cloud commands return their exact receipt reference and execution phase. Owner
 inspection can query the original Remote command, and a missing receipt reports
 an unknown acceptance state instead of an unreachable service.

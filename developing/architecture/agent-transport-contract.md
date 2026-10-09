@@ -628,6 +628,13 @@ Important execution rules:
   message, execution identity, token and owned-reconnection checks still apply.
   Tool/reasoning publication additionally requires the current session socket
   and connection generation. Missing durable command state remains an explicit rejection.
+- A token-valid lifecycle report from the current socket may advance the same
+  Service process's control connection generation. Core verifies the unchanged
+  owner, Service session, device, lane, Profile lease, dispatch, attempt, and run
+  before updating the existing durable run command. A historical command with
+  unknown device or lane cannot adopt a new generation. This transport update
+  does not start or redeliver work. An occupied keepalive can update control
+  provenance but cannot refresh progress or reset the watchdog baseline.
 - Watchdog scheduling is a bounded Durable Object projection of command and token
   authority. Command writes and terminal transitions update it transactionally.
   Existing history is repaired in pages with a durable cursor, without deleting
