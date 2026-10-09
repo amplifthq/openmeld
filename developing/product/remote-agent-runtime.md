@@ -522,6 +522,18 @@ and exit times, exit code, synchronization state and failure phase. They exclude
 command text, output, credentials and temporary transport URLs. Background
 collection does not log every running poll.
 
+The Computer SDK's synchronization planner keeps its native generation and
+frozen `(revision, path)` cursor. Its path query returns completed root paths
+through the existing child-inode index instead of materializing every ancestor
+segment in JavaScript. Every hardlink path, tombstone and same-revision entry
+remains eligible; an inode limit or revision-only cursor must not replace this
+contract. Mode selection does not compute an unused first block. The actual
+block is planned after the SDK's existing target/generation fence, including
+restart and later-write handling. The SDK patch does not change command
+ownership, native shell execution, synchronization acknowledgements or storage
+schema. Local planner measurements do not establish production CPU-limit
+recovery or native Linux acceptance.
+
 This is an additive Computer response and local Skill guidance change. Existing
 CLI command-result parsers use a non-strict object, ignore the optional
 `syncError`, and retain exit, `syncPending` and `nextAction`. No status enum,
