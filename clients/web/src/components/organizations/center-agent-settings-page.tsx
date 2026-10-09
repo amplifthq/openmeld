@@ -212,6 +212,13 @@ export function CenterAgentSettingsContent(input: {
 	const brief = documentsQuery.data?.documents.find(
 		(document) => document.kind === "brief"
 	);
+	const canManageBrief = documentsQuery.data?.canManage === true;
+	const emptyBriefSummary = canManageBrief ? "Create brief" : "Not set";
+	const briefSummary = brief ? "View brief" : emptyBriefSummary;
+	const briefDescription =
+		brief || canManageBrief
+			? "Approved context for Center Agent"
+			: "An owner or admin can create the Team Brief.";
 	const designation = designationQuery.data?.designation ?? null;
 	// Start independent settings reads before the identity section can mount.
 	// The child sections reuse these exact query keys and cached responses.
@@ -459,8 +466,9 @@ export function CenterAgentSettingsContent(input: {
 						/>
 						{documentsQuery.isSuccess ? (
 							<AgentConfigurationCard
-								actionLabel="Open Team Brief"
-								description="Approved context for Center Agent"
+								actionKind="open"
+								actionLabel={brief ? "Open Team Brief" : "Create Team Brief"}
+								description={briefDescription}
 								icon={<FileTextIcon aria-hidden="true" />}
 								itemId="center-agent-brief"
 								label="Team Brief"
@@ -477,7 +485,8 @@ export function CenterAgentSettingsContent(input: {
 												}),
 									}).catch(console.error);
 								}}
-								summary={brief ? "View brief" : "Create brief"}
+								readOnly={!(brief || canManageBrief)}
+								summary={briefSummary}
 							/>
 						) : null}
 						<CenterAgentOrganizationMemorySection
@@ -489,7 +498,10 @@ export function CenterAgentSettingsContent(input: {
 					</AgentConfigurationGrid>
 				</section>
 			) : null}
-			{designationQuery.data && !designation && documentsQuery.isSuccess ? (
+			{designationQuery.data &&
+			!designation &&
+			documentsQuery.isSuccess &&
+			(brief || canManageBrief) ? (
 				<section className="rounded-md border border-border/70 bg-card/20 px-5 py-4">
 					<Link
 						className="inline-flex touch-manipulation items-center font-medium text-sm underline-offset-4 hover:underline max-lg:min-h-11"
@@ -508,7 +520,7 @@ export function CenterAgentSettingsContent(input: {
 						Team Brief →
 					</Link>
 					<p className="mt-1 text-muted-foreground text-xs">
-						Manage the approved knowledge your Center Agent receives in Files.
+						View the approved knowledge your Center Agent receives in Files.
 					</p>
 				</section>
 			) : null}
