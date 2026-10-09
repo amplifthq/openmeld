@@ -1236,69 +1236,6 @@ export async function runConnect(input: {
     }).catch((err) => {
       throw new Error(toErrorMessage(err));
     });
-    const initialMembersSnapshot = await readModelSeed
-      .ensureMembersSnapshotLoaded()
-      .catch((error: unknown) => {
-        presenter.event("info", "connect.warn.members_fetch_failed", {
-          error: toErrorMessage(error),
-        });
-        return readModelSeed.getMembersSnapshot();
-      });
-
-    if (gatewayHost) {
-      await syncProfileSpaceHistoryActive({
-        openMeldProfileId,
-        requestContext: buildProfileRequestContext(),
-        baseUrl,
-        space,
-        gatewayHost,
-        spaceMeta,
-        lastSeenTs,
-      }).catch((error) => {
-        presenter.event(
-          "info",
-          "connect.warn.profile_space_history_sync_failed",
-          {
-            error: toErrorMessage(error),
-          }
-        );
-      });
-    }
-
-    emitSessionMeta({
-      accessMode: sessionMeta.accessMode,
-      output,
-      spaceId: sessionMeta.spaceId,
-      spaceName: sessionMeta.spaceName,
-      spaceCreatedAt: sessionMeta.spaceCreatedAt,
-      spaceCreatorName: sessionMeta.spaceCreatorName,
-      spaceCreatorId: sessionMeta.spaceCreatorId,
-      passwordProtected: sessionMeta.passwordProtected,
-      profileId: profileIdentity.openMeldProfileId,
-      profileName: profileIdentity.profileName,
-      profileKind: profileIdentity.kind,
-      ownerUserId: profileIdentity.ownerUserId,
-      ownerName: profileIdentity.ownerName,
-      agentControllerRef: profileIdentity.agentControllerRef,
-      agentControllerConversationId:
-        profileIdentity.agentControllerConversationId,
-      modelSelection: resolveSessionProfileModelSelection({
-        profileId: profileIdentity.openMeldProfileId,
-        spaceMembersSnapshot: readModelSeed.getMembersSnapshot() ?? undefined,
-      }),
-      spaceMembersSnapshot: readModelSeed.getMembersSnapshot() ?? undefined,
-      gatewayUrl: baseUrl,
-      stdio: input.stdio,
-      visibility: sessionMeta.visibility,
-    });
-    if (output === "ndjson" && initialMembersSnapshot) {
-      emitSpaceMembers(
-        runtime.resolvedView === "agent"
-          ? normalizeAgentOutputMembersSnapshot(initialMembersSnapshot)
-          : initialMembersSnapshot
-      );
-    }
-
     // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Event handling keeps the replay/live merge rules in one place.
     const handleIncomingEvent = (event: SignalEnvelope | HelloAck): void => {
       const ignoreResult = shouldIgnoreIncomingSignal({
@@ -1425,7 +1362,84 @@ export async function runConnect(input: {
       process.exitCode = 1;
     });
 
-    ws.send(JSON.stringify(makeHello(toProtocolProfile(profileIdentity))));
+    // Observe terminal socket events before startup's HTTP reads. A failed
+    // recovery can finish while those reads are still pending.
+    const initialMembersSnapshot = await readModelSeed
+      .ensureMembersSnapshotLoaded()
+      .catch((error: unknown) => {
+        presenter.event("info", "connect.warn.members_fetch_failed", {
+          error: toErrorMessage(error),
+        });
+        return readModelSeed.getMembersSnapshot();
+      });
+    if (gatewayHost) {
+      await syncProfileSpaceHistoryActive({
+        openMeldProfileId,
+        requestContext: buildProfileRequestContext(),
+        baseUrl,
+        space,
+        gatewayHost,
+        spaceMeta,
+        lastSeenTs,
+      }).catch((error) => {
+        presenter.event(
+          "info",
+          "connect.warn.profile_space_history_sync_failed",
+          {
+            error: toErrorMessage(error),
+          }
+        );
+      });
+    }
+    if (wsEnded) {
+      finishInitialReplay();
+      if (replyingStatusSweepTimer) {
+        clearTimeout(replyingStatusSweepTimer);
+        replyingStatusSweepTimer = null;
+      }
+      cancelLastSeenTimer();
+      await flushLastSeen();
+      return;
+    }
+    emitSessionMeta({
+      accessMode: sessionMeta.accessMode,
+      output,
+      spaceId: sessionMeta.spaceId,
+      spaceName: sessionMeta.spaceName,
+      spaceCreatedAt: sessionMeta.spaceCreatedAt,
+      spaceCreatorName: sessionMeta.spaceCreatorName,
+      spaceCreatorId: sessionMeta.spaceCreatorId,
+      passwordProtected: sessionMeta.passwordProtected,
+      profileId: profileIdentity.openMeldProfileId,
+      profileName: profileIdentity.profileName,
+      profileKind: profileIdentity.kind,
+      ownerUserId: profileIdentity.ownerUserId,
+      ownerName: profileIdentity.ownerName,
+      agentControllerRef: profileIdentity.agentControllerRef,
+      agentControllerConversationId:
+        profileIdentity.agentControllerConversationId,
+      modelSelection: resolveSessionProfileModelSelection({
+        profileId: profileIdentity.openMeldProfileId,
+        spaceMembersSnapshot: readModelSeed.getMembersSnapshot() ?? undefined,
+      }),
+      spaceMembersSnapshot: readModelSeed.getMembersSnapshot() ?? undefined,
+      gatewayUrl: baseUrl,
+      stdio: input.stdio,
+      visibility: sessionMeta.visibility,
+    });
+    if (output === "ndjson" && initialMembersSnapshot) {
+      emitSpaceMembers(
+        runtime.resolvedView === "agent"
+          ? normalizeAgentOutputMembersSnapshot(initialMembersSnapshot)
+          : initialMembersSnapshot
+      );
+    }
+
+    // Recovery sends its own hello after the initial read establishes an
+    // anchor. The wrapper rejects sends while that recovery is in progress.
+    if (!(watchReadState.hasReconnected || wsEnded)) {
+      ws.send(JSON.stringify(makeHello(toProtocolProfile(profileIdentity))));
+    }
 
     const replayState = await replayConnectHistoryBootstrap({
       profileIdentity,

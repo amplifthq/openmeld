@@ -99,103 +99,145 @@ export class SpaceSessionRuntime {
     this.#replayWork = new Promise<void>((resolve) => {
       finishInitialReplay = resolve;
     });
-
-    const ws = await connectSpaceSessionWebSocket({
-      url: this.#input.wsUrl,
-      headers: async () =>
-        typeof this.#input.wsHeaders === "function"
-          ? await this.#input.wsHeaders()
-          : this.#input.wsHeaders,
-      ...(this.#input.recoverConnection
-        ? {
-            recovery: {
-              onReconnecting: (attempt: number) => {
-                this.#reconnectAttempt = attempt;
-                this.#bufferLiveEventsUntilReplayComplete = true;
-                this.#emit({ type: "connection.reconnecting", attempt });
+    let replayScheduled = false;
+    try {
+      const ws = await connectSpaceSessionWebSocket({
+        url: this.#input.wsUrl,
+        headers: async () =>
+          typeof this.#input.wsHeaders === "function"
+            ? await this.#input.wsHeaders()
+            : this.#input.wsHeaders,
+        ...(this.#input.recoverConnection
+          ? {
+              recovery: {
+                onReconnecting: (attempt: number) => {
+                  this.#reconnectAttempt = attempt;
+                  this.#bufferLiveEventsUntilReplayComplete = true;
+                  this.#emit({ type: "connection.reconnecting", attempt });
+                },
+                onReconnected: async (client, isCurrent) => {
+                  await this.#replayWork;
+                  if (this.#stopRequested || !isCurrent()) {
+                    return;
+                  }
+                  this.#replayFinished = false;
+                  this.#historyLoadedReason = null;
+                  this.#bufferLiveEventsUntilReplayComplete = true;
+                  const snapshot = await this.#input.loadMembers();
+                  if (this.#stopRequested || !isCurrent()) {
+                    return;
+                  }
+                  this.#emit({ type: "members.updated", snapshot });
+                  client.send(
+                    JSON.stringify(makeHello(this.#input.helloProfile))
+                  );
+                  this.#replayWork = this.#startReplayAndDrain(true, isCurrent);
+                  await this.#replayWork;
+                  if (!this.#stopRequested && isCurrent()) {
+                    this.#emit({ type: "connected" });
+                  }
+                },
               },
-              onReconnected: async (client, isCurrent) => {
-                await this.#replayWork;
-                if (this.#stopRequested || !isCurrent()) {
-                  return;
-                }
-                this.#replayFinished = false;
-                this.#historyLoadedReason = null;
-                this.#bufferLiveEventsUntilReplayComplete = true;
-                this.#emit({
-                  type: "members.updated",
-                  snapshot: await this.#input.loadMembers(),
-                });
-                if (this.#stopRequested) {
-                  return;
-                }
-                client.send(
-                  JSON.stringify(makeHello(this.#input.helloProfile))
-                );
-                this.#replayWork = this.#startReplayAndDrain(true, isCurrent);
-                await this.#replayWork;
-                if (!this.#stopRequested && isCurrent()) {
-                  this.#emit({ type: "connected" });
-                }
-              },
-            },
-          }
-        : {}),
-    });
-    this.#ws = ws;
-
-    ws.onMessage((raw) => {
-      if (this.#stopRequested) {
-        return;
-      }
-      const parsed = safeJsonParse(raw);
-      const serverError = parseServerErrorFrame(parsed);
-      if (serverError) {
-        this.#maybeEmitSendFailed(serverError);
-        return;
-      }
-      const event = parseIncoming(parsed);
-      if (!event) {
-        return;
-      }
-      this.#handleLiveEvent(event);
-    });
-    ws.onClose((code, reason) => {
-      this.#emitConnectionClosed({
-        source: "close",
-        code,
-        reason,
+            }
+          : {}),
       });
-    });
-    ws.onError((error) => {
+      this.#ws = ws;
+
+      ws.onMessage((raw) => {
+        if (this.#stopRequested) {
+          return;
+        }
+        const parsed = safeJsonParse(raw);
+        const serverError = parseServerErrorFrame(parsed);
+        if (serverError) {
+          this.#maybeEmitSendFailed(serverError);
+          return;
+        }
+        const event = parseIncoming(parsed);
+        if (!event) {
+          return;
+        }
+        this.#handleLiveEvent(event);
+      });
+      ws.onClose((code, reason) => {
+        this.#emitConnectionClosed({
+          source: "close",
+          code,
+          reason,
+        });
+      });
+      ws.onError((error) => {
+        this.#emitConnectionClosed({
+          source: "error",
+          reason: this.#input.formatError(error),
+          error,
+        });
+      });
+
+      if (this.#stopRequested) {
+        this.stop();
+        return { closed: ws.waitUntilClosed() };
+      }
+
+      const membersSnapshot = await this.#input.loadMembers();
+      if (this.#stopRequested || this.#closeEventDispatched) {
+        return { closed: ws.waitUntilClosed() };
+      }
+      this.#emit({
+        type: "members.updated",
+        snapshot: membersSnapshot,
+      });
+
+      if (this.#reconnectAttempt === 0) {
+        ws.send(JSON.stringify(makeHello(this.#input.helloProfile)));
+        this.#emit({ type: "connected" });
+      }
+
+      const scheduleDeferredWork =
+        this.#input.scheduleDeferredWork ??
+        ((work: () => void) => setImmediate(work));
+      scheduleDeferredWork(() => {
+        this.#startReplayAndDrain()
+          .catch((error: unknown) => {
+            if (!this.#stopRequested) {
+              this.#failInitialization(error);
+            }
+          })
+          .finally(finishInitialReplay);
+      });
+      replayScheduled = true;
+
+      return {
+        closed: ws.waitUntilClosed(),
+      };
+    } catch (error) {
+      if (this.#stopRequested) {
+        return { closed: this.#ws?.waitUntilClosed() ?? Promise.resolve() };
+      }
+      this.#failInitialization(error);
+      throw error;
+    } finally {
+      if (!replayScheduled) {
+        finishInitialReplay();
+      }
+    }
+  }
+
+  #failInitialization(error: unknown): void {
+    try {
       this.#emitConnectionClosed({
         source: "error",
         reason: this.#input.formatError(error),
         error,
       });
-    });
-
-    const membersSnapshot = await this.#input.loadMembers();
-    this.#emit({
-      type: "members.updated",
-      snapshot: membersSnapshot,
-    });
-
-    ws.send(JSON.stringify(makeHello(this.#input.helloProfile)));
-    this.#emit({ type: "connected" });
-
-    const scheduleDeferredWork =
-      this.#input.scheduleDeferredWork ??
-      ((work: () => void) => setImmediate(work));
-    scheduleDeferredWork(() => {
-      this.#startReplayAndDrain()
-        .catch(() => undefined)
-        .finally(finishInitialReplay);
-    });
-
-    return {
-      closed: ws.waitUntilClosed(),
-    };
+    } finally {
+      this.#stopRequested = true;
+      try {
+        this.#ws?.close(1000, "Space initialization failed");
+      } finally {
+        this.#ws?.terminate();
+      }
+    }
   }
 
   stop(reason = "stop requested"): void {

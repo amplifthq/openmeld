@@ -117,13 +117,35 @@ describe("connect experience enhancements", () => {
   });
 
   it.each([
-    { view: "human", initialHistoryPending: false },
-    { view: "agent", initialHistoryPending: false },
-    { view: "human", initialHistoryPending: true },
-    { view: "agent", initialHistoryPending: true },
-  ] as const)("resumes $view watch without skipping the gap (initial history pending=$initialHistoryPending)", async ({
+    {
+      view: "human",
+      initialHistoryPending: false,
+      initialMembersPending: false,
+    },
+    {
+      view: "agent",
+      initialHistoryPending: false,
+      initialMembersPending: false,
+    },
+    {
+      view: "human",
+      initialHistoryPending: true,
+      initialMembersPending: false,
+    },
+    {
+      view: "agent",
+      initialHistoryPending: true,
+      initialMembersPending: false,
+    },
+    {
+      view: "agent",
+      initialHistoryPending: false,
+      initialMembersPending: true,
+    },
+  ] as const)("resumes $view watch without skipping the gap (initial history pending=$initialHistoryPending, members pending=$initialMembersPending)", async ({
     view,
     initialHistoryPending,
+    initialMembersPending,
   }) => {
     const first = createMessageStreamHarness();
     const second = createMessageStreamHarness();
@@ -157,10 +179,21 @@ describe("connect experience enhancements", () => {
     }
     const anchors: string[] = [];
     const initialHistory = Promise.withResolvers<Response>();
+    const initialMembers = Promise.withResolvers<Response>();
     let initialHistoryRequested = false;
+    let initialMembersRequested = false;
+    let initialMembersReleased = false;
     vi.mocked(globalThis.fetch).mockImplementation((request, init) => {
       const url = new URL(String(request));
       const after = url.searchParams.get("afterSignalId");
+      if (
+        initialMembersPending &&
+        !initialMembersReleased &&
+        url.pathname.endsWith("/members")
+      ) {
+        initialMembersRequested = true;
+        return initialMembers.promise;
+      }
       if (
         initialHistoryPending &&
         url.pathname.endsWith("/signals") &&
@@ -210,7 +243,21 @@ describe("connect experience enhancements", () => {
       }
     );
     await first.waitUntilReady();
-    if (initialHistoryPending) {
+    if (initialMembersPending) {
+      await vi.waitFor(() => expect(initialMembersRequested).toBe(true));
+      first.close(1006, "network interrupted before members returned");
+      await vi.waitFor(
+        () => expect(connectWebSocketMock).toHaveBeenCalledTimes(2),
+        { timeout: 4000 }
+      );
+      initialMembersReleased = true;
+      initialMembers.resolve(
+        await ordinaryFetch(
+          "https://example.com/v1/spaces/ops-room/members",
+          {}
+        )
+      );
+    } else if (initialHistoryPending) {
       await vi.waitFor(() => expect(initialHistoryRequested).toBe(true));
       first.close(1006, "network interrupted before initial history completed");
       await vi.waitFor(
@@ -254,12 +301,13 @@ describe("connect experience enhancements", () => {
       first.send.mock.calls
         .concat(second.send.mock.calls)
         .map((call) => JSON.parse(String(call[0])).type)
-    ).toEqual(["hello", "hello"]);
+    ).toEqual(initialMembersPending ? ["hello"] : ["hello", "hello"]);
     expect(process.exitCode ?? 0).toBe(0);
   });
 
   it.each([
     "exhausted",
+    "startup-exhausted",
     "stopped",
   ] as const)("ends a %s watch with the correct exit status", async (outcome) => {
     vi.useFakeTimers();
@@ -269,6 +317,21 @@ describe("connect experience enhancements", () => {
       .mockResolvedValueOnce(first.client)
       .mockRejectedValue(new Error("network unavailable"));
     mockConnectFetchSuccess({ recentSignals: [] });
+    const ordinaryFetch = vi.mocked(globalThis.fetch).getMockImplementation();
+    const initialMembers = Promise.withResolvers<Response>();
+    let membersRequested = false;
+    if (outcome === "startup-exhausted") {
+      if (!ordinaryFetch) {
+        throw new Error("Missing fetch boundary");
+      }
+      vi.mocked(globalThis.fetch).mockImplementation((request, init) => {
+        if (new URL(String(request)).pathname.endsWith("/members")) {
+          membersRequested = true;
+          return initialMembers.promise;
+        }
+        return ordinaryFetch(request, init);
+      });
+    }
     const run = withCapturedStdio(
       async () =>
         await withTempHome(
@@ -289,6 +352,9 @@ describe("connect experience enhancements", () => {
         )
     );
     await first.waitUntilReady();
+    if (outcome === "startup-exhausted") {
+      await vi.waitFor(() => expect(membersRequested).toBe(true));
+    }
     await vi.advanceTimersByTimeAsync(0);
     first.close(1006, "network interrupted");
     if (outcome === "stopped") {
@@ -303,9 +369,20 @@ describe("connect experience enhancements", () => {
         );
       }
     }
+    if (outcome === "startup-exhausted") {
+      if (!ordinaryFetch) {
+        throw new Error("Missing fetch boundary");
+      }
+      initialMembers.resolve(
+        await ordinaryFetch(
+          "https://example.com/v1/spaces/ops-room/members",
+          {}
+        )
+      );
+    }
     const result = await run;
     expect(process.exitCode ?? 0).toBe(outcome === "stopped" ? 0 : 1);
-    if (outcome === "exhausted") {
+    if (outcome !== "stopped") {
       expect(result.stdout + result.stderr).toContain(
         "could not reconnect after 5 attempts"
       );
@@ -315,7 +392,12 @@ describe("connect experience enhancements", () => {
     }
     expect(
       first.send.mock.calls.map((call) => JSON.parse(String(call[0])).type)
-    ).toEqual(["hello"]);
+    ).toEqual(outcome === "startup-exhausted" ? [] : ["hello"]);
+    if (outcome === "startup-exhausted") {
+      expect(result.stdout).not.toContain(
+        '"code":"connect.connected_no_stdio"'
+      );
+    }
   });
 
   it("renders explicit abnormal closure reason and hint for code 1006", async () => {

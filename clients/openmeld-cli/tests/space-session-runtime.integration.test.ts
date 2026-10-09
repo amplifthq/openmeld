@@ -24,6 +24,113 @@ describe("SpaceSessionRuntime", () => {
     vi.clearAllMocks();
   });
 
+  it.each([
+    "resolve",
+    "reject",
+    "history-reject",
+    "stop",
+  ] as const)("settles startup after a socket loss while the initial members read is pending (%s)", async (outcome) => {
+    vi.useFakeTimers();
+    const first = createWsHarness();
+    const second = createWsHarness();
+    connectWebSocketMock
+      .mockReset()
+      .mockResolvedValueOnce(first.client)
+      .mockResolvedValueOnce(second.client);
+    const members = Promise.withResolvers<null>();
+    const loadMembers = vi
+      .fn()
+      .mockImplementationOnce(() => members.promise)
+      .mockResolvedValue(null);
+    const error = new Error("initial read failed");
+    const replayHistory = vi.fn<
+      ConstructorParameters<typeof SpaceSessionRuntime>[0]["replayHistory"]
+    >((_onEvent, _reconnect) =>
+      outcome === "history-reject"
+        ? Promise.reject(error)
+        : Promise.resolve({ synced: true })
+    );
+    const events: SpaceRuntimeEvent[] = [];
+    const runtime = new SpaceSessionRuntime({
+      wsUrl: "wss://example.com/v1/spaces/ops-room",
+      wsHeaders: {},
+      recoverConnection: true,
+      helloProfile: {
+        kind: "human",
+        profileId: "self-profile",
+        profileName: "Felix",
+      },
+      selfProfileId: "self-profile",
+      loadMembers,
+      replayHistory,
+      formatError: String,
+      scheduleDeferredWork: (work) => work(),
+    });
+    runtime.subscribe((event) => events.push(event));
+    const starting = runtime.start().then(
+      (result) => ({ status: "started" as const, result }),
+      (error: unknown) => ({ status: "failed" as const, error })
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(loadMembers).toHaveBeenCalledTimes(1);
+    first.close(1006, "lost during initial members read");
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(connectWebSocketMock).toHaveBeenCalledTimes(2);
+    expect(events.some((event) => event.type === "connected")).toBe(false);
+    if (outcome === "reject") {
+      members.reject(error);
+    } else {
+      if (outcome === "stop") {
+        runtime.stop("SIGINT");
+        second.close(1000, "SIGINT");
+      }
+      members.resolve(null);
+    }
+    const result = await starting;
+    await vi.advanceTimersByTimeAsync(0);
+    if (outcome === "reject") {
+      expect(result).toEqual({ status: "failed", error });
+      expect(second.isClosed()).toBe(true);
+      expect(
+        events.find((event) => event.type === "connection.closed")
+      ).toMatchObject({ source: "error", error });
+      expect(replayHistory).not.toHaveBeenCalled();
+    } else {
+      expect(result.status).toBe("started");
+      if (result.status !== "started") {
+        throw new Error("Expected startup to settle normally");
+      }
+      if (outcome === "history-reject") {
+        expect(
+          events.find((event) => event.type === "connection.closed")
+        ).toMatchObject({ source: "error", error });
+        expect(
+          events.some(
+            (event) =>
+              event.type === "connected" || event.type === "history.loaded"
+          )
+        ).toBe(false);
+        expect(replayHistory).toHaveBeenCalledTimes(1);
+      } else if (outcome === "resolve") {
+        expect(
+          replayHistory.mock.calls.map(([, reconnect]) => reconnect)
+        ).toEqual([false, true]);
+        expect(
+          events.filter((event) => event.type === "connected")
+        ).toHaveLength(1);
+        runtime.stop("SIGINT");
+        second.close(1000, "SIGINT");
+      } else {
+        expect(replayHistory).not.toHaveBeenCalled();
+        expect(events.some((event) => event.type === "connected")).toBe(false);
+      }
+      await result.result.closed;
+    }
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(connectWebSocketMock).toHaveBeenCalledTimes(2);
+    expect(second.isClosed()).toBe(true);
+  });
+
   it("keeps the initial history anchor while a replacement socket buffers later messages", async () => {
     vi.useFakeTimers();
     const first = createWsHarness();
@@ -869,13 +976,18 @@ function createWsHarness(): {
   emit: (raw: string) => void;
   close: (code: number, reason: string) => void;
   send: ReturnType<typeof vi.fn>;
+  isClosed: () => boolean;
 } {
   let onMessageHandler: ((data: string) => void) | null = null;
   let onCloseHandler: ((code: number, reason: string) => void) | null = null;
   let resolveClosed: (() => void) | null = null;
   const send = vi.fn();
   const close = vi.fn();
-  const terminate = vi.fn();
+  let nativeClosed = false;
+  const terminate = vi.fn(() => {
+    nativeClosed = true;
+    resolveClosed?.();
+  });
   const closed = new Promise<void>((resolve) => {
     resolveClosed = resolve;
   });
@@ -905,9 +1017,11 @@ function createWsHarness(): {
         throw new Error("missing onClose handler");
       }
       onCloseHandler(code, reason);
+      nativeClosed = true;
       resolveClosed();
     },
     send,
+    isClosed: () => nativeClosed,
   };
 }
 

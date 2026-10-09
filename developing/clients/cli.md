@@ -216,8 +216,17 @@ Keep the command model stable across terminal use, Web handoff, and docs.
 lock through a temporary socket interruption. The existing Space session
 connection retries at most five times per failure episode, with capped backoff
 and a five-second socket-open deadline. Completed catch-up followed by at least
-30 seconds of stable connection resets that retry budget. Current authentication headers are
-resolved on each reconnect; access or protocol refusals fail without retry.
+30 seconds of stable connection resets that retry budget. Current authentication
+headers are resolved on each reconnect; access or protocol refusals fail without
+retry.
+
+Human session initialization installs its history barrier before socket I/O.
+An initialization error releases the barrier and closes its owned connection;
+manual Stop retains normal completion. A disconnect during the first member
+read leaves the replacement hello and catch-up with the recovery owner.
+Stream-only sessions observe socket events before their startup HTTP reads.
+Recovery that ends during those reads retains its nonzero exit and cannot
+report a connected session after the reads return.
 
 Reconnect catches up from the last confirmed durable Signal ID, advances full
 200-message pages and deduplicates history with buffered live messages. The
