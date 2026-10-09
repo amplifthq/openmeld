@@ -47,6 +47,7 @@ export const {
 } = authSchema;
 
 export const {
+  conversationHistoryDeletions,
   firstWorkExperiences,
   userTimeContexts,
   aiUsageRecords,

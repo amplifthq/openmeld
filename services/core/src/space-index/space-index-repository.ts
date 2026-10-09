@@ -15,6 +15,7 @@ import type {
   SpaceOrganizationVisibility,
 } from "@openmeld/schemas/types";
 import { OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE } from "@openmeld/space";
+import { readConversationDeletionDates } from "../space/application/conversation-history";
 import { normalizeSpaceMemberNameSnapshot } from "../space/rules/member-name";
 
 const LEGACY_WELCOMING_SPACE_PURPOSE = "openmeld_welcoming_space";
@@ -724,8 +725,29 @@ export async function listAccountSpacesFromSpaceIndex(
       ? listRecentlyDeletedSpacesForAccount(input)
       : Promise.resolve(undefined),
   ]);
+  const deletionDates = await readConversationDeletionDates(
+    input.db,
+    input.ownerUserId,
+    [
+      ...new Set(
+        rows
+          .filter((row) => row.direct_message_pair_key !== null)
+          .map((row) => row.space_id)
+      ),
+    ]
+  );
   const sections = partitionAccountSpaceIndexItems(
-    buildAccountSpaceItems(input, rows)
+    buildAccountSpaceItems(
+      input,
+      rows.filter((row) => {
+        const deletedAt = deletionDates.get(row.space_id);
+        return (
+          deletedAt === undefined ||
+          (row.message_preview_json !== null &&
+            Number(JSON.parse(row.message_preview_json).timestamp) > deletedAt)
+        );
+      })
+    )
   );
   if (
     input.includeMemberPreviews === true ||
@@ -738,6 +760,14 @@ export async function listAccountSpacesFromSpaceIndex(
     );
   }
   // Opt-in only: omit recentlyDeletedItems for callers that did not request it, so a
+  for (const item of [...sections.pinnedItems, ...sections.spaceItems]) {
+    const deletedAt = deletionDates.get(item.spaceId);
+    if (deletedAt !== undefined && item.recentMessagePreviews) {
+      item.recentMessagePreviews = item.recentMessagePreviews.filter(
+        (preview) => preview.timestamp > deletedAt
+      );
+    }
+  }
   // strict legacy client (CLI) receives the legacy {pinnedItems, spaceItems} shape
   // its own strictObject parse accepts. See the schema note. The query is skipped
   // entirely when not requested.

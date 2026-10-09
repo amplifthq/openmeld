@@ -2238,6 +2238,186 @@ describe("OpenMeld Core", () => {
     ]);
     expect(payload.agents).toEqual([]);
   });
+  it("deletes personal Direct Message history without erasing the other member's history", async () => {
+    const organizationId = "org-personal-history-deletion";
+    const first = {
+      profileId: SECOND_HUMAN_PROFILE_ID,
+      openMeldProfileId: SECOND_HUMAN_PROFILE_ID,
+      profileKind: "human" as const,
+      profileName: "Avery",
+      ownerUserId: "personal-history-avery",
+    };
+    const second = {
+      profileId: THIRD_HUMAN_PROFILE_ID,
+      openMeldProfileId: THIRD_HUMAN_PROFILE_ID,
+      profileKind: "human" as const,
+      profileName: "Jordan",
+      ownerUserId: "personal-history-jordan",
+    };
+    for (const profile of [first, second]) {
+      await ensureTestOrganizationMembership({
+        organizationId,
+        userId: profile.ownerUserId,
+      });
+    }
+    const context = createRpcContext({
+      ...first,
+      activeOrganizationId: organizationId,
+      requestId: "personal-delete",
+    });
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const spaceId = namespace.newUniqueId().toString();
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    await stub.rpcInitializeDirectMessageMeta({
+      spaceId,
+      organizationId,
+      pairKey: `${first.profileId}:${second.profileId}`,
+      purpose: "openmeld_dm_space",
+      visibility: "private",
+      guide: "",
+      name: "Jordan",
+      creator: {
+        kind: "human",
+        profileId: first.profileId,
+        profileName: first.profileName,
+        ownerUserId: first.ownerUserId,
+      },
+    });
+    await stub.rpcPostMembers({
+      spaceId,
+      context,
+      members: [first, second].map((profile) => ({
+        profileId: profile.profileId,
+        profileKind: profile.profileKind,
+        profileName: profile.profileName,
+        ownerUserId: profile.ownerUserId,
+        ownerName: profile.profileName,
+        agentControllerRef: null,
+      })),
+    });
+    const request = (path: string, profile = first, init?: RequestInit) =>
+      fetchWithOpenMeldAuth(
+        `${BASE_URL}/v1/spaces/${spaceId}/${path}`,
+        init,
+        profile,
+        { activeOrganizationId: organizationId }
+      );
+    const post = async (text: string) => {
+      const response = await request("signals", second, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          profile: {
+            kind: "human",
+            profileId: second.profileId,
+            profileName: second.profileName,
+          },
+          type: "signal.text",
+          data: { text },
+        }),
+      });
+      expect(response.status).toBe(200);
+      return (await response.json()) as SignalEnvelope;
+    };
+    const old = await post("Original invoice discussion");
+    const threadResponse = await request("threads", first, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        rootSignalId: old.id,
+        clientMutationId: randomUUID(),
+      }),
+    });
+    expect(threadResponse.status).toBe(200);
+    const thread = (await threadResponse.json()) as {
+      thread: { threadId: string };
+    };
+    const deletion = await stub.rpcDeleteConversationForMe({
+      spaceId,
+      context,
+    });
+    expect(
+      await (
+        await request("signals?includePersonalHistoryBoundary=true")
+      ).json()
+    ).toMatchObject({
+      signals: [],
+      personalHistoryDeletedAt: deletion.deletedAt,
+    });
+    expect(await (await request("signals")).json()).not.toHaveProperty(
+      "personalHistoryDeletedAt"
+    );
+    expect(
+      (await request(`updates?afterSignalId=${old.id}&limit=20`)).status
+    ).toBe(404);
+    expect((await (await request("signals")).json()) as unknown).toMatchObject({
+      signals: [],
+    });
+    expect(
+      (await (await request("signals?q=invoice")).json()) as unknown
+    ).toMatchObject({ signals: [] });
+    expect(
+      (
+        await request(
+          `signals?aroundSignalId=${old.id}&beforeCount=1&afterCount=1`
+        )
+      ).status
+    ).toBe(404);
+    expect((await request(`threads/${thread.thread.threadId}`)).status).toBe(
+      404
+    );
+    expect(
+      (await stub.rpcGetHistoryNavigation({ spaceId, context })).entries
+    ).toEqual([]);
+    expect(
+      JSON.stringify(await (await request("signals", second)).json())
+    ).toContain("Original invoice discussion");
+    await post("New invoice discussion");
+    const fresh = JSON.stringify(await (await request("signals")).json());
+    expect(fresh).toContain("New invoice discussion");
+    expect(fresh).not.toContain("Original invoice discussion");
+    expect(
+      (
+        await request(
+          `signals?aroundSignalId=${old.id}&beforeCount=1&afterCount=1`
+        )
+      ).status
+    ).toBe(404);
+    const search = JSON.stringify(
+      await (await request("signals?q=invoice")).json()
+    );
+    expect(search).toContain("New invoice discussion");
+    expect(search).not.toContain("Original invoice discussion");
+    expect(
+      JSON.stringify(await (await request("signals", second)).json())
+    ).toContain("Original invoice discussion");
+  });
+  it("never reuses a retained signal position after retention empties history", async () => {
+    const spaceId = await createSpace({ name: "Signal retention boundary" });
+    await postTextSignal(spaceId, "Before retention");
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    const before = await runInDurableObject(stub, (_instance, state) => {
+      const position = state.storage.sql
+        .exec<{ position: number }>(
+          "SELECT MAX(rowid) AS position FROM space_signals"
+        )
+        .one().position;
+      state.storage.sql.exec("DELETE FROM space_signals");
+      return position;
+    });
+    await postTextSignal(spaceId, "After retention");
+    const after = await runInDurableObject(
+      stub,
+      (_instance, state) =>
+        state.storage.sql
+          .exec<{ position: number }>(
+            "SELECT MAX(rowid) AS position FROM space_signals"
+          )
+          .one().position
+    );
+    expect(after).toBeGreaterThan(before);
+  });
   it("previews Organization-public history without joining or granting write access", async () => {
     const host: Partial<TestAuthProfile> = {
       profileId: SECOND_HUMAN_PROFILE_ID,

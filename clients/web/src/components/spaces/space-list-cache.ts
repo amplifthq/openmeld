@@ -1,5 +1,11 @@
+import type { ListCenterAgentSessionsResponse } from "@openmeld/schemas";
 import type { OrganizationSpaceDirectoryWithMemberCountsResponse } from "@openmeld/schemas/types";
-import type { Query, QueryClient, QueryKey } from "@tanstack/react-query";
+import type {
+	InfiniteData,
+	Query,
+	QueryClient,
+	QueryKey,
+} from "@tanstack/react-query";
 import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
@@ -7,6 +13,10 @@ import { removeAccountSpaceFromSections } from "./account-space-sections";
 
 export type SpaceListCacheSnapshot = {
 	spaceId: string;
+	centerAgentSessions?: readonly [
+		QueryKey,
+		InfiniteData<ListCenterAgentSessionsResponse> | undefined,
+	][];
 	stopKeepingRemoved: () => void;
 	accountSpaces: readonly [QueryKey, AccountSpaceSections | undefined][];
 	organizationSpaces:
@@ -49,7 +59,12 @@ async function optimisticallyUpdateSpaceListCaches(input: {
 	const organizationSpacesKey = input.organizationId
 		? organizationQueryKeys.spaces(input.organizationId)
 		: null;
+	const centerFilters = {
+		queryKey: ["center-agent", input.organizationId],
+		predicate: (query: Query) => query.queryKey[3] === "sessions",
+	};
 	await Promise.all([
+		input.queryClient.cancelQueries(centerFilters),
 		input.queryClient.cancelQueries(accountListFilters),
 		organizationSpacesKey
 			? input.queryClient.cancelQueries({ queryKey: organizationSpacesKey })
@@ -57,6 +72,10 @@ async function optimisticallyUpdateSpaceListCaches(input: {
 	]);
 	const snapshot: SpaceListCacheSnapshot = {
 		spaceId: input.spaceId,
+		centerAgentSessions:
+			input.queryClient.getQueriesData<
+				InfiniteData<ListCenterAgentSessionsResponse>
+			>(centerFilters),
 		stopKeepingRemoved: (): void => undefined,
 		accountSpaces: input.queryClient.getQueriesData<AccountSpaceSections>({
 			...accountListFilters,
@@ -67,6 +86,23 @@ async function optimisticallyUpdateSpaceListCaches(input: {
 	} satisfies SpaceListCacheSnapshot;
 
 	const keepRemoved = () => {
+		input.queryClient.setQueriesData<
+			InfiniteData<ListCenterAgentSessionsResponse>
+		>(centerFilters, (current) =>
+			current?.pages.some((page) =>
+				page.sessions.some((session) => session.spaceId === input.spaceId)
+			)
+				? {
+						...current,
+						pages: current.pages.map((page) => ({
+							...page,
+							sessions: page.sessions.filter(
+								(session) => session.spaceId !== input.spaceId
+							),
+						})),
+					}
+				: current
+		);
 		input.queryClient.setQueriesData<AccountSpaceSections>(
 			accountListFilters,
 			(current) =>
@@ -126,6 +162,12 @@ async function optimisticallyUpdateSpaceListCaches(input: {
 					snapshot.organizationSpaces ??= input.queryClient.getQueryData(
 						organizationSpacesKey
 					);
+				} else if (
+					key[0] === "center-agent" &&
+					key[1] === input.organizationId &&
+					centerFilters.predicate(event.query)
+				) {
+					// Use the same pending removal across the specialized session list.
 				} else {
 					return;
 				}
@@ -144,6 +186,28 @@ export function restoreSpaceListCaches(
 		return;
 	}
 	snapshot.stopKeepingRemoved();
+	for (const [key, before] of snapshot.centerAgentSessions ?? []) {
+		if (!before) {
+			continue;
+		}
+		queryClient.setQueryData<InfiniteData<ListCenterAgentSessionsResponse>>(
+			key,
+			(current) =>
+				current
+					? {
+							...current,
+							pages: current.pages.map((page, index) => ({
+								...page,
+								sessions: restoreDeletedItem(
+									page.sessions,
+									before.pages[index]?.sessions ?? [],
+									snapshot.spaceId
+								),
+							})),
+						}
+					: before
+		);
+	}
 	for (const [queryKey, spaces] of snapshot.accountSpaces) {
 		if (!spaces) {
 			continue;

@@ -157,6 +157,12 @@ export {
   computerConnectionProgressPhaseSchema,
 } from "./computer-connection-progress";
 export {
+  type DeleteConversationForMeInput,
+  type DeleteConversationForMeResponse,
+  deleteConversationForMeInputSchema,
+  deleteConversationForMeResponseSchema,
+} from "./conversation-history";
+export {
   DESKTOP_AUTH_SCHEME,
   DESKTOP_INSTALLED_AUTH_SCHEME,
   DESKTOP_TEST_AUTH_SCHEME,

@@ -124,6 +124,15 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
     )
   `);
   ensureSpaceSignalsClientMessageIdColumn(sql);
+  sql.exec(
+    "CREATE TABLE IF NOT EXISTS space_signal_sequence (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), position INTEGER NOT NULL)"
+  );
+  sql.exec(
+    "INSERT OR IGNORE INTO space_signal_sequence SELECT 1, COALESCE(MAX(rowid), 0) FROM space_signals"
+  );
+  sql.exec(
+    "UPDATE space_signal_sequence SET position = MAX(position, (SELECT COALESCE(MAX(rowid), 0) FROM space_signals)) WHERE singleton = 1"
+  );
   sql.exec(`
     CREATE TABLE IF NOT EXISTS space_recalled_message_drafts (
       signal_id TEXT PRIMARY KEY,

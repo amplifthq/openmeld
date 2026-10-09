@@ -225,6 +225,13 @@
       "when": 1791540550403,
       "tag": "0031_space_joined_inbox",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1791544532735,
+      "tag": "0032_conversation_history_deletions",
+      "breakpoints": true
     }
   ]
 }

@@ -184,7 +184,10 @@ import {
   currentLocalAgentInstallationsResponseSchema,
   currentLocalAgentInstallationsRouteParamsSchema,
   currentLocalRuntimeReplyReadinessResponseSchema,
+  type DeleteConversationForMeInput,
+  type DeleteConversationForMeResponse,
   daemonServiceLaneSchema,
+  deleteConversationForMeInputSchema,
   deleteSpaceAttachmentRecordInputSchema,
   deleteSpaceAttachmentRecordResultSchema,
   deriveCenterAgentDirectMessageSpaceProjection,
@@ -2379,6 +2382,7 @@ export type CreateSpaceResult = {
   meta?: SpaceMeta;
 };
 export type ListSignalsInput = {
+  includePersonalHistoryBoundary?: boolean;
   q?: string;
   spaceId: string;
   afterTs?: number;
@@ -2400,6 +2404,7 @@ export type ListSignalsInput = {
   spaceAccess?: SpaceAccessContext;
 };
 export type ListSignalsResult = {
+  personalHistoryDeletedAt?: number;
   searchIndexing?: boolean;
   signals: SignalEnvelope[];
   nextCursor: string | null;
@@ -9303,6 +9308,7 @@ export async function rpcListCenterAgentSessions(
     };
   }
   return await listAuthorizedCenterAgentSessions({
+    ownerUserId: activeOrganization.userId,
     ...parsed.data,
     db: requireSpaceIndexDb(env),
     organizationId: activeOrganization.organizationId,
@@ -20328,6 +20334,15 @@ export async function rpcDeleteSpace(
     ...(input.password === undefined ? {} : { password: input.password }),
     context,
   });
+}
+export async function rpcDeleteConversationForMe(
+  env: CoreBindings,
+  raw: DeleteConversationForMeInput
+): Promise<DeleteConversationForMeResponse> {
+  const input = deleteConversationForMeInputSchema.parse(raw);
+  const context = requireRpcContext(input.context);
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcDeleteConversationForMe({ spaceId, context });
 }
 export async function rpcListAccountSpaces(
   env: CoreBindings,

@@ -938,6 +938,7 @@ import {
   rpcCreateSpaceDiagnosticReport,
   rpcCreateSpaceFolder,
   rpcCreateSpaceTask,
+  rpcDeleteConversationForMe,
   rpcDeleteRoutine,
   rpcDeleteSpace,
   rpcDeleteSpaceAttachmentRecord,
@@ -2803,6 +2804,13 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   deleteSpace(input: DeleteSpaceInput): Promise<DeleteSpaceResult> {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       rpcDeleteSpace(this.env, input)
+    );
+  }
+  deleteConversationForMe(
+    input: import("@openmeld/schemas").DeleteConversationForMeInput
+  ): Promise<import("@openmeld/schemas").DeleteConversationForMeResponse> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcDeleteConversationForMe(this.env, input)
     );
   }
   updateSpaceMeta(input: UpdateSpaceMetaInput): Promise<SpaceMeta> {
@@ -5365,6 +5373,11 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   }
   deleteSpace(input: DeleteSpaceInput): Promise<DeleteSpaceResult> {
     return super.deleteSpace(input);
+  }
+  deleteConversationForMe(
+    input: import("@openmeld/schemas").DeleteConversationForMeInput
+  ): Promise<import("@openmeld/schemas").DeleteConversationForMeResponse> {
+    return super.deleteConversationForMe(input);
   }
   updateSpaceMeta(input: UpdateSpaceMetaInput): Promise<SpaceMeta> {
     return super.updateSpaceMeta(input);

@@ -906,6 +906,22 @@ Existing non-default names are preserved. Failed or empty results keep **New
 chat**; later Human messages can retry, capped at three persisted attempts per
 Space. No automatic historical title rewrite or periodic regeneration occurs.
 
+### Personal Direct Message deletion
+
+Archive hides a Direct Message from the person's active list. Archived rows offer
+**Delete for me**, with an explicit confirmation. This permanently hides all
+messages accepted through that command's position from that account's history,
+search, links, update feeds, and Inbox. Other participants and Agent execution
+continuity keep their shared history. New messages can make the Direct Message
+visible again; they do not restore the person's earlier messages. Conversion
+into an ordinary Space does not undo a personal history boundary.
+
+Core owns one account/Space boundary in PostgreSQL. Space captures a monotonic
+SQLite signal position; retention must never reuse an accepted position. Web
+opts into the boundary date on history reads and uses it to reject older cache
+responses and discard retained pages. Legacy readers receive their existing
+response shape and the same server-side content restriction.
+
 ### Ordinary Direct Message opening
 
 Humans, Local Agents, personal Remote Agents, and the Center Agent use the same
