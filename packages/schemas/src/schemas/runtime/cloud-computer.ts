@@ -54,7 +54,7 @@ export type CloudComputerCommandPhase = zod.infer<
 >;
 /** Automatic receipt observation only; never execution state or authority. */
 export const cloudComputerCommandCollectionSchema = z.strictObject({
-  consecutiveFailures: z.number().int().nonnegative(),
+  unconfirmedAttempts: z.number().int().nonnegative(),
   nextAttemptAtMs: z.number().int().nonnegative().nullable(),
 });
 export type CloudComputerCommandCollection = zod.infer<

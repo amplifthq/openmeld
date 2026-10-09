@@ -7,7 +7,8 @@ audiences: ["users", "agents"]
 ---
 
 Cloud Computers check commands in small batches without reading all completed
-receipts. Repeated observation errors delay automatic checks, then pause them.
+receipts. Repeated observation errors or interrupted checks delay automatic
+checks, then pause them. The attempt budget survives a Worker restart.
 The command may still be running. Its saved reference remains available for
 manual inspection, and a successful check resumes automatic collection without
 starting another command.

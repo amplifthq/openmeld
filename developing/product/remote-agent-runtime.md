@@ -477,9 +477,11 @@ occurred. Owner CLI inspection can use a returned reference to address the
 original Remote invocation without adding the CLI's `local:` namespace. The
 reference is an address, not authority: account authorization remains unchanged,
 and the command owner checks every field against the saved receipt. Start never
-accepts a reference. Receipt writes report their current seven-day expiry;
-historical expiry stays unknown until the receipt is updated. This does not
-extend the provider's native result retention or promise recoverability after it.
+accepts a reference. Receipt writes report `recordExpiresAtMs` as their current
+seven-day retention marker; historical markers stay unknown until an update.
+Current command reads do not filter that marker and no command-receipt cleanup
+owner enforces deletion at that time. It is not a hard TTL or an indefinite
+archive promise. It does not extend the provider's native result retention.
 Completion requires its exit receipt and completed file synchronization; a stop
 acknowledgement is only a request. The Computer remains shared across sessions.
 The Computer collects results without depending on the model's next poll and
@@ -512,14 +514,18 @@ completed receipts do not enter that scan. A hung native call does not prevent
 collection of the other receipts. Neither budget permits
 another launch. A launch acknowledgement received after Stop still addresses
 the original command identity through a fresh Workspace client.
-Automatic observation uses the same receipt's `collection` metadata. Successful
-checks schedule another check after 15 seconds. Consecutive observation errors
-back off from 30 seconds to five minutes; the eighth error pauses automatic
-checks with `nextAttemptAtMs: null`. This does not stop or fail the process,
-confirm loss, or authorize another launch. A successful manual poll or Stop
+Automatic observation uses the same receipt's `collection` metadata. Before
+external I/O, a compare-and-set reserves an `unconfirmedAttempts` increment and
+the next check time. A Worker termination cannot bypass that persisted budget.
+Checks without confirmed native evidence back off from 30 seconds to five
+minutes; the eighth unconfirmed attempt pauses later automatic checks with
+`nextAttemptAtMs: null`. A normal caught error does not count that attempt again.
+Successful checks clear the count and schedule another check after 15 seconds.
+This does not stop or fail the process, confirm loss, or authorize another
+launch. A successful manual poll or Stop
 resumes collection of the same identity. Fresh accepted process evidence resets
-the error count even for an old, silent command. An older failed observation
-cannot consume the budget after a successful manual recovery. The Computer
+the unconfirmed-attempt count even for an old, silent command. An older failed
+observation cannot consume the budget after a successful manual recovery. The Computer
 alarm reads the next due time from the same receipts; pending Git transfers
 retain their existing alarm cadence. The index adds a write cost to eligible
 receipt updates and an initial build on existing storage; it is not a separate

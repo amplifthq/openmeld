@@ -32,7 +32,7 @@ export async function verifyIndexedCommandCollection(sql: SqlStorage) {
   for (let index = 0; index < 512; index++) {
     await oldStorage.put(`${prefix}future-${index}`, {
       ...receipt(`future-${index}`),
-      collection: { consecutiveFailures: 0, nextAttemptAtMs: 60_000 },
+      collection: { unconfirmedAttempts: 0, nextAttemptAtMs: 60_000 },
     });
   }
   const queries: { rowsRead: number; rowsWritten: number; returned: number }[] =
@@ -62,7 +62,7 @@ export async function verifyIndexedCommandCollection(sql: SqlStorage) {
   for (const [key, command] of first) {
     await storage.compareAndSet(key, command, {
       ...command,
-      collection: { consecutiveFailures: 1, nextAttemptAtMs: 30_000 },
+      collection: { unconfirmedAttempts: 1, nextAttemptAtMs: 30_000 },
     });
   }
   queries.length = 0;

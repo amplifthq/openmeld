@@ -87,7 +87,7 @@ const READER_CANCEL_BUDGET_MS = 100;
 const COLLECTION_CONCURRENCY = 4;
 const COLLECTION_BATCH_SIZE = 16;
 const COLLECTION_INTERVAL_MS = 15_000;
-const COLLECTION_FAILURE_BUDGET = 8;
+const COLLECTION_ATTEMPT_BUDGET = 8;
 const COMMAND_RECORD_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const COMMAND_ACTIONS = ["start", "poll", "stop", "list"] as const;
 const COMMAND_DIAGNOSTIC_PHASES = [
@@ -306,7 +306,16 @@ function commandReceiptAddress(command: Command, invocationId: string) {
       backend: commandBackend(command),
     } satisfies CloudComputerCommandReference,
     phase,
-    ...(command.collection ? { collection: command.collection } : {}),
+    ...(command.collection
+      ? {
+          collection: {
+            ...command.collection,
+            nextAttemptAtMs: isCollectableCommand(command)
+              ? command.collection.nextAttemptAtMs
+              : null,
+          },
+        }
+      : {}),
     ...(command.recordExpiresAtMs !== undefined
       ? { recordExpiresAtMs: command.recordExpiresAtMs }
       : {}),
@@ -465,7 +474,7 @@ function mergeCommandObservation(
     collectable: true,
     observedAt,
     collection: {
-      consecutiveFailures: 0,
+      unconfirmedAttempts: 0,
       nextAttemptAtMs:
         result.status === "completed"
           ? null
@@ -1220,7 +1229,7 @@ export function createComputerCommandTool(input: {
   };
   return {
     ...definition,
-    description: `${definition.description} Replies include reference and phase. Keep the exact reference for later owner inspection; poll and stop validate it against this invocation's saved receipt. list with includeReceiptDetails:true returns references, phases and collection. For an unfinished receipt, collection.nextAttemptAtMs:null means automatic checks paused after repeated observation errors. The process may still be running. Poll the same reference manually; a successful check resumes automatic collection. An accepted receipt is not proof of launch; launch_unknown does not permit replay. Missing receipt means acceptance is unknown, not an unreachable service. Receipt expiry does not extend native result retention.`,
+    description: `${definition.description} Replies include reference and phase. Keep the exact reference for later owner inspection; poll and stop validate it against this invocation's saved receipt. list with includeReceiptDetails:true returns references, phases and collection. collection.unconfirmedAttempts counts checks without confirmed native evidence, including interrupted checks. Automatic checks pause when that count reaches ${COLLECTION_ATTEMPT_BUDGET}; nextAttemptAtMs is then null. The process may still be running. Poll the same reference manually; a successful check resumes automatic collection. An accepted receipt is not proof of launch; launch_unknown does not permit replay. Missing receipt means acceptance is unknown, not an unreachable service. recordExpiresAtMs is a retention marker; command reads currently do not enforce it. It does not extend native result retention.`,
     async execute(rawInput, options) {
       try {
         const result = await definition.execute(rawInput, options);
@@ -1234,7 +1243,7 @@ export function createComputerCommandTool(input: {
                 return current;
               }
               const collection = {
-                consecutiveFailures: 0,
+                unconfirmedAttempts: 0,
                 nextAttemptAtMs: isCollectableCommand(current)
                   ? Date.now() + COLLECTION_INTERVAL_MS
                   : null,
@@ -1296,6 +1305,41 @@ export async function collectComputerCommands(input: {
       const submissionId = decodeURIComponent(
         key.slice(COMPUTER_COMMAND_PREFIX.length, key.lastIndexOf(":"))
       );
+      // Persist this observation attempt before external I/O. A terminated
+      // Worker cannot run catch/finally, so failures counted only there would
+      // permit unlimited attempts after each replacement.
+      let reserved = false;
+      const attempt = await updateCommand(input.storage, key, (current) => {
+        reserved = false;
+        if (
+          !isCollectableCommand(current) ||
+          current.collection?.nextAttemptAtMs === null ||
+          (current.collection?.nextAttemptAtMs ?? 0) > Date.now() ||
+          current.observedAt !== command.observedAt ||
+          current.launchAcknowledgedAt !== command.launchAcknowledgedAt ||
+          JSON.stringify(current.collection) !==
+            JSON.stringify(command.collection)
+        ) {
+          return current;
+        }
+        reserved = true;
+        const unconfirmedAttempts =
+          (current.collection?.unconfirmedAttempts ?? 0) + 1;
+        return {
+          ...current,
+          collection: {
+            unconfirmedAttempts,
+            nextAttemptAtMs:
+              unconfirmedAttempts >= COLLECTION_ATTEMPT_BUDGET
+                ? null
+                : Date.now() +
+                  Math.min(30_000 * 2 ** (unconfirmedAttempts - 1), 300_000),
+          },
+        };
+      });
+      if (!reserved) {
+        continue;
+      }
       try {
         await createComputerCommandTool({
           ...input,
@@ -1308,42 +1352,21 @@ export async function collectComputerCommands(input: {
           waitSeconds: 1,
         });
       } catch {
-        // A late failed read cannot consume a successful manual recovery's
-        // budget, even when both observations have the same clock timestamp.
-        const current = await updateCommand(input.storage, key, (current) => {
-          if (
-            !isCollectableCommand(current) ||
-            current.observedAt !== command.observedAt ||
-            current.launchAcknowledgedAt !== command.launchAcknowledgedAt ||
-            JSON.stringify(current.collection) !==
-              JSON.stringify(command.collection)
-          ) {
-            return current;
-          }
-          const consecutiveFailures =
-            (current.collection?.consecutiveFailures ?? 0) + 1;
-          return {
-            ...current,
-            collection: {
-              consecutiveFailures,
-              nextAttemptAtMs:
-                consecutiveFailures >= COLLECTION_FAILURE_BUDGET
-                  ? null
-                  : Date.now() +
-                    Math.min(30_000 * 2 ** (consecutiveFailures - 1), 300_000),
-            },
-          };
-        });
+        // The attempt was already counted. A late failure makes no scheduling
+        // write and cannot consume a successful manual recovery's budget.
+        const current = await input.storage.get<Command>(key);
         if (
+          current &&
+          isCollectableCommand(current) &&
           current.collection?.nextAttemptAtMs === null &&
-          command.collection?.nextAttemptAtMs !== null &&
-          current.collection.consecutiveFailures === COLLECTION_FAILURE_BUDGET
+          JSON.stringify(current.collection) ===
+            JSON.stringify(attempt.collection)
         ) {
           console.warn("[remote_agent.computer_command_collection_paused]", {
             submissionId,
             commandId: current.id,
             backend: commandBackend(current),
-            consecutiveFailures: current.collection.consecutiveFailures,
+            unconfirmedAttempts: current.collection.unconfirmedAttempts,
           });
         }
       }

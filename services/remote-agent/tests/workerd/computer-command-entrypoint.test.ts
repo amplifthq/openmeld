@@ -66,7 +66,7 @@ it.each([
       collectable: false,
       backend: "container",
       collection: {
-        consecutiveFailures: paused ? 8 : 2,
+        unconfirmedAttempts: paused ? 8 : 2,
         nextAttemptAtMs: paused ? null : next,
       },
     });

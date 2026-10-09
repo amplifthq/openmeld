@@ -110,8 +110,10 @@ namespaced separately from hosted submissions. The Computer holds the command
 receipt and native execution ID. Poll and Stop address that receipt; a retry
 must not allocate another process. Different invocations may run concurrently.
 Optional command `collection` metadata describes automatic observation attempts,
-not command execution. It contains a consecutive error count and the next check
-time; null with an error count means checks paused. Completed or unavailable
+not command execution. `unconfirmedAttempts` counts consecutive checks without
+confirmed native evidence, reserved before external I/O; a caught error never
+counts its attempt twice. `nextAttemptAtMs` is the next check time; null after
+the budget is exhausted means later checks paused. Completed or unavailable
 receipts also have no next check. Existing running/completed statuses and normal
 list rows retain their contract. Detailed list rows are opt-in through
 `includeReceiptDetails`, introduced in the same command-reference feature. Their
