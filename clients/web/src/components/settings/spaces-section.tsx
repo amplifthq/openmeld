@@ -11,7 +11,7 @@ import {
 	ArrowUpIcon,
 	PlusIcon,
 	RobotIcon,
-	UserCircleIcon,
+	UserIcon,
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useMemo, useState, useSyncExternalStore } from "react";
@@ -417,7 +417,7 @@ function AutomaticWakePreview(input: { enabled: boolean }) {
 	return (
 		<div aria-hidden="true" className="max-w-2xl space-y-2">
 			<div className="flex items-center gap-1.5 text-muted-foreground text-xs">
-				<UserCircleIcon className="size-4" />
+				<UserIcon className="size-4" />
 				<span>You</span>
 				<PlusIcon className="mx-1 size-3" />
 				<RobotIcon className="size-4" />
