@@ -15,9 +15,7 @@ describe("site metadata", () => {
     const description =
       "Share context, work in parallel, and pick up where anyone left off with your team, cloud agents, and everyone's agents (Codex, Claude Code, Grok Build, OpenCode, Antigravity, and Cursor CLI).";
 
-    expect(title).toBe(
-      "OpenMeld | The open cloud collaboration system for everyone and agents"
-    );
+    expect(title).toBe("OpenMeld | The open human-agents collaboration system");
     expect(title).not.toBe("OpenMeld - OpenMeld");
     expect(readMetaName(head, "description")).toBe(description);
     expect(readCanonical(head)).toBe(siteConfig.url);

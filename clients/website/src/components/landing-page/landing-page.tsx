@@ -48,7 +48,7 @@ import "./hero-entrance.css";
 import "./demo-blend.css";
 
 const REPOSITORY_URL = "https://github.com/amplifthq/openmeld";
-const heroTitleBreak = homePageCopy.tagline.indexOf("system");
+const heroTitleBreak = homePageCopy.tagline.indexOf("collaboration");
 function DownloadButton() {
 	return (
 		<DropdownMenu>
