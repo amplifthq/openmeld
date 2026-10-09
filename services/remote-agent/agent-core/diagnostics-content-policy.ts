@@ -84,6 +84,7 @@ export function remoteAgentDiagnosticErrorFields(
         "UND_ERR_HEADERS_TIMEOUT",
         "EEXEC_LOST",
         "ENOENT",
+        "computer.observation_timeout",
       ].includes(code)
     ) {
       fields.errorCode = code;

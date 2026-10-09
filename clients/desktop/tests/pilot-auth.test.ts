@@ -38,9 +38,25 @@ it("returns file headers before reading bytes while the real SDK persists respon
   const auth = createPilotAuth("http://localhost:39993", () => null, vi.fn());
   const response = await auth.cloudRequest(
     "/v1/spaces/space-1/files/file-1/content?revision=1",
-    { method: "GET", headers: new Headers({ range: "bytes=0-3" }) }
+    {
+      method: "GET",
+      headers: new Headers({
+        range: "bytes=0-3",
+        "x-openmeld-user-time-zone": "Mars/Olympus",
+        "x-openmeld-user-time-zone-source": "web",
+      }),
+    }
   );
   expect(response.status).toBe(206);
+  const outgoingHeaders = new Headers(
+    vi.mocked(fetch).mock.calls[0]?.[1]?.headers
+  );
+  expect(outgoingHeaders.get("x-openmeld-user-time-zone")).toBe(
+    Intl.DateTimeFormat().resolvedOptions().timeZone
+  );
+  expect(outgoingHeaders.get("x-openmeld-user-time-zone-source")).toBe(
+    "desktop"
+  );
   expect(pull).not.toHaveBeenCalled();
   expect(auth.cookie()).toContain("session_token=media-renewal");
   expect(await response.text()).toBe("part");

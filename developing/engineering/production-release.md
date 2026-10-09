@@ -35,6 +35,12 @@ PostgreSQL bindings. A database migration alone does not require redeploying
 both services. CLI admission checks these facts before publication and Core
 activation.
 
+For local release, pass `CLOUDFLARE_ACCOUNT_ID` and
+`CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN` from `openmeld-release/prd`. In that
+scoped child environment, also map the same release token to
+`CLOUDFLARE_API_TOKEN` for Wrangler and Website domain admission; retain the
+scoped variable for Hyperdrive inspection. Do not write either token to disk.
+
 The CLI workflow records Core activation through the existing component receipt
 owner. If a prior attempt applied this exact source but failed its remaining
 health checks, database admission checks that recorded identity against the live
@@ -576,14 +582,46 @@ the diff contains one of these explicit Core-to-Remote-Agent receiver owners:
 It selects the same profile when a diff expands a strict Remote Agent request
 shape—either with a new request version or an additive field—and changes its
 explicit shared-schema request owner, Core producer/admission owner, and Remote
-Agent Center Agent receiver together. Those three signals distinguish a
-directional request-envelope rollout from a non-directional shared-schema edit.
+Agent Center Agent receiver together. A change to the request-only
+`remote-agent-turn-envelope.ts` and Core's `application/turn-envelope.ts` also
+establishes this direction. The existing Center Agent imports and parses that
+shared strict schema, so its own source file need not change to expand its
+receiver contract.
+
+Execution input has requests and responses in one shared file. When
+`remote-agent-execution-input.ts`, Core's Space producer, and Remote's
+`flue-adapter/execution-input.ts` change together, the planner compares the
+actual request/query, shared identity, and receipt/response declarations against
+the component receipt baseline. A request-only change requires Remote before
+Core. A response-only change requires Core before Remote. An unrelated import
+does not establish either direction. Missing history or a change to both sides
+requires separate receiver stages; the shared file path alone is insufficient.
+
+Gateway's `lib/openmeld-context.ts` produces Core's strict request context.
+A changed `openMeldRequestContextSchema` declaration in `profile-identity.ts`
+therefore requires Core before Gateway. Other declarations in that file do not
+establish this dependency. The planner requires readable schema history for
+this owner pair. Optional Web/CLI time headers remain independent: the old
+Gateway can ignore them without rejecting a request.
 
 Within the selected scopes it deploys Database, Remote Agent, Auth, Core,
 Gateway, Web, then CLI. This installs strict Remote Agent RPC receivers before
 Core callers and keeps a selected CLI unpublished until every cloud receiver is
-ready. Shared schemas and Core's native-delivery service are intentionally not
-directional path signals because they carry contracts in both directions.
+ready. The dependency graph also contains Remote Agent -> CLI for a strict
+request rollout. CLI publication deploys its candidate Core release projection,
+which activates the new Core request producer. Stage admission must block that
+CLI stage while Remote is pending, even if an earlier Core receipt exists. The
+early Core stage preserves the current published CLI projection. This edge
+comes from the Core deployment in CLI publication, not from optional headers.
+Other shared schemas and Core's native-delivery service are not directional
+path signals because they carry contracts in both directions.
+
+This profile also preserves that projection when CLI is excluded from the
+cloud stage. Preflight and verification leave published-channel checks to the
+same current-projection owner, instead of requiring the candidate CLI to exist
+first. With PostgreSQL, use the guarded local cloud stage, then the official
+GitHub CLI workflow after its receiver receipts are verified. Keep the same
+release source, pre-feature base and complete train declaration across stages.
 
 Personal cloud Computer has the opposite capability direction: its Remote
 Agent requires Core's account Computer identity response. The planner selects
@@ -631,9 +669,12 @@ capability gates and frozen-request replay remain unchanged. The planner checks
 that exact baseline and the reviewed source digest of all listed request owners
 in `scripts/release/remote-agent-request-compatibility.mjs`. Unknown baselines,
 unreadable source, or any changed owner preserve the dependency and block a
-cycle. Never update the digest merely to pass a gate: repeat the published-schema
-and mixed-version audit. `compatibilityBridges` in plan/status records the exact
-source witness; Core metering and Web/Gateway result-reader edges remain intact.
+cycle. This witness does not waive the separate imported turn-envelope or
+execution-input producer dependencies, or Core's Gateway request-context
+receiver dependency. Never update the digest merely to pass a gate: repeat the
+published-schema and mixed-version audit. `compatibilityBridges` in plan/status
+records the exact source witness; Core metering and Web/Gateway result-reader
+edges remain intact.
 
 For this bridge, retain the completed compatible Web readers and additive DB
 migrations, deploy Core and verify its readers/usage receiver, record that exact

@@ -25,6 +25,7 @@ import {
   resolveRemoteAgentOpenRouterModelId,
 } from "../agent-core/model";
 import { REMOTE_AGENT_OPENROUTER_PROVIDER_ROUTING } from "../agent-core/openrouter-provider-routing";
+import { withRemoteAgentProviderTimeContext } from "../agent-core/prompt";
 import { recordRemoteAgentTurnObservabilityBestEffort } from "../agent-core/turn-observability";
 import { createFlueMeteredFetch } from "./ai-usage";
 import { emitCenterAgentPerformanceMilestone } from "./center-agent-performance-observability";
@@ -958,7 +959,7 @@ export function withRemoteAgentProviderObservabilityAndSessionAffinity(
         );
       }
       const preparedPayload = normalizeRemoteAgentPromptCacheToolDefinitions(
-        resolvedPayload,
+        withRemoteAgentProviderTimeContext(resolvedPayload, Date.now()),
         model?.id
       );
       const durationMs = Date.now() - startedAtMs;

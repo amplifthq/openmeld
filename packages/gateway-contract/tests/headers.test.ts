@@ -221,6 +221,8 @@ describe("gateway-contract headers", () => {
       [OPENMELD_HEADER_REQUESTED_ORGANIZATION_SLUG]: "untrusted-slug",
       [OPENMELD_HEADER_SPACE_PASSWORD]: "   ",
       [OPENMELD_HEADER_FORWARDED_BY]: "stale-hop",
+      "x-openmeld-user-time-zone": "Asia/Taipei",
+      "x-openmeld-user-time-zone-source": "web",
     });
 
     const headers = applyOpenMeldRequestContextHeaders(target, {
@@ -242,6 +244,8 @@ describe("gateway-contract headers", () => {
     expect(headers.get(OPENMELD_HEADER_REQUESTED_ORGANIZATION_ID)).toBeNull();
     expect(headers.get(OPENMELD_HEADER_REQUESTED_ORGANIZATION_SLUG)).toBeNull();
     expect(headers.get(OPENMELD_HEADER_SPACE_PASSWORD)).toBeNull();
+    expect(headers.get("x-openmeld-user-time-zone")).toBeNull();
+    expect(headers.get("x-openmeld-user-time-zone-source")).toBeNull();
     expect(headers.get(OPENMELD_HEADER_FORWARDED_BY)).toBe(
       OPENMELD_EXPECTED_FORWARDED_BY
     );

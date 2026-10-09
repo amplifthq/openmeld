@@ -39,6 +39,10 @@ describe("buildOpenMeldRequestContextHeadersWithAuth", () => {
         expect(headers["x-openmeld-profile-kind"]).toBe("human");
         expect(headers["x-openmeld-profile-name"]).toBe("Mira");
         expect(headers["x-openmeld-profile"]).toBeUndefined();
+        expect(headers["x-openmeld-user-time-zone"]).toBe(
+          Intl.DateTimeFormat().resolvedOptions().timeZone
+        );
+        expect(headers["x-openmeld-user-time-zone-source"]).toBe("service");
       } finally {
         if (previousForceInsecureToken === undefined) {
           Reflect.deleteProperty(

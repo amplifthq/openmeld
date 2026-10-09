@@ -10,6 +10,7 @@ import {
 	OPENMELD_HEADER_PROFILE_ID,
 	OPENMELD_HEADER_REQUESTED_ORGANIZATION_ID,
 	OPENMELD_HEADER_REQUESTED_ORGANIZATION_SLUG,
+	observeUserTimeZoneHeaders,
 } from "@openmeld/gateway-contract";
 import { openMeldRequestedOrganizationSelectorSchema } from "@openmeld/schemas";
 import type { OpenMeldRequestedOrganizationSelector } from "@openmeld/schemas/types";
@@ -48,6 +49,7 @@ function createCredentialedOpenMeldFetch(
 			rejectComputerPreviewRequest(resource, init);
 		}
 		const headers = new Headers(init?.headers);
+		attachBrowserUserTimeZoneObservation(headers);
 		if (
 			input.openMeldProfileId &&
 			headers.get(OPENMELD_HEADER_PROFILE_ID) === null
@@ -90,6 +92,17 @@ function createCredentialedOpenMeldFetch(
 			credentials: "include",
 		});
 	};
+}
+
+function attachBrowserUserTimeZoneObservation(headers: Headers): void {
+	if (typeof window === "undefined") {
+		return;
+	}
+	for (const [name, value] of Object.entries(
+		observeUserTimeZoneHeaders("web")
+	)) {
+		headers.set(name, value);
+	}
 }
 
 // These browser-memory fixtures never authorize real API calls, including
