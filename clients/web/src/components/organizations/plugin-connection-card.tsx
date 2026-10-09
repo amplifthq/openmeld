@@ -1303,7 +1303,7 @@ function ConnectionSummary(input: {
 
 	return (
 		<>
-			<div className="mt-4 flex flex-wrap items-center justify-between gap-3 border border-border/70 bg-background/40 px-3 py-3">
+			<div className="mt-4 flex flex-wrap items-center justify-between gap-3">
 				<div>
 					<div className="flex flex-wrap items-center gap-2">
 						<p className="font-medium text-foreground text-sm">
