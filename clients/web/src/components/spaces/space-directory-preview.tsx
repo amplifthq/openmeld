@@ -39,7 +39,7 @@ export function SpaceDirectoryPreview(input: {
 					Preview {input.space?.name}
 				</DialogTitle>
 				{space && (
-					<div className="flex min-h-0 flex-1 flex-col [&_[data-slot=space-window-header]]:pr-8 sm:[&_[data-slot=space-window-header]]:pr-6 lg:[&_[data-slot=space-window-header]]:pr-4">
+					<div className="flex min-h-0 flex-1 flex-col [&_[data-slot=space-window-header]]:pr-12 sm:[&_[data-slot=space-window-header]]:pr-10 lg:[&_[data-slot=space-window-header]]:pr-4">
 						<SpaceEntryGate
 							key={space.spaceId}
 							openMeldProfileId={input.profileId}
