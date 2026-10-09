@@ -73,6 +73,7 @@ import {
 	runSpaceComposerIdempotentRequestWithRetry,
 } from "#/lib/spaces/errors";
 import {
+	applyConfirmedSpaceDeletionToCache,
 	applySpaceBootstrapSnapshotToCache,
 	enrichSpaceHistoryAgentControllerPresentation,
 	resolveSpaceMembersPresentationSnapshot,
@@ -3825,6 +3826,10 @@ export function useSpaceLandingController(input: {
 			});
 			deleted = true;
 			clearSpaceFileMediaResources(queryClient, input.spaceId);
+			await applyConfirmedSpaceDeletionToCache({
+				queryClient,
+				spaceId: input.spaceId,
+			});
 
 			await Promise.all([
 				input.organizationId

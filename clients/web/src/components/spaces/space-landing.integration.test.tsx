@@ -3212,6 +3212,9 @@ describe("SpaceLanding", () => {
 		expect(removeQueriesMock).toHaveBeenCalledWith({
 			queryKey: ["space-files", "space-123"],
 		});
+		expect(invalidateQueriesMock).toHaveBeenCalledWith({
+			queryKey: ["spaces", "bootstrap", "space-123"],
+		});
 		expect(invalidateQueriesMock).not.toHaveBeenCalledWith({
 			queryKey: ["spaces", "status", "space-123", DEFAULT_SPACE_PROFILE_ID],
 		});
