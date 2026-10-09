@@ -197,12 +197,18 @@ it("persists keyboard resizing without changing the current draft", () => {
 it("restores an older narrow preference at the readable minimum", () => {
 	rememberClientSidebarState("outer", { tier: "expanded", width: "160px" });
 	mount();
-	expect(screen.getByTestId("app-module-sidebar").style.width).toBe("200px");
+	expect(screen.getByTestId("app-module-sidebar").style.width).toBe("176px");
 	expect(
 		screen.getByTestId("app-module-sidebar").getAttribute("data-state")
 	).toBe("expanded");
 });
-it("keeps the middle list expanded or hidden throughout dragging and restores its readable width", () => {
+it.each([
+	176, 308,
+])("buffers collapse when dragging the %ipx middle list and restores its readable width", (initialWidth) => {
+	rememberClientSidebarState("outer", {
+		tier: "expanded",
+		width: `${initialWidth}px`,
+	});
 	const view = mount();
 	const sidebar = screen.getByTestId("app-module-sidebar");
 	const draft = screen.getByRole("textbox", { name: "Draft" });
@@ -225,20 +231,28 @@ it("keeps the middle list expanded or hidden throughout dragging and restores it
 			})
 		);
 	}
-	pointer("pointerdown", 308);
-	pointer("pointermove", 200);
+	pointer("pointerdown", initialWidth);
+	pointer("pointermove", 176);
 	expect(sidebar.getAttribute("data-state")).toBe("expanded");
-	expect(sidebar.style.width).toBe("200px");
-	pointer("pointermove", 199);
+	expect(sidebar.style.width).toBe("176px");
+	pointer("pointermove", 175);
+	expect(sidebar.getAttribute("data-state")).toBe("expanded");
+	expect(sidebar.style.width).toBe("176px");
+	pointer("pointermove", 102);
+	expect(sidebar.getAttribute("data-state")).toBe("expanded");
+	expect(sidebar.style.width).toBe("176px");
+	pointer("pointermove", 101);
 	expect(sidebar.getAttribute("data-state")).toBe("hidden");
 	pointer("pointermove", 100);
 	expect(sidebar.getAttribute("data-state")).toBe("hidden");
-	pointer("pointermove", 204);
+	pointer("pointermove", 125);
 	expect(sidebar.getAttribute("data-state")).toBe("hidden");
-	pointer("pointermove", 208);
+	pointer("pointermove", 126);
 	expect(sidebar.getAttribute("data-state")).toBe("expanded");
-	pointer("pointermove", 200);
-	expect(sidebar.style.width).toBe("200px");
+	pointer("pointermove", 125);
+	expect(sidebar.getAttribute("data-state")).toBe("expanded");
+	pointer("pointermove", 176);
+	expect(sidebar.style.width).toBe("176px");
 	pointer("pointermove", 100);
 	pointer("pointerup", 100);
 	expect(screen.getByRole("textbox", { name: "Draft" })).toBe(draft);
@@ -252,7 +266,7 @@ it("keeps the middle list expanded or hidden throughout dragging and restores it
 			name: "Show sidebar",
 		})
 	);
-	expect(screen.getByTestId("app-module-sidebar").style.width).toBe("200px");
+	expect(screen.getByTestId("app-module-sidebar").style.width).toBe("176px");
 	const restoredRail = screen
 		.getByTestId("app-module-sidebar")
 		.querySelector('[data-sidebar="rail"]') as HTMLElement;
@@ -264,7 +278,7 @@ it("keeps the middle list expanded or hidden throughout dragging and restores it
 	expect(
 		screen.getByTestId("app-module-sidebar").getAttribute("data-state")
 	).toBe("expanded");
-	expect(screen.getByTestId("app-module-sidebar").style.width).toBe("200px");
+	expect(screen.getByTestId("app-module-sidebar").style.width).toBe("176px");
 });
 it("renders the mobile list despite a saved collapsed desktop preference", () => {
 	rememberClientSidebarState("outer", { tier: "hidden", width: "308px" });
