@@ -36,14 +36,19 @@ simulated Wake progress/template replies, Inbox read/filter actions, all six Tea
 read-only People/Agent/Plugin details, file browsing, Skill inspection, and sample Routine
 editing, pause/resume, and history. It does not authenticate, execute agents,
 connect providers, or persist changes. Transport and preference adapters are
-replaced during compilation. Billing and patch review threads start closed;
-their compact previews open the real resizable panel shell, header, message
-primitives, and Composer.
+replaced during compilation. Billing review starts open on desktop; patch review
+and phone threads start closed. Their compact previews open the real resizable
+panel shell, header, message primitives, and Composer.
 The Members panel stays open on desktop and uses a smaller demo-specific resize
 limit. Its Live and You labels are hidden to reserve more reading space for
-Thread, which has wider default and minimum widths. Wake/Reference labels are
-hidden in demo tokens, without changing the retained addressing or simulated reply
-placement. Thread replies and previews
+Thread, which has wider default and minimum widths.
+The Space sidebar starts at the product's minimum width and wraps long names;
+its search input is omitted. Members and Thread headers share the same height,
+and the member toggle's trailing edge aligns with the panel's close button.
+The public Product anchor centers the complete demo frame in the viewport using
+the same responsive height that sizes its iframe.
+Wake/Reference labels are hidden in demo tokens, without changing the retained
+addressing or simulated reply placement. Thread replies and previews
 derive from the same in-memory request state. A CSP blocks network connections
 and form submission. The iframe permits same-origin scripts so normal module
 loading works; it is trusted authored presentation, not an origin isolation boundary.
@@ -107,6 +112,16 @@ its central conversation; playback controls sit outside the masked surface. Mask
 depend on focus, filtering, playback, or iframe state, and keep the same profile
 after navigation and refresh. There are no per-demo WebGL lighting loops or
 foreground overlays. The computer illustration uses a static ambient gradient.
+
+The privacy and open-source section follows Usage, before the FAQ and final
+app-entry section. It summarizes the customer production diagnostics policy:
+routine model logs omit conversation content and model inputs/outputs, and
+automatic agent reports omit generated summaries and work details. Operational
+metadata and authorized workspace history remain available. This presentation
+does not claim end-to-end encryption or that infrastructure operators cannot
+read stored data. Its source, issue, and pull-request links reuse the homepage's
+repository destination. The open-source copy is prepared for public launch;
+the repository must be public before publishing that claim.
 
 Navigation uses ordinary anchors. App links enter the existing App resolver,
 which alone chooses the viewer's Organization and checks access. Website download

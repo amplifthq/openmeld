@@ -42,6 +42,7 @@ import {
 	RoutineShowcase,
 	UsageShowcase,
 } from "./product-showcases";
+import { TrustSection } from "./trust-section";
 import "./landing-page.css";
 import "./hero-entrance.css";
 import "./demo-blend.css";
@@ -337,6 +338,7 @@ export function LandingPage() {
 						</div>
 						<UsageShowcase />
 					</section>
+					<TrustSection repositoryUrl={REPOSITORY_URL} />
 					<section
 						aria-labelledby="faq-title"
 						className="meld-section meld-faq meld-wrap"

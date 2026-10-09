@@ -1,6 +1,9 @@
 import { Button } from "@openmeld/ui/components/button";
 import { TooltipProvider } from "@openmeld/ui/components/tooltip";
-import { SIDEBAR_ICON_WIDTH } from "@openmeld/ui/fluid/sidebar-state";
+import {
+	SIDEBAR_ICON_WIDTH,
+	SIDEBAR_MIN_WIDTH,
+} from "@openmeld/ui/fluid/sidebar-state";
 import { useMediaQuery } from "@openmeld/ui/hooks/use-media-query";
 import { ChatCircleIcon, PlusIcon } from "@phosphor-icons/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -119,6 +122,7 @@ import "./preview.css";
 const initialScene =
 	new URLSearchParams(location.search).get("scene") ?? "Conversation";
 const WORD_BOUNDARY = /\s+/u;
+const DEMO_DESKTOP_QUERY = "(min-width: 1024px)";
 const DEMO_MEMBERS_MIN_WIDTH = "12rem";
 const focusedScenes: Record<string, ComponentType> = {
 	CenterAgent: DemoCenterAgent,
@@ -326,13 +330,13 @@ function Preview() {
 	const [file, setFile] = useState<string | null>(null);
 	const [person, setPerson] = useState<string | null>(null);
 	const [membersOpen, setMembersOpen] = useState(
-		() => window.matchMedia("(min-width: 1024px)").matches
+		() => window.matchMedia(DEMO_DESKTOP_QUERY).matches
 	);
 	const [memberWidth, setMemberWidth] = useState<string>(
 		DEMO_MEMBERS_MIN_WIDTH
 	);
 	const [view, setView] = useState<SpaceView>("messages");
-	const wide = useMediaQuery("(min-width: 1024px)");
+	const wide = useMediaQuery(DEMO_DESKTOP_QUERY);
 	const activeWakeTargetIds = new Set(
 		conversationState.activeWakeSummaryBySpaceId
 			.get(spaceId)
@@ -404,7 +408,10 @@ function Preview() {
 					<AppLinkCapability value={false}>
 						<AppSurfaceLayout
 							globalControls={null}
-							initialModuleSidebarState={{ tier: "expanded", width: "200px" }}
+							initialModuleSidebarState={{
+								tier: "expanded",
+								width: isTeam ? "200px" : `${SIDEBAR_MIN_WIDTH}px`,
+							}}
 							moduleNavigation={
 								!isInbox &&
 								(isTeam ? (
@@ -428,7 +435,7 @@ function Preview() {
 										/>
 									</TeamSidebarHeaderActionsProvider>
 								) : (
-									<ConversationsSidebar />
+									<ConversationsSidebar showSearch={false} />
 								))
 							}
 							moduleNavigationKey={isTeam ? "people" : "conversations"}
@@ -488,6 +495,7 @@ function Preview() {
 												/>
 											) : undefined
 										}
+										contentClassName="pr-4"
 										navigation={
 											scene === "Conversation" ? (
 												<SpaceViewTabs
@@ -641,7 +649,13 @@ function Conversation({
 		}
 	});
 	const id = Object.hasOwn(demoSampleMessages, spaceId) ? spaceId : "release";
-	const [activeThread, setActiveThread] = useState<DemoThread | null>(null);
+	const [activeThread, setActiveThread] = useState<DemoThread | null>(() =>
+		!isReport &&
+		id === "release" &&
+		window.matchMedia(DEMO_DESKTOP_QUERY).matches
+			? demoCheckoutThreads[0]
+			: null
+	);
 	const threadTriggerRef = useRef<HTMLButtonElement | null>(null);
 	const closeThread = () => {
 		setActiveThread(null);
@@ -708,6 +722,11 @@ function Conversation({
 											thread={demoCheckoutThreads.find(
 												(thread) => thread.rootIndex === index
 											)}
+											triggerRef={(trigger) => {
+												if (trigger && activeThread?.rootIndex === index) {
+													threadTriggerRef.current = trigger;
+												}
+											}}
 										/>
 									) : undefined
 								}
@@ -930,10 +949,12 @@ function DemoThreadPreview({
 	activeThreadId,
 	onOpen,
 	thread,
+	triggerRef,
 }: {
 	activeThreadId?: string;
 	onOpen: (thread: DemoThread, trigger: HTMLButtonElement) => void;
 	thread?: DemoThread;
+	triggerRef: (trigger: HTMLButtonElement | null) => void;
 }) {
 	const state = useDemoConversationState();
 	if (!thread) {
@@ -979,6 +1000,7 @@ function DemoThreadPreview({
 				aria-label={`Open thread (${countLabel})`}
 				className="inline-flex w-fit items-center gap-1.5 text-muted-foreground text-xs leading-5 hover:text-foreground hover:underline focus-visible:outline focus-visible:outline-ring"
 				onClick={(event) => onOpen(thread, event.currentTarget)}
+				ref={triggerRef}
 				type="button"
 			>
 				<ChatCircleIcon aria-hidden="true" className="size-3.5" />
@@ -998,7 +1020,7 @@ function DemoThreadPanel({
 	onClose: () => void;
 	onGoToMessage: () => void;
 }) {
-	const [width, setWidth] = useState("21rem");
+	const [width, setWidth] = useState("24rem");
 	const state = useDemoConversationState();
 	const turns = state.turns.filter(
 		(turn) => turn.spaceId === "release" && turn.threadId === thread?.id

@@ -4,6 +4,12 @@
 body {
 	margin: 0;
 }
+/* Show complete Space names even at the product's minimum sidebar width. */
+[data-testid="app-module-sidebar"] [data-conversation-title] {
+	white-space: normal;
+	overflow: visible;
+	text-overflow: clip;
+}
 /* Keep addressing behavior, but omit relation controls in this simple demo. */
 [data-slot="space-message-profile-mention"] > .border-l,
 [data-testid="space-composer-profile-token"] > .border-l,

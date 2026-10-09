@@ -258,8 +258,8 @@ export function SpaceMembersSidePanel(
 			resizeHandleLabel="Resize Members panel"
 			width={input.panelWidth}
 		>
-			<header className="shrink-0 border-border border-b px-4 py-3">
-				<div className="flex items-center justify-between gap-2">
+			<header className="flex min-h-14 shrink-0 items-center border-border border-b px-4 py-3">
+				<div className="flex w-full items-center justify-between gap-2">
 					<div className="flex min-w-0 items-baseline gap-2">
 						<h2 className="min-w-0 whitespace-nowrap font-medium text-base">
 							Members

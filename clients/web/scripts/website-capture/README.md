@@ -78,17 +78,23 @@ demo builds against the same output directory at once.
 The demo supplies fictional content through real header slots. The Space member
 button opens the product's resizable member panel or mobile drawer. The panel
 starts open on desktop at a demo-specific minimum width of 12rem. Live and You
-labels are hidden in demo member rows. Thread starts at 21rem with a 20rem resize
+labels are hidden in demo member rows. Thread starts at 24rem with a 20rem resize
 minimum. The product's default resize limits and labels remain unchanged. The
-module sidebar starts at 200px, enough to show Customer research in full. The 28px user avatar
+Space sidebar starts at the product's 160px minimum; long names wrap instead of
+truncating. Its search input is omitted through `ConversationsSidebar.showSearch`.
+Team retains its 200px sidebar. The Space header's trailing inset matches the
+Members header, and Members and Thread use the same 56px header height.
+The 28px user avatar
 shares the rail's centerline with the organization switcher and navigation.
 Claude Code and Codex messages show their human owner.
 The first Space follows a checkout regression: James reports the failure, Maya
 sets the review requirements, and Center Agent delegates to Codex and Claude Code
 before reporting to both people. Billing review and patch review have compact
-reply previews and an Open thread action. Threads start closed, open between the
-main conversation and Members, and reuse the same message rows and Composer. The main conversation
-stays widest, Thread is next, and Members is narrowest at their initial sizes.
+reply previews and an Open thread action. Billing review starts open on desktop;
+other threads and phone threads start closed. Threads open between the main
+conversation and Members, and reuse the same message rows and Composer. The main
+conversation uses the remaining width; Thread has a readable initial width and
+Members stays compact.
 Thread and Members widths remain draggable through the product's sidebar rail.
 A thread reply stays in its thread and updates its main-timeline preview. Closing
 and reopening a thread retains replies for the current demo session.
