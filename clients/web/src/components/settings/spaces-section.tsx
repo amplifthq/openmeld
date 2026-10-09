@@ -18,6 +18,7 @@ import {
 	writeSpaceConversationLayoutPreference,
 } from "#/lib/spaces/conversation-layout-preference";
 import { useHistorySliderPreference } from "#/lib/spaces/history-slider-preference";
+import { useMessageSendShortcut } from "#/lib/spaces/message-send-shortcut";
 import {
 	readSpaceSelfMessageAlignmentPreference,
 	type SpaceSelfMessageAlignment,
@@ -85,6 +86,7 @@ export function SpacesSection() {
 	const profileId = defaultHumanProfile?.openMeldProfileId ?? "";
 	const previews = useMessagePreviews(profileId, currentOrganization.id);
 	const historySlider = useHistorySliderPreference();
+	const sendShortcut = useMessageSendShortcut();
 	const choiceOrientation = useMediaQuery("(max-width: 639px)")
 		? "vertical"
 		: "horizontal";
@@ -141,6 +143,43 @@ export function SpacesSection() {
 				title="Spaces"
 			/>
 			<PreferenceGroup title="Sending">
+				<SettingsRow
+					control={
+						<RadioGroup
+							aria-label="Send shortcut"
+							className="w-full"
+							orientation={choiceOrientation}
+							selectedIndex={sendShortcut.shortcut === "enter" ? 0 : 1}
+						>
+							{(["enter", "modifier-enter"] as const).map((value, index) => (
+								<RadioItem
+									className="min-w-0 flex-1 px-3 py-3"
+									description={
+										<span className="flex min-w-0 flex-col gap-2">
+											<span>
+												{value === "enter"
+													? "Enter sends. Shift + Enter adds a new line."
+													: "Enter adds a new line. Cmd/Ctrl + Enter sends."}
+											</span>
+											<SendShortcutPreview
+												modified={value === "modifier-enter"}
+											/>
+										</span>
+									}
+									index={index}
+									key={value}
+									label={value === "enter" ? "Enter" : "Cmd/Ctrl + Enter"}
+									onSelect={() => sendShortcut.setShortcut(value)}
+									selected={sendShortcut.shortcut === value}
+								/>
+							))}
+						</RadioGroup>
+					}
+					description="For Spaces, direct messages, and threads. Use Cmd on Mac or Ctrl on Windows and Linux. Saved in this browser."
+					label="Send shortcut"
+					layout="stacked"
+					showDivider
+				/>
 				<SettingsRow
 					control={
 						query.data ? (
@@ -347,6 +386,28 @@ function MessagePreview(input: { shown: boolean }) {
 					</span>
 				</span>
 			))}
+		</span>
+	);
+}
+
+function SendShortcutPreview(input: { modified: boolean }) {
+	return (
+		<span
+			aria-hidden="true"
+			className="flex h-20 w-full flex-col justify-center gap-2 rounded-lg border border-border bg-background p-3"
+		>
+			<span className="flex items-center justify-end gap-2 text-[10px] text-foreground">
+				<kbd className="rounded border border-border bg-muted/50 px-1.5 py-0.5">
+					{input.modified ? "Cmd/Ctrl + Enter" : "Enter"}
+				</kbd>
+				<span>Send ↗</span>
+			</span>
+			<span className="flex items-center justify-end gap-2 text-[10px]">
+				<kbd className="rounded border border-border bg-muted/50 px-1.5 py-0.5">
+					{input.modified ? "Enter" : "Shift + Enter"}
+				</kbd>
+				<span>New line ↵</span>
+			</span>
 		</span>
 	);
 }

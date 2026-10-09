@@ -1561,6 +1561,14 @@ preference as the sidebar display menu. Fluid radio cards show the reading and
 list choices with static previews and stack on narrow screens. Appearance keeps
 global theme, shape, navigation, toolbar, and Bot avatar controls.
 
+Sending also contains **Send shortcut**. Enter sends by default, and Shift+Enter
+inserts a line. The optional Cmd/Ctrl+Enter choice makes unmodified Enter insert
+a line. It uses one browser-local preference in the shared composer across
+Spaces, Direct Messages, Center Agent conversations, creation, and Threads.
+IME composition and mention-picker confirmation never submit a draft. The
+plain-text recovery input retains the same send rule. Inline message editing
+keeps its existing Enter-to-save behavior. Mobile Send buttons are unchanged.
+
 Account display reads use Auth's `/v1/account/session` projection through the
 shared API client and the existing `userQueryKeys.session` cache. The projection
 preserves the Joined date, verification badge, name/avatar identity updates, and

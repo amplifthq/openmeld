@@ -17,6 +17,8 @@ Agent when you are the only Human with one Agent.
 Conversation layout, message placement, and the history slider are now under
 Personal Spaces settings, with visual choices. Message previews share the same
 setting as the conversation sidebar.
+You can also choose Enter or Cmd/Ctrl+Enter to send messages, including in
+Direct Messages and threads.
 
 When an Owner deletes a Space, its members can still read and search its history.
 The Space shows a small Deleted label and accepts no new messages or Agent work.
