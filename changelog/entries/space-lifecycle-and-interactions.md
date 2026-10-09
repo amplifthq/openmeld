@@ -14,6 +14,9 @@ avatars and a read-only preview; joining opens the full Space.
 Adding a third participant turns a Direct Message into a Space permanently.
 Personal Spaces settings let you choose whether messages automatically Wake the
 Agent when you are the only Human with one Agent.
+Conversation layout, message placement, and the history slider are now under
+Personal Spaces settings, with visual choices. Message previews share the same
+setting as the conversation sidebar.
 
 When an Owner deletes a Space, its members can still read and search its history.
 The Space shows a small Deleted label and accepts no new messages or Agent work.

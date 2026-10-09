@@ -432,7 +432,7 @@ existing Thread spacing, regardless of this page preference.
 
 ### History slider preference
 
-Appearance's **History slider** uses the existing Fluid radio cards with **Show**
+Personal Spaces settings' **History slider** uses the existing Fluid radio cards with **Show**
 and **Hide** previews. Both choices keep the browser-local
 `openmeld.space.history-slider` preference. A Space reserves the slider lane only
 when the slider is visible: Messages is selected, the viewport supports it, and

@@ -1553,6 +1553,14 @@ applies across organizations. Conversation guidance uses Core's Space status
 projection, so turning it off removes automatic-Wake guidance as well as implicit
 work admission. Explicit Agent mentions remain available.
 
+The same section owns personal conversation preferences. Reading contains
+**Conversation layout**, **Your messages**, and **History slider**, moved from
+Appearance without changing their browser-local keys or defaults. Conversation
+list contains **Message previews**, using the same browser/profile/organization
+preference as the sidebar display menu. Fluid radio cards show the reading and
+list choices with static previews and stack on narrow screens. Appearance keeps
+global theme, shape, navigation, toolbar, and Bot avatar controls.
+
 Account display reads use Auth's `/v1/account/session` projection through the
 shared API client and the existing `userQueryKeys.session` cache. The projection
 preserves the Joined date, verification badge, name/avatar identity updates, and
@@ -1708,7 +1716,7 @@ retain normal access checks; files without a public navigation link retain
 their existing download/copy operations. Editors and selected text retain
 native menus; progress-only message rows do not create empty custom menus.
 
-Appearance also owns the browser-local **Your messages** placement used by
+Personal Spaces settings owns the browser-local **Your messages** placement used by
 every Space, Direct Message, Center Agent, and thread conversation that
 renders the shared message primitives. A message placed on the right uses a
 trailing-aligned, content-sized bubble; a message placed on the left uses the

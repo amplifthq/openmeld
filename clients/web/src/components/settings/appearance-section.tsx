@@ -17,7 +17,7 @@ import {
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
 import { useTheme } from "next-themes";
-import { type CSSProperties, useState, useSyncExternalStore } from "react";
+import { type CSSProperties, useSyncExternalStore } from "react";
 import { AppPageHeader } from "#/components/app/app-page-header";
 import { THEME_CHOICES } from "#/components/appearance/theme-choices";
 import {
@@ -33,17 +33,6 @@ import {
 	TOOLBAR_SHORTCUTS,
 	useToolbarPreference,
 } from "#/lib/appearance/toolbar-preference";
-import {
-	readSpaceConversationLayoutPreference,
-	type SpaceConversationLayout,
-	writeSpaceConversationLayoutPreference,
-} from "#/lib/spaces/conversation-layout-preference";
-import { useHistorySliderPreference } from "#/lib/spaces/history-slider-preference";
-import {
-	readSpaceSelfMessageAlignmentPreference,
-	type SpaceSelfMessageAlignment,
-	writeSpaceSelfMessageAlignmentPreference,
-} from "#/lib/spaces/self-message-alignment-preference";
 
 const PHONE_APPEARANCE_CHOICES_QUERY = "(max-width: 639px)";
 
@@ -66,57 +55,6 @@ const SHAPE_CHOICES: readonly ShapeChoice[] = [
 	},
 ] as const;
 
-type ConversationLayoutChoice = {
-	description: string;
-	label: string;
-	value: SpaceConversationLayout;
-};
-
-const CONVERSATION_LAYOUT_CHOICES: readonly ConversationLayoutChoice[] = [
-	{
-		description: "Messages and the composer use all available space.",
-		label: "Full width",
-		value: "full-width",
-	},
-	{
-		description: "Messages and the composer stay centered in a focused column.",
-		label: "Centered",
-		value: "centered",
-	},
-] as const;
-
-type SelfMessageAlignmentChoice = {
-	description: string;
-	label: string;
-	value: SpaceSelfMessageAlignment;
-};
-
-const SELF_MESSAGE_ALIGNMENT_CHOICES: readonly SelfMessageAlignmentChoice[] = [
-	{
-		description: "Your messages appear on the left, with actions on the right.",
-		label: "Left",
-		value: "left",
-	},
-	{
-		description: "Your messages appear on the right, with actions on the left.",
-		label: "Right",
-		value: "right",
-	},
-] as const;
-
-const HISTORY_SLIDER_CHOICES = [
-	{
-		description: "Show a compact slider for older messages.",
-		enabled: true,
-		label: "Show",
-	},
-	{
-		description: "Hide the slider and give messages more room.",
-		enabled: false,
-		label: "Hide",
-	},
-] as const;
-
 const subscribeToHydration = () => () => undefined;
 const getClientHydrationSnapshot = () => true;
 const getServerHydrationSnapshot = () => false;
@@ -124,7 +62,6 @@ const getServerHydrationSnapshot = () => false;
 export function AppearanceSection() {
 	const sidebar = useSidebarDisplayPreference();
 	const toolbar = useToolbarPreference();
-	const historySlider = useHistorySliderPreference();
 	const botAvatar = useBotAvatarPreference();
 	const { setTheme, theme } = useTheme();
 	const { setShape, shape } = useShapeContext();
@@ -136,30 +73,12 @@ export function AppearanceSection() {
 		getClientHydrationSnapshot,
 		getServerHydrationSnapshot
 	);
-	const [conversationLayout, setConversationLayout] =
-		useState<SpaceConversationLayout>(() =>
-			readSpaceConversationLayoutPreference()
-		);
-	const [selfMessageAlignment, setSelfMessageAlignment] =
-		useState<SpaceSelfMessageAlignment>(() =>
-			readSpaceSelfMessageAlignmentPreference()
-		);
 
 	const selectedThemeIndex = mounted
 		? THEME_CHOICES.findIndex((choice) => choice.value === theme)
 		: -1;
-	const selectedConversationLayoutIndex = mounted
-		? CONVERSATION_LAYOUT_CHOICES.findIndex(
-				(choice) => choice.value === conversationLayout
-			)
-		: -1;
 	const selectedShapeIndex = mounted
 		? SHAPE_CHOICES.findIndex((choice) => choice.value === shape)
-		: -1;
-	const selectedSelfMessageAlignmentIndex = mounted
-		? SELF_MESSAGE_ALIGNMENT_CHOICES.findIndex(
-				(choice) => choice.value === selfMessageAlignment
-			)
 		: -1;
 
 	return (
@@ -269,111 +188,6 @@ export function AppearanceSection() {
 					}
 					description="Choose how the main navigation appears on larger screens. Saved in this browser."
 					label="Sidebar"
-					layout="stacked"
-					showDivider
-				/>
-				<SettingsRow
-					control={
-						<RadioGroup
-							aria-label="Conversation layout"
-							className="w-full"
-							orientation={choiceOrientation}
-							selectedIndex={selectedConversationLayoutIndex}
-						>
-							{CONVERSATION_LAYOUT_CHOICES.map((choice, index) => (
-								<RadioItem
-									className="min-w-0 flex-1 px-3 py-3"
-									description={
-										<span className="flex min-w-0 flex-col gap-2">
-											<span>{choice.description}</span>
-											<ConversationLayoutPreview layout={choice.value} />
-										</span>
-									}
-									index={index}
-									key={choice.value}
-									label={choice.label}
-									onSelect={() => {
-										writeSpaceConversationLayoutPreference(choice.value);
-										setConversationLayout(choice.value);
-									}}
-									selected={mounted && conversationLayout === choice.value}
-								/>
-							))}
-						</RadioGroup>
-					}
-					description="Applies to every Space and Center Agent conversation. Saved in this browser."
-					label="Conversation layout"
-					layout="stacked"
-					showDivider
-				/>
-				<SettingsRow
-					control={
-						<RadioGroup
-							aria-label="Your messages"
-							className="w-full"
-							orientation={choiceOrientation}
-							selectedIndex={selectedSelfMessageAlignmentIndex}
-						>
-							{SELF_MESSAGE_ALIGNMENT_CHOICES.map((choice, index) => (
-								<RadioItem
-									className="min-w-0 flex-1 px-3 py-3"
-									description={
-										<span className="flex min-w-0 flex-col gap-2">
-											<span>{choice.description}</span>
-											<SelfMessageAlignmentPreview alignment={choice.value} />
-										</span>
-									}
-									index={index}
-									key={choice.value}
-									label={choice.label}
-									onSelect={() => {
-										writeSpaceSelfMessageAlignmentPreference(choice.value);
-										setSelfMessageAlignment(choice.value);
-									}}
-									selected={mounted && selfMessageAlignment === choice.value}
-								/>
-							))}
-						</RadioGroup>
-					}
-					description="Choose which side your messages appear on. Applies to every Space and Center Agent conversation. Saved in this browser."
-					label="Your messages"
-					layout="stacked"
-					showDivider={false}
-				/>
-				<SettingsRow
-					control={
-						<RadioGroup
-							aria-label="History slider"
-							className="w-full"
-							orientation={choiceOrientation}
-							selectedIndex={
-								mounted
-									? HISTORY_SLIDER_CHOICES.findIndex(
-											(choice) => choice.enabled === historySlider.enabled
-										)
-									: -1
-							}
-						>
-							{HISTORY_SLIDER_CHOICES.map((choice, index) => (
-								<RadioItem
-									className="min-w-0 flex-1 px-3 py-3"
-									description={
-										<span className="flex min-w-0 flex-col gap-2">
-											<span>{choice.description}</span>
-											<HistorySliderPreview enabled={choice.enabled} />
-										</span>
-									}
-									index={index}
-									key={choice.label}
-									label={choice.label}
-									onSelect={() => historySlider.setEnabled(choice.enabled)}
-									selected={mounted && historySlider.enabled === choice.enabled}
-								/>
-							))}
-						</RadioGroup>
-					}
-					description="Browse older messages in a Space. Shown only when older history is available. Saved in this browser."
-					label="History slider"
 					layout="stacked"
 					showDivider
 				/>
@@ -580,98 +394,6 @@ function CornerStylePreview(input: { shape: ShapeVariant }) {
 					<span className="h-4 w-8 rounded-md border border-border bg-background" />
 					<span className="h-4 w-10 rounded-md bg-foreground/80" />
 				</span>
-			</span>
-		</span>
-	);
-}
-
-function SelfMessageAlignmentPreview(input: {
-	alignment: SpaceSelfMessageAlignment;
-}) {
-	const selfAlignmentClassName =
-		input.alignment === "left" ? "items-start" : "items-end";
-	const actionsClassName = input.alignment === "left" ? "right-1" : "left-1";
-	const bubbleWidthClassName = input.alignment === "left" ? "w-full" : "w-2/3";
-
-	return (
-		<span
-			aria-hidden="true"
-			className="flex h-20 w-full overflow-hidden border border-border bg-background p-2"
-			data-self-message-alignment-preview={input.alignment}
-		>
-			<span className="flex min-w-0 flex-1 flex-col gap-1.5">
-				<span className="h-2 w-1/2 bg-muted-foreground/25" />
-				<span
-					className={`relative flex w-full flex-col gap-1 ${selfAlignmentClassName}`}
-				>
-					<span className={`absolute top-0 flex gap-0.5 ${actionsClassName}`}>
-						<span className="size-1 bg-muted-foreground/35" />
-						<span className="size-1 bg-muted-foreground/35" />
-						<span className="size-1 bg-muted-foreground/35" />
-					</span>
-					<span
-						className={`mt-2 flex h-5 flex-col justify-center gap-1 rounded-md bg-muted/60 px-1.5 ${bubbleWidthClassName}`}
-						data-slot="self-message-preview-bubble"
-					>
-						<span className="h-1 w-4/5 rounded-sm bg-muted-foreground/35" />
-						<span className="h-1 w-3/5 rounded-sm bg-muted-foreground/25" />
-					</span>
-					<span className="h-1.5 w-2/5 bg-destructive/30" />
-				</span>
-			</span>
-		</span>
-	);
-}
-
-function ConversationLayoutPreview(input: { layout: SpaceConversationLayout }) {
-	const conversationColumnClassName =
-		input.layout === "centered" ? "mx-auto w-2/3" : "w-full";
-
-	return (
-		<span
-			aria-hidden="true"
-			className="flex h-20 w-full overflow-hidden border border-border bg-background"
-			data-conversation-layout-preview={input.layout}
-		>
-			<span className="w-3 shrink-0 border-border border-r bg-muted/70" />
-			<span className="flex min-w-0 flex-1 p-2">
-				<span
-					className={`flex min-w-0 flex-col gap-1.5 ${conversationColumnClassName}`}
-				>
-					<span className="h-1.5 w-3/5 bg-muted-foreground/30" />
-					<span className="h-1.5 w-4/5 self-end bg-muted-foreground/20" />
-					<span className="h-1.5 w-2/3 bg-muted-foreground/30" />
-					<span className="mt-auto h-3 w-full border border-border bg-muted/60" />
-				</span>
-			</span>
-			<span className="w-4 shrink-0 border-border border-l bg-muted/40" />
-		</span>
-	);
-}
-
-function HistorySliderPreview(input: { enabled: boolean }) {
-	return (
-		<span
-			aria-hidden="true"
-			className="flex h-20 w-full overflow-hidden border border-border bg-background"
-			data-history-slider-preview={input.enabled ? "show" : "hide"}
-		>
-			<span className="w-3 shrink-0 border-border border-r bg-muted/70" />
-			{input.enabled && (
-				<span className="flex w-4 shrink-0 flex-col justify-center gap-0.5 pl-1">
-					{[0, 1, 2, 3, 4, 5, 6, 7, 8].map((tick) => (
-						<span
-							className={`h-0.5 ${tick === 4 ? "w-2.5 bg-foreground/70" : "w-1 bg-muted-foreground/40"}`}
-							key={tick}
-						/>
-					))}
-				</span>
-			)}
-			<span className="flex min-w-0 flex-1 flex-col gap-1.5 p-2">
-				<span className="h-1.5 w-3/5 bg-muted-foreground/30" />
-				<span className="h-1.5 w-4/5 self-end bg-muted-foreground/20" />
-				<span className="h-1.5 w-2/3 bg-muted-foreground/30" />
-				<span className="mt-auto h-3 w-full border border-border bg-muted/60" />
 			</span>
 		</span>
 	);
