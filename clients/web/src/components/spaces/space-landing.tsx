@@ -3192,6 +3192,7 @@ function resolveAutomaticWakeConversationKind(
 		return null;
 	}
 	const state = {
+		automaticWakeEnabled: status.automaticWakeEnabled,
 		activeMemberCount: status.members.totalCount,
 		agentMemberCount: status.members.agentCount,
 		humanMemberCount: status.members.humanCount,

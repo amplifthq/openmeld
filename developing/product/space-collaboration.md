@@ -986,6 +986,12 @@ not change membership. Converted DM-origin Spaces follow this ordinary Space
 addressing rule without regaining DM identity, privacy or mutation restrictions.
 Explicit Reference remains an opt-out. Existing explicit listen-all Space policy
 is separate from this default and is not enabled by membership changes.
+Automatic Wake is enabled by default. **App settings → Personal → Spaces →
+Automatically wake the only Agent** is a durable account preference across
+organizations and clients. Turning it off disables implicit main-conversation
+and Thread Wake for that Human author; explicit Wake addressing still works.
+Core reads the verified author's preference when admitting automatic work.
+Space status projects the viewer's preference for composer guidance.
 Agents use structured Wake targets to request another Agent's work; a plain reply
 never implies another Agent-to-Agent Wake under the default policy.
 Ordinary Space Threads retain their independent participant-based addressing;

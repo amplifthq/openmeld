@@ -90,14 +90,18 @@ describe("direct message Space presentation", () => {
     ).toBe(false);
   });
 
-  it("automatically addresses ordinary one-human one-agent Spaces", () => {
+  it.each([
+    true,
+    false,
+  ])("respects the automatic Wake preference in ordinary one-human one-agent Spaces: %s", (automaticWakeEnabled) => {
     expect(
       isAutomaticWakeSpace({
+        automaticWakeEnabled,
         activeMemberCount: 2,
         agentMemberCount: 1,
         humanMemberCount: 1,
         purpose: "ordinary_private_space",
       })
-    ).toBe(true);
+    ).toBe(automaticWakeEnabled);
   });
 });

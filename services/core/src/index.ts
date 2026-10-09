@@ -13,6 +13,7 @@ import type {
   SpaceCursor,
   SpaceMeta,
 } from "@openmeld/protocol";
+import type { SpacePreferencesRpc } from "@openmeld/schemas";
 import {
   type ListCenterAgentSessionsResponse,
   type ModelCatalogReadOptions,
@@ -1196,6 +1197,7 @@ import { emitCoreCloudflareRuntimeEvidence } from "./shared/observability/cloudf
 import { handleCoreQueueBatch } from "./shared/queue/core-queue-router";
 import { verifyGitHubAppWebhook } from "./space/application/github-app-webhook-service";
 import type { SpaceBootstrapWithTiming } from "./space/application/space-bootstrap-timing";
+import { spacePreferences } from "./space/application/space-preferences";
 import { Space } from "./space/transport/do/space";
 import {
   type ProjectSpaceIndexMembershipOverlayRpcInput,
@@ -1841,6 +1843,11 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   localAgentReasoningPreferences(input: LocalAgentReasoningPreferencesRpc) {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       reasoningPreferences(this.env, input)
+    );
+  }
+  accountSpacePreferences(input: SpacePreferencesRpc) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      spacePreferences(this.env, input)
     );
   }
   updateInboxNotificationPreferences(

@@ -7901,6 +7901,27 @@ describe("OpenMeld Core", () => {
     });
     socket.close(1000, "done");
   });
+  it("keeps automatic Wake preferences scoped to the account", async () => {
+    const hubs = (env as CoreBindings).OPENMELD_RUNTIME_TRANSPORT;
+    if (!hubs) {
+      throw new Error("Missing RuntimeTransport test binding");
+    }
+    const accountId = `space-preferences-${randomUUID()}`;
+    const account = hubs.get(hubs.idFromName(accountId));
+    expect(await account.rpcSpacePreferences({})).toEqual({
+      automaticWakeEnabled: true,
+    });
+    await account.rpcSpacePreferences({ automaticWakeEnabled: false });
+    expect(
+      await hubs.get(hubs.idFromName(accountId)).rpcSpacePreferences({})
+    ).toEqual({ automaticWakeEnabled: false });
+    expect(
+      await hubs
+        .get(hubs.idFromName(`${accountId}-other`))
+        .rpcSpacePreferences({})
+    ).toEqual({ automaticWakeEnabled: true });
+  });
+
   it("does not replay cleared reasoning or local reasoning without an enabled owner preference", async () => {
     const spaceId = await createSpace();
     const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;

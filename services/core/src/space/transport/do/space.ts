@@ -294,6 +294,7 @@ import {
   createWakeProgressItem,
   getSpaceAccessPassword,
   getSpaceAccessRequestContext,
+  isAutomaticWakeSpace,
   isDirectMessageSpace,
   isOneHumanAgentConversation,
   resolveThreadAutomaticWakeTarget,
@@ -2138,6 +2139,7 @@ const readDispatchPlannerContextForSignal = (input: {
   };
 };
 const evaluateDispatchPlannerDecisionsForSignal = (input: {
+  automaticWakeEnabled?: boolean;
   isThreadMessage?: boolean;
   directMessageConvertedAt?: string | null;
   senderProfileId: string;
@@ -2159,6 +2161,7 @@ const evaluateDispatchPlannerDecisionsForSignal = (input: {
     status: "active",
   });
   const automaticWakeDecisions = buildAutomaticWakeDispatchReadyDecisions({
+    automaticWakeEnabled: input.automaticWakeEnabled,
     activeMemberRecords,
     senderProfileId: input.senderProfileId,
     signal: input.signal,
@@ -10548,7 +10551,8 @@ export class Space extends DurableObject<CoreBindings> {
                 () =>
                   this.rpcGetStatusForBootstrapFromMembersSnapshot(
                     collector,
-                    membersPromise
+                    membersPromise,
+                    input
                   )
               ),
               membersPromise,
@@ -10626,7 +10630,8 @@ export class Space extends DurableObject<CoreBindings> {
   }
   private async rpcGetStatusForBootstrapFromMembersSnapshot(
     collector: SpaceBootstrapTimingCollector,
-    membersSnapshotPromise: Promise<SpaceMembersSnapshot>
+    membersSnapshotPromise: Promise<SpaceMembersSnapshot>,
+    input: GetSpaceBootstrapInput
   ): Promise<GetSpaceStatusResponse> {
     const metaRecordPromise = this.readSpaceMetaRecord();
     const membersSnapshot = await membersSnapshotPromise;
@@ -10646,6 +10651,11 @@ export class Space extends DurableObject<CoreBindings> {
       );
     }
     return await readSpaceStatusSummaryFromMembersSnapshotUseCase({
+      viewerOwnerUserId:
+        (input.spaceAccess
+          ? getSpaceAccessRequestContext(input.spaceAccess)
+          : input.context
+        )?.actorContext.ownerUserId ?? undefined,
       sql: this.ctx.storage.sql,
       env: this.bindings,
       spaceId: parsed.data.spaceId,
@@ -14071,11 +14081,11 @@ export class Space extends DurableObject<CoreBindings> {
       events: listSpaceThreadEvents(this.ctx.storage.sql, threadId),
     });
   }
-  private handleListThreadSignals(input: {
+  private async handleListThreadSignals(input: {
     request: Request;
     threadId: string;
     viewer: SpaceReadViewerIdentity;
-  }): Response {
+  }): Promise<Response> {
     const thread = readSpaceThread(this.ctx.storage.sql, input.threadId);
     if (!thread) {
       return this.threadErrorResponse(
@@ -14122,7 +14132,7 @@ export class Space extends DurableObject<CoreBindings> {
       placements,
       ...(parsedQuery.data.includeWakeContinuation
         ? {
-            wakeContinuation: this.readThreadWakeContinuation(
+            wakeContinuation: await this.readThreadWakeContinuation(
               thread,
               parsedQuery.data.includeWakeContinuation === "conversation"
                 ? input.viewer.viewerProfileId
@@ -14132,13 +14142,13 @@ export class Space extends DurableObject<CoreBindings> {
         : {}),
     });
   }
-  private readThreadWakeContinuation(
+  private async readThreadWakeContinuation(
     thread: SpaceThread,
     senderProfileId?: string
-  ): {
+  ): Promise<{
     targetProfileId: string | null;
     automaticTargetProfileId?: string | null;
-  } {
+  }> {
     const latest = readLatestExplicitThreadWake(
       this.ctx.storage.sql,
       thread.threadId
@@ -14154,10 +14164,11 @@ export class Space extends DurableObject<CoreBindings> {
       targetProfileId: member?.status === "active" ? targetProfileId : null,
       ...(senderProfileId
         ? {
-            automaticTargetProfileId: this.readThreadAutomaticWakeTarget(
-              thread,
+            automaticTargetProfileId: (await this.readAutomaticWakePreference(
               senderProfileId
-            ),
+            ))
+              ? this.readThreadAutomaticWakeTarget(thread, senderProfileId)
+              : null,
           }
         : {}),
     };
@@ -14179,6 +14190,25 @@ export class Space extends DurableObject<CoreBindings> {
     return member?.status === "active" && member.profileKindSnapshot === "agent"
       ? target
       : null;
+  }
+  private async readAutomaticWakePreference(
+    senderProfileId: string
+  ): Promise<boolean> {
+    const sender = readSpaceMemberRecord(this.ctx.storage.sql, senderProfileId);
+    if (sender?.profileKindSnapshot !== "human") {
+      return false;
+    }
+    if (!sender.ownerUserIdSnapshot) {
+      throw new Error(
+        "The message author has no verified account for Space preferences."
+      );
+    }
+    return (
+      await resolveRuntimeTransportOwnerShard(
+        this.bindings,
+        sender.ownerUserIdSnapshot
+      ).rpcSpacePreferences({})
+    ).automaticWakeEnabled;
   }
   private async handlePostThreadSignal(input: {
     context: CoreRpcContextInput;
@@ -14274,7 +14304,13 @@ export class Space extends DurableObject<CoreBindings> {
         }
       );
       // Resolve once, after the retry check and before ordinary authorized publication.
+      const automaticWakeEnabled = await this.readAutomaticWakePreference(
+        signal.profile.profileId
+      );
       applyAutomaticThreadWake(signal, () => {
+        if (!automaticWakeEnabled) {
+          return null;
+        }
         const target = this.readThreadAutomaticWakeTarget(
           thread,
           signal.profile.profileId
@@ -20872,10 +20908,33 @@ export class Space extends DurableObject<CoreBindings> {
           signal.profile.kind
         )
       : undefined;
+    const activeMembersForAddressing = listSpaceMemberRecords(
+      this.ctx.storage.sql,
+      { status: "active" }
+    );
+    const automaticWakeEligible =
+      signal.profile.kind === "human" &&
+      !(signal.data as { messageEnvelope?: { activationTargets?: string[] } })
+        .messageEnvelope?.activationTargets?.length &&
+      isAutomaticWakeSpace({
+        activeMemberCount: activeMembersForAddressing.length,
+        agentMemberCount: activeMembersForAddressing.filter(
+          (member) => member.profileKindSnapshot === "agent"
+        ).length,
+        humanMemberCount: activeMembersForAddressing.filter(
+          (member) => member.profileKindSnapshot === "human"
+        ).length,
+        purpose: meta?.purpose,
+        directMessageConvertedAt: meta?.directMessage?.convertedAt,
+        isThreadMessage: Boolean(signalContext?.threadContext),
+      });
     const preparedDispatchOutboxPlan = this.prepareDispatchOutboxPlanForSignal(
       signal,
       signalContext,
-      callerContext
+      callerContext,
+      automaticWakeEligible
+        ? await this.readAutomaticWakePreference(signal.profile.profileId)
+        : false
     );
     const queuedHandoff = signalContext?.queuedInputHandoff;
     const recoveryHandoff = signalContext?.workRecoveryQueueHandoff;
@@ -21307,7 +21366,8 @@ export class Space extends DurableObject<CoreBindings> {
     signalContext?: SignalPublishContext,
     callerContext?: NonNullable<
       OpenMeldDaemonDispatchQueueMessage["sourceSignalSnapshot"]
-    >["callerContext"]
+    >["callerContext"],
+    automaticWakeEnabled = true
   ): PreparedDispatchOutboxPlan {
     const plannerContext = readDispatchPlannerContextForSignal({
       readSpaceContractRecord:
@@ -21335,6 +21395,7 @@ export class Space extends DurableObject<CoreBindings> {
     const { senderProfileId, sourceEventId, spaceContract } = plannerContext;
     const { mergedReadyDecisions, nonReadyDecisions } =
       evaluateDispatchPlannerDecisionsForSignal({
+        automaticWakeEnabled,
         isThreadMessage: Boolean(signalContext?.threadContext),
         directMessageConvertedAt: spaceMeta?.directMessage?.convertedAt,
         senderProfileId,

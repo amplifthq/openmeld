@@ -67,6 +67,7 @@ export const getSpaceStatusResponseSchema = z.object({
   name: optionalTrimmedStringSchema,
   spacePurpose: optionalTrimmedStringSchema,
   directMessageConvertedAt: isoDateTimeSchema.optional(),
+  automaticWakeEnabled: z.boolean().optional(),
   organizationVisibility: spaceOrganizationVisibilitySchema.optional(),
   ownerUserIds: z.array(z.string().min(1)).optional(),
   allowGuests: z.boolean().optional(),

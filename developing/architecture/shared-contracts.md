@@ -8728,6 +8728,22 @@ to decide when password is still required.
 
 ## Unified Space Access and Ownership
 
+### Account Space preferences
+
+`packages/schemas` owns `SpacePreferences` and its authenticated RPC input.
+`GET/PATCH /v1/account/space-preferences` addresses the verified Human's existing
+account owner shard. That shard is the sole durable writer; an absent record
+means automatic Wake is enabled, preserving existing behavior. Core reads the
+author's preference at automatic dispatch admission. Space status and bootstrap
+project `automaticWakeEnabled` for the viewer without granting work authority.
+
+The status field is additive and optional. Existing clients keep their previous
+guidance and can still send messages; Core applies the saved preference. New
+clients require the preference receiver for Settings, and show a load error when
+it is unavailable. No CLI, Service, Gateway live-frame, or Wake execution protocol
+changes. Older status readers accept the added field. Rollback preserves the
+stored preference, but an older Core does not enforce it.
+
 `packages/space` owns the pure Space access and ownership policy over verified
 facts. Core obtains current identity and membership facts and enforces the policy
 for HTTP, RPC, live connections, and Agent callers. UI capability projections do

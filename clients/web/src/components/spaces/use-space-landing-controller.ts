@@ -3154,6 +3154,7 @@ export function useSpaceLandingController(input: {
 			await requireCurrentSpaceComposerWakeAdmission({
 				deviceWait: preparedSubmission.deviceWait,
 				agentProfileIds: resolveComposerWakeProgressTargetProfileIds({
+					automaticWakeEnabled: statusSnapshot?.automaticWakeEnabled,
 					explicitActivationTargets:
 						preparedSubmission.messageEnvelope?.activationTargets ?? [],
 					explicitReferenceTargets:
@@ -3336,6 +3337,7 @@ export function useSpaceLandingController(input: {
 			sendInput.preparedSubmission.messageEnvelope?.activationTargets ?? [];
 		const wakeProgressTargetProfileIds =
 			resolveComposerWakeProgressTargetProfileIds({
+				automaticWakeEnabled: sendInput.status?.automaticWakeEnabled,
 				explicitActivationTargets,
 				explicitReferenceTargets:
 					sendInput.preparedSubmission.messageEnvelope?.referenceTargets,
@@ -4474,6 +4476,7 @@ function useSpaceThreadController(input: {
 		await requireCurrentSpaceComposerWakeAdmission({
 			deviceWait: preparedSubmission.deviceWait,
 			agentProfileIds: resolveComposerWakeProgressTargetProfileIds({
+				automaticWakeEnabled: input.status?.automaticWakeEnabled,
 				isThreadMessage: true,
 				explicitActivationTargets:
 					preparedSubmission.messageEnvelope?.activationTargets ?? [],

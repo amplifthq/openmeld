@@ -115,6 +115,7 @@ export function buildLocalWakeProgressItems(input: {
 }
 
 export function resolveComposerWakeProgressTargetProfileIds(input: {
+	automaticWakeEnabled?: boolean;
 	isThreadMessage?: boolean;
 	explicitActivationTargets: readonly string[];
 	explicitReferenceTargets?: readonly string[];
@@ -133,6 +134,7 @@ export function resolveComposerWakeProgressTargetProfileIds(input: {
 	}
 	if (
 		!isAutomaticWakeSpace({
+			automaticWakeEnabled: input.automaticWakeEnabled,
 			activeMemberCount: input.status.members.totalCount,
 			agentMemberCount: input.status.members.agentCount,
 			humanMemberCount: input.status.members.humanCount,

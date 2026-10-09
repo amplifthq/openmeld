@@ -1526,6 +1526,12 @@ CLI controls.
 
 ### Settings structure
 
+**Personal → Spaces** contains **Automatically wake the only Agent**. It is on
+by default and uses the shared Settings row and Switch. Its account-owned value
+applies across organizations. Conversation guidance uses Core's Space status
+projection, so turning it off removes automatic-Wake guidance as well as implicit
+work admission. Explicit Agent mentions remain available.
+
 Account display reads use Auth's `/v1/account/session` projection through the
 shared API client and the existing `userQueryKeys.session` cache. The projection
 preserves the Joined date, verification badge, name/avatar identity updates, and
@@ -1568,7 +1574,7 @@ to Account through the same capability-filtered registry.
 
 The Settings secondary sidebar always shows these two groups:
 
-- **Personal** — **Account**, **Appearance**, **Notifications**, **Privacy &
+- **Personal** — **Account**, **Appearance**, **Notifications**, **Spaces**, **Privacy &
   Safety**, and **Send feedback**. In a Personal Workspace, it also includes
   **Center Agent** (placed after Privacy & Safety, before Send feedback).
   Account preferences do not change when the selected Organization changes.
