@@ -13,6 +13,8 @@ its original Project or overwriting settings you changed afterward.
 Custom and OpenMeld-managed folder changes correctly clear Default Project.
 Center Agent setup results keep local folder paths private and show which
 steps still need attention.
+During an update, incompatible Center Agent folder changes stop before any
+settings are saved.
 
 Codex Agents can start work when their included usage is exhausted but account
 credits still permit it. Usage percentages remain visible, and account changes

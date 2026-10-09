@@ -6236,10 +6236,11 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           submissionId: input.submissionId,
           toolName: "openmeld_update_agent_profile_runtime_settings",
         });
-        const rpc = requireCoreRpc(
-          input.coreWorker.centerAgentUpdateAgentProfileRuntimeSettings,
-          "centerAgentUpdateAgentProfileRuntimeSettings"
-        );
+        const rpcName =
+          payload.workspaceMode === undefined
+            ? "centerAgentUpdateAgentProfileRuntimeSettings"
+            : "centerAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace";
+        const rpc = requireCoreRpc(input.coreWorker[rpcName], rpcName);
         return centerAgentUpdateAgentProfileRuntimeSettingsResponseSchema.parse(
           await rpc({
             ...payload,

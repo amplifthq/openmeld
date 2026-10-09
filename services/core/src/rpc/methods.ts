@@ -12504,9 +12504,22 @@ export async function rpcCenterAgentConnectAgentProfileToLocalAgent(
   }
   return validated.data;
 }
-export async function rpcCenterAgentUpdateAgentProfileRuntimeSettings(
+export function rpcCenterAgentUpdateAgentProfileRuntimeSettings(
   env: CoreBindings,
   input: CenterAgentUpdateAgentProfileRuntimeSettingsInput
+): Promise<CenterAgentUpdateAgentProfileRuntimeSettingsResponse> {
+  return updateCenterAgentProfileRuntimeSettings(env, input, false);
+}
+export function rpcCenterAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace(
+  env: CoreBindings,
+  input: CenterAgentUpdateAgentProfileRuntimeSettingsInput
+): Promise<CenterAgentUpdateAgentProfileRuntimeSettingsResponse> {
+  return updateCenterAgentProfileRuntimeSettings(env, input, true);
+}
+async function updateCenterAgentProfileRuntimeSettings(
+  env: CoreBindings,
+  input: CenterAgentUpdateAgentProfileRuntimeSettingsInput,
+  acceptsSafeWorkspaceResult: boolean
 ): Promise<CenterAgentUpdateAgentProfileRuntimeSettingsResponse> {
   const authorization = await requireCurrentDesignatedCenterAgentCaller({
     context: requireRpcContext(input.context),
@@ -12533,6 +12546,14 @@ export async function rpcCenterAgentUpdateAgentProfileRuntimeSettings(
         parsed.error.issues[0]?.message ??
         "invalid Center Agent Agent Profile runtime settings payload",
       code: "invalid_payload",
+    });
+  }
+  if (parsed.data.workspaceMode !== undefined && !acceptsSafeWorkspaceResult) {
+    throw createCoreRpcHttpError({
+      status: 409,
+      code: "center_agent.workspace_contract_update_required",
+      reason:
+        "Working folder changes are temporarily unavailable during an update. Try again after the update completes.",
     });
   }
   const response = await updateAgentProfileRuntimeSettingsOperation({

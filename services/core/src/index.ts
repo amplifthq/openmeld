@@ -910,6 +910,7 @@ import {
   rpcCenterAgentStartSelfMemberResearch,
   rpcCenterAgentStopSpaceWake,
   rpcCenterAgentUpdateAgentProfileRuntimeSettings,
+  rpcCenterAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace,
   rpcCenterAgentUpdateSpaceSettings,
   rpcCenterAgentWakeAgentProfilesInSpace,
   rpcCenterAgentWakeAgentProfilesInSpaces,
@@ -3782,6 +3783,16 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   ): Promise<CenterAgentUpdateAgentProfileRuntimeSettingsResponse> {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       rpcCenterAgentUpdateAgentProfileRuntimeSettings(this.env, input)
+    );
+  }
+  centerAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace(
+    input: CenterAgentUpdateAgentProfileRuntimeSettingsInput
+  ): Promise<CenterAgentUpdateAgentProfileRuntimeSettingsResponse> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace(
+        this.env,
+        input
+      )
     );
   }
   centerAgentCheckAgentProfileReadiness(

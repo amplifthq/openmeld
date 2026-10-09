@@ -22,6 +22,7 @@ import {
   rpcCenterAgentReadPeopleComputers,
   rpcCenterAgentRequestOpenMeldToolsUpdate,
   rpcCenterAgentUpdateAgentProfileRuntimeSettings,
+  rpcCenterAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace,
   rpcSetBoundPeopleComputerAgentProfileWorkspace,
   rpcUpdateBoundAgentProfileDefaultProject,
 } from "../src/rpc/methods";
@@ -30,6 +31,8 @@ describe("Center Agent PeopleComputers authorization", () => {
   afterEach(() => vi.restoreAllMocks());
   it.each([
     "available",
+    "old_remote",
+    "old_remote_combined",
     "missing",
     "old_service",
     "wrong_device",
@@ -38,8 +41,10 @@ describe("Center Agent PeopleComputers authorization", () => {
     "web_binding_changed_before_admission",
     "web_binding_changed_before_project_clear",
   ] as const)("reads only the bound Computer's saved Project connection (%s) without exposing paths", async (stateName) => {
+    const legacyCaller = stateName.startsWith("old_remote");
     const viaWeb = stateName.startsWith("web_");
-    const state = viaWeb ? stateName.slice(4) : stateName;
+    const callerState = viaWeb ? stateName.slice(4) : stateName;
+    const state = legacyCaller ? "available" : callerState;
     const fixture = await seedFixture();
     const organizationId = fixture.context.activeOrganizationId;
     if (!organizationId) {
@@ -383,15 +388,54 @@ describe("Center Agent PeopleComputers authorization", () => {
       );
       return;
     }
-    const update = await rpcCenterAgentUpdateAgentProfileRuntimeSettings(
-      { ...fixture.coreEnv, OPENMELD_AUTH_WORKER: auth },
-      {
+    if (legacyCaller) {
+      const bindingBefore = await readPrimaryAgentProfileBindingRecord({
         agentProfileId,
-        context: fixture.context,
-        onBehalfOf: { profileId: fixture.member.profileId },
-        workspaceMode: "openmeld_managed",
-      }
-    );
+        db,
+        owner: { id: fixture.member.userId, kind: "owner_account" },
+      });
+      await expect(
+        rpcCenterAgentUpdateAgentProfileRuntimeSettings(
+          { ...fixture.coreEnv, OPENMELD_AUTH_WORKER: auth },
+          {
+            agentProfileId,
+            context: fixture.context,
+            onBehalfOf: { profileId: fixture.member.profileId },
+            workspaceMode: "openmeld_managed",
+            ...(stateName === "old_remote_combined"
+              ? {
+                  agentControllerCollaborationMode: "codex:plan" as const,
+                  agentControllerPermissionMode: "codex:approveForMe" as const,
+                  modelId: "gpt-6.1-sol",
+                  reasoningLevel: "high",
+                }
+              : {}),
+          }
+        )
+      ).rejects.toThrow("center_agent.workspace_contract_update_required");
+      expect(save).not.toHaveBeenCalled();
+      expect(
+        auth.updateAgentProfileDefaultProjectInOrganization
+      ).not.toHaveBeenCalled();
+      expect(
+        await readPrimaryAgentProfileBindingRecord({
+          agentProfileId,
+          db,
+          owner: { id: fixture.member.userId, kind: "owner_account" },
+        })
+      ).toEqual(bindingBefore);
+      return;
+    }
+    const update =
+      await rpcCenterAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace(
+        { ...fixture.coreEnv, OPENMELD_AUTH_WORKER: auth },
+        {
+          agentProfileId,
+          context: fixture.context,
+          onBehalfOf: { profileId: fixture.member.profileId },
+          workspaceMode: "openmeld_managed",
+        }
+      );
     expect(JSON.stringify(update)).not.toContain("/private/member/managed");
     if (
       state === "wrong_device" ||

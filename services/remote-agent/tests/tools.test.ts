@@ -5307,6 +5307,37 @@ describe("remote agent OpenMeld tool catalog", () => {
     );
   });
 
+  it("rejects working-folder changes before calling old Core, while retaining model-only compatibility", async () => {
+    const request = createSubmitTurnRequest();
+    const storage = await createStorageWithPendingContext(request);
+    const legacyWrite = vi.fn(async () => updateRuntimeSettingsResponse());
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: {
+        centerAgentUpdateAgentProfileRuntimeSettings: legacyWrite,
+      },
+      storage,
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_update_agent_profile_runtime_settings", {
+        agentProfileId: AGENT_PROFILE_ID,
+        workspaceMode: "openmeld_managed",
+      })
+    ).rejects.toThrow(
+      "OpenMeld Core RPC centerAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace is unavailable."
+    );
+    expect(legacyWrite).not.toHaveBeenCalled();
+
+    await expect(
+      executeTool(tools, "openmeld_update_agent_profile_runtime_settings", {
+        agentProfileId: AGENT_PROFILE_ID,
+        modelId: "gpt-6.1-sol",
+        reasoningLevel: "high",
+      })
+    ).resolves.toMatchObject({ agentProfileId: AGENT_PROFILE_ID });
+    expect(legacyWrite).toHaveBeenCalledOnce();
+  });
+
   for (const scenario of toolPayloadScenarios()) {
     it(`passes ${scenario.toolName} payloads to ${scenario.rpcName}`, async () => {
       const privateRequest = createSubmitTurnRequest();
@@ -7537,7 +7568,7 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
         ...runtimeSettings,
       },
       response: updateRuntimeSettingsResponse(),
-      rpcName: "centerAgentUpdateAgentProfileRuntimeSettings",
+      rpcName: "centerAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace",
       toolName: "openmeld_update_agent_profile_runtime_settings",
     },
     {

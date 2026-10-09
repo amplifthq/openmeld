@@ -7513,6 +7513,24 @@ and status. The owner-self workspace response retains its private fields.
 Operation steps distinguish a saved folder from a failed Default Project clear
 and use path-free failure copy with a reason code when known.
 
+Working-folder mutations require the named Core receiver
+`centerAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace`. The legacy
+runtime-settings receiver rejects any request containing `workspaceMode` before
+calling the operation, including requests that also change model, permission,
+or collaboration. It cannot change other settings and then reject the folder.
+Model- and permission-only requests retain the legacy receiver. Both receivers
+use the same authorization and operation owner.
+
+Deploy Core before Remote. Old Remote with new Core receives a 409 before any
+settings write for a folder change. New Remote with old Core receives
+`core.rpc.unavailable` before any settings write; it never retries through the
+legacy receiver. Matched new components return the safe workspace receipt and
+all completed or failed steps, including a partial Default Project clear.
+Rollback Remote before removing the named receiver. During that transition,
+legacy folder changes remain unavailable rather than returning an incompatible
+receipt after a write. No Service, CLI, Skills, setup, Wake, diagnostic, or local
+component compatibility floor changes are needed for this cloud RPC correction.
+
 The Center Agent RPC wrapper does not create a second state machine. It verifies
 the current designation, resolves the represented member, preserves the Center
 Agent Profile as actor, and delegates to the same Core request operations.

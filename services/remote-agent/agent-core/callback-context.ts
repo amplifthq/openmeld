@@ -647,6 +647,9 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentUpdateAgentProfileRuntimeSettings?(
     input: unknown
   ): Promise<unknown>;
+  centerAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace?(
+    input: unknown
+  ): Promise<unknown>;
   centerAgentUpdateSpaceSettings?(input: unknown): Promise<unknown>;
   centerAgentWakeAgentProfilesInSpace?(input: unknown): Promise<unknown>;
   centerAgentWakeAgentProfilesInSpaces?(input: unknown): Promise<unknown>;
