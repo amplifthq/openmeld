@@ -30,6 +30,7 @@ import type {
   RuntimeTransportRuntimeCoordinatorDecisionResponse,
 } from "@openmeld/schemas/types";
 import { processAgentTaskContinuationQueueMessage } from "../../agent-task-coordination/application/agent-task-continuation-service";
+import { recordAndEnqueueAgentTaskNeedsAttentionObservation } from "../../agent-task-coordination/application/agent-task-needs-attention-observation-service";
 import { recordAndEnqueueAgentTaskTerminalOutcomeIfMatching } from "../../agent-task-coordination/application/agent-task-terminal-outcome-service";
 import { readAgentTaskTerminalOutcome } from "../../agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo";
 import type { CoreBindings } from "../../lib/bindings";
@@ -4914,6 +4915,24 @@ const resumePreHeadFailurePublication = async (input: {
       if (!stored) {
         const reasonCode =
           "dispatch.pre_head_failure_legacy_claim_unattributed";
+        await recordAndEnqueueAgentTaskNeedsAttentionObservation({
+          db: input.recoveryDb,
+          env: input.env,
+          nowMs: input.nowMs,
+          observation: {
+            attentionCode: reasonCode,
+            eventId: `pre-head:${intent.dispatchId}:legacy-claim:${legacyClaim.signalId}`,
+            occurredAtMs: intent.createdAtMs,
+            status: "needs_attention",
+          },
+          task: {
+            kind: "space_wake",
+            sourceClientMessageId: intent.redriveMessage.sourceClientMessageId,
+            spaceId: intent.redriveMessage.spaceId,
+            targetProfileId: intent.redriveMessage.targetProfileId,
+            v: 1,
+          },
+        });
         await markPreHeadFailurePublicationNeedsAttention({
           db: input.recoveryDb,
           intent,

@@ -2393,9 +2393,17 @@ the call before any visible write; there is no ordinary-RPC fallback.
 An already-published legacy claim can complete when a compatible Task outcome
 exists. Without that evidence, the original notice cannot identify its Task
 event owner. The outbox records `needs_attention` with
-`dispatch.pre_head_failure_legacy_claim_unattributed`, releases its claim, and
-stops automatic enqueue and publication attempts. This remains an unrepaired
-Task result, not success or completed recovery. Its original command, visible
+`dispatch.pre_head_failure_legacy_claim_unattributed` only after the existing
+Agent Task owner durably records a nonterminal needs-attention observation.
+The event identity includes the dispatch and saved claim; its time retains the
+original outbox creation time across retries. Existing and later attention
+watches receive that same observation. A failed observation write or attention
+transition keeps the original outbox pending. Queue delivery uses the existing
+ready-subscription redrive, including after the outbox stops retrying.
+The outbox then releases its claim and stops automatic publication attempts.
+Ordinary delegation accepts only terminal outcomes, so this historical branch
+does not resume an ordinary delegated parent. It remains an unrepaired Task
+result, not success or completed recovery. Its original command, visible
 claim, and failure reason remain available for diagnosis. It never invents an
 event or silently rewrites historical results.
 An existing compatible task outcome retains its original event and timestamp;

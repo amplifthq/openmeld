@@ -112,6 +112,24 @@ describe("pre-head failure publication operational outbox", () => {
       claim: "failure",
       status: "failed",
       stored: false,
+      fault: "legacy_attention_write",
+    },
+    {
+      claim: "failure",
+      status: "failed",
+      stored: false,
+      fault: "legacy_attention_mark",
+    },
+    {
+      claim: "failure",
+      status: "failed",
+      stored: false,
+      fault: "legacy_attention_queue",
+    },
+    {
+      claim: "failure",
+      status: "failed",
+      stored: false,
       fault: "legacy_unpublished",
     },
     {
@@ -149,6 +167,8 @@ describe("pre-head failure publication operational outbox", () => {
     fault,
   }) => {
     const harness = await createPostgresHarness();
+    const legacyAttention =
+      fault === "legacy_identity" || fault?.startsWith("legacy_attention_");
     const message = {
       ...createDispatchMessage(),
       sourceClientMessageId: "client-pre-head-1",
@@ -174,7 +194,7 @@ describe("pre-head failure publication operational outbox", () => {
       idempotencyKey: message.idempotencyKey,
       publicationCommand: {
         context,
-        ...(fault === "legacy_identity" || fault === "legacy_unpublished"
+        ...(legacyAttention || fault === "legacy_unpublished"
           ? {}
           : {
               preHeadFailurePublication: {
@@ -205,9 +225,7 @@ describe("pre-head failure publication operational outbox", () => {
     });
     const queueSend = vi.fn(async () => undefined);
     const foreignProducer =
-      claim !== "failure" ||
-      fault === "other_producer" ||
-      fault === "legacy_identity";
+      claim !== "failure" || fault === "other_producer" || legacyAttention;
     let publishedSignalId = foreignProducer
       ? `saved-${claim}`
       : "86c5b365-4f68-4fd7-8cd2-0f1a72f471b3";
@@ -299,6 +317,27 @@ describe("pre-head failure publication operational outbox", () => {
         subscriptionId: "observe-pre-head-1",
         watchedTask: task,
       });
+      if (legacyAttention) {
+        await registerAgentTaskCompletionSubscription({
+          completionCondition: "needs_attention",
+          continuation: {
+            kind: "resume_task_watch",
+            instruction: "Report the blocker without restarting this task.",
+            watchId: "watch-pre-head-attention",
+          },
+          db: harness.db,
+          idempotencyKey: "observe-pre-head-attention",
+          nowMs: 1000,
+          observerTask: {
+            kind: "native_delivery",
+            deliveryId: "parent-delivery",
+            v: 1,
+          },
+          organizationId: "org-1",
+          subscriptionId: "observe-pre-head-attention",
+          watchedTask: task,
+        });
+      }
       if (stored) {
         await recordAgentTaskTerminalOutcome({
           db: harness.db,
@@ -307,7 +346,27 @@ describe("pre-head failure publication operational outbox", () => {
           outcome: existingOutcome,
         });
       }
-      if (fault === "task_write") {
+      if (
+        fault === "legacy_attention_write" ||
+        fault === "legacy_attention_mark"
+      ) {
+        removeWriteFault = await installPostgresWriteFailure({
+          harness,
+          table:
+            fault === "legacy_attention_write"
+              ? "agent_task_needs_attention_observations"
+              : "openMeldDaemon_pre_head_failure_publication_outbox",
+          operation: fault === "legacy_attention_write" ? "INSERT" : "UPDATE",
+          ...(fault === "legacy_attention_mark"
+            ? { condition: "NEW.status = 'needs_attention'" }
+            : {}),
+          message: "Attention projection unavailable",
+        });
+      } else if (fault === "legacy_attention_queue") {
+        queueSend.mockRejectedValueOnce(
+          new Error("Continuation Queue unavailable")
+        );
+      } else if (fault === "task_write") {
         removeWriteFault = await installPostgresWriteFailure({
           harness,
           table: "agent_task_terminal_outcomes",
@@ -355,7 +414,31 @@ describe("pre-head failure publication operational outbox", () => {
         env,
       };
       await handleDispatchQueueBatch(input);
-      if (fault === "legacy_identity") {
+      if (legacyAttention) {
+        if (removeWriteFault) {
+          expect(
+            await readPreHeadFailurePublicationState({
+              db: harness.db,
+              dispatchId: message.dispatchId,
+            })
+          ).toMatchObject({ status: "pending" });
+          await removeWriteFault();
+          removeWriteFault = undefined;
+          clock.mockReturnValue(90_000);
+          await handleDispatchQueueBatch(input);
+        }
+        const observation = {
+          attentionCode: "dispatch.pre_head_failure_legacy_claim_unattributed",
+          eventId: `pre-head:${message.dispatchId}:legacy-claim:${publishedSignalId}`,
+          occurredAtMs: intent.createdAtMs,
+          status: "needs_attention",
+        };
+        expect(
+          await readAgentTaskCompletionSubscription({
+            db: harness.db,
+            subscriptionId: "observe-pre-head-attention",
+          })
+        ).toMatchObject({ outcome: observation, state: "ready" });
         expect(
           await readPreHeadFailurePublicationState({
             db: harness.db,
@@ -371,7 +454,42 @@ describe("pre-head failure publication operational outbox", () => {
             taskKey: buildAgentTaskKey(task),
           })
         ).toBeNull();
-        expect(queueSend).not.toHaveBeenCalled();
+        expect(
+          await readAgentTaskCompletionSubscription({
+            db: harness.db,
+            subscriptionId: "observe-pre-head-1",
+          })
+        ).toMatchObject({ outcome: null, state: "pending" });
+        const late = await registerAgentTaskCompletionSubscription({
+          completionCondition: "needs_attention",
+          continuation: {
+            kind: "resume_task_watch",
+            instruction: "Report the original blocker.",
+            watchId: "watch-pre-head-attention-late",
+          },
+          db: harness.db,
+          idempotencyKey: "observe-pre-head-attention-late",
+          nowMs: 91_000,
+          observerTask: {
+            kind: "native_delivery",
+            deliveryId: "parent-delivery",
+            v: 1,
+          },
+          organizationId: "org-1",
+          subscriptionId: "observe-pre-head-attention-late",
+          watchedTask: task,
+        });
+        expect(late).toMatchObject({ outcome: observation, state: "ready" });
+        queueSend.mockClear();
+        expect(
+          await retryReadyAgentTaskContinuations({
+            db: harness.db,
+            env,
+            nowMs: 92_000,
+          })
+        ).toEqual({ enqueuedCount: 2 });
+        expect(queueSend).toHaveBeenCalledTimes(2);
+        queueSend.mockClear();
         expect(space.rpcPostSystemNoticeSignal).not.toHaveBeenCalled();
         expect(space.rpcPostPreHeadFailureNoticeSignal).not.toHaveBeenCalled();
         expect(
@@ -383,8 +501,18 @@ describe("pre-head failure publication operational outbox", () => {
         ).toEqual({ enqueued: 0, errors: 0, scanned: 0 });
         clock.mockReturnValue(90_000);
         await handleDispatchQueueBatch(input);
-        expect(ack).toHaveBeenCalledTimes(2);
+        expect(ack).toHaveBeenCalledTimes(
+          fault === "legacy_attention_write" ||
+            fault === "legacy_attention_mark"
+            ? 3
+            : 2
+        );
         expect(queueSend).not.toHaveBeenCalled();
+        const observations = await harness.db.query<{ count: string }>({
+          text: 'SELECT count(*)::text AS count FROM "openmeld"."agent_task_needs_attention_observations" WHERE task_key = $1',
+          values: [buildAgentTaskKey(task)],
+        });
+        expect(observations.rows[0]?.count).toBe("1");
         return;
       }
       if (fault === "task_conflict") {
