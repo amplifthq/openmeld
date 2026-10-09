@@ -1,6 +1,7 @@
 import {
   appendPluginConnectionReplyLink,
   buildOpenMeldNavigationAction,
+  pluginConnectionLocalSourceRequestSchema,
 } from "@openmeld/schemas";
 import { normalizeListSignalsReadQuerySemantics } from "@openmeld/schemas/schemas";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -296,17 +297,20 @@ describe("Plugin continuation keeps existing identity and Wake owners", () => {
       organizationId: request.organizationId,
       ownerUserId: "user_1",
     });
-    owner.localSource.mockResolvedValue({
-      executionId: "rc-execution",
-      bindingId: request.bindingId,
-      dispatchId: request.dispatchId,
-      targetProfileId: request.agentProfileId,
-      sourceSignalId: request.triggerMessageId,
-      requesterProfileId: humanId,
-      requesterDisplayName: "Maya",
-      createdAtMs: 100,
-      completedAtMs: 200,
-      threadContext: null,
+    owner.localSource.mockImplementation((_env, sourceInput) => {
+      pluginConnectionLocalSourceRequestSchema.parse(sourceInput);
+      return {
+        executionId: "rc-execution",
+        bindingId: request.bindingId,
+        dispatchId: request.dispatchId,
+        targetProfileId: request.agentProfileId,
+        sourceSignalId: request.triggerMessageId,
+        requesterProfileId: humanId,
+        requesterDisplayName: "Maya",
+        createdAtMs: 100,
+        completedAtMs: 200,
+        threadContext: null,
+      };
     });
     await continuePluginConnection(env, input);
     expect(owner.localPermission).toHaveBeenCalledWith(

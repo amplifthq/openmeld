@@ -413,7 +413,12 @@ async function readLocalContinuationSource(
     }
   >
 ) {
-  const source = await rpcReadPluginConnectionLocalSource(env, input);
+  const source = await rpcReadPluginConnectionLocalSource(env, {
+    context: input.context,
+    spaceId: input.spaceId,
+    sourceSignalId: input.sourceSignalId,
+    ...(input.password !== undefined ? { password: input.password } : {}),
+  });
   const agent = await requirePluginProfile(env, source.targetProfileId);
   if (
     agent.profileKind !== "agent" ||
