@@ -574,5 +574,5 @@ function resolveAppRailUnreadCopy(input: {
 	if (input.destinationId === "home") {
 		return input.count === 1 ? "reply" : "replies";
 	}
-	return input.count === 1 ? "message" : "messages";
+	return input.count === 1 ? "update" : "updates";
 }
