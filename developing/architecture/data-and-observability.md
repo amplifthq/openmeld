@@ -20,6 +20,45 @@
 - Source of truth: This file owns the durable architecture boundary for data
   ownership and observability.
 
+## User time context
+
+Core's PostgreSQL `user_time_contexts` table owns one observed timezone per
+authenticated user, with its claimed client source and server observation time.
+Auth erases this observation in the account-deletion transaction; the user
+foreign key also cascades on physical user deletion. The existing live-account
+guard serializes observation writes with deletion acceptance and rejects a late
+write after the user's soft deletion. This row is context, not a
+clock, location record, explicit preference or per-device history. Routine
+timezone remains in each Routine's schedule.
+
+One atomic upsert rejects older in-flight observations at the same priority;
+interactive observations can preempt racing Service writes. Browser/Desktop
+updates take precedence over Service during the next 30 days. Service can fill a missing
+row or update it after that priority window. A valid saved zone remains usable
+offline regardless of age. Each accepted observation advances the row's timestamp,
+including an unchanged zone, so a delayed change cannot overwrite newer context.
+Existing activity, message and Service sampling supplies these observations;
+there is no separate polling timer. The initiating client's valid observation
+always supplies its own request, even if the canonical row rejects that write.
+Missing or invalid saved context resolves to an explicit UTC fallback.
+
+Core stores accepted request time with the existing dispatch/input owners, so
+queue delays and retries cannot move relative-date interpretation. The current
+UTC clock is generated for each outgoing model payload and is never stored as a
+continuously ticking client value. Both hosted personal and Center Agents use
+the same Core turn-envelope resolver and provider-payload clock boundary.
+
+## Background alarm failure scheduling
+
+Space background alarm failures retain per-step retry deadlines in local
+Durable Object storage. Deadline selection and step admission honor the same
+persisted cooldown: five seconds initially, doubling to at most five minutes,
+and cleared after a successful step. Other owners' due work remains eligible.
+Failure logs include the retry deadline. Upload cleanup reads an indexed,
+bounded batch, retains failed records, and attempts the other records in that
+batch before reporting failure. These retry records are operational scheduling
+state, not Space, membership, or execution truth, and are not a billing cap.
+
 ## Personal cloud Computer ownership
 
 Core's PostgreSQL `cloud_computers` table owns the stable Computer ID, unique
@@ -2211,6 +2250,18 @@ Unknown, running and completed native executions do not enter this path. Web
 action controls, Inbox re-promotion and restarting the original work are not
 implemented by this tool.
 
+An exact Space coordinator `remote_agent.computer.command_cleanup_failed`
+terminal delivery may request that same single restricted summary automatically.
+Its native delivery and idempotency key must match the settled source
+subscription. Native terminal projection and subscription settlement share this
+check, including their existing durable retries, because the failed callback
+can precede settlement. A settled subscription confirms continuation delivery;
+the native delivery owner still determines coordinator execution and publication.
+Automatic and requester-driven recovery share one summary identity and current
+authorization. Original failure, child outcomes and verified published results
+are retained. A summary cannot recover itself. Stop, input-needed work, budget
+limits, unknown execution and unsupported receivers remain terminal or unavailable.
+
 An exact Center-authored Wake uses one `center_agent_audit_journal` row with ID
 `center-agent-wake:<clientMessageId>`. Core records validated `onBehalfOf`
 attribution before a direct Space publication; delegated publication writes
@@ -2661,6 +2712,13 @@ and the provider result pointer. It never returns prompt text, reply text,
 tokens, raw provider payloads, another member's history, or Routine history.
 Execution status, failure evidence, and publication are independent facts; a
 reader must not infer any one from the others or from user-facing copy.
+
+The admitted Task continuation context and existing authorized result readers
+provide child execution evidence. The native turn diagnostic remains the
+coordinator's evidence. Child execution completion does not prove the business
+goal is complete; a published blocker is still a result. Current authorized
+result reads remain required before describing its contents. Missing runtime
+evidence does not establish a context failure or missing result.
 
 For an interactive Center Agent turn, that self-diagnostic projection also
 joins bounded exact runtime evidence by the native-delivery submission id. Core
@@ -3950,6 +4008,17 @@ commands derived from those Wake pointers. It must not use a Diagnostic Report
 ID as a Wake correlation field, and it must stay a resolver into the shared
 trace model, not a second Dispatch Ledger reader.
 
+The helper reads the current PostgreSQL report/pointer tables with bound
+parameters and a read-only transaction. Remote lookup uses the existing
+Doppler `openmeld-release` runtime URL for `prd`/`stg`, checked against the
+registered target in `tooling/postgresql/resources.json`. Local lookup requires
+an isolated loopback PostgreSQL lane. It does not query the retired D1 tables.
+Generated trace commands explicitly use `--view agent` and never print a Space
+password. The global operator trace default and explicit human/detail views
+remain available. Obtain customer consent before investigating content through
+these higher-privilege paths; a Send report action shares minimal diagnostics,
+not blanket consent to inspect conversation history.
+
 ## Setup Failure Diagnostics
 
 A prepare-session step failure may carry a bounded, whitelist-only diagnostics
@@ -4151,18 +4220,64 @@ correlation-friendly:
 
 Diagnostics must not leak sensitive data.
 
-Do not log, persist, or include in diagnostic payloads:
+Remote Agent ordinary content diagnostics use the server-owned Worker
+environment and the admitted Core Organization identity. Production requests
+from external Organizations use metadata-only AI Gateway logs. All native
+model paths, including compaction, titles, activity digests, image understanding,
+and web research, apply the same policy. Usage, costs, statuses, timings, and
+Organization attribution remain available; `cf-aig-collect-log` stays enabled
+while `cf-aig-collect-log-payload` controls the extra prompt/response copy.
+Flue tracing keeps `content: false` in every environment.
+
+Only a known `local`, `dev`, or `stg` environment, or production with an exact
+match to the optional internal Organization ID maintained in Doppler, permits
+richer content diagnostics. Missing or invalid environment or production
+Organization context is private by default. Attribution metadata and public
+feedback fields cannot grant this exception. It does not permit copying
+system credentials, authorization headers, cookies, or secret environment
+values. Raw model payload logging in the approved internal and non-production
+environments can contain private data or secrets a person puts in message
+text; this policy does not claim to detect arbitrary secrets in business text.
+
+These restrictions apply to ordinary diagnostic copies. Business services
+still read and retain authorized conversation content to execute tasks and
+serve history. Highest-privilege infrastructure operators can still access
+business storage and explicitly query detailed traces. Obtain the external
+user's consent before such content investigation. This is not end-to-end
+encryption, an access grant system, or a claim that operators cannot read data.
+
+Never deliberately copy system credentials into logs, diagnostic storage, or
+diagnostic payloads:
 
 - access tokens
 - one-time tokens
 - passwords
 - cookies
+
+Outside the specific Remote Agent content-diagnostics exception above, also
+omit these content copies from diagnostics:
+
 - full message text
 - prompt bodies
 - arbitrary request or response payload dumps
 
 Use non-sensitive identifiers, counts, status values, reason codes, and bounded
 sanitized pointers.
+
+Routine Remote Agent errors keep fixed events and operation names, safe error
+types, validated HTTP status or fixed native error codes, and execution IDs.
+For external production Organizations they omit raw message/body/stack text.
+The business failure state and the explanation returned to the authorized
+caller remain available. Rich error summaries use the existing credential
+redactor; arbitrary provider error codes are not treated as safe metadata.
+
+Provider failures must be reduced at the scoped model or image-request boundary
+before SDK logging or cross-service propagation. This includes initialization
+and stream-iteration throws, their causes, and compaction failures. Preserve
+normal content, usage, stop reasons, context-overflow detection, and the existing
+retry decisions. Retain only fixed recovery classifications and correlate through
+the existing request/submission observations; raw provider text is not required
+in the authorized caller's failure explanation.
 
 Runtime Agent Controller reporting follows the same minimization rule. Local
 command paths, launch arguments, provider account email/labels,

@@ -61,7 +61,10 @@ export async function readCurrentOrganizationProfileDirectory(input: {
 }): Promise<OrganizationProfileDirectoryResponse> {
 	const query = new URLSearchParams(
 		input.identityOnly
-			? {}
+			? {
+					[ORGANIZATION_DIRECTORY_INCLUDE_AGENT_AVATARS_QUERY_PARAMETER]:
+						"true",
+				}
 			: {
 					[ORGANIZATION_DIRECTORY_INCLUDE_TASK_ACTIVITY_QUERY_PARAMETER]:
 						"true",

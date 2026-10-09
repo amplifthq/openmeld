@@ -57,6 +57,16 @@ describe("readCurrentOrganizationDirectory", () => {
 				signal: abortController.signal,
 			})
 		);
+		await readCurrentOrganizationProfileDirectory({
+			organizationId: "org-1",
+			identityOnly: true,
+		});
+		const identityUrl = new URL(
+			String(vi.mocked(fetch).mock.calls.at(-1)?.[0])
+		);
+		expect(identityUrl.searchParams.get("includeAgentAvatars")).toBe("true");
+		expect(identityUrl.searchParams.has("includeTaskActivity")).toBe(false);
+		expect(identityUrl.searchParams.has("includeModelSelection")).toBe(false);
 	});
 
 	it("reads Agent runtime state from its independent overview route", async () => {

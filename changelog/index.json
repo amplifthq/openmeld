@@ -2,6 +2,232 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "claude-haiku-55-model-choices",
+      "title": "Choose Claude Haiku 5.5 for your Agents",
+      "kind": "new",
+      "areas": [
+        "agents",
+        "center-agent"
+      ],
+      "audiences": [
+        "members",
+        "admins"
+      ],
+      "publishedAt": "2026-10-09",
+      "release": "v0.3.250",
+      "evidence": [
+        "pr:1587",
+        "pr:1610",
+        "commit:2de34997f690f3c6bc87c396a2a40e040a96051c",
+        "deployment:openmeld-core-prod/5f8bc475-54c4-45fd-ae16-c3396ba97ab7"
+      ],
+      "body": "Choose Claude Haiku 5.5 for Claude Code, Cursor, OpenCode Zen and Go, the Center\nAgent, or a personal Remote Agent. Claude Code requires version 2.1.293 or later.\nYour provider account must have access to the selected model.\n\nClaude Code, OpenCode, and hosted Agents offer five reasoning levels. Cursor\nuses its provider-defined model configuration. Existing default models and\nsaved selections stay the same."
+    },
+    {
+      "id": "official-logo-assets",
+      "title": "Cleaner OpenMeld icons and reusable brand assets",
+      "kind": "fixed",
+      "areas": [
+        "desktop",
+        "web",
+        "branding"
+      ],
+      "audiences": [
+        "members",
+        "integrators"
+      ],
+      "publishedAt": "2026-10-09",
+      "release": "v0.3.250",
+      "evidence": [
+        "commit:2de34997f690f3c6bc87c396a2a40e040a96051c",
+        "desktop-candidate:01d11dfbce315c66a6fb27a87bad03d87ce6dd2a5305c90403ef96bfe20b5797",
+        "pr:1606",
+        "deployment:openmeld-web-prod/105bd493-2203-4b23-bafe-100ed7fd4e76",
+        "deployment:openmeld-website-prod/4e62c5ad-c804-4efb-8c07-e89c2c9c562d",
+        "deployment:openmeld-docs-prod/e8f55a1f-04d2-433c-96af-383a67b455ec"
+      ],
+      "body": "OpenMeld's macOS app icon and browser icons have cleaner edges and adjusted\nvisual alignment. The macOS app, Web, Website, and Docs use assets from the same\ngenerated brand set. Transparent and solid-background wordmarks are available\nfor light and dark backgrounds.\n\nThe documentation header uses the official wordmark. Select the logo to open\nthe main website, or select Docs to return to the documentation home page."
+    },
+    {
+      "id": "current-product-legal-policies",
+      "title": "Clearer privacy and service terms",
+      "kind": "improved",
+      "areas": [
+        "website",
+        "privacy"
+      ],
+      "audiences": [
+        "users",
+        "admins"
+      ],
+      "publishedAt": "2026-10-09",
+      "release": "v0.3.250",
+      "evidence": [
+        "pr:1609",
+        "commit:2de34997f690f3c6bc87c396a2a40e040a96051c",
+        "deployment:openmeld-website-prod/4e62c5ad-c804-4efb-8c07-e89c2c9c562d"
+      ],
+      "body": "OpenMeld's Privacy Policy and Terms explain local and hosted agent processing,\nAgent Activity metadata, Center Agent memory, connected Apps and Channels, and\nwhat account deletion removes or retains. The pages identify the service\nprovider and give direct links to both policies and the contact email."
+    },
+    {
+      "id": "consistent-center-agent-avatar-colors",
+      "title": "Consistent Agent avatars in Spaces",
+      "kind": "fixed",
+      "areas": [
+        "center-agent",
+        "settings",
+        "spaces"
+      ],
+      "audiences": [
+        "users",
+        "admins"
+      ],
+      "publishedAt": "2026-10-09",
+      "release": "v0.3.250",
+      "evidence": [
+        "pr:1610",
+        "commit:2de34997f690f3c6bc87c396a2a40e040a96051c",
+        "deployment:openmeld-web-prod/105bd493-2203-4b23-bafe-100ed7fd4e76"
+      ],
+      "body": "The Center Agent avatar preview now matches its colors in Spaces. Avatars that\nuse Appearance colors no longer show Original as a saved choice. Selecting\nOriginal saves that color choice for the Agent. Appearance also retains its\nOriginal and Balanced color selections.\n\nNew Agent Direct Messages now show the current Agent avatar in the sidebar as\nsoon as the conversation opens. Remote Agents use the selected model provider's\nlogo without waiting for a later directory refresh."
+    },
+    {
+      "id": "direct-desktop-downloads",
+      "title": "Download OpenMeld directly from the website",
+      "kind": "improved",
+      "areas": [
+        "website",
+        "desktop",
+        "web"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-09",
+      "release": "v0.3.250",
+      "evidence": [
+        "pr:1613",
+        "commit:2de34997f690f3c6bc87c396a2a40e040a96051c",
+        "deployment:openmeld-web-prod/105bd493-2203-4b23-bafe-100ed7fd4e76",
+        "deployment:openmeld-website-prod/4e62c5ad-c804-4efb-8c07-e89c2c9c562d"
+      ],
+      "body": "Choose macOS or Windows in the website's Download menu to start downloading the\nlatest available build. All downloads opens a public overview on openmeld.ai.\nThe website's single download page includes version numbers, file sizes, and\ninstallation instructions. Existing App download links redirect there and\npreserve the selected build. Windows builds are labeled Preview; macOS is not."
+    },
+    {
+      "id": "consistent-avatar-colors",
+      "title": "Keep your selected avatar colors",
+      "kind": "fixed",
+      "areas": [
+        "appearance",
+        "website"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-09",
+      "release": "v0.3.250",
+      "evidence": [
+        "pr:1610",
+        "pr:1613",
+        "commit:2de34997f690f3c6bc87c396a2a40e040a96051c",
+        "deployment:openmeld-web-prod/105bd493-2203-4b23-bafe-100ed7fd4e76",
+        "deployment:openmeld-website-prod/4e62c5ad-c804-4efb-8c07-e89c2c9c562d"
+      ],
+      "body": "Original and Balanced avatar palettes stay selected when you reopen Appearance.\nThe landing page demo uses Original colors to match its introduction. Cloud\navatars use a lighter neutral white while keeping their textured finish."
+    },
+    {
+      "id": "thread-reply-user-time-context",
+      "title": "Keep your time zone when replying in a thread",
+      "kind": "fixed",
+      "areas": [
+        "spaces",
+        "center-agent"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-09",
+      "release": "v0.3.250",
+      "evidence": [
+        "pr:1619",
+        "commit:96cb28b5a32f3757c6fd2b78ede81044a45a5a6b",
+        "deployment:openmeld-core-prod/3086fdb3-fbad-42f9-8a7e-a3fb5b8a026c",
+        "commit:07158c4b07e9c63fbccdb5f3f9d1c09711f1a5d9"
+      ],
+      "body": "Thread replies now use your observed time zone and the time OpenMeld received\nyour message. Relative dates and delays keep that original time when delivery\nwaits or retries."
+    },
+    {
+      "id": "agent-task-recovery-and-local-time",
+      "title": "More reliable task follow-up and local time",
+      "kind": "fixed",
+      "areas": [
+        "center-agent",
+        "agents",
+        "computer"
+      ],
+      "audiences": [
+        "users",
+        "developers"
+      ],
+      "publishedAt": "2026-10-09",
+      "release": "v0.3.250",
+      "evidence": [
+        "pr:1616",
+        "commit:96cb28b5a32f3757c6fd2b78ede81044a45a5a6b",
+        "workflow:37842505316",
+        "desktop-candidate:01d11dfbce315c66a6fb27a87bad03d87ce6dd2a5305c90403ef96bfe20b5797",
+        "deployment:openmeld-auth-prod/e46d7fea-320e-4e87-855a-b280d8758984",
+        "deployment:openmeld-remote-agent-prod/c2699293-462c-45a7-b842-29120d947388",
+        "deployment:openmeld-gateway-prod/186ac65f-de37-48d5-9586-b440e38a045a",
+        "deployment:openmeld-web-prod/105bd493-2203-4b23-bafe-100ed7fd4e76",
+        "deployment:openmeld-core-prod/3086fdb3-fbad-42f9-8a7e-a3fb5b8a026c",
+        "commit:07158c4b07e9c63fbccdb5f3f9d1c09711f1a5d9"
+      ],
+      "body": "Cloud Computer commands keep their recorded exit results when file synchronization\nloses its connection. Slow command checks have a time limit, and one stuck check\nno longer holds up the other commands. Agents can inspect the retained result\nbefore deciding what to do next.\n\nWhen a Space coordinator cannot finish because a retained Computer command was\nlost, the Center Agent can make one restricted attempt to summarize the completed\nAgents' published results. This does not restart their work or override Stop.\n\nWeb, macOS Desktop, and Local Service share the same user time-zone record. Remote\nAgents receive that time zone, the original request time, and a fresh current\ntime for each model request. Queued messages retain their original time context.\nLocal Agents are guided to use the user's local environment\nunless the task calls for Cloud Computer."
+    },
+    {
+      "id": "background-alarm-failure-backoff",
+      "title": "Slow repeated background retries during service failures",
+      "kind": "fixed",
+      "areas": [
+        "reliability",
+        "files",
+        "agents"
+      ],
+      "audiences": [
+        "operators"
+      ],
+      "publishedAt": "2026-10-09",
+      "release": "v0.3.250",
+      "evidence": [
+        "pr:1608",
+        "commit:2de34997f690f3c6bc87c396a2a40e040a96051c",
+        "deployment:openmeld-core-prod/5f8bc475-54c4-45fd-ae16-c3396ba97ab7"
+      ],
+      "body": "Failed background cleanup and execution-recovery steps now wait progressively\nlonger before retrying, reducing unnecessary cloud activity during persistent\nfailures. Healthy work can continue, pending work is retained, and normal retry\ntiming resumes after recovery."
+    },
+    {
+      "id": "connector-gateway-upgrade",
+      "title": "Updated connector management and provider actions",
+      "kind": "improved",
+      "areas": [
+        "apps",
+        "integrations"
+      ],
+      "audiences": [
+        "admins",
+        "integrators"
+      ],
+      "publishedAt": "2026-10-09",
+      "evidence": [
+        "pr:1612",
+        "https://github.com/amplifthq/open-connector/pull/24",
+        "deployment:openmeld-open-connector-prod/0cb2a7cd-19bf-40a1-aef9-b7a81169af45",
+        "smoke:openconnector-run/ab51cbbf-4446-4dda-a80d-2adb0a2f2d1d"
+      ],
+      "body": "The connector gateway adds updated provider actions, authorization request management,\nand event subscription management. Existing OpenMeld account selection and default\nread-only Google access are preserved. Managed cloud authorization is optional and\nrequires separate configuration."
+    },
+    {
       "id": "centered-startup-logo",
       "title": "A simpler loading screen",
       "kind": "improved",
@@ -21,6 +247,25 @@
         "workflow:37668077567"
       ],
       "body": "Web first-run and Desktop startup now show the same centered OpenMeld Logo.\nThe Logo responds to the pointer, with a static appearance when reduced motion\nis enabled. Loading text and the line below the Logo are removed."
+    },
+    {
+      "id": "staging-postgresql-alignment",
+      "title": "Align staging with PostgreSQL production storage",
+      "kind": "improved",
+      "areas": [
+        "platform"
+      ],
+      "audiences": [
+        "contributors"
+      ],
+      "publishedAt": "2026-10-08",
+      "evidence": [
+        "pr:1604",
+        "commit:dde6988f39922ca1d4528b212eb390926a2123db",
+        "deployment:openmeld-auth-stg/c1e25da0-0e8c-45bd-9ad1-99b0472765ef",
+        "deployment:openmeld-core-stg/db4612d7-932f-49ca-8c18-75b591832698"
+      ],
+      "body": "The staging deployment uses its existing PostgreSQL database and isolated\nHyperdrive connection. It applies the same migration history as production\nbefore deploying Auth and Core. The old staging D1 database remains available\nfor historical test-data inspection and is not a runtime fallback."
     },
     {
       "id": "recover-stalled-desktop-downloads",

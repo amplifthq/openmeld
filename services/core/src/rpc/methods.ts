@@ -1359,6 +1359,7 @@ import {
   upsertOwnedDeviceRegistryRecord,
 } from "../start/infrastructure/postgresql/owned-device-registry-repo";
 import { rpcReadOrganizationUsageOverview as readOrganizationUsageOverview } from "../usage/organization-usage-overview-rpc";
+import { recordUserTimeZoneObservation } from "../user-time-context/user-time-context-repository";
 import {
   requireCurrentLocalRuntimeExecutionTarget,
   requireCurrentLocalRuntimeServiceTarget,
@@ -1932,6 +1933,7 @@ export async function rpcCenterAgentReadTurnDiagnostics(
       limit: parsed.data.limit ?? CENTER_AGENT_TURN_DIAGNOSTICS_DEFAULT_LIMIT,
     });
   const turns = await attachCenterAgentTurnRuntimeEvidence({
+    currentDelivery,
     deliveries: [currentDelivery, ...previousDeliveries],
     remoteAgentWorker: env.OPENMELD_REMOTE_AGENT_WORKER,
   });
@@ -7244,6 +7246,14 @@ export async function rpcRecordCurrentOrganizationWebActivity(
   const { context, activeOrganization, humanProfileId } =
     await requireCurrentHumanActivityContext(env, input);
   const nowMs = Date.now();
+  if (context.userTimeZoneObservation) {
+    await recordUserTimeZoneObservation({
+      db: requireIdentityDb(env),
+      userId: activeOrganization.userId,
+      observation: context.userTimeZoneObservation,
+      nowMs,
+    });
+  }
   try {
     await recordOrganizationMemberActivity({
       db: requireIdentityDb(env),

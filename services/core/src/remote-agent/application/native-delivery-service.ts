@@ -28,6 +28,7 @@ import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
   type NavigationAction,
+  REMOTE_AGENT_COMPUTER_CLEANUP_FAILED_CODE,
   REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE,
   REMOTE_AGENT_FAILURE_PURPOSE,
   REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_PUBLIC_COPY,
@@ -104,6 +105,7 @@ import { isHostedCenterAgentExecutionTarget } from "../../center-agent/applicati
 import {
   continueTaskSummary,
   readInterruptedTaskResults,
+  recoverFailedTaskContinuationSummary,
 } from "../../center-agent/application/task-summary-recovery-service";
 import { readCenterAgentDesignationRecord } from "../../center-agent/center-agent-repository";
 import { isCenterAgentMemberResearchDelivery } from "../../center-agent-member-research/member-research-repository";
@@ -12432,7 +12434,10 @@ async function resolveInterruptedCallbackFailureText(input: {
   if (
     input.delivery.conversationKind !== "space" ||
     input.delivery.routineRunId ||
-    input.body.failureCode !== "remote_agent.turn_not_completed"
+    ![
+      "remote_agent.turn_not_completed",
+      REMOTE_AGENT_COMPUTER_CLEANUP_FAILED_CODE,
+    ].includes(input.body.failureCode)
   ) {
     return undefined;
   }
@@ -13881,6 +13886,12 @@ async function projectRemoteAgentNativeDeliveryTerminalEffects(input: {
       "remote_agent.terminal_effects_incomplete"
     );
   }
+  await recoverFailedTaskContinuationSummary({
+    db: coordinationDb,
+    delivery: input.delivery,
+    env: input.env,
+    nowMs: input.nowMs,
+  });
 }
 /** Reuse the native final-publication slot and failed-delivery repair path.
  * A retained cancellation request alone must never call this terminal writer. */

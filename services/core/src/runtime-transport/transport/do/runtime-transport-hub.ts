@@ -331,6 +331,7 @@ import {
   type HostedExecutionRecoveryInspectRequest,
   inspectHostedExecutionRecovery,
 } from "../../../execution-recovery/application/hosted-execution-recovery-coordinator";
+import { AlarmFailureBackoff } from "../../../lib/alarm-failure-backoff";
 import type { CoreBindings } from "../../../lib/bindings";
 import { resolveReleaseTriggeredOpenMeldToolsUpdateDecision } from "../../../local-components/automatic-update-trigger";
 import {
@@ -806,6 +807,8 @@ function parseRuntimeTransportDispatchLiveActivity(
   return parsed.success ? parsed.data : null;
 }
 type RuntimeTransportHubHousekeepingAlarmPhase =
+  | "computer_connection_incidents"
+  | "context_migration"
   | "local_agent_stream_closure_retry"
   | "runtime_coordinator_agent_profile_work_recovery_inbox"
   | "runtime_coordinator_agent_profile_work_promotion"
@@ -1698,15 +1701,31 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   async alarm(): Promise<void> {
     return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
       const nowMs = Date.now();
+      if (!(await this.getAlarmFailureBackoff().canRun("alarm", nowMs))) {
+        const retryAtMs = await this.getAlarmFailureBackoff().retryAt("alarm");
+        if (retryAtMs !== null) {
+          const alarmAtMs = Math.max(nowMs + 1000, retryAtMs);
+          await this.ctx.storage.setAlarm(alarmAtMs);
+          this.scheduledHousekeepingAlarmAtMs = alarmAtMs;
+        }
+        return;
+      }
       const run = this.createHousekeepingAlarmRun(nowMs);
       this.scheduledHousekeepingAlarmAtMs = null;
       try {
-        await this.observeComputerConnectionIncidents();
+        await this.runHousekeepingAlarmPhase(
+          run,
+          "computer_connection_incidents",
+          () => this.observeComputerConnectionIncidents(true)
+        );
         this.reapExpiredLeases(nowMs);
         await this.runHousekeepingAlarmPhase(
           run,
           "runtime_coordinator_finalization_retry",
           () => this.processRuntimeCoordinatorFinalizationRetryAlarm(nowMs, run)
+        );
+        await this.runHousekeepingAlarmPhase(run, "context_migration", () =>
+          this.processAgentProfileContextMigrationAlarm(run)
         );
         await this.runHousekeepingAlarmPhase(
           run,
@@ -18369,8 +18388,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       })
     );
   }
-  private async processAgentProfileWorkPromotionAlarm(
-    nowMs: number,
+  private async processAgentProfileContextMigrationAlarm(
     run?: RuntimeTransportHubHousekeepingAlarmRun
   ): Promise<void> {
     for (const profile of await listDrainingAgentProfileContextMigrations(
@@ -18378,22 +18396,17 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     )) {
       if (
         run &&
-        !this.reserveHousekeepingAlarmWorkUnit(
-          run,
-          "runtime_coordinator_agent_profile_work_promotion"
-        )
+        !this.reserveHousekeepingAlarmWorkUnit(run, "context_migration")
       ) {
         return;
       }
-      try {
-        await this.reconcileAgentProfileContextMigration(profile);
-      } catch (error) {
-        console.warn("[core.execution_context.migration_retry]", {
-          targetProfileId: profile.targetProfileId,
-          reasonCode: error instanceof Error ? error.message : String(error),
-        });
-      }
+      await this.reconcileAgentProfileContextMigration(profile);
     }
+  }
+  private async processAgentProfileWorkPromotionAlarm(
+    nowMs: number,
+    run?: RuntimeTransportHubHousekeepingAlarmRun
+  ): Promise<void> {
     const pendingPromotions = (
       await readPendingAgentProfileWorkPromotions(this.ctx.storage)
     ).sort(
@@ -18951,21 +18964,32 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     phase: RuntimeTransportHubHousekeepingAlarmPhase,
     execute: () => Promise<void>
   ): Promise<void> {
-    if (run.continuationRequired) {
+    if (
+      run.continuationRequired ||
+      !(await this.getAlarmFailureBackoff().canRun(phase, Date.now()))
+    ) {
       return;
     }
     try {
       await execute();
+      await this.getAlarmFailureBackoff().succeeded(phase);
     } catch (error) {
-      this.requestHousekeepingAlarmContinuation(
-        run,
-        "runtime_coordinator.housekeeping_phase_failed"
+      const retryAtMs = await this.getAlarmFailureBackoff().failed(
+        phase,
+        Date.now()
       );
       console.warn("[core.runtime_transport.housekeeping_alarm_phase_failed]", {
         error: error instanceof Error ? error.message : String(error),
         phase,
+        retryAtMs,
       });
     }
+  }
+
+  private alarmFailureBackoff: AlarmFailureBackoff | undefined;
+  private getAlarmFailureBackoff(): AlarmFailureBackoff {
+    this.alarmFailureBackoff ??= new AlarmFailureBackoff(this.ctx.storage);
+    return this.alarmFailureBackoff;
   }
   private reserveHousekeepingAlarmWorkUnit(
     run: RuntimeTransportHubHousekeepingAlarmRun,
@@ -19029,6 +19053,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     try {
       await this.syncHousekeepingAlarm();
+      await this.getAlarmFailureBackoff().succeeded("alarm");
     } catch (error) {
       this.requestHousekeepingAlarmContinuation(
         run,
@@ -19043,9 +19068,18 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   private async scheduleHousekeepingAlarmContinuation(
     run: RuntimeTransportHubHousekeepingAlarmRun
   ): Promise<void> {
-    const alarmAtMs =
-      Date.now() +
-      RUNTIME_TRANSPORT_HUB_HOUSEKEEPING_ALARM_CONTINUATION_DELAY_MS;
+    const failed =
+      run.continuationReasonCode ===
+        "runtime_coordinator.housekeeping_alarm_failed" ||
+      run.continuationReasonCode ===
+        "runtime_coordinator.housekeeping_sync_failed";
+    const alarmAtMs = failed
+      ? await this.getAlarmFailureBackoff().failed("alarm", Date.now())
+      : Date.now() +
+        RUNTIME_TRANSPORT_HUB_HOUSEKEEPING_ALARM_CONTINUATION_DELAY_MS;
+    if (!failed) {
+      await this.getAlarmFailureBackoff().succeeded("alarm");
+    }
     await this.ctx.storage.setAlarm(alarmAtMs);
     this.scheduledHousekeepingAlarmAtMs = alarmAtMs;
     console.warn(
@@ -19061,63 +19095,57 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   }
   private async syncHousekeepingAlarm(): Promise<void> {
     const nowMs = Date.now();
-    const retryAlarmAtMs = minNullableTimestamp(
-      await this.resolveNextRuntimeCoordinatorFinalizationRetryAlarmAtMs(),
-      await this.resolveNextLocalAgentStreamClosureRetryAlarmAtMs()
-    );
-    const coordinatorAlarmAtMs = minNullableTimestamp(
-      await readNextAgentProfileWorkRecoveryInboxProjectionAlarmAtMs(
-        this.ctx.storage,
-        nowMs
-      ),
-      minNullableTimestamp(
-        minNullableTimestamp(
-          minNullableTimestamp(
-            await this.resolveNextRuntimeCoordinatorWatchdogAlarmAtMs(),
-            await readNextPendingAgentProfileWorkPromotionAlarmAtMs(
-              this.ctx.storage
-            )
-          ),
-          await readRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarmAtMs(
-            this.ctx.storage,
-            nowMs
-          )
+    const ownerAlarmAtMs = await this.getAlarmFailureBackoff().nextAlarmAt({
+      alarm: null,
+      runtime_coordinator_finalization_retry:
+        await this.resolveNextRuntimeCoordinatorFinalizationRetryAlarmAtMs(),
+      local_agent_stream_closure_retry:
+        await this.resolveNextLocalAgentStreamClosureRetryAlarmAtMs(),
+      runtime_coordinator_agent_profile_work_recovery_inbox:
+        await readNextAgentProfileWorkRecoveryInboxProjectionAlarmAtMs(
+          this.ctx.storage,
+          nowMs
         ),
-        minNullableTimestamp(
-          await this.resolveNextRuntimeCoordinatorHeadAcceptedHandoffAlarmAtMs(),
-          minNullableTimestamp(
-            await this.resolveNextRuntimeCoordinatorHeadWaitingAlarmAtMs(),
-            minNullableTimestamp(
-              await this.resolveNextRuntimeCoordinatorHeadFailurePublicationRetryAlarmAtMs(),
-              await this.resolveNextRuntimeCoordinatorPreExecutionHandoffAlarmAtMs()
-            )
-          )
-        )
-      )
-    );
-    const workAlarmAtMs = minNullableTimestamp(
-      resolveNextRuntimeTransportAlarmAtMs(this.state),
-      minNullableTimestamp(
-        minNullableTimestamp(retryAlarmAtMs, coordinatorAlarmAtMs),
-        minNullableTimestamp(
-          await this.resolveNextRuntimeCoordinatorAgentTaskObservationDeliveryAlarmAtMs(),
-          minNullableTimestamp(
-            await this.resolveNextRuntimeCoordinatorStoppedTaskProjectionAlarmAtMs(),
-            await this.resolveNextRuntimeCoordinatorInteractionInboxRepairAlarmAtMs()
-          )
-        )
-      )
-    );
-    const nextAlarmAtMs = minNullableTimestamp(
-      minNullableTimestamp(
-        workAlarmAtMs,
-        (await this.getComputerConnectionIncidents()?.nextAlarmAtMs()) ?? null
+      runtime_coordinator_watchdog:
+        await this.resolveNextRuntimeCoordinatorWatchdogAlarmAtMs(),
+      runtime_coordinator_agent_profile_work_promotion:
+        await readNextPendingAgentProfileWorkPromotionAlarmAtMs(
+          this.ctx.storage
+        ),
+      runtime_coordinator_agent_profile_execution_index:
+        await readRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarmAtMs(
+          this.ctx.storage,
+          nowMs
+        ),
+      runtime_coordinator_head_accepted_handoff:
+        await this.resolveNextRuntimeCoordinatorHeadAcceptedHandoffAlarmAtMs(),
+      runtime_coordinator_head_waiting:
+        await this.resolveNextRuntimeCoordinatorHeadWaitingAlarmAtMs(),
+      runtime_coordinator_head_failure_publication:
+        await this.resolveNextRuntimeCoordinatorHeadFailurePublicationRetryAlarmAtMs(),
+      runtime_coordinator_pre_execution_handoff:
+        await this.resolveNextRuntimeCoordinatorPreExecutionHandoffAlarmAtMs(),
+      runtime_coordinator_agent_task_observation_delivery:
+        await this.resolveNextRuntimeCoordinatorAgentTaskObservationDeliveryAlarmAtMs(),
+      runtime_coordinator_stopped_task_projection:
+        await this.resolveNextRuntimeCoordinatorStoppedTaskProjectionAlarmAtMs(),
+      runtime_coordinator_interaction_inbox_projection:
+        await this.resolveNextRuntimeCoordinatorInteractionInboxRepairAlarmAtMs(),
+      transport: resolveNextRuntimeTransportAlarmAtMs(this.state),
+      computer_connection_incidents:
+        (await this.getComputerConnectionIncidents()?.nextAlarmAtMs()) ?? null,
+      context_migration: await resolveNextAgentProfileContextMigrationAlarmAtMs(
+        {
+          storage: this.ctx.storage,
+          nowMs,
+        }
       ),
-      await resolveNextAgentProfileContextMigrationAlarmAtMs({
-        storage: this.ctx.storage,
-        nowMs,
-      })
-    );
+    });
+    const alarmRetryAtMs = await this.getAlarmFailureBackoff().retryAt("alarm");
+    const nextAlarmAtMs =
+      ownerAlarmAtMs === null
+        ? alarmRetryAtMs
+        : Math.max(ownerAlarmAtMs, alarmRetryAtMs ?? 0);
     const scheduledAlarmAtMs = await this.readScheduledHousekeepingAlarmAtMs();
     const nextMutation = reconcileRuntimeTransportAlarmAtMs({
       nowMs,
@@ -19244,7 +19272,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
     return this.computerConnectionIncidents;
   }
-  private async observeComputerConnectionIncidents(): Promise<void> {
+  private async observeComputerConnectionIncidents(
+    propagateFailure = false
+  ): Promise<void> {
     try {
       await this.getComputerConnectionIncidents()?.observe(
         this.state.sessionsById.values()
@@ -19253,6 +19283,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       console.warn("[core.computer_connection.incident_observation_failed]", {
         error,
       });
+      if (propagateFailure) {
+        throw error;
+      }
     }
   }
   private readonly cleanupExpiredPendingDispatches = (nowMs: number): void => {

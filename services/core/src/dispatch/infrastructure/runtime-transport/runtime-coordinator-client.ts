@@ -353,6 +353,7 @@ function buildRuntimeTransportSourceSignalSnapshot(input: {
   // Preserve the installed Service's strict snapshot shape. Context is rendered
   // into the existing source text at this transport boundary.
   const {
+    requestTimeContext: _requestTimeContext,
     quotedMessage,
     pinnedFiles,
     contextMessages,

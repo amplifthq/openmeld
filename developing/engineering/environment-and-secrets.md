@@ -141,6 +141,22 @@ account-scoped gateway token and the configured `openrouter` BYOK alias; it does
 not copy the OpenRouter provider key into a local file or Worker environment.
 Worker-environment and Organization metadata keep requests attributable.
 
+Remote Agent content diagnostics use the optional
+`CLOUDFLARE_OPENMELD_INTERNAL_DIAGNOSTICS_ORGANIZATION_ID` in only the
+`openmeld-remote-agent` Doppler `prd` config. It must be one exact Organization
+ID verified through the authenticated Organization directory, never a slug,
+wildcard, client claim, or checked-in identity. The approved internal
+Organization accepts richer diagnostics. Known `local`, `dev`, and `stg`
+environments retain their existing debug behavior without this key.
+
+The optional key is not in `secrets.required`: a missing or invalid value
+disables the production exception instead of blocking deployment or widening
+access. The production Doppler allowlist includes it as optional. Sync this
+single key through the existing `sync:secrets:diagnostics:prod` command with
+scoped Doppler process injection during an authorized release. Adding it to
+Doppler alone does not update the deployed Worker; older code ignores it.
+Do not download other secrets or copy the identity into public Worker vars.
+
 ## Staging Secret Boundary
 
 Staging is a guarded deployment environment, not another local development

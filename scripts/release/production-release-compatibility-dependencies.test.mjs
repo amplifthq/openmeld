@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -56,6 +57,13 @@ function readReviewedSource(path) {
   }
   return reviewedSources.get(path);
 }
+
+const requestContextFixture = JSON.parse(
+  readFileSync(
+    new URL("./fixtures/strict-request-context-rollout.json", import.meta.url),
+    "utf8"
+  )
+);
 
 const COMPUTER_SOURCE = "46c1d3a78e23f1f96ae4532f5e1ee6ab98b10fbc";
 const COMPUTER_CORE_BASE = "c6ba8899f8f97491bdf129749af7f5333f8be975";
@@ -199,6 +207,9 @@ test("admits the reviewed Core request bridge while retaining the metering recei
   const paths = [
     ...REMOTE_AI_USAGE,
     "services/remote-agent/.flue/cloudflare.ts",
+    "packages/schemas/src/schemas/runtime/remote-agent-turn-envelope.ts",
+    "services/core/src/remote-agent/application/remote-agent-worker-admission.ts",
+    "services/remote-agent/.flue/agents/center-agent.ts",
   ];
   const plan = buildProductionReleasePlan({
     base,
@@ -235,6 +246,66 @@ test("admits the reviewed Core request bridge while retaining the metering recei
     PENDING_RECEIVER
   );
 });
+
+for (const withGatewayContext of [false, true]) {
+  test(`keeps separate execution-input receivers outside the native request bridge${withGatewayContext ? " with Gateway context" : ""}`, () => {
+    const base = "e4454cf165b96c7f918e420f28205c2b2ed3c575";
+    const sourceSha = REVIEWED_SOURCE_SHA;
+    const paths = [
+      "packages/schemas/src/schemas/runtime/remote-agent-execution-input.ts",
+      "services/core/src/space/transport/do/space.ts",
+      "services/remote-agent/flue-adapter/execution-input.ts",
+      ...(withGatewayContext
+        ? [
+            "packages/schemas/src/schemas/daemon/profile-identity.ts",
+            "services/gateway/src/lib/openmeld-context.ts",
+          ]
+        : []),
+    ];
+    const plan = buildProductionReleasePlan({
+      base,
+      sourceSha,
+      changedPaths: paths,
+      scope: "core,remote-agent,cli,gateway",
+      readGitFile: (ref, path) => {
+        // Keep every previously reviewed owner byte-identical to its archived
+        // digest. Only these separate request contracts expand in the candidate.
+        const source = requestContextFixture.schemaSources[path];
+        if (source) {
+          return ref === base ? source.before : source.after;
+        }
+        return ref === base
+          ? "// Published native-request baseline."
+          : readReviewedSource(path);
+      },
+    });
+    assert.equal(
+      plan.compatibilityBridges[0].kind,
+      "negotiated-remote-task-attribution"
+    );
+    assert.deepEqual(plan.compatibilityDependencies, [
+      ...(withGatewayContext ? [["core", "gateway"]] : []),
+      ["remote-agent", "core"],
+      ["remote-agent", "cli"],
+    ]);
+    const components = ["core", "remote-agent", "gateway", "cli"].map(
+      (scope) => ({ ...plan, scope, sha: base, state: "pending" })
+    );
+    const admit = (selectedScopes) =>
+      assertProductionStageAdmission({ components, selectedScopes, sourceSha });
+    assert.throws(() => admit(["core"]), PENDING_REMOTE);
+    assert.throws(() => admit(["cli"]), PENDING_REMOTE);
+    if (withGatewayContext) {
+      assert.throws(() => admit(["gateway"]), PENDING_CORE);
+    }
+    components.find((component) => component.scope === "core").state =
+      "current";
+    assert.throws(() => admit(["cli"]), PENDING_REMOTE);
+    components.find((component) => component.scope === "remote-agent").state =
+      "current";
+    assert.doesNotThrow(() => admit(["cli", "gateway"]));
+  });
+}
 
 for (const fault of ["source_drift", "missing_history", "unknown_baseline"]) {
   test(`refuses to reuse the request bridge after ${fault}`, () => {

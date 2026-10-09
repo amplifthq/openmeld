@@ -5810,20 +5810,33 @@ describe("runtime transport runtime coordinator transport contract", () => {
     }
   });
 
-  it("reschedules housekeeping when an alarm phase fails", async () => {
+  it.each([
+    "processRuntimeCoordinatorFinalizationRetryAlarm",
+    "processAgentProfileContextMigrationAlarm",
+    "observeComputerConnectionIncidents",
+  ])("backs off failed housekeeping %s while healthy phases continue", async (failedMethod) => {
     const nowMs = 1_700_000_000_000;
     const dateNow = vi.spyOn(Date, "now").mockReturnValue(nowMs);
     try {
-      const { hub, storageSetAlarm } = await createHarness();
-      const finalizationPhase = vi.fn(() =>
+      const { hub, storageSetAlarm, state } = await createHarness();
+      state.pendingDispatches.clear();
+      const finalizationPhase = vi.fn<() => Promise<void>>(() =>
         Promise.reject(new Error("forced phase failure"))
       );
       const watchdogPhase = vi.fn(() => Promise.resolve());
       Object.defineProperty(
         hub,
-        "processRuntimeCoordinatorFinalizationRetryAlarm",
+        failedMethod === "observeComputerConnectionIncidents"
+          ? "getComputerConnectionIncidents"
+          : failedMethod,
         {
-          value: finalizationPhase,
+          value:
+            failedMethod === "observeComputerConnectionIncidents"
+              ? () => ({
+                  observe: finalizationPhase,
+                  nextAlarmAtMs: () => null,
+                })
+              : finalizationPhase,
         }
       );
       Object.defineProperty(hub, "processRuntimeCoordinatorWatchdogAlarm", {
@@ -5833,8 +5846,64 @@ describe("runtime transport runtime coordinator transport contract", () => {
       await (hub as unknown as { alarm: () => Promise<void> }).alarm();
 
       expect(finalizationPhase).toHaveBeenCalled();
-      expect(watchdogPhase).not.toHaveBeenCalled();
+      expect(watchdogPhase).toHaveBeenCalled();
+      // The healthy watchdog still needs its earlier deadline.
       expect(storageSetAlarm).toHaveBeenCalledWith(nowMs + 1000);
+
+      await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+      expect(finalizationPhase).toHaveBeenCalledTimes(1);
+      expect(watchdogPhase).toHaveBeenCalledTimes(2);
+
+      dateNow.mockReturnValue(nowMs + 5000);
+      await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+      expect(finalizationPhase).toHaveBeenCalledTimes(2);
+      dateNow.mockReturnValue(nowMs + 14_999);
+      await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+      expect(finalizationPhase).toHaveBeenCalledTimes(2);
+
+      finalizationPhase.mockImplementation(() => Promise.resolve());
+      dateNow.mockReturnValue(nowMs + 15_000);
+      await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+      finalizationPhase.mockImplementation(() =>
+        Promise.reject(new Error("new failure"))
+      );
+      dateNow.mockReturnValue(nowMs + 16_000);
+      await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+      dateNow.mockReturnValue(nowMs + 20_999);
+      await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+      expect(finalizationPhase).toHaveBeenCalledTimes(4);
+      dateNow.mockReturnValue(nowMs + 21_000);
+      await (hub as unknown as { alarm: () => Promise<void> }).alarm();
+      expect(finalizationPhase).toHaveBeenCalledTimes(5);
+    } finally {
+      dateNow.mockRestore();
+    }
+  });
+
+  it.each([
+    "syncHousekeepingAlarm",
+  ])("persists global alarm failure backoff across reconstruction when %s fails", async (method) => {
+    const nowMs = 1_700_000_000_000;
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(nowMs);
+    const fail = vi.fn(() => Promise.reject(new Error("service unavailable")));
+    try {
+      const first = await createHarness();
+      Object.defineProperty(first.hub, method, { value: fail });
+      await (first.hub as RuntimeTransportHub).alarm();
+      expect(first.storageSetAlarm).toHaveBeenLastCalledWith(nowMs + 5000);
+
+      const restored = await createHarness({
+        storageRecords: first.storageRecords,
+      });
+      Object.defineProperty(restored.hub, method, { value: fail });
+      dateNow.mockReturnValue(nowMs + 1000);
+      await (restored.hub as RuntimeTransportHub).alarm();
+      expect(fail).toHaveBeenCalledTimes(1);
+      expect(restored.storageSetAlarm).toHaveBeenLastCalledWith(nowMs + 5000);
+      dateNow.mockReturnValue(nowMs + 5000);
+      await (restored.hub as RuntimeTransportHub).alarm();
+      expect(fail).toHaveBeenCalledTimes(2);
+      expect(restored.storageSetAlarm).toHaveBeenLastCalledWith(nowMs + 15_000);
     } finally {
       dateNow.mockRestore();
     }
@@ -12521,11 +12590,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).toBe(expiresAtMs);
     const clock = vi.spyOn(Date, "now").mockReturnValue(expiresAtMs + 1);
     try {
-      await (
-        restarted.hub as unknown as {
-          processAgentProfileWorkPromotionAlarm(now: number): Promise<void>;
-        }
-      ).processAgentProfileWorkPromotionAlarm(expiresAtMs + 1);
+      await (restarted.hub as unknown as RuntimeTransportHub).alarm();
       expect(
         await (
           restarted.hub as unknown as RuntimeTransportHub

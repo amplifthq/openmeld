@@ -29,6 +29,7 @@ import {
   SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_HEADER,
   SPACE_WAKE_CLIENT_MESSAGE_ID_REQUIRED_ERROR_CODE,
 } from "@openmeld/schemas/schemas";
+import type { UserTimeZoneObservation } from "@openmeld/schemas/types";
 import {
   createAnonymousViewerSpaceAccessContext,
   createAuthenticatedSpaceAccessContext,
@@ -85,6 +86,7 @@ import { SpaceFileRepository } from "../src/space/infrastructure/sql/space-file-
 import { readSpaceMemberRecord } from "../src/space/infrastructure/sql/space-member-repo";
 import { insertSignalRecord } from "../src/space/infrastructure/sql/space-signal-repo";
 import { Space } from "../src/space/transport/do/space";
+import { readUserTimeContext } from "../src/user-time-context/user-time-context-repository";
 import { postgresFixtureOperator } from "./postgresql.test-support";
 import { waitForJsonMessage } from "./test-support/ws-stream";
 
@@ -124,6 +126,7 @@ type TestAuthProfile = {
 type OpenMeldRequestOptions = {
   activeOrganizationId?: string;
   spacePassword?: string;
+  userTimeZoneObservation?: UserTimeZoneObservation;
 };
 const DEFAULT_TEST_ORGANIZATION_ID = "org-test-default";
 const DEFAULT_TEST_AUTH_PROFILE: TestAuthProfile = {
@@ -246,6 +249,9 @@ function buildOpenMeldAuthHeaders(
     headers,
     {
       requestContext: {
+        ...(requestOptions?.userTimeZoneObservation
+          ? { userTimeZoneObservation: requestOptions.userTimeZoneObservation }
+          : {}),
         activeOrganizationId:
           requestOptions?.activeOrganizationId ?? DEFAULT_TEST_ORGANIZATION_ID,
         actorContext: {
@@ -6616,6 +6622,75 @@ describe("OpenMeld Core", () => {
       mentionTargets: [SECOND_HUMAN_PROFILE_ID],
       referenceTargets: [],
     });
+  });
+  it("freezes authenticated Thread reply time before idempotent replay", async () => {
+    const ownerUserId = randomUUID();
+    const profileId = randomUUID();
+    const author = { ownerUserId, profileId, openMeldProfileId: profileId };
+    const spaceId = await createSpace(undefined, author);
+    const rootResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          type: "signal.text",
+          data: { text: "Thread root" },
+        }),
+      },
+      author
+    );
+    expect(rootResponse.status).toBe(200);
+    const root = parseEnvelope(await rootResponse.json());
+    if (!root) {
+      throw new Error("Expected a thread root signal");
+    }
+    const threadResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/threads`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          clientMutationId: randomUUID(),
+          rootSignalId: root.id,
+        }),
+      },
+      author
+    );
+    expect(threadResponse.status).toBe(200);
+    const { thread } = (await threadResponse.json()) as {
+      thread: { threadId: string };
+    };
+    const request = {
+      method: "POST",
+      body: JSON.stringify({
+        clientMessageId: randomUUID(),
+        text: "Please remind me in ten minutes.",
+      }),
+    };
+    const url = `${BASE_URL}/v1/spaces/${spaceId}/threads/${thread.threadId}/signals`;
+    const response = await fetchWithOpenMeldAuth(url, request, author, {
+      userTimeZoneObservation: { timeZone: "Asia/Taipei", source: "web" },
+    });
+    expect(response.status, await response.clone().text()).toBe(200);
+    const accepted = (await response.json()) as { signal: SignalEnvelope };
+    const acceptedTime = {
+      timeZone: "Asia/Taipei",
+      source: "web",
+      observedAtMs: accepted.signal.ts,
+    };
+    expect(
+      await readUserTimeContext(getPostgresDatabase(env), ownerUserId)
+    ).toEqual(acceptedTime);
+    const replay = await fetchWithOpenMeldAuth(url, request, author, {
+      userTimeZoneObservation: {
+        timeZone: "America/Los_Angeles",
+        source: "web",
+      },
+    });
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toMatchObject({ signal: accepted.signal });
+    expect(
+      await readUserTimeContext(getPostgresDatabase(env), ownerUserId)
+    ).toEqual(acceptedTime);
   });
   it("rejects Reference targets after their Space membership is removed", async () => {
     const spaceId = await createSpace();

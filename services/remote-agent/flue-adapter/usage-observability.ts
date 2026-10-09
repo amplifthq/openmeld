@@ -1,6 +1,10 @@
+import {
+  type RemoteAgentDiagnosticsEnv,
+  remoteAgentDiagnosticErrorFields,
+} from "../agent-core/diagnostics-content-policy";
 import type { RemoteAgentUsageRecord } from "../agent-core/usage";
 
-type UsageObservabilityEnv = {
+type UsageObservabilityEnv = RemoteAgentDiagnosticsEnv & {
   OPENMELD_OBSERVABILITY?: AnalyticsEngineDataset;
 };
 
@@ -35,7 +39,10 @@ export function emitRemoteAgentUsageRecord(
     });
   } catch (error) {
     console.error("[remote-agent.usage.observability_failed]", {
-      error: error instanceof Error ? error.message : String(error),
+      ...remoteAgentDiagnosticErrorFields(error, {
+        env,
+        organizationId: record.organizationId,
+      }),
       organizationId: record.organizationId,
       spaceId: record.spaceId,
       submissionId: record.submissionId,

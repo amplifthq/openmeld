@@ -85,7 +85,10 @@ export const PRODUCTION_WORKER_SECRET_SOURCES = DEVELOPMENT_SECRET_SOURCES.map(
     ...source,
     config: "prd",
     requiredSecrets: [...source.requiredSecrets, ...source.optionalSecrets],
-    optionalSecrets: [],
+    optionalSecrets:
+      source.project === "openmeld-remote-agent"
+        ? ["CLOUDFLARE_OPENMELD_INTERNAL_DIAGNOSTICS_ORGANIZATION_ID"]
+        : [],
   })
 );
 

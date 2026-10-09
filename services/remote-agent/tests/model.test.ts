@@ -2,6 +2,7 @@ import {
   createModels,
   fauxAssistantMessage,
   fauxToolCall,
+  isContextOverflow,
 } from "@earendil-works/pi-ai";
 // biome-ignore lint/performance/noNamespaceImport: Vitest spies on the real provider registration export.
 import * as flue from "@flue/runtime";
@@ -84,6 +85,91 @@ describe("remote agent model routing", () => {
     });
   });
   afterEach(() => vi.restoreAllMocks());
+  it.each([
+    "anthropic/claude-opus-5.5",
+    "openai/gpt-6-sol",
+    "google/gemini-2.5-pro",
+    "deepseek/deepseek-v4-flash",
+    "qwen/qwen-plus",
+    "z-ai/glm-5.3-flash",
+    "x-ai/grok-4.6",
+  ])("refreshes the outgoing clock for %s without moving accepted input", async (modelId) => {
+    resetProviderRuntime();
+    const payloads: Record<string, unknown>[] = [];
+    const clock = vi.spyOn(Date, "now").mockReturnValue(100_000);
+    const captureFetch = vi.fn<typeof fetch>((_url, init) => {
+      payloads.push(JSON.parse(String(init?.body)));
+      return Promise.reject(
+        new Error("Captured outgoing vendor payload before network dispatch")
+      );
+    });
+    try {
+      const runtime = await registerRemoteAgentCloudflareProvider({
+        env: {
+          ...CONFIGURED_AI_GATEWAY_ENV,
+          CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-token",
+        },
+        modelRoute: {
+          ...TEST_CENTER_AGENT_MODEL_ROUTE,
+          modelId,
+          preference: { kind: "selected_model", modelId },
+        },
+        organizationId: "org_clock",
+      });
+      const model = resolveModel(runtime.modelSpecifier);
+      const context = {
+        systemPrompt: "Stable system instruction.",
+        messages: [
+          {
+            role: "user" as const,
+            timestamp: 1,
+            content: "Request received at UTC: 1970-01-01T00:00:01.000Z",
+          },
+        ],
+      };
+      for (const nowMs of [100_000, 700_000]) {
+        clock.mockReturnValue(nowMs);
+        await streamRegisteredModel(model, context, {
+          apiKey: "unused",
+          fetch: captureFetch,
+          maxRetries: 0,
+        }).result();
+      }
+      expect(payloads).toHaveLength(2);
+      expect(JSON.stringify(payloads[0])).toContain("1970-01-01T00:01:40.000Z");
+      expect(JSON.stringify(payloads[1])).toContain("1970-01-01T00:11:40.000Z");
+      for (const payload of payloads) {
+        expect(JSON.stringify(payload)).toContain(
+          "Request received at UTC: 1970-01-01T00:00:01.000Z"
+        );
+        expect(
+          (payload.messages as { role: string; content: unknown }[]).filter(
+            (message) =>
+              message.role === "user" &&
+              typeof message.content === "string" &&
+              message.content.startsWith("[OpenMeld runtime clock]")
+          )
+        ).toHaveLength(1);
+        const clockMessage = (payload.messages as Record<string, unknown>[]).at(
+          -1
+        );
+        expect(clockMessage).toMatchObject({
+          role: "user",
+          content: expect.stringContaining("[OpenMeld runtime clock]"),
+        });
+        expect(clockMessage).not.toHaveProperty("cache_control");
+      }
+      const retainedMessages = (payload: Record<string, unknown> | undefined) =>
+        (payload?.messages as unknown[] | undefined)?.slice(0, -1);
+      expect(retainedMessages(payloads[1])).toEqual(
+        retainedMessages(payloads[0])
+      );
+      expect(context.messages).toHaveLength(1);
+      expect(context.systemPrompt).toBe("Stable system instruction.");
+    } finally {
+      resetProviderRuntime();
+    }
+  });
   it("registers GPT-5.4 mini from static metadata", async () => {
     let resolveRefresh: ((response: Response) => void) | undefined;
     const fetchModelMetadata = vi.fn(
@@ -297,12 +383,12 @@ describe("remote agent model routing", () => {
         { apiKey: "unused" }
       );
 
-      await expect(stream.result()).resolves.toMatchObject({
-        errorMessage: expect.stringContaining(
-          "context_length_exceeded: estimated provider input"
-        ),
-        stopReason: "error",
-      });
+      const result = await stream.result();
+      expect(result.stopReason).toBe("error");
+      expect(isContextOverflow(result, constrainedRoute.contextWindow)).toBe(
+        true
+      );
+      expect(result.errorMessage).toContain("(request_too_large)");
     } finally {
       resetProviderRuntime();
     }
@@ -338,7 +424,53 @@ describe("remote agent model routing", () => {
         { apiKey: "unused" }
       ).result();
       expect(providerFetch).toHaveBeenCalled();
-      expect(result.errorMessage).toContain("provider reached");
+      expect(result.stopReason).toBe("error");
+      expect(result.errorMessage).toContain("HTTP 400");
+      expect(result.errorMessage).not.toContain("provider reached");
+    } finally {
+      resetProviderRuntime();
+    }
+  });
+
+  it.each([
+    { environment: "prod", rich: false },
+    { environment: undefined, rich: false },
+    { environment: "dev", rich: true },
+  ])("applies content policy to both registered model entry points: $environment", async (policy) => {
+    resetProviderRuntime();
+    const privateText = "Private provider excerpt: Project Cedar";
+    const runtime = await registerRemoteAgentCloudflareProvider({
+      env: {
+        ...CONFIGURED_AI_GATEWAY_ENV,
+        CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-token",
+        OPENMELD_WORKER_ENVIRONMENT: policy.environment,
+      },
+      modelRoute: TEST_CENTER_AGENT_MODEL_ROUTE,
+      organizationId: "external",
+    });
+    try {
+      const model = resolveModel(runtime.modelSpecifier);
+      const context = {
+        messages: [
+          { role: "user" as const, content: "Answer briefly.", timestamp: 1 },
+        ],
+      };
+      const options = {
+        apiKey: "unused",
+        fetch: () =>
+          Promise.resolve(
+            Response.json({ error: { message: privateText } }, { status: 400 })
+          ),
+      };
+      for (const stream of [
+        streamRegisteredModel(model, context, options),
+        models.streamSimple(model, context, options),
+      ]) {
+        const result = await stream.result();
+        expect(result.stopReason).toBe("error");
+        expect(result.errorMessage).toContain("400");
+        expect(result.errorMessage?.includes(privateText)).toBe(policy.rich);
+      }
     } finally {
       resetProviderRuntime();
     }
@@ -454,6 +586,10 @@ describe("remote agent model routing", () => {
                 },
               ],
             },
+            {
+              role: "user",
+              content: expect.stringContaining("[OpenMeld runtime clock]"),
+            },
           ],
         });
         if (modelId.startsWith("anthropic/")) {
@@ -472,6 +608,10 @@ describe("remote agent model routing", () => {
           messages: [
             { content: "Stable system instruction." },
             { role: "user", content: "Current question." },
+            {
+              role: "user",
+              content: expect.stringContaining("[OpenMeld runtime clock]"),
+            },
           ],
         });
         expect(JSON.stringify(capturedPayload)).not.toContain("cache_control");
@@ -941,11 +1081,63 @@ describe("remote agent model routing", () => {
       "cf-aig-authorization": "Bearer token_123",
       "cf-aig-byok-alias": "openrouter",
       "cf-aig-collect-log": "true",
+      "cf-aig-collect-log-payload": "false",
       "cf-aig-metadata": JSON.stringify({
         model: REMOTE_AGENT_OPENROUTER_MODEL_ID,
         worker: "openmeld-remote-agent",
       }),
     });
+  });
+
+  it.each([
+    ["prod", "00000000-0000-4000-8000-000000000002", false],
+    ["prod", "00000000-0000-4000-8000-000000000001", true],
+    ["local", undefined, true],
+    ["dev", undefined, true],
+    ["stg", undefined, true],
+    [undefined, "00000000-0000-4000-8000-000000000001", false],
+    ["production", "00000000-0000-4000-8000-000000000001", false],
+    ["prod", undefined, false],
+    ["prod", "invalid", false],
+  ])("keeps usage logs and applies content privacy for %s / %s", (environment, organizationId, allowed) => {
+    const headers = buildRemoteAgentAiGatewayHeaders({
+      env: {
+        CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "token_123",
+        OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS: "openrouter",
+        OPENMELD_WORKER_ENVIRONMENT: environment,
+        CLOUDFLARE_OPENMELD_INTERNAL_DIAGNOSTICS_ORGANIZATION_ID:
+          "00000000-0000-4000-8000-000000000001",
+      },
+      organizationId,
+      // Attribution metadata cannot grant the internal Organization exception.
+      metadata: {
+        organizationId: "00000000-0000-4000-8000-000000000001",
+        Authorization: "Bearer must-not-be-logged",
+      },
+    });
+    expect(headers["cf-aig-collect-log"]).toBe("true");
+    expect(headers["cf-aig-collect-log-payload"]).toBe(String(allowed));
+    expect(headers["cf-aig-metadata"]).not.toContain("must-not-be-logged");
+  });
+
+  it.each([
+    undefined,
+    "",
+    "invalid",
+    " 00000000-0000-4000-8000-000000000001 ",
+  ])("omits content when the production internal Organization configuration is %s", (configuredOrganizationId) => {
+    const headers = buildRemoteAgentAiGatewayHeaders({
+      env: {
+        CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "token_123",
+        OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS: "openrouter",
+        OPENMELD_WORKER_ENVIRONMENT: "prod",
+        CLOUDFLARE_OPENMELD_INTERNAL_DIAGNOSTICS_ORGANIZATION_ID:
+          configuredOrganizationId,
+      },
+      organizationId: "00000000-0000-4000-8000-000000000001",
+    });
+    expect(headers["cf-aig-collect-log"]).toBe("true");
+    expect(headers["cf-aig-collect-log-payload"]).toBe("false");
   });
 
   it("tags AI Gateway metadata with the organization for per-org usage attribution", () => {

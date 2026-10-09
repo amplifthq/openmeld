@@ -281,7 +281,7 @@ export async function registerManualTaskSummaryRecovery(input: {
     delegationId: source.continuation.delegationId,
     ...(replyLanguageTag ? { replyLanguageTag } : {}),
     instruction:
-      "Summarize the existing delegated results for the original requester. Read each exact published result through authorized tools first. Mark unavailable child results explicitly. Do not wake children again or repeat the original request or external writes.",
+      "Summarize the existing delegated results for the original requester after the prior coordinator turn failed or was cancelled. Read each exact published result through authorized tools first. A completed child execution can report a blocker; it does not prove the business goal is complete. Report verified results, remaining work or blockers, and who must act next. Mark unavailable child results explicitly. Do not wake children again or repeat the original request or external writes.",
     summaryRecovery: {
       operatorUserId: input.operatorUserId,
       sourceSubscriptionId: source.subscriptionId,
@@ -304,7 +304,7 @@ export async function registerManualTaskSummaryRecovery(input: {
       AND ((source.continuation_json)::jsonb #>> '{summaryRecoveryIntent,operatorUserId}') = $9
       AND NOT EXISTS (SELECT 1 FROM "openmeld"."agent_task_terminal_outcomes" parent
         WHERE parent.task_key = source.observer_task_key AND parent.status = 'stopped')
-    ON CONFLICT(subscription_id) DO NOTHING
+    ON CONFLICT DO NOTHING
   `,
     values: [
       input.subscriptionId,

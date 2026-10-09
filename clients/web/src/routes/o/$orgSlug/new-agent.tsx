@@ -37,7 +37,10 @@ import {
 } from "#/lib/profiles/agent-profile-creation-requests";
 import { getAppSidebarStatesForRoute } from "#/lib/sidebar-width-cookie";
 import { openCurrentDirectMessageSpace } from "#/lib/spaces/direct-message";
-import { organizationQueryKeys } from "#/query/organizations/organization-directory";
+import {
+	organizationProfileDirectoryQueryOptions,
+	organizationQueryKeys,
+} from "#/query/organizations/organization-directory";
 import {
 	agentProfileCreationRequestQueryKeys,
 	agentProfileCreationRequestQueryOptions,
@@ -382,13 +385,17 @@ function useReconcileCreatedAgent(input: {
 		}
 		for (const queryKey of [
 			startQueryKeys.profilesForStorageScope(input.storageScope),
-			organizationQueryKeys.profileDirectory(input.organizationId),
 			organizationQueryKeys.agentRuntimeOverview(input.organizationId),
 		]) {
 			input.queryClient
 				.invalidateQueries({ queryKey, refetchType: "none" })
 				.catch(console.error);
 		}
+		input.queryClient
+			.invalidateQueries({
+				queryKey: organizationQueryKeys.profileDirectory(input.organizationId),
+			})
+			.catch(console.error);
 	}, [
 		input.currentRequest,
 		input.organizationId,
@@ -449,10 +456,36 @@ function useOpenCreatedAgent(input: {
 					});
 					return;
 				}
-				const dm = await openCurrentDirectMessageSpace({
-					organizationId: input.organizationId,
-					targetProfileId: request.createdAgentProfileId,
+				// A directory read started while creation was pending can still
+				// contain an unconfigured Profile. Read after confirmed completion.
+				await input.queryClient.cancelQueries({
+					queryKey: organizationQueryKeys.profileDirectory(
+						input.organizationId
+					),
 				});
+				const [dm, directory] = await Promise.all([
+					openCurrentDirectMessageSpace({
+						organizationId: input.organizationId,
+						targetProfileId: request.createdAgentProfileId,
+					}),
+					input.queryClient.fetchQuery({
+						...organizationProfileDirectoryQueryOptions({
+							enabled: true,
+							organizationId: input.organizationId,
+						}),
+						staleTime: 0,
+					}),
+				]);
+				// The full directory is also the identity projection. Seed the DM
+				// reader before navigation; an older identity read must not erase it.
+				const identityKey = organizationQueryKeys.profileIdentityDirectory(
+					input.organizationId
+				);
+				await input.queryClient.cancelQueries({
+					queryKey: identityKey,
+					exact: true,
+				});
+				input.queryClient.setQueryData(identityKey, directory);
 				await input.queryClient.invalidateQueries({
 					queryKey: accountSpaceQueryKeys.all,
 					refetchType: "none",

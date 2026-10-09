@@ -6,6 +6,7 @@ import {
   type RemoteAgentStorage,
   redeliverDueRemoteAgentCallbacks,
 } from "../agent-core/callback-context";
+import type { RemoteAgentDiagnosticsEnv } from "../agent-core/diagnostics-content-policy";
 import { appendRemoteAgentImageUnderstanding } from "../agent-core/image-understanding";
 import {
   buildRemoteAgentName,
@@ -249,6 +250,7 @@ export async function scheduleRemoteAgentCallbackRetry(input: {
 }
 
 export async function redeliverRemoteAgentCallbacksAndScheduleNextRetry(input: {
+  env?: RemoteAgentDiagnosticsEnv;
   coreWorker?: RemoteAgentCoreWorkerBinding;
   excludeSubmissionIds?: ReadonlySet<string>;
   nowMs?: () => number;
@@ -256,6 +258,7 @@ export async function redeliverRemoteAgentCallbacksAndScheduleNextRetry(input: {
   storage: RemoteAgentStorage;
 }): Promise<{ processed: number; nextDueAtMs: number | null }> {
   const callbackRetry = await redeliverDueRemoteAgentCallbacks({
+    env: input.env,
     coreWorker: input.coreWorker,
     excludeSubmissionIds: input.excludeSubmissionIds,
     nowMs: input.nowMs,
@@ -272,7 +275,7 @@ export async function redeliverRemoteAgentCallbacksAndScheduleNextRetry(input: {
 }
 
 export async function reconcileAndRedeliverRemoteAgentCallbacks(input: {
-  env?: { AGENT_COMPUTER?: unknown };
+  env?: RemoteAgentDiagnosticsEnv & { AGENT_COMPUTER?: unknown };
   coreWorker?: RemoteAgentCoreWorkerBinding;
   nowMs?: () => number;
   readSubmission: (
@@ -300,6 +303,7 @@ export async function reconcileAndRedeliverRemoteAgentCallbacks(input: {
     storage: input.storage,
   });
   const redelivery = await redeliverRemoteAgentCallbacksAndScheduleNextRetry({
+    env: input.env,
     coreWorker: input.coreWorker,
     excludeSubmissionIds: new Set(
       retryableContexts.map((context) => context.submissionId)

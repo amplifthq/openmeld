@@ -6211,8 +6211,16 @@ describe("remote agent OpenMeld tool catalog", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("submits only the narrowed feedback payload through the public endpoint", async () => {
+  it.each([
+    ["prod", "22222222-2222-4222-8222-222222222222", false],
+    ["prod", "11111111-1111-4111-8111-111111111111", true],
+    ["dev", "org_123", true],
+    ["stg", "org_123", true],
+    ["local", "org_123", true],
+    [undefined, "11111111-1111-4111-8111-111111111111", false],
+  ])("submits trusted, content-controlled feedback in %s for %s", async (environment, organizationId, rich) => {
     const request = createSubmitTurnRequest();
+    request.organizationId = organizationId;
     const storage = await createStorageWithPendingContext(request);
     const readFeedbackReportingPolicy = vi.fn(async () => ({
       organizationId: request.organizationId,
@@ -6228,6 +6236,11 @@ describe("remote agent OpenMeld tool catalog", () => {
     );
     const tools = getRemoteAgentOpenMeldToolDefinitions({
       coreWorker: { readFeedbackReportingPolicy },
+      env: {
+        OPENMELD_WORKER_ENVIRONMENT: environment,
+        CLOUDFLARE_OPENMELD_INTERNAL_DIAGNOSTICS_ORGANIZATION_ID:
+          "11111111-1111-4111-8111-111111111111",
+      },
       feedbackSubmission: {
         baseUrl: "https://gateway.openmeld.invalid/",
         fetch,
@@ -6241,7 +6254,7 @@ describe("remote agent OpenMeld tool catalog", () => {
         category: "experience",
         contactEmail: "must-not-leak@example.com",
         details: "The next action remains unavailable after setup completes.",
-        organizationId: "org_attacker",
+        organizationId: "11111111-1111-4111-8111-111111111111",
         summary: "Setup remains blocked",
       })
     ).resolves.toEqual({ ok: true, issueId: "issue-1" });
@@ -6260,10 +6273,14 @@ describe("remote agent OpenMeld tool catalog", () => {
     expect(JSON.parse(String(init?.body))).toEqual({
       category: "experience",
       clientContext: { clientKind: "center_agent" },
-      details: "The next action remains unavailable after setup completes.",
+      details: rich
+        ? "The next action remains unavailable after setup completes."
+        : "Content omitted from automatic feedback. Remote Agent submission: flue_submission_123.",
       sourceOrganizationId: request.organizationId,
       submitterKind: "center_agent",
-      summary: "Setup remains blocked",
+      summary: rich
+        ? "Setup remains blocked"
+        : "Center Agent reported an experience issue.",
     });
   });
 

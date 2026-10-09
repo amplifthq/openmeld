@@ -35,7 +35,7 @@ const softColors = {
   alien: "#ADBC99",
   hexagon: "#C49F9E",
   cat: "#C8BDA9",
-  cloud: "#C2C8D2",
+  cloud: "#E5E7EB",
   pill: "#B1ADC8",
   pebble: "#A7BCC5",
   puddle: "#C4A7BC",
@@ -52,6 +52,10 @@ export function botAvatarColor(
     return "#C4B9A7";
   }
   if (palette === "original") {
+    // Keep the cloud white; the vendor's blue-gray tint reads as a storm cloud.
+    if (type === "cloud") {
+      return "#F4F5F8";
+    }
     return shade(botAvatarPresets[type].color, 0, 0.25);
   }
   if (palette === "balanced") {

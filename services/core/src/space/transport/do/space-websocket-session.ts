@@ -22,6 +22,7 @@ export type SpaceQueuedWebSocketMessage =
   | SpaceAgentStreamTerminalFrame;
 
 export type SpaceWebSocketSession = {
+  callerPrincipalId?: string;
   supportsAgentWorkOutcomes?: boolean;
   supportsAgentReplyPlacement?: boolean;
   profile?: Profile;
@@ -39,6 +40,7 @@ export type SpaceWebSocketSession = {
 };
 
 type SpaceWebSocketSessionAttachment = {
+  callerPrincipalId?: string;
   supportsAgentWorkOutcomes?: boolean;
   supportsAgentReplyPlacement?: boolean;
   profile?: Profile;
@@ -53,6 +55,7 @@ type SpaceWebSocketSessionAttachment = {
 };
 
 export function createPendingSpaceWebSocketSession(input: {
+  callerPrincipalId?: string;
   enforcedProfile?: Profile;
   viewerOwnerUserId?: string;
   viewerProfileId?: string;
@@ -66,6 +69,9 @@ export function createPendingSpaceWebSocketSession(input: {
       : normalizeSpacePasswordText(input.spacePassword);
   return {
     blocked: input.blocked ?? [],
+    ...(input.callerPrincipalId
+      ? { callerPrincipalId: input.callerPrincipalId }
+      : {}),
     enforcedProfile: input.enforcedProfile,
     helloAccepted: false,
     supportsLiveSignalHistory: false,
@@ -154,6 +160,9 @@ export function buildSpaceWebSocketSessionAttachment(
   session: SpaceWebSocketSession
 ): SpaceWebSocketSessionAttachment {
   return {
+    ...(session.callerPrincipalId
+      ? { callerPrincipalId: session.callerPrincipalId }
+      : {}),
     ...(session.helloAccepted ? { helloAccepted: true } : {}),
     ...(session.helloAccepted && session.profile
       ? { profile: session.profile }
@@ -198,6 +207,9 @@ export function restoreSpaceWebSocketSessionFromAttachment(
     meta.helloAccepted === true || meta.profile !== undefined;
   return {
     blocked: [],
+    ...(meta.callerPrincipalId
+      ? { callerPrincipalId: meta.callerPrincipalId }
+      : {}),
     helloAccepted,
     supportsLiveSignalHistory: meta.supportsLiveSignalHistory === true,
     supportsAgentReplyPlacement: meta.supportsAgentReplyPlacement === true,
