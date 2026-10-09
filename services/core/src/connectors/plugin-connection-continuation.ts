@@ -331,7 +331,9 @@ async function readContinuationSource(
   if (!delivery) {
     return await readLocalContinuationSource(env, input, member, reply);
   }
-  const request = delivery.workerSubmitRequest;
+  // Admission clears its queue payload. Completed tasks retain the immutable
+  // execution recovery request for identity and exact-request checks.
+  const request = delivery.executionRecoverySubmitRequest;
   if (
     !(
       delivery &&

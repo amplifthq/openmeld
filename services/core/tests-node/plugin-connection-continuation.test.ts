@@ -96,7 +96,8 @@ function delivery(overrides: Partial<RemoteAgentNativeDeliveryRecord> = {}) {
     publishedSignalId: "reply-1",
     conversationKind: "space",
     routineRunId: null,
-    workerSubmitRequest: request,
+    workerSubmitRequest: null,
+    executionRecoverySubmitRequest: request,
     triggerMessageId: request.triggerMessageId,
     threadContext: {
       threadId: "thr_11111111-1111-4111-8111-111111111111",
@@ -361,6 +362,13 @@ describe("Plugin continuation keeps existing identity and Wake owners", () => {
     { publishedSignalId: "other-reply" },
     { organizationId: "other-org" },
     { routineRunId: "routine-run" },
+    { executionRecoverySubmitRequest: null, workerSubmitRequest: request },
+    {
+      executionRecoverySubmitRequest: {
+        ...request,
+        dispatchId: "unrelated-dispatch",
+      },
+    },
   ] as Partial<RemoteAgentNativeDeliveryRecord>[])("rejects a mismatched, unfinished, stopped, or unattended execution: %j", async (change) => {
     owner.delivery.mockResolvedValue(delivery(change));
     await expect(continuePluginConnection(env, input)).rejects.toThrow();
