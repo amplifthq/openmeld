@@ -13,6 +13,135 @@ type Change =
     ? Entry
     : never;
 
+it("commits ordered file metadata and source progress together under actual workerd", async () => {
+  const namespace = (env as { COMPUTER_PROBE: DurableObjectNamespace })
+    .COMPUTER_PROBE;
+  await runInDurableObject(
+    namespace.get(namespace.newUniqueId()),
+    async (_instance, state) => {
+      let sourceRevision = 1;
+      let entries: Change[] = [
+        {
+          kind: "file",
+          rev: 1,
+          path: "/transaction.txt",
+          mode: 0o644,
+          mtime: 1,
+          size: 0,
+          chunks: [],
+        },
+      ];
+      const unexpected = (): Promise<never> =>
+        Promise.reject(new Error("Metadata pull must not execute a command"));
+      // Peer responses use the installed vendor SyncRPC contract. Actual dofs
+      // application and rollback run against workerd's own SQLite storage/API.
+      const rpc: BackendHandle["rpc"] = {
+        shell: {
+          exec: unexpected,
+          getExec: unexpected,
+          killExec: unexpected,
+          disposeExec: unexpected,
+        },
+        sync: {
+          watermarks: async () => ({
+            currentRev: sourceRevision,
+            pushRev: 0,
+            fetchCursor: { rev: 0, path: null },
+          }),
+          fetchChanges: async () => ({
+            currentCursor: { rev: sourceRevision, path: null },
+            appliedPushCursor: { rev: 0, path: null },
+            stream: new ReadableStream({
+              start(controller) {
+                for (const entry of entries) {
+                  controller.enqueue(entry);
+                }
+                controller.close();
+              },
+            }),
+          }),
+          push: unexpected,
+          readEntry: unexpected,
+          hasObjects: async () => [],
+          fetchObjects: () =>
+            new ReadableStream({
+              start(controller) {
+                controller.close();
+              },
+            }),
+          pushObjects: unexpected,
+        },
+      };
+      const owner = new Workspace({
+        storage: state.storage as unknown as ConstructorParameters<
+          typeof Workspace
+        >[0]["storage"],
+        backends: [
+          {
+            id: "transaction-peer",
+            type: "typed-sync-peer",
+            connect: async () => ({
+              rpc,
+              sync: "remote",
+              close: async () => undefined,
+            }),
+          },
+        ],
+      });
+      const pull = async () => {
+        for await (const _ of owner.pull("transaction-peer")) {
+          /* Drive actual SDK metadata application. */
+        }
+      };
+      try {
+        await owner.ready();
+        const provider = owner.provider();
+        owner.db.transactionSync(() => {
+          provider.writeFileSync("/outer-before.txt", "before");
+          expect(() =>
+            owner.db.transactionSync(() => {
+              provider.writeFileSync("/rolled-back.txt", "inner");
+              throw new Error("inner failure");
+            })
+          ).toThrow("inner failure");
+          expect(provider.existsSync("/rolled-back.txt")).toBe(false);
+          provider.writeFileSync("/outer-after.txt", "after");
+        });
+        expect(provider.readFileSync("/outer-before.txt", "utf8")).toBe(
+          "before"
+        );
+        expect(provider.readFileSync("/outer-after.txt", "utf8")).toBe("after");
+        expect(provider.existsSync("/rolled-back.txt")).toBe(false);
+        state.storage.sql.exec(
+          "CREATE TRIGGER reject_cursor BEFORE INSERT ON _vfs_watermark WHEN NEW.k = 'fetchRev' BEGIN SELECT RAISE(ABORT, 'cursor unavailable'); END"
+        );
+        await expect(pull()).rejects.toThrow("cursor unavailable");
+        expect(await owner.fs.ls("/transaction.txt")).toEqual([]);
+        const cursor = state.storage.sql
+          .exec<{ v: number }>(
+            "SELECT v FROM _vfs_watermark WHERE k = 'fetchRev' AND backend = 'transaction-peer'"
+          )
+          .toArray();
+        expect(cursor[0]?.v ?? 0).toBe(0);
+        state.storage.sql.exec("DROP TRIGGER reject_cursor");
+        await pull();
+        expect(
+          await owner.fs.readFile("/transaction.txt", { encoding: "utf8" })
+        ).toBe("");
+        for (let i = 0; i < 10; i++) {
+          await owner.fs.writeFile("/local-clock.txt", `${i}`);
+        }
+        sourceRevision = 2;
+        entries = [{ kind: "delete", rev: 2, path: "/transaction.txt" }];
+        await pull();
+        expect(await owner.fs.ls("/transaction.txt")).toEqual([]);
+      } finally {
+        await owner.close();
+      }
+    }
+  );
+});
+
 it("preserves aliases, tombstones and same-revision paths across restart and later writes", async () => {
   const namespace = (env as { COMPUTER_PROBE: DurableObjectNamespace })
     .COMPUTER_PROBE;

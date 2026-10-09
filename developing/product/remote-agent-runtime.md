@@ -199,6 +199,18 @@ is retained. Files persist; running processes, OS packages and browser login
 state are not promised to survive runtime recreation. Shared Organization or
 Space Computers, other providers and human desktop UI remain separate work.
 
+The next Linux command must see synchronized file contents, existence and size.
+The native backend refreshes FUSE attributes using
+`COMPUTERD_FUSE_ATTR_TIMEOUT=0` and prevents file-data cache reuse across opens
+using `COMPUTERD_FUSE_AUTO_CACHE=0`. Equal-mtime/size changes must be visible;
+the automatic cache's mtime/size check cannot detect them. Entry caching,
+per-open kernel page caching and the default 512 KiB read/write blocks remain
+enabled. Direct I/O and unconditional kernel-cache retention are not enabled.
+The SDK's launch-spec owner replaces an existing container with a different configuration
+on its next native connection. Workspace files and saved command identities
+remain in durable SQLite. An interrupted process reports the existing explicit
+loss outcome; configuration adoption must not clear the workspace or replay it.
+
 Center, personal Remote and optional Local Agents consume the same Computer
 operation contract. `describe` returns the official file-tool schemas and live
 browser availability. `files` invokes Cloudflare's `read`, `ls`, `find`, `grep`,
@@ -556,6 +568,40 @@ restart and later-write handling. The SDK patch does not change command
 ownership, native shell execution, synchronization acknowledgements or storage
 schema. Local planner measurements do not establish production CPU-limit
 recovery or native Linux acceptance.
+
+Ordered sync receivers use their existing source fetch cursor to reject a
+replayed entry. Sender revisions must not be compared with receiver-local node
+revisions. Shared dofs application commits metadata and source progress in the
+same transaction for both entry and pack transport. A lost ACK followed by a
+receiver-local recreation or modification must preserve that newer work. The
+stored cursor advances monotonically; the ACK still echoes the exact submitted
+block cursor, including a smaller adaptive replay at the same revision.
+Unsequenced callers retain the existing tombstone guard. Refused metadata does
+not advance the cursor, except deliberate read-only skips recorded by the owning
+sync contract. See `services/remote-agent/computerd/README.md` for the pinned
+source patch, Worker compilation and native SEA provenance. Deploy the image,
+Worker package patch and FUSE settings together; changing only the Worker package
+does not correct an existing precompiled native receiver.
+
+Nested transactions remain storage-owned: Durable Objects use their public
+synchronous transaction API; the native SQLite adapter manages savepoints.
+An inner failure must roll back its writes even when the outer transaction
+catches it and continues. Runtime post-command pulls use the same ordered
+application and atomic source-progress contract. Previously acknowledged
+deletions are not automatically replayed; this correction preserves existing
+Workspace state and adds no production reset.
+
+The opt-in native container check uses actual computerd and a required FUSE
+mount, with disposable SQLite and a separate container per run. From the repo
+root, run `pnpm dev:run -- node services/remote-agent/scripts/verify-computer-container.mjs`
+with `matrix`, `adoption` or `pack`. The matrix checks immediate file mutations
+and lost-entry-ACK receiver writes, and reports stat and read costs plus native
+source/binary provenance. Adoption replaces an old configured instance while
+retaining files, completed receipts and original lost-command references.
+Pack checks real apply, lost acknowledgement, sender recreation, aliases,
+frozen later writes and receiver reset. `matrix default` is the before-fix
+control and must fail on stale reads. Reports include source hashes and remain
+outside the disposable runtime state. No test touches installed Service state.
 
 This is an additive Computer response and local Skill guidance change. Existing
 CLI command-result parsers use a non-strict object, ignore the optional

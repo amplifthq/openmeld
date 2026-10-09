@@ -24,3 +24,10 @@ an unknown acceptance state instead of an unreachable service.
 If the native execution result is unavailable, the saved receipt remains
 available for inspection. This failure is distinct from an unreachable service
 and does not restart the command.
+
+Linux commands see new file changes after synchronization, including renames,
+deletions, size changes and same-size replacements. Sync retries preserve files
+recreated or modified afterward on the receiving Computer.
+Applying this native update preserves workspace files and saved command
+references. A process interrupted by a container replacement is reported as
+unavailable and is not restarted automatically.

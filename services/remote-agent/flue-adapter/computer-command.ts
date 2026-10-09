@@ -45,7 +45,7 @@ import {
   type ComputerCommandSqlStorage,
 } from "./computer-command-storage";
 import { resolveRemoteAgentComputerName } from "./computer-identity";
-import { AGENT_COMPUTER_CONTAINER_BACKEND_ID } from "./computer-workspace";
+import { AGENT_COMPUTER_CONTAINER_BACKEND_ID } from "./computer-workspace-config";
 
 const COMPUTER_TARGET_PREFIX = "openmeld:computer-target:";
 
