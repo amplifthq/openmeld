@@ -945,7 +945,18 @@ describe("SpaceMessageBody", () => {
 			screen.queryByRole("link", { name: "Open Plugin connection" })
 		).toBeNull();
 		expect(screen.getByText("Connect Linear to continue.")).toBeTruthy();
-		expect(client.getQueryCache().getAll()).toHaveLength(0);
+		// A disabled live-catalog query can exist before the dialog opens. No
+		// connection or catalog request may execute merely to render this action.
+		expect(
+			client
+				.getQueryCache()
+				.getAll()
+				.every(
+					(query) =>
+						query.state.fetchStatus === "idle" &&
+						query.state.status === "pending"
+				)
+		).toBe(true);
 		expect(text).toContain("#openmeld-plugin-connection)");
 	});
 
