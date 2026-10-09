@@ -289,6 +289,11 @@ a bounded summary and an actual continuation reference. The common
 20 literal search hits with context. Direct tools and Code Mode share this path;
 reading a result never reruns the original operation.
 
+Code Mode keeps structured tool results as objects, or selects the fields needed
+to establish the requested outcome. Generated code must not stringify and slice
+away a mutation receipt, status, or step result before the presentation owner
+can retain it.
+
 References require the same execution/audience plus current source connection
 access and version before and after reading. Sources are host-owned metadata,
 not provider JSON. Authorization is checked before releasing source-tagged results of any size,
