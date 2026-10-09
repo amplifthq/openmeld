@@ -119,7 +119,8 @@ credentials, verifies the environment contract, provisions missing staging
 resources, builds the exact external source, applies only its staging D1
 migrations, deploys with secrets over stdin, and checks its public health.
 The five canonical deployment secrets are owned by
-`openmeld-open-connector/stg`; Gateway owns its administration-token copy and
+`openmeld-open-connector/stg`; Gateway owns its administration- and catalog
+runtime-token copies and
 Remote Agent owns its runtime-token copy. OAuth clients must use
 `https://connectors.staging.openmeld.ai/oauth/callback` and independent staging
 credentials. Provider authorization and real App actions remain separate

@@ -43,7 +43,9 @@ beforeEach(() => {
 		.mockReset()
 		.mockImplementation(({ operation }) =>
 			Promise.resolve(
-				operation === "plugin.channel.preview" ? preview : { providers: [] }
+				operation === "plugin.channel.preview"
+					? preview
+					: { organizationId: "org", providers: [] }
 			)
 		);
 	mocks.foundation.mockReset().mockReturnValue({ requestJson: mocks.request });
@@ -103,11 +105,13 @@ describe("private channel request page reuses setup without becoming an authorit
 		"member",
 		"shared",
 	])("honors a previously pinned %s choice rather than rechoosing when both connections exist", async (selection) => {
-		mocks.request.mockResolvedValue({
-			...preview,
-			scope: "choose",
-			selection,
-		});
+		mocks.request.mockImplementation(({ operation }) =>
+			Promise.resolve(
+				operation === "plugin.channel.preview"
+					? { ...preview, scope: "choose", selection }
+					: { organizationId: "org", providers: [] }
+			)
+		);
 		render(
 			<TestQueryClientProvider>
 				<PluginConnectionRequestPanel requestId="request" service="github" />

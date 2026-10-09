@@ -1471,6 +1471,15 @@ same designated Center Agent Profile and hosted Binding; they do not create
 provider-specific Center Agents. Connecting, repairing, moving, or
 disconnecting one provider does not mutate another provider's connection.
 
+Slack, Lark, and Feishu also appear as Plugins in the live OpenConnector
+catalog. Their user-account authorization is separate from Channel bot setup.
+Gateway reads that catalog with the runtime token and uses the administration
+token only for connection management. The catalog's `authTypes` declares OAuth
+support; `connectionAuth.oauth` reports whether this environment's OAuth client
+is configured. A missing client keeps the Plugin discoverable but disables
+sign-in and explains the operator setup requirement. It never implies that a
+Channel connection grants Plugin access.
+
 A Personal Workspace cannot connect a workspace-level Message Channel. Its
 Channels destination remains visible and shows the provider catalog in a
 discovery state with one primary action: **Create organization**. Slack OAuth

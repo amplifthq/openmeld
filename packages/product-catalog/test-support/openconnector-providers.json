@@ -1,0 +1,601 @@
+{
+  "success": true,
+  "message": "OK",
+  "data": [
+    {
+      "service": "cloudflare_browser_rendering",
+      "displayName": "Cloudflare Browser Run",
+      "iconUrl": null,
+      "homepageUrl": "https://developers.cloudflare.com/browser-run/",
+      "categories": [
+        {
+          "id": "Developer Tools",
+          "displayName": "Developer Tools"
+        },
+        {
+          "id": "Data",
+          "displayName": "Data"
+        }
+      ],
+      "scenario": "developer",
+      "authTypes": ["api_key", "oauth2"],
+      "connectionAuth": {
+        "oauth": true,
+        "credentials": [
+          {
+            "authType": "api_key",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "API Token",
+                "description": "Cloudflare API token used with the Authorization Bearer header. Create a custom token with Browser Rendering - Edit permission from https://dash.cloudflare.com/profile/api-tokens/.",
+                "placeholder": "CLOUDFLARE_API_TOKEN",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              },
+              {
+                "key": "accountId",
+                "label": "Account ID",
+                "description": "Cloudflare account ID used in Browser Run API paths. Find it from https://developers.cloudflare.com/fundamentals/account/find-account-and-zone-ids/.",
+                "placeholder": "CLOUDFLARE_ACCOUNT_ID",
+                "secret": false,
+                "inputType": "text",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "cloudflare_dns",
+      "displayName": "Cloudflare DNS",
+      "iconUrl": null,
+      "homepageUrl": "https://www.cloudflare.com",
+      "categories": [
+        {
+          "id": "Developer Tools",
+          "displayName": "Developer Tools"
+        },
+        {
+          "id": "Security",
+          "displayName": "Security"
+        }
+      ],
+      "scenario": "developer",
+      "authTypes": ["api_key", "oauth2"],
+      "connectionAuth": {
+        "oauth": true,
+        "credentials": [
+          {
+            "authType": "api_key",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "API Token",
+                "description": "Cloudflare API token sent as a Bearer token. Create one from the Cloudflare API Tokens page: https://dash.cloudflare.com/profile/api-tokens",
+                "placeholder": "cloudflare_api_token",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "cloudflare_r2",
+      "displayName": "Cloudflare R2",
+      "iconUrl": null,
+      "homepageUrl": "https://www.cloudflare.com/developer-platform/products/r2/",
+      "categories": [
+        {
+          "id": "Storage",
+          "displayName": "Storage"
+        },
+        {
+          "id": "Developer Tools",
+          "displayName": "Developer Tools"
+        }
+      ],
+      "scenario": "data-storage",
+      "authTypes": ["custom_credential", "oauth2"],
+      "connectionAuth": {
+        "oauth": true,
+        "credentials": [
+          {
+            "authType": "custom_credential",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "API Token",
+                "description": "Cloudflare API token sent as a Bearer token. Create one from the Cloudflare API Tokens page: https://dash.cloudflare.com/profile/api-tokens",
+                "placeholder": "cloudflare_api_token",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              },
+              {
+                "key": "accountId",
+                "label": "Account ID",
+                "description": "Cloudflare account ID used for R2 bucket management. Find it in the Cloudflare dashboard or account ID docs: https://developers.cloudflare.com/fundamentals/account/find-account-and-zone-ids/",
+                "placeholder": "023e105f4ecef8ad9ca31a8372d0c353",
+                "secret": false,
+                "inputType": "text",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "cloudflare_worker",
+      "displayName": "Cloudflare Worker",
+      "iconUrl": null,
+      "homepageUrl": "https://workers.cloudflare.com",
+      "categories": [
+        {
+          "id": "Developer Tools",
+          "displayName": "Developer Tools"
+        }
+      ],
+      "scenario": "developer",
+      "authTypes": ["custom_credential", "oauth2"],
+      "connectionAuth": {
+        "oauth": true,
+        "credentials": [
+          {
+            "authType": "custom_credential",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "API Token",
+                "description": "Cloudflare user API token or account API token sent as a Bearer token. User tokens are verified through /user/tokens/verify; account tokens are verified through the configured account ID.",
+                "placeholder": "cloudflare_api_token",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              },
+              {
+                "key": "accountId",
+                "label": "Account ID",
+                "description": "Cloudflare account ID used for Workers API requests. Find it in the Cloudflare dashboard or account ID docs: https://developers.cloudflare.com/fundamentals/account/find-account-and-zone-ids/",
+                "placeholder": "023e105f4ecef8ad9ca31a8372d0c353",
+                "secret": false,
+                "inputType": "text",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "feishu",
+      "displayName": "Feishu",
+      "iconUrl": null,
+      "homepageUrl": "https://www.feishu.cn",
+      "categories": [
+        {
+          "id": "Communication",
+          "displayName": "Communication"
+        },
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        },
+        {
+          "id": "Storage",
+          "displayName": "Storage"
+        }
+      ],
+      "scenario": "communication",
+      "authTypes": ["oauth2"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": []
+      }
+    },
+    {
+      "service": "figma",
+      "displayName": "Figma",
+      "iconUrl": null,
+      "homepageUrl": "https://www.figma.com",
+      "categories": [
+        {
+          "id": "Design",
+          "displayName": "Design"
+        },
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        }
+      ],
+      "scenario": "productivity",
+      "authTypes": ["api_key", "oauth2"],
+      "connectionAuth": {
+        "oauth": true,
+        "credentials": [
+          {
+            "authType": "api_key",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "Personal Access Token",
+                "description": "Figma personal access token sent with the X-Figma-Token header. Create or manage tokens from Figma account settings: https://www.figma.com/developers/api#access-tokens",
+                "placeholder": "figd_...",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "github",
+      "displayName": "GitHub",
+      "iconUrl": null,
+      "homepageUrl": "https://github.com",
+      "categories": [
+        {
+          "id": "Developer Tools",
+          "displayName": "Developer Tools"
+        }
+      ],
+      "scenario": "developer",
+      "authTypes": ["oauth2", "custom_credential", "api_key"],
+      "connectionAuth": {
+        "oauth": true,
+        "credentials": [
+          {
+            "authType": "custom_credential",
+            "fields": [
+              {
+                "key": "installationId",
+                "label": "GitHub App installation ID",
+                "description": "The GitHub App installation to use. The host must configure OOMOL_CONNECT_GITHUB_APP_ID and OOMOL_CONNECT_GITHUB_APP_PRIVATE_KEY.",
+                "placeholder": "12345678",
+                "secret": false,
+                "inputType": "text",
+                "required": true
+              }
+            ]
+          },
+          {
+            "authType": "api_key",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "Personal access token",
+                "description": "GitHub personal access token used with the Authorization Bearer header. Fine-grained tokens are recommended.",
+                "placeholder": "github_pat_...",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "gmail",
+      "displayName": "Gmail",
+      "iconUrl": null,
+      "homepageUrl": "https://mail.google.com",
+      "categories": [
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        }
+      ],
+      "scenario": "communication",
+      "authTypes": ["oauth2", "custom_credential"],
+      "connectionAuth": {
+        "oauth": true,
+        "credentials": [
+          {
+            "authType": "custom_credential",
+            "fields": [
+              {
+                "key": "serviceAccountJson",
+                "label": "Service Account JSON",
+                "description": "The complete service account key JSON from Google Cloud Console (IAM & Admin > Service Accounts > Keys). Enable the Gmail API for its project. A service account has no mailbox of its own, so pair it with domain-wide delegation below.",
+                "placeholder": "{\"type\": \"service_account\", \"project_id\": \"...\", ...}",
+                "secret": true,
+                "inputType": "textarea",
+                "required": true
+              },
+              {
+                "key": "subject",
+                "label": "Subject Email",
+                "description": "Workspace user to impersonate through domain-wide delegation. In the Workspace Admin console (Security > Access and data control > API Controls > Domain-wide Delegation), grant the service account client ID the Gmail scopes this provider requests.",
+                "placeholder": "user@your-domain.com",
+                "secret": false,
+                "inputType": "text",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "googlecalendar",
+      "displayName": "Google Calendar",
+      "iconUrl": null,
+      "homepageUrl": "https://workspace.google.com/products/calendar/",
+      "categories": [
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        },
+        {
+          "id": "Communication",
+          "displayName": "Communication"
+        }
+      ],
+      "scenario": "productivity",
+      "authTypes": ["oauth2", "custom_credential"],
+      "connectionAuth": {
+        "oauth": true,
+        "credentials": [
+          {
+            "authType": "custom_credential",
+            "fields": [
+              {
+                "key": "serviceAccountJson",
+                "label": "Service Account JSON",
+                "description": "The complete service account key JSON from Google Cloud Console (IAM & Admin > Service Accounts > Keys). Enable the Calendar API for its project and share calendars with the service account email, or use domain-wide delegation below.",
+                "placeholder": "{\"type\": \"service_account\", \"project_id\": \"...\", ...}",
+                "secret": true,
+                "inputType": "textarea",
+                "required": true
+              },
+              {
+                "key": "subject",
+                "label": "Subject Email (optional)",
+                "description": "Optional Workspace user to impersonate through domain-wide delegation. In the Workspace Admin console (Security > Access and data control > API Controls > Domain-wide Delegation), grant the service account client ID the Calendar scopes this provider requests.",
+                "placeholder": "user@your-domain.com",
+                "secret": false,
+                "inputType": "text",
+                "required": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "googledrive",
+      "displayName": "Google Drive",
+      "iconUrl": null,
+      "homepageUrl": "https://workspace.google.com/products/drive/",
+      "categories": [
+        {
+          "id": "Storage",
+          "displayName": "Storage"
+        },
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        }
+      ],
+      "scenario": "communication",
+      "authTypes": ["oauth2", "custom_credential"],
+      "connectionAuth": {
+        "oauth": true,
+        "credentials": [
+          {
+            "authType": "custom_credential",
+            "fields": [
+              {
+                "key": "serviceAccountJson",
+                "label": "Service Account JSON",
+                "description": "The complete service account key JSON from Google Cloud Console (IAM & Admin > Service Accounts > Keys). Enable the Drive API for its project and share Drive files with the service account email, or use domain-wide delegation below.",
+                "placeholder": "{\"type\": \"service_account\", \"project_id\": \"...\", ...}",
+                "secret": true,
+                "inputType": "textarea",
+                "required": true
+              },
+              {
+                "key": "subject",
+                "label": "Subject Email (optional)",
+                "description": "Optional Workspace user to impersonate through domain-wide delegation. In the Workspace Admin console (Security > Access and data control > API Controls > Domain-wide Delegation), grant the service account client ID the Drive scopes this provider requests. This acts as the user across the domain when sharing files with the service account directly is not practical.",
+                "placeholder": "user@your-domain.com",
+                "secret": false,
+                "inputType": "text",
+                "required": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "lark",
+      "displayName": "Lark",
+      "iconUrl": null,
+      "homepageUrl": "https://www.larksuite.com",
+      "categories": [
+        {
+          "id": "Communication",
+          "displayName": "Communication"
+        },
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        },
+        {
+          "id": "Storage",
+          "displayName": "Storage"
+        }
+      ],
+      "scenario": "communication",
+      "authTypes": ["oauth2"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": []
+      }
+    },
+    {
+      "service": "linear",
+      "displayName": "Linear",
+      "iconUrl": null,
+      "homepageUrl": "https://linear.app",
+      "categories": [
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        },
+        {
+          "id": "Developer Tools",
+          "displayName": "Developer Tools"
+        }
+      ],
+      "scenario": "productivity",
+      "authTypes": ["oauth2", "api_key"],
+      "connectionAuth": {
+        "oauth": true,
+        "credentials": [
+          {
+            "authType": "api_key",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "Personal API Key",
+                "description": "Linear personal API key sent as the raw Authorization header value. Create or revoke it from Settings > Account > Security & Access.",
+                "placeholder": "lin_api_...",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "notion",
+      "displayName": "Notion",
+      "iconUrl": null,
+      "homepageUrl": "https://www.notion.so",
+      "categories": [
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        }
+      ],
+      "scenario": "communication",
+      "authTypes": ["oauth2", "api_key"],
+      "connectionAuth": {
+        "oauth": true,
+        "credentials": [
+          {
+            "authType": "api_key",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "Internal Integration Secret",
+                "description": "Notion internal integration secret used with the Authorization Bearer header. Create an internal integration from the Notion integrations dashboard, then share target pages or databases with it.",
+                "placeholder": "secret_...",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "posthog",
+      "displayName": "PostHog",
+      "iconUrl": null,
+      "homepageUrl": "https://posthog.com",
+      "categories": [
+        {
+          "id": "Data",
+          "displayName": "Data"
+        },
+        {
+          "id": "Developer Tools",
+          "displayName": "Developer Tools"
+        }
+      ],
+      "scenario": "data-storage",
+      "authTypes": ["oauth2", "api_key"],
+      "connectionAuth": {
+        "oauth": true,
+        "credentials": [
+          {
+            "authType": "api_key",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "Personal API Key",
+                "description": "PostHog personal API key used with the Authorization Bearer header. Create or manage it at https://us.posthog.com/settings/user-api-keys or https://eu.posthog.com/settings/user-api-keys.",
+                "placeholder": "phx_...",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              },
+              {
+                "key": "baseUrl",
+                "label": "Base URL",
+                "description": "PostHog private API base URL, such as https://us.posthog.com, https://eu.posthog.com, or your self-hosted domain.",
+                "placeholder": "https://us.posthog.com",
+                "secret": false,
+                "inputType": "text",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "slack",
+      "displayName": "Slack",
+      "iconUrl": null,
+      "homepageUrl": "https://slack.com",
+      "categories": [
+        {
+          "id": "Communication",
+          "displayName": "Communication"
+        },
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        }
+      ],
+      "scenario": "communication",
+      "authTypes": ["oauth2", "api_key"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "api_key",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "Access token",
+                "description": "Slack bot or user token used with the Authorization Bearer header. Create a Slack app, install it to the workspace, then copy the bot token or user token from OAuth & Permissions.",
+                "placeholder": "xoxb-... or xoxp-...",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "meta": {}
+}

@@ -301,6 +301,15 @@ export function PluginStatusBadge(input: {
 	if (input.reconnectRequired) {
 		return <Badge variant="outline">Reconnect required</Badge>;
 	}
+	if (
+		!input.connected &&
+		input.plugin.connection.auth.kind === "oauth" &&
+		input.plugin.connection.auth.configured === false
+	) {
+		return (
+			<span className="text-muted-foreground text-xs">Sign-in unavailable</span>
+		);
+	}
 	if (!input.connected) {
 		return input.connected === false ? (
 			<span className="text-muted-foreground text-xs">Not connected</span>

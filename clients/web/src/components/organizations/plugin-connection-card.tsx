@@ -1074,6 +1074,22 @@ function CredentialField({
 	);
 }
 
+function PluginOAuthSetupNotice(input: {
+	appName: string;
+	configured?: boolean;
+}) {
+	if (input.configured !== false) {
+		return null;
+	}
+	return (
+		<output className="block max-w-lg text-muted-foreground text-xs">
+			{input.appName} sign-in is not set up for this environment yet. Contact
+			your OpenMeld operator. Reconnecting a Channel bot does not set up this
+			Plugin.
+		</output>
+	);
+}
+
 function DisconnectedConnectionControl(input: ConnectionSectionInput) {
 	const disabled = input.actionsDisabled || !input.canManage;
 	const [values, setValues] = useState<Record<string, string>>({});
@@ -1106,7 +1122,7 @@ function DisconnectedConnectionControl(input: ConnectionSectionInput) {
 							? "Checking connection status"
 							: `Connect ${input.appName}`
 					}
-					disabled={disabled}
+					disabled={disabled || auth.configured === false}
 					onClick={() => input.onConnect(auth, {})}
 					size="sm"
 					type="button"
@@ -1118,6 +1134,10 @@ function DisconnectedConnectionControl(input: ConnectionSectionInput) {
 					)}
 					{connectActionLabel}
 				</Button>
+				<PluginOAuthSetupNotice
+					appName={input.appName}
+					configured={auth.configured}
+				/>
 				{auth.credentialFallback ? (
 					<Button
 						className="h-auto px-0 py-0 text-xs"
