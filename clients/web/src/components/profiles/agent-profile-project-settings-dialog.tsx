@@ -242,12 +242,7 @@ function LocalAgentProfileProjectSettingsDialog(
 			toast.success("Working folder updated.");
 			input.onOpenChange(false);
 		} catch (failure) {
-			setError(
-				folderSaveError(
-					failure,
-					workspaceSaved && Boolean(input.expectedBindingTarget)
-				)
-			);
+			setError(folderSaveError(failure, workspaceSaved));
 		} finally {
 			setPending(false);
 		}

@@ -920,9 +920,10 @@ visible, the Project is not cleared, and setup reports partial failure.
 The Space recovery draft sends its frozen `expectedBindingTarget` on both HTTP
 writes. Core rejects a mismatched current Binding even after Save has started;
 disabling a later click in Web is not the write fence. A successful local save
-followed by a rejected Project update keeps the dialog open with an accurate
-partial result. Ordinary explicit Computer configuration may omit this
-precondition and retains its existing target semantics.
+followed by a failed Default Project update keeps the dialog open with an accurate
+partial result in both Profile settings and Space recovery. Ordinary explicit
+Computer configuration may omit this precondition and retains its existing
+target semantics.
 
 `defaultProjectId` is a separate Organization-scoped cloud preference for a
 local Agent Profile. It identifies the Project that future Wakes and new

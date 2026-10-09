@@ -1,4 +1,7 @@
-import type { StructuredApiClientFailure } from "@openmeld/api-client";
+import {
+	type StructuredApiClientFailure,
+	toStructuredApiClientFailure,
+} from "@openmeld/api-client";
 import {
 	getAgentExecutionReadinessBatchResponseSchema,
 	HOSTED_CENTER_AGENT_CONTROLLER_REF,
@@ -366,6 +369,26 @@ describe("AgentProfileProjectSettingsDialog", () => {
 		expect(onProfileUpdated).toHaveBeenCalledWith(
 			expect.objectContaining({ defaultProjectId: null })
 		);
+	});
+
+	it("shows the local save receipt in Profile settings when the Default Project update fails", async () => {
+		const { onProfileUpdated } = await renderSettings();
+		updateDefaultProjectMock.mockRejectedValueOnce(
+			toStructuredApiClientFailure(new TypeError("Failed to fetch"))
+		);
+		const draft = "/private/chosen-folder";
+		await editCustomFolder(draft);
+		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+		await screen.findByText(
+			"The folder was saved on the original Computer, but the Default Project update could not be confirmed. Close and reopen Working folder to check its current settings."
+		);
+		expect(screen.getByRole("dialog")).toBeTruthy();
+		expect(
+			(screen.getByLabelText("Custom working folder path") as HTMLInputElement)
+				.value
+		).toBe(draft);
+		expect(onProfileUpdated).not.toHaveBeenCalled();
 	});
 
 	it("allows a future Project choice while blocking local folder changes during work", async () => {

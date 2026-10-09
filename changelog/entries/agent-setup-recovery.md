@@ -11,6 +11,8 @@ fails later, you can review the model and retry the same Agent without losing
 its original Project or overwriting settings you changed afterward.
 
 Custom and OpenMeld-managed folder changes correctly clear Default Project.
+If the folder is saved but Default Project cannot be updated, Working folder
+shows the partial result and keeps your choice for retry.
 Center Agent setup results keep local folder paths private and show which
 steps still need attention.
 During an update, incompatible Center Agent folder changes stop before any
