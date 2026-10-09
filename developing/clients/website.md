@@ -48,8 +48,11 @@ shared viewport.
 The Members panel stays open on desktop and uses a smaller demo-specific resize
 limit. Its Live and You labels are hidden to reserve more reading space for
 Thread, which has wider default and minimum widths.
-The Space sidebar starts at the product's minimum width and wraps long names;
-its search input is omitted. Product and demo Members and Thread headers reuse
+The Space sidebar starts at the product's 200px minimum and keeps titles on one
+line with an ellipsis, including when hover actions appear; its search input is
+omitted. The demo organization trigger starts 16px below the canvas top and
+keeps its 36px hit area while its O logo uses a smaller 5px glyph size.
+Product and demo Members and Thread headers reuse
 `SpaceInlineSidePanelHeader` at a fixed 56px height, including loading states.
 The demo Composer draws a soft colored BorderBeam around a sendable draft in a
 slow ten-second loop. It pauses while hidden or outside the viewport and fades out

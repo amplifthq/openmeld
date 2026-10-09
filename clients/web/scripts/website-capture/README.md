@@ -89,6 +89,10 @@ header inset and fixed 56px `SpaceInlineSidePanelHeader` for Members and Thread,
 including the loading state. The demo adds no separate alignment override.
 The 28px user avatar
 shares the rail's centerline with the organization switcher and navigation.
+The organization trigger keeps its 36px hit area and starts 16px below the canvas
+top. Its pointer-reactive O logo uses a 5px glyph size to keep its visual weight
+close to the rail controls. Hover actions use the product's row layout: titles
+truncate without wrapping, and row heights stay fixed as the actions appear.
 Claude Code and Codex messages show their human owner.
 The first Space follows a checkout regression: James reports the failure, Maya
 sets the review requirements, and Center Agent delegates to Codex and Claude Code
