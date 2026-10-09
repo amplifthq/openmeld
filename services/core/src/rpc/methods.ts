@@ -2419,6 +2419,8 @@ export async function rpcMutateSpaceMessage(
   return await stub.rpcMutateSpaceMessage(input);
 }
 export type PostSignalInput = {
+  /** Internal Core→Space only. Public input cannot supply a time anchor. */
+  requestTimeContext?: import("@openmeld/schemas").UserRequestTimeContext;
   contextSelection?: import("@openmeld/schemas/types").ExecutionContextSelection;
   contextSelections?: Record<
     string,
@@ -17508,7 +17510,25 @@ export async function rpcPostCenterAgentWakePublicationSignal(
   env: CoreBindings,
   command: CenterAgentWakePublicationCommand
 ): Promise<SignalEnvelope> {
+  const parent = await readRemoteAgentNativeDeliveryBySubmissionId({
+    db: requireCenterAgentDb(env),
+    submissionId: command.parentSubmissionId,
+  });
+  if (
+    !parent ||
+    parent.organizationId !== command.organizationId ||
+    parent.profileId !== command.attribution.actorProfileId
+  ) {
+    throw createCoreRpcHttpError({
+      code: "center_agent.delegation_parent_unavailable",
+      reason: "The original Center Agent request is unavailable.",
+      status: 409,
+    });
+  }
+  const originalRequest =
+    parent.workerSubmitRequest ?? parent.executionRecoverySubmitRequest;
   return await rpcPostSignalOnceByClientMessageId(env, {
+    requestTimeContext: originalRequest?.turnEnvelope.requestTimeContext,
     authoringPolicy: "user_authored",
     clientMessageId: command.clientMessageId,
     context: command.context,
@@ -19601,6 +19621,9 @@ export async function rpcPostSignalOnceByClientMessageId(
     ...(input.spaceAccess ? { spaceAccess: input.spaceAccess } : {}),
   });
   const postInput = {
+    ...(input.requestTimeContext
+      ? { requestTimeContext: input.requestTimeContext }
+      : {}),
     ...(input.deviceWait ? { deviceWait: input.deviceWait } : {}),
     ...(input.contextSelection
       ? { contextSelection: input.contextSelection }

@@ -5,6 +5,7 @@ import {
 } from "@openmeld/db/postgresql";
 import {
   buildAgentControllerRoutingKey,
+  buildAgentTaskKey,
   buildRuntimeCoordinatorExecutionId,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
   DISPATCH_ACTIVITY_DISPATCHING_PURPOSE,
@@ -22,12 +23,15 @@ import {
 import type {
   AgentTaskContinuationQueueMessage,
   AgentTaskObservationRedriveQueueMessage,
+  AgentTaskTerminalOutcome,
   OpenMeldDaemonAcceptedDispatchSnapshot,
   OpenMeldDaemonDispatchQueueMessage,
   RemoteAgentNativeDeliveryDeadlineProbeQueueMessage,
   RuntimeTransportRuntimeCoordinatorDecisionResponse,
 } from "@openmeld/schemas/types";
 import { processAgentTaskContinuationQueueMessage } from "../../agent-task-coordination/application/agent-task-continuation-service";
+import { recordAndEnqueueAgentTaskTerminalOutcomeIfMatching } from "../../agent-task-coordination/application/agent-task-terminal-outcome-service";
+import { readAgentTaskTerminalOutcome } from "../../agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo";
 import type { CoreBindings } from "../../lib/bindings";
 import { createConfiguredMessageChannelProviderRegistry } from "../../remote-agent/application/message-channel-provider-runtime";
 import {
@@ -110,6 +114,10 @@ import {
   resolveDispatchFailureHintText,
   shouldPersistDispatchFailureHintToSpaceHistory,
 } from "../rules/dispatch-hint-policy";
+import type {
+  OpenMeldDaemonDispatchAttemptState,
+  OpenMeldDaemonDispatchState,
+} from "../rules/dispatch-lifecycle-contract";
 import {
   DISPATCH_DEDUPE_WINDOW_RISK_CODE,
   isDispatchDedupeWindowRisk,
@@ -4891,24 +4899,46 @@ const resumePreHeadFailurePublication = async (input: {
     });
   }
   try {
-    await writeDispatchDlq({
-      db: input.evidenceDb,
-      message: intent.redriveMessage,
-      errorCode: intent.errorCode,
-      errorMessage: intent.errorMessage,
+    const taskStatus = await recordPreHeadPublicationTaskOutcome({
+      db: input.recoveryDb,
+      env: input.env,
+      intent,
       nowMs: input.nowMs,
     });
+    let status: OpenMeldDaemonDispatchState = intent.finalStatus;
+    let errorCode = intent.errorCode;
+    let errorMessage = intent.errorMessage;
+    let attemptStatus: OpenMeldDaemonDispatchAttemptState =
+      intent.finalStatus === OPENMELD_DAEMON_DISPATCH_STATE.blocked
+        ? OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.blocked
+        : OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedTerminal;
+    if (taskStatus === "succeeded") {
+      status = OPENMELD_DAEMON_DISPATCH_STATE.deduped;
+      errorCode = "space.final_outcome_already_claimed";
+      errorMessage = "Space already has the authoritative final outcome";
+      attemptStatus = OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.superseded;
+    } else if (taskStatus === "stopped") {
+      status = OPENMELD_DAEMON_DISPATCH_STATE.cancelled;
+      errorCode = RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE;
+      errorMessage = "Space stopped this Wake before delivery";
+      attemptStatus = OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.superseded;
+    } else {
+      await writeDispatchDlq({
+        db: input.evidenceDb,
+        message: intent.redriveMessage,
+        errorCode: intent.errorCode,
+        errorMessage: intent.errorMessage,
+        nowMs: input.nowMs,
+      });
+    }
     await markDispatchStatus({
       attemptId: intent.attemptId,
-      attemptStatus:
-        intent.finalStatus === OPENMELD_DAEMON_DISPATCH_STATE.blocked
-          ? OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.blocked
-          : OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedTerminal,
+      attemptStatus,
       db: input.evidenceDb,
       idempotencyKey: intent.idempotencyKey,
-      status: intent.finalStatus,
-      errorCode: intent.errorCode,
-      errorMessage: intent.errorMessage,
+      status,
+      errorCode,
+      errorMessage,
       nowMs: input.nowMs,
     });
     await markPreHeadFailurePublicationCompleted({
@@ -4941,6 +4971,75 @@ const resumePreHeadFailurePublication = async (input: {
       recoveryDb: input.recoveryDb,
     });
   }
+};
+const recordPreHeadPublicationTaskOutcome = async (input: {
+  db: PostgresDatabase;
+  env: CoreBindings;
+  intent: PreHeadFailurePublicationIntent;
+  nowMs: number;
+}): Promise<AgentTaskTerminalOutcome["status"] | null> => {
+  const message = input.intent.redriveMessage;
+  if (!message.sourceClientMessageId) {
+    return null;
+  }
+  // Space can reject a duplicate notice while returning a constructed signal.
+  // Only its saved final claim supplies the task result locator and status.
+  const claim = await readSpaceFinalOutcomeClaim({
+    dispatchId: input.intent.dispatchId,
+    env: input.env,
+    spaceId: message.spaceId,
+    targetProfileId: message.targetProfileId,
+  });
+  if (!claim || claim.outcome === "unknown") {
+    throw new Error("dispatch.pre_head_failure_final_claim_required");
+  }
+  const task = {
+    kind: "space_wake" as const,
+    sourceClientMessageId: message.sourceClientMessageId,
+    spaceId: message.spaceId,
+    targetProfileId: message.targetProfileId,
+    v: 1 as const,
+  };
+  const stored = await readAgentTaskTerminalOutcome({
+    db: input.db,
+    taskKey: buildAgentTaskKey(task),
+  });
+  let status: AgentTaskTerminalOutcome["status"] = "failed";
+  let errorCode: string | null = input.intent.errorCode;
+  if (claim.outcome === "success") {
+    status = "succeeded";
+    errorCode = null;
+  } else if (claim.outcome === "stopped") {
+    status = "stopped";
+    errorCode = RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE;
+  } else if (stored?.outcome.status === "publication_failed") {
+    status = "publication_failed";
+  }
+  if (
+    stored &&
+    (stored.outcome.status !== status ||
+      stored.outcome.publishedSignalId !== claim.signalId)
+  ) {
+    throw new Error("dispatch.pre_head_failure_task_outcome_conflict");
+  }
+  const outcome: AgentTaskTerminalOutcome = stored?.outcome ?? {
+    errorCode,
+    eventId: `pre-head-final-outcome:${input.intent.dispatchId}:${claim.signalId}`,
+    occurredAtMs: input.intent.createdAtMs,
+    publishedSignalId: claim.signalId,
+    status,
+  };
+  const recorded = await recordAndEnqueueAgentTaskTerminalOutcomeIfMatching({
+    db: input.db,
+    env: input.env,
+    nowMs: input.nowMs,
+    outcome,
+    task,
+  });
+  if (!recorded.matches) {
+    throw new Error("dispatch.pre_head_failure_task_outcome_conflict");
+  }
+  return recorded.storedOutcome.status;
 };
 const redrivePreHeadFailurePublication = async (input: {
   env: CoreBindings;

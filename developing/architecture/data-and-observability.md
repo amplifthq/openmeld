@@ -2377,6 +2377,17 @@ own the publication claim, retry schedule, completion gate, or the only copy
 of the frozen command. A future observability-only split keeps this outbox on
 the authoritative Core database.
 
+For an exact user-authored Wake, this outbox completes only after the Space's
+saved final claim is projected into the existing Agent Task terminal outcome.
+The producer uses the saved claim's signal id, not the system-notice RPC's
+constructed return value. A saved success or stopped result remains authoritative.
+An existing compatible task outcome retains its original event and timestamp;
+conflicting task evidence keeps recovery pending. A failed claim read, missing or
+unknown claim, or failed task projection also keeps the frozen publication
+recoverable. Task subscriptions and their continuation queue use the existing
+Agent Task Coordination owner. Legacy input without a client message id has no
+exact Space Wake task handle and retains its publication-only contract.
+
 When accepted-result publication exhausts its repair window, Space first owns
 the atomic visible-outcome choice. Its existing final claim wins, or Space
 persists and claims one explicit publication-failure notice. Only that claimed

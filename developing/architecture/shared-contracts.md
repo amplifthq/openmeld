@@ -54,9 +54,14 @@ Client payload timestamps, identities and time blocks do not supply authority.
 Already captured RPC and Queue context is retained. The shared
 dispatch snapshot, Remote Agent turn envelope and exact-execution input carry
 that same optional object. Queue promotion and retries keep the accepted anchor;
-active Steer gets its own anchor. Relative dates use this anchor. Each model
-request gets one fresh UTC runtime-clock data message at the end of its outgoing
-provider payload, with the same static system guidance across requests,
+active Steer gets its own anchor. Relative dates use this anchor.
+Delegated Wakes and task continuations, including watch admission retries, read
+the original request's retained turn envelope and preserve this same context.
+Core's internal Space writer passes it as a verified publication option, never
+as public message data. Space validates it with the shared schema before
+publication; new ordinary input still freezes its own accepted time.
+Each model request gets one fresh UTC runtime-clock data message at the end of
+its outgoing provider payload, with the same static system guidance across requests,
 without changing retained history. Explicit timezone in a user's request takes
 precedence; saved Routine schedules retain their timezone.
 

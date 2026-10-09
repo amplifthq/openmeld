@@ -74,6 +74,7 @@ import {
 } from "../src/rpc/methods";
 import { rpcSearchMessages } from "../src/search/message-search";
 import { upsertJoinedSpaceMember } from "../src/space/application/space-members-service";
+import type { SignalPublishContext } from "../src/space/application/types";
 import {
   createDispatchOutboxRecord,
   insertDispatchOutboxRecord,
@@ -11513,15 +11514,47 @@ describe("OpenMeld Core", () => {
       profileId: rpcContext.actorContext.openMeldProfileId,
       profileName: "Idempotent Author",
     };
-    const posted = await stub.rpcPostSignalOnceByClientMessageId({
-      authoringPolicy: "system_emitted",
-      clientMessageId,
-      context: rpcContext,
-      meta: { clientMessageId, purpose: "idempotent_rpc_test" },
-      profile,
-      spaceId,
-      text: "idempotent direct rpc signal",
-    });
+    const requestTimeContext = {
+      submittedAtMs: 800,
+      userTime: {
+        timeZone: "Asia/Taipei",
+        source: "web" as const,
+        observedAtMs: 700,
+      },
+    };
+    const posted = await runInDurableObject(
+      namespace.get(namespace.idFromString(spaceId)),
+      async (instance) => {
+        const publish = vi.spyOn(
+          instance as unknown as {
+            publishTextSignal(
+              signal: SignalEnvelope,
+              context?: SignalPublishContext
+            ): Promise<void>;
+          },
+          "publishTextSignal"
+        );
+        try {
+          const signal = await instance.rpcPostSignalOnceByClientMessageId({
+            authoringPolicy: "system_emitted",
+            clientMessageId,
+            context: rpcContext,
+            meta: { clientMessageId, purpose: "idempotent_rpc_test" },
+            profile,
+            requestTimeContext,
+            spaceId,
+            text: "idempotent direct rpc signal",
+          });
+          expect(publish).toHaveBeenCalledWith(
+            signal,
+            expect.objectContaining({ requestTimeContext })
+          );
+          return signal;
+        } finally {
+          publish.mockRestore();
+        }
+      }
+    );
     expect(posted.data.text).toBe("idempotent direct rpc signal");
     await expect(
       stub.rpcResolveOrRejectTextSignalByClientMessageId({
