@@ -352,7 +352,7 @@ mutually exclusive drawers; a collapsed desktop preference never hides the
 mobile list. Recent is the default conversation view. Grouped offers a
 shared Pinned section, existing personal groups, Spaces, and Direct messages.
 Recent retains the same Pinned section and orders the remaining conversations
-by the latest message timestamp across both kinds. Both views use the same rows,
+by the latest message, creation, or joining timestamp across both kinds. Both views use the same rows,
 previews, identities, indicators, and canonical destinations. The view menu
 changes only the sidebar; the open conversation, draft, and reading position
 remain mounted. View choice is remembered in this browser per account and
@@ -1359,10 +1359,15 @@ and use the shared action icons. Ordinary Space rows read Index previews without
 creating per-Space message-preview observers. Rows use
 the same preview and activity sources for selected and unopened conversations;
 navigation is not required to discover their latest message or pending action.
-Recent uses
-only message time, with an empty conversation at zero and Space ID as a stable
+Recent uses message, creation, and joining time, with Space ID as a stable
 tie-breaker; unread, visit time, and running progress do not promote it. Recent
-does not permit manual row ordering outside Pinned. Space and direct-message
+rows can be dragged to Pinned; Grouped also exposes compatible personal groups.
+Recent does not permit manual row ordering outside Pinned. Layout intents render
+immediately from pending account-scoped query mutations. Native mutation scopes
+serialize saves against the latest confirmed sidebar revision; a pending save
+does not disable the list or delay a drop. Pin membership remains owned by Space
+Index, independently from personal ordering. Keyboard and reduced-motion drops
+have no travel animation. Space and direct-message
 custom groups retain their existing preference owners; cross-kind moves are
 rejected before any pin or preference write. Rename and archive remain direct-
 message actions and are never offered on ordinary Space rows.

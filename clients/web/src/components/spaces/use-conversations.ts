@@ -1,7 +1,7 @@
-import { useRef, useState } from "react";
 import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
 import { resolveAccountSpaceRecency } from "#/lib/spaces/account-spaces";
 import { selectAccountSpaceSections } from "./account-space-sections";
+import { mergeChatPreferences } from "./chat-sidebar-model";
 import {
 	type Conversation,
 	type ConversationSection,
@@ -97,10 +97,7 @@ export function useConversations(input: {
 		items: readonly Conversation[],
 		section: Pick<ConversationSection, "id" | "sort" | "spaceIds">
 	) => sortConversations(items, section, attention, unread, working);
-	const [busy, setBusy] = useState(false);
-	const writing = useRef(false);
-	const disabled =
-		store.disabled || directMessages.pin.arePinActionsPending || busy;
+	const disabled = !preferences;
 	const canMove = (id: string, sectionId: string) => {
 		const conversation = conversations.get(id);
 		const target = sections.find((section) => section.id === sectionId);
@@ -119,87 +116,82 @@ export function useConversations(input: {
 	) => {
 		const conversation = conversations.get(id);
 		const target = sections.find((section) => section.id === sectionId);
-		if (
-			!(preferences && conversation && target && canMove(id, sectionId)) ||
-			writing.current
-		) {
+		if (!(preferences && conversation && target && canMove(id, sectionId))) {
 			return;
 		}
-		writing.current = true;
-		setBusy(true);
-		try {
-			const accountItem =
-				conversation.kind === "space"
-					? conversation.item
-					: directMessages.ordinaryAccountItems.find(
-							(item) => item.spaceId === id
-						);
-			if (
-				accountItem &&
-				!(await directMessages.pin.setPinned(
-					accountItem,
-					sectionId === "pinned"
-				))
-			) {
-				return;
-			}
-			await store.saveAsync(
-				moveConversationPreferences({
-					preferences,
-					chats: chatPreferences,
-					conversation,
-					target,
-					visibleIds,
-					beforeId,
-				})
-			);
-		} finally {
-			writing.current = false;
-			setBusy(false);
-		}
+		const accountItem =
+			conversation.kind === "space"
+				? conversation.item
+				: directMessages.ordinaryAccountItems.find(
+						(item) => item.spaceId === id
+					);
+		// Pin membership and layout have different owners. Start both intents
+		// immediately; a failed pin keeps the canonical membership in its source.
+		await Promise.all([
+			accountItem
+				? directMessages.pin.setPinned(accountItem, sectionId === "pinned")
+				: Promise.resolve(true),
+			store.updateAsync((current) => {
+				const chats = mergeChatPreferences(
+					current,
+					directMessages.ordinaryAccountItems
+				);
+				const currentTarget = conversationSections(current, chats).find(
+					(section) => section.id === sectionId
+				);
+				return currentTarget
+					? moveConversationPreferences({
+							preferences: current,
+							chats,
+							conversation,
+							target: currentTarget,
+							visibleIds,
+							beforeId,
+						})
+					: current;
+			}),
+		]);
 	};
 	const unpin = async (conversation: Conversation) => {
-		if (!preferences || disabled || writing.current) {
+		if (!preferences) {
 			return;
 		}
-		writing.current = true;
-		setBusy(true);
-		try {
-			const accountItem =
-				conversation.kind === "space"
-					? conversation.item
-					: directMessages.ordinaryAccountItems.find(
-							(item) => item.spaceId === conversation.spaceId
-						);
-			if (
-				accountItem &&
-				!(await directMessages.pin.setPinned(accountItem, false))
-			) {
-				return;
-			}
-			await store.saveAsync({
-				...preferences,
-				messages: undefined,
-				pinned: {
-					...preferences.pinned,
-					spaceIds: preferences.pinned.spaceIds.filter(
-						(id) => id !== conversation.spaceId
-					),
-				},
-				chats: {
-					...chatPreferences,
+		const accountItem =
+			conversation.kind === "space"
+				? conversation.item
+				: directMessages.ordinaryAccountItems.find(
+						(item) => item.spaceId === conversation.spaceId
+					);
+		await Promise.all([
+			accountItem
+				? directMessages.pin.setPinned(accountItem, false)
+				: Promise.resolve(true),
+			store.updateAsync((current) => {
+				const chats = mergeChatPreferences(
+					current,
+					directMessages.ordinaryAccountItems
+				);
+				return {
+					...current,
+					messages: undefined,
 					pinned: {
-						...chatPreferences.pinned,
-						spaceIds: chatPreferences.pinned.spaceIds.filter(
+						...current.pinned,
+						spaceIds: current.pinned.spaceIds.filter(
 							(id) => id !== conversation.spaceId
 						),
 					},
-				},
-			});
-		} finally {
-			writing.current = false;
-			setBusy(false);
-		}
+					chats: {
+						...chats,
+						pinned: {
+							...chats.pinned,
+							spaceIds: chats.pinned.spaceIds.filter(
+								(id) => id !== conversation.spaceId
+							),
+						},
+					},
+				};
+			}),
+		]);
 	};
 	const updateSection = (
 		section: ConversationSection,
@@ -208,49 +200,52 @@ export function useConversations(input: {
 		if (!preferences || disabled || section.kind === "pinned") {
 			return;
 		}
-		const ownerPreferences =
-			section.kind === "space" ? preferences : chatPreferences;
-		const updated = section.groupId
-			? {
-					...ownerPreferences,
-					groups: change
-						? ownerPreferences.groups.map((group) =>
-								group.id === section.groupId
-									? {
-											...group,
-											...(change.name === undefined
-												? {}
-												: { name: change.name }),
-											...(change.sort === undefined
-												? {}
-												: { sort: change.sort }),
-										}
-									: group
-							)
-						: ownerPreferences.groups.filter(
-								(group) => group.id !== section.groupId
-							),
-				}
-			: {
-					...ownerPreferences,
-					spaces: {
-						...ownerPreferences.spaces,
-						...(change?.sort === undefined ? {} : { sort: change.sort }),
-					},
-				};
-		store.save(
-			section.kind === "space"
-				? { ...preferences, spaces: updated.spaces, groups: updated.groups }
+		store.update((current) => {
+			const chats = mergeChatPreferences(
+				current,
+				directMessages.ordinaryAccountItems
+			);
+			const ownerPreferences = section.kind === "space" ? current : chats;
+			const updated = section.groupId
+				? {
+						...ownerPreferences,
+						groups: change
+							? ownerPreferences.groups.map((group) =>
+									group.id === section.groupId
+										? {
+												...group,
+												...(change.name === undefined
+													? {}
+													: { name: change.name }),
+												...(change.sort === undefined
+													? {}
+													: { sort: change.sort }),
+											}
+										: group
+								)
+							: ownerPreferences.groups.filter(
+									(group) => group.id !== section.groupId
+								),
+					}
 				: {
-						...preferences,
+						...ownerPreferences,
+						spaces: {
+							...ownerPreferences.spaces,
+							...(change?.sort === undefined ? {} : { sort: change.sort }),
+						},
+					};
+			return section.kind === "space"
+				? { ...current, spaces: updated.spaces, groups: updated.groups }
+				: {
+						...current,
 						messages: undefined,
 						chats: {
-							...chatPreferences,
+							...chats,
 							spaces: updated.spaces,
 							groups: updated.groups,
 						},
-					}
-		);
+					};
+		});
 	};
 	const addGroup = (kind: "space" | "direct-message", name: string) => {
 		if (!preferences || disabled) {
@@ -262,18 +257,26 @@ export function useConversations(input: {
 			sort: "priority" as const,
 			spaceIds: [],
 		};
-		store.save(
-			kind === "space"
-				? { ...preferences, groups: [...preferences.groups, group] }
+		store.update((current) => {
+			const chats = mergeChatPreferences(
+				current,
+				directMessages.ordinaryAccountItems
+			);
+			const groups = kind === "space" ? current.groups : chats.groups;
+			if (groups.some((value) => value.id === group.id)) {
+				return current;
+			}
+			return kind === "space"
+				? { ...current, groups: [...groups, group] }
 				: {
-						...preferences,
+						...current,
 						messages: undefined,
 						chats: {
-							...chatPreferences,
-							groups: [...chatPreferences.groups, group],
+							...chats,
+							groups: [...groups, group],
 						},
-					}
-		);
+					};
+		});
 	};
 	return {
 		directMessages,

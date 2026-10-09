@@ -824,9 +824,7 @@ export function ConversationsSidebar(
 														)}
 														conversation={item}
 														disabled={model.disabled}
-														dragDisabled={
-															view === "recent" && section.id !== "pinned"
-														}
+														dragDisabled={false}
 														groups={model.sections.filter(
 															(target) =>
 																target.kind === "pinned" ||

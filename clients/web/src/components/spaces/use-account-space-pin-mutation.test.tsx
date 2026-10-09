@@ -4,6 +4,7 @@ import {
 	cleanup,
 	fireEvent,
 	render,
+	renderHook,
 	screen,
 	waitFor,
 } from "@testing-library/react";
@@ -53,6 +54,64 @@ describe("useAccountSpacePinMutation", () => {
 
 	afterEach(() => {
 		cleanup();
+	});
+
+	it("accepts an immediate unpin while the first pin is saving and preserves the newer choice on failure", async () => {
+		const item = createAccountSpaceItem({
+			spaceId: "space-planning",
+			spaceName: "Planning",
+		});
+		const queryClient = createQueryClient({
+			pinnedItems: [],
+			spaceItems: [item],
+		});
+		let rejectFirst: ((error: Error) => void) | undefined;
+		setAccountSpaceItemPinnedMock
+			.mockImplementationOnce(
+				() =>
+					new Promise((_resolve, reject) => {
+						rejectFirst = reject;
+					})
+			)
+			.mockResolvedValue([appliedPinResult(item.spaceId)]);
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+		const { result } = renderHook(
+			() => useAccountSpacePinMutation({ currentProfileId: "human-1" }),
+			{
+				wrapper: ({ children }) => (
+					<QueryClientProvider client={queryClient}>
+						{children}
+					</QueryClientProvider>
+				),
+			}
+		);
+		let first: Promise<boolean> | undefined;
+		act(() => {
+			first = result.current.setPinned(item, true);
+		});
+		await waitFor(() =>
+			expect(readSections(queryClient).pinnedItems).toHaveLength(1)
+		);
+		let second: Promise<boolean> | undefined;
+		act(() => {
+			second = result.current.setPinned(item, false);
+		});
+		await waitFor(() =>
+			expect(readSections(queryClient).pinnedItems).toHaveLength(0)
+		);
+		expect(setAccountSpaceItemPinnedMock).toHaveBeenCalledOnce();
+		await act(async () => {
+			rejectFirst?.(new Error("First pin failed"));
+			expect(await first).toBe(false);
+			expect(await second).toBe(true);
+		});
+		expect(setAccountSpaceItemPinnedMock).toHaveBeenCalledTimes(2);
+		expect(readSections(queryClient).pinnedItems).toHaveLength(0);
+		expect(readSections(queryClient).spaceItems[0].pinnedAt).toBeNull();
+		consoleError.mockRestore();
+		queryClient.clear();
 	});
 
 	it("shares pending state across two controls for the same Space", async () => {

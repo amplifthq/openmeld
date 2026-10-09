@@ -64,6 +64,8 @@ vi.mock("../app/use-sidebar-preferences", () => ({
 		disabled: false,
 		save: vi.fn(),
 		saveAsync: vi.fn().mockResolvedValue(undefined),
+		update: vi.fn(),
+		updateAsync: vi.fn().mockResolvedValue(undefined),
 	}),
 }));
 
@@ -206,11 +208,13 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
 
 vi.mock("#/lib/organizations/organization-context", () => ({
 	useAppOrganization: () => appOrganizationMock,
+	useOptionalAppOrganization: () => appOrganizationMock,
 	useCurrentOrganizationSlug: () =>
 		appOrganizationMock.currentOrganization.slug,
 }));
 
-vi.mock("#/lib/spaces/account-spaces", () => ({
+vi.mock("#/lib/spaces/account-spaces", async (importOriginal) => ({
+	...(await importOriginal<typeof import("#/lib/spaces/account-spaces")>()),
 	listAccountSpaceItems: (
 		...args: Parameters<typeof listAccountSpaceItemsMock>
 	) => listAccountSpaceItemsMock(...args),
@@ -985,6 +989,7 @@ describe("ConversationsSidebar", () => {
 			spaceItems: [
 				createAccountSpaceItem({
 					activeMemberCount: 3,
+					directMessageConvertedAt: "2026-04-29T00:00:00.000Z",
 					spaceId: "space-dm-degraded",
 					spaceName: "Felix and Center Agent plus Ada",
 					spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
@@ -2520,6 +2525,7 @@ function createAccountSpaceItem(input: {
 	spaceId: string;
 	spaceName: string;
 	spacePurpose?: string | null;
+	directMessageConvertedAt?: string | null;
 	activeMemberCount?: number | null;
 }): AccountSpaceItem {
 	const pinnedAt = input.pinnedAt ?? null;
@@ -2557,6 +2563,7 @@ function createAccountSpaceItem(input: {
 		spaceId: input.spaceId,
 		spaceName: input.spaceName,
 		spacePurpose: input.spacePurpose ?? null,
+		directMessageConvertedAt: input.directMessageConvertedAt ?? null,
 		activeAgentCount: null,
 		activeHumanCount: null,
 		activeMemberCount: input.activeMemberCount ?? null,
