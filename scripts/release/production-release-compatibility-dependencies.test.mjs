@@ -28,8 +28,123 @@ const WINDOWS_PREVIEW_PATHS = [
   "scripts/release/publish-windows-internal-preview.mjs",
 ];
 const PENDING_RECEIVER = /pending prerequisite/u;
+// The eight changed paths from the safe-workspace named receiver increment.
+const SAFE_WORKSPACE_INCREMENT = [
+  "changelog/entries/agent-setup-recovery.md",
+  "developing/architecture/shared-contracts.md",
+  "services/core/src/index.ts",
+  "services/core/src/rpc/methods.ts",
+  "services/core/tests/center-agent-people-computers.integration.test.ts",
+  "services/remote-agent/agent-core/callback-context.ts",
+  "services/remote-agent/agent-core/tools.ts",
+  "services/remote-agent/tests/tools.test.ts",
+];
+const SAFE_WORKSPACE_OBLIGATION = {
+  contract: "center-agent-safe-workspace",
+  receiver: "core",
+  producer: "remote-agent",
+};
+
+test("registers the named workspace receiver from product source, not control source", () => {
+  const products = new Map([
+    [
+      "1".repeat(40),
+      'const rpcName = "centerAgentUpdateAgentProfileRuntimeSettings";',
+    ],
+    [
+      "2".repeat(40),
+      'const rpcName = payload.workspaceMode === undefined ? "centerAgentUpdateAgentProfileRuntimeSettings" : "centerAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace";',
+    ],
+  ]);
+  const readGitFile = (ref, file) => {
+    assert.equal(file, "services/remote-agent/agent-core/tools.ts");
+    assert.ok(products.has(ref), "must use the explicit product SHA");
+    return products.get(ref);
+  };
+  assert.deepEqual(
+    resolveProductionCompatibilityObligations(SAFE_WORKSPACE_INCREMENT, false, {
+      sourceSha: "2".repeat(40),
+      readGitFile,
+    }),
+    [SAFE_WORKSPACE_OBLIGATION]
+  );
+  assert.deepEqual(
+    resolveProductionCompatibilityObligations(SAFE_WORKSPACE_INCREMENT, false, {
+      sourceSha: "1".repeat(40),
+      readGitFile,
+    }),
+    []
+  );
+  for (const context of [
+    {},
+    {
+      sourceSha: "2".repeat(40),
+      readGitFile() {
+        throw new Error("missing product source");
+      },
+    },
+  ]) {
+    assert.deepEqual(
+      resolveProductionCompatibilityObligations(
+        SAFE_WORKSPACE_INCREMENT,
+        false,
+        context
+      ),
+      [SAFE_WORKSPACE_OBLIGATION]
+    );
+  }
+});
+
+test("an old usage witness cannot admit the required workspace receiver", () => {
+  const sourceSha = "2".repeat(40);
+  const baselineSha = "1".repeat(40);
+  const producer = {
+    scope: "remote-agent",
+    state: "pending",
+    sha: baselineSha,
+    compatibilityObligations: [
+      SAFE_WORKSPACE_OBLIGATION,
+      {
+        contract: "remote-ai-usage",
+        receiver: "core",
+        producer: "remote-agent",
+      },
+    ],
+    compatibilityDependencies: [["core", "remote-agent"]],
+    compatibilityReceiverWitnesses: [
+      {
+        receiver: "core",
+        producer: "remote-agent",
+        contracts: ["remote-ai-usage"],
+        evidence: { baselineSha, targetSha: sourceSha, result: "match" },
+      },
+    ],
+  };
+  const receiver = {
+    scope: "core",
+    state: "pending",
+    sha: baselineSha,
+    evidence: { result: "verified" },
+  };
+  const input = {
+    components: [receiver, producer],
+    selectedScopes: ["remote-agent"],
+    sourceSha,
+  };
+  assert.throws(() => assertProductionStageAdmission(input), PENDING_CORE);
+  receiver.state = "current";
+  receiver.sha = sourceSha;
+  assert.doesNotThrow(() => assertProductionStageAdmission(input));
+  receiver.state = "unknown";
+  assert.throws(
+    () => assertProductionStageAdmission(input),
+    UNRESOLVED_RECEIVER
+  );
+});
+
 const PENDING_DB = /pending prerequisite db/u;
 const PENDING_CORE = /pending prerequisite core/u;
+const UNRESOLVED_RECEIVER = /evidence is unresolved/u;
 const PENDING_REMOTE = /pending prerequisite remote-agent/u;
 const PENDING_AUTH = /pending prerequisite auth/u;
 const UNKNOWN_COMPUTER_CONTRACT =
@@ -727,28 +842,41 @@ const SPACE_INVITATION_RECEIVERS = [
 
 test("keeps default scheduling and unrelated pending scopes out of the dependency graph", () => {
   assert.deepEqual(
-    resolveProductionCompatibilityDependencies([
-      "services/core/src/index.ts",
-      "clients/web/src/routes/index.tsx",
-    ]),
+    resolveProductionCompatibilityDependencies(
+      ["services/core/src/index.ts", "clients/web/src/routes/index.tsx"],
+      false,
+      { sourceSha: "1".repeat(40), readGitFile: () => "// legacy caller" }
+    ),
     []
   );
 });
 
 test("adds only the Space Task dependency for the changed caller", () => {
+  const context = {
+    sourceSha: "1".repeat(40),
+    readGitFile: () => "// legacy caller",
+  };
   assert.deepEqual(
-    resolveProductionCompatibilityDependencies([
-      ...SPACE_TASK_RECEIVERS,
-      "services/remote-agent/agent-core/tools.ts",
-      "clients/web/src/routes/unrelated.tsx",
-    ]),
+    resolveProductionCompatibilityDependencies(
+      [
+        ...SPACE_TASK_RECEIVERS,
+        "services/remote-agent/agent-core/tools.ts",
+        "clients/web/src/routes/unrelated.tsx",
+      ],
+      false,
+      context
+    ),
     [["core", "remote-agent"]]
   );
   assert.deepEqual(
-    resolveProductionCompatibilityDependencies([
-      ...SPACE_TASK_RECEIVERS,
-      "clients/openmeld-cli/src/space/dispatch-task.ts",
-    ]),
+    resolveProductionCompatibilityDependencies(
+      [
+        ...SPACE_TASK_RECEIVERS,
+        "clients/openmeld-cli/src/space/dispatch-task.ts",
+      ],
+      false,
+      context
+    ),
     [
       ["core", "gateway"],
       ["gateway", "cli"],
@@ -772,7 +900,12 @@ test("retains all contracts on a deduplicated receiver/producer edge", () => {
     resolveProductionCompatibilityObligations(changedPaths).map(
       ({ contract }) => contract
     ),
-    ["remote-ai-usage", "space-task", "personal-remote-tools"]
+    [
+      "center-agent-safe-workspace",
+      "remote-ai-usage",
+      "space-task",
+      "personal-remote-tools",
+    ]
   );
   const witnesses =
     resolveProductionCompatibilityReceiverWitnesses(changedPaths);

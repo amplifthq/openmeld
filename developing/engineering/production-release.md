@@ -384,9 +384,10 @@ reuse a verified Core deployment only when its complete receiver owners,
 entrypoint registration, production binding and dependency resolutions remain
 unchanged. Its Core, DB and schemas TypeScript configurations must retain the
 existing shared parent, without further inheritance, and their complete
-configuration contents must match. This conservative proof rejects unrelated schema or entrypoint edits
-too; it does not certify a combined feature rollout or remove receiver-first
-dependencies. Missing contract metadata cannot admit a pending receiver.
+configuration contents must match. This conservative proof rejects unrelated
+schema or entrypoint edits too; it does not certify a combined feature rollout
+or remove receiver-first dependencies. Missing contract metadata cannot admit
+a pending receiver.
 
 The baseline is component-specific. Each scope starts from its latest verified
 deployment receipt or legacy hosted deployment evidence, so Database, CLI,
@@ -664,6 +665,19 @@ private persistence repository. `compatibilityPathSignals` explains these two
 classifications, including matched paths and relevant non-trigger paths. These
 source signals do not certify a deployed receiver or authorize a breaking
 receiver-only change.
+
+Center Agent working-folder writes have their own `center-agent-safe-workspace`
+Core-to-Remote obligation. Direct RPC registration, implementation or caller
+owner edits inspect the explicit product source's Remote tools for the required
+`centerAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace` receiver.
+An unreadable or unspecified product source conservatively retains the
+obligation; a known legacy caller without that receiver does not trigger it.
+This bounded name check only registers an obligation. It supplies no receiver
+witness, and an AI usage witness cannot satisfy it. Core must have a verified
+current receipt before the new Remote caller deploys. The release-control
+checkout's caller source is never used as product evidence. The legacy Core
+receiver rejects folder writes before any settings mutation during this
+transition; model-only calls continue to use the legacy receiver.
 
 The planner composes the metering edge with the
 request dependencies and rejects an unresolved cycle, including a single-stage

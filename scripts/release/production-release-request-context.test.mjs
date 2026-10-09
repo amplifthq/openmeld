@@ -59,6 +59,10 @@ function contractPlan(changedPaths, overrides = {}) {
     databaseBackend: "postgresql",
     scope: FULL_SCOPE,
     readGitFile: (ref, path) => {
+      if (path === "services/remote-agent/agent-core/tools.ts") {
+        // This historical fixture uses the legacy workspace caller.
+        return 'const rpc = requireCoreRpc(input.coreWorker.centerAgentUpdateAgentProfileRuntimeSettings, "centerAgentUpdateAgentProfileRuntimeSettings");';
+      }
       const source = fixture.schemaSources[path];
       if (!source) {
         throw new Error(`Unexpected contract source: ${path}`);

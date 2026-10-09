@@ -307,6 +307,11 @@ export function resolveProductionCompatibilityObligations(
       ],
     },
     {
+      contract: "center-agent-safe-workspace",
+      enabled: isCenterAgentSafeWorkspaceDiff(changedPaths, context),
+      edges: [["core", "remote-agent"]],
+    },
+    {
       contract: "remote-ai-usage",
       enabled: isRemoteAiUsageDiff(changedPaths),
       edges: [["core", "remote-agent"]],
@@ -1948,6 +1953,35 @@ function isSpaceInvitationReceiverFirstDiff(changedPaths) {
     "services/core/src/organizations/space-invitations.ts",
     "services/auth/src/lib/hono/space-invitation-routes.ts",
   ].every((path) => changedPaths.includes(path));
+}
+
+function isCenterAgentSafeWorkspaceDiff(changedPaths, context) {
+  const callerPath = "services/remote-agent/agent-core/tools.ts";
+  if (
+    ![
+      callerPath,
+      "services/remote-agent/agent-core/callback-context.ts",
+      "services/core/src/index.ts",
+      "services/core/src/rpc/methods.ts",
+    ].some((file) => changedPaths.includes(file))
+  ) {
+    return false;
+  }
+  // Inspect the product source, never the control checkout. An unknown caller
+  // conservatively retains the obligation; this is not receiver evidence.
+  if (!context.sourceSha) {
+    return true;
+  }
+  try {
+    const readGitFile =
+      context.readGitFile ??
+      ((ref, file) => runGit(["show", `${ref}:${file}`]));
+    return readGitFile(context.sourceSha, callerPath).includes(
+      "centerAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace"
+    );
+  } catch {
+    return true;
+  }
 }
 
 function isPersonalRemoteToolsReceiverFirstDiff(changedPaths) {
