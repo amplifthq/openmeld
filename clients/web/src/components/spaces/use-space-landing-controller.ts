@@ -1,4 +1,3 @@
-import { supportsLocalExecutionInput } from "@openmeld/agent-runtime";
 import type { StructuredApiClientFailure } from "@openmeld/api-client";
 import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import { normalizeSpacePasswordText } from "@openmeld/schemas";
@@ -210,6 +209,7 @@ import {
 	resolveDiagnosticReportProblemType,
 	resolveLeaveSpaceErrorMessage,
 	resolveQueryError,
+	resolveQueuedExecutionInput,
 	resolveSpaceMembersLoadErrorMessage,
 	resolveWakeProgressPollDelayMs,
 } from "./use-space-landing-controller-helpers";
@@ -425,82 +425,6 @@ function buildComposerFileSubmission(input: {
 	return {
 		hasSendableFiles: composerFiles.some((file) => file.status !== "failed"),
 	};
-}
-
-function resolveQueuedExecutionInput(input: {
-	profileId: string;
-	timelineItems: readonly SpaceTimelineItem[];
-	centerAgentProfileId?: string | null;
-	members: SpaceMembersSnapshot | null;
-	activationTargets: readonly string[];
-	hasFiles: boolean;
-	replyToSignalId?: string;
-	items: readonly Pick<
-		WakeProgressItem,
-		| "terminal"
-		| "dispatchId"
-		| "clientMessageId"
-		| "targetProfileId"
-		| "sourceContext"
-		| "sourceSignalId"
-	>[];
-}) {
-	const localProfileIds =
-		input.members?.agents
-			.filter((agent) => supportsLocalExecutionInput(agent.agentControllerRef))
-			.map((agent) => agent.profileId) ?? [];
-	if (input.hasFiles) {
-		return undefined;
-	}
-	let targetProfileId: string | null | undefined;
-	if (input.activationTargets.length === 1) {
-		targetProfileId = input.activationTargets[0];
-	} else if (input.activationTargets.length === 0) {
-		targetProfileId = input.centerAgentProfileId;
-		if (
-			!targetProfileId &&
-			localProfileIds.length === 1 &&
-			(input.members?.humans.length === 1 || input.replyToSignalId)
-		) {
-			targetProfileId = localProfileIds[0];
-		}
-	}
-	if (
-		!targetProfileId ||
-		(targetProfileId !== input.centerAgentProfileId &&
-			!localProfileIds.includes(targetProfileId))
-	) {
-		return undefined;
-	}
-	const responses = input.items.filter(
-		(item) =>
-			!item.terminal &&
-			(item.dispatchId || item.clientMessageId) &&
-			item.targetProfileId === targetProfileId &&
-			(!input.replyToSignalId ||
-				item.sourceSignalId === input.replyToSignalId) &&
-			!item.sourceContext?.threadId &&
-			(item.sourceContext?.profileId ??
-				input.timelineItems.find((source) => source.id === item.sourceSignalId)
-					?.actorProfileId) === input.profileId
-	);
-	if (responses.length > 1) {
-		return "ambiguous" as const;
-	}
-	const response = responses[0];
-	if (response?.dispatchId) {
-		return {
-			dispatchId: response.dispatchId,
-			targetProfileId: response.targetProfileId,
-		};
-	}
-	if (response?.clientMessageId) {
-		return {
-			clientMessageId: response.clientMessageId,
-			targetProfileId: response.targetProfileId,
-		};
-	}
-	return undefined;
 }
 
 function buildNormalMessagePostInput(input: {
@@ -2144,6 +2068,9 @@ export function useSpaceLandingController(input: {
 		[setWakeProgressItems]
 	);
 	const threadController = useSpaceThreadController({
+		inputQueue,
+		centerAgentProfileId: input.centerAgentProfileId,
+		queueProgressItems: wakeProgressItems,
 		entryConfirmed,
 		initialFocusRequestId: input.initialFocusRequestId,
 		isMembersLoading: membersLoading,
@@ -3928,6 +3855,9 @@ export function useSpaceLandingController(input: {
 }
 
 function useSpaceThreadController(input: {
+	inputQueue: ReturnType<typeof useSpaceInputQueue>;
+	centerAgentProfileId?: string | null;
+	queueProgressItems: readonly WakeProgressItem[];
 	entryConfirmed: boolean;
 	initialFocusRequestId?: string;
 	initialFocusSignalId?: string;
@@ -4607,7 +4537,7 @@ function useSpaceThreadController(input: {
 		}
 	}
 
-	async function sendPreparedThreadMessage(sendInput: {
+	type ThreadMessageSendInput = {
 		onMessageStaged?: SpaceComposerSendOptions["onMessageStaged"];
 		composerFiles?: readonly SpaceComposerFile[];
 		clientMessageId?: string;
@@ -4619,9 +4549,90 @@ function useSpaceThreadController(input: {
 		onPosted?: () => void;
 		preparedSubmission: PreparedSpaceMessageSubmission;
 		thread: SpaceThread;
-	}): Promise<void> {
+	};
+	async function tryQueueThreadMessage(
+		sendInput: ThreadMessageSendInput,
+		clientMessageId: string
+	): Promise<boolean> {
+		const submission = sendInput.preparedSubmission;
+		const queueTarget = resolveQueuedExecutionInput({
+			profileId: input.profileId,
+			threadId: sendInput.thread.threadId,
+			timelineItems: buildSpaceTimelineItems({
+				envelopes: threadSignals,
+				membersSnapshot: input.membersSnapshot,
+			}),
+			centerAgentProfileId: input.centerAgentProfileId,
+			automaticTargetProfileId:
+				threadSignalsQuery.data?.wakeContinuation?.automaticTargetProfileId,
+			replyToSignalId: submission.messageEnvelope?.replyToSignalId,
+			members: input.membersSnapshot,
+			activationTargets: submission.messageEnvelope?.activationTargets ?? [],
+			hasFiles: Boolean(sendInput.composerFiles?.length),
+			items: input.queueProgressItems,
+		});
+		if (
+			queueTarget &&
+			!submission.contextSelection &&
+			!submission.contextSelections &&
+			!submission.taskDraft &&
+			!submission.deviceWait
+		) {
+			const request = composerSession.send.reserveRequest();
+			try {
+				if (queueTarget === "ambiguous") {
+					throw new Error(
+						"More than one task is active in this Thread. Reply to your original request to choose which task to update."
+					);
+				}
+				if (!input.inputQueue.supportsConversationContext) {
+					throw new Error(
+						"This server can’t queue Thread replies yet. Your draft is still here. Refresh and try again."
+					);
+				}
+				await request.ready;
+				await requireThreadWakeAdmission(submission);
+				await input.inputQueue.enqueue({
+					action: "enqueue",
+					inputId: clientMessageId,
+					target: queueTarget,
+					text: submission.text,
+				});
+				sendInput.onPosted?.();
+				sendInput.onMessageStaged?.(clientMessageId);
+				return true;
+			} catch (error) {
+				throw new PreparedSpaceMessageSendError({
+					clientMessageId,
+					originalError: error,
+					outcomeUnknown: false,
+					postedMessage: false,
+				});
+			} finally {
+				request.complete();
+			}
+		}
+		return false;
+	}
+
+	function buildThreadDeliveryOptions(
+		submission: PreparedSpaceMessageSubmission
+	) {
+		return {
+			...(submission.threadWakeContinuation
+				? { threadWakeContinuation: true as const }
+				: {}),
+			...(submission.deviceWait ? { deviceWait: submission.deviceWait } : {}),
+		};
+	}
+	async function sendPreparedThreadMessage(
+		sendInput: ThreadMessageSendInput
+	): Promise<void> {
 		const clientMessageId =
 			sendInput.clientMessageId ?? createClientMessageId();
+		if (await tryQueueThreadMessage(sendInput, clientMessageId)) {
+			return;
+		}
 		const request = composerSession.send.reserveRequest();
 		markSpaceSendPending(clientMessageId, () => {
 			const files = sendInput.composerFiles ?? [];
@@ -4688,12 +4699,7 @@ function useSpaceThreadController(input: {
 					contextSelection: sendInput.preparedSubmission.contextSelection,
 					contextSelections: sendInput.preparedSubmission.contextSelections,
 					taskDraft: sendInput.preparedSubmission.taskDraft,
-					...(sendInput.preparedSubmission.threadWakeContinuation
-						? { threadWakeContinuation: true as const }
-						: {}),
-					...(sendInput.preparedSubmission.deviceWait
-						? { deviceWait: sendInput.preparedSubmission.deviceWait }
-						: {}),
+					...buildThreadDeliveryOptions(sendInput.preparedSubmission),
 					clientMessageId,
 					restoredFromSignalId:
 						sendInput.preparedSubmission.restoredFromSignalId,

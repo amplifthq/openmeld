@@ -8935,6 +8935,22 @@ calls native execution input. Queue mutations use the existing
 `space.meta.changed` invalidation envelope, without message text or author data.
 The client rereads its authorized queue, including after reconnect.
 
+Queue intake freezes the original Human request's retained conversation placement
+in the existing outbox request. The Space resolves it from the exact dispatch
+source; callers cannot supply or replace it. A missing or mismatched source
+rejects intake without consuming the draft. Ordinary handoff and applied Steer
+publish into that original conversation. Thread context is private Core storage
+metadata and is removed before strict Remote Agent execution-input requests.
+
+Readers can opt into `includeConversationContext` (`conversation=1` over HTTP).
+Only opted-in responses include `conversationContextIncluded: true` and each
+item's nullable `threadId`. Legacy readers retain their existing response shape;
+legacy stored requests without context retain main-conversation placement.
+Web shares one authorized queue cache and shows only the current conversation's
+rows. Reordering a Thread replaces only its visible slots in the author's full
+queue. A server without the scoped projection cannot accept Web Thread Queue
+intake; Web keeps the draft rather than assuming main-conversation placement.
+
 The Web Queue is one compact, inset tray behind the Composer, shared with the
 existing pending-action tray geometry. Rows expose Steer, delete, and an accessible
 Fluid menu for Edit, Move up and Move down, plus pointer/keyboard reordering.

@@ -104,6 +104,7 @@ import {
 import type { SpaceExecutionRecoveryHandler } from "./space-execution-recovery-actions";
 import { SpaceHistoryJumpControl } from "./space-history-jump-control";
 import { SpaceInlineSidePanel } from "./space-inline-side-panel";
+import { SpaceInputQueue } from "./space-input-queue";
 import { SPACE_MESSAGE_ROW_LAYOUT_CLASS } from "./space-message-bubble-style";
 import { SpaceMessageDetailsDrawer } from "./space-message-details-drawer";
 import { resolveMessageDetailsDiagnosticReportStatus } from "./space-message-details-presentation";
@@ -969,6 +970,27 @@ function renderThreadComposer(
 			pendingActionSurface={input.pendingActionSurface}
 			prepareSetupHref={input.prepareSetupHref}
 			profileControl={input.profileControl}
+			queuedMessages={
+				input.activeThread ? (
+					<SpaceInputQueue
+						onEdit={(text) => {
+							const draft = [input.composerText, text]
+								.filter(Boolean)
+								.join("\n\n");
+							input.onComposerEditorChange({
+								text: draft,
+								selection: { start: draft.length, end: draft.length },
+								authoredMentions: [...(input.composerAuthoredMentions ?? [])],
+							});
+							input.textareaRef.current?.focus();
+						}}
+						profileId={input.selfProfileId}
+						progressItems={input.ephemeralActivityItems}
+						spaceId={input.activeThread.spaceId}
+						threadId={input.activeThread.threadId}
+					/>
+				) : null
+			}
 			replyBanner={replyBanner}
 			taskSources={taskSources}
 			textareaRef={input.textareaRef}
@@ -1466,6 +1488,7 @@ function ThreadTimeline(input: {
 }
 
 function ThreadComposer(input: {
+	queuedMessages: ReactNode;
 	replyBanner: ReactNode;
 	organizationId?: string | null;
 	taskSources: readonly SpaceTaskSource[];
@@ -1585,6 +1608,7 @@ function ThreadComposer(input: {
 			slots={{
 				pendingActionSurface: input.pendingActionSurface,
 				beforeInput: input.replyBanner,
+				queuedMessages: input.queuedMessages,
 				beforePrimaryAction: <SpaceComposerActiveWakes placement="thread" />,
 				error: input.composerErrorMessage ? (
 					<p className="text-destructive text-sm" role="alert">

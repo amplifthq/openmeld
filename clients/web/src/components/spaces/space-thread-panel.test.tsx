@@ -234,6 +234,54 @@ describe("SpaceThreadPanel", () => {
 		);
 	});
 
+	it("navigates only this Thread's unread replies without acknowledging unseen messages", async () => {
+		const onOpenUnreadThread = vi.fn().mockResolvedValue(true);
+		const onViewedUpdates = vi.fn();
+		renderThreadPanel({
+			onOpenUnreadThread,
+			onViewedUpdates,
+			unreadStateReady: true,
+			unreadTargets: [
+				{
+					signalId: "unloaded-thread-reply",
+					occurredAtMs: 1,
+					threadRootSignalId: "sig-root",
+				},
+				{
+					signalId: "other-thread",
+					occurredAtMs: 2,
+					threadRootSignalId: "other-root",
+				},
+				{ signalId: "main-unseen", occurredAtMs: 3, threadRootSignalId: null },
+			],
+			unreadScopes: [
+				{ threadRootSignalId: "sig-root", unreadCount: 1 },
+				{ threadRootSignalId: "other-root", unreadCount: 1 },
+				{ threadRootSignalId: null, unreadCount: 1 },
+			],
+		});
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "1 unread reply. Jump to first unread",
+			})
+		);
+		await waitFor(() =>
+			expect(onOpenUnreadThread).toHaveBeenCalledExactlyOnceWith({
+				rootSignalId: "sig-root",
+				signalId: "unloaded-thread-reply",
+			})
+		);
+		expect(
+			screen.queryByRole("button", {
+				name: "3 unread replies. Jump to first unread",
+			})
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Mark all as read" })
+		).toBeNull();
+		expect(onViewedUpdates).not.toHaveBeenCalled();
+	});
+
 	it("reads the visible focused reply only in the open Thread scope", async () => {
 		vi.useFakeTimers();
 		const focus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
