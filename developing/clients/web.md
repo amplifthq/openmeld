@@ -3896,7 +3896,11 @@ the same reconciliation owner also refreshes the current Space and viewer's
 Thread catalog and retained Thread queries. Main-history cursors do not cover
 Thread-only replies. Mounted Threads use their existing authorized reads;
 unopened Thread snapshots remain stale until opened. Live Thread frames still
-update the existing query cache directly. The periodic main-history reconcile
+update the existing query cache directly. A live reply cancels an older pending
+Thread or catalog read without reverting that update, then invalidates the
+snapshot for its next authorized read. A later server snapshot can still remove
+withdrawn replies; clients do not permanently union retained and live rows.
+The periodic main-history reconcile
 does not poll Thread history. Thread read failures retain their diagnostic
 error and leave catch-up stale without restarting execution. On a
 cold restore with no successful in-memory status snapshot, the safe display

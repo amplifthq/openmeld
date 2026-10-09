@@ -1,6 +1,8 @@
 import {
 	AGENT_REPLY_FINAL_PURPOSE,
 	AGENT_REPLYING_PURPOSE,
+	listSpaceThreadSignalsResponseSchema,
+	listSpaceThreadsResponseSchema,
 } from "@openmeld/schemas";
 import {
 	createSpaceMemberAgentSnapshot,
@@ -18,7 +20,11 @@ import {
 	OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
 	OPENMELD_WELCOMING_SPACE_PURPOSE,
 } from "@openmeld/space";
-import { QueryClient, QueryObserver } from "@tanstack/react-query";
+import {
+	isCancelledError,
+	QueryClient,
+	QueryObserver,
+} from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { spaceQueryKeys } from "#/query/spaces/status";
@@ -26,6 +32,7 @@ import {
 	spaceThreadSignalsQueryOptions,
 	spaceThreadsQueryOptions,
 } from "#/query/spaces/threads";
+import threadReconnectFixture from "./fixtures/thread-reconnect.json";
 import {
 	areWakeProgressItemsEqual,
 	createStatusAndMembersRefreshDedupe,
@@ -236,6 +243,117 @@ describe("Thread conversation policy during live replies", () => {
 			])
 		);
 		expect(listThreads).toHaveBeenCalledTimes(knownThread ? 0 : 1);
+		unsubscribe();
+		queryClient.clear();
+	});
+	it.each([
+		["catalog", "invalidate"],
+		["catalog", "refetch"],
+		["catalog", "fetch"],
+		["messages", "invalidate"],
+		["messages", "refetch"],
+		["messages", "fetch"],
+	] as const)("keeps live replies when an older %s read arrives after %s, then accepts withdrawal", async (cache, trigger) => {
+		const complete = listSpaceThreadSignalsResponseSchema.parse(
+			threadReconnectFixture
+		);
+		const before = {
+			...complete,
+			signals: complete.signals.slice(0, 1),
+			placements: complete.placements.slice(0, 1),
+		};
+		const threadId = complete.placements[0].threadId;
+		const threadContext = {
+			threadId,
+			rootSignalId: "adade1ab-9006-486d-9602-98f639236cd2",
+		};
+		const catalog = (snapshot: typeof complete) =>
+			listSpaceThreadsResponseSchema.parse({
+				threads: [
+					{
+						...threadContext,
+						spaceId: "space-123",
+						createdByProfileId: "34de8d49-2ea5-4db5-99d3-74931d2a4d81",
+						createdAt: complete.placements[0].createdAt,
+						updatedAt: snapshot.placements.at(-1)?.createdAt,
+					},
+				],
+				previews: [
+					{
+						threadId,
+						replyCount: snapshot.signals.length,
+						signals: snapshot.signals,
+						placements: snapshot.placements,
+					},
+				],
+			});
+		const queryClient = new QueryClient();
+		const threadsKey = spaceQueryKeys.threads("space-123", "viewer");
+		const signalsKey = spaceQueryKeys.threadSignals(
+			"space-123",
+			threadId,
+			"viewer"
+		);
+		queryClient.setQueryData(threadsKey, catalog(before));
+		queryClient.setQueryData(signalsKey, before);
+		let releaseOldRead: () => void = () => undefined;
+		const key = cache === "catalog" ? threadsKey : signalsKey;
+		const previous = cache === "catalog" ? catalog(before) : before;
+		let retained = cache === "catalog" ? catalog(complete) : complete;
+		const oldRead = new Promise<typeof retained>((resolve) => {
+			releaseOldRead = () => resolve(previous);
+		});
+		let reads = 0;
+		const queryFn = async () => (++reads === 1 ? oldRead : retained);
+		const observer = new QueryObserver(queryClient, {
+			queryKey: key,
+			staleTime: Number.POSITIVE_INFINITY,
+			enabled: trigger !== "fetch",
+			queryFn,
+		});
+		const unsubscribe = observer.subscribe(vi.fn());
+		let recovery: Promise<unknown>;
+		if (trigger === "invalidate") {
+			recovery = queryClient.invalidateQueries({ queryKey: key });
+		} else if (trigger === "refetch") {
+			recovery = queryClient.refetchQueries({ queryKey: key });
+		} else {
+			recovery = queryClient.fetchQuery({
+				queryKey: key,
+				queryFn,
+				staleTime: 0,
+			});
+		}
+		await vi.waitFor(() => expect(reads).toBe(1));
+		mergeLiveThreadSignalIntoCache({
+			queryClient,
+			spaceId: "space-123",
+			openMeldProfileId: "viewer",
+			threadContext,
+			signal: complete.signals[1],
+			placement: complete.placements[1],
+		});
+		releaseOldRead();
+		await recovery.catch((error) => {
+			if (!isCancelledError(error)) {
+				throw error;
+			}
+		});
+		await vi.waitFor(() => {
+			expect(reads).toBe(trigger === "fetch" ? 1 : 2);
+			expect(queryClient.getQueryState(key)?.fetchStatus).toBe("idle");
+			expect(observer.getCurrentResult().data).toEqual(retained);
+			expect(observer.getCurrentResult().status).toBe("success");
+			expect(observer.getCurrentResult().error).toBeNull();
+			if (trigger === "fetch") {
+				expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true);
+			}
+		});
+		// A later authoritative snapshot may remove a reply. Recovery must not
+		// preserve it forever by unioning HTTP snapshots with the live cache.
+		retained = previous;
+		await queryClient.fetchQuery({ queryKey: key, queryFn, staleTime: 0 });
+		expect(observer.getCurrentResult().data).toEqual(previous);
 		unsubscribe();
 		queryClient.clear();
 	});
