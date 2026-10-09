@@ -32,17 +32,13 @@ export function SpaceMessageTaskContext(input: {
 	const sendingRef = useRef(false);
 	const source = input.data.newTaskSource;
 	const targets = input.data.wakeContext.targets.filter(
-		(target) =>
-			target.taskContext ||
-			["builtin:codex", "builtin:claude-code"].includes(
-				target.agentContext?.agentControllerRef.value ?? ""
-			)
+		(target) => target.taskContext
 	);
 	if (targets.length === 0) {
 		return null;
 	}
 	const startNewTask = async () => {
-		if (!review || sendingRef.current) {
+		if (!review || sendingRef.current || !input.canStartNewTask) {
 			return;
 		}
 		if (review.profileId !== input.profileId) {
@@ -133,6 +129,10 @@ export function SpaceMessageTaskContext(input: {
 						computer access policy. It starts a separate conversation and may
 						repeat work already done.
 					</p>
+					<p className="text-muted-foreground">
+						If you already sent this recovery, it returns to the same new task.
+						Use the composer to start another task.
+					</p>
 					<div className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words text-sm">
 						{review.source.text}
 					</div>
@@ -161,7 +161,11 @@ export function SpaceMessageTaskContext(input: {
 						>
 							Cancel
 						</Button>
-						<Button disabled={sending} onClick={startNewTask} type="button">
+						<Button
+							disabled={sending || !input.canStartNewTask}
+							onClick={startNewTask}
+							type="button"
+						>
 							{sending ? "Sending…" : "Send new task"}
 						</Button>
 					</div>

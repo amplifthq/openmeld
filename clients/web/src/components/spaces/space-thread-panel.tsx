@@ -256,6 +256,7 @@ function createThreadExecutionRecoveryHandler(input: {
 }
 
 type SpaceThreadPanelProps = {
+	canSendMessage: boolean;
 	organizationId?: string | null;
 	open?: boolean;
 	wakeRecommendationsEnabled?: boolean;
@@ -712,7 +713,9 @@ function ThreadSelectedMessageDetails(input: {
 				Boolean(panelInput.onShowMessageInMain) &&
 				signalId === input.activeThread?.rootSignalId
 			}
-			canStartNewTask={panelInput.readOnly !== true}
+			canStartNewTask={
+				panelInput.readOnly !== true && panelInput.canSendMessage
+			}
 			diagnosticReportStatus={resolveMessageDetailsDiagnosticReportStatus({
 				isPending: panelInput.isDiagnosticReportPending(
 					input.messageDetailsItem.id
@@ -966,7 +969,7 @@ function renderThreadComposer(
 			agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
 			automaticWakeConversationKind={input.automaticWakeConversationKind}
 			blockedWakeProfileId={input.composerBlockedWakeProfileId}
-			canSendMessage={input.activeThread !== null}
+			canSendMessage={input.canSendMessage && input.activeThread !== null}
 			centerAgentProfileId={input.centerAgentProfileId ?? null}
 			composerAddressingTargets={input.composerAddressingTargets ?? []}
 			composerAuthoredMentions={input.composerAuthoredMentions ?? []}

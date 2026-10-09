@@ -1,5 +1,4 @@
 import type { SpaceApi } from "@openmeld/api-client";
-import { clientMessageIdSchema } from "@openmeld/schemas";
 import type { GetSpaceMessageDetailsResponse } from "@openmeld/schemas/types";
 
 export type SpaceNewTaskSource = NonNullable<
@@ -30,26 +29,13 @@ export async function postNewTaskFromMessage(input: {
 		"SHA-256",
 		new TextEncoder().encode(identity)
 	);
-	const storageKey = `openmeld:new-task:v1:${Array.from(
+	// One recovery per reviewed source, requester, target and destination. The
+	// existing Space authoring receipt owns deduplication, including after a
+	// successful response, reload or browser-storage failure.
+	const clientMessageId = `new-task:v1:${Array.from(
 		new Uint8Array(digest),
 		(byte) => byte.toString(16).padStart(2, "0")
 	).join("")}`;
-	// Keep only the outgoing request id, never message contents. An uncertain
-	// response can be retried after reload; an accepted action releases the key
-	// so a later, separately confirmed task gets a fresh id.
-	const saved = sessionStorage.getItem(storageKey);
-	const parsed = clientMessageIdSchema.safeParse(saved);
-	if (saved !== null && !parsed.success) {
-		throw new Error(
-			"The saved request could not be recovered. Start a new task from the composer."
-		);
-	}
-	const clientMessageId = parsed.success
-		? parsed.data
-		: `new-task:${crypto.randomUUID()}`;
-	if (saved === null) {
-		sessionStorage.setItem(storageKey, clientMessageId);
-	}
 	const common = {
 		spaceId: input.spaceId,
 		...(input.spacePassword === undefined
@@ -68,7 +54,7 @@ export async function postNewTaskFromMessage(input: {
 		},
 		contextSelection: { mode: "new" as const },
 	};
-	const result = source.threadId
+	return source.threadId
 		? await input.api.postThreadSignal({
 				...common,
 				threadId: source.threadId,
@@ -79,14 +65,4 @@ export async function postNewTaskFromMessage(input: {
 				...body,
 				meta: { clientMessageId },
 			});
-	try {
-		if (sessionStorage.getItem(storageKey) === clientMessageId) {
-			sessionStorage.removeItem(storageKey);
-		}
-	} catch {
-		console.warn(
-			"New task accepted; its local retry record could not be cleared."
-		);
-	}
-	return result;
 }

@@ -11,8 +11,9 @@ import {
   projectTargetWakeLifecycleIdentity,
   RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
+  SPACE_DISPATCH_TRACE_NATIVE_DELIVERY_CONTRACT_VERSION,
   SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
-  SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS,
+  SPACE_DISPATCH_TRACE_WAITING_EVIDENCE_CONTRACT_VERSION,
   spaceDispatchTraceRuntimeCoordinatorHeadLifecycleV1Schema,
   spaceDispatchTraceRuntimeCoordinatorHeadLifecycleV2Schema,
   spaceDispatchTraceRuntimeCoordinatorHeadNoExecutionDecisionV2Schema,
@@ -1158,9 +1159,8 @@ async function readSpaceNativeDeliveryTrace(
 ): Promise<SpaceDispatchTraceResponse | null> {
   if (
     input.db &&
-    (input.responseContractVersion ===
-      SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION ||
-      input.responseContractVersion === 6)
+    (input.responseContractVersion ?? 1) >=
+      SPACE_DISPATCH_TRACE_NATIVE_DELIVERY_CONTRACT_VERSION
   ) {
     const delivery =
       await readRemoteAgentNativeDeliveryByDispatchAndConversation({
@@ -1247,9 +1247,8 @@ function projectSpaceDispatchTraceResponseForContractVersion(input: {
     };
   }
   if (
-    input.responseContractVersion ===
-      SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS ||
-    input.responseContractVersion === 5
+    (input.responseContractVersion ?? 1) >=
+    SPACE_DISPATCH_TRACE_WAITING_EVIDENCE_CONTRACT_VERSION
   ) {
     return response;
   }

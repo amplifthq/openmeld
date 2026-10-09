@@ -17,6 +17,8 @@ describe("space Message Details projection", () => {
     "recalled",
     "unrestricted",
     "not_opted_in",
+    "other_requester",
+    "unknown_requester",
   ] as const)("offers a reviewed request copy only for eligible Space-only work (%s)", (state) => {
     const source = createTextSignal({
       id: "sig-restricted-source",
@@ -62,6 +64,8 @@ describe("space Message Details projection", () => {
       },
       conversationResume: { status: "continued" },
     };
+    const viewerProfileId =
+      state === "other_requester" ? "another-human" : source.profile.profileId;
     const details = projectSpaceMessageDetails({
       signal: source,
       visibleSignal: source,
@@ -74,6 +78,8 @@ describe("space Message Details projection", () => {
         state === "not_opted_in"
           ? undefined
           : { signal: source, threadId: "thread-1" },
+      viewerProfileId:
+        state === "unknown_requester" ? undefined : viewerProfileId,
     });
     if (state === "ready") {
       expect(details.newTaskSource).toEqual({

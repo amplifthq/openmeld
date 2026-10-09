@@ -37,6 +37,7 @@ export type ProjectSpaceMessageDetailsInput = {
   workingDetails?: SpaceMessageDetailsWorkingDetails | null;
   targetOwnerUserIdByProfileId?: ReadonlyMap<string, string | null>;
   viewerOwnerUserId?: string | null;
+  viewerProfileId?: string;
 };
 
 export function projectSpaceMessageDetails(
@@ -52,7 +53,11 @@ export function projectSpaceMessageDetails(
     wakeSourceSignal: input.wakeSourceSignal,
     wakeTraceItems: input.wakeTraceItems ?? [],
   });
-  const newTaskSource = projectNewTaskSource(input.newTaskSource, wakeContext);
+  const newTaskSource = projectNewTaskSource(
+    input.newTaskSource,
+    wakeContext,
+    input.viewerProfileId
+  );
 
   return {
     ...(newTaskSource ? { newTaskSource } : {}),
@@ -103,12 +108,16 @@ export function projectSpaceMessageDetails(
 
 function projectNewTaskSource(
   source: ProjectSpaceMessageDetailsInput["newTaskSource"],
-  wakeContext: SpaceMessageDetailsWakeContext
+  wakeContext: SpaceMessageDetailsWakeContext,
+  viewerProfileId: string | undefined
 ): GetSpaceMessageDetailsResponse["newTaskSource"] {
   if (
     !source ||
+    source.signal.profile.profileId !== viewerProfileId ||
     source.signal.data.meta?.recalledAt ||
     source.signal.data.meta?.workHandoff ||
+    // Legacy attachments have no reusable Space File revision. Only `files`
+    // can be copied through the normal message-authoring contract.
     source.signal.data.attachments?.length ||
     !wakeContext.targets.some(
       (target) =>

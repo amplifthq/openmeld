@@ -5290,14 +5290,17 @@ workspace separately from the Service's new/continued native-conversation
 observation. Missing diagnostics remain unavailable; the client never infers
 network or GitHub access from a working folder.
 
-For a recorded Space-only Wake, a writable viewer can review the readable
-source request and its shared file revisions, then explicitly send it to the
+For a recorded Space-only Wake, only its original requester with message
+permission can review the source request and its shared file revisions, then send it to the
 same target as a new task using the Agent's current permitted settings.
 The confirmation names the destination and possible repeated work. It uses
-normal Space/thread authoring. Browser session storage retains only the pending
-request id, keyed by the reviewed source, requester, target and placement.
-An uncertain response or page refresh retries that same id. Accepted publication
-removes the retry record, so a later separately confirmed task gets a new id.
+normal Space/thread authoring with a stable request id derived from the reviewed
+source revision and content, requester, target and placement. Reopening details,
+reloading, and retrying after either an uncertain or successful response reuse
+that id. The existing Space authoring receipt deduplicates the recovery without
+browser storage or a second server-side recovery store. Starting additional work
+uses the ordinary composer. Main and thread recovery both require current message
+permission, including when confirmation is already open.
 The reviewed request is pinned even if details refresh before confirmation.
 The action preserves the user's composer draft and never clears the retained
 Context. Recalled sources, managed file handoffs and unsupported legacy
