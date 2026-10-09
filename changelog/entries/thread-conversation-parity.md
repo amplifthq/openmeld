@@ -20,3 +20,5 @@ admins.
 Center Agent Profile cards show the model and a cloud icon, with a direct
 settings action. Routine availability and default reasoning labels are omitted.
 App Settings also omits the routine Available label.
+Bot avatars in Profile cards look around, follow the mouse, and play a full
+spin when clicked. Conversation avatars retain their small click hop.

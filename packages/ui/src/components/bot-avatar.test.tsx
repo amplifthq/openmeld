@@ -111,6 +111,67 @@ afterEach(() => {
 });
 
 describe("Bot avatar interaction", () => {
+  it("uses natural idle and pointer motion with a full click spin, and suspends playful motion", () => {
+    const view = render(
+      <BotAvatar interaction="playful" size={48} type="clover" />
+    );
+    const canvas = view.container.querySelector("canvas");
+    if (!canvas) {
+      throw new Error("Missing avatar canvas");
+    }
+    const resting = canvas.dataset.pose;
+    advance(240);
+    expect(canvas.dataset.pose).not.toBe(resting);
+    const pointer = (x: number) => {
+      fireEvent(
+        canvas,
+        Object.assign(new Event("pointermove", { bubbles: true }), {
+          pointerType: "mouse",
+          clientX: x,
+          clientY: 0,
+        })
+      );
+      advance(240);
+      return JSON.parse(canvas.dataset.pose ?? "{}").lookX as number;
+    };
+    expect(pointer(48)).toBeGreaterThan(0);
+    expect(pointer(-48)).toBeLessThan(0);
+    fireEvent.pointerLeave(canvas);
+    fireEvent.click(canvas);
+    let largestTurn = 0;
+    for (let step = 0; step < 100; step++) {
+      advance(16);
+      const pose = JSON.parse(canvas.dataset.pose ?? "{}") as BotAvatarPose;
+      largestTurn = Math.max(largestTurn, Math.abs(pose.yaw));
+    }
+    // A full turn passes the back of the head, unlike the subtle hop.
+    expect(largestTurn).toBeGreaterThan(Math.PI);
+    expect(frames.size).toBe(1);
+    act(() => intersect?.(false));
+    expect(frames.size).toBe(0);
+    act(() => intersect?.(true));
+    expect(frames.size).toBe(1);
+    vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    fireEvent(document, new Event("visibilitychange"));
+    expect(frames.size).toBe(0);
+    vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    fireEvent(document, new Event("visibilitychange"));
+    expect(frames.size).toBe(1);
+    act(() => {
+      reduced = true;
+      for (const listener of mediaListeners) {
+        listener();
+      }
+    });
+    const still = canvas.dataset.pose;
+    fireEvent.click(canvas);
+    advance(500);
+    expect(canvas.dataset.pose).toBe(still);
+    expect(frames.size).toBe(0);
+    view.unmount();
+    expect(frames.size).toBe(0);
+  });
+
   it("disables working, click, and pointer motion together and can resume", () => {
     const open = vi.fn();
     const view = render(

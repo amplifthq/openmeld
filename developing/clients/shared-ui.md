@@ -549,14 +549,17 @@ The Website demo
 starts with Original to match the hero; the product keeps its existing Soft default.
 The regular renderer includes an SVG first frame using the vendor's shape and
 face placement in server HTML, then replaces it with the rendered canvas on mount.
-Space/sidebar avatars
-and profile popovers play one small hop on an explicit click without following
+Space/sidebar avatars play one small hop on an explicit click without following
 the pointer; popover opening and navigation still belong to their existing
-controls. The Team Center Agent card has a separate avatar button that also
+controls. Profile popovers use the shared Bot's explicit `playful` interaction:
+natural idle gaze, fine-pointer following, and the library's full click spin.
+Avatar editors use the same simulation and rendering path, with saved identity
+and draft identity remaining separate. The Team Center Agent card has a
+separate avatar button that also
 follows a fine pointer while hovered; its remaining area opens the conversation.
-The avatar editor retains the library's original preview interaction.
-Bot avatars do not hop when idle and animate for real working state. Clicks do
-not queue or restart a hop. Static instances do not subscribe to animation
+Subtle Bot avatars do not hop when idle and animate for real working state.
+Clicks do not queue or restart a subtle hop; playful clicks use the library's
+own spin interruption rules. Static instances do not subscribe to animation
 frames or visibility observation; active rendering pauses offscreen and in hidden
 documents. A cache of at most 64 independently rendered still frames avoids
 freezing the library's lighting blend when animation stops.

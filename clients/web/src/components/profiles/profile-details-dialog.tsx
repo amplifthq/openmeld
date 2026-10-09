@@ -208,6 +208,7 @@ function AgentProfileDetailsHeader(input: {
 						agentControllerRef={input.entry.agentControllerRef}
 						avatarModelId={input.entry.avatarModelId}
 						avatarStyle={input.entry.avatarStyle}
+						botInteraction="playful"
 						clickable
 						isCenterAgent
 						profileId={input.entry.profileId}
@@ -219,6 +220,8 @@ function AgentProfileDetailsHeader(input: {
 					<AgentProfileControllerAvatar
 						agentControllerRef={input.entry.agentControllerRef}
 						avatarStyle={input.entry.avatarStyle}
+						botInteraction="playful"
+						clickable
 						modelId={input.entry.avatarModelId}
 						profileId={input.entry.profileId}
 						profileName={input.entry.profileName}
@@ -552,7 +555,8 @@ export function HistoricalProfilePopover(input: {
 						<div className="flex min-w-0 items-start gap-3">
 							<SpaceProfileIcon
 								agentControllerRef={input.entry.agentControllerRef}
-								clickable={input.isCenterAgent}
+								botInteraction="playful"
+								clickable
 								isCenterAgent={input.isCenterAgent}
 								profileId={input.entry.profileId}
 								profileKind={input.entry.profileKind}
