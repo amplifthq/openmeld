@@ -870,9 +870,10 @@ native transport prerequisite; these adapters do not relax it.
 
 `pilot-protocol.ts` owns a fixed-endpoint request adapter:
 
-Its header allowlist preserves shared Inbox, Space addressing, and Space access capability
-negotiation. These version headers select an existing response contract; they
-do not grant authorization. Renderer cookies and authorization remain excluded.
+Its header allowlist preserves shared Inbox, Space addressing, Space access,
+Space file origin, and image geometry capability negotiation. These version
+headers select an existing response contract; they do not grant authorization.
+Renderer cookies and authorization remain excluded.
 
 File download responses preserve `x-openmeld-file-revision` for the shared
 Space file reader. Local image previews use Blob URLs, which are allowed only
