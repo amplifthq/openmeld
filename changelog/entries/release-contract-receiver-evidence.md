@@ -15,3 +15,8 @@ unverified changes between the same services.
 Center Agent working-folder updates require the new Core receiver to deploy
 before their Remote caller. Unrelated AI usage evidence cannot admit these
 updates while that receiver is still pending.
+
+Agent setup and folder recovery also wait for their Database, Auth, Core and
+Gateway receivers. Cloud command references and detailed lists require Core
+and Remote Agent before Gateway exposes them, then Gateway before the CLI.
+The checks apply to caller-only changes and reject unavailable source evidence.

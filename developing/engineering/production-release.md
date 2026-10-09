@@ -679,6 +679,29 @@ checkout's caller source is never used as product evidence. The legacy Core
 receiver rejects folder writes before any settings mutation during this
 transition; model-only calls continue to use the legacy receiver.
 
+Agent Profile setup and folder recovery retain separate obligations:
+`agent-profile-default-project-revision` requires Database before Auth's new
+revision-column reads and writes; an older verified PostgreSQL binding does not
+prove that column exists. `agent-profile-default-project-initializer` requires
+Auth's named initializer before Core calls it. `agent-profile-binding-precondition`
+requires Core's named bound-write receivers before Gateway and Gateway's strict
+`expectedBindingTarget` input before Web. A missing method or unsupported input
+must not be downgraded to an unguarded setter.
+
+`cloud-command-receipt-opt-in` requires Core and Remote Agent before Gateway
+accepts command references or detailed lists, then Gateway before the CLI caller.
+Core relays these fields only after a Gateway request; it does not introduce
+them itself. Ordinary lists retain the legacy shape and single-command replies
+remain extensible. This permits a Core receiver stage while the old Gateway
+still rejects new opt-in inputs. Recheck the actual caller chain on the final
+source: these source and parser facts are not mixed-version Worker smoke.
+
+Each obligation is registered from its bounded changed owners and the explicit
+product source, including caller-only changes. Known historical sources without
+the feature stay independent; an unreadable source retains the obligation. The
+name checks supply no compatibility witness. Pending or unresolved receivers
+cannot be satisfied by an older contract's witness on the same service pair.
+
 The planner composes the metering edge with the
 request dependencies and rejects an unresolved cycle, including a single-stage
 guard that tries to skip a pending receiver. It must not report a safe train by

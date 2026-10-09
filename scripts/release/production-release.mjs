@@ -291,6 +291,36 @@ export function resolveProductionCompatibilityObligations(
   );
   const dependencyGroups = [
     {
+      contract: "agent-profile-default-project-revision",
+      enabled: isAgentProfileDefaultProjectRevisionDiff(changedPaths, context),
+      edges: [["db", "auth"]],
+    },
+    {
+      contract: "agent-profile-default-project-initializer",
+      enabled: isAgentProfileDefaultProjectInitializerDiff(
+        changedPaths,
+        context
+      ),
+      edges: [["auth", "core"]],
+    },
+    {
+      contract: "agent-profile-binding-precondition",
+      enabled: isAgentProfileBindingPreconditionDiff(changedPaths, context),
+      edges: [
+        ["core", "gateway"],
+        ["gateway", "web"],
+      ],
+    },
+    {
+      contract: "cloud-command-receipt-opt-in",
+      enabled: isCloudCommandReceiptOptInDiff(changedPaths, context),
+      edges: [
+        ["core", "gateway"],
+        ["remote-agent", "gateway"],
+        ["gateway", "cli"],
+      ],
+    },
+    {
       contract: "project-issue-workflow",
       enabled: isProjectIssueWorkflowDiff(changedPaths),
       edges: [
@@ -1689,6 +1719,10 @@ function resolveProductionDeployScopeOrder(
       isSpaceMessageSearchReceiverFirstDiff(changedPaths) ||
       isInboxNotificationObservationDiff(changedPaths) ||
       isGatewayRequestContextReceiverFirstDiff(changedPaths, context) ||
+      isAgentProfileDefaultProjectRevisionDiff(changedPaths, context) ||
+      isAgentProfileDefaultProjectInitializerDiff(changedPaths, context) ||
+      isAgentProfileBindingPreconditionDiff(changedPaths, context) ||
+      isCloudCommandReceiptOptInDiff(changedPaths, context) ||
       hasRemoteTurnEnvelopeOwners(changedPaths) ||
       hasRemoteExecutionInputOwners(changedPaths)
     )
@@ -1969,19 +2003,133 @@ function isCenterAgentSafeWorkspaceDiff(changedPaths, context) {
   }
   // Inspect the product source, never the control checkout. An unknown caller
   // conservatively retains the obligation; this is not receiver evidence.
+  return targetProductSourceMentions(context, callerPath, [
+    "centerAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace",
+  ]);
+}
+
+// These checks register deployment obligations from the explicit product
+// source. A name is not receiver compatibility evidence. Unknown source keeps
+// the obligation; known historical sources without the feature stay unchanged.
+function targetProductSourceMentions(context, file, names) {
   if (!context.sourceSha) {
     return true;
   }
   try {
     const readGitFile =
       context.readGitFile ??
-      ((ref, file) => runGit(["show", `${ref}:${file}`]));
-    return readGitFile(context.sourceSha, callerPath).includes(
-      "centerAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace"
-    );
+      ((ref, name) => runGit(["show", `${ref}:${name}`]));
+    const source = readGitFile(context.sourceSha, file);
+    return names.some((name) => source.includes(name));
   } catch {
     return true;
   }
+}
+
+function isAgentProfileDefaultProjectInitializerDiff(paths, context) {
+  return (
+    paths.some((file) =>
+      [
+        "services/auth/src/lib/rpc/entrypoint.ts",
+        "packages/auth/src/profiles/profile-repository.ts",
+        "packages/auth/src/profiles/profile-service.ts",
+        "packages/db/src/auth/openmeld-profile.schema.ts",
+        "packages/schemas/src/schemas/http/auth-rpc.ts",
+        "packages/schemas/src/schemas/http/profiles.ts",
+        "services/core/src/projects/agent-profile-default-project-service.ts",
+        "services/core/src/agent-profile-creation-request/agent-profile-creation-request-rpc.ts",
+        "services/core/src/rpc/methods.ts",
+      ].includes(file)
+    ) &&
+    targetProductSourceMentions(
+      context,
+      "services/core/src/projects/agent-profile-default-project-service.ts",
+      ["initializeAgentProfileDefaultProjectInOrganization"]
+    )
+  );
+}
+
+function isAgentProfileDefaultProjectRevisionDiff(paths, context) {
+  return (
+    paths.some(
+      (file) =>
+        file.startsWith("packages/db/postgresql/migrations/") ||
+        [
+          "services/auth/src/lib/rpc/entrypoint.ts",
+          "packages/auth/src/profiles/profile-repository.ts",
+          "packages/auth/src/profiles/profile-service.ts",
+          "packages/db/src/auth/openmeld-profile.schema.ts",
+        ].includes(file)
+    ) &&
+    targetProductSourceMentions(
+      context,
+      "packages/auth/src/profiles/profile-repository.ts",
+      ["defaultProjectRevision"]
+    )
+  );
+}
+
+function isAgentProfileBindingPreconditionDiff(paths, context) {
+  return (
+    paths.some((file) =>
+      [
+        "packages/schemas/src/schemas/http/agent-profile-binding.ts",
+        "packages/schemas/src/schemas/http/profiles.ts",
+        "packages/schemas/src/schemas/http/local-runtimes.ts",
+        "services/core/src/index.ts",
+        "services/core/src/rpc/methods.ts",
+        "services/core/src/agent-profile-binding/application/agent-profile-binding-target.ts",
+        "services/core/src/projects/agent-profile-default-project-service.ts",
+        "services/gateway/src/routes/rpc-http.agent-profile-bindings.ts",
+        "services/gateway/src/routes/rpc-http.current-device.ts",
+        "services/gateway/src/routes/rpc-http.people-computers.ts",
+        "packages/api-client/src/profiles/api.ts",
+        "packages/api-client/src/current-device/api.ts",
+        "clients/web/src/lib/profiles/update-default-project.ts",
+        "clients/web/src/lib/profiles/update-profile-workspace.ts",
+        "clients/web/src/components/profiles/agent-profile-project-settings-dialog.tsx",
+        "clients/web/src/components/spaces/agent-working-folder-recovery-action.tsx",
+      ].includes(file)
+    ) &&
+    targetProductSourceMentions(
+      context,
+      "packages/schemas/src/schemas/http/agent-profile-binding.ts",
+      ["agentProfileBindingTargetSchema"]
+    )
+  );
+}
+
+function isCloudCommandReceiptOptInDiff(paths, context) {
+  const entrypoint = "services/remote-agent/.flue/cloudflare.ts";
+  // Older native Agent releases predate the Computer facet altogether. A
+  // readable entrypoint without that method is a known non-Cloud trigger;
+  // absent Computer schema history alone remains unknown, never a witness.
+  const owners = paths.filter((file) =>
+    [
+      "packages/schemas/src/schemas/runtime/cloud-computer.ts",
+      "services/core/src/computer/computer-rpc.ts",
+      entrypoint,
+      "services/remote-agent/flue-adapter/computer-command.ts",
+      "services/remote-agent/flue-adapter/computer-workspace.ts",
+      "services/remote-agent/flue-adapter/computer-native.ts",
+      "services/gateway/src/routes/rpc-http.cloud-computer.ts",
+      "packages/api-client/src/cloud-computer.ts",
+      "clients/openmeld-cli/src/commands/cloud-computer.ts",
+      "clients/openmeld-cli/skills/openmeld-cli/playbooks/computer.md",
+    ].includes(file)
+  );
+  return (
+    owners.length > 0 &&
+    (!owners.every((file) => file === entrypoint) ||
+      targetProductSourceMentions(context, entrypoint, [
+        "cloudComputerOperation",
+      ])) &&
+    targetProductSourceMentions(
+      context,
+      "packages/schemas/src/schemas/runtime/cloud-computer.ts",
+      ["cloudComputerCommandReferenceSchema", "includeReceiptDetails"]
+    )
+  );
 }
 
 function isPersonalRemoteToolsReceiverFirstDiff(changedPaths) {

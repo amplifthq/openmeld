@@ -59,6 +59,17 @@ function contractPlan(changedPaths, overrides = {}) {
     databaseBackend: "postgresql",
     scope: FULL_SCOPE,
     readGitFile: (ref, path) => {
+      if (
+        [
+          "services/core/src/projects/agent-profile-default-project-service.ts",
+          "packages/auth/src/profiles/profile-repository.ts",
+          "packages/schemas/src/schemas/http/agent-profile-binding.ts",
+          "packages/schemas/src/schemas/runtime/cloud-computer.ts",
+        ].includes(path)
+      ) {
+        // These request-context snapshots predate the new recovery contracts.
+        return "// Known historical product without these recovery features.";
+      }
       if (path === "services/remote-agent/agent-core/tools.ts") {
         // This historical fixture uses the legacy workspace caller.
         return 'const rpc = requireCoreRpc(input.coreWorker.centerAgentUpdateAgentProfileRuntimeSettings, "centerAgentUpdateAgentProfileRuntimeSettings");';

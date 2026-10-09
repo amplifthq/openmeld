@@ -547,6 +547,7 @@ test("installs Inbox readers and Core tool authorization before personal Remote 
     affectedPackages: [],
     base: "previous-release",
     sourceSha: REMOTE_SOURCE_SHA,
+    readGitFile: () => "// Historical personal tools without Cloud Computer.",
     scope: "web,gateway,core,remote-agent",
     changedPaths: [
       ...PERSONAL_TOOLS_PATHS,

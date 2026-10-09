@@ -57,9 +57,10 @@ test("registers the named workspace receiver from product source, not control so
     ],
   ]);
   const readGitFile = (ref, file) => {
-    assert.equal(file, "services/remote-agent/agent-core/tools.ts");
     assert.ok(products.has(ref), "must use the explicit product SHA");
-    return products.get(ref);
+    return file === "services/remote-agent/agent-core/tools.ts"
+      ? products.get(ref)
+      : "// Historical product without Default Project initializer or Binding precondition.";
   };
   assert.deepEqual(
     resolveProductionCompatibilityObligations(SAFE_WORKSPACE_INCREMENT, false, {
@@ -84,13 +85,23 @@ test("registers the named workspace receiver from product source, not control so
       },
     },
   ]) {
-    assert.deepEqual(
-      resolveProductionCompatibilityObligations(
-        SAFE_WORKSPACE_INCREMENT,
-        false,
-        context
-      ),
-      [SAFE_WORKSPACE_OBLIGATION]
+    const obligations = resolveProductionCompatibilityObligations(
+      SAFE_WORKSPACE_INCREMENT,
+      false,
+      context
+    );
+    assert.ok(
+      obligations.some((o) => o.contract === "center-agent-safe-workspace")
+    );
+    assert.ok(
+      obligations.some(
+        (o) => o.contract === "agent-profile-default-project-initializer"
+      )
+    );
+    assert.ok(
+      obligations.some(
+        (o) => o.contract === "agent-profile-binding-precondition"
+      )
     );
   }
 });
@@ -542,6 +553,8 @@ for (const remoteReceiver of [false, true]) {
           : []),
       ],
       sourceSha,
+      readGitFile: () =>
+        "// Historical native receiver without Cloud Computer.",
       scope: `db,auth,web,gateway,core${remoteReceiver ? ",remote-agent" : ""}`,
     });
     assert.deepEqual(plan.deployScopeOrder, [
@@ -604,6 +617,7 @@ test("deploys Inbox observation receivers before callers, composed with Remote t
       "services/remote-agent/.flue/cloudflare.ts",
     ],
     sourceSha: "a".repeat(40),
+    readGitFile: () => "// Historical native receiver without Cloud Computer.",
     scope: "web,gateway,core,remote-agent",
   });
   assert.deepEqual(plan.deployScopeOrder, [
@@ -893,11 +907,19 @@ test("retains all contracts on a deduplicated receiver/producer edge", () => {
     ...SPACE_TASK_RECEIVERS,
     "services/remote-agent/agent-core/tools.ts",
   ];
-  assert.deepEqual(resolveProductionCompatibilityDependencies(changedPaths), [
-    ["core", "remote-agent"],
-  ]);
+  const context = {
+    sourceSha: "1".repeat(40),
+    readGitFile: (_ref, file) =>
+      file === "services/remote-agent/agent-core/tools.ts"
+        ? "centerAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace"
+        : "// Historical product without initializer or Binding precondition.",
+  };
   assert.deepEqual(
-    resolveProductionCompatibilityObligations(changedPaths).map(
+    resolveProductionCompatibilityDependencies(changedPaths, false, context),
+    [["core", "remote-agent"]]
+  );
+  assert.deepEqual(
+    resolveProductionCompatibilityObligations(changedPaths, false, context).map(
       ({ contract }) => contract
     ),
     [
@@ -931,7 +953,15 @@ test("keeps optional Device Wait and People Computers callers independent", () =
     ]
   );
   assert.deepEqual(
-    resolveProductionCompatibilityDependencies(PEOPLE_COMPUTERS_RECEIVERS),
+    resolveProductionCompatibilityDependencies(
+      PEOPLE_COMPUTERS_RECEIVERS,
+      false,
+      {
+        sourceSha: "1".repeat(40),
+        readGitFile: () =>
+          "// Historical People Computers without Binding precondition.",
+      }
+    ),
     [["core", "gateway"]]
   );
 });
@@ -1081,14 +1111,24 @@ test("adds invitation callers only when their producer path changes", () => {
 
 test("composes independent receiver contracts without duplicate edges", () => {
   assert.deepEqual(
-    resolveProductionCompatibilityDependencies([
-      "packages/schemas/src/schemas/http/center-agent-memory-search.ts",
-      "services/core/src/index.ts",
-      "services/remote-agent/agent-core/tools.ts",
-      "packages/schemas/src/schemas/runtime/personal-remote-agent.ts",
-      "services/core/src/remote-agent/application/remote-agent-tool-caller.ts",
-      "services/remote-agent/agent-core/personal-remote-agent-tools.ts",
-    ]),
+    resolveProductionCompatibilityDependencies(
+      [
+        "packages/schemas/src/schemas/http/center-agent-memory-search.ts",
+        "services/core/src/index.ts",
+        "services/remote-agent/agent-core/tools.ts",
+        "packages/schemas/src/schemas/runtime/personal-remote-agent.ts",
+        "services/core/src/remote-agent/application/remote-agent-tool-caller.ts",
+        "services/remote-agent/agent-core/personal-remote-agent-tools.ts",
+      ],
+      false,
+      {
+        sourceSha: "1".repeat(40),
+        readGitFile: (_ref, file) =>
+          file === "services/remote-agent/agent-core/tools.ts"
+            ? "centerAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace"
+            : "// Historical product without Binding precondition.",
+      }
+    ),
     [["core", "remote-agent"]]
   );
 });
@@ -1132,4 +1172,273 @@ test("attaches exact Remote receiver content witnesses and preserves reviewed co
       ["cli", "core"],
     ]
   );
+});
+
+const reliabilityFixture = JSON.parse(
+  readFileSync(
+    new URL("./fixtures/reliability-receiver-increments.json", import.meta.url),
+    "utf8"
+  )
+);
+const RELIABILITY_TARGET = "2".repeat(40);
+const RELIABILITY_LEGACY = "1".repeat(40);
+// Minimal product source inputs for obligation registration only. They cannot
+// prove receiver compatibility. The paths are preserved from real PR increments;
+// the method and field names come from the required product RPC/wire contracts.
+const reliabilityFeatureSources = new Map([
+  [
+    "packages/auth/src/profiles/profile-repository.ts",
+    "defaultProjectRevision: 0",
+  ],
+  [
+    "services/core/src/projects/agent-profile-default-project-service.ts",
+    "authWorker.initializeAgentProfileDefaultProjectInOrganization(request)",
+  ],
+  [
+    "packages/schemas/src/schemas/http/agent-profile-binding.ts",
+    "export const agentProfileBindingTargetSchema = z.strictObject({ bindingId, agentControllerRef, agentControllerConversationId, openMeldServiceRuntimeId });",
+  ],
+  [
+    "packages/schemas/src/schemas/runtime/cloud-computer.ts",
+    "export const cloudComputerCommandReferenceSchema = z.strictObject({ invocationId, key, id, backend }); const list = z.strictObject({ action: z.literal('list'), includeReceiptDetails: z.boolean().optional() });",
+  ],
+]);
+function readReliabilityProduct(ref, file) {
+  if (
+    ![
+      RELIABILITY_TARGET,
+      RELIABILITY_LEGACY,
+      ...reliabilityFixture.increments.map((i) => i.sourceSha),
+    ].includes(ref)
+  ) {
+    throw new Error("Read the explicit product source, never control HEAD.");
+  }
+  return ref === RELIABILITY_LEGACY
+    ? "// Known historical source without these features."
+    : (reliabilityFeatureSources.get(file) ??
+        "// Unchanged native request and legacy workspace caller.");
+}
+const reliabilityContext = {
+  sourceSha: RELIABILITY_TARGET,
+  readGitFile: readReliabilityProduct,
+};
+const BINDING_PRECONDITIONS = [
+  {
+    contract: "agent-profile-binding-precondition",
+    receiver: "core",
+    producer: "gateway",
+  },
+  {
+    contract: "agent-profile-binding-precondition",
+    receiver: "gateway",
+    producer: "web",
+  },
+];
+const CLOUD_RECEIPT_OPT_IN = [
+  {
+    contract: "cloud-command-receipt-opt-in",
+    receiver: "core",
+    producer: "gateway",
+  },
+  {
+    contract: "cloud-command-receipt-opt-in",
+    receiver: "remote-agent",
+    producer: "gateway",
+  },
+  {
+    contract: "cloud-command-receipt-opt-in",
+    receiver: "gateway",
+    producer: "cli",
+  },
+];
+const DEFAULT_PROJECT_INITIALIZER = {
+  contract: "agent-profile-default-project-initializer",
+  receiver: "auth",
+  producer: "core",
+};
+const DEFAULT_PROJECT_REVISION = {
+  contract: "agent-profile-default-project-revision",
+  receiver: "db",
+  producer: "auth",
+};
+const RELIABILITY_OBLIGATIONS = [
+  DEFAULT_PROJECT_REVISION,
+  DEFAULT_PROJECT_INITIALIZER,
+  ...BINDING_PRECONDITIONS,
+  ...CLOUD_RECEIPT_OPT_IN,
+];
+const reliabilityChangedPaths = [
+  ...new Set(reliabilityFixture.increments.flatMap((i) => i.changedPaths)),
+];
+
+test("registers required receivers from real initializer, Binding and Cloud increment paths", () => {
+  const obligations = resolveProductionCompatibilityObligations(
+    reliabilityChangedPaths,
+    false,
+    reliabilityContext
+  );
+  for (const obligation of RELIABILITY_OBLIGATIONS) {
+    assert.ok(
+      obligations.some((o) => JSON.stringify(o) === JSON.stringify(obligation))
+    );
+  }
+  assert.equal(
+    obligations.some(
+      (o) =>
+        o.contract === "cloud-command-receipt-opt-in" && o.producer === "core"
+    ),
+    false,
+    "Core relays requests; it does not introduce new opt-in fields before Gateway"
+  );
+  for (const increment of reliabilityFixture.increments) {
+    const result = resolveProductionCompatibilityObligations(
+      increment.changedPaths,
+      false,
+      {
+        sourceSha: increment.sourceSha,
+        readGitFile: readReliabilityProduct,
+      }
+    );
+    let required = CLOUD_RECEIPT_OPT_IN;
+    if (increment.name.startsWith("auth")) {
+      required = [DEFAULT_PROJECT_REVISION, DEFAULT_PROJECT_INITIALIZER];
+    } else if (increment.name.startsWith("binding")) {
+      required = BINDING_PRECONDITIONS;
+    }
+    for (const obligation of required) {
+      assert.ok(
+        result.some((o) => JSON.stringify(o) === JSON.stringify(obligation)),
+        increment.name
+      );
+    }
+  }
+});
+
+test("orders the real Binding and Cloud increments by their receivers", () => {
+  const cases = [
+    {
+      increment: reliabilityFixture.increments[1],
+      scope: "core,gateway,web",
+      order: ["core", "gateway", "web"],
+    },
+    {
+      increment: reliabilityFixture.increments[2],
+      scope: "core,remote-agent,gateway,cli",
+      order: ["core", "remote-agent", "gateway", "cli"],
+    },
+  ];
+  for (const { increment, scope, order } of cases) {
+    const plan = buildProductionReleasePlan({
+      ...increment,
+      scope,
+      readGitFile: readReliabilityProduct,
+      databaseBackend: "postgresql",
+    });
+    assert.deepEqual(plan.deployScopeOrder, order);
+  }
+});
+
+test("caller-only changes retain required contracts; known legacy sources do not", () => {
+  const callers = [
+    [
+      "services/core/src/projects/agent-profile-default-project-service.ts",
+      DEFAULT_PROJECT_INITIALIZER,
+    ],
+    [
+      "packages/auth/src/profiles/profile-repository.ts",
+      DEFAULT_PROJECT_REVISION,
+    ],
+    [
+      "services/gateway/src/routes/rpc-http.people-computers.ts",
+      BINDING_PRECONDITIONS[0],
+    ],
+    [
+      "clients/web/src/lib/profiles/update-profile-workspace.ts",
+      BINDING_PRECONDITIONS[1],
+    ],
+    [
+      "clients/openmeld-cli/src/commands/cloud-computer.ts",
+      CLOUD_RECEIPT_OPT_IN[2],
+    ],
+    ["packages/api-client/src/cloud-computer.ts", CLOUD_RECEIPT_OPT_IN[2]],
+  ];
+  for (const [file, expectedObligation] of callers) {
+    for (const input of [
+      reliabilityContext,
+      {},
+      {
+        sourceSha: RELIABILITY_TARGET,
+        readGitFile() {
+          throw new Error("unreadable product source");
+        },
+      },
+    ]) {
+      const obligations = resolveProductionCompatibilityObligations(
+        [file],
+        false,
+        input
+      );
+      assert.ok(
+        obligations.some(
+          (o) => JSON.stringify(o) === JSON.stringify(expectedObligation)
+        ),
+        file
+      );
+    }
+    assert.deepEqual(
+      resolveProductionCompatibilityObligations([file], false, {
+        sourceSha: RELIABILITY_LEGACY,
+        readGitFile: readReliabilityProduct,
+      }),
+      []
+    );
+  }
+});
+
+test("pending and unresolved receivers block callers; verified current receivers admit them", () => {
+  for (const obligation of RELIABILITY_OBLIGATIONS) {
+    const producer = {
+      scope: obligation.producer,
+      state: "pending",
+      sha: RELIABILITY_LEGACY,
+      compatibilityObligations: [obligation],
+      compatibilityDependencies: [[obligation.receiver, obligation.producer]],
+      // A matching older contract on the same pair cannot substitute for this one.
+      compatibilityReceiverWitnesses: [
+        {
+          receiver: obligation.receiver,
+          producer: obligation.producer,
+          contracts: ["older-unrelated-contract"],
+          evidence: {
+            result: "match",
+            baselineSha: RELIABILITY_LEGACY,
+            targetSha: RELIABILITY_TARGET,
+          },
+        },
+      ],
+    };
+    const receiver = {
+      scope: obligation.receiver,
+      state: "pending",
+      sha: RELIABILITY_LEGACY,
+      evidence: { result: "verified" },
+    };
+    const input = {
+      sourceSha: RELIABILITY_TARGET,
+      selectedScopes: [obligation.producer],
+      components: [receiver, producer],
+    };
+    assert.throws(
+      () => assertProductionStageAdmission(input),
+      PENDING_RECEIVER
+    );
+    receiver.state = "unknown";
+    assert.throws(
+      () => assertProductionStageAdmission(input),
+      UNRESOLVED_RECEIVER
+    );
+    receiver.state = "current";
+    receiver.sha = RELIABILITY_TARGET;
+    assert.doesNotThrow(() => assertProductionStageAdmission(input));
+  }
 });
