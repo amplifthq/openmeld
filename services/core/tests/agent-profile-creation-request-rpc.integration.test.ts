@@ -752,9 +752,8 @@ describe("Agent Profile creation request RPC", () => {
       });
       expect(result.request).toMatchObject({
         createdAgentProfileId: null,
-        failureMessage: expect.stringContaining(
-          "gpt-5.6-sol isn't available for Codex on Model Guard Mac"
-        ),
+        failureMessage:
+          "The selected model isn't offered by this local agent. Choose another model or update the local agent, then retry setup. Reason: agent_profile_creation_request.model_not_offered.",
         status: "failed",
       });
       expect(createAgentProfileInOrganization).not.toHaveBeenCalled();

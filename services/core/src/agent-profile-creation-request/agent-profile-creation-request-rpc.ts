@@ -299,7 +299,7 @@ function assertRequestedModelCompatibility(input: {
   if (!guard) {
     return;
   }
-  throw new AgentProfileCreationRequestStateError(guard.reason);
+  throw new AgentProfileCreationRequestStateError(guard.reason, guard.code);
 }
 export async function rpcCenterAgentListAgentProfileCreationRequests(
   env: CoreBindings,
@@ -1092,8 +1092,9 @@ async function prepareRequestedLocalAgentConnection(input: {
     );
   }
   if (!candidate.connectable) {
-    throw new Error(
-      `${candidate.agentDisplayName} on ${candidate.deviceDisplayName} is not ready to connect.`
+    throw new AgentProfileCreationRequestStateError(
+      `${candidate.agentDisplayName} on ${candidate.deviceDisplayName} is not ready to connect.`,
+      "agent_profile_creation_request.local_agent_not_ready"
     );
   }
   const retainedBinding = input.request.createdAgentProfileId

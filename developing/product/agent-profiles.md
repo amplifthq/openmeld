@@ -287,6 +287,11 @@ Computer retains the incomplete-setup marker and requires folder reselection.
 Cancellation is presented as **Cancel setup**, followed by an explicit cancelled
 outcome; it must not imply that the Agent was created or repaired.
 
+Creation failure messages retain a safe reason and recovery guidance rather than
+copying private RPC diagnostics into the request or Center Agent context. The
+same public projection protects older saved failures, including truncated RPC
+responses. Local Service diagnostics retain the original local error detail.
+
 The frozen facts are:
 
 - requester user and acting Profile

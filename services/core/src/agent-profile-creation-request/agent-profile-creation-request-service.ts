@@ -5,6 +5,7 @@ import {
   createAgentProfileCreationRequestBodySchema,
   DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+  resolvePublicAgentFailureRecovery,
   retryAgentProfileCreationRequestBodySchema,
   setAgentProfileCreationApprovalPreferenceBodySchema,
   TEAMMATE_AGENT_REQUESTS_ENABLED,
@@ -24,9 +25,36 @@ import type {
   SetAgentProfileCreationApprovalPreferenceBody,
 } from "@openmeld/schemas/types";
 import { assertAgentControllerPermissionModeReleased } from "../local-components/runtime-contract-rollout";
+import { readSafeRpcFailureReasonCode } from "../shared/rpc/rpc-json";
 
 const DEFAULT_APPROVAL_POLICY = "ask_every_time" as const;
 export const AGENT_PROFILE_CREATION_STALE_AFTER_MS = 30 * 60 * 1000;
+const PUBLIC_CREATION_FAILURE_COPY = {
+  creationContactLost:
+    "OpenMeld lost contact while creating this Agent. Retry to continue safely.",
+  setupContactLost:
+    "OpenMeld lost contact while finishing setup for this Agent. Retry setup to continue safely.",
+  checkpointAfterIdentity:
+    "OpenMeld created the Agent, but couldn't finish setup. Retry setup to continue safely.",
+  checkpointBeforeIdentity:
+    "OpenMeld couldn't finish creating this Agent. Retry to continue safely.",
+  creationFailed: "OpenMeld couldn't finish creating this Agent.",
+  setupFailed:
+    "OpenMeld couldn't finish Agent setup. Review Agent settings and diagnostics, then retry setup.",
+  accessDenied:
+    "OpenMeld couldn't finish Agent setup because access was denied. Review permissions and diagnostics, then retry setup.",
+  localAgentUnavailable:
+    "The selected local agent is no longer available on that Computer.",
+  projectRequired: "Fork requires the selected Session's Project.",
+  ownerHumanRequired: "The Agent owner needs an active Human Profile.",
+  authCreationFailed: "Auth could not create the requested Agent Profile.",
+};
+const PUBLIC_CREATION_FAILURE_MESSAGES = new Set(
+  Object.values(PUBLIC_CREATION_FAILURE_COPY)
+);
+const RETAINED_PUBLIC_REASON_CODE_RE =
+  / Reason: ([a-z][a-z0-9_.-]{0,119}|EACCES|EPERM)\.$/u;
+const LOCAL_PERMISSION_REASON_CODE_RE = /^(EACCES|EPERM):/u;
 
 export type AgentProfileCreationRequestRecord = {
   actorProfileId: string;
@@ -179,9 +207,11 @@ export class AgentProfileCreationRequestNotFoundError extends Error {
 }
 
 export class AgentProfileCreationRequestStateError extends Error {
-  constructor(message: string) {
+  readonly code?: string;
+  constructor(message: string, code?: string) {
     super(message);
     this.name = "AgentProfileCreationRequestStateError";
+    this.code = code;
   }
 }
 
@@ -228,8 +258,8 @@ export async function failStaleAgentProfileCreationRequests(input: {
       requestId: record.id,
       update: {
         failureMessage: setupIncomplete
-          ? "OpenMeld lost contact while finishing setup for this Agent. Retry setup to continue safely."
-          : "OpenMeld lost contact while creating this Agent. Retry to continue safely.",
+          ? PUBLIC_CREATION_FAILURE_COPY.setupContactLost
+          : PUBLIC_CREATION_FAILURE_COPY.creationContactLost,
         status: "failed",
         statusReason: setupIncomplete
           ? "profile_created"
@@ -917,7 +947,7 @@ export function toPublicRequest(
         ? null
         : new Date(record.decidedAtMs).toISOString(),
     id: record.id,
-    failureMessage: record.failureMessage,
+    failureMessage: toPublicFailureMessage(record.failureMessage),
     nativeSessionId: record.nativeSessionId,
     organizationId: record.organizationId,
     profileName: record.profileName,
@@ -939,12 +969,51 @@ function normalizeFailureMessage(
   const raw = readFailureMessage(error);
   if (error instanceof AgentProfileCreationRequestCheckpointStorageError) {
     return input.createdAgentProfileId
-      ? "OpenMeld created the Agent, but couldn't finish setup. Retry setup to continue safely."
-      : "OpenMeld couldn't finish creating this Agent. Retry to continue safely.";
+      ? PUBLIC_CREATION_FAILURE_COPY.checkpointAfterIdentity
+      : PUBLIC_CREATION_FAILURE_COPY.checkpointBeforeIdentity;
   }
-  const normalized =
-    raw.trim() || "OpenMeld couldn't finish creating this Agent.";
-  return normalized.slice(0, 1000);
+  const normalized = raw.trim() || PUBLIC_CREATION_FAILURE_COPY.creationFailed;
+  const reasonCode = readSafeRpcFailureReasonCode(
+    error instanceof AgentProfileCreationRequestExecutionError
+      ? error.cause
+      : error
+  );
+  return (
+    toPublicFailureMessage(normalized, reasonCode) ??
+    PUBLIC_CREATION_FAILURE_COPY.setupFailed
+  ).slice(0, 1000);
+}
+
+function toPublicFailureMessage(
+  message: string | null,
+  knownReasonCode?: string
+): string | null {
+  if (!message) {
+    return message;
+  }
+  if (PUBLIC_CREATION_FAILURE_MESSAGES.has(message)) {
+    return message;
+  }
+  // Public copy is reconstructed from its reason, never from unknown prose.
+  // This also protects historical plain or truncated transport diagnostics.
+  const retainedReason = RETAINED_PUBLIC_REASON_CODE_RE.exec(message)?.[1];
+  const localPermissionReason =
+    LOCAL_PERMISSION_REASON_CODE_RE.exec(message)?.[1];
+  const reasonCode =
+    knownReasonCode ??
+    retainedReason ??
+    localPermissionReason ??
+    readSafeRpcFailureReasonCode(new Error(message));
+  const recovery = resolvePublicAgentFailureRecovery({
+    errorCode: reasonCode,
+    includeUnknown: false,
+  });
+  const description =
+    recovery?.body ??
+    (reasonCode === "EACCES" || reasonCode === "EPERM"
+      ? PUBLIC_CREATION_FAILURE_COPY.accessDenied
+      : PUBLIC_CREATION_FAILURE_COPY.setupFailed);
+  return reasonCode ? `${description} Reason: ${reasonCode}.` : description;
 }
 
 function readFailureMessage(error: unknown): string {

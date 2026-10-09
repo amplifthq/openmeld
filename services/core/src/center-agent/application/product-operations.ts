@@ -21,11 +21,10 @@ import type {
   PeopleComputersResponse,
   SetCurrentAgentProfileWorkspaceResponse,
 } from "@openmeld/schemas/types";
-import { parseRpcErrorPayload } from "../../shared/rpc/rpc-json";
+import { readSafeRpcFailureReasonCode } from "../../shared/rpc/rpc-json";
 
 type OperationStep =
   CenterAgentConnectAgentProfileToLocalAgentResponse["steps"][number];
-const SAFE_REASON_CODE = /^[a-z][a-z0-9_.-]{0,119}$/u;
 
 type RuntimeSettingsInput = Pick<
   CenterAgentConnectAgentProfileToLocalAgentBody,
@@ -829,7 +828,7 @@ function failedWorkingFolderStep(
   name: OperationStep["name"],
   error: unknown
 ): OperationStep {
-  const reasonCode = readSafeProductOperationFailureReasonCode(error);
+  const reasonCode = readSafeRpcFailureReasonCode(error);
   const recovery = resolvePublicAgentFailureRecovery({
     errorCode: reasonCode,
     includeUnknown: false,
@@ -846,24 +845,6 @@ function failedWorkingFolderStep(
     nextAction: "Review Working folder in Agent settings, then retry setup.",
   };
 }
-export function readSafeProductOperationFailureReasonCode(
-  error: unknown
-): string | undefined {
-  const message = error instanceof Error ? error.message : "";
-  const jsonStart = message.indexOf("{");
-  let code: string | undefined;
-  if (
-    error instanceof Error &&
-    "code" in error &&
-    typeof error.code === "string"
-  ) {
-    code = error.code;
-  } else if (jsonStart >= 0) {
-    code = parseRpcErrorPayload(message.slice(jsonStart))?.code;
-  }
-  return code && SAFE_REASON_CODE.test(code) ? code : undefined;
-}
-
 function toBindingStep(
   binding: EnsureAgentProfilePrimaryBindingResponse,
   name: OperationStep["name"]

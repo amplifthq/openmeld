@@ -15,6 +15,8 @@ If the folder is saved but Default Project cannot be updated, Working folder
 shows the partial result and keeps your choice for retry.
 Center Agent setup results keep local folder paths private and show which
 steps still need attention.
+Creation failures also protect local diagnostics while keeping the error reason
+and recovery step, including when older saved diagnostics are read again.
 During an update, incompatible Center Agent folder changes stop before any
 settings are saved.
 

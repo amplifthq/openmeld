@@ -894,7 +894,6 @@ import {
   connectAgentProfileToLocalAgentOperation,
   projectCenterAgentComputerSetupOptions,
   projectCenterAgentLocalAgentConnectionCandidates,
-  readSafeProductOperationFailureReasonCode,
   updateAgentProfileRuntimeSettingsOperation,
 } from "../center-agent/application/product-operations";
 import {
@@ -1260,7 +1259,10 @@ import {
 import { notifyAgentProfileWorkUsageRecoveryAvailable } from "../runtime-transport/application/agent-profile-work-usage-recovery";
 import { selectCurrentOwnerServiceSessionsByDeviceLane } from "../runtime-transport/application/current-owner-service-sessions";
 import { listActiveRuntimeCoordinatorExecutionTargetsBySpaceIds } from "../runtime-transport/infrastructure/postgresql/runtime-coordinator-execution-repo";
-import { parseRpcErrorPayload } from "../shared/rpc/rpc-json";
+import {
+  parseRpcErrorPayload,
+  readSafeRpcFailureReasonCode,
+} from "../shared/rpc/rpc-json";
 import {
   assertSpaceAccessMatchesSpace,
   requireWritableSpaceActor,
@@ -12978,7 +12980,7 @@ async function readCenterAgentDefaultProjectConnection(
       projectId,
       target,
       reasonCode:
-        readSafeProductOperationFailureReasonCode(error) ??
+        readSafeRpcFailureReasonCode(error) ??
         "project.local_connection.unavailable",
     };
   }

@@ -2101,6 +2101,29 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: null,
     },
     {
+      body: "The selected local agent is not ready to connect. Finish local agent setup on the Computer, then retry setup.",
+      kind: "local_agent_prepare",
+      patterns: ["=agent_profile_creation_request.local_agent_not_ready"],
+      primaryActionId: "connect_local_agent",
+      recoveryTarget: "prepare_setup",
+    },
+    {
+      body: "The selected model isn't offered by this local agent. Choose another model or update the local agent, then retry setup.",
+      kind: "local_agent_prepare",
+      patterns: ["=agent_profile_creation_request.model_not_offered"],
+      primaryActionId: "review_agent_settings",
+      recoveryTarget: "agents",
+    },
+    {
+      body: "The selected model requires a newer local agent. Update the local agent or choose another model, then retry setup.",
+      kind: "local_agent_prepare",
+      patterns: [
+        "=agent_profile_creation_request.model_requires_newer_controller",
+      ],
+      primaryActionId: "review_agent_settings",
+      recoveryTarget: "agents",
+    },
+    {
       body: UNSUPPORTED_REASONING_PUBLIC_COPY,
       kind: "account_access",
       patterns: ["=model.reasoning_unsupported"],
