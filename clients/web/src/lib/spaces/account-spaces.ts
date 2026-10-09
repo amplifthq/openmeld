@@ -59,6 +59,60 @@ export type AccountSpaceSections = {
 	spaceItems: readonly AccountSpaceItem[];
 };
 
+export function resolveAccountSpaceRecency(
+	item: Pick<
+		AccountSpaceItem,
+		"messagePreview" | "lastJoinedAt" | "spaceCreatedAt"
+	>
+): number {
+	return Math.max(
+		item.messagePreview?.timestamp ?? 0,
+		Date.parse(item.lastJoinedAt) || 0,
+		Date.parse(item.spaceCreatedAt ?? "") || 0
+	);
+}
+
+export function createAcceptedAccountSpaceItem(input: {
+	spaceId: string;
+	name: string;
+	organizationId: string;
+	visibility: SpaceOrganizationVisibility;
+	profileId: string;
+	profileName: string;
+	joinedAt: string;
+	createdAt?: string | null;
+	purpose?: string | null;
+	activeHumanCount?: number | null;
+	activeAgentCount?: number | null;
+	activeMemberCount?: number | null;
+}): AccountSpaceItem {
+	return {
+		spaceId: input.spaceId,
+		spaceName: input.name,
+		organizationId: input.organizationId,
+		visibility: input.visibility,
+		spaceCreatedAt: input.createdAt,
+		spacePurpose: input.purpose ?? null,
+		lastJoinedAt: input.joinedAt,
+		lastSeenTs: null,
+		openProfileId: input.profileId,
+		openProfileName: input.profileName,
+		joinedProfiles: [
+			{
+				profileId: input.profileId,
+				profileName: input.profileName,
+				lastJoinedAt: input.joinedAt,
+				pinnedAt: null,
+			},
+		],
+		pinnedAt: null,
+		pinnedProfileIds: [],
+		activeHumanCount: input.activeHumanCount ?? null,
+		activeAgentCount: input.activeAgentCount ?? null,
+		activeMemberCount: input.activeMemberCount ?? null,
+	};
+}
+
 export function hasAccountSpaceItems(
 	sections:
 		| Pick<AccountSpaceSections, "pinnedItems" | "spaceItems">

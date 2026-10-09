@@ -46,7 +46,10 @@ import {
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
 import { buildProfilePath } from "#/lib/profile-routes";
-import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
+import {
+	type AccountSpaceItem,
+	resolveAccountSpaceRecency,
+} from "#/lib/spaces/account-spaces";
 import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 import { AppSidebarGroup } from "../app/app-sidebar-group";
 import { DirectoryRowActions } from "../app/directory-row-actions";
@@ -145,13 +148,7 @@ export function SpaceDirectory(input: {
 		items.map((item) => [item.spaceId, item.messagePreview])
 	);
 	const activity = new Map(
-		items.map((item) => [
-			item.spaceId,
-			resolveConversationTimestamp(
-				previews.get(item.spaceId)?.timestamp,
-				item.spaceCreatedAt
-			) ?? 0,
-		])
+		items.map((item) => [item.spaceId, resolveAccountSpaceRecency(item)])
 	);
 	const attention = new Set(
 		[...indicators.activeWakeSummaryBySpaceId]
@@ -216,7 +213,7 @@ export function SpaceDirectory(input: {
 	const discovering = input.tab === 1;
 	const discoverable = input.spaces.filter(
 		(space) =>
-			!space.joined &&
+			!(space.joined || input.accountSpaceItemsById.has(space.spaceId)) &&
 			space.visibility === "public" &&
 			space.name.toLowerCase().includes(searchTerm)
 	);

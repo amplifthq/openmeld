@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
+import { resolveAccountSpaceRecency } from "#/lib/spaces/account-spaces";
 import { selectAccountSpaceSections } from "./account-space-sections";
 import {
 	type Conversation,
@@ -49,7 +50,7 @@ export function useConversations(input: {
 			spaceId: item.spaceId,
 			title: item.spaceName,
 			profileId,
-			activity: item.messagePreview?.timestamp ?? 0,
+			activity: resolveAccountSpaceRecency(item),
 			url: buildOrganizationSpacePath({
 				orgSlug: org.slug,
 				spaceId: item.spaceId,
@@ -66,7 +67,10 @@ export function useConversations(input: {
 			spaceId: chat.spaceId,
 			title: directMessages.title(chat),
 			profileId: chat.viewerProfileId ?? profileId,
-			activity: preview?.data?.timestamp ?? 0,
+			activity: Math.max(
+				preview?.data?.timestamp ?? 0,
+				Date.parse(chat.createdAt ?? "") || 0
+			),
 			url: directMessages.chatPath(chat),
 		});
 	}

@@ -114,6 +114,18 @@ acceptance.
 
 ## Space creation feedback
 
+The account Space query uses one `reconcileAccountSpaceSections` owner for
+accepted Create/Join receipts, accepted message previews, and pending Pin
+choices. Sidebar and Browse render that same query. Receipts bridge a stale
+index read, clear when its projection catches up, and are not persisted as
+membership authority. Recent activity includes creation and joining even when
+a Space has no messages. Discover excludes current account memberships.
+
+Leave removes the visible entry and navigates away before requesting membership
+revocation. Success clears the departed conversation's read cache; it does not
+refetch the now inaccessible Space. Failure restores only that entry and shows
+the server's error. Other pending entries remain intact.
+
 Create opens the conversation immediately with the submitted name, shared Space
 header and tabs, and the normal editable composer. A small `Preparing…` notice
 is centered in the empty message area using shared `TextShimmer`, with static

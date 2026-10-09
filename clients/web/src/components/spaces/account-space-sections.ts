@@ -16,9 +16,89 @@ const ACCOUNT_SPACE_PIN_OVERLAY_CLEARS = Symbol(
 );
 const ACCOUNT_SPACE_PIN_OVERLAY_MAX_AGE_MS = 60_000;
 const ACCOUNT_SPACE_ACCEPTED_MESSAGE = Symbol("account-space-accepted-message");
+const ACCOUNT_SPACE_ACCEPTED_MEMBERSHIP = Symbol(
+	"account-space-accepted-membership"
+);
+const ACCOUNT_SPACE_MEMBERSHIP_REMOVALS = Symbol(
+	"account-space-membership-removals"
+);
+type AccountSpaceMembershipRemovals = AccountSpaceSections & {
+	[ACCOUNT_SPACE_MEMBERSHIP_REMOVALS]?: ReadonlySet<string>;
+};
+type AcceptedMembershipItem = AccountSpaceItem & {
+	[ACCOUNT_SPACE_ACCEPTED_MEMBERSHIP]?: { expiresAtMs: number };
+};
 type AcceptedMessageItem = AccountSpaceItem & {
 	[ACCOUNT_SPACE_ACCEPTED_MESSAGE]?: { expiresAtMs: number };
 };
+
+export function applyAcceptedAccountSpaceMembership(
+	sections: AccountSpaceSections,
+	item: AccountSpaceItem,
+	receipt = { expiresAtMs: Date.now() + 30_000 }
+): AccountSpaceSections {
+	const existing = findAccountSpaceItem(sections, item.spaceId);
+	const next = { ...existing, ...item };
+	Object.defineProperty(next, ACCOUNT_SPACE_ACCEPTED_MEMBERSHIP, {
+		value: receipt,
+	});
+	return buildAccountSpacePinSections(
+		sections,
+		[...sections.pinnedItems, ...sections.spaceItems]
+			.filter((entry) => entry.spaceId !== item.spaceId)
+			.concat(next)
+	);
+}
+
+export function removeAccountSpaceFromSections(
+	sections: AccountSpaceSections,
+	spaceId: string
+): AccountSpaceSections {
+	const next = {
+		...sections,
+		pinnedItems: sections.pinnedItems.filter(
+			(item) => item.spaceId !== spaceId
+		),
+		spaceItems: sections.spaceItems.filter((item) => item.spaceId !== spaceId),
+	};
+	Object.defineProperty(next, ACCOUNT_SPACE_MEMBERSHIP_REMOVALS, {
+		value: new Set([spaceId]),
+	});
+	return next;
+}
+
+function preserveAcceptedAccountSpaceMemberships(
+	previous: AccountSpaceSections,
+	incoming: AccountSpaceSections,
+	removals?: ReadonlySet<string>
+): AccountSpaceSections {
+	let next = incoming;
+	for (const item of [...previous.pinnedItems, ...previous.spaceItems]) {
+		const receipt = (item as AcceptedMembershipItem)[
+			ACCOUNT_SPACE_ACCEPTED_MEMBERSHIP
+		];
+		if (
+			!receipt ||
+			removals?.has(item.spaceId) ||
+			Date.now() >= receipt.expiresAtMs
+		) {
+			continue;
+		}
+		const ownerItem = findAccountSpaceItem(next, item.spaceId);
+		if (
+			ownerItem &&
+			Date.parse(ownerItem.lastJoinedAt) >= Date.parse(item.lastJoinedAt)
+		) {
+			continue;
+		}
+		next = applyAcceptedAccountSpaceMembership(
+			next,
+			{ ...ownerItem, ...item },
+			receipt
+		);
+	}
+	return next;
+}
 
 export function applyAcceptedAccountSpaceMessage(
 	sections: AccountSpaceSections,
@@ -277,7 +357,7 @@ export function restoreAccountSpaceItemAfterPinFailure(
 	return sections;
 }
 
-export function preserveOptimisticAccountSpacePinUpdates(
+export function reconcileAccountSpaceSections(
 	previous: unknown,
 	incoming: unknown
 ): unknown {
@@ -326,7 +406,16 @@ export function preserveOptimisticAccountSpacePinUpdates(
 		}
 		next = applyAccountSpacePinOverlay(next, ownerItem, overlay);
 	}
-	const reconciled = preserveAcceptedAccountSpaceMessages(previous, next);
+	const reconciled = preserveAcceptedAccountSpaceMessages(
+		previous,
+		preserveAcceptedAccountSpaceMemberships(
+			previous,
+			next,
+			(incoming as AccountSpaceMembershipRemovals)[
+				ACCOUNT_SPACE_MEMBERSHIP_REMOVALS
+			]
+		)
+	);
 	// Query delegates structural sharing entirely to this function. Keep its
 	// normal no-change reuse unless a snapshot carries non-JSON convergence
 	// receipts: replaceEqualDeep must not drop or resurrect those Symbols.
@@ -337,6 +426,8 @@ export function preserveOptimisticAccountSpacePinUpdates(
 		...reconciled.spaceItems,
 	].some(
 		(item) =>
+			(item as AcceptedMembershipItem)[ACCOUNT_SPACE_ACCEPTED_MEMBERSHIP] !==
+				undefined ||
 			readAccountSpacePinOverlay(item) !== null ||
 			(item as AcceptedMessageItem)[ACCOUNT_SPACE_ACCEPTED_MESSAGE] !==
 				undefined

@@ -16,7 +16,7 @@ import type {
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import {
 	applyAcceptedAccountSpaceMessage,
-	preserveOptimisticAccountSpacePinUpdates,
+	reconcileAccountSpaceSections,
 } from "./account-space-sections";
 import { useAccountSpacePinMutation } from "./use-account-space-pin-mutation";
 
@@ -306,7 +306,7 @@ it("keeps a confirmed message preview through index lag but accepts convergence 
 		applyAcceptedAccountSpaceMessage(accepted, "chat", preview).spaceItems[0]
 			?.recentMessagePreviews
 	).toEqual([preview, previous]);
-	const lagging = preserveOptimisticAccountSpacePinUpdates(
+	const lagging = reconcileAccountSpaceSections(
 		accepted,
 		sections
 	) as AccountSpaceSections;
@@ -322,13 +322,9 @@ it("keeps a confirmed message preview through index lag but accepts convergence 
 			messagePreview: preview,
 		})),
 	};
-	expect(preserveOptimisticAccountSpacePinUpdates(lagging, converged)).toEqual(
-		converged
-	);
+	expect(reconcileAccountSpaceSections(lagging, converged)).toEqual(converged);
 	vi.advanceTimersByTime(30_001);
-	expect(preserveOptimisticAccountSpacePinUpdates(lagging, sections)).toEqual(
-		sections
-	);
+	expect(reconcileAccountSpaceSections(lagging, sections)).toEqual(sections);
 	vi.useRealTimers();
 });
 
@@ -365,7 +361,7 @@ function createQueryClient(sections: AccountSpaceSections): QueryClient {
 			mutations: { retry: false },
 			queries: {
 				retry: false,
-				structuralSharing: preserveOptimisticAccountSpacePinUpdates,
+				structuralSharing: reconcileAccountSpaceSections,
 			},
 		},
 	});

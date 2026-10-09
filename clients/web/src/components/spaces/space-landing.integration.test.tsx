@@ -3212,10 +3212,10 @@ describe("SpaceLanding", () => {
 		expect(removeQueriesMock).toHaveBeenCalledWith({
 			queryKey: ["space-files", "space-123"],
 		});
-		expect(invalidateQueriesMock).toHaveBeenCalledWith({
+		expect(invalidateQueriesMock).not.toHaveBeenCalledWith({
 			queryKey: ["spaces", "status", "space-123", DEFAULT_SPACE_PROFILE_ID],
 		});
-		expect(invalidateQueriesMock).toHaveBeenCalledWith({
+		expect(invalidateQueriesMock).not.toHaveBeenCalledWith({
 			queryKey: ["spaces", "members", "space-123", DEFAULT_SPACE_PROFILE_ID],
 		});
 		expect(invalidateQueriesMock).toHaveBeenCalledWith({
@@ -3223,7 +3223,7 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("shows creator-forbidden leave errors without navigating away", async () => {
+	it("reports refused Leave after optimistically returning to the list", async () => {
 		const leaveSpaceMock = vi.fn().mockRejectedValue({
 			code: "space.leave_space.creator_forbidden",
 			message:
@@ -3261,12 +3261,18 @@ describe("SpaceLanding", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Leave space" }));
 		fireEvent.click(screen.getByRole("button", { name: "Confirm leave" }));
 
-		expect(
-			await screen.findByText(
-				"The space creator cannot leave this space. Delete the space instead when only you remain."
+		await waitFor(() =>
+			expect(toastMock.error).toHaveBeenCalledWith(
+				"Leave failed: The space creator cannot leave this space. Delete the space instead when only you remain."
 			)
-		).toBeTruthy();
-		expect(useNavigateMock).not.toHaveBeenCalled();
+		);
+		expect(useNavigateMock).toHaveBeenCalledWith({
+			to: "/o/acme/spaces",
+			replace: true,
+		});
+		expect(useNavigateMock.mock.invocationCallOrder[0]).toBeLessThan(
+			leaveSpaceMock.mock.invocationCallOrder[0]
+		);
 	});
 
 	it("navigates away before delete finishes and retains account space history", async () => {

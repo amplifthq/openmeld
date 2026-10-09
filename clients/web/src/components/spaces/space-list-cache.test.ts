@@ -8,7 +8,7 @@ import {
 	optimisticallyDeleteSpaceInListCaches,
 	optimisticallyRemoveSpaceFromListCaches,
 	restoreSpaceListCaches,
-} from "./space-delete-cache";
+} from "./space-list-cache";
 
 describe("Space delete list caches", () => {
 	it("marks a deleted Space in the personal list and rolls back only that item", async () => {
