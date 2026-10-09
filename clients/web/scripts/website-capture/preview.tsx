@@ -1,5 +1,6 @@
 import { Button } from "@openmeld/ui/components/button";
 import { TooltipProvider } from "@openmeld/ui/components/tooltip";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	SIDEBAR_ICON_WIDTH,
 	SIDEBAR_MIN_WIDTH,
@@ -664,16 +665,23 @@ function Conversation({
 	return (
 		<div className="relative flex h-full min-h-0 min-w-0 flex-1">
 			<div className="flex min-h-0 min-w-0 flex-1 flex-col">
-				<div
-					className="min-h-0 flex-1 overflow-auto px-6 pt-7 pb-4"
-					onScroll={() => {
-						const node = scrollRef.current;
-						if (node) {
-							followLatest.current =
-								node.scrollHeight - node.scrollTop - node.clientHeight < 80;
-						}
+				<ScrollArea
+					className="min-h-0 flex-1"
+					contentClassName="px-6 pt-7 pb-4"
+					viewportClassName="overscroll-contain contain-content"
+					viewportProps={{
+						"aria-label": "Conversation history",
+						"aria-live": "polite",
+						role: "log",
+						onScroll: () => {
+							const node = scrollRef.current;
+							if (node) {
+								followLatest.current =
+									node.scrollHeight - node.scrollTop - node.clientHeight < 80;
+							}
+						},
 					}}
-					ref={scrollRef}
+					viewportRef={scrollRef}
 				>
 					<div className="flex w-full flex-col gap-0">
 						{(isReport
@@ -744,7 +752,7 @@ function Conversation({
 							<DemoTurnMessages key={turn.id} turn={turn} />
 						))}
 					</div>
-				</div>
+				</ScrollArea>
 				<div className="w-full px-6 pb-4">
 					{id === "agent-work" ? (
 						<Button
@@ -1051,17 +1059,24 @@ function DemoThreadPanel({
 			width={width}
 		>
 			<ThreadPanelHeader onClose={onClose} onGoToMessage={onGoToMessage} />
-			<div
-				className="min-h-0 flex-1 overflow-auto px-4 py-3"
+			<ScrollArea
+				className="min-h-0 flex-1"
+				contentClassName="px-4 py-3"
 				key={thread?.id}
-				onScroll={() => {
-					const node = scrollRef.current;
-					if (node) {
-						followLatest.current =
-							node.scrollHeight - node.scrollTop - node.clientHeight < 80;
-					}
+				viewportClassName="overscroll-contain contain-content"
+				viewportProps={{
+					"aria-label": "Thread history",
+					"aria-live": "polite",
+					role: "log",
+					onScroll: () => {
+						const node = scrollRef.current;
+						if (node) {
+							followLatest.current =
+								node.scrollHeight - node.scrollTop - node.clientHeight < 80;
+						}
+					},
 				}}
-				ref={scrollRef}
+				viewportRef={scrollRef}
 			>
 				{root && thread && (
 					<>
@@ -1081,7 +1096,7 @@ function DemoThreadPanel({
 				{turns.map((turn) => (
 					<DemoTurnMessages key={turn.id} turn={turn} />
 				))}
-			</div>
+			</ScrollArea>
 			{thread && (
 				<div className="w-full px-4 pb-4">
 					<DemoConversationComposer

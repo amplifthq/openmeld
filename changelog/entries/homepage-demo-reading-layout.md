@@ -9,6 +9,8 @@ audiences: ["users"]
 The homepage demo opens billing review in a readable Thread panel alongside the
 main conversation and Members. Compact navigation shows complete Space names,
 panel headers align, and Product navigation centers the demo in the window.
+Conversation and Thread histories use the product's scroll area with gentle
+edge fades as messages move out of view.
 
 Space settings and panel close buttons also align in the app. Thread and Members
 headers use the same height, including while a thread loads.

@@ -39,6 +39,12 @@ connect providers, or persist changes. Transport and preference adapters are
 replaced during compilation. Billing review starts open on desktop; patch review
 and phone threads start closed. Their compact previews open the real resizable
 panel shell, header, message primitives, and Composer.
+Main conversation and Thread viewports reuse `@openmeld/ui/fluid/scroll-area`,
+the same scroll presentation owner composed by the product MessageScroller.
+Its measured 12px edge fades soften hidden messages below the header and above
+the Composer; visible content at the start or end stays clear. Demo transcript
+padding belongs to the content slot, and local follow behavior targets the
+shared viewport.
 The Members panel stays open on desktop and uses a smaller demo-specific resize
 limit. Its Live and You labels are hidden to reserve more reading space for
 Thread, which has wider default and minimum widths.
