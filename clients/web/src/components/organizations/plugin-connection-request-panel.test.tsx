@@ -1,4 +1,10 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TestQueryClientProvider } from "#/test-support/query-client";
 import { PluginConnectionRequestPanel } from "./plugin-connection-request-panel";
@@ -53,6 +59,29 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 describe("private channel request page reuses setup without becoming an authority", () => {
+	it("recovers a failed provider catalog through the visible retry action", async () => {
+		let catalogUnavailable = true;
+		mocks.request.mockImplementation(({ operation }) => {
+			if (operation === "plugin.channel.preview") {
+				return Promise.resolve(preview);
+			}
+			return catalogUnavailable
+				? Promise.reject(new Error("Provider catalog unavailable"))
+				: Promise.resolve({ organizationId: "org", providers: [] });
+		});
+		render(
+			<TestQueryClientProvider>
+				<PluginConnectionRequestPanel requestId="request" service="github" />
+			</TestQueryClientProvider>
+		);
+		expect(await screen.findByRole("alert")).toBeTruthy();
+		expect(mocks.panel).not.toHaveBeenCalled();
+		catalogUnavailable = false;
+		fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+		expect(
+			await screen.findByText("Existing shared setup surface")
+		).toBeTruthy();
+	});
 	it("uses only server-verified service and account intent, and rendering never starts continuation", async () => {
 		render(
 			<TestQueryClientProvider>

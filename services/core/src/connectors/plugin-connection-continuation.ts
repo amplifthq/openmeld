@@ -21,6 +21,7 @@ import {
   readOrganizationRouteSlug,
   resolveActiveOrganizationMembership,
 } from "../organizations/organization-context";
+import { resolveNativeDeliveryReplyThreadContext } from "../remote-agent/application/reply-placement";
 import { readRemoteAgentNativeDeliveryByExecution } from "../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
@@ -383,7 +384,10 @@ async function readContinuationSource(
       dispatchId: delivery.dispatchId,
       createdAtMs: delivery.createdAtMs,
       completedAtMs: delivery.completedAtMs,
-      threadContext: delivery.threadContext,
+      threadContext: await resolveNativeDeliveryReplyThreadContext({
+        env,
+        delivery,
+      }),
     },
     sender: { profileId: sender.profileId, displayName: sender.displayName },
     consumer: {

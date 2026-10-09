@@ -108,6 +108,31 @@ describe("Plugin continuation source and identity constraints", () => {
       assertPluginContinuationSource({ ...f, dispatch: null })
     ).toThrow("original request");
   });
+  it("keeps a native main request separate from its published reply Thread", () => {
+    const f = fixture();
+    const nativeSource = nativeFixture(f);
+    const replyThread = {
+      threadId: "thr_11111111-1111-4111-8111-111111111111",
+      rootSignalId: f.source.id,
+    };
+    f.binding.threadContext = replyThread;
+    expect(() =>
+      assertPluginContinuationSource({
+        ...f,
+        dispatch: null,
+        nativeSource,
+        replyThread,
+      })
+    ).not.toThrow();
+    expect(() =>
+      assertPluginContinuationSource({
+        ...f,
+        dispatch: null,
+        nativeSource,
+        replyThread: { ...replyThread, rootSignalId: "another-request" },
+      })
+    ).toThrow("original request");
+  });
   it.each([
     "missing-request",
     "wrong-requester",

@@ -71,7 +71,10 @@ export function PluginConnectionRequestPanel(input: {
 						catalog.error?.message ??
 						"This link does not match the original request. Open it from the original conversation using the same OpenMeld account."}
 				</p>
-				<Button onClick={() => preview.refetch()} variant="outline">
+				<Button
+					onClick={() => Promise.all([catalog.refetch(), preview.refetch()])}
+					variant="outline"
+				>
 					Try again
 				</Button>
 			</div>

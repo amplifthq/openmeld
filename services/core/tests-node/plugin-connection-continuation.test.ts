@@ -24,6 +24,7 @@ const owner = vi.hoisted(() => ({
   localProfile: vi.fn(),
   localPermission: vi.fn(),
   localBinding: vi.fn(),
+  replyPlacement: vi.fn(),
 }));
 vi.mock("../src/organizations/organization-context", () => ({
   resolveActiveOrganizationMembership: owner.membership,
@@ -58,7 +59,7 @@ vi.mock(
   () => ({ readPrimaryAgentProfileBindingRecord: owner.localBinding })
 );
 
-const request = createSubmitTurnRequest();
+const request = createSubmitTurnRequest({ spaceId: "a".repeat(64) });
 const humanId = request.author.profileId as string;
 const env = {
   OPENMELD_POSTGRESQL: {
@@ -66,7 +67,11 @@ const env = {
       "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
   },
   WEB_APP_URL: "https://openmeld.ai",
-} as CoreBindings;
+  OPENMELD_SPACES: {
+    idFromString: (id: string) => id,
+    get: () => ({ rpcResolveNativeReplyPlacement: owner.replyPlacement }),
+  },
+} as unknown as CoreBindings;
 const input = {
   spaceId: request.spaceId,
   sourceSignalId: "reply-1",
@@ -164,6 +169,13 @@ describe("Plugin continuation keeps existing identity and Wake owners", () => {
       ],
     });
     owner.delivery.mockResolvedValue(delivery());
+    owner.replyPlacement.mockResolvedValue({
+      dispatchId: request.dispatchId,
+      sourceSignalId: request.triggerMessageId,
+      profileId: request.agentProfileId,
+      threadContext: delivery().threadContext,
+      locked: true,
+    });
     owner.connection.mockResolvedValue({
       connection: {
         connectionName: "github-member",
@@ -245,6 +257,29 @@ describe("Plugin continuation keeps existing identity and Wake owners", () => {
       expect.objectContaining({
         connectionName: "github-member",
         effect: "read",
+      })
+    );
+  });
+
+  it("continues a main-conversation request inside the Thread owned by its published native reply", async () => {
+    owner.delivery.mockResolvedValue(delivery({ threadContext: null }));
+    await continuePluginConnection(env, input);
+    expect(owner.replyPlacement).toHaveBeenCalledWith(
+      expect.objectContaining({
+        spaceId: request.spaceId,
+        dispatchId: request.dispatchId,
+        sourceSignalId: request.triggerMessageId,
+        profileId: request.agentProfileId,
+        lock: true,
+      })
+    );
+    expect(owner.post).toHaveBeenCalledWith(
+      env,
+      expect.objectContaining({
+        threadContext: delivery().threadContext,
+        pluginContinuation: expect.objectContaining({
+          threadContext: delivery().threadContext,
+        }),
       })
     );
   });
