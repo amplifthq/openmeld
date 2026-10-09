@@ -3,11 +3,12 @@ import { pluginConnectionContinuationBindingSchema } from "@openmeld/schemas";
 import type { SignalEnvelope } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import { createSubmitTurnRequest } from "../../remote-agent/tests/fixtures";
+import { pluginContinuationTextDigest } from "../src/connectors/plugin-connection-source-fingerprint";
+import { buildRuntimeTransportDeliverDispatchRequest } from "../src/dispatch/infrastructure/runtime-transport/runtime-coordinator-client";
 import type { RemoteAgentNativeDeliveryRecord } from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
-import {
-  pluginContinuationMessageFingerprint,
-  pluginContinuationTextDigest,
-} from "../src/space/application/plugin-connection-continuation-guard";
+import { buildRuntimeCoordinatorRunCommandStateStorageKey } from "../src/runtime-transport/application/runtime-coordinator-authority";
+import type { RuntimeTransportHub } from "../src/runtime-transport/transport/do/runtime-transport-hub";
+import { pluginContinuationMessageFingerprint } from "../src/space/application/plugin-connection-continuation-guard";
 import type { SignalPublishContext } from "../src/space/application/types";
 import {
   createDispatchOutboxRecord,
@@ -18,6 +19,10 @@ import { upsertSpaceMemberRecord } from "../src/space/infrastructure/sql/space-m
 import { upsertSpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
 import { insertSignalRecord } from "../src/space/infrastructure/sql/space-signal-repo";
 import type { Space } from "../src/space/transport/do/space";
+import {
+  createRetainedRuntimeCommandState,
+  createRuntimeTransportDeliveryInput,
+} from "../test-support/runtime-transport-delivery.test-support";
 
 const human = "55555555-5555-4555-8555-555555555555";
 const agent = "agt_33333333-3333-4333-8333-333333333333";
@@ -33,7 +38,111 @@ describe("Plugin continuation at the real Space persistence transaction", () => 
       env as unknown as { OPENMELD_SPACES: DurableObjectNamespace<Space> }
     ).OPENMELD_SPACES;
     const stub = namespace.get(namespace.newUniqueId());
+    const runtimeNamespace = (
+      env as unknown as {
+        OPENMELD_RUNTIME_TRANSPORT: DurableObjectNamespace<RuntimeTransportHub>;
+      }
+    ).OPENMELD_RUNTIME_TRANSPORT;
+    const runtimeShard = runtimeNamespace.get(
+      runtimeNamespace.idFromName("user-continuation")
+    );
     const spaceId = stub.id.toString();
+    const source: Extract<SignalEnvelope, { type: "signal.text" }> = {
+      v: 1,
+      id: "source",
+      spaceId,
+      ts: Date.now(),
+      type: "signal.text",
+      profile: { kind: "human", profileId: human, profileName: "Maya" },
+      data: {
+        text: "Review",
+        messageEnvelope: {
+          text: "Review",
+          activationTargets: [agent],
+          referenceTargets: [],
+        },
+      },
+    };
+    const dispatch = createDispatchOutboxRecord({
+      bindingEnabled: true,
+      bindingState: "bound",
+      dispatchPolicy: "mention_only",
+      ruleSource: "space",
+      ruleId: "space.default.all_members.v1",
+      ruleReason: "explicit Wake",
+      spaceId,
+      organizationId: "org-continuation",
+      sourceEventId: source.id,
+      sourceClientMessageId: "original",
+      targetProfileId: agent,
+      senderProfileId: human,
+      sourceSignalSnapshot: {
+        text: "Review",
+        profileId: human,
+        profileKind: "human",
+      },
+      sourceMessageEnvelope: source.data.messageEnvelope,
+      nowMs: Date.now(),
+    });
+    const reply: typeof source = {
+      ...source,
+      id: "reply",
+      profile: { kind: "agent", profileId: agent, profileName: "Helper" },
+      data: { text: "Connect", meta: { dispatchId: dispatch.dispatchId } },
+    };
+    const deliveryInput = createRuntimeTransportDeliveryInput();
+    const delivery = buildRuntimeTransportDeliverDispatchRequest({
+      ...deliveryInput,
+      ownerUserId: "user-continuation",
+      executionIdentity: {
+        ...deliveryInput.executionIdentity,
+        core: {
+          ...deliveryInput.executionIdentity.core,
+          spaceId,
+          dispatchId: dispatch.dispatchId,
+          targetProfileId: agent,
+          bindingId: "binding-local",
+        },
+      },
+      message: {
+        ...deliveryInput.message,
+        spaceId,
+        dispatchId: dispatch.dispatchId,
+        targetProfileId: agent,
+        sourceEventId: source.id,
+        enqueuedAtMs: dispatch.createdAtMs,
+        sourceSignalSnapshot: {
+          text: "Review",
+          profileId: human,
+          profileKind: "human",
+        },
+        sourceMessageEnvelope: source.data.messageEnvelope,
+      },
+      sourceSignal: {
+        profileId: human,
+        profileKind: "human",
+        text: "Review",
+      },
+    });
+    const retained = createRetainedRuntimeCommandState(delivery);
+    await runInDurableObject(runtimeShard, async (_instance, ownerState) => {
+      await ownerState.storage.put(
+        buildRuntimeCoordinatorRunCommandStateStorageKey(
+          retained.runtimeCoordinatorExecutionId
+        ),
+        retained
+      );
+    });
+    const localSource = (
+      await runtimeShard.rpcReadPluginConnectionExecutionSource({
+        ownerUserId: "user-continuation",
+        executionId: retained.runtimeCoordinatorExecutionId,
+        spaceId,
+        dispatchId: dispatch.dispatchId,
+        targetProfileId: agent,
+      })
+    ).source;
+    expect(localSource).not.toBeNull();
     await runInDurableObject(stub, async (instance, state) => {
       // This transaction test owns its direct calls. Automatic recovery of the
       // pending dispatch is covered separately and must not race its teardown.
@@ -84,59 +193,26 @@ describe("Plugin continuation at the real Space persistence transaction", () => 
             updatedAt: now,
           });
         }
-        const source: Extract<SignalEnvelope, { type: "signal.text" }> = {
-          v: 1,
-          id: "source",
-          spaceId,
-          ts: Date.now(),
-          type: "signal.text",
-          profile: { kind: "human", profileId: human, profileName: "Maya" },
-          data: {
-            text: "Review",
-            messageEnvelope: {
-              text: "Review",
-              activationTargets: [agent],
-              referenceTargets: [],
-            },
-          },
-        };
-        const dispatch = createDispatchOutboxRecord({
-          bindingEnabled: true,
-          bindingState: "bound",
-          dispatchPolicy: "mention_only",
-          ruleSource: "space",
-          ruleId: "space.default.all_members.v1",
-          ruleReason: "explicit Wake",
-          spaceId,
-          organizationId: "org-continuation",
-          sourceEventId: source.id,
-          sourceClientMessageId: "original",
-          targetProfileId: agent,
-          senderProfileId: human,
-          sourceSignalSnapshot: {
-            text: "Review",
-            profileId: human,
-            profileKind: "human",
-          },
-          sourceMessageEnvelope: source.data.messageEnvelope,
-          nowMs: Date.now(),
-        });
         insertDispatchOutboxRecord(state.storage.sql, dispatch);
-        const reply: typeof source = {
-          ...source,
-          id: "reply",
-          profile: { kind: "agent", profileId: agent, profileName: "Helper" },
-          data: { text: "Connect", meta: { dispatchId: dispatch.dispatchId } },
-        };
         insertSignalRecord(state.storage.sql, source);
         insertSignalRecord(state.storage.sql, reply);
+        // Both execution families retire the conveyor after admission. Neither
+        // preview nor insertion may depend on a queued dispatch remaining here.
+        state.storage.sql.exec(
+          "DELETE FROM openMeldDaemon_outbox WHERE dispatch_id = ?",
+          dispatch.dispatchId
+        );
         // Local completion uses the RuntimeCoordinator trace. Neither a final
         // message nor D1 dispatch provenance alone is treated as completed work.
         const trace = {
-          dispatch: { dispatchId: dispatch.dispatchId },
+          dispatch: {
+            dispatchId: dispatch.dispatchId,
+            owner: { kind: "owner_account", id: "user-continuation" },
+          },
           result: { publishedSignalId: reply.id, statusType: null },
           runtimeCoordinatorExecution: {
-            runtimeCoordinatorExecutionId: "execution-local",
+            runtimeCoordinatorExecutionId:
+              retained.runtimeCoordinatorExecutionId,
             bindingId: "binding-local",
             spaceId,
             dispatchId: dispatch.dispatchId,
@@ -169,7 +245,7 @@ describe("Plugin continuation at the real Space persistence transaction", () => 
           await instance.rpcReadPluginConnectionLocalSource(localInput)
         ).toMatchObject({
           bindingId: "binding-local",
-          executionId: "execution-local",
+          executionId: retained.runtimeCoordinatorExecutionId,
           sourceSignalId: source.id,
         });
         trace.runtimeCoordinatorExecution.status = "running";
@@ -219,14 +295,10 @@ describe("Plugin continuation at the real Space persistence transaction", () => 
           state.storage.sql
         );
         repo.reserve("plugin-continue:one", binding);
-        let signalContext: SignalPublishContext | undefined;
+        let signalContext: SignalPublishContext = {
+          pluginContinuationLocalSource: localSource ?? undefined,
+        };
         if (runtime === "native") {
-          // Native completion normally retires this conveyor. Preserve only
-          // the canonical completed execution request for admission checks.
-          state.storage.sql.exec(
-            "DELETE FROM openMeldDaemon_outbox WHERE dispatch_id = ?",
-            dispatch.dispatchId
-          );
           const request = createSubmitTurnRequest({
             organizationId: binding.organizationId,
             spaceId,

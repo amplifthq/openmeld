@@ -52,6 +52,9 @@ import {
   OPENMELD_REASONING_STREAM_HEADER,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
   openMeldToolsControlResultSchema,
+  type PluginConnectionExecutionSourceRequest,
+  pluginConnectionExecutionSourceRequestSchema,
+  pluginConnectionExecutionSourceResponseSchema,
   postSpaceDispatchOutboxRedriveBodySchema,
   postSpaceDispatchOutboxRedriveResponseSchema,
   projectTargetWakeLifecycleIdentity,
@@ -591,6 +594,7 @@ import {
   projectRuntimeCoordinatorInteractionInboxItem,
   resolveRuntimeCoordinatorInteractionInboxItem,
 } from "../../application/runtime-coordinator-interaction-inbox-producer";
+import { projectPluginConnectionExecutionSource } from "../../application/runtime-coordinator-plugin-connection-source";
 import { processRuntimeCoordinatorPreExecutionHandoffAlarm as processRuntimeCoordinatorPreExecutionHandoffAlarmWithPorts } from "../../application/runtime-coordinator-pre-execution-handoff-alarm";
 import {
   appendRuntimeCoordinatorDecisionRecordToStorage,
@@ -1861,6 +1865,21 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         ? { allowed: true }
         : { allowed: false, reasonCode: validation.reasonCode }
     );
+  }
+
+  async rpcReadPluginConnectionExecutionSource(
+    raw: PluginConnectionExecutionSourceRequest
+  ) {
+    const parsed = pluginConnectionExecutionSourceRequestSchema.safeParse(raw);
+    if (!parsed.success) {
+      return { source: null };
+    }
+    const state = await this.readRuntimeCoordinatorRunCommandState(
+      parsed.data.executionId
+    );
+    return pluginConnectionExecutionSourceResponseSchema.parse({
+      source: projectPluginConnectionExecutionSource(parsed.data, state),
+    });
   }
 
   async rpcReadAgentProfileExecutionState(

@@ -1,19 +1,21 @@
-import { createHash } from "node:crypto";
-import type { PluginConnectionContinuationBinding } from "@openmeld/schemas";
+import type {
+  PluginConnectionContinuationBinding,
+  PluginConnectionExecutionSource,
+} from "@openmeld/schemas";
 import { normalizeMessageEnvelope } from "@openmeld/schemas";
 import type {
   SignalEnvelope,
   SpaceThreadContext,
 } from "@openmeld/schemas/types";
 import { stringifyCanonicalJson } from "@openmeld/utils";
+import {
+  pluginConnectionSourceEnvelopeDigest,
+  pluginContinuationTextDigest,
+} from "../../connectors/plugin-connection-source-fingerprint";
 import type { RemoteAgentNativeDeliveryRecord } from "../../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { createCoreRpcHttpError } from "../../rpc/errors";
-import type { OpenMeldDaemonDispatchOutboxRecoveryCandidate } from "../infrastructure/outbox/dispatch-outbox-repo";
 
 export const PLUGIN_CONTINUATION_CLIENT_PREFIX = "plugin-continue:";
-export function pluginContinuationTextDigest(text: string): string {
-  return createHash("sha256").update(text).digest("hex");
-}
 
 /** Both the previewing Core caller and the accepting Space use this exact
  * projection. Revision catches edit-and-revert; content catches stale snapshots. */
@@ -57,30 +59,18 @@ export function assertPluginContinuationSource(input: {
   binding: PluginConnectionContinuationBinding;
   source: SignalEnvelope | null;
   reply: SignalEnvelope | null;
-  dispatch: OpenMeldDaemonDispatchOutboxRecoveryCandidate | null;
   nativeSource?: RemoteAgentNativeDeliveryRecord;
+  localSource?: PluginConnectionExecutionSource;
   sourceThread: SpaceThreadContext | null;
   replyThread: SpaceThreadContext | null;
 }) {
-  const { binding: b, source, reply, dispatch } = input;
+  const { binding: b, source, reply } = input;
   if (
     !(
       source?.type === "signal.text" &&
       reply?.type === "signal.text" &&
-      (dispatch || input.nativeSource)
+      (input.localSource || input.nativeSource)
     )
-  ) {
-    throw pluginContinuationConflict();
-  }
-  if (
-    dispatch &&
-    (dispatch.dispatchId !== b.sourceDispatchId ||
-      dispatch.spaceId !== b.spaceId ||
-      dispatch.organizationId !== b.organizationId ||
-      dispatch.sourceEventId !== source.id ||
-      dispatch.targetProfileId !== b.targetProfileId ||
-      dispatch.sourceSignalSnapshot?.profileId !== b.requesterProfileId ||
-      dispatch.outboxStatus === "cancelled")
   ) {
     throw pluginContinuationConflict();
   }
@@ -115,22 +105,30 @@ export function assertPluginContinuationSource(input: {
     });
     return;
   }
-  if (!dispatch) {
+  const local = input.localSource;
+  if (!local) {
     throw pluginContinuationConflict();
   }
-  // The outbox is the original admitted message snapshot, not a fresh client
-  // assertion. No post-dispatch edit may be accepted merely because Core saw it.
+  // RuntimeCoordinator retains admission after the conveyor is retired. This
+  // narrow read contains no credential and is never accepted from a browser.
   if (
-    !dispatch.sourceMessageEnvelope ||
-    dispatch.sourceMessageEnvelope.text !== source.data.text ||
-    (source.data.meta?.editedAt !== undefined &&
-      source.data.meta.editedAt >= dispatch.createdAtMs)
+    local.spaceId !== b.spaceId ||
+    local.dispatchId !== b.sourceDispatchId ||
+    local.targetProfileId !== b.targetProfileId ||
+    local.sourceSignalId !== source.id ||
+    local.requesterProfileId !== b.requesterProfileId ||
+    !source.data.messageEnvelope ||
+    source.data.messageEnvelope.text !== source.data.text ||
+    pluginConnectionSourceEnvelopeDigest(source.data.messageEnvelope) !==
+      local.sourceEnvelopeDigest ||
+    source.data.meta?.editedAt ||
+    (source.data.meta?.messageRevision ?? 0) !== 0
   ) {
     throw pluginContinuationConflict();
   }
   if (
     !(
-      sameThread(input.sourceThread, dispatch.threadContext ?? null) &&
+      sameThread(input.sourceThread, local.threadContext) &&
       sameThread(input.replyThread, b.threadContext)
     )
   ) {

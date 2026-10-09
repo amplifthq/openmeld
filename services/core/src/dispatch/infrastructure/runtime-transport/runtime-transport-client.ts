@@ -7,6 +7,10 @@ import {
   localProjectControlRemoveConnectionResultSchema,
   localProjectControlRemoveMissingConnectionsResultSchema,
   localProjectControlSetDefaultConnectionResultSchema,
+  type PluginConnectionExecutionSource,
+  type PluginConnectionExecutionSourceRequest,
+  pluginConnectionExecutionSourceRequestSchema,
+  pluginConnectionExecutionSourceResponseSchema,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   runtimeTransportAgentProfileExecutionStateRequestSchema,
   runtimeTransportAgentProfileExecutionStateResponseSchema,
@@ -267,6 +271,31 @@ export const releaseRuntimeTransportAgentProfileExecutionTargetMutation =
       await shard.rpcReleaseAgentProfileControllerMutation(request)
     );
   };
+
+export async function readRuntimeTransportPluginConnectionExecutionSource(
+  env: CoreBindings,
+  input: PluginConnectionExecutionSourceRequest
+): Promise<PluginConnectionExecutionSource | null> {
+  const request = pluginConnectionExecutionSourceRequestSchema.safeParse(input);
+  if (!request.success) {
+    return null;
+  }
+  const shard = resolveRuntimeTransportOwnerShard(
+    env,
+    request.data.ownerUserId
+  );
+  const response = await shard.rpcReadPluginConnectionExecutionSource(
+    request.data
+  );
+  const parsed =
+    pluginConnectionExecutionSourceResponseSchema.safeParse(response);
+  if (!parsed.success) {
+    throw new Error(
+      "runtime_coordinator.plugin_connection_source_response_invalid"
+    );
+  }
+  return parsed.data.source;
+}
 
 export const readRuntimeTransportAgentProfileExecutionState = async (input: {
   env: CoreBindings;

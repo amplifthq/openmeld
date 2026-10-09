@@ -1,3 +1,4 @@
+import type { PluginConnectionExecutionSource } from "@openmeld/schemas";
 import type {
   OpenMeldRequestContext,
   SpaceSignalAuthoringPolicy,
@@ -38,6 +39,8 @@ export type SignalPublishContext = {
   // Read by Space from the canonical native ledger before admission. Never
   // accepted from a browser payload; fresh message checks still commit in SQL.
   pluginContinuationNativeSource?: RemoteAgentNativeDeliveryRecord;
+  // Token-free original admission evidence read from the RuntimeCoordinator.
+  pluginContinuationLocalSource?: PluginConnectionExecutionSource;
   spaceTaskDeliveryId?: string;
   agentReplyObservation?: {
     observedThroughSignalId: string;

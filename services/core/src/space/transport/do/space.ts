@@ -351,7 +351,10 @@ import {
   respondToRuntimeTransportRuntimeCoordinatorInteraction,
 } from "../../../dispatch/infrastructure/runtime-transport/runtime-coordinator-client";
 import { callRuntimeTransportApi } from "../../../dispatch/infrastructure/runtime-transport/runtime-transport-api-client";
-import { cancelRuntimeTransportDeletedAgentProfileWakes } from "../../../dispatch/infrastructure/runtime-transport/runtime-transport-client";
+import {
+  cancelRuntimeTransportDeletedAgentProfileWakes,
+  readRuntimeTransportPluginConnectionExecutionSource,
+} from "../../../dispatch/infrastructure/runtime-transport/runtime-transport-client";
 import { resolveRuntimeTransportOwnerShard } from "../../../dispatch/infrastructure/runtime-transport/runtime-transport-shard";
 import {
   DISPATCH_STORAGE_OVERLOADED_ERROR_CODE,
@@ -5392,56 +5395,8 @@ export class Space extends DurableObject<CoreBindings> {
     return await withPostgresRequest(
       this.bindings.OPENMELD_POSTGRESQL,
       async () => {
-        const input = pluginConnectionLocalSourceRequestSchema.parse(raw);
-        this.applySpaceRef(input.spaceId);
-        const reply = this.readSourceTextSignalById(input.sourceSignalId);
-        if (
-          !(
-            input.context.actorContext.profileKind === "human" &&
-            reply?.profile.kind === "agent" &&
-            reply.data.meta?.dispatchId
-          ) ||
-          reply.data.meta.editedAt ||
-          reply.data.meta.recalledAt
-        ) {
-          throw pluginContinuationConflict();
-        }
-        // This authenticated trace reads RuntimeCoordinator, not a guessed D1 status.
-        const { trace } = await this.rpcGetDispatchTrace({
-          ...input,
-          dispatchId: reply.data.meta.dispatchId,
-        });
-        const execution = trace?.runtimeCoordinatorExecution;
-        if (
-          !(
-            execution?.status === "reply_published" &&
-            execution.terminalOutcome?.kind === "reply_published" &&
-            execution.spaceId === input.spaceId &&
-            execution.targetProfileId === reply.profile.profileId &&
-            execution.dispatchId === reply.data.meta.dispatchId &&
-            trace?.result?.publishedSignalId === reply.id &&
-            trace.result.statusType === null
-          )
-        ) {
-          throw pluginContinuationConflict();
-        }
-        const dispatch = readDispatchOutboxRecordByDispatchId(
-          this.ctx.storage.sql,
-          execution.dispatchId
-        );
-        const source =
-          dispatch && this.readSourceTextSignalById(dispatch.sourceEventId);
-        if (
-          !(
-            source?.profile.kind === "human" &&
-            source.profile.profileId ===
-              input.context.actorContext.openMeldProfileId &&
-            dispatch?.organizationId === input.context.activeOrganizationId
-          ) ||
-          source.data.meta?.recalledAt
-        ) {
-          throw pluginContinuationConflict();
-        }
+        const { execution, source, reply, completedAtMs } =
+          await this.readPluginConnectionLocalExecutionSource(raw);
         return pluginConnectionLocalSourceResponseSchema.parse({
           executionId: execution.runtimeCoordinatorExecutionId,
           bindingId: execution.bindingId,
@@ -5451,11 +5406,80 @@ export class Space extends DurableObject<CoreBindings> {
           requesterProfileId: source.profile.profileId,
           requesterDisplayName: source.profile.profileName,
           createdAtMs: execution.createdAtMs,
-          completedAtMs: execution.terminalOutcome.observedAtMs,
+          completedAtMs,
           threadContext: this.resolveThreadContextForSignal(reply.id),
         });
       }
     );
+  }
+  private async readPluginConnectionLocalExecutionSource(
+    raw: PluginConnectionLocalSourceRequest
+  ) {
+    const input = pluginConnectionLocalSourceRequestSchema.parse(raw);
+    this.applySpaceRef(input.spaceId);
+    const reply = this.readSourceTextSignalById(input.sourceSignalId);
+    if (
+      !(
+        input.context.actorContext.profileKind === "human" &&
+        reply?.profile.kind === "agent" &&
+        reply.data.meta?.dispatchId
+      ) ||
+      reply.data.meta.editedAt ||
+      reply.data.meta.recalledAt
+    ) {
+      throw pluginContinuationConflict();
+    }
+    // This authenticated trace reads RuntimeCoordinator, not a guessed D1 status.
+    const { trace } = await this.rpcGetDispatchTrace({
+      ...input,
+      dispatchId: reply.data.meta.dispatchId,
+    });
+    const execution = trace?.runtimeCoordinatorExecution;
+    if (
+      !(
+        execution?.status === "reply_published" &&
+        execution.terminalOutcome?.kind === "reply_published" &&
+        execution.spaceId === input.spaceId &&
+        execution.targetProfileId === reply.profile.profileId &&
+        execution.dispatchId === reply.data.meta.dispatchId &&
+        trace?.result?.publishedSignalId === reply.id &&
+        trace.result.statusType === null &&
+        trace.dispatch?.owner?.kind === "owner_account"
+      )
+    ) {
+      throw pluginContinuationConflict();
+    }
+    const provenance =
+      await readRuntimeTransportPluginConnectionExecutionSource(this.bindings, {
+        ownerUserId: trace.dispatch.owner.id,
+        executionId: execution.runtimeCoordinatorExecutionId,
+        spaceId: input.spaceId,
+        dispatchId: execution.dispatchId,
+        targetProfileId: execution.targetProfileId,
+      });
+    const source =
+      provenance && this.readSourceTextSignalById(provenance.sourceSignalId);
+    if (
+      !(
+        source?.profile.kind === "human" &&
+        source.profile.profileId ===
+          input.context.actorContext.openMeldProfileId &&
+        provenance?.requesterProfileId === source.profile.profileId &&
+        provenance.bindingId === execution.bindingId &&
+        this.readSpaceMetaRecord()?.organizationId ===
+          input.context.activeOrganizationId
+      ) ||
+      source.data.meta?.recalledAt
+    ) {
+      throw pluginContinuationConflict();
+    }
+    return {
+      execution,
+      source,
+      reply,
+      provenance,
+      completedAtMs: execution.terminalOutcome.observedAtMs,
+    };
   }
   async rpcPostPluginConnectionContinuation(
     input: PostSignalOnceByClientMessageIdInput & {
@@ -5557,11 +5581,8 @@ export class Space extends DurableObject<CoreBindings> {
         binding: record.binding,
         source: this.readSourceTextSignalById(record.binding.source.signalId),
         reply: this.readSourceTextSignalById(record.binding.reply.signalId),
-        dispatch: readDispatchOutboxRecordByDispatchId(
-          this.ctx.storage.sql,
-          record.binding.sourceDispatchId
-        ),
         nativeSource: signalContext?.pluginContinuationNativeSource,
+        localSource: signalContext?.pluginContinuationLocalSource,
         sourceThread: this.resolveThreadContextForSignal(
           record.binding.source.signalId
         ),
@@ -5707,11 +5728,28 @@ export class Space extends DurableObject<CoreBindings> {
           spaceId: input.spaceId,
         })
       : null;
+    if (continuation && !nativeSource && !input.context) {
+      throw pluginContinuationConflict();
+    }
+    const localSource =
+      continuation && !nativeSource && input.context
+        ? (
+            await this.readPluginConnectionLocalExecutionSource({
+              context: input.context,
+              spaceId: input.spaceId,
+              sourceSignalId: continuation.reply.signalId,
+              ...(input.password !== undefined
+                ? { password: input.password }
+                : {}),
+            })
+          ).provenance
+        : undefined;
     return await this.postAuthorizedTextSignal(
       input,
       String(input.text ?? "").trim(),
       workRecoveryQueueHandoff,
-      nativeSource ?? undefined
+      nativeSource ?? undefined,
+      localSource
     );
   }
   private buildIdempotentPostSignalInput(input: {
@@ -5937,7 +5975,8 @@ export class Space extends DurableObject<CoreBindings> {
     input: PostSignalInput,
     normalizedText: string,
     workRecoveryQueueHandoff?: SignalPublishContext["workRecoveryQueueHandoff"],
-    pluginContinuationNativeSource?: SignalPublishContext["pluginContinuationNativeSource"]
+    pluginContinuationNativeSource?: SignalPublishContext["pluginContinuationNativeSource"],
+    pluginContinuationLocalSource?: SignalPublishContext["pluginContinuationLocalSource"]
   ): Promise<SignalEnvelope> {
     const author = await authorizeRpcSignalWrite({
       authorizeSpacePasswordAccess:
@@ -5983,6 +6022,7 @@ export class Space extends DurableObject<CoreBindings> {
         }),
         workRecoveryQueueHandoff,
         pluginContinuationNativeSource,
+        pluginContinuationLocalSource,
         ...(input.agentStreamId ? { agentStreamId: input.agentStreamId } : {}),
         authoringPolicy: input.authoringPolicy,
         ...(input.finalOutcomeAuthority

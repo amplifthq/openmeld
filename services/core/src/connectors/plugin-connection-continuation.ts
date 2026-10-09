@@ -30,15 +30,13 @@ import {
   rpcPostSignalOnceByClientMessageId,
   rpcReadPluginConnectionLocalSource,
 } from "../rpc/methods";
-import {
-  pluginContinuationMessageFingerprint,
-  pluginContinuationTextDigest,
-} from "../space/application/plugin-connection-continuation-guard";
+import { pluginContinuationMessageFingerprint } from "../space/application/plugin-connection-continuation-guard";
 import { selectActiveConnectorConnection } from "./connector-connection-repository";
 import {
   requirePluginPermission,
   requireRemotePluginConnection,
 } from "./plugin-access";
+import { pluginContinuationTextDigest } from "./plugin-connection-source-fingerprint";
 import { requirePluginProfile } from "./plugin-local-caller";
 /** Provider callbacks never call this. The authenticated human explicitly
  * requests one new continuation Message; existing Wake and operation owners
