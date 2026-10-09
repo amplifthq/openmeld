@@ -8782,8 +8782,9 @@ stored preference, but an older Core does not enforce it.
 `packages/space` owns the pure Space access and ownership policy over verified
 facts. Core obtains current identity and membership facts and enforces the policy
 for HTTP, RPC, live connections, and Agent callers. UI capability projections do
-not grant authority. Organization-open discovery grants eligible colleagues a
-join action, not automatic content access or Organization membership.
+not grant authority. Organization-open discovery grants current Organization
+members read-only preview and explicit joining. It does not grant Organization
+membership or publication before joining.
 
 The Space Durable Object is the sole writer of `ownerUserIds` and `allowGuests`.
 Creator attribution remains immutable. Owners are current Organization members

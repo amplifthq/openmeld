@@ -1059,7 +1059,7 @@ function DiscoverList({
 						itemId={space.spaceId}
 						key={space.spaceId}
 					>
-						<div className="flex min-h-52 flex-col gap-3 p-4">
+						<div className="@container/space-card flex min-h-52 flex-col gap-3 p-4">
 							<button
 								aria-label={space.name}
 								className="flex flex-1 flex-col items-start gap-3 rounded-sm text-left outline-none after:absolute after:inset-0 after:rounded-md focus-visible:ring-2 focus-visible:ring-ring"
