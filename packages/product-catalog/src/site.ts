@@ -19,7 +19,7 @@ type PublicPageHeadOptions = {
 export const homePageLocalAgents = listLocalAgentInstallGuides();
 
 export const homePageCopy = {
-  tagline: "The open collaboration system for anyone and agents",
+  tagline: "The open cloud collaboration system for everyone and agents",
   descriptionBeforeCloudAgents:
     "Share context, work in parallel, and pick up where anyone left off with your team,",
   cloudAgentsLabel: "cloud agents",

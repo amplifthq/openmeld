@@ -98,8 +98,11 @@ The hero starts its CSS timeline after hydration, so module loading does not
 consume the visible entrance. It reveals title lines and supporting copy with
 Linear's one-second blur and translation timing. The live App uses a later opacity reveal and a temporary
 edge veil that disappears completely; it has no persistent blend mask or blur.
-Hero avatars reuse the shared poster-backed renderer, so their server-rendered
-first frame is visible before hydration. Reduced motion uses a short fade only.
+Hero avatars opt into the shared renderer's `ambient` mode: vendor idle movement,
+nearby pointer tracking, and full click jumps. An SVG poster in server HTML
+prevents empty avatars while the canvas starts. The vendor shares one ticker
+and pauses offscreen or while the document is hidden. Reduced motion keeps
+avatars still and uses a short entrance fade only.
 Focus on hero actions completes their existing browser animation. Focus changes
 never remove or restore its CSS declaration, so menus and keyboard navigation
 cannot replay the entrance. The same rule applies to the open-source link group.
@@ -110,7 +113,9 @@ sides of the background table; the foreground result keeps its top-left frame.
 Agent and Center Agent scenes keep their primary heading and choice clear while
 their lower/opposite corners recede. Usage protects its upper-left heading.
 Codex feathers its full frame over broad side and bottom areas while retaining
-its central conversation; playback controls sit outside the masked surface. Masks never
+its central conversation; playback controls sit outside the masked surface.
+Its composer keeps the project name, add icon, and send arrow; it omits inactive
+sidebar controls and extra device or model labels. Masks never
 depend on focus, filtering, playback, or iframe state, and keep the same profile
 after navigation and refresh. There are no per-demo WebGL lighting loops or
 foreground overlays. The computer illustration uses a static ambient gradient.

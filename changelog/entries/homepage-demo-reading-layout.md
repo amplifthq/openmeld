@@ -15,3 +15,7 @@ headers use the same height, including while a thread loads.
 
 A final section explains privacy protections and links to the project's source
 repository, issues, and pull requests.
+
+The five hero bots move gently, follow a nearby pointer, and play their complete
+jump when clicked. The Codex preview removes inactive controls and extra labels
+to keep the example clear.

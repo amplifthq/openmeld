@@ -554,8 +554,13 @@ and profile popovers play one small hop on an explicit click without following
 the pointer; popover opening and navigation still belong to their existing
 controls. The Team Center Agent card has a separate avatar button that also
 follows a fine pointer while hovered; its remaining area opens the conversation.
-The avatar editor retains the library's original preview interaction.
-Bot avatars do not hop when idle and animate for real working state. Clicks do
+The avatar editor retains the library's original preview interaction. The Website
+hero opts into `ambient` motion: the vendor's idle movement, nearby pointer
+tracking, and full click jumps, with one shared vendor ticker. Its SVG first
+frame remains visible before hydration; the canvas replaces it after its first
+layout paint. Reduced motion keeps a still pose, and the vendor pauses ambient
+rendering offscreen and in hidden documents.
+Regular product avatars do not hop when idle and animate for real working state. Clicks do
 not queue or restart a hop. Static instances do not subscribe to animation
 frames or visibility observation; active rendering pauses offscreen and in hidden
 documents. A cache of at most 64 independently rendered still frames avoids
