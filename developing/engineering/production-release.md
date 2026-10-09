@@ -382,7 +382,9 @@ deployment graph. A pending receiver needs matching, source-bound evidence for
 each contract, including contracts without an available witness. AI usage can
 reuse a verified Core deployment only when its complete receiver owners,
 entrypoint registration, production binding and dependency resolutions remain
-unchanged. This conservative proof rejects unrelated schema or entrypoint edits
+unchanged. Its Core, DB and schemas TypeScript configurations must retain the
+existing shared parent, without further inheritance, and their complete
+configuration contents must match. This conservative proof rejects unrelated schema or entrypoint edits
 too; it does not certify a combined feature rollout or remove receiver-first
 dependencies. Missing contract metadata cannot admit a pending receiver.
 

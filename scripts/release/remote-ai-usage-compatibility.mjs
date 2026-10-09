@@ -24,6 +24,12 @@ const CORE_INDEX = "services/core/src/index.ts";
 const CORE_CONFIG = "services/core/wrangler.jsonc";
 const REMOTE_CONFIG = "services/remote-agent/wrangler.jsonc";
 const LOCKFILE = "pnpm-lock.yaml";
+const SHARED_TYPESCRIPT_CONFIG = "tooling/typescript-config/base.jsonc";
+const RECEIVER_TYPESCRIPT_CONFIGS = [
+  "services/core/tsconfig.json",
+  "packages/db/tsconfig.json",
+  "packages/schemas/tsconfig.json",
+];
 const EXACT_SHA = /^[0-9a-f]{40}$/u;
 
 // Bounded receiver owners, not a general import graph. Compare the complete
@@ -36,7 +42,8 @@ export const REMOTE_AI_USAGE_RECEIVER_PATHS = [
   "services/core/src/usage",
   "services/core/src/rpc/errors.ts",
   "services/core/package.json",
-  "services/core/tsconfig.json",
+  ...RECEIVER_TYPESCRIPT_CONFIGS,
+  SHARED_TYPESCRIPT_CONFIG,
   "packages/schemas/src",
   "packages/schemas/package.json",
   "packages/schemas/tsdown.config.ts",
@@ -57,6 +64,7 @@ export function compareRemoteAiUsageReceiver(input) {
       input.readGitFile(sha, CORE_CONFIG),
       input.readGitFile(sha, REMOTE_CONFIG)
     );
+    assertReceiverTypeScriptConfig(sha, input.readGitFile);
   }
   return (
     input.compareGitPathContents({
@@ -228,6 +236,26 @@ function assertProductionBinding(coreSource, remoteSource) {
     throw new Error(
       "AI usage does not use the expected production Core RPC binding."
     );
+  }
+}
+
+function assertReceiverTypeScriptConfig(sha, readGitFile) {
+  // Only this existing three-leaf/shared-parent chain is supported. A new
+  // extends target must not silently introduce an unexamined resolution owner.
+  for (const path of RECEIVER_TYPESCRIPT_CONFIGS) {
+    const config = parseUnambiguousConfig(path, readGitFile(sha, path));
+    if (config.extends !== "../../tooling/typescript-config/base.jsonc") {
+      throw new Error(
+        `Unknown AI usage receiver TypeScript inheritance: ${path}.`
+      );
+    }
+  }
+  const parent = parseUnambiguousConfig(
+    SHARED_TYPESCRIPT_CONFIG,
+    readGitFile(sha, SHARED_TYPESCRIPT_CONFIG)
+  );
+  if (parent.extends !== undefined) {
+    throw new Error("Unknown AI usage receiver shared TypeScript inheritance.");
   }
 }
 

@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
+import { runInNewContext } from "node:vm";
+import { parseConfigFileTextToJson } from "typescript";
 import { compareGitPathContents } from "./production-release-status.mjs";
 import { compareRemoteAiUsageReceiver } from "./remote-ai-usage-compatibility.mjs";
 
@@ -11,15 +16,21 @@ const INDEX = "services/core/src/index.ts";
 const CORE_CONFIG = "services/core/wrangler.jsonc";
 const REMOTE_CONFIG = "services/remote-agent/wrangler.jsonc";
 const LOCKFILE = "pnpm-lock.yaml";
+const SHARED_TYPESCRIPT_CONFIG = "tooling/typescript-config/base.jsonc";
+const TYPESCRIPT_CONFIGS = [
+  "services/core/tsconfig.json",
+  "packages/db/tsconfig.json",
+  "packages/schemas/tsconfig.json",
+  SHARED_TYPESCRIPT_CONFIG,
+];
 const UNKNOWN_RECEIVER = /AI usage|AI usage receiver|Unknown AI usage/u;
 const MISSING_SOURCE = /missing source/u;
 const readOwner = (path) =>
   readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
 const original = new Map(
-  [INDEX, CORE_CONFIG, REMOTE_CONFIG, LOCKFILE].map((path) => [
-    path,
-    readOwner(path),
-  ])
+  [INDEX, CORE_CONFIG, REMOTE_CONFIG, LOCKFILE, ...TYPESCRIPT_CONFIGS].map(
+    (path) => [path, readOwner(path)]
+  )
 );
 
 function compare(overrides = new Map()) {
@@ -184,4 +195,94 @@ test("refuses changed or ambiguous production service bindings and lockfile reso
       }),
     MISSING_SOURCE
   );
+});
+
+test("rejects TypeScript import redirection and unknown inherited configuration", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "openmeld-usage-config-"));
+  try {
+    const wrapper = path.join(root, "other-wrapper.ts");
+    writeFileSync(
+      wrapper,
+      'export function withPostgresRequest() { return "redirected wrapper"; }'
+    );
+    const shared = parseConfigFileTextToJson(
+      SHARED_TYPESCRIPT_CONFIG,
+      original.get(SHARED_TYPESCRIPT_CONFIG)
+    ).config;
+    const redirected = {
+      ...shared,
+      compilerOptions: {
+        ...shared.compilerOptions,
+        paths: { "@openmeld/db/postgresql": [wrapper] },
+      },
+    };
+    // Independently establish the failure: an unchanged import now invokes a
+    // different wrapper through the installed Core bundler's tsconfig contract.
+    const { buildSync } = createRequire(
+      new URL("../../services/core/package.json", import.meta.url)
+    )("esbuild");
+    const bundle = buildSync({
+      stdin: {
+        contents:
+          'import { withPostgresRequest } from "@openmeld/db/postgresql"; export const result = withPostgresRequest();',
+        resolveDir: root,
+      },
+      tsconfigRaw: redirected,
+      bundle: true,
+      write: false,
+      platform: "node",
+      format: "cjs",
+    });
+    const context = { module: { exports: {} } };
+    runInNewContext(bundle.outputFiles[0].text, context);
+    assert.equal(context.module.exports.result, "redirected wrapper");
+    assert.equal(
+      compare(
+        new Map([[SHARED_TYPESCRIPT_CONFIG, JSON.stringify(redirected)]])
+      ),
+      false
+    );
+
+    for (const config of TYPESCRIPT_CONFIGS) {
+      const value = parseConfigFileTextToJson(
+        config,
+        original.get(config)
+      ).config;
+      assert.equal(
+        compare(
+          new Map([
+            [
+              config,
+              JSON.stringify({
+                ...value,
+                compilerOptions: {
+                  ...value.compilerOptions,
+                  moduleSuffixes: [".alternate", ""],
+                },
+              }),
+            ],
+          ])
+        ),
+        false,
+        config
+      );
+      for (const extendsValue of [
+        "./other-parent.json",
+        ["../../tooling/typescript-config/base.jsonc", "./another-parent.json"],
+      ]) {
+        assert.throws(
+          () =>
+            compare(
+              new Map([
+                [config, JSON.stringify({ ...value, extends: extendsValue })],
+              ])
+            ),
+          UNKNOWN_RECEIVER,
+          config
+        );
+      }
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
