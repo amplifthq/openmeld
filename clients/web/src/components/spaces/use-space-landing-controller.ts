@@ -12,6 +12,7 @@ import type {
 	SpaceAccessMode,
 	SpaceInboxUnreadTarget,
 	SpaceInboxUnreadTargetsResponse,
+	SpaceInputQueueResponse,
 	SpaceLinkJoinPolicy,
 	SpaceMembersSnapshot,
 	SpaceMessageFileReference,
@@ -1083,6 +1084,18 @@ function resolveConfirmedViewedUpdatesHandler(input: {
 	return input.isCurrentAccessConfirmed ? input.onViewedUpdates : undefined;
 }
 
+function resolveSpaceQueuedInputItems(input: {
+	queue: ReturnType<typeof useSpaceInputQueue>;
+	accessConfirmed: boolean;
+	isActiveMember: boolean;
+}): SpaceInputQueueResponse["items"] {
+	return input.accessConfirmed &&
+		input.isActiveMember &&
+		input.queue.supportsConversationContext
+		? input.queue.items
+		: [];
+}
+
 function shouldShowSpaceLandingLoading(input: {
 	bootstrapPending: boolean;
 	currentStatusConfirmationPending: boolean;
@@ -1154,6 +1167,7 @@ export type SpaceLandingConversationController = {
 	composerReplyToSignalId: string | null;
 	composerText: string;
 	presentedWakeProgressItems: readonly SpaceEphemeralActivityItem[];
+	queuedInputItems: readonly SpaceInputQueueResponse["items"][number][];
 	ownActiveWakesHaveMore: boolean;
 	historyNavigation: SpaceHistoryNavigationController;
 	hasEarlierHistory: boolean;
@@ -2731,6 +2745,11 @@ export function useSpaceLandingController(input: {
 			isLoadingEarlierHistory,
 		}),
 		presentedWakeProgressItems,
+		queuedInputItems: resolveSpaceQueuedInputItems({
+			queue: inputQueue,
+			accessConfirmed: statusReady,
+			isActiveMember: currentProfileIsActiveSpaceMember,
+		}),
 		ownActiveWakesHaveMore:
 			ownActiveWakeProgressQuery.data?.pageInfo?.hasMore === true,
 		historyNavigation,

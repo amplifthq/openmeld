@@ -123,12 +123,12 @@ import {
 	ThreadPanelHeader,
 } from "./space-thread-loading";
 import { SpaceConversationUnreadControl } from "./space-unread-control";
-import { SpaceComposerActiveWakes } from "./space-wake-bookmarks";
 import { SpaceWakeRecommendationScope } from "./space-wake-recommendation";
 import {
 	type SpaceWakeStopRequestHandler,
 	SpaceWakeStopScope,
 } from "./space-wake-stop-control";
+import { SpaceComposerWorkBookmarks } from "./space-work-bookmarks";
 import { useSpaceConversationPosition } from "./use-space-conversation-position";
 import type {
 	SpaceComposerAddressingTarget,
@@ -1609,7 +1609,7 @@ function ThreadComposer(input: {
 				pendingActionSurface: input.pendingActionSurface,
 				beforeInput: input.replyBanner,
 				queuedMessages: input.queuedMessages,
-				beforePrimaryAction: <SpaceComposerActiveWakes placement="thread" />,
+				beforePrimaryAction: <SpaceComposerWorkBookmarks placement="thread" />,
 				error: input.composerErrorMessage ? (
 					<p className="text-destructive text-sm" role="alert">
 						{input.composerErrorMessage}

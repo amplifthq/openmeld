@@ -8947,8 +8947,12 @@ Only opted-in responses include `conversationContextIncluded: true` and each
 item's nullable `threadId`. Legacy readers retain their existing response shape;
 legacy stored requests without context retain main-conversation placement.
 Web shares one authorized queue cache and shows only the current conversation's
-rows. Reordering a Thread replaces only its visible slots in the author's full
-queue. A server without the scoped projection cannot accept Web Thread Queue
+rows. The existing composer work bookmarks also read that cache to locate the
+author's queued input in closed or other Threads. They merge a Thread's queue
+count with its matching original Wake when present, or show a Queue-only entry;
+queued input never implies a running execution. The open Thread's tray stays its
+only Queue entry. Reordering a Thread replaces only its visible slots in the
+author's full queue. A server without the scoped projection cannot accept Web Thread Queue
 intake; Web keeps the draft rather than assuming main-conversation placement.
 
 The Web Queue is one compact, inset tray behind the Composer, shared with the

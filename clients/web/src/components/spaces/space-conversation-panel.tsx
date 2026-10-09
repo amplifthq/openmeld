@@ -163,12 +163,12 @@ import { useSpaceReadingHeader } from "./space-reading-header";
 import { SpaceTaskReferencesProvider } from "./space-task-references";
 import { SpaceConversationUnreadControl } from "./space-unread-control";
 import { getSpaceViewIndex, type SpaceView } from "./space-view";
-import { SpaceComposerActiveWakes } from "./space-wake-bookmarks";
 import { SpaceWakeRecommendationScope } from "./space-wake-recommendation";
 import {
 	type SpaceWakeStopRequestHandler,
 	SpaceWakeStopScope,
 } from "./space-wake-stop-control";
+import { SpaceComposerWorkBookmarks } from "./space-work-bookmarks";
 import {
 	type SpaceConversationRestorationStatus,
 	useSpaceConversationPosition,
@@ -1952,7 +1952,7 @@ function SpaceComposerSection(input: {
 								/>
 							) : null,
 						beforePrimaryAction: (
-							<SpaceComposerActiveWakes placement="conversation" />
+							<SpaceComposerWorkBookmarks placement="conversation" />
 						),
 						beforeInput: (
 							<SpaceComposerReplyBanner

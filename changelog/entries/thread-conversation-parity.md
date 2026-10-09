@@ -9,8 +9,11 @@ evidence: ["pr:1625"]
 
 Thread replies share Profile cards, message tools, quoted replies, queued
 follow-ups, unread navigation, and Jump to latest with the main conversation.
-Queued replies stay in their original conversation. Full-width messages reserve
-room for avatars on both sides, so long messages have matching content edges.
+Queued replies stay in their original conversation. The composer work shortcut
+also finds queued replies in closed Threads and opens
+the right Thread, alongside other work outside your view. Full-width messages
+reserve room for avatars on both sides, so long messages have matching content
+edges.
 Members can open an existing Team Brief, while creation stays with owners and
 admins.
 
