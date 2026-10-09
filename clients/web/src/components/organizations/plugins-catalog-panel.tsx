@@ -12,24 +12,30 @@ import { AppLogo } from "@openmeld/ui/components/app-logo";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
+import { PageToolbar } from "@openmeld/ui/components/page-toolbar";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import { FluidContextMenu } from "@openmeld/ui/fluid/context-menu";
 import { resolveStatusToneProminentBadgeClassName } from "@openmeld/ui/lib/status-tone";
-import { CaretRightIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
+import {
+	CaretLeftIcon,
+	CaretRightIcon,
+	MagnifyingGlassIcon,
+} from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { ObjectMenuItems } from "#/components/app/object-menu-items";
 import { buildOrganizationPluginPath } from "#/lib/organizations/organization-routes";
 import {
 	organizationPluginConnectionCatalogQueryOptions,
 	organizationPluginProviderCatalogQueryOptions,
 } from "#/query/organizations/plugin-connections";
-import { usePluginScope } from "./plugin-scope-tabs";
+import { PluginScopeTabs, usePluginScope } from "./plugin-scope-tabs";
 
 export function PluginsCatalogPanel(input: {
 	organizationId: string;
+	organizationName: string;
 	organizationSlug: string;
 	isPersonalWorkspace?: boolean;
 }) {
@@ -37,7 +43,7 @@ export function PluginsCatalogPanel(input: {
 	const scope = input.isPersonalWorkspace ? "personal" : selectedScope;
 	const [activeCategory, setActiveCategory] = useState<PluginCategory>("All");
 	const [searchQuery, setSearchQuery] = useState("");
-	const [visibleCount, setVisibleCount] = useState(40);
+	const catalogId = useId();
 	const queryClient = useQueryClient();
 	const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase();
 	const providersQuery = useQuery(
@@ -91,65 +97,60 @@ export function PluginsCatalogPanel(input: {
 				.includes(normalizedSearchQuery);
 		return matchesScope && matchesCategory && matchesSearch;
 	});
+	const sections = PLUGIN_CATEGORIES.filter((category) => category !== "All")
+		.map((category) => ({
+			category,
+			id: `${catalogId}-${category.replaceAll(" ", "-")}`,
+			plugins: visiblePlugins.filter((plugin) => plugin.category === category),
+		}))
+		.filter((section) => section.plugins.length > 0);
 
 	return (
 		<section
 			aria-busy={connectionStatusIsPending}
 			aria-label="Plugin catalog"
-			className="space-y-4"
+			className="@container space-y-4"
 		>
-			<fieldset
+			<PageToolbar
 				aria-label="Browse Plugins"
-				className="flex min-w-0 flex-col gap-3 border-0 p-0 lg:flex-row lg:items-center lg:justify-between"
+				className="gap-x-6 gap-y-3"
+				role="group"
 			>
-				<legend className="sr-only">Browse Plugins</legend>
-				<div className="flex flex-wrap gap-2">
-					{PLUGIN_CATEGORIES.map((category) => (
-						<Button
-							aria-pressed={activeCategory === category}
-							key={category}
-							onClick={() => {
-								setActiveCategory(category);
-								setVisibleCount(40);
-							}}
-							size="xs"
-							type="button"
-							variant={activeCategory === category ? "secondary" : "outline"}
-						>
-							{category}
-						</Button>
-					))}
+				<PluginScopeTabs
+					isPersonalWorkspace={input.isPersonalWorkspace === true}
+					organizationName={input.organizationName}
+				/>
+				<div className="relative ml-auto @lg:w-64 w-full">
+					<label className="sr-only" htmlFor="plugin-catalog-search">
+						Search Plugins
+					</label>
+					<MagnifyingGlassIcon
+						aria-hidden="true"
+						className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+					/>
+					<Input
+						className="pl-8"
+						id="plugin-catalog-search"
+						onChange={(event) => setSearchQuery(event.target.value)}
+						placeholder="Search Plugins"
+						type="search"
+						value={searchQuery}
+					/>
 				</div>
-				<div className="flex w-full items-center justify-between gap-3 lg:w-auto">
-					<p
-						aria-live="polite"
-						className="shrink-0 text-muted-foreground text-xs"
-					>
-						{visiblePlugins.length}{" "}
-						{visiblePlugins.length === 1 ? "Plugin" : "Plugins"}
-					</p>
-					<div className="relative min-w-0 flex-1 sm:max-w-72 lg:w-72 lg:flex-none">
-						<label className="sr-only" htmlFor="plugin-catalog-search">
-							Search Plugins
-						</label>
-						<MagnifyingGlassIcon
-							aria-hidden="true"
-							className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
-						/>
-						<Input
-							className="pl-8"
-							id="plugin-catalog-search"
-							onChange={(event) => {
-								setSearchQuery(event.target.value);
-								setVisibleCount(40);
-							}}
-							placeholder="Search Plugins"
-							type="search"
-							value={searchQuery}
-						/>
-					</div>
-				</div>
-			</fieldset>
+			</PageToolbar>
+
+			{activeCategory !== "All" ? (
+				<Button
+					className="-ml-2"
+					onClick={() => setActiveCategory("All")}
+					size="sm"
+					type="button"
+					variant="ghost"
+				>
+					<CaretLeftIcon aria-hidden="true" className="size-3.5" />
+					All Plugins
+				</Button>
+			) : null}
 
 			{connectionsQuery.isError ? (
 				<div
@@ -191,30 +192,55 @@ export function PluginsCatalogPanel(input: {
 				</p>
 			) : null}
 			{visiblePlugins.length > 0 ? (
-				<FluidCardGroup
-					className="grid gap-x-8 gap-y-1 sm:grid-cols-2"
-					role="list"
-				>
-					{visiblePlugins.slice(0, visibleCount).map((plugin) => (
-						<FluidCardItem
-							className="bg-transparent"
-							itemId={plugin.service}
-							key={plugin.service}
-							role="listitem"
-						>
-							<PluginCatalogCard
-								connected={
-									connectionsQuery.data
-										? connectedServices.has(plugin.service)
-										: undefined
-								}
-								connectionStatusIsPending={connectionStatusIsPending}
-								organizationSlug={input.organizationSlug}
-								plugin={plugin}
-								reconnectRequired={reconnectServices.has(plugin.service)}
-								scope={scope}
-							/>
-						</FluidCardItem>
+				<FluidCardGroup className="space-y-6">
+					{sections.map(({ category, id, plugins }) => (
+						<section aria-labelledby={id} className="space-y-2" key={category}>
+							<h2 className="font-medium text-foreground text-sm" id={id}>
+								{activeCategory === "All" ? (
+									<Button
+										aria-label={`View all ${category} Plugins`}
+										className="-ml-2 font-medium"
+										onClick={() => setActiveCategory(category)}
+										size="sm"
+										type="button"
+										variant="ghost"
+									>
+										{category}
+										<CaretRightIcon aria-hidden="true" className="size-3.5" />
+									</Button>
+								) : (
+									category
+								)}
+							</h2>
+							<ul
+								aria-label={`${category} Plugins`}
+								className="grid @3xl:grid-cols-2 gap-x-6 gap-y-1"
+							>
+								{plugins.map((plugin) => (
+									<li className="min-w-0" key={plugin.service}>
+										<FluidCardItem
+											className="bg-transparent"
+											itemId={plugin.service}
+										>
+											<PluginCatalogCard
+												connected={
+													connectionsQuery.data
+														? connectedServices.has(plugin.service)
+														: undefined
+												}
+												connectionStatusIsPending={connectionStatusIsPending}
+												organizationSlug={input.organizationSlug}
+												plugin={plugin}
+												reconnectRequired={reconnectServices.has(
+													plugin.service
+												)}
+												scope={scope}
+											/>
+										</FluidCardItem>
+									</li>
+								))}
+							</ul>
+						</section>
 					))}
 				</FluidCardGroup>
 			) : (
@@ -227,14 +253,6 @@ export function PluginsCatalogPanel(input: {
 					</p>
 				</div>
 			)}
-			{visibleCount < visiblePlugins.length ? (
-				<Button
-					onClick={() => setVisibleCount((count) => count + 40)}
-					variant="outline"
-				>
-					Show more Plugins
-				</Button>
-			) : null}
 		</section>
 	);
 }
@@ -291,11 +309,11 @@ function PluginCatalogCard(input: {
 						{input.plugin.name}
 					</h3>
 					<p className="mt-1 truncate text-muted-foreground text-xs">
-						{input.plugin.category}
+						{input.plugin.description}
 					</p>
 				</div>
 				<span
-					className="flex w-auto shrink-0 justify-end sm:w-20"
+					className="flex shrink-0 justify-end whitespace-nowrap"
 					data-slot="plugin-catalog-card-status"
 				>
 					<PluginStatusBadge

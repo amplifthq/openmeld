@@ -16,6 +16,7 @@ import {
 import { PluginsCatalogPanel } from "./plugins-catalog-panel";
 
 const GITHUB_LINK_NAME = /GitHub/;
+const CANVA_LINK_NAME = /Canva/;
 const GOOGLE_DRIVE_LINK_NAME = /Google Drive/;
 const GOOGLE_SHEETS_LINK_NAME = /Google Sheets/;
 const GMAIL_LINK_NAME = /Gmail/;
@@ -29,6 +30,7 @@ const scopeState = vi.hoisted(() => ({
 	value: "personal" as "personal" | "organization",
 }));
 vi.mock("./plugin-scope-tabs", () => ({
+	PluginScopeTabs: () => null,
 	usePluginScope: () => scopeState.value,
 }));
 
@@ -83,24 +85,6 @@ describe("PluginsCatalogPanel", () => {
 		expect(screen.queryByText("Details")).toBeNull();
 	});
 
-	it("flattens the Catalog controls and gives every Plugin its own Card", () => {
-		renderCatalog();
-
-		const catalog = screen.getByRole("region", { name: "Plugin catalog" });
-		const controls = screen.getByRole("group", { name: "Browse Plugins" });
-		expect(
-			screen.queryByRole("heading", { name: "Plugin catalog" })
-		).toBeNull();
-		expect(
-			screen.queryByText("Choose an Plugin to review or manage its access.")
-		).toBeNull();
-		expect(within(controls).getByRole("button", { name: "All" })).toBeTruthy();
-		expect(within(controls).getByLabelText("Search Plugins")).toBeTruthy();
-		for (const appLink of screen.getAllByRole("link")) {
-			expect(appLink.closest("[data-fluid-card-item]")).toBeTruthy();
-		}
-		expect(catalog.matches('[data-slot="card"]')).toBe(false);
-	});
 	it("keeps personal mailboxes out of the organization catalog and retains a cleanup link for older shared connections", async () => {
 		scopeState.value = "organization";
 		listAppConnectionsMock.mockResolvedValue({
@@ -123,23 +107,6 @@ describe("PluginsCatalogPanel", () => {
 				"href"
 			)
 		).toBe("/o/acme/plugins/gmail?scope=organization");
-	});
-
-	it("preserves Plugin identity while progressively disclosing phone card chrome", () => {
-		renderCatalog();
-
-		const githubLink = screen.getByRole("link", { name: GITHUB_LINK_NAME });
-		const status = githubLink.querySelector(
-			'[data-slot="plugin-catalog-card-status"]'
-		);
-		const arrow = githubLink.querySelector(
-			'[data-slot="plugin-catalog-card-arrow"]'
-		);
-
-		expect(status?.className).toContain("w-auto");
-		expect(status?.className).toContain("sm:w-20");
-		expect(arrow?.getAttribute("class")).toContain("hidden");
-		expect(arrow?.getAttribute("class")).toContain("sm:block");
 	});
 
 	it("keeps Plugin navigation available while connection status loads", () => {
@@ -261,11 +228,20 @@ describe("PluginsCatalogPanel", () => {
 		fireEvent.change(screen.getByLabelText("Search Plugins"), {
 			target: { value: "" },
 		});
-		fireEvent.click(screen.getByRole("button", { name: "Communication" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "View all Communication Plugins" })
+		);
 		expect(screen.getAllByRole("link")).toHaveLength(4);
 		expect(screen.getByRole("link", { name: GMAIL_LINK_NAME })).toBeTruthy();
 		expect(screen.getByRole("link", { name: SLACK_LINK_NAME })).toBeTruthy();
 		expect(screen.queryByRole("link", { name: NOTION_LINK_NAME })).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "All Plugins" }));
+		expect(screen.getAllByRole("link")).toHaveLength(PLUGINS.length);
+		fireEvent.click(
+			screen.getByRole("button", { name: "View all Productivity Plugins" })
+		);
+		expect(screen.getByRole("link", { name: CANVA_LINK_NAME })).toBeTruthy();
+		expect(screen.queryByRole("link", { name: GITHUB_LINK_NAME })).toBeNull();
 	});
 
 	it("makes a connection lookup failure explicit", async () => {
@@ -289,7 +265,11 @@ describe("PluginsCatalogPanel", () => {
 function renderCatalog(queryClient = createTestQueryClient()) {
 	return render(
 		<TestQueryClientProvider queryClient={queryClient}>
-			<PluginsCatalogPanel organizationId="org-acme" organizationSlug="acme" />
+			<PluginsCatalogPanel
+				organizationId="org-acme"
+				organizationName="Acme"
+				organizationSlug="acme"
+			/>
 		</TestQueryClientProvider>
 	);
 }

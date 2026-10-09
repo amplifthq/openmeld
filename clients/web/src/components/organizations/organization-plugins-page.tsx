@@ -18,7 +18,6 @@ import {
 	OrganizationPluginNotFoundPage,
 } from "./organization-plugin-detail-page";
 import { PluginConnectionRequestPanel } from "./plugin-connection-request-panel";
-import { PluginScopeTabs } from "./plugin-scope-tabs";
 import { PluginsCatalogPanel } from "./plugins-catalog-panel";
 
 export function OrganizationPluginsPage({
@@ -101,13 +100,10 @@ export function OrganizationPluginsPage({
 				}
 				title="Plugins"
 			/>
-			<PluginScopeTabs
-				isPersonalWorkspace={currentOrganization.isPersonal === true}
-				organizationName={currentOrganization.name}
-			/>
 			<PluginsCatalogPanel
 				isPersonalWorkspace={currentOrganization.isPersonal === true}
 				organizationId={currentOrganization.id}
+				organizationName={currentOrganization.name}
 				organizationSlug={currentOrganization.slug}
 			/>
 		</>
