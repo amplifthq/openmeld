@@ -15,8 +15,132 @@ vi.mock("../src/transport/ws", () => {
 
 describe("SpaceSessionRuntime", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.clearAllMocks();
+  });
+
+  it.each([
+    false,
+    true,
+  ])("keeps the watch lifetime and exact send receipt across recovery (interrupted=%s)", async (interrupted) => {
+    vi.useFakeTimers();
+    const first = createWsHarness();
+    const second = createWsHarness();
+    const third = createWsHarness();
+    connectWebSocketMock
+      .mockReset()
+      .mockResolvedValueOnce(first.client)
+      .mockResolvedValueOnce(second.client)
+      .mockResolvedValueOnce(third.client);
+    const events: SpaceRuntimeEvent[] = [];
+    const replayReads: Array<{ deliver: () => void; finish: () => void }> = [];
+    let receipt: ReturnType<SpaceSessionRuntime["sendText"]>;
+    const runtime = new SpaceSessionRuntime({
+      wsUrl: "wss://example.com/v1/spaces/ops-room",
+      wsHeaders: {},
+      recoverConnection: true,
+      helloProfile: {
+        kind: "human",
+        profileId: "self-profile",
+        profileName: "Felix",
+      },
+      selfProfileId: "self-profile",
+      loadMembers: () => Promise.resolve(null),
+      formatError: (error) => String(error),
+      scheduleDeferredWork: (work) => work(),
+      replayHistory: (onEvent, reconnect) => {
+        if (!reconnect) {
+          return Promise.resolve({ synced: true });
+        }
+        return new Promise((resolve) =>
+          replayReads.push({
+            deliver: () => {
+              if (!receipt.queued) {
+                throw new Error("expected queued receipt");
+              }
+              onEvent({
+                ...createSignalTextEvent({
+                  id: "confirmed-after-gap",
+                  ts: 2,
+                  profileId: "self-profile",
+                  profileName: "Felix",
+                  text: "one message",
+                }),
+                data: {
+                  text: "one message",
+                  meta: { clientMessageId: receipt.clientMessageId },
+                },
+              });
+            },
+            finish: () => resolve({ synced: true }),
+          })
+        );
+      },
+    });
+    runtime.subscribe((event) => events.push(event));
+    const started = await runtime.start();
+    await vi.advanceTimersByTimeAsync(0);
+    receipt = runtime.sendText({ text: "one message" });
+    let closed = false;
+    started.closed.then(() => {
+      closed = true;
+    });
+    first.close(1006, "network interrupted");
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(closed).toBe(false);
+    expect(events.filter((event) => event.type === "connected")).toHaveLength(
+      1
+    );
+    expect(runtime.sendText({ text: "during recovery" })).toEqual({
+      queued: false,
+    });
+    const read = replayReads[0];
+    if (!read) {
+      throw new Error("missing recovery read");
+    }
+    if (interrupted) {
+      second.close(1006, "interrupted during catch-up");
+    }
+    read.deliver();
+    read.finish();
+    await vi.advanceTimersByTimeAsync(0);
+    if (interrupted) {
+      expect(events.filter((event) => event.type === "connected")).toHaveLength(
+        1
+      );
+      await vi.advanceTimersByTimeAsync(2000);
+      const resumed = replayReads[1];
+      if (!resumed) {
+        throw new Error("missing resumed recovery read");
+      }
+      resumed.deliver();
+      resumed.finish();
+      await vi.advanceTimersByTimeAsync(0);
+    }
+    expect(events.filter((event) => event.type === "send.confirmed")).toEqual([
+      expect.objectContaining({
+        clientMessageId: receipt.queued ? receipt.clientMessageId : null,
+      }),
+    ]);
+    expect(
+      events.filter((event) => event.type === "signal.received")
+    ).toHaveLength(1);
+    expect(events.filter((event) => event.type === "connected")).toHaveLength(
+      2
+    );
+    expect(
+      [first, second, third]
+        .flatMap((harness) => harness.send.mock.calls)
+        .map((call) => JSON.parse(String(call[0])).type)
+        .filter((type) => type === "signal.text")
+    ).toEqual(["signal.text"]);
+    runtime.stop("SIGINT");
+    (interrupted ? third : second).close(1000, "SIGINT");
+    await started.closed;
+    expect(
+      events.filter((event) => event.type === "connection.closed")
+    ).toEqual([expect.objectContaining({ source: "close", code: 1000 })]);
   });
 
   it("loads members, replays history, then drains buffered live events", async () => {

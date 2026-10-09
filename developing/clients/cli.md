@@ -210,6 +210,29 @@ the membership boundary.
 
 Keep the command model stable across terminal use, Web handoff, and docs.
 
+### Space Watch Recovery
+
+`space watch` retains the same view, read anchor, deduplication set and command
+lock through a temporary socket interruption. The existing Space session
+connection retries at most five times per failure episode, with capped backoff
+and a five-second socket-open deadline. A connection that stays open for at
+least 30 seconds resets that retry budget. Current authentication headers are
+resolved on each reconnect; access or protocol refusals fail without retry.
+
+Reconnect catches up from the last confirmed durable Signal ID, advances full
+200-message pages and deduplicates history with buffered live messages. The
+anchor follows Space's storage order, not message timestamps. Catch-up stops
+after 50 pages or when its live buffer overflows; a missing or expired anchor
+also fails explicitly. It never falls back to a recent window and silently
+omits a larger gap. Only the current socket's completed catch-up can report
+recovery. A watch that has not observed a durable message has no resume anchor.
+
+Exhausted recovery, access refusal and incomplete catch-up exit nonzero. An
+explicit Ctrl+C, Ctrl+D, `/quit` or `:q` retains normal exit behavior. Recovery
+does not resend unconfirmed messages, replay Wakes, or change execution truth.
+An exact message echo read during catch-up can confirm its original send
+receipt; a historical text match without that receipt ID cannot.
+
 ### Local Agent to Center Agent
 
 Local Agent harnesses use the authenticated member's canonical Center Agent

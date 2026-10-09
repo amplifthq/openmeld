@@ -86,6 +86,72 @@ describe("connect catch-up dedupe state", () => {
     expect(seenSignalIds.has("signal-1")).toBe(true);
   });
 
+  it("drains a multi-page disconnect gap and dedupes overlapping live messages", async () => {
+    const gap = Array.from({ length: 430 }, (_, index) => ({
+      ...TEXT_SIGNAL_1,
+      id: `gap-${index + 1}`,
+      ts: 101 + index,
+    }));
+    const seenSignalIds = new Set(["gap-201", "gap-430"]);
+    const received: string[] = [];
+    const anchors: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation((request) => {
+      const anchor = new URL(String(request)).searchParams.get("afterSignalId");
+      anchors.push(String(anchor));
+      const start =
+        anchor === "signal-anchor"
+          ? 0
+          : gap.findIndex((signal) => signal.id === anchor) + 1;
+      return Promise.resolve(
+        Response.json({
+          signals: gap.slice(start, start + 200),
+          nextCursor: null,
+        })
+      );
+    });
+    const confirmedAnchor = await replayMissedSignals({
+      profileIdentity: SESSION_PROFILE_IDENTITY,
+      baseUrl: "https://example.com",
+      space: "room-1",
+      afterSignalId: "signal-anchor",
+      seenSignalIds,
+      onEvent: (event) => {
+        if ("id" in event) {
+          received.push(event.id);
+        }
+      },
+    });
+    expect(received).toEqual(
+      gap
+        .filter((signal) => !["gap-201", "gap-430"].includes(signal.id))
+        .map((signal) => signal.id)
+    );
+    expect(anchors).toEqual(["signal-anchor", "gap-200", "gap-400"]);
+    expect(confirmedAnchor).toBe("gap-430");
+  });
+
+  it("rejects a full catch-up page that does not advance its anchor", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({
+        signals: Array.from({ length: 200 }, () => ({
+          ...TEXT_SIGNAL_1,
+          id: "signal-anchor",
+        })),
+        nextCursor: null,
+      })
+    );
+    await expect(
+      replayMissedSignals({
+        profileIdentity: SESSION_PROFILE_IDENTITY,
+        baseUrl: "https://example.com",
+        space: "room-1",
+        afterSignalId: "signal-anchor",
+        seenSignalIds: new Set(),
+        onEvent: () => undefined,
+      })
+    ).rejects.toThrow("did not advance");
+  });
+
   it("replays recent history and dedupes by signal id", async () => {
     const seenSignalIds = new Set<string>(["signal-1"]);
     const events: unknown[] = [];

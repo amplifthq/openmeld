@@ -12,6 +12,7 @@ import { INTERACTIVE_SPACE_SHELL_ENV_NAME } from "../src/space/shell/interactive
 import { LegacyInteractiveSpaceShell } from "../src/space/shell/legacy-interactive-space-shell";
 import { PiTuiInteractiveSpaceShell } from "../src/space/shell/pi-tui/pi-tui-interactive-space-shell";
 import type { SpaceSessionViewState } from "../src/space/view/space-session-view-state";
+import type { WsClient } from "../src/transport/ws";
 import { withCapturedStdio, withTempHome } from "./helpers/fs";
 import { createTestOpenMeldProfile } from "./helpers/openmeld-profile-fixture";
 
@@ -113,6 +114,180 @@ describe("connect experience enhancements", () => {
     vi.restoreAllMocks();
     vi.clearAllMocks();
     process.exitCode = undefined;
+  });
+
+  it.each([
+    "human",
+    "agent",
+  ] as const)("resumes %s watch from its message anchor and dedupes the full gap", async (view) => {
+    const first = createMessageStreamHarness();
+    const second = createMessageStreamHarness();
+    connectWebSocketMock
+      .mockReset()
+      .mockResolvedValueOnce(first.client)
+      .mockResolvedValueOnce(second.client);
+    const anchor = {
+      v: 1 as const,
+      id: "watch-anchor",
+      spaceId: "ops-room",
+      ts: 9000,
+      type: "signal.text" as const,
+      profile: {
+        kind: "human" as const,
+        profileId: "alice",
+        profileName: "Alice",
+      },
+      data: { text: "watch anchor" },
+    };
+    const gap = Array.from({ length: 430 }, (_, index) => ({
+      ...anchor,
+      id: `watch-gap-${index + 1}`,
+      ts: index + 1,
+      data: { text: `gap message ${index + 1}` },
+    }));
+    mockConnectFetchSuccess({ recentSignals: [anchor] });
+    const ordinaryFetch = vi.mocked(globalThis.fetch).getMockImplementation();
+    if (!ordinaryFetch) {
+      throw new Error("missing fetch boundary");
+    }
+    const anchors: string[] = [];
+    vi.mocked(globalThis.fetch).mockImplementation((request, init) => {
+      const url = new URL(String(request));
+      const after = url.searchParams.get("afterSignalId");
+      if (!(url.pathname.endsWith("/signals") && after)) {
+        return ordinaryFetch(request, init);
+      }
+      anchors.push(after);
+      const start =
+        after === anchor.id
+          ? 0
+          : gap.findIndex((signal) => signal.id === after) + 1;
+      return Promise.resolve(
+        Response.json({
+          signals: gap.slice(start, start + 200),
+          nextCursor: null,
+        })
+      );
+    });
+    let output = "";
+    const run = withCapturedStdio(
+      async () =>
+        await withTempHome(
+          async () =>
+            await runConnect({
+              openMeldProfile: createOpenMeldProfileInput({
+                openMeldProfileId: "11111111-0000-0000-0000-000000000120",
+                profileName: "Watcher",
+                profileKind: view === "agent" ? "agent" : "human",
+              }),
+              baseUrl: "https://example.com",
+              space: "ops-room",
+              connectionMode: "watch",
+              stdio: false,
+              output: "ndjson",
+              view,
+            })
+        ),
+      {
+        onStdout: (text) => {
+          output += text;
+        },
+      }
+    );
+    await first.waitUntilReady();
+    await vi.waitFor(() => expect(output).toContain('"id":"watch-anchor"'));
+    first.close(1006, "network interrupted");
+    await vi.waitFor(() => expect(output).toContain('"id":"watch-gap-430"'), {
+      timeout: 4000,
+    });
+    second.emit(JSON.stringify(gap[429]));
+    second.emit(
+      JSON.stringify({
+        ...anchor,
+        id: "watch-after-gap",
+        ts: 2,
+        data: { text: "live after gap" },
+      })
+    );
+    second.stop();
+    const result = await run;
+    const signals = result.stdout
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { type: string; id?: string })
+      .filter((event) => event.type === "signal.text");
+    expect(signals.map((event) => event.id)).toEqual([
+      anchor.id,
+      ...gap.map((signal) => signal.id),
+      "watch-after-gap",
+    ]);
+    expect(anchors).toEqual([anchor.id, "watch-gap-200", "watch-gap-400"]);
+    expect(
+      first.send.mock.calls
+        .concat(second.send.mock.calls)
+        .map((call) => JSON.parse(String(call[0])).type)
+    ).toEqual(["hello", "hello"]);
+    expect(process.exitCode ?? 0).toBe(0);
+  });
+
+  it.each([
+    "exhausted",
+    "stopped",
+  ] as const)("ends a %s watch with the correct exit status", async (outcome) => {
+    vi.useFakeTimers();
+    const first = createMessageStreamHarness();
+    connectWebSocketMock
+      .mockReset()
+      .mockResolvedValueOnce(first.client)
+      .mockRejectedValue(new Error("network unavailable"));
+    mockConnectFetchSuccess({ recentSignals: [] });
+    const run = withCapturedStdio(
+      async () =>
+        await withTempHome(
+          async () =>
+            await runConnect({
+              openMeldProfile: createOpenMeldProfileInput({
+                openMeldProfileId: "11111111-0000-0000-0000-000000000121",
+                profileName: "Watcher",
+                profileKind: "human",
+              }),
+              baseUrl: "https://example.com",
+              space: "ops-room",
+              connectionMode: "watch",
+              stdio: false,
+              output: "ndjson",
+              view: "agent",
+            })
+        )
+    );
+    await first.waitUntilReady();
+    await vi.advanceTimersByTimeAsync(0);
+    first.close(1006, "network interrupted");
+    if (outcome === "stopped") {
+      process.emit("SIGINT");
+    } else {
+      for (let attempt = 1; attempt <= 5; attempt += 1) {
+        await vi.advanceTimersByTimeAsync(10_000);
+        await vi.waitFor(() =>
+          expect(connectWebSocketMock.mock.calls.length).toBeGreaterThanOrEqual(
+            attempt + 1
+          )
+        );
+      }
+    }
+    const result = await run;
+    expect(process.exitCode ?? 0).toBe(outcome === "stopped" ? 0 : 1);
+    if (outcome === "exhausted") {
+      expect(result.stdout + result.stderr).toContain(
+        "could not reconnect after 5 attempts"
+      );
+      expect(connectWebSocketMock).toHaveBeenCalledTimes(6);
+    } else {
+      expect(connectWebSocketMock).toHaveBeenCalledTimes(1);
+    }
+    expect(
+      first.send.mock.calls.map((call) => JSON.parse(String(call[0])).type)
+    ).toEqual(["hello"]);
   });
 
   it("renders explicit abnormal closure reason and hint for code 1006", async () => {
@@ -3691,7 +3866,7 @@ describe("connect experience enhancements", () => {
       await vi.waitFor(() => {
         expect(startSpy).toHaveBeenCalledTimes(1);
       });
-      harness.close(1000, "pi-tui-watch-readonly");
+      harness.stop();
 
       const { plainStdout } = await connectPromise;
       expect(startSpy).toHaveBeenCalledTimes(1);
@@ -4207,7 +4382,7 @@ describe("connect experience enhancements", () => {
         text: "hello from raw stream",
       })
     );
-    harness.close(1000, "client_closed");
+    harness.stop();
 
     const { stdout } = await connectPromise;
     const envelopes = stdout
@@ -4284,7 +4459,7 @@ describe("connect experience enhancements", () => {
 
     await harness.waitUntilReady();
     await new Promise((resolve) => setTimeout(resolve, 10));
-    harness.close(1006, "");
+    harness.stop();
 
     const { stdout } = await connectPromise;
     const plainStdout = stripAnsi(stdout);
@@ -4331,7 +4506,7 @@ describe("connect experience enhancements", () => {
         })
       )
     );
-    harness.close(1006, "");
+    harness.stop();
 
     const { stdout } = await connectPromise;
     const plainStdout = stripAnsi(stdout);
@@ -4376,7 +4551,7 @@ describe("connect experience enhancements", () => {
         })
       )
     );
-    harness.close(1006, "");
+    harness.stop();
 
     const { stdout } = await connectPromise;
     const envelopes = stdout
@@ -4483,6 +4658,8 @@ function mockConnectFetchSuccess(options?: {
 }
 
 function createMessageStreamHarness(): {
+  client: WsClient;
+  stop: () => void;
   waitUntilReady: () => Promise<void>;
   emit: (raw: string) => void;
   close: (code: number, reason: string) => void;
@@ -4497,7 +4674,7 @@ function createMessageStreamHarness(): {
 
   const send = vi.fn();
 
-  connectWebSocketMock.mockResolvedValue({
+  const client: WsClient = {
     send,
     close: vi.fn(),
     terminate: vi.fn(),
@@ -4509,9 +4686,19 @@ function createMessageStreamHarness(): {
     }),
     onError: vi.fn(),
     waitUntilClosed: vi.fn(() => closedPromise),
-  });
+  };
+  connectWebSocketMock.mockResolvedValue(client);
 
   return {
+    client,
+    stop: () => {
+      process.emit("SIGINT");
+      if (!(onCloseHandler && resolveClosed)) {
+        throw new Error("missing close handlers");
+      }
+      onCloseHandler(1000, "SIGINT");
+      resolveClosed();
+    },
     waitUntilReady: async () => {
       await vi.waitFor(() => {
         if (!(onMessageHandler && onCloseHandler)) {

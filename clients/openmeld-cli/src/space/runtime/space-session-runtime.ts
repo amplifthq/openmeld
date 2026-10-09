@@ -13,12 +13,13 @@ import {
   parseIncoming,
   parseServerErrorFrame,
 } from "../../protocol/wire";
-import { connectWebSocket, type WsClient } from "../../transport/ws";
+import type { WsClient } from "../../transport/ws";
 import { normalizePendingOutboundSourceText } from "../pending-outbound-confirmation";
 import type {
   SpaceRuntimeEvent,
   SpaceRuntimeMessage,
 } from "./space-runtime-events";
+import { connectSpaceSessionWebSocket } from "./space-session-connection";
 
 const DEFAULT_BUFFERED_LIVE_EVENT_LIMIT = 2000;
 const DEFAULT_PENDING_SEND_LIMIT = 200;
@@ -29,12 +30,15 @@ export type SpaceSessionRuntimeStartResult = {
 
 type SpaceSessionRuntimeInput = {
   wsUrl: string;
-  wsHeaders: Record<string, string>;
+  wsHeaders: Record<string, string> | (() => Promise<Record<string, string>>);
+  recoverConnection?: boolean;
   helloProfile: Profile;
   selfProfileId: string;
   loadMembers: () => Promise<SpaceMembersSnapshot | null>;
   replayHistory: (
-    onEvent: (event: SpaceRuntimeMessage) => void
+    onEvent: (event: SpaceRuntimeMessage) => void,
+    reconnect?: boolean,
+    shouldContinue?: () => boolean
   ) => Promise<{ synced: boolean }>;
   formatError: (error: unknown) => string;
   scheduleDeferredWork?: (work: () => void) => void;
@@ -72,6 +76,8 @@ export class SpaceSessionRuntime {
   #closeEventDispatched = false;
   #forceTerminateTimer: NodeJS.Timeout | null = null;
   #historyLoadedReason: "replay_error" | "live_buffer_overflow" | null = null;
+  #replayWork: Promise<void> = Promise.resolve();
+  #reconnectAttempt = 0;
 
   constructor(input: SpaceSessionRuntimeInput) {
     this.#input = input;
@@ -90,8 +96,47 @@ export class SpaceSessionRuntime {
     }
     this.#started = true;
 
-    const ws = await connectWebSocket(this.#input.wsUrl, {
-      headers: this.#input.wsHeaders,
+    const ws = await connectSpaceSessionWebSocket({
+      url: this.#input.wsUrl,
+      headers: async () =>
+        typeof this.#input.wsHeaders === "function"
+          ? await this.#input.wsHeaders()
+          : this.#input.wsHeaders,
+      ...(this.#input.recoverConnection
+        ? {
+            recovery: {
+              onReconnecting: (attempt: number) => {
+                this.#reconnectAttempt = attempt;
+                this.#bufferLiveEventsUntilReplayComplete = true;
+                this.#emit({ type: "connection.reconnecting", attempt });
+              },
+              onReconnected: async (client, isCurrent) => {
+                await this.#replayWork;
+                if (this.#stopRequested || !isCurrent()) {
+                  return;
+                }
+                this.#replayFinished = false;
+                this.#historyLoadedReason = null;
+                this.#bufferLiveEventsUntilReplayComplete = true;
+                this.#emit({
+                  type: "members.updated",
+                  snapshot: await this.#input.loadMembers(),
+                });
+                if (this.#stopRequested) {
+                  return;
+                }
+                client.send(
+                  JSON.stringify(makeHello(this.#input.helloProfile))
+                );
+                this.#replayWork = this.#startReplayAndDrain(true, isCurrent);
+                await this.#replayWork;
+                if (!this.#stopRequested && isCurrent()) {
+                  this.#emit({ type: "connected" });
+                }
+              },
+            },
+          }
+        : {}),
     });
     this.#ws = ws;
 
@@ -139,7 +184,8 @@ export class SpaceSessionRuntime {
       this.#input.scheduleDeferredWork ??
       ((work: () => void) => setImmediate(work));
     scheduleDeferredWork(() => {
-      this.#startReplayAndDrain().catch(() => undefined);
+      this.#replayWork = this.#startReplayAndDrain();
+      this.#replayWork.catch(() => undefined);
     });
 
     return {
@@ -245,6 +291,13 @@ export class SpaceSessionRuntime {
         return;
       }
 
+      if (this.#reconnectAttempt > 0) {
+        this.#ws?.close(
+          1009,
+          "Space watch catch-up exceeded its live buffer. Read Space history before starting another watch."
+        );
+        return;
+      }
       this.#historyLoadedReason = "live_buffer_overflow";
       this.#bufferLiveEventsUntilReplayComplete = false;
       this.#drainBufferedLiveEvents();
@@ -253,15 +306,29 @@ export class SpaceSessionRuntime {
     this.#emitSignalReceived(event, "live");
   }
 
-  async #startReplayAndDrain(): Promise<void> {
-    if (this.#replayFinished || this.#stopRequested) {
+  async #startReplayAndDrain(
+    reconnect = false,
+    isCurrent = () => true
+  ): Promise<void> {
+    if (
+      this.#replayFinished ||
+      this.#stopRequested ||
+      this.#closeEventDispatched ||
+      !isCurrent()
+    ) {
       return;
     }
 
-    const replayState = await this.#input.replayHistory((event) => {
-      this.#emitSignalReceived(event, "history");
-    });
-    if (this.#stopRequested) {
+    const replayState = await this.#input.replayHistory(
+      (event) => {
+        if (isCurrent()) {
+          this.#emitSignalReceived(event, "history");
+        }
+      },
+      reconnect,
+      () => !(this.#stopRequested || this.#closeEventDispatched) && isCurrent()
+    );
+    if (this.#stopRequested || this.#closeEventDispatched || !isCurrent()) {
       this.#replayFinished = true;
       this.#bufferLiveEventsUntilReplayComplete = false;
       this.#bufferedLiveEvents.length = 0;
@@ -274,6 +341,11 @@ export class SpaceSessionRuntime {
       replaySynced: replayState.synced,
       historyLoadedReason: this.#historyLoadedReason,
     });
+    if (reconnect && historyLoadedReason) {
+      throw new Error(
+        "Space watch could not complete catch-up. Read Space history before starting another watch."
+      );
+    }
     this.#emit({
       type: "history.loaded",
       synced: historyLoadedReason === null,
@@ -296,9 +368,10 @@ export class SpaceSessionRuntime {
     event: SpaceRuntimeMessage,
     source: "history" | "live"
   ): void {
-    if (source === "live") {
-      this.#maybeEmitSendConfirmed(event);
+    if (this.#stopRequested || this.#closeEventDispatched) {
+      return;
     }
+    this.#maybeEmitSendConfirmed(event, source === "live");
 
     this.#emit({
       type: "signal.received",
@@ -316,7 +389,10 @@ export class SpaceSessionRuntime {
     this.#pendingSentMessages.push(message);
   }
 
-  #maybeEmitSendConfirmed(event: SpaceRuntimeMessage): void {
+  #maybeEmitSendConfirmed(
+    event: SpaceRuntimeMessage,
+    allowTextFallback: boolean
+  ): void {
     if (event.type !== "signal.text") {
       return;
     }
@@ -343,6 +419,9 @@ export class SpaceSessionRuntime {
       return;
     }
 
+    if (!allowTextFallback) {
+      return;
+    }
     if (
       this.#pendingSentMessages[0]?.normalizedText !==
       normalizePendingOutboundSourceText(text)
