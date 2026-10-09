@@ -16,6 +16,10 @@ Browse Plugins by category, open a category to see all its tools, and search
 beside the Personal and organization tabs. Cards show what each tool does,
 with connection status kept on one line.
 
+Switch between Personal and organization accounts within Plugin details.
+Reconnecting an expired account keeps the sign-in window open until the
+connection is renewed, instead of reporting success from the old connection.
+
 Gmail, Outlook mail, Google Calendar, and Google Meet now connect under
 Personal. You choose which Agents can use your account. Older organization
 connections for these services are disabled and remain available to disconnect.

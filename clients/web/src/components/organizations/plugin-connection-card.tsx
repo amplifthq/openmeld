@@ -209,8 +209,12 @@ function PluginConnectionCardState(input: PluginConnectionCardProps) {
 			mode: input.mode,
 		});
 	const authorizationCompleted =
-		(waitingScope === "member" && Boolean(currentUserConnection)) ||
-		(waitingScope === "shared" && Boolean(sharedConnection));
+		waitingScope !== null &&
+		!connectionsQuery.isError &&
+		isAuthorizationScopeConnected({
+			response: connectionsQuery.data,
+			scope: waitingScope,
+		});
 	const sharedScopeName = input.isPersonalWorkspace
 		? "Workspace"
 		: "Organization";
