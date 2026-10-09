@@ -73,6 +73,11 @@ This package owns UI mechanics and visual primitives only. It does not own
 product copy, business rules, readiness, Wake state, setup state, Space truth,
 or client routing.
 
+`components/border-beam` exposes Libraries.dev's installed `border-beam`
+primitive without a second effect implementation. Consumers own activation,
+reduced motion, visibility, and presentation tuning. The frozen Website demo
+uses it to draw attention to a prefilled Composer; product Composers do not.
+
 `components/evilcharts` owns the official registry-installed Apache ECharts
 area primitive and its theme, tooltip, legend, dot, and brush modules. Its
 README records source provenance and local adaptations. Consumers compose

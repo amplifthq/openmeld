@@ -45,6 +45,10 @@ Thread, which has wider default and minimum widths.
 The Space sidebar starts at the product's minimum width and wraps long names;
 its search input is omitted. Product and demo Members and Thread headers reuse
 `SpaceInlineSidePanelHeader` at a fixed 56px height, including loading states.
+The demo Composer draws a subdued blue BorderBeam around a sendable draft for
+one eight-second lap. It pauses while hidden or outside the viewport and stops
+after the lap, on focus, or when the draft clears. Reduced motion uses a static
+edge. This cue belongs to the frozen demo and does not change product Composers.
 `SpaceWindowHeader` uses the same 16px trailing inset, so its last action aligns
 with the panel's close button without a demo-specific override.
 The public Product anchor centers the complete demo frame in the viewport using

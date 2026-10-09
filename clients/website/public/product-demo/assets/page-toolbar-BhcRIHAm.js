@@ -1,1 +1,0 @@
-import{j as t,c as r}from"./index-B6jPrfiy.js";function o({className:e,...a}){return t.jsx("div",{className:r("relative flex min-h-12 shrink-0 flex-wrap items-center justify-between gap-2",e),"data-slot":"page-toolbar",...a})}export{o as P};

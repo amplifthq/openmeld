@@ -19,3 +19,6 @@ repository, issues, and pull requests.
 The five hero bots move gently, follow a nearby pointer, and play their complete
 jump when clicked. The Codex preview removes inactive controls and extra labels
 to keep the example clear.
+
+A gentle border light draws attention to the demo's ready-to-send draft. It
+stops when you start editing or after one pass and respects reduced motion.

@@ -4,6 +4,10 @@
 body {
 	margin: 0;
 }
+.demo-composer-beam[data-reduced-cue] {
+	outline: 1px solid color-mix(in srgb, var(--primary) 40%, transparent);
+	outline-offset: -1px;
+}
 /* Show complete Space names even at the product's minimum sidebar width. */
 [data-testid="app-module-sidebar"] [data-conversation-title] {
 	white-space: normal;

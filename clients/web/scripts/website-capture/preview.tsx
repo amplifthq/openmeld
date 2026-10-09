@@ -90,6 +90,7 @@ import { demoHumanAvatars } from "./demo-avatars";
 import { demoProfileDirectory } from "./demo-catalogs";
 import { DemoCenterAgent } from "./demo-center-agent";
 import { useDemoCenterAvatar } from "./demo-center-identity";
+import { DemoComposerBeam } from "./demo-composer-beam";
 import {
 	buildDemoConversationDraft,
 	DEMO_PRIMARY_SPACE_NAME,
@@ -829,87 +830,92 @@ function DemoConversationComposer({
 		sendLock.current = isSending;
 	}, [isSending]);
 	return (
-		<SpaceComposer
-			actions={{
-				onEditorChange: (nextDraft) => {
-					// The simulated send clears immediately. Ignore the old editor's
-					// focus/change event while that replacement is settling.
-					if (!sendLock.current) {
-						setDraft(nextDraft);
-					}
-				},
-				onMentionButtonClick: () => composerRef.current?.insertMentionTrigger(),
-				onSubmit: (options) => {
-					if (!draft.text.trim() || sendLock.current) {
-						return;
-					}
-					try {
-						sendLock.current = true;
-						const messageId = state.send({
-							spaceId,
-							threadId,
-							text: draft.text,
-							authoredMentions: draft.authoredMentions,
-						});
-						options?.onMessageStaged?.(messageId);
-						onSent?.();
-						setDraft({
-							text: "",
-							authoredMentions: [],
-							selection: { start: 0, end: 0 },
-						});
-						setSendError(null);
-					} catch (error) {
-						sendLock.current = false;
-						setSendError(
-							error instanceof Error
-								? error.message
-								: "Unable to send this demo message."
-						);
-					}
-				},
-			}}
-			availability={{
-				canSendMessage: true,
-				canUploadFiles: false,
-				fileLimitReached: false,
-				isSendingMessage: isSending,
-				sendBlocked: !draft.text.trim(),
-			}}
-			centerAgentProfileId={DEMO_CENTER_PROFILE_ID}
-			composerRef={composerRef}
-			content={{
-				addressingTargets,
-				authoredMentions: draft.authoredMentions,
-				hasAuthoredMentions: draft.authoredMentions.length > 0,
-				files: [],
-				mentionPickerItems,
-				text: draft.text,
-			}}
-			context={{
-				conversationKind:
-					spaceId === "center-agent" ? "center_agent_direct_message" : "space",
-				placement: threadId ? "thread" : "conversation",
-			}}
-			slots={{
-				attachmentAction: (
-					<Button
-						aria-label="Add"
-						disabled
-						size="icon-sm"
-						type="button"
-						variant="ghost"
-					>
-						<PlusIcon aria-hidden="true" />
-					</Button>
-				),
-				error: sendError ? (
-					<p className="text-destructive text-xs" role="alert">
-						{sendError}
-					</p>
-				) : null,
-			}}
-		/>
+		<DemoComposerBeam hasDraft={Boolean(draft.text.trim())} sending={isSending}>
+			<SpaceComposer
+				actions={{
+					onEditorChange: (nextDraft) => {
+						// The simulated send clears immediately. Ignore the old editor's
+						// focus/change event while that replacement is settling.
+						if (!sendLock.current) {
+							setDraft(nextDraft);
+						}
+					},
+					onMentionButtonClick: () =>
+						composerRef.current?.insertMentionTrigger(),
+					onSubmit: (options) => {
+						if (!draft.text.trim() || sendLock.current) {
+							return;
+						}
+						try {
+							sendLock.current = true;
+							const messageId = state.send({
+								spaceId,
+								threadId,
+								text: draft.text,
+								authoredMentions: draft.authoredMentions,
+							});
+							options?.onMessageStaged?.(messageId);
+							onSent?.();
+							setDraft({
+								text: "",
+								authoredMentions: [],
+								selection: { start: 0, end: 0 },
+							});
+							setSendError(null);
+						} catch (error) {
+							sendLock.current = false;
+							setSendError(
+								error instanceof Error
+									? error.message
+									: "Unable to send this demo message."
+							);
+						}
+					},
+				}}
+				availability={{
+					canSendMessage: true,
+					canUploadFiles: false,
+					fileLimitReached: false,
+					isSendingMessage: isSending,
+					sendBlocked: !draft.text.trim(),
+				}}
+				centerAgentProfileId={DEMO_CENTER_PROFILE_ID}
+				composerRef={composerRef}
+				content={{
+					addressingTargets,
+					authoredMentions: draft.authoredMentions,
+					hasAuthoredMentions: draft.authoredMentions.length > 0,
+					files: [],
+					mentionPickerItems,
+					text: draft.text,
+				}}
+				context={{
+					conversationKind:
+						spaceId === "center-agent"
+							? "center_agent_direct_message"
+							: "space",
+					placement: threadId ? "thread" : "conversation",
+				}}
+				slots={{
+					attachmentAction: (
+						<Button
+							aria-label="Add"
+							disabled
+							size="icon-sm"
+							type="button"
+							variant="ghost"
+						>
+							<PlusIcon aria-hidden="true" />
+						</Button>
+					),
+					error: sendError ? (
+						<p className="text-destructive text-xs" role="alert">
+							{sendError}
+						</p>
+					) : null,
+				}}
+			/>
+		</DemoComposerBeam>
 	);
 }
 

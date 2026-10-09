@@ -101,8 +101,16 @@ A thread reply stays in its thread and updates its main-timeline preview. Closin
 and reopening a thread retains replies for the current demo session.
 A pinned Center Agent private chat links to
 Release handoff, a three-agent Space with no human composer. A prefilled Wake draft lets
-visitors send the next step with one click. Optimistic messages and replies use
-the same transcript layout. Each requested Agent starts with Working inside its
+visitors send the next step with one click.
+
+The prefilled Composer has one subdued, eight-second BorderBeam lap, composed
+through `@openmeld/ui` from the installed Libraries.dev primitive. The cue pauses
+offscreen or while hidden and stops on focus, after one lap, or when the draft
+clears. Reduced motion keeps a static edge. Empty reply Composers do not glow;
+ordinary product Composers are unchanged.
+
+Optimistic messages and replies use the same transcript layout. Each requested
+Agent starts with Working inside its
 reply bubble; streamed text fills that same bubble without a separate status row.
 The message column uses the available width. Sidebar
 pinning changes memory-only state. Team uses the shared header and the real
