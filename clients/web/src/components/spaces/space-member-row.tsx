@@ -361,7 +361,12 @@ function AgentSpaceMemberRecoveryAction(input: {
 	}
 	return (
 		<div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-xs">
-			<span>Needs connection</span>
+			<span>
+				{input.presentation.displayedAgentRecoveryPlan.primaryActionId ===
+				"review_agent_settings"
+					? "Needs attention"
+					: "Needs connection"}
+			</span>
 			{action}
 		</div>
 	);

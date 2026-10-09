@@ -877,11 +877,19 @@ describe("planAgentProfileReplyRecovery", () => {
   it.each([
     [
       "workspace.missing",
-      "This agent is missing its local workspace on this device. Run `openmeld doctor --repair`, then `openmeld setup --profile <agent-profile-id>`, and try again.",
+      "Codex couldn’t start because its working folder is not configured on the computer that runs it. Choose a working folder, then try again.",
     ],
     [
       "workspace.invalid",
-      "This agent's local workspace is broken on this device. Run `openmeld doctor --repair`, then `openmeld setup --profile <agent-profile-id>`, and try again.",
+      "Codex couldn’t start because its working folder could not be used on the computer that runs it. Review that folder, then try again.",
+    ],
+    [
+      "profile.workspace.invalid",
+      "Codex couldn’t start because its working folder could not be used on the computer that runs it. Review that folder, then try again.",
+    ],
+    [
+      "project.local_connection.folder_missing",
+      "Codex couldn’t start because its Project folder is no longer available on the computer that runs it. Reconnect the folder in Projects, then try again.",
     ],
   ] as const)("uses shared recovery copy for workspace reason %s", (reasonCode, copy) => {
     const plan = planAgentProfileReplyRecovery({
@@ -895,7 +903,10 @@ describe("planAgentProfileReplyRecovery", () => {
             },
             runtime: {
               ready: false,
-              reasonCodes: [reasonCode],
+              reasonCodes: [
+                reasonCode,
+                "runtime.agent_controller_report_missing",
+              ],
             },
           },
           primaryAction: "run_prepare",
@@ -912,7 +923,8 @@ describe("planAgentProfileReplyRecovery", () => {
     expect(plan).toMatchObject({
       body: copy,
       kind: "prepare_agent_profile",
-      primaryActionLabel: "Connect local agent",
+      primaryActionId: "review_agent_settings",
+      primaryActionLabel: "Review agent settings",
       recoveryReasonCode: reasonCode,
       secondaryLabel: copy,
       title: copy,

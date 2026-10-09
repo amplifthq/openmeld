@@ -65,7 +65,6 @@ import {
   currentLocalRuntimeReplyReadinessResponseSchema,
   requestCurrentOpenMeldToolsUpdateResponseSchema,
   selectCurrentLocalAgentInstallationResponseSchema,
-  setCurrentAgentProfileWorkspaceResponseSchema,
   setCurrentOpenMeldToolsMaintenanceResponseSchema,
 } from "./local-runtimes";
 import { organizationComputersResponseSchema } from "./organization-computers";
@@ -1552,6 +1551,7 @@ export const centerAgentUpdateAgentProfileRuntimeSettingsBodySchema = z
   });
 
 export const centerAgentCheckAgentProfileReadinessBodySchema = z.strictObject({
+  includeDefaultProjectConnection: z.boolean().optional(),
   agentProfileId: agentProfileIdSchema,
   onBehalfOf: centerAgentOnBehalfOfInputSchema.optional(),
 });
@@ -1613,6 +1613,22 @@ export const centerAgentCheckAgentProfileReadinessResponseSchema =
     canReply: z.boolean(),
     organizationId: trimmedNonEmptyStringSchema,
     readiness: getAgentExecutionReadinessResponseSchema,
+    defaultProjectConnection: z
+      .strictObject({
+        projectId: nullableTrimmedStringSchema,
+        target: peopleComputerTargetSchema.nullable(),
+        status: z.enum([
+          "not_selected",
+          "connected",
+          "folder_missing",
+          "not_connected",
+          "unavailable",
+        ]),
+        checkedAtMs: z.number().int().nonnegative().nullable(),
+        configurationVersion: nullableTrimmedStringSchema,
+        reasonCode: nullableTrimmedStringSchema,
+      })
+      .optional(),
     summary: trimmedNonEmptyStringSchema,
   });
 
@@ -1621,11 +1637,12 @@ const centerAgentProductOperationStatusSchema = z.enum([
   "blocked",
 ]);
 
-const centerAgentWorkspaceMutationResponseSchema =
-  setCurrentAgentProfileWorkspaceResponseSchema.omit({
-    workspaceMode: true,
-    workspacePath: true,
-  });
+const centerAgentWorkspaceMutationResponseSchema = z.strictObject({
+  agentProfileId: agentProfileIdSchema,
+  status: z.literal("updated"),
+  target: peopleComputerTargetSchema.optional(),
+  configurationVersion: nullableTrimmedStringSchema.optional(),
+});
 
 export const centerAgentConnectAgentProfileToLocalAgentResponseSchema =
   z.strictObject({

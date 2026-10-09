@@ -840,8 +840,11 @@ diagnostics, and must not become public Agent Profile identity,
 Organization-shared data, Agent Activity, snapshot data, or Center Agent
 context. A missing or invalid custom folder fails closed; it does not silently
 become `openmeld_managed`.
-Center runtime-settings results expose only the local mutation's Profile and
-status, plus existing safe Binding/readiness evidence. They omit local mode and
+Center runtime-settings results expose the local mutation's Profile, status,
+and exact target Computer/lane, plus existing safe Binding/readiness evidence.
+The configuration version remains null when the Service write receipt does not
+report one; a Binding revision is not a working-folder configuration version.
+They omit local mode and
 absolute paths, including failure details. Selecting custom or managed through
 that operation saves the local folder first, then clears Default Project
 through Auth's existing writer. A failure to clear reports partial setup and

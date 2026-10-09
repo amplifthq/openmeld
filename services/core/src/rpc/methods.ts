@@ -892,6 +892,7 @@ import {
   connectAgentProfileToLocalAgentOperation,
   projectCenterAgentComputerSetupOptions,
   projectCenterAgentLocalAgentConnectionCandidates,
+  readSafeProductOperationFailureReasonCode,
   updateAgentProfileRuntimeSettingsOperation,
 } from "../center-agent/application/product-operations";
 import {
@@ -4270,22 +4271,34 @@ export async function rpcSetCurrentOpenMeldToolsMaintenance(
 type CurrentLocalProjectControlTarget =
   LocalRuntimesResponse["localRuntimes"][number]["executionTargets"][number];
 async function resolveCurrentLocalProjectControlTarget(input: {
-  capability: keyof NonNullable<
-    CurrentLocalProjectControlTarget["localProjectControl"]
-  >;
+  capability:
+    | keyof NonNullable<CurrentLocalProjectControlTarget["localProjectControl"]>
+    | "readConnections";
   env: CoreBindings;
   userId: string;
 }): Promise<CurrentLocalProjectControlTarget> {
-  const { currentTarget } = await resolveCurrentLocalControlTarget({
-    env: input.env,
-    offlineError: {
-      code: "service_offline",
-      reason: "This computer isn't reachable for OpenMeld right now.",
-      status: 503,
-    },
-    userId: input.userId,
-  });
-  if (currentTarget.localProjectControl?.[input.capability] !== true) {
+  const { currentTarget, ownerService } =
+    await resolveCurrentLocalControlTarget({
+      env: input.env,
+      offlineError: {
+        code: "service_offline",
+        reason: "This computer isn't reachable for OpenMeld right now.",
+        status: 503,
+      },
+      userId: input.userId,
+    });
+  const available =
+    input.capability === "readConnections"
+      ? ownerService?.online === true &&
+        selectCurrentOwnerServiceSessionsByDeviceLane(ownerService).some(
+          (session) =>
+            session.deviceId === currentTarget.deviceId &&
+            session.lane === currentTarget.runtimeLane &&
+            session.executionCompatibility.status === "compatible" &&
+            session.capabilities.localProjectControl?.readConnections === true
+        )
+      : currentTarget.localProjectControl?.[input.capability] === true;
+  if (!available) {
     throw createCoreRpcHttpError({
       status: 409,
       reason:
@@ -5360,6 +5373,37 @@ export async function rpcGetAgentProfilePrimaryBinding(
   return buildGetAgentProfilePrimaryBindingResponse(
     mapAgentProfileBindingLookupResultToProjection(lookupResult)
   );
+}
+async function resolveBoundAgentProfileComputerTarget(
+  env: CoreBindings,
+  input: GetAgentProfilePrimaryBindingInput
+): Promise<PeopleComputerTarget> {
+  const response = await rpcGetAgentProfilePrimaryBinding(env, input);
+  const executionTarget = response.binding.executionTarget;
+  const unavailable = () =>
+    createCoreRpcHttpError({
+      code: "agent_profile_binding.target_unavailable",
+      reason: "OpenMeld could not confirm the Computer that runs this Agent.",
+      status: 409,
+    });
+  if (response.status !== "found" || !executionTarget) {
+    throw unavailable();
+  }
+  const runtime = await resolveAgentExecutionTargetRuntimeContext({
+    env,
+    owner: {
+      id: requireAuthenticatedOwnerUserId(input.context),
+      kind: "owner_account",
+    },
+    targetRuntime: {
+      kind: "openmeld_service_runtime_id",
+      openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
+    },
+  });
+  if (!runtime) {
+    throw unavailable();
+  }
+  return { deviceId: runtime.deviceId, runtimeLane: runtime.lane };
 }
 export async function rpcGetCurrentAgentProfileSession(
   env: CoreBindings,
@@ -12433,6 +12477,7 @@ export async function rpcCenterAgentCheckAgentProfileReadiness(
   });
   const parsed = centerAgentCheckAgentProfileReadinessBodySchema.safeParse({
     agentProfileId: input.agentProfileId,
+    includeDefaultProjectConnection: input.includeDefaultProjectConnection,
     onBehalfOf: input.onBehalfOf,
   });
   if (!parsed.success) {
@@ -12452,7 +12497,11 @@ export async function rpcCenterAgentCheckAgentProfileReadiness(
       await resolveCenterAgentProductOperationOwner(
         authorization,
         parsed.data.onBehalfOf
-      )
+      ),
+      {
+        includeDefaultProjectConnection:
+          parsed.data.includeDefaultProjectConnection,
+      }
     ),
   });
   const validated =
@@ -12520,7 +12569,8 @@ function buildCenterAgentProductOperationDeps(
   preferenceOwner?: {
     representedContext: OpenMeldRequestContext | null;
     representedUserId: string | null;
-  }
+  },
+  options?: { includeDefaultProjectConnection?: boolean }
 ): CenterAgentProductOperationDeps {
   const context = authorization.context;
   const organizationId = authorization.activeOrganization.organizationId;
@@ -12541,10 +12591,24 @@ function buildCenterAgentProductOperationDeps(
         agentProfileId,
         context: ownerContext,
       });
-      return buildCenterAgentReadinessResponse({
+      const response = buildCenterAgentReadinessResponse({
         organizationId,
         readiness,
       });
+      if (!options?.includeDefaultProjectConnection) {
+        return response;
+      }
+      return {
+        ...response,
+        defaultProjectConnection: await readCenterAgentDefaultProjectConnection(
+          env,
+          {
+            agentProfileId,
+            context: ownerContext,
+            organizationId,
+          }
+        ),
+      };
     },
     createAgentProfile: async ({ onBehalfOf, profileName }) =>
       await rpcCenterAgentCreateAgentProfile(env, {
@@ -12639,13 +12703,23 @@ function buildCenterAgentProductOperationDeps(
       agentProfileId,
       workspaceMode,
       workspacePath,
-    }) =>
-      await rpcSetCurrentAgentProfileWorkspace(env, {
+    }) => {
+      const target = await resolveBoundAgentProfileComputerTarget(env, {
         agentProfileId,
         context: ownerContext,
-        workspaceMode,
-        ...(workspacePath === undefined ? {} : { workspacePath }),
-      }),
+      });
+      const workspace = await rpcSetCurrentAgentProfileWorkspace(
+        env,
+        {
+          agentProfileId,
+          context: ownerContext,
+          workspaceMode,
+          ...(workspacePath === undefined ? {} : { workspacePath }),
+        },
+        target
+      );
+      return { ...workspace, target };
+    },
     updateAgentControllerPermissionMode: async ({
       agentControllerPermissionMode,
       agentProfileId,
@@ -12684,6 +12758,111 @@ function buildCenterAgentProductOperationDeps(
         openCodePermission,
       }),
   };
+}
+async function readCenterAgentDefaultProjectConnection(
+  env: CoreBindings,
+  input: {
+    agentProfileId: string;
+    context: OpenMeldRequestContext;
+    organizationId: string;
+  }
+): Promise<
+  NonNullable<
+    CenterAgentCheckAgentProfileReadinessResponse["defaultProjectConnection"]
+  >
+> {
+  const unknown = {
+    checkedAtMs: null,
+    configurationVersion: null,
+    projectId: null,
+    reasonCode: "profile.default_project.unavailable",
+    status: "unavailable" as const,
+    target: null,
+  };
+  const facts = await readAuthProfileFacts({
+    authWorker: env.OPENMELD_AUTH_WORKER,
+    profileIds: [input.agentProfileId],
+  });
+  const profile = facts?.get(input.agentProfileId);
+  if (
+    !profile ||
+    profile.ownerUserId !== requireAuthenticatedOwnerUserId(input.context) ||
+    profile.organizationId !== input.organizationId ||
+    profile.defaultProjectId === undefined
+  ) {
+    return unknown;
+  }
+  const projectId = profile.defaultProjectId;
+  if (!projectId) {
+    return { ...unknown, reasonCode: null, status: "not_selected" };
+  }
+  let target: PeopleComputerTarget;
+  try {
+    target = await resolveBoundAgentProfileComputerTarget(env, input);
+  } catch {
+    return {
+      ...unknown,
+      projectId,
+      reasonCode: "agent_profile_binding.target_unavailable",
+    };
+  }
+  try {
+    const discovery = await rpcDiscoverPeopleComputerProjects(env, {
+      ...target,
+      clientGeneration: 0,
+      context: input.context,
+      expectedOrganizationId: input.organizationId,
+      includeCandidates: false,
+      projectIds: [projectId],
+    });
+    const project = discovery.projects.find(
+      (item) => item.projectId === projectId
+    );
+    if (
+      discovery.deviceId !== target.deviceId ||
+      !project ||
+      project.status === "verification_unavailable"
+    ) {
+      return {
+        ...unknown,
+        projectId,
+        target,
+        reasonCode: "project.local_connection.verification_unavailable",
+      };
+    }
+    const confirmed = {
+      checkedAtMs: discovery.checkedAtMs,
+      configurationVersion:
+        project.connections.find((connection) => connection.isDefault)
+          ?.bindingGeneration ?? null,
+      projectId,
+      target,
+    };
+    if (project.status === "connected") {
+      return { ...confirmed, status: "connected", reasonCode: null };
+    }
+    if (project.status === "connected_folder_missing") {
+      return {
+        ...confirmed,
+        status: "folder_missing",
+        reasonCode: "project.local_connection.folder_missing",
+      };
+    }
+    return {
+      ...confirmed,
+      status: "not_connected",
+      reasonCode: "project.local_connection.missing",
+    };
+  } catch (error) {
+    return {
+      ...unknown,
+      projectId,
+      target,
+      reasonCode:
+        readSafeProductOperationFailureReasonCode(error) ??
+        "project.local_connection.unavailable",
+    };
+  }
 }
 export async function rpcCenterAgentCreateSpace(
   env: CoreBindings,

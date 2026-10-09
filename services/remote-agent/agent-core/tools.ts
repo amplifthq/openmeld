@@ -6251,7 +6251,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_check_agent_profile_readiness",
       description:
-        "Check whether the requesting member's OpenMeld Agent Profile can reply now, in a private conversation. Use this after creating, connecting, or updating their Agent Profile, or when they ask why it cannot reply. For another member's Agent or a shared conversation, use the team-safe Organization directory readiness instead.",
+        "Check whether the requesting member's OpenMeld Agent Profile can reply now, in a private conversation. Includes path-free Default Project connection status on the Agent's bound Computer when supported. Connected means the saved folder is available, not that a task ran. Unavailable or an omitted connection projection is unknown; never infer a missing folder or request an already saved path from it. For another member's Agent or a shared conversation, use the team-safe Organization directory readiness instead.",
       input: object({ agentProfileId: nonEmptyStringSchema }),
       execute: async (payload) => {
         const toolContext = await buildRepresentedMemberAttributionToolContext({
@@ -6265,7 +6265,11 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           "centerAgentCheckAgentProfileReadiness"
         );
         return centerAgentCheckAgentProfileReadinessResponseSchema.parse(
-          await rpc({ agentProfileId: payload.agentProfileId, ...toolContext })
+          await rpc({
+            agentProfileId: payload.agentProfileId,
+            includeDefaultProjectConnection: true,
+            ...toolContext,
+          })
         );
       },
     }),
@@ -6905,7 +6909,12 @@ async function buildRepresentedMemberAttributionToolContext(input: {
       resolveCenterAgentContextScopePlan(toolContext.turnEnvelope)
         .interactionEnvironment !== "requester_private")
   ) {
-    throw new Error("Owner Agent diagnostics require a private conversation.");
+    throw Object.assign(
+      new Error(
+        "Owner Agent diagnostics are unavailable in this conversation. Do not retry here. Use openmeld_read_organization_directory for team-safe readiness."
+      ),
+      { code: "center_agent.requester_private_required", retryable: false }
+    );
   }
   const profileId = resolveVerifiedTurnEnvelopeProfileId(
     toolContext.turnEnvelope

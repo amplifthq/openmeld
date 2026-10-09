@@ -43,6 +43,10 @@ const PRIMARY_RECOVERY_REASON_CODES = [
   "model.unavailable",
   "workspace.invalid",
   "workspace.missing",
+  "profile.workspace.invalid",
+  "profile.workspace.missing",
+  "project.local_connection.folder_missing",
+  "project.local_connection.missing",
   "controller.client.upgrade_required",
   "controller.runtime.missing",
   "controller.registry.disabled",
@@ -78,6 +82,10 @@ const PRIMARY_RECOVERY_REASON_CODES = [
 const AGENT_PROFILE_PREPARATION_REASON_CODES = new Set<string>([
   "workspace.invalid",
   "workspace.missing",
+  "profile.workspace.invalid",
+  "profile.workspace.missing",
+  "project.local_connection.folder_missing",
+  "project.local_connection.missing",
   "controller.client.upgrade_required",
   "controller.runtime.missing",
   "controller.registry.disabled",
@@ -937,15 +945,19 @@ function planAgentProfilePreparationRecovery(input: {
     return planReviewComputerRecovery(input);
   }
   const copy = resolveSharedRecoveryCopy(input);
-
+  const recovery = resolvePublicAgentFailureRecovery({
+    errorCode: input.reasonCode,
+  });
+  let primaryActionId: AgentRecoveryActionId = "connect_local_agent";
+  if (recovery?.recoveryTarget === "working_folder") {
+    primaryActionId = recovery.primaryActionId;
+  } else if (input.reasonCode === "controller.client.upgrade_required") {
+    primaryActionId = "manage_local_agent";
+  }
   return {
     body: copy.body,
     kind: "prepare_agent_profile",
-    ...createPrimaryAction(
-      input.reasonCode === "controller.client.upgrade_required"
-        ? "manage_local_agent"
-        : "connect_local_agent"
-    ),
+    ...createPrimaryAction(primaryActionId),
     profileId: input.member.profileId,
     profileName: input.profileName,
     recoveryReasonCode: input.reasonCode,

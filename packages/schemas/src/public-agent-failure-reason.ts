@@ -761,7 +761,8 @@ export type PublicAgentFailureRecoveryTarget =
   | "agents"
   | "computer"
   | "cursor_account"
-  | "prepare_setup";
+  | "prepare_setup"
+  | "working_folder";
 
 export type PublicAgentAvailabilityCopyContext = {
   agentControllerId?: string | null;
@@ -1043,20 +1044,29 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: null,
     },
     {
+      availabilityBadgeLabel: "Working folder missing",
+      availabilitySummary: "Connect this Agent’s Project on its Computer.",
+      availabilityTooltip: "Project folder is not connected",
       body: (targetName) =>
         `${targetName} couldn’t start because its Project isn’t connected on the computer that runs it. Connect that Project on the Agent’s computer, then try again.`,
       kind: "local_agent_prepare",
       patterns: ["=project.local_connection.missing"],
-      primaryActionId: "connect_local_agent",
-      recoveryTarget: "prepare_setup",
+      primaryActionId: "review_agent_settings",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "working_folder",
     },
     {
+      availabilityBadgeLabel: "Working folder missing",
+      availabilitySummary:
+        "Reconnect this Agent’s Project folder on its Computer.",
+      availabilityTooltip: "Project folder is no longer available",
       body: (targetName) =>
         `${targetName} couldn’t start because its Project folder is no longer available on the computer that runs it. Reconnect the folder in Projects, then try again.`,
       kind: "local_agent_prepare",
       patterns: ["=project.local_connection.folder_missing"],
-      primaryActionId: "connect_local_agent",
-      recoveryTarget: "prepare_setup",
+      primaryActionId: "review_agent_settings",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "working_folder",
     },
     {
       body: "OpenMeld ran into a system problem before this Wake could run. Try again. If it keeps happening, open diagnostics.",
@@ -1979,18 +1989,28 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: null,
     },
     {
-      body: "This agent is missing its local workspace on this device. Run `openmeld doctor --repair`, then `openmeld setup --profile <agent-profile-id>`, and try again.",
+      availabilityBadgeLabel: "Working folder missing",
+      availabilitySummary: "Choose a working folder for this Agent.",
+      availabilityTooltip: "Working folder missing",
+      body: (targetName) =>
+        `${targetName} couldn’t start because its working folder is not configured on the computer that runs it. Choose a working folder, then try again.`,
       kind: "local_agent_prepare",
       patterns: ["workspace.missing", "profile.workspace.missing"],
-      primaryActionId: "connect_local_agent",
-      recoveryTarget: "prepare_setup",
+      primaryActionId: "review_agent_settings",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "working_folder",
     },
     {
-      body: "This agent's local workspace is broken on this device. Run `openmeld doctor --repair`, then `openmeld setup --profile <agent-profile-id>`, and try again.",
+      availabilityBadgeLabel: "Working folder unavailable",
+      availabilitySummary: "Review this Agent’s working folder.",
+      availabilityTooltip: "Working folder unavailable",
+      body: (targetName) =>
+        `${targetName} couldn’t start because its working folder could not be used on the computer that runs it. Review that folder, then try again.`,
       kind: "local_agent_prepare",
       patterns: ["workspace.invalid", "profile.workspace.invalid"],
-      primaryActionId: "connect_local_agent",
-      recoveryTarget: "prepare_setup",
+      primaryActionId: "review_agent_settings",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "working_folder",
     },
     {
       body: CODEX_UPGRADE_REQUIRED_REASON,

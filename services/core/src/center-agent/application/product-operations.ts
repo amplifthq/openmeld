@@ -73,7 +73,11 @@ export type CenterAgentProductOperationDeps = {
       CenterAgentUpdateAgentProfileRuntimeSettingsBody["workspaceMode"]
     >;
     workspacePath?: CenterAgentUpdateAgentProfileRuntimeSettingsBody["workspacePath"];
-  }): Promise<SetCurrentAgentProfileWorkspaceResponse>;
+  }): Promise<
+    SetCurrentAgentProfileWorkspaceResponse & {
+      target?: import("@openmeld/schemas/types").PeopleComputerTarget;
+    }
+  >;
   updateAgentControllerCollaborationMode(input: {
     agentControllerCollaborationMode: NonNullable<
       CenterAgentUpdateAgentProfileRuntimeSettingsBody["agentControllerCollaborationMode"]
@@ -551,6 +555,7 @@ export async function updateAgentProfileRuntimeSettingsOperation(input: {
       binding,
       organizationId: input.organizationId,
       steps,
+      workspace,
     });
   }
   steps.push({
@@ -795,28 +800,27 @@ function blockedSettingsResponse(input: {
 }
 
 function projectWorkspaceMutation(
-  workspace: SetCurrentAgentProfileWorkspaceResponse
+  workspace: Awaited<
+    ReturnType<
+      NonNullable<CenterAgentProductOperationDeps["setAgentProfileWorkspace"]>
+    >
+  >
 ) {
-  return { agentProfileId: workspace.agentProfileId, status: workspace.status };
+  return {
+    agentProfileId: workspace.agentProfileId,
+    status: workspace.status,
+    ...(workspace.target ? { target: workspace.target } : {}),
+    // The existing Service write receipt does not report a configuration
+    // version. Keep that uncertainty instead of using a Binding revision.
+    configurationVersion: null,
+  };
 }
 
 function failedWorkingFolderStep(
   name: OperationStep["name"],
   error: unknown
 ): OperationStep {
-  const message = error instanceof Error ? error.message : "";
-  const jsonStart = message.indexOf("{");
-  let code: string | undefined;
-  if (
-    error instanceof Error &&
-    "code" in error &&
-    typeof error.code === "string"
-  ) {
-    code = error.code;
-  } else if (jsonStart >= 0) {
-    code = parseRpcErrorPayload(message.slice(jsonStart))?.code;
-  }
-  const reasonCode = code && SAFE_REASON_CODE.test(code) ? code : undefined;
+  const reasonCode = readSafeProductOperationFailureReasonCode(error);
   const recovery = resolvePublicAgentFailureRecovery({
     errorCode: reasonCode,
     includeUnknown: false,
@@ -832,6 +836,23 @@ function failedWorkingFolderStep(
         : "The working folder could not be saved on the target Computer."),
     nextAction: "Review Working folder in Agent settings, then retry setup.",
   };
+}
+export function readSafeProductOperationFailureReasonCode(
+  error: unknown
+): string | undefined {
+  const message = error instanceof Error ? error.message : "";
+  const jsonStart = message.indexOf("{");
+  let code: string | undefined;
+  if (
+    error instanceof Error &&
+    "code" in error &&
+    typeof error.code === "string"
+  ) {
+    code = error.code;
+  } else if (jsonStart >= 0) {
+    code = parseRpcErrorPayload(message.slice(jsonStart))?.code;
+  }
+  return code && SAFE_REASON_CODE.test(code) ? code : undefined;
 }
 
 function toBindingStep(

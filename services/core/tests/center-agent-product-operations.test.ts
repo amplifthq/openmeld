@@ -410,6 +410,7 @@ describe("Center Agent product operations", () => {
     expect(response.workspace).toEqual({
       agentProfileId: AGENT_PROFILE_ID,
       status: "updated",
+      configurationVersion: null,
     });
     expect(response.status).toBe("completed");
     expect(JSON.stringify(response)).not.toContain("/private/test-account");

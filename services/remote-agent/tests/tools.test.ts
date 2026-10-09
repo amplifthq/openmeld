@@ -3123,7 +3123,11 @@ describe("remote agent OpenMeld tool catalog", () => {
       executeTool(tools, "openmeld_check_agent_profile_readiness", {
         agentProfileId: AGENT_PROFILE_ID,
       })
-    ).rejects.toThrow("private conversation");
+    ).rejects.toMatchObject({
+      code: "center_agent.requester_private_required",
+      retryable: false,
+      message: expect.stringContaining("openmeld_read_organization_directory"),
+    });
     expect(centerAgentCheckAgentProfileReadiness).not.toHaveBeenCalled();
   });
 
@@ -3705,11 +3709,11 @@ describe("remote agent OpenMeld tool catalog", () => {
       "verified represented member only"
     );
     expect(descriptions.get("openmeld_create_agent_profile_request")).toContain(
-      "Default Project alone does not set that folder"
+      "Default Project resolves future tasks to that local connection"
     );
     expect(
       descriptions.get("openmeld_update_agent_profile_runtime_settings")
-    ).toContain("use workspacePath to correct a folder");
+    ).toContain("saves the local folder and then clears Default Project");
     expect(
       [...descriptions.keys()].includes(
         "openmeld_create_configured_agent_profile"
@@ -7539,6 +7543,7 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
     {
       expectedPayload: {
         agentProfileId: AGENT_PROFILE_ID,
+        includeDefaultProjectConnection: true,
         onBehalfOf,
       },
       input: {

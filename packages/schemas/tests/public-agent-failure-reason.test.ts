@@ -1282,7 +1282,7 @@ describe("public agent failure reason mapping", () => {
     "profile.workspace.missing",
   ])("maps local workspace missing failure %s to actionable public copy", (reasonCode) => {
     expect(resolveMappedPublicAgentFailureReason(reasonCode)).toBe(
-      "This agent is missing its local workspace on this device. Run `openmeld doctor --repair`, then `openmeld setup --profile <agent-profile-id>`, and try again."
+      "This agent couldn’t start because its working folder is not configured on the computer that runs it. Choose a working folder, then try again."
     );
   });
 
@@ -1291,7 +1291,7 @@ describe("public agent failure reason mapping", () => {
     "profile.workspace.invalid",
   ])("maps local workspace invalid failure %s to actionable public copy", (reasonCode) => {
     expect(resolveMappedPublicAgentFailureReason(reasonCode)).toBe(
-      "This agent's local workspace is broken on this device. Run `openmeld doctor --repair`, then `openmeld setup --profile <agent-profile-id>`, and try again."
+      "This agent couldn’t start because its working folder could not be used on the computer that runs it. Review that folder, then try again."
     );
   });
 
