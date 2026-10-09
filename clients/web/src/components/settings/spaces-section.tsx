@@ -6,13 +6,7 @@ import { Switch } from "@openmeld/ui/components/switch";
 import { RadioGroup, RadioItem } from "@openmeld/ui/fluid/radio-group";
 import { useMediaQuery } from "@openmeld/ui/hooks/use-media-query";
 import { cn } from "@openmeld/ui/lib/utils";
-import {
-	ArrowRightIcon,
-	ArrowUpIcon,
-	PlusIcon,
-	RobotIcon,
-	UserIcon,
-} from "@phosphor-icons/react";
+import { ArrowUpIcon, PlusIcon, RobotIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useMemo, useState, useSyncExternalStore } from "react";
 import { AppPageHeader } from "#/components/app/app-page-header";
@@ -202,7 +196,7 @@ export function SpacesSection() {
 								<Skeleton className="h-5 w-9 rounded-full" />
 							)
 						}
-						description="When only you and one Agent are in a conversation, your messages ask it to work without an @mention. Turn this off to require a mention. Applies across your organizations."
+						description="When it's just you and one Agent, the Agent responds to your messages without an @mention. Turn this off to require a mention. Applies across your organizations."
 						error={
 							unavailable
 								? "Couldn't load this preference."
@@ -415,41 +409,36 @@ function SendShortcutPreview(input: { modified: boolean }) {
 
 function AutomaticWakePreview(input: { enabled: boolean }) {
 	return (
-		<div aria-hidden="true" className="max-w-2xl space-y-2">
-			<div className="flex items-center gap-1.5 text-muted-foreground text-xs">
-				<UserIcon className="size-4" />
-				<span>You</span>
-				<PlusIcon className="mx-1 size-3" />
-				<RobotIcon className="size-4" />
-				<span>1 Agent</span>
-				<span className="ml-auto text-[10px]">Example</span>
-			</div>
-			<div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-				<ComposerPreview
-					message={
-						<>
-							{!input.enabled && (
-								<span className="mr-1 rounded bg-primary/10 px-1 py-0.5 text-foreground">
-									@Agent
-								</span>
-							)}
-							Review this draft.
-						</>
-					}
-				/>
-				<div className="flex shrink-0 items-center gap-3 text-xs">
-					<ArrowRightIcon className="size-4 text-muted-foreground" />
-					<span className="flex flex-col gap-1">
-						<span className="flex items-center gap-1.5 text-foreground">
-							<RobotIcon className="size-4" />
-							Agent responds
-						</span>
-						<span className="text-muted-foreground">
-							{input.enabled ? "No @mention needed" : "@mention required"}
-						</span>
-					</span>
+		<div aria-hidden="true" className="max-w-xl space-y-2.5">
+			<p className="text-muted-foreground text-xs">
+				Example: just you and one Agent
+			</p>
+			<ComposerPreview
+				message={
+					<>
+						{!input.enabled && (
+							<span className="mr-1 rounded bg-primary/10 px-1 py-0.5 text-foreground">
+								@Agent
+							</span>
+						)}
+						Write a welcome message.
+					</>
+				}
+			/>
+			<div className="flex items-start gap-2 text-xs">
+				<RobotIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+				<div className="min-w-0 space-y-1">
+					<p className="font-medium text-foreground">Agent</p>
+					<p className="rounded-lg bg-muted/50 px-3 py-2 text-foreground">
+						Welcome to the team!
+					</p>
 				</div>
 			</div>
+			<p className="text-muted-foreground text-xs">
+				{input.enabled
+					? "Just send your message. No @mention needed."
+					: "Add @Agent when you want a reply."}
+			</p>
 		</div>
 	);
 }
