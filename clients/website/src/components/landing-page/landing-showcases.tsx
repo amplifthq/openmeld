@@ -8,6 +8,7 @@ import {
 	CheckIcon,
 	CloudIcon,
 	CodeIcon,
+	CpuIcon,
 	FileTextIcon,
 	HashIcon,
 	XIcon,
@@ -314,37 +315,46 @@ function ChatMessage({
 // Layout adapted from Animata Bento Grid Three (MIT). See SOURCES.md.
 function BentoCard({
 	className = "",
+	icon,
+	title,
 	children,
 }: {
 	className?: string;
+	icon: ReactNode;
+	title: ReactNode;
 	children: ReactNode;
 }) {
 	return (
-		<article className={`meld-bento-card ${className}`}>{children}</article>
+		<article className={`meld-bento-card ${className}`}>
+			<div className="meld-bento-heading">
+				{icon}
+				<h3>{title}</h3>
+			</div>
+			<div className="meld-bento-body">{children}</div>
+		</article>
 	);
 }
 export function ComputerBento() {
 	return (
 		<div className="meld-computer-bento">
-			<BentoCard className="meld-bento-machine">
+			<BentoCard
+				className="meld-bento-machine"
+				icon={<CloudIcon aria-hidden size={20} />}
+				title="One computer. All your agents."
+			>
+				<p>Your files, terminal, and browser. Ready for the next task.</p>
 				<div className="meld-machine-art">
 					<LandingFigure
 						figure="turntable"
 						label="Computer components on a turntable. Brush across to rotate."
 					/>
 				</div>
-				<div>
-					<CloudIcon aria-hidden size={22} />
-					<h3>
-						One computer.
-						<br />
-						All your agents.
-					</h3>
-					<p>Your files, terminal, and browser. Ready for the next task.</p>
-				</div>
 			</BentoCard>
-			<BentoCard className="meld-bento-specs">
-				<span className="meld-bento-eyebrow">Your cloud computer</span>
+			<BentoCard
+				className="meld-bento-specs"
+				icon={<CpuIcon aria-hidden size={20} />}
+				title="Your cloud computer"
+			>
 				<div className="meld-computer-specs">
 					<div>
 						<strong>1</strong>
@@ -364,25 +374,36 @@ export function ComputerBento() {
 					</div>
 				</div>
 			</BentoCard>
-			<BentoCard className="meld-bento-terminal">
-				<div className="meld-bento-eyebrow">
-					<CodeIcon aria-hidden size={18} /> A real terminal
-				</div>
+			<BentoCard
+				className="meld-bento-terminal"
+				icon={<CodeIcon aria-hidden size={20} />}
+				title="A real terminal"
+			>
+				<p>
+					Analyze data, build apps, and create videos with Python, Node.js, Git,
+					and FFmpeg.
+				</p>
 				<div className="meld-terminal-lines">
 					<span>
-						<b>❯</b> python3 analyze.py
+						<b>❯</b> ffmpeg -i demo.mov demo.mp4
 					</span>
-					<span className="meld-terminal-result">Read 24 interview notes</span>
-					<span className="meld-terminal-result">Saved findings.md</span>
+					<span className="meld-terminal-result">Saved demo.mp4</span>
 					<span className="meld-terminal-last">
-						<CheckIcon aria-hidden size={14} /> Ready for review
+						<CheckIcon aria-hidden size={14} /> Ready to share
 					</span>
 				</div>
-				<p>Python · Node.js · Git · FFmpeg</p>
+				<div className="meld-terminal-figure">
+					<LandingFigure
+						figure="terminal"
+						label="A terminal window. Move up or down to browse its history."
+					/>
+				</div>
 			</BentoCard>
-			<BentoCard className="meld-bento-files">
-				<FileTextIcon aria-hidden size={28} />
-				<h3>From file to finished work.</h3>
+			<BentoCard
+				className="meld-bento-files"
+				icon={<FileTextIcon aria-hidden size={20} />}
+				title="From file to finished work."
+			>
 				<p>Bring the result back to your team’s conversation.</p>
 				<div className="meld-result-figure">
 					<LandingFigure

@@ -3,6 +3,11 @@ import { lazy, Suspense, useRef } from "react";
 import "./landing-figure.css";
 
 const figures = {
+	terminal: lazy(() =>
+		import("@lucasmarkes/hairline/react").then(({ Terminal }) => ({
+			default: Terminal,
+		}))
+	),
 	riffle: lazy(() =>
 		import("@lucasmarkes/hairline/react").then(({ Riffle }) => ({
 			default: Riffle,

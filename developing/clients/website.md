@@ -136,7 +136,9 @@ after navigation and refresh. There are no per-demo WebGL lighting loops or
 foreground overlays.
 
 Cloud Computer uses Hairline's official Turntable figure, with Riffle illustrating
-files and finished work. Privacy and Open Source use its Lockers
+files and finished work and a smaller Terminal figure below the video conversion
+example. Its four cards share an icon-and-title heading with the same foreground
+color and type size. Privacy and Open Source use its Lockers
 and Branches figures. `LandingFigure` loads the installed React
 components within 300px of the viewport and reserves their 5:4 footprint before
 loading. Consumers set only the dark palette, accessible description and
