@@ -206,6 +206,7 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
 
 vi.mock("#/lib/organizations/organization-context", () => ({
 	useAppOrganization: () => appOrganizationMock,
+	useOptionalAppOrganization: () => appOrganizationMock,
 	useCurrentOrganizationSlug: () =>
 		appOrganizationMock.currentOrganization.slug,
 }));

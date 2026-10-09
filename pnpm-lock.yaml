@@ -1393,6 +1393,9 @@ importers:
       '@radix-ui/react-checkbox':
         specifier: ^1.3.4
         version: 1.3.4(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      border-beam:
+        specifier: 1.4.1
+        version: 1.4.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       bot-avatars:
         specifier: 0.2.2
         version: 0.2.2(react@19.2.4)
@@ -8899,6 +8902,12 @@ packages:
   boolean@3.2.0:
     resolution: {integrity: sha512-d0II/GO9uf9lfUHH2BQsjxzRJZBdsjgsBiW4BvhWk/3qoKwQFjIDVN19PfX8F2D/r9PCMTtLWjYVCFrpeYUzsw==}
     deprecated: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
+
+  border-beam@1.4.1:
+    resolution: {integrity: sha512-YyugmKjrhkg1PBC1ZKX7JvFo/zYzha6NXOq24VWrnvBYmDRvGCgFS9oxZoKJ+oS9Kn436l1etYGlAdGiWK+3ag==}
+    peerDependencies:
+      react: '>=18.0.0'
+      react-dom: '>=18.0.0'
 
   bot-avatars@0.2.2:
     resolution: {integrity: sha512-EszpDsXfbO7SD3Jv/g8/7mt3I4EpN4WuDy6Uk3reuzIgU+dl4iKtk+fuIzGgfXjOraF1jQqUjaDOdcql1khXHQ==}
@@ -22535,6 +22544,11 @@ snapshots:
 
   boolean@3.2.0:
     optional: true
+
+  border-beam@1.4.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4):
+    dependencies:
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
 
   bot-avatars@0.2.2(react@19.2.4):
     dependencies:

@@ -1,0 +1,64 @@
+.meld-trust-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 24px;
+}
+.meld-trust-card {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	padding: 36px;
+	border: 1px solid var(--meld-line);
+	border-radius: 14px;
+	background: #151515;
+	box-shadow: none;
+}
+.meld-trust-card > svg {
+	color: #c5c5cb;
+}
+.meld-trust-card h3 {
+	margin: 26px 0 18px;
+	font-size: 24px;
+	font-weight: 500;
+	line-height: 1.25;
+	letter-spacing: -0.035em;
+}
+.meld-trust-card p {
+	margin: 0 0 18px;
+	color: var(--muted-foreground);
+	font-size: 16px;
+	line-height: 1.7;
+	text-wrap: pretty;
+}
+.meld-trust-card p a {
+	color: #dedee2;
+	text-decoration: underline;
+	text-underline-offset: 4px;
+}
+.meld-trust-card p a:hover {
+	color: var(--foreground);
+}
+.meld-trust-card .meld-trust-link {
+	margin-top: auto;
+	padding-top: 16px;
+}
+@media (max-width: 900px) {
+	.meld-trust-card {
+		padding: 28px;
+	}
+}
+@media (max-width: 600px) {
+	.meld-trust-grid {
+		grid-template-columns: 1fr;
+		gap: 16px;
+	}
+	.meld-trust-card {
+		padding: 26px;
+	}
+	.meld-trust-card h3 {
+		font-size: 22px;
+	}
+	.meld-trust-card p {
+		font-size: 15px;
+	}
+}

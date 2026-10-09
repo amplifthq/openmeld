@@ -230,11 +230,33 @@ function useConversationReadState(
 	return { pending, paused, showDelayedPending };
 }
 
+function ConversationsSidebarSearch(input: {
+	visible: boolean;
+	value: string;
+	onValueChange: (value: string) => void;
+}) {
+	if (!input.visible) {
+		return null;
+	}
+	return (
+		<div className="mb-2 px-1">
+			<SidebarSearchInput
+				inputClassName="lg:h-7"
+				label="Search conversations"
+				onValueChange={input.onValueChange}
+				placeholder="Find a space..."
+				value={input.value}
+			/>
+		</div>
+	);
+}
+
 export function ConversationsSidebar(
 	input: {
 		currentProfileId?: string;
 		currentSpaceId?: string;
 		hideAccountSpacesFailure?: boolean;
+		showSearch?: boolean;
 	} = {}
 ) {
 	const model = useConversations(input);
@@ -605,15 +627,11 @@ export function ConversationsSidebar(
 					</DropdownMenu>
 				</div>
 			</div>
-			<div className="mb-2 px-1">
-				<SidebarSearchInput
-					inputClassName="lg:h-7"
-					label="Search conversations"
-					onValueChange={setSearch}
-					placeholder="Find a space..."
-					value={search}
-				/>
-			</div>
+			<ConversationsSidebarSearch
+				onValueChange={setSearch}
+				value={search}
+				visible={input.showSearch !== false}
+			/>
 			{filter.badges}
 			{kinds.badges}
 			{archived && (
