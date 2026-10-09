@@ -1,3 +1,5 @@
+import { badgeVariants } from "@openmeld/ui/components/badge";
+import { cn } from "@openmeld/ui/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
@@ -6,12 +8,12 @@ import { requestInboxSourceFocus } from "#/lib/inbox/source-focus-request";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { spaceInboxUnreadTargetsQueryOptions } from "#/query/organizations/inbox";
 
-/** Keep the existing status dot's geometry and native link interaction. */
+/** Share unread navigation across compact dots and directory badges. */
 export function SpaceUnreadLink(input: {
 	spaceId: string;
 	url: string;
 	count: number;
-	showCount?: boolean;
+	variant?: "dot" | "badge";
 }) {
 	const organization = useOptionalAppOrganization();
 	const queryClient = useQueryClient();
@@ -39,10 +41,17 @@ export function SpaceUnreadLink(input: {
 	const destination = new URL(input.url, "https://openmeld.invalid");
 	return (
 		<Link
-			aria-label={`${input.count} unread ${input.count === 1 ? "update" : "updates"}. Jump to first unread`}
+			aria-label={
+				input.count > 0
+					? `${input.count} unread ${input.count === 1 ? "update" : "updates"}. Jump to first unread`
+					: "Unread updates. Jump to first unread"
+			}
 			className={
-				input.showCount
-					? "pointer-events-auto relative inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded bg-unread/10 px-1 text-unread text-xs tabular-nums leading-none outline-none focus-visible:ring-1 focus-visible:ring-ring"
+				input.variant === "badge"
+					? cn(
+							badgeVariants({ variant: "secondary" }),
+							"pointer-events-auto relative gap-1.5 bg-unread/10 px-1.5 text-foreground/85 tabular-nums outline-none hover:bg-unread/15 motion-reduce:transition-none"
+						)
 					: "status-dot pointer-events-auto relative bg-unread outline-none focus-visible:ring-1 focus-visible:ring-ring"
 			}
 			data-conversation-unread-indicator="true"
@@ -103,7 +112,15 @@ export function SpaceUnreadLink(input: {
 			search={Object.fromEntries(destination.searchParams)}
 			to={destination.pathname}
 		>
-			{input.showCount ? input.count : null}
+			{input.variant === "badge" && (
+				<>
+					<span
+						aria-hidden
+						className="size-1.5 shrink-0 rounded-full bg-unread"
+					/>
+					{input.count > 0 ? `${input.count} unread` : "Unread"}
+				</>
+			)}
 		</Link>
 	);
 }

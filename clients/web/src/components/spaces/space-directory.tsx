@@ -686,11 +686,7 @@ function JoinedRow(input: {
 			: []);
 	if (input.layout === "cards") {
 		return (
-			<DirectoryCardItem
-				className="border border-border"
-				itemId={item.spaceId}
-				unread={input.unread > 0}
-			>
+			<DirectoryCardItem className="border border-border" itemId={item.spaceId}>
 				<FluidContextMenuScope
 					target={
 						<div
@@ -724,14 +720,10 @@ function JoinedRow(input: {
 								{input.unread > 0 && (
 									<span className="relative z-10 flex shrink-0 items-center">
 										<SpaceUnreadLink
-											count={
-												input.messageUnreadCount
-													? input.messageUnreadCount
-													: input.unread
-											}
-											showCount={input.messageUnreadCount !== 0}
+											count={input.messageUnreadCount ?? input.unread}
 											spaceId={item.spaceId}
 											url={`${route.to}?${new URLSearchParams(route.search)}`}
+											variant="badge"
 										/>
 									</span>
 								)}

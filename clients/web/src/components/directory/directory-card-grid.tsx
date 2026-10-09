@@ -23,16 +23,10 @@ export function DirectoryCardGrid({
 export function DirectoryCardItem({
 	children,
 	className,
-	unread = false,
 	...props
-}: ComponentProps<typeof FluidCardItem> & { unread?: boolean }) {
+}: ComponentProps<typeof FluidCardItem>) {
 	return (
-		<FluidCardItem
-			className={cn(className, unread && "border-unread")}
-			data-unread={unread || undefined}
-			role="listitem"
-			{...props}
-		>
+		<FluidCardItem className={className} role="listitem" {...props}>
 			{children}
 		</FluidCardItem>
 	);

@@ -442,11 +442,7 @@ function ChatDirectoryCard({
 		chat.recentMessagePreviews ??
 		(latest ? [{ ...latest, text: normalizeMessagePreview(latest.text) }] : []);
 	return (
-		<DirectoryCardItem
-			className="border border-border"
-			itemId={chat.spaceId}
-			unread={unread > 0}
-		>
+		<DirectoryCardItem className="border border-border" itemId={chat.spaceId}>
 			<FluidContextMenuScope
 				target={
 					<div className="@container/space-card group/directory-row relative flex h-full min-w-0 flex-col gap-3 rounded-md p-4">
@@ -478,10 +474,13 @@ function ChatDirectoryCard({
 							{unread > 0 && (
 								<span className="relative z-10 flex shrink-0 items-center">
 									<SpaceUnreadLink
-										count={unread}
-										showCount
+										count={
+											model.indicators.unreadBySpaceId.get(chat.spaceId)
+												?.messageUnreadCount ?? unread
+										}
 										spaceId={chat.spaceId}
 										url={href}
+										variant="badge"
 									/>
 								</span>
 							)}
