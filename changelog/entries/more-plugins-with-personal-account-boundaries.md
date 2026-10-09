@@ -12,6 +12,12 @@ Meta, Mailchimp, and Canva. Sign-in availability depends on the OAuth setup
 for each environment. Providers that support credentials can also use your
 own token, API key, or service account.
 
+The catalog also includes Neon, GitLab, Docker Hub, Sentry, Dropbox, ClickUp,
+monday.com, Asana, Miro, Intercom, Zendesk, Shopify Admin, Confluence, Trello,
+Jira, and Stripe. Shopify Admin uses the current Admin GraphQL API for
+products, inventory, fulfillment, orders, and customers. Stripe actions cover
+customers, products, and prices.
+
 Browse Plugins by category, open a category to see all its tools, and search
 beside the Personal and organization tabs. Cards show what each tool does,
 with connection status kept on one line.

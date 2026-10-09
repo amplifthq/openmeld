@@ -597,6 +597,277 @@ export const PLUGINS = [
     name: "Canva",
     service: "canva",
   },
+  {
+    availability: "available",
+    category: "Developer tools",
+    connection: {
+      auth: {
+        authType: "api_key",
+        fields: [
+          {
+            key: "apiKey",
+            label: "API key",
+            description: "A Neon API key for the projects you want to manage.",
+            placeholder: "napi_...",
+            inputType: "password",
+            required: true,
+            secret: true,
+          },
+        ],
+        kind: "credential",
+      },
+    },
+    description:
+      "Manage database projects, branches, databases, and operations.",
+    homepage: "https://neon.com",
+    logoPath: "/app-logos/neon.svg",
+    name: "Neon",
+    service: "neon",
+  },
+  {
+    availability: "available",
+    category: "Developer tools",
+    connection: { auth: { kind: "oauth" } },
+    description: "Manage projects, issues, and merge requests.",
+    homepage: "https://gitlab.com",
+    logoPath: "/app-logos/gitlab.svg",
+    name: "GitLab",
+    service: "gitlab",
+  },
+  {
+    availability: "available",
+    category: "Developer tools",
+    connection: {
+      auth: {
+        authType: "api_key",
+        fields: [
+          {
+            key: "apiKey",
+            label: "Credential",
+            description:
+              "Enter your Docker username and personal access token, separated by a colon. Organization names and organization access tokens are also supported.",
+            placeholder: "username:dckr_pat_...",
+            inputType: "password",
+            required: true,
+            secret: true,
+          },
+        ],
+        kind: "credential",
+      },
+    },
+    description:
+      "Inspect image repositories and tags, and manage repositories and organization members.",
+    homepage: "https://hub.docker.com",
+    logoPath: "/app-logos/docker-hub.svg",
+    name: "Docker Hub",
+    service: "docker_hub",
+  },
+  {
+    availability: "available",
+    category: "Developer tools",
+    connection: { auth: { kind: "oauth" } },
+    description:
+      "Investigate issues, events, releases, and replays, and update issues.",
+    homepage: "https://sentry.io",
+    logoPath: "/app-logos/sentry.svg",
+    name: "Sentry",
+    service: "sentry",
+  },
+  {
+    availability: "available",
+    category: "Productivity",
+    connection: { auth: { kind: "oauth" } },
+    description:
+      "Search and manage files, folders, revisions, and shared links.",
+    homepage: "https://www.dropbox.com",
+    logoPath: "/app-logos/dropbox.svg",
+    name: "Dropbox",
+    service: "dropbox",
+  },
+  {
+    availability: "available",
+    category: "Productivity",
+    connection: { auth: { kind: "oauth" } },
+    description: "Manage tasks, lists, spaces, comments, and custom fields.",
+    homepage: "https://clickup.com",
+    logoPath: "/app-logos/clickup.svg",
+    name: "ClickUp",
+    service: "clickup",
+  },
+  {
+    availability: "available",
+    category: "Productivity",
+    connection: { auth: { kind: "oauth" } },
+    description: "Manage boards, items, updates, documents, and dashboards.",
+    homepage: "https://monday.com",
+    logoPath: "/app-logos/monday.svg",
+    name: "monday.com",
+    service: "monday",
+  },
+  {
+    availability: "available",
+    category: "Productivity",
+    connection: { auth: { kind: "oauth" } },
+    description:
+      "Manage projects, tasks, dependencies, comments, and attachments.",
+    homepage: "https://asana.com",
+    logoPath: "/app-logos/asana.svg",
+    name: "Asana",
+    service: "asana",
+  },
+  {
+    availability: "available",
+    category: "Productivity",
+    connection: { auth: { kind: "oauth" } },
+    description:
+      "Create boards and work with notes, text, shapes, and connectors.",
+    homepage: "https://miro.com",
+    logoPath: "/app-logos/miro.svg",
+    name: "Miro",
+    service: "miro",
+  },
+  {
+    availability: "available",
+    category: "Communication",
+    connection: { auth: { kind: "oauth" } },
+    description: "Manage contacts and reply to customer conversations.",
+    homepage: "https://www.intercom.com",
+    logoPath: "/app-logos/intercom.svg",
+    name: "Intercom",
+    service: "intercom",
+  },
+  {
+    availability: "available",
+    category: "Communication",
+    connection: { auth: { kind: "oauth" } },
+    description:
+      "Read and update support tickets, reply to customers, and find users.",
+    homepage: "https://www.zendesk.com",
+    logoPath: "/app-logos/zendesk.svg",
+    name: "Zendesk",
+    service: "zendesk",
+  },
+  {
+    availability: "available",
+    category: "Marketing",
+    connection: {
+      auth: {
+        authType: "api_key",
+        fields: [
+          {
+            key: "apiKey",
+            label: "Admin API access token",
+            description:
+              "A Shopify Admin API access token with the scopes you need.",
+            placeholder: "shpat_...",
+            inputType: "password",
+            required: true,
+            secret: true,
+          },
+          {
+            key: "shopDomain",
+            label: "Shop domain",
+            description: "Your store's myshopify.com domain.",
+            placeholder: "acme.myshopify.com",
+            inputType: "text",
+            required: true,
+            secret: false,
+          },
+        ],
+        kind: "credential",
+      },
+    },
+    description:
+      "Manage products, inventory, and fulfillment, and read orders and customers through the Admin GraphQL API.",
+    homepage: "https://www.shopify.com",
+    logoPath: "/app-logos/shopify.svg",
+    name: "Shopify Admin",
+    service: "shopify_admin",
+  },
+  {
+    availability: "available",
+    category: "Productivity",
+    connection: { auth: { kind: "oauth" } },
+    description:
+      "Search content, read spaces and pages, and create or update pages.",
+    homepage: "https://www.atlassian.com/software/confluence",
+    logoPath: "/app-logos/confluence.svg",
+    name: "Confluence",
+    service: "confluence",
+  },
+  {
+    availability: "available",
+    category: "Productivity",
+    connection: {
+      auth: {
+        authType: "custom_credential",
+        fields: [
+          {
+            key: "apiKey",
+            label: "API key",
+            description: "The Trello API key from your app's API Key tab.",
+            placeholder: "Trello API key",
+            inputType: "password",
+            required: true,
+            secret: true,
+          },
+          {
+            key: "apiToken",
+            label: "API token",
+            description:
+              "The Trello token generated beside your API key. This is different from the API secret or an Atlassian API token.",
+            placeholder: "Trello API token",
+            inputType: "password",
+            required: true,
+            secret: true,
+          },
+        ],
+        kind: "credential",
+      },
+    },
+    description: "Manage boards, lists, cards, checklists, and comments.",
+    homepage: "https://trello.com",
+    logoPath: "/app-logos/trello.svg",
+    name: "Trello",
+    service: "trello",
+  },
+  {
+    availability: "available",
+    category: "Productivity",
+    connection: { auth: { kind: "oauth" } },
+    description: "Find projects and issues, create issues, and add comments.",
+    homepage: "https://www.atlassian.com/software/jira",
+    logoPath: "/app-logos/jira.svg",
+    name: "Jira",
+    service: "jira",
+  },
+  {
+    availability: "available",
+    category: "Marketing",
+    connection: {
+      auth: {
+        authType: "api_key",
+        fields: [
+          {
+            key: "apiKey",
+            label: "Secret or restricted API key",
+            description:
+              "A Stripe secret or restricted API key with access to the customers, products, and prices you need.",
+            placeholder: "sk_test_...",
+            inputType: "password",
+            required: true,
+            secret: true,
+          },
+        ],
+        kind: "credential",
+      },
+    },
+    description: "Manage customers, products, and prices.",
+    homepage: "https://stripe.com",
+    logoPath: "/app-logos/stripe.svg",
+    name: "Stripe",
+    service: "stripe",
+  },
 ] as const satisfies readonly PluginDefinition[];
 
 export function findPluginDefinition(service: string): PluginDefinition | null {

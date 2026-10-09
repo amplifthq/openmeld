@@ -231,7 +231,12 @@ describe("PluginsCatalogPanel", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: "View all Communication Plugins" })
 		);
-		expect(screen.getAllByRole("link")).toHaveLength(4);
+		expect(
+			screen
+				.getAllByRole("link")
+				.map((link) => within(link).getByRole("heading").textContent)
+				.sort()
+		).toEqual(["Gmail", "Intercom", "Outlook", "Resend", "Slack", "Zendesk"]);
 		expect(screen.getByRole("link", { name: GMAIL_LINK_NAME })).toBeTruthy();
 		expect(screen.getByRole("link", { name: SLACK_LINK_NAME })).toBeTruthy();
 		expect(screen.queryByRole("link", { name: NOTION_LINK_NAME })).toBeNull();

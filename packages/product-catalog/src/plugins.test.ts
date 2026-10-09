@@ -6,7 +6,7 @@ import { findPluginDefinition, pluginFromProvider } from "./plugins";
 
 const LOCAL_BRAND_MARK = /^\/app-logos\/.+\.svg$/;
 
-// Captured from the pinned OpenConnector runtime on 2026-10-09. The runtime's
+// Captured from OpenConnector runtimes on 2026-10-09 and 2026-10-10.
 // connectionAuth.oauth is readiness; authTypes declares OAuth support.
 describe("Plugin sign-in readiness", () => {
   it.each(
@@ -24,7 +24,7 @@ describe("Plugin sign-in readiness", () => {
     } else {
       expect(plugin.connection?.auth).toMatchObject({
         kind: "credential",
-        authType: "api_key",
+        authType: provider.connectionAuth?.credentials[0]?.authType,
       });
     }
     expect(plugin.connection?.credentials).toEqual(
