@@ -27,6 +27,8 @@ without receiving local paths.
 
 Stop remains available after the same local OpenMeld Service reconnects and
 confirms that it still owns the running task.
+Thread replies also recover after reconnecting or returning to the page,
+without closing and reopening the thread.
 
 Cloud commands return their exact receipt reference and execution phase. Owner
 inspection can query the original Remote command, and a missing receipt reports

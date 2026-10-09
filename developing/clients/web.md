@@ -3890,7 +3890,15 @@ history query owns that cursor separately from retained and live display rows;
 receiving a live row does not prove that intervening history was read. A missing
 or reaped anchor falls back to the bounded recent-history read, which saves its
 confirmed cursor for later visits and reloads. Older saved records without this
-cursor use a recent-history read before catch-up. On a
+cursor use a recent-history read before catch-up. After Core accepts a live
+subscription, on returning to a visible tab, or explicit recovery,
+the same reconciliation owner also refreshes the current Space and viewer's
+Thread catalog and retained Thread queries. Main-history cursors do not cover
+Thread-only replies. Mounted Threads use their existing authorized reads;
+unopened Thread snapshots remain stale until opened. Live Thread frames still
+update the existing query cache directly. The periodic main-history reconcile
+does not poll Thread history. Thread read failures retain their diagnostic
+error and leave catch-up stale without restarting execution. On a
 cold restore with no successful in-memory status snapshot, the safe display
 snapshot and history may render read-only while current Space status confirms
 access; no mutation can become available before that confirmation. Status and
