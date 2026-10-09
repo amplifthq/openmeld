@@ -24,8 +24,8 @@ The Worker SDK's database, dofs apply, RPC sync-engine and runtime sync-driver
 bundle regions are compiled from these same patched sources with the upstream
 `@cloudflare/computer` build. They form part of
 `patches/@cloudflare__computer@0.4.1.patch`. Regeneration must preserve the
-existing bounded path planner, mode selection and stream cancellation
-corrections. The patched
+existing indexed path resolution with fewer SQL queries, mode selection and
+stream cancellation corrections. The patched
 index does not advertise the vendor's unchanged source map. Review the source
 patch here for the sync contract, rather than reading that original source map.
 
