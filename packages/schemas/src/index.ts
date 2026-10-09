@@ -403,11 +403,13 @@ export * from "./schemas/index";
 export { agentControllerSessionTitleSchema } from "./schemas/runtime/agent-controller-session";
 export {
   type CloudComputer,
+  type CloudComputerCommandCollection,
   type CloudComputerCommandPhase,
   type CloudComputerCommandReference,
   type CloudComputerOperation,
   type CloudComputerStorage,
   cloudComputerCleanupResultSchema,
+  cloudComputerCommandCollectionSchema,
   cloudComputerCommandErrorSchema,
   cloudComputerCommandPhaseSchema,
   cloudComputerCommandReferenceSchema,

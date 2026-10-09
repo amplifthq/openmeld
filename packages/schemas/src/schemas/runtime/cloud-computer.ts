@@ -52,6 +52,14 @@ export const cloudComputerCommandPhaseSchema = z.enum([
 export type CloudComputerCommandPhase = zod.infer<
   typeof cloudComputerCommandPhaseSchema
 >;
+/** Automatic receipt observation only; never execution state or authority. */
+export const cloudComputerCommandCollectionSchema = z.strictObject({
+  consecutiveFailures: z.number().int().nonnegative(),
+  nextAttemptAtMs: z.number().int().nonnegative().nullable(),
+});
+export type CloudComputerCommandCollection = zod.infer<
+  typeof cloudComputerCommandCollectionSchema
+>;
 export const cloudComputerCommandErrorSchema = z.strictObject({
   status: z.number().int().min(400).max(599),
   code: z.enum([
@@ -164,6 +172,7 @@ export const cloudComputerOperationResultSchema = z.union([
       reference: cloudComputerCommandReferenceSchema.optional(),
       phase: cloudComputerCommandPhaseSchema.optional(),
       recordExpiresAtMs: z.number().int().nonnegative().optional(),
+      collection: cloudComputerCommandCollectionSchema.optional(),
     })
   ),
   z.object({
@@ -172,6 +181,7 @@ export const cloudComputerOperationResultSchema = z.union([
     reference: cloudComputerCommandReferenceSchema.optional(),
     phase: cloudComputerCommandPhaseSchema.optional(),
     recordExpiresAtMs: z.number().int().nonnegative().optional(),
+    collection: cloudComputerCommandCollectionSchema.optional(),
     status: z.enum(["running", "completed", "stop_requested"]),
     exitCode: z.number().nullable().optional(),
     stdout: z.string().optional(),

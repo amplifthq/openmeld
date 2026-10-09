@@ -506,10 +506,24 @@ The public command entrypoint enters this owner before native readiness or
 directory preparation. Only a new launch prepares its directory, within its
 launch budget, and checks timeout and Stop again before dispatch.
 Reader cancellation has a 100 ms grace period before local detachment. The
-collector observes up to four existing identities concurrently so a hung native
-call does not prevent collection of the other receipts. Neither budget permits
+collector reads at most 16 due receipts through an index on the existing
+command records, and observes up to four existing identities concurrently. Old
+completed receipts do not enter that scan. A hung native call does not prevent
+collection of the other receipts. Neither budget permits
 another launch. A launch acknowledgement received after Stop still addresses
 the original command identity through a fresh Workspace client.
+Automatic observation uses the same receipt's `collection` metadata. Successful
+checks schedule another check after 15 seconds. Consecutive observation errors
+back off from 30 seconds to five minutes; the eighth error pauses automatic
+checks with `nextAttemptAtMs: null`. This does not stop or fail the process,
+confirm loss, or authorize another launch. A successful manual poll or Stop
+resumes collection of the same identity. Fresh accepted process evidence resets
+the error count even for an old, silent command. An older failed observation
+cannot consume the budget after a successful manual recovery. The Computer
+alarm reads the next due time from the same receipts; pending Git transfers
+retain their existing alarm cadence. The index adds a write cost to eligible
+receipt updates and an initial build on existing storage; it is not a separate
+queue or execution state.
 The command receipt retains the requested Stop signal and its native delivery
 acknowledgement. After an acquisition timeout, polling and collection continue
 the pending Stop for that same identity. A short native inspection can avoid

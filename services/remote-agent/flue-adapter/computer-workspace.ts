@@ -48,10 +48,10 @@ import {
 import {
   collectComputerCommands,
   createComputerCommandTool,
-  hasCollectableComputerCommands,
   listPendingRemoteAgentComputerCommands,
   stopStoredComputerCommands,
 } from "./computer-command";
+import { ComputerCommandSqlStorage } from "./computer-command-storage";
 import { ComputerFiles } from "./computer-files";
 import { createComputerFileTools, describeComputer } from "./computer-native";
 import {
@@ -73,7 +73,6 @@ import {
   gitUploadPackRequest,
 } from "./git-upload-pack-stream";
 import { authorizePluginConnection } from "./plugin-connection-authorization";
-import { RemoteAgentSqlStorage } from "./storage";
 
 /**
  * The human account's Computer: a durable workspace backed by
@@ -218,7 +217,7 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
       await eraseAccountStorage(this.ctx);
     });
   }
-  readonly #commands = new RemoteAgentSqlStorage(this.ctx.storage.sql);
+  readonly #commands = new ComputerCommandSqlStorage(this.ctx.storage.sql);
 
   private async scheduleAlarm(at: number) {
     const current = await this.ctx.storage.getAlarm();
@@ -538,15 +537,18 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
       const jobs = await this.ctx.storage.list<GitPackJob>({
         prefix: GIT_PACK_JOB_PREFIX,
       });
-      if (
-        !(
-          (await hasCollectableComputerCommands(this.#commands)) ||
-          [...jobs.values()].some(
-            (job) => job.status === "pending" || job.status === "running"
-          )
-        )
-      ) {
+      const nextCommandAt = await this.#commands.nextCollectionAt();
+      const hasGitWork = [...jobs.values()].some(
+        (job) => job.status === "pending" || job.status === "running"
+      );
+      if (nextCommandAt === null && !hasGitWork) {
         await this.ctx.storage.deleteAlarm();
+      } else {
+        await this.ctx.storage.setAlarm(
+          hasGitWork
+            ? Date.now() + 15_000
+            : Math.max(Date.now() + 15_000, nextCommandAt ?? 0)
+        );
       }
     });
   }

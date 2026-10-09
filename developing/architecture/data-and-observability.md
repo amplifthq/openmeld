@@ -92,8 +92,17 @@ All backends retain bounded command output in this same receipt owner. New
 receipts use one monotonic observation, including exit and synchronization facts;
 older terminal receipts remain readable. A Computer alarm inspects saved command
 identities independently of model polling. It never repeats a launch.
-The alarm is armed before external dispatch and stays armed while dispatch is
-pending. It can recover a dispatch whose acknowledgement was lost, but an absent
+The alarm is armed before external dispatch. It follows the next due check in
+the existing command receipt, with at most 16 due identities per collection and
+four concurrent native observations. A partial SQLite index over these receipts
+keeps historical completed output out of the alarm scan. Observation errors use
+bounded backoff and pause automatic checks after eight consecutive failures;
+this is a scheduling budget, never process failure, loss or replay authority.
+Fresh accepted native evidence resets that count. Successful manual inspection
+or Stop resumes the same receipt. Paused receipts remain available under the
+existing retention policy, and an older failed read cannot overwrite a newer
+manual recovery. No separate command queue or execution ledger is introduced.
+The alarm can recover a dispatch whose acknowledgement was lost, but an absent
 record during pending dispatch is not evidence that the execution was lost.
 Output cursors select retained slices; clipping is explicit. Native log expiry
 does not invalidate a saved terminal receipt. Command records retain the existing

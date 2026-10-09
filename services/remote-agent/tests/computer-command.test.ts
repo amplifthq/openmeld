@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import type {
   WorkspaceClient,
   WorkspaceRuntimeEvent,
@@ -19,7 +20,7 @@ import {
   type CloudComputerCommandReference,
 } from "@openmeld/schemas";
 import { type GenericSchema, object, parse } from "valibot";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createRemoteAgentCallbackContext,
   putRemoteAgentCallbackContext,
@@ -30,12 +31,12 @@ import {
   readRemoteAgentExecutionState,
 } from "../agent-core/execution-state";
 import {
-  collectComputerCommands,
   createComputerCommandTool,
   readCommandSlice,
   stopRemoteAgentComputerCommands,
   stopStoredComputerCommands,
 } from "../flue-adapter/computer-command";
+import { ComputerCommandSqlStorage } from "../flue-adapter/computer-command-storage";
 import { resolveRemoteAgentComputerName } from "../flue-adapter/computer-identity";
 import { cancelFlueRemoteAgentExecution } from "../flue-adapter/execution-cancellation";
 import { finishRemoteAgentComputerCommands } from "../flue-adapter/execution-cleanup";
@@ -50,6 +51,7 @@ import {
   createSubmitTurnRequestV2,
   TEST_NOW_MS,
 } from "./fixtures";
+import { collectDueComputerCommands as collectComputerCommands } from "./fixtures/computer-command-results";
 import { InMemoryDurableObjectStorage } from "./storage";
 
 const cleanupAccess = vi.hoisted(() => vi.fn());
@@ -137,8 +139,28 @@ function handle(
   }) as WorkspaceRuntimeExecHandle<"utf8">;
 }
 
+const commandDatabases: DatabaseSync[] = [];
+afterEach(() => {
+  for (const database of commandDatabases) {
+    database.close();
+  }
+  commandDatabases.length = 0;
+});
+
 function fixture() {
-  const storage = new InMemoryDurableObjectStorage();
+  const database = new DatabaseSync(":memory:");
+  commandDatabases.push(database);
+  const storage = new ComputerCommandSqlStorage({
+    exec(query, ...bindings) {
+      const rows = database.prepare(query).all(...(bindings as never[]));
+      return {
+        toArray: () => rows,
+        rowsWritten: Number(
+          database.prepare("SELECT changes() AS count").get()?.count ?? 0
+        ),
+      };
+    },
+  });
   const processes = new Set<string>();
   const exec = vi.fn((_source: string, options: { id: string }) => {
     processes.add(options.id);

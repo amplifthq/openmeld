@@ -5,6 +5,7 @@ import type {
   WorkspaceRuntimeValue,
 } from "@cloudflare/computer";
 import {
+  type CloudComputerCommandCollection,
   type CloudComputerCommandPhase,
   type CloudComputerCommandReference,
   type CloudComputerOperation,
@@ -39,10 +40,13 @@ import {
   createAgentComputerWorkspaceAccess,
 } from "./agent-computer-workspace-access";
 import { buildComputerCommandProcess } from "./computer-command-process";
+import {
+  COMPUTER_COMMAND_PREFIX,
+  type ComputerCommandSqlStorage,
+} from "./computer-command-storage";
 import { resolveRemoteAgentComputerName } from "./computer-identity";
 import { AGENT_COMPUTER_CONTAINER_BACKEND_ID } from "./computer-workspace";
 
-const PREFIX = "openmeld:remote-agent:computer-command:";
 const COMPUTER_TARGET_PREFIX = "openmeld:computer-target:";
 
 export async function bindComputerCommandTarget(input: {
@@ -81,6 +85,9 @@ const OBSERVATION_SETUP_BUDGET_MS = 5000;
 const STOP_INSPECTION_BUDGET_MS = 1000;
 const READER_CANCEL_BUDGET_MS = 100;
 const COLLECTION_CONCURRENCY = 4;
+const COLLECTION_BATCH_SIZE = 16;
+const COLLECTION_INTERVAL_MS = 15_000;
+const COLLECTION_FAILURE_BUDGET = 8;
 const COMMAND_RECORD_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const COMMAND_ACTIONS = ["start", "poll", "stop", "list"] as const;
 const COMMAND_DIAGNOSTIC_PHASES = [
@@ -143,7 +150,9 @@ type Command = {
   lossConfirmed?: boolean;
   collectable?: boolean;
   backend?: "container" | "worker-shell" | "worker-javascript";
+  collection?: CloudComputerCommandCollection;
 };
+export type ComputerCommandRecord = Command;
 type CommandResult = {
   id: string;
   key: string;
@@ -261,7 +270,7 @@ export class ConfirmedLostComputerCommandsError extends AggregateError {
 }
 
 function commandPrefix(submissionId: string): string {
-  return `${PREFIX}${encodeURIComponent(submissionId)}:`;
+  return `${COMPUTER_COMMAND_PREFIX}${encodeURIComponent(submissionId)}:`;
 }
 
 type StartCommand = Extract<
@@ -297,6 +306,7 @@ function commandReceiptAddress(command: Command, invocationId: string) {
       backend: commandBackend(command),
     } satisfies CloudComputerCommandReference,
     phase,
+    ...(command.collection ? { collection: command.collection } : {}),
     ...(command.recordExpiresAtMs !== undefined
       ? { recordExpiresAtMs: command.recordExpiresAtMs }
       : {}),
@@ -454,6 +464,13 @@ function mergeCommandObservation(
       : {}),
     collectable: true,
     observedAt,
+    collection: {
+      consecutiveFailures: 0,
+      nextAttemptAtMs:
+        result.status === "completed"
+          ? null
+          : observedAt + COLLECTION_INTERVAL_MS,
+    },
     ...(result.exitCode !== null && !command.exitedAt
       ? { exitedAt: observedAt }
       : {}),
@@ -472,19 +489,13 @@ function launchBudgetMs(request: StartCommand, created: boolean) {
     : 60_000;
 }
 
-export async function hasCollectableComputerCommands(
-  storage: RemoteAgentStorage
-) {
-  const commands = await storage.list<Command>({ prefix: PREFIX });
-  return [...commands.values()].some(isCollectableCommand);
-}
-
 function isCollectableCommand(command: Command) {
   return (
     command.collectable !== undefined &&
     !(
       isCommandComplete(command) ||
       command.loss ||
+      command.observation?.syncError ||
       command.lostDuringCleanup ||
       command.backend === "worker-shell"
     )
@@ -1209,10 +1220,35 @@ export function createComputerCommandTool(input: {
   };
   return {
     ...definition,
-    description: `${definition.description} Replies include reference and phase. Keep the exact reference for later owner inspection; poll and stop validate it against this invocation's saved receipt. list with includeReceiptDetails:true returns references and phases. An accepted receipt is not proof of launch; launch_unknown does not permit replay. Missing receipt means acceptance is unknown, not an unreachable service. Receipt expiry does not extend native result retention.`,
+    description: `${definition.description} Replies include reference and phase. Keep the exact reference for later owner inspection; poll and stop validate it against this invocation's saved receipt. list with includeReceiptDetails:true returns references, phases and collection. For an unfinished receipt, collection.nextAttemptAtMs:null means automatic checks paused after repeated observation errors. The process may still be running. Poll the same reference manually; a successful check resumes automatic collection. An accepted receipt is not proof of launch; launch_unknown does not permit replay. Missing receipt means acceptance is unknown, not an unreachable service. Receipt expiry does not extend native result retention.`,
     async execute(rawInput, options) {
       try {
         const result = await definition.execute(rawInput, options);
+        const observed = await readDiagnosticCommand(rawInput.key);
+        if (observed) {
+          await updateCommand(
+            input.storage,
+            `${prefix}${encodeURIComponent(observed.key)}`,
+            (current) => {
+              if (!(isCollectableCommand(current) || current.collection)) {
+                return current;
+              }
+              const collection = {
+                consecutiveFailures: 0,
+                nextAttemptAtMs: isCollectableCommand(current)
+                  ? Date.now() + COLLECTION_INTERVAL_MS
+                  : null,
+              };
+              return JSON.stringify(collection) ===
+                JSON.stringify(current.collection)
+                ? current
+                : { ...current, collection };
+            }
+          );
+          if (source === "tool" && isCollectableCommand(observed)) {
+            await input.scheduleCollection?.();
+          }
+        }
         await logResult(rawInput, result);
         const command = await readDiagnosticCommand(rawInput.key);
         return command &&
@@ -1241,14 +1277,12 @@ function completedResult(result: CommandResult, after?: number): CommandResult {
 /** Collect retained results even when the model is busy with other work. This
  * observes existing IDs only; it never dispatches or repeats a command. */
 export async function collectComputerCommands(input: {
-  storage: RemoteAgentStorage;
+  storage: ComputerCommandSqlStorage;
   workspaceAccess: AgentComputerWorkspaceAccess;
 }): Promise<boolean> {
-  const commands = await input.storage.list<Command>({ prefix: PREFIX });
-  let pending = false;
-  const remaining = [...commands].filter(([, command]) =>
-    isCollectableCommand(command)
-  );
+  const remaining = [
+    ...(await input.storage.listDueCommands(Date.now(), COLLECTION_BATCH_SIZE)),
+  ];
   const collect = async () => {
     for (;;) {
       const next = remaining.shift();
@@ -1260,10 +1294,10 @@ export async function collectComputerCommands(input: {
         continue;
       }
       const submissionId = decodeURIComponent(
-        key.slice(PREFIX.length, key.lastIndexOf(":"))
+        key.slice(COMPUTER_COMMAND_PREFIX.length, key.lastIndexOf(":"))
       );
       try {
-        const result = (await createComputerCommandTool({
+        await createComputerCommandTool({
           ...input,
           context: { submissionId },
           workingDirectory: "/computer",
@@ -1272,14 +1306,46 @@ export async function collectComputerCommands(input: {
           action: "poll",
           key: command.key,
           waitSeconds: 1,
-        })) as CommandResult;
-        pending ||= result.status !== "completed" && !result.syncError;
-      } catch (error) {
-        // Record confirmed loss but do not mark it delivered to the model.
-        // Transport failures remain retryable by this same owner.
-        pending ||= !(
-          hasErrorCode(error, "ENOENT") || hasErrorCode(error, "EEXEC_LOST")
-        );
+        });
+      } catch {
+        // A late failed read cannot consume a successful manual recovery's
+        // budget, even when both observations have the same clock timestamp.
+        const current = await updateCommand(input.storage, key, (current) => {
+          if (
+            !isCollectableCommand(current) ||
+            current.observedAt !== command.observedAt ||
+            current.launchAcknowledgedAt !== command.launchAcknowledgedAt ||
+            JSON.stringify(current.collection) !==
+              JSON.stringify(command.collection)
+          ) {
+            return current;
+          }
+          const consecutiveFailures =
+            (current.collection?.consecutiveFailures ?? 0) + 1;
+          return {
+            ...current,
+            collection: {
+              consecutiveFailures,
+              nextAttemptAtMs:
+                consecutiveFailures >= COLLECTION_FAILURE_BUDGET
+                  ? null
+                  : Date.now() +
+                    Math.min(30_000 * 2 ** (consecutiveFailures - 1), 300_000),
+            },
+          };
+        });
+        if (
+          current.collection?.nextAttemptAtMs === null &&
+          command.collection?.nextAttemptAtMs !== null &&
+          current.collection.consecutiveFailures === COLLECTION_FAILURE_BUDGET
+        ) {
+          console.warn("[remote_agent.computer_command_collection_paused]", {
+            submissionId,
+            commandId: current.id,
+            backend: commandBackend(current),
+            consecutiveFailures: current.collection.consecutiveFailures,
+          });
+        }
       }
     }
   };
@@ -1289,7 +1355,7 @@ export async function collectComputerCommands(input: {
       collect
     )
   );
-  return pending;
+  return (await input.storage.nextCollectionAt()) !== null;
 }
 
 async function pollComputerCommand(
