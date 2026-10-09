@@ -5282,13 +5282,35 @@ describe("OpenMeld Core", () => {
       spaceId,
       "Retained project decision: launch next week."
     );
+    const memberProfileId = randomUUID();
     const member = {
-      profileId: THIRD_HUMAN_PROFILE_ID,
-      openMeldProfileId: THIRD_HUMAN_PROFILE_ID,
+      profileId: memberProfileId,
+      openMeldProfileId: memberProfileId,
       profileKind: "human" as const,
       profileName: "Team Member",
       ownerUserId: "owner-retained-history-member",
     };
+    const added = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/members`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          members: [
+            {
+              profileId: member.profileId,
+              profileName: member.profileName,
+              profileKind: member.profileKind,
+              ownerUserId: member.ownerUserId,
+              ownerName: member.profileName,
+              agentControllerRef: null,
+            },
+          ],
+        }),
+      }
+    );
+    expect(added.status).toBe(200);
+    await added.text();
     const socket = await openSpaceSocket(
       spaceId,
       {
