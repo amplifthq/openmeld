@@ -384,10 +384,11 @@ export function ComputerBento() {
 				<FileTextIcon aria-hidden size={28} />
 				<h3>From file to finished work.</h3>
 				<p>Bring the result back to your team’s conversation.</p>
-				<div className="meld-result-file">
-					<FileTextIcon aria-hidden size={20} />
-					<span>findings.md</span>
-					<CheckIcon aria-hidden size={16} />
+				<div className="meld-result-figure">
+					<LandingFigure
+						figure="riffle"
+						label="A tray of files. Hover or use the arrow keys to pull a file."
+					/>
 				</div>
 			</BentoCard>
 		</div>

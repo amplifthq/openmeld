@@ -874,19 +874,9 @@
 .meld-bento-files > svg {
 	color: #bbbbbb;
 }
-.meld-result-file {
-	display: flex;
-	gap: 10px;
-	align-items: center;
-	padding: 13px;
-	margin-top: 20px;
-	border: 1px solid #3b3e44;
-	border-radius: 8px;
-	font-size: 12px;
-}
-.meld-result-file > svg:last-child {
-	margin-left: auto;
-	color: #83c5ad;
+.meld-result-figure {
+	width: min(100%, 220px);
+	margin: 12px auto 0;
 }
 @keyframes meld-result-arrive {
 	from {

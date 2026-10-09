@@ -135,15 +135,16 @@ depend on focus, filtering, playback, or iframe state, and keep the same profile
 after navigation and refresh. There are no per-demo WebGL lighting loops or
 foreground overlays.
 
-Cloud Computer uses Hairline's official Turntable figure; Privacy and Open Source
-use its Lockers and Branches figures. `LandingFigure` loads the installed React
+Cloud Computer uses Hairline's official Turntable figure, with Riffle illustrating
+files and finished work. Privacy and Open Source use its Lockers
+and Branches figures. `LandingFigure` loads the installed React
 components within 300px of the viewport and reserves their 5:4 footprint before
 loading. Consumers set only the dark palette, accessible description and
 interaction intensity. The package owns geometry, pointer response, reduced
 motion, idle scheduling and offscreen pausing. The figures have no autoplay or
 additional blur or lighting loop. Keep the solid plate fill matched to the card
-background so the official occlusion remains correct. Computer specifications,
-terminal output and the finished file remain outside the illustration.
+background so the official occlusion remains correct. Computer specifications
+and terminal output remain outside the illustration.
 
 The privacy and open-source section follows Usage, before the FAQ and final
 app-entry section. It summarizes the customer production diagnostics policy:
