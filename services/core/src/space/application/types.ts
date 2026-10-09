@@ -5,6 +5,7 @@ import type {
   SpaceThreadSignalPlacementKind,
   UserRequestTimeContext,
 } from "@openmeld/schemas/types";
+import type { RemoteAgentNativeDeliveryRecord } from "../../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import type { SpaceMetaRecord } from "../infrastructure/sql/space-meta-repo";
 
 export type PasswordAuthorizationResult =
@@ -34,6 +35,9 @@ export type SignalPublishContext = {
     previousDispatchId: string;
     targetProfileId: string;
   };
+  // Read by Space from the canonical native ledger before admission. Never
+  // accepted from a browser payload; fresh message checks still commit in SQL.
+  pluginContinuationNativeSource?: RemoteAgentNativeDeliveryRecord;
   spaceTaskDeliveryId?: string;
   agentReplyObservation?: {
     observedThroughSignalId: string;

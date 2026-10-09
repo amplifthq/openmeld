@@ -2,11 +2,13 @@ import { DatabaseSync } from "node:sqlite";
 import { pluginConnectionContinuationBindingSchema } from "@openmeld/schemas";
 import type { SignalEnvelope } from "@openmeld/schemas/types";
 import { afterEach, describe, expect, it } from "vitest";
+import { createSubmitTurnRequest } from "../../remote-agent/tests/fixtures";
 import { createCloudflareSqlHarness } from "../../remote-agent/tests/helpers/cloudflare-sql-harness.test-support";
 import {
   assertBoundPluginConnection,
   boundPluginConnectionPreference,
 } from "../src/connectors/plugin-connection-execution-binding";
+import type { RemoteAgentNativeDeliveryRecord } from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import {
   assertPluginContinuationSource,
   pluginContinuationMessageFingerprint,
@@ -96,6 +98,61 @@ function fixture() {
 }
 
 describe("Plugin continuation source and identity constraints", () => {
+  it("accepts completed native work after the Space dispatch conveyor has retired", () => {
+    const f = fixture();
+    const nativeSource = nativeFixture(f);
+    expect(() =>
+      assertPluginContinuationSource({ ...f, dispatch: null, nativeSource })
+    ).not.toThrow();
+    expect(() =>
+      assertPluginContinuationSource({ ...f, dispatch: null })
+    ).toThrow("original request");
+  });
+  it.each([
+    "missing-request",
+    "wrong-requester",
+    "wrong-dispatch",
+    "active",
+    "stopped",
+    "edited",
+    "recalled",
+    "reply-changed",
+  ])("rejects stale or mismatched native evidence: %s", (kind) => {
+    const f = fixture();
+    const nativeSource = nativeFixture(f);
+    if (kind === "missing-request") {
+      nativeSource.executionRecoverySubmitRequest = null;
+    }
+    if (kind === "wrong-requester") {
+      f.binding.requesterUserId = "other-user";
+    }
+    if (kind === "wrong-dispatch") {
+      nativeSource.dispatchId = "other-dispatch";
+    }
+    if (kind === "active") {
+      nativeSource.status = "accepted";
+    }
+    if (kind === "stopped") {
+      nativeSource.failureCode = "remote_agent.execution_cancelled";
+    }
+    if (kind === "edited") {
+      f.source.data.meta = { editedAt: 250, messageRevision: 1 };
+      f.binding.source = {
+        signalId: f.source.id,
+        revision: 1,
+        fingerprint: pluginContinuationMessageFingerprint(f.source),
+      };
+    }
+    if (kind === "recalled") {
+      f.source.data.meta = { recalledAt: 250 };
+    }
+    if (kind === "reply-changed") {
+      f.reply.data.text = "Different connection";
+    }
+    expect(() =>
+      assertPluginContinuationSource({ ...f, dispatch: null, nativeSource })
+    ).toThrow("original request");
+  });
   it.each([
     "shared",
     "member",
@@ -216,3 +273,47 @@ describe("Plugin continuation source and identity constraints", () => {
     expect(reopened.read("plugin-continue:one")?.signalId).toBe("new-message");
   });
 });
+
+function nativeFixture(
+  f: ReturnType<typeof fixture>
+): RemoteAgentNativeDeliveryRecord {
+  const request = createSubmitTurnRequest({
+    organizationId: f.binding.organizationId,
+    spaceId: f.binding.spaceId,
+    dispatchId: f.binding.sourceDispatchId,
+    triggerMessageId: f.source.id,
+    agentProfileId: f.binding.targetProfileId,
+    author: {
+      profileKind: "human",
+      profileId: f.binding.requesterProfileId,
+      displayName: "Maya",
+    },
+  });
+  request.turnEnvelope.sender = {
+    kind: "member",
+    id: "member",
+    displayName: "Maya",
+    ownerUserId: f.binding.requesterUserId,
+    profileId: f.binding.requesterProfileId,
+    role: "owner",
+    verified: true,
+  };
+  return {
+    organizationId: request.organizationId,
+    spaceId: request.spaceId,
+    dispatchId: request.dispatchId,
+    profileId: request.agentProfileId,
+    triggerMessageId: request.triggerMessageId,
+    bindingId: request.bindingId,
+    conversationKind: "space",
+    routineRunId: null,
+    status: "completed",
+    failureCode: null,
+    createdAtMs: 200,
+    completedAtMs: 300,
+    publishedSignalId: f.reply.id,
+    threadContext: null,
+    workerSubmitRequest: null,
+    executionRecoverySubmitRequest: request,
+  } as RemoteAgentNativeDeliveryRecord;
+}

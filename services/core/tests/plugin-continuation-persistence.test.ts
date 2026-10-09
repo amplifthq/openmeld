@@ -2,10 +2,13 @@ import { env, runInDurableObject } from "cloudflare:test";
 import { pluginConnectionContinuationBindingSchema } from "@openmeld/schemas";
 import type { SignalEnvelope } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
+import { createSubmitTurnRequest } from "../../remote-agent/tests/fixtures";
+import type { RemoteAgentNativeDeliveryRecord } from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import {
   pluginContinuationMessageFingerprint,
   pluginContinuationTextDigest,
 } from "../src/space/application/plugin-connection-continuation-guard";
+import type { SignalPublishContext } from "../src/space/application/types";
 import {
   createDispatchOutboxRecord,
   insertDispatchOutboxRecord,
@@ -21,9 +24,11 @@ const agent = "agt_33333333-3333-4333-8333-333333333333";
 
 describe("Plugin continuation at the real Space persistence transaction", () => {
   it.each([
-    false,
-    true,
-  ])("inserts the binding with the message or rejects a concurrent original edit (edited=%s)", async (edited) => {
+    ["workstation", false],
+    ["workstation", true],
+    ["native", false],
+    ["native", true],
+  ] as const)("inserts the %s binding or rejects a concurrent original edit (edited=%s)", async (runtime, edited) => {
     const namespace = (
       env as unknown as { OPENMELD_SPACES: DurableObjectNamespace<Space> }
     ).OPENMELD_SPACES;
@@ -214,6 +219,56 @@ describe("Plugin continuation at the real Space persistence transaction", () => 
           state.storage.sql
         );
         repo.reserve("plugin-continue:one", binding);
+        let signalContext: SignalPublishContext | undefined;
+        if (runtime === "native") {
+          // Native completion normally retires this conveyor. Preserve only
+          // the canonical completed execution request for admission checks.
+          state.storage.sql.exec(
+            "DELETE FROM openMeldDaemon_outbox WHERE dispatch_id = ?",
+            dispatch.dispatchId
+          );
+          const request = createSubmitTurnRequest({
+            organizationId: binding.organizationId,
+            spaceId,
+            dispatchId: dispatch.dispatchId,
+            triggerMessageId: source.id,
+            agentProfileId: agent,
+            author: {
+              profileId: human,
+              profileKind: "human",
+              displayName: "Maya",
+            },
+          });
+          request.turnEnvelope.sender = {
+            kind: "member",
+            id: "member",
+            displayName: "Maya",
+            ownerUserId: binding.requesterUserId,
+            profileId: human,
+            role: "owner",
+            verified: true,
+          };
+          signalContext = {
+            pluginContinuationNativeSource: {
+              organizationId: binding.organizationId,
+              spaceId,
+              dispatchId: dispatch.dispatchId,
+              profileId: agent,
+              triggerMessageId: source.id,
+              bindingId: request.bindingId,
+              conversationKind: "space",
+              routineRunId: null,
+              status: "completed",
+              failureCode: null,
+              createdAtMs: Date.now(),
+              completedAtMs: Date.now(),
+              publishedSignalId: reply.id,
+              threadContext: null,
+              workerSubmitRequest: null,
+              executionRecoverySubmitRequest: request,
+            } as RemoteAgentNativeDeliveryRecord,
+          };
+        }
         if (edited) {
           state.storage.sql.exec(
             "UPDATE space_signals SET payload_json = ? WHERE id = ?",
@@ -247,12 +302,13 @@ describe("Plugin continuation at the real Space persistence transaction", () => 
         const owner = instance as unknown as {
           persistSignalWithOptionalOutbox(
             signal: SignalEnvelope,
-            outbox: boolean
+            outbox: boolean,
+            context?: SignalPublishContext
           ): { persistedSignal: boolean };
         };
         if (edited) {
           expect(() =>
-            owner.persistSignalWithOptionalOutbox(next, false)
+            owner.persistSignalWithOptionalOutbox(next, false, signalContext)
           ).toThrow("original request");
           expect(
             state.storage.sql
@@ -262,7 +318,8 @@ describe("Plugin continuation at the real Space persistence transaction", () => 
           expect(repo.read("plugin-continue:one")?.signalId).toBeNull();
         } else {
           expect(
-            owner.persistSignalWithOptionalOutbox(next, false).persistedSignal
+            owner.persistSignalWithOptionalOutbox(next, false, signalContext)
+              .persistedSignal
           ).toBe(true);
           expect(repo.read("plugin-continue:one")?.signalId).toBe(next.id);
           expect(

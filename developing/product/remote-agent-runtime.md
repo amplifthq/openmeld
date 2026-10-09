@@ -84,6 +84,14 @@ Neither a model argument nor a personal-first automatic selector can replace it;
 existing operation replays retain the original operation identity. Generic App
 tools also accept an explicit requester/shared preference for normal requests.
 
+Space checks the completed native delivery's retained execution request after
+the temporary dispatch conveyor has retired. It never recreates that conveyor
+or treats its absence as permission. The final SQL insertion rechecks the current
+source and reply fingerprints, identities and placement. Native requests that
+lack a retained raw source envelope require an unedited original message; an
+edited request must be sent again. Workstation continuations retain their
+RuntimeCoordinator completion and original outbox snapshot checks.
+
 An operation's historical attribution is not current permission. Every provider
 attempt, including an exact replay, reauthorizes the original connection and
 its current Agent access without selecting another account. Generic App and

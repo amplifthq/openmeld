@@ -1983,12 +1983,12 @@ downstream patch from the next OpenMeld release branch, and validate that exact
 remote SHA before deployment. Synchronizing the fork alone never requires a
 production redeploy.
 
-When first deploying the runtime-catalog cache correction, purge the old CDN
-entries on that environment's OpenConnector hostname. Earlier versions cached
-`/v1/providers` and `/v1/actions` for a year; a deployment cannot invalidate
-those existing entries by changing response headers. Verify that runtime
-catalog responses now use `Cache-Control: no-store`, have no CDN cache header,
-and reflect the current OAuth configuration. Keep staging purges confined to
+After deploying the runtime-catalog cache correction, verify that runtime
+catalog responses use `Cache-Control: no-store`, have no CDN cache header,
+and reflect the current OAuth configuration. Earlier versions cached
+`/v1/providers` and `/v1/actions` for a year. If stale CDN entries still survive
+the deployment, purge them on that environment's OpenConnector hostname and
+repeat the checks. Keep staging purges confined to
 `connectors.staging.openmeld.ai`; never purge the shared zone for a staging test.
 
 The reviewed runtime supports managed authorization requests and event subscription

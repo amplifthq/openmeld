@@ -5531,7 +5531,7 @@ export class Space extends DurableObject<CoreBindings> {
   }
   private checkPluginContinuationInsertion(
     signal: SignalEnvelope,
-    threadContext: SpaceThreadContext | undefined
+    signalContext: SignalPublishContext | undefined
   ) {
     const clientId =
       signal.type === "signal.text"
@@ -5550,7 +5550,7 @@ export class Space extends DurableObject<CoreBindings> {
     assertPluginContinuationMessage(
       signal,
       record.binding,
-      threadContext ?? null
+      signalContext?.threadContext ?? null
     );
     if (!record.signalId) {
       assertPluginContinuationSource({
@@ -5561,6 +5561,7 @@ export class Space extends DurableObject<CoreBindings> {
           this.ctx.storage.sql,
           record.binding.sourceDispatchId
         ),
+        nativeSource: signalContext?.pluginContinuationNativeSource,
         sourceThread: this.resolveThreadContextForSignal(
           record.binding.source.signalId
         ),
@@ -5580,14 +5581,6 @@ export class Space extends DurableObject<CoreBindings> {
     input: PostSignalOnceByClientMessageIdInput,
     workRecoveryQueueHandoff?: SignalPublishContext["workRecoveryQueueHandoff"]
   ): Promise<SignalEnvelope> {
-    const postSignal = workRecoveryQueueHandoff
-      ? (post: PostSignalInput) =>
-          this.postAuthorizedTextSignal(
-            post,
-            String(post.text ?? "").trim(),
-            workRecoveryQueueHandoff
-          )
-      : (post: PostSignalInput) => this.rpcPostSignal(post);
     return await withPostgresRequest(
       this.bindings.OPENMELD_POSTGRESQL,
       async () => {
@@ -5673,7 +5666,11 @@ export class Space extends DurableObject<CoreBindings> {
             });
             // A rejected draft must not break the Durable Object input gate.
             // The message/task transaction has already rolled back.
-            return await postSignal(postInput).then(
+            return await this.postIdempotentTextSignal(
+              postInput,
+              workRecoveryQueueHandoff,
+              pluginContinuation?.binding
+            ).then(
               (signal) => ({ signal, status: "accepted" as const }),
               (error: unknown) => ({ status: "failed" as const, error })
             );
@@ -5692,6 +5689,29 @@ export class Space extends DurableObject<CoreBindings> {
         }
         return resolution.signal;
       }
+    );
+  }
+  private async postIdempotentTextSignal(
+    input: PostSignalInput,
+    workRecoveryQueueHandoff: SignalPublishContext["workRecoveryQueueHandoff"],
+    continuation: PluginConnectionContinuationBinding | undefined
+  ): Promise<SignalEnvelope> {
+    if (!(workRecoveryQueueHandoff || continuation)) {
+      return await this.rpcPostSignal(input);
+    }
+    const nativeSource = continuation
+      ? await readRemoteAgentNativeDeliveryByExecution({
+          db: getPostgresDatabase(this.bindings),
+          dispatchId: continuation.sourceDispatchId,
+          profileId: continuation.targetProfileId,
+          spaceId: input.spaceId,
+        })
+      : null;
+    return await this.postAuthorizedTextSignal(
+      input,
+      String(input.text ?? "").trim(),
+      workRecoveryQueueHandoff,
+      nativeSource ?? undefined
     );
   }
   private buildIdempotentPostSignalInput(input: {
@@ -5916,7 +5936,8 @@ export class Space extends DurableObject<CoreBindings> {
   private async postAuthorizedTextSignal(
     input: PostSignalInput,
     normalizedText: string,
-    workRecoveryQueueHandoff?: SignalPublishContext["workRecoveryQueueHandoff"]
+    workRecoveryQueueHandoff?: SignalPublishContext["workRecoveryQueueHandoff"],
+    pluginContinuationNativeSource?: SignalPublishContext["pluginContinuationNativeSource"]
   ): Promise<SignalEnvelope> {
     const author = await authorizeRpcSignalWrite({
       authorizeSpacePasswordAccess:
@@ -5961,6 +5982,7 @@ export class Space extends DurableObject<CoreBindings> {
           submittedAtMs: signal.ts,
         }),
         workRecoveryQueueHandoff,
+        pluginContinuationNativeSource,
         ...(input.agentStreamId ? { agentStreamId: input.agentStreamId } : {}),
         authoringPolicy: input.authoringPolicy,
         ...(input.finalOutcomeAuthority
@@ -20575,7 +20597,7 @@ export class Space extends DurableObject<CoreBindings> {
             }
             const pluginContinuation = this.checkPluginContinuationInsertion(
               signal,
-              signalContext?.threadContext
+              signalContext
             );
             const insertResult = insertSignalRecord(
               this.ctx.storage.sql,
@@ -20938,7 +20960,7 @@ export class Space extends DurableObject<CoreBindings> {
             }
             const pluginContinuation = this.checkPluginContinuationInsertion(
               signal,
-              signalContext?.threadContext
+              signalContext
             );
             const insertResult = insertSignalRecord(
               this.ctx.storage.sql,
