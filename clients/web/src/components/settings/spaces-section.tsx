@@ -1,10 +1,12 @@
 import { createSpacePreferencesApi } from "@openmeld/api-client";
-import { Button } from "@openmeld/ui/components/button";
+import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { SettingsRow } from "@openmeld/ui/components/settings-row";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { Switch } from "@openmeld/ui/components/switch";
 import { RadioGroup, RadioItem } from "@openmeld/ui/fluid/radio-group";
 import { useMediaQuery } from "@openmeld/ui/hooks/use-media-query";
+import { cn } from "@openmeld/ui/lib/utils";
+import { ArrowUpIcon, PlusIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useMemo, useState, useSyncExternalStore } from "react";
 import { AppPageHeader } from "#/components/app/app-page-header";
@@ -392,21 +394,40 @@ function MessagePreview(input: { shown: boolean }) {
 
 function SendShortcutPreview(input: { modified: boolean }) {
 	return (
+		<ComposerPreview
+			message="Review this draft."
+			shortcut={input.modified ? "Cmd/Ctrl + Enter" : "Enter"}
+		/>
+	);
+}
+
+function ComposerPreview(input: { message: ReactNode; shortcut?: string }) {
+	return (
 		<span
 			aria-hidden="true"
-			className="flex h-20 w-full flex-col justify-center gap-2 rounded-lg border border-border bg-background p-3"
+			className="composer-surface flex h-24 w-full flex-col justify-between gap-3 p-3"
 		>
-			<span className="flex items-center justify-end gap-2 text-[10px] text-foreground">
-				<kbd className="rounded border border-border bg-muted/50 px-1.5 py-0.5">
-					{input.modified ? "Cmd/Ctrl + Enter" : "Enter"}
-				</kbd>
-				<span>Send ↗</span>
-			</span>
-			<span className="flex items-center justify-end gap-2 text-[10px]">
-				<kbd className="rounded border border-border bg-muted/50 px-1.5 py-0.5">
-					{input.modified ? "Enter" : "Shift + Enter"}
-				</kbd>
-				<span>New line ↵</span>
+			<span className="text-foreground text-xs">{input.message}</span>
+			<span className="flex items-center justify-between gap-3">
+				<span className="flex items-center gap-3 text-muted-foreground">
+					<PlusIcon className="size-3.5" />
+					<span className="text-sm">@</span>
+				</span>
+				<span className="flex items-center gap-2">
+					{input.shortcut && (
+						<kbd className="rounded border border-border bg-background/50 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+							{input.shortcut}
+						</kbd>
+					)}
+					<span
+						className={cn(
+							buttonVariants({ size: "icon-sm" }),
+							"pointer-events-none max-lg:min-h-0 max-lg:min-w-0"
+						)}
+					>
+						<ArrowUpIcon weight="bold" />
+					</span>
+				</span>
 			</span>
 		</span>
 	);
