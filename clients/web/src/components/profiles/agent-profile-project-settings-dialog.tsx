@@ -1,6 +1,8 @@
 "use client";
 
+import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import type {
+	AgentProfileBindingTarget,
 	AuthProfileView,
 	LocalProjectControlConnection,
 	PeopleComputerTarget,
@@ -28,6 +30,7 @@ import {
 } from "./agent-profile-project-settings";
 
 type SettingsInput = {
+	expectedBindingTarget?: AgentProfileBindingTarget;
 	saveBlockedReason?: string;
 	target?: PeopleComputerTarget;
 	actorProfileId: string | null;
@@ -104,10 +107,14 @@ function LocalAgentProfileProjectSettingsDialog(input: SettingsInput) {
 		setPending(true);
 		setError(null);
 		const context = {
+			...(input.expectedBindingTarget
+				? { expectedBindingTarget: input.expectedBindingTarget }
+				: {}),
 			actorProfileId: input.actorProfileId,
 			organizationId: input.organizationId,
 			profileId: input.profile.openMeldProfileId,
 		};
+		let workspaceSaved = false;
 		try {
 			// Project intent is resolved by the Service's canonical connection. Do not
 			// copy its path into a second custom-folder preference.
@@ -119,6 +126,7 @@ function LocalAgentProfileProjectSettingsDialog(input: SettingsInput) {
 						fallback === "advanced" ? "custom" : "openmeld_managed",
 					...(fallback === "advanced" ? { workspacePath: path } : {}),
 				});
+				workspaceSaved = true;
 			}
 			const updated = await updateAgentProfileDefaultProject({
 				...context,
@@ -132,9 +140,10 @@ function LocalAgentProfileProjectSettingsDialog(input: SettingsInput) {
 			input.onOpenChange(false);
 		} catch (failure) {
 			setError(
-				failure instanceof Error
-					? failure.message
-					: "Couldn’t save the working folder. Try again."
+				folderSaveError(
+					failure,
+					workspaceSaved && Boolean(input.expectedBindingTarget)
+				)
 			);
 		} finally {
 			setPending(false);
@@ -251,6 +260,23 @@ function LocalAgentProfileProjectSettingsDialog(input: SettingsInput) {
 			</DialogContent>
 		</Dialog>
 	);
+}
+
+function folderSaveError(failure: unknown, localFolderSaved: boolean): string {
+	const structured = toStructuredApiClientFailure(failure);
+	const targetChanged =
+		structured.upstreamCode === "agent_profile_binding.target_changed";
+	if (localFolderSaved) {
+		return targetChanged
+			? "The folder was saved on the original Computer. This Agent’s Default Project is unchanged. Close and reopen Working folder to review its current settings."
+			: "The folder was saved on the original Computer, but the Default Project update could not be confirmed. Close and reopen Working folder to check its current settings.";
+	}
+	if (targetChanged) {
+		return "This Agent’s Computer or local agent changed. Close and reopen Working folder to review its current settings.";
+	}
+	return failure instanceof Error
+		? failure.message
+		: "Couldn’t save the working folder. Try again.";
 }
 
 function resolveInitialCustomPath(

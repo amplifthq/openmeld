@@ -1091,6 +1091,7 @@ import {
   rpcSelectPeopleComputerFolders,
   rpcSelectPeopleComputerLocalAgentInstallation,
   rpcSetAgentProfileCreationDefaults,
+  rpcSetBoundPeopleComputerAgentProfileWorkspace,
   rpcSetCenterAgentOrganizationMemoryPolicy,
   rpcSetCurrentAgentProfileWorkspace,
   rpcSetCurrentLocalAgentEnabled,
@@ -1123,6 +1124,7 @@ import {
   rpcUpdateAgentProfilePrimaryBindingAgentControllerPermissionMode,
   rpcUpdateAgentProfilePrimaryBindingModelSelection,
   rpcUpdateAgentProfilePrimaryBindingOpenCodePermission,
+  rpcUpdateBoundAgentProfileDefaultProject,
   rpcUpdateCenterAgentModel,
   rpcUpdateCenterAgentOperatingState,
   rpcUpdateCenterAgentProfile,
@@ -1514,6 +1516,13 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       rpcUpdateAgentProfileDefaultProject(this.env, input)
     );
   }
+  updateBoundAgentProfileDefaultProject(
+    input: UpdateAgentProfileDefaultProjectInput
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdateBoundAgentProfileDefaultProject(this.env, input)
+    );
+  }
   archiveProject(input: ArchiveProjectInput) {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       rpcArchiveProject(this.env, input)
@@ -1546,6 +1555,14 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
         deviceId,
         runtimeLane,
       })
+    );
+  }
+  setBoundPeopleComputerAgentProfileWorkspace(
+    input: SetCurrentAgentProfileWorkspaceInput &
+      import("@openmeld/schemas/types").PeopleComputerTarget
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSetBoundPeopleComputerAgentProfileWorkspace(this.env, input)
     );
   }
   connectPeopleComputerProjectPath(
@@ -4546,6 +4563,11 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   ) {
     return super.updateAgentProfileDefaultProject(input);
   }
+  updateBoundAgentProfileDefaultProject(
+    input: UpdateAgentProfileDefaultProjectInput
+  ) {
+    return super.updateBoundAgentProfileDefaultProject(input);
+  }
   archiveProject(input: ArchiveProjectInput) {
     return super.archiveProject(input);
   }
@@ -4567,6 +4589,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
       import("@openmeld/schemas/types").PeopleComputerTarget
   ) {
     return super.setPeopleComputerAgentProfileWorkspace(input);
+  }
+  setBoundPeopleComputerAgentProfileWorkspace(
+    input: SetCurrentAgentProfileWorkspaceInput &
+      import("@openmeld/schemas/types").PeopleComputerTarget
+  ) {
+    return super.setBoundPeopleComputerAgentProfileWorkspace(input);
   }
   connectPeopleComputerProjectPath(
     input: Parameters<typeof rpcConnectPeopleComputerProjectPath>[1]

@@ -761,6 +761,16 @@ async function handleCurrentAgentProfileWorkspaceWrite(
     });
   }
 
+  if (parsedBody.data.expectedBindingTarget) {
+    return respondBadRequest({
+      c,
+      route: CURRENT_AGENT_PROFILE_WORKSPACE_ROUTE,
+      method: "PUT",
+      code: "invalid_payload",
+      message:
+        "A bound working-folder save requires its exact Computer target.",
+    });
+  }
   return executeRpcRoute({
     c,
     route: CURRENT_AGENT_PROFILE_WORKSPACE_ROUTE,

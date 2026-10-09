@@ -1,6 +1,7 @@
 "use client";
 
 import type {
+	AgentProfileBindingTarget,
 	AuthProfileView,
 	GetAgentExecutionReadinessResponse,
 	PeopleComputerTarget,
@@ -57,7 +58,7 @@ function OwnerWorkingFolderRecoveryAction(input: {
 	const [draftTarget, setDraftTarget] = useState<{
 		target: PeopleComputerTarget;
 		agentControllerRef: string | null;
-		bindingKey: string | null;
+		bindingTarget: AgentProfileBindingTarget;
 	} | null>(null);
 	const readiness = useQuery({
 		...agentExecutionReadinessBatchQueryOptions({
@@ -91,7 +92,7 @@ function OwnerWorkingFolderRecoveryAction(input: {
 		eligibility.isPending ||
 		readiness.isFetching ||
 		eligibility.isFetching;
-	const bindingKey = folderDraftBindingKey(current);
+	const bindingTarget = folderDraftBindingTarget(current);
 	useEffect(() => {
 		if (!open) {
 			setDraftTarget(null);
@@ -100,12 +101,13 @@ function OwnerWorkingFolderRecoveryAction(input: {
 		if (
 			!(draftTarget || loading || readiness.isError || eligibility.isError) &&
 			target &&
+			bindingTarget &&
 			eligibility.data
 		) {
 			setDraftTarget({
 				target,
 				agentControllerRef: current?.agentControllerRef ?? null,
-				bindingKey,
+				bindingTarget,
 			});
 		}
 	}, [
@@ -117,13 +119,13 @@ function OwnerWorkingFolderRecoveryAction(input: {
 		target,
 		eligibility.data,
 		current?.agentControllerRef,
-		bindingKey,
+		bindingTarget,
 	]);
 	const saveBlockedReason = resolveFolderDraftBlockReason({
 		draftTarget,
 		currentTarget: target,
 		currentAgentControllerRef: current?.agentControllerRef ?? null,
-		currentBindingKey: bindingKey,
+		currentBindingTarget: bindingTarget,
 		checking: loading,
 		failed: readiness.isError || eligibility.isError,
 	});
@@ -145,6 +147,7 @@ function OwnerWorkingFolderRecoveryAction(input: {
 					executionTargetChangeEligibilityStatus={
 						eligibility.data?.status ?? "unavailable"
 					}
+					expectedBindingTarget={draftTarget.bindingTarget}
 					onOpenChange={setOpen}
 					onProfileUpdated={() => {
 						input.context
@@ -206,11 +209,11 @@ function resolveFolderDraftBlockReason(input: {
 	draftTarget: {
 		target: PeopleComputerTarget;
 		agentControllerRef: string | null;
-		bindingKey: string | null;
+		bindingTarget: AgentProfileBindingTarget;
 	} | null;
 	currentTarget: PeopleComputerTarget | null;
 	currentAgentControllerRef: string | null;
-	currentBindingKey: string | null;
+	currentBindingTarget: AgentProfileBindingTarget | null;
 	checking: boolean;
 	failed: boolean;
 }): string | undefined {
@@ -220,31 +223,34 @@ function resolveFolderDraftBlockReason(input: {
 	if (input.checking) {
 		return "Checking this Agent’s current Computer…";
 	}
-	if (input.failed || !input.currentTarget) {
+	if (input.failed || !input.currentTarget || !input.currentBindingTarget) {
 		return "Couldn’t confirm this Agent’s current Computer. Your changes are still here. Close and reopen Working folder to try again.";
 	}
 	if (
 		input.currentTarget.deviceId !== input.draftTarget.target.deviceId ||
 		input.currentTarget.runtimeLane !== input.draftTarget.target.runtimeLane ||
 		input.currentAgentControllerRef !== input.draftTarget.agentControllerRef ||
-		input.currentBindingKey !== input.draftTarget.bindingKey
+		JSON.stringify(input.currentBindingTarget) !==
+			JSON.stringify(input.draftTarget.bindingTarget)
 	) {
 		return "This Agent’s Computer or local agent changed. Close and reopen Working folder to review its current settings.";
 	}
 	return undefined;
 }
 
-function folderDraftBindingKey(
+function folderDraftBindingTarget(
 	readiness: GetAgentExecutionReadinessResponse | undefined
-): string | null {
+): AgentProfileBindingTarget | null {
 	const binding = readiness?.primaryBinding;
-	if (!binding?.executionTarget) {
+	if (!(binding?.executionTarget && binding.bindingId)) {
 		return null;
 	}
-	return JSON.stringify([
-		binding.bindingId ?? null,
-		binding.executionTarget.openMeldServiceRuntimeId.value,
-		binding.executionTarget.agentControllerRef,
-		binding.executionTarget.agentControllerConversationId ?? null,
-	]);
+	return {
+		bindingId: binding.bindingId,
+		openMeldServiceRuntimeId:
+			binding.executionTarget.openMeldServiceRuntimeId.value,
+		agentControllerRef: binding.executionTarget.agentControllerRef,
+		agentControllerConversationId:
+			binding.executionTarget.agentControllerConversationId ?? null,
+	};
 }

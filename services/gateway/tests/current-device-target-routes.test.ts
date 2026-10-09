@@ -6,6 +6,9 @@ type CoreRpcMock = {
   connectPeopleComputerProjectPath: ReturnType<typeof vi.fn>;
   setPeopleComputerProjectDefaultConnection: ReturnType<typeof vi.fn>;
   setPeopleComputerAgentProfileWorkspace: ReturnType<typeof vi.fn>;
+  setBoundPeopleComputerAgentProfileWorkspace: ReturnType<typeof vi.fn>;
+  updateBoundAgentProfileDefaultProject: ReturnType<typeof vi.fn>;
+  updateAgentProfileDefaultProject: ReturnType<typeof vi.fn>;
   discoverPeopleComputerProjects: ReturnType<typeof vi.fn>;
   selectPeopleComputerFolders: ReturnType<typeof vi.fn>;
   readPeopleComputerFileAccessPolicy: ReturnType<typeof vi.fn>;
@@ -53,6 +56,9 @@ function makeEnv(input?: {
     connectPeopleComputerProjectPath: vi.fn(),
     setPeopleComputerProjectDefaultConnection: vi.fn(),
     setPeopleComputerAgentProfileWorkspace: vi.fn(),
+    setBoundPeopleComputerAgentProfileWorkspace: vi.fn(),
+    updateBoundAgentProfileDefaultProject: vi.fn(),
+    updateAgentProfileDefaultProject: vi.fn(),
     discoverPeopleComputerProjects: vi.fn(),
     selectPeopleComputerFolders: vi.fn(),
     readPeopleComputerFileAccessPolicy: vi.fn(),
@@ -226,6 +232,20 @@ describe("current device target routes", () => {
       { workspaceMode: "custom", workspacePath: "/work/Design 中文" },
     ],
     [
+      "PUT",
+      "agent-profiles/agt_11111111-1111-4111-8111-111111111111/workspace",
+      "setBoundPeopleComputerAgentProfileWorkspace",
+      {
+        workspaceMode: "openmeld_managed",
+        expectedBindingTarget: {
+          bindingId: "binding-1",
+          agentControllerRef: "builtin:codex",
+          agentControllerConversationId: null,
+          openMeldServiceRuntimeId: "runtime-1",
+        },
+      },
+    ],
+    [
       "POST",
       "projects/discover",
       "discoverPeopleComputerProjects",
@@ -321,6 +341,55 @@ describe("current device target routes", () => {
       })
     );
     expect(coreRpc.getCurrentDeviceTarget).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "workspace",
+    "project",
+  ] as const)("refuses a bound %s write when Core lacks the required receiver without downgrading", async (operation) => {
+    const { coreRpc, env } = makeEnv();
+    const method =
+      operation === "workspace"
+        ? "setBoundPeopleComputerAgentProfileWorkspace"
+        : "updateBoundAgentProfileDefaultProject";
+    coreRpc[method].mockRejectedValueOnce(
+      new Error(`The RPC receiver does not implement the method "${method}".`)
+    );
+    const path =
+      operation === "workspace"
+        ? "/v1/people-computers/selected-device/lanes/canary/agent-profiles/agt_11111111-1111-4111-8111-111111111111/workspace"
+        : "/v1/agent-profiles/agt_11111111-1111-4111-8111-111111111111/default-project";
+    const expectedBindingTarget = {
+      bindingId: "binding-1",
+      agentControllerRef: "builtin:codex",
+      agentControllerConversationId: null,
+      openMeldServiceRuntimeId: "runtime-1",
+    };
+    const response = await app.fetch(
+      new Request(`http://local${path}`, {
+        method: operation === "workspace" ? "PUT" : "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          expectedBindingTarget,
+          ...(operation === "workspace"
+            ? { workspaceMode: "openmeld_managed" }
+            : {
+                defaultProjectId: null,
+                expectedOrganizationId: "organization-1",
+              }),
+        }),
+      }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(502);
+    expect(coreRpc[method]).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ expectedBindingTarget })
+    );
+    expect(
+      coreRpc.setPeopleComputerAgentProfileWorkspace
+    ).not.toHaveBeenCalled();
+    expect(coreRpc.updateAgentProfileDefaultProject).not.toHaveBeenCalled();
   });
 
   it("rejects an invalid explicit environment before calling Core", async () => {

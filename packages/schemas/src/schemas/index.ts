@@ -1007,6 +1007,7 @@ export {
   agentProfileBindingRouteParamsSchema,
   agentProfileBindingRuntimeIdSchema,
   agentProfileBindingStateSchema,
+  agentProfileBindingTargetSchema,
   agentProfileBindingWriteModeSchema,
   agentProfileCreationDefaultsSchema,
   currentAgentProfileSessionLookupQuerySchema,

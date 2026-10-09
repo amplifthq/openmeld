@@ -11,6 +11,14 @@ import {
 const boundedIdentifierSchema = z.string().trim().min(1).max(256);
 const reasonCodeSchema = z.string().trim().min(1).max(256);
 
+// A precondition for writes about the current Binding, never execution authority.
+export const agentProfileBindingTargetSchema = z.strictObject({
+  bindingId: boundedIdentifierSchema,
+  agentControllerRef: boundedIdentifierSchema,
+  agentControllerConversationId: agentActivityNativeSessionIdSchema.nullable(),
+  openMeldServiceRuntimeId: z.string().trim().min(1).max(512),
+});
+
 export const agentProfileBindingRouteParamsSchema = z.strictObject({
   agentProfileId: boundedIdentifierSchema,
 });

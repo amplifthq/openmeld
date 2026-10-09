@@ -157,6 +157,9 @@ function requireValidCurrentAgentProfileWorkspaceBody(
 ) {
   const parsed = setCurrentAgentProfileWorkspaceBodySchema.safeParse({
     workspaceMode: input.workspaceMode,
+    ...(input.expectedBindingTarget
+      ? { expectedBindingTarget: input.expectedBindingTarget }
+      : {}),
     ...(input.workspacePath === undefined
       ? {}
       : { workspacePath: input.workspacePath }),
@@ -418,6 +421,11 @@ export const createCurrentDeviceApi: CreateCurrentDeviceApi = (
       });
     },
     setCurrentAgentProfileWorkspace: async (input) => {
+      if (input.expectedBindingTarget && !input.target) {
+        throw new Error(
+          "A bound working-folder save requires its exact Computer target."
+        );
+      }
       const body = requireValidCurrentAgentProfileWorkspaceBody(input);
       const target = input.target
         ? peopleComputerTargetSchema.parse(input.target)

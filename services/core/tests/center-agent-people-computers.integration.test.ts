@@ -12,6 +12,7 @@ import type {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ensurePrimaryAgentProfileBindingRecord,
+  readPrimaryAgentProfileBindingRecord,
   reconnectPrimaryAgentProfileBindingRecord,
 } from "../src/agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import type { CoreBindings } from "../src/lib/bindings";
@@ -21,6 +22,8 @@ import {
   rpcCenterAgentReadPeopleComputers,
   rpcCenterAgentRequestOpenMeldToolsUpdate,
   rpcCenterAgentUpdateAgentProfileRuntimeSettings,
+  rpcSetBoundPeopleComputerAgentProfileWorkspace,
+  rpcUpdateBoundAgentProfileDefaultProject,
 } from "../src/rpc/methods";
 
 describe("Center Agent PeopleComputers authorization", () => {
@@ -32,7 +35,11 @@ describe("Center Agent PeopleComputers authorization", () => {
     "wrong_device",
     "binding_changed_before_admission",
     "binding_changed_before_project_clear",
-  ] as const)("reads only the bound Computer's saved Project connection (%s) without exposing paths", async (state) => {
+    "web_binding_changed_before_admission",
+    "web_binding_changed_before_project_clear",
+  ] as const)("reads only the bound Computer's saved Project connection (%s) without exposing paths", async (stateName) => {
+    const viaWeb = stateName.startsWith("web_");
+    const state = viaWeb ? stateName.slice(4) : stateName;
     const fixture = await seedFixture();
     const organizationId = fixture.context.activeOrganizationId;
     if (!organizationId) {
@@ -302,6 +309,80 @@ describe("Center Agent PeopleComputers authorization", () => {
           workspacePath: "/private/member/managed",
         },
       });
+    if (viaWeb) {
+      const expectedBindingTarget = await readPrimaryAgentProfileBindingRecord({
+        agentProfileId,
+        db,
+        owner: { id: fixture.member.userId, kind: "owner_account" },
+      });
+      if (!expectedBindingTarget) {
+        throw new Error("Missing canonical fixture Binding");
+      }
+      const expected = {
+        bindingId: expectedBindingTarget.bindingId,
+        agentControllerRef: expectedBindingTarget.agentControllerRef,
+        agentControllerConversationId:
+          expectedBindingTarget.agentControllerConversationId ?? null,
+        openMeldServiceRuntimeId:
+          expectedBindingTarget.openMeldServiceRuntimeId,
+      };
+      const context: OpenMeldRequestContext = {
+        activeOrganizationId: organizationId,
+        actorContext: {
+          callerPrincipalId: fixture.member.userId,
+          ownerUserId: fixture.member.userId,
+          openMeldProfileId: fixture.member.profileId,
+          profileKind: "human",
+          profileName: "Member",
+          requestId: crypto.randomUUID(),
+        },
+      };
+      const webEnv = { ...fixture.coreEnv, OPENMELD_AUTH_WORKER: auth };
+      const firstWrite = rpcSetBoundPeopleComputerAgentProfileWorkspace(
+        webEnv,
+        {
+          agentProfileId,
+          context,
+          deviceId: fixture.member.deviceId,
+          runtimeLane: "prod",
+          expectedBindingTarget: expected,
+          workspaceMode: "openmeld_managed",
+        }
+      );
+      if (state === "binding_changed_before_admission") {
+        await expect(firstWrite).rejects.toThrow(
+          "agent_profile_binding.target_changed"
+        );
+        expect(save).not.toHaveBeenCalled();
+      } else {
+        await expect(firstWrite).resolves.toMatchObject({
+          agentProfileId,
+          status: "updated",
+        });
+        expect(save).toHaveBeenCalledWith(
+          expect.objectContaining({
+            deviceId: fixture.member.deviceId,
+            targetProfileId: agentProfileId,
+          })
+        );
+        await expect(
+          rpcUpdateBoundAgentProfileDefaultProject(webEnv, {
+            agentProfileId,
+            context,
+            expectedOrganizationId: organizationId,
+            expectedBindingTarget: expected,
+            defaultProjectId: null,
+          })
+        ).rejects.toThrow("agent_profile_binding.target_changed");
+      }
+      expect(
+        auth.updateAgentProfileDefaultProjectInOrganization
+      ).not.toHaveBeenCalled();
+      expect(release).toHaveBeenCalledTimes(
+        state === "binding_changed_before_admission" ? 1 : 2
+      );
+      return;
+    }
     const update = await rpcCenterAgentUpdateAgentProfileRuntimeSettings(
       { ...fixture.coreEnv, OPENMELD_AUTH_WORKER: auth },
       {

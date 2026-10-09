@@ -1,5 +1,6 @@
 import * as z from "../../lazy-zod";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
+import { agentProfileBindingTargetSchema } from "./agent-profile-binding";
 
 const ISO_DATE_TIME_SCHEMA = z.iso.datetime({ offset: true });
 
@@ -146,6 +147,7 @@ export const updateAgentProfileDefaultProjectBodySchema = z.strictObject({
   expectedOrganizationId: z.string().trim().min(1),
   defaultProjectId: z.string().trim().min(1).nullable(),
   onlyIfUnmodified: z.boolean().optional(),
+  expectedBindingTarget: agentProfileBindingTargetSchema.optional(),
 });
 
 const updateAgentProfileDefaultProjectRouteParamsShape = {

@@ -1,18 +1,16 @@
+import type { AgentProfileBindingTarget } from "@openmeld/schemas/types";
 import { createCoreRpcHttpError } from "../../rpc/errors";
-import type { AgentProfileBindingRecord } from "../infrastructure/postgresql/agent-profile-binding-repo";
 
 // A write precondition from the canonical Binding, not execution authority or
 // another saved target. Model and permission edits do not change this identity.
-export type AgentProfileBindingTarget = Pick<
-  AgentProfileBindingRecord,
-  | "bindingId"
-  | "agentControllerRef"
-  | "agentControllerConversationId"
-  | "openMeldServiceRuntimeId"
->;
+export type { AgentProfileBindingTarget } from "@openmeld/schemas/types";
 
 export function requireSameAgentProfileBindingTarget(
-  current: AgentProfileBindingTarget | null,
+  current:
+    | (Omit<AgentProfileBindingTarget, "agentControllerConversationId"> & {
+        agentControllerConversationId?: string | null;
+      })
+    | null,
   expected: AgentProfileBindingTarget
 ): void {
   if (

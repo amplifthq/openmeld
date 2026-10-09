@@ -119,6 +119,7 @@ export type {
   AgentProfileBindingRuntimeId,
   AgentProfileBindingSessionInventorySelection,
   AgentProfileBindingState,
+  AgentProfileBindingTarget,
   AgentProfileBindingWriteMode,
   AgentProfileCreationDefaults,
   AgentProfileCreationPreferenceSelection,

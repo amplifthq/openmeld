@@ -48,6 +48,7 @@ import {
   addOrganizationDirectoryProfilesToSpaceBodySchema,
   agentExecutionReadinessRouteParamsSchema,
   agentProfileBindingRouteParamsSchema,
+  agentProfileBindingTargetSchema,
   agentProfileExecutionModeResponseSchema,
   authRpcResolveUserDisplayNameResultSchema,
   buildAccountAvatarObjectKey,
@@ -1486,10 +1487,27 @@ export async function rpcUpdateAgentProfileDefaultProject(
     authority,
     defaultProjectId: request.defaultProjectId,
     onlyIfUnmodified: request.onlyIfUnmodified,
-    expectedBindingTarget,
+    expectedBindingTarget:
+      expectedBindingTarget ?? request.expectedBindingTarget,
     env,
     service,
   });
+}
+export async function rpcUpdateBoundAgentProfileDefaultProject(
+  env: CoreBindings,
+  input: UpdateAgentProfileDefaultProjectInput
+) {
+  const expected = agentProfileBindingTargetSchema.safeParse(
+    input.expectedBindingTarget
+  );
+  if (!expected.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "The current Binding is required to save this working folder.",
+    });
+  }
+  return await rpcUpdateAgentProfileDefaultProject(env, input, expected.data);
 }
 const localProjectControlRpc = createLocalProjectControlRpc({
   resolveCurrentTarget: resolveCurrentLocalProjectControlTarget,
@@ -4562,6 +4580,7 @@ export async function rpcSetCurrentAgentProfileWorkspace(
   target?: PeopleComputerTarget,
   expectedBindingTarget?: import("../agent-profile-binding/application/agent-profile-binding-target").AgentProfileBindingTarget
 ): Promise<SetCurrentAgentProfileWorkspaceResponse> {
+  const bindingTarget = expectedBindingTarget ?? input.expectedBindingTarget;
   const routeParams =
     setCurrentAgentProfileWorkspaceRouteParamsSchema.safeParse({
       agentProfileId: input.agentProfileId,
@@ -4610,7 +4629,7 @@ export async function rpcSetCurrentAgentProfileWorkspace(
   }
   let releaseExecutionTargetMutationAdmission = false;
   try {
-    if (expectedBindingTarget) {
+    if (bindingTarget) {
       // This check is serialized with Binding changes by the existing owner
       // admission. A known refusal must release it without calling Service.
       releaseExecutionTargetMutationAdmission = true;
@@ -4619,10 +4638,7 @@ export async function rpcSetCurrentAgentProfileWorkspace(
         db,
         owner: { id: userId, kind: "owner_account" },
       });
-      requireSameAgentProfileBindingTarget(
-        currentBinding,
-        expectedBindingTarget
-      );
+      requireSameAgentProfileBindingTarget(currentBinding, bindingTarget);
     }
     releaseExecutionTargetMutationAdmission = false;
     const transportResult = await setRuntimeTransportProfileWorkspace({
@@ -4659,6 +4675,40 @@ export async function rpcSetCurrentAgentProfileWorkspace(
       );
     }
   }
+}
+export async function rpcSetBoundPeopleComputerAgentProfileWorkspace(
+  env: CoreBindings,
+  input: SetCurrentAgentProfileWorkspaceInput & PeopleComputerTarget
+) {
+  const expected = agentProfileBindingTargetSchema.safeParse(
+    input.expectedBindingTarget
+  );
+  if (!expected.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "The current Binding is required to save this working folder.",
+    });
+  }
+  const bound = await resolveBoundAgentProfileComputerContext(env, input);
+  requireSameAgentProfileBindingTarget(bound.bindingTarget, expected.data);
+  if (
+    bound.target.deviceId !== input.deviceId ||
+    bound.target.runtimeLane !== input.runtimeLane
+  ) {
+    throw createCoreRpcHttpError({
+      status: 409,
+      code: "agent_profile_binding.target_changed",
+      reason:
+        "This working folder belongs to a different Computer. Reopen Working folder to review the Agent’s current settings.",
+    });
+  }
+  return await rpcSetCurrentAgentProfileWorkspace(
+    env,
+    input,
+    bound.target,
+    expected.data
+  );
 }
 function buildProfileWorkspaceMutationAdmissionError(
   status: "blocked" | "unavailable"

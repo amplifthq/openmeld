@@ -1,3 +1,4 @@
+import type { StructuredApiClientFailure } from "@openmeld/api-client";
 import {
 	getAgentExecutionReadinessBatchResponseSchema,
 	HOSTED_CENTER_AGENT_CONTROLLER_REF,
@@ -452,6 +453,79 @@ describe("Working folder recovery Query lifecycle", () => {
 				})
 			)
 		);
+	});
+
+	it.each([
+		"before_local_save",
+		"after_local_save",
+	] as const)("keeps the frozen Binding during an in-flight save (%s)", async (changeAt) => {
+		const queryClient = await renderRecovery();
+		editCustomFolder("/private/retained-draft");
+		const save = deferred<void>();
+		updateWorkspaceMock.mockReturnValueOnce(save.promise);
+		const captured = readinessFixture().items[0]?.primaryBinding;
+		if (!(captured?.executionTarget && captured.bindingId)) {
+			throw new Error("Missing captured Binding");
+		}
+		const expected = {
+			bindingId: captured.bindingId,
+			openMeldServiceRuntimeId:
+				captured.executionTarget.openMeldServiceRuntimeId.value,
+			agentControllerRef: captured.executionTarget.agentControllerRef,
+			agentControllerConversationId:
+				captured.executionTarget.agentControllerConversationId ?? null,
+		};
+		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+		await vi.waitFor(() =>
+			expect(updateWorkspaceMock).toHaveBeenCalledWith(
+				expect.objectContaining({ expectedBindingTarget: expected })
+			)
+		);
+		const changed = readinessFixture();
+		if (!changed.items[0]?.primaryBinding) {
+			throw new Error("Missing captured Binding");
+		}
+		changed.items[0].primaryBinding.bindingId = "binding-after-click";
+		readReadinessMock.mockResolvedValue(changed);
+		await act(async () => {
+			await refreshRecovery(queryClient);
+		});
+		await screen.findByText(
+			"This Agent’s Computer or local agent changed. Close and reopen Working folder to review its current settings."
+		);
+		const targetChanged: StructuredApiClientFailure = {
+			code: "upstream_error",
+			upstreamCode: "agent_profile_binding.target_changed",
+			requestId: "binding-target-check",
+			status: 409,
+			message: "Binding changed",
+		};
+		if (changeAt === "before_local_save") {
+			act(() => save.reject(targetChanged));
+			await vi.waitFor(() =>
+				expect(screen.getByRole("alert").textContent).toContain(
+					"This Agent’s Computer or local agent changed."
+				)
+			);
+			expect(updateDefaultProjectMock).not.toHaveBeenCalled();
+		} else {
+			updateDefaultProjectMock.mockRejectedValueOnce(targetChanged);
+			act(() => save.resolve(undefined));
+			await screen.findByText(
+				"The folder was saved on the original Computer. This Agent’s Default Project is unchanged. Close and reopen Working folder to review its current settings."
+			);
+			expect(updateDefaultProjectMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					expectedBindingTarget: expected,
+					defaultProjectId: null,
+				})
+			);
+		}
+		expect(
+			(screen.getByLabelText("Custom working folder path") as HTMLInputElement)
+				.value
+		).toBe("/private/retained-draft");
+		expect(screen.getByRole("dialog")).toBeTruthy();
 	});
 });
 

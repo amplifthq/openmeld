@@ -19,6 +19,7 @@ import {
 import { agentControllerInterfaceSnapshotSchema } from "../runtime/agent-controller-interface";
 import { localAgentCatalogWithLifecycleSchema } from "../runtime/local-agent-catalog";
 import { START_BOUNDED_ID_SCHEMA } from "../start/shared";
+import { agentProfileBindingTargetSchema } from "./agent-profile-binding";
 import { prepareReadinessRuntimeIdSchema } from "./prepare-readiness";
 
 const ISO_DATE_TIME_SCHEMA = z.iso.datetime({ offset: true });
@@ -221,7 +222,9 @@ export const setCurrentAgentProfileWorkspaceRouteParamsSchema = z.strictObject({
 });
 
 export const setCurrentAgentProfileWorkspaceBodySchema =
-  profileWorkspaceWriteSchema;
+  profileWorkspaceWriteSchema.safeExtend({
+    expectedBindingTarget: agentProfileBindingTargetSchema.optional(),
+  });
 
 export const setCurrentLocalAgentEnabledResponseSchema = z.strictObject({
   agentId: z.string().trim().min(1).max(256),

@@ -4,7 +4,10 @@ import {
 	toStructuredApiClientFailure,
 } from "@openmeld/api-client";
 import { desktopLocalComputerSchema } from "@openmeld/schemas";
-import type { PeopleComputerTarget } from "@openmeld/schemas/types";
+import type {
+	AgentProfileBindingTarget,
+	PeopleComputerTarget,
+} from "@openmeld/schemas/types";
 import { getDesktopPlatform } from "#/desktop/platform";
 import { readLocalRuntimes } from "#/lib/connect/local-runtimes";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
@@ -17,6 +20,7 @@ export async function updateAgentProfileWorkspace(input: {
 	workspacePath?: string;
 	target?: PeopleComputerTarget;
 	expectedComputerId?: string | null;
+	expectedBindingTarget?: AgentProfileBindingTarget;
 }): Promise<void> {
 	try {
 		const target = await resolveWorkspaceTarget(input);
@@ -28,6 +32,9 @@ export async function updateAgentProfileWorkspace(input: {
 				organizationId: input.organizationId,
 			})
 		).setCurrentAgentProfileWorkspace({
+			...(input.expectedBindingTarget
+				? { expectedBindingTarget: input.expectedBindingTarget }
+				: {}),
 			...(target ? { target } : {}),
 			agentProfileId: input.profileId,
 			workspaceMode: input.workspaceMode,

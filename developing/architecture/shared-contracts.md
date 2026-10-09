@@ -8128,6 +8128,25 @@ and never grants the requesting member access to the legacy transcript.
 
 ## Agent Profile Binding Contract
 
+Space working-folder recovery carries the shared `expectedBindingTarget` tuple:
+Binding ID, Service Runtime ID, controller ref, and nullable conversation ID.
+It is a write precondition, not another Binding store or execution authority.
+Core checks the tuple inside the existing execution-target admission before
+Service writes, and inside the existing future-work admission before Auth's
+Default Project write. These remain two ordered writes with explicit partial
+success; they are not an atomic cross-service transaction.
+
+Gateway requires the named Core receivers
+`setBoundPeopleComputerAgentProfileWorkspace` and
+`updateBoundAgentProfileDefaultProject` when that tuple is present. An old Core
+receiver must fail without fallback to the unguarded methods; an old Gateway's
+strict HTTP body rejects the new tuple before writing. Deploy Core, then
+Gateway, then Web. Ordinary explicit Computer configuration without the tuple
+retains its existing contract. Auth and Service wire payloads do not change in
+this correction. An old readiness projection without a canonical Binding ID
+cannot acquire a recovery draft. Local CLI/Service, Skills, setup, Wake and
+diagnostic compatibility floors remain unchanged by this correction.
+
 The shared Agent Profile Binding contract must stay synchronized across schemas,
 API client, Core command/lookup services, and Gateway route behavior.
 

@@ -95,13 +95,19 @@ export function registerPeopleComputerControlRoutes(
       route: workspaceRoute,
       method: "PUT",
       responseSchema: setCurrentAgentProfileWorkspaceResponseSchema,
-      execute: () =>
-        c.var.coreRpc.setPeopleComputerAgentProfileWorkspace({
+      execute: () => {
+        const request = {
           ...target.data,
           ...profile.data,
           ...parsed.data,
           context: buildCoreRpcContext(c),
-        }),
+        };
+        // A named required receiver prevents older Core from discarding the
+        // precondition. Never fall back to an unguarded explicit-target write.
+        return parsed.data.expectedBindingTarget
+          ? c.var.coreRpc.setBoundPeopleComputerAgentProfileWorkspace(request)
+          : c.var.coreRpc.setPeopleComputerAgentProfileWorkspace(request);
+      },
     });
   });
   const projectDiscoveryRoute =

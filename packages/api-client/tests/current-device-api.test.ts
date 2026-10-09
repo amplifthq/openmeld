@@ -871,7 +871,16 @@ describe("api-client current device api", () => {
     );
   });
 
-  it("sets the current Agent Profile workspace through the canonical current-service route", async () => {
+  it.each([
+    false,
+    true,
+  ])("sets an Agent Profile workspace with its required Binding precondition (bound=%s)", async (bound) => {
+    const expectedBindingTarget = {
+      bindingId: "binding-1",
+      agentControllerRef: "builtin:codex",
+      agentControllerConversationId: null,
+      openMeldServiceRuntimeId: "runtime-1",
+    };
     const transport = vi.fn(() =>
       Promise.resolve(
         new Response(
@@ -899,6 +908,15 @@ describe("api-client current device api", () => {
       agentProfileId: "agt_99999999-9999-4999-8999-999999999999",
       workspaceMode: "custom",
       workspacePath: "/Users/felix/Desktop/work/openmeld",
+      ...(bound
+        ? {
+            expectedBindingTarget,
+            target: {
+              deviceId: "selected-device",
+              runtimeLane: "canary" as const,
+            },
+          }
+        : {}),
     });
 
     expect(result).toMatchObject({
@@ -909,13 +927,16 @@ describe("api-client current device api", () => {
     });
     expect(transport).toHaveBeenCalledWith(
       expect.objectContaining({
-        url: "https://gateway.openmeld.invalid/v1/local-runtimes/current/agent-profiles/agt_99999999-9999-4999-8999-999999999999/workspace",
+        url: bound
+          ? "https://gateway.openmeld.invalid/v1/people-computers/selected-device/lanes/canary/agent-profiles/agt_99999999-9999-4999-8999-999999999999/workspace"
+          : "https://gateway.openmeld.invalid/v1/local-runtimes/current/agent-profiles/agt_99999999-9999-4999-8999-999999999999/workspace",
         operation: "local_runtime.current.agent_profile_workspace.write",
         init: expect.objectContaining({
           method: "PUT",
           body: JSON.stringify({
             workspaceMode: "custom",
             workspacePath: "/Users/felix/Desktop/work/openmeld",
+            ...(bound ? { expectedBindingTarget } : {}),
           }),
           headers: {
             "content-type": "application/json",

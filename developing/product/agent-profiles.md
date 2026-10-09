@@ -902,12 +902,19 @@ Binding target; changed or unavailable target evidence blocks Save without
 silently moving the draft to another Computer. The owner closes and reopens the
 selector to review a changed target.
 
-Center Agent working-folder writes verify their automatic Binding target inside
+Center Agent and Space recovery working-folder writes verify their Binding target inside
 the existing execution-target mutation admission before calling Service. The
 subsequent Default Project clear verifies that same target inside its existing
 future-work settings admission. These are two ordered writes, not one atomic
 transaction. If the target changes between them, the local save receipt remains
 visible, the Project is not cleared, and setup reports partial failure.
+
+The Space recovery draft sends its frozen `expectedBindingTarget` on both HTTP
+writes. Core rejects a mismatched current Binding even after Save has started;
+disabling a later click in Web is not the write fence. A successful local save
+followed by a rejected Project update keeps the dialog open with an accurate
+partial result. Ordinary explicit Computer configuration may omit this
+precondition and retains its existing target semantics.
 
 `defaultProjectId` is a separate Organization-scoped cloud preference for a
 local Agent Profile. It identifies the Project that future Wakes and new
