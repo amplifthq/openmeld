@@ -23,4 +23,5 @@ jump when clicked. The Codex preview removes inactive controls and extra labels
 to keep the example clear.
 
 A gentle border light draws attention to the demo's ready-to-send draft. It
-stops when you start editing or after one pass and respects reduced motion.
+circles slowly while the draft is ready, fades out during editing or sending,
+and respects reduced motion. It remains available when you return to Product.

@@ -4,24 +4,21 @@ import { useInView } from "motion/react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 const beamCss = `
-[data-beam="{id}"] { --beam-stroke-opacity: 2; }
-[data-beam="{id}"][data-active] {
-  animation-iteration-count: 1, 1;
-  animation-fill-mode: forwards, forwards;
+[data-beam="{id}"] {
+  --beam-stroke-opacity: 4.5;
+  --beam-inner-opacity: 0.5;
 }
-[data-beam="{id}"]::before { display: none; }
 [data-beam="{id}"][data-cue-paused]:is([data-active], [data-fading]) {
   animation-play-state: paused;
 }
 @media (prefers-reduced-motion: reduce) {
   [data-beam="{id}"][data-fading] {
-    animation-name: beam-fade-out-{id};
-    animation-duration: 0.2s;
+    animation: beam-fade-out-{id} 0.2s ease forwards;
   }
 }
 `;
 
-/** A one-time invitation to send the demo's draft, never a product behavior. */
+/** Highlight a sendable demo draft until the visitor starts interacting. */
 export function DemoComposerBeam({
 	children,
 	hasDraft,
@@ -35,8 +32,8 @@ export function DemoComposerBeam({
 	const inView = useInView(ref, { amount: 0.8 });
 	const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
 	const [hidden, setHidden] = useState(document.hidden);
-	const [noticed, setNoticed] = useState(false);
-	const eligible = hasDraft && !sending && !noticed;
+	const [focused, setFocused] = useState(false);
+	const eligible = hasDraft && !sending && !focused;
 	useEffect(() => {
 		const update = () => setHidden(document.hidden);
 		document.addEventListener("visibilitychange", update);
@@ -48,22 +45,22 @@ export function DemoComposerBeam({
 			active={eligible && !reducedMotion}
 			borderRadius={18}
 			className="demo-composer-beam"
-			colorVariant="ocean"
+			colorVariant="colorful"
 			css={beamCss}
 			data-cue-paused={!inView || hidden ? "" : undefined}
 			data-reduced-cue={eligible && reducedMotion ? "" : undefined}
-			duration={8}
-			glowSize={0.5}
-			onAnimationEnd={(event) => {
-				if (event.animationName.startsWith("beam-spin-")) {
-					setNoticed(true);
+			duration={10}
+			glowSize={0.6}
+			onBlurCapture={(event) => {
+				if (!event.currentTarget.contains(event.relatedTarget)) {
+					setFocused(false);
 				}
 			}}
-			onFocusCapture={() => setNoticed(true)}
+			onFocusCapture={() => setFocused(true)}
 			ref={ref}
 			size="md"
 			staticColors
-			strength={0.6}
+			strength={0.85}
 			theme={
 				document.documentElement.classList.contains("dark") ? "dark" : "light"
 			}
