@@ -277,7 +277,7 @@ function CenterAgentSettingsAction(input: { onNavigate?: () => void }) {
 						toast.error(error.message)
 					);
 				}}
-				size="icon-xs"
+				size="icon-sm"
 				type="button"
 				variant="ghost"
 			>
