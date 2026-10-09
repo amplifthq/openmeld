@@ -805,24 +805,9 @@
 	display: flex;
 	flex-direction: column;
 	justify-content: space-between;
-	isolation: isolate;
-}
-.meld-bento-machine > div:not(.meld-computer-ambient) {
-	position: relative;
-	z-index: 1;
 }
 .meld-machine-art {
 	margin: -20px -25px 0;
-}
-.meld-machine-art svg {
-	width: 100%;
-	height: auto;
-}
-.meld-machine-cloud {
-	animation: meld-cloud-arrive 1.6s ease-out both;
-}
-.meld-bento-machine:hover .meld-machine-cloud {
-	animation: meld-cloud-lift 1.8s ease-in-out both;
 }
 .meld-bento-specs {
 	grid-column: span 2;
@@ -902,25 +887,6 @@
 .meld-result-file > svg:last-child {
 	margin-left: auto;
 	color: #83c5ad;
-}
-@keyframes meld-cloud-arrive {
-	from {
-		opacity: 0;
-		transform: translateY(18px);
-	}
-	to {
-		opacity: 1;
-		transform: translateY(0);
-	}
-}
-@keyframes meld-cloud-lift {
-	0%,
-	100% {
-		transform: translateY(0);
-	}
-	50% {
-		transform: translateY(-12px);
-	}
 }
 @keyframes meld-result-arrive {
 	from {
@@ -1024,8 +990,6 @@
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.meld-machine-cloud,
-	.meld-bento-machine:hover .meld-machine-cloud,
 	.meld-terminal-last {
 		animation: none;
 	}

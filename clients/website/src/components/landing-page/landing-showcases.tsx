@@ -15,6 +15,7 @@ import {
 import { motion, useMotionValue, useSpring, useTransform } from "motion/react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { appUrl } from "#/lib/app-url";
+import { LandingFigure } from "./landing-figure";
 
 const heroAgentOrder = [
 	"antigravity",
@@ -326,58 +327,11 @@ export function ComputerBento() {
 	return (
 		<div className="meld-computer-bento">
 			<BentoCard className="meld-bento-machine">
-				<div aria-hidden="true" className="meld-computer-ambient" />
-				<div aria-hidden className="meld-machine-art">
-					<svg aria-hidden="true" fill="none" viewBox="0 0 480 300">
-						<g className="meld-machine-layer">
-							<path
-								d="m100 163 140-68 140 68-140 69Z"
-								fill="#25272a"
-								stroke="#62656a"
-							/>
-							<path
-								d="m100 163 140 69v40l-140-68Z"
-								fill="#17191c"
-								stroke="#43464b"
-							/>
-							<path
-								d="m240 232 140-69v41l-140 68Z"
-								fill="#202226"
-								stroke="#43464b"
-							/>
-							<path
-								d="m136 164 104-50 104 50-104 50Z"
-								fill="#121416"
-								stroke="#70747b"
-							/>
-							<path d="m158 164 82-39 82 39-82 39Z" stroke="#9ea4ae" />
-							<path
-								d="M160 220v10m12-4v10m12-4v10"
-								stroke="#555b65"
-								strokeWidth="3"
-							/>
-							<circle cx="339" cy="208" fill="#72deba" r="3" />
-						</g>
-						<g className="meld-machine-cloud">
-							<path
-								d="m148 103 92-44 92 44-92 45Z"
-								fill="#252525"
-								fillOpacity=".8"
-								stroke="#939393"
-							/>
-							<path
-								d="M240 147v51M148 103v47m184-47v47"
-								stroke="#777777"
-								strokeDasharray="3 5"
-							/>
-							<path
-								d="m202 103 38-19 38 19-38 19Z"
-								fill="#dddddd"
-								fillOpacity=".16"
-								stroke="#b6b6b6"
-							/>
-						</g>
-					</svg>
+				<div className="meld-machine-art">
+					<LandingFigure
+						figure="turntable"
+						label="Computer components on a turntable. Brush across to rotate."
+					/>
 				</div>
 				<div>
 					<CloudIcon aria-hidden size={22} />
