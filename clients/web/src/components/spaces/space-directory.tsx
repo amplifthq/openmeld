@@ -1072,13 +1072,15 @@ function DiscoverList({
 								<span className="line-clamp-2 font-medium text-sm">
 									{space.name}
 								</span>
-								<span className="text-muted-foreground text-xs">
+							</button>
+							<div className="flex items-center justify-between gap-3">
+								<span className="min-w-0 text-muted-foreground text-xs">
 									{space.activeMemberCount === null
 										? "Member count unavailable"
 										: `${space.activeMemberCount} ${space.activeMemberCount === 1 ? "member" : "members"}`}
 								</span>
-							</button>
-							<DiscoverActions input={input} space={space} />
+								<DiscoverActions input={input} space={space} />
+							</div>
 							{input.joinError?.spaceId === space.spaceId && (
 								<p className="text-destructive text-xs" role="alert">
 									{input.joinError.message}
@@ -1148,7 +1150,7 @@ function DiscoverActions({
 	space: DirectorySpace;
 }) {
 	return (
-		<div className="relative z-20 flex items-center gap-2">
+		<div className="relative z-20 flex shrink-0 items-center gap-2">
 			<Button
 				aria-label={`Join ${space.name}`}
 				disabled={

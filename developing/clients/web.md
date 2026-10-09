@@ -313,7 +313,9 @@ cards keep peer and Center Agent session identity, unread destinations, groups,
 pinning, and archive actions. Their 56px peer avatar has no reserved multi-member
 grid height; the title follows directly, with one latest-message preview row
 only when messages exist. Discover cards and rows expose the same Preview and
-Join actions, pending state, and access checks. Responsive member grids mount
+Join actions, pending state, and access checks. Cards place the primary Join
+action at the right of the member count in one row, separate from the card's
+preview target. Responsive member grids mount
 each avatar once; CSS changes visible slots without duplicating avatar drawing.
 The App's read-only Discover preview omits the Agent-facing Space context
 disclosure and structured JSON link. The standalone public reader retains them;
