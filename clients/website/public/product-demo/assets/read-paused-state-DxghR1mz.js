@@ -1,1 +1,0 @@
-import{j as o,c as r}from"./index-DeKpmzrl.js";function s(e){return o.jsxs("output",{className:r("rounded-md border border-border/70 px-4 py-3 text-muted-foreground text-sm",e.className),children:["Loading is paused. Check your connection to load ",e.subject,"."]})}export{s as R};

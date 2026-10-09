@@ -68,6 +68,8 @@ type BotAvatarProps = Omit<ComponentPropsWithoutRef<"canvas">, "type"> & {
   shading?: BotAvatarMaterial;
   palette?: BotAvatarPalette;
   followPointer?: boolean;
+  /** Use the library's idle motion, nearby pointer tracking, and full jumps. */
+  ambient?: boolean;
   /** Keep the library's existing full interaction in the avatar editor. */
   preview?: boolean;
 };
@@ -76,6 +78,7 @@ export const BotAvatar = forwardRef<HTMLCanvasElement, BotAvatarProps>(
   function BotAvatar(
     {
       preview,
+      ambient = false,
       working = false,
       motionEnabled = true,
       shading = "fabric",
@@ -89,16 +92,18 @@ export const BotAvatar = forwardRef<HTMLCanvasElement, BotAvatarProps>(
       "(prefers-reduced-motion: reduce)"
     );
     const reducedMotion = prefersReducedMotion || !motionEnabled;
-    if (preview) {
+    if (preview || ambient) {
       return (
-        <NativeBotAvatar
+        <AnimatedBotAvatar
           {...props}
+          ambient={ambient}
           brightness={1}
           color={botAvatarColor(props.type, palette)}
           data-bot-material={shading}
           interactive={!reducedMotion}
-          jumpEvery={working ? 8 : 0}
+          jumpEvery={ambient || working ? 8 : 0}
           key={`${working}:${reducedMotion}`}
+          palette={palette}
           paused={reducedMotion}
           ref={ref}
           saturation={1}
@@ -120,6 +125,44 @@ export const BotAvatar = forwardRef<HTMLCanvasElement, BotAvatarProps>(
     );
   }
 );
+
+const AnimatedBotAvatar = forwardRef<
+  HTMLCanvasElement,
+  ComponentPropsWithoutRef<typeof NativeBotAvatar> & {
+    ambient: boolean;
+    palette: BotAvatarPalette;
+    size: number;
+    type: BotAvatarType;
+  }
+>(function AnimatedBotAvatar({ ambient, palette, style, ...props }, ref) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useImperativeHandle(ref, () => canvasRef.current as HTMLCanvasElement, []);
+  useLayoutEffect(() => {
+    // The vendor paints in its child layout effect. Keep the server-rendered
+    // poster visible until that first paint, without a second animation loop.
+    if (ambient && canvasRef.current) {
+      canvasRef.current.style.backgroundImage = "none";
+    }
+  });
+  return (
+    <NativeBotAvatar
+      {...props}
+      ref={canvasRef}
+      style={{
+        ...(ambient && {
+          backgroundImage: botAvatarPoster(props.type, palette),
+          backgroundSize: "100% 100%",
+          backgroundRepeat: "no-repeat",
+          // The renderer can draw immediately while it warms the fabric cache.
+          // Its default opacity gate would also hide the first-frame poster.
+          opacity: 1,
+          transition: "none",
+        }),
+        ...style,
+      }}
+    />
+  );
+});
 
 const InteractiveBotAvatar = forwardRef<
   HTMLCanvasElement,

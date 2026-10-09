@@ -29,6 +29,7 @@ import { AppSidebarGroupStateProvider } from "./app-sidebar-group";
 
 const ModuleSidebarContext = createContext(false);
 const scrollPositions = new Map<string, number>();
+export const MODULE_SIDEBAR_MIN_WIDTH = 200;
 
 export function AppModuleSidebarProvider(input: {
 	children: ReactNode;
@@ -54,7 +55,7 @@ export function AppModuleSidebarProvider(input: {
 				const next = {
 					...current,
 					useRouteDefault: false,
-					tier: geometry.mode === "icon" ? ("hidden" as const) : geometry.mode,
+					tier: geometry.mode,
 					width: `${geometry.width}px`,
 					pageWidths: {
 						...current.pageWidths,
@@ -70,11 +71,13 @@ export function AppModuleSidebarProvider(input: {
 	return (
 		<ModuleSidebarContext.Provider value={input.available}>
 			<SidebarProvider
+				allowIconMode={false}
 				geometry={{
 					mode: open ? "expanded" : "hidden",
 					width: Number.parseFloat(width) * (width.endsWith("rem") ? 16 : 1),
 				}}
 				keyboardShortcuts={!desktop}
+				minWidth={MODULE_SIDEBAR_MIN_WIDTH}
 				onGeometryChange={onGeometryChange}
 				static={!input.available}
 				style={{ display: "contents" }}

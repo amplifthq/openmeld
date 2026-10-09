@@ -58,7 +58,7 @@ export function SpaceWindowHeader(input: {
 	const content = (
 		<div
 			className={cn(
-				"group/space-header relative grid h-full w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] gap-x-1 px-[var(--app-page-inline-padding)] data-[compact=true]:grid-cols-[auto_auto_minmax(0,1fr)_auto] data-[compact=true]:grid-rows-[var(--space-conversation-title-height)]",
+				"group/space-header relative grid h-full w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] gap-x-1 px-[var(--app-page-inline-padding)] pr-4 data-[compact=true]:grid-cols-[auto_auto_minmax(0,1fr)_auto] data-[compact=true]:grid-rows-[var(--space-conversation-title-height)]",
 				hasSecondaryRow
 					? "grid-rows-[minmax(0,var(--space-conversation-title-height))_minmax(0,var(--space-conversation-navigation-height))]"
 					: "grid-rows-1",
@@ -286,7 +286,7 @@ export function SpaceHeader(input: {
 					>
 						{input.setupRecallAction ? (
 							<div
-								className="max-lg:absolute max-lg:right-[var(--app-page-inline-padding)] max-lg:bottom-0 max-lg:flex max-lg:h-[var(--space-conversation-navigation-height)] max-lg:items-center"
+								className="max-lg:absolute max-lg:right-4 max-lg:bottom-0 max-lg:flex max-lg:h-[var(--space-conversation-navigation-height)] max-lg:items-center"
 								data-slot="space-header-setup-recall-action"
 							>
 								{input.setupRecallAction}
