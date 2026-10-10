@@ -153,7 +153,7 @@ describe("New Space membership Inbox events", () => {
     try {
       const baseline = readFileSync(
         new URL(
-          "../../../packages/db/postgresql/migrations/0031_space_joined_inbox.sql",
+          "../../../packages/db/postgresql/migrations/0033_space_joined_inbox.sql",
           import.meta.url
         ),
         "utf8"
