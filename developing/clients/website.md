@@ -71,9 +71,9 @@ or default model. Channels precede Team Knowledge and Routines.
 The Plugins section uses available entries from the public Plugins catalog
 and shared SVG app logos. The logo wall groups connections by brand and divides
 distinct logos evenly between its two rows; its details Sheet lists every
-supported connection. Its headline count comes from that same catalog, and
-wrapped brand names stay centered within their tiles. Channel support does not
-admit a Plugin.
+supported connection. Its headline uses approved rollout copy; the details list
+remains the precise current catalog. Wrapped brand names stay centered within
+their tiles. Channel support does not admit a Plugin.
 The CSS marquee pauses offscreen or while the page is hidden and has an explicit
 pause control. Reduced motion shows all brands in a static grid.
 

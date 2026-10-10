@@ -31,7 +31,7 @@ import { PluginConnectionMessageCard } from "./plugin-connection-message-card";
 const CONNECT_BUTTON_NAME = /^Connect/;
 const CONNECT_GITHUB_BUTTON_NAME = /^Connect GitHub$/;
 const OAUTH_SETUP_UNAVAILABLE = /sign-in is not set up for this environment/;
-const PERSONAL_ACCOUNT_REQUIRED = /requires a personal account/;
+const PERSONAL_ACCOUNT_REQUIRED = /Connect Gmail under Personal/;
 const NO_IDENTITY_SUBSTITUTION =
 	/your personal account will not be substituted/;
 

@@ -18,10 +18,15 @@ Jira, and Stripe. Shopify Admin uses the current Admin GraphQL API for
 products, inventory, fulfillment, orders, and customers. Stripe actions cover
 customers, products, and prices.
 
+Cloud services add AWS S3, Alibaba Cloud OSS, SLS, and ACK, plus Cloudflare
+Docs, Email Routing, and MCP. Microsoft adds Excel, Teams, OneDrive, Outlook
+Calendar, and Clarity. Zoom, Box, and Datadog are also listed. Cloudflare Docs
+connects without account credentials; you still choose which Agents can use it.
+
 The website lists all supported Plugins and distributes their distinct logos
 evenly across two scrolling rows. Reduced motion shows every logo in a static
-grid. The headline shows the Plugin count, and long names stay centered when
-they wrap.
+grid. The headline connects Plugins to team workflows, and long names stay
+centered when they wrap.
 
 Browse Plugins by category, open a category to see all its tools, and search
 beside the Personal and organization tabs. Cards show what each tool does,
@@ -31,6 +36,6 @@ Switch between Personal and organization accounts within Plugin details.
 Reconnecting an expired account keeps the sign-in window open until the
 connection is renewed, instead of reporting success from the old connection.
 
-Gmail, Outlook mail, Google Calendar, and Google Meet now connect under
+Gmail, Outlook mail and calendar, Google Calendar, Google Meet, and Zoom connect under
 Personal. You choose which Agents can use your account. Older organization
 connections for these services are disabled and remain available to disconnect.

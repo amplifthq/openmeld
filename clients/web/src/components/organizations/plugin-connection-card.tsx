@@ -1206,6 +1206,12 @@ function DisconnectedConnectionControl(input: ConnectionSectionInput) {
 				}}
 				selected={credentialIndex}
 			/>
+			{auth.fields.length === 0 ? (
+				<p className="text-muted-foreground text-xs">
+					No account credentials are needed. Connect to enable access for the
+					Agents you choose.
+				</p>
+			) : null}
 			{auth.fields.map((field) => (
 				<CredentialField
 					disabled={disabled}

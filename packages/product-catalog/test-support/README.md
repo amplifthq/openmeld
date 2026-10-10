@@ -16,3 +16,13 @@ capture records unconfigured OAuth methods as `false` and includes the modern
 `shopify_admin` GraphQL provider. Its operation descriptions were checked
 against upstream revision `b78ad1f28d99fa311f25856b589ca3780aef0746`. The
 separate legacy `shopify` REST provider is not part of the featured expansion.
+
+The 2026-10-10 staging capture also includes AWS S3, Alibaba Cloud ACK/OSS/SLS,
+Cloudflare Docs/Email Routing/MCP, Excel, Microsoft Teams, OneDrive, Outlook
+Calendar, Microsoft Clarity, Zoom, Box, and Datadog. These records preserve the
+captured auth methods, required and secret fields, JSON input types, and OAuth
+readiness. Cloudflare Docs has an empty credential field list. Catalog copy is
+limited to the runtime action list: ACK retrieves temporary kubeconfig
+credentials, Clarity exports live insights, and Zoom reads users and lists,
+creates, or updates meetings. STS, Microsoft To Do, and Translator are not
+featured entries.

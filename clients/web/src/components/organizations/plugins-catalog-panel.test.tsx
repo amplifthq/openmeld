@@ -81,11 +81,13 @@ describe("PluginsCatalogPanel", () => {
 		expect(
 			screen.getByRole("link", { name: SLACK_LINK_NAME }).getAttribute("href")
 		).toBe("/o/acme/plugins/slack?scope=personal");
-		expect(screen.queryByRole("link", { name: TEAMS_LINK_NAME })).toBeNull();
+		expect(
+			screen.getByRole("link", { name: TEAMS_LINK_NAME }).getAttribute("href")
+		).toBe("/o/acme/plugins/microsoft_teams?scope=personal");
 		expect(screen.queryByText("Details")).toBeNull();
 	});
 
-	it("keeps personal mailboxes out of the organization catalog and retains a cleanup link for older shared connections", async () => {
+	it("keeps personal mail, calendars, and meetings out of the organization catalog and retains a cleanup link for older shared connections", async () => {
 		scopeState.value = "organization";
 		listAppConnectionsMock.mockResolvedValue({
 			connections: [
@@ -99,6 +101,11 @@ describe("PluginsCatalogPanel", () => {
 		expect(screen.queryByTestId("app-logo-outlook")).toBeNull();
 		expect(screen.queryByTestId("app-logo-googlecalendar")).toBeNull();
 		expect(screen.queryByTestId("app-logo-googlemeet")).toBeNull();
+		expect(screen.queryByTestId("app-logo-outlook_calendar")).toBeNull();
+		expect(screen.queryByTestId("app-logo-zoom")).toBeNull();
+		expect(
+			screen.getByRole("link", { name: TEAMS_LINK_NAME }).getAttribute("href")
+		).toBe("/o/acme/plugins/microsoft_teams?scope=organization");
 		expect(
 			screen.getByRole("link", { name: GOOGLE_SHEETS_LINK_NAME })
 		).toBeTruthy();
@@ -236,7 +243,15 @@ describe("PluginsCatalogPanel", () => {
 				.getAllByRole("link")
 				.map((link) => within(link).getByRole("heading").textContent)
 				.sort()
-		).toEqual(["Gmail", "Intercom", "Outlook", "Resend", "Slack", "Zendesk"]);
+		).toEqual([
+			"Gmail",
+			"Intercom",
+			"Microsoft Teams",
+			"Outlook",
+			"Resend",
+			"Slack",
+			"Zendesk",
+		]);
 		expect(screen.getByRole("link", { name: GMAIL_LINK_NAME })).toBeTruthy();
 		expect(screen.getByRole("link", { name: SLACK_LINK_NAME })).toBeTruthy();
 		expect(screen.queryByRole("link", { name: NOTION_LINK_NAME })).toBeNull();

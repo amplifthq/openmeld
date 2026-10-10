@@ -16,6 +16,11 @@ import { useEffect, useRef, useState } from "react";
 import "./connector-showcase.css";
 
 const plugins = PLUGINS.filter((plugin) => plugin.availability === "available");
+const sharedBrandNames: Record<string, string> = {
+	"/app-logos/cloudflare.svg": "Cloudflare",
+	"/app-logos/alibaba-cloud.svg": "Alibaba Cloud",
+	"/app-logos/outlook.svg": "Outlook",
+};
 
 // Several shipped connections share one brand. Keep every connection in the
 // details, but show its logo in only one marquee row.
@@ -25,9 +30,9 @@ const brands = [...new Set(plugins.map((plugin) => plugin.logoPath))].map(
 			(plugin) => plugin.logoPath === logoPath
 		);
 		const app = brandPlugins[0];
-		const name = app.service.startsWith("cloudflare_")
-			? "Cloudflare"
-			: brandPlugins.map((plugin) => plugin.name).join(" / ");
+		const name =
+			sharedBrandNames[logoPath] ??
+			brandPlugins.map((plugin) => plugin.name).join(" / ");
 		return { app, name };
 	}
 );
@@ -75,12 +80,13 @@ export function ConnectorShowcase() {
 		>
 			<div className="meld-connectors-copy">
 				<h2 id="connectors-title">
-					{plugins.length} plugins.
-					<span> More ways to work.</span>
+					50+ plugins.
+					<br />
+					<span>One connected team.</span>
 				</h2>
 				<p>
-					Connect the tools you use. You choose what your agents can access and
-					do.
+					Your Center Agent, local and remote agents, and teammates work
+					together across your existing tools. You control access.
 				</p>
 			</div>
 			<p className="sr-only">

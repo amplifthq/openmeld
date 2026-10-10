@@ -17,7 +17,11 @@ import {
 import { createPostgresHarness } from "./helpers/postgresql-harness.test-support";
 
 describe("connection authorization identity during status reconciliation", () => {
-  it("blocks shared mailbox authorization and legacy execution while preserving personal access and owner cleanup", async () => {
+  it.each([
+    "gmail",
+    "outlook_calendar",
+    "zoom",
+  ])("blocks shared %s authorization and legacy execution while preserving personal access and owner cleanup", async (service) => {
     const harness = await createPostgresHarness();
     onTestFinished(() => harness.close());
     const db = harness.db;
@@ -31,7 +35,7 @@ describe("connection authorization identity during status reconciliation", () =>
       db,
       organizationId: "team",
       userId: "member",
-      service: "gmail",
+      service,
       nowMs: 1,
     };
     await expect(
@@ -55,8 +59,8 @@ describe("connection authorization identity during status reconciliation", () =>
     await db.query({
       text: `INSERT INTO "openmeld"."connector_connections"
         (connection_name,organization_id,user_id,scope,service,status,created_at_ms,updated_at_ms,access_policy)
-        VALUES ('old-shared','team','member','shared','gmail','active',1,1,$1)`,
-      values: [JSON.stringify(oldPolicy)],
+        VALUES ('old-shared','team','member','shared',$1,'active',1,1,$2)`,
+      values: [service, JSON.stringify(oldPolicy)],
     });
     const old = { db, organizationId: "team", connectionName: "old-shared" };
     expect(await readPluginAccess(old)).toEqual({
@@ -92,7 +96,7 @@ describe("connection authorization identity during status reconciliation", () =>
       db,
       organizationId: "team",
       requesterUserId: "member",
-      service: "gmail",
+      service,
     };
     expect(
       await selectActiveConnectorConnection({
@@ -128,7 +132,7 @@ describe("connection authorization identity during status reconciliation", () =>
         ...old,
         connectionName: "personal",
       })
-    ).toMatchObject({ service: "gmail", scope: "member" });
+    ).toMatchObject({ service, scope: "member" });
     expect(
       await markConnectorConnectionDisconnected({ ...old, nowMs: 3 })
     ).toMatchObject({ status: "disconnected", scope: "shared" });

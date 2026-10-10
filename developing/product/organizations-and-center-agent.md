@@ -1481,7 +1481,8 @@ sign-in and explains the operator setup requirement. It never implies that a
 Channel connection grants Plugin access.
 
 Plugin connection ownership is a product policy, separate from OAuth support
-and Agent access. Gmail, Outlook mail, Google Calendar, and Google Meet are
+and Agent access. Gmail, Outlook mail and calendar, Google Calendar, Google Meet,
+and Zoom are
 personal-only: connect them under Personal and explicitly authorize each Agent.
 A company email address does not make an individual's mailbox a shared
 Organization account. Other providers currently support both Personal and
@@ -1491,6 +1492,12 @@ connection selection, named execution, and access grants. An existing shared
 personal-only connection remains available for owner disconnect, but cannot
 be selected or executed and cannot receive new grants. Do not convert its
 ownership or delete its credentials automatically.
+
+Providers can declare a `custom_credential` connection with no fields, such as
+the public Cloudflare Docs MCP server. Gateway accepts an empty values object
+for this authentication type; OpenConnector validates it against the provider's
+declared fields. The connection still requires OpenMeld ownership and explicit
+Agent access grants. API-key connections still require a non-empty values object.
 
 A Personal Workspace cannot connect a workspace-level Message Channel. Its
 Channels destination remains visible and shows the provider catalog in a
