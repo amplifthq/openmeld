@@ -1514,6 +1514,11 @@ Computer identity before reporting completion. A previously accepted runtime
 report is not proof of that enrollment. Tokenized Prepare setup retains its
 existing trusted enrollment and reconnect target; completion must not repeat
 it without that target.
+Enrollment fixes the request to the Service contract's account and Gateway.
+Its returned identity commits under the existing lifecycle-then-auth locks,
+only while the account and exact contract state/generation remain unchanged.
+A late response must not replace newer Computer evidence or restore a stopped
+Service. First enrollment still preserves the running generation.
 
 Setup may help the local side become able to work by checking OpenMeld Service,
 discovering local Agent Controllers, preparing runnable Agent Controllers,

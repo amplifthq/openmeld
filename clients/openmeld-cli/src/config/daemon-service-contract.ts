@@ -10,7 +10,10 @@ import {
   readDaemonLocalStateFile,
   writeDaemonLocalStateFile,
 } from "./daemon-local-state-file";
-import { daemonRuntimeStateRootPath } from "./daemon-state";
+import {
+  daemonRuntimeStateRootPath,
+  withDaemonServiceLifecycleLock,
+} from "./daemon-state";
 import {
   type OpenMeldEnvPreset,
   type OpenMeldPathResolutionInput,
@@ -59,10 +62,40 @@ export async function readDaemonServiceContract(
 
 export async function upsertDaemonServiceContract(
   input: DaemonServiceContractStateInput,
-  pathInput: OpenMeldPathResolutionInput = {}
+  pathInput: OpenMeldPathResolutionInput = {},
+  options: { expectedCurrentContract?: DaemonServiceContract } = {}
 ): Promise<DaemonServiceContract> {
   assertDaemonServiceContractMutationAllowed(pathInput);
+  if (options.expectedCurrentContract) {
+    return await withDaemonServiceLifecycleLock(
+      { intent: "upgrade_reconcile", command: "openmeld setup" },
+      async () =>
+        await writeDaemonServiceContractState(
+          input,
+          pathInput,
+          options.expectedCurrentContract
+        )
+    );
+  }
+  return await writeDaemonServiceContractState(input, pathInput);
+}
+
+async function writeDaemonServiceContractState(
+  input: DaemonServiceContractStateInput,
+  pathInput: OpenMeldPathResolutionInput,
+  expectedCurrentContract?: DaemonServiceContract
+): Promise<DaemonServiceContract> {
   const current = await readDaemonServiceContract(pathInput);
+  if (
+    expectedCurrentContract &&
+    (!current ||
+      current.generation !== expectedCurrentContract.generation ||
+      !isSameContractState(current, expectedCurrentContract))
+  ) {
+    throw new Error(
+      "OpenMeld Service changed during Computer connection. Run setup again."
+    );
+  }
   const candidate = buildContractCandidate(input, pathInput, current);
   assertDaemonServiceContractIdentityAllowed(candidate, pathInput);
   if (current && isSameContractState(current, candidate)) {
