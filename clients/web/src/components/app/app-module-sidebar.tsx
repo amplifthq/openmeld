@@ -29,7 +29,7 @@ import { AppSidebarGroupStateProvider } from "./app-sidebar-group";
 
 const ModuleSidebarContext = createContext(false);
 const scrollPositions = new Map<string, number>();
-export const MODULE_SIDEBAR_MIN_WIDTH = 200;
+export const MODULE_SIDEBAR_MIN_WIDTH = 176;
 
 export function AppModuleSidebarProvider(input: {
 	children: ReactNode;

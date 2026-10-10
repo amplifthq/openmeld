@@ -78,9 +78,10 @@ demo builds against the same output directory at once.
 The demo supplies fictional content through real header slots. The Space member
 button opens the product's resizable member panel or mobile drawer. The panel
 starts open on desktop at a demo-specific minimum width of 12rem. Live and You
-labels are hidden in demo member rows. Thread starts at 24rem with a 20rem resize
-minimum. The product's default resize limits and labels remain unchanged. The
-Space sidebar starts at the product's 200px minimum. Product and demo share
+labels are hidden in demo member rows. Thread starts at its 20rem resize minimum
+to leave room for the main conversation's initial draft. The product's default
+resize limits and labels remain unchanged. The
+Space sidebar starts at the product's 176px minimum. Product and demo share
 expanded/hidden dragging and keyboard resizing, with no icon-only intermediate
 tier. Titles remain single-line with an ellipsis when needed; Center Agent fits
 at the minimum. Its search input is omitted through `ConversationsSidebar.showSearch`.
