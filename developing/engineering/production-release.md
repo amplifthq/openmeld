@@ -245,6 +245,16 @@ admission checks that active baseline's bindings; it does not mark the failed
 attempt successful. An intervening deployment, including a rollback to the same
 version, blocks this retry.
 
+Native PostgreSQL can start a new-source attempt after a failed first migration
+step only when the previous verified database receipt is retained. Current control
+requires the same three-step operation, ancestor sources, unchanged migration SQL
+and registered target. Under the shared Database lease, a read-only owner verifies
+the exact historical journal and runtime grants before any new component effect.
+The new start links an immutable schema 6 rollback proof to both historical receipts;
+the failed event is preserved. An already committed migration, changed target,
+unproved baseline, or changed recipe remains blocked. This path does not replay
+applied SQL or admit a redeploy override.
+
 Other unknown application, missing output, unreadable receipts, mismatched targets and
 unresolved legacy records block before a new attempt or deployment. They require
 separate evidence-backed reconciliation, not a new UUID or a status override.

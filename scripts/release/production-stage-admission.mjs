@@ -52,6 +52,8 @@ export function assertProductionStageAdmission(input) {
       !(
         selected.has(component.scope) &&
         (component.recovery?.kind === "guarded-health-resume" ||
+          (component.scope === "db" &&
+            component.recovery?.kind === "guarded-postgresql-forward-retry") ||
           (component.scope === "core" &&
             component.recovery?.kind === "guarded-core-upload-retry")) &&
         component.recovery.admission === "candidate" &&

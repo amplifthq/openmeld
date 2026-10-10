@@ -11,6 +11,7 @@ import {
   withPostgresRequest,
 } from "../../packages/db/src/postgresql.ts";
 import { acceptRuntime } from "./acceptance.mjs";
+import { verifyNativeTargetWithMigrations } from "./d1-import.mjs";
 import {
   connect,
   connectionOptions,
@@ -82,6 +83,10 @@ try {
     prefixJournal.entries = prefixJournal.entries.slice(0, 31);
     await writeFile(prefixJournalPath, JSON.stringify(prefixJournal));
     await migrate(historical, prefix);
+    const verifiedPrefix = await readMigrations(prefix);
+    await historical.query("BEGIN READ ONLY");
+    await verifyNativeTargetWithMigrations(historical, verifiedPrefix);
+    await historical.query("COMMIT");
     await historical.query(
       "INSERT INTO openmeld.users(id,name,email,email_verified,created_at,updated_at) VALUES('synthetic-member','Synthetic member','synthetic-member@example.com',1,1,1)"
     );
@@ -102,6 +107,12 @@ try {
       );
     }
     assert.equal((await migrate(historical)).total, baselineCount);
+    await historical.query("BEGIN READ ONLY");
+    await assert.rejects(
+      verifyNativeTargetWithMigrations(historical, verifiedPrefix),
+      /journal mismatch/u
+    );
+    await historical.query("ROLLBACK");
     assert.deepEqual(
       (
         await historical.query(

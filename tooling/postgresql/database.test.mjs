@@ -1,8 +1,31 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import test from "node:test";
 import { formatCutoverDataFailure } from "./cutover.mjs";
-import { closeMigrationClient } from "./database.mjs";
+import {
+  closeMigrationClient,
+  readMigrations,
+  readMigrationsAtSource,
+} from "./database.mjs";
+
+const EXACT_SOURCE_ERROR = /exact source SHA/u;
+
+test("historical retry proof uses the same immutable hashes and order as the native migrator", async () => {
+  const source = execFileSync("git", ["rev-parse", "HEAD"], {
+    encoding: "utf8",
+  }).trim();
+  const expected = (await readMigrations()).map(
+    ({ name, hash, checksum, folderMillis }) => ({
+      name,
+      hash,
+      checksum,
+      folderMillis,
+    })
+  );
+  assert.deepEqual(readMigrationsAtSource(source), expected);
+  assert.throws(() => readMigrationsAtSource("main"), EXACT_SOURCE_ERROR);
+});
 
 function clientWithShutdown(end) {
   const client = new EventEmitter();
