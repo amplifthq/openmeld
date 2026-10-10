@@ -1149,13 +1149,17 @@ mode, an ordinary Claude Wake starts an independent native context when no
 retained context has been selected. It needs neither Git nor a container engine.
 A Wake continuing a retained context keeps its existing access. Forks preserve
 the source restriction unless an explicit supported choice changes it.
-The Task menu makes New task the default choice and groups optional restrictions
-under Limit task access. Explicit task choices may
-instead select Space-only access, an independent project worktree, or read-only
-current-folder access. Codex App Server also supports independent
-project worktrees or read-only/current-folder access. The CLI options
+Agent mention menus separate Session, Working copy, and Access. Selecting a
+separate copy or a Project does not itself select a file restriction: new Codex
+and Claude tasks keep Agent settings unless the requester explicitly chooses
+additional access limits. Forks preserve their source's working-copy mode as
+well as its access contract. Explicit access choices can select Space-only,
+read-only, or bounded project access. Read-only and bounded current-folder
+access require Codex; bounded Claude project access requires a separate copy.
+The CLI options
 are `--task-access space_context|read_only|workspace` and
-`--task-workspace isolated|current`. Current-folder writers wait for conflicting
+`--task-workspace isolated|current`; omitting `--task-access` keeps Agent settings
+even with `--project` or `--task-workspace isolated`. Current-folder writers wait for conflicting
 local work. An independent project task requires a confirmed working folder that
 is the root of a Git repository with a committed HEAD. The Service checks the
 source against the Computer owner's file policy, then prepares a private Git
@@ -1166,9 +1170,9 @@ Retries and continuation preserve the task's worktree and frozen starting commit
 The local Agent receives the repository label, task working folder, and starting
 commit; it does not discover a source by searching the computer.
 
-The task boundary confines project files and Git metadata. Codex retains its
+An explicit task boundary confines project files and Git metadata. Codex retains its
 native runtime's platform temporary-directory rules; that is not a promise of
-complete temporary-directory isolation. Explicit isolated Claude project tasks require a
+complete temporary-directory isolation. Explicitly bounded isolated Claude project tasks require a
 running Docker or Podman Linux-container engine on macOS, Linux, or Windows.
 The Service mounts only the task-owned repository and worktree, disables
 container networking, runs as a non-root user, and gives Claude restricted file

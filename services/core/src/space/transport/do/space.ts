@@ -125,6 +125,7 @@ import {
   SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
   SPACE_AGENT_REPLY_CONTEXT_CHANGED_ERROR_CODE,
   SPACE_COMPOSER_UPLOAD_TTL_MS,
+  SPACE_DISPATCH_TRACE_NATIVE_DELIVERY_CONTRACT_VERSION,
   SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
   SPACE_MESSAGE_CHANGED_PURPOSE,
   SPACE_PASSWORD_MIN_LENGTH,
@@ -213,6 +214,7 @@ import type {
   OpenMeldRequestContext,
   PostSpaceDispatchOutboxRedriveResponse,
   PostSpaceMembersResponse,
+  PostSpaceThreadSignalBody,
   PostSpaceWakeStopBody,
   PostSpaceWakeStopResponse,
   PrepareSpaceFileWriteResponse,
@@ -611,6 +613,7 @@ import {
 } from "../../application/space-password-service";
 import { authorizeSpacePublicationModeChange } from "../../application/space-publication-mode-authorization";
 import { measureSpaceSchemaInitialization } from "../../application/space-schema-observability";
+import { assertSameSpaceSignalReplay } from "../../application/space-signal-idempotency";
 import {
   assertSpaceSignalNavigationActionPolicy,
   assertWakeDeviceWaitAuthoring,
@@ -666,10 +669,7 @@ import {
   readNativeSpaceWakeStopIntent,
   retainRetiredNativeWakeStopFence,
 } from "../../application/space-wake-stop-intent";
-import {
-  assertSameSpaceWorkHandoff,
-  validateSpaceWorkHandoff,
-} from "../../application/space-work-handoff";
+import { validateSpaceWorkHandoff } from "../../application/space-work-handoff";
 import { TransientAgentStreamReplay } from "../../application/transient-agent-stream-replay";
 import type {
   PasswordAuthorizationResult,
@@ -5633,7 +5633,7 @@ export class Space extends DurableObject<CoreBindings> {
             reason: policyResult.message,
           });
         }
-        await authorizeRpcSignalWrite({
+        const author = await authorizeRpcSignalWrite({
           authorizeSpacePasswordAccess:
             this.authorizeSpacePasswordAccess.bind(this),
           authorizeWritableSpaceAccess:
@@ -5647,54 +5647,55 @@ export class Space extends DurableObject<CoreBindings> {
             | IdempotentPostSignalResolution
             | { status: "failed"; error: unknown }
           > => {
-            const pluginContinuation = input.pluginContinuation
-              ? new PluginConnectionContinuationRepository(
-                  this.ctx.storage.sql
-                ).reserve(clientMessageId, input.pluginContinuation)
-              : null;
-            const existingSignal =
-              this.readSourceTextSignalByClientMessageId(clientMessageId);
-            if (existingSignal) {
-              if (pluginContinuation) {
-                if (pluginContinuation.signalId !== existingSignal.id) {
+            try {
+              const pluginContinuation = input.pluginContinuation
+                ? new PluginConnectionContinuationRepository(
+                    this.ctx.storage.sql
+                  ).reserve(clientMessageId, input.pluginContinuation)
+                : null;
+              const existingSignal =
+                this.readSourceTextSignalByClientMessageId(clientMessageId);
+              if (existingSignal) {
+                assertSameSpaceSignalReplay({
+                  existing: existingSignal,
+                  authorProfileId: author.profileId,
+                  handoff: input.meta?.workHandoff,
+                  evidenceRefs: input.meta?.evidenceRefs,
+                  text: input.text,
+                  targetProfileIds:
+                    input.messageEnvelope?.activationTargets ?? [],
+                });
+                if (
+                  pluginContinuation &&
+                  pluginContinuation.signalId !== existingSignal.id
+                ) {
                   throw pluginContinuationConflict();
                 }
                 return { signal: existingSignal, status: "accepted" };
               }
-              assertSameSpaceWorkHandoff({
-                existing: existingSignal,
-                authorProfileId: input.profile.profileId,
-                handoff: input.meta?.workHandoff,
-                evidenceRefs: input.meta?.evidenceRefs,
-                text: input.text,
-                targetProfileIds:
-                  input.messageEnvelope?.activationTargets ?? [],
+              if (
+                hasTextSignalClientMessageRejection(
+                  this.ctx.storage.sql,
+                  clientMessageId
+                )
+              ) {
+                return { status: "rejected" };
+              }
+              const postInput = this.buildIdempotentPostSignalInput({
+                agentStreamId,
+                clientMessageId,
+                input,
               });
-              return { signal: existingSignal, status: "accepted" };
+              const signal = await this.postIdempotentTextSignal(
+                postInput,
+                workRecoveryQueueHandoff,
+                pluginContinuation?.binding
+              );
+              return { signal, status: "accepted" };
+            } catch (error) {
+              // Reject authoring and replay outside the Durable Object input gate.
+              return { status: "failed", error };
             }
-            if (
-              hasTextSignalClientMessageRejection(
-                this.ctx.storage.sql,
-                clientMessageId
-              )
-            ) {
-              return { status: "rejected" };
-            }
-            const postInput = this.buildIdempotentPostSignalInput({
-              agentStreamId,
-              clientMessageId,
-              input,
-            });
-            // A rejected draft must not break the Durable Object input gate.
-            // The message/task transaction has already rolled back.
-            return await this.postIdempotentTextSignal(
-              postInput,
-              workRecoveryQueueHandoff,
-              pluginContinuation?.binding
-            ).then(
-              (signal) => ({ signal, status: "accepted" as const }),
-              (error: unknown) => ({ status: "failed" as const, error })
-            );
           }
         );
         if (resolution.status === "failed") {
@@ -11852,6 +11853,9 @@ export class Space extends DurableObject<CoreBindings> {
         this.applySpaceRef(input.spaceId);
         const url = new URL("https://openmeld.local/message-details");
         url.searchParams.set("signalId", input.signalId);
+        if (input.executionContextVersion === 1) {
+          url.searchParams.set("executionContextVersion", "1");
+        }
         const request = this.buildDirectRpcRequest({
           path: `${url.pathname}${url.search}`,
           method: "GET",
@@ -14296,16 +14300,10 @@ export class Space extends DurableObject<CoreBindings> {
         );
       }
       if (existingRetry.status === "replay") {
-        assertSameSpaceWorkHandoff({
-          existing: existingRetry.signal,
+        return this.replayThreadSignalResponse({
           authorProfileId: input.context.actorContext.openMeldProfileId,
-          handoff: parsed.data.workHandoff,
-          evidenceRefs: parsed.data.evidenceRefs,
-          text: parsed.data.text,
-          targetProfileIds:
-            parsed.data.messageEnvelope?.activationTargets ?? [],
-        });
-        return spaceAddressingJsonResponse(input.request, {
+          body: parsed.data,
+          request: input.request,
           signal: existingRetry.signal,
           placement: existingRetry.placement,
         });
@@ -14402,6 +14400,34 @@ export class Space extends DurableObject<CoreBindings> {
           createdAt: signalCreatedAt,
         }),
       });
+    });
+  }
+  private replayThreadSignalResponse(input: {
+    authorProfileId: string;
+    body: PostSpaceThreadSignalBody;
+    request: Request;
+    signal: Extract<SignalEnvelope, { type: "signal.text" }>;
+    placement: SpaceThreadSignalPlacement;
+  }): Response {
+    try {
+      assertSameSpaceSignalReplay({
+        existing: input.signal,
+        authorProfileId: input.authorProfileId,
+        handoff: input.body.workHandoff,
+        evidenceRefs: input.body.evidenceRefs,
+        text: input.body.text,
+        targetProfileIds: input.body.messageEnvelope?.activationTargets ?? [],
+      });
+    } catch (error) {
+      const response = this.coreRpcErrorResponse(error);
+      if (response) {
+        return response;
+      }
+      throw error;
+    }
+    return spaceAddressingJsonResponse(input.request, {
+      signal: input.signal,
+      placement: input.placement,
     });
   }
   private readSignalById(signalId: string): SignalEnvelope | null {
@@ -16397,6 +16423,13 @@ export class Space extends DurableObject<CoreBindings> {
         const parsed = getSpaceMessageDetailsInputSchema.safeParse({
           spaceId: this.spaceId,
           signalId: url.searchParams.get("signalId"),
+          ...(url.searchParams.has("executionContextVersion")
+            ? {
+                executionContextVersion: Number(
+                  url.searchParams.get("executionContextVersion")
+                ),
+              }
+            : {}),
         });
         if (!parsed.success) {
           return new Response(
@@ -16407,6 +16440,7 @@ export class Space extends DurableObject<CoreBindings> {
         }
         const details = await this.readSpaceMessageDetails({
           signalId: parsed.data.signalId,
+          executionContextVersion: parsed.data.executionContextVersion,
           viewer: await this.resolveReadViewerIdentity(spaceAccess),
         });
         if (!details) {
@@ -23078,6 +23112,7 @@ export class Space extends DurableObject<CoreBindings> {
       readRuntimeCoordinatorHeadLifecycleTrace: (input) =>
         readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace({
           env: this.bindings,
+          includeExecutionContext: options.responseContractVersion === 7,
           ownerUserId: input.ownerUserId,
           request: input.request,
         }),
@@ -24352,6 +24387,7 @@ export class Space extends DurableObject<CoreBindings> {
   }
   private async readSpaceMessageDetails(input: {
     signalId: string;
+    executionContextVersion?: 1;
     viewer?: SpaceReadViewerIdentity;
   }): Promise<GetSpaceMessageDetailsResponse | null> {
     const signal = this.readSignalById(input.signalId);
@@ -24389,6 +24425,7 @@ export class Space extends DurableObject<CoreBindings> {
       ? (
           await this.readSpaceWakeTraceWaterfall({
             agentLocalOriginFactsViewer: input.viewer,
+            executionContextVersion: input.executionContextVersion,
             ...(wakeClientMessageId
               ? { clientMessageId: wakeClientMessageId }
               : { sourceSignalId: wakeSourceSignal.id }),
@@ -24414,7 +24451,23 @@ export class Space extends DurableObject<CoreBindings> {
         viewerOwnerUserId: input.viewer?.viewerOwnerUserId,
         wakeTraceItems,
       });
+    const visibleWakeSource =
+      input.executionContextVersion === 1 && wakeSourceSignal
+        ? redactSignalForViewer({ signal: wakeSourceSignal, ...input.viewer })
+        : null;
     return projectSpaceMessageDetails({
+      ...(visibleWakeSource?.type === "signal.text"
+        ? {
+            newTaskSource: {
+              signal: visibleWakeSource,
+              threadId:
+                this.resolveThreadContextForSignal(signal.id)?.threadId ??
+                this.resolveThreadContextForSignal(visibleWakeSource.id)
+                  ?.threadId ??
+                null,
+            },
+          }
+        : {}),
       originalErrorByTargetProfileId,
       replySignal,
       signal,
@@ -24428,6 +24481,7 @@ export class Space extends DurableObject<CoreBindings> {
       wakeTraceItems,
       workingDetails,
       viewerOwnerUserId: input.viewer?.viewerOwnerUserId,
+      viewerProfileId: input.viewer?.viewerProfileId,
     });
   }
   private async readOwnerVisibleOriginalErrors(input: {
@@ -24508,6 +24562,7 @@ export class Space extends DurableObject<CoreBindings> {
   }
   private async readSpaceWakeTraceWaterfall(input: {
     agentLocalOriginFactsViewer?: SpaceReadViewerIdentity;
+    executionContextVersion?: 1;
     clientMessageId?: string | null;
     sourceSignalId?: string | null;
     targetProfileId?: string;
@@ -24570,7 +24625,9 @@ export class Space extends DurableObject<CoreBindings> {
           match.dispatchId,
           await this.readSpaceDispatchTrace(match.dispatchId, {
             responseContractVersion:
-              SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
+              input.executionContextVersion === 1
+                ? SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION
+                : SPACE_DISPATCH_TRACE_NATIVE_DELIVERY_CONTRACT_VERSION,
           })
         );
       } catch {

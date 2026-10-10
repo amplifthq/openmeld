@@ -21,6 +21,7 @@ export async function readSpaceMessageDetails(input: {
 		}).getMessageDetails({
 			spaceId: input.spaceId,
 			signalId: input.signalId,
+			executionContextVersion: 1,
 			...(input.spacePassword === undefined
 				? {}
 				: { spacePassword: input.spacePassword }),

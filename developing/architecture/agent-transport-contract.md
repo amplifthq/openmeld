@@ -380,8 +380,26 @@ Agent delegation. Requester ownership informs disclosure judgment, not native
 tool availability. Core requires the Service's
 `executionContextPermissionInheritance` capability.
 The Service reuses ordinary Computer policy admission for inherited permissions.
+The workspace choice is independent: `workspace: isolated` with omitted access
+prepares a managed copy while preserving `permissionSource: agent_settings`.
+Fork defaults retain their source's working-copy mode; native permission
+inheritance must not move an isolated source back into the user's current folder.
 Context identity, history-loss failure, writer admission, and process ownership
 remain enforced even when no extra filesystem boundary is required.
+
+Task-context diagnostics read the exact retained Wake-to-Context association
+through its RuntimeCoordinator owner, including after the transient Head has
+retired. The projection reports the assigned access, permission source and
+workspace; Service-reported conversation resume and directory observations
+remain separate facts. Missing or unreadable evidence never falls back to the
+Profile's current settings. Shared viewers may see the task restriction and
+continuation summary; Context identifiers, native conversation identifiers and
+private local paths retain the existing owner-only presentation boundary.
+
+Starting a new task from a Space-only limitation is an explicit new authored
+Wake using current admission and Agent settings. It does not mutate the old
+Context or reinterpret its permissions. The reviewed source, chosen target and
+reply placement are preserved, and retries use the same message identity.
 
 Core retains each accepted Wake's context association and completed native
 history checkpoint independently of the in-flight Head lifecycle. Head retirement

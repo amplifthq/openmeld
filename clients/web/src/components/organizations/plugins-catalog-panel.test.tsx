@@ -244,6 +244,7 @@ describe("PluginsCatalogPanel", () => {
 				.map((link) => within(link).getByRole("heading").textContent)
 				.sort()
 		).toEqual([
+			"Discord Bot",
 			"Gmail",
 			"Intercom",
 			"Microsoft Teams",

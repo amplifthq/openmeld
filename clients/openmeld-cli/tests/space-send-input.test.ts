@@ -47,19 +47,29 @@ describe("space send input resolver", () => {
       repositoryUrl: "git@github.com:acme/payments.git",
     });
     expect(explicit.repositoryFingerprint).toBe(`sha256:${"a".repeat(64)}`);
-    expect(
-      resolveSpaceTaskSelection({
-        space: "a".repeat(64),
-        wakeTargets: ["agt_11111111-1111-4111-8111-111111111111"],
-        newTask: true,
-        projectWork: explicit,
-      })
-    ).toMatchObject({
+    const selection = resolveSpaceTaskSelection({
+      space: "a".repeat(64),
+      wakeTargets: ["agt_11111111-1111-4111-8111-111111111111"],
+      newTask: true,
+      projectWork: explicit,
+    });
+    expect(selection).toMatchObject({
       mode: "new",
-      access: "workspace",
       workspace: "isolated",
       projectWork: explicit,
     });
+    expect(selection?.mode !== "resume" && selection?.access).toBeUndefined();
+    for (const taskAccess of ["workspace", "read_only"] as const) {
+      expect(
+        resolveSpaceTaskSelection({
+          space: "a".repeat(64),
+          wakeTargets: ["agt_11111111-1111-4111-8111-111111111111"],
+          newTask: true,
+          projectWork: explicit,
+          taskAccess,
+        })
+      ).toMatchObject({ access: taskAccess, workspace: "isolated" });
+    }
     expect(() =>
       resolveSpaceTaskSelection({
         space: "a".repeat(64),

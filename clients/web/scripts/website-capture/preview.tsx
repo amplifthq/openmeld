@@ -1,5 +1,6 @@
 import { Button } from "@openmeld/ui/components/button";
 import { TooltipProvider } from "@openmeld/ui/components/tooltip";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { SIDEBAR_ICON_WIDTH } from "@openmeld/ui/fluid/sidebar-state";
 import { useMediaQuery } from "@openmeld/ui/hooks/use-media-query";
 import { ChatCircleIcon, PlusIcon } from "@phosphor-icons/react";
@@ -27,6 +28,7 @@ import {
 import { createRoot } from "react-dom/client";
 import { MessageResponse } from "../../src/components/ai/message-response";
 import { AppLinkCapability } from "../../src/components/app/app-link-capability";
+import { MODULE_SIDEBAR_MIN_WIDTH } from "../../src/components/app/app-module-sidebar";
 import { APP_APPLICATION_RAIL_CLASS_NAME } from "../../src/components/app/app-nav-item-style";
 import {
 	AppRailNavigationGroup,
@@ -87,6 +89,7 @@ import { demoHumanAvatars } from "./demo-avatars";
 import { demoProfileDirectory } from "./demo-catalogs";
 import { DemoCenterAgent } from "./demo-center-agent";
 import { useDemoCenterAvatar } from "./demo-center-identity";
+import { DemoComposerBeam } from "./demo-composer-beam";
 import {
 	buildDemoConversationDraft,
 	DEMO_PRIMARY_SPACE_NAME,
@@ -119,6 +122,7 @@ import "./preview.css";
 const initialScene =
 	new URLSearchParams(location.search).get("scene") ?? "Conversation";
 const WORD_BOUNDARY = /\s+/u;
+const DEMO_DESKTOP_QUERY = "(min-width: 1024px)";
 const DEMO_MEMBERS_MIN_WIDTH = "12rem";
 const focusedScenes: Record<string, ComponentType> = {
 	CenterAgent: DemoCenterAgent,
@@ -326,13 +330,13 @@ function Preview() {
 	const [file, setFile] = useState<string | null>(null);
 	const [person, setPerson] = useState<string | null>(null);
 	const [membersOpen, setMembersOpen] = useState(
-		() => window.matchMedia("(min-width: 1024px)").matches
+		() => window.matchMedia(DEMO_DESKTOP_QUERY).matches
 	);
 	const [memberWidth, setMemberWidth] = useState<string>(
 		DEMO_MEMBERS_MIN_WIDTH
 	);
 	const [view, setView] = useState<SpaceView>("messages");
-	const wide = useMediaQuery("(min-width: 1024px)");
+	const wide = useMediaQuery(DEMO_DESKTOP_QUERY);
 	const activeWakeTargetIds = new Set(
 		conversationState.activeWakeSummaryBySpaceId
 			.get(spaceId)
@@ -404,7 +408,10 @@ function Preview() {
 					<AppLinkCapability value={false}>
 						<AppSurfaceLayout
 							globalControls={null}
-							initialModuleSidebarState={{ tier: "expanded", width: "200px" }}
+							initialModuleSidebarState={{
+								tier: "expanded",
+								width: `${MODULE_SIDEBAR_MIN_WIDTH}px`,
+							}}
 							moduleNavigation={
 								!isInbox &&
 								(isTeam ? (
@@ -428,7 +435,7 @@ function Preview() {
 										/>
 									</TeamSidebarHeaderActionsProvider>
 								) : (
-									<ConversationsSidebar />
+									<ConversationsSidebar showSearch={false} />
 								))
 							}
 							moduleNavigationKey={isTeam ? "people" : "conversations"}
@@ -641,7 +648,13 @@ function Conversation({
 		}
 	});
 	const id = Object.hasOwn(demoSampleMessages, spaceId) ? spaceId : "release";
-	const [activeThread, setActiveThread] = useState<DemoThread | null>(null);
+	const [activeThread, setActiveThread] = useState<DemoThread | null>(() =>
+		!isReport &&
+		id === "release" &&
+		window.matchMedia(DEMO_DESKTOP_QUERY).matches
+			? demoCheckoutThreads[0]
+			: null
+	);
 	const threadTriggerRef = useRef<HTMLButtonElement | null>(null);
 	const closeThread = () => {
 		setActiveThread(null);
@@ -650,16 +663,23 @@ function Conversation({
 	return (
 		<div className="relative flex h-full min-h-0 min-w-0 flex-1">
 			<div className="flex min-h-0 min-w-0 flex-1 flex-col">
-				<div
-					className="min-h-0 flex-1 overflow-auto px-6 pt-7 pb-4"
-					onScroll={() => {
-						const node = scrollRef.current;
-						if (node) {
-							followLatest.current =
-								node.scrollHeight - node.scrollTop - node.clientHeight < 80;
-						}
+				<ScrollArea
+					className="min-h-0 flex-1"
+					contentClassName="px-6 pt-7 pb-4"
+					viewportClassName="overscroll-contain contain-content"
+					viewportProps={{
+						"aria-label": "Conversation history",
+						"aria-live": "polite",
+						role: "log",
+						onScroll: () => {
+							const node = scrollRef.current;
+							if (node) {
+								followLatest.current =
+									node.scrollHeight - node.scrollTop - node.clientHeight < 80;
+							}
+						},
 					}}
-					ref={scrollRef}
+					viewportRef={scrollRef}
 				>
 					<div className="flex w-full flex-col gap-0">
 						{(isReport
@@ -708,6 +728,11 @@ function Conversation({
 											thread={demoCheckoutThreads.find(
 												(thread) => thread.rootIndex === index
 											)}
+											triggerRef={(trigger) => {
+												if (trigger && activeThread?.rootIndex === index) {
+													threadTriggerRef.current = trigger;
+												}
+											}}
 										/>
 									) : undefined
 								}
@@ -725,7 +750,7 @@ function Conversation({
 							<DemoTurnMessages key={turn.id} turn={turn} />
 						))}
 					</div>
-				</div>
+				</ScrollArea>
 				<div className="w-full px-6 pb-4">
 					{id === "agent-work" ? (
 						<Button
@@ -811,87 +836,92 @@ function DemoConversationComposer({
 		sendLock.current = isSending;
 	}, [isSending]);
 	return (
-		<SpaceComposer
-			actions={{
-				onEditorChange: (nextDraft) => {
-					// The simulated send clears immediately. Ignore the old editor's
-					// focus/change event while that replacement is settling.
-					if (!sendLock.current) {
-						setDraft(nextDraft);
-					}
-				},
-				onMentionButtonClick: () => composerRef.current?.insertMentionTrigger(),
-				onSubmit: (options) => {
-					if (!draft.text.trim() || sendLock.current) {
-						return;
-					}
-					try {
-						sendLock.current = true;
-						const messageId = state.send({
-							spaceId,
-							threadId,
-							text: draft.text,
-							authoredMentions: draft.authoredMentions,
-						});
-						options?.onMessageStaged?.(messageId);
-						onSent?.();
-						setDraft({
-							text: "",
-							authoredMentions: [],
-							selection: { start: 0, end: 0 },
-						});
-						setSendError(null);
-					} catch (error) {
-						sendLock.current = false;
-						setSendError(
-							error instanceof Error
-								? error.message
-								: "Unable to send this demo message."
-						);
-					}
-				},
-			}}
-			availability={{
-				canSendMessage: true,
-				canUploadFiles: false,
-				fileLimitReached: false,
-				isSendingMessage: isSending,
-				sendBlocked: !draft.text.trim(),
-			}}
-			centerAgentProfileId={DEMO_CENTER_PROFILE_ID}
-			composerRef={composerRef}
-			content={{
-				addressingTargets,
-				authoredMentions: draft.authoredMentions,
-				hasAuthoredMentions: draft.authoredMentions.length > 0,
-				files: [],
-				mentionPickerItems,
-				text: draft.text,
-			}}
-			context={{
-				conversationKind:
-					spaceId === "center-agent" ? "center_agent_direct_message" : "space",
-				placement: threadId ? "thread" : "conversation",
-			}}
-			slots={{
-				attachmentAction: (
-					<Button
-						aria-label="Add"
-						disabled
-						size="icon-sm"
-						type="button"
-						variant="ghost"
-					>
-						<PlusIcon aria-hidden="true" />
-					</Button>
-				),
-				error: sendError ? (
-					<p className="text-destructive text-xs" role="alert">
-						{sendError}
-					</p>
-				) : null,
-			}}
-		/>
+		<DemoComposerBeam hasDraft={Boolean(draft.text.trim())} sending={isSending}>
+			<SpaceComposer
+				actions={{
+					onEditorChange: (nextDraft) => {
+						// The simulated send clears immediately. Ignore the old editor's
+						// focus/change event while that replacement is settling.
+						if (!sendLock.current) {
+							setDraft(nextDraft);
+						}
+					},
+					onMentionButtonClick: () =>
+						composerRef.current?.insertMentionTrigger(),
+					onSubmit: (options) => {
+						if (!draft.text.trim() || sendLock.current) {
+							return;
+						}
+						try {
+							sendLock.current = true;
+							const messageId = state.send({
+								spaceId,
+								threadId,
+								text: draft.text,
+								authoredMentions: draft.authoredMentions,
+							});
+							options?.onMessageStaged?.(messageId);
+							onSent?.();
+							setDraft({
+								text: "",
+								authoredMentions: [],
+								selection: { start: 0, end: 0 },
+							});
+							setSendError(null);
+						} catch (error) {
+							sendLock.current = false;
+							setSendError(
+								error instanceof Error
+									? error.message
+									: "Unable to send this demo message."
+							);
+						}
+					},
+				}}
+				availability={{
+					canSendMessage: true,
+					canUploadFiles: false,
+					fileLimitReached: false,
+					isSendingMessage: isSending,
+					sendBlocked: !draft.text.trim(),
+				}}
+				centerAgentProfileId={DEMO_CENTER_PROFILE_ID}
+				composerRef={composerRef}
+				content={{
+					addressingTargets,
+					authoredMentions: draft.authoredMentions,
+					hasAuthoredMentions: draft.authoredMentions.length > 0,
+					files: [],
+					mentionPickerItems,
+					text: draft.text,
+				}}
+				context={{
+					conversationKind:
+						spaceId === "center-agent"
+							? "center_agent_direct_message"
+							: "space",
+					placement: threadId ? "thread" : "conversation",
+				}}
+				slots={{
+					attachmentAction: (
+						<Button
+							aria-label="Add"
+							disabled
+							size="icon-sm"
+							type="button"
+							variant="ghost"
+						>
+							<PlusIcon aria-hidden="true" />
+						</Button>
+					),
+					error: sendError ? (
+						<p className="text-destructive text-xs" role="alert">
+							{sendError}
+						</p>
+					) : null,
+				}}
+			/>
+		</DemoComposerBeam>
 	);
 }
 
@@ -930,10 +960,12 @@ function DemoThreadPreview({
 	activeThreadId,
 	onOpen,
 	thread,
+	triggerRef,
 }: {
 	activeThreadId?: string;
 	onOpen: (thread: DemoThread, trigger: HTMLButtonElement) => void;
 	thread?: DemoThread;
+	triggerRef: (trigger: HTMLButtonElement | null) => void;
 }) {
 	const state = useDemoConversationState();
 	if (!thread) {
@@ -979,6 +1011,7 @@ function DemoThreadPreview({
 				aria-label={`Open thread (${countLabel})`}
 				className="inline-flex w-fit items-center gap-1.5 text-muted-foreground text-xs leading-5 hover:text-foreground hover:underline focus-visible:outline focus-visible:outline-ring"
 				onClick={(event) => onOpen(thread, event.currentTarget)}
+				ref={triggerRef}
 				type="button"
 			>
 				<ChatCircleIcon aria-hidden="true" className="size-3.5" />
@@ -998,7 +1031,7 @@ function DemoThreadPanel({
 	onClose: () => void;
 	onGoToMessage: () => void;
 }) {
-	const [width, setWidth] = useState("21rem");
+	const [width, setWidth] = useState("20rem");
 	const state = useDemoConversationState();
 	const turns = state.turns.filter(
 		(turn) => turn.spaceId === "release" && turn.threadId === thread?.id
@@ -1024,17 +1057,24 @@ function DemoThreadPanel({
 			width={width}
 		>
 			<ThreadPanelHeader onClose={onClose} onGoToMessage={onGoToMessage} />
-			<div
-				className="min-h-0 flex-1 overflow-auto px-4 py-3"
+			<ScrollArea
+				className="min-h-0 flex-1"
+				contentClassName="px-4 py-3"
 				key={thread?.id}
-				onScroll={() => {
-					const node = scrollRef.current;
-					if (node) {
-						followLatest.current =
-							node.scrollHeight - node.scrollTop - node.clientHeight < 80;
-					}
+				viewportClassName="overscroll-contain contain-content"
+				viewportProps={{
+					"aria-label": "Thread history",
+					"aria-live": "polite",
+					role: "log",
+					onScroll: () => {
+						const node = scrollRef.current;
+						if (node) {
+							followLatest.current =
+								node.scrollHeight - node.scrollTop - node.clientHeight < 80;
+						}
+					},
 				}}
-				ref={scrollRef}
+				viewportRef={scrollRef}
 			>
 				{root && thread && (
 					<>
@@ -1054,7 +1094,7 @@ function DemoThreadPanel({
 				{turns.map((turn) => (
 					<DemoTurnMessages key={turn.id} turn={turn} />
 				))}
-			</div>
+			</ScrollArea>
 			{thread && (
 				<div className="w-full px-4 pb-4">
 					<DemoConversationComposer

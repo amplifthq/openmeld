@@ -36,14 +36,36 @@ simulated Wake progress/template replies, Inbox read/filter actions, all six Tea
 read-only People/Agent/Plugin details, file browsing, Skill inspection, and sample Routine
 editing, pause/resume, and history. It does not authenticate, execute agents,
 connect providers, or persist changes. Transport and preference adapters are
-replaced during compilation. Billing and patch review threads start closed;
-their compact previews open the real resizable panel shell, header, message
-primitives, and Composer.
+replaced during compilation. Billing review starts open on desktop; patch review
+and phone threads start closed. Their compact previews open the real resizable
+panel shell, header, message primitives, and Composer.
+Main conversation and Thread viewports reuse `@openmeld/ui/fluid/scroll-area`,
+the same scroll presentation owner composed by the product MessageScroller.
+Its measured 12px edge fades soften hidden messages below the header and above
+the Composer; visible content at the start or end stays clear. Demo transcript
+padding belongs to the content slot, and local follow behavior targets the
+shared viewport.
 The Members panel stays open on desktop and uses a smaller demo-specific resize
 limit. Its Live and You labels are hidden to reserve more reading space for
-Thread, which has wider default and minimum widths. Wake/Reference labels are
-hidden in demo tokens, without changing the retained addressing or simulated reply
-placement. Thread replies and previews
+Thread, which has wider default and minimum widths.
+The Space sidebar starts at the product's 200px minimum and keeps titles on one
+line with an ellipsis, including when hover actions appear; its search input is
+omitted. The demo organization trigger starts 16px below the canvas top and
+keeps its 36px hit area while its O logo uses a smaller 5px glyph size.
+Product and demo Members and Thread headers reuse
+`SpaceInlineSidePanelHeader` at a fixed 56px height, including loading states.
+The demo Composer draws a soft colored BorderBeam around a sendable draft in a
+slow ten-second loop. It pauses while hidden or outside the viewport and fades out
+while the Composer has focus, is sending, or has no draft. A remaining draft
+regains the cue when focus leaves; entering Product later does not lose it to
+a timer. Reduced motion uses a static edge. This cue belongs to the frozen demo
+and does not change product Composers.
+`SpaceWindowHeader` uses the same 16px trailing inset, so its last action aligns
+with the panel's close button without a demo-specific override.
+The public Product anchor centers the complete demo frame in the viewport using
+the same responsive height that sizes its iframe.
+Wake/Reference labels are hidden in demo tokens, without changing the retained
+addressing or simulated reply placement. Thread replies and previews
 derive from the same in-memory request state. A CSP blocks network connections
 and form submission. The iframe permits same-origin scripts so normal module
 loading works; it is trusted authored presentation, not an origin isolation boundary.
@@ -95,8 +117,11 @@ The hero starts its CSS timeline after hydration, so module loading does not
 consume the visible entrance. It reveals title lines and supporting copy with
 Linear's one-second blur and translation timing. The live App uses a later opacity reveal and a temporary
 edge veil that disappears completely; it has no persistent blend mask or blur.
-Hero avatars reuse the shared poster-backed renderer, so their server-rendered
-first frame is visible before hydration. Reduced motion uses a short fade only.
+Hero avatars opt into the shared renderer's `ambient` mode: vendor idle movement,
+nearby pointer tracking, and full click jumps. An SVG poster in server HTML
+prevents empty avatars while the canvas starts. The vendor shares one ticker
+and pauses offscreen or while the document is hidden. Reduced motion keeps
+avatars still and uses a short entrance fade only.
 Focus on hero actions completes their existing browser animation. Focus changes
 never remove or restore its CSS declaration, so menus and keyboard navigation
 cannot replay the entrance. The same rule applies to the open-source link group.
@@ -107,10 +132,37 @@ sides of the background table; the foreground result keeps its top-left frame.
 Agent and Center Agent scenes keep their primary heading and choice clear while
 their lower/opposite corners recede. Usage protects its upper-left heading.
 Codex feathers its full frame over broad side and bottom areas while retaining
-its central conversation; playback controls sit outside the masked surface. Masks never
+its central conversation; playback controls sit outside the masked surface.
+Its composer keeps the project name, add icon, and send arrow; it omits inactive
+sidebar controls and extra device or model labels. Masks never
 depend on focus, filtering, playback, or iframe state, and keep the same profile
 after navigation and refresh. There are no per-demo WebGL lighting loops or
-foreground overlays. The computer illustration uses a static ambient gradient.
+foreground overlays.
+
+Cloud Computer uses Hairline's official Turntable figure, with Riffle illustrating
+files and finished work and a smaller Terminal figure above the video conversion
+example. The terminal and finished-work cards share grid rows so their figures
+stay vertically aligned even when the descriptions wrap differently.
+Its four cards share an icon-and-title heading with the same foreground
+color and type size. Privacy and Open Source use its Lockers
+and Branches figures. `LandingFigure` loads the installed React
+components within 300px of the viewport and reserves their 5:4 footprint before
+loading. Consumers set only the dark palette, accessible description and
+interaction intensity. The package owns geometry, pointer response, reduced
+motion, idle scheduling and offscreen pausing. The figures have no autoplay or
+additional blur or lighting loop. Keep the solid plate fill matched to the card
+background so the official occlusion remains correct. Computer specifications
+and terminal output remain outside the illustration.
+
+The privacy and open-source section follows Usage, before the FAQ and final
+app-entry section. It summarizes the customer production diagnostics policy:
+routine model logs omit conversation content and model inputs/outputs, and
+automatic agent reports omit generated summaries and work details. Operational
+metadata and authorized workspace history remain available. This presentation
+does not claim end-to-end encryption or that infrastructure operators cannot
+read stored data. Its source, issue, and pull-request links reuse the homepage's
+repository destination. The open-source copy is prepared for public launch;
+the repository must be public before publishing that claim.
 
 Navigation uses ordinary anchors. App links enter the existing App resolver,
 which alone chooses the viewer's Organization and checks access. Website download

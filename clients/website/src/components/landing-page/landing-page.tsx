@@ -42,12 +42,13 @@ import {
 	RoutineShowcase,
 	UsageShowcase,
 } from "./product-showcases";
+import { TrustSection } from "./trust-section";
 import "./landing-page.css";
 import "./hero-entrance.css";
 import "./demo-blend.css";
 
 const REPOSITORY_URL = "https://github.com/amplifthq/openmeld";
-const heroTitleBreak = homePageCopy.tagline.indexOf("system");
+const heroTitleBreak = homePageCopy.tagline.indexOf("collaboration");
 function DownloadButton() {
 	return (
 		<DropdownMenu>
@@ -337,6 +338,7 @@ export function LandingPage() {
 						</div>
 						<UsageShowcase />
 					</section>
+					<TrustSection repositoryUrl={REPOSITORY_URL} />
 					<section
 						aria-labelledby="faq-title"
 						className="meld-section meld-faq meld-wrap"
@@ -363,9 +365,9 @@ export function LandingPage() {
 							<LandingAsciiCanvas scene="collaboration-loop" />
 						</div>
 						<h2>
-							Your team. Your agents.
+							Your team, your agents, your business
 							<br />
-							<span>Meld into one.</span>
+							<span>Meld into one</span>
 						</h2>
 						<AppActions />
 					</section>
