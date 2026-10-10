@@ -86,7 +86,13 @@ export function createComputerConnection(input: {
         selectedBin,
         input.webOrigin,
         deps,
-        observe
+        observe,
+        {
+          allowBootstrap: !(
+            intent.serviceAction === "update_service" &&
+            intent.connectedComputerId
+          ),
+        }
       );
       const switchingAccount = isSwitchingAccount(
         inspected.review.account,
@@ -591,9 +597,9 @@ async function reviewComputerConnection(
       measurement?: DesktopComputerConnectionProgress["measurement"];
     }
   ) => void,
-  forceInstall = false
+  options: { forceInstall?: boolean; allowBootstrap?: boolean } = {}
 ) {
-  if (!forceInstall) {
+  if (!options.forceInstall) {
     try {
       return {
         bin,
@@ -603,6 +609,12 @@ async function reviewComputerConnection(
     } catch (error) {
       if (!isComputerConnectionBootstrapError(error)) {
         throw error;
+      }
+      if (options.allowBootstrap === false) {
+        throw new Error(
+          "OpenMeld cannot verify this computer. Open Desktop on the selected computer and connect it before updating.",
+          { cause: error }
+        );
       }
     }
   }
@@ -647,7 +659,7 @@ async function prepareReviewedComputerTools(input: {
     input.webOrigin,
     input.deps,
     input.observe,
-    true
+    { forceInstall: true }
   );
   if (
     (updated.review.account?.id ?? null) !==

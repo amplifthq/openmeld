@@ -369,9 +369,13 @@ requested Computer device/lane mismatch before authorizing CLI setup.
 
 The optional `updateComputer` bridge capability uses the same native operation,
 progress, account fences and strict request schema with `serviceAction=update_service`.
-It validates the returned Prepare targets before acquiring the current verified
-managed binary after account-switch approval,
-rechecks local account ownership, and bypasses connection reuse. The CLI owns
+An update for an explicitly selected Computer requires a successful trusted
+CLI connection review before any installation. A missing CLI or obsolete
+connection-review command returns normal Desktop connection guidance without
+installing; ordinary first Connect retains automatic acquisition.
+After review, main validates the returned Prepare targets before acquiring the
+current verified managed binary after account-switch approval. It rechecks local
+account ownership and bypasses connection reuse. The CLI owns
 Service update joining and installed-version verification before `setup.complete`;
 Desktop requires both that command success and completed Prepare before returning.
 It does not introduce a second Service updater or cloud readiness authority.
@@ -380,9 +384,9 @@ route and cannot report native update completion. Once Prepare exists, later
 authorization, account, execution, or snapshot failures retain its diagnostic
 correlation ID.
 
-When the managed CLI is absent or lacks the connection contract, main downloads
-the fixed Web origin's managed binary manifest and the Apple silicon or Windows
-x64 artifact.
+For ordinary Connect, when the managed CLI is absent or lacks the connection
+contract, main downloads the fixed Web origin's managed binary manifest and the
+Apple silicon or Windows x64 artifact.
 The shared `@openmeld/local-service/cli-binary-update-artifact` implementation
 verifies transport and executable hashes and the production signing identity.
 The verified binary's `install-self` owns installation. No Node/npm prerequisite,

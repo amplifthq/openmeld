@@ -1,5 +1,8 @@
-import { spawn } from "node:child_process";
-import { prepareSessionWithTokenResponseSchema } from "@openmeld/schemas";
+import { type ExecFileException, spawn } from "node:child_process";
+import {
+  type computerConnectionReviewSchema,
+  prepareSessionWithTokenResponseSchema,
+} from "@openmeld/schemas";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createComputerConnection,
@@ -130,6 +133,10 @@ describe("Desktop computer connection admission", () => {
     "unexpected_field",
     "unreadable_connection",
     "missing_tools",
+    "first_connect_missing_tools",
+    "first_connect_legacy_tools",
+    "targeted_update_missing_tools",
+    "targeted_update_legacy_tools",
     "fresh_session",
     "source_action",
     "reconnect_target",
@@ -137,15 +144,18 @@ describe("Desktop computer connection admission", () => {
     "service_update",
   ] as const)("keeps connection intent and account boundaries: %s", async (scenario) => {
     const cloudRequest = vi.fn();
-    if (
-      [
-        "fresh_session",
-        "source_action",
-        "reconnect_target",
-        "space_target",
-        "service_update",
-      ].includes(scenario)
-    ) {
+    const firstConnect = scenario.startsWith("first_connect_");
+    const targetedUpdate = scenario.startsWith("targeted_update_");
+    const createsPrepare = [
+      "fresh_session",
+      "source_action",
+      "reconnect_target",
+      "space_target",
+      "service_update",
+      "first_connect_missing_tools",
+      "first_connect_legacy_tools",
+    ].includes(scenario);
+    if (createsPrepare) {
       cloudRequest.mockRejectedValue(new Error("Prepare requested"));
     }
     const confirmSwitch = vi.fn(async () => false);
@@ -153,13 +163,17 @@ describe("Desktop computer connection admission", () => {
     mocks.exec.mockResolvedValue({
       stdout: JSON.stringify({
         protocol: "computer-connection-v1",
-        previousSessionIdentity: "reviewed-session",
-        account: {
-          id: scenario === "cancel_switch" ? "account-old" : "account-a",
-          email: "old@example.com",
-        },
-        existingConnection: { deviceId: "device-a", runtimeLane: "dev-local" },
-      }),
+        previousSessionIdentity: firstConnect ? "missing" : "reviewed-session",
+        account: firstConnect
+          ? null
+          : {
+              id: scenario === "cancel_switch" ? "account-old" : "account-a",
+              email: "old@example.com",
+            },
+        existingConnection: firstConnect
+          ? null
+          : { deviceId: "device-a", runtimeLane: "dev-local" },
+      } satisfies ReturnType<typeof computerConnectionReviewSchema.parse>),
       stderr: "",
     });
     if (scenario === "unreadable_connection") {
@@ -167,10 +181,18 @@ describe("Desktop computer connection admission", () => {
         new Error("Connection identity unavailable")
       );
     }
-    if (scenario === "missing_tools") {
+    if (scenario.endsWith("missing_tools")) {
       mocks.exec.mockRejectedValueOnce(
         Object.assign(new Error("missing"), { code: "ENOENT" })
       );
+    }
+    if (scenario.endsWith("legacy_tools")) {
+      const failure = Object.assign(new Error("Command failed"), {
+        code: 1,
+        stdout: "",
+        stderr: "error: unknown command 'connection-review'",
+      }) satisfies ExecFileException & { stdout: string; stderr: string };
+      mocks.exec.mockRejectedValueOnce(failure);
     }
     const connect = createComputerConnection({
       auth: {
@@ -203,11 +225,11 @@ describe("Desktop computer connection admission", () => {
       expectedAccount: "account-a",
       ...(scenario === "unexpected_field" ? { command: "arbitrary" } : {}),
       ...(scenario === "fresh_session" ? { resetThisComputer: true } : {}),
-      ...(scenario === "reconnect_target"
+      ...(scenario === "reconnect_target" || targetedUpdate
         ? { connectedComputerId: "computer-b" }
         : {}),
       ...(scenario === "space_target" ? { targetSpaceId: "space-a" } : {}),
-      ...(scenario === "service_update"
+      ...(scenario === "service_update" || targetedUpdate
         ? { serviceAction: "update_service" }
         : {}),
       ...(scenario === "source_action"
@@ -231,15 +253,13 @@ describe("Desktop computer connection admission", () => {
         "old@example.com",
         "a@example.com"
       );
-    } else if (
-      [
-        "fresh_session",
-        "source_action",
-        "reconnect_target",
-        "space_target",
-        "service_update",
-      ].includes(scenario)
-    ) {
+    } else if (targetedUpdate) {
+      await expect(result).rejects.toThrow(
+        "OpenMeld cannot verify this computer. Open Desktop on the selected computer and connect it before updating."
+      );
+      expect(mocks.grant).not.toHaveBeenCalled();
+      expect(spawn).not.toHaveBeenCalled();
+    } else if (createsPrepare) {
       await expect(result).rejects.toThrow("Prepare requested");
     } else if (scenario === "unreadable_connection") {
       await expect(result).rejects.toThrow("Connection identity unavailable");
@@ -247,15 +267,7 @@ describe("Desktop computer connection admission", () => {
       await expect(result).rejects.toThrow();
       expect(mocks.exec).not.toHaveBeenCalled();
     }
-    if (
-      [
-        "fresh_session",
-        "source_action",
-        "reconnect_target",
-        "space_target",
-        "service_update",
-      ].includes(scenario)
-    ) {
+    if (createsPrepare) {
       expect(cloudRequest).toHaveBeenCalledOnce();
       if (scenario === "reconnect_target") {
         const body = cloudRequest.mock.calls[0]?.[1].body;
@@ -266,7 +278,7 @@ describe("Desktop computer connection admission", () => {
     } else {
       expect(cloudRequest).not.toHaveBeenCalled();
     }
-    if (scenario === "missing_tools") {
+    if (scenario === "missing_tools" || firstConnect) {
       expect(mocks.install).toHaveBeenCalledOnce();
       expect(mocks.exec.mock.calls.at(-1)?.[0]).toBe(
         "/test-owned/installed/npm/openmeld.js"
@@ -311,10 +323,15 @@ describe("Prepare diagnostic continuity", () => {
             ? "11111111-1111-4111-8111-111111111111"
             : null,
         deviceId:
-          failure === "target_match" || failure === "computer_lane"
+          failure === "target_match" ||
+          failure === "computer_lane" ||
+          failure === "service_update"
             ? "device-a"
             : null,
-        runtimeLane: failure === "target_match" ? "dev-local" : null,
+        runtimeLane:
+          failure === "target_match" || failure === "service_update"
+            ? "dev-local"
+            : null,
         targetSpaceId: failure === "target_match" ? "space-a" : null,
         sessionRevision: 0,
         lifecycleStatus: "active",
@@ -416,7 +433,9 @@ describe("Prepare diagnostic continuity", () => {
       ...(failure === "human_profile" || failure === "target_match"
         ? { humanProfileId: "11111111-1111-4111-8111-111111111111" }
         : {}),
-      ...(failure.startsWith("computer_") || failure === "target_match"
+      ...(failure.startsWith("computer_") ||
+      failure === "target_match" ||
+      failure === "service_update"
         ? { connectedComputerId: "computer-a" }
         : {}),
       ...(failure === "update_wrong_target"
