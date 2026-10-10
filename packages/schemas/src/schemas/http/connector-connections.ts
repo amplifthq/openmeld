@@ -33,8 +33,10 @@ export const CONNECTOR_CONNECTION_SCOPES = ["member", "shared"] as const;
 export const CONNECTOR_PERSONAL_ONLY_SERVICES: readonly string[] = [
   "gmail",
   "outlook",
+  "outlook_calendar",
   "googlecalendar",
   "googlemeet",
+  "zoom",
 ];
 
 export function connectorConnectionScopeAllowed(
@@ -291,20 +293,26 @@ export const connectorCredentialAuthTypeSchema = z.enum([
   "custom_credential",
 ]);
 
-export const connectorCredentialConnectBodySchema = z.strictObject({
-  authType: connectorCredentialAuthTypeSchema,
-  values: z
-    .record(
-      z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/u),
-      connectorCredentialValueSchema
-    )
-    .refine((values) => Object.keys(values).length > 0, {
-      message: "At least one credential value is required.",
-    })
-    .refine((values) => Object.keys(values).length <= 16, {
-      message: "Too many credential values.",
-    }),
-});
+export const connectorCredentialConnectBodySchema = z
+  .strictObject({
+    authType: connectorCredentialAuthTypeSchema,
+    values: z
+      .record(
+        z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/u),
+        connectorCredentialValueSchema
+      )
+      .refine((values) => Object.keys(values).length <= 16, {
+        message: "Too many credential values.",
+      }),
+  })
+  .refine(
+    ({ authType, values }) =>
+      authType === "custom_credential" || Object.keys(values).length > 0,
+    {
+      message: "At least one API key value is required.",
+      path: ["values"],
+    }
+  );
 
 export const connectorCredentialConnectResponseSchema = z.strictObject({
   connection: connectorConnectionSchema,

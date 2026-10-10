@@ -4,7 +4,7 @@ import capturedExpansionProviders from "../test-support/openconnector-expansion-
 import capturedProviders from "../test-support/openconnector-providers.json";
 import { findPluginDefinition, pluginFromProvider } from "./plugins";
 
-const LOCAL_BRAND_MARK = /^\/app-logos\/.+\.svg$/;
+const LOCAL_BRAND_MARK = /^\/app-logos\/.+\.(?:svg|png)$/;
 
 // Captured from OpenConnector runtimes on 2026-10-09 and 2026-10-10.
 // connectionAuth.oauth is readiness; authTypes declares OAuth support.
@@ -19,12 +19,18 @@ describe("Plugin sign-in readiness", () => {
     if (provider.authTypes.includes("oauth2")) {
       expect(plugin.connection?.auth).toMatchObject({
         kind: "oauth",
-        configured: false,
+        configured: provider.connectionAuth?.oauth,
       });
+      const fallback = provider.connectionAuth?.credentials[0];
+      if (fallback) {
+        expect(plugin.connection?.auth).toMatchObject({
+          credentialFallback: { kind: "credential", ...fallback },
+        });
+      }
     } else {
-      expect(plugin.connection?.auth).toMatchObject({
+      expect(plugin.connection?.auth).toEqual({
         kind: "credential",
-        authType: provider.connectionAuth?.credentials[0]?.authType,
+        ...provider.connectionAuth?.credentials[0],
       });
     }
     expect(plugin.connection?.credentials).toEqual(

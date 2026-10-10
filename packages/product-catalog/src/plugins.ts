@@ -868,6 +868,497 @@ export const PLUGINS = [
     name: "Stripe",
     service: "stripe",
   },
+  {
+    availability: "available",
+    category: "Developer tools",
+    connection: {
+      auth: {
+        authType: "custom_credential",
+        fields: [
+          {
+            key: "accessKeyId",
+            label: "Access Key ID",
+            description:
+              "AWS access key ID. Create or manage IAM user access keys here: https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html",
+            placeholder: "AKIA...",
+            secret: false,
+            inputType: "text",
+            required: true,
+          },
+          {
+            key: "secretAccessKey",
+            label: "Secret Access Key",
+            description:
+              "AWS secret access key from the same access key pair. AWS shows it only when you create the access key: https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html",
+            placeholder: "Your AWS secret access key",
+            secret: true,
+            inputType: "password",
+            required: true,
+          },
+          {
+            key: "region",
+            label: "Region",
+            description:
+              "The default AWS region used for validation and S3 action execution. See the official S3 endpoints and region list: https://docs.aws.amazon.com/general/latest/gr/s3.html",
+            placeholder: "us-east-1",
+            secret: false,
+            inputType: "text",
+            required: true,
+          },
+          {
+            key: "bucket",
+            label: "Default Bucket",
+            description:
+              "Optional default bucket reused by object-level actions. Use a bucket from your own S3 resources as documented here: https://docs.aws.amazon.com/AmazonS3/latest/userguide/create-bucket-overview.html",
+            placeholder: "my-bucket",
+            secret: false,
+            inputType: "text",
+            required: false,
+          },
+          {
+            key: "sessionToken",
+            label: "Session Token",
+            description:
+              "Optional STS session token from the same temporary AWS credential set when you use STS or AssumeRole credentials.",
+            placeholder: "Optional STS session token",
+            secret: true,
+            inputType: "password",
+            required: false,
+          },
+        ],
+        kind: "credential",
+      },
+    },
+    description:
+      "List buckets, read and upload objects, and generate signed URLs.",
+    homepage: "https://aws.amazon.com/s3/",
+    logoPath: "/app-logos/aws-s3.svg",
+    name: "AWS S3",
+    service: "aws_s3",
+  },
+  {
+    availability: "available",
+    category: "Developer tools",
+    connection: {
+      auth: {
+        authType: "custom_credential",
+        fields: [
+          {
+            key: "accessKeyId",
+            label: "Access Key ID",
+            description:
+              "Alibaba Cloud RAM AccessKey ID used to call ACK. Create or manage AccessKey pairs here: https://www.alibabacloud.com/help/en/ram/user-guide/create-an-accesskey-pair",
+            placeholder: "LTAI...",
+            secret: false,
+            inputType: "text",
+            required: true,
+          },
+          {
+            key: "accessKeySecret",
+            label: "Access Key Secret",
+            description:
+              "Alibaba Cloud RAM AccessKey secret from the same pair. Alibaba Cloud shows it only when the key pair is created: https://www.alibabacloud.com/help/en/ram/user-guide/create-an-accesskey-pair",
+            placeholder: "Your AccessKey secret",
+            secret: true,
+            inputType: "password",
+            required: true,
+          },
+        ],
+        kind: "credential",
+      },
+    },
+    description: "Get temporary kubeconfig credentials for an ACK cluster.",
+    homepage: "https://www.alibabacloud.com/product/kubernetes",
+    logoPath: "/app-logos/alibaba-cloud.svg",
+    name: "Alibaba Cloud ACK",
+    service: "aliyun_ack",
+  },
+  {
+    availability: "available",
+    category: "Developer tools",
+    connection: {
+      auth: {
+        authType: "custom_credential",
+        fields: [
+          {
+            key: "accessKeyId",
+            label: "Access Key ID",
+            description:
+              "Alibaba Cloud AccessKey ID. Create or manage an AccessKey pair in RAM: https://www.alibabacloud.com/help/en/ram/user-guide/create-an-accesskey-pair",
+            placeholder: "LTAI...",
+            secret: false,
+            inputType: "text",
+            required: true,
+          },
+          {
+            key: "accessKeySecret",
+            label: "Access Key Secret",
+            description:
+              "Alibaba Cloud AccessKey secret from the same RAM AccessKey pair. Alibaba Cloud shows it only when you create the key pair: https://www.alibabacloud.com/help/en/ram/user-guide/create-an-accesskey-pair",
+            placeholder: "Your AccessKey secret",
+            secret: true,
+            inputType: "password",
+            required: true,
+          },
+          {
+            key: "endpoint",
+            label: "OSS Endpoint",
+            description:
+              "The default OSS endpoint used for validation and action execution. Find the endpoint for your region here: https://www.alibabacloud.com/help/en/oss/user-guide/regions-and-endpoints",
+            placeholder: "oss-cn-hangzhou.aliyuncs.com",
+            secret: false,
+            inputType: "text",
+            required: true,
+          },
+          {
+            key: "bucket",
+            label: "Default Bucket",
+            description:
+              "Optional default bucket reused by object-level actions. Use a bucket from your own OSS resources in the OSS console: https://oss.console.aliyun.com/overview",
+            placeholder: "my-bucket",
+            secret: false,
+            inputType: "text",
+            required: false,
+          },
+          {
+            key: "securityToken",
+            label: "Security Token",
+            description:
+              "Optional STS security token when using temporary AK/SK credentials from your own Alibaba Cloud STS flow.",
+            placeholder: "Optional STS token",
+            secret: true,
+            inputType: "password",
+            required: false,
+          },
+        ],
+        kind: "credential",
+      },
+    },
+    description:
+      "List buckets, read and upload objects, and generate signed URLs.",
+    homepage: "https://www.alibabacloud.com",
+    logoPath: "/app-logos/alibaba-cloud.svg",
+    name: "Alibaba Cloud OSS",
+    service: "aliyun_oss",
+  },
+  {
+    availability: "available",
+    category: "Developer tools",
+    connection: {
+      auth: {
+        authType: "custom_credential",
+        fields: [
+          {
+            key: "accessKeyId",
+            label: "Access Key ID",
+            description:
+              "The Alibaba Cloud RAM AccessKey ID used to call Simple Log Service. Use a RAM identity with only the required SLS permissions.",
+            placeholder: "LTAI...",
+            secret: false,
+            inputType: "text",
+            required: true,
+          },
+          {
+            key: "accessKeySecret",
+            label: "Access Key Secret",
+            description:
+              "The AccessKey secret from the same Alibaba Cloud RAM AccessKey pair.",
+            placeholder: "Your AccessKey secret",
+            secret: true,
+            inputType: "password",
+            required: true,
+          },
+          {
+            key: "endpoint",
+            label: "Default Regional Endpoint",
+            description:
+              "The default regional Simple Log Service endpoint used by actions that omit endpoint, for example cn-hangzhou.log.aliyuncs.com.",
+            placeholder: "cn-hangzhou.log.aliyuncs.com",
+            secret: false,
+            inputType: "text",
+            required: true,
+          },
+          {
+            key: "securityToken",
+            label: "Security Token",
+            description:
+              "An optional Alibaba Cloud STS security token used with temporary AccessKey credentials.",
+            placeholder: "Optional STS token",
+            secret: true,
+            inputType: "password",
+            required: false,
+          },
+          {
+            key: "resourceScope",
+            label: "Resource Scope",
+            description:
+              "Optional connector-local resource allowlist as a JSON array. Leave it blank to set no local resource restriction and use list_projects and list_logstores to discover resources allowed by RAM. Each item requires project; endpoint is optional and defaults to the connection endpoint. Omitting logstores allows every Logstore in that Project. When logstores is provided, it must contain only non-empty, unique Logstore names and only those Logstores are accessible. This local allowlist does not replace Alibaba Cloud RAM permissions.",
+            secret: false,
+            inputType: "json",
+            required: false,
+          },
+        ],
+        kind: "credential",
+      },
+    },
+    description:
+      "Find projects and Logstores, query logs, and read log histograms.",
+    homepage: "https://www.alibabacloud.com/product/log-service",
+    logoPath: "/app-logos/alibaba-cloud.svg",
+    name: "Alibaba Cloud SLS",
+    service: "aliyun_sls",
+  },
+  {
+    availability: "available",
+    category: "Developer tools",
+    connection: {
+      auth: {
+        authType: "custom_credential",
+        fields: [],
+        kind: "credential",
+      },
+    },
+    description:
+      "Search Cloudflare documentation and read the Pages migration guide.",
+    homepage: "https://developers.cloudflare.com",
+    logoPath: "/app-logos/cloudflare.svg",
+    name: "Cloudflare Docs",
+    service: "cloudflare_docs",
+  },
+  {
+    availability: "available",
+    category: "Developer tools",
+    connection: {
+      auth: {
+        authType: "custom_credential",
+        fields: [
+          {
+            key: "email",
+            label: "Cloudflare Account Email",
+            description:
+              "Email address for legacy Global API Key authentication. Leave blank when using a cfut_ User API Token with Email Routing permissions.",
+            placeholder: "you@example.com",
+            secret: false,
+            inputType: "text",
+            required: false,
+          },
+          {
+            key: "apiKey",
+            label: "Cloudflare API Credential",
+            description:
+              "Use a cfut_ User API Token with Email Routing Rules/Addresses permissions, or a Global API Key (cfk_ or legacy format) with the account email. Cloudflare cfat_ Account API Tokens are not accepted by the Email Routing API: https://developers.cloudflare.com/fundamentals/api/reference/permissions/.",
+            placeholder: "cloudflare_global_api_key",
+            secret: true,
+            inputType: "password",
+            required: true,
+          },
+          {
+            key: "accountId",
+            label: "Cloudflare Account ID",
+            description:
+              "Default account ID for destination addresses and account rule listings. Action inputs may override it.",
+            placeholder: "32-character Cloudflare account ID",
+            secret: false,
+            inputType: "text",
+            required: true,
+          },
+          {
+            key: "zoneId",
+            label: "Cloudflare Zone ID",
+            description:
+              "Default zone ID for routing rule actions. Action inputs may override it.",
+            placeholder: "32-character Cloudflare zone ID",
+            secret: false,
+            inputType: "text",
+            required: true,
+          },
+        ],
+        kind: "credential",
+      },
+    },
+    description:
+      "Manage email routing rules and list verified destination addresses.",
+    homepage: "https://www.cloudflare.com",
+    logoPath: "/app-logos/cloudflare.svg",
+    name: "Cloudflare Email Routing",
+    service: "cloudflare_email_routing",
+  },
+  {
+    availability: "available",
+    category: "Developer tools",
+    connection: {
+      auth: {
+        kind: "oauth",
+      },
+    },
+    description:
+      "Search Cloudflare documentation, discover API endpoints, and run API calls.",
+    homepage: "https://github.com/cloudflare/mcp",
+    logoPath: "/app-logos/cloudflare.svg",
+    name: "Cloudflare MCP",
+    service: "cloudflare_mcp",
+  },
+  {
+    availability: "available",
+    category: "Productivity",
+    connection: {
+      auth: {
+        kind: "oauth",
+      },
+    },
+    description:
+      "Create workbooks and edit worksheets, tables, and cell ranges.",
+    homepage: "https://www.microsoft.com/microsoft-365/excel",
+    logoPath: "/app-logos/microsoft-excel.svg",
+    name: "Excel",
+    service: "excel",
+  },
+  {
+    availability: "available",
+    category: "Communication",
+    connection: {
+      auth: {
+        kind: "oauth",
+      },
+    },
+    description:
+      "Read teams, channels, and chats, and send or reply to messages.",
+    homepage: "https://www.microsoft.com/microsoft-teams/",
+    logoPath: "/app-logos/microsoft-teams.svg",
+    name: "Microsoft Teams",
+    service: "microsoft_teams",
+  },
+  {
+    availability: "available",
+    category: "Productivity",
+    connection: {
+      auth: {
+        kind: "oauth",
+      },
+    },
+    description:
+      "Search files and folders, upload and download files, and update items.",
+    homepage:
+      "https://www.microsoft.com/microsoft-365/onedrive/online-cloud-storage",
+    logoPath: "/app-logos/one-drive.svg",
+    name: "OneDrive",
+    service: "one_drive",
+  },
+  {
+    availability: "available",
+    category: "Productivity",
+    connection: {
+      auth: {
+        kind: "oauth",
+      },
+    },
+    description:
+      "Read and update calendars and events, and respond to invitations.",
+    homepage:
+      "https://www.microsoft.com/microsoft-365/outlook/outlook-calendar",
+    logoPath: "/app-logos/outlook.svg",
+    name: "Outlook Calendar",
+    service: "outlook_calendar",
+  },
+  {
+    availability: "available",
+    category: "Marketing",
+    connection: {
+      auth: {
+        authType: "api_key",
+        fields: [
+          {
+            key: "apiKey",
+            label: "API Access Token",
+            description:
+              "Microsoft Clarity API access token sent with the Authorization Bearer header. Project admins can generate it in Settings > Data Export in the Clarity dashboard, as documented at https://learn.microsoft.com/en-us/clarity/setup-and-installation/clarity-data-export-api.",
+            placeholder: "clarity_api_token",
+            secret: true,
+            inputType: "password",
+            required: true,
+          },
+        ],
+        kind: "credential",
+      },
+    },
+    description: "Export recent live insights from your Clarity project.",
+    homepage: "https://clarity.microsoft.com",
+    logoPath: "/app-logos/microsoft-clarity.png",
+    name: "Microsoft Clarity",
+    service: "microsoft_clarity",
+  },
+  {
+    availability: "available",
+    category: "Productivity",
+    connection: {
+      auth: {
+        kind: "oauth",
+      },
+    },
+    description:
+      "Read user profiles, list meetings, and create or update meetings.",
+    homepage: "https://www.zoom.com",
+    logoPath: "/app-logos/zoom.svg",
+    name: "Zoom",
+    service: "zoom",
+  },
+  {
+    availability: "available",
+    category: "Productivity",
+    connection: {
+      auth: {
+        kind: "oauth",
+      },
+    },
+    description:
+      "Search files and folders, upload and download files, and update items.",
+    homepage: "https://www.box.com",
+    logoPath: "/app-logos/box.svg",
+    name: "Box",
+    service: "box",
+  },
+  {
+    availability: "available",
+    category: "Developer tools",
+    connection: {
+      auth: {
+        kind: "oauth",
+      },
+    },
+    description: "Read metrics and monitors, and query metric time series.",
+    homepage: "https://www.datadoghq.com/",
+    logoPath: "/app-logos/datadog.svg",
+    name: "Datadog",
+    service: "datadog",
+  },
+  {
+    availability: "available",
+    category: "Communication",
+    connection: {
+      auth: {
+        authType: "api_key",
+        fields: [
+          {
+            key: "apiKey",
+            label: "Bot Token",
+            description:
+              "Create a bot in the Discord Developer Portal and invite it to the servers you want to use. Enter its Bot Token here.",
+            placeholder: "Discord bot token",
+            inputType: "password",
+            required: true,
+            secret: true,
+          },
+        ],
+        kind: "credential",
+      },
+    },
+    description:
+      "Read channel messages, send messages, and manage servers with your bot.",
+    homepage: "https://discord.com/developers/docs",
+    logoPath: "/app-logos/discord.svg",
+    name: "Discord Bot",
+    service: "discordbot",
+  },
 ] as const satisfies readonly PluginDefinition[];
 
 export function findPluginDefinition(service: string): PluginDefinition | null {
@@ -921,7 +1412,7 @@ export function pluginFromProvider(
       featured?.description ??
       `Connect ${provider.displayName} to use its available actions.`,
     homepage: provider.homepageUrl ?? "",
-    logoPath: provider.iconUrl ?? featured?.logoPath ?? "",
+    logoPath: featured?.logoPath ?? provider.iconUrl ?? "",
     name: provider.displayName,
     service: provider.service,
   };
