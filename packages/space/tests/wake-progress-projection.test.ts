@@ -1294,7 +1294,7 @@ describe("Wake progress projection", () => {
     expect(items[0]).toMatchObject({
       phase: "failed",
       message:
-        "This agent is missing its local workspace on this device. Run `openmeld doctor --repair`, then `openmeld setup --profile <agent-profile-id>`, and try again.",
+        "This agent couldn’t start because its working folder is not configured on the computer that runs it. Choose a working folder, then try again.",
       terminal: true,
     });
   });
