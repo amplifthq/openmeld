@@ -4,6 +4,9 @@ title: Keep sidebar lists readable while resizing
 kind: fixed
 areas: ["navigation", "spaces"]
 audiences: ["users"]
+publishedAt: 2026-10-10
+release: v0.3.251
+evidence: ["commit:0a3b9d9227385fb070912224fe314c1e4f73099f", "commit:03668cdc6506ea4ed93f4166387533e5bd30bd84", "pr:1638", "workflow:38078641800"]
 ---
 
 Contextual sidebar lists stay at their minimum readable width while you drag

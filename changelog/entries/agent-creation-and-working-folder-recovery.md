@@ -4,6 +4,9 @@ title: Open newly created Agents without waiting for background refreshes
 kind: fixed
 areas: ["agents", "web"]
 audiences: ["users"]
+publishedAt: 2026-10-10
+release: v0.3.251
+evidence: ["commit:89d5bffd99fb8833674902c891ab3e3cc351d49f", "commit:03668cdc6506ea4ed93f4166387533e5bd30bd84", "pr:1638", "workflow:38078641800"]
 ---
 
 After an Agent is created, its details open without waiting for background

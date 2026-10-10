@@ -4,6 +4,9 @@ title: Manage Spaces and Direct Messages with consistent controls
 kind: improved
 areas: ["spaces", "direct-messages", "inbox"]
 audiences: ["members", "admins"]
+publishedAt: 2026-10-10
+release: v0.3.251
+evidence: ["commit:a922d46155baa638c96fb611b83f0b4147449111", "commit:03668cdc6506ea4ed93f4166387533e5bd30bd84", "pr:1638", "workflow:38078641800"]
 ---
 
 Newly joined Spaces appear immediately with a New indicator until opened, even

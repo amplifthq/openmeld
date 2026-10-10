@@ -4,6 +4,9 @@ title: More tools in Plugins, with personal accounts kept private
 kind: improved
 areas: ["plugins"]
 audiences: ["users", "admins"]
+publishedAt: 2026-10-10
+release: v0.3.251
+evidence: ["commit:d5c3978d0aabe75bf8ecaa6448ed07f6bce2eb98", "commit:03668cdc6506ea4ed93f4166387533e5bd30bd84", "pr:1638", "workflow:38078641800", "workflow:38079531426"]
 ---
 
 Plugins adds Google Sheets, Docs, Slides, Forms, Analytics, Search Console,
