@@ -1176,6 +1176,10 @@ do not combine test and private identities by registering duplicate plugins.
 Browser sign-in validates that configured identity, displays the intended
 account, and preserves the normal add-account entry when another account is
 needed. Invalid or expired native returns require a fresh browser sign-in.
+Magic Link and email verification preserve the original `/desktop-sign-in`
+target and its authorization parameters. Successful verification returns to
+that request instead of the default Organization entry. Native callback and
+process-local verifier ownership remain with the existing auth SDK.
 
 Installed requests carry `x-openmeld-desktop-contract: 1`; before authenticated
 business reads or streams, native verifies the strict, no-store
