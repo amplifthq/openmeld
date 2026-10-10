@@ -32,7 +32,10 @@ import {
   runTerminalStep,
   waitForSnapshotWithProgress,
 } from "../src/commands/prepare-session-executor";
-import type { AuthSessionStateResult } from "../src/config/auth-session";
+import {
+  type AuthSessionStateResult,
+  readComputerSetupSessionWithOwnership,
+} from "../src/config/auth-session";
 import { readDaemonServiceContract } from "../src/config/daemon-service-contract";
 import {
   assertSelectedAgentControllerReportSubmissionsAccepted,
@@ -66,6 +69,23 @@ vi.mock("@openmeld/api-client", async (importOriginal) => {
 
 vi.mock("../src/config/daemon-service-contract", () => ({
   readDaemonServiceContract: vi.fn(),
+}));
+
+vi.mock("../src/config/auth-session", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/config/auth-session")>()),
+  readComputerSetupSessionWithOwnership: vi.fn(),
+}));
+
+vi.mock("../src/config/auth-session-transition-lock", () => ({
+  withAuthSessionTransitionMutationLock: (run: () => Promise<unknown>) => run(),
+}));
+
+vi.mock("../src/config/daemon-state", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/config/daemon-state")>()),
+  withDaemonServiceLifecycleLock: (
+    _meta: unknown,
+    run: () => Promise<unknown>
+  ) => run(),
 }));
 
 vi.mock("../src/agents/registry", async (importOriginal) => {
@@ -149,6 +169,18 @@ const PREPARE_STEP_IDS: readonly PrepareStepId[] = [
 describe("prepare session executor", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(readComputerSetupSessionWithOwnership).mockResolvedValue({
+      session: {
+        v: 1,
+        accessToken: "test-prepare-token",
+        tokenType: "Bearer",
+        authBaseUrl: "http://localhost:8080",
+        clientId: "openmeld-cli-dev",
+        createdAt: "2026-05-08T00:00:00.000Z",
+        user: { id: "owner-1" },
+      },
+      transitionId: null,
+    });
     process.env.OPENMELD_SETUP_FORCE_SERVICE_REFRESH = undefined;
     vi.mocked(reconcileNewRunnableBuiltinAgentsForSetup).mockResolvedValue({
       registeredAgentIds: [],
@@ -1866,6 +1898,7 @@ describe("prepare session executor", () => {
       generation: 1,
       heartbeatMs: 30_000,
       lane: "dev-local",
+      ownerUserId: "owner-1",
       profileId: "human-1",
       schema: "openmeld-daemon-service-contract-v1",
       serviceController: "launchd",
@@ -2018,6 +2051,7 @@ describe("prepare session executor", () => {
       generation: 1,
       heartbeatMs: 30_000,
       lane: "dev-local",
+      ownerUserId: "owner-1",
       profileId: "human-1",
       schema: "openmeld-daemon-service-contract-v1",
       serviceController: "launchd",
@@ -2342,6 +2376,7 @@ describe("prepare session executor", () => {
       generation: 1,
       heartbeatMs: 30_000,
       lane: "dev-local",
+      ownerUserId: "owner-1",
       profileId: "human-1",
       schema: "openmeld-daemon-service-contract-v1",
       serviceController: "launchd",
@@ -2524,6 +2559,7 @@ describe("prepare session executor", () => {
         generation: 1,
         heartbeatMs: 30_000,
         lane: "dev-local",
+        ownerUserId: "owner-1",
         profileId: "human-1",
         schema: "openmeld-daemon-service-contract-v1",
         serviceController: "launchd",
@@ -2597,6 +2633,7 @@ describe("prepare session executor", () => {
         generation: 1,
         heartbeatMs: 30_000,
         lane: "dev-local",
+        ownerUserId: "owner-1",
         profileId: "human-1",
         schema: "openmeld-daemon-service-contract-v1",
         serviceController: "launchd",
@@ -2700,6 +2737,7 @@ function mockVerifySetupDependencies(
     generation: 1,
     heartbeatMs: 30_000,
     lane: "dev-local",
+    ownerUserId: "owner-1",
     profileId: "human-1",
     schema: "openmeld-daemon-service-contract-v1",
     serviceController: "launchd",

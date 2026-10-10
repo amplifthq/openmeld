@@ -4,6 +4,7 @@ const {
   collectObservedDeviceMetadataMock,
   createCliApiClientFoundationMock,
   createCurrentDeviceApiMock,
+  readComputerSetupSessionWithOwnershipMock,
   readDaemonServiceContractMock,
   enrollLocalRuntimeMock,
   upsertDaemonServiceContractMock,
@@ -12,6 +13,7 @@ const {
   collectObservedDeviceMetadataMock: vi.fn(),
   createCliApiClientFoundationMock: vi.fn(),
   createCurrentDeviceApiMock: vi.fn(),
+  readComputerSetupSessionWithOwnershipMock: vi.fn(),
   readDaemonServiceContractMock: vi.fn(),
   enrollLocalRuntimeMock: vi.fn(),
   upsertDaemonServiceContractMock: vi.fn(),
@@ -40,9 +42,8 @@ vi.mock("../src/config/auth-session-transition-lock", () => ({
 }));
 
 vi.mock("../src/config/auth-session", () => ({
-  readServiceAdmissionSessionWithOwnership: vi.fn().mockResolvedValue({
-    user: { id: "owner-current" },
-  }),
+  readComputerSetupSessionWithOwnership:
+    readComputerSetupSessionWithOwnershipMock,
 }));
 
 vi.mock("../src/config/request-headers", () => ({
@@ -65,6 +66,10 @@ describe("syncLocalSetupCurrentDeviceTargetFromServiceContract", () => {
   afterEach(() => vi.restoreAllMocks());
   beforeEach(() => {
     vi.clearAllMocks();
+    readComputerSetupSessionWithOwnershipMock.mockResolvedValue({
+      session: { user: { id: "owner-current" } },
+      transitionId: null,
+    });
     createCliApiClientFoundationMock.mockReturnValue({
       gatewayUrl: "https://gateway.openmeld.test",
     });

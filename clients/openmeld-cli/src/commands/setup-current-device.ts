@@ -1,5 +1,5 @@
 import { createCurrentDeviceApi } from "@openmeld/api-client";
-import { readServiceAdmissionSessionWithOwnership } from "../config/auth-session";
+import { readComputerSetupSessionWithOwnership } from "../config/auth-session";
 import { withAuthSessionTransitionMutationLock } from "../config/auth-session-transition-lock";
 import { normalizeGatewayBaseUrlOrNull } from "../config/base-url";
 import {
@@ -41,6 +41,12 @@ export async function syncLocalSetupCurrentDeviceTargetFromServiceContract(input
   const currentDeviceApi = createCurrentDeviceApi(
     createCliApiClientFoundation(input.gatewayUrl, { expectedOwnerUserId })
   );
+  const authOwnership = await withAuthSessionTransitionMutationLock(
+    async () =>
+      await readComputerSetupSessionWithOwnership({
+        gatewayUrl: input.gatewayUrl,
+      })
+  );
 
   const enrollment = await currentDeviceApi.enrollLocalRuntime({
     ...(input.connectedComputerId
@@ -53,8 +59,12 @@ export async function syncLocalSetupCurrentDeviceTargetFromServiceContract(input
     { intent: "upgrade_reconcile", command: "openmeld setup" },
     async () =>
       await withAuthSessionTransitionMutationLock(async () => {
+        const currentAuth = await readComputerSetupSessionWithOwnership({
+          gatewayUrl: input.gatewayUrl,
+          expectedTransitionId: authOwnership.transitionId,
+        });
         await buildRequestAuthHeaders({
-          authSession: await readServiceAdmissionSessionWithOwnership(),
+          authSession: currentAuth.session,
           expectedOwnerUserId,
           requestUrl: input.gatewayUrl,
         });

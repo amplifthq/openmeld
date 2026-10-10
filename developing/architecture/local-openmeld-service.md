@@ -254,6 +254,17 @@ association rather than replacing the carrier. Replacing an existing enrollment
 or changing any other contract field still advances the generation. Stop continues
 to require the running lease and current contract generations to match.
 
+Canonical Service contract writes and clears share the existing lifecycle lock
+for the same resolved Service owner root, including ordinary installation.
+The read, conditional comparison, and atomic file commit remain inside that
+lock. Nested lifecycle operations reuse it; an explicit path input must select
+the same root for the lock and contract file. Enrollment takes lifecycle then
+auth ownership at commit, without network I/O under those locks. Auth may read
+the current process's active pending Computer handoff candidate without refresh
+or journal recovery, while checking its frozen journal ID, process identity,
+Gateway, expiry and account. Ordinary account-checked controls still reject a
+pending transition. Commit and rollback remain the existing journal's job.
+
 Agent Controller availability reporting depends on a valid service contract. If
 required owner account, Agent Profile, device, or lane evidence is missing or
 invalid, treat local Agent Controller evidence as unavailable instead of
