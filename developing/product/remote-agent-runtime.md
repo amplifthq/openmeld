@@ -65,6 +65,16 @@ ordinary canonical Markdown link instead of sending a new strict-union variant
 to old Signal readers. The current Web reader enhances that link only for the
 trusted origin and current Organization.
 
+A verified `plugin.action_forbidden` response also attaches the existing
+Plugin connection action. The reply keeps the permission failure visible and
+asks the human to review this Agent's access. Web resolves the service from the
+live provider catalog, including providers outside the featured Plugin list,
+and opens the existing account and access editor inside the message. An
+explicit requester or shared account remains constrained to that scope.
+Catalog errors, unrelated failures and Routine turns do not become access
+grants or automatic retries. The human must save access and explicitly continue
+the original task; neither an OAuth callback nor an Agent tool grants access.
+
 The explicit continuation uses a distinct internal Core-to-Space receiver so an
 older receiver cannot silently ignore its account constraint. Space binds the
 existing idempotent Message to the selected service, account and connection
@@ -73,6 +83,14 @@ binding from the admitted trigger before selecting or claiming a new App action.
 Neither a model argument nor a personal-first automatic selector can replace it;
 existing operation replays retain the original operation identity. Generic App
 tools also accept an explicit requester/shared preference for normal requests.
+
+Space checks the completed native delivery's retained execution request after
+the temporary dispatch conveyor has retired. It never recreates that conveyor
+or treats its absence as permission. The final SQL insertion rechecks the current
+source and reply fingerprints, identities and placement. Native continuations
+require an unedited original message because historical execution requests lack
+the raw source envelope; an edited request must be sent again. Workstation continuations retain their
+RuntimeCoordinator completion and original outbox snapshot checks.
 
 An operation's historical attribution is not current permission. Every provider
 attempt, including an exact replay, reauthorizes the original connection and

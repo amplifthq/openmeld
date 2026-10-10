@@ -40,10 +40,10 @@ export function OrganizationPluginsPage({
 	const selectedPlugin = provider
 		? pluginFromProvider(provider)
 		: findPluginDefinition(selectedService ?? "");
-	if (selectedService && !selectedPlugin && catalog.isPending) {
+	if (selectedService && catalog.isPending) {
 		return <output>Loading Plugin…</output>;
 	}
-	if (selectedService && !selectedPlugin && catalog.isError) {
+	if (selectedService && catalog.isError) {
 		return (
 			<p role="alert">
 				Unable to load this Plugin. Reload the page to try again.

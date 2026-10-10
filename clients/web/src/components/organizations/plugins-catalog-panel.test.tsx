@@ -73,7 +73,9 @@ describe("PluginsCatalogPanel", () => {
 		expect(screen.getByTestId("app-logo-googledrive").getAttribute("src")).toBe(
 			"/app-logos/google-drive.svg"
 		);
-		expect(screen.queryByRole("link", { name: SLACK_LINK_NAME })).toBeNull();
+		expect(
+			screen.getByRole("link", { name: SLACK_LINK_NAME }).getAttribute("href")
+		).toBe("/o/acme/plugins/slack");
 		expect(screen.queryByRole("link", { name: TEAMS_LINK_NAME })).toBeNull();
 		expect(screen.queryByText("Details")).toBeNull();
 	});
@@ -234,9 +236,9 @@ describe("PluginsCatalogPanel", () => {
 			target: { value: "" },
 		});
 		fireEvent.click(screen.getByRole("button", { name: "Communication" }));
-		expect(screen.getAllByRole("link")).toHaveLength(1);
+		expect(screen.getAllByRole("link")).toHaveLength(2);
 		expect(screen.getByRole("link", { name: GMAIL_LINK_NAME })).toBeTruthy();
-		expect(screen.queryByRole("link", { name: SLACK_LINK_NAME })).toBeNull();
+		expect(screen.getByRole("link", { name: SLACK_LINK_NAME })).toBeTruthy();
 		expect(screen.queryByRole("link", { name: NOTION_LINK_NAME })).toBeNull();
 	});
 

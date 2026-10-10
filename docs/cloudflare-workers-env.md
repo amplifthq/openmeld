@@ -57,7 +57,11 @@ production secrets can be staged. Before the first real Worker release, run
 The command creates only missing, route-free Worker identities that return a
 diagnostic `503`; it never overwrites an existing Worker. The guarded production
 release then replaces those placeholders with the real Workers.
-8. After any Worker env, bindings, or `wrangler.jsonc` change, upgrade shared Wrangler first, then rerun `cf-typegen` for every Worker package.
+8. Before a Worker environment or binding change, check the pinned Wrangler and
+   current official support. Upgrade shared Wrangler when the changed capability
+   requires it, and regenerate every affected Worker's types. A supported secret
+   addition needs only the owning Worker's `cf-typegen` and environment-contract
+   check; it does not require an unrelated fleet upgrade.
 9. New Cloudflare resources may be created with the local Wrangler CLI, but they
    are not integrated until the owning `wrangler.jsonc`, this document, and
    generated Worker types are updated.
@@ -356,11 +360,13 @@ Workers, and verifies the public entry points. See
   - `SLACK_OPENMELD_OAUTH_CLIENT_SECRET`
   - `SLACK_OPENMELD_SIGNING_SECRET`
   - `OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN`
+  - `OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN` (read the runtime provider catalog)
 - Cloudflare production secrets
   - `SLACK_OPENMELD_OAUTH_CLIENT_ID`
   - `SLACK_OPENMELD_OAUTH_CLIENT_SECRET`
   - `SLACK_OPENMELD_SIGNING_SECRET`
   - `OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN`
+  - `OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN`
 - Resource bindings
   - `OPENMELD_IMAGES` for bounded image inspection, canonical 512 x 512
     identity-image transformation, and transient Center Agent model derivatives
@@ -406,6 +412,7 @@ This matrix records Cloudflare resource ownership. Keep it in sync with
 | AI Gateway | `OPENMELD_REMOTE_AGENT_AI_GATEWAY_*` vars and `CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN` secret | Remote Agent model execution | `services/remote-agent/wrangler.jsonc`, `services/remote-agent/.dev.vars.example`, `services/remote-agent/.dev.vars.prod.example` | Local, development, and production route through the configured gateway `openmeld-remote-agent-prod` because Cloudflare Provider Keys are gateway-scoped. Request metadata retains the Worker environment and Organization boundary; a second empty gateway must not masquerade as an isolated environment. The gateway uses the OpenRouter BYOK alias `openrouter`, and no secret override may replace the checked-in gateway id. Every ordinary Center Agent turn uses the frozen primary route carried by admission; the worker does not substitute a second model for Task or Space requests. |
 | Worker vars | `OPENMELD_FEEDBACK_SUBMIT_BASE_URL`, `OPENMELD_OFFICIAL_FEEDBACK_INBOX_KEY` | Remote Agent preset Feedback reporting | `services/remote-agent/wrangler.jsonc`, `services/remote-agent/worker-configuration.d.ts` | Production points to the ordinary public Gateway submit route and official inbox. Local and dev defaults are empty so reporting fails closed until an explicit local inbox is supplied. |
 | Worker var and secret | `OPENMELD_CONNECTORS_BASE_URL`, `OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN` | Gateway connection management | `services/gateway/wrangler.jsonc`, generated Worker types, and Gateway `.dev.vars*.example` | The URL is non-secret. The admin token is restricted to connection administration and is never returned to Web, Core, tool results, or diagnostics. |
+| Worker secret | `OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN` | Gateway runtime provider catalog | Gateway Doppler config, `wrangler.jsonc` and generated Worker types | `/v1/providers` requires runtime authentication. Keep it separate from the admin token; never return either token to the client. Sync this secret before deploying the Gateway catalog consumer. |
 | Worker var | `GITHUB_OPENMELD_APP_SLUG` | Gateway GitHub App installation start | `services/gateway/wrangler.jsonc`, generated Worker types | Production uses the Organization-owned `openmeld-ai` GitHub App. Gateway builds the public installation URL from this code-owned slug and Core's opaque state; clients and model input never supply an App slug. |
 | Worker var and secret | `OPENMELD_CONNECTORS_BASE_URL`, `OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN` | Remote Agent approved action execution | `services/remote-agent/wrangler.jsonc`, generated Worker types, and Remote Agent `.dev.vars*.example` | OpenConnector runtime routes reject the admin token. The runtime token is scoped to action execution and is never returned to Core, tool results, or diagnostics. |
 | Worker var | `OPENMELD_GATEWAY_URL` | Environment-specific Gateway public origin | `clients/web/wrangler.jsonc`, `services/gateway/wrangler.jsonc`, generated Worker types | Web sends Gateway requests to this origin, and Gateway uses the same configured origin for durable public Organization logo URLs instead of trusting the incoming request Host. |

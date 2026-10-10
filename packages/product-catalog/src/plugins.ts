@@ -44,6 +44,7 @@ export type PluginConnectionAuth =
   | {
       credentialFallback?: PluginCredentialAuth & { switchLabel: string };
       kind: "oauth";
+      configured?: boolean;
     };
 
 export type PluginConnection = {
@@ -90,6 +91,17 @@ export const GITHUB_PLUGIN = {
 } as const satisfies PluginDefinition;
 
 export const PLUGINS = [
+  {
+    availability: "available",
+    category: "Communication",
+    connection: { auth: { kind: "oauth" } },
+    description:
+      "Search and work with Slack messages and files using your authorized account.",
+    homepage: "https://slack.com",
+    logoPath: SLACK_CHANNEL_IDENTITY.logoPath,
+    name: "Slack",
+    service: "slack",
+  },
   {
     availability: "available",
     category: "Productivity",
@@ -359,9 +371,10 @@ export function pluginFromProvider(
   let auth: PluginConnectionAuth | null = credential
     ? { kind: "credential", ...credential }
     : null;
-  if (provider.connectionAuth?.oauth) {
+  if (provider.authTypes.includes("oauth2")) {
     auth = {
       kind: "oauth",
+      configured: provider.connectionAuth?.oauth,
       ...(credential
         ? {
             credentialFallback: {

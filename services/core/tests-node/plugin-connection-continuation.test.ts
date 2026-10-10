@@ -1,12 +1,15 @@
 import {
   appendPluginConnectionReplyLink,
   buildOpenMeldNavigationAction,
+  pluginConnectionLocalSourceRequestSchema,
 } from "@openmeld/schemas";
+import { normalizeListSignalsReadQuerySemantics } from "@openmeld/schemas/schemas";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createSubmitTurnRequest } from "../../remote-agent/tests/fixtures";
 import { continuePluginConnection } from "../src/connectors/plugin-connection-continuation";
 import type { CoreBindings } from "../src/lib/bindings";
 import type { RemoteAgentNativeDeliveryRecord } from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
+import type { ListSignalsInput } from "../src/rpc/methods";
 
 const owner = vi.hoisted(() => ({
   membership: vi.fn(),
@@ -22,6 +25,7 @@ const owner = vi.hoisted(() => ({
   localProfile: vi.fn(),
   localPermission: vi.fn(),
   localBinding: vi.fn(),
+  replyPlacement: vi.fn(),
 }));
 vi.mock("../src/organizations/organization-context", () => ({
   resolveActiveOrganizationMembership: owner.membership,
@@ -56,7 +60,7 @@ vi.mock(
   () => ({ readPrimaryAgentProfileBindingRecord: owner.localBinding })
 );
 
-const request = createSubmitTurnRequest();
+const request = createSubmitTurnRequest({ spaceId: "a".repeat(64) });
 const humanId = request.author.profileId as string;
 const env = {
   OPENMELD_POSTGRESQL: {
@@ -64,7 +68,11 @@ const env = {
       "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
   },
   WEB_APP_URL: "https://openmeld.ai",
-} as CoreBindings;
+  OPENMELD_SPACES: {
+    idFromString: (id: string) => id,
+    get: () => ({ rpcResolveNativeReplyPlacement: owner.replyPlacement }),
+  },
+} as unknown as CoreBindings;
 const input = {
   spaceId: request.spaceId,
   sourceSignalId: "reply-1",
@@ -94,7 +102,8 @@ function delivery(overrides: Partial<RemoteAgentNativeDeliveryRecord> = {}) {
     publishedSignalId: "reply-1",
     conversationKind: "space",
     routineRunId: null,
-    workerSubmitRequest: request,
+    workerSubmitRequest: null,
+    executionRecoverySubmitRequest: request,
     triggerMessageId: request.triggerMessageId,
     threadContext: {
       threadId: "thr_11111111-1111-4111-8111-111111111111",
@@ -119,29 +128,40 @@ describe("Plugin continuation keeps existing identity and Wake owners", () => {
       role: "owner",
     });
     owner.slug.mockResolvedValue("acme");
-    owner.signals.mockResolvedValue({
-      signals: [
-        {
-          id: "reply-1",
-          type: "signal.text",
-          profile: { kind: "agent", profileId: request.agentProfileId },
-          data: {
-            text: appendPluginConnectionReplyLink({
-              text: "Connect GitHub for the remaining review.",
-              action: buildOpenMeldNavigationAction({
-                organizationWebUrl: "https://openmeld.ai/o/acme",
-                target: {
-                  kind: "plugin_connection",
-                  service: "github",
-                  scope: "member",
-                },
+    owner.signals.mockImplementation((_env, query: ListSignalsInput) => {
+      normalizeListSignalsReadQuerySemantics({
+        recentOnly: query.recent === true,
+        hasExplicitLimit: query.limit !== undefined,
+        limit: query.limit ?? null,
+        afterSignalId: query.afterSignalId ?? null,
+        aroundSignalId: query.aroundSignalId ?? null,
+        beforeCount: query.beforeCount ?? null,
+        afterCount: query.afterCount ?? null,
+      });
+      return {
+        signals: [
+          {
+            id: "reply-1",
+            type: "signal.text",
+            profile: { kind: "agent", profileId: request.agentProfileId },
+            data: {
+              text: appendPluginConnectionReplyLink({
+                text: "Connect GitHub for the remaining review.",
+                action: buildOpenMeldNavigationAction({
+                  organizationWebUrl: "https://openmeld.ai/o/acme",
+                  target: {
+                    kind: "plugin_connection",
+                    service: "github",
+                    scope: "member",
+                  },
+                }),
               }),
-            }),
-            meta: { dispatchId: request.dispatchId },
+              meta: { dispatchId: request.dispatchId },
+            },
           },
-        },
-      ],
-      nextCursor: null,
+        ],
+        nextCursor: null,
+      };
     });
     owner.directory.mockResolvedValue({
       members: [
@@ -150,6 +170,13 @@ describe("Plugin continuation keeps existing identity and Wake owners", () => {
       ],
     });
     owner.delivery.mockResolvedValue(delivery());
+    owner.replyPlacement.mockResolvedValue({
+      dispatchId: request.dispatchId,
+      sourceSignalId: request.triggerMessageId,
+      profileId: request.agentProfileId,
+      threadContext: delivery().threadContext,
+      locked: true,
+    });
     owner.connection.mockResolvedValue({
       connection: {
         connectionName: "github-member",
@@ -235,6 +262,29 @@ describe("Plugin continuation keeps existing identity and Wake owners", () => {
     );
   });
 
+  it("continues a main-conversation request inside the Thread owned by its published native reply", async () => {
+    owner.delivery.mockResolvedValue(delivery({ threadContext: null }));
+    await continuePluginConnection(env, input);
+    expect(owner.replyPlacement).toHaveBeenCalledWith(
+      expect.objectContaining({
+        spaceId: request.spaceId,
+        dispatchId: request.dispatchId,
+        sourceSignalId: request.triggerMessageId,
+        profileId: request.agentProfileId,
+        lock: true,
+      })
+    );
+    expect(owner.post).toHaveBeenCalledWith(
+      env,
+      expect.objectContaining({
+        threadContext: delivery().threadContext,
+        pluginContinuation: expect.objectContaining({
+          threadContext: delivery().threadContext,
+        }),
+      })
+    );
+  });
+
   it("continues a completed Local Agent reply through the same Message/Wake owner and checks Local rather than Hosted permissions", async () => {
     owner.delivery.mockResolvedValue(null);
     owner.localBinding.mockResolvedValue({
@@ -247,17 +297,20 @@ describe("Plugin continuation keeps existing identity and Wake owners", () => {
       organizationId: request.organizationId,
       ownerUserId: "user_1",
     });
-    owner.localSource.mockResolvedValue({
-      executionId: "rc-execution",
-      bindingId: request.bindingId,
-      dispatchId: request.dispatchId,
-      targetProfileId: request.agentProfileId,
-      sourceSignalId: request.triggerMessageId,
-      requesterProfileId: humanId,
-      requesterDisplayName: "Maya",
-      createdAtMs: 100,
-      completedAtMs: 200,
-      threadContext: null,
+    owner.localSource.mockImplementation((_env, sourceInput) => {
+      pluginConnectionLocalSourceRequestSchema.parse(sourceInput);
+      return {
+        executionId: "rc-execution",
+        bindingId: request.bindingId,
+        dispatchId: request.dispatchId,
+        targetProfileId: request.agentProfileId,
+        sourceSignalId: request.triggerMessageId,
+        requesterProfileId: humanId,
+        requesterDisplayName: "Maya",
+        createdAtMs: 100,
+        completedAtMs: 200,
+        threadContext: null,
+      };
     });
     await continuePluginConnection(env, input);
     expect(owner.localPermission).toHaveBeenCalledWith(
@@ -348,6 +401,13 @@ describe("Plugin continuation keeps existing identity and Wake owners", () => {
     { publishedSignalId: "other-reply" },
     { organizationId: "other-org" },
     { routineRunId: "routine-run" },
+    { executionRecoverySubmitRequest: null, workerSubmitRequest: request },
+    {
+      executionRecoverySubmitRequest: {
+        ...request,
+        dispatchId: "unrelated-dispatch",
+      },
+    },
   ] as Partial<RemoteAgentNativeDeliveryRecord>[])("rejects a mismatched, unfinished, stopped, or unattended execution: %j", async (change) => {
     owner.delivery.mockResolvedValue(delivery(change));
     await expect(continuePluginConnection(env, input)).rejects.toThrow();

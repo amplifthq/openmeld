@@ -834,6 +834,21 @@ binding; it receives a named connection and Core-authorized effect, never a
 client-selected provider URL or credential. Center Agent tools and personal
 Remote Agent tools share this provider runtime.
 
+Plugin connection continuation uses the original admitted request and the actual
+published reply Thread. For workstation requests, RuntimeCoordinator exposes a
+strict internal read over its retained command state: execution, account, target,
+source message, Binding, admission time, source Thread and canonical message
+envelope digest. This projection contains no message body, token, Space password
+or protected information. It proves admission only. Space separately requires
+the RuntimeCoordinator `reply_published` outcome and its matching published reply,
+then checks the current original and reply inside the insertion transaction.
+The retired dispatch conveyor is not retained or reconstructed for this check.
+Native continuation keeps its retained native execution request. Missing or
+mismatched evidence, edits and recalls fail closed. Neither path grants Plugin
+access. This additive Core-to-Core read does not change Service/CLI payloads,
+setup, Wake, publication or diagnostic contracts; no epoch bump or client update
+is required. Deploy the Core receiver and caller together.
+
 Access responses include the canonical connection scope and policy revision.
 The access list contains active Core connection records and does not require a
 successful provider inventory request. A provider outage must not prevent an
