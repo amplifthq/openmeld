@@ -970,6 +970,11 @@ describe("SpaceThreadPanel", () => {
 			.getByText("@Runner(wake) please investigate")
 			.closest("[data-slot='message']");
 		expect(sourceMessage).not.toBeNull();
+		expect(
+			sourceMessage
+				?.querySelector("[data-message-row-id='sig-thread-wake']")
+				?.getAttribute("data-message-source-at")
+		).toBe(String(Date.UTC(2026, 4, 27, 10, 0, 0)));
 		const footer = sourceMessage?.querySelector("[data-slot='message-footer']");
 		expect(footer).not.toBeNull();
 		expect(

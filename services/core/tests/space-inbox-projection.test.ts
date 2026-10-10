@@ -69,7 +69,7 @@ describe("Space Inbox projection", () => {
     "workstation-reply",
     "removed-requester",
     "missing-source",
-  ])("persists only the current Human requester's Inbox candidate for %s", async (scenario) => {
+  ])("persists formal results for current conversation members for %s", async (scenario) => {
     const spaces = (
       env as unknown as {
         OPENMELD_SPACES: DurableObjectNamespace<Space>;
@@ -201,17 +201,13 @@ describe("Space Inbox projection", () => {
         );
       }
     );
-    expect(recipients).toEqual(
-      scenario === "removed-requester" || scenario === "missing-source"
+    const kind = scenario === "native-failure" ? "wake_outcome" : "agent_reply";
+    expect(recipients).toEqual([
+      ...(scenario === "removed-requester"
         ? []
-        : [
-            {
-              userId: "user-requester",
-              kind:
-                scenario === "native-failure" ? "wake_outcome" : "agent_reply",
-            },
-          ]
-    );
+        : [{ userId: "user-requester", kind }]),
+      { userId: "user-observer", kind },
+    ]);
   });
 
   it("limits thread updates to participants, including replies to an older root", () => {
@@ -652,7 +648,7 @@ describe("Space Inbox projection", () => {
     ).toBe(false);
   });
 
-  it("keeps a managed Agent reply scoped to the requester after owner eligibility is checked", async () => {
+  it("keeps managed Agent replies unread for Human members after owner eligibility is checked", async () => {
     const record = buildSpaceInboxProjectionOutboxRecord({
       activeMemberRecords: [
         member("profile-human", "user-human", "human"),
@@ -682,6 +678,11 @@ describe("Space Inbox projection", () => {
         kind: "agent_reply",
         recipientUserId: "user-human",
         title: "Center Agent replied in Operations",
+      }),
+      expect.objectContaining({
+        kind: "agent_reply",
+        recipientUserId: "user-observer",
+        importance: "normal",
       }),
     ]);
   });
@@ -824,7 +825,7 @@ describe("Space Inbox projection", () => {
     ).toBeNull();
   });
 
-  it("delivers a terminal Wake failure as an urgent update only to the exact requester", () => {
+  it("delivers a terminal Wake failure to members with urgency only for the exact requester", () => {
     const signal = systemNoticeSignal({
       noticeType: "terminal_failure",
       replyToSignalId: "signal-wake-source",
@@ -856,13 +857,19 @@ describe("Space Inbox projection", () => {
         },
         title: "Agent couldn't finish in Operations",
       }),
+      expect.objectContaining({
+        recipientUserId: "user-observer",
+        attention: "update",
+        importance: "normal",
+        kind: "wake_outcome",
+      }),
     ]);
   });
 
   it.each([
     "policy_blocked",
     "stay_silent",
-  ] as const)("delivers a %s Wake ending only to the exact requester as an ordinary update", (noticeType) => {
+  ] as const)("delivers a %s Wake ending to conversation members as an ordinary update", (noticeType) => {
     const signal = systemNoticeSignal({
       noticeType,
       text:
@@ -890,6 +897,11 @@ describe("Space Inbox projection", () => {
         recipientUserId: "user-requester",
         title: "Agent update in Operations",
       }),
+      expect.objectContaining({
+        recipientUserId: "user-observer",
+        importance: "normal",
+        kind: "wake_outcome",
+      }),
     ]);
   });
 
@@ -913,7 +925,7 @@ describe("Space Inbox projection", () => {
     "blocked",
     "needs_input",
     "handoff",
-  ] as const)("delivers a %s final status only to the exact Wake requester", (status) => {
+  ] as const)("delivers a %s final status to conversation members", (status) => {
     const signal = statusSignal({ status });
     const record = buildSpaceInboxProjectionOutboxRecord({
       activeMemberRecords: [
@@ -933,6 +945,12 @@ describe("Space Inbox projection", () => {
         importance: "normal",
         kind: "wake_outcome",
         recipientUserId: "user-requester",
+        sourceKey: "signal-status-1",
+      }),
+      expect.objectContaining({
+        recipientUserId: "user-observer",
+        importance: "normal",
+        kind: "wake_outcome",
         sourceKey: "signal-status-1",
       }),
     ]);
@@ -1216,6 +1234,11 @@ describe("Space Inbox projection", () => {
     };
     expect(buildSpaceInboxProjectionOutboxRecord(input)?.candidates).toEqual([
       expect.objectContaining({
+        recipientUserId: "reader",
+        kind: "agent_reply",
+        importance: "normal",
+      }),
+      expect.objectContaining({
         recipientUserId: "owner",
         kind: "agent_reply",
       }),
@@ -1374,71 +1397,98 @@ describe("Space Inbox projection", () => {
       authorProfileId: "profile-author",
       text: "This source message must survive projection infrastructure failure.",
     });
-    const target = {
-      agentStreamProjectionStorage: undefined,
-      assertRemoteAgentFinalReplyWasNotStopped: vi.fn(),
-      broadcastSignal: vi.fn(),
-      ctx: {
-        storage: {
-          getAlarm: vi.fn().mockResolvedValue(null),
-          setAlarm: vi.fn().mockRejectedValue(new Error("alarm unavailable")),
-        },
-        waitUntil: vi.fn(),
-      },
-      durableObjectId: "space-do-1",
-      flushPendingDispatchOutbox: vi.fn().mockResolvedValue(undefined),
-      flushPendingSpaceInboxProjectionOutbox: vi
-        .fn()
-        .mockRejectedValue(new Error("Inbox D1 unavailable")),
-      persistTextSignalWithOptionalOutbox: vi.fn((currentSignal) => {
-        persistedSignals.push(currentSignal);
-        durableInboxOutboxSignalIds.push(currentSignal.id);
-        return Promise.resolve({
-          dispatchMessages: [] as [],
-          duplicateFinalReplyBlocked: false as const,
-          persistedSignal: true as const,
-        });
-      }),
-      recordOrganizationMemberHumanActivity: vi
-        .fn()
-        .mockResolvedValue(undefined),
-      spaceId: "space-1",
-      syncSpaceBackgroundAlarm: vi
-        .fn()
-        .mockRejectedValue(new Error("alarm unavailable")),
-    };
+    const spaces = (
+      env as unknown as { OPENMELD_SPACES: DurableObjectNamespace }
+    ).OPENMELD_SPACES;
+    const id = spaces.newUniqueId();
+    await runInDurableObject(spaces.get(id), async (instance, state) => {
+      signal.spaceId = id.toString();
+      upsertSpaceMetaRecord(state.storage.sql, {
+        v: 1,
+        spaceId: signal.spaceId,
+        organizationId: "org-1",
+        visibility: "private",
+        accessMode: "public",
+        name: "Alarm recovery",
+        createdAt: new Date(1000).toISOString(),
+        updatedAt: new Date(1000).toISOString(),
+      });
+      upsertSpaceMemberRecord(
+        state.storage.sql,
+        member("profile-author", "user-author", "human")
+      );
+      const target = Object.defineProperties(
+        Object.create(instance),
+        Object.getOwnPropertyDescriptors({
+          agentStreamProjectionStorage: undefined,
+          assertRemoteAgentFinalReplyWasNotStopped: vi.fn(),
+          broadcastSignal: vi.fn(),
+          ctx: {
+            storage: {
+              sql: state.storage.sql,
+              getAlarm: vi.fn().mockResolvedValue(null),
+              setAlarm: vi
+                .fn()
+                .mockRejectedValue(new Error("alarm unavailable")),
+            },
+            waitUntil: vi.fn(),
+          },
+          durableObjectId: "space-do-1",
+          flushPendingDispatchOutbox: vi.fn().mockResolvedValue(undefined),
+          flushPendingSpaceInboxProjectionOutbox: vi
+            .fn()
+            .mockRejectedValue(new Error("Inbox D1 unavailable")),
+          persistTextSignalWithOptionalOutbox: vi.fn((currentSignal) => {
+            persistedSignals.push(currentSignal);
+            durableInboxOutboxSignalIds.push(currentSignal.id);
+            return Promise.resolve({
+              dispatchMessages: [] as [],
+              duplicateFinalReplyBlocked: false as const,
+              persistedSignal: true as const,
+            });
+          }),
+          recordOrganizationMemberHumanActivity: vi
+            .fn()
+            .mockResolvedValue(undefined),
+          spaceId: signal.spaceId,
+          syncSpaceBackgroundAlarm: vi
+            .fn()
+            .mockRejectedValue(new Error("alarm unavailable")),
+        })
+      );
 
-    await expect(
-      publishTextSignal.call(target, signal)
-    ).resolves.toBeUndefined();
+      await expect(
+        publishTextSignal.call(target, signal)
+      ).resolves.toBeUndefined();
 
-    expect(persistedSignals).toEqual([signal]);
-    expect(durableInboxOutboxSignalIds).toEqual([signal.id]);
-    expect(target.recordOrganizationMemberHumanActivity).toHaveBeenCalledWith(
-      signal
-    );
-    expect(target.broadcastSignal).toHaveBeenCalledOnce();
-    expect(warn).toHaveBeenCalledWith(
-      "[core.openmeld.space.inbox_projection_failed]",
-      expect.objectContaining({
-        error: "alarm unavailable",
-        stage: "pre_arm",
-      })
-    );
-    expect(warn).toHaveBeenCalledWith(
-      "[core.openmeld.space.inbox_projection_failed]",
-      expect.objectContaining({
-        error: "Inbox D1 unavailable",
-        stage: "immediate_flush",
-      })
-    );
-    expect(warn).toHaveBeenCalledWith(
-      "[core.openmeld.space.inbox_projection_failed]",
-      expect.objectContaining({
-        error: "alarm unavailable",
-        stage: "alarm_schedule",
-      })
-    );
+      expect(persistedSignals).toEqual([signal]);
+      expect(durableInboxOutboxSignalIds).toEqual([signal.id]);
+      expect(target.recordOrganizationMemberHumanActivity).toHaveBeenCalledWith(
+        signal
+      );
+      expect(target.broadcastSignal).toHaveBeenCalledOnce();
+      expect(warn).toHaveBeenCalledWith(
+        "[core.openmeld.space.inbox_projection_failed]",
+        expect.objectContaining({
+          error: "alarm unavailable",
+          stage: "pre_arm",
+        })
+      );
+      expect(warn).toHaveBeenCalledWith(
+        "[core.openmeld.space.inbox_projection_failed]",
+        expect.objectContaining({
+          error: "Inbox D1 unavailable",
+          stage: "immediate_flush",
+        })
+      );
+      expect(warn).toHaveBeenCalledWith(
+        "[core.openmeld.space.inbox_projection_failed]",
+        expect.objectContaining({
+          error: "alarm unavailable",
+          stage: "alarm_schedule",
+        })
+      );
+    });
     warn.mockRestore();
   });
 });

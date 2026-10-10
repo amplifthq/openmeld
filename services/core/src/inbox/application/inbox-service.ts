@@ -57,12 +57,12 @@ const INBOX_SPACE_TARGET_FILTER = `
 `;
 export const INBOX_SPACE_MESSAGE_FILTER = `
   source_kind = 'space_signal'
-  AND attention = 'update'
   AND ${INBOX_SPACE_TARGET_FILTER}
 `;
 export const INBOX_SPACE_UNREAD_FILTER = `
-  attention = 'update' AND ${INBOX_SPACE_TARGET_FILTER}
-  AND (source_kind = 'space_signal' OR kind = 'space_joined')
+  ${INBOX_SPACE_TARGET_FILTER}
+  AND (source_kind = 'space_signal' OR
+    (attention = 'update' AND kind = 'space_joined' AND cleared_at_ms IS NULL))
 `;
 export function inboxAttentionPresentationFilterSql(
   useFeedAgentScope = false
@@ -243,7 +243,6 @@ export function createInboxService(input: {
             FROM "openmeld"."inbox_items"
             WHERE organization_id = $1
               AND recipient_user_id = $2
-              AND cleared_at_ms IS NULL
               AND read_at_ms IS NULL
               AND ${INBOX_CENTER_AGENT_MESSAGE_FILTER}
               AND ${CURRENT_SOURCE_ACCESS_FILTER}
@@ -282,7 +281,6 @@ export function createInboxService(input: {
             FROM "openmeld"."inbox_items"
             WHERE organization_id = $1
               AND recipient_user_id = $2
-              AND cleared_at_ms IS NULL
               AND read_at_ms IS NULL
               AND ${INBOX_SPACE_UNREAD_FILTER}
               AND ${CURRENT_SOURCE_ACCESS_FILTER}
@@ -305,7 +303,6 @@ export function createInboxService(input: {
             FROM "openmeld"."inbox_items"
             WHERE organization_id = $1
               AND recipient_user_id = $2
-              AND cleared_at_ms IS NULL
               AND read_at_ms IS NULL
               AND ${INBOX_SPACE_UNREAD_FILTER}
               AND ${CURRENT_SOURCE_ACCESS_FILTER}
@@ -349,17 +346,16 @@ export function createInboxService(input: {
         -- planner repeat its permission checks for every direct-message Space.
         WITH accessible_inbox AS MATERIALIZED (
           SELECT organization_id, source_target_json, source_kind,
-            read_at_ms, attention, resolution_status, importance, kind
+            read_at_ms, cleared_at_ms, attention, resolution_status, importance, kind
           FROM "openmeld"."inbox_items"
           WHERE organization_id = $1 AND recipient_user_id = $2
-            AND cleared_at_ms IS NULL
             AND (${INBOX_SUMMARY_CANDIDATE_FILTER})
             AND ${CURRENT_SOURCE_ACCESS_FILTER}
         )
         SELECT
           sum(CASE WHEN read_at_ms IS NULL AND ${INBOX_SPACE_UNREAD_FILTER} THEN 1 ELSE 0 END) AS unread,
-          sum(CASE WHEN attention = 'action_required' AND resolution_status = 'open' THEN 1 ELSE 0 END) AS actions,
-          sum(CASE WHEN ${UNREAD_URGENT_UPDATE_FILTER} AND coalesce(source_target_json::jsonb -> 'agentOwnerActivity', 'false'::jsonb) != 'true'::jsonb THEN 1 ELSE 0 END) AS urgent
+          sum(CASE WHEN cleared_at_ms IS NULL AND attention = 'action_required' AND resolution_status = 'open' THEN 1 ELSE 0 END) AS actions,
+          sum(CASE WHEN cleared_at_ms IS NULL AND ${UNREAD_URGENT_UPDATE_FILTER} AND coalesce(source_target_json::jsonb -> 'agentOwnerActivity', 'false'::jsonb) != 'true'::jsonb THEN 1 ELSE 0 END) AS urgent
         FROM accessible_inbox AS inbox_items
         WHERE ${inboxDirectMessageSpaceSql("$3")}
       `,
@@ -395,6 +391,7 @@ export function createInboxService(input: {
     },
     async spaceUnreadTargets(targetInput: {
       includeItemIds?: boolean;
+      includeSourceKeys?: boolean;
       organizationId: string;
       recipientUserId: string;
       spaceId: string;
@@ -405,7 +402,6 @@ export function createInboxService(input: {
       const filters = `
         organization_id = $1
         AND recipient_user_id = $2
-        AND cleared_at_ms IS NULL
         AND read_at_ms IS NULL
         AND ${INBOX_SPACE_MESSAGE_FILTER}
         AND ((source_target_json)::jsonb #>> '{spaceId}') = $3
@@ -441,7 +437,7 @@ export function createInboxService(input: {
         source_target_json: string;
       }>({
         text: `
-            SELECT id, occurred_at_ms, source_target_json
+            SELECT id, source_key, occurred_at_ms, source_target_json
             FROM "openmeld"."inbox_items"
             WHERE ${filters}
               AND ((source_target_json)::jsonb #>> '{signalId}') IS NOT NULL
@@ -471,6 +467,7 @@ export function createInboxService(input: {
       const totalUnreadCount = countValue(countRow?.unread_count);
       const rows = (targetResult.rows ?? []) as Array<{
         id: string;
+        source_key: string;
         occurred_at_ms: number;
         source_target_json: string;
       }>;
@@ -490,6 +487,9 @@ export function createInboxService(input: {
           }
           return {
             ...(targetInput.includeItemIds ? { itemId: row.id } : {}),
+            ...(targetInput.includeSourceKeys
+              ? { sourceKey: row.source_key }
+              : {}),
             occurredAtMs: nonnegativeIntegerValue(row.occurred_at_ms),
             signalId: parsed.data.signalId,
             threadRootSignalId:

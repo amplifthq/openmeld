@@ -115,6 +115,7 @@ export function MessageBubbleReactions() {
 		<MessageReactionRow
 			profileId={input.profileId}
 			readOnly={input.readOnly}
+			signalId={input.signalId}
 			state={state}
 		/>
 	) : null;
@@ -422,6 +423,7 @@ function reactionLabel(
 	return `${names.join(", ")}${remaining ? ` and ${remaining} others` : ""}${group.reactedByMe && !readOnly ? " (click to remove)" : ""}`;
 }
 type MessageReactionRowProps = {
+	signalId?: string;
 	state: MessageReactionsState;
 	readOnly?: boolean;
 	profileId: string;
@@ -438,6 +440,7 @@ function PopulatedMessageReactionRow({
 	state,
 	readOnly,
 	profileId,
+	signalId,
 }: MessageReactionRowProps) {
 	const measureRef = useRef<HTMLDivElement>(null);
 	const rowRef = useRef<HTMLDivElement>(null);
@@ -507,6 +510,8 @@ function PopulatedMessageReactionRow({
 	return (
 		<div
 			className="relative flex min-w-0 max-w-full shrink items-center gap-1"
+			data-message-reactions-for={signalId}
+			data-message-reactions-version={state.snapshot.version}
 			data-slot="message-reactions"
 			ref={rowRef}
 			style={{ width: naturalWidth, minWidth: 36 }}

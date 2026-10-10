@@ -44,6 +44,7 @@ can be read or the same response safely retried.
 | Local Agent permission, plan, question | Execution interaction; Binding owner | RuntimeCoordinator stores and delivers the response, expires or cancels the interaction; its durable Inbox repair updates the projection |
 | Center Agent response request | Explicit member request in a Space | Center attention request owner resolves on the addressed member's reply |
 | Document review | Exact document draft; authorized reviewer | Document owner approves, rejects, or supersedes the draft |
+| Space Task review or rework decision | Exact submitted result; current Human reviewer, or the requester/Space owner at the automatic-rework limit | Task owns revision-checked review, cancellation and continuation. Its existing durable delivery outbox projects and resolves recipient attention from current Task state. Reading or Dismiss never changes Task state; an Agent reviewer does not create a request for its personal owner. |
 | Organization invitation | Invitation request; authorized reviewer | Invitation owner tracks review separately from delivery and joining |
 | Agent creation request | Creation request; authorized reviewer | Agent creation request owner accepts or rejects the request |
 | Work recovery | Interrupted work and recovery stage; Agent owner | Recovery owner approves queued work, skips interrupted work, or ends the gate |

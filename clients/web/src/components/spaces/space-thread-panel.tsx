@@ -1351,6 +1351,7 @@ function ThreadTimeline(input: {
 												"focus-visible:outline-none data-[highlighted=true]:rounded-md data-[highlighted=true]:bg-muted/50"
 											)}
 											data-message-row-id={item.id}
+											data-message-source-at={item.createdAtMs}
 											data-signal-id={item.id}
 											ref={(element) => {
 												input.registerMessageElement(item.id, element);
