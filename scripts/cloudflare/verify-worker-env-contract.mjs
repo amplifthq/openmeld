@@ -14,6 +14,22 @@ const repoRoot = path.resolve(
 const hasCoreAccountDeletion = existsSync(
   path.join(repoRoot, "services/core/src/organizations/account-deletion.ts")
 );
+const gatewayConnectorReader = readFileSync(
+  path.join(
+    repoRoot,
+    "services/gateway/src/routes/rpc-http.connector-connections.ts"
+  ),
+  "utf8"
+);
+const gatewayConnectorClient = readFileSync(
+  path.join(repoRoot, "services/gateway/src/lib/openconnector-client.ts"),
+  "utf8"
+);
+const gatewayRuntimeSecretNames =
+  gatewayConnectorReader.includes("OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN") ||
+  gatewayConnectorClient.includes("#runtimeToken")
+    ? ["OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN"]
+    : [];
 const verificationProfile = parseVerificationProfile(process.argv.slice(2));
 verifyPostgresqlEnvironment(repoRoot, { profile: verificationProfile });
 const verifiesStaging = verificationProfile === "all";
@@ -430,7 +446,7 @@ const workerPackages = [
     secretOwned: true,
     requiredSecretNames: [
       "OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN",
-      "OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN",
+      ...gatewayRuntimeSecretNames,
       "SLACK_OPENMELD_OAUTH_CLIENT_ID",
       "SLACK_OPENMELD_OAUTH_CLIENT_SECRET",
       "SLACK_OPENMELD_SIGNING_SECRET",
@@ -452,7 +468,7 @@ const workerPackages = [
       "OPENMELD_FEEDBACK_IP_RATE_LIMITER",
       "OPENMELD_OBSERVABILITY",
       "OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN",
-      "OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN",
+      ...gatewayRuntimeSecretNames,
       "OPENMELD_IMAGES",
       "OPENMELD_GATEWAY_URL",
       "OPENMELD_ORGANIZATION_LOGOS",
