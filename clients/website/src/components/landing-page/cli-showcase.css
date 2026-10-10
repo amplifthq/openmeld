@@ -46,9 +46,7 @@
 	font-size: 13px;
 }
 .meld-codex-sidebar strong {
-	display: flex;
-	justify-content: space-between;
-	align-items: center;
+	display: block;
 	padding: 0 10px 20px;
 	color: #eee;
 	font-size: 17px;
@@ -143,10 +141,6 @@
 	font-size: 12px;
 	color: #bbb;
 }
-.meld-codex-context span {
-	margin-left: 12px;
-	color: #999;
-}
 .meld-codex-input {
 	min-height: 76px;
 	padding-top: 14px;
@@ -164,10 +158,8 @@
 	color: #aaa;
 	font-size: 12px;
 }
-.meld-codex-model {
-	margin-left: auto;
-}
 .meld-codex-send {
+	margin-left: auto;
 	display: grid;
 	place-items: center;
 	width: 28px;

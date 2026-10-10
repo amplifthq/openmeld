@@ -8,10 +8,14 @@ export async function getSpaceMessageDetails(
   client: OpenMeldApiClientFoundation,
   input: SpaceRequestInput & {
     signalId: string;
+    executionContextVersion?: 1;
   }
 ): Promise<GetSpaceMessageDetailsResponse> {
   const searchParams = new URLSearchParams();
   searchParams.set("signalId", input.signalId);
+  if (input.executionContextVersion === 1) {
+    searchParams.set("executionContextVersion", "1");
+  }
 
   return await client.requestJson({
     url: `${buildSpaceMessageDetailsPath(input.spaceId)}?${searchParams.toString()}`,

@@ -5,10 +5,8 @@ import {
 } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
-import {
-  assertSameSpaceWorkHandoff,
-  validateSpaceWorkHandoff,
-} from "../src/space/application/space-work-handoff";
+import { assertSameSpaceSignalReplay } from "../src/space/application/space-signal-idempotency";
+import { validateSpaceWorkHandoff } from "../src/space/application/space-work-handoff";
 
 const handoff = {
   schemaVersion: 1 as const,
@@ -78,15 +76,15 @@ describe("Space-owned work handoff admission", () => {
       handoff: undefined,
       evidenceRefs,
     };
-    expect(() => assertSameSpaceWorkHandoff(input)).not.toThrow();
+    expect(() => assertSameSpaceSignalReplay(input)).not.toThrow();
     expect(() =>
-      assertSameSpaceWorkHandoff({
+      assertSameSpaceSignalReplay({
         ...input,
         evidenceRefs: [{ ...evidenceRefs[0], revision: 6 }],
       })
     ).toThrow("different work");
     expect(() =>
-      assertSameSpaceWorkHandoff({ ...input, evidenceRefs: undefined })
+      assertSameSpaceSignalReplay({ ...input, evidenceRefs: undefined })
     ).toThrow("different work");
     expect(
       postNormalMessageBodySchema.safeParse({
@@ -158,7 +156,7 @@ describe("Space-owned work handoff admission", () => {
       text: signal.data.text,
       targetProfileIds: ["e344e2c3-59f1-44c9-a4f1-63922aeb0f99"],
     };
-    expect(() => assertSameSpaceWorkHandoff(input)).not.toThrow();
+    expect(() => assertSameSpaceSignalReplay(input)).not.toThrow();
     for (const change of [
       { authorProfileId: "other" },
       { targetProfileIds: ["other"] },
@@ -168,7 +166,7 @@ describe("Space-owned work handoff admission", () => {
       },
     ]) {
       expect(() =>
-        assertSameSpaceWorkHandoff({ ...input, ...change })
+        assertSameSpaceSignalReplay({ ...input, ...change })
       ).toThrow();
     }
   });

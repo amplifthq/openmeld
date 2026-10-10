@@ -7,6 +7,29 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
 import { widthToPx } from "#/lib/spaces/panel-width-storage";
 
+export function SpaceInlineSidePanelHeader(input: {
+	actions?: ReactNode;
+	children: ReactNode;
+}) {
+	return (
+		<header
+			className="flex h-14 shrink-0 items-center border-border border-b px-4"
+			data-slot="space-side-panel-header"
+		>
+			<div className="flex w-full items-center justify-between gap-2">
+				<div className="flex min-w-0 items-baseline gap-2">
+					{input.children}
+				</div>
+				{input.actions ? (
+					<div className="flex shrink-0 items-center gap-1">
+						{input.actions}
+					</div>
+				) : null}
+			</div>
+		</header>
+	);
+}
+
 export function SpaceInlineSidePanel(input: {
 	ariaLabel: string;
 	children: ReactNode;

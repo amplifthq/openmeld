@@ -1048,6 +1048,7 @@ function PublicSpacePanels({ input }: { input: PublicSpaceOpenViewProps }) {
 				agentRecoveryPlansByProfileId={EMPTY_AGENT_RECOVERY_PLANS}
 				agentStreams={[]}
 				automaticWakeConversationKind={null}
+				canSendMessage={false}
 				centerAgentProfileId={input.status?.centerAgentProfileId ?? null}
 				composerBlockedWakeProfileId={null}
 				composerErrorMessage={null}

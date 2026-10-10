@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import type { BotAvatarPose } from "bot-avatars";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BotAvatar } from "#components/bot-avatar";
 
@@ -111,6 +112,18 @@ afterEach(() => {
 });
 
 describe("Bot avatar interaction", () => {
+  it("shows the ambient avatar's first frame before the canvas hydrates", () => {
+    const markup = renderToStaticMarkup(
+      <BotAvatar ambient palette="original" size={28} type="clover" />
+    );
+    const html = document.createElement("div");
+    html.innerHTML = markup;
+    const canvas = html.querySelector("canvas");
+    expect(canvas?.style.backgroundImage).toContain("data:image/svg+xml");
+    expect(canvas?.style.opacity).toBe("1");
+    expect(frames.size).toBe(0);
+  });
+
   it("disables working, click, and pointer motion together and can resume", () => {
     const open = vi.fn();
     const view = render(

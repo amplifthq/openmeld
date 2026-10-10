@@ -6623,6 +6623,151 @@ describe("OpenMeld Core", () => {
       referenceTargets: [],
     });
   });
+  it.each([
+    "conversation",
+    "thread",
+  ])("rejects another sender's receipt in a %s", async (location) => {
+    const spaceId = await createSpace();
+    const otherProfileId = randomUUID();
+    const otherOwnerUserId = randomUUID();
+    const other = {
+      profileId: otherProfileId,
+      openMeldProfileId: otherProfileId,
+      ownerUserId: otherOwnerUserId,
+    };
+    const added = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/members`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          members: [
+            {
+              profileId: otherProfileId,
+              profileName: "Other sender",
+              profileKind: "human",
+              ownerUserId: otherOwnerUserId,
+              ownerName: "Other sender",
+              agentControllerRef: null,
+            },
+          ],
+        }),
+      }
+    );
+    expect(added.status, await added.clone().text()).toBe(200);
+    if (location === "conversation") {
+      await ensureTestOrganizationMembership({
+        organizationId: DEFAULT_TEST_ORGANIZATION_ID,
+        userId: otherOwnerUserId,
+      });
+      const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+      const stub = namespace.get(namespace.idFromString(spaceId));
+      const context = createRpcContext({
+        requestId: "receipt-author",
+        profileId: DEFAULT_HUMAN_PROFILE_ID,
+        profileKind: "human",
+        ownerUserId: DEFAULT_TEST_AUTH_PROFILE.ownerUserId,
+      });
+      const clientMessageId = `new-task:v1:${"a".repeat(64)}`;
+      const request = {
+        authoringPolicy: "system_emitted" as const,
+        clientMessageId,
+        context,
+        meta: { clientMessageId },
+        profile: {
+          kind: "human" as const,
+          profileId: DEFAULT_HUMAN_PROFILE_ID,
+        },
+        spaceId,
+        text: "Start a new task from this request",
+        contextSelection: { mode: "new" as const },
+      };
+      const accepted = await stub.rpcPostSignalOnceByClientMessageId(request);
+      expect(await stub.rpcPostSignalOnceByClientMessageId(request)).toEqual(
+        accepted
+      );
+      // A claimed Profile in the payload must not replace the authorized actor.
+      const foreignError = await stub
+        .rpcPostSignalOnceByClientMessageId({
+          ...request,
+          context: createRpcContext({
+            requestId: "other-receipt-author",
+            profileId: otherProfileId,
+            profileKind: "human",
+            ownerUserId: otherOwnerUserId,
+          }),
+        })
+        .then(
+          () => null,
+          (error: unknown) => error
+        );
+      expect(foreignError).toBeInstanceOf(Error);
+      expect((foreignError as Error).message).toContain(
+        "space.signal.client_message_id_conflict"
+      );
+      expect(await stub.rpcPostSignalOnceByClientMessageId(request)).toEqual(
+        accepted
+      );
+      return;
+    }
+    let url = `${BASE_URL}/v1/spaces/${spaceId}/signals`;
+    if (location === "thread") {
+      const root = await fetchWithOpenMeldAuth(url, {
+        method: "POST",
+        body: JSON.stringify({
+          type: "signal.text",
+          data: { text: "Recovery request" },
+        }),
+      });
+      const rootSignal = parseEnvelope(await root.json());
+      if (!rootSignal) {
+        throw new Error("Expected a thread root");
+      }
+      const created = await fetchWithOpenMeldAuth(
+        `${BASE_URL}/v1/spaces/${spaceId}/threads`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            clientMutationId: randomUUID(),
+            rootSignalId: rootSignal.id,
+          }),
+        }
+      );
+      expect(created.status, await created.clone().text()).toBe(200);
+      const { thread } = (await created.json()) as {
+        thread: { threadId: string };
+      };
+      url = `${BASE_URL}/v1/spaces/${spaceId}/threads/${thread.threadId}/signals`;
+    }
+    const clientMessageId = `new-task:v1:${"a".repeat(64)}`;
+    const text = "Start a new task from this request";
+    const request = {
+      method: "POST",
+      body: JSON.stringify(
+        location === "thread"
+          ? { clientMessageId, text, contextSelection: { mode: "new" } }
+          : {
+              text,
+              meta: { clientMessageId },
+              contextSelection: { mode: "new" },
+            }
+      ),
+    };
+    const first = await fetchWithOpenMeldAuth(url, request);
+    expect(first.status, await first.clone().text()).toBe(200);
+    const accepted = await first.json();
+    const replay = await fetchWithOpenMeldAuth(url, request);
+    expect(replay.status, await replay.clone().text()).toBe(200);
+    expect(await replay.json()).toEqual(accepted);
+    const foreignReplay = await fetchWithOpenMeldAuth(url, request, other);
+    expect(foreignReplay.status, await foreignReplay.clone().text()).toBe(409);
+    expect(await foreignReplay.text()).toContain(
+      "space.signal.client_message_id_conflict"
+    );
+    const afterConflict = await fetchWithOpenMeldAuth(url, request);
+    expect(afterConflict.status, await afterConflict.clone().text()).toBe(200);
+    expect(await afterConflict.json()).toEqual(accepted);
+  });
+
   it("freezes authenticated Thread reply time before idempotent replay", async () => {
     const ownerUserId = randomUUID();
     const profileId = randomUUID();

@@ -73,6 +73,11 @@ This package owns UI mechanics and visual primitives only. It does not own
 product copy, business rules, readiness, Wake state, setup state, Space truth,
 or client routing.
 
+`components/border-beam` exposes Libraries.dev's installed `border-beam`
+primitive without a second effect implementation. Consumers own activation,
+reduced motion, visibility, and presentation tuning. The frozen Website demo
+uses it to draw attention to a prefilled Composer; product Composers do not.
+
 `components/evilcharts` owns the official registry-installed Apache ECharts
 area primitive and its theme, tooltip, legend, dot, and brush modules. Its
 README records source provenance and local adaptations. Consumers compose
@@ -287,8 +292,15 @@ identifiable without requiring the magnification effect.
 `fluid/sidebar`, `fluid/sidebar-state`, `fluid/sidebar-group`, and
 `fluid/sidebar-menu` adapt the Fluid Functionalism Base UI Sidebar registry
 (retrieved September 5, 2026). They own resize/collapse/peek, slots, disclosures,
-and menu hover/focus mechanics. The three-mode geometry is injected and saved
-by the client; these primitives do not read cookies, routes, account state or
+and menu hover/focus mechanics. Geometry, expanded-width bounds, and whether
+the icon-only snap tier is allowed are injected by the client. Web module lists
+disable that tier for pointer dragging and keyboard resizing; they use the same
+two-state contract in the Website demo. The visible list stops shrinking at its
+readable minimum; collapsing requires the pointer to travel another third of
+that minimum width plus 16 px inward. Expansion retains its separate boundary
+at two-thirds of the minimum width plus 8 px, so outward dragging opens sooner
+without toggling around one boundary. Geometry is saved by the client; these
+primitives do not read cookies, routes, account state or
 organization state. OpenMeld uses its existing Base UI/Motion dependencies and
 semantic shape, typography and color tokens. Menu highlights use transforms;
 measured group height and sidebar width only change when layout must change.
@@ -554,8 +566,13 @@ and profile popovers play one small hop on an explicit click without following
 the pointer; popover opening and navigation still belong to their existing
 controls. The Team Center Agent card has a separate avatar button that also
 follows a fine pointer while hovered; its remaining area opens the conversation.
-The avatar editor retains the library's original preview interaction.
-Bot avatars do not hop when idle and animate for real working state. Clicks do
+The avatar editor retains the library's original preview interaction. The Website
+hero opts into `ambient` motion: the vendor's idle movement, nearby pointer
+tracking, and full click jumps, with one shared vendor ticker. Its SVG first
+frame remains visible before hydration; the canvas replaces it after its first
+layout paint. Reduced motion keeps a still pose, and the vendor pauses ambient
+rendering offscreen and in hidden documents.
+Regular product avatars do not hop when idle and animate for real working state. Clicks do
 not queue or restart a hop. Static instances do not subscribe to animation
 frames or visibility observation; active rendering pauses offscreen and in hidden
 documents. A cache of at most 64 independently rendered still frames avoids

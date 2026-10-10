@@ -302,6 +302,17 @@ function redactWakeExecutionContextLocalOriginFacts(
 ): WakeTargetExecutionContext {
   return {
     ...context,
+    ...(context.taskContext
+      ? {
+          taskContext: {
+            ...context.taskContext,
+            assignment:
+              context.taskContext.assignment.readStatus === "found"
+                ? { ...context.taskContext.assignment, contextId: null }
+                : context.taskContext.assignment,
+          },
+        }
+      : {}),
     resolutionStatus: "redacted",
     reasonCode: "wake_execution_context.local_origin_facts_redacted",
     bindingId: null,
@@ -318,7 +329,9 @@ function hasWakeTargetSensitiveLocalFacts(input: {
   executionContext: WakeTargetExecutionContext;
 }): boolean {
   return Boolean(
-    input.correlation.bindingId ||
+    (input.executionContext.taskContext?.assignment.readStatus === "found" &&
+      input.executionContext.taskContext.assignment.contextId) ||
+      input.correlation.bindingId ||
       input.correlation.openMeldServiceRuntimeId ||
       input.executionContext.bindingId ||
       input.executionContext.openMeldServiceRuntimeId ||
@@ -408,6 +421,17 @@ function projectWakeTargetExecutionContext(input: {
   }
 
   return {
+    ...(input.trace?.runtimeCoordinatorHeadLifecycle?.executionContext
+      ? {
+          taskContext: {
+            assignment:
+              input.trace.runtimeCoordinatorHeadLifecycle.executionContext,
+            conversationResume:
+              input.trace.dispatchExecution
+                ?.agentControllerConversationResume ?? null,
+          },
+        }
+      : {}),
     resolutionStatus,
     factSource,
     reasonCode: resolveWakeTargetExecutionContextReasonCode({

@@ -19,6 +19,13 @@ export function registerMessageDetailsRoutes(app: Hono<HonoBindings>): void {
     const parsed = getSpaceMessageDetailsInputSchema.safeParse({
       spaceId,
       signalId: c.req.query("signalId"),
+      ...(c.req.query("executionContextVersion") === undefined
+        ? {}
+        : {
+            executionContextVersion: Number(
+              c.req.query("executionContextVersion")
+            ),
+          }),
     });
     if (!parsed.success) {
       return respondBadRequest({
@@ -42,6 +49,9 @@ export function registerMessageDetailsRoutes(app: Hono<HonoBindings>): void {
         return await c.var.coreRpc.getSpaceMessageDetails({
           spaceId: parsed.data.spaceId,
           signalId: parsed.data.signalId,
+          ...(parsed.data.executionContextVersion
+            ? { executionContextVersion: parsed.data.executionContextVersion }
+            : {}),
           ...(password === undefined ? {} : { password }),
           context: buildCoreRpcContext(c),
         });

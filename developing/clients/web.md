@@ -329,8 +329,13 @@ when collapsed, list-page work-area headers show the expand control beside that
 list's edge. Spaces uses this control in place of its decorative title icon,
 and Team uses the same placement. Toggling does not hide the application rail or
 remount the conversation. The existing Fluid sidebar engine owns resizing and
-keyboard shortcuts. Dragging the middle column can collapse it,
-and a 32px hover-intent strip along the content edge reveals a floating preview.
+keyboard shortcuts. The middle column has only expanded and hidden states,
+with a 200px minimum expanded width. Dragging below that minimum collapses it
+directly; returning past a small drag deadband restores the expanded column.
+Keyboard resizing uses the same bounds and skips the icon-only tier. Saved
+narrow widths are clamped to the readable minimum before rendering. Row titles
+remain single-line and use an ellipsis when space is limited. A 32px hover-intent
+strip along the content edge reveals a floating preview.
 The preview keeps the same title toggle, which restores the full column even on
 detail pages without a work-area header. The existing outer-sidebar cookie
 now stores middle-column geometry, with a 308px default; legacy icon mode maps
@@ -393,8 +398,12 @@ Space and direct-message pending routes retain the authorized conversation
 sidebar and use the loaded conversation's header and centered content/composer
 rails. They do not add an empty app header above the conversation header.
 Loading shells reserve persisted Members panel geometry without reading protected
-content or deciding membership. A later product-driven panel opening remains a
-separate interaction. The existing Space-open performance report also covers
+content or deciding membership. Loaded and loading Thread headers and the desktop
+Members header reuse `SpaceInlineSidePanelHeader` at a fixed 56px height. Their
+16px trailing inset matches `SpaceWindowHeader`, keeping the last Space action
+and panel close buttons on the same vertical centerline.
+A later product-driven panel opening remains a separate interaction. The
+existing Space-open performance report also covers
 Organization direct-message routes; Center Agent session routes are not Space
 IDs and are excluded from that route matcher.
 
@@ -4541,13 +4550,21 @@ or composer. Submitting creates the chat and Task directly, then stays on Tasks;
 it does not send a message or start an Agent. Opening Tasks alone creates no chat.
 The Messages composer separately supports a Task in its first-message handoff.
 
-Agent mention menus keep execution settings separate from Tasks. **Files** offers
-**Use agent settings** and **No project files**. A readable configured Project
-adds its name and the supported **Edit a separate copy**, **Read files only**, and
-**Edit project files** modes. Without a resolved Project, Web does not guess a
-local folder or offer project operations. Each choice has a short shared Tooltip
-on hover and keyboard focus; the separate-copy hint explains that uncommitted
-changes are not included. These choices retain the existing execution contracts.
+Agent mention menus keep execution settings separate from Tasks. **Working copy**
+chooses **Current folder** or **Separate copy**, and offers **Choose Project…**.
+A separate copy requires a readable configured Project; selecting it retains
+the selected access policy. Project selection defaults to a separate copy without
+adding a task restriction. **Access** independently offers **Use agent settings**,
+**No project files**, and supported **Read files only** / **Project files only**
+restrictions. Returning to Agent settings preserves an existing project copy;
+leaving Space-only scratch work returns to the current folder by default.
+**Session → Automatic** remains selectable and clears explicit Access, Working
+copy, and Project preferences. The existing session retains its own restrictions;
+copy and access choices remain in place until the user selects Automatic.
+Claude's explicit project restriction requires a separate copy and its tooltip
+explains the container and network limits. Continuation and fork choices inherit
+their source settings and disable both controls. Shared Tooltips explain copy
+and permission effects without presenting a working folder as an access grant.
 
 The Project selector in Task detail supports zero or several associations and
 uses the current Task revision. Unavailable saved associations remain removable,
@@ -5290,6 +5307,32 @@ default, sole, or explicitly selected repository for that new task. The
 selection travels as an accepted Execution Context fact, not as a change to
 the Agent Profile's Default Project. The Service must find the matching local
 connection on the Agent's computer or return a visible failure.
+
+The Agent's Session options explain that automatic continuation can retain an
+earlier session's restrictions. Message details shows the admitted task access and
+workspace separately from the Service's new/continued native-conversation
+observation. Missing diagnostics remain unavailable; the client never infers
+network or GitHub access from a working folder.
+
+For a recorded Space-only Wake, any member who can read the request and send
+messages can review its shared file revisions and send it to the same target
+as a new task under their current acting Profile. Confirmation explains that
+the sender's permissions apply and the original requester's approvals do not
+carry over. Normal authoring rechecks message, file, and Wake authorization;
+the new task uses the Agent's current permitted settings and computer policy.
+The confirmation also names the destination and possible repeated work. It uses
+normal Space/thread authoring with a stable request id derived from the reviewed
+source revision and content, requester, target and placement. Reopening details,
+reloading, and retrying after either an uncertain or successful response reuse
+that id. The existing Space authoring receipt deduplicates the recovery without
+browser storage or a second server-side recovery store. Starting additional work
+uses the ordinary composer. Main and thread recovery both require current message
+permission, including when confirmation is already open.
+The reviewed request is pinned even if details refresh before confirmation.
+The action preserves the user's composer draft and never clears the retained
+Context. Recalled sources, managed file handoffs and unsupported legacy
+attachments do not receive an automatic request-copy action; the ordinary
+composer remains available for a deliberately authored new task.
 
 Draft editing and opening the `+` and `@` tools do not require permission to
 send. The `+` menu explains why file selection is unavailable when uploads are
