@@ -2943,6 +2943,9 @@ function SpaceLandingSecondaryPanels({
 					automaticWakeConversationKind={
 						state.isDirectMessage ? automaticWakeConversationKind : null
 					}
+					canSendMessage={
+						controller.status?.allowedActions.includes("post_message") === true
+					}
 					centerAgentProfileId={centerAgentState.centerAgentProfileId}
 					composerAddressingTargets={controller.threadComposerAddressingTargets}
 					composerAuthoredMentions={controller.threadComposerAuthoredMentions}

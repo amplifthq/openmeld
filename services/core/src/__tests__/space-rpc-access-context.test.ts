@@ -362,6 +362,7 @@ describe("Space RPC access context propagation", () => {
     });
     await rpcGetSpaceMessageDetails(env, {
       signalId: "signal-1",
+      executionContextVersion: 1,
       spaceAccess,
       spaceId: SPACE_ID,
     });
@@ -401,6 +402,9 @@ describe("Space RPC access context propagation", () => {
     expect(captured.get("rpcGetDispatchTrace")).toMatchObject({
       includeRemoteAgentRuntimeDiagnostics: true,
       responseContractVersion: 2,
+    });
+    expect(captured.get("rpcGetMessageDetails")).toMatchObject({
+      executionContextVersion: 1,
     });
     for (const methodName of [
       "rpcGetWakeProgress",

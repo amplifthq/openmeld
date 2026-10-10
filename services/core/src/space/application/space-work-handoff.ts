@@ -2,52 +2,12 @@ import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
   SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
-  spaceEvidenceReferencesSchema,
   spaceWorkHandoffSchema,
 } from "@openmeld/schemas";
 import type { SpaceMessageFileReference } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../../lib/bindings";
 import { createOrganizationSkillService } from "../../organization-skills/organization-skill-service";
 import { createCoreRpcHttpError } from "../../rpc/errors";
-
-export function assertSameSpaceWorkHandoff(input: {
-  existing: SignalEnvelope;
-  authorProfileId: string;
-  handoff: unknown;
-  evidenceRefs?: unknown;
-  text: string;
-  targetProfileIds: string[];
-}) {
-  if (input.existing.type !== "signal.text") {
-    return;
-  }
-  const previous = input.existing.data.meta?.workHandoff;
-  const previousRefs = input.existing.data.meta?.evidenceRefs;
-  if (!(previous || input.handoff || previousRefs || input.evidenceRefs)) {
-    return;
-  }
-  if (
-    input.existing.profile.profileId !== input.authorProfileId ||
-    input.existing.data.text !== input.text.trim() ||
-    JSON.stringify(input.existing.data.messageEnvelope?.activationTargets) !==
-      JSON.stringify(input.targetProfileIds) ||
-    JSON.stringify(spaceWorkHandoffSchema.optional().parse(previous)) !==
-      JSON.stringify(spaceWorkHandoffSchema.optional().parse(input.handoff)) ||
-    JSON.stringify(
-      spaceEvidenceReferencesSchema.optional().parse(previousRefs)
-    ) !==
-      JSON.stringify(
-        spaceEvidenceReferencesSchema.optional().parse(input.evidenceRefs)
-      )
-  ) {
-    throw createCoreRpcHttpError({
-      status: 409,
-      code: "space.handoff.mutation_conflict",
-      reason:
-        "This handoff identity was already used for different work. Create a new handoff instead.",
-    });
-  }
-}
 
 /** The containing Space message owns origin and identity; authored JSON grants neither. */
 export async function validateSpaceWorkHandoff(input: {

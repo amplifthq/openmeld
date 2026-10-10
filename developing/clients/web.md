@@ -5300,6 +5300,32 @@ selection travels as an accepted Execution Context fact, not as a change to
 the Agent Profile's Default Project. The Service must find the matching local
 connection on the Agent's computer or return a visible failure.
 
+The Agent's Session options explain that automatic continuation can retain an
+earlier session's restrictions. Message details shows the admitted task access and
+workspace separately from the Service's new/continued native-conversation
+observation. Missing diagnostics remain unavailable; the client never infers
+network or GitHub access from a working folder.
+
+For a recorded Space-only Wake, any member who can read the request and send
+messages can review its shared file revisions and send it to the same target
+as a new task under their current acting Profile. Confirmation explains that
+the sender's permissions apply and the original requester's approvals do not
+carry over. Normal authoring rechecks message, file, and Wake authorization;
+the new task uses the Agent's current permitted settings and computer policy.
+The confirmation also names the destination and possible repeated work. It uses
+normal Space/thread authoring with a stable request id derived from the reviewed
+source revision and content, requester, target and placement. Reopening details,
+reloading, and retrying after either an uncertain or successful response reuse
+that id. The existing Space authoring receipt deduplicates the recovery without
+browser storage or a second server-side recovery store. Starting additional work
+uses the ordinary composer. Main and thread recovery both require current message
+permission, including when confirmation is already open.
+The reviewed request is pinned even if details refresh before confirmation.
+The action preserves the user's composer draft and never clears the retained
+Context. Recalled sources, managed file handoffs and unsupported legacy
+attachments do not receive an automatic request-copy action; the ordinary
+composer remains available for a deliberately authored new task.
+
 Draft editing and opening the `+` and `@` tools do not require permission to
 send. The `+` menu explains why file selection is unavailable when uploads are
 not authorized or a message is still sending. Send and upload authorization

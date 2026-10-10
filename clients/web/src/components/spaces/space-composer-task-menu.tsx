@@ -107,6 +107,11 @@ export function SpaceComposerAgentOptions(input: {
 						</span>
 					</FluidDropdownMenuSubTrigger>
 					<FluidDropdownMenuSubContent className="w-64">
+						<p className="px-2 py-1 text-muted-foreground text-xs">
+							Automatic continuation keeps an earlier session's restrictions,
+							including Space-only access. To use the agent's current settings,
+							choose Start new and Files → Use agent settings.
+						</p>
 						<DropdownMenuRadioGroup
 							onValueChange={(value) => {
 								if (value === "auto" || value === "new") {

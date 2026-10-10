@@ -6,6 +6,7 @@ import {
 import type {
   ExecutionContextAssignment,
   ExecutionContextCompletion,
+  ExecutionContextDiagnostics,
   ExecutionContextScope,
   ExecutionContextTask,
 } from "@openmeld/schemas/types";
@@ -86,6 +87,43 @@ function createWakeContext(
     ownerUserId: record.ownerUserId,
     dispatchId: record.primaryDispatchId,
     runtimeCoordinatorExecutionId: record.runtimeCoordinatorExecutionId,
+  };
+}
+
+export async function readWakeExecutionContextDiagnostics(input: {
+  storage: Pick<Storage, "get">;
+  targetWakeLifecycleId: string;
+  spaceId: string;
+  targetProfileId: string;
+}): Promise<ExecutionContextDiagnostics> {
+  const wake = readWakeContext(
+    await input.storage.get(wakeContextKey(input.targetWakeLifecycleId))
+  );
+  if (!wake) {
+    return {
+      readStatus: "not_recorded",
+      reasonCode: "execution_context.assignment_not_recorded",
+    };
+  }
+  const context = requireContext(
+    await input.storage.get(CONTEXT_PREFIX + wake.contextId)
+  );
+  if (
+    context.assignment.id !== wake.contextId ||
+    context.assignment.scope.spaceId !== input.spaceId ||
+    context.assignment.scope.targetProfileId !== input.targetProfileId
+  ) {
+    throw new ExecutionContextSelectionError(
+      "execution_context.scope_mismatch"
+    );
+  }
+  return {
+    readStatus: "found",
+    contextId: context.assignment.id,
+    access: context.assignment.access,
+    permissionSource:
+      context.assignment.permissionSource ?? "context_restriction",
+    workspace: context.assignment.workspace,
   };
 }
 

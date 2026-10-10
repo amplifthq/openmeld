@@ -34,7 +34,10 @@ import {
   MAX_PROFILE_NAME_LENGTH,
   MAX_TEXT_LENGTH,
 } from "../protocol/constants";
-import { executionContextTaskSchema } from "../protocol/execution-context";
+import {
+  executionContextDiagnosticsSchema,
+  executionContextTaskSchema,
+} from "../protocol/execution-context";
 import { messageEnvelopeSchema } from "../protocol/message-envelope";
 import {
   agentProfileIdSchema,
@@ -1915,18 +1918,21 @@ export const runtimeTransportRuntimeCoordinatorHeadLifecycleTraceRequestSchema =
 export const runtimeTransportRuntimeCoordinatorHeadLifecycleTraceResponseSchema =
   z.discriminatedUnion("readStatus", [
     z.strictObject({
+      executionContext: executionContextDiagnosticsSchema.optional(),
       lifecycle:
         runtimeTransportRuntimeCoordinatorHeadLifecycleTraceRecordSchema,
       ok: z.literal(true),
       readStatus: z.literal("found"),
     }),
     z.strictObject({
+      executionContext: executionContextDiagnosticsSchema.optional(),
       ok: z.literal(true),
       readStatus: z.literal("missing"),
       reasonCode: z.literal("runtime_coordinator.head_lifecycle_not_found"),
       targetWakeLifecycleId: z.string().min(1).max(2048),
     }),
     z.strictObject({
+      executionContext: executionContextDiagnosticsSchema.optional(),
       ok: z.literal(false),
       readStatus: z.literal("authority_unavailable"),
       reasonCode: z.string().min(1).max(160),

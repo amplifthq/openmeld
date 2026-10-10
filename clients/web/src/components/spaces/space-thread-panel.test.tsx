@@ -531,6 +531,55 @@ describe("SpaceThreadPanel", () => {
 		expect(onClose).not.toHaveBeenCalled();
 	});
 
+	it("requires message permission to review and send a new task from a thread", async () => {
+		const details = createMinimalMessageDetailsResponse();
+		details.wakeContext.targets = [
+			{
+				targetProfileId: TARGET_PROFILE_ID,
+				targetLabel: "Runner",
+				taskContext: {
+					assignment: {
+						readStatus: "found",
+						contextId: null,
+						access: "space_context",
+						permissionSource: "context_restriction",
+						workspace: "isolated",
+					},
+					conversationResume: { status: "continued" },
+				},
+			},
+		];
+		details.newTaskSource = {
+			sourceSignalId: "sig-thread-1",
+			sourceRevision: 1,
+			threadId: "thread-1",
+			text: "Review the PR.",
+		};
+		useQueryMock.mockReturnValue({
+			data: details,
+			isError: false,
+			isPending: false,
+		});
+		const { rerenderThreadPanel } = renderThreadPanel({
+			canSendMessage: false,
+		});
+		fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+		fireEvent.click(screen.getByRole("menuitem", { name: "Message details" }));
+		const dialog = await screen.findByRole("dialog", {
+			name: "Message details",
+		});
+		expect(within(dialog).queryByText("Start a new task")).toBeNull();
+		rerenderThreadPanel({ canSendMessage: true });
+		fireEvent.click(within(dialog).getByText("Start a new task"));
+		expect(
+			within(dialog).getByText("Send new task").hasAttribute("disabled")
+		).toBe(false);
+		rerenderThreadPanel({ canSendMessage: false });
+		expect(
+			within(dialog).getByText("Send new task").hasAttribute("disabled")
+		).toBe(true);
+	});
+
 	it("uses the member Agent identity in Message details opened from a thread", async () => {
 		const details = createMinimalMessageDetailsResponse();
 		useQueryMock.mockReturnValue({
@@ -1440,6 +1489,7 @@ function renderThreadPanel(
 	overrides: Partial<ComponentProps<typeof SpaceThreadPanel>> = {}
 ) {
 	const defaultProps = {
+		canSendMessage: true,
 		activeThread: {
 			createdAt: "2026-04-11T00:00:00.000Z",
 			createdByProfileId: "human-profile-1",

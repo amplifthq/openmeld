@@ -11,8 +11,9 @@ import {
   projectTargetWakeLifecycleIdentity,
   RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
+  SPACE_DISPATCH_TRACE_NATIVE_DELIVERY_CONTRACT_VERSION,
   SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
-  SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS,
+  SPACE_DISPATCH_TRACE_WAITING_EVIDENCE_CONTRACT_VERSION,
   spaceDispatchTraceRuntimeCoordinatorHeadLifecycleV1Schema,
   spaceDispatchTraceRuntimeCoordinatorHeadLifecycleV2Schema,
   spaceDispatchTraceRuntimeCoordinatorHeadNoExecutionDecisionV2Schema,
@@ -930,21 +931,24 @@ const readRuntimeCoordinatorHeadLifecycleTrace = async (input: {
       targetWakeLifecycleId: targetWakeLifecycleIdentity.targetWakeLifecycleId,
     };
   }
-  const response = await Promise.resolve(
-    input.readRuntimeCoordinatorHeadLifecycleTrace({
-      dispatch: input.dispatch,
-      ownerUserId,
-      request: {
-        v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
-        targetWakeLifecycleIdentity,
-      },
-    })
-  ).catch(() => ({
-    ok: false as const,
-    readStatus: "authority_unavailable" as const,
-    reasonCode: "runtime_coordinator.head_lifecycle_trace_unavailable",
-    targetWakeLifecycleId: targetWakeLifecycleIdentity.targetWakeLifecycleId,
-  }));
+  const reader = input.readRuntimeCoordinatorHeadLifecycleTrace;
+  const response = await Promise.resolve()
+    .then(() =>
+      reader({
+        dispatch: input.dispatch,
+        ownerUserId,
+        request: {
+          v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+          targetWakeLifecycleIdentity,
+        },
+      })
+    )
+    .catch(() => ({
+      ok: false as const,
+      readStatus: "authority_unavailable" as const,
+      reasonCode: "runtime_coordinator.head_lifecycle_trace_unavailable",
+      targetWakeLifecycleId: targetWakeLifecycleIdentity.targetWakeLifecycleId,
+    }));
   return toRuntimeCoordinatorHeadLifecycleTraceRecord(response);
 };
 function toRuntimeCoordinatorHeadLifecycleTraceRecord(
@@ -952,6 +956,9 @@ function toRuntimeCoordinatorHeadLifecycleTraceRecord(
 ): DispatchTraceRuntimeCoordinatorHeadLifecycleRecord {
   if (response.readStatus === "missing") {
     return {
+      ...(response.executionContext
+        ? { executionContext: response.executionContext }
+        : {}),
       factSource: "runtime_coordinator_head_lifecycle",
       readStatus: "missing",
       reasonCode: response.reasonCode,
@@ -960,6 +967,9 @@ function toRuntimeCoordinatorHeadLifecycleTraceRecord(
   }
   if (response.readStatus === "authority_unavailable") {
     return {
+      ...(response.executionContext
+        ? { executionContext: response.executionContext }
+        : {}),
       factSource: "runtime_coordinator_head_lifecycle",
       readStatus: "authority_unavailable",
       reasonCode: response.reasonCode,
@@ -994,6 +1004,9 @@ function toRuntimeCoordinatorHeadLifecycleTraceRecord(
     };
   }
   return {
+    ...(response.executionContext
+      ? { executionContext: response.executionContext }
+      : {}),
     createdAt: toIsoDateTime(response.lifecycle.createdAtMs),
     duplicateDispatchCount: response.lifecycle.duplicateDispatchCount,
     executionLinkedAt: toNullableIsoDateTime(
@@ -1149,8 +1162,8 @@ async function readSpaceNativeDeliveryTrace(
 ): Promise<SpaceDispatchTraceResponse | null> {
   if (
     input.db &&
-    input.responseContractVersion ===
-      SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION
+    (input.responseContractVersion ?? 1) >=
+      SPACE_DISPATCH_TRACE_NATIVE_DELIVERY_CONTRACT_VERSION
   ) {
     const delivery =
       await readRemoteAgentNativeDeliveryByDispatchAndConversation({
@@ -1217,20 +1230,53 @@ async function readSpaceNativeDeliveryTrace(
   return null;
 }
 
+function projectSpaceDispatchTraceExecutionContext(
+  response: SpaceDispatchTraceResponse
+): SpaceDispatchTraceResponse {
+  const head = response.trace?.runtimeCoordinatorHeadLifecycle;
+  if (!(response.trace && head) || head.executionContext) {
+    return response;
+  }
+  return {
+    ...response,
+    trace: {
+      ...response.trace,
+      runtimeCoordinatorHeadLifecycle: {
+        ...head,
+        executionContext: {
+          readStatus: "authority_unavailable",
+          reasonCode:
+            head.readStatus === "authority_unavailable"
+              ? head.reasonCode
+              : "execution_context.diagnostics_not_reported",
+        },
+      },
+    },
+  };
+}
+
 function projectSpaceDispatchTraceResponseForContractVersion(input: {
   response: SpaceDispatchTraceResponse;
   responseContractVersion?: SpaceDispatchTraceResponseContractVersion;
 }): SpaceDispatchTraceResponse {
+  const currentHead = input.response.trace?.runtimeCoordinatorHeadLifecycle;
   if (
     input.responseContractVersion ===
     SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION
   ) {
-    return input.response;
+    return projectSpaceDispatchTraceExecutionContext(input.response);
   }
   let response = input.response;
+  if (response.trace && currentHead?.executionContext) {
+    const { executionContext: _executionContext, ...legacyHead } = currentHead;
+    response = {
+      ...response,
+      trace: { ...response.trace, runtimeCoordinatorHeadLifecycle: legacyHead },
+    };
+  }
   if (
-    input.responseContractVersion ===
-    SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_PREVIOUS
+    (input.responseContractVersion ?? 1) >=
+    SPACE_DISPATCH_TRACE_WAITING_EVIDENCE_CONTRACT_VERSION
   ) {
     return response;
   }
