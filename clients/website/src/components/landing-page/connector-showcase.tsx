@@ -77,12 +77,13 @@ export function ConnectorShowcase() {
 					<span> Connected.</span>
 				</h2>
 				<p>
-					Connect the apps your team uses. Let your agents work with files,
-					issues, designs, and calendars through the access you grant.
+					Connect your personal tools or your team's apps. Let your agents work
+					with documents, customer records, analytics, and deployments through
+					the access you grant.
 				</p>
 			</div>
 			<p className="sr-only">
-				Available integrations: {integrations.map((app) => app.name).join(", ")}
+				Supported integrations: {integrations.map((app) => app.name).join(", ")}
 				.
 			</p>
 			<div aria-hidden="true" className="meld-connectors-wall">
@@ -96,17 +97,17 @@ export function ConnectorShowcase() {
 				</div>
 			</div>
 			<div className="meld-connectors-footer">
-				<p>{integrations.length} integrations available. More on the way.</p>
+				<p>{integrations.length} supported integrations. More on the way.</p>
 				<Sheet>
 					<SheetTrigger className="meld-connectors-details">
 						See all integrations <PlusIcon aria-hidden size={14} />
 					</SheetTrigger>
 					<SheetContent className="dark meld-connectors-sheet">
 						<SheetHeader>
-							<SheetTitle>Available integrations</SheetTitle>
+							<SheetTitle>Supported integrations</SheetTitle>
 							<SheetDescription>
-								Connect these apps from Plugins in OpenMeld. More integrations
-								are on the way.
+								Connect these apps from Plugins in OpenMeld. Personal accounts
+								stay private. Choose which agents can use each connection.
 							</SheetDescription>
 						</SheetHeader>
 						<ul className="meld-connectors-list">

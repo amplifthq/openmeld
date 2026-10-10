@@ -834,6 +834,14 @@ binding; it receives a named connection and Core-authorized effect, never a
 client-selected provider URL or credential. Center Agent tools and personal
 Remote Agent tools share this provider runtime.
 
+The shared `connectorConnectionScopeAllowed` policy admits member/shared
+ownership for a service. It is not OAuth readiness or an Agent grant. Core
+enforces it before creating a shared authorization, selecting a connection,
+executing a named connection, or adding Agent access. Legacy incompatible
+connections project all-none access but remain readable and disconnectable.
+Revocation audits retain the actual stored previous policy. This changes
+authorization behavior without adding wire fields or moving credentials.
+
 Plugin connection continuation uses the original admitted request and the actual
 published reply Thread. For workstation requests, RuntimeCoordinator exposes a
 strict internal read over its retained command state: execution, account, target,
