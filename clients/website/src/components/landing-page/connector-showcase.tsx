@@ -16,6 +16,7 @@ import { useEffect, useRef, useState } from "react";
 import "./connector-showcase.css";
 
 const plugins = PLUGINS.filter((plugin) => plugin.availability === "available");
+const roundedPluginCount = Math.floor(plugins.length / 10) * 10;
 const sharedBrandNames: Record<string, string> = {
 	"/app-logos/cloudflare.svg": "Cloudflare",
 	"/app-logos/alibaba-cloud.svg": "Alibaba Cloud",
@@ -80,7 +81,7 @@ export function ConnectorShowcase() {
 		>
 			<div className="meld-connectors-copy">
 				<h2 id="connectors-title">
-					50+ plugins.
+					{roundedPluginCount}+ plugins.
 					<br />
 					<span>One connected team.</span>
 				</h2>
