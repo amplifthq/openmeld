@@ -1,19 +1,86 @@
-import type { PostgresDatabase } from "@openmeld/db/postgresql";
+import type { PostgresDatabase, QueryConfig } from "@openmeld/db/postgresql";
 import type {
+  InboxSourceCandidate,
   MutateSpaceInboxReadBody,
   MutateSpaceInboxReadResponse,
 } from "@openmeld/schemas/types";
+import { prepareEnsureInboxItemStatements } from "./inbox-item-service";
 import { INBOX_SPACE_MESSAGE_FILTER, InboxServiceError } from "./inbox-service";
 import { buildCurrentInboxSourceAccessSql } from "./inbox-source-access";
+
 // The same recipient Inbox rows own both visible-message reads and explicit
 // Space-wide reads. Snapshots freeze selection only; they are not a read ledger.
-export async function mutateSpaceInboxRead(input: {
+type SpaceInboxReadInput = {
   db: PostgresDatabase;
   organizationId: string;
   recipientUserId: string;
   body: MutateSpaceInboxReadBody;
   nowMs?: number;
-}): Promise<MutateSpaceInboxReadResponse> {
+  resolveReadCandidates?: (
+    sources: Extract<
+      MutateSpaceInboxReadBody,
+      { operation: "read_sources" }
+    >["sources"]
+  ) => Promise<InboxSourceCandidate[]>;
+};
+
+async function prepareReadSourceStatements(
+  input: SpaceInboxReadInput & {
+    body: Extract<MutateSpaceInboxReadBody, { operation: "read_sources" }>;
+  },
+  now: number
+): Promise<QueryConfig[]> {
+  const { db, body, organizationId, recipientUserId } = input;
+  const existing = await db.query<{
+    source_key: string;
+    occurred_at_ms: number;
+  }>({
+    text: `SELECT source_key, occurred_at_ms FROM "openmeld"."inbox_items" WHERE organization_id = $1 AND recipient_user_id = $2 AND ${INBOX_SPACE_MESSAGE_FILTER} AND source_key IN (SELECT value ->> 'signalId' FROM jsonb_array_elements($3::jsonb))`,
+    values: [organizationId, recipientUserId, JSON.stringify(body.sources)],
+  });
+  const retained = new Set(
+    existing.rows.map(
+      (row) => `${row.source_key}:${Number(row.occurred_at_ms)}`
+    )
+  );
+  const missing = body.sources.filter(
+    (source) => !retained.has(`${source.signalId}:${source.occurredAtMs}`)
+  );
+  if (!missing.length) {
+    return [];
+  }
+  if (!input.resolveReadCandidates) {
+    throw new Error("Space read source owner is unavailable");
+  }
+  const requested = new Set(
+    missing.map((source) => `${source.signalId}:${source.occurredAtMs}`)
+  );
+  const writes: QueryConfig[] = [];
+  for (const candidate of await input.resolveReadCandidates(missing)) {
+    if (
+      candidate.organizationId !== organizationId ||
+      candidate.recipientUserId !== recipientUserId ||
+      candidate.sourceKind !== "space_signal" ||
+      (candidate.sourceTarget.kind !== "space" &&
+        candidate.sourceTarget.kind !== "center_agent") ||
+      candidate.sourceTarget.spaceId !== body.spaceId ||
+      !requested.has(`${candidate.sourceKey}:${candidate.occurredAtMs}`)
+    ) {
+      throw new Error("Space read source identity does not match");
+    }
+    const prepared = await prepareEnsureInboxItemStatements({
+      candidate,
+      db,
+      nowMs: now,
+    });
+    writes.push(...prepared.statements);
+  }
+  return writes;
+}
+
+export async function mutateSpaceInboxRead(
+  input: SpaceInboxReadInput
+): Promise<MutateSpaceInboxReadResponse> {
   const { db, body, organizationId, recipientUserId } = input;
   const now = input.nowMs ?? Date.now();
   const filter = (
@@ -24,6 +91,24 @@ export async function mutateSpaceInboxRead(input: {
     AND ((source_target_json)::jsonb #>> '{spaceId}') = $${parameterOffset + 3}
     AND ${buildCurrentInboxSourceAccessSql("inbox_items")}`;
   const scope = [organizationId, recipientUserId, body.spaceId];
+  if (body.operation === "read_sources") {
+    const writes = await prepareReadSourceStatements({ ...input, body }, now);
+    const result = await db.transaction(async (client) => {
+      for (const statement of writes) {
+        await client.query(statement);
+      }
+      // Publication and read commit together. An outbox retry keeps this read
+      // fact, and notification delivery cannot observe an unread inserted row.
+      return client.query({
+        text: `UPDATE "openmeld"."inbox_items" SET read_at_ms = GREATEST($1, created_at_ms), updated_at_ms = GREATEST($2, updated_at_ms) WHERE ${filter(2)} AND EXISTS (SELECT 1 FROM jsonb_array_elements($6::jsonb) AS selected(value) WHERE selected.value ->> 'signalId' = inbox_items.source_key AND (selected.value ->> 'occurredAtMs')::bigint = inbox_items.occurred_at_ms)`,
+        values: [now, now, ...scope, JSON.stringify(body.sources)],
+      });
+    });
+    return {
+      operation: "read",
+      markedReadCount: Math.max(0, Number(result.rowCount ?? 0)),
+    };
+  }
   if (body.operation === "prepare") {
     const snapshotId = crypto.randomUUID();
     await db.transaction(

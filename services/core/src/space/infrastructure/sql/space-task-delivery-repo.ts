@@ -9,6 +9,7 @@ import type {
 import type { SourceDispatchChainContext } from "../../application/types";
 
 export type SpaceTaskDeliveryKind =
+  | "inbox_projection"
   | "handoff"
   | "completion"
   | "stop"

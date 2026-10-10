@@ -160,7 +160,10 @@ import {
 	MessageReactionsProvider,
 	resolveMessageReactionInput,
 } from "./space-message-reactions";
-import { SpaceMessageReadObserver } from "./space-message-read-observer";
+import {
+	SpaceMessageReadObserver,
+	spaceMessageReadSourceAt,
+} from "./space-message-read-observer";
 import type { SpaceMessageReferencesById } from "./space-message-reference";
 import { SpaceMessageSurface } from "./space-message-surface";
 import { SpaceMessageTime } from "./space-message-time";
@@ -1251,6 +1254,7 @@ function ThreadTimeline(input: {
 												"focus-visible:outline-none data-[highlighted=true]:rounded-md data-[highlighted=true]:bg-muted/50"
 											)}
 											data-message-row-id={item.id}
+											data-message-source-at={item.createdAtMs}
 											data-signal-id={item.id}
 											ref={(element) => {
 												input.registerMessageElement(item.id, element);
@@ -1571,6 +1575,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 								SPACE_MESSAGE_ROW_HOVER_COLOR_CLASS
 							)}
 							data-message-row-id={input.item.id}
+							data-message-source-at={spaceMessageReadSourceAt(input.item)}
 							data-space-self-message={String(isSelfMessage)}
 							data-thread-message
 						>
@@ -2051,27 +2056,36 @@ function renderAnchoredThreadOutcomeRows(input: {
 						})
 					: null;
 				return (
-					<SpaceOutcomeRow
+					<div
+						data-message-read-sources={JSON.stringify(
+							group.notices.map((notice) => ({
+								signalId: notice.id,
+								occurredAtMs: notice.createdAtMs,
+							}))
+						)}
 						key={group.key}
-						onOpenDetails={
-							input.readOnly
-								? null
-								: () => input.onOpenMessageDetails(input.sourceItem)
-						}
-						onRecoverExecution={
-							input.readOnly ? undefined : input.onRecoverExecution
-						}
-						recoveryRequest={recoveryRequest}
-						spaceReferencesById={input.spaceReferencesById}
-						text={resolveGroupedOutcomeRowText({
-							notices: group.notices,
-							readOnly: input.readOnly,
-							resolveTargetLabel: (targetProfileId) =>
-								input.targetLabelsByProfileId.get(targetProfileId) ?? null,
-							tone: group.tone,
-						})}
-						tone={group.tone}
-					/>
+					>
+						<SpaceOutcomeRow
+							onOpenDetails={
+								input.readOnly
+									? null
+									: () => input.onOpenMessageDetails(input.sourceItem)
+							}
+							onRecoverExecution={
+								input.readOnly ? undefined : input.onRecoverExecution
+							}
+							recoveryRequest={recoveryRequest}
+							spaceReferencesById={input.spaceReferencesById}
+							text={resolveGroupedOutcomeRowText({
+								notices: group.notices,
+								readOnly: input.readOnly,
+								resolveTargetLabel: (targetProfileId) =>
+									input.targetLabelsByProfileId.get(targetProfileId) ?? null,
+								tone: group.tone,
+							})}
+							tone={group.tone}
+						/>
+					</div>
 				);
 			})}
 		</>

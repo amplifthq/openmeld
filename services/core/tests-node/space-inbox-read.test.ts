@@ -1,10 +1,74 @@
 import { describe, expect, it } from "vitest";
+import { ensureInboxItem } from "../src/inbox/application/inbox-item-service";
 import { createInboxService } from "../src/inbox/application/inbox-service";
 import { mutateSpaceInboxRead } from "../src/inbox/application/space-inbox-read";
 import { createInboxFeedFixture } from "./helpers/inbox-feed.test-support";
 import { postgresTestBinding } from "./helpers/postgresql-harness.test-support";
 
 describe("Space read selections", () => {
+  it.each([
+    "space",
+    "center_agent",
+  ] as const)("retains an exact visible-source read for %s before projection and through outbox replay", async (targetKind) => {
+    const f = await createInboxFeedFixture();
+    try {
+      const candidate = {
+        ...f.identity,
+        attention: "update" as const,
+        importance: "normal" as const,
+        kind: "space_message" as const,
+        contextLabel: "Design",
+        title: "late",
+        preview: "A source-owned update.",
+        occurredAtMs: 1000,
+        sourceKind: "space_signal" as const,
+        sourceKey: "late",
+        sourceTarget: {
+          kind: targetKind,
+          spaceId: "space",
+          signalId: "late",
+        },
+      };
+      const result = await mutateSpaceInboxRead({
+        db: f.db,
+        ...f.identity,
+        body: {
+          operation: "read_sources",
+          spaceId: "space",
+          sources: [{ signalId: "late", occurredAtMs: 1000 }],
+        },
+        resolveReadCandidates: async () => [candidate],
+      });
+      expect(result).toEqual({ operation: "read", markedReadCount: 1 });
+      const replay = await ensureInboxItem({
+        candidate,
+        db: f.db,
+        nowMs: 2000,
+      });
+      const service = createInboxService({ db: f.db });
+      expect(
+        (await service.get({ ...f.identity, itemId: replay.itemId })).item
+          .readAt
+      ).not.toBeNull();
+      expect((await service.spaceSummary(f.identity)).spaces).toEqual([]);
+      await f.item("unseen");
+      await mutateSpaceInboxRead({
+        db: f.db,
+        ...f.identity,
+        body: {
+          operation: "read_sources",
+          spaceId: "space",
+          sources: [{ signalId: "unseen", occurredAtMs: 999 }],
+        },
+        resolveReadCandidates: async () => [],
+      });
+      expect(
+        (await service.spaceSummary(f.identity)).spaces[0]?.unreadCount
+      ).toBe(1);
+    } finally {
+      await f.close();
+    }
+  });
   it("keeps a dismissed message unread in its conversation until it is actually read", async () => {
     const f = await createInboxFeedFixture();
     try {

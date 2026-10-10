@@ -825,7 +825,7 @@ describe("Space Inbox projection", () => {
     ).toBeNull();
   });
 
-  it("delivers a terminal Wake failure as an urgent update only to the exact requester", () => {
+  it("delivers a terminal Wake failure to members with urgency only for the exact requester", () => {
     const signal = systemNoticeSignal({
       noticeType: "terminal_failure",
       replyToSignalId: "signal-wake-source",
@@ -857,13 +857,19 @@ describe("Space Inbox projection", () => {
         },
         title: "Agent couldn't finish in Operations",
       }),
+      expect.objectContaining({
+        recipientUserId: "user-observer",
+        attention: "update",
+        importance: "normal",
+        kind: "wake_outcome",
+      }),
     ]);
   });
 
   it.each([
     "policy_blocked",
     "stay_silent",
-  ] as const)("delivers a %s Wake ending only to the exact requester as an ordinary update", (noticeType) => {
+  ] as const)("delivers a %s Wake ending to conversation members as an ordinary update", (noticeType) => {
     const signal = systemNoticeSignal({
       noticeType,
       text:
@@ -891,6 +897,11 @@ describe("Space Inbox projection", () => {
         recipientUserId: "user-requester",
         title: "Agent update in Operations",
       }),
+      expect.objectContaining({
+        recipientUserId: "user-observer",
+        importance: "normal",
+        kind: "wake_outcome",
+      }),
     ]);
   });
 
@@ -914,7 +925,7 @@ describe("Space Inbox projection", () => {
     "blocked",
     "needs_input",
     "handoff",
-  ] as const)("delivers a %s final status only to the exact Wake requester", (status) => {
+  ] as const)("delivers a %s final status to conversation members", (status) => {
     const signal = statusSignal({ status });
     const record = buildSpaceInboxProjectionOutboxRecord({
       activeMemberRecords: [
@@ -934,6 +945,12 @@ describe("Space Inbox projection", () => {
         importance: "normal",
         kind: "wake_outcome",
         recipientUserId: "user-requester",
+        sourceKey: "signal-status-1",
+      }),
+      expect.objectContaining({
+        recipientUserId: "user-observer",
+        importance: "normal",
+        kind: "wake_outcome",
         sourceKey: "signal-status-1",
       }),
     ]);
@@ -1216,6 +1233,11 @@ describe("Space Inbox projection", () => {
       }),
     };
     expect(buildSpaceInboxProjectionOutboxRecord(input)?.candidates).toEqual([
+      expect.objectContaining({
+        recipientUserId: "reader",
+        kind: "agent_reply",
+        importance: "normal",
+      }),
       expect.objectContaining({
         recipientUserId: "owner",
         kind: "agent_reply",

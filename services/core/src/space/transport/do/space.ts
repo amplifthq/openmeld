@@ -63,11 +63,13 @@ import {
   getSpaceDispatchLookupInputSchema,
   getSpaceDispatchResultInputSchema,
   getSpaceDispatchResultResponseSchema,
+  getSpaceInboxReadCandidatesInputSchema,
   getSpaceMessageDetailsInputSchema,
   getSpaceStatusInputSchema,
   getSpaceUpdatesInputSchema,
   getSpaceWakeProgressInputSchema,
   getSpaceWakeTraceWaterfallInputSchema,
+  inboxSourceCandidateSchema,
   isHostedAgentControllerRef,
   isHostedAgentRuntimeKind,
   isLocalSpaceExecutionInput,
@@ -192,6 +194,7 @@ import type {
   GetActiveSpaceWakeProgressResponse,
   GetSpaceConversationStateResponse,
   GetSpaceDispatchLookupResponse,
+  GetSpaceInboxReadCandidatesInput,
   GetSpaceMessageDetailsResponse,
   GetSpaceMessageReactionsResponse,
   GetSpaceStatusResponse,
@@ -199,6 +202,7 @@ import type {
   GetSpaceUpdatesResponse,
   GetSpaceWakeProgressResponse,
   GetSpaceWakeTraceWaterfallResponse,
+  InboxSourceCandidate,
   InspectExecutionRecoveryResponse,
   LeaveSpaceResponse,
   ListSpaceFileRevisionsResponse,
@@ -580,6 +584,7 @@ import {
 import {
   attemptSpaceInboxProjectionOutboxRecord,
   resolveSpaceInboxRecipientEligibility,
+  selectSpaceInboxRecipients,
 } from "../../application/space-inbox-projection-outbox-service";
 import {
   addSpaceMembersUseCase,
@@ -636,8 +641,8 @@ import {
   isSpaceTaskStopSuperseded,
   resolveSpaceTaskHumanDecisionTarget,
   SpaceTaskDeliveryError,
-  taskMutationMayNeedDelivery,
 } from "../../application/space-task-delivery";
+import { projectSpaceTaskInbox } from "../../application/space-task-inbox-projection";
 import {
   createSpaceTaskForMessage,
   withSpaceTaskDispatchContext,
@@ -751,9 +756,11 @@ import {
 import { SpaceFileUpdateRepository } from "../../infrastructure/sql/space-file-update-repo";
 import { readSpaceHistoryNavigationGroups } from "../../infrastructure/sql/space-history-navigation-repo";
 import {
+  freezeSpaceInboxProjectionSelection,
   insertSpaceInboxProjectionOutboxRecord,
   listDueSpaceInboxProjectionOutboxRecords,
   readNextSpaceInboxProjectionOutboxAlarmAtMs,
+  readSpaceInboxProjectionOutboxRecord,
 } from "../../infrastructure/sql/space-inbox-projection-outbox-repo";
 import {
   createActiveSpaceIndexProjectionOutboxRecord,
@@ -9014,10 +9021,7 @@ export class Space extends DurableObject<CoreBindings> {
                   taskContext,
                   normalizedBody.sourceSignalId ?? null
                 );
-                await this.armSpaceTaskRecovery(
-                  (normalizedBody.externalWorkItems?.length ?? 0) > 0 ||
-                    (normalizedBody.projectIds?.length ?? 0) > 0
-                );
+                await this.armSpaceTaskRecovery();
                 const receipt = this.createSpaceTaskService(context).create(
                   normalizedBody,
                   createContext
@@ -9066,7 +9070,7 @@ export class Space extends DurableObject<CoreBindings> {
       this.bindings.OPENMELD_POSTGRESQL,
       async () => {
         this.applySpaceRef(input.spaceId);
-        await this.armSpaceTaskRecovery(true);
+        await this.armSpaceTaskRecovery();
         const result = this.spaceTaskService.applyGitHubIssueObservation(input);
         if (result.task && (result.observed || result.canceled)) {
           await this.broadcastSpaceTasksChanged(
@@ -9164,7 +9168,15 @@ export class Space extends DurableObject<CoreBindings> {
       ...detail,
       allowedActions: projectSpaceTaskAllowedActions(detail.task, context),
       pendingActions: context
-        ? new SpaceTaskDeliveryRepository(this.ctx.storage.sql).status(taskId)
+        ? new SpaceTaskDeliveryRepository(this.ctx.storage.sql)
+            .status(taskId)
+            .filter(
+              (
+                action
+              ): action is NonNullable<
+                SpaceTaskResponse["pendingActions"]
+              >[number] => action.kind !== "inbox_projection"
+            )
         : [],
     };
   }
@@ -9173,14 +9185,7 @@ export class Space extends DurableObject<CoreBindings> {
     context: CoreRpcContextInput,
     taskContext: SpaceTaskMutationContext
   ): Promise<SpaceTaskMutationReceipt> {
-    const currentProjectIds = this.spaceTaskService.read(input.taskId).task
-      .projectIds;
-    await this.armSpaceTaskRecovery(
-      taskMutationMayNeedDelivery(input.body.action) ||
-        currentProjectIds.length > 0 ||
-        (input.body.action === "set_projects" &&
-          input.body.projectIds.length > 0)
-    );
+    await this.armSpaceTaskRecovery();
     if (input.body.action === "cancel") {
       this.captureSpaceTaskWakeReferences(input.taskId);
     }
@@ -9195,10 +9200,7 @@ export class Space extends DurableObject<CoreBindings> {
     await this.flushPendingSpaceTaskDeliveries();
     return receipt;
   }
-  private async armSpaceTaskRecovery(mayEnqueue: boolean): Promise<void> {
-    if (!mayEnqueue) {
-      return;
-    }
+  private async armSpaceTaskRecovery(): Promise<void> {
     // Arm before the Task transaction: a post-commit check cannot recover
     // a process interruption between writing the intent and scheduling it.
     const recoveryAt = Date.now() + 1000;
@@ -9263,6 +9265,10 @@ export class Space extends DurableObject<CoreBindings> {
     if (!isSpaceTaskDeliveryCurrent(delivery, current)) {
       return;
     }
+    if (delivery.kind === "inbox_projection") {
+      await this.projectCurrentSpaceTaskInbox(current);
+      return;
+    }
     if (
       delivery.kind === "stop" &&
       isSpaceTaskStopSuperseded(
@@ -9289,37 +9295,7 @@ export class Space extends DurableObject<CoreBindings> {
     }
     const context = await this.resolveSpaceTaskDeliveryActor(delivery);
     if (delivery.kind === "stop") {
-      let failure: SpaceTaskDeliveryError | null = null;
-      for (const target of delivery.wakeTargets ?? []) {
-        // The retained Task cancellation grants only its recorded exact Wake targets Stop authority.
-        try {
-          const response = await this.handlePostWakeStop(
-            {
-              reason: delivery.receipt.event.detail ?? "Space Task canceled.",
-              target: { by: "source_signal", ...target },
-            },
-            context,
-            delivery
-          );
-          if (!response.ok && response.status !== "not_found") {
-            failure = new SpaceTaskDeliveryError(
-              "The Task is canceled, but an execution could not be stopped. OpenMeld will retry."
-            );
-          }
-        } catch (error) {
-          console.warn("[core.space.task_stop_failed]", {
-            taskId: current.taskId,
-            error: formatUnknownErrorMessage(error),
-          });
-          failure = new SpaceTaskDeliveryError(
-            "The Task is canceled. An execution could not be stopped; its requester or Agent owner can stop it from Messages.",
-            true
-          );
-        }
-      }
-      if (failure) {
-        throw failure;
-      }
+      await this.deliverSpaceTaskStop(delivery, context);
       return;
     }
     await this.publishTaskHandoffAfterMutation(
@@ -9327,6 +9303,82 @@ export class Space extends DurableObject<CoreBindings> {
       delivery.sourceDispatchChainContext,
       delivery.id
     );
+  }
+  private async deliverSpaceTaskStop(
+    delivery: SpaceTaskDelivery,
+    context: CoreRpcContextInput
+  ): Promise<void> {
+    let failure: SpaceTaskDeliveryError | null = null;
+    for (const target of delivery.wakeTargets ?? []) {
+      // The retained Task cancellation grants only its recorded exact Wake targets Stop authority.
+      try {
+        const response = await this.handlePostWakeStop(
+          {
+            reason: delivery.receipt.event.detail ?? "Space Task canceled.",
+            target: { by: "source_signal", ...target },
+          },
+          context,
+          delivery
+        );
+        if (!response.ok && response.status !== "not_found") {
+          failure = new SpaceTaskDeliveryError(
+            "The Task is canceled, but an execution could not be stopped. OpenMeld will retry."
+          );
+        }
+      } catch (error) {
+        console.warn("[core.space.task_stop_failed]", {
+          taskId: delivery.receipt.task.taskId,
+          error: formatUnknownErrorMessage(error),
+        });
+        failure = new SpaceTaskDeliveryError(
+          "The Task is canceled. An execution could not be stopped; its requester or Agent owner can stop it from Messages.",
+          true
+        );
+      }
+    }
+    if (failure) {
+      throw failure;
+    }
+  }
+  private async projectCurrentSpaceTaskInbox(task: SpaceTask): Promise<void> {
+    const meta = this.readSpaceMetaRecord();
+    if (!meta?.organizationId) {
+      throw new Error("Task Inbox source Organization is unavailable");
+    }
+    const thread = task.threadId
+      ? readSpaceThread(this.ctx.storage.sql, task.threadId)
+      : null;
+    const userIds = await projectSpaceTaskInbox({
+      task,
+      events: new SpaceTaskRepository(this.ctx.storage.sql).listEvents(
+        task.taskId
+      ),
+      activeMembers: listSpaceMemberRecords(this.ctx.storage.sql, {
+        status: "active",
+      })
+        .filter(
+          (member) =>
+            member.profileKindSnapshot === "human" ||
+            member.profileKindSnapshot === "agent"
+        )
+        .map(toSpaceTaskActor),
+      ownerUserIds: meta.ownerUserIds ?? [],
+      organizationId: meta.organizationId,
+      spaceName: meta.name ?? null,
+      ...(thread ? { threadRootSignalId: thread.rootSignalId } : {}),
+      db: this.requireSpaceIndexDb(),
+      nowMs: Date.now(),
+    });
+    if (userIds.length) {
+      this.ctx.waitUntil(
+        publishAccountInvalidation({
+          env: this.bindings,
+          frame: { type: "inbox.changed" },
+          organizationId: meta.organizationId,
+          userIds,
+        })
+      );
+    }
   }
   private async resolveSpaceTaskDeliveryActor(
     delivery: SpaceTaskDelivery
@@ -19520,6 +19572,101 @@ export class Space extends DurableObject<CoreBindings> {
     }
     await this.syncSpaceBackgroundAlarm();
   }
+  async rpcGetSpaceInboxReadCandidates(
+    raw: GetSpaceInboxReadCandidatesInput
+  ): Promise<InboxSourceCandidate[]> {
+    const input = getSpaceInboxReadCandidatesInputSchema.parse(raw);
+    this.applySpaceRef(input.spaceId);
+    if (this.readSpaceMetaRecord()?.organizationId !== input.organizationId) {
+      throw new Error("Space read source Organization does not match");
+    }
+    const candidates: InboxSourceCandidate[] = [];
+    for (const source of input.sources) {
+      const record = readSpaceInboxProjectionOutboxRecord(
+        this.ctx.storage.sql,
+        source.signalId
+      );
+      if (!record) {
+        continue;
+      }
+      const selected = await selectSpaceInboxRecipients(
+        record.candidates.filter(
+          (candidate) =>
+            candidate.recipientUserId === input.recipientUserId &&
+            candidate.occurredAtMs === source.occurredAtMs
+        ),
+        (candidate) => this.canReceiveSpaceInboxAgentActivity(candidate)
+      );
+      for (const candidate of selected) {
+        if (!(await this.isSpaceInboxRecipientEligible(candidate))) {
+          continue;
+        }
+        const prepared = await prepareSpaceInboxCandidateForCenterAgent({
+          candidate,
+          db: this.requireSpaceIndexDb(),
+        });
+        candidates.push(
+          freezeSpaceInboxProjectionSelection(this.ctx.storage.sql, {
+            projectionId: record.projectionId,
+            candidate: prepared,
+          })
+        );
+      }
+    }
+    return inboxSourceCandidateSchema.array().parse(candidates);
+  }
+
+  private canReceiveSpaceInboxAgentActivity(
+    candidate: InboxSourceCandidate
+  ): Promise<boolean> {
+    const reply =
+      candidate.kind === "agent_reply"
+        ? this.readSignalById(candidate.sourceKey)
+        : null;
+    return canReceivePersonalAgentActivity({
+      db: this.requireSpaceIndexDb(),
+      organizationId: candidate.organizationId,
+      userId: candidate.recipientUserId,
+      agentProfileIds: listSpaceMemberRecords(this.ctx.storage.sql, {
+        status: "active",
+      })
+        .filter(
+          (member) =>
+            member.profileKindSnapshot === "agent" &&
+            (!candidate.sourceFacts ||
+              candidate.sourceFacts.personalAgentProfileIds?.includes(
+                member.profileId
+              )) &&
+            (candidate.kind !== "agent_reply" ||
+              (reply?.type === "signal.text" &&
+                reply.profile.kind === "agent" &&
+                reply.profile.profileId === member.profileId))
+        )
+        .map((member) => member.profileId),
+    });
+  }
+
+  private isSpaceInboxRecipientEligible(
+    candidate: InboxSourceCandidate
+  ): Promise<boolean> {
+    return resolveSpaceInboxRecipientEligibility({
+      candidate,
+      hasActiveSpaceMembership:
+        (candidate.sourceTarget.kind === "space" &&
+          candidate.sourceTarget.agentOwnerActivity === true) ||
+        hasActiveHumanSpaceMemberRecordForOwnerUserId(
+          this.ctx.storage.sql,
+          candidate.recipientUserId
+        ),
+      readAccountIdentity: () =>
+        readOrganizationAccountIdentityProjection({
+          account: { kind: "user_id", userId: candidate.recipientUserId },
+          authWorker: this.bindings.OPENMELD_AUTH_WORKER,
+          organizationId: candidate.organizationId,
+        }),
+    });
+  }
+
   private async flushPendingSpaceInboxProjectionOutbox(): Promise<void> {
     if (!supportsDurableObjectAlarms(this.ctx?.storage)) {
       return;
@@ -19535,53 +19682,10 @@ export class Space extends DurableObject<CoreBindings> {
       const targetInboxDb = getPostgresDatabase(this.bindings);
       const result = await attemptSpaceInboxProjectionOutboxRecord({
         db: targetInboxDb,
-        canReceiveAgentActivity: (candidate) => {
-          const reply =
-            candidate.kind === "agent_reply"
-              ? this.readSignalById(candidate.sourceKey)
-              : null;
-          return canReceivePersonalAgentActivity({
-            db: this.requireSpaceIndexDb(),
-            organizationId: candidate.organizationId,
-            userId: candidate.recipientUserId,
-            agentProfileIds: listSpaceMemberRecords(this.ctx.storage.sql, {
-              status: "active",
-            })
-              .filter(
-                (member) =>
-                  member.profileKindSnapshot === "agent" &&
-                  (!candidate.sourceFacts ||
-                    candidate.sourceFacts.personalAgentProfileIds?.includes(
-                      member.profileId
-                    )) &&
-                  (candidate.kind !== "agent_reply" ||
-                    (reply?.type === "signal.text" &&
-                      reply.profile.kind === "agent" &&
-                      reply.profile.profileId === member.profileId))
-              )
-              .map((member) => member.profileId),
-          });
-        },
-        isRecipientEligible: async (candidate) =>
-          await resolveSpaceInboxRecipientEligibility({
-            candidate,
-            hasActiveSpaceMembership:
-              (candidate.sourceTarget.kind === "space" &&
-                candidate.sourceTarget.agentOwnerActivity === true) ||
-              hasActiveHumanSpaceMemberRecordForOwnerUserId(
-                this.ctx.storage.sql,
-                candidate.recipientUserId
-              ),
-            readAccountIdentity: async () =>
-              await readOrganizationAccountIdentityProjection({
-                account: {
-                  kind: "user_id",
-                  userId: candidate.recipientUserId,
-                },
-                authWorker: this.bindings.OPENMELD_AUTH_WORKER,
-                organizationId: candidate.organizationId,
-              }),
-          }),
+        canReceiveAgentActivity: (candidate) =>
+          this.canReceiveSpaceInboxAgentActivity(candidate),
+        isRecipientEligible: (candidate) =>
+          this.isSpaceInboxRecipientEligible(candidate),
         prepareCandidate: (candidate) =>
           prepareSpaceInboxCandidateForCenterAgent({
             candidate,

@@ -15,6 +15,7 @@ import {
   inboxMessageNotificationPreferencesResponseSchema,
   inboxNotificationObservationsResponseSchema,
   inboxNotificationPreferencesResponseSchema,
+  inboxSourceCandidateSchema,
   inboxSummaryResponseSchema,
   listInboxFeedRpcInputSchema,
   listInboxItemsResponseSchema,
@@ -81,6 +82,7 @@ import { reconcileInvitationInbox } from "../../../organizations/invitation-inbo
 import { resolveActiveOrganizationMembership } from "../../../organizations/organization-context";
 import { reconcileTaskContinuationInbox } from "../../../remote-agent/application/native-delivery-inbox-reconciliation";
 import { createCoreRpcHttpError } from "../../../rpc/errors";
+import { resolveSpaceStub } from "../../../rpc/space-ref";
 import {
   createInboxFeedService,
   type InboxFeedMeasure,
@@ -108,6 +110,27 @@ export async function rpcMutateSpaceInboxRead(
         organizationId: prepared.organizationId,
         recipientUserId: prepared.userId,
         body: request.body,
+        resolveReadCandidates: async (sources) => {
+          const space = resolveSpaceStub(
+            env.OPENMELD_SPACES,
+            request.body.spaceId
+          );
+          if (!space) {
+            throw new InboxServiceError({
+              code: "inbox.space_not_found",
+              status: 404,
+              message: "This Space is unavailable.",
+            });
+          }
+          return inboxSourceCandidateSchema.array().parse(
+            await space.rpcGetSpaceInboxReadCandidates({
+              spaceId: request.body.spaceId,
+              organizationId: prepared.organizationId,
+              recipientUserId: prepared.userId,
+              sources,
+            })
+          );
+        },
       })
     )
   );
@@ -357,6 +380,7 @@ export async function rpcGetSpaceInboxUnreadTargets(
     await runService(() =>
       prepared.service.spaceUnreadTargets({
         includeItemIds: request.includeItemIds,
+        includeSourceKeys: request.includeSourceKeys,
         organizationId: prepared.organizationId,
         recipientUserId: prepared.userId,
         spaceId: request.spaceId,

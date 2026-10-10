@@ -392,6 +392,7 @@ export function createInboxService(input: {
     },
     async spaceUnreadTargets(targetInput: {
       includeItemIds?: boolean;
+      includeSourceKeys?: boolean;
       organizationId: string;
       recipientUserId: string;
       spaceId: string;
@@ -424,7 +425,7 @@ export function createInboxService(input: {
         source_target_json: string;
       }>({
         text: `
-            SELECT id, occurred_at_ms, source_target_json
+            SELECT id, source_key, occurred_at_ms, source_target_json
             FROM "openmeld"."inbox_items"
             WHERE ${filters}
               AND ((source_target_json)::jsonb #>> '{signalId}') IS NOT NULL
@@ -454,6 +455,7 @@ export function createInboxService(input: {
       const totalUnreadCount = countValue(countRow?.unread_count);
       const rows = (targetResult.rows ?? []) as Array<{
         id: string;
+        source_key: string;
         occurred_at_ms: number;
         source_target_json: string;
       }>;
@@ -473,6 +475,9 @@ export function createInboxService(input: {
           }
           return {
             ...(targetInput.includeItemIds ? { itemId: row.id } : {}),
+            ...(targetInput.includeSourceKeys
+              ? { sourceKey: row.source_key }
+              : {}),
             occurredAtMs: nonnegativeIntegerValue(row.occurred_at_ms),
             signalId: parsed.data.signalId,
             threadRootSignalId:
