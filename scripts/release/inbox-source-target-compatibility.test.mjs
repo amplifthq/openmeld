@@ -12,6 +12,7 @@ import { assertProductionStageAdmission } from "./production-stage-admission.mjs
 import { parseUnambiguousConfig } from "./remote-ai-usage-compatibility.mjs";
 
 const TARGET = "086b13c757830db13916b992587556f10f6284d0";
+const CURRENT_TARGET = "1eaeaa6fc189df89797d770291286a308d2d4b17";
 const CORE_BASE = "96cb28b5a32f3757c6fd2b78ede81044a45a5a6b";
 const CLIENT_BASE = "2de34997f690f3c6bc87c396a2a40e040a96051c";
 const INBOX = "packages/schemas/src/schemas/http/inbox.ts";
@@ -38,22 +39,22 @@ function readOriginal(sha, file) {
   }
   return originals.get(key);
 }
-function context(overrides = new Map(), base = CLIENT_BASE) {
+function context(overrides = new Map(), base = CLIENT_BASE, target = TARGET) {
   return {
     base,
-    sourceSha: TARGET,
+    sourceSha: target,
     readGitFile(sha, file) {
-      if (![base, TARGET].includes(sha)) {
+      if (![base, target].includes(sha)) {
         throw new Error("Read exact product source, not release-control HEAD.");
       }
-      return sha === TARGET && overrides.has(file)
+      return sha === target && overrides.has(file)
         ? overrides.get(file)
         : readOriginal(sha, file);
     },
   };
 }
-function changed(file, before, after) {
-  const original = readOriginal(TARGET, file);
+function changed(file, before, after, target = TARGET) {
+  const original = readOriginal(target, file);
   if (!original.includes(before)) {
     throw new Error(`Real counterexample location missing: ${file}`);
   }
@@ -405,4 +406,178 @@ test("actual plan and stage retain membership receiver-first without any target 
   receiver.state = "current";
   receiver.sha = TARGET;
   assert.doesNotThrow(() => assertProductionStageAdmission(stage));
+});
+
+test("merged product query, source-read and native rejection preserve both actual target baselines", () => {
+  for (const base of [CORE_BASE, CLIENT_BASE]) {
+    assert.equal(
+      hasUnchangedInboxSourceTargetContract(
+        context(new Map(), base, CURRENT_TARGET)
+      ),
+      true
+    );
+  }
+});
+
+test("merged query and source-read imports cannot change targets or escape the exact delegate", () => {
+  const cases = [
+    [
+      "packages/api-client/src/inbox/api.ts",
+      "const query = new URLSearchParams();",
+      "client.requestJson = hijackedRequest; const query = new URLSearchParams();",
+    ],
+    [
+      "packages/api-client/src/inbox/api.ts",
+      'query.set("includeSourceKeys", "true");',
+      'query.set("sourceTarget", "unknown");',
+    ],
+    [
+      "packages/api-client/src/inbox/api.ts",
+      "schema: spaceInboxUnreadTargetsResponseSchema,",
+      "schema: inboxItemSchema,",
+    ],
+    [
+      CORE_RPC,
+      'from "../../../rpc/space-ref"',
+      'from "../../../rpc/unknown-space-ref"',
+    ],
+    [
+      CORE_RPC,
+      "import { resolveSpaceStub }",
+      "import { changedStub as resolveSpaceStub }",
+    ],
+    [
+      CORE_RPC,
+      "resolveReadCandidates: async (sources) => {",
+      "resolveReadCandidates: async (sources) => { const resolveSpaceStub = changedStub;",
+    ],
+    [
+      CORE_RPC,
+      "const request = parseRequest(mutateSpaceInboxReadRpcInputSchema, input);",
+      "const request = parseRequest(mutateSpaceInboxReadRpcInputSchema, input); resolveSpaceStub = changedStub;",
+    ],
+    [
+      CORE_RPC,
+      "return inboxSourceCandidateSchema.array().parse(",
+      "return inboxSourceCandidateSchema.transform(changeTarget).array().parse(",
+    ],
+    [
+      CORE_RPC,
+      "export async function rpcGetSpaceInboxUnreadTargets(",
+      "function unrelatedTargetWriter() { return resolveSpaceStub(changedBindings, changedTarget); } export async function rpcGetSpaceInboxUnreadTargets(",
+    ],
+    [
+      NATIVE,
+      '...input,\n      failureCode: "space.handoff.code_receiver_unsupported",',
+      '...input, message: changedTargetMessage,\n      failureCode: "space.handoff.code_receiver_unsupported",',
+    ],
+    [
+      NATIVE,
+      "const failureTarget = await resolveRemoteAgentFailureTarget({",
+      "input.message.spaceId = changedTarget; const failureTarget = await resolveRemoteAgentFailureTarget({",
+    ],
+    [
+      NATIVE,
+      "const tasks: AgentTaskHandle[] = [",
+      "input.delivery.spaceId = changedTarget; const tasks: AgentTaskHandle[] = [",
+    ],
+    [
+      NATIVE,
+      "  spaceCodeWorkHandoffSchema,",
+      "  otherPredicate as spaceCodeWorkHandoffSchema,",
+    ],
+    [
+      "packages/schemas/src/index.ts",
+      '} from "./space-work-handoff";',
+      '} from "./unknown-handoff";',
+    ],
+  ];
+  for (const base of [CORE_BASE, CLIENT_BASE]) {
+    for (const [file, before, after] of cases) {
+      const value = context(
+        changed(file, before, after, CURRENT_TARGET),
+        base,
+        CURRENT_TARGET
+      );
+      assert.equal(
+        hasUnchangedInboxSourceTargetContract(value),
+        false,
+        `${base}:${file}:${before}`
+      );
+      assert.throws(
+        () =>
+          buildProductionReleasePlan({
+            ...value,
+            changedPaths: PATHS,
+            scope: "core",
+            databaseBackend: "postgresql",
+          }),
+        REQUIRED_TARGET_SCOPES
+      );
+    }
+  }
+});
+
+test("current actual plan keeps membership and visible-source obligations independent", () => {
+  const value = context(new Map(), CLIENT_BASE, CURRENT_TARGET);
+  const paths = execFileSync(
+    "git",
+    ["diff", "--name-only", CLIENT_BASE, CURRENT_TARGET],
+    { encoding: "utf8" }
+  )
+    .trim()
+    .split("\n");
+  const obligations = resolveProductionCompatibilityObligations(
+    paths,
+    false,
+    value
+  ).filter(
+    (item) =>
+      item.receiver === "core" &&
+      item.producer === "gateway" &&
+      ["inbox-membership-opt-in", "visible-source-read"].includes(item.contract)
+  );
+  assert.deepEqual(obligations.map((item) => item.contract).sort(), [
+    "inbox-membership-opt-in",
+    "visible-source-read",
+  ]);
+  for (const proved of obligations) {
+    const core = { scope: "core", state: "pending", sha: CORE_BASE };
+    const gateway = {
+      scope: "gateway",
+      state: "pending",
+      sha: CLIENT_BASE,
+      compatibilityObligations: obligations,
+      compatibilityDependencies: [["core", "gateway"]],
+      compatibilityReceiverWitnesses: [
+        {
+          receiver: "core",
+          producer: "gateway",
+          contracts: [proved.contract],
+          evidence: {
+            result: "match",
+            baselineSha: CORE_BASE,
+            targetSha: CURRENT_TARGET,
+          },
+        },
+      ],
+    };
+    const stage = {
+      sourceSha: CURRENT_TARGET,
+      components: [core, gateway],
+      selectedScopes: ["gateway"],
+    };
+    assert.throws(
+      () => assertProductionStageAdmission(stage),
+      PENDING_RECEIVER
+    );
+    core.state = "unknown";
+    assert.throws(
+      () => assertProductionStageAdmission(stage),
+      UNKNOWN_RECEIVER
+    );
+    core.state = "current";
+    core.sha = CURRENT_TARGET;
+    assert.doesNotThrow(() => assertProductionStageAdmission(stage));
+  }
 });

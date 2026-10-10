@@ -62,7 +62,6 @@ const UNCHANGED_FILES = [
   "packages/db/src/postgresql.ts",
   "packages/db/package.json",
   "packages/db/tsdown.config.ts",
-  "packages/api-client/src/inbox/api.ts",
   "packages/api-client/src/inbox/routes.ts",
   "packages/api-client/src/inbox/notification-policy.ts",
   "packages/api-client/src/client.ts",
@@ -88,6 +87,7 @@ const UNCHANGED_FILES = [
   "services/core/src/remote-agent/application/native-delivery-inbox-producer.ts",
   "services/core/src/remote-agent/application/slack-inbox-source-target.ts",
   "services/core/src/runtime-transport/application/runtime-coordinator-interaction-inbox-producer.ts",
+  "services/core/src/rpc/space-ref.ts",
 ];
 const MEMBERSHIP_PROJECTORS = [
   "projectSpaceInboxSummaryForMembershipReceiver",
@@ -144,6 +144,13 @@ export function hasUnchangedInboxSourceTargetContract(context) {
         const [a, b] = pair(file);
         return a === b;
       })
+    ) {
+      return false;
+    }
+    const api = syntaxPair("packages/api-client/src/inbox/api.ts");
+    if (
+      normalizeUnreadTargetsQuery(api[0]) !==
+      normalizeUnreadTargetsQuery(api[1])
     ) {
       return false;
     }
@@ -271,11 +278,17 @@ export function hasUnchangedInboxSourceTargetContract(context) {
     }
     if (
       !(
-        sameImports(core, MEMBERSHIP_PROJECTORS) &&
+        sameImports(core, MEMBERSHIP_PROJECTORS, true) &&
         sameImports(gateway, MEMBERSHIP_PROJECTORS)
       )
     ) {
       return false;
+    }
+    for (const file of core) {
+      assertUnreadSourcePassthrough(file, "core");
+    }
+    for (const file of gateway) {
+      assertUnreadSourcePassthrough(file, "gateway");
     }
     if (!GATEWAY_PROJECTIONS.every((name) => sameNamed(gateway, name))) {
       return false;
@@ -300,7 +313,7 @@ export function hasUnchangedInboxSourceTargetContract(context) {
     const nativeFile =
       "services/core/src/remote-agent/application/native-delivery-service.ts";
     const native = pair(nativeFile).map((source) =>
-      normalizeNativeTime(source, nativeFile)
+      normalizeNativeTime(source, nativeFile, read, context)
     );
     if (native[0] !== native[1]) {
       return false;
@@ -495,7 +508,12 @@ function rejectLocalTargetBindings(owner, names) {
   };
   visit(owner.body);
 }
-function sameImports(files, ignored = []) {
+function sameImports(files, ignored = [], sourceRead = false) {
+  if (sourceRead) {
+    for (const file of files) {
+      assertExclusiveSourceReadBindings(file);
+    }
+  }
   const imports = (file) =>
     file.statements.filter(ts.isImportDeclaration).flatMap((node) => {
       if (node.importClause?.isTypeOnly) {
@@ -511,7 +529,13 @@ function sameImports(files, ignored = []) {
                 binding.isTypeOnly ||
                 (node.moduleSpecifier.text === "@openmeld/schemas" &&
                   !binding.propertyName &&
-                  ignored.includes(binding.name.text))
+                  (ignored.includes(binding.name.text) ||
+                    (sourceRead &&
+                      binding.name.text === "inboxSourceCandidateSchema"))) ||
+                (sourceRead &&
+                  node.moduleSpecifier.text === "../../../rpc/space-ref" &&
+                  !binding.propertyName &&
+                  binding.name.text === "resolveSpaceStub")
               )
           )
           .map(tokens);
@@ -529,6 +553,254 @@ function sameImports(files, ignored = []) {
       return [tokens(node)];
     });
   return isDeepStrictEqual(imports(files[0]), imports(files[1]));
+}
+
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: The one complete query mutation must fail together before the module comparison.
+function normalizeUnreadTargetsQuery(file) {
+  const owner = named(file, "createInboxApi");
+  const arrow = owner.initializer;
+  const body = ts.isArrowFunction(arrow ?? {}) && arrow.body;
+  const object = ts.isParenthesizedExpression(body ?? {})
+    ? body.expression
+    : body;
+  if (!ts.isObjectLiteralExpression(object ?? {})) {
+    throw new Error("Unknown Inbox API factory.");
+  }
+  const methods = object.properties.filter(
+    (node) => node.name?.getText(file) === "spaceUnreadTargets"
+  );
+  const method = methods[0];
+  if (
+    methods.length !== 1 ||
+    !ts.isPropertyAssignment(method ?? {}) ||
+    !ts.isArrowFunction(method.initializer) ||
+    !ts.isBlock(method.initializer.body)
+  ) {
+    throw new Error("Ambiguous Inbox unread query.");
+  }
+  const statements = [...method.initializer.body.statements];
+  const replacements = new Map();
+  if (statements.length === 5) {
+    for (const [index, expected] of [
+      [1, "const query = new URLSearchParams();"],
+      [2, 'if (input.includeItemIds) { query.set("includeItemIds", "true"); }'],
+      [
+        3,
+        'if (input.includeSourceKeys) { query.set("includeSourceKeys", "true"); }',
+      ],
+    ]) {
+      assertStatement(statements[index], expected);
+      replacements.set(statements[index], undefined);
+    }
+    const returned = statements[4];
+    const awaited = ts.isReturnStatement(returned) && returned.expression;
+    const call = ts.isAwaitExpression(awaited ?? {}) && awaited.expression;
+    const input = ts.isCallExpression(call ?? {}) && call.arguments[0];
+    if (
+      call.expression?.getText(file) !== "client.requestJson" ||
+      call.arguments.length !== 1 ||
+      !ts.isObjectLiteralExpression(input ?? {})
+    ) {
+      throw new Error("Unknown Inbox unread request.");
+    }
+    const urls = input.properties.filter(
+      (node) => node.name?.getText(file) === "url"
+    );
+    const expected = syntax(
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: Compare the literal product TypeScript query expression.
+      'const url = buildSpaceInboxUnreadTargetsPath(params.spaceId) + (query.size ? `?${query}` : "");',
+      "expected.ts"
+    ).statements[0].declarationList.declarations[0].initializer;
+    if (
+      urls.length !== 1 ||
+      !ts.isPropertyAssignment(urls[0]) ||
+      tokens(urls[0].initializer) !== tokens(expected)
+    ) {
+      throw new Error("Unknown Inbox unread URL.");
+    }
+    replacements.set(
+      urls[0].initializer,
+      ts.factory.createBinaryExpression(
+        ts.factory.createCallExpression(
+          ts.factory.createIdentifier("buildSpaceInboxUnreadTargetsPath"),
+          undefined,
+          [
+            ts.factory.createPropertyAccessExpression(
+              ts.factory.createIdentifier("params"),
+              "spaceId"
+            ),
+          ]
+        ),
+        ts.SyntaxKind.PlusToken,
+        ts.factory.createParenthesizedExpression(
+          ts.factory.createConditionalExpression(
+            ts.factory.createPropertyAccessExpression(
+              ts.factory.createIdentifier("input"),
+              "includeItemIds"
+            ),
+            undefined,
+            ts.factory.createStringLiteral("?includeItemIds=true"),
+            undefined,
+            ts.factory.createStringLiteral("")
+          )
+        )
+      )
+    );
+  } else if (statements.length !== 2) {
+    throw new Error("Unknown Inbox unread query statements.");
+  }
+  // All other methods, imports, globals, options and response readers remain
+  // part of this complete module comparison.
+  return replacedModuleTokens(file, replacements);
+}
+
+function assertUnreadSourcePassthrough(file, side) {
+  const owner = named(
+    file,
+    side === "core" ? "rpcGetSpaceInboxUnreadTargets" : "registerInboxRoutes"
+  );
+  const requests = [];
+  const expectedCall = syntax(
+    side === "core"
+      ? "const call = prepared.service.spaceUnreadTargets;"
+      : "const call = c.var.coreRpc.getSpaceInboxUnreadTargets;",
+    "expected.ts"
+  ).statements[0].declarationList.declarations[0].initializer;
+  const visit = (node) => {
+    if (
+      ts.isCallExpression(node) &&
+      tokens(node.expression) === tokens(expectedCall)
+    ) {
+      requests.push(node);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(owner);
+  if (
+    requests.length !== 1 ||
+    requests[0].arguments.length !== 1 ||
+    !ts.isObjectLiteralExpression(requests[0].arguments[0])
+  ) {
+    throw new Error("Unknown unread source request.");
+  }
+  const input = requests[0].arguments[0];
+  const flags = input.properties.filter((node) =>
+    node.getText(file).includes("includeSourceKeys")
+  );
+  if (flags.length > 1) {
+    throw new Error("Ambiguous unread source flag.");
+  }
+  if (flags.length) {
+    const expected = syntax(
+      side === "core"
+        ? "const input = { includeSourceKeys: request.includeSourceKeys };"
+        : 'const input = { ...(c.req.query("includeSourceKeys") === "true" ? { includeSourceKeys: true } : {}) };',
+      "expected.ts"
+    ).statements[0].declarationList.declarations[0].initializer.properties[0];
+    if (tokens(flags[0]) !== tokens(expected)) {
+      throw new Error("Unknown unread source passthrough.");
+    }
+  }
+}
+
+function assertExclusiveSourceReadBindings(file) {
+  const owner = named(file, "rpcMutateSpaceInboxRead");
+  const delegates = [];
+  const findDelegate = (node) => {
+    if (
+      ts.isPropertyAssignment(node) &&
+      node.name.getText(file) === "resolveReadCandidates"
+    ) {
+      delegates.push(node);
+    }
+    ts.forEachChild(node, findDelegate);
+  };
+  findDelegate(owner);
+  if (delegates.length > 1) {
+    throw new Error("Ambiguous source-read delegate.");
+  }
+  if (delegates.length === 1) {
+    const expected = syntax(
+      `const request = {
+      resolveReadCandidates: async (sources) => {
+        const space = resolveSpaceStub(env.OPENMELD_SPACES, request.body.spaceId);
+        if (!space) {
+          throw new InboxServiceError({ code: "inbox.space_not_found", status: 404, message: "This Space is unavailable." });
+        }
+        return inboxSourceCandidateSchema.array().parse(await space.rpcGetSpaceInboxReadCandidates({
+          spaceId: request.body.spaceId, organizationId: prepared.organizationId,
+          recipientUserId: prepared.userId, sources,
+        }));
+      },
+    };`,
+      "expected.ts"
+    ).statements[0].declarationList.declarations[0].initializer.properties[0];
+    const call = delegates[0].parent.parent;
+    if (
+      tokens(delegates[0]) !== tokens(expected) ||
+      !ts.isCallExpression(call) ||
+      call.expression.getText(file) !== "mutateSpaceInboxRead" ||
+      call.arguments.length !== 1 ||
+      call.arguments[0] !== delegates[0].parent
+    ) {
+      throw new Error("Unknown source-read passthrough.");
+    }
+  }
+  for (const [name, module] of [
+    ["inboxSourceCandidateSchema", "@openmeld/schemas"],
+    ["resolveSpaceStub", "../../../rpc/space-ref"],
+  ]) {
+    const bindings = file.statements
+      .filter(ts.isImportDeclaration)
+      .flatMap((node) => {
+        const namedImports = node.importClause?.namedBindings;
+        return namedImports && ts.isNamedImports(namedImports)
+          ? namedImports.elements
+              .filter((binding) => binding.name.text === name)
+              .map((binding) => ({ node, binding }))
+          : [];
+      });
+    if (bindings.length === 0) {
+      if (delegates.length) {
+        throw new Error("Missing source-read import binding.");
+      }
+      continue;
+    }
+    if (!delegates.length) {
+      throw new Error("Source-read binding has no verified delegate.");
+    }
+    const { node, binding } = bindings[0];
+    if (
+      bindings.length !== 1 ||
+      node.moduleSpecifier.text !== module ||
+      node.attributes ||
+      node.importClause.isTypeOnly ||
+      binding.isTypeOnly ||
+      binding.propertyName
+    ) {
+      throw new Error("Unknown source-read import binding.");
+    }
+    rejectLocalTargetBindings(owner, new Set([name]));
+    const uses = [];
+    const visit = (child) => {
+      if (
+        ts.isIdentifier(child) &&
+        child.text === name &&
+        child !== binding.name
+      ) {
+        uses.push(child);
+      }
+      ts.forEachChild(child, visit);
+    };
+    visit(file);
+    if (
+      uses.length !== 1 ||
+      uses[0].pos < delegates[0].pos ||
+      uses[0].end > delegates[0].end
+    ) {
+      throw new Error("Source-read binding escapes its read delegate.");
+    }
+  }
 }
 function assertTargetDependencies(declaration) {
   const allowed = new Set([
@@ -1226,9 +1498,198 @@ function compareInboxEntrypoints(files) {
   };
   return isDeepStrictEqual(signature(files[0]), signature(files[1]));
 }
+// The predicate sees only workHandoff. The exact rejection forwards the original
+// message unchanged. The complete native module comparison below includes its
+// failure notice, terminal-effects delegates and all original import bindings.
+function normalizeNativeCodeRejection(file, read, context) {
+  const owner = named(file, "submitRemoteAgentNativeDelivery");
+  const imports = [
+    "spaceCodeWorkHandoffSchema",
+    "CODE_HANDOFF_RECEIVER_UNSUPPORTED_PUBLIC_COPY",
+  ];
+  const expected = syntax(
+    `if (spaceCodeWorkHandoffSchema.safeParse(input.message.sourceSignalSnapshot?.workHandoff).success) {
+    await rejectNativeDeliveryWithSpaceFailure({ ...input, failureCode: "space.handoff.code_receiver_unsupported", ledgerStatus: "failed", text: CODE_HANDOFF_RECEIVER_UNSUPPORTED_PUBLIC_COPY });
+    return { shouldAck: true, status: "failed" };
+  }`,
+    "expected.ts"
+  ).statements[0];
+  const blocks = owner.body.statements.filter(
+    (node) =>
+      ts.isIfStatement(node) &&
+      node.expression.getText(file).includes("spaceCodeWorkHandoffSchema")
+  );
+  const replacements = new Map();
+  if (blocks.length > 1) {
+    throw new Error("Ambiguous native handoff rejection.");
+  }
+  if (blocks.length) {
+    const index = owner.body.statements.indexOf(blocks[0]);
+    assertStatement(
+      owner.body.statements[index - 1],
+      "if (replayOutcome) { return replayOutcome; }"
+    );
+    assertStatement(
+      owner.body.statements[index + 1],
+      "const designationDb = getPostgresDatabase(input.env);"
+    );
+    if (tokens(blocks[0]) !== tokens(expected)) {
+      throw new Error("Unknown native handoff rejection.");
+    }
+    replacements.set(blocks[0], undefined);
+    assertNativePredicateExports(read, context.sourceSha);
+  }
+  for (const name of imports) {
+    const found = file.statements
+      .filter(ts.isImportDeclaration)
+      .flatMap((node) => {
+        const bindings = node.importClause?.namedBindings;
+        return bindings && ts.isNamedImports(bindings)
+          ? bindings.elements
+              .filter((binding) => binding.name.text === name)
+              .map((binding) => ({ node, binding }))
+          : [];
+      });
+    if (found.length !== blocks.length) {
+      throw new Error("Missing or ambiguous native predicate binding.");
+    }
+    if (!found.length) {
+      continue;
+    }
+    const { node, binding } = found[0];
+    if (
+      node.moduleSpecifier.text !== "@openmeld/schemas" ||
+      node.attributes ||
+      node.importClause.isTypeOnly ||
+      binding.isTypeOnly ||
+      binding.propertyName
+    ) {
+      throw new Error("Unknown native predicate import.");
+    }
+    rejectLocalTargetBindings(
+      owner,
+      new Set([name, "rejectNativeDeliveryWithSpaceFailure"])
+    );
+    const uses = [];
+    const visit = (child) => {
+      if (
+        ts.isIdentifier(child) &&
+        child.text === name &&
+        child !== binding.name
+      ) {
+        uses.push(child);
+      }
+      ts.forEachChild(child, visit);
+    };
+    visit(file);
+    if (
+      uses.length !== 1 ||
+      uses[0].pos < blocks[0].pos ||
+      uses[0].end > blocks[0].end
+    ) {
+      throw new Error("Native predicate binding escapes its rejection.");
+    }
+    const existing = replacements.get(node) ?? node;
+    replacements.set(
+      node,
+      ts.factory.updateImportDeclaration(
+        existing,
+        existing.modifiers,
+        ts.factory.updateImportClause(
+          existing.importClause,
+          false,
+          existing.importClause.name,
+          ts.factory.updateNamedImports(
+            existing.importClause.namedBindings,
+            existing.importClause.namedBindings.elements.filter(
+              (element) => element.name.text !== name
+            )
+          )
+        ),
+        existing.moduleSpecifier,
+        existing.attributes
+      )
+    );
+  }
+  return replacements;
+}
+function assertNativePredicateExports(read, sha) {
+  const index = syntax(
+    read(sha, "packages/schemas/src/index.ts"),
+    "schema-index.ts"
+  );
+  for (const [name, module] of [
+    ["spaceCodeWorkHandoffSchema", "./space-work-handoff"],
+    [
+      "CODE_HANDOFF_RECEIVER_UNSUPPORTED_PUBLIC_COPY",
+      "./public-agent-failure-reason",
+    ],
+  ]) {
+    const bindings = index.statements.flatMap((node) =>
+      ts.isExportDeclaration(node) &&
+      !node.isTypeOnly &&
+      node.exportClause &&
+      ts.isNamedExports(node.exportClause)
+        ? node.exportClause.elements
+            .filter((binding) => binding.name.text === name)
+            .map((binding) => ({ node, binding }))
+        : []
+    );
+    if (
+      bindings.length !== 1 ||
+      bindings[0].node.moduleSpecifier?.text !== module ||
+      bindings[0].node.attributes ||
+      bindings[0].binding.propertyName ||
+      bindings[0].binding.isTypeOnly
+    ) {
+      throw new Error("Unknown native predicate export.");
+    }
+    const declaration = named(
+      syntax(read(sha, `packages/schemas/src/${module.slice(2)}.ts`), module),
+      name
+    );
+    if (
+      !(
+        ts.isVariableDeclaration(declaration) &&
+        declaration.parent.parent.modifiers?.some(
+          (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword
+        )
+      )
+    ) {
+      throw new Error("Unknown native predicate declaration.");
+    }
+    if (
+      name === "CODE_HANDOFF_RECEIVER_UNSUPPORTED_PUBLIC_COPY" &&
+      !ts.isStringLiteral(declaration.initializer)
+    ) {
+      throw new Error("Unknown native rejection text.");
+    }
+    if (name === "spaceCodeWorkHandoffSchema") {
+      // This read checks the actual binding. Its new version does not establish
+      // receiver compatibility; the exact call never uses parsed output to form
+      // a durable target, and the unchanged target-effect delegates remain read.
+      const expected = syntax(
+        `const schema = workHandoffV2BaseSchema.extend({
+        code: executionContextProjectWorkSchema.required({ commit: true }),
+        execution: z.strictObject({ workspace: z.enum(["current", "isolated"]), access: z.enum(["read_only", "workspace"]).optional() }),
+      });`,
+        "expected.ts"
+      ).statements[0].declarationList.declarations[0].initializer;
+      if (tokens(declaration.initializer) !== tokens(expected)) {
+        throw new Error("Unknown native handoff predicate.");
+      }
+    }
+  }
+}
+
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Validate all four known time-context edits together before comparing the complete module.
-function normalizeNativeTime(source, file) {
+function normalizeNativeTime(source, file, read, proofContext) {
   const parsed = syntax(source, file);
+  const earlyRejection = normalizeNativeCodeRejection(
+    parsed,
+    read,
+    proofContext
+  );
   const context = named(parsed, "resolveTaskContinuationTurnContext");
   const delivery = named(parsed, "submitRemoteAgentTaskContinuationDelivery");
   const parameter = context.parameters[0];
@@ -1324,7 +1785,7 @@ function normalizeNativeTime(source, file) {
   ) {
     throw new Error("Unknown retained-time relocation.");
   }
-  const replacements = new Map([[inherited, undefined]]);
+  const replacements = new Map([...earlyRejection, [inherited, undefined]]);
   if (added[0]) {
     const expected = syntax(
       "type Input = { inheritedWorkerRequest: RemoteAgentWorkerSubmitTurnRequest }; const envelope = { requestTimeContext: input.inheritedWorkerRequest.turnEnvelope.requestTimeContext }; const caller = { inheritedWorkerRequest };",
