@@ -14,10 +14,12 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppOrganizationProvider } from "#/lib/organizations/organization-context";
 import type { OrganizationScopeAuthorized } from "#/lib/organizations/organization-types";
+import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
 import {
 	createTestQueryClient,
 	TestQueryClientProvider,
 } from "#/test-support/query-client";
+import { OnboardingEntryGate } from "../onboarding-entry-gate";
 import { WalkthroughProvider } from "./walkthrough-context";
 import { WalkthroughEntry } from "./walkthrough-entry";
 
@@ -164,6 +166,52 @@ describe("walkthrough entry recovery", () => {
 			</TestQueryClientProvider>
 		);
 	}
+
+	it("keeps the actual entry gate usable after a cached profile read fails", async () => {
+		const options = buildStartProfilesQueryOptions({
+			enabled: true,
+			storageScope: scope.storageScope,
+		});
+		queryClient.setQueryData(options.queryKey, [profile]);
+		profileResult = "failed";
+		await expect(
+			queryClient.fetchQuery({ ...options, retry: false, staleTime: 0 })
+		).rejects.toThrow("could not load your profiles");
+		const ui = (currentSection: "home" | "onboarding") => (
+			<TestQueryClientProvider queryClient={queryClient}>
+				<AppOrganizationProvider scope={scope}>
+					<WalkthroughProvider>
+						<OnboardingEntryGate
+							currentOrganization={organization}
+							currentSection={currentSection}
+							organizations={[organization]}
+							storageScope={scope.storageScope}
+						>
+							{currentSection === "home" ? (
+								<p>App available</p>
+							) : (
+								<WalkthroughEntry />
+							)}
+						</OnboardingEntryGate>
+					</WalkthroughProvider>
+				</AppOrganizationProvider>
+			</TestQueryClientProvider>
+		);
+		const view = render(ui("home"));
+		expect(await screen.findByText("App available")).toBeTruthy();
+		expect(navigation.navigate).not.toHaveBeenCalled();
+		expect(
+			requests.some((request) => request.path.endsWith("/first-work"))
+		).toBe(false);
+		view.rerender(ui("onboarding"));
+		await screen.findByRole("alert");
+		profileResult = "ready";
+		fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+		expect(
+			await screen.findByRole("button", { name: WORKSPACE_CHOICE })
+		).toBeTruthy();
+		expect(screen.queryByRole("alert")).toBeNull();
+	});
 
 	it.each([
 		"failed",

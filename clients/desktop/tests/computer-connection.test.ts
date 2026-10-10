@@ -133,10 +133,18 @@ describe("Desktop computer connection admission", () => {
     "fresh_session",
     "source_action",
     "reconnect_target",
+    "space_target",
+    "service_update",
   ] as const)("keeps connection intent and account boundaries: %s", async (scenario) => {
     const cloudRequest = vi.fn();
     if (
-      ["fresh_session", "source_action", "reconnect_target"].includes(scenario)
+      [
+        "fresh_session",
+        "source_action",
+        "reconnect_target",
+        "space_target",
+        "service_update",
+      ].includes(scenario)
     ) {
       cloudRequest.mockRejectedValue(new Error("Prepare requested"));
     }
@@ -198,6 +206,10 @@ describe("Desktop computer connection admission", () => {
       ...(scenario === "reconnect_target"
         ? { connectedComputerId: "computer-b" }
         : {}),
+      ...(scenario === "space_target" ? { targetSpaceId: "space-a" } : {}),
+      ...(scenario === "service_update"
+        ? { serviceAction: "update_service" }
+        : {}),
       ...(scenario === "source_action"
         ? {
             sourceNavigationAction: {
@@ -220,7 +232,13 @@ describe("Desktop computer connection admission", () => {
         "a@example.com"
       );
     } else if (
-      ["fresh_session", "source_action", "reconnect_target"].includes(scenario)
+      [
+        "fresh_session",
+        "source_action",
+        "reconnect_target",
+        "space_target",
+        "service_update",
+      ].includes(scenario)
     ) {
       await expect(result).rejects.toThrow("Prepare requested");
     } else if (scenario === "unreadable_connection") {
@@ -230,7 +248,13 @@ describe("Desktop computer connection admission", () => {
       expect(mocks.exec).not.toHaveBeenCalled();
     }
     if (
-      ["fresh_session", "source_action", "reconnect_target"].includes(scenario)
+      [
+        "fresh_session",
+        "source_action",
+        "reconnect_target",
+        "space_target",
+        "service_update",
+      ].includes(scenario)
     ) {
       expect(cloudRequest).toHaveBeenCalledOnce();
       if (scenario === "reconnect_target") {
@@ -261,10 +285,19 @@ describe("Desktop computer connection admission", () => {
 });
 
 describe("Prepare diagnostic continuity", () => {
+  beforeEach(() => vi.clearAllMocks());
   it.each([
     "grant",
     "account",
     "snapshot",
+    "target_space",
+    "human_profile",
+    "computer_device",
+    "computer_lane",
+    "target_match",
+    "service_update",
+    "update_wrong_target",
+    "update_account_changed",
   ] as const)("keeps the established diagnostic ID when %s fails", async (failure) => {
     const date = "2026-09-14T00:00:00.000Z";
     const prepare = prepareSessionWithTokenResponseSchema.parse({
@@ -273,10 +306,16 @@ describe("Prepare diagnostic continuity", () => {
       snapshot: {
         prepareSessionId: "prepare-a",
         ownerUserId: "account-a",
-        humanProfileId: null,
-        deviceId: null,
-        runtimeLane: null,
-        targetSpaceId: null,
+        humanProfileId:
+          failure === "target_match"
+            ? "11111111-1111-4111-8111-111111111111"
+            : null,
+        deviceId:
+          failure === "target_match" || failure === "computer_lane"
+            ? "device-a"
+            : null,
+        runtimeLane: failure === "target_match" ? "dev-local" : null,
+        targetSpaceId: failure === "target_match" ? "space-a" : null,
         sessionRevision: 0,
         lifecycleStatus: "active",
         phase: "waiting_for_terminal",
@@ -303,15 +342,27 @@ describe("Prepare diagnostic continuity", () => {
       stdout: JSON.stringify({
         protocol: "computer-connection-v1",
         previousSessionIdentity: "missing",
-        account: null,
-        existingConnection: null,
+        account:
+          failure === "target_match" ||
+          failure.startsWith("computer_") ||
+          failure.startsWith("update_") ||
+          failure === "service_update"
+            ? { id: "account-a", email: "a@example.com" }
+            : null,
+        existingConnection:
+          failure === "target_match" ||
+          failure.startsWith("computer_") ||
+          failure.startsWith("update_") ||
+          failure === "service_update"
+            ? { deviceId: "device-a", runtimeLane: "dev-local" }
+            : null,
       }),
     });
     const session = vi.fn().mockResolvedValue({
       user: { id: "account-a", email: "a@example.com", name: "A" },
     });
     mocks.grant.mockImplementation(() => {
-      if (failure === "grant") {
+      if (failure === "grant" || failure === "service_update") {
         throw new Error("Grant failed");
       }
       if (failure === "account") {
@@ -323,6 +374,22 @@ describe("Prepare diagnostic continuity", () => {
       .fn()
       .mockResolvedValueOnce(Response.json(prepare))
       .mockRejectedValue(new Error("Snapshot unavailable"));
+    if (failure === "update_account_changed") {
+      mocks.install.mockImplementationOnce(() => {
+        mocks.exec.mockResolvedValue({
+          stdout: JSON.stringify({
+            protocol: "computer-connection-v1",
+            previousSessionIdentity: "changed-session",
+            account: { id: "account-b", email: "b@example.com" },
+            existingConnection: {
+              deviceId: "device-a",
+              runtimeLane: "dev-local",
+            },
+          }),
+        });
+        return Promise.resolve("/test-owned/installed/npm/openmeld.js");
+      });
+    }
     const connect = createComputerConnection({
       auth: { session, cloudRequest },
       commandDeps: {
@@ -341,10 +408,47 @@ describe("Prepare diagnostic continuity", () => {
       ensureCompatible: async () => undefined,
       confirmSwitch: async () => false,
     });
-    const result = await connect({ expectedAccount: "account-a" });
-    expect(mocks.grant).toHaveBeenCalledWith(expect.any(Function), {
-      clientId: "openmeld-cli-dev",
+    const result = await connect({
+      expectedAccount: "account-a",
+      ...(failure === "target_space" || failure === "target_match"
+        ? { targetSpaceId: "space-a" }
+        : {}),
+      ...(failure === "human_profile" || failure === "target_match"
+        ? { humanProfileId: "11111111-1111-4111-8111-111111111111" }
+        : {}),
+      ...(failure.startsWith("computer_") || failure === "target_match"
+        ? { connectedComputerId: "computer-a" }
+        : {}),
+      ...(failure === "update_wrong_target"
+        ? { connectedComputerId: "computer-b" }
+        : {}),
+      ...(failure.startsWith("update_") || failure === "service_update"
+        ? { serviceAction: "update_service" }
+        : {}),
     });
+    if (
+      [
+        "target_space",
+        "human_profile",
+        "computer_device",
+        "computer_lane",
+        "update_wrong_target",
+        "update_account_changed",
+      ].includes(failure)
+    ) {
+      expect(mocks.grant).not.toHaveBeenCalled();
+      expect(spawn).not.toHaveBeenCalled();
+      if (failure === "update_wrong_target") {
+        expect(mocks.install).not.toHaveBeenCalled();
+      }
+    } else {
+      expect(mocks.grant).toHaveBeenCalledWith(expect.any(Function), {
+        clientId: "openmeld-cli-dev",
+      });
+    }
+    if (failure === "service_update" || failure === "update_account_changed") {
+      expect(mocks.install).toHaveBeenCalledOnce();
+    }
     expect(result).toMatchObject({
       status: "failed",
       diagnosticId: "diagnostic-a",
@@ -352,6 +456,20 @@ describe("Prepare diagnostic continuity", () => {
         grant: "Grant failed",
         account: "Account unavailable",
         snapshot: "Test executable unavailable",
+        target_match: "Test executable unavailable",
+        target_space:
+          "The connection request does not match this profile, Space, or computer.",
+        human_profile:
+          "The connection request does not match this profile, Space, or computer.",
+        computer_device:
+          "The connection request does not match this profile, Space, or computer.",
+        computer_lane:
+          "The connection request does not match this profile, Space, or computer.",
+        service_update: "Grant failed",
+        update_wrong_target:
+          "The connection request does not match this profile, Space, or computer.",
+        update_account_changed:
+          "Local sign-in changed. Check the account and try again.",
       }[failure],
     });
   });

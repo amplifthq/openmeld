@@ -93,6 +93,7 @@ function ScopedWalkthroughProvider({ children }: PropsWithChildren) {
 		(profiles.isSuccess && !profile
 			? new Error("Your account profile is unavailable. Try again.")
 			: null);
+	const tutorialEnabled = Boolean(profile) && !profileError;
 	const api = useMemo(
 		() =>
 			createFirstWorkApi(
@@ -112,7 +113,7 @@ function ScopedWalkthroughProvider({ children }: PropsWithChildren) {
 	const query = useQuery({
 		queryKey,
 		queryFn: ({ signal }) => api.read(signal),
-		enabled: Boolean(profile) && !profileError,
+		enabled: tutorialEnabled,
 		retry: false,
 	});
 	const progressErrorToastId = `tutorial-progress-${organization.id}`;
@@ -171,9 +172,9 @@ function ScopedWalkthroughProvider({ children }: PropsWithChildren) {
 		setNoticeAnchor,
 		pauseNotice,
 		dismissPauseNotice: () => setPauseNotice(false),
-		available: Boolean(profile) && !profileError && query.isSuccess,
+		available: tutorialEnabled && query.isSuccess,
 		hasStartedTutorial: query.data?.hasStartedTutorial === true,
-		loading: profiles.isPending || (Boolean(profile) && query.isPending),
+		loading: profiles.isPending || (tutorialEnabled && query.isPending),
 		pending: update.isPending,
 		error: profileError ?? query.error ?? update.error,
 		retry: async () => {
