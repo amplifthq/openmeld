@@ -212,6 +212,8 @@ import {
   getCenterAgentDesignationResponseSchema,
   getCenterAgentDirectMessageSpaceProjectionResponseSchema,
   getCenterAgentOperatingStateResponseSchema,
+  getCurrentAgentProfileWorkspaceQuerySchema,
+  getCurrentAgentProfileWorkspaceResponseSchema,
   getLocalRuntimeExpectedRoutesQuerySchema,
   getPrepareReadinessQuerySchema,
   getPrepareReadinessResponseSchema,
@@ -1022,6 +1024,7 @@ import {
   readRuntimeTransportAgentProfileExecutionState,
   readRuntimeTransportAgentProfileOperationalContexts,
   readRuntimeTransportComputerFileAccessPolicy,
+  readRuntimeTransportProfileWorkspace,
   refreshRuntimeTransportLocalAgentCatalog,
   releaseRuntimeTransportAgentProfileExecutionTargetMutation,
   selectRuntimeTransportLocalFolders,
@@ -3143,6 +3146,11 @@ export type SetCurrentAgentProfileWorkspaceInput =
     agentProfileId: string;
     context?: CoreRpcContextInput;
   };
+export type GetCurrentAgentProfileWorkspaceInput = {
+  agentProfileId: string;
+  context?: CoreRpcContextInput;
+  expectedBindingTarget?: import("@openmeld/schemas/types").AgentProfileBindingTarget;
+};
 export type RefreshCurrentLocalAgentCatalogInput = {
   context?: CoreRpcContextInput;
 };
@@ -4579,6 +4587,110 @@ function requireLocalAgentInstallationSelectionStatus(
     code: "local_agent_control.service_update_required",
   });
 }
+export async function rpcGetCurrentAgentProfileWorkspace(
+  env: CoreBindings,
+  input: GetCurrentAgentProfileWorkspaceInput,
+  target?: PeopleComputerTarget
+): Promise<
+  import("@openmeld/schemas/types").GetCurrentAgentProfileWorkspaceResponse
+> {
+  // Auth owns both the Profile's Organization and the private configuration's
+  // owner. Membership alone never authorizes a local path read.
+  const request = await requireAgentProfileWorkRecoveryScope(env, input);
+  const query = getCurrentAgentProfileWorkspaceQuerySchema.safeParse({
+    expectedBindingTarget: input.expectedBindingTarget,
+  });
+  if (!query.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Invalid working-folder read precondition.",
+    });
+  }
+  const expectedBindingTarget = query.data.expectedBindingTarget;
+  const bound =
+    target && !expectedBindingTarget
+      ? null
+      : await resolveBoundAgentProfileComputerContext(env, input);
+  const currentTarget = target ?? bound?.target;
+  if (!currentTarget) {
+    throw createCoreRpcHttpError({
+      status: 409,
+      code: "agent_profile_binding.target_unavailable",
+      reason: "OpenMeld could not confirm the Computer that runs this Agent.",
+    });
+  }
+  if (expectedBindingTarget && bound) {
+    requireSameAgentProfileBindingTarget(
+      bound.bindingTarget,
+      expectedBindingTarget
+    );
+    if (
+      bound.target.deviceId !== currentTarget.deviceId ||
+      bound.target.runtimeLane !== currentTarget.runtimeLane
+    ) {
+      throw createCoreRpcHttpError({
+        status: 409,
+        code: "agent_profile_binding.target_changed",
+        reason:
+          "This Agent’s Computer changed. Reopen Working folder to review its current settings.",
+      });
+    }
+  }
+  const result = await readRuntimeTransportProfileWorkspace({
+    env,
+    ownerUserId: request.owner.id,
+    deviceId: currentTarget.deviceId,
+    runtimeLane: currentTarget.runtimeLane,
+    targetProfileId: request.agentProfileId,
+  });
+  if (result.status === "rejected") {
+    throw createCoreRpcHttpError({
+      status: 409,
+      code: result.reasonCode,
+      reason: result.message,
+    });
+  }
+  if (!result.payload.accepted) {
+    throw createCoreRpcHttpError({
+      status: 409,
+      code: result.payload.reasonCode,
+      reason: result.payload.message,
+    });
+  }
+  if (result.payload.targetProfileId !== request.agentProfileId) {
+    throw createCoreRpcHttpError({
+      status: 502,
+      code: "local_agent_control.invalid_response",
+      reason: "OpenMeld Service returned settings for a different Agent.",
+    });
+  }
+  await requireAgentProfileWorkRecoveryScope(env, input);
+  if (bound) {
+    const current = await resolveBoundAgentProfileComputerContext(env, input);
+    requireSameAgentProfileBindingTarget(
+      current.bindingTarget,
+      bound.bindingTarget
+    );
+    if (
+      current.target.deviceId !== currentTarget.deviceId ||
+      current.target.runtimeLane !== currentTarget.runtimeLane
+    ) {
+      throw createCoreRpcHttpError({
+        status: 409,
+        code: "agent_profile_binding.target_changed",
+        reason:
+          "This Agent’s Computer changed. Reopen Working folder to review its current settings.",
+      });
+    }
+  }
+  return getCurrentAgentProfileWorkspaceResponseSchema.parse({
+    agentProfileId: request.agentProfileId,
+    target: currentTarget,
+    workspace: result.payload.workspace,
+  });
+}
+
 export async function rpcSetCurrentAgentProfileWorkspace(
   env: CoreBindings,
   input: SetCurrentAgentProfileWorkspaceInput,

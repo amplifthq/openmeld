@@ -5,11 +5,14 @@ import {
 import {
 	getAgentExecutionReadinessBatchResponseSchema,
 	HOSTED_CENTER_AGENT_CONTROLLER_REF,
+	profileWorkspaceReadResultSchema,
 } from "@openmeld/schemas";
 import type {
 	AuthProfileView,
 	GetAgentExecutionReadinessBatchResponse,
 	GetAgentProfileControllerChangeEligibilityResponse,
+	GetCurrentAgentProfileWorkspaceResponse,
+	ProfileWorkspaceMode,
 } from "@openmeld/schemas/types";
 import { QueryObserver } from "@tanstack/react-query";
 import {
@@ -31,6 +34,7 @@ import { agentProfilePrimaryBindingQueryKeys } from "#/query/profiles/primary-bi
 import { startProfilesQueryOptions } from "#/query/profiles/profiles";
 import { startQueryKeys } from "#/query/query-keys";
 import readinessCapture from "#/test-support/local-agent-readiness.fixture.json";
+import workspaceCapture from "#/test-support/profile-workspace-read.fixture.json";
 import {
 	createTestQueryClient,
 	TestQueryClientProvider,
@@ -40,6 +44,7 @@ import { AgentProfileProjectSettingsDialog } from "./agent-profile-project-setti
 
 const updateDefaultProjectMock = vi.hoisted(() => vi.fn());
 const updateWorkspaceMock = vi.hoisted(() => vi.fn());
+const readWorkspaceMock = vi.hoisted(() => vi.fn());
 const listProfilesMock = vi.hoisted(() => vi.fn());
 const readReadinessMock = vi.hoisted(() => vi.fn());
 const readEligibilityMock = vi.hoisted(() => vi.fn());
@@ -48,13 +53,18 @@ const RECOVERY_PROFILE_ID = "agt_11111111-1111-4111-8111-111111111111";
 const SAVING_BUTTON_NAME = /saving/i;
 const ACTIVE_WAKE_FOLDER_CHANGE_MESSAGE =
 	/wait until this task finishes to change a folder on this computer/i;
+const SERVICE_READ_UPDATE_MESSAGE = /update openmeld service to read/i;
+const RETAINED_FOLDER_DRAFT_MESSAGE = /your changes are still here/i;
 
 afterEach(cleanup);
 
 vi.mock("#/lib/agents/agent-execution-readiness", () => ({
 	readAgentExecutionReadinessBatch: readReadinessMock,
 }));
-vi.mock("#/lib/profiles/agent-profile-primary-binding", () => ({
+vi.mock("#/lib/profiles/agent-profile-primary-binding", async () => ({
+	...(await vi.importActual<
+		typeof import("#/lib/profiles/agent-profile-primary-binding")
+	>("#/lib/profiles/agent-profile-primary-binding")),
 	readAgentProfileControllerChangeEligibility: readEligibilityMock,
 }));
 vi.mock("#/components/spaces/space-agent-profile-edit-context", () => ({
@@ -71,6 +81,7 @@ vi.mock("#/lib/profiles/existing-profiles", () => ({
 
 vi.mock("#/lib/profiles/update-profile-workspace", () => ({
 	updateAgentProfileWorkspace: updateWorkspaceMock,
+	readAgentProfileWorkspace: readWorkspaceMock,
 }));
 
 vi.mock("#/components/projects/use-project-discovery", () => ({
@@ -105,6 +116,7 @@ describe("AgentProfileProjectSettingsDialog", () => {
 			.mockReset()
 			.mockResolvedValue(profileFixture({ defaultProjectId: null }));
 		updateWorkspaceMock.mockReset().mockResolvedValue(undefined);
+		readWorkspaceMock.mockReset().mockResolvedValue(workspaceFixture("custom"));
 		listProfilesMock.mockReset().mockResolvedValue([profileFixture()]);
 	});
 
@@ -132,7 +144,6 @@ describe("AgentProfileProjectSettingsDialog", () => {
 				<AgentProfileProjectSettingsDialog
 					actorProfileId="human-1"
 					agentControllerRef="builtin:codex"
-					currentWorkingFolder={null}
 					executionTargetChangeEligibilityStatus="allowed"
 					onOpenChange={vi.fn()}
 					onProfileUpdated={vi.fn()}
@@ -186,7 +197,6 @@ describe("AgentProfileProjectSettingsDialog", () => {
 				<AgentProfileProjectSettingsDialog
 					actorProfileId="human-1"
 					agentControllerRef="builtin:codex"
-					currentWorkingFolder={null}
 					executionTargetChangeEligibilityStatus="allowed"
 					onOpenChange={vi.fn()}
 					onProfileUpdated={vi.fn()}
@@ -257,7 +267,7 @@ describe("AgentProfileProjectSettingsDialog", () => {
 		await renderSettings(
 			"allowed",
 			{ defaultProjectId: null },
-			"OpenMeld managed"
+			"openmeld_managed"
 		);
 		expect(updateWorkspaceMock).not.toHaveBeenCalled();
 		const save = screen.getByRole("button", { name: "Save changes" });
@@ -268,6 +278,7 @@ describe("AgentProfileProjectSettingsDialog", () => {
 				actorProfileId: "human-1",
 				organizationId: "organization-1",
 				profileId: "profile-agent",
+				target: workspaceFixture().target,
 				workspaceMode: "openmeld_managed",
 			});
 		});
@@ -307,13 +318,7 @@ describe("AgentProfileProjectSettingsDialog", () => {
 		});
 		window.sessionStorage.clear();
 		const { onProfileUpdated } = await renderSettings();
-		selectSource("On this computer");
-		fireEvent.click(
-			screen.getByRole("button", { name: "Enter path manually" })
-		);
-		fireEvent.change(screen.getByLabelText("Custom working folder path"), {
-			target: { value: "/Users/felix/Private Workspace " },
-		});
+		await editCustomFolder("/Users/felix/Private Workspace ");
 
 		expect(updateWorkspaceMock).not.toHaveBeenCalled();
 		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
@@ -325,6 +330,7 @@ describe("AgentProfileProjectSettingsDialog", () => {
 				profileId: "profile-agent",
 				workspaceMode: "custom",
 				workspacePath: "/Users/felix/Private Workspace ",
+				target: workspaceFixture().target,
 			});
 			expect(updateDefaultProjectMock).toHaveBeenCalledWith({
 				actorProfileId: "human-1",
@@ -343,6 +349,147 @@ describe("AgentProfileProjectSettingsDialog", () => {
 		).toBeNull();
 	});
 
+	it("blocks Save until the Service read completes, keeps its failure visible, and retries from saved configuration", async () => {
+		const read = deferred<GetCurrentAgentProfileWorkspaceResponse>();
+		readWorkspaceMock
+			.mockReturnValueOnce(read.promise)
+			.mockResolvedValue(workspaceFixture("custom"));
+		listProfilesMock.mockResolvedValue([
+			profileFixture({ defaultProjectId: null }),
+		]);
+		render(
+			<TestQueryClientProvider queryClient={createSettingsQueryClient()}>
+				<AgentProfileProjectSettingsDialog
+					actorProfileId="human-1"
+					agentControllerRef="builtin:codex"
+					executionTargetChangeEligibilityStatus="allowed"
+					onOpenChange={vi.fn()}
+					onProfileUpdated={vi.fn()}
+					open={true}
+					organizationId="organization-1"
+					profile={profileFixture()}
+					storageScope="account-1"
+				/>
+			</TestQueryClientProvider>
+		);
+		await vi.waitFor(() => expect(readWorkspaceMock).toHaveBeenCalledTimes(1));
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Save changes",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(true);
+		expect(screen.queryByLabelText("Custom working folder path")).toBeNull();
+		act(() =>
+			read.reject(
+				new Error(
+					"Update OpenMeld Service to read saved working-folder settings."
+				)
+			)
+		);
+		await screen.findByText(SERVICE_READ_UPDATE_MESSAGE);
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Save changes",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(true);
+		fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+		const path = (await screen.findByLabelText(
+			"Custom working folder path"
+		)) as HTMLInputElement;
+		expect(path.value).toBe("/repo");
+		expect(updateWorkspaceMock).not.toHaveBeenCalled();
+		expect(updateDefaultProjectMock).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		"binding_changes",
+		"route_recovers",
+	] as const)("retains the acquired settings draft when %s", async (change) => {
+		listProfilesMock.mockResolvedValue([
+			profileFixture({ defaultProjectId: null }),
+		]);
+		const queryClient = createSettingsQueryClient();
+		const target = workspaceFixture().target;
+		const expectedBindingTarget = {
+			bindingId: "binding-original",
+			agentControllerRef: "builtin:codex",
+			agentControllerConversationId: null,
+			openMeldServiceRuntimeId: "runtime-original",
+		};
+		const props = {
+			actorProfileId: "human-1",
+			agentControllerRef: "builtin:codex",
+			executionTargetChangeEligibilityStatus: "allowed" as const,
+			onOpenChange: vi.fn(),
+			onProfileUpdated: vi.fn(),
+			open: true,
+			organizationId: "organization-1",
+			profile: profileFixture(),
+			storageScope: "account-1",
+			target: change === "route_recovers" ? undefined : target,
+			expectedBindingTarget,
+		};
+		const view = render(
+			<TestQueryClientProvider queryClient={queryClient}>
+				<AgentProfileProjectSettingsDialog {...props} />
+			</TestQueryClientProvider>
+		);
+		await screen.findByLabelText("Custom working folder path");
+		await editCustomFolder("/private/retained-draft");
+		view.rerender(
+			<TestQueryClientProvider queryClient={queryClient}>
+				<AgentProfileProjectSettingsDialog
+					{...props}
+					expectedBindingTarget={
+						change === "binding_changes"
+							? { ...expectedBindingTarget, bindingId: "binding-second" }
+							: expectedBindingTarget
+					}
+					target={
+						change === "binding_changes"
+							? { ...target, deviceId: "computer-second" }
+							: target
+					}
+				/>
+			</TestQueryClientProvider>
+		);
+		expect(
+			(screen.getByLabelText("Custom working folder path") as HTMLInputElement)
+				.value
+		).toBe("/private/retained-draft");
+		expect(readWorkspaceMock).toHaveBeenCalledTimes(1);
+		expect(readWorkspaceMock).toHaveBeenCalledWith(
+			expect.objectContaining({ target: props.target, expectedBindingTarget })
+		);
+		if (change === "route_recovers") {
+			fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+			await vi.waitFor(() =>
+				expect(updateWorkspaceMock).toHaveBeenCalledWith(
+					expect.objectContaining({
+						target,
+						expectedBindingTarget,
+						workspacePath: "/private/retained-draft",
+					})
+				)
+			);
+			return;
+		}
+		await screen.findByText(RETAINED_FOLDER_DRAFT_MESSAGE);
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Save changes",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(true);
+		expect(updateWorkspaceMock).not.toHaveBeenCalled();
+		expect(updateDefaultProjectMock).not.toHaveBeenCalled();
+	});
+
 	it("switches to the managed workspace before clearing the Default Project", async () => {
 		const { onProfileUpdated } = await renderSettings();
 
@@ -355,6 +502,7 @@ describe("AgentProfileProjectSettingsDialog", () => {
 				organizationId: "organization-1",
 				profileId: "profile-agent",
 				workspaceMode: "openmeld_managed",
+				target: workspaceFixture().target,
 			});
 			expect(updateDefaultProjectMock).toHaveBeenCalledWith({
 				actorProfileId: "human-1",
@@ -455,7 +603,6 @@ describe("AgentProfileProjectSettingsDialog", () => {
 			<AgentProfileProjectSettingsDialog
 				actorProfileId="human-1"
 				agentControllerRef="builtin:codex"
-				currentWorkingFolder="/repo"
 				executionTargetChangeEligibilityStatus="allowed"
 				onOpenChange={vi.fn()}
 				onProfileUpdated={vi.fn()}
@@ -472,6 +619,18 @@ describe("AgentProfileProjectSettingsDialog", () => {
 describe("Working folder recovery Query lifecycle", () => {
 	beforeEach(() => {
 		updateWorkspaceMock.mockReset().mockResolvedValue(undefined);
+		readWorkspaceMock
+			.mockReset()
+			.mockImplementation(
+				async (input: {
+					profileId: string;
+					target?: GetCurrentAgentProfileWorkspaceResponse["target"];
+				}) => ({
+					...workspaceFixture("custom"),
+					agentProfileId: input.profileId,
+					target: input.target ?? workspaceFixture().target,
+				})
+			);
 		updateDefaultProjectMock
 			.mockReset()
 			.mockResolvedValue(profileFixture({ defaultProjectId: null }));
@@ -788,9 +947,10 @@ async function renderSettings(
 		| "blocked"
 		| "unavailable" = "allowed",
 	overrides: Partial<AuthProfileView> = {},
-	currentWorkingFolder: string | null = "/repo"
+	workspaceMode: ProfileWorkspaceMode | null = "custom"
 ) {
 	const queryClient = createSettingsQueryClient();
+	readWorkspaceMock.mockResolvedValue(workspaceFixture(workspaceMode));
 	listProfilesMock.mockResolvedValue([profileFixture(overrides)]);
 	const onProfileUpdated = vi.fn();
 	render(
@@ -798,7 +958,6 @@ async function renderSettings(
 			<AgentProfileProjectSettingsDialog
 				actorProfileId="human-1"
 				agentControllerRef="builtin:codex"
-				currentWorkingFolder={currentWorkingFolder}
 				executionTargetChangeEligibilityStatus={
 					executionTargetChangeEligibilityStatus
 				}
@@ -817,6 +976,30 @@ async function renderSettings(
 		}
 	});
 	return { onProfileUpdated };
+}
+
+// Captured from the actual account-admitted Service reader in the isolated lane.
+// Profile identity and paths are sanitized; variants use the shared wire type.
+function workspaceFixture(
+	mode: ProfileWorkspaceMode | null = "openmeld_managed"
+): GetCurrentAgentProfileWorkspaceResponse {
+	const captured = profileWorkspaceReadResultSchema.parse(
+		workspaceCapture.workspace
+	);
+	if (captured.status !== "configured") {
+		throw new Error("Expected captured saved configuration");
+	}
+	return {
+		agentProfileId: "profile-agent",
+		target: { deviceId: "device-current", runtimeLane: "canary" },
+		workspace: mode
+			? {
+					...captured,
+					workspaceMode: mode,
+					workspacePath: mode === "custom" ? "/repo" : captured.workspacePath,
+				}
+			: { status: "missing" },
+	};
 }
 
 function createSettingsQueryClient() {

@@ -8191,9 +8191,14 @@ and never grants the requesting member access to the legacy transcript.
 
 ## Agent Profile Binding Contract
 
-Space working-folder recovery carries the shared `expectedBindingTarget` tuple:
+Profile settings and Space working-folder recovery carry the shared
+`expectedBindingTarget` tuple:
 Binding ID, Service Runtime ID, controller ref, and nullable conversation ID.
-It is a write precondition, not another Binding store or execution authority.
+It is a read/write precondition, not another Binding store or execution authority.
+The private saved-configuration GET verifies it before and after its Service
+read. Its configured/missing/invalid result is defined in `packages/schemas`;
+the configuration version is the local envelope format, not a Binding revision.
+GET responses use no-store and do not populate a second configuration cache.
 Core checks the tuple inside the existing execution-target admission before
 Service writes, and inside the existing future-work admission before Auth's
 Default Project write. These remain two ordered writes with explicit partial
@@ -8205,8 +8210,10 @@ Gateway requires the named Core receivers
 receiver must fail without fallback to the unguarded methods; an old Gateway's
 strict HTTP body rejects the new tuple before writing. Deploy Core, then
 Gateway, then Web. Ordinary explicit Computer configuration without the tuple
-retains its existing contract. Auth and Service wire payloads do not change in
-this correction. An old readiness projection without a canonical Binding ID
+retains its existing contract. The write precondition changes no Auth or Service
+write payload. The private saved-configuration read adds a separate Service
+capability and correlated frame; its strict registration receivers must deploy
+before the new Service. An old readiness projection without a canonical Binding ID
 cannot acquire a recovery draft. Local CLI/Service, Skills, setup, Wake and
 diagnostic compatibility floors remain unchanged by this correction.
 

@@ -4,8 +4,10 @@ import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import type {
 	AgentProfileBindingTarget,
 	AuthProfileView,
+	GetCurrentAgentProfileWorkspaceResponse,
 	LocalProjectControlConnection,
 	PeopleComputerTarget,
+	ProfileWorkspaceReadResult,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import {
@@ -18,6 +20,7 @@ import {
 } from "@openmeld/ui/components/dialog";
 import {
 	isCancelledError,
+	type QueryClient,
 	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
@@ -25,7 +28,10 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { clearPendingAgentProfileCreationLocalSetupForProfile } from "#/lib/profiles/agent-profile-creation-local-setup";
 import { updateAgentProfileDefaultProject } from "#/lib/profiles/update-default-project";
-import { updateAgentProfileWorkspace } from "#/lib/profiles/update-profile-workspace";
+import {
+	readAgentProfileWorkspace,
+	updateAgentProfileWorkspace,
+} from "#/lib/profiles/update-profile-workspace";
 import { projectsQueryOptions } from "#/query/organizations/projects";
 import { startProfilesQueryOptions } from "#/query/profiles/profiles";
 import { AgentProfileProjectSelector } from "./agent-profile-project-selector";
@@ -41,7 +47,6 @@ type SettingsInput = {
 	actorProfileId: string | null;
 	agentControllerRef: string | null;
 	executionTargetChangeEligibilityStatus: "allowed" | "blocked" | "unavailable";
-	currentWorkingFolder: string | null;
 	onOpenChange: (open: boolean) => void;
 	onProfileUpdated: (profile: AuthProfileView) => void;
 	open: boolean;
@@ -63,7 +68,7 @@ export function AgentProfileProjectSettingsDialog(input: SettingsInput) {
 	return (
 		<LocalAgentProfileProjectSettingsDialog
 			{...input}
-			key={`${input.storageScope}:${input.organizationId}:${input.profile.openMeldProfileId}:${input.target?.deviceId}:${input.target?.runtimeLane}:${input.open}:${readRetry}`}
+			key={`${input.storageScope}:${input.organizationId}:${input.profile.openMeldProfileId}:${input.open}:${readRetry}`}
 			onRetryRead={() => setReadRetry((retry) => retry + 1)}
 		/>
 	);
@@ -73,10 +78,15 @@ function LocalAgentProfileProjectSettingsDialog(
 	input: SettingsInput & { onRetryRead: () => void }
 ) {
 	const queryClient = useQueryClient();
-	// null means the saved preference has not been acquired; an empty string
-	// is the owner's explicit non-Project draft.
-	const [projectId, setProjectId] = useState<string | null>(null);
-	const acquired = projectId !== null;
+	const [opening] = useState(() => ({
+		target: input.target,
+		bindingTarget: input.expectedBindingTarget,
+	}));
+	const [projectId, setProjectId] = useState("");
+	const [savedSettings, setSavedSettings] =
+		useState<GetCurrentAgentProfileWorkspaceResponse | null>(null);
+	const [acquisitionError, setAcquisitionError] = useState<string | null>(null);
+	const acquired = savedSettings !== null;
 	const profilesQuery = useQuery({
 		...startProfilesQueryOptions({
 			enabled: acquired,
@@ -85,20 +95,28 @@ function LocalAgentProfileProjectSettingsDialog(
 		refetchOnMount: false,
 	});
 	const refetchProfiles = profilesQuery.refetch;
-	const savedProfile = profilesQuery.data?.find(
-		(profile) => profile.openMeldProfileId === input.profile.openMeldProfileId
-	);
 	const projectsQuery = useQuery(
 		projectsQueryOptions({
 			organizationId: input.organizationId,
 			enabled: input.open,
 		})
 	);
-	const selectedProjectId = projectId ?? "";
-	const initialPath = resolveInitialCustomPath(
-		selectedProjectId,
-		input.currentWorkingFolder
+	const selectedProjectId = projectId;
+	const initialPath = savedCustomPath(savedSettings?.workspace);
+	const target = savedSettings?.target ?? input.target;
+	const savedConfigurationError = invalidSavedConfigurationMessage(
+		savedSettings?.workspace
 	);
+	const saveBlockedReason =
+		input.saveBlockedReason ??
+		changedFolderTargetMessage(
+			opening,
+			{
+				target: input.target,
+				bindingTarget: input.expectedBindingTarget,
+			},
+			savedSettings?.target
+		);
 	const [fallback, setFallback] = useState<
 		"advanced" | "managed" | "project" | null
 	>(null);
@@ -113,61 +131,42 @@ function LocalAgentProfileProjectSettingsDialog(
 		}
 		let disposed = false;
 		const acquire = async () => {
-			const { queryKey } = startProfilesQueryOptions({
-				enabled: true,
-				storageScope: input.storageScope,
-			});
-			// An existing request can predate this opening. Keep current display
-			// data while cancelling it, then start the authorized acquisition read.
-			const snapshot =
-				queryClient.getQueryState<readonly AuthProfileView[]>(queryKey);
-			const cancellation = queryClient.cancelQueries(
-				{ queryKey, exact: true },
-				{ silent: true }
-			);
-			if (snapshot?.data !== undefined) {
-				queryClient.setQueryData(queryKey, snapshot.data, {
-					updatedAt: snapshot.dataUpdatedAt,
-				});
-			}
-			// Cancellation is not a successful refresh, including if the owner
-			// closes this dialog before its new read can start.
-			await queryClient.invalidateQueries({
-				queryKey,
-				exact: true,
-				refetchType: "none",
-			});
-			await cancellation;
+			await cancelPreviousProfileRead(queryClient, input.storageScope);
 			if (disposed) {
 				return;
 			}
-			const result = await refetchProfiles({ throwOnError: true });
+			const [result, local] = await Promise.all([
+				refetchProfiles({ throwOnError: true }),
+				readAgentProfileWorkspace({
+					actorProfileId: input.actorProfileId,
+					organizationId: input.organizationId,
+					profileId: input.profile.openMeldProfileId,
+					target: opening.target,
+					expectedBindingTarget: opening.bindingTarget,
+				}),
+			]);
 			const profile = result.data?.find(
 				(candidate) =>
 					candidate.openMeldProfileId === input.profile.openMeldProfileId
 			);
-			if (disposed || !profile || profile.defaultProjectId === undefined) {
+			if (disposed) {
 				return;
 			}
-			// Auth owns the saved preference; these fields now belong to the draft.
+			if (!profile || profile.defaultProjectId === undefined) {
+				throw new Error("The saved Default Project is unavailable. Try again.");
+			}
+			// Auth owns Project intent; Service owns saved local configuration.
+			// Their acquired values initialize this opening's draft only once.
 			const savedProjectId = profile.defaultProjectId ?? "";
-			const savedPath = resolveInitialCustomPath(
-				savedProjectId,
-				input.currentWorkingFolder
-			);
+			setSavedSettings(local);
 			setProjectId(savedProjectId);
-			setPath(savedPath);
+			setPath(savedCustomPath(local.workspace));
 			setConnection(null);
-			setFallback(
-				savedProjectId
-					? null
-					: resolveInitialFallback(savedPath, input.currentWorkingFolder)
-			);
+			setFallback(savedFolderSource(savedProjectId, local.workspace));
 		};
 		acquire().catch((failure) => {
 			if (!(disposed || isCancelledError(failure))) {
-				// The existing Query also retains this diagnostic for the retry UI.
-				console.error("Could not load saved working-folder settings.", failure);
+				setAcquisitionError(toStructuredApiClientFailure(failure).message);
 			}
 		});
 		return () => {
@@ -176,19 +175,15 @@ function LocalAgentProfileProjectSettingsDialog(
 	}, [
 		acquired,
 		input.open,
-		input.currentWorkingFolder,
+		input.actorProfileId,
+		input.organizationId,
+		opening,
 		input.profile.openMeldProfileId,
 		input.storageScope,
 		queryClient,
 		refetchProfiles,
 	]);
-	const savedProfileUnavailable =
-		!acquired &&
-		profilesQuery.isFetchedAfterMount &&
-		!profilesQuery.isFetching &&
-		(profilesQuery.isError ||
-			!savedProfile ||
-			savedProfile.defaultProjectId === undefined);
+	const savedProfileUnavailable = !acquired && acquisitionError !== null;
 	const disabled = pending || !acquired;
 	const localFolderChangesBlocked =
 		input.executionTargetChangeEligibilityStatus !== "allowed";
@@ -200,7 +195,7 @@ function LocalAgentProfileProjectSettingsDialog(
 			path,
 		}) &&
 		!(localFolderChangesBlocked && !projectId) &&
-		!input.saveBlockedReason;
+		!saveBlockedReason;
 	const save = async () => {
 		// The displayed choice does not prove that the Service has a usable
 		// workspace. Explicit Save may reapply it to initialize or repair it.
@@ -210,8 +205,8 @@ function LocalAgentProfileProjectSettingsDialog(
 		setPending(true);
 		setError(null);
 		const context = {
-			...(input.expectedBindingTarget
-				? { expectedBindingTarget: input.expectedBindingTarget }
+			...(opening.bindingTarget
+				? { expectedBindingTarget: opening.bindingTarget }
 				: {}),
 			actorProfileId: input.actorProfileId,
 			organizationId: input.organizationId,
@@ -224,7 +219,7 @@ function LocalAgentProfileProjectSettingsDialog(
 			if (!projectId) {
 				await updateAgentProfileWorkspace({
 					...context,
-					target: input.target,
+					target,
 					workspaceMode:
 						fallback === "advanced" ? "custom" : "openmeld_managed",
 					...(fallback === "advanced" ? { workspacePath: path } : {}),
@@ -271,8 +266,7 @@ function LocalAgentProfileProjectSettingsDialog(
 					)}
 					{savedProfileUnavailable ? (
 						<p className="text-destructive text-sm" role="alert">
-							{profilesQuery.error?.message ??
-								"The saved working folder is unavailable."}{" "}
+							{acquisitionError}{" "}
 							<button
 								className="underline"
 								onClick={input.onRetryRead}
@@ -280,6 +274,11 @@ function LocalAgentProfileProjectSettingsDialog(
 							>
 								Try again
 							</button>
+						</p>
+					) : null}
+					{savedConfigurationError ? (
+						<p className="text-destructive text-sm" role="alert">
+							{savedConfigurationError}
 						</p>
 					) : null}
 					<AgentProfileProjectSelector
@@ -310,7 +309,7 @@ function LocalAgentProfileProjectSettingsDialog(
 						projectId={selectedProjectId}
 						projects={projectsQuery.data?.projects ?? []}
 						selectedBindingGeneration={connection?.bindingGeneration ?? null}
-						target={input.target}
+						target={target}
 						workspaceFallbackMode={fallback}
 					/>
 					{projectsQuery.isPending ? (
@@ -350,9 +349,9 @@ function LocalAgentProfileProjectSettingsDialog(
 							{error}
 						</p>
 					) : null}
-					{input.saveBlockedReason ? (
+					{saveBlockedReason ? (
 						<output className="text-muted-foreground text-sm">
-							{input.saveBlockedReason}
+							{saveBlockedReason}
 						</output>
 					) : null}
 				</div>
@@ -373,6 +372,92 @@ function LocalAgentProfileProjectSettingsDialog(
 	);
 }
 
+function changedFolderTargetMessage(
+	opening: {
+		target?: PeopleComputerTarget;
+		bindingTarget?: AgentProfileBindingTarget;
+	},
+	current: {
+		target?: PeopleComputerTarget;
+		bindingTarget?: AgentProfileBindingTarget;
+	},
+	acquiredTarget?: PeopleComputerTarget
+): string | undefined {
+	// The saved-read receipt pins the Computer. A temporarily absent route is
+	// not a different identity; Binding changes remain independently fenced.
+	const pinned = acquiredTarget ?? opening.target;
+	const sameComputer =
+		!(current.target && pinned) ||
+		(pinned.deviceId === current.target.deviceId &&
+			pinned.runtimeLane === current.target.runtimeLane);
+	const previous = opening.bindingTarget;
+	const next = current.bindingTarget;
+	const sameBinding =
+		previous?.bindingId === next?.bindingId &&
+		previous?.openMeldServiceRuntimeId === next?.openMeldServiceRuntimeId &&
+		previous?.agentControllerRef === next?.agentControllerRef &&
+		previous?.agentControllerConversationId ===
+			next?.agentControllerConversationId;
+	return sameComputer && sameBinding
+		? undefined
+		: "This Agent’s Computer or local agent changed. Your changes are still here. Close and reopen Working folder to review its current settings.";
+}
+
+async function cancelPreviousProfileRead(
+	queryClient: QueryClient,
+	storageScope: string
+) {
+	const { queryKey } = startProfilesQueryOptions({
+		enabled: true,
+		storageScope,
+	});
+	// Preserve display data as stale, but never acquire a read from before opening.
+	const snapshot =
+		queryClient.getQueryState<readonly AuthProfileView[]>(queryKey);
+	const cancellation = queryClient.cancelQueries(
+		{ queryKey, exact: true },
+		{ silent: true }
+	);
+	if (snapshot?.data !== undefined) {
+		queryClient.setQueryData(queryKey, snapshot.data, {
+			updatedAt: snapshot.dataUpdatedAt,
+		});
+	}
+	await queryClient.invalidateQueries({
+		queryKey,
+		exact: true,
+		refetchType: "none",
+	});
+	await cancellation;
+}
+
+function savedCustomPath(
+	workspace: ProfileWorkspaceReadResult | undefined
+): string {
+	return workspace?.status === "configured" &&
+		workspace.workspaceMode === "custom"
+		? workspace.workspacePath
+		: "";
+}
+
+function savedFolderSource(
+	projectId: string,
+	workspace: ProfileWorkspaceReadResult
+): "advanced" | "managed" | null {
+	if (projectId || workspace.status !== "configured") {
+		return null;
+	}
+	return workspace.workspaceMode === "custom" ? "advanced" : "managed";
+}
+
+function invalidSavedConfigurationMessage(
+	workspace: ProfileWorkspaceReadResult | undefined
+): string | null {
+	return workspace?.status === "invalid"
+		? `The saved folder configuration is invalid. Choose a working folder and save it to repair this setting. (${workspace.reasonCode})`
+		: null;
+}
+
 function folderSaveError(failure: unknown, localFolderSaved: boolean): string {
 	const structured = toStructuredApiClientFailure(failure);
 	const targetChanged =
@@ -388,29 +473,6 @@ function folderSaveError(failure: unknown, localFolderSaved: boolean): string {
 	return failure instanceof Error
 		? failure.message
 		: "Couldn’t save the working folder. Try again.";
-}
-
-function resolveInitialCustomPath(
-	projectId: string,
-	path: string | null
-): string {
-	if (projectId || path === "OpenMeld managed") {
-		return "";
-	}
-	return path ?? "";
-}
-
-function resolveInitialFallback(
-	initialPath: string,
-	currentWorkingFolder: string | null
-): "advanced" | "managed" | null {
-	if (initialPath) {
-		return "advanced";
-	}
-	if (currentWorkingFolder === "OpenMeld managed") {
-		return "managed";
-	}
-	return null;
 }
 
 function isWorkingFolderDraftValid(input: {

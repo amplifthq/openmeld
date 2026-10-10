@@ -43,6 +43,26 @@ export const profileWorkingDirectorySchema = z
     message: "workingDirectory must not contain NUL bytes",
   });
 
+/** Saved owner-local configuration, not effective Project resolution or readiness. */
+export const profileWorkspaceReadResultSchema = z.discriminatedUnion("status", [
+  z.strictObject({
+    status: z.literal("configured"),
+    workspaceMode: profileWorkspaceModeSchema,
+    workspacePath: profileWorkingDirectorySchema,
+    configurationVersion: z.union([z.literal(1), z.literal(2)]),
+    updatedAt: z.string().min(1),
+  }),
+  z.strictObject({ status: z.literal("missing") }),
+  z.strictObject({
+    status: z.literal("invalid"),
+    reasonCode: z.enum([
+      "profile.workspace.invalid_json",
+      "profile.workspace.invalid_schema",
+      "profile.workspace.profile_id_mismatch",
+    ]),
+  }),
+]);
+
 export const profileWorkspaceWriteSchema = z
   .strictObject({
     workspaceMode: profileWorkspaceModeSchema,

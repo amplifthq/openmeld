@@ -734,6 +734,7 @@ import {
   type GetCenterAgentModelInput,
   type GetCenterAgentOperatingStateInput,
   type GetCurrentAgentProfileSessionInput,
+  type GetCurrentAgentProfileWorkspaceInput,
   type GetCurrentDeviceTargetInput,
   type GetCurrentLocalAgentInstallationsInput,
   type GetCurrentLocalRuntimeReplyReadinessInput,
@@ -967,6 +968,7 @@ import {
   rpcGetCenterAgentModel,
   rpcGetCenterAgentOperatingState,
   rpcGetCurrentAgentProfileSession,
+  rpcGetCurrentAgentProfileWorkspace,
   rpcGetCurrentDeviceTarget,
   rpcGetCurrentLocalAgentInstallations,
   rpcGetCurrentLocalRuntimeReplyReadiness,
@@ -1544,6 +1546,18 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   ) {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       rpcConnectPeopleComputerProjectCandidate(this.env, input)
+    );
+  }
+  getPeopleComputerAgentProfileWorkspace(
+    input: GetCurrentAgentProfileWorkspaceInput &
+      import("@openmeld/schemas/types").PeopleComputerTarget
+  ) {
+    const { deviceId, runtimeLane, ...request } = input;
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCurrentAgentProfileWorkspace(this.env, request, {
+        deviceId,
+        runtimeLane,
+      })
     );
   }
   setPeopleComputerAgentProfileWorkspace(
@@ -4425,6 +4439,11 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       rpcSetCurrentOpenMeldToolsMaintenance(this.env, input)
     );
   }
+  getCurrentAgentProfileWorkspace(input: GetCurrentAgentProfileWorkspaceInput) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCurrentAgentProfileWorkspace(this.env, input)
+    );
+  }
   setCurrentAgentProfileWorkspace(
     input: SetCurrentAgentProfileWorkspaceInput
   ): Promise<SetCurrentAgentProfileWorkspaceResponse> {
@@ -4594,6 +4613,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: Parameters<typeof rpcConnectPeopleComputerProjectCandidate>[1]
   ) {
     return super.connectPeopleComputerProjectCandidate(input);
+  }
+  getPeopleComputerAgentProfileWorkspace(
+    input: GetCurrentAgentProfileWorkspaceInput &
+      import("@openmeld/schemas/types").PeopleComputerTarget
+  ) {
+    return super.getPeopleComputerAgentProfileWorkspace(input);
   }
   setPeopleComputerAgentProfileWorkspace(
     input: SetCurrentAgentProfileWorkspaceInput &
@@ -5520,6 +5545,9 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: SetCurrentOpenMeldToolsMaintenanceInput
   ): Promise<SetCurrentOpenMeldToolsMaintenanceResponse> {
     return super.setCurrentOpenMeldToolsMaintenance(input);
+  }
+  getCurrentAgentProfileWorkspace(input: GetCurrentAgentProfileWorkspaceInput) {
+    return super.getCurrentAgentProfileWorkspace(input);
   }
   setCurrentAgentProfileWorkspace(
     input: SetCurrentAgentProfileWorkspaceInput

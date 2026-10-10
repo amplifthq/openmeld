@@ -2,6 +2,7 @@ import * as z from "../../lazy-zod";
 import {
   agentProfileIdSchema,
   profileWorkspaceModeSchema,
+  profileWorkspaceReadResultSchema,
   profileWorkspaceWriteSchema,
 } from "../protocol/profile";
 import { nonEmptyTrimmedStringFromUnknown } from "../protocol/shared";
@@ -138,6 +139,26 @@ export const openMeldDaemonSetProfileWorkspaceRequestPayloadSchema =
   profileWorkspaceWriteSchema.safeExtend({
     targetProfileId: agentProfileIdSchema,
   });
+
+export const openMeldDaemonReadProfileWorkspaceRequestPayloadSchema =
+  z.strictObject({ targetProfileId: agentProfileIdSchema });
+
+export const openMeldDaemonReadProfileWorkspacePayloadSchema =
+  z.discriminatedUnion("accepted", [
+    z.strictObject({
+      accepted: z.literal(true),
+      targetProfileId: agentProfileIdSchema,
+      status: z.literal("read"),
+      workspace: profileWorkspaceReadResultSchema,
+    }),
+    z.strictObject({
+      accepted: z.literal(false),
+      targetProfileId: agentProfileIdSchema,
+      status: z.literal("rejected"),
+      reasonCode: z.string().min(1),
+      message: z.string().min(1),
+    }),
+  ]);
 
 export const openMeldDaemonConversationExecutionRuntimeWorkspaceReadySchema =
   z.strictObject({

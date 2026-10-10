@@ -4,6 +4,8 @@ import {
   currentLocalRuntimeReplyReadinessResponseSchema,
   forgetComputerResponseSchema,
   forgetCurrentComputerResponseSchema,
+  getCurrentAgentProfileWorkspaceQuerySchema,
+  getCurrentAgentProfileWorkspaceResponseSchema,
   localRuntimeEnrollmentBodySchema,
   localRuntimeEnrollmentResponseSchema,
   localRuntimesQuerySchema,
@@ -16,6 +18,7 @@ import {
   selectCurrentLocalAgentInstallationResponseSchema,
   setCurrentAgentProfileWorkspaceBodySchema,
   setCurrentAgentProfileWorkspaceResponseSchema,
+  setCurrentAgentProfileWorkspaceRouteParamsSchema,
   setCurrentLocalAgentEnabledBodySchema,
   setCurrentLocalAgentEnabledResponseSchema,
   setCurrentOpenMeldToolsMaintenanceBodySchema,
@@ -418,6 +421,31 @@ export const createCurrentDeviceApi: CreateCurrentDeviceApi = (
         body: JSON.stringify(body),
         schema: setCurrentOpenMeldToolsMaintenanceResponseSchema,
         invalidMessage: "Invalid OpenMeld Tools update setting response.",
+      });
+    },
+    getCurrentAgentProfileWorkspace: async (input) => {
+      const query = getCurrentAgentProfileWorkspaceQuerySchema.parse({
+        ...(input.expectedBindingTarget
+          ? { expectedBindingTarget: input.expectedBindingTarget }
+          : {}),
+      });
+      const profile = setCurrentAgentProfileWorkspaceRouteParamsSchema.parse({
+        agentProfileId: input.agentProfileId,
+      });
+      const target = input.target
+        ? peopleComputerTargetSchema.parse(input.target)
+        : null;
+      const route = target
+        ? `/v1/people-computers/${encodeURIComponent(target.deviceId)}/lanes/${encodeURIComponent(target.runtimeLane)}/agent-profiles/${encodeURIComponent(profile.agentProfileId)}/workspace`
+        : buildCurrentAgentProfileWorkspaceRoute(profile.agentProfileId);
+      return await client.requestJson({
+        url: query.expectedBindingTarget
+          ? `${route}?${new URLSearchParams({ expectedBindingTarget: JSON.stringify(query.expectedBindingTarget) })}`
+          : route,
+        operation: "local_runtime.current.agent_profile_workspace.read",
+        method: "GET",
+        schema: getCurrentAgentProfileWorkspaceResponseSchema,
+        invalidMessage: "Invalid saved working-folder response.",
       });
     },
     setCurrentAgentProfileWorkspace: async (input) => {

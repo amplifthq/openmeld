@@ -20,6 +20,7 @@ import {
   localFolderPickerDaemonFrameSchema,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   runtimeTransportHeartbeatRequestSchema,
+  runtimeTransportLocalAgentControlReadProfileWorkspaceFramePayloadSchema,
   runtimeTransportLocalAgentControlRefreshCatalogFramePayloadSchema,
   runtimeTransportLocalAgentControlSetProfileWorkspaceFramePayloadSchema,
   runtimeTransportOpenMeldToolsControlFramePayloadSchema,
@@ -90,6 +91,7 @@ import {
   createLocalWakeRouteReport,
   hasCompleteProfileConfigurationRevisions,
 } from "../reporting/local-wake-route-report";
+import { readLocalAgentProfileWorkspace } from "./read-profile-workspace";
 
 type LocalServiceRuntimeAgentControllerReportSyncResult =
   ServiceExecutionHostOutput<"reportControllers">;
@@ -1682,6 +1684,31 @@ export async function runDaemonSocketSession(input: {
     });
   };
 
+  const handleLocalAgentControlReadProfileWorkspaceFrame = async (
+    payload: Record<string, unknown>
+  ): Promise<void> => {
+    const parsed =
+      runtimeTransportLocalAgentControlReadProfileWorkspaceFramePayloadSchema.safeParse(
+        payload
+      );
+    if (!parsed.success) {
+      emitRunLine({
+        presenter: input.presenter,
+        code: "daemon.run.local_agent_control_frame_invalid",
+        text: "ignored invalid profile workspace read frame",
+      });
+      return;
+    }
+    const responsePayload = await readLocalAgentProfileWorkspace({
+      ownerUserId: input.ownerUserId,
+      ...parsed.data.payload,
+    });
+    sendDaemonFrame(input.socket, {
+      code: "daemon.local_agent_control.result",
+      payload: { requestId: parsed.data.requestId, payload: responsePayload },
+    });
+  };
+
   const handleLocalAgentControlSetProfileWorkspaceFrame = async (
     payload: Record<string, unknown>
   ): Promise<void> => {
@@ -1870,6 +1897,34 @@ export async function runDaemonSocketSession(input: {
     payload: Record<string, unknown>;
   }): boolean => handleOpenMeldToolsControlFrame(frame);
 
+  const handleProfileWorkspaceControlFrame = (
+    frame: ParsedDaemonFrame
+  ): boolean => {
+    const handlers: Partial<
+      Record<
+        ParsedDaemonFrame["code"],
+        (payload: Record<string, unknown>) => Promise<void>
+      >
+    > = {
+      "daemon.local_agent_control.read_profile_workspace":
+        handleLocalAgentControlReadProfileWorkspaceFrame,
+      "daemon.local_agent_control.set_profile_workspace":
+        handleLocalAgentControlSetProfileWorkspaceFrame,
+    };
+    const handler = handlers[frame.code];
+    if (!handler) {
+      return false;
+    }
+    handler(frame.payload).catch((error) => {
+      emitRunLine({
+        presenter: input.presenter,
+        code: "daemon.run.local_agent_control_failed",
+        text: `local agent control failed: ${toErrorMessage(error)}`,
+      });
+    });
+    return true;
+  };
+
   input.socket.onMessage((raw) => {
     // Keepalive PONG (bare "pong", auto-answered by the RuntimeTransportHub DO)
     // is not a daemon frame; feed the keepalive watchdog and swallow it before
@@ -1919,18 +1974,7 @@ export async function runDaemonSocketSession(input: {
       );
       return;
     }
-    if (
-      parsedFrame.code === "daemon.local_agent_control.set_profile_workspace"
-    ) {
-      handleLocalAgentControlSetProfileWorkspaceFrame(
-        parsedFrame.payload
-      ).catch((error) => {
-        emitRunLine({
-          presenter: input.presenter,
-          code: "daemon.run.local_agent_control_failed",
-          text: `local agent control failed: ${toErrorMessage(error)}`,
-        });
-      });
+    if (handleProfileWorkspaceControlFrame(parsedFrame)) {
       return;
     }
     const handledCurrentComputerControl =

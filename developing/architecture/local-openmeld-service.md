@@ -1973,6 +1973,31 @@ still forces an immediate new report. Restart begins with legacy/unknown cached
 evidence, then automatically re-observes and reports the new session's current
 facts without asking the person to reconnect or rebuild the Profile.
 
+## Saved Working-Folder Reads
+
+The optional `localAgentControl.readProfileWorkspace` registration capability
+admits one private read of the existing account-scoped Profile configuration.
+Runtime Transport selects the exact owner/device/lane's compatible live session
+and correlates `daemon.local_agent_control.read_profile_workspace` with the
+existing Local Agent Control result frame. The admitted Service account remains
+the local trust boundary; a changed account rejects the result.
+
+Core checks the Profile's Auth owner and active Organization before forwarding
+the result, and checks them again after the read. A Binding-based editor also
+verifies its existing `expectedBindingTarget` before and after the read. These
+checks do not acquire a mutation lease or create another Binding authority.
+The no-store HTTP response contains configured/missing/invalid configuration,
+and includes a saved path only for immediate forwarding to the requesting owner.
+It does not publish paths to Profile identity, logs, Agent Activity or Center
+Agent context. Reading never migrates the configuration or provisions a folder.
+
+Old registration parsers strictly reject the new capability field even though
+it is optional in the new schema. Deploy the Core receiver, then Gateway, before
+the new Service advertises it or Web calls the new GET. A new receiver with an
+old Service returns `local_agent_control.unsupported` and an update instruction;
+it never infers configuration from execution history. Existing setup, Wake,
+Space actions, writes and diagnostics remain valid without this capability.
+
 ## Local Folder Picker
 
 Local Folder Picker is an owner-self Computer interaction capability.

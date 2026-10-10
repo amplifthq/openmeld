@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import app from "../src/index";
 
 type CoreRpcMock = {
+  getCurrentAgentProfileWorkspace: ReturnType<typeof vi.fn>;
+  getPeopleComputerAgentProfileWorkspace: ReturnType<typeof vi.fn>;
   connectPeopleComputerProjectCandidate: ReturnType<typeof vi.fn>;
   connectPeopleComputerProjectPath: ReturnType<typeof vi.fn>;
   setPeopleComputerProjectDefaultConnection: ReturnType<typeof vi.fn>;
@@ -52,6 +54,8 @@ function makeEnv(input?: {
   authOverrides?: Partial<AuthRpcMock>;
 }) {
   const coreRpc: CoreRpcMock = {
+    getCurrentAgentProfileWorkspace: vi.fn(),
+    getPeopleComputerAgentProfileWorkspace: vi.fn(),
     connectPeopleComputerProjectCandidate: vi.fn(),
     connectPeopleComputerProjectPath: vi.fn(),
     setPeopleComputerProjectDefaultConnection: vi.fn(),
@@ -186,6 +190,74 @@ function makeEnv(input?: {
 }
 
 describe("current device target routes", () => {
+  it.each([
+    "bound",
+    "explicit",
+    "missing_receiver",
+  ] as const)("keeps a saved workspace read private and bound (%s)", async (selection) => {
+    const { coreRpc, env } = makeEnv();
+    const agentProfileId = "agt_11111111-1111-4111-8111-111111111111";
+    const expectedBindingTarget = {
+      bindingId: "binding-1",
+      agentControllerRef: "builtin:codex",
+      agentControllerConversationId: null,
+      openMeldServiceRuntimeId: "runtime-1",
+    };
+    const receipt = {
+      agentProfileId,
+      target: { deviceId: "selected-device", runtimeLane: "canary" },
+      workspace: {
+        status: "configured",
+        workspaceMode: "openmeld_managed",
+        workspacePath: "/managed/profile/workspace",
+        configurationVersion: 2,
+        updatedAt: "2026-10-09T22:24:57.270Z",
+      },
+    };
+    const method =
+      selection === "explicit"
+        ? "getPeopleComputerAgentProfileWorkspace"
+        : "getCurrentAgentProfileWorkspace";
+    if (selection === "missing_receiver") {
+      coreRpc[method].mockRejectedValueOnce(
+        new Error(`The RPC receiver does not implement the method "${method}".`)
+      );
+    } else {
+      coreRpc[method].mockResolvedValueOnce(receipt);
+    }
+    const path =
+      selection === "explicit"
+        ? `/v1/people-computers/selected-device/lanes/canary/agent-profiles/${agentProfileId}/workspace`
+        : `/v1/local-runtimes/current/agent-profiles/${agentProfileId}/workspace`;
+    const response = await app.fetch(
+      new Request(
+        `http://local${path}?${new URLSearchParams({ expectedBindingTarget: JSON.stringify(expectedBindingTarget) })}`
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(selection === "missing_receiver" ? 502 : 200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(coreRpc[method]).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        agentProfileId,
+        expectedBindingTarget,
+        ...(selection === "explicit" ? receipt.target : {}),
+      })
+    );
+    expect(coreRpc.getCurrentDeviceTarget).not.toHaveBeenCalled();
+    expect(
+      coreRpc.setPeopleComputerAgentProfileWorkspace
+    ).not.toHaveBeenCalled();
+    if (selection !== "missing_receiver") {
+      expect(await response.json()).toEqual(receipt);
+    } else {
+      expect(
+        coreRpc.getPeopleComputerAgentProfileWorkspace
+      ).not.toHaveBeenCalled();
+    }
+  });
+
   it.each([
     [
       "POST",

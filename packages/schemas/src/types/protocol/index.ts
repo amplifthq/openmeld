@@ -50,7 +50,12 @@ export type {
   SpaceMessageAddressingRelation,
   SpaceMessageAddressingTargetKind,
 } from "./message-envelope";
-export type { Profile, ProfileKind, ProfileWorkspaceMode } from "./profile";
+export type {
+  Profile,
+  ProfileKind,
+  ProfileWorkspaceMode,
+  ProfileWorkspaceReadResult,
+} from "./profile";
 export type {
   SignalText,
   SignalTextData,

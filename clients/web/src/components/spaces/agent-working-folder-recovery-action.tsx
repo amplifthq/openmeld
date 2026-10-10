@@ -3,7 +3,6 @@
 import type {
 	AgentProfileBindingTarget,
 	AuthProfileView,
-	GetAgentExecutionReadinessResponse,
 	PeopleComputerTarget,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
@@ -18,6 +17,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import type { AgentProfileEditDialogContext } from "#/components/agents/agent-profile-edit-dialog-controller";
 import { AgentProfileProjectSettingsDialog } from "#/components/profiles/agent-profile-project-settings-dialog";
+import { projectAgentProfileBindingTarget } from "#/lib/profiles/agent-profile-primary-binding";
 import { agentExecutionReadinessBatchQueryOptions } from "#/query/agents/execution-readiness";
 import { agentProfileControllerChangeEligibilityQueryOptions } from "#/query/profiles/primary-binding";
 import { useOptionalSpaceAgentProfileEditContext } from "./space-agent-profile-edit-context";
@@ -92,7 +92,9 @@ function OwnerWorkingFolderRecoveryAction(input: {
 		eligibility.isPending ||
 		readiness.isFetching ||
 		eligibility.isFetching;
-	const bindingTarget = folderDraftBindingTarget(current);
+	const bindingTarget = projectAgentProfileBindingTarget(
+		current?.primaryBinding
+	);
 	useEffect(() => {
 		if (!open) {
 			setDraftTarget(null);
@@ -143,7 +145,6 @@ function OwnerWorkingFolderRecoveryAction(input: {
 				<AgentProfileProjectSettingsDialog
 					actorProfileId={input.context.actorProfileId}
 					agentControllerRef={draftTarget.agentControllerRef}
-					currentWorkingFolder={null}
 					executionTargetChangeEligibilityStatus={
 						eligibility.data?.status ?? "unavailable"
 					}
@@ -237,21 +238,4 @@ function resolveFolderDraftBlockReason(input: {
 		return "This Agent’s Computer or local agent changed. Close and reopen Working folder to review its current settings.";
 	}
 	return undefined;
-}
-
-function folderDraftBindingTarget(
-	readiness: GetAgentExecutionReadinessResponse | undefined
-): AgentProfileBindingTarget | null {
-	const binding = readiness?.primaryBinding;
-	if (!(binding?.executionTarget && binding.bindingId)) {
-		return null;
-	}
-	return {
-		bindingId: binding.bindingId,
-		openMeldServiceRuntimeId:
-			binding.executionTarget.openMeldServiceRuntimeId.value,
-		agentControllerRef: binding.executionTarget.agentControllerRef,
-		agentControllerConversationId:
-			binding.executionTarget.agentControllerConversationId ?? null,
-	};
 }

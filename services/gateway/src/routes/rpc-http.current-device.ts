@@ -8,6 +8,8 @@ import {
   currentLocalRuntimeReplyReadinessResponseSchema,
   forgetComputerResponseSchema,
   forgetCurrentComputerResponseSchema,
+  getCurrentAgentProfileWorkspaceQuerySchema,
+  getCurrentAgentProfileWorkspaceResponseSchema,
   localFolderPickerRequestSchema,
   localFolderPickerResultSchema,
   localRuntimeEnrollmentBodySchema,
@@ -450,6 +452,43 @@ export function registerCurrentDeviceTargetRoutes(
   app.put(
     CURRENT_AGENT_PROFILE_WORKSPACE_ROUTE,
     async (c) => await handleCurrentAgentProfileWorkspaceWrite(c)
+  );
+  app.get(
+    CURRENT_AGENT_PROFILE_WORKSPACE_ROUTE,
+    async (c, next) => {
+      await next();
+      c.header("Cache-Control", "no-store");
+    },
+    (c) => {
+      const profile =
+        setCurrentAgentProfileWorkspaceRouteParamsSchema.safeParse({
+          agentProfileId: c.req.param("agentProfileId"),
+        });
+      const query = getCurrentAgentProfileWorkspaceQuerySchema.safeParse(
+        c.req.query()
+      );
+      if (!(profile.success && query.success)) {
+        return respondBadRequest({
+          c,
+          route: CURRENT_AGENT_PROFILE_WORKSPACE_ROUTE,
+          method: "GET",
+          code: "invalid_payload",
+          message: "Invalid Agent Profile id.",
+        });
+      }
+      return executeRpcRoute({
+        c,
+        route: CURRENT_AGENT_PROFILE_WORKSPACE_ROUTE,
+        method: "GET",
+        responseSchema: getCurrentAgentProfileWorkspaceResponseSchema,
+        execute: () =>
+          c.var.coreRpc.getCurrentAgentProfileWorkspace({
+            ...profile.data,
+            ...query.data,
+            context: buildCoreRpcContext(c),
+          }),
+      });
+    }
   );
 
   app.post(CURRENT_LOCAL_AGENT_CATALOG_REFRESH_ROUTE, (c) =>

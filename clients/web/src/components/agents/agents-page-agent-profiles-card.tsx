@@ -21,6 +21,7 @@ import type {
 	AgentControllerCollaborationMode,
 	AgentControllerPermissionMode,
 	AgentProfileBindingOpenCodePermission,
+	AgentProfileBindingTarget,
 	AgentWakeAvailability,
 	AuthProfileView,
 	ExecuteAgentProfileWorkRecoveryBody,
@@ -155,7 +156,10 @@ import {
 } from "#/lib/organizations/organization-routes";
 import { resolveWebAgentControllerPermissionModeDisplayFromBinding } from "#/lib/profiles/agent-controller-permission-mode-display";
 import { resolveAgentProfileControllerModelDetail } from "#/lib/profiles/agent-profile-model-display";
-import { disableAgentProfilePrimaryBinding } from "#/lib/profiles/agent-profile-primary-binding";
+import {
+	disableAgentProfilePrimaryBinding,
+	projectAgentProfileBindingTarget,
+} from "#/lib/profiles/agent-profile-primary-binding";
 import { executeAgentProfileWorkRecovery } from "#/lib/profiles/agent-profile-work-recovery";
 import { deleteStartAgentProfile } from "#/lib/profiles/delete-agent-profile";
 import { resolveProfileBindingCatalogExecutionTarget } from "#/lib/profiles/profile-binding-target";
@@ -2569,6 +2573,9 @@ function AgentProfileExecutionReadinessRowMenu(input: {
 			supportingContent={input.supportingContent}
 			wakeAvailability={input.row.readiness?.agentWakeAvailability ?? null}
 			wakeAvailabilityNowMs={input.row.wakeAvailabilityNowMs}
+			workingFolderBindingTarget={
+				projectAgentProfileBindingTarget(input.row.primaryBinding) ?? undefined
+			}
 			workingFolderTarget={
 				input.row.readiness?.routeDeviceId && input.row.readiness.routeLane
 					? {
@@ -3181,6 +3188,7 @@ function AgentProfileOptionsMenu(input: {
 
 type AgentProfileRowMoreMenuProps = {
 	workingFolderTarget?: PeopleComputerTarget;
+	workingFolderBindingTarget?: AgentProfileBindingTarget;
 	activityNavigation: AgentProfileActivityNavigation | null;
 	actorProfileId: string | null;
 	capabilities: {
@@ -3535,13 +3543,10 @@ function AgentProfileCardPresentation(input: {
 			<AgentProfileProjectSettingsDialog
 				actorProfileId={input.input.actorProfileId}
 				agentControllerRef={input.input.primaryAgentControllerRef}
-				currentWorkingFolder={resolveProfileDetailsValue(
-					input.input.details,
-					"workspace_directory"
-				)}
 				executionTargetChangeEligibilityStatus={
 					input.controllerChangeEligibilityStatus
 				}
+				expectedBindingTarget={input.input.workingFolderBindingTarget}
 				onOpenChange={input.onOpenChange.projectSettings}
 				onProfileUpdated={input.input.onProfileUpdated}
 				open={input.presentationState.projectSettingsOpen}
@@ -3935,13 +3940,10 @@ function AgentProfileWorkspacePresentation(input: {
 			<AgentProfileProjectSettingsDialog
 				actorProfileId={input.input.actorProfileId}
 				agentControllerRef={input.input.primaryAgentControllerRef}
-				currentWorkingFolder={resolveProfileDetailsValue(
-					input.input.details,
-					"workspace_directory"
-				)}
 				executionTargetChangeEligibilityStatus={
 					input.controllerChangeEligibilityStatus
 				}
+				expectedBindingTarget={input.input.workingFolderBindingTarget}
 				onOpenChange={input.onOpenChange.projectSettings}
 				onProfileUpdated={input.input.onProfileUpdated}
 				open={input.presentationState.projectSettingsOpen}

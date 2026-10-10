@@ -41,6 +41,8 @@ import {
   runtimeTransportNotifyRouteCatalogChangedResponseSchema,
   runtimeTransportOpenMeldToolsControlRequestSchema,
   runtimeTransportOpenMeldToolsControlResponseSchema,
+  runtimeTransportReadProfileWorkspaceRequestSchema,
+  runtimeTransportReadProfileWorkspaceResponseSchema,
   runtimeTransportRefreshLocalAgentCatalogRequestSchema,
   runtimeTransportRefreshLocalAgentCatalogResponseSchema,
   runtimeTransportSetLocalAgentEnabledRequestSchema,
@@ -723,6 +725,48 @@ export const forkRuntimeTransportAgentSession = async (input: {
     sourceNativeSessionId: input.sourceNativeSessionId,
     status: "outcome_unknown",
   });
+};
+
+export const readRuntimeTransportProfileWorkspace = async (input: {
+  deviceId: string;
+  env: CoreBindings;
+  ownerUserId: string;
+  runtimeLane: DaemonServiceLane;
+  targetProfileId: string;
+}): Promise<
+  import("@openmeld/schemas/types").RuntimeTransportReadProfileWorkspaceResponse
+> => {
+  const parsedRequest =
+    runtimeTransportReadProfileWorkspaceRequestSchema.safeParse({
+      v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+      ownerUserId: input.ownerUserId,
+      deviceId: input.deviceId,
+      lane: input.runtimeLane,
+      targetProfileId: input.targetProfileId,
+    });
+  if (!parsedRequest.success) {
+    return {
+      status: "rejected",
+      reasonCode: "local_agent_control.invalid_request",
+      message: "Invalid working-folder read request.",
+    };
+  }
+  const response = await callRuntimeTransportApi({
+    env: input.env,
+    ownerUserId: input.ownerUserId,
+    path: "/local-agent-control/read-profile-workspace",
+    body: parsedRequest.data,
+  });
+  const parsed =
+    runtimeTransportReadProfileWorkspaceResponseSchema.safeParse(response);
+  return parsed.success
+    ? parsed.data
+    : {
+        status: "rejected",
+        reasonCode: "local_agent_control.invalid_response",
+        message:
+          "OpenMeld could not confirm the saved working-folder settings.",
+      };
 };
 
 export const setRuntimeTransportProfileWorkspace = async (input: {

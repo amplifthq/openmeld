@@ -902,8 +902,15 @@ separate, explicitly confirmed Project mutation affecting future work for all
 Agents using that Project on that computer.
 
 When the Working folder selector opens, it acquires the saved Default Project
-through the existing account-scoped Auth Profile query before enabling edits
-or Save. A pending read started before opening cannot initialize the draft:
+through the existing account-scoped Auth Profile query and the saved local
+working-folder configuration from the exact owner Service before enabling
+edits or Save. The Service read distinguishes configured, missing, and invalid
+configuration. It does not migrate configuration, create a managed folder,
+validate its current availability, or substitute an effective Project or
+controller-session directory. Its configuration version identifies the stored
+v1/v2 envelope, not a revision or compare-and-swap precondition. An older Service
+without the read capability returns an explicit update-required result.
+A pending Auth read started before opening cannot initialize the draft:
 cancel that read, keep the existing display snapshot stale, then acquire the
 authorized snapshot for this opening. Cached display data is not the draft's
 starting preference. A failed read keeps Save disabled and provides retry with
@@ -922,8 +929,10 @@ future-work settings admission. These are two ordered writes, not one atomic
 transaction. If the target changes between them, the local save receipt remains
 visible, the Project is not cleared, and setup reports partial failure.
 
-The Space recovery draft sends its frozen `expectedBindingTarget` on both HTTP
-writes. Core rejects a mismatched current Binding even after Save has started;
+Profile settings and Space recovery send their frozen `expectedBindingTarget`
+on the private read and both HTTP writes. Core verifies the same canonical
+Binding before and after the asynchronous read, and rejects a mismatched
+current Binding even after Save has started;
 disabling a later click in Web is not the write fence. A successful local save
 followed by a failed Default Project update keeps the dialog open with an accurate
 partial result in both Profile settings and Space recovery. Ordinary explicit

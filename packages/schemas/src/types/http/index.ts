@@ -585,6 +585,7 @@ export type {
   CurrentLocalAgentInstallationsResponse,
   CurrentLocalAgentInstallationsRouteParams,
   CurrentLocalRuntimeReplyReadinessResponse,
+  GetCurrentAgentProfileWorkspaceResponse,
   LocalRuntimeComputer,
   LocalRuntimeExecutionTarget,
   LocalRuntimeReplyReadinessNextAction,

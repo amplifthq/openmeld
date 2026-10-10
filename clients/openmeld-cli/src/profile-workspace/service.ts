@@ -5,7 +5,10 @@ import {
   profileWorkspaceModeSchema,
   providerDispatchRuntimeContextSchema,
 } from "@openmeld/schemas";
-import type { ProfileWorkspaceMode } from "@openmeld/schemas/types";
+import type {
+  ProfileWorkspaceMode,
+  ProfileWorkspaceReadResult,
+} from "@openmeld/schemas/types";
 import { resolveCurrentOpenMeldAccountContext } from "../config/account-context";
 import { acquireLock, runWithHeldLock } from "../config/lock";
 import {
@@ -195,6 +198,33 @@ export async function readProfileWorkspaceConfigForAccount(input: {
     status: "valid",
     updatedAt: envelope.updatedAt,
     value: envelope.workspace,
+  };
+}
+
+/** Reads saved configuration without migration, provisioning, or path validation. */
+export async function readSavedProfileWorkspaceForAccount(input: {
+  account: OpenMeldAccountKey;
+  openMeldProfileId: string;
+}): Promise<ProfileWorkspaceReadResult> {
+  const result = await readProfileWorkspaceConfigForAccount(input);
+  if (result.status === "missing") {
+    return { status: "missing" };
+  }
+  if (result.status === "invalid") {
+    return {
+      status: "invalid",
+      reasonCode: `profile.workspace.${result.reason}`,
+    };
+  }
+  return {
+    status: "configured",
+    workspaceMode: result.value.mode,
+    workspacePath: resolveConfiguredProfileWorkspacePathForAccount({
+      ...input,
+      value: result.value,
+    }),
+    configurationVersion: result.persistedVersion,
+    updatedAt: result.updatedAt,
   };
 }
 

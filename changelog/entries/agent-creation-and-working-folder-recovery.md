@@ -13,3 +13,8 @@ appears in selection lists.
 Working folder settings can save the displayed choice even when it has not
 changed, allowing you to apply the configuration again when the local folder
 has not been initialized. Changes remain unavailable while the Agent is working.
+
+Reopening Working folder loads the saved folder choice from the Agent's
+Computer. Changing that Computer while settings are open keeps your draft and
+asks you to reopen settings before saving. Folder paths retain meaningful
+spaces and Unicode characters.
