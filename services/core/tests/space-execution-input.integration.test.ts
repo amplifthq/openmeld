@@ -32,6 +32,11 @@ import {
   countPublicTextSignalsAfterDispatchAnchor,
   insertSignalRecord,
 } from "../src/space/infrastructure/sql/space-signal-repo";
+import {
+  insertSpaceThread,
+  insertSpaceThreadSignalPlacement,
+  readSpaceThreadSignalPlacementBySignalId,
+} from "../src/space/infrastructure/sql/space-thread-repo";
 import type { Space } from "../src/space/transport/do/space";
 
 type InputSpace = {
@@ -45,7 +50,9 @@ type InputSpace = {
   ): Promise<void>;
   handleInputQueue(
     body: unknown,
-    context: CoreRpcContextInput
+    context: CoreRpcContextInput,
+    includeRecovery?: boolean,
+    includeConversationContext?: boolean
   ): Promise<Response>;
   steerQueuedExecutionInput(inputId: string): Promise<void>;
   flushPendingExecutionInputs(): Promise<void>;
@@ -258,6 +265,124 @@ async function fixture(
   });
 }
 describe("Center Agent execution input in the Space owner", () => {
+  it("freezes a queued reply's original Thread and exposes its scope only to opted-in readers", async () => {
+    await fixture(async ({ instance, state, signal, request, context }) => {
+      if (signal.type !== "signal.text") {
+        throw new Error("Expected text");
+      }
+      const threadContext = {
+        threadId: `thr_${crypto.randomUUID()}`,
+        rootSignalId: crypto.randomUUID(),
+      };
+      const createdAt = new Date().toISOString();
+      insertSignalRecord(state.storage.sql, {
+        ...signal,
+        id: threadContext.rootSignalId,
+        data: { text: "Root" },
+      });
+      insertSignalRecord(state.storage.sql, {
+        ...signal,
+        id: request.triggerMessageId,
+        data: { text: "Original Thread request" },
+      });
+      insertSpaceThread(state.storage.sql, {
+        ...threadContext,
+        spaceId: signal.spaceId,
+        createdByProfileId: signal.profile.profileId,
+        createdAt,
+        updatedAt: createdAt,
+      });
+      insertSpaceThreadSignalPlacement(state.storage.sql, {
+        threadId: threadContext.threadId,
+        signalId: request.triggerMessageId,
+        placement: "thread",
+        createdAt,
+      });
+      const mutation = {
+        action: "enqueue",
+        inputId: "scoped-queued-reply",
+        text: "Continue in this Thread",
+        target: {
+          dispatchId: request.dispatchId,
+          targetProfileId: request.agentProfileId,
+        },
+      };
+      const response = await instance.handleInputQueue(
+        mutation,
+        context,
+        false,
+        true
+      );
+      expect(response.status, await response.clone().text()).toBe(200);
+      expect(await response.json()).toMatchObject({
+        conversationContextIncluded: true,
+        items: [{ threadId: threadContext.threadId }],
+      });
+      expect(
+        readSpaceExecutionInput(state.storage.sql, mutation.inputId)?.request
+      ).toMatchObject({ threadContext });
+      const legacy = (await (
+        await instance.handleInputQueue(undefined, context)
+      ).json()) as { items: unknown[] };
+      expect(legacy).not.toHaveProperty("conversationContextIncluded");
+      expect(legacy.items[0]).not.toHaveProperty("threadId");
+      expect(
+        readSpaceThreadSignalPlacementBySignalId(state.storage.sql, signal.id)
+      ).toBeNull();
+      const receive = vi.fn(
+        async (input: RemoteAgentWorkerExecutionInputRequest) => ({
+          status: "applied" as const,
+          receipt: {
+            target: input.target,
+            inputId: input.inputId,
+            receivedAtMs: 1,
+            appliedAtMs: 2,
+          },
+        })
+      );
+      instance.bindings = {
+        ...instance.bindings,
+        OPENMELD_REMOTE_AGENT_WORKER: {
+          receiveExecutionInput: receive,
+          readExecutionInput: () => Promise.resolve({ status: "not_found" }),
+        },
+      };
+      await instance.steerQueuedExecutionInput(mutation.inputId);
+      const stored = readSpaceExecutionInput(
+        state.storage.sql,
+        mutation.inputId
+      );
+      expect(
+        readSpaceThreadSignalPlacementBySignalId(
+          state.storage.sql,
+          stored?.signal.id ?? ""
+        )
+      ).toMatchObject({
+        threadId: threadContext.threadId,
+        placement: "thread",
+      });
+      expect(receive.mock.calls[0]?.[0]).not.toHaveProperty("threadContext");
+    });
+  });
+
+  it("rejects Queue intake when the original request is unavailable", async () => {
+    await fixture(async ({ instance, state, request, context }) => {
+      const response = await instance.handleInputQueue(
+        {
+          action: "enqueue",
+          inputId: "missing-source",
+          text: "Follow up",
+          target: {
+            dispatchId: request.dispatchId,
+            targetProfileId: request.agentProfileId,
+          },
+        },
+        context
+      );
+      expect(response.status).toBe(409);
+      expect(listQueuedSpaceExecutionInputs(state.storage.sql)).toEqual([]);
+    });
+  });
   it("shares workload counts but only reveals source details to current conversation members", async () => {
     await fixture(async ({ instance, signal, request, context }) => {
       await instance.publishExecutionInput(
@@ -1131,16 +1256,41 @@ describe("Center Agent execution input in the Space owner", () => {
     }, false);
   });
   it.each([
-    "consume",
-    "steer",
-  ] as const)("atomically hands off one queued message and targets its successor for %s", async (nextAction) => {
+    ["consume", false],
+    ["steer", false],
+    ["consume", true],
+    ["steer", true],
+  ] as const)("atomically hands off one queued message and targets its successor for %s; Thread=%s", async (nextAction, inThread) => {
     await fixture(async ({ instance, state, signal, request }) => {
       if (signal.type !== "signal.text") {
         throw new Error("Expected a text input.");
       }
+      const threadContext = inThread
+        ? {
+            threadId: `thr_${crypto.randomUUID()}`,
+            rootSignalId: crypto.randomUUID(),
+          }
+        : null;
+      if (threadContext) {
+        insertSignalRecord(state.storage.sql, {
+          ...signal,
+          id: threadContext.rootSignalId,
+          data: { text: "Root request" },
+        });
+        insertSpaceThread(state.storage.sql, {
+          ...threadContext,
+          spaceId: signal.spaceId,
+          createdByProfileId: signal.profile.profileId,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+      }
       await instance.publishExecutionInput(
         signal,
-        { authoringPolicy: "user_authored" },
+        {
+          authoringPolicy: "user_authored",
+          ...(threadContext ? { threadContext } : {}),
+        },
         true
       );
       const second = structuredClone(signal);
@@ -1151,7 +1301,10 @@ describe("Center Agent execution input in the Space owner", () => {
       };
       await instance.publishExecutionInput(
         second,
-        { authoringPolicy: "user_authored" },
+        {
+          authoringPolicy: "user_authored",
+          ...(threadContext ? { threadContext } : {}),
+        },
         true
       );
       vi.spyOn(instance, "flushPendingDispatchOutbox").mockResolvedValue();
@@ -1217,6 +1370,10 @@ describe("Center Agent execution input in the Space owner", () => {
         .exec("SELECT id FROM space_signals WHERE id = ?", signal.id)
         .toArray();
       expect(rows).toHaveLength(1);
+      expect(
+        readSpaceThreadSignalPlacementBySignalId(state.storage.sql, signal.id)
+          ?.threadId ?? null
+      ).toBe(threadContext?.threadId ?? null);
       const nextDispatch = dispatches[0];
       if (!nextDispatch) {
         throw new Error("Expected one dispatch.");
@@ -1247,10 +1404,11 @@ describe("Center Agent execution input in the Space owner", () => {
           workerSubmitRequest: nextRequest,
           nowMs: Date.now(),
         });
+        const nextSubmissionId = crypto.randomUUID();
         await markRemoteAgentNativeDeliveryAck({
           db: getPostgresDatabase(env),
           idempotencyKey: nextRequest.idempotencyKey,
-          submissionId: "next-accepted-submission",
+          submissionId: nextSubmissionId,
           accepted: true,
           nowMs: Date.now(),
         });
@@ -1278,8 +1436,13 @@ describe("Center Agent execution input in the Space owner", () => {
         }
         await instance.steerQueuedExecutionInput(secondInputId);
         expect(receive).toHaveBeenCalledTimes(1);
+        expect(receive.mock.calls[0]?.[0]).not.toHaveProperty("threadContext");
+        expect(
+          readSpaceThreadSignalPlacementBySignalId(state.storage.sql, second.id)
+            ?.threadId ?? null
+        ).toBe(threadContext?.threadId ?? null);
         expect(receive.mock.calls[0]?.[0].target).toMatchObject({
-          submissionId: "next-accepted-submission",
+          submissionId: nextSubmissionId,
           idempotencyKey: nextRequest.idempotencyKey,
         });
         expect(listQueuedSpaceExecutionInputs(state.storage.sql)).toEqual([]);
@@ -1571,10 +1734,15 @@ describe("Center Agent execution input in the Space owner", () => {
   });
 
   it("keeps queued input private to its author until explicit exact-target Steer and never resends an unknown receipt", async () => {
-    await fixture(async ({ instance, state, signal, context }) => {
+    await fixture(async ({ instance, state, signal, context, request }) => {
       if (signal.type !== "signal.text") {
         throw new Error("Expected text fixture");
       }
+      insertSignalRecord(state.storage.sql, {
+        ...signal,
+        id: request.triggerMessageId,
+        data: { text: "Original request" },
+      });
       const inputId = signal.data.meta?.clientMessageId;
       const target = signal.data.meta?.centerAgentExecutionInput;
       if (!(inputId && target)) {
@@ -1623,8 +1791,15 @@ describe("Center Agent execution input in the Space owner", () => {
       );
       expect(listQueuedSpaceExecutionInputs(state.storage.sql)).toHaveLength(1);
       expect(readNextSpaceExecutionInputAlarm(state.storage.sql)).toBeNull();
+      const queuedSignalId = readSpaceExecutionInput(state.storage.sql, inputId)
+        ?.signal.id;
       expect(
-        state.storage.sql.exec("SELECT id FROM space_signals").toArray()
+        state.storage.sql
+          .exec(
+            "SELECT id FROM space_signals WHERE id = ?",
+            queuedSignalId ?? ""
+          )
+          .toArray()
       ).toHaveLength(0);
       const receive = vi.fn(
         (_input: RemoteAgentWorkerExecutionInputRequest): Promise<never> => {
@@ -1683,7 +1858,10 @@ describe("Center Agent execution input in the Space owner", () => {
       expect(listQueuedSpaceExecutionInputs(state.storage.sql)).toEqual([]);
       expect(
         state.storage.sql
-          .exec("SELECT id FROM space_signals WHERE type = 'signal.text'")
+          .exec(
+            "SELECT id FROM space_signals WHERE id = ?",
+            queuedSignalId ?? ""
+          )
           .toArray()
       ).toHaveLength(1);
       expect(readNextSpaceExecutionInputAlarm(state.storage.sql)).toBeNull();

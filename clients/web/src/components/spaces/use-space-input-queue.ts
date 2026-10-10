@@ -28,6 +28,7 @@ export function useSpaceInputQueue(input: {
 				spaceId: input.spaceId,
 				signal,
 				includeRecovery: true,
+				includeConversationContext: true,
 			}),
 		staleTime: 0,
 		refetchInterval: 30_000,
@@ -38,6 +39,7 @@ export function useSpaceInputQueue(input: {
 			const data = await readOrUpdateSpaceInputQueue(client(), {
 				spaceId: input.spaceId,
 				includeRecovery: true,
+				includeConversationContext: true,
 				mutation,
 			});
 			queryClient.setQueryData(queryKey, data);
@@ -47,6 +49,8 @@ export function useSpaceInputQueue(input: {
 	}
 	return {
 		items: query.data?.items ?? [],
+		supportsConversationContext:
+			query.data?.conversationContextIncluded === true,
 		recoveries: query.data?.recoveries ?? [],
 		error: query.error,
 		mutate,

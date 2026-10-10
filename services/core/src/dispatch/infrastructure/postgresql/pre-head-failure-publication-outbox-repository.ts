@@ -2,12 +2,14 @@ import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   openMeldRequestContextSchema,
   parseOpenMeldDaemonDispatchQueueIngress,
+  preHeadFailurePublicationIdentitySchema,
   profileSchema,
   signalSystemNoticeDataSchema,
 } from "@openmeld/schemas";
 import type {
   OpenMeldDaemonDispatchQueueMessage,
   OpenMeldRequestContext,
+  PreHeadFailurePublicationIdentity,
   Profile,
   SignalSystemNoticeData,
 } from "@openmeld/schemas/types";
@@ -33,6 +35,7 @@ export type PreHeadFailurePublicationCommand = {
   profile: Profile;
   spaceAccess: SpaceAccessContext;
   spaceId: string;
+  preHeadFailurePublication?: PreHeadFailurePublicationIdentity;
 };
 export type PreHeadFailurePublicationIntent = {
   attemptId: string;
@@ -209,6 +212,11 @@ export type PreHeadFailurePublicationState =
   | {
       intent: PreHeadFailurePublicationIntent;
       status: "pending";
+    }
+  | {
+      intent: PreHeadFailurePublicationIntent;
+      reasonCode: string;
+      status: "needs_attention";
     };
 export const readPreHeadFailurePublicationState = async (input: {
   db: PostgresDatabase;
@@ -224,6 +232,16 @@ export const readPreHeadFailurePublicationState = async (input: {
   }
   if (row.status === "completed") {
     return { status: "completed" };
+  }
+  if (row.status === "needs_attention") {
+    return {
+      intent: parsePreHeadFailurePublicationOutboxRow(row),
+      reasonCode: requireNonEmptyText(
+        row.recoveryBlockerReason,
+        "recoveryBlockerReason"
+      ),
+      status: "needs_attention",
+    };
   }
   return {
     intent: parsePreHeadFailurePublicationOutboxRow(row),
@@ -296,6 +314,9 @@ export type ClaimPreHeadFailurePublicationIntentResult =
     }
   | {
       outcome: "missing";
+    }
+  | {
+      outcome: "needs_attention";
     };
 export const claimPreHeadFailurePublicationIntent = async (input: {
   claimId: string;
@@ -339,6 +360,86 @@ export const claimPreHeadFailurePublicationIntent = async (input: {
   return {
     outcome: current.status === "completed" ? "completed" : "busy",
   };
+};
+export const freezePreHeadFailurePublicationIdentity = async (input: {
+  db: PostgresDatabase;
+  intent: PreHeadFailurePublicationIntent;
+  nowMs: number;
+}): Promise<PreHeadFailurePublicationIntent> => {
+  const intent = parsePreHeadFailurePublicationIntent(input.intent);
+  if (!intent.claimId) {
+    throw new Error(
+      "dispatch.pre_head_failure_publication_identity_claim_required"
+    );
+  }
+  if (intent.publicationCommand.preHeadFailurePublication) {
+    return intent;
+  }
+  const next = parsePreHeadFailurePublicationIntent({
+    ...intent,
+    publicationCommand: {
+      ...intent.publicationCommand,
+      preHeadFailurePublication: {
+        signalId: crypto.randomUUID(),
+        legacyUpgrade: true,
+      },
+    },
+    stateVersion: intent.stateVersion + 1,
+  });
+  const result = await input.db.query({
+    text: `UPDATE "openmeld"."openMeldDaemon_pre_head_failure_publication_outbox"
+      SET publication_command_json = $1, state_version = $2, updated_at_ms = $3
+      WHERE dispatch_id = $4 AND status = 'pending' AND state_version = $5
+        AND claim_id = $6 AND claim_expires_at_ms = $7`,
+    values: [
+      JSON.stringify(next.publicationCommand),
+      next.stateVersion,
+      input.nowMs,
+      intent.dispatchId,
+      intent.stateVersion,
+      intent.claimId,
+      intent.claimExpiresAtMs,
+    ],
+  });
+  if (result.rowCount !== 1) {
+    throw new Error(
+      "dispatch.pre_head_failure_publication_identity_claim_lost"
+    );
+  }
+  return next;
+};
+export const markPreHeadFailurePublicationNeedsAttention = async (input: {
+  db: PostgresDatabase;
+  intent: PreHeadFailurePublicationIntent;
+  nowMs: number;
+  reasonCode: string;
+}): Promise<void> => {
+  const intent = parsePreHeadFailurePublicationIntent(input.intent);
+  if (!intent.claimId) {
+    throw new Error(
+      "dispatch.pre_head_failure_publication_attention_claim_required"
+    );
+  }
+  const result = await input.db.query({
+    text: `UPDATE "openmeld"."openMeldDaemon_pre_head_failure_publication_outbox"
+      SET status = 'needs_attention', recovery_blocker_reason = $1,
+        claim_id = NULL, claim_expires_at_ms = NULL, state_version = state_version + 1, updated_at_ms = $2
+      WHERE dispatch_id = $3 AND status = 'pending' AND state_version = $4
+        AND claim_id = $5 AND claim_expires_at_ms = $6`,
+    values: [
+      input.reasonCode,
+      input.nowMs,
+      intent.dispatchId,
+      intent.stateVersion,
+      intent.claimId,
+      intent.claimExpiresAtMs,
+    ],
+  });
+  if (result.rowCount !== 1) {
+    throw new Error(
+      "dispatch.pre_head_failure_publication_attention_claim_lost"
+    );
+  }
 };
 export const reschedulePreHeadFailurePublicationIntent = async (input: {
   db: PostgresDatabase;
@@ -497,6 +598,7 @@ type PreHeadFailurePublicationOutboxRow = {
   nextAttemptAtMs: unknown;
   publicationCommandJson: unknown;
   recordProfileNotFoundObservation: unknown;
+  recoveryBlockerReason: unknown;
   redriveMessageJson: unknown;
   stateVersion: unknown;
   status: unknown;
@@ -523,6 +625,7 @@ const readPreHeadFailurePublicationOutboxRow = async (input: {
           publication_command_json AS "publicationCommandJson",
           redrive_message_json AS "redriveMessageJson",
           status,
+          recovery_blocker_reason AS "recoveryBlockerReason",
           attempt_count AS "attemptCount",
           next_attempt_at_ms AS "nextAttemptAtMs",
           claim_id AS "claimId",
@@ -656,6 +759,9 @@ const parsePreHeadFailurePublicationCommand = (
   const context = openMeldRequestContextSchema.safeParse(record.context);
   const data = signalSystemNoticeDataSchema.safeParse(record.data);
   const profile = profileSchema.safeParse(record.profile);
+  const publication = preHeadFailurePublicationIdentitySchema
+    .optional()
+    .safeParse(record.preHeadFailurePublication);
   const spaceId = normalizeString(record.spaceId);
   const spaceAccess = record.spaceAccess;
   if (
@@ -663,6 +769,7 @@ const parsePreHeadFailurePublicationCommand = (
       context.success &&
       data.success &&
       profile.success &&
+      publication.success &&
       spaceId &&
       spaceAccess &&
       typeof spaceAccess === "object"
@@ -694,6 +801,9 @@ const parsePreHeadFailurePublicationCommand = (
     profile: profile.data,
     spaceAccess: typedSpaceAccess,
     spaceId,
+    ...(publication.data
+      ? { preHeadFailurePublication: publication.data }
+      : {}),
   };
 };
 const parsePreHeadFailureRedriveMessage = (

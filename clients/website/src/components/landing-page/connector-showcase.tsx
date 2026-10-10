@@ -15,30 +15,32 @@ import { useInView } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import "./connector-showcase.css";
 
-const integrations = PLUGINS.filter(
-	(plugin) => plugin.availability === "available"
-);
+const plugins = PLUGINS.filter((plugin) => plugin.availability === "available");
 
 // Several shipped connections share one brand. Keep every connection in the
-// details, but show its logo only once per marquee group.
-const brands = [...new Set(integrations.map((plugin) => plugin.logoPath))].map(
+// details, but show its logo in only one marquee row.
+const brands = [...new Set(plugins.map((plugin) => plugin.logoPath))].map(
 	(logoPath) => {
-		const plugins = integrations.filter(
+		const brandPlugins = plugins.filter(
 			(plugin) => plugin.logoPath === logoPath
 		);
-		const app = plugins[0];
+		const app = brandPlugins[0];
 		const name = app.service.startsWith("cloudflare_")
 			? "Cloudflare"
-			: plugins.map((plugin) => plugin.name).join(" / ");
+			: brandPlugins.map((plugin) => plugin.name).join(" / ");
 		return { app, name };
 	}
 );
 
-function LogoGroup({ reverse = false }: { reverse?: boolean }) {
-	const ordered = reverse ? [...brands].reverse() : brands;
+const brandRows = [
+	brands.filter((_, index) => index % 2 === 0),
+	brands.filter((_, index) => index % 2 === 1).reverse(),
+];
+
+function LogoGroup({ items }: { items: typeof brands }) {
 	return (
 		<div className="meld-connectors-group">
-			{ordered.map((brand) => (
+			{items.map((brand) => (
 				<div className="meld-connector-tile" key={brand.app.logoPath}>
 					<AppLogo
 						app={brand.app}
@@ -73,44 +75,43 @@ export function ConnectorShowcase() {
 		>
 			<div className="meld-connectors-copy">
 				<h2 id="connectors-title">
-					Your tools.
-					<span> Connected.</span>
+					{plugins.length} plugins.
+					<span> More ways to work.</span>
 				</h2>
 				<p>
-					Connect the apps your team uses. Let your agents work with files,
-					issues, designs, and calendars through the access you grant.
+					Connect the tools you use. You choose what your agents can access and
+					do.
 				</p>
 			</div>
 			<p className="sr-only">
-				Available integrations: {integrations.map((app) => app.name).join(", ")}
-				.
+				Supported plugins: {plugins.map((app) => app.name).join(", ")}.
 			</p>
 			<div aria-hidden="true" className="meld-connectors-wall">
 				<div className="meld-connectors-track">
-					<LogoGroup />
-					<LogoGroup />
+					<LogoGroup items={brandRows[0]} />
+					<LogoGroup items={brandRows[0]} />
 				</div>
 				<div className="meld-connectors-track meld-connectors-track-reverse">
-					<LogoGroup reverse />
-					<LogoGroup reverse />
+					<LogoGroup items={brandRows[1]} />
+					<LogoGroup items={brandRows[1]} />
 				</div>
 			</div>
 			<div className="meld-connectors-footer">
-				<p>{integrations.length} integrations available. More on the way.</p>
+				<p>More plugins on the way.</p>
 				<Sheet>
 					<SheetTrigger className="meld-connectors-details">
-						See all integrations <PlusIcon aria-hidden size={14} />
+						See all plugins <PlusIcon aria-hidden size={14} />
 					</SheetTrigger>
 					<SheetContent className="dark meld-connectors-sheet">
 						<SheetHeader>
-							<SheetTitle>Available integrations</SheetTitle>
+							<SheetTitle>Supported plugins</SheetTitle>
 							<SheetDescription>
-								Connect these apps from Plugins in OpenMeld. More integrations
-								are on the way.
+								Connect these apps from Plugins in OpenMeld. Personal accounts
+								stay private. Choose which agents can use each connection.
 							</SheetDescription>
 						</SheetHeader>
 						<ul className="meld-connectors-list">
-							{integrations.map((app) => (
+							{plugins.map((app) => (
 								<li key={app.service}>
 									<AppLogo app={app} size="md" />
 									<div>

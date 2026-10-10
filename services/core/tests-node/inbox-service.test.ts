@@ -1620,11 +1620,13 @@ describe("Inbox service", () => {
             latestUnreadOccurredAtMs: 2000,
             spaceId: "space_two",
             unreadCount: 1,
+            messageUnreadCount: 1,
           },
           {
             latestUnreadOccurredAtMs: 1100,
             spaceId: "space_one",
             unreadCount: 3,
+            messageUnreadCount: 3,
           },
         ],
       });
@@ -1789,6 +1791,7 @@ describe("Inbox service", () => {
             latestUnreadOccurredAtMs: 1100,
             spaceId: "space_one",
             unreadCount: 1,
+            messageUnreadCount: 1,
           },
         ],
       });
@@ -1847,6 +1850,7 @@ describe("Inbox service", () => {
             latestUnreadOccurredAtMs: 1100,
             spaceId: "space_one",
             unreadCount: 1,
+            messageUnreadCount: 1,
           },
         ],
       });

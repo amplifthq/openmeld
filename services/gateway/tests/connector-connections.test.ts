@@ -1248,6 +1248,7 @@ function makeEnv(
   };
   return {
     OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN: "test-admin-token",
+    OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN: "test-runtime-token",
     OPENMELD_AUTH_WORKER: authRpc,
     OPENMELD_CONNECTORS_BASE_URL: "https://connectors.example.test",
     OPENMELD_CORE_WORKER: {

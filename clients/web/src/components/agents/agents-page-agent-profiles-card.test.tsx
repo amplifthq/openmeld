@@ -97,33 +97,39 @@ vi.mock("@tanstack/react-router", () => ({
 	useNavigate: () => navigateMock,
 }));
 
-vi.mock("#/lib/profiles/agent-profile-primary-binding", () => ({
-	readAgentProfileControllerChangeEligibility: (
-		...args: Parameters<typeof readControllerChangeEligibilityMock>
-	) => readControllerChangeEligibilityMock(...args),
-	disableAgentProfilePrimaryBinding: (
-		...args: Parameters<typeof disablePrimaryBindingMock>
-	) => disablePrimaryBindingMock(...args),
-	readAgentProfilePrimaryBinding: (
-		...args: Parameters<typeof readPrimaryBindingMock>
-	) => readPrimaryBindingMock(...args),
-	updateAgentProfilePrimaryBindingAgentControllerPermissionMode: (
-		...args: Parameters<
-			typeof updatePrimaryBindingAgentControllerPermissionModeMock
-		>
-	) => updatePrimaryBindingAgentControllerPermissionModeMock(...args),
-	updateAgentProfilePrimaryBindingAgentControllerCollaborationMode: (
-		...args: Parameters<
-			typeof updatePrimaryBindingAgentControllerCollaborationModeMock
-		>
-	) => updatePrimaryBindingAgentControllerCollaborationModeMock(...args),
-	updateAgentProfilePrimaryBindingModelSelection: (
-		...args: Parameters<typeof updatePrimaryBindingModelSelectionMock>
-	) => updatePrimaryBindingModelSelectionMock(...args),
-	updateAgentProfilePrimaryBindingOpenCodePermission: (
-		...args: Parameters<typeof updatePrimaryBindingOpenCodePermissionMock>
-	) => updatePrimaryBindingOpenCodePermissionMock(...args),
-}));
+vi.mock(
+	"#/lib/profiles/agent-profile-primary-binding",
+	async (importOriginal) => ({
+		...(await importOriginal<
+			typeof import("#/lib/profiles/agent-profile-primary-binding")
+		>()),
+		readAgentProfileControllerChangeEligibility: (
+			...args: Parameters<typeof readControllerChangeEligibilityMock>
+		) => readControllerChangeEligibilityMock(...args),
+		disableAgentProfilePrimaryBinding: (
+			...args: Parameters<typeof disablePrimaryBindingMock>
+		) => disablePrimaryBindingMock(...args),
+		readAgentProfilePrimaryBinding: (
+			...args: Parameters<typeof readPrimaryBindingMock>
+		) => readPrimaryBindingMock(...args),
+		updateAgentProfilePrimaryBindingAgentControllerPermissionMode: (
+			...args: Parameters<
+				typeof updatePrimaryBindingAgentControllerPermissionModeMock
+			>
+		) => updatePrimaryBindingAgentControllerPermissionModeMock(...args),
+		updateAgentProfilePrimaryBindingAgentControllerCollaborationMode: (
+			...args: Parameters<
+				typeof updatePrimaryBindingAgentControllerCollaborationModeMock
+			>
+		) => updatePrimaryBindingAgentControllerCollaborationModeMock(...args),
+		updateAgentProfilePrimaryBindingModelSelection: (
+			...args: Parameters<typeof updatePrimaryBindingModelSelectionMock>
+		) => updatePrimaryBindingModelSelectionMock(...args),
+		updateAgentProfilePrimaryBindingOpenCodePermission: (
+			...args: Parameters<typeof updatePrimaryBindingOpenCodePermissionMock>
+		) => updatePrimaryBindingOpenCodePermissionMock(...args),
+	})
+);
 
 vi.mock("#/lib/profiles/agent-profile-runtime-binding", () => ({
 	ensureWebAgentProfileRuntimeBinding: (
@@ -159,7 +165,10 @@ vi.mock("#/lib/spaces/direct-message", () => ({
 		"OpenMeld could not open this Direct Message.",
 }));
 
-vi.mock("#/query/agents/execution-readiness", () => ({
+vi.mock("#/query/agents/execution-readiness", async (importOriginal) => ({
+	...(await importOriginal<
+		typeof import("#/query/agents/execution-readiness")
+	>()),
 	refreshWebAgentReadinessFacts: (
 		...args: Parameters<typeof refreshReadinessFactsMock>
 	) => refreshReadinessFactsMock(...args),
@@ -970,14 +979,16 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		);
 
 		const overview = screen.getByTestId("agent-configuration-overview");
-		expect(within(overview).getByText("Working folder missing")).toBeTruthy();
 		expect(
-			within(overview).getByText("Choose a working folder for this Agent.")
+			within(overview).getByText("Working folder needs attention")
 		).toBeTruthy();
 		expect(
-			within(overview).getByRole("button", { name: "Choose folder" })
+			within(overview).getByText("Review the working folder for this Agent.")
 		).toBeTruthy();
-		expect(within(overview).getByText("Choose folder")).toBeTruthy();
+		expect(
+			within(overview).getByRole("button", { name: "Review working folder" })
+		).toBeTruthy();
+		expect(within(overview).getByText("Review working folder")).toBeTruthy();
 		expect(within(overview).queryByText("OpenMeld managed")).toBeNull();
 	});
 
@@ -1419,7 +1430,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 
 		expect(executeAgentProfileWorkRecoveryMock).not.toHaveBeenCalled();
 		expect(toastMock.error).toHaveBeenCalledWith(
-			"Refresh this page before skipping the interrupted work."
+			"Refresh this page to review the Agent’s current paused work."
 		);
 	});
 
@@ -2952,7 +2963,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		).toBeTruthy();
 		expect(
 			screen.getByText(
-				"A saved Permission Mode applies to the next Wake. The current Wake keeps its existing mode."
+				"This controller can apply a saved Permission Mode to later tool requests in the current Wake. If the current session cannot accept it, the next Wake uses it."
 			)
 		).toBeTruthy();
 	});

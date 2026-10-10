@@ -23,7 +23,7 @@ import {
 import { formatStagingSmokeCleanupMessage } from "./staging-computer-update-smoke-runner.mjs";
 
 const SETUP_COMMAND_PREFIX =
-  "curl -fsSL --proto '=https' --proto-redir '=https' 'https://staging.openmeld.ai/setup?dist=binary&lane=canary' | sh -s -- ";
+  "curl -fsSL --proto '=https' --proto-redir '=https' 'https://app.staging.openmeld.ai/setup?dist=binary&lane=canary' | sh -s -- ";
 const SETUP_COMMAND = `${SETUP_COMMAND_PREFIX}setup --start-session start_staging_demo --device-code device_staging_demo --view human`;
 const LEGACY_OTT_SETUP_COMMAND = `${SETUP_COMMAND_PREFIX}setup --start-session start_staging_demo --ott ott_staging_demo --view human`;
 const SETUP_FILE_REQUIRED_PATTERN = /requires --setup-command-file/u;
@@ -69,7 +69,7 @@ test("accepts only the official staging Canary binary setup handoff", () => {
   const parsed = parseStagingWebSetupCommand(SETUP_COMMAND);
   assert.equal(
     parsed.setupUrl,
-    "https://staging.openmeld.ai/setup?dist=binary&lane=canary"
+    "https://app.staging.openmeld.ai/setup?dist=binary&lane=canary"
   );
   assert.deepEqual(parsed.setupArgs, [
     "setup",
@@ -82,6 +82,7 @@ test("accepts only the official staging Canary binary setup handoff", () => {
   ]);
 
   for (const unsafeCommand of [
+    SETUP_COMMAND.replace("app.staging.openmeld.ai", "staging.openmeld.ai"),
     SETUP_COMMAND.replace("staging.openmeld.ai", "openmeld.ai"),
     SETUP_COMMAND.replace("staging.openmeld.ai", "staging.openmeld.invalid"),
     SETUP_COMMAND.replace("dist=binary&", ""),

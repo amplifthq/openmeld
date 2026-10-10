@@ -482,12 +482,15 @@ async function readPersonalMessageEvidence({
     aroundSignalId: operation.sourceSignalId,
     beforeCount: 0,
     afterCount: 0,
-    signalTypes: ["signal.text"],
+    signalTypes: ["signal.text", "signal.system_notice"],
   });
   const signal = page.signals.find(
     (candidate) => candidate.id === operation.sourceSignalId
   );
-  if (!signal || signal.type !== "signal.text") {
+  if (
+    !signal ||
+    (signal.type !== "signal.text" && signal.type !== "signal.system_notice")
+  ) {
     throw new Error(
       "space.evidence_unavailable: The requested message is unavailable."
     );

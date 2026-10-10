@@ -38,6 +38,8 @@ import {
   mutateInboxFeedResponseSchema,
   mutateSpaceInboxReadBodySchema,
   mutateSpaceInboxReadResponseSchema,
+  projectSpaceInboxSummaryForMembershipReceiver,
+  projectSpaceInboxUnreadTargetsForMembershipReceiver,
   spaceInboxSummaryResponseSchema,
   spaceInboxUnreadTargetsResponseSchema,
   spaceInboxUnreadTargetsRouteParamsSchema,
@@ -94,11 +96,22 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       method: "GET",
       route,
       responseSchema: inboxNotificationObservationsResponseSchema,
-      execute: () =>
-        c.var.coreRpc.observeInboxNotifications({
+      execute: async () => {
+        const response = await c.var.coreRpc.observeInboxNotifications({
+          includeMembershipNotices: true,
           ...query.data,
           context: buildCoreRpcContext(c),
-        }),
+        });
+        return {
+          ...response,
+          items: response.items.map((item) =>
+            projectMembershipNoticeForClient(
+              item,
+              resolveInboxItemKindVersion(c)
+            )
+          ),
+        };
+      },
     });
   });
   app.get(INBOX_FEED_ROUTE, (c) => {
@@ -119,6 +132,7 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       execute: async () => {
         const response = inboxFeedResponseSchema.parse(
           await c.var.coreRpc.listInboxFeed({
+            includeMembershipNotices: true,
             ...query.data,
             context: buildCoreRpcContext(c),
           })
@@ -128,7 +142,10 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
           rows: response.rows.map((row) => ({
             ...row,
             item: projectPluginRequestForClient(
-              row.item,
+              projectMembershipNoticeForClient(
+                row.item,
+                resolveInboxItemKindVersion(c)
+              ),
               resolveInboxSourceTargetVersion(c)
             ),
           })),
@@ -245,12 +262,16 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       c,
       execute: async () =>
         await c.var.coreRpc.getSpaceInboxSummary({
+          includeMembershipNotices: true,
           context: buildCoreRpcContext(c),
         }),
       method: "GET",
       responseSchema: spaceInboxSummaryResponseSchema,
       resolveSuccessPayload: (result) => {
-        const response = spaceInboxSummaryResponseSchema.parse(result);
+        const response = projectSpaceInboxSummaryForMembershipReceiver(
+          spaceInboxSummaryResponseSchema.parse(result),
+          resolveInboxItemKindVersion(c) === "current"
+        );
         if (
           SPACE_INBOX_CONVERSATION_COUNTS_VERSIONS.has(
             c.req.header(OPENMELD_HEADER_INBOX_SUMMARY_VERSION) ?? ""
@@ -287,6 +308,7 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       c,
       execute: async () =>
         await c.var.coreRpc.getSpaceInboxUnreadTargets({
+          includeMembershipNotices: true,
           ...(c.req.query("includeItemIds") === "true"
             ? { includeItemIds: true }
             : {}),
@@ -295,6 +317,11 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
         }),
       method: "GET",
       responseSchema: spaceInboxUnreadTargetsResponseSchema,
+      resolveSuccessPayload: (result) =>
+        projectSpaceInboxUnreadTargetsForMembershipReceiver(
+          spaceInboxUnreadTargetsResponseSchema.parse(result),
+          resolveInboxItemKindVersion(c) === "current"
+        ),
       route: SPACE_INBOX_UNREAD_TARGETS_ROUTE,
     });
   });
@@ -362,6 +389,7 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
         await c.var.coreRpc.listInboxItems({
           includeReplyToRecipient: true,
           includeSourceFacts: true,
+          includeMembershipNotices: true,
           includeAccountItems: supportsInboxAccountItems(c),
           ...query.data,
           context: buildCoreRpcContext(c),
@@ -448,6 +476,7 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
         await c.var.coreRpc.getInboxItem({
           includeReplyToRecipient: true,
           includeSourceFacts: true,
+          includeMembershipNotices: true,
           includeAccountItems: supportsInboxAccountItems(c),
           context: buildCoreRpcContext(c),
           itemId: params.data.itemId,
@@ -514,6 +543,7 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
         await c.var.coreRpc.markInboxItemRead({
           includeReplyToRecipient: true,
           includeSourceFacts: true,
+          includeMembershipNotices: true,
           includeAccountItems: supportsInboxAccountItems(c),
           ...body.data,
           context: buildCoreRpcContext(c),
@@ -642,7 +672,7 @@ function resolveInboxItemResponse(input: {
 }
 
 type InboxItem = z.infer<typeof listInboxItemsResponseSchema>["items"][number];
-type InboxItemKindClientVersion = "current" | "legacy";
+type InboxItemKindClientVersion = "current" | "membership_unaware" | "legacy";
 type InboxSourceTargetClientVersion =
   | "request_unaware"
   | "account_unaware"
@@ -661,7 +691,10 @@ function projectInboxItemForClient(value: {
 }): z.infer<typeof listInboxItemsWireResponseSchema>["items"][number] {
   const input = {
     ...value,
-    item: projectPluginRequestForClient(value.item, value.sourceTargetVersion),
+    item: projectPluginRequestForClient(
+      projectMembershipNoticeForClient(value.item, value.itemKindVersion),
+      value.sourceTargetVersion
+    ),
   };
   if (
     input.itemKindVersion === "current" &&
@@ -761,7 +794,19 @@ function resolveInboxItemKindVersion(
   ) {
     return "current";
   }
+  if (c.req.header(OPENMELD_HEADER_INBOX_ITEM_KIND_VERSION) === "1") {
+    return "membership_unaware";
+  }
   return "legacy";
+}
+
+function projectMembershipNoticeForClient(
+  item: InboxItem,
+  version: InboxItemKindClientVersion
+): InboxItem {
+  return item.kind === "space_joined" && version !== "current"
+    ? { ...item, kind: "system_issue" }
+    : item;
 }
 
 function supportsInboxAccountItems(c: Context<HonoBindings>): boolean {

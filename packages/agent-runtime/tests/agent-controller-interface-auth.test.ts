@@ -37,6 +37,24 @@ describe("Agent Controller Interface account identity", () => {
       )
     ).toBe(false);
   });
+
+  it.each([
+    ["same subject", "subject-a", "subject-a", true],
+    ["different workspace", "subject-a", "subject-b", false],
+    ["missing next subject", "subject-a", undefined, false],
+    ["legacy previous subject", undefined, "subject-b", false],
+  ] as const)("compares native account subjects with the same email (%s)", (_label, currentKey, nextKey, expected) => {
+    const common = {
+      email: "same@example.com",
+      status: "authenticated" as const,
+    };
+    expect(
+      areAgentControllerInterfaceAccountsSame(
+        { ...common, accountKey: currentKey },
+        { ...common, accountKey: nextKey }
+      )
+    ).toBe(expected);
+  });
 });
 
 describe("Agent Controller Interface sign-in blockers", () => {

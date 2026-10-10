@@ -158,6 +158,7 @@ import { Route as OOrgSlugSettingsNotificationsRouteImport } from './routes/o/$o
 import { Route as OOrgSlugSettingsPrivacyRouteImport } from './routes/o/$orgSlug/settings/privacy'
 import { Route as OOrgSlugSettingsSecurityRouteImport } from './routes/o/$orgSlug/settings/security'
 import { Route as OOrgSlugSettingsServiceRouteImport } from './routes/o/$orgSlug/settings/service'
+import { Route as OOrgSlugSettingsSpacesRouteImport } from './routes/o/$orgSlug/settings/spaces'
 import { Route as OOrgSlugSettingsUpdatesRouteImport } from './routes/o/$orgSlug/settings/updates'
 import { Route as OOrgSlugSettingsUsageRouteImport } from './routes/o/$orgSlug/settings/usage'
 import { Route as OOrgSlugSkillsIndexRouteImport } from './routes/o/$orgSlug/skills.index'
@@ -975,6 +976,11 @@ const OOrgSlugSettingsServiceRoute = OOrgSlugSettingsServiceRouteImport.update({
   path: '/service',
   getParentRoute: () => OOrgSlugSettingsRoute,
 } as any)
+const OOrgSlugSettingsSpacesRoute = OOrgSlugSettingsSpacesRouteImport.update({
+  id: '/spaces',
+  path: '/spaces',
+  getParentRoute: () => OOrgSlugSettingsRoute,
+} as any)
 const OOrgSlugSettingsUpdatesRoute = OOrgSlugSettingsUpdatesRouteImport.update({
   id: '/updates',
   path: '/updates',
@@ -1264,6 +1270,7 @@ export interface FileRoutesByFullPath {
   '/o/$orgSlug/settings/privacy': typeof OOrgSlugSettingsPrivacyRoute
   '/o/$orgSlug/settings/security': typeof OOrgSlugSettingsSecurityRoute
   '/o/$orgSlug/settings/service': typeof OOrgSlugSettingsServiceRoute
+  '/o/$orgSlug/settings/spaces': typeof OOrgSlugSettingsSpacesRoute
   '/o/$orgSlug/settings/updates': typeof OOrgSlugSettingsUpdatesRoute
   '/o/$orgSlug/settings/usage': typeof OOrgSlugSettingsUsageRoute
   '/o/$orgSlug/skills/$skillId': typeof OOrgSlugSkillsSkillIdRoute
@@ -1430,6 +1437,7 @@ export interface FileRoutesByTo {
   '/o/$orgSlug/settings/privacy': typeof OOrgSlugSettingsPrivacyRoute
   '/o/$orgSlug/settings/security': typeof OOrgSlugSettingsSecurityRoute
   '/o/$orgSlug/settings/service': typeof OOrgSlugSettingsServiceRoute
+  '/o/$orgSlug/settings/spaces': typeof OOrgSlugSettingsSpacesRoute
   '/o/$orgSlug/settings/updates': typeof OOrgSlugSettingsUpdatesRoute
   '/o/$orgSlug/settings/usage': typeof OOrgSlugSettingsUsageRoute
   '/o/$orgSlug/skills/$skillId': typeof OOrgSlugSkillsSkillIdRoute
@@ -1607,6 +1615,7 @@ export interface FileRoutesById {
   '/o/$orgSlug/settings/privacy': typeof OOrgSlugSettingsPrivacyRoute
   '/o/$orgSlug/settings/security': typeof OOrgSlugSettingsSecurityRoute
   '/o/$orgSlug/settings/service': typeof OOrgSlugSettingsServiceRoute
+  '/o/$orgSlug/settings/spaces': typeof OOrgSlugSettingsSpacesRoute
   '/o/$orgSlug/settings/updates': typeof OOrgSlugSettingsUpdatesRoute
   '/o/$orgSlug/settings/usage': typeof OOrgSlugSettingsUsageRoute
   '/o/$orgSlug/skills/$skillId': typeof OOrgSlugSkillsSkillIdRoute
@@ -1785,6 +1794,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/settings/privacy'
     | '/o/$orgSlug/settings/security'
     | '/o/$orgSlug/settings/service'
+    | '/o/$orgSlug/settings/spaces'
     | '/o/$orgSlug/settings/updates'
     | '/o/$orgSlug/settings/usage'
     | '/o/$orgSlug/skills/$skillId'
@@ -1951,6 +1961,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/settings/privacy'
     | '/o/$orgSlug/settings/security'
     | '/o/$orgSlug/settings/service'
+    | '/o/$orgSlug/settings/spaces'
     | '/o/$orgSlug/settings/updates'
     | '/o/$orgSlug/settings/usage'
     | '/o/$orgSlug/skills/$skillId'
@@ -2127,6 +2138,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/settings/privacy'
     | '/o/$orgSlug/settings/security'
     | '/o/$orgSlug/settings/service'
+    | '/o/$orgSlug/settings/spaces'
     | '/o/$orgSlug/settings/updates'
     | '/o/$orgSlug/settings/usage'
     | '/o/$orgSlug/skills/$skillId'
@@ -3274,6 +3286,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OOrgSlugSettingsServiceRouteImport
       parentRoute: typeof OOrgSlugSettingsRoute
     }
+    '/o/$orgSlug/settings/spaces': {
+      id: '/o/$orgSlug/settings/spaces'
+      path: '/spaces'
+      fullPath: '/o/$orgSlug/settings/spaces'
+      preLoaderRoute: typeof OOrgSlugSettingsSpacesRouteImport
+      parentRoute: typeof OOrgSlugSettingsRoute
+    }
     '/o/$orgSlug/settings/updates': {
       id: '/o/$orgSlug/settings/updates'
       path: '/updates'
@@ -3737,6 +3756,7 @@ interface OOrgSlugSettingsRouteChildren {
   OOrgSlugSettingsPrivacyRoute: typeof OOrgSlugSettingsPrivacyRoute
   OOrgSlugSettingsSecurityRoute: typeof OOrgSlugSettingsSecurityRoute
   OOrgSlugSettingsServiceRoute: typeof OOrgSlugSettingsServiceRoute
+  OOrgSlugSettingsSpacesRoute: typeof OOrgSlugSettingsSpacesRoute
   OOrgSlugSettingsUpdatesRoute: typeof OOrgSlugSettingsUpdatesRoute
   OOrgSlugSettingsUsageRoute: typeof OOrgSlugSettingsUsageRoute
   OOrgSlugSettingsIndexRoute: typeof OOrgSlugSettingsIndexRoute
@@ -3755,6 +3775,7 @@ const OOrgSlugSettingsRouteChildren: OOrgSlugSettingsRouteChildren = {
   OOrgSlugSettingsPrivacyRoute: OOrgSlugSettingsPrivacyRoute,
   OOrgSlugSettingsSecurityRoute: OOrgSlugSettingsSecurityRoute,
   OOrgSlugSettingsServiceRoute: OOrgSlugSettingsServiceRoute,
+  OOrgSlugSettingsSpacesRoute: OOrgSlugSettingsSpacesRoute,
   OOrgSlugSettingsUpdatesRoute: OOrgSlugSettingsUpdatesRoute,
   OOrgSlugSettingsUsageRoute: OOrgSlugSettingsUsageRoute,
   OOrgSlugSettingsIndexRoute: OOrgSlugSettingsIndexRoute,

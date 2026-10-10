@@ -1,17 +1,39 @@
-import type { WakeProgressItem } from "@openmeld/schemas/types";
+import type {
+	SpaceInputQueueResponse,
+	WakeProgressItem,
+} from "@openmeld/schemas/types";
 import { createWakeProgressItem } from "@openmeld/space";
-import { act, cleanup, render, screen, within } from "@testing-library/react";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	within,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-	SpaceComposerActiveWakes,
+	SpaceComposerWorkBookmarks,
 	SpaceWakeBookmarkAnchor,
-	SpaceWakeBookmarksProvider,
-} from "./space-wake-bookmarks";
+	SpaceWorkBookmarksProvider,
+} from "./space-work-bookmarks";
 
 const observers = new Map<Element, IntersectionObserverCallback>();
-const ATLAS_WORKING = /Atlas.*View working agent/;
+const ATLAS_WORKING = /Atlas.*View (working agent|Thread)/;
 const OTHER_WORKING = /Other.*View working agent/;
+const QUEUED_MESSAGE = /queued message/;
+const ATLAS_QUEUE = /Atlas.*2 queued messages.*View Thread/;
+const SHOW_WORK = /Show work and queued messages/;
 const openThread = vi.fn();
+const queued: SpaceInputQueueResponse["items"][number] = {
+	inputId: "queued-follow-up",
+	authorProfileId: "human-qa",
+	target: { dispatchId: "dispatch-Atlas", targetProfileId: "agent-Atlas" },
+	threadId: "thread-target",
+	text: "Check the remaining changes",
+	state: "queued",
+	blocked: false,
+};
 class TestIntersectionObserver implements IntersectionObserver {
 	root = null;
 	rootMargin = "0px";
@@ -60,19 +82,24 @@ function wake(id: string, profileId = "human-qa"): WakeProgressItem {
 function Fixture({
 	items,
 	thread = null,
+	queuedItems = [],
+	threadHasAttachments = false,
 }: {
 	items: WakeProgressItem[];
 	thread?: string | null;
+	queuedItems?: SpaceInputQueueResponse["items"];
+	threadHasAttachments?: boolean;
 }) {
 	return (
-		<SpaceWakeBookmarksProvider
+		<SpaceWorkBookmarksProvider
 			activeThreadId={thread}
 			hasMore={false}
 			items={items}
 			onOpenThread={openThread}
 			onShowConversation={() => undefined}
 			profileId="human-qa"
-			threadHasAttachments={false}
+			queuedItems={queuedItems}
+			threadHasAttachments={threadHasAttachments}
 		>
 			{items.map((item) => (
 				<SpaceWakeBookmarkAnchor item={item} key={item.clientMessageId}>
@@ -80,14 +107,14 @@ function Fixture({
 				</SpaceWakeBookmarkAnchor>
 			))}
 			<div data-testid="main-composer">
-				<SpaceComposerActiveWakes placement="conversation" />
+				<SpaceComposerWorkBookmarks placement="conversation" />
 			</div>
 			{thread ? (
 				<div data-testid="thread-composer">
-					<SpaceComposerActiveWakes placement="thread" />
+					<SpaceComposerWorkBookmarks placement="thread" />
 				</div>
 			) : null}
-		</SpaceWakeBookmarksProvider>
+		</SpaceWorkBookmarksProvider>
 	);
 }
 
@@ -117,8 +144,127 @@ async function visibility(label: string, ratio: number) {
 
 describe("Composer offscreen Wake bookmarks", () => {
 	beforeEach(() => {
+		openThread.mockReset();
 		vi.useFakeTimers();
 		vi.stubGlobal("IntersectionObserver", TestIntersectionObserver);
+	});
+	it("finds a closed Thread from its queued input even without an active Wake", () => {
+		const view = render(<Fixture items={[]} queuedItems={[queued]} />);
+		fireEvent.click(
+			screen.getByRole("button", { name: "1 queued message. View Thread" })
+		);
+		expect(openThread).toHaveBeenCalledWith("thread-target");
+		view.rerender(
+			<Fixture items={[]} queuedItems={[queued]} thread="thread-target" />
+		);
+		expect(screen.queryByRole("button", { name: QUEUED_MESSAGE })).toBeNull();
+		view.rerender(
+			<Fixture items={[]} queuedItems={[queued]} thread="thread-other" />
+		);
+		expect(
+			within(screen.getByTestId("main-composer")).getByRole("button", {
+				name: QUEUED_MESSAGE,
+			})
+		).toBeTruthy();
+		view.rerender(<Fixture items={[]} />);
+		expect(screen.queryByRole("button", { name: QUEUED_MESSAGE })).toBeNull();
+	});
+	it("merges queued inputs with their original work in one navigation entry", async () => {
+		const item = wake("Atlas");
+		if (!item.sourceContext) {
+			throw new Error("Missing source context");
+		}
+		item.sourceContext = { ...item.sourceContext, threadId: "thread-target" };
+		render(
+			<Fixture
+				items={[item]}
+				queuedItems={[queued, { ...queued, inputId: "second-follow-up" }]}
+			/>
+		);
+		// A visible parent status must not hide the closed Thread's Queue.
+		expect(screen.getByRole("button", { name: ATLAS_QUEUE })).toBeTruthy();
+		await visibility("Atlas", 0);
+		expect(
+			screen.getAllByRole("button", {
+				name: ATLAS_QUEUE,
+			})
+		).toHaveLength(1);
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: ATLAS_QUEUE,
+			})
+		);
+		expect(openThread).toHaveBeenCalledWith("thread-target");
+	});
+	it("keeps main and other authors' queue out of Thread discovery and preserves attachment protection", () => {
+		render(
+			<Fixture
+				items={[]}
+				queuedItems={[
+					queued,
+					{ ...queued, inputId: "main", threadId: null },
+					{
+						...queued,
+						inputId: "someone-else",
+						authorProfileId: "other",
+						threadId: "thread-other",
+					},
+				]}
+				threadHasAttachments
+			/>
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "1 queued message. View Thread" })
+		);
+		expect(openThread).not.toHaveBeenCalled();
+	});
+	it("lists other work and queued Threads together and uses the selected Thread", async () => {
+		render(<Fixture items={[wake("Other")]} queuedItems={[queued]} />);
+		await visibility("Other", 0);
+		fireEvent.click(screen.getByRole("button", { name: SHOW_WORK }));
+		const queueRow = screen.getByText(queued.text).closest("button");
+		if (!queueRow) {
+			throw new Error("Missing queue navigation row");
+		}
+		fireEvent.click(queueRow);
+		expect(openThread).toHaveBeenCalledWith("thread-target");
+	});
+	it("keeps an open Queue entry usable when its Wake projection arrives", () => {
+		const queuedItems = [
+			queued,
+			{
+				...queued,
+				inputId: "other-thread-input",
+				threadId: "thread-other",
+				text: "Review the other Thread",
+			},
+		];
+		const view = render(<Fixture items={[]} queuedItems={queuedItems} />);
+		fireEvent.click(screen.getByRole("button", { name: SHOW_WORK }));
+		const item = wake("Atlas");
+		if (!item.sourceContext) {
+			throw new Error("Missing source context");
+		}
+		item.sourceContext = { ...item.sourceContext, threadId: "thread-target" };
+		view.rerender(<Fixture items={[item]} queuedItems={queuedItems} />);
+		const queueRow = screen.getByText(queued.text).closest("button");
+		if (!queueRow) {
+			throw new Error("Missing Queue navigation row");
+		}
+		expect(queueRow.disabled).toBe(false);
+		fireEvent.click(queueRow);
+		expect(openThread).toHaveBeenCalledWith("thread-target");
+	});
+	it.each([
+		["queued", "1 queued message"],
+		["claimed", "Confirming delivery…"],
+		["unconfirmed", "Queue needs attention"],
+	] as const)("describes %s input without inventing a working state", (state, label) => {
+		render(<Fixture items={[]} queuedItems={[{ ...queued, state }]} />);
+		expect(
+			screen.getByRole("button", { name: `${label}. View Thread` })
+		).toBeTruthy();
+		expect(screen.queryByText("Working…")).toBeNull();
 	});
 	afterEach(() => {
 		cleanup();

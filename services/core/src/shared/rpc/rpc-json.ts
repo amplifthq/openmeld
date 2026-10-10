@@ -8,6 +8,28 @@ type RpcHttpErrorFactory = (input: {
   reason?: string;
   code?: string;
 }) => Error;
+const SAFE_REASON_CODE = /^[a-z][a-z0-9_.-]{0,119}$/u;
+
+export function readSafeRpcFailureReasonCode(
+  error: unknown
+): string | undefined {
+  const message = error instanceof Error ? error.message : "";
+  const jsonStart = message.indexOf("{");
+  let code: string | undefined;
+  if (
+    error instanceof Error &&
+    "code" in error &&
+    typeof error.code === "string"
+  ) {
+    code = error.code;
+  } else if (jsonStart >= 0) {
+    code = parseRpcErrorPayload(message.slice(jsonStart))?.code;
+  }
+  return code &&
+    (SAFE_REASON_CODE.test(code) || code === "EACCES" || code === "EPERM")
+    ? code
+    : undefined;
+}
 
 export async function readRpcJsonOrThrow<T>(input: {
   response: Response;

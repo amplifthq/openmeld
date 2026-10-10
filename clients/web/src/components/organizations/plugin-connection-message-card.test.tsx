@@ -23,17 +23,21 @@ import {
 	createTestQueryClient,
 	TestQueryClientProvider,
 } from "#/test-support/query-client";
+import capturedProviders from "../../../../../packages/product-catalog/test-support/openconnector-providers.json";
 import { PluginAgentAccess } from "./plugin-agent-access";
 import type { PluginConnectionContinuationContext } from "./plugin-connection-continuation";
 import { PluginConnectionMessageCard } from "./plugin-connection-message-card";
 
 const CONNECT_BUTTON_NAME = /^Connect/;
 const CONNECT_GITHUB_BUTTON_NAME = /^Connect GitHub$/;
+const OAUTH_SETUP_UNAVAILABLE = /sign-in is not set up for this environment/;
+const PERSONAL_ACCOUNT_REQUIRED = /requires a personal account/;
 const NO_IDENTITY_SUBSTITUTION =
 	/your personal account will not be substituted/;
 
 const api = vi.hoisted(() => ({
 	list: vi.fn(),
+	catalog: vi.fn(),
 	directory: vi.fn(),
 	githubMember: vi.fn(),
 	githubShared: vi.fn(),
@@ -52,6 +56,7 @@ vi.mock(
 			typeof import("#/lib/organizations/connector-connections")
 		>()),
 		listCurrentOrganizationConnectorConnections: api.list,
+		listCurrentOrganizationConnectorAppCatalog: api.catalog,
 		startCurrentMemberGitHubAuthorization: api.githubMember,
 		startCurrentOrganizationSharedGitHubAuthorization: api.githubShared,
 		startCurrentMemberConnectorAuthorization: api.member,
@@ -207,6 +212,10 @@ function renderCard(
 describe("Plugin connection in a conversation", () => {
 	beforeEach(() => {
 		vi.resetAllMocks();
+		api.catalog.mockResolvedValue({
+			organizationId: "org-acme",
+			providers: capturedProviders.data,
+		});
 		api.list.mockResolvedValue({
 			organizationId: "org-acme",
 			currentUserId: "user-alex",
@@ -245,6 +254,81 @@ describe("Plugin connection in a conversation", () => {
 	afterEach(() => {
 		cleanup();
 		vi.restoreAllMocks();
+	});
+
+	it.each([
+		"slack",
+		"lark",
+		"feishu",
+	])("shows unconfigured %s in the message without starting OAuth", async (service) => {
+		renderCard({ service, scope: "member" });
+		fireEvent.click(screen.getByRole("button", { name: CONNECT_BUTTON_NAME }));
+		const dialog = await screen.findByRole("dialog");
+		await within(dialog).findByText(OAUTH_SETUP_UNAVAILABLE);
+		expect(
+			within(dialog)
+				.getByRole("button", {
+					name: new RegExp(`^Connect ${service}$`, "i"),
+				})
+				.hasAttribute("disabled")
+		).toBe(true);
+		expect(api.member).not.toHaveBeenCalled();
+	});
+
+	it("chooses a personal Gmail account without offering organization access", async () => {
+		api.directory.mockResolvedValue(directory("owner"));
+		renderCard({ service: "gmail" });
+		fireEvent.click(
+			screen.getByRole("button", { name: "Connect or review Gmail" })
+		);
+		const dialog = await screen.findByRole("dialog");
+		fireEvent.click(
+			await within(dialog).findByRole("button", { name: "Connect Gmail" })
+		);
+		await waitFor(() =>
+			expect(api.member).toHaveBeenCalledWith({
+				organizationId: "org-acme",
+				service: "gmail",
+			})
+		);
+		expect(
+			within(dialog).queryByRole("button", { name: "For the organization" })
+		).toBeNull();
+		expect(api.shared).not.toHaveBeenCalled();
+	});
+
+	it("does not substitute personal Gmail for an explicit organization request", async () => {
+		api.directory.mockResolvedValue(directory("owner"));
+		renderCard({ service: "gmail", scope: "shared" });
+		fireEvent.click(
+			screen.getByRole("button", { name: "Connect or review Gmail" })
+		);
+		const dialog = await screen.findByRole("dialog");
+		await within(dialog).findByText(PERSONAL_ACCOUNT_REQUIRED);
+		expect(
+			within(dialog).queryByRole("button", { name: "Connect Gmail" })
+		).toBeNull();
+		expect(api.shared).not.toHaveBeenCalled();
+		expect(api.member).not.toHaveBeenCalled();
+	});
+
+	it("opens a dynamically discovered Plugin in the conversation", async () => {
+		api.catalog.mockResolvedValue({
+			organizationId: "org-acme",
+			providers: capturedProviders.data
+				.filter((item) => item.service === "linear")
+				.map((item) => ({ ...item, service: "catalog_linear" })),
+		});
+		renderCard({ service: "catalog_linear", scope: "member" });
+		fireEvent.click(
+			screen.getByRole("button", { name: "Connect or review catalog_linear" })
+		);
+		const dialog = await screen.findByRole("dialog");
+		expect(
+			(
+				await within(dialog).findByRole("button", { name: "Connect Linear" })
+			).hasAttribute("disabled")
+		).toBe(false);
 	});
 
 	it.each([
@@ -429,13 +513,13 @@ describe("Plugin connection in a conversation", () => {
 		);
 		fireEvent.click(
 			await screen.findByRole("button", {
-				name: "Use a personal API key instead",
+				name: "Use credentials",
 			})
 		);
-		fireEvent.change(screen.getByLabelText("PostHog URL"), {
+		fireEvent.change(screen.getByLabelText("Base URL"), {
 			target: { value: "https://posthog.example" },
 		});
-		fireEvent.change(await screen.findByLabelText("Personal API key"), {
+		fireEvent.change(await screen.findByLabelText("Personal API Key"), {
 			target: { value: "fictional-key" },
 		});
 		fireEvent.click(screen.getByRole("button", { name: "Connect PostHog" }));
@@ -706,9 +790,9 @@ describe("Plugin connection in a conversation", () => {
 			screen.getByRole("button", { name: "Connect or review Cloudflare R2" })
 		);
 		fireEvent.click(
-			await screen.findByRole("button", { name: "Use an API token instead" })
+			await screen.findByRole("button", { name: "Use credentials" })
 		);
-		fireEvent.change(screen.getByLabelText("API token"), {
+		fireEvent.change(screen.getByLabelText("API Token"), {
 			target: { value: "test-only-token" },
 		});
 		fireEvent.change(screen.getByLabelText("Account ID"), {

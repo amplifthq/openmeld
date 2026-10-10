@@ -1789,6 +1789,8 @@ export async function handleDispatchDeliverFrame(input: {
               agentId,
               authSnapshot,
               launchContract,
+              usageAdmission: event.usageAdmission,
+              usageAccountKey: event.usageAccountKey,
               usageLimits: event.usageLimits,
             })
         );

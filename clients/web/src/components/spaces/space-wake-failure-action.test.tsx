@@ -71,7 +71,11 @@ describe("SpaceWakeFailureActionControl", () => {
 		).toBe("/o/amplift/agents?profileId=agent-profile-1");
 	});
 
-	it("keeps Local Agent recovery scoped to the affected Agent Profile", () => {
+	it.each([
+		"controller.client.upgrade_required",
+		"execution_context.mcp_server_namespace_conflict",
+		"claim_eligibility.runtime_missing",
+	])("keeps Local Agent recovery scoped to the affected Agent Profile for %s", (recoveryReasonCode) => {
 		render(
 			<SpaceAgentRecoveryActionControl
 				isPending={false}
@@ -84,7 +88,7 @@ describe("SpaceWakeFailureActionControl", () => {
 					primaryActionLabel: "Update or change local agent",
 					profileId: "agent-profile-1",
 					profileName: "Claude Code",
-					recoveryReasonCode: "controller.client.upgrade_required",
+					recoveryReasonCode,
 					secondaryLabel: "Update required",
 					title: "Claude Code needs an update",
 				}}
@@ -96,5 +100,30 @@ describe("SpaceWakeFailureActionControl", () => {
 				.getByRole("link", { name: "Update or change local agent" })
 				.getAttribute("href")
 		).toBe("/o/amplift/agents?profileId=agent-profile-1");
+	});
+
+	it("keeps a Computer status action available when the plan requests it", () => {
+		render(
+			<SpaceAgentRecoveryActionControl
+				allowComputerAction
+				isPending={false}
+				onAction={vi.fn()}
+				orgSlug="amplift"
+				plan={{
+					body: "Check the bound Computer's current status.",
+					kind: "review_computer",
+					primaryActionId: "check_status",
+					primaryActionLabel: "Check status",
+					profileId: "agent-profile-1",
+					profileName: "Claude Code",
+					recoveryReasonCode: "claim_eligibility.runtime_unavailable",
+					secondaryLabel: "Needs attention",
+					title: "Computer status is unavailable",
+				}}
+			/>
+		);
+		expect(
+			screen.getByRole("link", { name: "Check status" }).getAttribute("href")
+		).toBe("/o/amplift/computers");
 	});
 });

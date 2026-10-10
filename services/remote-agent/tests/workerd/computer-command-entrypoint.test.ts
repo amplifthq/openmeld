@@ -4,6 +4,10 @@ import type {
   WorkspaceRuntimeExecHandle,
 } from "@cloudflare/computer";
 import { expect, it, vi } from "vitest";
+import {
+  COMPUTER_COMMAND_PREFIX,
+  ComputerCommandSqlStorage,
+} from "../../flue-adapter/computer-command-storage";
 import type { AgentComputer } from "../../flue-adapter/computer-workspace";
 
 // The native boundary uses the installed SDK's event and result contracts.
@@ -41,6 +45,51 @@ function computerStub() {
   ).AGENT_COMPUTER;
   return namespace.get(namespace.newUniqueId());
 }
+
+it.each([
+  { paused: false, git: false },
+  { paused: true, git: false },
+  { paused: true, git: true },
+])("schedules the real Computer alarm from command receipts (paused=$paused, Git=$git)", async ({
+  paused,
+  git,
+}) => {
+  await runInDurableObject(computerStub(), async (computer, state) => {
+    const now = Date.now();
+    const next = now + 120_000;
+    const storage = new ComputerCommandSqlStorage(state.storage.sql);
+    await storage.put(`${COMPUTER_COMMAND_PREFIX}alarm:work`, {
+      id: "original",
+      key: "work",
+      fingerprint: "original",
+      createdAt: now,
+      collectable: false,
+      backend: "container",
+      collection: {
+        unconfirmedAttempts: paused ? 8 : 2,
+        nextAttemptAtMs: paused ? null : next,
+      },
+    });
+    if (git) {
+      await state.storage.put("openmeld:git-pack-job:fresh", {
+        status: "running",
+        startedAtMs: now,
+      });
+    }
+    try {
+      await computer.alarm();
+      const alarm = await state.storage.getAlarm();
+      if (git) {
+        expect(alarm).toBeGreaterThanOrEqual(now + 15_000);
+        expect(alarm).toBeLessThan(now + 16_000);
+      } else {
+        expect(alarm).toBe(paused ? null : next);
+      }
+    } finally {
+      await state.storage.deleteAlarm();
+    }
+  });
+});
 
 it("serves retained public controls when native readiness and mkdir fail", async () => {
   await runInDurableObject(computerStub(), async (computer) => {

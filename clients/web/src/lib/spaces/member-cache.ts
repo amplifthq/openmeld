@@ -1,5 +1,6 @@
 import type {
 	AuthProfileView,
+	GetSpaceStatusResponse,
 	PostSpaceMembersResponse,
 	SignalEnvelope,
 	SpaceMemberAgentSnapshot,
@@ -8,12 +9,59 @@ import type {
 } from "@openmeld/schemas/types";
 import type { QueryClient } from "@tanstack/react-query";
 import type { SpaceBootstrapSnapshot } from "#/query/spaces/bootstrap";
+import type { SpaceConversationDisplaySnapshot } from "#/query/spaces/display-snapshot";
 import { mergeSpaceHistorySnapshots } from "#/query/spaces/history";
 import { spaceQueryKeys } from "#/query/spaces/status";
 
 type SpaceMemberSnapshotItem =
 	| SpaceMemberHumanSnapshot
 	| SpaceMemberAgentSnapshot;
+
+export async function applyConfirmedSpaceDeletionToCache(input: {
+	queryClient: QueryClient;
+	spaceId: string;
+}): Promise<void> {
+	const queryKeys = [
+		["spaces", "bootstrap", input.spaceId],
+		["spaces", "status", input.spaceId],
+	];
+	await Promise.all(
+		queryKeys.map((queryKey) => input.queryClient.cancelQueries({ queryKey }))
+	);
+	// The accepted command proves deletion. Retain cached history, clear write
+	// capabilities, and let the next server snapshot confirm the exact timestamp.
+	const deletedAt = new Date().toISOString();
+	const deletedStatus = (
+		status: GetSpaceStatusResponse
+	): GetSpaceStatusResponse => ({
+		...status,
+		deletedAt: status.deletedAt ?? deletedAt,
+		allowedActions: [],
+	});
+	input.queryClient.setQueriesData<GetSpaceStatusResponse>(
+		{ queryKey: queryKeys[1] },
+		(current) => (current ? deletedStatus(current) : current)
+	);
+	input.queryClient.setQueriesData<SpaceBootstrapSnapshot>(
+		{ queryKey: queryKeys[0] },
+		(current) =>
+			current ? { ...current, status: deletedStatus(current.status) } : current
+	);
+	input.queryClient.setQueriesData<SpaceConversationDisplaySnapshot>(
+		{ queryKey: ["spaces", "display-snapshot", input.spaceId] },
+		(current) =>
+			current
+				? {
+						...current,
+						status: {
+							...current.status,
+							deletedAt: current.status.deletedAt ?? deletedAt,
+						},
+					}
+				: current
+	);
+	await input.queryClient.invalidateQueries({ queryKey: queryKeys[0] });
+}
 
 type MergeSpaceMembersSnapshotOptions = {
 	/**
@@ -145,9 +193,19 @@ export function applySpaceBootstrapSnapshotToCache(input: {
 		input.viewerProfileId
 	);
 	let presentationMembers = input.bootstrap.members;
-	input.queryClient.setQueryData(
+	input.queryClient.setQueryData<GetSpaceStatusResponse>(
 		spaceQueryKeys.status(input.spaceId, input.viewerProfileId),
-		input.bootstrap.status
+		(current) => {
+			if (
+				current &&
+				((current.deletedAt && !input.bootstrap.status.deletedAt) ||
+					Date.parse(current.generatedAt) >
+						Date.parse(input.bootstrap.status.generatedAt))
+			) {
+				return current;
+			}
+			return input.bootstrap.status;
+		}
 	);
 	// A display bootstrap must never replace a full operational snapshot.
 	if (input.bootstrap.includesAgentReadiness !== false) {

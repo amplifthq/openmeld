@@ -133,7 +133,10 @@ export {
   invokeCodexCliTransport,
 } from "./transport/codex-cli-transport.js";
 export { waitForCodexThreadWriterAvailability } from "./transport/codex-thread-writer-availability.js";
-export { projectCodexUsageLimits } from "./usage/codex-usage-limits.js";
+export {
+  projectCodexUsageObservation,
+  readCodexAccountUsageObservation,
+} from "./usage/codex-usage-limits.js";
 
 const CODEX_CONVERSATION_BRIDGE_SPEC =
   resolveBuiltinAdapterConversationBridgeSpec("codex");

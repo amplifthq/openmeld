@@ -1,11 +1,12 @@
 import {
 	type AgentRecoveryActionId,
+	type PublicAgentFailureRecoveryTarget,
 	resolvePublicAgentFailureRecovery,
 } from "@openmeld/schemas";
 
 export type WakeFailureDisplay =
 	| {
-			actionTarget: "agents" | "computer" | "cursor_account" | "prepare_setup";
+			actionTarget: PublicAgentFailureRecoveryTarget;
 			body: string;
 			primaryActionId: AgentRecoveryActionId;
 			primaryActionLabel: string;
@@ -75,6 +76,15 @@ export function resolveWakeFailureDisplay(input: {
 		return {
 			actionTarget: null,
 			body: recovery.body,
+		};
+	}
+	if (
+		recovery.recoveryTarget === "working_folder" &&
+		input.targetContext?.isCurrentUserManageable !== true
+	) {
+		return {
+			actionTarget: null,
+			body: `${recovery.body} Ask this agent’s owner to review its working folder.`,
 		};
 	}
 

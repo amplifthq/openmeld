@@ -55,11 +55,12 @@ export function PluginConnectionRequestPanel(input: {
 				invalidMessage: "This setup request could not be verified.",
 			}),
 	});
-	if (preview.isPending || (!plugin && catalog.isPending)) {
+	if (preview.isPending || catalog.isPending) {
 		return <output>Checking the original request…</output>;
 	}
 	if (
 		preview.isError ||
+		catalog.isError ||
 		plugin?.availability !== "available" ||
 		preview.data?.service !== input.service
 	) {
@@ -67,9 +68,13 @@ export function PluginConnectionRequestPanel(input: {
 			<div className="space-y-3">
 				<p role="alert">
 					{preview.error?.message ??
+						catalog.error?.message ??
 						"This link does not match the original request. Open it from the original conversation using the same OpenMeld account."}
 				</p>
-				<Button onClick={() => preview.refetch()} variant="outline">
+				<Button
+					onClick={() => Promise.all([catalog.refetch(), preview.refetch()])}
+					variant="outline"
+				>
 					Try again
 				</Button>
 			</div>

@@ -44,6 +44,10 @@ describe("current device local runtimes RPC read model", () => {
     schemaVersion: 1,
     skills: [],
     status: "ready",
+    usageAdmission: {
+      blocksNewWork: false,
+      observedAt: "2026-06-28T00:00:00.000Z",
+    },
     usageLimits: [
       {
         key: "codex:primary",
@@ -246,6 +250,10 @@ describe("current device local runtimes RPC read model", () => {
         compatibilityResponse.localRuntimes[0]?.executionTargets[0]
           ?.capabilities[0]?.agentControllerInterface?.usageLimits
       ).toBeUndefined();
+      expect(
+        compatibilityResponse.localRuntimes[0]?.executionTargets[0]
+          ?.capabilities[0]?.agentControllerInterface
+      ).not.toHaveProperty("usageAdmission");
 
       await expect(
         rpcListLocalRuntimes(env, {
@@ -332,6 +340,10 @@ describe("current device local runtimes RPC read model", () => {
         mutationResponse.localRuntimes[0]?.executionTargets[0]?.capabilities[0]
           ?.agentControllerInterface?.usageLimits
       ).toBeUndefined();
+      expect(
+        mutationResponse.localRuntimes[0]?.executionTargets[0]?.capabilities[0]
+          ?.agentControllerInterface
+      ).not.toHaveProperty("usageAdmission");
     } finally {
       await harness.close();
     }

@@ -1,4 +1,5 @@
 import {
+  buildAgentRequestTimeContext,
   buildSpaceAttachmentObjectKey,
   remoteAgentWorkerReadAdmissionResponseSchema,
   remoteAgentWorkerReadAdmissionStopResponseSchema,
@@ -33,7 +34,6 @@ import {
   initializeRemoteAgentExecutionState,
   readRemoteAgentAdmissionStopIntent,
 } from "./execution-state";
-import { buildRemoteAgentRequestTimeContext } from "./prompt";
 import { renderPersonalRemoteAgentCollaborationContext } from "./prompt/space-collaboration";
 import { cleanupExpiredRemoteAgentToolResults } from "./result-retention";
 import { cleanupExpiredRemoteAgentSlackMemberResearchState } from "./slack-member-research-state";
@@ -396,7 +396,7 @@ export function buildRemoteAgentPromptMessage(
           userTime: resolveUserTimeContext(null),
         });
   const prompt = requestTimeContext
-    ? `${content}\n\n${buildRemoteAgentRequestTimeContext(requestTimeContext)}`
+    ? `${content}\n\n${buildAgentRequestTimeContext(requestTimeContext)}`
     : content;
   return prompt;
 }

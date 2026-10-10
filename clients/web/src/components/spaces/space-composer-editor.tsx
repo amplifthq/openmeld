@@ -62,6 +62,11 @@ import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
 import { recordReactUpdate } from "#/lib/observability/react-update-trace";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
+import {
+	type MessageSendShortcut,
+	resolveMessageEnterAction,
+	useMessageSendShortcut,
+} from "#/lib/spaces/message-send-shortcut";
 import { useOptionalSpaceAgentProfileEditContext } from "./space-agent-profile-edit-context";
 import { useSpaceProfileDetailsPopover } from "./use-space-profile-details-popover";
 import "./space-wake-recommendation.css";
@@ -194,6 +199,7 @@ export const SpaceComposerEditorKit = [
 ];
 
 export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
+	const { shortcut } = useMessageSendShortcut();
 	const [initialValue] = useState(() =>
 		createSpaceComposerEditorValue({
 			authoredMentions: input.authoredMentions,
@@ -522,7 +528,12 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 								input.onCancel();
 								return;
 							}
-							handleKeyDown(event, editor, input.onSend);
+							handleKeyDown(
+								event,
+								editor,
+								input.onSend,
+								input.inline ? "enter" : shortcut
+							);
 						}}
 						onPasteCapture={(event) =>
 							handlePaste(
@@ -1225,7 +1236,8 @@ function insertProfile(
 function handleKeyDown(
 	event: KeyboardEvent<HTMLDivElement>,
 	editor: PlateEditor,
-	onSend: () => void
+	onSend: () => void,
+	shortcut: MessageSendShortcut
 ): void {
 	if (
 		event.target instanceof Element &&
@@ -1233,7 +1245,8 @@ function handleKeyDown(
 	) {
 		return;
 	}
-	if (event.nativeEvent.isComposing || event.key !== "Enter") {
+	const action = resolveMessageEnterAction(event.nativeEvent, shortcut);
+	if (!action) {
 		return;
 	}
 	if (event.shiftKey) {
@@ -1254,6 +1267,10 @@ function handleKeyDown(
 
 	event.preventDefault();
 	event.stopPropagation();
+	if (action === "newline") {
+		editor.tf.insertBreak();
+		return;
+	}
 	onSend();
 }
 

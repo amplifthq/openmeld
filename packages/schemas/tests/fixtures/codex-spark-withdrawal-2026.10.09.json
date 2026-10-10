@@ -1,0 +1,13 @@
+{
+  "capture": {
+    "harnessVersion": "0.150.1",
+    "observedAt": "2026-10-09T03:16:42Z",
+    "authType": "chatgpt",
+    "command": "codex exec --ignore-user-config --ignore-rules --ephemeral --json --sandbox read-only --model gpt-5.3-codex-spark"
+  },
+  "modelId": "gpt-5.3-codex-spark",
+  "status": 400,
+  "message": "The 'gpt-5.3-codex-spark' model is not supported when using Codex with a ChatGPT account.",
+  "sourceUrl": "https://learn.chatgpt.com/docs/models#deprecated-codex-models",
+  "retirementDate": "2026-09-14"
+}

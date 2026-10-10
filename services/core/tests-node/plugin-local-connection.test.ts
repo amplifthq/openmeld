@@ -69,4 +69,31 @@ describe("Local Plugin setup uses the same compatible connection card", () => {
       })
     ).rejects.toThrow("plugin.connection_url_unavailable");
   });
+  it("directs mailbox setup to the requester and never substitutes a personal account for an explicit shared request", async () => {
+    expect(
+      await localPluginConnectionGuidance(env, caller, {
+        operation: "connect",
+        service: "gmail",
+        account: "choose",
+      })
+    ).toMatchObject({ scope: "member" });
+    await expect(
+      localPluginConnectionGuidance(env, caller, {
+        operation: "connect",
+        service: "gmail",
+        account: "shared",
+      })
+    ).rejects.toThrow("plugin.personal_request_required");
+    await expect(
+      localPluginConnectionGuidance(
+        env,
+        { ...caller, personalAllowed: false },
+        {
+          operation: "connect",
+          service: "gmail",
+          account: "choose",
+        }
+      )
+    ).rejects.toThrow("plugin.personal_request_required");
+  });
 });

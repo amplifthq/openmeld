@@ -9,7 +9,7 @@ import {
 } from "@openmeld/schemas";
 import type { RemoteAgentCallbackContext } from "../agent-core/callback-context";
 import { createAgentComputerFileHandoff } from "./computer-file-handoff";
-import { ensureAgentComputerLayout } from "./computer-workspace";
+import { ensureAgentComputerLayout } from "./computer-workspace-config";
 import { createMemberProfileReportComputerFileStore } from "./member-profile-report-computer-files";
 import type { OrganizationDocumentsComputerSnapshot } from "./organization-document-computer-snapshot";
 import {

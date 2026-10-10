@@ -26,6 +26,24 @@ const indexed = {
 };
 
 describe("Space entry resolution service", () => {
+  it("keeps a colleague's preview outside the member experience", () => {
+    expect(
+      buildSpaceEntryResolution({
+        access: {
+          kind: "allowed",
+          activeMember: false,
+          meta: { ...baseMeta, accessMode: "members_only" },
+        },
+        authenticated: true,
+        indexed: { ...indexed, visibility: "public" },
+        organizationMember: true,
+        target: { spaceId: "space-1" },
+      })
+    ).toMatchObject({
+      view: { state: "allowed", experience: "public" },
+      participation: { state: "self_join_available" },
+    });
+  });
   it.each([
     false,
     undefined,

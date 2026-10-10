@@ -376,6 +376,19 @@ including a verified compatible Core receiver before Remote. The database stage
 still checks live pending migrations and the committed schema before applying
 anything. Missing, conflicting, or unverified receipts remain unknown.
 
+Receiver witnesses cover named contracts, not a whole receiver/producer pair.
+The dependency owner retains every triggered contract before projecting the
+deployment graph. A pending receiver needs matching, source-bound evidence for
+each contract, including contracts without an available witness. AI usage can
+reuse a verified Core deployment only when its complete receiver owners,
+entrypoint registration, production binding and dependency resolutions remain
+unchanged. Its Core, DB and schemas TypeScript configurations must retain the
+existing shared parent, without further inheritance, and their complete
+configuration contents must match. This conservative proof rejects unrelated
+schema or entrypoint edits too; it does not certify a combined feature rollout
+or remove receiver-first dependencies. Missing contract metadata cannot admit
+a pending receiver.
+
 The baseline is component-specific. Each scope starts from its latest verified
 deployment receipt or legacy hosted deployment evidence, so Database, CLI,
 Workers, and Web may legitimately be at different release sources such as R,
@@ -652,6 +665,70 @@ private persistence repository. `compatibilityPathSignals` explains these two
 classifications, including matched paths and relevant non-trigger paths. These
 source signals do not certify a deployed receiver or authorize a breaking
 receiver-only change.
+
+Center Agent working-folder writes have their own `center-agent-safe-workspace`
+Core-to-Remote obligation. Direct RPC registration, implementation or caller
+owner edits inspect the explicit product source's Remote tools for the required
+`centerAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace` receiver.
+An unreadable or unspecified product source conservatively retains the
+obligation; a known legacy caller without that receiver does not trigger it.
+This bounded name check only registers an obligation. It supplies no receiver
+witness, and an AI usage witness cannot satisfy it. Core must have a verified
+current receipt before the new Remote caller deploys. The release-control
+checkout's caller source is never used as product evidence. The legacy Core
+receiver rejects folder writes before any settings mutation during this
+transition; model-only calls continue to use the legacy receiver.
+
+Agent Profile setup and folder recovery retain separate obligations:
+`agent-profile-default-project-revision` requires Database before Auth's new
+revision-column reads and writes; an older verified PostgreSQL binding does not
+prove that column exists. `agent-profile-default-project-initializer` requires
+Auth's named initializer before Core calls it. `agent-profile-binding-precondition`
+requires Core's named bound-write receivers before Gateway and Gateway's strict
+`expectedBindingTarget` input before Web. A missing method or unsupported input
+must not be downgraded to an unguarded setter.
+
+`profile-workspace-initialize` requires Core before a Service publishes the
+strict `initializeProfileWorkspace` registration or heartbeat key. It applies
+to a caller-only change as well as the original combined schema/receiver change.
+It is separate from `local-service-runtime`, `profile-workspace-read` and the
+Auth-to-Core `agent-profile-default-project-initializer`; one witness cannot
+substitute for another contract on the same service pair. Core checks Service
+support before sending `onlyIfUnconfigured`, so an older Service gets an
+update-required refusal before that input is sent. This adds no reverse edge.
+
+`profile-workspace-read` requires Core before a Service publishes the
+`readProfileWorkspace` capability in registration or heartbeat, Core's named
+`getCurrentAgentProfileWorkspace` and `getPeopleComputerAgentProfileWorkspace`
+receivers before Gateway, then Gateway's GET routes before Web calls them.
+The optional capability is inside a strict object: older Core receivers reject
+the new key. An unchanged folder-write or runtime witness cannot prove this
+read contract. Names in the explicit target source only register obligations;
+unreadable source retains them and supplies no compatibility witness.
+The earlier `initializeProfileWorkspace` capability remains a separate strict
+input. Read evidence cannot replace its runtime obligation, or vice versa.
+
+Core negotiates this read against the connected Service capability before
+sending `daemon.local_agent_control.read_profile_workspace`. An older Service
+therefore returns the update-required refusal without receiving the new frame;
+it does not require a Service-before-Core edge. Publish the new Service before
+the new Web settings flow when practical so its update action has an available
+artifact. Older installed Services still need their normal account-checked
+upgrade. This ordering does not establish their upgrade or native acceptance.
+
+`cloud-command-receipt-opt-in` requires Core and Remote Agent before Gateway
+accepts command references or detailed lists, then Gateway before the CLI caller.
+Core relays these fields only after a Gateway request; it does not introduce
+them itself. Ordinary lists retain the legacy shape and single-command replies
+remain extensible. This permits a Core receiver stage while the old Gateway
+still rejects new opt-in inputs. Recheck the actual caller chain on the final
+source: these source and parser facts are not mixed-version Worker smoke.
+
+Each obligation is registered from its bounded changed owners and the explicit
+product source, including caller-only changes. Known historical sources without
+the feature stay independent; an unreadable source retains the obligation. The
+name checks supply no compatibility witness. Pending or unresolved receivers
+cannot be satisfied by an older contract's witness on the same service pair.
 
 The planner composes the metering edge with the
 request dependencies and rejects an unresolved cycle, including a single-stage
@@ -994,6 +1071,21 @@ artifacts and updates Core's release projection through the normal guarded path.
 
 The planner selects `inbox-source-target-receiver-first` when a diff changes the
 strict Inbox source-target schema together with a Core writer for those targets.
+The path signal remains conservative. The existing classifier omits this
+obligation only when the explicit baseline and candidate sources prove the
+same complete target union, direct schema dependencies, actual writers and
+storage delegate, its directly called legacy repairs, the actual row mapper
+and timestamp helper, target-bearing RPC/HTTP projections, Web interpreter, and
+their import/export, production binding and resolver configuration. It supports
+only the reviewed pure membership-kind projections, source-guard forwarding,
+and four retained request-time edits; every other owner change, unreadable
+source, ambiguous declaration or unknown structure retains the original gate.
+The item-returning service methods and their factory bindings remain equal;
+unrelated membership SQL is outside this target proof. Gateway registrations
+must keep their exact route bindings and contain no extra local statements.
+This proof does not emit a compatibility witness. In particular, the separate
+`inbox-membership-opt-in` Core-before-Gateway obligation still requires its own
+receiver admission; another witness for that service pair cannot satisfy it.
 Its cloud stage, including the combined Remote receiver profile, deploys Core
 through the existing current-published-CLI projection owner. That owner verifies
 the immutable published npm/R2 identity and required floor before activation,
@@ -1982,6 +2074,14 @@ an upstream patch merges, synchronize fork `main`, remove the superseded
 downstream patch from the next OpenMeld release branch, and validate that exact
 remote SHA before deployment. Synchronizing the fork alone never requires a
 production redeploy.
+
+After deploying the runtime-catalog cache correction, verify that runtime
+catalog responses use `Cache-Control: no-store`, have no CDN cache header,
+and reflect the current OAuth configuration. Earlier versions cached
+`/v1/providers` and `/v1/actions` for a year. If stale CDN entries still survive
+the deployment, purge them on that environment's OpenConnector hostname and
+repeat the checks. Keep staging purges confined to
+`connectors.staging.openmeld.ai`; never purge the shared zone for a staging test.
 
 The reviewed runtime supports managed authorization requests and event subscription
 maintenance. Keep the once-per-minute `triggers.crons` in both tracked deployment

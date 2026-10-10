@@ -53,6 +53,7 @@ const listAccountSpaceIndexImpl = createIsomorphicFn()
 					input.includeDirectMessageProfileIds === true,
 				includePurposes: input.includePurposes === true,
 				includeRecentlyDeletedItems: true,
+				includeDeletedSpaces: true,
 				includeMemberPreviews: true,
 				includeMessagePreviews: true,
 				includeDirectoryPreviews: true,

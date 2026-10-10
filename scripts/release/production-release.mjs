@@ -13,6 +13,7 @@ import {
   restoreProductCrons,
   verifyProductCrons,
 } from "./database-backend-admission.mjs";
+import { hasUnchangedInboxSourceTargetContract } from "./inbox-source-target-compatibility.mjs";
 import {
   cutoverConfigArgs,
   cutoverDeploySteps,
@@ -34,6 +35,7 @@ import {
   resolvePersonalCloudComputerRequestCompatibility,
   resolveRemoteAgentRequestCompatibilityBridge,
 } from "./remote-agent-request-compatibility.mjs";
+import { REMOTE_AI_USAGE_RECEIVER_PATHS } from "./remote-ai-usage-compatibility.mjs";
 import { requireMainlineReleaseSha } from "./require-mainline-release-sha.mjs";
 import {
   admitWebsiteDomainRelease,
@@ -270,21 +272,11 @@ const INBOX_SCHEMA_PATH = "packages/schemas/src/schemas/http/inbox.ts";
 
 // Preferred scheduling order is not a compatibility dependency. Accumulate
 // only contract directions proven by the changed producer and receiver paths.
-export function resolveProductionCompatibilityDependencies(
+export function resolveProductionCompatibilityObligations(
   changedPaths,
   taskInboxRetired = false,
   context = {}
 ) {
-  const edges = [];
-  const edgeKeys = new Set();
-  const addEdge = (receiver, producer) => {
-    const key = `${receiver}\0${producer}`;
-    if (!edgeKeys.has(key)) {
-      edgeKeys.add(key);
-      edges.push([receiver, producer]);
-    }
-  };
-
   const spaceTask = isSpaceTaskReceiverFirstDiff(changedPaths);
   const callerContext = isSpaceCallerContextDiff(changedPaths);
   const spaceTaskCli = changedPaths.includes(
@@ -300,6 +292,51 @@ export function resolveProductionCompatibilityDependencies(
   );
   const dependencyGroups = [
     {
+      contract: "agent-profile-default-project-revision",
+      enabled: isAgentProfileDefaultProjectRevisionDiff(changedPaths, context),
+      edges: [["db", "auth"]],
+    },
+    {
+      contract: "agent-profile-default-project-initializer",
+      enabled: isAgentProfileDefaultProjectInitializerDiff(
+        changedPaths,
+        context
+      ),
+      edges: [["auth", "core"]],
+    },
+    {
+      contract: "agent-profile-binding-precondition",
+      enabled: isAgentProfileBindingPreconditionDiff(changedPaths, context),
+      edges: [
+        ["core", "gateway"],
+        ["gateway", "web"],
+      ],
+    },
+    {
+      contract: "profile-workspace-initialize",
+      enabled: isProfileWorkspaceInitializeDiff(changedPaths, context),
+      edges: [["core", "cli"]],
+    },
+    {
+      contract: "profile-workspace-read",
+      enabled: isProfileWorkspaceReadDiff(changedPaths, context),
+      edges: [
+        ["core", "cli"],
+        ["core", "gateway"],
+        ["gateway", "web"],
+      ],
+    },
+    {
+      contract: "cloud-command-receipt-opt-in",
+      enabled: isCloudCommandReceiptOptInDiff(changedPaths, context),
+      edges: [
+        ["core", "gateway"],
+        ["remote-agent", "gateway"],
+        ["gateway", "cli"],
+      ],
+    },
+    {
+      contract: "project-issue-workflow",
       enabled: isProjectIssueWorkflowDiff(changedPaths),
       edges: [
         ["core", "remote-agent"],
@@ -307,6 +344,7 @@ export function resolveProductionCompatibilityDependencies(
       ],
     },
     {
+      contract: "project-shared-folder",
       enabled: isProjectSharedFolderDiff(changedPaths),
       edges: [
         ["core", "cli"],
@@ -314,20 +352,29 @@ export function resolveProductionCompatibilityDependencies(
       ],
     },
     {
+      contract: "center-agent-safe-workspace",
+      enabled: isCenterAgentSafeWorkspaceDiff(changedPaths, context),
+      edges: [["core", "remote-agent"]],
+    },
+    {
+      contract: "remote-ai-usage",
       enabled: isRemoteAiUsageDiff(changedPaths),
       edges: [["core", "remote-agent"]],
     },
     {
+      contract: "working-folder-recovery",
       enabled: isWorkingFolderRecoveryDiff(changedPaths),
       edges: [["core", "cli"]],
     },
     {
+      contract: "npm-setup-artifact",
       enabled:
         isNpmSetupArtifactDiff(changedPaths) &&
         !isReviewedWindowsPreviewOnlyNpmSetupDiff(changedPaths, context),
       edges: [["cli", "web"]],
     },
     {
+      contract: "inbox-notification-observation",
       enabled: isInboxNotificationObservationDiff(changedPaths),
       edges: [
         ["core", "gateway"],
@@ -335,20 +382,24 @@ export function resolveProductionCompatibilityDependencies(
       ],
     },
     {
+      contract: "gateway-request-context",
       enabled: isGatewayRequestContextReceiverFirstDiff(changedPaths, context),
       edges: [["core", "gateway"]],
     },
     {
+      contract: "remote-execution-input-response",
       enabled:
         hasRemoteExecutionInputOwners(changedPaths) &&
         inspectRemoteExecutionInputSchemaDirection(context)?.responseChanged,
       edges: [["core", "remote-agent"]],
     },
     {
+      contract: "center-agent-evidence",
       enabled: isCenterAgentEvidenceDiff(changedPaths),
       edges: [["core", "remote-agent"]],
     },
     {
+      contract: "space-message-search",
       enabled: isSpaceMessageSearchReceiverFirstDiff(changedPaths),
       edges: [
         ["core", "gateway"],
@@ -356,6 +407,7 @@ export function resolveProductionCompatibilityDependencies(
       ],
     },
     {
+      contract: "space-task",
       enabled:
         spaceTask &&
         (spaceTaskCli ||
@@ -365,16 +417,19 @@ export function resolveProductionCompatibilityDependencies(
       edges: [["core", "gateway"]],
     },
     {
+      contract: "space-task",
       enabled: spaceTask && spaceTaskCli,
       edges: [["gateway", "cli"]],
     },
     {
+      contract: "space-task",
       enabled:
         spaceTask &&
         changedPaths.includes("services/remote-agent/agent-core/tools.ts"),
       edges: [["core", "remote-agent"]],
     },
     {
+      contract: "space-caller-context",
       enabled: callerContext,
       edges: [
         ["auth", "cli"],
@@ -383,10 +438,12 @@ export function resolveProductionCompatibilityDependencies(
       ],
     },
     {
+      contract: "personal-remote-tools",
       enabled: isPersonalRemoteToolsReceiverFirstDiff(changedPaths),
       edges: [["core", "remote-agent"]],
     },
     {
+      contract: "personal-cloud-computer",
       enabled: isPersonalCloudComputerDiff(changedPaths),
       edges: [
         ["db", "core"],
@@ -400,6 +457,7 @@ export function resolveProductionCompatibilityDependencies(
       ],
     },
     {
+      contract: "task-inbox-retirement",
       enabled: taskInboxRetired,
       edges: [
         ["core", "gateway"],
@@ -407,10 +465,12 @@ export function resolveProductionCompatibilityDependencies(
       ],
     },
     {
+      contract: "device-wait",
       enabled: isDeviceWaitReceiverFirstDiff(changedPaths),
       edges: [["core", "gateway"]],
     },
     {
+      contract: "device-wait",
       enabled:
         isDeviceWaitReceiverFirstDiff(changedPaths) &&
         changedPaths.some(
@@ -420,16 +480,19 @@ export function resolveProductionCompatibilityDependencies(
       edges: [["gateway", "web"]],
     },
     {
+      contract: "people-computers",
       enabled: isPeopleComputersReceiverFirstDiff(changedPaths),
       edges: [["core", "gateway"]],
     },
     {
+      contract: "space-invitation",
       // Caller Context has a reviewed opposite order: Auth and the signed
       // Service precede the Core projection in the combined rollout.
       enabled: invitation && !callerContext,
       edges: [["core", "auth"]],
     },
     {
+      contract: "space-invitation",
       enabled:
         invitation &&
         changedPaths.includes(
@@ -438,6 +501,7 @@ export function resolveProductionCompatibilityDependencies(
       edges: [["auth", "cli"]],
     },
     {
+      contract: "space-invitation",
       enabled:
         invitation &&
         changedPaths.some(
@@ -447,6 +511,7 @@ export function resolveProductionCompatibilityDependencies(
       edges: [["auth", "web"]],
     },
     {
+      contract: "center-agent-context-manifest",
       enabled: changedPaths.some(
         (path) =>
           path.startsWith("services/core/") &&
@@ -455,6 +520,7 @@ export function resolveProductionCompatibilityDependencies(
       edges: [["remote-agent", "core"]],
     },
     {
+      contract: "center-agent-cli",
       enabled: changedPaths.some(
         (path) =>
           path.startsWith("clients/openmeld-cli/") &&
@@ -466,10 +532,12 @@ export function resolveProductionCompatibilityDependencies(
       ],
     },
     {
+      contract: "connect-computer",
       enabled: isConnectComputerCliReceiverFirstDiff(changedPaths),
       edges: [["cli", "web"]],
     },
     {
+      contract: "core-worker-response",
       enabled: isCoreWorkerResponseReaderFirstDiff(changedPaths),
       edges: [
         ["core", "remote-agent"],
@@ -478,6 +546,7 @@ export function resolveProductionCompatibilityDependencies(
       ],
     },
     {
+      contract: "wake-progress-opt-in",
       enabled: isWakeProgressOptInContractDiff(changedPaths),
       edges: [
         ["gateway", "core"],
@@ -485,6 +554,7 @@ export function resolveProductionCompatibilityDependencies(
       ],
     },
     {
+      contract: "space-history-query",
       enabled: isSpaceHistoryQueryContractDiff(changedPaths),
       edges: [
         ["gateway", "cli"],
@@ -492,28 +562,39 @@ export function resolveProductionCompatibilityDependencies(
       ],
     },
     {
+      contract: "inbox-membership-opt-in",
+      enabled: isInboxMembershipOptInDiff(changedPaths, context),
+      edges: [["core", "gateway"]],
+    },
+    {
+      contract: "inbox-source-target",
       enabled:
-        isInboxSourceTargetReceiverFirstDiff(changedPaths) && !taskInboxRetired,
+        isInboxSourceTargetReceiverFirstDiff(changedPaths, context) &&
+        !taskInboxRetired,
       edges: [
         ["web", "core"],
         ["gateway", "core"],
       ],
     },
     {
+      contract: "local-service-runtime",
       enabled: isLocalServiceRuntimeReceiverFirstDiff(changedPaths),
       edges: [["core", "cli"]],
     },
     {
+      contract: "remote-agent-request",
       enabled: remoteReceiverRequired,
       edges: [["remote-agent", "core"]],
     },
     {
+      contract: "remote-agent-request",
       // CLI publication deploys the candidate Core projection. It must not
       // activate that strict request producer before the Remote receiver.
       enabled: remoteRequestReceiverFirst && remoteReceiverRequired,
       edges: [["remote-agent", "cli"]],
     },
     {
+      contract: "independent-skill-bridge",
       enabled: isIndependentSkillBridgeDiff(changedPaths),
       edges: [
         ["gateway", "cli"],
@@ -521,15 +602,41 @@ export function resolveProductionCompatibilityDependencies(
       ],
     },
   ];
-  for (const group of dependencyGroups) {
-    if (!group.enabled) {
-      continue;
+  return dependencyGroups
+    .filter((group) => group.enabled)
+    .flatMap((group) =>
+      group.edges.map(([receiver, producer]) => ({
+        contract: group.contract,
+        receiver,
+        producer,
+      }))
+    );
+}
+
+function projectCompatibilityDependencies(obligations) {
+  const keys = new Set();
+  return obligations.flatMap(({ receiver, producer }) => {
+    const key = `${receiver}\0${producer}`;
+    if (keys.has(key)) {
+      return [];
     }
-    for (const [receiver, producer] of group.edges) {
-      addEdge(receiver, producer);
-    }
-  }
-  return edges;
+    keys.add(key);
+    return [[receiver, producer]];
+  });
+}
+
+export function resolveProductionCompatibilityDependencies(
+  changedPaths,
+  taskInboxRetired = false,
+  context = {}
+) {
+  return projectCompatibilityDependencies(
+    resolveProductionCompatibilityObligations(
+      changedPaths,
+      taskInboxRetired,
+      context
+    )
+  );
 }
 
 export function resolveProductionCompatibilityReceiverWitnesses(
@@ -541,6 +648,7 @@ export function resolveProductionCompatibilityReceiverWitnesses(
         {
           receiver: "core",
           producer: "cli",
+          contracts: ["working-folder-recovery"],
           receiverPaths: [
             "packages/schemas/src/working-folder-recovery.ts",
             "packages/schemas/src/public-agent-failure-reason.ts",
@@ -555,7 +663,17 @@ export function resolveProductionCompatibilityReceiverWitnesses(
     witnesses.push({
       receiver: "core",
       producer: "gateway",
+      contracts: ["gateway-request-context"],
       receiverPaths: [GATEWAY_REQUEST_CONTEXT_SCHEMA_PATH],
+    });
+  }
+  if (isRemoteAiUsageDiff(changedPaths)) {
+    witnesses.push({
+      receiver: "core",
+      producer: "remote-agent",
+      contracts: ["remote-ai-usage"],
+      kind: "remote-ai-usage-receiver",
+      receiverPaths: [...REMOTE_AI_USAGE_RECEIVER_PATHS],
     });
   }
   if (
@@ -576,12 +694,14 @@ export function resolveProductionCompatibilityReceiverWitnesses(
     witnesses.push({
       producer: "core",
       receiver: "remote-agent",
+      contracts: ["remote-agent-request"],
       receiverPaths,
     });
     if (isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths, context)) {
       witnesses.push({
         producer: "cli",
         receiver: "remote-agent",
+        contracts: ["remote-agent-request"],
         receiverPaths,
       });
     }
@@ -1032,7 +1152,10 @@ export function resolveAutomaticReleaseScopes(input) {
     scopes.add("cli");
   }
   if (
-    isInboxSourceTargetReceiverFirstDiff(input.changedPaths) ||
+    isInboxSourceTargetReceiverFirstDiff(
+      input.changedPaths,
+      input.compatibilityContext
+    ) ||
     isInboxNotificationObservationDiff(input.changedPaths)
   ) {
     for (const scope of INBOX_CLOUD_SCOPES) {
@@ -1097,7 +1220,10 @@ export function buildProductionVerifyStepSpecs(input) {
       scope === "core" &&
       !input.scopes.includes("cli") &&
       !input.taskInboxRetired &&
-      !isInboxSourceTargetReceiverFirstDiff(input.changedPaths) &&
+      !isInboxSourceTargetReceiverFirstDiff(
+        input.changedPaths,
+        input.compatibilityContext
+      ) &&
       !isDeviceWaitReceiverFirstDiff(input.changedPaths) &&
       !isLocalServiceRuntimeReceiverFirstDiff(input.changedPaths) &&
       !isWorkingFolderRecoveryDiff(input.changedPaths) &&
@@ -1200,7 +1326,10 @@ export function buildProductionPreflightStepSpecs(input) {
     input.scopes.includes("core") &&
     !input.scopes.includes("cli") &&
     !input.taskInboxRetired &&
-    !isInboxSourceTargetReceiverFirstDiff(input.changedPaths) &&
+    !isInboxSourceTargetReceiverFirstDiff(
+      input.changedPaths,
+      input.compatibilityContext
+    ) &&
     !isDeviceWaitReceiverFirstDiff(input.changedPaths) &&
     !isLocalServiceRuntimeReceiverFirstDiff(input.changedPaths) &&
     !isWorkingFolderRecoveryDiff(input.changedPaths) &&
@@ -1354,7 +1483,10 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
         isLocalServiceRuntimeReceiverFirstDiff(changedPaths) ||
         deployOrderProfile === "core-worker-response-reader-first" ||
         deployOrderProfile === "remote-agent-receiver-first" ||
-        isInboxSourceTargetReceiverFirstDiff(changedPaths),
+        isInboxSourceTargetReceiverFirstDiff(
+          changedPaths,
+          input.compatibilityContext
+        ),
       deployOrderProfile,
       releaseSha: input.releaseSha,
       scope,
@@ -1619,7 +1751,14 @@ function resolveProductionDeployScopeOrder(
       isCenterAgentEvidenceDiff(changedPaths) ||
       isSpaceMessageSearchReceiverFirstDiff(changedPaths) ||
       isInboxNotificationObservationDiff(changedPaths) ||
+      isInboxMembershipOptInDiff(changedPaths, context) ||
       isGatewayRequestContextReceiverFirstDiff(changedPaths, context) ||
+      isAgentProfileDefaultProjectRevisionDiff(changedPaths, context) ||
+      isAgentProfileDefaultProjectInitializerDiff(changedPaths, context) ||
+      isAgentProfileBindingPreconditionDiff(changedPaths, context) ||
+      isProfileWorkspaceInitializeDiff(changedPaths, context) ||
+      isProfileWorkspaceReadDiff(changedPaths, context) ||
+      isCloudCommandReceiptOptInDiff(changedPaths, context) ||
       hasRemoteTurnEnvelopeOwners(changedPaths) ||
       hasRemoteExecutionInputOwners(changedPaths)
     )
@@ -1886,6 +2025,233 @@ function isSpaceInvitationReceiverFirstDiff(changedPaths) {
   ].every((path) => changedPaths.includes(path));
 }
 
+function isCenterAgentSafeWorkspaceDiff(changedPaths, context) {
+  const callerPath = "services/remote-agent/agent-core/tools.ts";
+  if (
+    ![
+      callerPath,
+      "services/remote-agent/agent-core/callback-context.ts",
+      "services/core/src/index.ts",
+      "services/core/src/rpc/methods.ts",
+    ].some((file) => changedPaths.includes(file))
+  ) {
+    return false;
+  }
+  // Inspect the product source, never the control checkout. An unknown caller
+  // conservatively retains the obligation; this is not receiver evidence.
+  return targetProductSourceMentions(context, callerPath, [
+    "centerAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace",
+  ]);
+}
+
+// These checks register deployment obligations from the explicit product
+// source. A name is not receiver compatibility evidence. Unknown source keeps
+// the obligation; known historical sources without the feature stay unchanged.
+function targetProductSourceMentions(context, file, names) {
+  if (!context.sourceSha) {
+    return true;
+  }
+  try {
+    const readGitFile =
+      context.readGitFile ??
+      ((ref, name) => runGit(["show", `${ref}:${name}`]));
+    const source = readGitFile(context.sourceSha, file);
+    return names.some((name) => source.includes(name));
+  } catch {
+    return true;
+  }
+}
+
+function isAgentProfileDefaultProjectInitializerDiff(paths, context) {
+  return (
+    paths.some((file) =>
+      [
+        "services/auth/src/lib/rpc/entrypoint.ts",
+        "packages/auth/src/profiles/profile-repository.ts",
+        "packages/auth/src/profiles/profile-service.ts",
+        "packages/db/src/auth/openmeld-profile.schema.ts",
+        "packages/schemas/src/schemas/http/auth-rpc.ts",
+        "packages/schemas/src/schemas/http/profiles.ts",
+        "services/core/src/projects/agent-profile-default-project-service.ts",
+        "services/core/src/agent-profile-creation-request/agent-profile-creation-request-rpc.ts",
+        "services/core/src/rpc/methods.ts",
+      ].includes(file)
+    ) &&
+    targetProductSourceMentions(
+      context,
+      "services/core/src/projects/agent-profile-default-project-service.ts",
+      ["initializeAgentProfileDefaultProjectInOrganization"]
+    )
+  );
+}
+
+function isAgentProfileDefaultProjectRevisionDiff(paths, context) {
+  return (
+    paths.some(
+      (file) =>
+        file.startsWith("packages/db/postgresql/migrations/") ||
+        [
+          "services/auth/src/lib/rpc/entrypoint.ts",
+          "packages/auth/src/profiles/profile-repository.ts",
+          "packages/auth/src/profiles/profile-service.ts",
+          "packages/db/src/auth/openmeld-profile.schema.ts",
+        ].includes(file)
+    ) &&
+    targetProductSourceMentions(
+      context,
+      "packages/auth/src/profiles/profile-repository.ts",
+      ["defaultProjectRevision"]
+    )
+  );
+}
+
+function isAgentProfileBindingPreconditionDiff(paths, context) {
+  return (
+    paths.some((file) =>
+      [
+        "packages/schemas/src/schemas/http/agent-profile-binding.ts",
+        "packages/schemas/src/schemas/http/profiles.ts",
+        "packages/schemas/src/schemas/http/local-runtimes.ts",
+        "services/core/src/index.ts",
+        "services/core/src/rpc/methods.ts",
+        "services/core/src/agent-profile-binding/application/agent-profile-binding-target.ts",
+        "services/core/src/projects/agent-profile-default-project-service.ts",
+        "services/gateway/src/routes/rpc-http.agent-profile-bindings.ts",
+        "services/gateway/src/routes/rpc-http.current-device.ts",
+        "services/gateway/src/routes/rpc-http.people-computers.ts",
+        "packages/api-client/src/profiles/api.ts",
+        "packages/api-client/src/current-device/api.ts",
+        "clients/web/src/lib/profiles/update-default-project.ts",
+        "clients/web/src/lib/profiles/update-profile-workspace.ts",
+        "clients/web/src/components/profiles/agent-profile-project-settings-dialog.tsx",
+        "clients/web/src/components/spaces/agent-working-folder-recovery-action.tsx",
+      ].includes(file)
+    ) &&
+    targetProductSourceMentions(
+      context,
+      "packages/schemas/src/schemas/http/agent-profile-binding.ts",
+      ["agentProfileBindingTargetSchema"]
+    )
+  );
+}
+
+function isProfileWorkspaceInitializeDiff(paths, context) {
+  if (
+    ![
+      "clients/openmeld-cli/src/local-service/adapters/resolve-daemon-capabilities.ts",
+      "clients/openmeld-cli/src/local-service/carrier/run-socket-session.ts",
+      "clients/openmeld-cli/src/profile-workspace/service.ts",
+      "packages/schemas/src/schemas/daemon/runtime-transport.ts",
+      "packages/schemas/src/schemas/daemon/control-plane.ts",
+      "packages/schemas/src/schemas/protocol/profile.ts",
+      "services/core/src/dispatch/infrastructure/runtime-transport/runtime-transport-client.ts",
+      "services/core/src/dispatch/infrastructure/runtime-transport/runtime-transport-api-client.ts",
+      "services/core/src/runtime-transport/transport/do/runtime-transport-hub.ts",
+      "services/core/src/projects/agent-profile-default-project-service.ts",
+    ].some((file) => paths.includes(file))
+  ) {
+    return false;
+  }
+  // Registration and heartbeat must reach a Core that accepts this strict key.
+  // The reverse request checks Service support before sending its new input.
+  return [
+    "packages/schemas/src/schemas/daemon/runtime-transport.ts",
+    "clients/openmeld-cli/src/local-service/adapters/resolve-daemon-capabilities.ts",
+    "services/core/src/runtime-transport/transport/do/runtime-transport-hub.ts",
+  ].some((file) =>
+    targetProductSourceMentions(context, file, ["initializeProfileWorkspace"])
+  );
+}
+
+function isProfileWorkspaceReadDiff(paths, context) {
+  if (
+    ![
+      "clients/openmeld-cli/src/local-service/adapters/resolve-daemon-capabilities.ts",
+      "clients/openmeld-cli/src/local-service/carrier/run-socket-session.ts",
+      "clients/openmeld-cli/src/local-service/carrier/read-profile-workspace.ts",
+      "clients/openmeld-cli/src/profile-workspace/service.ts",
+      "packages/schemas/src/schemas/daemon/runtime-transport.ts",
+      "packages/schemas/src/schemas/daemon/control-plane.ts",
+      "packages/schemas/src/schemas/protocol/profile.ts",
+      "packages/schemas/src/schemas/http/local-runtimes.ts",
+      "packages/schemas/src/schemas/index.ts",
+      "services/core/src/dispatch/infrastructure/runtime-transport/runtime-transport-client.ts",
+      "services/core/src/dispatch/infrastructure/runtime-transport/runtime-transport-api-client.ts",
+      "services/core/src/index.ts",
+      "services/core/src/rpc/methods.ts",
+      "services/core/src/runtime-transport/transport/do/runtime-transport-hub.ts",
+      "services/gateway/src/routes/rpc-http.current-device.ts",
+      "services/gateway/src/routes/rpc-http.people-computers.ts",
+      "packages/api-client/src/current-device/api.ts",
+      "clients/web/src/lib/profiles/update-profile-workspace.ts",
+      "clients/web/src/components/profiles/agent-profile-project-settings-dialog.tsx",
+      "clients/web/src/components/spaces/agent-working-folder-recovery-action.tsx",
+    ].some((file) => paths.includes(file))
+  ) {
+    return false;
+  }
+  // Check the fixed writer and callers as well as the shared schema: a caller
+  // can introduce the contract before its receiver source is updated. Names
+  // retain obligations only; capability negotiation is not receiver evidence.
+  return (
+    targetProductSourceMentions(
+      context,
+      "packages/schemas/src/schemas/daemon/runtime-transport.ts",
+      [
+        "readProfileWorkspace",
+        "daemon.local_agent_control.read_profile_workspace",
+      ]
+    ) ||
+    targetProductSourceMentions(
+      context,
+      "clients/openmeld-cli/src/local-service/adapters/resolve-daemon-capabilities.ts",
+      ["readProfileWorkspace"]
+    ) ||
+    targetProductSourceMentions(context, "services/core/src/index.ts", [
+      "getCurrentAgentProfileWorkspace",
+      "getPeopleComputerAgentProfileWorkspace",
+    ]) ||
+    targetProductSourceMentions(
+      context,
+      "packages/api-client/src/current-device/api.ts",
+      ["getCurrentAgentProfileWorkspace"]
+    )
+  );
+}
+
+function isCloudCommandReceiptOptInDiff(paths, context) {
+  const entrypoint = "services/remote-agent/.flue/cloudflare.ts";
+  // Older native Agent releases predate the Computer facet altogether. A
+  // readable entrypoint without that method is a known non-Cloud trigger;
+  // absent Computer schema history alone remains unknown, never a witness.
+  const owners = paths.filter((file) =>
+    [
+      "packages/schemas/src/schemas/runtime/cloud-computer.ts",
+      "services/core/src/computer/computer-rpc.ts",
+      entrypoint,
+      "services/remote-agent/flue-adapter/computer-command.ts",
+      "services/remote-agent/flue-adapter/computer-workspace.ts",
+      "services/remote-agent/flue-adapter/computer-native.ts",
+      "services/gateway/src/routes/rpc-http.cloud-computer.ts",
+      "packages/api-client/src/cloud-computer.ts",
+      "clients/openmeld-cli/src/commands/cloud-computer.ts",
+      "clients/openmeld-cli/skills/openmeld-cli/playbooks/computer.md",
+    ].includes(file)
+  );
+  return (
+    owners.length > 0 &&
+    (!owners.every((file) => file === entrypoint) ||
+      targetProductSourceMentions(context, entrypoint, [
+        "cloudComputerOperation",
+      ])) &&
+    targetProductSourceMentions(
+      context,
+      "packages/schemas/src/schemas/runtime/cloud-computer.ts",
+      ["cloudComputerCommandReferenceSchema", "includeReceiptDetails"]
+    )
+  );
+}
+
 function isPersonalRemoteToolsReceiverFirstDiff(changedPaths) {
   return [
     "packages/schemas/src/schemas/runtime/personal-remote-agent.ts",
@@ -1929,8 +2295,10 @@ function isPeopleComputersReceiverFirstDiff(changedPaths) {
 function resolveExistingProductionDeployOrderProfile(changedPaths, context) {
   const isConnectComputerReceiverFirst =
     isConnectComputerCliReceiverFirstDiff(changedPaths);
-  const isInboxReceiverFirst =
-    isInboxSourceTargetReceiverFirstDiff(changedPaths);
+  const isInboxReceiverFirst = isInboxSourceTargetReceiverFirstDiff(
+    changedPaths,
+    context
+  );
   const isRemoteAgentRequestReceiverFirst =
     isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths, context);
   const isRemoteAgentReceiverFirst = changedPaths.some(
@@ -2352,10 +2720,25 @@ function assertLocalServiceRuntimeReleaseScopes(scopes, changedPaths) {
   );
 }
 
-function isInboxSourceTargetReceiverFirstDiff(changedPaths) {
+function isInboxSourceTargetReceiverFirstDiff(changedPaths, context = {}) {
   return (
     changedPaths.includes(INBOX_SCHEMA_PATH) &&
-    changedPaths.some((path) => INBOX_SOURCE_TARGET_WRITER_PATHS.has(path))
+    changedPaths.some((path) => INBOX_SOURCE_TARGET_WRITER_PATHS.has(path)) &&
+    !hasUnchangedInboxSourceTargetContract(context)
+  );
+}
+
+function isInboxMembershipOptInDiff(changedPaths, context) {
+  const caller = "services/gateway/src/routes/rpc-http.inbox.ts";
+  return (
+    [
+      caller,
+      INBOX_SCHEMA_PATH,
+      "services/core/src/inbox/transport/rpc/inbox-rpc.ts",
+    ].some((path) => changedPaths.includes(path)) &&
+    // The named field identifies the caller's obligation, not compatibility.
+    // Read the explicit product source; unknown source retains the prerequisite.
+    targetProductSourceMentions(context, caller, ["includeMembershipNotices"])
   );
 }
 
@@ -2366,7 +2749,10 @@ function assertInboxSourceTargetReleaseScopes(
   context = {}
 ) {
   if (
-    !(taskInboxRetired || isInboxSourceTargetReceiverFirstDiff(changedPaths))
+    !(
+      taskInboxRetired ||
+      isInboxSourceTargetReceiverFirstDiff(changedPaths, context)
+    )
   ) {
     return;
   }
@@ -2718,7 +3104,11 @@ function resolveProductionReleaseContext(input) {
     : (input.affectedPackages ?? resolveAffectedPackages(changedPaths));
   const scopes =
     requested ??
-    resolveAutomaticReleaseScopes({ affectedPackages, changedPaths });
+    resolveAutomaticReleaseScopes({
+      affectedPackages,
+      changedPaths,
+      compatibilityContext,
+    });
   return {
     affectedPackages,
     base: input.base,
@@ -2733,16 +3123,20 @@ function resolveProductionReleaseContext(input) {
 }
 
 function describeProductionReleaseImpact(context) {
+  const compatibilityObligations = resolveProductionCompatibilityObligations(
+    context.compatibilityChangedPaths,
+    context.taskInboxRetired,
+    context.compatibilityContext
+  );
   return {
     affectedPackages: context.affectedPackages,
     base: context.base,
     changedPaths: context.changedPaths,
     compatibilityBridges: context.requestBridge ? [context.requestBridge] : [],
-    compatibilityDependencies: resolveProductionCompatibilityDependencies(
-      context.compatibilityChangedPaths,
-      context.taskInboxRetired,
-      context.compatibilityContext
+    compatibilityDependencies: projectCompatibilityDependencies(
+      compatibilityObligations
     ),
+    compatibilityObligations,
     compatibilityPathSignals: describeCompatibilityPathSignals(
       context.compatibilityChangedPaths
     ),
@@ -2770,6 +3164,7 @@ export function buildProductionReleaseImpact(input) {
         changedPaths,
       }).filter((scope) => scope === input.componentScope),
       compatibilityDependencies: [],
+      compatibilityObligations: [],
       compatibilityBridges: [],
       compatibilityReceiverWitnesses: [],
     };
@@ -2851,6 +3246,7 @@ export function buildProductionReleasePlan(input) {
       releaseSha: sourceSha,
     }),
     preflightSteps: buildProductionPreflightStepSpecs({
+      compatibilityContext,
       coreCurrentCliProjection,
       databaseCutoverRestoreCrons: input.databaseCutoverRestoreCrons,
       changedPaths,
@@ -2859,6 +3255,7 @@ export function buildProductionReleasePlan(input) {
       taskInboxRetired,
     }),
     verifySteps: buildProductionVerifyStepSpecs({
+      compatibilityContext,
       coreCurrentCliProjection,
       changedPaths,
       scopes,
@@ -3664,6 +4061,7 @@ function readHeadSha() {
 function runGit(args) {
   return execFileSync(resolveCommandBinary("git"), args, {
     encoding: "utf8",
+    maxBuffer: 8 * 1024 * 1024,
   });
 }
 

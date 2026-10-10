@@ -1,0 +1,1202 @@
+{
+  "success": true,
+  "data": [
+    {
+      "service": "airtable",
+      "displayName": "Airtable",
+      "iconUrl": null,
+      "homepageUrl": "https://airtable.com",
+      "categories": [
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        },
+        {
+          "id": "Data",
+          "displayName": "Data"
+        }
+      ],
+      "scenario": "productivity",
+      "authTypes": ["oauth2", "api_key"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "api_key",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "Personal Access Token",
+                "description": "Airtable personal access token used with the Authorization Bearer header. Create it in the Airtable developer hub at https://airtable.com/create/tokens.",
+                "placeholder": "patXXXXXXXXXXXXXX",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "canva",
+      "displayName": "Canva",
+      "iconUrl": null,
+      "homepageUrl": "https://www.canva.com",
+      "categories": [
+        {
+          "id": "Design & Media",
+          "displayName": "Design & Media"
+        },
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        }
+      ],
+      "scenario": "productivity",
+      "authTypes": ["oauth2"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": []
+      }
+    },
+    {
+      "service": "google_analytics",
+      "displayName": "Google Analytics",
+      "iconUrl": null,
+      "homepageUrl": "https://analytics.google.com",
+      "categories": [
+        {
+          "id": "Data",
+          "displayName": "Data"
+        },
+        {
+          "id": "Marketing",
+          "displayName": "Marketing"
+        }
+      ],
+      "scenario": "marketing",
+      "authTypes": ["oauth2", "custom_credential"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "custom_credential",
+            "fields": [
+              {
+                "key": "serviceAccountJson",
+                "label": "Service Account JSON",
+                "description": "The complete service account key JSON from Google Cloud Console (IAM & Admin > Service Accounts > Keys). Enable the Google Analytics API for its project and grant the service account access in Analytics (for example through user management), or use domain-wide delegation below.",
+                "placeholder": "{\"type\": \"service_account\", \"project_id\": \"...\", ...}",
+                "secret": true,
+                "inputType": "textarea",
+                "required": true
+              },
+              {
+                "key": "subject",
+                "label": "Subject Email (optional)",
+                "description": "Optional Workspace user to impersonate through domain-wide delegation. In the Workspace Admin console (Security > Access and data control > API Controls > Domain-wide Delegation), grant the service account client ID the Analytics scopes this provider requests.",
+                "placeholder": "user@your-domain.com",
+                "secret": false,
+                "inputType": "text",
+                "required": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "google_search_console",
+      "displayName": "Google Search Console",
+      "iconUrl": null,
+      "homepageUrl": "https://search.google.com/search-console",
+      "categories": [
+        {
+          "id": "Data",
+          "displayName": "Data"
+        },
+        {
+          "id": "Marketing",
+          "displayName": "Marketing"
+        }
+      ],
+      "scenario": "marketing",
+      "authTypes": ["oauth2", "custom_credential"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "custom_credential",
+            "fields": [
+              {
+                "key": "serviceAccountJson",
+                "label": "Service Account JSON",
+                "description": "The complete service account key JSON from Google Cloud Console (IAM & Admin > Service Accounts > Keys). Enable the Search Console API for its project and verify the service account for the sites, or use domain-wide delegation below to act as a verified user.",
+                "placeholder": "{\"type\": \"service_account\", \"project_id\": \"...\", ...}",
+                "secret": true,
+                "inputType": "textarea",
+                "required": true
+              },
+              {
+                "key": "subject",
+                "label": "Subject Email (optional)",
+                "description": "Optional Workspace user to impersonate through domain-wide delegation. In the Workspace Admin console (Security > Access and data control > API Controls > Domain-wide Delegation), grant the service account client ID the Search Console scopes this provider requests.",
+                "placeholder": "user@your-domain.com",
+                "secret": false,
+                "inputType": "text",
+                "required": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "googleads",
+      "displayName": "Google Ads",
+      "iconUrl": null,
+      "homepageUrl": "https://ads.google.com",
+      "categories": [
+        {
+          "id": "Marketing",
+          "displayName": "Marketing"
+        },
+        {
+          "id": "Data",
+          "displayName": "Data"
+        }
+      ],
+      "scenario": "marketing",
+      "authTypes": ["oauth2"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": []
+      }
+    },
+    {
+      "service": "googledocs",
+      "displayName": "Google Docs",
+      "iconUrl": null,
+      "homepageUrl": "https://workspace.google.com/products/docs/",
+      "categories": [
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        }
+      ],
+      "scenario": "communication",
+      "authTypes": ["oauth2"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": []
+      }
+    },
+    {
+      "service": "googleforms",
+      "displayName": "Google Forms",
+      "iconUrl": null,
+      "homepageUrl": "https://workspace.google.com/products/forms/",
+      "categories": [
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        },
+        {
+          "id": "Data",
+          "displayName": "Data"
+        }
+      ],
+      "scenario": "productivity",
+      "authTypes": ["oauth2", "custom_credential"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "custom_credential",
+            "fields": [
+              {
+                "key": "serviceAccountJson",
+                "label": "Service Account JSON",
+                "description": "The complete service account key JSON from Google Cloud Console (IAM & Admin > Service Accounts > Keys). Enable the Forms API for its project and share forms with the service account email, or use domain-wide delegation below.",
+                "placeholder": "{\"type\": \"service_account\", \"project_id\": \"...\", ...}",
+                "secret": true,
+                "inputType": "textarea",
+                "required": true
+              },
+              {
+                "key": "subject",
+                "label": "Subject Email (optional)",
+                "description": "Optional Workspace user to impersonate through domain-wide delegation. In the Workspace Admin console (Security > Access and data control > API Controls > Domain-wide Delegation), grant the service account client ID the Forms scopes this provider requests.",
+                "placeholder": "user@your-domain.com",
+                "secret": false,
+                "inputType": "text",
+                "required": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "googlemeet",
+      "displayName": "Google Meet",
+      "iconUrl": null,
+      "homepageUrl": "https://workspace.google.com/products/meet/",
+      "categories": [
+        {
+          "id": "Communication",
+          "displayName": "Communication"
+        },
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        }
+      ],
+      "scenario": "communication",
+      "authTypes": ["oauth2", "custom_credential"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "custom_credential",
+            "fields": [
+              {
+                "key": "serviceAccountJson",
+                "label": "Service Account JSON",
+                "description": "The complete service account key JSON from Google Cloud Console (IAM & Admin > Service Accounts > Keys). Enable the Meet API for its project. Meet spaces belong to Workspace users, so use domain-wide delegation below to act as the user who owns the meetings.",
+                "placeholder": "{\"type\": \"service_account\", \"project_id\": \"...\", ...}",
+                "secret": true,
+                "inputType": "textarea",
+                "required": true
+              },
+              {
+                "key": "subject",
+                "label": "Subject Email",
+                "description": "Workspace user to impersonate through domain-wide delegation. In the Workspace Admin console (Security > Access and data control > API Controls > Domain-wide Delegation), grant the service account client ID the Meet scopes this provider requests.",
+                "placeholder": "user@your-domain.com",
+                "secret": false,
+                "inputType": "text",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "googlesheets",
+      "displayName": "Google Sheets",
+      "iconUrl": null,
+      "homepageUrl": "https://workspace.google.com/products/sheets/",
+      "categories": [
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        },
+        {
+          "id": "Data",
+          "displayName": "Data"
+        }
+      ],
+      "scenario": "productivity",
+      "authTypes": ["oauth2", "custom_credential"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "custom_credential",
+            "fields": [
+              {
+                "key": "serviceAccountJson",
+                "label": "Service Account JSON",
+                "description": "The complete service account key JSON from Google Cloud Console (IAM & Admin > Service Accounts > Keys). Enable the Sheets and Drive APIs for its project and share spreadsheets with the service account email, or use domain-wide delegation below.",
+                "placeholder": "{\"type\": \"service_account\", \"project_id\": \"...\", ...}",
+                "secret": true,
+                "inputType": "textarea",
+                "required": true
+              },
+              {
+                "key": "subject",
+                "label": "Subject Email (optional)",
+                "description": "Optional Workspace user to impersonate through domain-wide delegation. In the Workspace Admin console (Security > Access and data control > API Controls > Domain-wide Delegation), grant the service account client ID the Sheets and Drive scopes this provider requests. This acts as the user across the domain when sharing spreadsheets with the service account directly is not practical.",
+                "placeholder": "user@your-domain.com",
+                "secret": false,
+                "inputType": "text",
+                "required": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "googleslides",
+      "displayName": "Google Slides",
+      "iconUrl": null,
+      "homepageUrl": "https://workspace.google.com/products/slides/",
+      "categories": [
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        },
+        {
+          "id": "Design",
+          "displayName": "Design"
+        }
+      ],
+      "scenario": "communication",
+      "authTypes": ["oauth2", "custom_credential"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "custom_credential",
+            "fields": [
+              {
+                "key": "serviceAccountJson",
+                "label": "Service Account JSON",
+                "description": "The complete service account key JSON from Google Cloud Console (IAM & Admin > Service Accounts > Keys). Enable the Slides and Drive APIs for its project and share presentations with the service account email, or use domain-wide delegation below.",
+                "placeholder": "{\"type\": \"service_account\", \"project_id\": \"...\", ...}",
+                "secret": true,
+                "inputType": "textarea",
+                "required": true
+              },
+              {
+                "key": "subject",
+                "label": "Subject Email (optional)",
+                "description": "Optional Workspace user to impersonate through domain-wide delegation. In the Workspace Admin console (Security > Access and data control > API Controls > Domain-wide Delegation), grant the service account client ID the Slides and Drive scopes this provider requests.",
+                "placeholder": "user@your-domain.com",
+                "secret": false,
+                "inputType": "text",
+                "required": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "hubspot",
+      "displayName": "HubSpot",
+      "iconUrl": null,
+      "homepageUrl": "https://www.hubspot.com",
+      "categories": [
+        {
+          "id": "Marketing",
+          "displayName": "Marketing"
+        },
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        }
+      ],
+      "scenario": "marketing",
+      "authTypes": ["oauth2"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": []
+      }
+    },
+    {
+      "service": "mailchimp",
+      "displayName": "Mailchimp",
+      "iconUrl": null,
+      "homepageUrl": "https://mailchimp.com",
+      "categories": [
+        {
+          "id": "Communication",
+          "displayName": "Communication"
+        },
+        {
+          "id": "Marketing",
+          "displayName": "Marketing"
+        }
+      ],
+      "scenario": "marketing",
+      "authTypes": ["oauth2", "api_key"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "api_key",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "API Key",
+                "description": "Mailchimp Marketing API key used with HTTP Basic auth. Generate it under Profile > Extras > API keys: https://mailchimp.com/help/about-api-keys/.",
+                "placeholder": "0123456789abcdef-us1",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "meta",
+      "displayName": "Meta",
+      "iconUrl": null,
+      "homepageUrl": "https://business.meta.com/",
+      "categories": [
+        {
+          "id": "Marketing",
+          "displayName": "Marketing"
+        },
+        {
+          "id": "Social",
+          "displayName": "Social"
+        }
+      ],
+      "scenario": "marketing",
+      "authTypes": ["api_key"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "api_key",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "Access Token",
+                "description": "Meta access token used with the Authorization: Bearer header. Create or view system user and app tokens in Meta Business Settings: https://business.facebook.com/latest/settings. The read-only Ads actions usually require permissions such as ads_read.",
+                "placeholder": "EAAG...",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "outlook",
+      "displayName": "Outlook",
+      "iconUrl": null,
+      "homepageUrl": "https://www.microsoft.com/microsoft-365/outlook/email-and-calendar-software-microsoft-outlook",
+      "categories": [
+        {
+          "id": "Communication",
+          "displayName": "Communication"
+        },
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        }
+      ],
+      "scenario": "communication",
+      "authTypes": ["oauth2"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": []
+      }
+    },
+    {
+      "service": "resend",
+      "displayName": "Resend",
+      "iconUrl": null,
+      "homepageUrl": "https://resend.com",
+      "categories": [
+        {
+          "id": "Communication",
+          "displayName": "Communication"
+        },
+        {
+          "id": "Marketing",
+          "displayName": "Marketing"
+        }
+      ],
+      "scenario": "communication",
+      "authTypes": ["api_key"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "api_key",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "API Key",
+                "description": "Resend API key used with the Authorization Bearer header. Create or manage it from https://resend.com/docs/dashboard/api-keys/introduction.",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "supabase",
+      "displayName": "Supabase",
+      "iconUrl": null,
+      "homepageUrl": "https://supabase.com",
+      "categories": [
+        {
+          "id": "Developer Tools",
+          "displayName": "Developer Tools"
+        },
+        {
+          "id": "Data",
+          "displayName": "Data"
+        },
+        {
+          "id": "Storage",
+          "displayName": "Storage"
+        }
+      ],
+      "scenario": "developer",
+      "authTypes": ["oauth2", "api_key"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "api_key",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "Personal Access Token",
+                "description": "Supabase personal access token used with the Authorization Bearer header. Create it in the Supabase dashboard: https://supabase.com/dashboard/account/tokens.",
+                "placeholder": "sbp_...",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "vercel",
+      "displayName": "Vercel",
+      "iconUrl": null,
+      "homepageUrl": "https://vercel.com",
+      "categories": [
+        {
+          "id": "Developer Tools",
+          "displayName": "Developer Tools"
+        }
+      ],
+      "scenario": "developer",
+      "authTypes": ["api_key"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "api_key",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "Access token",
+                "description": "Vercel personal access token used with the Authorization Bearer header. Create it in your Vercel Account Tokens settings. Team-owned resources also need Team ID or Team slug.",
+                "placeholder": "vercel_access_token",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              },
+              {
+                "key": "teamId",
+                "label": "Team ID",
+                "description": "Optional Vercel team ID sent as the teamId query parameter on team-scoped REST API requests. Use this or Team slug, not both. Find it under the team Settings page.",
+                "placeholder": "team_...",
+                "secret": false,
+                "inputType": "text",
+                "required": false
+              },
+              {
+                "key": "slug",
+                "label": "Team slug",
+                "description": "Optional Vercel team slug sent as the slug query parameter on team-scoped REST API requests. Use this or Team ID, not both.",
+                "placeholder": "my-team",
+                "secret": false,
+                "inputType": "text",
+                "required": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "asana",
+      "displayName": "Asana",
+      "iconUrl": null,
+      "homepageUrl": "https://asana.com",
+      "categories": [
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        }
+      ],
+      "scenario": "productivity",
+      "authTypes": ["oauth2", "api_key"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "api_key",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "Personal Access Token",
+                "description": "Asana personal access token used with the Authorization Bearer header. Get it from the Asana developer console at https://app.asana.com/0/my-apps.",
+                "placeholder": "asana_pat",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "clickup",
+      "displayName": "ClickUp",
+      "iconUrl": null,
+      "homepageUrl": "https://clickup.com",
+      "categories": [
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        }
+      ],
+      "scenario": "productivity",
+      "authTypes": ["oauth2", "api_key"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "api_key",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "Personal API Token",
+                "description": "ClickUp personal API token sent with the Authorization header. Generate it from Settings > Apps, or see https://developer.clickup.com/docs.",
+                "placeholder": "clickup_personal_token",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "confluence",
+      "displayName": "Confluence",
+      "iconUrl": null,
+      "homepageUrl": "https://www.atlassian.com/software/confluence",
+      "categories": [
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        }
+      ],
+      "scenario": "communication",
+      "authTypes": ["oauth2", "api_key"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "api_key",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "API Token",
+                "description": "Atlassian API token used as the Basic Auth password for Confluence Cloud. Create tokens at https://id.atlassian.com/manage-profile/security/api-tokens.",
+                "placeholder": "ATLASSIAN_API_TOKEN",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              },
+              {
+                "key": "email",
+                "label": "Atlassian Email",
+                "description": "Atlassian account email used as the Basic Auth username for Confluence Cloud.",
+                "placeholder": "name@example.com",
+                "secret": false,
+                "inputType": "text",
+                "required": true
+              },
+              {
+                "key": "siteUrl",
+                "label": "Confluence Site URL",
+                "description": "Confluence Cloud site URL used to build https://<site>.atlassian.net/wiki/api/v2 requests.",
+                "placeholder": "https://example.atlassian.net",
+                "secret": false,
+                "inputType": "text",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "docker_hub",
+      "displayName": "Docker Hub",
+      "iconUrl": null,
+      "homepageUrl": "https://hub.docker.com",
+      "categories": [
+        {
+          "id": "Developer Tools",
+          "displayName": "Developer Tools"
+        }
+      ],
+      "scenario": "developer",
+      "authTypes": ["api_key"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "api_key",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "Credential",
+                "description": "Enter identifier:secret so the runtime can exchange it for a Docker Hub bearer token. Use your Docker username with a password or personal access token, or an organization name with an organization access token.",
+                "placeholder": "username:dckr_pat_xxx or organization:dckr_oat_xxx",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "dropbox",
+      "displayName": "Dropbox",
+      "iconUrl": null,
+      "homepageUrl": "https://www.dropbox.com",
+      "categories": [
+        {
+          "id": "Storage",
+          "displayName": "Storage"
+        },
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        }
+      ],
+      "scenario": "communication",
+      "authTypes": ["oauth2"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": []
+      }
+    },
+    {
+      "service": "gitlab",
+      "displayName": "GitLab",
+      "iconUrl": null,
+      "homepageUrl": "https://gitlab.com",
+      "categories": [
+        {
+          "id": "Developer Tools",
+          "displayName": "Developer Tools"
+        }
+      ],
+      "scenario": "developer",
+      "authTypes": ["oauth2", "api_key"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "api_key",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "Personal access token",
+                "description": "GitLab personal access token sent with the Authorization Bearer header. Create one in GitLab user preferences under Access tokens.",
+                "placeholder": "glpat-xxxxxxxxxxxxxxxxxxxx",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              },
+              {
+                "key": "baseUrl",
+                "label": "Instance URL",
+                "description": "Optional base URL of a self-hosted GitLab instance, without the /api/v4 path. Leave empty for GitLab.com. Private/overlay targets (RFC 1918, Tailscale, NetBird, private hostnames) require the self-hosted runtime to enable OOMOL_CONNECT_ALLOW_PRIVATE_NETWORK.",
+                "placeholder": "https://gitlab.example.com",
+                "secret": false,
+                "inputType": "text",
+                "required": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "intercom",
+      "displayName": "Intercom",
+      "iconUrl": null,
+      "homepageUrl": "https://www.intercom.com",
+      "categories": [
+        {
+          "id": "Communication",
+          "displayName": "Communication"
+        },
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        }
+      ],
+      "scenario": "communication",
+      "authTypes": ["oauth2"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": []
+      }
+    },
+    {
+      "service": "jira",
+      "displayName": "Jira",
+      "iconUrl": null,
+      "homepageUrl": "https://www.atlassian.com/software/jira",
+      "categories": [
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        },
+        {
+          "id": "Developer Tools",
+          "displayName": "Developer Tools"
+        }
+      ],
+      "scenario": "productivity",
+      "authTypes": ["oauth2", "custom_credential"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "custom_credential",
+            "fields": [
+              {
+                "key": "baseUrl",
+                "label": "Instance URL",
+                "description": "Jira Data Center or Server instance root URL (a deployment context path is supported), without an API endpoint path. Public addresses work by default; private targets (RFC 1918, Tailscale, NetBird, private hostnames) require the self-hosted runtime to enable OOMOL_CONNECT_ALLOW_PRIVATE_NETWORK. Unsafe local, reserved, and cloud-metadata targets always remain blocked.",
+                "placeholder": "https://jira.example.com",
+                "secret": false,
+                "inputType": "text",
+                "required": true
+              },
+              {
+                "key": "personalAccessToken",
+                "label": "Personal access token",
+                "description": "Jira Data Center or Server personal access token.",
+                "placeholder": "JIRA_PAT",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "miro",
+      "displayName": "Miro",
+      "iconUrl": null,
+      "homepageUrl": "https://miro.com",
+      "categories": [
+        {
+          "id": "Design",
+          "displayName": "Design"
+        },
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        }
+      ],
+      "scenario": "productivity",
+      "authTypes": ["oauth2"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": []
+      }
+    },
+    {
+      "service": "monday",
+      "displayName": "Monday",
+      "iconUrl": null,
+      "homepageUrl": "https://monday.com",
+      "categories": [
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        }
+      ],
+      "scenario": "productivity",
+      "authTypes": ["oauth2", "api_key"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "api_key",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "Personal API Token",
+                "description": "Monday personal V2 API token sent in the Authorization header with an explicit API-Version header. Find it in the monday Developer Center API token tab: https://developer.monday.com/api-reference/docs/authentication.",
+                "placeholder": "monday_personal_v2_token",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "neon",
+      "displayName": "Neon",
+      "iconUrl": null,
+      "homepageUrl": "https://neon.com",
+      "categories": [
+        {
+          "id": "Developer Tools",
+          "displayName": "Developer Tools"
+        },
+        {
+          "id": "Data",
+          "displayName": "Data"
+        }
+      ],
+      "scenario": "developer",
+      "authTypes": ["api_key"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "api_key",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "API Key",
+                "description": "Neon API key used with the Authorization Bearer header. Create it in Account settings > API keys in the Neon Console: https://neon.com/docs/manage/api-keys.",
+                "placeholder": "napi_...",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "sentry",
+      "displayName": "Sentry",
+      "iconUrl": null,
+      "homepageUrl": "https://sentry.io",
+      "categories": [
+        {
+          "id": "Developer Tools",
+          "displayName": "Developer Tools"
+        },
+        {
+          "id": "Security",
+          "displayName": "Security"
+        }
+      ],
+      "scenario": "developer",
+      "authTypes": ["oauth2"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": []
+      }
+    },
+    {
+      "service": "shopify_admin",
+      "displayName": "Shopify Admin",
+      "iconUrl": null,
+      "homepageUrl": "https://www.shopify.com",
+      "categories": [
+        {
+          "id": "Marketing",
+          "displayName": "Marketing"
+        },
+        {
+          "id": "Data",
+          "displayName": "Data"
+        }
+      ],
+      "scenario": "cross-border-ecommerce",
+      "authTypes": ["api_key"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "api_key",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "Admin API access token",
+                "description": "Shopify Admin API access token sent with the X-Shopify-Access-Token header. Create or install a custom app and copy its Admin API access token: https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens",
+                "placeholder": "shpat_...",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              },
+              {
+                "key": "shopDomain",
+                "label": "Shop domain",
+                "description": "The store's myshopify.com domain, such as acme.myshopify.com. A Shopify admin URL for the same shop is also accepted.",
+                "placeholder": "acme.myshopify.com",
+                "secret": false,
+                "inputType": "text",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "stripe",
+      "displayName": "Stripe",
+      "iconUrl": null,
+      "homepageUrl": "https://stripe.com",
+      "categories": [
+        {
+          "id": "Finance",
+          "displayName": "Finance"
+        },
+        {
+          "id": "Developer Tools",
+          "displayName": "Developer Tools"
+        }
+      ],
+      "scenario": "marketing",
+      "authTypes": ["api_key"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "api_key",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "Secret API Key",
+                "description": "Stripe secret or restricted API key sent as a Bearer token. View and create keys in the Stripe Dashboard API keys page: https://dashboard.stripe.com/apikeys.",
+                "placeholder": "sk_test_...",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "trello",
+      "displayName": "Trello",
+      "iconUrl": null,
+      "homepageUrl": "https://trello.com",
+      "categories": [
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        }
+      ],
+      "scenario": "productivity",
+      "authTypes": ["custom_credential"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "custom_credential",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "API Key",
+                "description": "Trello API Key from the API Key tab at https://trello.com/apps/admin. Do not use the API Secret or an Atlassian API token here.",
+                "placeholder": "Trello API key",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              },
+              {
+                "key": "apiToken",
+                "label": "API Token",
+                "description": "Trello API token generated from the Token link beside your API Key at https://trello.com/apps/admin. This is different from the API Secret.",
+                "placeholder": "Trello API token",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "zendesk",
+      "displayName": "Zendesk",
+      "iconUrl": null,
+      "homepageUrl": "https://www.zendesk.com",
+      "categories": [
+        {
+          "id": "Communication",
+          "displayName": "Communication"
+        },
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        }
+      ],
+      "scenario": "communication",
+      "authTypes": ["oauth2", "api_key"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "api_key",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "API Token",
+                "description": "Zendesk API token used with Basic auth as <email>/token together with the account subdomain. Generate it in Admin Center > Apps and integrations > APIs > API tokens.",
+                "placeholder": "zendesk_api_token",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              },
+              {
+                "key": "subdomain",
+                "label": "Subdomain",
+                "description": "The Zendesk account subdomain used to build https://<subdomain>.zendesk.com API requests.",
+                "placeholder": "your-workspace",
+                "secret": false,
+                "inputType": "text",
+                "required": true
+              },
+              {
+                "key": "email",
+                "label": "Email",
+                "description": "The Zendesk user email paired with the API token for Basic auth.",
+                "placeholder": "agent@example.com",
+                "secret": false,
+                "inputType": "text",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

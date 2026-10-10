@@ -231,8 +231,12 @@ describe("Automatic human-to-agent dispatch rules", () => {
     ).toEqual([]);
   });
 
-  it("auto-dispatches a human-authored 1:1 human-agent Direct Message with prompt context", () => {
+  it.each([
+    true,
+    false,
+  ])("respects automatic Wake preference %s for a human-agent conversation", (automaticWakeEnabled) => {
     const decisions = buildAutomaticWakeDispatchReadyDecisions({
+      automaticWakeEnabled,
       activeMemberRecords: [humanMember, agentMember],
       senderProfileId: "human-felix",
       signal: createDmSignal({
@@ -243,7 +247,10 @@ describe("Automatic human-to-agent dispatch rules", () => {
       spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
     });
 
-    expect(decisions).toHaveLength(1);
+    expect(decisions).toHaveLength(automaticWakeEnabled ? 1 : 0);
+    if (!automaticWakeEnabled) {
+      return;
+    }
     const decision = decisions[0];
     if (!decision) {
       throw new Error("Expected one Direct Message dispatch decision.");

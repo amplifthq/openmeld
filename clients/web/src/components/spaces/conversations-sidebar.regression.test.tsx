@@ -43,12 +43,13 @@ import {
 	usePublishSpaceWakeProgressVisibleProjection,
 } from "./space-wake-progress-visible-projection";
 
+const BETA_ROW_NAME_PATTERN = /^Beta, /;
 const ACTIVE_NAME_PATTERN_1 = /^Beta, (?=.*(?:Wake|working|waiting)).+/i;
 const ACTIVE_NAME_PATTERN_2 = /^Alpha, .*Wake/;
 const ACTIVE_NAME_PATTERN_3 = /^Alpha, (?=.*(?:Wake|working|waiting)).+/i;
 const ACTIVE_NAME_PATTERN_4 = /^Alpha, .*waiting/i;
 const ACTIVE_NAME_PATTERN_5 = /^Alpha, .*Wakes are active/;
-const ACTIVE_NAME_PATTERN_6 = /^Working, unread messages, .*Wake/;
+const ACTIVE_NAME_PATTERN_6 = /^Working, unread updates, .*Wake/;
 
 const OTHER_JOINED_PROFILE_TEXT = /Other joined profile/;
 const BROWSE_SPACES_TEXT = /Browse Spaces/;
@@ -64,6 +65,8 @@ vi.mock("../app/use-sidebar-preferences", () => ({
 		disabled: false,
 		save: vi.fn(),
 		saveAsync: vi.fn().mockResolvedValue(undefined),
+		update: vi.fn(),
+		updateAsync: vi.fn().mockResolvedValue(undefined),
 	}),
 }));
 
@@ -211,7 +214,8 @@ vi.mock("#/lib/organizations/organization-context", () => ({
 		appOrganizationMock.currentOrganization.slug,
 }));
 
-vi.mock("#/lib/spaces/account-spaces", () => ({
+vi.mock("#/lib/spaces/account-spaces", async (importOriginal) => ({
+	...(await importOriginal<typeof import("#/lib/spaces/account-spaces")>()),
 	listAccountSpaceItems: (
 		...args: Parameters<typeof listAccountSpaceItemsMock>
 	) => listAccountSpaceItemsMock(...args),
@@ -316,11 +320,13 @@ describe("ConversationsSidebar", () => {
 			/>,
 			queryClient
 		);
-		expect(
-			await screen.findByRole("img", {
-				name: "Planner needs your input; Reviewer is working",
-			})
-		).toBeTruthy();
+		const unopened = await screen.findByRole("link", {
+			name: BETA_ROW_NAME_PATTERN,
+		});
+		expect(unopened.getAttribute("aria-label")).toContain("Planner");
+		expect(unopened.getAttribute("aria-label")).toContain("needs your input");
+		expect(unopened.getAttribute("aria-label")).toContain("Reviewer");
+		expect(unopened.getAttribute("aria-label")).toContain("Working");
 		expect(getActiveWakeProgressMock).toHaveBeenCalledWith(
 			expect.objectContaining({ spaceId: "space-beta" })
 		);
@@ -393,6 +399,10 @@ describe("ConversationsSidebar", () => {
 		null,
 		OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
 	])("[S02] uses indexed previews without per-conversation polling for %s", async (spacePurpose) => {
+		localStorage.setItem(
+			"openmeld.spaces.message-previews:human-1:org-acme",
+			"shown"
+		);
 		const timestamp = Date.parse("2026-09-06T17:00:00.000Z");
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
@@ -428,7 +438,9 @@ describe("ConversationsSidebar", () => {
 			"focusSignalId=message-alpha"
 		);
 		expect(previewLink.getAttribute("data-router-to")).toBe(
-			"/o/acme/spaces/space-alpha"
+			spacePurpose === OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE
+				? "/o/acme/chats/space-alpha"
+				: "/o/acme/spaces/space-alpha"
 		);
 		expect(row.getAttribute("href")).not.toContain("focusSignalId");
 		expect(previewLink.parentElement?.closest("a")).toBeNull();
@@ -443,7 +455,7 @@ describe("ConversationsSidebar", () => {
 		).toHaveLength(0);
 	});
 
-	it("[S03] moves unpinned Spaces with unread messages first and shows a static accessible indicator", async () => {
+	it("[S03] moves unpinned Spaces with unread updates first and shows a static accessible indicator", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [
@@ -473,7 +485,7 @@ describe("ConversationsSidebar", () => {
 		);
 
 		const beta = await screen.findByRole("link", {
-			name: "Beta, unread messages",
+			name: "Beta, unread updates",
 		});
 		const alpha = screen.getByRole("link", { name: "Alpha" });
 
@@ -521,7 +533,7 @@ describe("ConversationsSidebar", () => {
 
 		const alpha = await screen.findByRole("link", { name: "Alpha" });
 		const beta = screen.getByRole("link", {
-			name: "Beta, unread messages",
+			name: "Beta, unread updates",
 		});
 		expect(alpha.compareDocumentPosition(beta)).toBe(
 			Node.DOCUMENT_POSITION_FOLLOWING
@@ -569,10 +581,10 @@ describe("ConversationsSidebar", () => {
 		);
 
 		const newSpace = await screen.findByRole("link", {
-			name: "Launch Room, unread messages",
+			name: "Launch Room, unread updates",
 		});
 		const existingSpace = screen.getByRole("link", {
-			name: "Existing, unread messages",
+			name: "Existing, unread updates",
 		});
 		expect(newSpace.compareDocumentPosition(existingSpace)).toBe(
 			Node.DOCUMENT_POSITION_PRECEDING
@@ -680,7 +692,7 @@ describe("ConversationsSidebar", () => {
 			name: "Regular New",
 		});
 		const regularUnread = screen.getByRole("link", {
-			name: "Regular Unread, unread messages",
+			name: "Regular Unread, unread updates",
 		});
 		expect(pinnedNew.compareDocumentPosition(pinnedFirst)).toBe(
 			Node.DOCUMENT_POSITION_PRECEDING
@@ -717,7 +729,7 @@ describe("ConversationsSidebar", () => {
 			expect(
 				screen
 					.getByRole("link", {
-						name: "Regular Unread, unread messages",
+						name: "Regular Unread, unread updates",
 					})
 					.compareDocumentPosition(
 						screen.getByRole("link", { name: "Regular New" })
@@ -986,6 +998,7 @@ describe("ConversationsSidebar", () => {
 			spaceItems: [
 				createAccountSpaceItem({
 					activeMemberCount: 3,
+					directMessageConvertedAt: "2026-04-29T00:00:00.000Z",
 					spaceId: "space-dm-degraded",
 					spaceName: "Felix and Center Agent plus Ada",
 					spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
@@ -1409,8 +1422,8 @@ describe("ConversationsSidebar", () => {
 			})
 		).toBeTruthy();
 		expect(
-			screen.getByRole("img", {
-				name: "Clico Codex is working",
+			screen.getByRole("link", {
+				name: "Alpha, Clico Codex · Working…",
 			})
 		).toBeTruthy();
 		expect(
@@ -1478,8 +1491,8 @@ describe("ConversationsSidebar", () => {
 			})
 		).toBeTruthy();
 		expect(
-			screen.getByRole("img", {
-				name: "Waiting for Clico Codex",
+			screen.getByRole("link", {
+				name: "Alpha, Clico Codex · Waiting for another app",
 			})
 		).toBeTruthy();
 		expect(
@@ -1551,8 +1564,8 @@ describe("ConversationsSidebar", () => {
 			})
 		).toBeTruthy();
 		expect(
-			screen.getByRole("img", {
-				name: "Runner is working",
+			screen.getByRole("link", {
+				name: "Alpha, Runner · Working…",
 			})
 		).toBeTruthy();
 	});
@@ -1942,7 +1955,7 @@ describe("ConversationsSidebar", () => {
 			name: ACTIVE_NAME_PATTERN_6,
 		});
 		const unread = screen.getByRole("link", {
-			name: "Unread, unread messages",
+			name: "Unread, unread updates",
 		});
 		const idle = screen.getByRole("link", { name: "Idle" });
 		expect(
@@ -2521,6 +2534,7 @@ function createAccountSpaceItem(input: {
 	spaceId: string;
 	spaceName: string;
 	spacePurpose?: string | null;
+	directMessageConvertedAt?: string | null;
 	activeMemberCount?: number | null;
 }): AccountSpaceItem {
 	const pinnedAt = input.pinnedAt ?? null;
@@ -2558,6 +2572,7 @@ function createAccountSpaceItem(input: {
 		spaceId: input.spaceId,
 		spaceName: input.spaceName,
 		spacePurpose: input.spacePurpose ?? null,
+		directMessageConvertedAt: input.directMessageConvertedAt ?? null,
 		activeAgentCount: null,
 		activeHumanCount: null,
 		activeMemberCount: input.activeMemberCount ?? null,

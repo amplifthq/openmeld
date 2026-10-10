@@ -1,4 +1,5 @@
 import type { PostgresDatabase, QueryConfig } from "@openmeld/db/postgresql";
+import { connectorConnectionScopeAllowed } from "@openmeld/schemas";
 import type {
   ConnectorConnectionName,
   ConnectorConnectionPreference,
@@ -6,6 +7,7 @@ import type {
   ConnectorService,
   PluginAccessPolicy,
 } from "@openmeld/schemas/types";
+import { requirePluginConnectionScope } from "./connector-connection-scope";
 
 const CONNECTION_HASH_LENGTH = 18;
 const CONNECTION_NAME_MAX_LENGTH = 64;
@@ -134,6 +136,7 @@ export async function upsertPendingSharedConnectorConnection(input: {
   service: ConnectorService;
   userId: string;
 }): Promise<ConnectorConnectionRecord> {
+  requirePluginConnectionScope(input.service, "shared");
   const upsertStatement = {
     text: `
         INSERT INTO "openmeld"."connector_connections" (
@@ -288,6 +291,7 @@ export async function requireConnectorConnectionForExecution(input: {
   if (!connection) {
     throw new Error("Connector connection was not found in this Organization.");
   }
+  requirePluginConnectionScope(connection.service, connection.scope);
   return connection;
 }
 
@@ -409,10 +413,18 @@ export async function selectActiveConnectorConnection(input: {
   connection: ConnectorConnectionRecord;
   selection: "requester" | "shared";
 } | null> {
+  const sharedAllowed = connectorConnectionScopeAllowed(
+    input.service,
+    "shared"
+  );
+  if (input.preference === "shared" && !sharedAllowed) {
+    return null;
+  }
+  const preference = sharedAllowed ? input.preference : "requester";
   let exactScopeSql: string;
-  if (input.preference === "shared") {
+  if (preference === "shared") {
     exactScopeSql = "connection.scope = 'shared'";
-  } else if (input.preference === "requester") {
+  } else if (preference === "requester") {
     exactScopeSql = `
       connection.scope = 'member'
       AND connection.user_id = $3
@@ -429,7 +441,7 @@ export async function selectActiveConnectorConnection(input: {
     `;
   }
   const bindings =
-    input.preference === "shared"
+    preference === "shared"
       ? [input.organizationId, input.service]
       : [input.organizationId, input.service, input.requesterUserId];
   const row = await input.db

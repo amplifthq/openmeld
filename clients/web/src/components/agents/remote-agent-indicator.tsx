@@ -1,11 +1,11 @@
-import { HOSTED_REMOTE_AGENT_CONTROLLER_REF } from "@openmeld/agent-runtime";
+import { isHostedAgentControllerRef } from "@openmeld/schemas";
 import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { CloudIcon } from "@phosphor-icons/react";
 
 export function RemoteAgentIndicator(input: {
 	agentControllerRef: string | null;
 }) {
-	if (input.agentControllerRef !== HOSTED_REMOTE_AGENT_CONTROLLER_REF) {
+	if (!isHostedAgentControllerRef(input.agentControllerRef)) {
 		return null;
 	}
 	return (

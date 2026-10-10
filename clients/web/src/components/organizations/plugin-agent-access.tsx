@@ -1,6 +1,9 @@
 "use client";
 
-import { pluginPermissionSchema } from "@openmeld/schemas";
+import {
+	connectorConnectionScopeAllowed,
+	pluginPermissionSchema,
+} from "@openmeld/schemas";
 import type {
 	ConnectorService,
 	PluginAccess,
@@ -65,6 +68,7 @@ export function PluginAgentAccess(input: {
 		? snapshot.connections.filter(
 				(connection) =>
 					connection.status === "active" &&
+					connectorConnectionScopeAllowed(input.service, connection.scope) &&
 					(input.scope === "all" || connection.scope === input.scope) &&
 					(connection.scope === "shared" ||
 						connection.userId === snapshot.currentUserId)

@@ -99,6 +99,7 @@ export const desktopComputerConnectionRequestSchema =
     .extend({
       expectedAccount: computerConnectionIntentSchema.shape.expectedAccount,
       resetThisComputer: z.boolean().optional(),
+      serviceAction: z.literal("update_service").optional(),
     });
 
 export const desktopComputerConnectionResultSchema = z.discriminatedUnion(
