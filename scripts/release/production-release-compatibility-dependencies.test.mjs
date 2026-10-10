@@ -671,10 +671,16 @@ test("deploys Inbox observation receivers before callers, composed with Remote t
   );
 });
 
+const legacyFolderRecoverySource = {
+  sourceSha: "a".repeat(40),
+  readGitFile: () =>
+    "// Historical folder recovery without saved-workspace reads.",
+};
+
 test("deploys the cancellation receiver before CLI and verified npm before Web", () => {
   const plan = buildProductionReleasePlan({
     changedPaths: [...FOLDER_RECOVERY, ...NPM_SETUP],
-    sourceSha: "a".repeat(40),
+    ...legacyFolderRecoverySource,
     scope: "core,cli,web",
   });
   assert.deepEqual(plan.compatibilityDependencies, [
@@ -693,7 +699,7 @@ test("deploys the cancellation receiver before CLI and verified npm before Web",
   assert.ok(core >= 0 && cli > core && web > cli);
   const coreOnly = buildProductionReleasePlan({
     changedPaths: FOLDER_RECOVERY,
-    sourceSha: "a".repeat(40),
+    ...legacyFolderRecoverySource,
     scope: "core",
   });
   assert.ok(
@@ -741,10 +747,11 @@ test("does not make the reviewed Windows binary preview wait for an npm CLI rele
 });
 
 test("staged recovery and npm rollout require receipts, not unrelated backlog", () => {
-  const dependencies = resolveProductionCompatibilityDependencies([
-    ...FOLDER_RECOVERY,
-    ...NPM_SETUP,
-  ]);
+  const dependencies = resolveProductionCompatibilityDependencies(
+    [...FOLDER_RECOVERY, ...NPM_SETUP],
+    false,
+    legacyFolderRecoverySource
+  );
   const components = ["core", "cli", "web", "gateway"].map((scope) => ({
     scope,
     state: "pending",
@@ -809,8 +816,11 @@ test("accepts an already deployed folder-recovery receiver only with matching ev
       state: "pending",
       sha: baselineSha,
       compatibilityDependencies: [["core", "cli"]],
-      compatibilityObligations:
-        resolveProductionCompatibilityObligations(FOLDER_RECOVERY),
+      compatibilityObligations: resolveProductionCompatibilityObligations(
+        FOLDER_RECOVERY,
+        false,
+        legacyFolderRecoverySource
+      ),
       compatibilityReceiverWitnesses: [
         {
           ...witness,
@@ -1439,6 +1449,217 @@ test("pending and unresolved receivers block callers; verified current receivers
     );
     receiver.state = "current";
     receiver.sha = RELIABILITY_TARGET;
+    assert.doesNotThrow(() => assertProductionStageAdmission(input));
+  }
+});
+
+const savedWorkspaceReadIncrement = reliabilityFixture.profileWorkspaceRead;
+const SAVED_WORKSPACE_READ = [
+  { contract: "profile-workspace-read", receiver: "core", producer: "cli" },
+  { contract: "profile-workspace-read", receiver: "core", producer: "gateway" },
+  { contract: "profile-workspace-read", receiver: "gateway", producer: "web" },
+];
+const SAVED_WORKSPACE_SOURCE = "3".repeat(40);
+const savedWorkspaceFeatureSources = new Map([
+  [
+    "packages/schemas/src/schemas/daemon/runtime-transport.ts",
+    "const localAgentControl = z.strictObject({ readProfileWorkspace: z.literal(true).optional() });",
+  ],
+  [
+    "clients/openmeld-cli/src/local-service/adapters/resolve-daemon-capabilities.ts",
+    "localAgentControl: { readProfileWorkspace: true }",
+  ],
+  [
+    "services/core/src/index.ts",
+    "getCurrentAgentProfileWorkspace(input) { return rpcGetCurrentAgentProfileWorkspace(input); } getPeopleComputerAgentProfileWorkspace(input) { return rpcGetCurrentAgentProfileWorkspace(input); }",
+  ],
+  [
+    "packages/api-client/src/current-device/api.ts",
+    "getCurrentAgentProfileWorkspace: async (input) => client.requestJson({ method: 'GET' })",
+  ],
+]);
+function readSavedWorkspaceProduct(ref, file) {
+  if (
+    ![
+      SAVED_WORKSPACE_SOURCE,
+      savedWorkspaceReadIncrement.sourceSha,
+      RELIABILITY_LEGACY,
+    ].includes(ref)
+  ) {
+    throw new Error("Read the explicit product source, never control HEAD.");
+  }
+  return ref === RELIABILITY_LEGACY
+    ? "// Known legacy source without saved-workspace reads."
+    : (savedWorkspaceFeatureSources.get(file) ??
+        "// Unchanged other contract.");
+}
+const savedWorkspaceContext = {
+  sourceSha: SAVED_WORKSPACE_SOURCE,
+  readGitFile: readSavedWorkspaceProduct,
+};
+const savedWorkspaceObligations = (paths, context = savedWorkspaceContext) =>
+  resolveProductionCompatibilityObligations(paths, false, context).filter(
+    (o) => o.contract === "profile-workspace-read"
+  );
+
+test("saved-workspace real increment retains its registration, RPC and HTTP receiver obligations", () => {
+  assert.deepEqual(
+    savedWorkspaceObligations(savedWorkspaceReadIncrement.changedPaths, {
+      sourceSha: savedWorkspaceReadIncrement.sourceSha,
+      readGitFile: readSavedWorkspaceProduct,
+    }),
+    SAVED_WORKSPACE_READ
+  );
+  const plan = buildProductionReleasePlan({
+    ...savedWorkspaceReadIncrement,
+    readGitFile: readSavedWorkspaceProduct,
+    scope: "core,cli,gateway,web",
+    databaseBackend: "postgresql",
+  });
+  for (const { receiver, producer } of SAVED_WORKSPACE_READ) {
+    assert.ok(
+      plan.deployScopeOrder.indexOf(receiver) <
+        plan.deployScopeOrder.indexOf(producer),
+      `${receiver} must precede ${producer}`
+    );
+  }
+  assert.equal(
+    plan.compatibilityObligations.some(
+      (o) =>
+        o.contract === "profile-workspace-read" &&
+        o.receiver === "cli" &&
+        o.producer === "core"
+    ),
+    false,
+    "the Core read negotiates Service support; old Service refuses before the read frame"
+  );
+});
+
+test("saved-workspace sender-only and caller-only changes use target source; unknown sources retain obligations", () => {
+  const paths = [
+    "clients/openmeld-cli/src/local-service/adapters/resolve-daemon-capabilities.ts",
+    "services/core/src/dispatch/infrastructure/runtime-transport/runtime-transport-client.ts",
+    "services/core/src/index.ts",
+    "services/gateway/src/routes/rpc-http.current-device.ts",
+    "services/gateway/src/routes/rpc-http.people-computers.ts",
+    "packages/api-client/src/current-device/api.ts",
+    "clients/web/src/lib/profiles/update-profile-workspace.ts",
+  ];
+  for (const file of paths) {
+    for (const context of [
+      savedWorkspaceContext,
+      {},
+      {
+        sourceSha: SAVED_WORKSPACE_SOURCE,
+        readGitFile() {
+          throw new Error("unreadable product source");
+        },
+      },
+    ]) {
+      assert.deepEqual(
+        savedWorkspaceObligations([file], context),
+        SAVED_WORKSPACE_READ,
+        file
+      );
+    }
+    assert.deepEqual(
+      savedWorkspaceObligations([file], {
+        sourceSha: RELIABILITY_LEGACY,
+        readGitFile: readSavedWorkspaceProduct,
+      }),
+      [],
+      file
+    );
+  }
+  assert.deepEqual(
+    savedWorkspaceObligations(["clients/web/src/routes/unrelated.tsx"]),
+    []
+  );
+  // A new writer or HTTP caller still requires its receiver when the product
+  // schema has not yet acquired the capability. Names only register obligations.
+  for (const [featureFile, featureSource] of [
+    ...savedWorkspaceFeatureSources,
+  ].slice(1)) {
+    assert.deepEqual(
+      savedWorkspaceObligations([featureFile], {
+        sourceSha: SAVED_WORKSPACE_SOURCE,
+        readGitFile: (ref, file) => {
+          assert.equal(ref, SAVED_WORKSPACE_SOURCE);
+          return file === featureFile
+            ? featureSource
+            : "// Known legacy feature owner.";
+        },
+      }),
+      SAVED_WORKSPACE_READ
+    );
+  }
+});
+
+test("saved-workspace cannot reuse older same-pair witnesses; pending or unknown receivers refuse", () => {
+  const obligations = savedWorkspaceObligations(
+    savedWorkspaceReadIncrement.changedPaths
+  );
+  for (const obligation of SAVED_WORKSPACE_READ) {
+    const oldContract =
+      obligation.producer === "cli"
+        ? "local-service-runtime"
+        : "agent-profile-binding-precondition";
+    const producer = {
+      scope: obligation.producer,
+      sha: RELIABILITY_LEGACY,
+      state: "pending",
+      compatibilityDependencies: [[obligation.receiver, obligation.producer]],
+      compatibilityObligations: [
+        { ...obligation, contract: oldContract },
+        ...obligations.filter(
+          (o) =>
+            o.receiver === obligation.receiver &&
+            o.producer === obligation.producer
+        ),
+      ],
+      compatibilityReceiverWitnesses: [
+        {
+          receiver: obligation.receiver,
+          producer: obligation.producer,
+          contracts: [oldContract],
+          evidence: {
+            result: "match",
+            baselineSha: RELIABILITY_LEGACY,
+            targetSha: SAVED_WORKSPACE_SOURCE,
+          },
+        },
+      ],
+    };
+    const receiver = {
+      scope: obligation.receiver,
+      sha: RELIABILITY_LEGACY,
+      state: "pending",
+      evidence: { result: "verified" },
+    };
+    const input = {
+      sourceSha: SAVED_WORKSPACE_SOURCE,
+      selectedScopes: [obligation.producer],
+      components: [receiver, producer],
+    };
+    assert.throws(
+      () => assertProductionStageAdmission(input),
+      PENDING_RECEIVER
+    );
+    producer.compatibilityReceiverWitnesses[0].contracts = [
+      "profile-workspace-read",
+    ];
+    assert.throws(
+      () => assertProductionStageAdmission(input),
+      PENDING_RECEIVER,
+      "read evidence must not replace the older runtime or Binding obligation"
+    );
+    receiver.state = "unknown";
+    assert.throws(
+      () => assertProductionStageAdmission(input),
+      UNRESOLVED_RECEIVER
+    );
+    receiver.state = "current";
+    receiver.sha = SAVED_WORKSPACE_SOURCE;
     assert.doesNotThrow(() => assertProductionStageAdmission(input));
   }
 });

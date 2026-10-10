@@ -312,6 +312,15 @@ export function resolveProductionCompatibilityObligations(
       ],
     },
     {
+      contract: "profile-workspace-read",
+      enabled: isProfileWorkspaceReadDiff(changedPaths, context),
+      edges: [
+        ["core", "cli"],
+        ["core", "gateway"],
+        ["gateway", "web"],
+      ],
+    },
+    {
       contract: "cloud-command-receipt-opt-in",
       enabled: isCloudCommandReceiptOptInDiff(changedPaths, context),
       edges: [
@@ -1722,6 +1731,7 @@ function resolveProductionDeployScopeOrder(
       isAgentProfileDefaultProjectRevisionDiff(changedPaths, context) ||
       isAgentProfileDefaultProjectInitializerDiff(changedPaths, context) ||
       isAgentProfileBindingPreconditionDiff(changedPaths, context) ||
+      isProfileWorkspaceReadDiff(changedPaths, context) ||
       isCloudCommandReceiptOptInDiff(changedPaths, context) ||
       hasRemoteTurnEnvelopeOwners(changedPaths) ||
       hasRemoteExecutionInputOwners(changedPaths)
@@ -2095,6 +2105,62 @@ function isAgentProfileBindingPreconditionDiff(paths, context) {
       context,
       "packages/schemas/src/schemas/http/agent-profile-binding.ts",
       ["agentProfileBindingTargetSchema"]
+    )
+  );
+}
+
+function isProfileWorkspaceReadDiff(paths, context) {
+  if (
+    ![
+      "clients/openmeld-cli/src/local-service/adapters/resolve-daemon-capabilities.ts",
+      "clients/openmeld-cli/src/local-service/carrier/run-socket-session.ts",
+      "clients/openmeld-cli/src/local-service/carrier/read-profile-workspace.ts",
+      "clients/openmeld-cli/src/profile-workspace/service.ts",
+      "packages/schemas/src/schemas/daemon/runtime-transport.ts",
+      "packages/schemas/src/schemas/daemon/control-plane.ts",
+      "packages/schemas/src/schemas/protocol/profile.ts",
+      "packages/schemas/src/schemas/http/local-runtimes.ts",
+      "packages/schemas/src/schemas/index.ts",
+      "services/core/src/dispatch/infrastructure/runtime-transport/runtime-transport-client.ts",
+      "services/core/src/dispatch/infrastructure/runtime-transport/runtime-transport-api-client.ts",
+      "services/core/src/index.ts",
+      "services/core/src/rpc/methods.ts",
+      "services/core/src/runtime-transport/transport/do/runtime-transport-hub.ts",
+      "services/gateway/src/routes/rpc-http.current-device.ts",
+      "services/gateway/src/routes/rpc-http.people-computers.ts",
+      "packages/api-client/src/current-device/api.ts",
+      "clients/web/src/lib/profiles/update-profile-workspace.ts",
+      "clients/web/src/components/profiles/agent-profile-project-settings-dialog.tsx",
+      "clients/web/src/components/spaces/agent-working-folder-recovery-action.tsx",
+    ].some((file) => paths.includes(file))
+  ) {
+    return false;
+  }
+  // Check the fixed writer and callers as well as the shared schema: a caller
+  // can introduce the contract before its receiver source is updated. Names
+  // retain obligations only; capability negotiation is not receiver evidence.
+  return (
+    targetProductSourceMentions(
+      context,
+      "packages/schemas/src/schemas/daemon/runtime-transport.ts",
+      [
+        "readProfileWorkspace",
+        "daemon.local_agent_control.read_profile_workspace",
+      ]
+    ) ||
+    targetProductSourceMentions(
+      context,
+      "clients/openmeld-cli/src/local-service/adapters/resolve-daemon-capabilities.ts",
+      ["readProfileWorkspace"]
+    ) ||
+    targetProductSourceMentions(context, "services/core/src/index.ts", [
+      "getCurrentAgentProfileWorkspace",
+      "getPeopleComputerAgentProfileWorkspace",
+    ]) ||
+    targetProductSourceMentions(
+      context,
+      "packages/api-client/src/current-device/api.ts",
+      ["getCurrentAgentProfileWorkspace"]
     )
   );
 }

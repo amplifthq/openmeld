@@ -209,6 +209,7 @@ test("orders the complete backlog by its real receiver and producer boundaries",
     base: "previous-release",
     sourceSha: REMOTE_SOURCE_SHA,
     scope: "auto",
+    readGitFile: () => "// Historical backlog without saved-workspace reads.",
     changedPaths: FULL_BACKLOG_PATHS,
     affectedPackages: [
       "@openmeld/auth-worker",
@@ -2039,6 +2040,7 @@ test("deploys a strict Local Service runtime receiver before publishing the CLI"
       changedPaths,
       scope: "auth,core,gateway,web,remote-agent,cli",
       sourceSha: REMOTE_SOURCE_SHA,
+      readGitFile: () => "// Historical runtime before saved-workspace reads.",
     });
 
     assert.equal(
@@ -2069,6 +2071,7 @@ test("deploys a strict Local Service runtime receiver before publishing the CLI"
       changedPaths,
       scope: "core,gateway",
       sourceSha: REMOTE_SOURCE_SHA,
+      readGitFile: () => "// Historical runtime before saved-workspace reads.",
     });
     assert.ok(
       staged.deploySteps.some(
@@ -2093,6 +2096,7 @@ test("deploys a strict Local Service runtime receiver before publishing the CLI"
       ],
       scope: "core,gateway",
       sourceSha: REMOTE_SOURCE_SHA,
+      readGitFile: () => "// Historical runtime before saved-workspace reads.",
     });
     assert.equal(
       afterRemoteReceiver.deploySteps[0].args[0],

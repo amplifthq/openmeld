@@ -688,6 +688,25 @@ requires Core's named bound-write receivers before Gateway and Gateway's strict
 `expectedBindingTarget` input before Web. A missing method or unsupported input
 must not be downgraded to an unguarded setter.
 
+`profile-workspace-read` requires Core before a Service publishes the
+`readProfileWorkspace` capability in registration or heartbeat, Core's named
+`getCurrentAgentProfileWorkspace` and `getPeopleComputerAgentProfileWorkspace`
+receivers before Gateway, then Gateway's GET routes before Web calls them.
+The optional capability is inside a strict object: older Core receivers reject
+the new key. An unchanged folder-write or runtime witness cannot prove this
+read contract. Names in the explicit target source only register obligations;
+unreadable source retains them and supplies no compatibility witness.
+The earlier `initializeProfileWorkspace` capability remains a separate strict
+input. Read evidence cannot replace its runtime obligation, or vice versa.
+
+Core negotiates this read against the connected Service capability before
+sending `daemon.local_agent_control.read_profile_workspace`. An older Service
+therefore returns the update-required refusal without receiving the new frame;
+it does not require a Service-before-Core edge. Publish the new Service before
+the new Web settings flow when practical so its update action has an available
+artifact. Older installed Services still need their normal account-checked
+upgrade. This ordering does not establish their upgrade or native acceptance.
+
 `cloud-command-receipt-opt-in` requires Core and Remote Agent before Gateway
 accepts command references or detailed lists, then Gateway before the CLI caller.
 Core relays these fields only after a Gateway request; it does not introduce

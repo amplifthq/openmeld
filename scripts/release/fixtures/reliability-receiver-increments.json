@@ -120,5 +120,54 @@
         "services/remote-agent/tests/computer-command.test.ts"
       ]
     }
-  ]
+  ],
+  "profileWorkspaceRead": {
+    "name": "saved-profile-workspace-read",
+    "base": "60eb7b497e9e31a10aef8d453e9f2475c9194c83",
+    "sourceSha": "b2af4873a39980b277a51bf2f01ede03340ad59a",
+    "changedPaths": [
+      "changelog/entries/agent-creation-and-working-folder-recovery.md",
+      "clients/openmeld-cli/src/local-service/adapters/resolve-daemon-capabilities.ts",
+      "clients/openmeld-cli/src/local-service/carrier/read-profile-workspace.ts",
+      "clients/openmeld-cli/src/local-service/carrier/run-socket-session.ts",
+      "clients/openmeld-cli/src/local-service/core/types.ts",
+      "clients/openmeld-cli/src/profile-workspace/custom-path.ts",
+      "clients/openmeld-cli/src/profile-workspace/service.ts",
+      "clients/openmeld-cli/tests/local-agent-workspace-read.test.ts",
+      "clients/openmeld-cli/tests/profile-workspace.integration.test.ts",
+      "clients/web/src/components/agents/agents-page-agent-profiles-card.tsx",
+      "clients/web/src/components/profiles/agent-profile-project-settings-dialog.test.tsx",
+      "clients/web/src/components/profiles/agent-profile-project-settings-dialog.tsx",
+      "clients/web/src/components/spaces/agent-working-folder-recovery-action.tsx",
+      "clients/web/src/lib/profiles/agent-profile-primary-binding.ts",
+      "clients/web/src/lib/profiles/update-profile-workspace.ts",
+      "clients/web/src/test-support/profile-workspace-read.fixture.json",
+      "developing/architecture/local-openmeld-service.md",
+      "developing/architecture/shared-contracts.md",
+      "developing/product/agent-profiles.md",
+      "packages/api-client/src/current-device/api.ts",
+      "packages/api-client/src/current-device/types.ts",
+      "packages/api-client/tests/current-device-api.test.ts",
+      "packages/schemas/src/schemas/daemon/control-plane.ts",
+      "packages/schemas/src/schemas/daemon/runtime-transport.ts",
+      "packages/schemas/src/schemas/http/local-runtimes.ts",
+      "packages/schemas/src/schemas/index.ts",
+      "packages/schemas/src/schemas/protocol/profile.ts",
+      "packages/schemas/src/types/daemon/control-plane.ts",
+      "packages/schemas/src/types/daemon/runtime-transport.ts",
+      "packages/schemas/src/types/http/index.ts",
+      "packages/schemas/src/types/http/local-runtimes.ts",
+      "packages/schemas/src/types/protocol/index.ts",
+      "packages/schemas/src/types/protocol/profile.ts",
+      "services/core/src/dispatch/infrastructure/runtime-transport/runtime-transport-api-client.ts",
+      "services/core/src/dispatch/infrastructure/runtime-transport/runtime-transport-client.ts",
+      "services/core/src/index.ts",
+      "services/core/src/rpc/methods.ts",
+      "services/core/src/runtime-transport/transport/do/runtime-transport-hub.ts",
+      "services/core/tests/center-agent-people-computers.integration.test.ts",
+      "services/gateway/src/routes/rpc-http.current-device.ts",
+      "services/gateway/src/routes/rpc-http.people-computers.ts",
+      "services/gateway/tests/current-device-target-routes.test.ts"
+    ]
+  }
 }

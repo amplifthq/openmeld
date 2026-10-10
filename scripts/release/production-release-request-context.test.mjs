@@ -65,6 +65,10 @@ function contractPlan(changedPaths, overrides = {}) {
           "packages/auth/src/profiles/profile-repository.ts",
           "packages/schemas/src/schemas/http/agent-profile-binding.ts",
           "packages/schemas/src/schemas/runtime/cloud-computer.ts",
+          "packages/schemas/src/schemas/daemon/runtime-transport.ts",
+          "clients/openmeld-cli/src/local-service/adapters/resolve-daemon-capabilities.ts",
+          "services/core/src/index.ts",
+          "packages/api-client/src/current-device/api.ts",
         ].includes(path)
       ) {
         // These request-context snapshots predate the new recovery contracts.
