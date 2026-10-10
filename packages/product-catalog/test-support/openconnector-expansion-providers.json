@@ -1805,6 +1805,43 @@
           }
         ]
       }
+    },
+    {
+      "service": "discordbot",
+      "displayName": "Discord Bot",
+      "iconUrl": null,
+      "homepageUrl": "https://discord.com/developers/docs",
+      "categories": [
+        {
+          "id": "Communication",
+          "displayName": "Communication"
+        },
+        {
+          "id": "Developer Tools",
+          "displayName": "Developer Tools"
+        }
+      ],
+      "scenario": "communication",
+      "authTypes": ["api_key"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "api_key",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "Bot Token",
+                "description": "Discord bot token sent as Authorization: Bot <token>. Create a bot in the Discord Developer Portal and invite it to the guilds you want to manage.",
+                "placeholder": "Discord bot token",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
     }
   ]
 }

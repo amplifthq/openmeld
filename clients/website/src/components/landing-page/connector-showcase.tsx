@@ -21,6 +21,7 @@ const sharedBrandNames: Record<string, string> = {
 	"/app-logos/cloudflare.svg": "Cloudflare",
 	"/app-logos/alibaba-cloud.svg": "Alibaba Cloud",
 	"/app-logos/outlook.svg": "Outlook",
+	"/app-logos/discord.svg": "Discord",
 };
 
 // Several shipped connections share one brand. Keep every connection in the

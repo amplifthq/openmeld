@@ -26,3 +26,8 @@ limited to the runtime action list: ACK retrieves temporary kubeconfig
 credentials, Clarity exports live insights, and Zoom reads users and lists,
 creates, or updates meetings. STS, Microsoft To Do, and Translator are not
 featured entries.
+
+The Discord Bot record was captured from staging on 2026-10-10. Its credential
+is a secret `apiKey` (Bot Token), not a personal Discord user token. The separate
+`discord` OAuth provider is not featured. Bot actions are on-demand Plugin
+operations; this does not enable Discord as an OpenMeld Message Channel.

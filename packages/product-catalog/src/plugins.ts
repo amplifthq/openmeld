@@ -1331,6 +1331,34 @@ export const PLUGINS = [
     name: "Datadog",
     service: "datadog",
   },
+  {
+    availability: "available",
+    category: "Communication",
+    connection: {
+      auth: {
+        authType: "api_key",
+        fields: [
+          {
+            key: "apiKey",
+            label: "Bot Token",
+            description:
+              "Create a bot in the Discord Developer Portal and invite it to the servers you want to use. Enter its Bot Token here.",
+            placeholder: "Discord bot token",
+            inputType: "password",
+            required: true,
+            secret: true,
+          },
+        ],
+        kind: "credential",
+      },
+    },
+    description:
+      "Read channel messages, send messages, and manage servers with your bot.",
+    homepage: "https://discord.com/developers/docs",
+    logoPath: "/app-logos/discord.svg",
+    name: "Discord Bot",
+    service: "discordbot",
+  },
 ] as const satisfies readonly PluginDefinition[];
 
 export function findPluginDefinition(service: string): PluginDefinition | null {

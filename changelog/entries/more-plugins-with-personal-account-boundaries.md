@@ -23,6 +23,10 @@ Docs, Email Routing, and MCP. Microsoft adds Excel, Teams, OneDrive, Outlook
 Calendar, and Clarity. Zoom, Box, and Datadog are also listed. Cloudflare Docs
 connects without account credentials; you still choose which Agents can use it.
 
+Discord Bot uses your own Bot Token to read channel messages, send messages,
+and manage servers where the bot is installed. It is available under Personal
+and organization accounts. This Plugin does not add Discord to Channels.
+
 The website lists all supported Plugins and distributes their distinct logos
 evenly across two scrolling rows. Reduced motion shows every logo in a static
 grid. The headline connects Plugins to team workflows, and long names stay
