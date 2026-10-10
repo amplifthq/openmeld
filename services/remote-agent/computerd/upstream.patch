@@ -14,7 +14,7 @@ diff --git a/packages/dofs/src/storage.ts b/packages/dofs/src/storage.ts
 +  // every transaction, including nesting: Durable Objects forbid raw
 +  // SQL transaction statements and supply their own transactionSync API.
    #txDepth = 0;
- 
+
    constructor(storage: DurableObjectStorageLike) {
      this.sql = storage.sql;
      this.transactionSync = <T>(closure: () => T): T => {
@@ -55,7 +55,7 @@ diff --git a/packages/dofs/src/node-storage.ts b/packages/dofs/src/node-storage.
    };
 @@ -136,14 +137,24 @@
    }
- 
+
    transactionSync<T>(closure: () => T): T {
 -    this.db.exec("BEGIN");
 +    const nested = this.transactionDepth > 0;
@@ -80,12 +80,12 @@ diff --git a/packages/dofs/src/node-storage.ts b/packages/dofs/src/node-storage.
 +      this.transactionDepth--;
      }
    }
- 
+
 diff --git a/packages/dofs/src/node-storage.test.ts b/packages/dofs/src/node-storage.test.ts
 --- a/packages/dofs/src/node-storage.test.ts
 +++ b/packages/dofs/src/node-storage.test.ts
 @@ -242,6 +242,23 @@
- 
+
      expect(value).toBeUndefined();
    });
 +
@@ -106,7 +106,7 @@ diff --git a/packages/dofs/src/node-storage.test.ts b/packages/dofs/src/node-sto
 +    storage.close();
 +  });
  });
- 
+
  describe("NodeSQLiteStorage in memory", () => {
 diff --git a/packages/dofs/src/sync/apply.ts b/packages/dofs/src/sync/apply.ts
 --- a/packages/dofs/src/sync/apply.ts
@@ -116,7 +116,7 @@ diff --git a/packages/dofs/src/sync/apply.ts b/packages/dofs/src/sync/apply.ts
  import { computeManifestHash } from "./manifests.js";
  import { pathOf } from "./paths.js";
 +import { type ChangeCursor, compareChangeCursors } from "./watermarks.js";
- 
+
  // One container-side change that landed under a read-only mount and
  // was therefore skipped rather than applied. Callers (the workspace
 @@ -63,6 +64,11 @@
@@ -133,7 +133,7 @@ diff --git a/packages/dofs/src/sync/apply.ts b/packages/dofs/src/sync/apply.ts
    // id through here keeps a pull from backend A from bumping
 @@ -283,6 +289,7 @@
    };
- 
+
    for await (const entry of entries) {
 +    if (isSourceReplay(entry, options)) continue;
      // Idempotent skip: if the entry already matches the local
@@ -167,7 +167,7 @@ diff --git a/packages/dofs/src/sync/apply.ts b/packages/dofs/src/sync/apply.ts
        if (pathsInBatch >= maxPaths) flush();
 @@ -418,12 +421,13 @@
    };
- 
+
    for (const entry of entries) {
 +    if (isSourceReplay(entry, options)) continue;
      if (options.source === "upstream" && entry.kind !== "delete") {
@@ -197,7 +197,7 @@ diff --git a/packages/dofs/src/sync/apply.ts b/packages/dofs/src/sync/apply.ts
        if (pathsInBatch >= maxPaths) flush();
 @@ -568,6 +568,7 @@
  }
- 
+
  // Decide whether an upstream tombstone may delete the live path.
 +// This legacy guard is used only without an ordered source cursor.
  //
@@ -294,7 +294,7 @@ diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
 +++ b/packages/rpc/src/sync-engine.ts
 @@ -17,7 +17,7 @@
  // to call `next()`, from a request, an alarm, a queue, or a Workflow.
- 
+
  import {
 -  applyChanges,
 +  applyChangesSync,
@@ -304,7 +304,7 @@ diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
 @@ -207,13 +207,21 @@
      bytes += payload.byteLength;
    }
- 
+
 -  const result = await applyChanges(db, decoded.entries, new Map(), {
 -    source: "upstream",
 -    backend,
@@ -326,7 +326,7 @@ diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
 -  for (const skip of result.skipped) {
 -    recordSkip(db, backend, "pull", operation.generation, skip.path, skip.reason, now());
 -  }
- 
+
    // The footer's block cursor is authoritative: it is what the encoder
    // committed to, and it already accounts for a drained window jumping
 @@ -351,9 +359,6 @@
@@ -342,7 +342,7 @@ diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
 @@ -450,27 +455,25 @@
      }
    }
- 
+
 -  // 4. Apply metadata before the cursor moves. Chunk bytes come from
 -  //    the staged blob store, not from an in-memory map.
 -  const result = await applyChanges(db, entries, new Map(), {
@@ -382,7 +382,7 @@ diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
 +    return applied;
 +  });
    clearBlockMarker(db, backend, "pull", operation.generation, now());
- 
+
    // 7. Complete when the cursor reaches the fixed target.
 @@ -551,8 +554,8 @@
    if (operation.status === "capturing") {
@@ -399,7 +399,7 @@ diff --git a/packages/rpc/src/sync-driver.ts b/packages/rpc/src/sync-driver.ts
 --- a/packages/rpc/src/sync-driver.ts
 +++ b/packages/rpc/src/sync-driver.ts
 @@ -11,7 +11,7 @@
- 
+
  import {
    type ApplyResult,
 -  applyChanges,
@@ -410,7 +410,7 @@ diff --git a/packages/rpc/src/sync-driver.ts b/packages/rpc/src/sync-driver.ts
 @@ -244,17 +244,16 @@
            }
          }
- 
+
 -        const batchResult = await applyChanges(db, batch, new Map(), {
 -          source: "upstream",
 -          backend,
@@ -439,7 +439,7 @@ diff --git a/packages/rpc/src/sync-driver.test.ts b/packages/rpc/src/sync-driver
 +++ b/packages/rpc/src/sync-driver.test.ts
 @@ -88,6 +88,32 @@
  }
- 
+
  describe("sync driver — pullOnce", () => {
 +  it("rolls fresh deletion and accepted source progress back together", async () => {
 +    const source = makePeer();
@@ -473,18 +473,18 @@ diff --git a/packages/rpc/src/sync-driver.test.ts b/packages/rpc/src/sync-driver
 @@ -1145,11 +1171,15 @@
        providerA.writeFileSync("/before-stale-path.txt", "pushed");
        const pushedRev = currentRev(a.db);
- 
+
 +      // An accepted cursor represents applied metadata. A later peer push
 +      // may complete that revision, but must not undo newer receiver writes.
 +      await pullOnce(b.db, a.rpc);
        writeFetchCursor(b.db, { rev: pushedRev, path: "/zzzz" });
 +      providerB.writeFileSync("/before-stale-path.txt", "receiver changed");
- 
+
        expect(await pushOnce(a.db, b.rpc)).toBeGreaterThan(0);
        expect(readFetchCursor(b.db)).toEqual({ rev: pushedRev, path: null });
 -      expect(providerB.readFileSync("/before-stale-path.txt", "utf8")).toBe("pushed");
 +      expect(providerB.readFileSync("/before-stale-path.txt", "utf8")).toBe("receiver changed");
- 
+
        providerA.writeFileSync("/after-push.txt", "pulled later");
        const pulled = await pullOnce(b.db, a.rpc);
 diff --git a/packages/rpc/src/sync-engine-push.test.ts b/packages/rpc/src/sync-engine-push.test.ts
@@ -500,7 +500,7 @@ diff --git a/packages/rpc/src/sync-engine-push.test.ts b/packages/rpc/src/sync-e
    SQLiteWorkspaceProvider,
 @@ -114,6 +115,58 @@
    });
- 
+
    describe("acknowledgment is the only cursor authority", () => {
 +    it.each(["entries", "pack"] as const)("preserves receiver writes after a lost %s acknowledgment", async (mode) => {
 +      const local = makePeer();
@@ -561,7 +561,7 @@ diff --git a/packages/rpc/src/sync-engine.test.ts b/packages/rpc/src/sync-engine
 --- a/packages/rpc/src/sync-engine.test.ts
 +++ b/packages/rpc/src/sync-engine.test.ts
 @@ -68,6 +68,31 @@
- 
+
  describe("restartable pull engine", () => {
    describe("completion contract", () => {
 +    it.each(["entries", "pack"] as const)("rolls back a %s apply when its source cursor cannot commit", async (mode) => {
