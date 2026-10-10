@@ -18,6 +18,10 @@ Jira, and Stripe. Shopify Admin uses the current Admin GraphQL API for
 products, inventory, fulfillment, orders, and customers. Stripe actions cover
 customers, products, and prices.
 
+The website lists all supported Plugins and distributes their distinct logos
+evenly across two scrolling rows. Reduced motion shows every logo in a static
+grid.
+
 Browse Plugins by category, open a category to see all its tools, and search
 beside the Personal and organization tabs. Cards show what each tool does,
 with connection status kept on one line.

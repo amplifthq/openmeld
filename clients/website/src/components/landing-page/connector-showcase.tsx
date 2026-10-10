@@ -20,7 +20,7 @@ const integrations = PLUGINS.filter(
 );
 
 // Several shipped connections share one brand. Keep every connection in the
-// details, but show its logo only once per marquee group.
+// details, but show its logo in only one marquee row.
 const brands = [...new Set(integrations.map((plugin) => plugin.logoPath))].map(
 	(logoPath) => {
 		const plugins = integrations.filter(
@@ -34,11 +34,15 @@ const brands = [...new Set(integrations.map((plugin) => plugin.logoPath))].map(
 	}
 );
 
-function LogoGroup({ reverse = false }: { reverse?: boolean }) {
-	const ordered = reverse ? [...brands].reverse() : brands;
+const brandRows = [
+	brands.filter((_, index) => index % 2 === 0),
+	brands.filter((_, index) => index % 2 === 1).reverse(),
+];
+
+function LogoGroup({ items }: { items: typeof brands }) {
 	return (
 		<div className="meld-connectors-group">
-			{ordered.map((brand) => (
+			{items.map((brand) => (
 				<div className="meld-connector-tile" key={brand.app.logoPath}>
 					<AppLogo
 						app={brand.app}
@@ -88,12 +92,12 @@ export function ConnectorShowcase() {
 			</p>
 			<div aria-hidden="true" className="meld-connectors-wall">
 				<div className="meld-connectors-track">
-					<LogoGroup />
-					<LogoGroup />
+					<LogoGroup items={brandRows[0]} />
+					<LogoGroup items={brandRows[0]} />
 				</div>
 				<div className="meld-connectors-track meld-connectors-track-reverse">
-					<LogoGroup reverse />
-					<LogoGroup reverse />
+					<LogoGroup items={brandRows[1]} />
+					<LogoGroup items={brandRows[1]} />
 				</div>
 			</div>
 			<div className="meld-connectors-footer">

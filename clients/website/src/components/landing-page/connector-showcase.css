@@ -205,7 +205,6 @@
 		width: 100%;
 		animation: none;
 	}
-	.meld-connectors-track-reverse,
 	.meld-connectors-group + .meld-connectors-group {
 		display: none;
 	}

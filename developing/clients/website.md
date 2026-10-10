@@ -69,8 +69,9 @@ presentation adaptations do not change the App's settings, usage authorization,
 or default model. Channels precede Team Knowledge and Routines.
 
 The integration section uses available entries from the public Plugins catalog
-and shared SVG app logos. The logo wall groups connections by brand; its details
-Sheet lists every supported connection. Channel support does not admit a Plugin.
+and shared SVG app logos. The logo wall groups connections by brand and divides
+distinct logos evenly between its two rows; its details Sheet lists every
+supported connection. Channel support does not admit a Plugin.
 The CSS marquee pauses offscreen or while the page is hidden and has an explicit
 pause control. Reduced motion shows all brands in a static grid.
 
