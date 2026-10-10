@@ -571,6 +571,7 @@ export {
 } from "./space-work-handoff";
 export type * from "./types/index";
 export {
+  buildAgentRequestTimeContext,
   normalizeUserTimeZone,
   observeUserTimeZone,
   resolveUserTimeContext,

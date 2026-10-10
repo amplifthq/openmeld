@@ -60,6 +60,10 @@ the original request's retained turn envelope and preserve this same context.
 Core's internal Space writer passes it as a verified publication option, never
 as public message data. Space validates it with the shared schema before
 publication; new ordinary input still freezes its own accepted time.
+Workstation delivery renders that retained context into the existing source
+text before removing the optional object from the installed Service's strict
+snapshot. Hosted and workstation prompts use the shared renderer in
+`packages/schemas`; this does not add a Service field or change its version floor.
 Each model request gets one fresh UTC runtime-clock data message at the end of
 its outgoing provider payload, with the same static system guidance across requests,
 without changing retained history. Explicit timezone in a user's request takes
