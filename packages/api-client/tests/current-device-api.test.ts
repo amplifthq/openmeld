@@ -24,7 +24,10 @@ describe("api-client current device api", () => {
       agentControllerConversationId: null,
       openMeldServiceRuntimeId: "runtime-1",
     };
-    const target = { deviceId: "selected-device", runtimeLane: "canary" };
+    const target = {
+      deviceId: "selected-device",
+      runtimeLane: "canary" as const,
+    };
     // Configuration fields follow the sanitized native saved-reader capture.
     const receipt = getCurrentAgentProfileWorkspaceResponseSchema.parse({
       agentProfileId,

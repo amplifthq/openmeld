@@ -23,6 +23,9 @@ Folder errors now open Working folder settings from both Profile and Space
 recovery. Missing or stale local-agent reports lead to Computer status rather
 than another connection flow.
 
+Update Local Agent opens the affected Profile so its bound Computer and Agent
+remain available. Computer status actions still open Computer settings.
+
 Newly imported local conversations keep the folder observed during import.
 If that folder disappears, settings explain how to restore the original worktree
 or choose a folder for new work. OpenMeld does not replace the saved folder

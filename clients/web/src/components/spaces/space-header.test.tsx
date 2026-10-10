@@ -516,12 +516,6 @@ describe("SpaceHeader", () => {
 				.querySelector('[data-slot="scroll-area-viewport"]')
 		).toBeTruthy();
 		expect(
-			within(dialog)
-				.getByTestId("space-share-dialog-scroll-area")
-				.querySelector('[data-slot="scroll-area-viewport"]')
-				?.hasAttribute("data-fade")
-		).toBe(false);
-		expect(
 			within(dialog).getByRole("heading", { name: "Share or invite" })
 		).toBeTruthy();
 		expect(

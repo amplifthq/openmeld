@@ -75,7 +75,7 @@ describe("Wake progress projection", () => {
     for (const [current, incoming] of [
       [selected, stale],
       [stale, selected],
-    ]) {
+    ] as const) {
       expect(
         mergeWakeProgressItems({
           currentItems: [current],

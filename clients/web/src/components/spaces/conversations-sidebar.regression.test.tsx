@@ -43,6 +43,7 @@ import {
 	usePublishSpaceWakeProgressVisibleProjection,
 } from "./space-wake-progress-visible-projection";
 
+const BETA_ROW_NAME_PATTERN = /^Beta, /;
 const ACTIVE_NAME_PATTERN_1 = /^Beta, (?=.*(?:Wake|working|waiting)).+/i;
 const ACTIVE_NAME_PATTERN_2 = /^Alpha, .*Wake/;
 const ACTIVE_NAME_PATTERN_3 = /^Alpha, (?=.*(?:Wake|working|waiting)).+/i;
@@ -319,11 +320,13 @@ describe("ConversationsSidebar", () => {
 			/>,
 			queryClient
 		);
-		expect(
-			await screen.findByRole("img", {
-				name: "Planner needs your input; Reviewer is working",
-			})
-		).toBeTruthy();
+		const unopened = await screen.findByRole("link", {
+			name: BETA_ROW_NAME_PATTERN,
+		});
+		expect(unopened.getAttribute("aria-label")).toContain("Planner");
+		expect(unopened.getAttribute("aria-label")).toContain("needs your input");
+		expect(unopened.getAttribute("aria-label")).toContain("Reviewer");
+		expect(unopened.getAttribute("aria-label")).toContain("Working");
 		expect(getActiveWakeProgressMock).toHaveBeenCalledWith(
 			expect.objectContaining({ spaceId: "space-beta" })
 		);
@@ -396,6 +399,10 @@ describe("ConversationsSidebar", () => {
 		null,
 		OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
 	])("[S02] uses indexed previews without per-conversation polling for %s", async (spacePurpose) => {
+		localStorage.setItem(
+			"openmeld.spaces.message-previews:human-1:org-acme",
+			"shown"
+		);
 		const timestamp = Date.parse("2026-09-06T17:00:00.000Z");
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
@@ -431,7 +438,9 @@ describe("ConversationsSidebar", () => {
 			"focusSignalId=message-alpha"
 		);
 		expect(previewLink.getAttribute("data-router-to")).toBe(
-			"/o/acme/spaces/space-alpha"
+			spacePurpose === OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE
+				? "/o/acme/chats/space-alpha"
+				: "/o/acme/spaces/space-alpha"
 		);
 		expect(row.getAttribute("href")).not.toContain("focusSignalId");
 		expect(previewLink.parentElement?.closest("a")).toBeNull();
@@ -1413,8 +1422,8 @@ describe("ConversationsSidebar", () => {
 			})
 		).toBeTruthy();
 		expect(
-			screen.getByRole("img", {
-				name: "Clico Codex is working",
+			screen.getByRole("link", {
+				name: "Alpha, Clico Codex · Working…",
 			})
 		).toBeTruthy();
 		expect(
@@ -1482,8 +1491,8 @@ describe("ConversationsSidebar", () => {
 			})
 		).toBeTruthy();
 		expect(
-			screen.getByRole("img", {
-				name: "Waiting for Clico Codex",
+			screen.getByRole("link", {
+				name: "Alpha, Clico Codex · Waiting for another app",
 			})
 		).toBeTruthy();
 		expect(
@@ -1555,8 +1564,8 @@ describe("ConversationsSidebar", () => {
 			})
 		).toBeTruthy();
 		expect(
-			screen.getByRole("img", {
-				name: "Runner is working",
+			screen.getByRole("link", {
+				name: "Alpha, Runner · Working…",
 			})
 		).toBeTruthy();
 	});

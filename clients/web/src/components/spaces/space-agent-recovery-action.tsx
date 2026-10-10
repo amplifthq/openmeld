@@ -49,6 +49,24 @@ function renderProfileSettingsRecoveryAction(input: {
 			/>
 		);
 	}
+	if (input.plan.primaryActionId === "manage_local_agent") {
+		return (
+			<Link
+				className={cn(
+					buttonVariants({ size: "xs", variant: "outline" }),
+					"mt-1 text-foreground",
+					input.className
+				)}
+				to={buildAgentProfilePath({
+					orgSlug: input.orgSlug,
+					profileId: input.plan.profileId,
+				})}
+			>
+				<WrenchIcon aria-hidden="true" data-icon="inline-start" />
+				{input.actionLabel ?? input.plan.primaryActionLabel}
+			</Link>
+		);
+	}
 	if (
 		resolvePublicAgentFailureRecovery({
 			errorCode: input.plan.recoveryReasonCode,
@@ -128,21 +146,6 @@ export function SpaceAgentRecoveryActionControl(input: {
 	});
 	if (settingsAction) {
 		return settingsAction;
-	}
-	if (plan.primaryActionId === "manage_local_agent") {
-		return (
-			<Link
-				className={cn(
-					buttonVariants({ size: "xs", variant: "outline" }),
-					"mt-1 text-foreground",
-					input.className
-				)}
-				to={buildAgentProfilePath({ orgSlug, profileId: plan.profileId })}
-			>
-				<WrenchIcon aria-hidden="true" data-icon="inline-start" />
-				{input.actionLabel ?? plan.primaryActionLabel}
-			</Link>
-		);
 	}
 
 	const actionLabel = input.actionLabel ?? plan.primaryActionLabel;
