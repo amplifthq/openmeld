@@ -1,3 +1,4 @@
+import type { SpaceInboxUnreadTarget } from "@openmeld/schemas/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useInboxVisibleConversation } from "#/components/inbox/inbox-visible-conversation";
@@ -42,7 +43,12 @@ export function useSpaceInboxReadPosition(input: {
 		[input.organizationId, queryClient]
 	);
 	const markViewed = useCallback(
-		(targets: readonly { itemId?: string; occurredAtMs: number }[]) => {
+		(
+			targets: readonly (
+				| SpaceInboxUnreadTarget
+				| { itemId: string; occurredAtMs: number }
+			)[]
+		) => {
 			const organizationId = input.organizationId;
 			if (!organizationId || targets.length === 0) {
 				return Promise.resolve();
@@ -76,12 +82,16 @@ export function useSpaceInboxReadPosition(input: {
 								},
 							});
 						}
-						const sources = targets
-							.filter((target) => !target.itemId)
-							.map((target) => ({
-								signalId: target.sourceKey ?? target.signalId,
-								occurredAtMs: target.occurredAtMs,
-							}));
+						const sources = targets.flatMap((target) =>
+							!target.itemId && "signalId" in target
+								? [
+										{
+											signalId: target.sourceKey ?? target.signalId,
+											occurredAtMs: target.occurredAtMs,
+										},
+									]
+								: []
+						);
 						for (let offset = 0; offset < sources.length; offset += 500) {
 							await mutateCurrentSpaceInboxRead({
 								organizationId,
