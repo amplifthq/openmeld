@@ -1446,6 +1446,7 @@ async function runGhJsonAsync(args) {
 function runGit(args) {
   return execFileSync(resolveCommandBinary("git"), args, {
     encoding: "utf8",
+    maxBuffer: 1024 * 1024 * 10,
   });
 }
 

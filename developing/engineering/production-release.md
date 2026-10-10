@@ -1078,7 +1078,15 @@ storage delegate, its directly called legacy repairs, the actual row mapper
 and timestamp helper, target-bearing RPC/HTTP projections, Web interpreter, and
 their import/export, production binding and resolver configuration. It supports
 only the reviewed pure membership-kind projections, source-guard forwarding,
-and four retained request-time edits; every other owner change, unreadable
+four retained request-time edits, the unique unread-target query construction,
+exact source-read delegation with exclusively bound imports and an otherwise
+unchanged complete RPC function, and the early code-handoff rejection that
+forwards the original message to the unchanged failure and terminal target-effect
+delegates. The API still compares as a
+complete module after the explicit query change; Native delivery still compares
+as a complete module after these listed changes. The rejection predicate is
+not a receiver compatibility witness, and its parsed output cannot construct
+a target. Every other target owner change, unreadable
 source, ambiguous declaration or unknown structure retains the original gate.
 The item-returning service methods and their factory bindings remain equal;
 unrelated membership SQL is outside this target proof. Gateway registrations
