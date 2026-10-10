@@ -19,7 +19,7 @@ export async function mutateSpaceInboxRead(input: {
   const filter = (
     parameterOffset: number
   ) => `organization_id = $${parameterOffset + 1} AND recipient_user_id = $${parameterOffset + 2}
-    AND cleared_at_ms IS NULL AND read_at_ms IS NULL
+    AND read_at_ms IS NULL
     AND ${INBOX_SPACE_MESSAGE_FILTER}
     AND ((source_target_json)::jsonb #>> '{spaceId}') = $${parameterOffset + 3}
     AND ${buildCurrentInboxSourceAccessSql("inbox_items")}`;

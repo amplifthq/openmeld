@@ -680,6 +680,19 @@ actions and no unread items. An empty feed says **No updates yet**.
 
 ### Space message unread behavior
 
+Every formal published main-conversation message is an unread update for current
+Human members, including proactive Routine results, Agent replies, task results,
+and system-owned outcomes. A requester or mention is not required. Thread updates
+remain scoped to participants and explicitly addressed recipients. Public browsing
+does not establish membership. Transient progress and membership notices are not
+new conversation messages. Failure urgency belongs only to the Wake requester;
+other conversation recipients receive an ordinary update.
+
+Read state, Inbox dismissal, source requests, and notification delivery are separate.
+Dismiss removes an item from the recipient's Inbox, but does not mark its message
+read in the Space. Only reading or an explicit mark-as-read action changes that
+read fact. Business requests retain their source-owned resolution rules.
+
 An Agent's presence alone never makes a message relevant to its owner. Personal
 owner awareness requires actual structured Agent addressing, a Human message
 in that Agent's DM, or that Agent's own published reply. Activation and Reference

@@ -69,7 +69,7 @@ describe("Space Inbox projection", () => {
     "workstation-reply",
     "removed-requester",
     "missing-source",
-  ])("persists only the current Human requester's Inbox candidate for %s", async (scenario) => {
+  ])("persists formal results for current conversation members for %s", async (scenario) => {
     const spaces = (
       env as unknown as {
         OPENMELD_SPACES: DurableObjectNamespace<Space>;
@@ -201,17 +201,13 @@ describe("Space Inbox projection", () => {
         );
       }
     );
-    expect(recipients).toEqual(
-      scenario === "removed-requester" || scenario === "missing-source"
+    const kind = scenario === "native-failure" ? "wake_outcome" : "agent_reply";
+    expect(recipients).toEqual([
+      ...(scenario === "removed-requester"
         ? []
-        : [
-            {
-              userId: "user-requester",
-              kind:
-                scenario === "native-failure" ? "wake_outcome" : "agent_reply",
-            },
-          ]
-    );
+        : [{ userId: "user-requester", kind }]),
+      { userId: "user-observer", kind },
+    ]);
   });
 
   it("limits thread updates to participants, including replies to an older root", () => {
@@ -652,7 +648,7 @@ describe("Space Inbox projection", () => {
     ).toBe(false);
   });
 
-  it("keeps a managed Agent reply scoped to the requester after owner eligibility is checked", async () => {
+  it("keeps managed Agent replies unread for Human members after owner eligibility is checked", async () => {
     const record = buildSpaceInboxProjectionOutboxRecord({
       activeMemberRecords: [
         member("profile-human", "user-human", "human"),
@@ -682,6 +678,11 @@ describe("Space Inbox projection", () => {
         kind: "agent_reply",
         recipientUserId: "user-human",
         title: "Center Agent replied in Operations",
+      }),
+      expect.objectContaining({
+        kind: "agent_reply",
+        recipientUserId: "user-observer",
+        importance: "normal",
       }),
     ]);
   });

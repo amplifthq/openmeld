@@ -5,6 +5,33 @@ import { createInboxFeedFixture } from "./helpers/inbox-feed.test-support";
 import { postgresTestBinding } from "./helpers/postgresql-harness.test-support";
 
 describe("Space read selections", () => {
+  it("keeps a dismissed message unread in its conversation until it is actually read", async () => {
+    const f = await createInboxFeedFixture();
+    try {
+      const item = await f.item("dismissed");
+      const service = createInboxService({ db: f.db });
+      await service.dismiss({ ...f.identity, itemId: item.itemId });
+      expect(
+        (await service.spaceSummary(f.identity)).spaces[0]?.unreadCount
+      ).toBe(1);
+      expect(
+        (await service.spaceUnreadTargets({ ...f.identity, spaceId: "space" }))
+          .targets
+      ).toHaveLength(1);
+      await mutateSpaceInboxRead({
+        db: f.db,
+        ...f.identity,
+        body: {
+          spaceId: "space",
+          operation: "read",
+          items: [{ itemId: item.itemId, occurredAtMs: 1000 }],
+        },
+      });
+      expect((await service.spaceSummary(f.identity)).spaces).toEqual([]);
+    } finally {
+      await f.close();
+    }
+  });
   it("reads exact viewed updates out of order without clearing unseen messages or other recipients", async () => {
     const f = await createInboxFeedFixture();
     try {
@@ -53,7 +80,10 @@ describe("Space read selections", () => {
           threadRootSignalId: "root",
         },
       });
-      const action = await f.item("action", { attention: "action_required" });
+      const action = await f.item("action", {
+        attention: "action_required",
+        sourceKind: "system_attention_event",
+      });
       await f.space("second");
       await f.item("second", {
         sourceTarget: { kind: "space", spaceId: "second", signalId: "second" },

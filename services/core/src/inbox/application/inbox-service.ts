@@ -57,7 +57,6 @@ const INBOX_SPACE_TARGET_FILTER = `
 `;
 export const INBOX_SPACE_MESSAGE_FILTER = `
   source_kind = 'space_signal'
-  AND attention = 'update'
   AND ${INBOX_SPACE_TARGET_FILTER}
 `;
 export function inboxAttentionPresentationFilterSql(
@@ -248,7 +247,6 @@ export function createInboxService(input: {
             FROM "openmeld"."inbox_items"
             WHERE organization_id = $1
               AND recipient_user_id = $2
-              AND cleared_at_ms IS NULL
               AND read_at_ms IS NULL
               AND ${INBOX_CENTER_AGENT_MESSAGE_FILTER}
               AND ${CURRENT_SOURCE_ACCESS_FILTER}
@@ -285,7 +283,6 @@ export function createInboxService(input: {
             FROM "openmeld"."inbox_items"
             WHERE organization_id = $1
               AND recipient_user_id = $2
-              AND cleared_at_ms IS NULL
               AND read_at_ms IS NULL
               AND ${INBOX_SPACE_MESSAGE_FILTER}
               AND ${CURRENT_SOURCE_ACCESS_FILTER}
@@ -308,7 +305,6 @@ export function createInboxService(input: {
             FROM "openmeld"."inbox_items"
             WHERE organization_id = $1
               AND recipient_user_id = $2
-              AND cleared_at_ms IS NULL
               AND read_at_ms IS NULL
               AND ${INBOX_SPACE_MESSAGE_FILTER}
               AND ${CURRENT_SOURCE_ACCESS_FILTER}
@@ -352,17 +348,16 @@ export function createInboxService(input: {
         -- planner repeat its permission checks for every direct-message Space.
         WITH accessible_inbox AS MATERIALIZED (
           SELECT organization_id, source_target_json, source_kind,
-            read_at_ms, attention, resolution_status, importance, kind
+            read_at_ms, cleared_at_ms, attention, resolution_status, importance, kind
           FROM "openmeld"."inbox_items"
           WHERE organization_id = $1 AND recipient_user_id = $2
-            AND cleared_at_ms IS NULL
             AND (${INBOX_SUMMARY_CANDIDATE_FILTER})
             AND ${CURRENT_SOURCE_ACCESS_FILTER}
         )
         SELECT
           sum(CASE WHEN read_at_ms IS NULL AND ${INBOX_SPACE_MESSAGE_FILTER} THEN 1 ELSE 0 END) AS unread,
-          sum(CASE WHEN attention = 'action_required' AND resolution_status = 'open' THEN 1 ELSE 0 END) AS actions,
-          sum(CASE WHEN ${UNREAD_URGENT_UPDATE_FILTER} AND coalesce(source_target_json::jsonb -> 'agentOwnerActivity', 'false'::jsonb) != 'true'::jsonb THEN 1 ELSE 0 END) AS urgent
+          sum(CASE WHEN cleared_at_ms IS NULL AND attention = 'action_required' AND resolution_status = 'open' THEN 1 ELSE 0 END) AS actions,
+          sum(CASE WHEN cleared_at_ms IS NULL AND ${UNREAD_URGENT_UPDATE_FILTER} AND coalesce(source_target_json::jsonb -> 'agentOwnerActivity', 'false'::jsonb) != 'true'::jsonb THEN 1 ELSE 0 END) AS urgent
         FROM accessible_inbox AS inbox_items
         WHERE ${inboxDirectMessageSpaceSql("$3")}
       `,
@@ -407,7 +402,6 @@ export function createInboxService(input: {
       const filters = `
         organization_id = $1
         AND recipient_user_id = $2
-        AND cleared_at_ms IS NULL
         AND read_at_ms IS NULL
         AND ${INBOX_SPACE_MESSAGE_FILTER}
         AND ((source_target_json)::jsonb #>> '{spaceId}') = $3
