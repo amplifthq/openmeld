@@ -688,6 +688,15 @@ requires Core's named bound-write receivers before Gateway and Gateway's strict
 `expectedBindingTarget` input before Web. A missing method or unsupported input
 must not be downgraded to an unguarded setter.
 
+`profile-workspace-initialize` requires Core before a Service publishes the
+strict `initializeProfileWorkspace` registration or heartbeat key. It applies
+to a caller-only change as well as the original combined schema/receiver change.
+It is separate from `local-service-runtime`, `profile-workspace-read` and the
+Auth-to-Core `agent-profile-default-project-initializer`; one witness cannot
+substitute for another contract on the same service pair. Core checks Service
+support before sending `onlyIfUnconfigured`, so an older Service gets an
+update-required refusal before that input is sent. This adds no reverse edge.
+
 `profile-workspace-read` requires Core before a Service publishes the
 `readProfileWorkspace` capability in registration or heartbeat, Core's named
 `getCurrentAgentProfileWorkspace` and `getPeopleComputerAgentProfileWorkspace`

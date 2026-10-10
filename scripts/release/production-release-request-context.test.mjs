@@ -68,6 +68,7 @@ function contractPlan(changedPaths, overrides = {}) {
           "packages/schemas/src/schemas/daemon/runtime-transport.ts",
           "clients/openmeld-cli/src/local-service/adapters/resolve-daemon-capabilities.ts",
           "services/core/src/index.ts",
+          "services/core/src/runtime-transport/transport/do/runtime-transport-hub.ts",
           "packages/api-client/src/current-device/api.ts",
         ].includes(path)
       ) {

@@ -1454,6 +1454,225 @@ test("pending and unresolved receivers block callers; verified current receivers
 });
 
 const savedWorkspaceReadIncrement = reliabilityFixture.profileWorkspaceRead;
+const workspaceInitializeIncrement = reliabilityFixture.increments[0];
+const WORKSPACE_INITIALIZE = {
+  contract: "profile-workspace-initialize",
+  receiver: "core",
+  producer: "cli",
+};
+const workspaceInitializeFeatureSources = new Map([
+  [
+    "packages/schemas/src/schemas/daemon/runtime-transport.ts",
+    "localAgentControl: z.strictObject({ initializeProfileWorkspace: z.literal(true).optional() })",
+  ],
+  [
+    "clients/openmeld-cli/src/local-service/adapters/resolve-daemon-capabilities.ts",
+    "localAgentControl: { initializeProfileWorkspace: true }",
+  ],
+  [
+    "services/core/src/runtime-transport/transport/do/runtime-transport-hub.ts",
+    'capability: parsed.data.onlyIfUnconfigured ? "initializeProfileWorkspace" : "setProfileWorkspace"',
+  ],
+]);
+const INITIALIZE_PARENT = savedWorkspaceReadIncrement.base;
+function readWorkspaceCapabilities(ref, file) {
+  if (ref === RELIABILITY_LEGACY) {
+    return "// Known legacy without either capability.";
+  }
+  if (
+    ![
+      workspaceInitializeIncrement.sourceSha,
+      INITIALIZE_PARENT,
+      savedWorkspaceReadIncrement.sourceSha,
+    ].includes(ref)
+  ) {
+    throw new Error(
+      "Read the explicit initialization product, never control HEAD."
+    );
+  }
+  const initializer = workspaceInitializeFeatureSources.get(file);
+  const read =
+    ref === savedWorkspaceReadIncrement.sourceSha
+      ? savedWorkspaceFeatureSources.get(file)
+      : undefined;
+  return (
+    [initializer, read].filter(Boolean).join("\n") ||
+    "// Unchanged other contract."
+  );
+}
+const initializeContext = {
+  sourceSha: INITIALIZE_PARENT,
+  readGitFile: readWorkspaceCapabilities,
+};
+const initializeObligations = (paths, context = initializeContext) =>
+  resolveProductionCompatibilityObligations(paths, false, context).filter(
+    (o) => o.contract === "profile-workspace-initialize"
+  );
+
+test("workspace-initialize real original increment and current source retain a distinct Core receiver", () => {
+  for (const increment of [
+    workspaceInitializeIncrement,
+    savedWorkspaceReadIncrement,
+  ]) {
+    const context = {
+      sourceSha: increment.sourceSha,
+      readGitFile: readWorkspaceCapabilities,
+    };
+    assert.deepEqual(initializeObligations(increment.changedPaths, context), [
+      WORKSPACE_INITIALIZE,
+    ]);
+    const obligations = resolveProductionCompatibilityObligations(
+      increment.changedPaths,
+      false,
+      context
+    );
+    assert.ok(
+      obligations.some(
+        (o) =>
+          o.contract === "local-service-runtime" &&
+          o.receiver === "core" &&
+          o.producer === "cli"
+      )
+    );
+    assert.equal(
+      obligations.some(
+        (o) =>
+          o.contract === "profile-workspace-initialize" && o.receiver === "cli"
+      ),
+      false
+    );
+  }
+  const oldIncrement = initializeObligations(
+    workspaceInitializeIncrement.changedPaths,
+    {
+      sourceSha: RELIABILITY_LEGACY,
+      readGitFile: readWorkspaceCapabilities,
+    }
+  );
+  assert.deepEqual(oldIncrement, []);
+});
+
+test("workspace-initialize sender-only changes read target source and fail closed on unknown", () => {
+  const sender =
+    "clients/openmeld-cli/src/local-service/adapters/resolve-daemon-capabilities.ts";
+  for (const context of [
+    initializeContext,
+    {},
+    {
+      sourceSha: INITIALIZE_PARENT,
+      readGitFile() {
+        throw new Error("unreadable");
+      },
+    },
+  ]) {
+    assert.deepEqual(initializeObligations([sender], context), [
+      WORKSPACE_INITIALIZE,
+    ]);
+  }
+  const obligations = resolveProductionCompatibilityObligations(
+    [sender],
+    false,
+    initializeContext
+  );
+  assert.equal(
+    obligations.some((o) => o.contract === "profile-workspace-read"),
+    false,
+    "initialize-only source does not prove read"
+  );
+  assert.equal(
+    obligations.some(
+      (o) => o.contract === "agent-profile-default-project-initializer"
+    ),
+    false,
+    "Service initialization is not Auth initialization"
+  );
+  assert.equal(
+    obligations.some((o) => o.contract === "local-service-runtime"),
+    false,
+    "the historical multi-path classifier misses this real isolated sender path"
+  );
+  assert.deepEqual(
+    initializeObligations([sender], {
+      sourceSha: RELIABILITY_LEGACY,
+      readGitFile: readWorkspaceCapabilities,
+    }),
+    []
+  );
+  assert.deepEqual(
+    initializeObligations(["clients/web/src/routes/unrelated.tsx"]),
+    []
+  );
+});
+
+test("workspace-initialize, read and older runtime witnesses cannot replace each other", () => {
+  const sourceSha = savedWorkspaceReadIncrement.sourceSha;
+  const contracts = [
+    "profile-workspace-initialize",
+    "profile-workspace-read",
+    "local-service-runtime",
+  ];
+  const obligations = resolveProductionCompatibilityObligations(
+    savedWorkspaceReadIncrement.changedPaths,
+    false,
+    {
+      sourceSha,
+      readGitFile: readWorkspaceCapabilities,
+    }
+  ).filter(
+    (o) =>
+      o.receiver === "core" &&
+      o.producer === "cli" &&
+      contracts.includes(o.contract)
+  );
+  const receiver = {
+    scope: "core",
+    sha: INITIALIZE_PARENT,
+    state: "pending",
+    evidence: { result: "verified" },
+  };
+  const producer = {
+    scope: "cli",
+    sha: INITIALIZE_PARENT,
+    state: "pending",
+    compatibilityObligations: obligations,
+    compatibilityDependencies: [["core", "cli"]],
+    compatibilityReceiverWitnesses: [
+      {
+        receiver: "core",
+        producer: "cli",
+        contracts: [],
+        evidence: {
+          result: "match",
+          baselineSha: INITIALIZE_PARENT,
+          targetSha: sourceSha,
+        },
+      },
+    ],
+  };
+  const input = {
+    sourceSha,
+    selectedScopes: ["cli"],
+    components: [receiver, producer],
+  };
+  for (const missing of contracts) {
+    producer.compatibilityReceiverWitnesses[0].contracts = contracts.filter(
+      (c) => c !== missing
+    );
+    assert.throws(
+      () => assertProductionStageAdmission(input),
+      PENDING_RECEIVER,
+      missing
+    );
+  }
+  receiver.state = "unknown";
+  assert.throws(
+    () => assertProductionStageAdmission(input),
+    UNRESOLVED_RECEIVER
+  );
+  receiver.state = "current";
+  receiver.sha = sourceSha;
+  assert.doesNotThrow(() => assertProductionStageAdmission(input));
+});
 const SAVED_WORKSPACE_READ = [
   { contract: "profile-workspace-read", receiver: "core", producer: "cli" },
   { contract: "profile-workspace-read", receiver: "core", producer: "gateway" },

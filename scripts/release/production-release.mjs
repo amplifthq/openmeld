@@ -312,6 +312,11 @@ export function resolveProductionCompatibilityObligations(
       ],
     },
     {
+      contract: "profile-workspace-initialize",
+      enabled: isProfileWorkspaceInitializeDiff(changedPaths, context),
+      edges: [["core", "cli"]],
+    },
+    {
       contract: "profile-workspace-read",
       enabled: isProfileWorkspaceReadDiff(changedPaths, context),
       edges: [
@@ -1731,6 +1736,7 @@ function resolveProductionDeployScopeOrder(
       isAgentProfileDefaultProjectRevisionDiff(changedPaths, context) ||
       isAgentProfileDefaultProjectInitializerDiff(changedPaths, context) ||
       isAgentProfileBindingPreconditionDiff(changedPaths, context) ||
+      isProfileWorkspaceInitializeDiff(changedPaths, context) ||
       isProfileWorkspaceReadDiff(changedPaths, context) ||
       isCloudCommandReceiptOptInDiff(changedPaths, context) ||
       hasRemoteTurnEnvelopeOwners(changedPaths) ||
@@ -2106,6 +2112,34 @@ function isAgentProfileBindingPreconditionDiff(paths, context) {
       "packages/schemas/src/schemas/http/agent-profile-binding.ts",
       ["agentProfileBindingTargetSchema"]
     )
+  );
+}
+
+function isProfileWorkspaceInitializeDiff(paths, context) {
+  if (
+    ![
+      "clients/openmeld-cli/src/local-service/adapters/resolve-daemon-capabilities.ts",
+      "clients/openmeld-cli/src/local-service/carrier/run-socket-session.ts",
+      "clients/openmeld-cli/src/profile-workspace/service.ts",
+      "packages/schemas/src/schemas/daemon/runtime-transport.ts",
+      "packages/schemas/src/schemas/daemon/control-plane.ts",
+      "packages/schemas/src/schemas/protocol/profile.ts",
+      "services/core/src/dispatch/infrastructure/runtime-transport/runtime-transport-client.ts",
+      "services/core/src/dispatch/infrastructure/runtime-transport/runtime-transport-api-client.ts",
+      "services/core/src/runtime-transport/transport/do/runtime-transport-hub.ts",
+      "services/core/src/projects/agent-profile-default-project-service.ts",
+    ].some((file) => paths.includes(file))
+  ) {
+    return false;
+  }
+  // Registration and heartbeat must reach a Core that accepts this strict key.
+  // The reverse request checks Service support before sending its new input.
+  return [
+    "packages/schemas/src/schemas/daemon/runtime-transport.ts",
+    "clients/openmeld-cli/src/local-service/adapters/resolve-daemon-capabilities.ts",
+    "services/core/src/runtime-transport/transport/do/runtime-transport-hub.ts",
+  ].some((file) =>
+    targetProductSourceMentions(context, file, ["initializeProfileWorkspace"])
   );
 }
 

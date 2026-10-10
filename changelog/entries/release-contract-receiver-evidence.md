@@ -24,3 +24,6 @@ The checks apply to caller-only changes and reject unavailable source evidence.
 Saved working-folder reads require Core before the new Service registration,
 Core's read methods before Gateway, and Gateway's GET routes before Web.
 Other folder or runtime evidence cannot substitute for this read contract.
+Workspace initialization also requires Core before the Service advertises its
+strict initialization capability, including a Service-only source change.
+Initialization and read proofs must each cover their own contract.
