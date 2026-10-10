@@ -79,7 +79,15 @@ describe("syncLocalSetupCurrentDeviceTargetFromServiceContract", () => {
     });
   });
 
-  it("does not submit cached connected computer identity across account switches", async () => {
+  it.each([
+    null,
+    "connected-from-previous-account",
+  ])("saves current enrollment without trusting cached Computer identity %s", async (connectedComputerId) => {
+    const serviceContract = await readDaemonServiceContractMock();
+    readDaemonServiceContractMock.mockResolvedValue({
+      ...serviceContract,
+      connectedComputerId,
+    });
     await expect(
       syncLocalSetupCurrentDeviceTargetFromServiceContract({
         gatewayUrl: "https://gateway.openmeld.test",

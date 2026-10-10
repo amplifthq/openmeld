@@ -713,6 +713,7 @@ async function resolveDelegatedSetupCompletionFacts(input: {
   setupInput: {
     localAgent?: string[];
     localAgents?: string;
+    startSession?: string;
   };
   setupResult: Extract<
     SetupLocalAgentConnectionResult,
@@ -731,6 +732,13 @@ async function resolveDelegatedSetupCompletionFacts(input: {
 }> {
   const completionFacts = input.setupResult.completionFacts;
   if (completionFacts) {
+    const openMeldServiceRuntimeIdentity =
+      completionFacts.openMeldServiceRuntimeIdentity &&
+      !input.setupInput.startSession
+        ? await syncLocalSetupCurrentDeviceTargetFromServiceContract({
+            gatewayUrl: input.gatewayUrl,
+          })
+        : completionFacts.openMeldServiceRuntimeIdentity;
     const routeCatalogSync =
       completionFacts.runtimeReports.length > 0
         ? await notifyRouteCatalogAfterSetup({
@@ -739,8 +747,7 @@ async function resolveDelegatedSetupCompletionFacts(input: {
         : null;
     return {
       routeCatalogSync,
-      openMeldServiceRuntimeIdentity:
-        completionFacts.openMeldServiceRuntimeIdentity,
+      openMeldServiceRuntimeIdentity,
       runtimeReports: completionFacts.runtimeReports,
       selectedLocalAgentIds: completionFacts.selectedLocalAgentIds,
     };

@@ -1509,6 +1509,12 @@ the same Computer. CLI must not source this target from cached local state or
 reuse it across accounts, and enrollment must not create or move Agent Profile
 Binding truth.
 
+Standalone Profile setup must enroll its local runtime and save the returned
+Computer identity before reporting completion. A previously accepted runtime
+report is not proof of that enrollment. Tokenized Prepare setup retains its
+existing trusted enrollment and reconnect target; completion must not repeat
+it without that target.
+
 Setup may help the local side become able to work by checking OpenMeld Service,
 discovering local Agent Controllers, preparing runnable Agent Controllers,
 updating OpenMeld-managed skills, and reporting Agent Controller availability
