@@ -134,6 +134,26 @@ not a full-access grant. `executionContextPermissionInheritance` is an explicit
 adapter capability, separate from workspace protocol versions. Core checks it
 before delivering such an assignment.
 
+Working-copy selection uses the existing independent `workspace` preference.
+New Web and CLI Project/copy choices omit `access` unless a restriction was
+explicitly selected. No payload, schema version, or context epoch changes.
+Core preserves the source's workspace mode when a native-permission task forks.
+The updated Service derives an ephemeral allowlist for a verified managed copy
+from the current Computer policy; older Services may reject such a copy when
+only its source folder is allowed, but must not bypass that policy.
+Codex selected-folder profiles also retain the existing native `:minimal` read
+baseline so system commands can start; this uses the already-supported permission
+profile contract and does not add user folders or change approval modes.
+
+Contract impact: deploy the Core fork-default correction before exposing the
+new independent-copy callers, then publish the updated CLI/Service as available
+and expose the Web choices. Old callers keep sending their explicit restrictions;
+existing tasks, setup, Space actions, trace and diagnostics remain compatible.
+The Service update is advisory because older versions fail closed for unsupported
+policy placement. Roll back the new callers before rolling back the Core fix;
+retained assignments keep their existing permission source. Rebuild and stamp
+local components through the normal release owner during an authorized release.
+
 Core derives the per-Wake `requesterIsAgentOwner` delivery projection from current
 identity or recorded Center delegation. It is prompt context, not authorization.
 It is sent only to a Service advertising `verifiedRequesterContext`; older

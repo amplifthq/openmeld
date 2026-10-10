@@ -4562,13 +4562,21 @@ or composer. Submitting creates the chat and Task directly, then stays on Tasks;
 it does not send a message or start an Agent. Opening Tasks alone creates no chat.
 The Messages composer separately supports a Task in its first-message handoff.
 
-Agent mention menus keep execution settings separate from Tasks. **Files** offers
-**Use agent settings** and **No project files**. A readable configured Project
-adds its name and the supported **Edit a separate copy**, **Read files only**, and
-**Edit project files** modes. Without a resolved Project, Web does not guess a
-local folder or offer project operations. Each choice has a short shared Tooltip
-on hover and keyboard focus; the separate-copy hint explains that uncommitted
-changes are not included. These choices retain the existing execution contracts.
+Agent mention menus keep execution settings separate from Tasks. **Working copy**
+chooses **Current folder** or **Separate copy**, and offers **Choose Project…**.
+A separate copy requires a readable configured Project; selecting it retains
+the selected access policy. Project selection defaults to a separate copy without
+adding a task restriction. **Access** independently offers **Use agent settings**,
+**No project files**, and supported **Read files only** / **Project files only**
+restrictions. Returning to Agent settings preserves an existing project copy;
+leaving Space-only scratch work returns to the current folder by default.
+**Session → Automatic** remains selectable and clears explicit Access, Working
+copy, and Project preferences. The existing session retains its own restrictions;
+copy and access choices remain in place until the user selects Automatic.
+Claude's explicit project restriction requires a separate copy and its tooltip
+explains the container and network limits. Continuation and fork choices inherit
+their source settings and disable both controls. Shared Tooltips explain copy
+and permission effects without presenting a working folder as an access grant.
 
 The Project selector in Task detail supports zero or several associations and
 uses the current Task revision. Unavailable saved associations remain removable,

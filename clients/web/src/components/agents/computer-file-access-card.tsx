@@ -48,7 +48,8 @@ const FILE_ACCESS_OPTIONS: readonly {
 		value: "local_agent_settings",
 	},
 	{
-		description: "OpenMeld runs can access only these folders.",
+		description:
+			"OpenMeld runs can access these folders and managed working copies of their repositories.",
 		label: "Only selected folders",
 		value: "only_selected_folders",
 	},

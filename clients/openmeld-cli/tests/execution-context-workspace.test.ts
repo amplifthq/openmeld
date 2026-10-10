@@ -24,6 +24,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { acquireLock, releaseLock } from "../src/config/lock";
 import {
   assertExecutionContextWorkspaceUse,
+  deriveExecutionContextComputerFileAccessPolicy,
   markExecutionContextWorkspaceInUse,
   prepareExecutionContextWorkspace,
   readExecutionContextWorkspace,
@@ -953,6 +954,44 @@ describe("Execution Context workspaces", () => {
     expect(
       await readFile(join(result.workingDirectory, "tracked.txt"), "utf8")
     ).toBe("committed source\n");
+    const policy: ComputerFileAccessPolicy = {
+      ...defaultPolicy,
+      mode: "only_selected_folders",
+      folders: [linked, join(root, "another-approved-folder")],
+    };
+    const inheritedContext = {
+      ...context,
+      permissionSource: "agent_settings" as const,
+    };
+    expect(
+      deriveExecutionContextComputerFileAccessPolicy({
+        context: inheritedContext,
+        workspace: result,
+        policy,
+      })
+    ).toEqual({ ...policy, folders: [...policy.folders, result.boundaryRoot] });
+    expect(policy.folders).toEqual([
+      linked,
+      join(root, "another-approved-folder"),
+    ]);
+    expect(
+      deriveExecutionContextComputerFileAccessPolicy({
+        context,
+        workspace: result,
+        policy,
+      })
+    ).toBe(policy);
+    expect(() =>
+      deriveExecutionContextComputerFileAccessPolicy({
+        context: inheritedContext,
+        workspace: result,
+        policy: {
+          ...defaultPolicy,
+          mode: "block_selected_folders",
+          folders: [linked],
+        },
+      })
+    ).toThrow("workspace_overlaps_blocked_folder");
     await expect(
       prepare({
         currentWorkingDirectory: linked,

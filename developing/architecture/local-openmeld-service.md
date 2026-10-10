@@ -1022,8 +1022,11 @@ enforcement mechanism. The Service compiles the provider-neutral policy through
 the selected ACI adapter, verifies the exact launch contract and exact compiled
 arguments, and passes them to the controller process. For Codex, the adapter
 uses strict named permission profiles and `default_permissions`; it does not
-attempt to inspect every tool call or reimplement Codex filesystem policy. The
-Agent receives one path-free awareness instruction so it understands that the
+attempt to inspect every tool call or reimplement Codex filesystem policy.
+Selected-folder profiles retain Codex's `:minimal` read baseline for system
+executables and libraries; denying the filesystem root must not prevent native
+commands from starting. Other user files remain outside the selected roots.
+The Agent receives one path-free awareness instruction so it understands that the
 run is intentionally bounded, but prompt text is guidance and never proof of
 enforcement.
 
@@ -1320,6 +1323,15 @@ Project folder does not create a filesystem boundary. Computer File Access still
 applies when configured. Only explicit or retained bounded Claude project tasks
 prepare a container and replace native shell tools; creating a new conversation
 alone must not do either. Delivery-only correction retains its narrow purpose.
+
+For an inherited-permission independent copy, source preparation and launch both
+check the current Computer policy. An `only_selected_folders` policy is projected
+for that run by retaining every configured root and adding only the verified
+copy's exact root, including its private Git metadata. The projection is never
+saved as Computer policy and never adds the parent OpenMeld directory. A newly
+denied source still fails. Blocked-folder policies remain unchanged, and native
+boundary verification and owner-only unsupported-boundary decisions still apply.
+Working-copy placement alone never invokes the bounded Claude project shell.
 
 The existing local slot owner enforces the five-context Profile cap and local
 resource exclusions. Isolated task folders have distinct canonical roots and
