@@ -7216,6 +7216,12 @@ describe("organization Core RPC", () => {
         }),
       ],
       members: [memberRow("member-a", "org-a", "user-a", "owner")],
+      nativeDeliveries: [
+        nativeDeliveryLedgerRow({
+          deliveryId: "delivery-delegated-references-parent",
+          submissionId: "submission-parent",
+        }),
+      ],
       spaces: [
         spaceRow({
           organizationId: "org-a",
@@ -7349,7 +7355,15 @@ describe("organization Core RPC", () => {
         [JOINED_PRIVATE_SPACE_ID]: [HUMAN_PROFILE_ID, SECOND_AGENT_PROFILE_ID],
       },
     });
-    const env = await buildEnv({ spaceStub });
+    const env = await buildEnv({
+      nativeDeliveries: [
+        nativeDeliveryLedgerRow({
+          deliveryId: "delivery-idempotent-publication-parent",
+          submissionId: "submission-parent",
+        }),
+      ],
+      spaceStub,
+    });
 
     const publicationInput: Parameters<
       typeof rpcPostCenterAgentWakePublicationSignal
@@ -11769,6 +11783,7 @@ async function buildEnv(
       centerAgentMemoryPolicies: input.centerAgentMemoryPolicies ?? [],
       dispatchLedgerEntries: input.dispatchLedgerEntries ?? [],
       memberActivities: input.memberActivities ?? [],
+      nativeDeliveries: input.nativeDeliveries ?? [],
       members: input.members ?? [],
       organizations: input.organizations ?? [],
       personalOrganizations: input.personalOrganizations ?? [],

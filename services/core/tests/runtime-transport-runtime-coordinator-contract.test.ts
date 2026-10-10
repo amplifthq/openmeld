@@ -12428,11 +12428,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       ).resolveNextRuntimeCoordinatorHeadWaitingAlarmAtMs()
     ).toBe(request.acceptedDispatchSnapshot.deviceWait.deadlineAtMs);
     const restarted = await createContextHarness({ storageRecords });
-    await (
-      restarted.hub as unknown as {
-        processAgentProfileWorkPromotionAlarm(nowMs: number): Promise<void>;
-      }
-    ).processAgentProfileWorkPromotionAlarm(Date.now());
+    await (restarted.hub as unknown as RuntimeTransportHub).alarm();
     expect(
       await (
         restarted.hub as unknown as RuntimeTransportHub
@@ -12795,11 +12791,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       storageRecords,
       bindingConversationId: "legacy-mixed-spaces",
     });
-    await (
-      restarted.hub as unknown as {
-        processAgentProfileWorkPromotionAlarm(nowMs: number): Promise<void>;
-      }
-    ).processAgentProfileWorkPromotionAlarm(Date.now());
+    await (restarted.hub as unknown as RuntimeTransportHub).alarm();
     expect(
       await (
         restarted.hub as unknown as RuntimeTransportHub
