@@ -161,7 +161,7 @@ describe("Codex CLI transport args", () => {
       assert.equal(countDangerousBypassFlags(args), 0);
       assert.equal(
         args.includes(
-          'permissions.openmeld_computer_boundary={ extends = ":workspace", filesystem = { ":root" = "deny", "/Users/felix" = "read", "/Users/felix/**" = "read", "/Volumes/Client \\"Archive\\"" = "read", "/Volumes/Client \\"Archive\\"/**" = "read" } }'
+          'permissions.openmeld_computer_boundary={ extends = ":workspace", filesystem = { ":root" = "deny", ":minimal" = "read", "/Users/felix" = "read", "/Users/felix/**" = "read", "/Volumes/Client \\"Archive\\"" = "read", "/Volumes/Client \\"Archive\\"/**" = "read" } }'
         ),
         true
       );
@@ -212,7 +212,7 @@ describe("Codex CLI transport args", () => {
 
     assert.equal(
       args.includes(
-        'permissions.openmeld_computer_boundary={ filesystem = { ":root" = "deny", "/Users/felix/work" = "write", "/Users/felix/work/**" = "write" }, network = { enabled = true, mode = "full" } }'
+        'permissions.openmeld_computer_boundary={ filesystem = { ":root" = "deny", ":minimal" = "read", "/Users/felix/work" = "write", "/Users/felix/work/**" = "write" }, network = { enabled = true, mode = "full" } }'
       ),
       true
     );
@@ -234,7 +234,7 @@ describe("Codex CLI transport args", () => {
 
     assert.equal(
       args.includes(
-        'permissions.openmeld_computer_boundary={ extends = ":read-only", filesystem = { ":root" = "deny", "/Users/felix/work" = "read", "/Users/felix/work/**" = "read" } }'
+        'permissions.openmeld_computer_boundary={ extends = ":read-only", filesystem = { ":root" = "deny", ":minimal" = "read", "/Users/felix/work" = "read", "/Users/felix/work/**" = "read" } }'
       ),
       true
     );

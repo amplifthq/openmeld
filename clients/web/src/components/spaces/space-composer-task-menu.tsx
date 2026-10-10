@@ -79,17 +79,18 @@ export function SpaceComposerAgentOptions(input: {
 	const restrictions = executionRestrictions(selection);
 	const inheritsSession =
 		selection?.mode === "resume" || selection?.mode === "fork";
-	const sessionValue =
-		selection?.mode === "resume" || selection?.mode === "fork"
-			? `${selection.mode}:${selection.sourceWakeId}`
-			: (selection?.mode ?? "auto");
-	const accessValue =
-		selection && selection.mode !== "resume" && selection.access
-			? `${selection.access}:${selection.workspace ?? "isolated"}`
-			: "defaults";
+	const sessionValue = inheritsSession
+		? `${selection.mode}:${selection.sourceWakeId}`
+		: (selection?.mode ?? "auto");
+	const preferences = selection?.mode === "resume" ? undefined : selection;
+	const workspace = preferences?.workspace ?? "current";
+	const spaceOnly = preferences?.access === "space_context";
+	const hasProject = Boolean(input.projectName || preferences?.projectWork);
+	const accessValue = preferences?.access ?? "defaults";
 	const accessOptions = fileAccessOptions(
-		input.projectName,
-		input.supportsCurrentFolder
+		hasProject,
+		input.supportsCurrentFolder,
+		workspace
 	);
 	const selectedAccess = accessOptions.find(
 		(option) => option.key === accessValue
@@ -110,7 +111,7 @@ export function SpaceComposerAgentOptions(input: {
 						<p className="px-2 py-1 text-muted-foreground text-xs">
 							Automatic continuation keeps an earlier session's restrictions,
 							including Space-only access. To use the agent's current settings,
-							choose Start new and Files → Use agent settings.
+							choose Start new and Access → Use agent settings.
 						</p>
 						<DropdownMenuRadioGroup
 							onValueChange={(value) => {
@@ -142,7 +143,11 @@ export function SpaceComposerAgentOptions(input: {
 						>
 							<FluidDropdownMenuRadioItem
 								closeOnClick
-								disabled={accessValue !== "defaults"}
+								disabled={
+									accessValue !== "defaults" ||
+									preferences?.workspace !== undefined ||
+									preferences?.projectWork !== undefined
+								}
 								index={0}
 								value="auto"
 							>
@@ -194,9 +199,25 @@ export function SpaceComposerAgentOptions(input: {
 						</DropdownMenuRadioGroup>
 					</FluidDropdownMenuSubContent>
 				</DropdownMenuSub>
+				<WorkingCopyMenu
+					canUseCurrentFolder={
+						input.supportsCurrentFolder || preferences?.access !== "workspace"
+					}
+					disabled={inheritsSession || spaceOnly}
+					hasProject={hasProject}
+					label={workingCopyLabel(inheritsSession, spaceOnly, workspace)}
+					onChange={(workspace) =>
+						choose({ mode: "new", ...restrictions, workspace }, "Start new")
+					}
+					onChooseProject={
+						input.organizationId ? () => setProjectWorkOpen(true) : undefined
+					}
+					projectName={input.projectName}
+					workspace={workspace}
+				/>
 				<DropdownMenuSub>
-					<FluidDropdownMenuSubTrigger disabled={inheritsSession} index={1}>
-						<span className="min-w-0 flex-1">Files</span>
+					<FluidDropdownMenuSubTrigger disabled={inheritsSession} index={2}>
+						<span className="min-w-0 flex-1">Access</span>
 						<span className="text-muted-foreground">
 							{inheritsSession
 								? "From session"
@@ -204,57 +225,18 @@ export function SpaceComposerAgentOptions(input: {
 						</span>
 					</FluidDropdownMenuSubTrigger>
 					<FluidDropdownMenuSubContent className="w-64">
-						{input.projectName && (
-							<div
-								className="truncate px-2 py-1.5 text-muted-foreground text-xs"
-								title={input.projectName}
-							>
-								{input.projectName}
-							</div>
-						)}
 						<DropdownMenuRadioGroup
 							onValueChange={(value) => {
-								if (selection?.mode === "resume") {
+								if (inheritsSession) {
 									return;
 								}
-								const next = selection ?? { mode: "auto" as const };
-								if (value === "defaults") {
-									const {
-										access: _access,
-										workspace: _workspace,
-										projectWork: _projectWork,
-										...rest
-									} = next;
-									choose(rest, input.choice?.label ?? "Automatic");
-									return;
-								}
-								const [access, workspace] = value.split(":") as [
-									"space_context" | "read_only" | "workspace",
-									"current" | "isolated",
-								];
 								choose(
-									selection?.mode === "fork"
-										? {
-												...selection,
-												access,
-												workspace,
-												projectWork:
-													access === "space_context"
-														? undefined
-														: selection.projectWork,
-											}
-										: {
-												mode: "new",
-												access,
-												workspace,
-												projectWork:
-													access === "space_context"
-														? undefined
-														: selection?.projectWork,
-											},
-									selection?.mode === "fork"
-										? (input.choice?.label ?? "Fork previous")
-										: "Start new"
+									newTaskAccessSelection(
+										value,
+										spaceOnly ? "current" : workspace,
+										preferences?.projectWork
+									),
+									"Start new"
 								);
 							}}
 							value={accessValue}
@@ -263,6 +245,7 @@ export function SpaceComposerAgentOptions(input: {
 								<TooltipHint content={option.hint} key={option.key}>
 									<FluidDropdownMenuRadioItem
 										closeOnClick
+										disabled={option.disabled}
 										index={index}
 										value={option.key}
 									>
@@ -275,24 +258,13 @@ export function SpaceComposerAgentOptions(input: {
 								</TooltipHint>
 							))}
 						</DropdownMenuRadioGroup>
-						{input.organizationId && (
-							<>
-								<DropdownMenuSeparator />
-								<FluidDropdownMenuGroup>
-									<FluidDropdownMenuItem
-										closeOnClick={false}
-										index={0}
-										onClick={() => setProjectWorkOpen(true)}
-									>
-										Choose Project…
-									</FluidDropdownMenuItem>
-								</FluidDropdownMenuGroup>
-							</>
-						)}
 					</FluidDropdownMenuSubContent>
 				</DropdownMenuSub>
 			</FluidDropdownMenuGroup>
-			{projectWorkOpen && input.organizationId ? (
+			{projectWorkOpen &&
+			input.organizationId &&
+			!spaceOnly &&
+			!inheritsSession ? (
 				<SpaceComposerProjectWorkDialog
 					initialProjectId={
 						selection && "projectWork" in selection
@@ -304,8 +276,8 @@ export function SpaceComposerAgentOptions(input: {
 						choose(
 							{
 								mode: "new",
-								access: "workspace",
-								workspace: "isolated",
+								...restrictions,
+								workspace: preferences?.workspace ?? "isolated",
 								projectWork: {
 									projectId: selected.projectId,
 									repositoryFingerprint: selected.repositoryFingerprint,
@@ -334,43 +306,156 @@ function executionRestrictions(
 		: {};
 }
 
+function workingCopyLabel(
+	inheritsSession: boolean,
+	spaceOnly: boolean,
+	workspace: "current" | "isolated"
+) {
+	if (inheritsSession) {
+		return "From session";
+	}
+	if (spaceOnly) {
+		return "Scratch folder";
+	}
+	return workspace === "isolated" ? "Separate copy" : "Current folder";
+}
+
+function newTaskAccessSelection(
+	value: string,
+	workspace: "current" | "isolated",
+	projectWork: Extract<
+		ExecutionContextSelection,
+		{ mode: "new" }
+	>["projectWork"]
+): ExecutionContextSelection {
+	const access =
+		value === "defaults"
+			? undefined
+			: (value as "space_context" | "read_only" | "workspace");
+	return {
+		mode: "new",
+		...(access ? { access } : {}),
+		workspace: access === "space_context" ? "isolated" : workspace,
+		...(access !== "space_context" && projectWork ? { projectWork } : {}),
+	};
+}
+
 function fileAccessOptions(
-	projectName: string | null | undefined,
-	supportsCurrentFolder: boolean
+	hasProject: boolean,
+	supportsCurrentFolder: boolean,
+	workspace: "current" | "isolated"
 ) {
 	return [
 		{
 			key: "defaults",
 			label: "Use agent settings",
-			hint: "Use this agent’s saved file access and working folder.",
+			hint: "Keep the agent's native permissions and tools. Computer policy still applies.",
+			disabled: false,
 		},
 		{
-			key: "space_context:isolated",
+			key: "space_context",
 			label: "No project files",
-			hint: "Work without access to your local project files.",
+			hint: "Use a restricted scratch folder without project files.",
+			disabled: false,
 		},
-		...(projectName
+		...(hasProject
 			? [
-					{
-						key: "workspace:isolated",
-						label: "Edit a separate copy",
-						hint: "Edit a copy of committed code. Uncommitted changes stay behind.",
-					},
 					...(supportsCurrentFolder
 						? [
 								{
-									key: "read_only:current",
+									key: "read_only",
 									label: "Read files only",
-									hint: "Read the project, including uncommitted changes, without editing files.",
-								},
-								{
-									key: "workspace:current",
-									label: "Edit project files",
-									hint: "Edit the project directly, alongside your existing changes.",
+									hint: "Read the selected working copy without editing files.",
+									disabled: false,
 								},
 							]
 						: []),
+					{
+						key: "workspace",
+						label: "Project files only",
+						hint: supportsCurrentFolder
+							? "Limit reads and edits to the selected working copy."
+							: "Restrict a separate copy using Docker or Podman. Project commands cannot access the network.",
+						disabled: !supportsCurrentFolder && workspace !== "isolated",
+					},
 				]
 			: []),
 	];
+}
+
+function WorkingCopyMenu(input: {
+	disabled: boolean;
+	label: string;
+	projectName?: string | null;
+	workspace: "current" | "isolated";
+	hasProject: boolean;
+	canUseCurrentFolder: boolean;
+	onChange: (workspace: "current" | "isolated") => void;
+	onChooseProject?: () => void;
+}) {
+	return (
+		<DropdownMenuSub>
+			<FluidDropdownMenuSubTrigger disabled={input.disabled} index={1}>
+				<span className="min-w-0 flex-1">Working copy</span>
+				<span className="text-muted-foreground">{input.label}</span>
+			</FluidDropdownMenuSubTrigger>
+			<FluidDropdownMenuSubContent className="w-64">
+				{input.projectName && (
+					<div
+						className="truncate px-2 py-1.5 text-muted-foreground text-xs"
+						title={input.projectName}
+					>
+						{input.projectName}
+					</div>
+				)}
+				<DropdownMenuRadioGroup
+					onValueChange={(value) => {
+						if (!input.disabled) {
+							input.onChange(value as "current" | "isolated");
+						}
+					}}
+					value={input.workspace}
+				>
+					<FluidDropdownMenuRadioItem
+						closeOnClick
+						disabled={!input.canUseCurrentFolder}
+						index={0}
+						value="current"
+					>
+						Current folder
+					</FluidDropdownMenuRadioItem>
+					<TooltipHint
+						content={
+							input.hasProject
+								? "Use a copy of committed code. Agent settings and computer policy still apply."
+								: "Choose a Project to create a separate copy."
+						}
+					>
+						<FluidDropdownMenuRadioItem
+							closeOnClick
+							disabled={!input.hasProject}
+							index={1}
+							value="isolated"
+						>
+							Separate copy
+						</FluidDropdownMenuRadioItem>
+					</TooltipHint>
+				</DropdownMenuRadioGroup>
+				{input.onChooseProject && (
+					<>
+						<DropdownMenuSeparator />
+						<FluidDropdownMenuGroup>
+							<FluidDropdownMenuItem
+								closeOnClick={false}
+								index={0}
+								onClick={input.onChooseProject}
+							>
+								Choose Project…
+							</FluidDropdownMenuItem>
+						</FluidDropdownMenuGroup>
+					</>
+				)}
+			</FluidDropdownMenuSubContent>
+		</DropdownMenuSub>
+	);
 }
