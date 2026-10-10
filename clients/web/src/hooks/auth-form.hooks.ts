@@ -90,7 +90,7 @@ export function useEmailSignIn() {
 			const result = await signInWithEmail({
 				email: normalizeEmail(input.email),
 				password: input.password,
-				callbackURL: getFrontendCallbackURL("/callback"),
+				callbackURL: getFrontendCallbackURLWithRedirect("/callback"),
 			});
 
 			assertNoAuthError(result, "Failed to sign in with email.");

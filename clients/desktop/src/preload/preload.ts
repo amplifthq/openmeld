@@ -192,6 +192,11 @@ contextBridge.exposeInMainWorld("openmeldDesktop", {
   signOut: () => ipcRenderer.invoke(PILOT_IPC.signOut),
   connectComputer: (input) =>
     ipcRenderer.invoke(PILOT_IPC.connectComputer, input),
+  updateComputer: (input) =>
+    ipcRenderer.invoke(PILOT_IPC.connectComputer, {
+      ...input,
+      serviceAction: "update_service",
+    }),
   disconnectComputer: (input) =>
     ipcRenderer.invoke(PILOT_IPC.disconnectComputer, input),
   disconnectComputerWithFeedback: async (input) =>

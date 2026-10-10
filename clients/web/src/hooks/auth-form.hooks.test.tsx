@@ -102,6 +102,52 @@ describe("auth-form hooks", () => {
 		expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
 	});
 
+	it.each([
+		{
+			name: "Desktop authorization",
+			redirect:
+				"/desktop-sign-in?client_id=openmeld-desktop-test&state=test-state&code_challenge=test-challenge&redirect_uri=sh.openmeld.desktop.test%3A%2F%2Fauth",
+		},
+		{
+			name: "invitation acceptance",
+			redirect: "/accept-invitation?invitationId=inv-123",
+		},
+		{ name: "ordinary sign-in", redirect: undefined },
+	])("preserves $name when sign-in requires email verification", async ({
+		redirect,
+	}) => {
+		window.history.replaceState(
+			{},
+			"",
+			`http://localhost:3000/login${redirect ? `?redirect=${encodeURIComponent(redirect)}` : ""}`
+		);
+		authFormApiMocks.signInWithEmail.mockResolvedValue({
+			data: null,
+			error: { code: "EMAIL_NOT_VERIFIED", message: "Email not verified" },
+		});
+		const queryClient = createQueryClient();
+		const { result } = renderHook(() => useEmailSignIn(), {
+			wrapper: createWrapper(queryClient),
+		});
+
+		await act(async () => {
+			await expect(
+				result.current.mutateAsync({
+					email: " Newcomer@Example.com ",
+					password: "password-123",
+				})
+			).rejects.toMatchObject({ code: "EMAIL_NOT_VERIFIED" });
+		});
+
+		const input = authFormApiMocks.signInWithEmail.mock.calls[0]?.[0];
+		const callback = new URL(input.callbackURL);
+		expect(callback.origin).toBe("http://localhost:3000");
+		expect(callback.pathname).toBe("/callback");
+		expect(callback.searchParams.get("redirect")).toBe(redirect ?? "/login");
+		expect(input.email).toBe("newcomer@example.com");
+		queryClient.clear();
+	});
+
 	it("revokes only the current account and clears its cached data", async () => {
 		const queryClient = createQueryClient();
 		queryClient.setQueryData(["spaces", "list", "signed-in-user"], {
