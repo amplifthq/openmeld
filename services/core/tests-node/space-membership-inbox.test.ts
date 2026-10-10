@@ -45,6 +45,32 @@ function member(addedAtMs = 0): SpaceMemberRecord {
   };
 }
 describe("New Space membership Inbox events", () => {
+  it("does not create a notice from a historical snapshot whose organization is unavailable", async () => {
+    const f = await createInboxFeedFixture();
+    try {
+      await f.query({
+        text: `UPDATE "openmeld"."space_index_spaces" SET organization_id = 'missing-organization' WHERE space_id = 'space'`,
+      });
+      await projectSpaceMembershipInbox({
+        db: f.db,
+        meta: { ...meta, organizationId: "missing-organization" },
+        members: [member()],
+      });
+      expect(
+        (await f.query({ text: `SELECT id FROM "openmeld"."inbox_items"` }))
+          .rows
+      ).toEqual([]);
+      expect(
+        (
+          await f.query({
+            text: `SELECT status FROM "openmeld"."space_index_spaces" WHERE space_id = 'space'`,
+          })
+        ).rows
+      ).toEqual([{ status: "active" }]);
+    } finally {
+      await f.close();
+    }
+  });
   it("shows an empty joined Space as unread and acknowledges it without reading unseen messages", async () => {
     const f = await createInboxFeedFixture();
     try {
