@@ -1197,6 +1197,651 @@
           }
         ]
       }
+    },
+    {
+      "service": "aws_s3",
+      "displayName": "AWS S3",
+      "iconUrl": null,
+      "homepageUrl": "https://aws.amazon.com/s3/",
+      "categories": [
+        {
+          "id": "Storage",
+          "displayName": "Storage"
+        },
+        {
+          "id": "Developer Tools",
+          "displayName": "Developer Tools"
+        }
+      ],
+      "scenario": "data-storage",
+      "authTypes": ["custom_credential"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "custom_credential",
+            "fields": [
+              {
+                "key": "accessKeyId",
+                "label": "Access Key ID",
+                "description": "AWS access key ID. Create or manage IAM user access keys here: https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html",
+                "placeholder": "AKIA...",
+                "secret": false,
+                "inputType": "text",
+                "required": true
+              },
+              {
+                "key": "secretAccessKey",
+                "label": "Secret Access Key",
+                "description": "AWS secret access key from the same access key pair. AWS shows it only when you create the access key: https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html",
+                "placeholder": "Your AWS secret access key",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              },
+              {
+                "key": "region",
+                "label": "Region",
+                "description": "The default AWS region used for validation and S3 action execution. See the official S3 endpoints and region list: https://docs.aws.amazon.com/general/latest/gr/s3.html",
+                "placeholder": "us-east-1",
+                "secret": false,
+                "inputType": "text",
+                "required": true
+              },
+              {
+                "key": "bucket",
+                "label": "Default Bucket",
+                "description": "Optional default bucket reused by object-level actions. Use a bucket from your own S3 resources as documented here: https://docs.aws.amazon.com/AmazonS3/latest/userguide/create-bucket-overview.html",
+                "placeholder": "my-bucket",
+                "secret": false,
+                "inputType": "text",
+                "required": false
+              },
+              {
+                "key": "sessionToken",
+                "label": "Session Token",
+                "description": "Optional STS session token from the same temporary AWS credential set when you use STS or AssumeRole credentials.",
+                "placeholder": "Optional STS session token",
+                "secret": true,
+                "inputType": "password",
+                "required": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "aliyun_ack",
+      "displayName": "Alibaba Cloud ACK",
+      "iconUrl": null,
+      "homepageUrl": "https://www.alibabacloud.com/product/kubernetes",
+      "categories": [
+        {
+          "id": "Developer Tools",
+          "displayName": "Developer Tools"
+        },
+        {
+          "id": "Security",
+          "displayName": "Security"
+        }
+      ],
+      "scenario": "developer",
+      "authTypes": ["custom_credential"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "custom_credential",
+            "fields": [
+              {
+                "key": "accessKeyId",
+                "label": "Access Key ID",
+                "description": "Alibaba Cloud RAM AccessKey ID used to call ACK. Create or manage AccessKey pairs here: https://www.alibabacloud.com/help/en/ram/user-guide/create-an-accesskey-pair",
+                "placeholder": "LTAI...",
+                "secret": false,
+                "inputType": "text",
+                "required": true
+              },
+              {
+                "key": "accessKeySecret",
+                "label": "Access Key Secret",
+                "description": "Alibaba Cloud RAM AccessKey secret from the same pair. Alibaba Cloud shows it only when the key pair is created: https://www.alibabacloud.com/help/en/ram/user-guide/create-an-accesskey-pair",
+                "placeholder": "Your AccessKey secret",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "aliyun_oss",
+      "displayName": "Alibaba Cloud OSS",
+      "iconUrl": null,
+      "homepageUrl": "https://www.alibabacloud.com",
+      "categories": [
+        {
+          "id": "Storage",
+          "displayName": "Storage"
+        },
+        {
+          "id": "Developer Tools",
+          "displayName": "Developer Tools"
+        }
+      ],
+      "scenario": "data-storage",
+      "authTypes": ["custom_credential"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "custom_credential",
+            "fields": [
+              {
+                "key": "accessKeyId",
+                "label": "Access Key ID",
+                "description": "Alibaba Cloud AccessKey ID. Create or manage an AccessKey pair in RAM: https://www.alibabacloud.com/help/en/ram/user-guide/create-an-accesskey-pair",
+                "placeholder": "LTAI...",
+                "secret": false,
+                "inputType": "text",
+                "required": true
+              },
+              {
+                "key": "accessKeySecret",
+                "label": "Access Key Secret",
+                "description": "Alibaba Cloud AccessKey secret from the same RAM AccessKey pair. Alibaba Cloud shows it only when you create the key pair: https://www.alibabacloud.com/help/en/ram/user-guide/create-an-accesskey-pair",
+                "placeholder": "Your AccessKey secret",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              },
+              {
+                "key": "endpoint",
+                "label": "OSS Endpoint",
+                "description": "The default OSS endpoint used for validation and action execution. Find the endpoint for your region here: https://www.alibabacloud.com/help/en/oss/user-guide/regions-and-endpoints",
+                "placeholder": "oss-cn-hangzhou.aliyuncs.com",
+                "secret": false,
+                "inputType": "text",
+                "required": true
+              },
+              {
+                "key": "bucket",
+                "label": "Default Bucket",
+                "description": "Optional default bucket reused by object-level actions. Use a bucket from your own OSS resources in the OSS console: https://oss.console.aliyun.com/overview",
+                "placeholder": "my-bucket",
+                "secret": false,
+                "inputType": "text",
+                "required": false
+              },
+              {
+                "key": "securityToken",
+                "label": "Security Token",
+                "description": "Optional STS security token when using temporary AK/SK credentials from your own Alibaba Cloud STS flow.",
+                "placeholder": "Optional STS token",
+                "secret": true,
+                "inputType": "password",
+                "required": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "aliyun_sls",
+      "displayName": "Alibaba Cloud SLS",
+      "iconUrl": null,
+      "homepageUrl": "https://www.alibabacloud.com/product/log-service",
+      "categories": [
+        {
+          "id": "Data",
+          "displayName": "Data"
+        },
+        {
+          "id": "Developer Tools",
+          "displayName": "Developer Tools"
+        }
+      ],
+      "scenario": "data-storage",
+      "authTypes": ["custom_credential"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "custom_credential",
+            "fields": [
+              {
+                "key": "accessKeyId",
+                "label": "Access Key ID",
+                "description": "The Alibaba Cloud RAM AccessKey ID used to call Simple Log Service. Use a RAM identity with only the required SLS permissions.",
+                "placeholder": "LTAI...",
+                "secret": false,
+                "inputType": "text",
+                "required": true
+              },
+              {
+                "key": "accessKeySecret",
+                "label": "Access Key Secret",
+                "description": "The AccessKey secret from the same Alibaba Cloud RAM AccessKey pair.",
+                "placeholder": "Your AccessKey secret",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              },
+              {
+                "key": "endpoint",
+                "label": "Default Regional Endpoint",
+                "description": "The default regional Simple Log Service endpoint used by actions that omit endpoint, for example cn-hangzhou.log.aliyuncs.com.",
+                "placeholder": "cn-hangzhou.log.aliyuncs.com",
+                "secret": false,
+                "inputType": "text",
+                "required": true
+              },
+              {
+                "key": "securityToken",
+                "label": "Security Token",
+                "description": "An optional Alibaba Cloud STS security token used with temporary AccessKey credentials.",
+                "placeholder": "Optional STS token",
+                "secret": true,
+                "inputType": "password",
+                "required": false
+              },
+              {
+                "key": "resourceScope",
+                "label": "Resource Scope",
+                "description": "Optional connector-local resource allowlist as a JSON array. Leave it blank to set no local resource restriction and use list_projects and list_logstores to discover resources allowed by RAM. Each item requires project; endpoint is optional and defaults to the connection endpoint. Omitting logstores allows every Logstore in that Project. When logstores is provided, it must contain only non-empty, unique Logstore names and only those Logstores are accessible. This local allowlist does not replace Alibaba Cloud RAM permissions.",
+                "secret": false,
+                "inputType": "json",
+                "required": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "cloudflare_docs",
+      "displayName": "Cloudflare Docs",
+      "iconUrl": null,
+      "homepageUrl": "https://developers.cloudflare.com",
+      "categories": [
+        {
+          "id": "Developer Tools",
+          "displayName": "Developer Tools"
+        },
+        {
+          "id": "AI",
+          "displayName": "AI"
+        }
+      ],
+      "scenario": "developer",
+      "authTypes": ["custom_credential"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "custom_credential",
+            "fields": []
+          }
+        ]
+      }
+    },
+    {
+      "service": "cloudflare_email_routing",
+      "displayName": "Cloudflare Email Routing",
+      "iconUrl": null,
+      "homepageUrl": "https://www.cloudflare.com",
+      "categories": [
+        {
+          "id": "Communication",
+          "displayName": "Communication"
+        },
+        {
+          "id": "Developer Tools",
+          "displayName": "Developer Tools"
+        }
+      ],
+      "scenario": "communication",
+      "authTypes": ["custom_credential"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "custom_credential",
+            "fields": [
+              {
+                "key": "email",
+                "label": "Cloudflare Account Email",
+                "description": "Email address for legacy Global API Key authentication. Leave blank when using a cfut_ User API Token with Email Routing permissions.",
+                "placeholder": "you@example.com",
+                "secret": false,
+                "inputType": "text",
+                "required": false
+              },
+              {
+                "key": "apiKey",
+                "label": "Cloudflare API Credential",
+                "description": "Use a cfut_ User API Token with Email Routing Rules/Addresses permissions, or a Global API Key (cfk_ or legacy format) with the account email. Cloudflare cfat_ Account API Tokens are not accepted by the Email Routing API: https://developers.cloudflare.com/fundamentals/api/reference/permissions/.",
+                "placeholder": "cloudflare_global_api_key",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              },
+              {
+                "key": "accountId",
+                "label": "Cloudflare Account ID",
+                "description": "Default account ID for destination addresses and account rule listings. Action inputs may override it.",
+                "placeholder": "32-character Cloudflare account ID",
+                "secret": false,
+                "inputType": "text",
+                "required": true
+              },
+              {
+                "key": "zoneId",
+                "label": "Cloudflare Zone ID",
+                "description": "Default zone ID for routing rule actions. Action inputs may override it.",
+                "placeholder": "32-character Cloudflare zone ID",
+                "secret": false,
+                "inputType": "text",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "cloudflare_mcp",
+      "displayName": "Cloudflare MCP",
+      "iconUrl": "https://workers.cloudflare.com/favicon.ico",
+      "homepageUrl": "https://github.com/cloudflare/mcp",
+      "categories": [
+        {
+          "id": "Developer Tools",
+          "displayName": "Developer Tools"
+        },
+        {
+          "id": "Infrastructure",
+          "displayName": "Infrastructure"
+        }
+      ],
+      "scenario": "developer",
+      "authTypes": ["oauth2", "api_key"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "api_key",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "Cloudflare API Token / Bearer Token",
+                "description": "A Cloudflare user or account API token sent to the official MCP server as an Authorization Bearer token. Grant only the permissions needed by your workflows. Account tokens should also include Account Resources: Read so the MCP server can auto-detect the account ID.",
+                "placeholder": "Paste a Cloudflare API token",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "excel",
+      "displayName": "Excel",
+      "iconUrl": null,
+      "homepageUrl": "https://www.microsoft.com/microsoft-365/excel",
+      "categories": [
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        },
+        {
+          "id": "Data",
+          "displayName": "Data"
+        }
+      ],
+      "scenario": "productivity",
+      "authTypes": ["oauth2"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": []
+      }
+    },
+    {
+      "service": "microsoft_teams",
+      "displayName": "Microsoft Teams",
+      "iconUrl": null,
+      "homepageUrl": "https://www.microsoft.com/microsoft-teams/",
+      "categories": [
+        {
+          "id": "Communication",
+          "displayName": "Communication"
+        },
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        }
+      ],
+      "scenario": "communication",
+      "authTypes": ["oauth2"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": []
+      }
+    },
+    {
+      "service": "one_drive",
+      "displayName": "OneDrive",
+      "iconUrl": null,
+      "homepageUrl": "https://www.microsoft.com/microsoft-365/onedrive/online-cloud-storage",
+      "categories": [
+        {
+          "id": "Storage",
+          "displayName": "Storage"
+        },
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        }
+      ],
+      "scenario": "data-storage",
+      "authTypes": ["oauth2"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": []
+      }
+    },
+    {
+      "service": "outlook_calendar",
+      "displayName": "Outlook Calendar",
+      "iconUrl": null,
+      "homepageUrl": "https://www.microsoft.com/microsoft-365/outlook/outlook-calendar",
+      "categories": [
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        }
+      ],
+      "scenario": "productivity",
+      "authTypes": ["oauth2"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": []
+      }
+    },
+    {
+      "service": "microsoft_clarity",
+      "displayName": "Microsoft Clarity",
+      "iconUrl": null,
+      "homepageUrl": "https://clarity.microsoft.com",
+      "categories": [
+        {
+          "id": "Data",
+          "displayName": "Data"
+        }
+      ],
+      "scenario": "data-storage",
+      "authTypes": ["api_key"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "api_key",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "API Access Token",
+                "description": "Microsoft Clarity API access token sent with the Authorization Bearer header. Project admins can generate it in Settings > Data Export in the Clarity dashboard, as documented at https://learn.microsoft.com/en-us/clarity/setup-and-installation/clarity-data-export-api.",
+                "placeholder": "clarity_api_token",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "zoom",
+      "displayName": "Zoom",
+      "iconUrl": null,
+      "homepageUrl": "https://www.zoom.com",
+      "categories": [
+        {
+          "id": "Communication",
+          "displayName": "Communication"
+        },
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        }
+      ],
+      "scenario": "communication",
+      "authTypes": ["oauth2"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": []
+      }
+    },
+    {
+      "service": "box",
+      "displayName": "Box",
+      "iconUrl": null,
+      "homepageUrl": "https://www.box.com",
+      "categories": [
+        {
+          "id": "Storage",
+          "displayName": "Storage"
+        },
+        {
+          "id": "Productivity",
+          "displayName": "Productivity"
+        }
+      ],
+      "scenario": "communication",
+      "authTypes": ["oauth2"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": []
+      }
+    },
+    {
+      "service": "datadog",
+      "displayName": "Datadog",
+      "iconUrl": null,
+      "homepageUrl": "https://www.datadoghq.com/",
+      "categories": [
+        {
+          "id": "Developer Tools",
+          "displayName": "Developer Tools"
+        },
+        {
+          "id": "Data",
+          "displayName": "Data"
+        }
+      ],
+      "scenario": "developer",
+      "authTypes": ["oauth2", "api_key"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "api_key",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "API Key",
+                "description": "Datadog API key used for API requests. Create or view API keys in Organization Settings: https://docs.datadoghq.com/account_management/api-app-keys/",
+                "placeholder": "DATADOG_API_KEY",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              },
+              {
+                "key": "applicationKey",
+                "label": "Application Key",
+                "description": "Datadog application key required for read API requests. Create or view application keys in Organization Settings: https://docs.datadoghq.com/account_management/api-app-keys/",
+                "placeholder": "DATADOG_APPLICATION_KEY",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              },
+              {
+                "key": "site",
+                "label": "Datadog Site",
+                "description": "Datadog site for the account. Use one of us1, us3, us5, eu, ap1, ap2, uk1, gov, or gov2.",
+                "placeholder": "us1",
+                "secret": false,
+                "inputType": "text",
+                "required": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "service": "discordbot",
+      "displayName": "Discord Bot",
+      "iconUrl": null,
+      "homepageUrl": "https://discord.com/developers/docs",
+      "categories": [
+        {
+          "id": "Communication",
+          "displayName": "Communication"
+        },
+        {
+          "id": "Developer Tools",
+          "displayName": "Developer Tools"
+        }
+      ],
+      "scenario": "communication",
+      "authTypes": ["api_key"],
+      "connectionAuth": {
+        "oauth": false,
+        "credentials": [
+          {
+            "authType": "api_key",
+            "fields": [
+              {
+                "key": "apiKey",
+                "label": "Bot Token",
+                "description": "Discord bot token sent as Authorization: Bot <token>. Create a bot in the Discord Developer Portal and invite it to the guilds you want to manage.",
+                "placeholder": "Discord bot token",
+                "secret": true,
+                "inputType": "password",
+                "required": true
+              }
+            ]
+          }
+        ]
+      }
     }
   ]
 }

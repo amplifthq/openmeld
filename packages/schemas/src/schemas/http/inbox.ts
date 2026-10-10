@@ -403,6 +403,7 @@ export const spaceInboxSummaryResponseSchema = z.strictObject({
 
 export const spaceInboxUnreadTargetSchema = z.strictObject({
   itemId: identifierSchema.optional(),
+  sourceKey: identifierSchema.optional(),
   occurredAtMs: timestampMsSchema,
   signalId: identifierSchema,
   threadRootSignalId: identifierSchema.nullable(),
@@ -487,9 +488,25 @@ export const markSpaceInboxReadThroughResponseSchema = z.strictObject({
   readThroughAt: isoDateTimeSchema,
 });
 
+export const spaceInboxReadSourceSchema = z.strictObject({
+  signalId: identifierSchema,
+  occurredAtMs: timestampMsSchema,
+});
+export const getSpaceInboxReadCandidatesInputSchema = z.strictObject({
+  spaceId: identifierSchema,
+  organizationId: identifierSchema,
+  recipientUserId: identifierSchema,
+  sources: z.array(spaceInboxReadSourceSchema).min(1).max(500),
+});
+
 export const mutateSpaceInboxReadBodySchema = z.discriminatedUnion(
   "operation",
   [
+    z.strictObject({
+      spaceId: identifierSchema,
+      operation: z.literal("read_sources"),
+      sources: z.array(spaceInboxReadSourceSchema).min(1).max(500),
+    }),
     z.strictObject({
       spaceId: identifierSchema,
       operation: z.literal("prepare"),
@@ -671,6 +688,7 @@ export const getSpaceInboxSummaryRpcInputSchema = z.strictObject({
 export const getSpaceInboxUnreadTargetsRpcInputSchema = z.strictObject({
   includeMembershipNotices: z.boolean().optional(),
   includeItemIds: z.boolean().optional(),
+  includeSourceKeys: z.boolean().optional(),
   context: openMeldRequestContextSchema,
   spaceId: identifierSchema,
 });

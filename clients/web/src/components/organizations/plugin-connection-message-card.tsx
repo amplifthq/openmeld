@@ -271,8 +271,8 @@ function PluginConnectionSetup(input: {
 	if (scope && !connectorConnectionScopeAllowed(input.plugin.service, scope)) {
 		return (
 			<p className="py-3 text-muted-foreground text-sm">
-				{input.plugin.name} requires a personal account. This organization
-				request cannot use it.
+				Connect {input.plugin.name} under Personal. This organization request
+				cannot use a Personal connection.
 			</p>
 		);
 	}

@@ -1543,7 +1543,13 @@ function parseStoredAutomaticToolsUpdateUnavailableRetry(
 
 function requiredExecutionContextVersion(
   record: RuntimeCoordinatorHeadLifecycleRecord
-): 2 | 3 | 4 {
+): 2 | 3 | 4 | 5 {
+  if (
+    record.acceptedDispatchSnapshot?.executionContext?.projectWork?.commit ||
+    record.acceptedDispatchSnapshot?.workHandoffVersion === 2
+  ) {
+    return 5;
+  }
   if (record.acceptedDispatchSnapshot?.executionContext?.projectWork) {
     return 4;
   }
@@ -2624,7 +2630,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     ownerUserId: string;
     targetProfileId: string;
     agentControllerRef: string;
-    requiredContextVersion?: 2 | 3 | 4;
+    requiredContextVersion?: 2 | 3 | 4 | 5;
     requirePermissionInheritance?: boolean;
   }): string | null {
     const route = lookupRoute(

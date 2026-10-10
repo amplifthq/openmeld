@@ -8,6 +8,7 @@ import {
 import { buildCodexSpaceActionMcpGlobalArgs } from "../dist/transport/codex-space-action-mcp-config.js";
 
 const DANGEROUS_BYPASS_FLAG = "--dangerously-bypass-approvals-and-sandbox";
+const UNVERIFIABLE_CUSTOM_BOUNDARY = /cannot be safely intersected/;
 
 const countDangerousBypassFlags = (args) =>
   args.filter((arg) => arg === DANGEROUS_BYPASS_FLAG).length;
@@ -88,6 +89,33 @@ describe("Codex CLI transport args", () => {
       boundary,
       permissionMode: "codex:askForApproval",
     });
+    assert.throws(
+      () =>
+        buildCodexFileAccessBoundaryGlobalArgs({
+          boundary,
+          permissionMode: "codex:customConfig",
+        }),
+      UNVERIFIABLE_CUSTOM_BOUNDARY
+    );
+    // A receiver reporting read-only cannot satisfy a requested writable task.
+    assert.equal(
+      isCodexExecutionContextFileAccessConfirmed(
+        { ...response, sandbox: { type: "readOnly" } },
+        boundary,
+        "/work/task"
+      ),
+      false
+    );
+    const readOnlyArgs = buildCodexFileAccessBoundaryGlobalArgs({
+      boundary: { ...boundary, executionContextAccess: "read_only" },
+      permissionMode: "codex:fullAccess",
+    });
+    assert.ok(
+      readOnlyArgs.some((arg) => arg.includes('"/work/task" = "read"'))
+    );
+    assert.ok(
+      !readOnlyArgs.some((arg) => arg.includes('"/work/task" = "write"'))
+    );
     assert.equal(args.includes("features.hooks=false"), true);
     assert.equal(args.includes("features.plugins=false"), true);
     assert.equal(args.includes("mcp_servers={}"), false);

@@ -351,15 +351,23 @@ describe("Inbox Core RPC", () => {
           },
         ],
       });
-      await expect(
-        rpcGetSpaceInboxUnreadTargets(env, {
+      for (const includeSourceKeys of [undefined, false, true]) {
+        const targets = await rpcGetSpaceInboxUnreadTargets(env, {
           context: contextFor("user-1"),
           spaceId: "space-1",
-        })
-      ).resolves.toMatchObject({
-        targets: [{ signalId: "signal-1", threadRootSignalId: null }],
-        totalUnreadCount: 1,
-      });
+          ...(includeSourceKeys === undefined ? {} : { includeSourceKeys }),
+        });
+        expect(targets.targets).toEqual([
+          {
+            ...(includeSourceKeys ? { sourceKey: "signal-1" } : {}),
+            signalId: "signal-1",
+            occurredAtMs: 1000,
+            threadRootSignalId: null,
+          },
+        ]);
+        expect(targets.totalUnreadCount).toBe(1);
+        expect(targets).not.toHaveProperty("joinedItems");
+      }
       await expect(
         rpcMarkSpaceInboxReadThrough(env, {
           context: contextFor("user-1"),

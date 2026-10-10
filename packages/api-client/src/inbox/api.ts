@@ -341,6 +341,13 @@ export const createInboxApi: CreateInboxApi = (
       { spaceId: input.spaceId },
       "Space Inbox unread targets request is invalid."
     );
+    const query = new URLSearchParams();
+    if (input.includeItemIds) {
+      query.set("includeItemIds", "true");
+    }
+    if (input.includeSourceKeys) {
+      query.set("includeSourceKeys", "true");
+    }
     return await client.requestJson({
       ...requestOptions(input),
       headers: inboxSourceTargetVersionHeaders(),
@@ -350,7 +357,7 @@ export const createInboxApi: CreateInboxApi = (
       schema: spaceInboxUnreadTargetsResponseSchema,
       url:
         buildSpaceInboxUnreadTargetsPath(params.spaceId) +
-        (input.includeItemIds ? "?includeItemIds=true" : ""),
+        (query.size ? `?${query}` : ""),
     });
   },
   markSpaceReadThrough: async (input) => {

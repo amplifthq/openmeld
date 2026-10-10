@@ -107,6 +107,7 @@ import {
 	MessageReactionsProvider,
 	resolveMessageReactionInput,
 } from "./space-message-reactions";
+import { spaceMessageReadSourceAt } from "./space-message-read-observer";
 import {
 	EMPTY_SPACE_MESSAGE_REFERENCES,
 	hasResolvedSpaceMessageReference,
@@ -462,6 +463,9 @@ export const SpaceMessageRun = memo(function SpaceMessageRun(
 														SPACE_MESSAGE_ROW_HOVER_COLOR_CLASS
 													)}
 													data-message-row-id={item.id}
+													data-message-source-at={spaceMessageReadSourceAt(
+														item
+													)}
 												>
 													<Bubble
 														align={messageAlign}
@@ -1661,28 +1665,37 @@ function renderAnchoredSpaceOutcomeRows(input: {
 						})
 					: null;
 				return (
-					<SpaceOutcomeRow
+					<div
+						data-message-read-sources={JSON.stringify(
+							group.notices.map((notice) => ({
+								signalId: notice.id,
+								occurredAtMs: notice.createdAtMs,
+							}))
+						)}
 						key={group.key}
-						onOpenDetails={
-							input.readOnly
-								? null
-								: () => input.onOpenMessageDetails(input.sourceItem)
-						}
-						onRecoverExecution={
-							input.readOnly ? undefined : input.onRecoverExecution
-						}
-						recoveryRequest={recoveryRequest}
-						spaceReferencesById={input.spaceReferencesById}
-						text={resolveGroupedOutcomeRowText({
-							notices: group.notices,
-							readOnly: input.readOnly,
-							resolveTargetLabel: (targetProfileId) =>
-								input.profileEntriesById.get(targetProfileId)?.profileName ??
-								null,
-							tone: group.tone,
-						})}
-						tone={group.tone}
-					/>
+					>
+						<SpaceOutcomeRow
+							onOpenDetails={
+								input.readOnly
+									? null
+									: () => input.onOpenMessageDetails(input.sourceItem)
+							}
+							onRecoverExecution={
+								input.readOnly ? undefined : input.onRecoverExecution
+							}
+							recoveryRequest={recoveryRequest}
+							spaceReferencesById={input.spaceReferencesById}
+							text={resolveGroupedOutcomeRowText({
+								notices: group.notices,
+								readOnly: input.readOnly,
+								resolveTargetLabel: (targetProfileId) =>
+									input.profileEntriesById.get(targetProfileId)?.profileName ??
+									null,
+								tone: group.tone,
+							})}
+							tone={group.tone}
+						/>
+					</div>
 				);
 			})}
 		</>

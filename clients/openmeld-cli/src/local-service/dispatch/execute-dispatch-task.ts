@@ -1186,6 +1186,7 @@ export async function handleDispatchDeliverFrame(input: {
   try {
     await currentSocketRef.confirmExecutionAdmission?.(input.deliverRequest);
     dispatchRuntimeContext = await resolveDispatchWorkingFolderRuntimeContext({
+      ledgerRootPath: input.ledgerPaths.rootDirPath,
       controllerSnapshot: input.deliverRequest.payload.controllerSnapshot,
       defaultProjectId: parsedTask.defaultProjectId,
       defaultProjectIdWasProvided: Object.hasOwn(
@@ -3124,6 +3125,8 @@ async function resolveDispatchComputerFileAccess(input: {
       input.parsedTask.agentControllerRef === "builtin:claude-code" &&
       context.access === "space_context"
     ) {
+      // Claude enforces this with tools: [] and strict dispatch-only MCP in
+      // buildClaudeSpaceToolOptions, rather than a filesystem verifier.
       return null;
     }
     if (

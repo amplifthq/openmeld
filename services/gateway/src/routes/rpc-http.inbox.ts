@@ -309,6 +309,9 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       execute: async () =>
         await c.var.coreRpc.getSpaceInboxUnreadTargets({
           includeMembershipNotices: true,
+          ...(c.req.query("includeSourceKeys") === "true"
+            ? { includeSourceKeys: true }
+            : {}),
           ...(c.req.query("includeItemIds") === "true"
             ? { includeItemIds: true }
             : {}),

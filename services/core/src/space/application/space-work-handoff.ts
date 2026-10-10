@@ -2,6 +2,7 @@ import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
   SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
+  type SpaceWorkHandoffV2,
   spaceWorkHandoffSchema,
 } from "@openmeld/schemas";
 import type { SpaceMessageFileReference } from "@openmeld/schemas/types";
@@ -15,6 +16,11 @@ export async function validateSpaceWorkHandoff(input: {
   organizationId: string | null;
   signal: SignalEnvelope;
   resolveFiles(files: SpaceMessageFileReference[]): SpaceMessageFileReference[];
+  threadId?: string | null;
+  threadRootSignalId?: string | null;
+  readSource?(
+    signalId: string
+  ): { signal: SignalEnvelope; threadId: string | null } | null;
 }) {
   if (
     input.signal.type !== "signal.text" ||
@@ -24,7 +30,9 @@ export async function validateSpaceWorkHandoff(input: {
   }
   const data = input.signal.data;
   const handoff = spaceWorkHandoffSchema.parse(data.meta?.workHandoff);
-  if (
+  if (handoff.schemaVersion === 2) {
+    validateSourceWorkHandoff({ ...input, signal: input.signal }, handoff);
+  } else if (
     data.contextSelection?.mode !== "new" ||
     data.contextSelection.access !== "space_context"
   ) {
@@ -107,5 +115,71 @@ export async function validateSpaceWorkHandoff(input: {
         reason: "The selected Skill release does not match the handoff.",
       });
     }
+  }
+}
+
+function validateSourceWorkHandoff(
+  input: Parameters<typeof validateSpaceWorkHandoff>[0] & {
+    signal: Extract<SignalEnvelope, { type: "signal.text" }>;
+  },
+  handoff: SpaceWorkHandoffV2
+) {
+  const data = input.signal.data;
+  const sourceContext = input.readSource?.(handoff.sourceSignalId);
+  const source = sourceContext?.signal;
+  if (
+    !source ||
+    source.type !== "signal.text" ||
+    source.spaceId !== input.signal.spaceId ||
+    source.data.meta?.recalledAt !== undefined
+  ) {
+    throw createCoreRpcHttpError({
+      status: 409,
+      code: "space.handoff.source_unavailable",
+      reason: "Open the original result in this Space before handing it off.",
+    });
+  }
+  if ((source.data.meta?.messageRevision ?? 1) !== handoff.sourceRevision) {
+    throw createCoreRpcHttpError({
+      status: 409,
+      code: "space.handoff.source_changed",
+      reason:
+        "The original result changed. Reopen the handoff and review its current revision.",
+    });
+  }
+  const sourceIsThreadRoot =
+    sourceContext?.threadId === null && input.threadRootSignalId === source.id;
+  if (
+    sourceContext?.threadId !== (input.threadId ?? null) &&
+    !sourceIsThreadRoot
+  ) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "space.handoff.destination_mismatch",
+      reason: "Hand off from the original result's conversation or thread.",
+    });
+  }
+  const selected = data.contextSelection;
+  const projectMatches =
+    selected?.mode === "new" &&
+    (handoff.code
+      ? selected?.projectWork?.projectId === handoff.code.projectId &&
+        selected.projectWork.repositoryFingerprint ===
+          handoff.code.repositoryFingerprint &&
+        selected.projectWork.commit === handoff.code.commit
+      : selected.projectWork === undefined);
+  if (
+    selected?.mode !== "new" ||
+    !projectMatches ||
+    selected.workspace !== handoff.execution.workspace ||
+    selected.access !== handoff.execution.access ||
+    data.messageEnvelope?.replyToSignalId !== handoff.sourceSignalId
+  ) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "space.handoff.code_context_mismatch",
+      reason:
+        "Keep the exact source result, selected materials, and execution choices in the new handoff.",
+    });
   }
 }

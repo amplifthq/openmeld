@@ -72,14 +72,21 @@ describe("composer task and recipient settings", () => {
     ).toBe(false);
   });
   it("keeps authoring controls out of history for older readers", () => {
-    const wire = toSpaceSignalReadWireValue({
+    const manifest = { schemaVersion: 2, code: { commit: "a".repeat(40) } };
+    const source = {
       type: "signal.text",
-      data: message,
-    });
+      data: {
+        ...message,
+        meta: { clientMessageId: "code-handoff", workHandoff: manifest },
+      },
+    };
+    const wire = toSpaceSignalReadWireValue(source);
     expect(wire.data).toEqual({
       text: message.text,
       messageEnvelope: message.messageEnvelope,
+      meta: { clientMessageId: "code-handoff" },
     });
+    expect(source.data.meta.workHandoff).toBe(manifest);
     expect(message.contextSelections[reviewer].access).toBe("read_only");
   });
 });

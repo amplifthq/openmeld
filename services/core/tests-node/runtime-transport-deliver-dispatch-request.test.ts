@@ -1,3 +1,4 @@
+import { spaceContextWorkHandoffSchema } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
 import { buildRuntimeTransportDeliverDispatchRequest } from "../src/dispatch/infrastructure/runtime-transport/runtime-coordinator-client";
 import { projectPluginConnectionExecutionSource } from "../src/runtime-transport/application/runtime-coordinator-plugin-connection-source";
@@ -141,5 +142,71 @@ describe("RuntimeTransport dispatch delivery request", () => {
     expect(legacyRequest.payload.sourceSignalSnapshot?.text).toContain(
       "Please handle this."
     );
+    const workHandoff = spaceContextWorkHandoffSchema.parse({
+      schemaVersion: 2,
+      sourceSignalId: "reviewed",
+      sourceRevision: 1,
+      files: [],
+      skills: [],
+      requirements: [],
+      execution: { workspace: "isolated", access: "space_context" },
+      work: {
+        goal: "Review",
+        completed: "Draft",
+        nextSteps: "Summarize",
+        evidence: [],
+        attemptedApproaches: [],
+        decisions: [],
+        constraints: [],
+        openQuestions: [],
+        completionCriteria: ["Return findings"],
+      },
+    });
+    const handoffInput = {
+      ...input,
+      message: {
+        ...input.message,
+        sourceSignalSnapshot: {
+          ...input.message.sourceSignalSnapshot,
+          workHandoff,
+        },
+      },
+    };
+    expect(() =>
+      buildRuntimeTransportDeliverDispatchRequest(handoffInput)
+    ).toThrow("service.update_required");
+    const capableRoute = {
+      ...input.route,
+      capabilities: {
+        ...input.route.capabilities,
+        runtimeAdapters: input.route.capabilities.runtimeAdapters.map(
+          (adapter) => ({
+            ...adapter,
+            capabilityDeclaration: {
+              ...adapter.capabilityDeclaration,
+              executionContextVersion: 5 as const,
+            },
+          })
+        ),
+      },
+    };
+    // A brief needs the versioned reader, but no writable selected-file capability.
+    expect(
+      buildRuntimeTransportDeliverDispatchRequest({
+        ...handoffInput,
+        route: capableRoute,
+      }).payload.sourceSignalSnapshot?.workHandoff
+    ).toEqual(workHandoff);
+    workHandoff.files.push({
+      fileId: "report",
+      revision: 3,
+      relativePath: "report.md",
+    });
+    expect(() =>
+      buildRuntimeTransportDeliverDispatchRequest({
+        ...handoffInput,
+        route: capableRoute,
+      })
+    ).toThrow("before handing off selected files");
   });
 });

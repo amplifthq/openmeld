@@ -1,5 +1,6 @@
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
+  executionContextSelectionSchema,
   spaceEvidenceReferencesSchema,
   spaceWorkHandoffSchema,
 } from "@openmeld/schemas";
@@ -11,6 +12,7 @@ export function assertSameSpaceSignalReplay(input: {
   authorProfileId: string;
   handoff: unknown;
   evidenceRefs?: unknown;
+  contextSelection?: unknown;
   text: string;
   targetProfileIds: string[];
 }) {
@@ -36,6 +38,17 @@ export function assertSameSpaceSignalReplay(input: {
       JSON.stringify(input.targetProfileIds) ||
     JSON.stringify(spaceWorkHandoffSchema.optional().parse(previous)) !==
       JSON.stringify(spaceWorkHandoffSchema.optional().parse(input.handoff)) ||
+    (previous?.schemaVersion === 2 &&
+      JSON.stringify(
+        executionContextSelectionSchema
+          .optional()
+          .parse(input.existing.data.contextSelection)
+      ) !==
+        JSON.stringify(
+          executionContextSelectionSchema
+            .optional()
+            .parse(input.contextSelection)
+        )) ||
     JSON.stringify(
       spaceEvidenceReferencesSchema.optional().parse(previousRefs)
     ) !==

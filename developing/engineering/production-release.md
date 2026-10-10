@@ -1086,7 +1086,17 @@ must keep their exact route bindings and contain no extra local statements.
 This proof does not emit a compatibility witness. In particular, the separate
 `inbox-membership-opt-in` Core-before-Gateway obligation still requires its own
 receiver admission; another witness for that service pair cannot satisfy it.
-Its cloud stage, including the combined Remote receiver profile, deploys Core
+The independent `visible-source-read` obligation deploys Core before Gateway,
+then Gateway before Web. New callers can send `read_sources` and request
+`includeSourceKeys`; the old strict receivers reject these requests. The
+classifier reads the explicit product caller from the selected source SHA,
+including caller-only increments. A known older caller has no new obligation;
+missing or unreadable source retains it. Naming these requests registers the
+obligation only. It creates no receiver witness, does not prove the durable
+source-target contract, and cannot replace membership opt-in evidence on the
+same service pair.
+
+The source-target cloud stage, including the combined Remote receiver profile, deploys Core
 through the existing current-published-CLI projection owner. That owner verifies
 the immutable published npm/R2 identity and required floor before activation,
 then verifies Core alignment before completing its receipt. The candidate's

@@ -38,6 +38,11 @@ export const executionContextDiagnosticsSchema = z.discriminatedUnion(
 export const executionContextProjectWorkSchema = z.strictObject({
   projectId: reference,
   repositoryFingerprint: repositoryFingerprintSchema,
+  // A complete published object id, never a moving branch or a sender-local path.
+  commit: z
+    .string()
+    .regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u)
+    .optional(),
 });
 const preferences = {
   access: executionContextAccessSchema.optional(),

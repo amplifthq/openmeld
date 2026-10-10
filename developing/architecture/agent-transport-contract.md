@@ -1255,7 +1255,7 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   (Default Project or Profile workspace) is missing or invalid. Current
   Wakeability still reports that fact as blocked
   for ordinary Wakes. For one dispatch whose Space-frozen new-Context selection
-  includes `projectWork`, or whose explicit resume/fork selection names an
+  includes `projectWork` or explicitly selects `space_context`, or whose resume/fork selection names an
   existing Context source, Core may pass this specific default-folder blocker
   only when the current Binding, Service, route, controller, and other readiness
   facts permit execution. Resume/fork admission at this stage is provisional:
@@ -1263,7 +1263,9 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   execution. This does not change the public Wakeability projection. Once the
   Context is resolved, Core checks that its Project/repository association is
   still current; the Service verifies the exact owner-local connection before
-  local execution. An absent, missing, or ambiguous selected connection fails
+  local execution. Space-only Contexts instead use their Service-owned scratch
+  workspace after verifying the accepted route/Binding identity; they do not
+  resolve or inherit a Default Project folder. An absent, missing, or ambiguous selected connection fails
   closed without running the Agent.
   Space member/status and Organization directory readiness use the same Core
   decision. Profiles in one request share existing Runtime registry and

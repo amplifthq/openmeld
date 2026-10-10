@@ -1,3 +1,4 @@
+import type { SpaceInboxUnreadTarget } from "@openmeld/schemas/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useInboxVisibleConversation } from "#/components/inbox/inbox-visible-conversation";
@@ -42,7 +43,12 @@ export function useSpaceInboxReadPosition(input: {
 		[input.organizationId, queryClient]
 	);
 	const markViewed = useCallback(
-		(targets: readonly { itemId?: string; occurredAtMs: number }[]) => {
+		(
+			targets: readonly (
+				| SpaceInboxUnreadTarget
+				| { itemId: string; occurredAtMs: number }
+			)[]
+		) => {
 			const organizationId = input.organizationId;
 			if (!organizationId || targets.length === 0) {
 				return Promise.resolve();
@@ -50,14 +56,11 @@ export function useSpaceInboxReadPosition(input: {
 			const write = writes.current
 				.catch(() => undefined)
 				.then(async () => {
-					const items = targets.map((target) => {
-						if (!target.itemId) {
-							throw new Error(
-								"Unread updates are still loading. Refresh this Space and try again."
-							);
-						}
-						return { itemId: target.itemId, occurredAtMs: target.occurredAtMs };
-					});
+					const items = targets.flatMap((target) =>
+						target.itemId
+							? [{ itemId: target.itemId, occurredAtMs: target.occurredAtMs }]
+							: []
+					);
 					await queryClient.cancelQueries({
 						queryKey: inboxQueryKeys.organization(organizationId),
 					});
@@ -76,6 +79,26 @@ export function useSpaceInboxReadPosition(input: {
 									operation: "read",
 									spaceId: input.spaceId,
 									items: items.slice(offset, offset + 500),
+								},
+							});
+						}
+						const sources = targets.flatMap((target) =>
+							!target.itemId && "signalId" in target
+								? [
+										{
+											signalId: target.sourceKey ?? target.signalId,
+											occurredAtMs: target.occurredAtMs,
+										},
+									]
+								: []
+						);
+						for (let offset = 0; offset < sources.length; offset += 500) {
+							await mutateCurrentSpaceInboxRead({
+								organizationId,
+								body: {
+									operation: "read_sources",
+									spaceId: input.spaceId,
+									sources: sources.slice(offset, offset + 500),
 								},
 							});
 						}

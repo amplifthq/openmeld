@@ -424,8 +424,9 @@ condition and a source-owned path that emits its resolution. The mere presence
 of retry, repair, or diagnostics controls does not turn a terminal update into
 unfinished source work.
 
-**Dismiss** removes an item from that recipient's Inbox views and counts without
-approving, rejecting, discarding, or otherwise changing the source work. Core
+**Dismiss** removes an item from that recipient's Inbox views and attention counts without
+approving, rejecting, discarding, or otherwise changing the source work.
+Conversation unread remains independent of dismissal. Core
 records Dismiss in `clearedAt`; the item row is not hard-deleted. The retained
 recipient/source uniqueness row is the durable replay fence that prevents a
 source reconciler from recreating the item or resending delivery. Dismiss is
@@ -452,8 +453,9 @@ The first release creates items for these explicit user-visible events:
 Thread reply updates are scoped to current members who authored the root or a
 retained reply, including the current owners of participating personal Agents.
 Space membership, viewing a thread, and owning a nonparticipating Agent do not
-subscribe a person. This audience restriction also applies to explicit mentions
-inside thread replies; main-timeline addressing keeps its existing audience.
+subscribe a person. Explicit Human mentions and the exact Wake requester also
+receive a Thread update when they are current Space members. Main messages reach
+current Human members.
 
 A changed reaction addition to a Human member's message creates one ordinary
 unread update for that message's current Human owner, excluding self-reactions.
@@ -466,9 +468,10 @@ adding it again creates a new event. Existing delivered items remain history.
    through CLI or automation without an explicit author read confirmation,
    with a targeted reply or
    structured Human Mention receiving the more specific source kind.
-2. An Agent or Center Agent reply intended for the member who initiated the
-   interaction, a current human member explicitly mentioned by the reply, or
-   the current human author of the target thread. A personal Agent's published
+2. Any formal Agent or Center Agent message, including proactive Routine results,
+   without requiring a requester, mention, or special final-reply purpose. Main
+   messages reach current Human members; Thread messages use the audience above.
+   A personal Agent's published
    reply also creates an ordinary unread update for its current owner, whether
    the owner, another person, or an Agent initiated the work. The owner need not
    have a separate Human membership when the existing personal-Agent access
@@ -478,12 +481,13 @@ adding it again creates a new event. Existing delivered items remain history.
    Chats and Spaces reuse the same unread projection and read-through rules.
 3. An Agent Interaction that explicitly requests approval, an answer, plan
    review, or other supported human response.
-4. A Wake requested by the member that reaches a system-owned ending:
+4. A formal system-owned Wake ending published in the conversation:
    a visible failure or stopped outcome, a `stay_silent` outcome, or an
    explicit final status. A successful final reply uses the Agent reply item
    instead of a duplicate success item. An accepted result without a valid
    public Space action is a visible failure, never a synthetic completion. A
-   terminal failure is an urgent update whose preview carries the bounded
+   terminal failure is urgent only for its exact requester; other current
+   conversation recipients receive an ordinary update. Its preview carries the bounded
    public failure reason; it does not become an unresolved action merely because
    retry and diagnostics are available. When that failure is presented under
    the original Wake message, the Space producer targets that source Signal
@@ -695,6 +699,19 @@ actions and no unread items. An empty feed says **No updates yet**.
 
 ### Space message unread behavior
 
+Every formal published main-conversation message is an unread update for current
+Human members, including proactive Routine results, Agent replies, task results,
+and system-owned outcomes. A requester or mention is not required. Thread updates
+remain scoped to participants and explicitly addressed recipients. Public browsing
+does not establish membership. Transient progress and membership notices are not
+new conversation messages. Failure urgency belongs only to the Wake requester;
+other conversation recipients receive an ordinary update.
+
+Read state, Inbox dismissal, source requests, and notification delivery are separate.
+Dismiss removes an item from the recipient's Inbox, but does not mark its message
+read in the Space. Only reading or an explicit mark-as-read action changes that
+read fact. Business requests retain their source-owned resolution rules.
+
 An Agent's presence alone never makes a message relevant to its owner. Personal
 owner awareness requires actual structured Agent addressing, a Human message
 in that Agent's DM, or that Agent's own published reply. Activation and Reference
@@ -789,6 +806,14 @@ items, without advancing over earlier unseen updates. Existing legacy read-throu
 endpoints remain supported for older clients; the new viewport path does not write
 those watermarks. Reading never resolves unfinished source work.
 
+If the message appears before its Inbox row, Web sends the exact source Signal
+and occurrence time. Space resolves the retained publication intent and current
+recipient eligibility. Core inserts the canonical recipient row and marks that
+version read in one transaction. Outbox replay preserves the read fact; no second
+read ledger or historical replay is introduced. Navigation anchors are separate
+from source identity: an anchored failure is read only when its outcome is visible,
+and reaction reads cannot advance beyond the rendered reaction revision.
+
 The blue unread pill stays available until the complete Space unread count is zero.
 Its left side always navigates to the earliest remaining target across main and
 Thread messages, opening the exact Thread reply when necessary. Sidebar and Space
@@ -809,7 +834,8 @@ has unread updates, then remove it when that scope reaches zero. **Open thread**
 remains available with neutral styling after its unread count reaches zero. Full
 scope counts and the bounded navigation page come from the same canonical rows;
 counts are not inferred from only the currently loaded page. New clients opt into
-item IDs and scope counts with `includeItemIds=true`, preserving strict legacy
+item IDs and scope counts with `includeItemIds=true`, and source event identities
+with `includeSourceKeys=true`, preserving strict legacy
 response shapes. Exact visible reads update shared query projections optimistically,
 restore on failure, and reconcile against Core after persistence. No dismissed-pill
 state or browser read ledger owns unread truth.

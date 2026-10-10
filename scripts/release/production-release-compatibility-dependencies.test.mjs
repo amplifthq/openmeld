@@ -123,7 +123,9 @@ test("Inbox membership opt-in caller-only uses target source and preserves unkno
     },
   ]) {
     assert.deepEqual(
-      resolveProductionCompatibilityObligations(paths, false, context),
+      resolveProductionCompatibilityObligations(paths, false, context).filter(
+        (item) => item.contract === "inbox-membership-opt-in"
+      ),
       [INBOX_MEMBERSHIP_OPT_IN]
     );
   }

@@ -20,6 +20,7 @@ import {
   CENTER_AGENT_REPLY_PUBLICATION_FAILED_PUBLIC_COPY,
   CENTER_AGENT_REQUEST_START_FAILED_PUBLIC_COPY,
   CENTER_AGENT_SOURCE_MESSAGE_MISSING_PUBLIC_COPY,
+  CODE_HANDOFF_RECEIVER_UNSUPPORTED_PUBLIC_COPY,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
   deriveCenterAgentDirectMessageSpaceProjection,
   formatPublicAgentFailureFacts,
@@ -50,6 +51,7 @@ import {
   routineWorkflowContinuationEventPayloadSchema,
   SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE,
   SPACE_MESSAGE_FILE_MAX_COUNT,
+  spaceCodeWorkHandoffSchema,
   spaceMessageAttachmentsSchema,
 } from "@openmeld/schemas";
 import type {
@@ -852,6 +854,19 @@ export async function submitRemoteAgentNativeDelivery(
   );
   if (replayOutcome) {
     return replayOutcome;
+  }
+  if (
+    spaceCodeWorkHandoffSchema.safeParse(
+      input.message.sourceSignalSnapshot?.workHandoff
+    ).success
+  ) {
+    await rejectNativeDeliveryWithSpaceFailure({
+      ...input,
+      failureCode: "space.handoff.code_receiver_unsupported",
+      ledgerStatus: "failed",
+      text: CODE_HANDOFF_RECEIVER_UNSUPPORTED_PUBLIC_COPY,
+    });
+    return { shouldAck: true, status: "failed" };
   }
   const designationDb = getPostgresDatabase(input.env);
   const designation = await prepareRemoteAgentAdmissionFoundation({

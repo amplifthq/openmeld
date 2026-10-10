@@ -46,8 +46,6 @@ export function resolveVisibleTimelineSignalTypes(
     : VISIBLE_SPACE_TIMELINE_SIGNAL_TYPES;
 }
 
-const OPENMELD_SYSTEM_PROFILE_ID = "openmeld-system";
-
 export function isFormalSpaceUpdateSignal(
   signal: SignalEnvelope
 ): signal is FormalSpaceUpdateSignal {
@@ -58,10 +56,6 @@ export function isFormalSpaceUpdateSignal(
     return true;
   }
   if (signal.type !== "signal.text") {
-    return false;
-  }
-
-  if (isOpenMeldSystemTextSignal(signal)) {
     return false;
   }
 
@@ -141,15 +135,6 @@ function readSignalTextMeta(
       ? { transient: meta.transient }
       : {}),
   };
-}
-
-function isOpenMeldSystemTextSignal(
-  signal: Extract<SignalEnvelope, { type: "signal.text" }>
-): boolean {
-  return (
-    normalizeOptionalText(signal.profile?.profileId) ===
-    OPENMELD_SYSTEM_PROFILE_ID
-  );
 }
 
 function normalizeOptionalText(value: unknown): string | null {

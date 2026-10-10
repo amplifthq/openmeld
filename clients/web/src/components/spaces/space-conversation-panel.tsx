@@ -141,7 +141,10 @@ import {
 	SpaceMessageEditingScope,
 	useOptimisticSpaceMessages,
 } from "./space-message-editing";
-import { SpaceMessageReadObserver } from "./space-message-read-observer";
+import {
+	SpaceMessageReadObserver,
+	spaceMessageReadSourceAt,
+} from "./space-message-read-observer";
 import type { SpaceMessageReferencesById } from "./space-message-reference";
 import {
 	buildThreadSignalIds,
@@ -2515,6 +2518,8 @@ function SystemEventRow(input: {
 					input.highlightedSignalId === input.item.id ? "true" : undefined
 				}
 				data-history-signal-id={getSpaceConversationHistorySignalId(input.item)}
+				data-message-row-id={input.item.id}
+				data-message-source-at={spaceMessageReadSourceAt(input.item)}
 				data-signal-id={input.item.id}
 				ref={(element) => {
 					input.registerMessageElement(input.item.id, element);

@@ -70,6 +70,12 @@ describe("New Space membership Inbox events", () => {
         totalUnreadCount: 0,
         joinedItems: [{ occurredAtMs: 0 }],
       });
+      const prepared = await mutateSpaceInboxRead({
+        db: f.db,
+        ...f.identity,
+        body: { operation: "prepare", spaceId: "space" },
+      });
+      expect(prepared).toMatchObject({ operation: "prepare", unreadCount: 1 });
       const joined = unread.joinedItems?.[0];
       if (!joined) {
         throw new Error("Expected membership notice");
