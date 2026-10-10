@@ -1848,6 +1848,23 @@ component epoch is required. CLI, Service, Skills, setup, Wake and Space action
 contracts are unchanged.
 
 Each client maps only supported targets to its canonical navigation surface.
+Space unread readers opt into additive source identities with
+`includeSourceKeys=true`; strict legacy responses omit them. `sourceKey` names
+the actual publication or reaction occurrence, while `signalId` remains the
+navigation anchor. Visible-source reads use `read_sources` with exact Signal IDs
+and occurrence times. Space checks its retained publication intent and current
+recipient eligibility; Core creates and reads the same canonical Inbox row
+atomically. This RPC does not resolve source requests or accept client-supplied
+Inbox content. Task review attention uses the existing system-attention source
+kind and Space target; Task's durable delivery outbox remains its writer.
+
+Deploy Core and Gateway before Web starts using the new read operation and
+source-key query. Old Web, CLI, Service and Skills retain their existing request
+shapes. Roll Web back first if these receivers must be rolled back. This slice
+adds no persisted schema, target discriminator, RuntimeCoordinator state, Wake
+authority, or local-component epoch. Feature verification uses deferred local
+release readiness; a later integrated component release owns stamping.
+
 Unknown target kinds fail closed and remain visible without creating an
 arbitrary URL. A Slack `message_channel` target is the bounded exception for an
 external canonical source: it carries exact provider ids and a permalink that

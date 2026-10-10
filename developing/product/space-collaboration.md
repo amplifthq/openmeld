@@ -171,6 +171,15 @@ acceptance against a refreshed revision. A human Space owner can take over an
 Agent-requested Task decision, and approving further rework hands the next
 correction to the assignee through the same Space Wake path.
 
+A submitted result awaiting a Human reviewer creates a separate pending Inbox
+request, in addition to its public handoff message. At the automatic-rework limit,
+the existing Human decision target receives the request instead. Task mutations
+persist Inbox projection intent in the existing delivery outbox; retries use the
+current Task state and close superseded requests. Reading the handoff, marking
+the Space read, replying normally or dismissing Inbox attention never approves
+the result. Agent reviewers retain their existing Wake path without treating
+their personal owners as substitute reviewers.
+
 Task transition messages are idempotent and return to the source Thread when
 one exists. They mention a human reviewer through normal Inbox delivery or
 Wake an Agent reviewer through the existing Space path. Completion posts the
