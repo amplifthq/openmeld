@@ -1074,11 +1074,15 @@ strict Inbox source-target schema together with a Core writer for those targets.
 The path signal remains conservative. The existing classifier omits this
 obligation only when the explicit baseline and candidate sources prove the
 same complete target union, direct schema dependencies, actual writers and
-storage delegate, target-bearing RPC/HTTP projections, Web interpreter, and
+storage delegate, its directly called legacy repairs, the actual row mapper
+and timestamp helper, target-bearing RPC/HTTP projections, Web interpreter, and
 their import/export, production binding and resolver configuration. It supports
 only the reviewed pure membership-kind projections, source-guard forwarding,
 and four retained request-time edits; every other owner change, unreadable
 source, ambiguous declaration or unknown structure retains the original gate.
+The item-returning service methods and their factory bindings remain equal;
+unrelated membership SQL is outside this target proof. Gateway registrations
+must keep their exact route bindings and contain no extra local statements.
 This proof does not emit a compatibility witness. In particular, the separate
 `inbox-membership-opt-in` Core-before-Gateway obligation still requires its own
 receiver admission; another witness for that service pair cannot satisfy it.

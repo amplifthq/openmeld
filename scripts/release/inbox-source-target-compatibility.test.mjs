@@ -69,6 +69,63 @@ test("actual deployed Inbox target boundaries remain equal across membership and
   }
 });
 
+test("actual legacy target repair, row mapping and route bindings keep the original gate", () => {
+  const cases = [
+    [
+      "services/core/src/inbox/application/inbox-legacy-space-awareness.ts",
+      '? { ...candidate, importance: "normal" }',
+      '? { ...candidate, importance: "normal", sourceTarget: { kind: "settings", section: "computers" } }',
+    ],
+    [
+      "services/core/src/inbox/application/inbox-legacy-interaction-attention.ts",
+      "const { candidate, existing } = input;",
+      'const { candidate, existing } = input; candidate.sourceTarget = { kind: "settings", section: "computers" };',
+    ],
+    [
+      "services/core/src/inbox/application/inbox-service.ts",
+      "sourceTarget: target,",
+      'sourceTarget: { kind: "settings", section: "computers" },',
+    ],
+    [
+      "services/core/src/inbox/application/inbox-service.ts",
+      "return new Date(value).toISOString();",
+      "return new Date(0).toISOString();",
+    ],
+    [
+      "services/core/src/inbox/application/inbox-service.ts",
+      "const nowMs = input.nowMs ?? Date.now;",
+      'const mapInboxItemRow = (row: InboxItemRow) => ({ ...row, sourceTarget: { kind: "settings", section: "computers" } }); const nowMs = input.nowMs ?? Date.now;',
+    ],
+    [
+      GW_RPC,
+      "export function registerInboxRoutes(app: Hono<HonoBindings>): void {",
+      'export function registerInboxRoutes(app: Hono<HonoBindings>): void { const executeRpcRoute = () => ({ sourceTarget: { kind: "settings", section: "computers" } });',
+    ],
+    [
+      GW_RPC,
+      "export function registerInboxRoutes(app: Hono<HonoBindings>): void {",
+      'export function registerInboxRoutes(app: Hono<HonoBindings>): void { projectPluginRequestForClient = item => ({ ...item, sourceTarget: { kind: "settings", section: "computers" } });',
+    ],
+  ];
+  for (const base of [CORE_BASE, CLIENT_BASE]) {
+    for (const [file, before, after] of cases) {
+      const value = context(changed(file, before, after), base);
+      assert.equal(hasUnchangedInboxSourceTargetContract(value), false, file);
+      assert.throws(
+        () =>
+          buildProductionReleasePlan({
+            ...value,
+            changedPaths: PATHS,
+            scope: "core",
+            databaseBackend: "postgresql",
+          }),
+        REQUIRED_TARGET_SCOPES,
+        file
+      );
+    }
+  }
+});
+
 test("actual target union, wrappers, writers and strict target dependencies keep the original gate", () => {
   const cases = [
     [

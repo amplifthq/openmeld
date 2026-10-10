@@ -79,6 +79,10 @@ const UNCHANGED_FILES = [
   TYPESCRIPT_PARENT,
   "services/core/wrangler.jsonc",
   "services/core/src/inbox/infrastructure/postgresql/inbox-item-repo.ts",
+  "services/core/src/inbox/application/inbox-legacy-space-awareness.ts",
+  "services/core/src/inbox/application/inbox-legacy-interaction-attention.ts",
+  "services/core/src/inbox/application/inbox-feed-service.ts",
+  "services/core/src/inbox/application/inbox-notification-observations.ts",
   "services/gateway/src/routes/rpc-http.helpers.ts",
   "services/gateway/src/routes/rpc-http.parsers.ts",
   "services/core/src/remote-agent/application/native-delivery-inbox-producer.ts",
@@ -309,6 +313,13 @@ export function hasUnchangedInboxSourceTargetContract(context) {
     if (storage[0] !== storage[1]) {
       return false;
     }
+    if (
+      !compareInboxRowMapper(
+        syntaxPair("services/core/src/inbox/application/inbox-service.ts")
+      )
+    ) {
+      return false;
+    }
     return (
       compareParserLock(...pair("pnpm-lock.yaml")) &&
       compareParserWorkspace(...pair("pnpm-workspace.yaml"))
@@ -375,6 +386,114 @@ function named(file, name) {
 }
 function sameNamed(files, name) {
   return tokens(named(files[0], name)) === tokens(named(files[1], name));
+}
+function compareInboxRowMapper(files) {
+  const protectedNames = new Set([
+    "mapInboxItemRow",
+    "toIsoTimestamp",
+    "inboxItemSchema",
+    "inboxSourceTargetSchema",
+    "JSON",
+    "Error",
+    "Number",
+    "Date",
+  ]);
+  if (
+    !(
+      sameImports(files) &&
+      [
+        "mapInboxItemRow",
+        "toIsoTimestamp",
+        "readInboxItem",
+        "inboxItemScopeSql",
+      ].every((name) => sameNamed(files, name))
+    )
+  ) {
+    return false;
+  }
+  const factories = files.map((file) => {
+    for (const statement of file.statements) {
+      if (ts.isExpressionStatement(statement)) {
+        throw new Error("Unknown Inbox mapper module mutation.");
+      }
+      if (
+        ts.isVariableStatement(statement) &&
+        statement.declarationList.declarations.some(
+          (node) =>
+            !ts.isIdentifier(node.name) || protectedNames.has(node.name.text)
+        )
+      ) {
+        throw new Error("Shadowed Inbox mapper binding.");
+      }
+      if (
+        (ts.isFunctionDeclaration(statement) ||
+          ts.isClassDeclaration(statement)) &&
+        protectedNames.has(statement.name?.text) &&
+        !["mapInboxItemRow", "toIsoTimestamp"].includes(statement.name?.text)
+      ) {
+        throw new Error("Shadowed Inbox mapper global.");
+      }
+    }
+    const factory = named(file, "createInboxService");
+    rejectLocalTargetBindings(factory, protectedNames);
+    const statements = [...factory.body.statements];
+    const result = statements.pop();
+    if (
+      !(
+        ts.isReturnStatement(result) &&
+        ts.isObjectLiteralExpression(result.expression)
+      )
+    ) {
+      throw new Error("Unknown Inbox service factory.");
+    }
+    const methods = ["get", "list", "markRead"].map((name) => {
+      const found = result.expression.properties.filter(
+        (node) =>
+          ts.isMethodDeclaration(node) && node.name?.getText(file) === name
+      );
+      if (found.length !== 1) {
+        throw new Error("Ambiguous Inbox target service method.");
+      }
+      return tokens(found[0]);
+    });
+    return [
+      factory.modifiers?.map(tokens),
+      factory.name && tokens(factory.name),
+      factory.typeParameters?.map(tokens),
+      factory.parameters.map(tokens),
+      factory.type && tokens(factory.type),
+      statements.map(tokens),
+      methods,
+      file.statements.filter(ts.isClassDeclaration).map(tokens),
+    ];
+  });
+  return isDeepStrictEqual(factories[0], factories[1]);
+}
+function rejectLocalTargetBindings(owner, names) {
+  const visit = (node) => {
+    if (
+      (ts.isVariableDeclaration(node) ||
+        ts.isParameter(node) ||
+        ts.isBindingElement(node) ||
+        ts.isFunctionDeclaration(node) ||
+        ts.isClassDeclaration(node)) &&
+      ts.isIdentifier(node.name ?? {}) &&
+      names.has(node.name.text)
+    ) {
+      throw new Error("Shadowed local Inbox target binding.");
+    }
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      node.operatorToken.kind <= ts.SyntaxKind.LastAssignment &&
+      ts.isIdentifier(node.left) &&
+      names.has(node.left.text)
+    ) {
+      throw new Error("Reassigned Inbox target binding.");
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(owner.body);
 }
 function sameImports(files, ignored = []) {
   const imports = (file) =>
@@ -806,6 +925,59 @@ function compareTargetTransports(core, gateway) {
     "INBOX_ITEM_READ_ROUTE",
   ];
   if (!routeNames.every((name) => sameNamed(gateway, name))) {
+    return false;
+  }
+  const registrations = gateway.map((file) => {
+    const owner = named(file, "registerInboxRoutes");
+    rejectLocalTargetBindings(
+      owner,
+      new Set([
+        ...GATEWAY_PROJECTIONS,
+        "projectInboxItemForClient",
+        "projectMembershipNoticeForClient",
+        "executeRpcRoute",
+        "buildCoreRpcContext",
+        "readJsonRequestBody",
+        "invalidPayloadResponse",
+        "resolveInboxItemKindVersion",
+        "inboxFeedResponseSchema",
+        "inboxFeedQuerySchema",
+        "inboxNotificationObservationsResponseSchema",
+        "inboxNotificationObservationsQuerySchema",
+        "getInboxItemResponseSchema",
+        "getInboxItemWireResponseSchema",
+        "listInboxItemsResponseSchema",
+        "listInboxItemsWireResponseSchema",
+        "markInboxItemReadResponseSchema",
+        "markInboxItemReadWireResponseSchema",
+      ])
+    );
+    return [
+      owner.parameters.map(tokens),
+      owner.type && tokens(owner.type),
+      owner.body.statements.map((statement) => {
+        const call =
+          ts.isExpressionStatement(statement) && statement.expression;
+        if (
+          !(
+            ts.isCallExpression(call) &&
+            ts.isPropertyAccessExpression(call.expression) &&
+            ts.isIdentifier(call.expression.expression) &&
+            call.expression.expression.text === "app" &&
+            ["get", "post", "put", "delete", "patch"].includes(
+              call.expression.name.text
+            ) &&
+            call.arguments.length === 2 &&
+            ts.isArrowFunction(call.arguments[1])
+          )
+        ) {
+          throw new Error("Unknown local Inbox route statement.");
+        }
+        return [tokens(call.expression), tokens(call.arguments[0])];
+      }),
+    ];
+  });
+  if (!isDeepStrictEqual(registrations[0], registrations[1])) {
     return false;
   }
   const routes = gateway.map((file) =>
