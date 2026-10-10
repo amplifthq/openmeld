@@ -20,7 +20,8 @@ customers, products, and prices.
 
 The website lists all supported Plugins and distributes their distinct logos
 evenly across two scrolling rows. Reduced motion shows every logo in a static
-grid.
+grid. The headline shows the Plugin count, and long names stay centered when
+they wrap.
 
 Browse Plugins by category, open a category to see all its tools, and search
 beside the Personal and organization tabs. Cards show what each tool does,

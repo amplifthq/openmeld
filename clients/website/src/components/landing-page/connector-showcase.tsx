@@ -15,21 +15,19 @@ import { useInView } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import "./connector-showcase.css";
 
-const integrations = PLUGINS.filter(
-	(plugin) => plugin.availability === "available"
-);
+const plugins = PLUGINS.filter((plugin) => plugin.availability === "available");
 
 // Several shipped connections share one brand. Keep every connection in the
 // details, but show its logo in only one marquee row.
-const brands = [...new Set(integrations.map((plugin) => plugin.logoPath))].map(
+const brands = [...new Set(plugins.map((plugin) => plugin.logoPath))].map(
 	(logoPath) => {
-		const plugins = integrations.filter(
+		const brandPlugins = plugins.filter(
 			(plugin) => plugin.logoPath === logoPath
 		);
-		const app = plugins[0];
+		const app = brandPlugins[0];
 		const name = app.service.startsWith("cloudflare_")
 			? "Cloudflare"
-			: plugins.map((plugin) => plugin.name).join(" / ");
+			: brandPlugins.map((plugin) => plugin.name).join(" / ");
 		return { app, name };
 	}
 );
@@ -77,18 +75,16 @@ export function ConnectorShowcase() {
 		>
 			<div className="meld-connectors-copy">
 				<h2 id="connectors-title">
-					Your tools.
-					<span> Connected.</span>
+					{plugins.length} plugins.
+					<span> More ways to work.</span>
 				</h2>
 				<p>
-					Connect your personal tools or your team's apps. Let your agents work
-					with documents, customer records, analytics, and deployments through
-					the access you grant.
+					Connect the tools you use. You choose what your agents can access and
+					do.
 				</p>
 			</div>
 			<p className="sr-only">
-				Supported integrations: {integrations.map((app) => app.name).join(", ")}
-				.
+				Supported plugins: {plugins.map((app) => app.name).join(", ")}.
 			</p>
 			<div aria-hidden="true" className="meld-connectors-wall">
 				<div className="meld-connectors-track">
@@ -101,21 +97,21 @@ export function ConnectorShowcase() {
 				</div>
 			</div>
 			<div className="meld-connectors-footer">
-				<p>{integrations.length} supported integrations. More on the way.</p>
+				<p>More plugins on the way.</p>
 				<Sheet>
 					<SheetTrigger className="meld-connectors-details">
-						See all integrations <PlusIcon aria-hidden size={14} />
+						See all plugins <PlusIcon aria-hidden size={14} />
 					</SheetTrigger>
 					<SheetContent className="dark meld-connectors-sheet">
 						<SheetHeader>
-							<SheetTitle>Supported integrations</SheetTitle>
+							<SheetTitle>Supported plugins</SheetTitle>
 							<SheetDescription>
 								Connect these apps from Plugins in OpenMeld. Personal accounts
 								stay private. Choose which agents can use each connection.
 							</SheetDescription>
 						</SheetHeader>
 						<ul className="meld-connectors-list">
-							{integrations.map((app) => (
+							{plugins.map((app) => (
 								<li key={app.service}>
 									<AppLogo app={app} size="md" />
 									<div>

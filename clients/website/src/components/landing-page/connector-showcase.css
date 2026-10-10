@@ -81,9 +81,13 @@
 	box-shadow: 0 6px 16px #00000014;
 }
 .meld-connector-tile > span:last-child {
+	align-self: stretch;
+	padding: 0 10px;
 	font-size: 12px;
 	color: #c1c1c5;
 	letter-spacing: -0.01em;
+	text-align: center;
+	text-wrap: balance;
 }
 .meld-connectors-panel .meld-connector-logo {
 	width: 38px;
