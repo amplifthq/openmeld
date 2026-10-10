@@ -77,6 +77,13 @@ test("receiver-first order incompatible with the hosted job graph is rejected", 
     scope: "core",
     state: "pending",
     compatibilityDependencies: [["remote-agent", "core"]],
+    compatibilityObligations: [
+      {
+        receiver: "remote-agent",
+        producer: "core",
+        contract: "remote-agent-request",
+      },
+    ],
     changedPaths: [
       "packages/schemas/src/schemas/runtime/remote-agent-worker.ts",
       "services/core/src/remote-agent/application/native-delivery-service.ts",
@@ -100,6 +107,7 @@ test("receiver-first order incompatible with the hosted job graph is rejected", 
     {
       producer: "core",
       receiver: "remote-agent",
+      contracts: ["remote-agent-request"],
       evidence: {
         baselineSha: "a".repeat(40),
         result: "match",
