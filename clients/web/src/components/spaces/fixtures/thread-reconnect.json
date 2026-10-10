@@ -1,0 +1,86 @@
+{
+  "wakeContinuation": {
+    "targetProfileId": "agt_f0fed1fb-2a33-4195-8b1a-f48deb204f31",
+    "automaticTargetProfileId": "agt_f0fed1fb-2a33-4195-8b1a-f48deb204f31"
+  },
+  "signals": [
+    {
+      "v": 1,
+      "id": "c0dee4dc-80fa-4145-ab4d-34038cbe65f3",
+      "spaceId": "space-123",
+      "ts": 1791576791962,
+      "profile": {
+        "kind": "agent",
+        "profileId": "agt_f0fed1fb-2a33-4195-8b1a-f48deb204f31",
+        "profileName": "Center Agent",
+        "agentControllerRef": "hosted:center-agent"
+      },
+      "type": "signal.text",
+      "data": {
+        "text": "Waiting for delegated work.",
+        "messageEnvelope": {
+          "activationTargets": [],
+          "referenceTargets": [],
+          "replyToSignalId": "b50bf43e-2383-402c-874d-2d6b4fe33029",
+          "text": "Waiting for delegated work."
+        },
+        "meta": {
+          "clientMessageId": "cafff78a-1f6a-400e-8ece-f8fb7a4d1a35",
+          "purpose": "agent_reply_final",
+          "dispatchId": "cafff78a-1f6a-400e-8ece-f8fb7a4d1a35",
+          "targetProfileId": "agt_f0fed1fb-2a33-4195-8b1a-f48deb204f31"
+        }
+      },
+      "reactions": {
+        "version": 0,
+        "groups": []
+      }
+    },
+    {
+      "v": 1,
+      "id": "ddfaf689-f496-4420-b21a-f05b8a0556d9",
+      "spaceId": "space-123",
+      "ts": 1791576869703,
+      "profile": {
+        "kind": "agent",
+        "profileId": "agt_f0fed1fb-2a33-4195-8b1a-f48deb204f31",
+        "profileName": "Center Agent",
+        "agentControllerRef": "hosted:center-agent"
+      },
+      "type": "signal.text",
+      "data": {
+        "text": "Delegated work stopped.",
+        "messageEnvelope": {
+          "activationTargets": [],
+          "referenceTargets": [],
+          "replyToSignalId": "b50bf43e-2383-402c-874d-2d6b4fe33029",
+          "text": "Delegated work stopped."
+        },
+        "meta": {
+          "clientMessageId": "agent-task-continuation:sub:ca-wake:fdm9au4yqzmi:agt_5a673268-9f7d-4711-9ef7-342dba5a379a",
+          "purpose": "agent_reply_final",
+          "dispatchId": "agent-task-continuation:sub:ca-wake:fdm9au4yqzmi:agt_5a673268-9f7d-4711-9ef7-342dba5a379a",
+          "targetProfileId": "agt_f0fed1fb-2a33-4195-8b1a-f48deb204f31"
+        }
+      },
+      "reactions": {
+        "version": 0,
+        "groups": []
+      }
+    }
+  ],
+  "placements": [
+    {
+      "threadId": "thr_d229358c-2180-4246-b364-ff59f8c7b49a",
+      "signalId": "c0dee4dc-80fa-4145-ab4d-34038cbe65f3",
+      "placement": "thread",
+      "createdAt": "2026-10-09T20:13:11.962Z"
+    },
+    {
+      "threadId": "thr_d229358c-2180-4246-b364-ff59f8c7b49a",
+      "signalId": "ddfaf689-f496-4420-b21a-f05b8a0556d9",
+      "placement": "thread",
+      "createdAt": "2026-10-09T20:14:29.703Z"
+    }
+  ]
+}

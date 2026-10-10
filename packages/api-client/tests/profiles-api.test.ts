@@ -63,7 +63,16 @@ describe("api-client profiles api", () => {
     expect(transport).not.toHaveBeenCalled();
   });
 
-  it("updates an Agent Profile Default Project through Core", async () => {
+  it.each([
+    false,
+    true,
+  ])("updates an Agent Profile Default Project through Core (bound=%s)", async (bound) => {
+    const expectedBindingTarget = {
+      bindingId: "binding-1",
+      agentControllerRef: "builtin:codex",
+      agentControllerConversationId: null,
+      openMeldServiceRuntimeId: "runtime-1",
+    };
     const transport = vi.fn(() =>
       Promise.resolve(
         jsonResponse({
@@ -86,6 +95,7 @@ describe("api-client profiles api", () => {
       defaultProjectId: "project-1",
       expectedOrganizationId: "org-1",
       profileId: PROFILE_ID,
+      ...(bound ? { expectedBindingTarget } : {}),
     });
 
     expect(result.profile.defaultProjectId).toBe("project-1");
@@ -95,6 +105,7 @@ describe("api-client profiles api", () => {
           body: JSON.stringify({
             expectedOrganizationId: "org-1",
             defaultProjectId: "project-1",
+            ...(bound ? { expectedBindingTarget } : {}),
           }),
           method: "PATCH",
         }),

@@ -73,7 +73,9 @@ function buildPostNormalMessageBody(input: {
 }): PostNormalMessageBody {
   return {
     text: input.text,
-    ...(input.meta?.workHandoff ? { workHandoffVersion: 1 as const } : {}),
+    ...(input.meta?.workHandoff
+      ? { workHandoffVersion: input.meta.workHandoff.schemaVersion }
+      : {}),
     ...(input.meta?.evidenceRefs ? { evidenceRefsVersion: 1 as const } : {}),
     ...(input.deviceWait ? { deviceWait: input.deviceWait } : {}),
     ...(input.contextSelection

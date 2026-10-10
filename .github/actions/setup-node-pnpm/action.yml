@@ -7,7 +7,7 @@ inputs:
     required: false
     default: "24"
   control_directory:
-    description: Optional trusted control checkout that needs only the canonical schema parser
+    description: Optional trusted control checkout for schema and release parser dependencies
     required: false
     default: ""
   working_directory:
@@ -42,7 +42,8 @@ runs:
         if [ -n "$SETUP_CONTROL_DIRECTORY" ]; then
           pnpm --dir "$SETUP_CONTROL_DIRECTORY" install \
             --frozen-lockfile \
+            --filter @openmeld/root \
             --filter @openmeld/schemas \
-            --prod \
+            --prod=false \
             --ignore-scripts
         fi

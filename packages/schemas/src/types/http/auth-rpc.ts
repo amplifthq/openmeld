@@ -1,5 +1,9 @@
 import type { z } from "zod/v4";
 
+export type AuthRpcUpdateAgentProfileDefaultProjectInput = z.infer<
+  typeof import("../../schemas/http/auth-rpc")["authRpcUpdateAgentProfileDefaultProjectInputSchema"]
+>;
+
 export type AuthRpcProfileFact = z.infer<
   typeof import("../../schemas/http/auth-rpc")["authRpcProfileFactSchema"]
 >;

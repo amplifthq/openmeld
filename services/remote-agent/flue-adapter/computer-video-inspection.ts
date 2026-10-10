@@ -17,7 +17,7 @@ import type { RemoteAgentAdmissionImage } from "../agent-core/submission";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 import type { AgentComputerWorkspaceAccess } from "./agent-computer-workspace-access";
 import { inspectComputerFileForTransfer } from "./computer-file-handoff";
-import { AGENT_COMPUTER_CONTAINER_BACKEND_ID } from "./computer-workspace";
+import { AGENT_COMPUTER_CONTAINER_BACKEND_ID } from "./computer-workspace-config";
 
 const MAX_VIDEO_WINDOW_SECONDS = 30;
 const MAX_VIDEO_FRAMES = 6;

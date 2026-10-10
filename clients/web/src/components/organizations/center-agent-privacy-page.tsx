@@ -87,6 +87,31 @@ export function CenterAgentPrivacyPage() {
 					/>
 				</div>
 			</section>
+			<section className="overflow-hidden rounded-md border border-border/70 bg-card">
+				<div className="border-border/70 border-b px-5 py-4">
+					<h2 className="font-medium text-foreground text-sm">
+						Task data and support
+					</h2>
+				</div>
+				<div className="space-y-4 px-5 py-4 text-muted-foreground text-sm">
+					<p>
+						OpenMeld processes and stores conversations to run your tasks and
+						show your history.
+					</p>
+					<p>
+						For customer organizations in production, routine model logs and
+						automatic agent feedback omit conversation content.
+					</p>
+					<p>
+						Authorized infrastructure operators can still inspect stored
+						content. We ask for your consent before investigating your
+						conversations.
+					</p>
+					<Link className="underline underline-offset-4" to="/privacy">
+						Read the Privacy Policy
+					</Link>
+				</div>
+			</section>
 		</>
 	);
 }

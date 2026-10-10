@@ -31,6 +31,12 @@ export async function buildAcceptedDispatchSnapshot(input: {
     return null;
   }
   return {
+    ...(input.message.sourceSignalSnapshot?.workHandoff?.schemaVersion === 2
+      ? {
+          workHandoffVersion:
+            input.message.sourceSignalSnapshot.workHandoff.schemaVersion,
+        }
+      : {}),
     ...(input.message.organizationId &&
     input.message.sourceSignalSnapshot?.profileId
       ? {

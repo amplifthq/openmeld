@@ -3,7 +3,9 @@ import { openMeldDaemonOriginalErrorSchema } from "../daemon/task-result";
 import { agentStreamToolPartSchema } from "../protocol/agent-stream";
 import { clientMessageIdSchema } from "../protocol/client-message-id";
 import { nonEmptyTrimmedStringFromUnknown } from "../protocol/shared";
+import { postNormalMessageBodySchema } from "./space-signals";
 import {
+  wakeTargetExecutionContextSchema,
   wakeTraceWaterfallStepNameSchema,
   wakeTraceWaterfallStepSchema,
   wakeTraceWaterfallSummaryStatusSchema,
@@ -92,6 +94,7 @@ export const spaceMessageDetailsAgentContextSchema = z.strictObject({
 });
 
 export const spaceMessageDetailsWakeTargetSchema = z.strictObject({
+  taskContext: wakeTargetExecutionContextSchema.shape.taskContext,
   targetProfileId: z.string().trim().min(1),
   targetLabel: nullableTrimmedStringSchema,
   status: wakeTraceWaterfallSummaryStatusSchema.optional(),
@@ -178,11 +181,22 @@ export const spaceMessageDetailsDiagnosticsSchema = z.strictObject({
 });
 
 export const getSpaceMessageDetailsInputSchema = z.strictObject({
+  executionContextVersion: z.literal(1).optional(),
   spaceId: nonEmptyTrimmedStringFromUnknown,
   signalId: nonEmptyTrimmedStringFromUnknown,
 });
 
 export const getSpaceMessageDetailsResponseSchema = z.strictObject({
+  // Opt-in copy of the readable request, never a native task/permission grant.
+  newTaskSource: z
+    .strictObject({
+      sourceSignalId: z.string().trim().min(1),
+      sourceRevision: z.int().positive(),
+      threadId: z.string().trim().min(1).nullable(),
+      text: postNormalMessageBodySchema.shape.text,
+      files: postNormalMessageBodySchema.shape.files,
+    })
+    .optional(),
   query: z.strictObject({
     spaceId: z.string().trim().min(1),
     signalId: z.string().trim().min(1),

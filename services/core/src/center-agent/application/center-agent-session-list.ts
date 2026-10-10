@@ -5,12 +5,14 @@ import {
   listCenterAgentSessionsResponseSchema,
 } from "@openmeld/schemas";
 import { createCoreRpcHttpError } from "../../rpc/errors";
+import { readConversationDeletionDates } from "../../space/application/conversation-history";
 import { listCenterAgentSessionIndexRows } from "../../space-index/space-index-repository";
 /** The caller resolves these identities from current Core membership/designation. */
 export async function listAuthorizedCenterAgentSessions(input: {
   db: PostgresDatabase;
   organizationId: string;
   memberProfileId: string;
+  ownerUserId?: string;
   centerAgentProfileId: string;
   pairKey: string;
   limit: number;
@@ -52,6 +54,13 @@ export async function listAuthorizedCenterAgentSessions(input: {
     ...(before ? { before } : {}),
   });
   const page = rows.slice(0, input.limit);
+  const deletionDates = input.ownerUserId
+    ? await readConversationDeletionDates(
+        input.db,
+        input.ownerUserId,
+        page.map((row) => row.spaceId)
+      )
+    : new Map<string, number>();
   const last = page.at(-1);
   const cursor =
     rows.length > input.limit && last
@@ -77,22 +86,30 @@ export async function listAuthorizedCenterAgentSessions(input: {
   const response = listCenterAgentSessionsResponseSchema.safeParse({
     generatedAt: new Date().toISOString(),
     organizationId: input.organizationId,
-    sessions: page.map((row) => ({
-      spaceId: row.spaceId,
-      name: row.name,
-      ...(row.messagePreview !== undefined
-        ? { messagePreview: row.messagePreview }
-        : {}),
-      createdAt:
-        row.createdAtMs === null
-          ? null
-          : new Date(row.createdAtMs).toISOString(),
-      centerAgentProfileId: input.centerAgentProfileId,
-      memberProfileId: input.memberProfileId,
-      organizationId: input.organizationId,
-      kind: "center_agent_direct_message_space" as const,
-      isCenterAgentDirectMessageSpace: true as const,
-    })),
+    sessions: page
+      .filter((row) => {
+        const deletedAt = deletionDates.get(row.spaceId);
+        return (
+          deletedAt === undefined ||
+          (row.messagePreview?.timestamp ?? 0) > deletedAt
+        );
+      })
+      .map((row) => ({
+        spaceId: row.spaceId,
+        name: row.name,
+        ...(row.messagePreview !== undefined
+          ? { messagePreview: row.messagePreview }
+          : {}),
+        createdAt:
+          row.createdAtMs === null
+            ? null
+            : new Date(row.createdAtMs).toISOString(),
+        centerAgentProfileId: input.centerAgentProfileId,
+        memberProfileId: input.memberProfileId,
+        organizationId: input.organizationId,
+        kind: "center_agent_direct_message_space" as const,
+        isCenterAgentDirectMessageSpace: true as const,
+      })),
     nextCursor,
   });
   if (!response.success) {

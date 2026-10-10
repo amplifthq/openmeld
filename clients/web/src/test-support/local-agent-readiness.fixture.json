@@ -1,0 +1,180 @@
+{
+  "items": [
+    {
+      "agentExecutionReadiness": {
+        "agentProfileId": "agt_11111111-1111-4111-8111-111111111111",
+        "displayState": "ready",
+        "facts": {
+          "profile": {
+            "active": true,
+            "reasonCodes": [],
+            "source": "profile_identity"
+          },
+          "binding": {
+            "reasonCodes": ["agent_profile_binding.command_eligible"],
+            "routable": true,
+            "source": "binding_truth"
+          },
+          "claim": {
+            "executionBlocked": false,
+            "grantsClaimSuccess": false,
+            "reasonCodes": [],
+            "source": "claim_diagnostics"
+          },
+          "providerAccount": {
+            "blocked": false,
+            "expiresAtMs": null,
+            "observedAtMs": null,
+            "provider": null,
+            "reasonCodes": [],
+            "source": "not_checked"
+          },
+          "providerConversation": {
+            "agentControllerConversationId": "conversation-current",
+            "errorCode": null,
+            "errorMessage": null,
+            "errorType": null,
+            "expiresAtMs": 1791535020746,
+            "method": "codex_app_server_thread_resume",
+            "observedAtMs": 1791534420746,
+            "provider": "codex",
+            "ready": true,
+            "reasonCodes": [],
+            "required": true,
+            "source": "runtime_reporting",
+            "status": "passed"
+          },
+          "readinessImpact": {
+            "blocked": false,
+            "expiresAtMs": null,
+            "impactKind": null,
+            "observedAtMs": null,
+            "reasonCodes": [],
+            "source": "not_checked"
+          },
+          "localService": {
+            "reachable": true,
+            "refreshable": true,
+            "reasonCodes": [],
+            "source": "runtime_transport"
+          },
+          "service": {
+            "executionCompatible": true,
+            "expectedEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
+            "observedEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
+            "reasonCodes": [],
+            "source": "runtime_transport"
+          },
+          "route": {
+            "deviceId": "device-current",
+            "lane": "dev-local",
+            "observedAt": "2026-10-09T08:34:25.193Z",
+            "online": true,
+            "reasonCodes": [],
+            "source": "daemon_route"
+          },
+          "runtime": {
+            "ready": true,
+            "reasonCodes": [
+              "runtime.ready",
+              "capability.ready",
+              "service.ready"
+            ],
+            "source": "prepare_readiness"
+          }
+        },
+        "primaryAction": "none",
+        "reasonCodes": [
+          "agent_profile_binding.command_eligible",
+          "runtime.ready",
+          "capability.ready",
+          "service.ready"
+        ]
+      },
+      "agentWakeAvailability": {
+        "action": "none",
+        "badgeLabel": "Available",
+        "category": "available",
+        "isRefreshing": false,
+        "label": "Available for Wake",
+        "phase": "available",
+        "reasonCode": "agent_execution.ready",
+        "status": "available_for_wake",
+        "summary": "Available for Wake",
+        "tooltip": "Available for Wake"
+      },
+      "agentWakeRouteRegistration": {
+        "status": "registered",
+        "reasonCode": "wake_route.registered",
+        "reportedAtMs": 1791534863303,
+        "daemonSessionId": "92808c63-4274-405a-8266-50140ff07b78",
+        "deviceId": "device-current",
+        "lane": "dev-local",
+        "serviceVersion": "0.3.250"
+      },
+      "agentProfileId": "agt_11111111-1111-4111-8111-111111111111",
+      "agentControllerRef": "builtin:codex",
+      "generatedAt": "2026-10-09T08:34:25.193Z",
+      "ownerUserId": "user-1",
+      "primaryBinding": {
+        "agentProfileId": "agt_11111111-1111-4111-8111-111111111111",
+        "authoritySource": "binding_truth",
+        "bindingId": "binding-current",
+        "bindingState": "enabled_primary",
+        "dispatchEligibility": {
+          "reasonCodes": ["agent_profile_binding.command_eligible"],
+          "routable": true,
+          "status": "routable"
+        },
+        "grantsClaimSuccess": false,
+        "agentControllerPermissionMode": "codex:askForApproval",
+        "modelSelection": {
+          "modelId": "gpt-6.1-sol",
+          "reasoningLevel": "high"
+        },
+        "reasonCodes": ["agent_profile_binding.command_eligible"],
+        "resolutionSource": "binding_truth",
+        "routable": true,
+        "executionTarget": {
+          "agentControllerRef": "builtin:codex",
+          "agentControllerConversationId": "conversation-current",
+          "openMeldServiceRuntimeId": {
+            "source": "runtime_registry_authority",
+            "value": "runtime-current"
+          }
+        }
+      },
+      "primaryActionPlan": {
+        "action": "none",
+        "target": null
+      },
+      "profileName": "Research Agent",
+      "publicProfileConfiguration": {
+        "agentControllerCollaborationMode": null,
+        "agentControllerPermissionMode": "codex:askForApproval",
+        "agentControllerRef": "builtin:codex",
+        "modelSelection": {
+          "modelId": "gpt-6.1-sol",
+          "reasoningLevel": "high"
+        }
+      },
+      "routeDeviceId": "device-current",
+      "routeLane": "dev-local",
+      "runtimeDeviceDisplayName": "Test Computer",
+      "wakeRouteEvidence": {
+        "observedAt": "2026-10-09T08:34:25.193Z",
+        "reasonCode": "online",
+        "status": "online"
+      },
+      "wakeRouteStatus": {
+        "connectionGeneration": 1,
+        "daemonSessionId": "92808c63-4274-405a-8266-50140ff07b78",
+        "deviceId": "device-current",
+        "lane": "dev-local",
+        "lastHeartbeatMs": 1791534863306,
+        "leaseEpoch": 1,
+        "status": "ready"
+      }
+    }
+  ]
+}

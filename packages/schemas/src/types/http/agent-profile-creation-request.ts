@@ -43,6 +43,9 @@ export type ListAgentProfileCreationRequestsResponse = z.infer<
 export type DecideAgentProfileCreationRequestBody = z.infer<
   Schemas["decideAgentProfileCreationRequestBodySchema"]
 >;
+export type RetryAgentProfileCreationRequestBody = z.infer<
+  Schemas["retryAgentProfileCreationRequestBodySchema"]
+>;
 export type AgentProfileCreationRequestMutationResponse = z.infer<
   Schemas["agentProfileCreationRequestMutationResponseSchema"]
 >;

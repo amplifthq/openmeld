@@ -71,6 +71,7 @@ import {
 import { resolveAppQueryPersistenceController } from "#/query/persistence/app-query-persistence";
 import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
 import {
+	acceptOrganizationSpaceMembership,
 	accountSpaceItemsQueryOptions,
 	accountSpaceQueryKeys,
 } from "#/query/spaces/account-spaces";
@@ -192,8 +193,16 @@ export function AppSpacesIndexContent(input: {
 			setJoinError(null);
 			return variables;
 		},
-		onSuccess: (_result, variables) => {
+		onSuccess: (result, variables) => {
 			setJoinError(null);
+			if (profileId) {
+				acceptOrganizationSpaceMembership(queryClient, {
+					organizationId: currentOrganization.id,
+					spaceId: variables.spaceId,
+					profileId,
+					response: result,
+				});
+			}
 			Promise.all([
 				queryClient.invalidateQueries({
 					queryKey: organizationQueryKeys.spaces(currentOrganization.id),

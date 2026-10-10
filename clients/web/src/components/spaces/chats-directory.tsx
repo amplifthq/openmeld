@@ -469,15 +469,21 @@ function ChatDirectoryCard({
 								className={`min-w-0 flex-1 truncate text-sm outline-none after:absolute after:inset-0 after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-ring ${unread ? "font-semibold" : "font-medium"}`}
 								to={href}
 							>
-								{title}
+								<TooltipHint content={title}>
+									<span className="relative z-10 block truncate">{title}</span>
+								</TooltipHint>
 							</Link>
 							{unread > 0 && (
 								<span className="relative z-10 flex shrink-0 items-center">
 									<SpaceUnreadLink
 										count={unread}
-										showCount
+										messageUnreadCount={
+											model.indicators.unreadBySpaceId.get(chat.spaceId)
+												?.messageUnreadCount
+										}
 										spaceId={chat.spaceId}
 										url={href}
+										variant="badge"
 									/>
 								</span>
 							)}

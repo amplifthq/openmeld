@@ -280,9 +280,9 @@ export function CenterAgentAvatarEditor(input: {
 											label: label(type),
 											content: (
 												<BotAvatar
+													interaction="playful"
 													motionEnabled={false}
 													palette={palette}
-													preview
 													shading={shading}
 													size={48}
 													type={type}
@@ -380,9 +380,9 @@ export function CenterAgentAvatarEditor(input: {
 										label: label(next),
 										content: (
 											<BotAvatar
+												interaction="playful"
 												motionEnabled={false}
 												palette={next}
-												preview
 												shading={shading}
 												size={40}
 												type={draft.type}
@@ -489,6 +489,7 @@ function DraftPreview({
 			{...appearance}
 			agentControllerRef={HOSTED_CENTER_AGENT_CONTROLLER_REF}
 			animated={live}
+			botInteraction={live ? "playful" : "subtle"}
 			clickable={live}
 			preview
 			profileName={profileName}

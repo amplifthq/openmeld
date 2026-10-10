@@ -295,8 +295,29 @@ describe("wake trace waterfall projection", () => {
     );
   });
 
-  it("redacts local origin facts from a sibling viewer", () => {
+  it.each([
+    true,
+    false,
+  ])("redacts Context ids with native origin present=%s", (hasNativeOrigin) => {
     const trace = buildRepliedTrace();
+    trace.runtimeCoordinatorHeadLifecycle = {
+      factSource: "runtime_coordinator_head_lifecycle",
+      readStatus: "missing",
+      reasonCode: "runtime_coordinator.head_lifecycle_not_found",
+      targetWakeLifecycleId: "wake-1",
+      executionContext: {
+        readStatus: "found",
+        contextId: "11111111-1111-4111-8111-111111111111",
+        access: "space_context",
+        workspace: "isolated",
+        permissionSource: "context_restriction",
+      },
+    };
+    if (!hasNativeOrigin) {
+      trace.origin = null;
+      trace.executionIdentity = null;
+      trace.runtimeCoordinatorExecution = null;
+    }
     const response = projectWakeTraceWaterfall({
       agentLocalOriginFactsViewer: SIBLING_VIEWER,
       clientMessageId: CLIENT_MESSAGE_ID,
@@ -347,15 +368,26 @@ describe("wake trace waterfall projection", () => {
     expect(response.items[0]?.correlation).toMatchObject({
       bindingId: null,
       openMeldServiceRuntimeId: null,
-      agentControllerRef: "builtin:codex",
+      agentControllerRef: hasNativeOrigin ? "builtin:codex" : null,
     });
     expect(response.items[0]?.executionContext).toEqual({
+      taskContext: {
+        assignment: {
+          readStatus: "found",
+          contextId: null,
+          access: "space_context",
+          workspace: "isolated",
+          permissionSource: "context_restriction",
+        },
+        conversationResume:
+          trace.dispatchExecution?.agentControllerConversationResume ?? null,
+      },
       resolutionStatus: "redacted",
-      factSource: "dispatch_trace_origin",
+      factSource: hasNativeOrigin ? "dispatch_trace_origin" : "dispatch_record",
       reasonCode: "wake_execution_context.local_origin_facts_redacted",
       bindingId: null,
       openMeldServiceRuntimeId: null,
-      agentControllerRef: "builtin:codex",
+      agentControllerRef: hasNativeOrigin ? "builtin:codex" : null,
       agentControllerConversationId: null,
       agentControllerConversationKind: null,
       runtimeWorkspacePath: null,

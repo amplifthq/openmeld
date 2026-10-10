@@ -78,6 +78,7 @@ import {
   pluginActionConfirmations,
   pluginActionRequests,
 } from "./connector-connection.schema.ts";
+import { conversationHistoryDeletions } from "./conversation-history.schema.ts";
 import { openMeldDaemonCurrentDeviceTargets } from "./current-device-target.schema.ts";
 import { evalReports } from "./eval-report.schema.ts";
 import {
@@ -1766,6 +1767,7 @@ export const agentActivityExecutionLinks = applicationTable(
 );
 
 export const coreSchema = {
+  conversationHistoryDeletions,
   userTimeContexts,
   firstWorkExperiences,
   aiUsageRecords,

@@ -5,6 +5,7 @@ import type {
 } from "./space-screen-state";
 
 export type SpaceScreenAction =
+  | { type: "connection.reconnecting" }
   | {
       type: "connection.connected";
     }

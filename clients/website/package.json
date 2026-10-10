@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@cloudflare/vite-plugin": "1.54.6",
+    "@lucasmarkes/hairline": "0.5.0",
     "@openmeld/api-client": "workspace:*",
     "@openmeld/product-catalog": "workspace:*",
     "@openmeld/schemas": "workspace:*",

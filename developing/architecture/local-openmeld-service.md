@@ -19,13 +19,47 @@
 
 ## Product Role
 
+Version 2 handoffs can carry a brief alone or exact shared-file revisions without
+a repository. They require an isolated Space-only Context with no Project or
+inherited Agent-settings permission source. The Service uses its owned scratch
+workspace and never resolves a default repository. Codex and Claude can receive
+a brief; writable selected-file preparation remains Codex App Server only.
+The complete brief is delivered even when no file copy is required.
+Selected Skill releases and all their resources are prepared and revalidated
+before execution even when no shared files are selected. Such work does not
+create a file-copy receipt or gain writable Space-only access.
+Dispatch preparation verifies the accepted route/Binding identity before choosing
+the owned Space-only workspace. It does not consult Default Project folder
+observations for that Context, so an unavailable default connection cannot block
+repository-free work. Repository and ordinary current-folder tasks retain their
+existing current-folder checks.
+This preparation rule applies to all explicit Space-only Contexts, including
+ordinary tasks without a handoff, whether the default folder is healthy or missing.
+
+For a version 2 handoff with code, the Service resolves the admitted Project through
+the receiving account's local connection and pins its exact published commit.
+It never follows a sender-local path or substitutes the receiving HEAD. Code
+keeps its repository cwd; explicitly selected Space file revisions use the
+existing working-copy owner in a separate child directory. The Source Context,
+Computer policy, and controller permission contract still govern preparation
+and execution. Missing commits, changed account/Organization, and mismatched
+Context selection fail before model work with the existing visible outcome.
+
 Selected Space work reuses this carrier and RuntimeCoordinator. Before local
 execution, the Service materializes the exact admitted file/Skill selection
 into a fresh child of the isolated task workspace. It advertises the optional
-`spaceWorkHandoff` capability on macOS only; unsupported routes fail with an
+`spaceWorkHandoff` capability on macOS only for selected-file preparation; unsupported routes fail with an
 update-required outcome instead of running a prompt without its selected inputs.
-Codex App Server and the existing Space-only containment verifier remain
-required. A working directory or separate metadata directory is not itself an
+Brief-only v2 handoffs need Context capability 5 but do not require that
+selected-file capability. Codex App Server and the existing Space-only containment
+verifier remain required for editable shared files without a repository.
+Claude Space-only work uses the controller's native tool surface as its boundary:
+`buildClaudeSpaceToolOptions` sets `tools: []`, `strictMcpConfig: true`, disables
+hooks, removes additional directories, and exposes only the dispatch-scoped
+OpenMeld MCP tools. The null filesystem-verifier result does not leave native
+Read/Bash tools enabled. This contract is preserved even in the owner's native
+bypass mode; it is not a claim of an OS filesystem sandbox.
+A working directory or separate metadata directory is not itself an
 OS security boundary.
 
 Managed working-copy metadata lives under the effective lane root, outside the
@@ -254,6 +288,17 @@ association rather than replacing the carrier. Replacing an existing enrollment
 or changing any other contract field still advances the generation. Stop continues
 to require the running lease and current contract generations to match.
 
+Canonical Service contract writes and clears share the existing lifecycle lock
+for the same resolved Service owner root, including ordinary installation.
+The read, conditional comparison, and atomic file commit remain inside that
+lock. Nested lifecycle operations reuse it; an explicit path input must select
+the same root for the lock and contract file. Enrollment takes lifecycle then
+auth ownership at commit, without network I/O under those locks. Auth may read
+the current process's active pending Computer handoff candidate without refresh
+or journal recovery, while checking its frozen journal ID, process identity,
+Gateway, expiry and account. Ordinary account-checked controls still reject a
+pending transition. Commit and rollback remain the existing journal's job.
+
 Agent Controller availability reporting depends on a valid service contract. If
 required owner account, Agent Profile, device, or lane evidence is missing or
 invalid, treat local Agent Controller evidence as unavailable instead of
@@ -456,7 +501,27 @@ ACI must not own:
 Provider Usage Limits are capacity evidence, not execution authority. Each
 controller projects one optional list of stable limit keys, plain-English
 labels, 0–100 used percentages, reset times when reported, observation times,
-and honest states. A controller that hosts multiple model providers may also
+and honest states. The same report may carry one optional account-level
+`usageAdmission` observation: `blocksNewWork` is true, false, or null, and
+`observedAt` retains the provider observation time. It contains no balance or
+account identity. Codex window exhaustion records included usage, not an
+account-wide refusal when credits still permit new work. Its admission fact
+uses the native account permission plus credits and spend-control evidence;
+unrelated metered windows do not veto it. A full unknown account read records
+null and cannot prove recovery. Sparse rolling notifications do not clear or
+refresh an earlier account fact; explicit backend spend control may still block.
+Codex collects a full snapshot on the same native session when an account-limit
+notification arrives. One pending read coalesces further notifications. Native
+auxiliary reads have finite per-request deadlines; expiry removes the pending
+request and permits a later notification, without ending the business turn or
+creating new recovery evidence. Late replies to expired requests are ignored.
+Native
+account ids must match before and after the account read, and the native
+account-change epoch must remain unchanged through collection and consumption.
+An unknown or mismatched subject discards capacity evidence. The existing local
+ACI auth/keeper compares an opaque subject hash, including same-email workspace
+changes; neither that hash nor the raw native id enters cloud reports or legacy
+CLI JSON. No model-to-bucket mapping is guessed. A controller that hosts multiple model providers may also
 attach the provider's stable id and display name to each limit. Those fields
 group evidence; they do not carry authentication or account identity. An
 adapter must leave an unknown percentage or reset time
@@ -498,9 +563,11 @@ unconfirmed Usage does not block an otherwise ready Agent. A legacy Service
 report without that optional declaration remains
 valid during mixed-version rollout and does not acquire a new Usage admission
 condition solely from a newer Core matrix. When retrying against an older Core
-contract, the Service omits both the Usage projection and its support-matrix
+contract, the Service omits the Usage windows, account admission, and support-matrix
 declaration. For a
-controller whose matrix entry declares native Usage support, a reliable fresh
+controller whose matrix entry declares native Usage support, Codex requires a
+fresh explicit account admission verdict rather than a window percentage.
+For other supported controllers, a reliable fresh
 `available` observation proves current capacity and a reliable fresh explicitly
 `exhausted` observation blocks the Wake as `Unavailable`. Missing, stale,
 expired, unavailable, or otherwise unconfirmed Usage does not add a block;
@@ -1013,8 +1080,11 @@ enforcement mechanism. The Service compiles the provider-neutral policy through
 the selected ACI adapter, verifies the exact launch contract and exact compiled
 arguments, and passes them to the controller process. For Codex, the adapter
 uses strict named permission profiles and `default_permissions`; it does not
-attempt to inspect every tool call or reimplement Codex filesystem policy. The
-Agent receives one path-free awareness instruction so it understands that the
+attempt to inspect every tool call or reimplement Codex filesystem policy.
+Selected-folder profiles retain Codex's `:minimal` read baseline for system
+executables and libraries; denying the filesystem root must not prevent native
+commands from starting. Other user files remain outside the selected roots.
+The Agent receives one path-free awareness instruction so it understands that the
 run is intentionally bounded, but prompt text is guidance and never proof of
 enforcement.
 
@@ -1311,6 +1381,15 @@ Project folder does not create a filesystem boundary. Computer File Access still
 applies when configured. Only explicit or retained bounded Claude project tasks
 prepare a container and replace native shell tools; creating a new conversation
 alone must not do either. Delivery-only correction retains its narrow purpose.
+
+For an inherited-permission independent copy, source preparation and launch both
+check the current Computer policy. An `only_selected_folders` policy is projected
+for that run by retaining every configured root and adding only the verified
+copy's exact root, including its private Git metadata. The projection is never
+saved as Computer policy and never adds the parent OpenMeld directory. A newly
+denied source still fails. Blocked-folder policies remain unchanged, and native
+boundary verification and owner-only unsupported-boundary decisions still apply.
+Working-copy placement alone never invokes the bounded Claude project shell.
 
 The existing local slot owner enforces the five-context Profile cap and local
 resource exclusions. Isolated task folders have distinct canonical roots and
@@ -1791,6 +1870,13 @@ or an explicit CLI agent enable command may reverse it.
 
 ## Current-Device Project Operations
 
+Profile workspace controls advertise `initializeProfileWorkspace` separately
+from ordinary `setProfileWorkspace`. Creation uses `onlyIfUnconfigured` with
+the exact selected device and lane. The Service compares and initializes under
+the existing Profile workspace writer lock, preserves later configuration, and
+rejects malformed local metadata. An unsupported Service fails closed. This
+capability does not create readiness or execution authority.
+
 Project controls expose an additive `readConnections` capability. A
 `discover_projects` request with `includeCandidates: false` reads the
 existing owner/device/lane-local connection store and checks path availability
@@ -1943,6 +2029,40 @@ expires. A changed local Project binding generation or effective working folder
 still forces an immediate new report. Restart begins with legacy/unknown cached
 evidence, then automatically re-observes and reports the new session's current
 facts without asking the person to reconnect or rebuild the Profile.
+
+## Saved Working-Folder Reads
+
+The optional `localAgentControl.readProfileWorkspace` registration capability
+admits one private read of the existing account-scoped Profile configuration.
+Runtime Transport selects the exact owner/device/lane's compatible live session
+and correlates `daemon.local_agent_control.read_profile_workspace` with the
+existing Local Agent Control result frame. The admitted Service account remains
+the local trust boundary; a changed account rejects the result.
+
+Core checks the Profile's Auth owner and active Organization before forwarding
+the result, and checks them again after the read. A Binding-based editor also
+verifies its existing `expectedBindingTarget` before and after the read. These
+checks do not acquire a mutation lease or create another Binding authority.
+The no-store HTTP response contains configured/missing/invalid configuration,
+and includes a saved path only for immediate forwarding to the requesting owner.
+It does not publish paths to Profile identity, logs, Agent Activity or Center
+Agent context. Reading never migrates the configuration or provisions a folder.
+
+The configured result may include `configurationOrigin`, the kind of the
+current local import or explicit-save observation. It exposes no native
+conversation ID. The same local configuration envelope stores the observation,
+and the existing writer removes or replaces it when the folder changes.
+Unknown legacy origin remains absent. Origin does not authorize automatic
+folder selection or change readiness. This final response shape is part of the
+new private-read rollout: older strict result receivers can reject it, so the
+complete Core/Gateway receiver must precede the publishing Service.
+
+Old registration parsers strictly reject the new capability field even though
+it is optional in the new schema. Deploy the Core receiver, then Gateway, before
+the new Service advertises it or Web calls the new GET. A new receiver with an
+old Service returns `local_agent_control.unsupported` and an update instruction;
+it never infers configuration from execution history. Existing setup, Wake,
+Space actions, writes and diagnostics remain valid without this capability.
 
 ## Local Folder Picker
 

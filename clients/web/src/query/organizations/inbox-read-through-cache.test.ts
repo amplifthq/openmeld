@@ -13,6 +13,46 @@ const ORGANIZATION_ID = "org-acme";
 const SPACE_ID = "space-project";
 
 describe("optimisticallyMarkSpaceInboxItemsRead", () => {
+	it("clears a membership notice without counting or reading it as a message", () => {
+		const queryClient = createInboxQueryClient();
+		queryClient.setQueryData(
+			inboxQueryKeys.spaceUnreadTargets(ORGANIZATION_ID, SPACE_ID),
+			{
+				...readTargets(queryClient),
+				joinedItems: [{ itemId: "joined", occurredAtMs: 40 }],
+			}
+		);
+		queryClient.setQueryData(inboxQueryKeys.spaceSummary(ORGANIZATION_ID), {
+			...readSpaceSummary(queryClient),
+			ordinarySpaceUnreadCount: 3,
+			spaces: [
+				{
+					spaceId: SPACE_ID,
+					unreadCount: 3,
+					messageUnreadCount: 2,
+					latestUnreadOccurredAtMs: 40,
+				},
+			],
+		});
+		optimisticallyMarkSpaceInboxItemsRead({
+			destination: "ordinary-space",
+			organizationId: ORGANIZATION_ID,
+			queryClient,
+			spaceId: SPACE_ID,
+			items: [{ itemId: "joined", occurredAtMs: 40 }],
+		});
+		expect(readTargets(queryClient)).toMatchObject({
+			joinedItems: [],
+			totalUnreadCount: 2,
+			targets: [{ signalId: "main-message" }, { signalId: "thread-message" }],
+		});
+		expect(readSpaceSummary(queryClient)).toMatchObject({
+			ordinarySpaceUnreadCount: 2,
+			spaces: [
+				{ unreadCount: 2, messageUnreadCount: 2, latestUnreadOccurredAtMs: 30 },
+			],
+		});
+	});
 	it("removes only the viewed main targets from every matching unread indicator", () => {
 		const queryClient = createInboxQueryClient();
 

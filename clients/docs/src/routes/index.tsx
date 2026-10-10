@@ -29,7 +29,7 @@ const guides = [
   {
     icon: Download,
     title: "Choose how you work",
-    text: "Use OpenMeld in your browser, get the desktop preview, or connect a computer.",
+    text: "Use OpenMeld in your browser, download Desktop, or connect a computer.",
     path: "start/downloads",
     label: "Downloads and setup",
   },

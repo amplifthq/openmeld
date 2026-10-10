@@ -8,7 +8,7 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { SpaceInputQueue } from "./space-input-queue";
+import { reorderVisibleSpaceQueue, SpaceInputQueue } from "./space-input-queue";
 
 const queue = vi.hoisted(() => ({ mutate: vi.fn() }));
 const item: SpaceInputQueueResponse["items"][number] = {
@@ -19,9 +19,10 @@ const item: SpaceInputQueueResponse["items"][number] = {
 	state: "queued",
 	blocked: false,
 };
+let items: SpaceInputQueueResponse["items"] = [item];
 vi.mock("./use-space-input-queue", () => ({
 	useSpaceInputQueue: () => ({
-		items: [item],
+		items,
 		error: null,
 		mutate: queue.mutate,
 	}),
@@ -30,9 +31,56 @@ vi.mock("./use-space-work-recovery", () => ({
 	useSpaceWorkRecovery: () => ({ visible: false, content: null }),
 }));
 beforeEach(() => {
+	items = [item];
 	queue.mutate.mockReset();
 });
 afterEach(cleanup);
+
+it("shows only the current conversation's queued messages", async () => {
+	items = [
+		item,
+		{
+			...item,
+			inputId: "thread-draft",
+			threadId: "thread-a",
+			text: "Thread draft",
+		},
+		{
+			...item,
+			inputId: "other-draft",
+			threadId: "thread-b",
+			text: "Other Thread draft",
+		},
+	];
+	const view = render(
+		<SpaceInputQueue
+			onEdit={vi.fn()}
+			profileId="author"
+			progressItems={[]}
+			spaceId="space"
+			threadId="thread-a"
+		/>
+	);
+	expect(screen.getByText("Thread draft")).toBeTruthy();
+	expect(screen.queryByText("Keep this draft")).toBeNull();
+	expect(screen.queryByText("Other Thread draft")).toBeNull();
+	view.rerender(
+		<SpaceInputQueue
+			onEdit={vi.fn()}
+			profileId="author"
+			progressItems={[]}
+			spaceId="space"
+		/>
+	);
+	expect(screen.getByText("Keep this draft")).toBeTruthy();
+	await waitFor(() => expect(screen.queryByText("Thread draft")).toBeNull());
+});
+
+it("reorders visible queued messages while preserving other conversations' positions", () => {
+	expect(
+		reorderVisibleSpaceQueue(["main", "a", "other", "b"], ["a", "b"], 0, 1)
+	).toEqual(["main", "b", "other", "a"]);
+});
 
 it.each([
 	"running",

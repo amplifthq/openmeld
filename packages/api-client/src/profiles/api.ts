@@ -60,6 +60,9 @@ export const createProfilesApi: CreateProfilesApi = (client) => ({
     const parsedBody = updateAgentProfileDefaultProjectBodySchema.safeParse({
       defaultProjectId: request.defaultProjectId,
       expectedOrganizationId: request.expectedOrganizationId,
+      ...(request.expectedBindingTarget
+        ? { expectedBindingTarget: request.expectedBindingTarget }
+        : {}),
     });
     if (!parsedBody.success) {
       throw new Error(
@@ -108,6 +111,9 @@ function requireValidUpdateDefaultProjectInput(
       : normalizeRequiredText(input.defaultProjectId, "defaultProjectId");
   return {
     defaultProjectId,
+    ...(input.expectedBindingTarget
+      ? { expectedBindingTarget: input.expectedBindingTarget }
+      : {}),
     expectedOrganizationId,
     profileId,
     ...(input.requestContext ? { requestContext: input.requestContext } : {}),

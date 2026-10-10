@@ -46,9 +46,12 @@ const NUMERIC_SEMVER_IDENTIFIER_RE = /^\d+$/u;
 // Core owns this monotonic compatibility floor separately from the latest
 // release's advisory policy, so a later optional release can never make an
 // older unsafe Service eligible for new Wake work again.
-// Project-aware runtime and shared-folder capability v4 require Service 0.3.249
-// for new work once that release is available on the stable channel.
-const MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.249";
+// Execution Context 5 and saved-workspace reads require Service 0.3.251 for new
+// work once that release is available on the stable channel.
+const MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.251";
+// Preserve the Project-aware runtime and shared-folder capability v4 floor
+// while receivers still project the published 0.3.250 release.
+const PROJECT_RUNTIME_MINIMUM_OPENMELD_SERVICE_VERSION = "0.3.249";
 const LAUNCH_CONTRACT_MINIMUM_OPENMELD_SERVICE_VERSION = "0.3.226";
 // Keep the last published floor active while its replacement is not yet on the
 // stable channel. These historical floors also preserve recovery when a Core
@@ -420,6 +423,7 @@ function resolveMinimumRecoveryTargetVersion(input: {
 }): string | null {
   const activeMinimumVersion = [
     MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION,
+    PROJECT_RUNTIME_MINIMUM_OPENMELD_SERVICE_VERSION,
     LAUNCH_CONTRACT_MINIMUM_OPENMELD_SERVICE_VERSION,
     PREVIOUS_MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION,
     LEGACY_MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION,

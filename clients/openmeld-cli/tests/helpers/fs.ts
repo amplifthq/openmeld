@@ -63,7 +63,7 @@ export async function withTempHome<T>(fn: (home: string) => Promise<T>) {
   }
 }
 
-async function makeTreeWritableForRemoval(path: string): Promise<void> {
+export async function makeTreeWritableForRemoval(path: string): Promise<void> {
   const entry = await lstat(path).catch(() => null);
   if (!entry) {
     return;

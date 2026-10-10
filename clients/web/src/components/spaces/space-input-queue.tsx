@@ -67,12 +67,19 @@ export function SpaceInputQueue(input: {
 		| "waitReasonCode"
 		| "pendingInteraction"
 	>[];
+	threadId?: string | null;
 	spaceId: string;
 	profileId: string;
 	onEdit: (text: string) => void;
 }) {
 	const queue = useSpaceInputQueue({ ...input, enabled: true });
-	const recovery = useSpaceWorkRecovery(input.spaceId, queue.recoveries);
+	const recovery = useSpaceWorkRecovery(
+		input.spaceId,
+		input.threadId ? [] : queue.recoveries
+	);
+	const items = queue.items.filter(
+		(item) => (item.threadId ?? null) === (input.threadId ?? null)
+	);
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [editRecovery, setEditRecovery] = useState<Item | null>(null);
@@ -87,7 +94,10 @@ export function SpaceInputQueue(input: {
 		useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
 		useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
 	);
-	const pendingIds = queue.items
+	const allPendingIds = queue.items
+		.filter((item) => item.state === "queued")
+		.map((item) => item.inputId);
+	const pendingIds = items
 		.filter((item) => item.state === "queued")
 		.map((item) => item.inputId);
 	async function mutate(mutation: SpaceInputQueueMutation, editing?: Item) {
@@ -130,8 +140,8 @@ export function SpaceInputQueue(input: {
 		}
 		return mutate({
 			action: "reorder",
-			expectedIds: pendingIds,
-			orderedIds: arrayMove(pendingIds, from, to),
+			expectedIds: allPendingIds,
+			orderedIds: reorderVisibleSpaceQueue(allPendingIds, pendingIds, from, to),
 		});
 	}
 	return (
@@ -140,7 +150,7 @@ export function SpaceInputQueue(input: {
 				{announcement}
 			</span>
 			<AnimatePresence initial={false}>
-				{queue.items.length || queue.error || error || recovery.visible ? (
+				{items.length || queue.error || error || recovery.visible ? (
 					<MotionTray
 						animate={{ opacity: 1 }}
 						aria-label="Queued messages"
@@ -179,7 +189,7 @@ export function SpaceInputQueue(input: {
 							>
 								<div className="relative max-h-60 overflow-y-auto overscroll-contain px-1.5 pb-1">
 									<AnimatePresence initial={false} mode="popLayout" propagate>
-										{queue.items.map((item) => (
+										{items.map((item) => (
 											<QueuedMessage
 												canSendNow={input.progressItems.some(
 													(progress) =>
@@ -445,5 +455,19 @@ function QueuedMessage({
 				</div>
 			</div>
 		</motion.div>
+	);
+}
+
+export function reorderVisibleSpaceQueue(
+	allIds: readonly string[],
+	visibleIds: readonly string[],
+	from: number,
+	to: number
+): string[] {
+	const reordered = arrayMove([...visibleIds], from, to);
+	const visible = new Set(visibleIds);
+	let index = 0;
+	return allIds.map((id) =>
+		visible.has(id) ? (reordered[index++] ?? id) : id
 	);
 }

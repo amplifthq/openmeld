@@ -72,6 +72,7 @@ export const mutateInboxFeedResponseSchema = z.strictObject({
 });
 export const listInboxFeedRpcInputSchema = inboxFeedQuerySchema.extend({
   context: openMeldRequestContextSchema,
+  includeMembershipNotices: z.boolean().optional(),
 });
 export const mutateInboxFeedRpcInputSchema = mutateInboxFeedBodySchema.extend({
   context: openMeldRequestContextSchema,

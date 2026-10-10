@@ -51,7 +51,11 @@ describe("openmeld agents list/show", () => {
     detectInstalledRuntimeAgentsMock.mockResolvedValue(["codex"]);
     resolveAgentControllerInterfaceSnapshotMock.mockResolvedValue({
       agentControllerRef: "builtin:codex",
-      auth: { status: "authenticated", label: "Signed in" },
+      auth: {
+        status: "authenticated",
+        label: "Signed in",
+        accountKey: "codex:private-workspace-subject",
+      },
       capabilities: {
         approvals: true,
         cancel: true,
@@ -76,6 +80,10 @@ describe("openmeld agents list/show", () => {
       schemaVersion: 1,
       skills: [],
       status: "ready",
+      usageAdmission: {
+        blocksNewWork: false,
+        observedAt: "2026-06-28T00:00:00.000Z",
+      },
       usageLimits: [
         {
           key: "codex:primary",
@@ -226,6 +234,12 @@ describe("openmeld agents list/show", () => {
         nativeInterface: "codex-app-server",
         models: [{ id: "gpt-5.5", displayName: "GPT-5.5" }],
       });
+      expect(payload?.agentControllerInterface).not.toHaveProperty(
+        "usageAdmission"
+      );
+      expect(payload?.agentControllerInterface).not.toHaveProperty(
+        "auth.accountKey"
+      );
     });
   });
 
@@ -291,6 +305,12 @@ describe("openmeld agents list/show", () => {
             | undefined
         )?.usageLimits
       ).toBeUndefined();
+      expect(envelope?.agentControllerInterface).not.toHaveProperty(
+        "usageAdmission"
+      );
+      expect(envelope?.agentControllerInterface).not.toHaveProperty(
+        "auth.accountKey"
+      );
     });
   });
 

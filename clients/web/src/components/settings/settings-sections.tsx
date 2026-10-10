@@ -28,6 +28,11 @@ const NotificationsSection = lazy(() =>
 		default: module.NotificationsSection,
 	}))
 );
+const SpacesSection = lazy(() =>
+	import("./spaces-section").then((module) => ({
+		default: module.SpacesSection,
+	}))
+);
 const ReasoningStreamSetting = lazy(() =>
 	import("./reasoning-stream-setting").then((module) => ({
 		default: module.ReasoningStreamSetting,
@@ -105,6 +110,17 @@ export function buildSettingsSections(
 			render: () => (
 				<SettingsLeafLayout>
 					<NotificationsSection />
+				</SettingsLeafLayout>
+			),
+		},
+		{
+			id: "spaces",
+			title: "Spaces",
+			to: settingsRoutes.spaces,
+			requires: ["CLOUD_ACCOUNT"],
+			render: () => (
+				<SettingsLeafLayout>
+					<SpacesSection />
 				</SettingsLeafLayout>
 			),
 		},

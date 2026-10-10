@@ -59,6 +59,7 @@ export function discoveryCandidates(evidence, current, discoverySince) {
   return discoveryModels(evidence, current, discoverySince).filter(
     ({ model, matchingExistingIds }) =>
       model.tool_call === true &&
+      model.status !== "deprecated" &&
       model.modalities?.output?.includes("text") &&
       (evidence.controller === "cursor" || !matchingExistingIds.length)
   );
@@ -233,6 +234,15 @@ export function modelReviewFacts(evidence, current, discoverySince) {
         models.some((model) => line.startsWith(`${model.id}:`))
       )
     ),
+    discoveryAvailability: sortedFacts(
+      discoveryModels(evidence, current, discoverySince)
+        .filter(({ matchingExistingIds }) => matchingExistingIds.length)
+        .map(({ provider, candidateId, model }) => ({
+          provider,
+          id: candidateId,
+          status: model.status ?? "active",
+        }))
+    ),
     retirement: sortedFacts(
       retirementPassages(evidence, current).map(({ url, text }) => ({
         url,
@@ -276,6 +286,16 @@ export function reviewFactsDelta(facts, previous) {
       });
     }),
     retirement: added("retirement"),
+    discoveryAvailability: added("discoveryAvailability").filter((fact) => {
+      const next = JSON.parse(fact);
+      return (
+        next.status === "deprecated" ||
+        previous?.discoveryAvailability?.some((old) => {
+          const before = JSON.parse(old);
+          return before.provider === next.provider && before.id === next.id;
+        })
+      );
+    }),
     retirementRemoved: (previous?.retirement ?? []).filter(
       (fact) => !facts.retirement.includes(fact)
     ),
@@ -351,6 +371,17 @@ function renderReviewDelta(evidences, config, current, previousEvidence) {
           "Retirement notice added / changed",
           `${passage.text.slice(0, 650)}${passage.text.length > 650 ? " … [see full source snapshot]" : ""} — ${passage.url}`,
           "Verify date, provider and sign-in scope; record stopped, postponed or unconfirmed."
+        );
+      }),
+      ...delta.discoveryAvailability.map((fact) => {
+        const next = JSON.parse(fact);
+        const before = previousFacts?.discoveryAvailability
+          .map((old) => JSON.parse(old))
+          .find((old) => old.provider === next.provider && old.id === next.id);
+        return row(
+          "Discovery lifecycle changed",
+          `${next.id}; ${before?.status ?? "unrecorded"} → ${next.status}`,
+          "Verify official provider notices and scoped native execution. Discovery status alone must not disable a cataloged model."
         );
       }),
       ...delta.retirementRemoved.map((fact) => {

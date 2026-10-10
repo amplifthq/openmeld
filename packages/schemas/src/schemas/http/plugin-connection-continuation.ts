@@ -54,6 +54,34 @@ export type PluginConnectionLocalSourceRequest = zod.infer<
   typeof pluginConnectionLocalSourceRequestSchema
 >;
 
+// Internal, read-only provenance from the RuntimeCoordinator owner. This does
+// not establish completion, authorize a Plugin, or expose the delivery payload.
+export const pluginConnectionExecutionSourceRequestSchema = z.strictObject({
+  ownerUserId: identity,
+  executionId: identity,
+  spaceId: identity,
+  dispatchId: identity,
+  targetProfileId: identity,
+});
+export const pluginConnectionExecutionSourceSchema =
+  pluginConnectionExecutionSourceRequestSchema.extend({
+    bindingId: identity,
+    sourceSignalId: identity,
+    requesterProfileId: identity,
+    sourceEnvelopeDigest: z.string().regex(/^[a-f0-9]{64}$/u),
+    createdAtMs: z.number().int().nonnegative(),
+    threadContext: spaceThreadContextSchema.nullable(),
+  });
+export const pluginConnectionExecutionSourceResponseSchema = z.strictObject({
+  source: pluginConnectionExecutionSourceSchema.nullable(),
+});
+export type PluginConnectionExecutionSourceRequest = zod.infer<
+  typeof pluginConnectionExecutionSourceRequestSchema
+>;
+export type PluginConnectionExecutionSource = zod.infer<
+  typeof pluginConnectionExecutionSourceSchema
+>;
+
 const messageGuardSchema = z.strictObject({
   signalId: identity,
   revision: z.number().int().nonnegative(),

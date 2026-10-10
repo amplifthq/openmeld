@@ -1,5 +1,4 @@
 import type {
-  MutateSpaceTaskBody,
   SpaceTask,
   SpaceTaskActor,
   SpaceTaskMutationReceipt,
@@ -10,19 +9,6 @@ import type {
 } from "../infrastructure/sql/space-task-delivery-repo";
 import type { SpaceTaskRepository } from "../infrastructure/sql/space-task-repo";
 import type { SourceDispatchChainContext } from "./types";
-export function taskMutationMayNeedDelivery(
-  action: MutateSpaceTaskBody["action"]
-): boolean {
-  return (
-    action === "submit_result" ||
-    action === "review" ||
-    action === "continue_rework" ||
-    action === "cancel" ||
-    action === "attach_external_work_item" ||
-    action === "detach_external_work_item" ||
-    action === "observe_external_work_item"
-  );
-}
 export function resolveSpaceTaskHumanDecisionTarget(
   task: SpaceTask,
   activeMembers: readonly SpaceTaskActor[],
@@ -105,6 +91,7 @@ export function enqueueSpaceTaskDeliveries(input: {
   ) {
     enqueue("stop");
   }
+  enqueue("inbox_projection");
 }
 /** Rechecked inside Signal persistence, after asynchronous admission reads. */
 export function isSpaceTaskDeliveryCurrent(

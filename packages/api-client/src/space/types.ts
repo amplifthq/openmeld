@@ -85,6 +85,7 @@ export type {
 export type SpaceHistorySignalKind = "text" | "status" | "system_notice";
 
 export type SpaceSignalsReadQuery = {
+  includePersonalHistoryBoundary?: boolean;
   afterTs?: number;
   cursor?: string;
   recent?: boolean;
@@ -138,6 +139,9 @@ export type SetSpaceAccessModeInput = SpaceRequestInput &
 export type UpdateSpaceMetaInput = SpaceRequestInput & PatchSpaceMetaBody;
 
 export type SpaceApi = {
+  deleteConversationForMe: (
+    input: SpaceRequestInput
+  ) => Promise<import("@openmeld/schemas").DeleteConversationForMeResponse>;
   getMessageReactions(
     input: ReadMessageReactionsInput
   ): Promise<GetSpaceMessageReactionsResponse>;
@@ -295,6 +299,7 @@ export type SpaceApi = {
   ) => Promise<{
     envelopes: readonly SignalEnvelope[];
     nextCursor: string | null;
+    personalHistoryDeletedAt?: number;
   }>;
   getUpdates: (
     input: SpaceRequestInput & {
@@ -358,6 +363,7 @@ export type SpaceApi = {
   getMessageDetails: (
     input: SpaceRequestInput & {
       signalId: string;
+      executionContextVersion?: 1;
     }
   ) => Promise<GetSpaceMessageDetailsResponse>;
   getLinkPreviews: (
