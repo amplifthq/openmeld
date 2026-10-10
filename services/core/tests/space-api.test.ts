@@ -102,6 +102,9 @@ const AGENT_PROFILE_ID_REGEX =
   /^agt_[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MEMBERSHIP_REQUIRED_RPC_ERROR_REGEX =
   /HTTP 403.*space\.membership_required/;
+const ACTIVITY_FORBIDDEN_RPC_ERROR_REGEX =
+  /HTTP 403.*space\.activity\.forbidden/;
+const ACTIVITY_INVALID_RPC_ERROR_REGEX = /HTTP 400.*space\.activity\.invalid/;
 const WAKE_STOP_FORBIDDEN_RPC_ERROR_REGEX =
   /HTTP 403.*space\.wake_stop\.forbidden/;
 const DEFAULT_REQUEST_ID = "req-core-test";
@@ -2521,7 +2524,7 @@ describe("OpenMeld Core", () => {
     );
     expect(hidden.status).toBe(403);
   });
-  it("marks directly joined profiles live after foreground activity", async () => {
+  it("preserves activity errors and marks joined profiles live", async () => {
     const creatorProfile: Partial<TestAuthProfile> = {
       profileId: SECOND_HUMAN_PROFILE_ID,
       profileKind: "human",
@@ -2540,6 +2543,21 @@ describe("OpenMeld Core", () => {
       { name: "members-live-room" },
       creatorProfile
     );
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const space = namespace.get(namespace.idFromString(spaceId));
+    await expect(
+      Promise.resolve(
+        space.rpcRecordMemberWebActivity({
+          organizationId: DEFAULT_TEST_ORGANIZATION_ID,
+          profileId: THIRD_HUMAN_PROFILE_ID,
+          userId: "owner-members-joiner-1",
+          lastActiveAt: new Date().toISOString(),
+        })
+      )
+    ).rejects.toThrow(ACTIVITY_FORBIDDEN_RPC_ERROR_REGEX);
+    await expect(
+      Promise.resolve(space.rpcRecordMemberWebActivity({}))
+    ).rejects.toThrow(ACTIVITY_INVALID_RPC_ERROR_REGEX);
     const socket = await openSpaceSocket(
       spaceId,
       {
@@ -2550,8 +2568,6 @@ describe("OpenMeld Core", () => {
       undefined,
       joinerProfile
     );
-    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
-    const space = namespace.get(namespace.idFromString(spaceId));
     await space.rpcRecordMemberWebActivity({
       organizationId: DEFAULT_TEST_ORGANIZATION_ID,
       profileId: THIRD_HUMAN_PROFILE_ID,

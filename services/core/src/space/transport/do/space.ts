@@ -3945,21 +3945,32 @@ export class Space extends DurableObject<CoreBindings> {
     });
   }
   // The rpc* methods below are adapters for typed DO RPC calls.
-  // They build a local Request and reuse existing dispatch handlers so HTTP and
-  // RPC paths keep identical validation and business behavior.
+  // They reuse application use cases or dispatch handlers so HTTP and RPC
+  // paths keep identical validation, business behavior, and public errors.
   async rpcRecordMemberWebActivity(input: unknown): Promise<void> {
     return await withPostgresRequest(
       this.bindings.OPENMELD_POSTGRESQL,
       async () => {
-        const profileId = recordSpaceMemberWebActivityUseCase({
-          sql: this.ctx.storage.sql,
-          organizationId: this.readSpaceMetaRecord()?.organizationId ?? null,
-          activity: input,
-        });
-        await this.broadcastSpaceMembersChanged({
-          profileIds: [profileId],
-          reason: "member.web_activity",
-        });
+        try {
+          const profileId = recordSpaceMemberWebActivityUseCase({
+            sql: this.ctx.storage.sql,
+            organizationId: this.readSpaceMetaRecord()?.organizationId ?? null,
+            activity: input,
+          });
+          await this.broadcastSpaceMembersChanged({
+            profileIds: [profileId],
+            reason: "member.web_activity",
+          });
+        } catch (error) {
+          if (!(error instanceof SpaceMembersUseCaseError)) {
+            throw error;
+          }
+          throw createCoreRpcHttpError({
+            status: error.status,
+            code: error.code,
+            reason: error.message,
+          });
+        }
       }
     );
   }
