@@ -2,12 +2,14 @@ import * as z from "zod/v4";
 import { clientMessageIdSchema } from "../protocol/client-message-id";
 import { MAX_TEXT_LENGTH } from "../protocol/constants";
 import { centerAgentExecutionInputTargetSchema } from "../protocol/signal";
+import { spaceThreadIdSchema } from "../space-mesh/space-thread";
 
 const inputId = clientMessageIdSchema;
 const target = centerAgentExecutionInputTargetSchema;
 
 export const spaceInputQueueOptionsSchema = z.strictObject({
   includeRecovery: z.boolean().optional(),
+  includeConversationContext: z.boolean().optional(),
 });
 export type SpaceInputQueueOptions = z.infer<
   typeof spaceInputQueueOptionsSchema
@@ -36,6 +38,7 @@ export const spaceInputQueueMutationSchema = z.discriminatedUnion("action", [
 ]);
 
 export const spaceInputQueueResponseSchema = z.strictObject({
+  conversationContextIncluded: z.literal(true).optional(),
   recoveries: z
     .array(
       z.strictObject({
@@ -49,6 +52,7 @@ export const spaceInputQueueResponseSchema = z.strictObject({
   items: z.array(
     z.strictObject({
       inputId,
+      threadId: spaceThreadIdSchema.nullable().optional(),
       target,
       authorProfileId: z.string().min(1),
       text: z.string(),

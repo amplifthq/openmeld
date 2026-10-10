@@ -158,12 +158,8 @@ html[data-space-self-message-alignment="left"]
   align-self: flex-start;
 }
 
-[data-thread-message] [data-slot="message-content"]:not([data-direct-message]) [data-slot="bubble"] {
-  max-inline-size: min(100%, 52rem);
-}
-
 html[data-space-self-message-alignment="right"]
-  [data-space-self-message="true"]:not([data-thread-message])
+  [data-space-self-message="true"]
   [data-slot="bubble"] {
   inline-size: fit-content;
 }
@@ -309,6 +305,12 @@ html[data-space-self-message-alignment="right"]
   padding-inline-end: calc(var(--space-message-avatar-size) + 8px);
 }
 
+/* Both speakers share one centered message rail in full-width conversations. */
+html[data-space-conversation-layout="full-width"]
+  [data-slot="message"] > [data-slot="message-content"] {
+  padding-inline: calc(var(--space-message-avatar-size) + 8px);
+}
+
 html[data-space-self-message-alignment="right"]
   [data-space-self-message="true"] [data-direct-message] > [data-slot="message-header"],
 html[data-space-self-message-alignment="right"]
@@ -365,7 +367,7 @@ html[data-space-self-message-alignment="left"]
 }
 
 @container space-message-row (max-width: 32rem) {
-  [data-message-row-id]:not([data-thread-message])
+  [data-message-row-id]
     [data-slot="message-footer-standard-actions"] {
     display: none;
   }

@@ -178,7 +178,6 @@ import { SpaceThreadLoadingPanel } from "./space-thread-loading";
 import { SpaceThreadPanel } from "./space-thread-panel";
 import type { SpaceView } from "./space-view";
 import { SpaceViewTabs } from "./space-view-tabs";
-import { SpaceWakeBookmarksProvider } from "./space-wake-bookmarks";
 import {
 	isSpaceWakeStatusAutoRefreshable,
 	isSpaceWakeStatusPassiveRefreshCandidate,
@@ -189,6 +188,7 @@ import {
 	SPACE_WAKE_STATUS_REFRESH_INTERVAL_MS,
 	SPACE_WAKE_STATUS_REFRESH_WINDOW_MS,
 } from "./space-wake-status-refresh";
+import { SpaceWorkBookmarksProvider } from "./space-work-bookmarks";
 import { useSpaceConversationReadCache } from "./use-space-conversation-read-cache";
 import { useSpaceFileNavigation } from "./use-space-file-navigation";
 import { useSpaceInboxReadPosition } from "./use-space-inbox-read-position";
@@ -1747,7 +1747,7 @@ function SpaceLandingConversationShell({
 			organizationId={organizationId}
 			orgSlug={input.orgSlug}
 		>
-			<SpaceWakeBookmarksProvider
+			<SpaceWorkBookmarksProvider
 				activeThreadId={activeActionThreadId}
 				hasMore={controller.ownActiveWakesHaveMore}
 				items={controller.presentedWakeProgressItems}
@@ -1757,6 +1757,7 @@ function SpaceLandingConversationShell({
 					spaceFileNavigation.changeSpaceView("messages")
 				}
 				profileId={controller.profileId}
+				queuedItems={controller.queuedInputItems}
 				threadHasAttachments={controller.threadComposerFiles.length > 0}
 			>
 				<SpaceFileNavigationGuards navigation={spaceFileNavigation} />
@@ -1909,7 +1910,7 @@ function SpaceLandingConversationShell({
 					control={agentOwnerDirectMessageJoin}
 				/>
 				{pendingAgentActions.profileEditDialog}
-			</SpaceWakeBookmarksProvider>
+			</SpaceWorkBookmarksProvider>
 		</SpaceAgentProfileEditProvider>
 	);
 	return (
@@ -2973,6 +2974,7 @@ function SpaceLandingSecondaryPanels({
 					composerMentionPickerItems={
 						controller.threadComposerMentionPickerItems
 					}
+					composerReplyToSignalId={controller.threadComposerReplyToSignalId}
 					composerText={controller.threadComposerText}
 					currentOwnerUserId={currentOwnerUserId}
 					ephemeralActivityItems={controller.presentedWakeProgressItems}
@@ -3001,6 +3003,7 @@ function SpaceLandingSecondaryPanels({
 					onAddPeopleOrAgents={currentSpaceControls.onAddAgentsFromBanner}
 					onAgentInteractionResponse={controller.onAgentInteractionResponse}
 					onAgentRecoveryAction={handleAgentRecoveryAction}
+					onClearComposerReplyTo={controller.onClearThreadComposerReplyTo}
 					onClose={controller.onCloseThread}
 					onComposeExpiredDeviceWait={
 						controller.status?.allowedActions.includes("post_message")
@@ -3013,8 +3016,10 @@ function SpaceLandingSecondaryPanels({
 						controller.onCloseThread();
 						openSpaceFile(fileId, revision);
 					}}
+					onOpenUnreadThread={controller.onOpenUnreadThread}
 					onRecoverExecution={controller.onRecoverExecution}
 					onRemoveComposerFile={controller.onRemoveThreadComposerFile}
+					onReplyToMessage={controller.onThreadReplyToMessage}
 					onReportMessage={controller.onReportMessage}
 					onRetryComposerFile={controller.onRetryThreadComposerFile}
 					onRetryComposerFileCleanup={

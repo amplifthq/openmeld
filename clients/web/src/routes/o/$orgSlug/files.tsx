@@ -33,7 +33,8 @@ export const Route = createFileRoute("/o/$orgSlug/files")({
 			typeof search.folder === "string" && search.folder.trim()
 				? search.folder.trim()
 				: undefined,
-		create: search.create === "1" ? ("1" as const) : undefined,
+		create:
+			search.create === "1" || search.create === 1 ? ("1" as const) : undefined,
 		document:
 			typeof search.document === "string" && search.document.trim()
 				? search.document.trim()

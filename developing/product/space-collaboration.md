@@ -1512,6 +1512,21 @@ Space conversation.
 Thread messages reuse the normal Space publication model. There is no second
 message system for threads.
 
+Main and Thread share message grouping, Profile popovers, message tools, quoted
+reply composition, supported queued follow-ups, and scroll controls. Narrow
+containers use the shared compact message-tools presentation. Thread has no
+nested Thread action or date-navigation surface. Per-message times remain visible.
+
+Thread unread navigation includes only that Thread's replies. Visible-message
+acknowledgements use the existing Space read owner and update the aggregate main
+unread projection; there is no independent Thread counter. Jump to latest and
+navigation alone do not mark unseen replies read. Each Thread retains the
+viewer's reading position independently of the main conversation.
+
+In full-width layout, the message rail reserves an avatar and its gap on both
+sides. Long self and other messages share the same content edges; short self
+messages keep their right alignment. Composer and header width remain unchanged.
+
 Thread replies use the same one-to-one rule as human-to-Agent Direct Messages:
 when the retained thread authors consist of one human and one Agent, sending a
 plain message Wakes that Agent without a Composer token or confirmation. Include

@@ -7898,12 +7898,18 @@ export class Space extends DurableObject<CoreBindings> {
           }),
           {
             GET: ({ context }) =>
-              this.handleInputQueue(undefined, context, input.includeRecovery),
+              this.handleInputQueue(
+                undefined,
+                context,
+                input.includeRecovery,
+                input.includeConversationContext
+              ),
             PATCH: ({ context }) =>
               this.handleInputQueue(
                 input.mutation,
                 context,
-                input.includeRecovery
+                input.includeRecovery,
+                input.includeConversationContext
               ),
           }
         );
@@ -8076,7 +8082,8 @@ export class Space extends DurableObject<CoreBindings> {
   private async enqueueLocalExecutionInput(
     signal: SignalEnvelope,
     context: CoreRpcContextInput,
-    requestTimeContext?: SignalPublishContext["requestTimeContext"]
+    requestTimeContext?: SignalPublishContext["requestTimeContext"],
+    threadContext?: SpaceThreadContext | null
   ): Promise<void> {
     if (signal.type !== "signal.text") {
       throw new Error("Queued input requires a text signal.");
@@ -8114,6 +8121,7 @@ export class Space extends DurableObject<CoreBindings> {
       authorProfileId: signal.profile.profileId,
     });
     const request: LocalSpaceExecutionInput = {
+      threadContext: threadContext ?? null,
       ...(requestTimeContext ? { requestTimeContext } : {}),
       kind: "local",
       target: { ...binding, spaceId: this.spaceId },
@@ -8316,13 +8324,21 @@ export class Space extends DurableObject<CoreBindings> {
         outcome === "applied" &&
         this.persistSignalWithOptionalOutbox(item.signal, false, {
           authoringPolicy: "user_authored",
+          ...(item.request.threadContext
+            ? { threadContext: item.request.threadContext }
+            : {}),
         }).persistedSignal
       );
     });
     if (published) {
       this.broadcastSignal(
         item.signal,
-        { authoringPolicy: "user_authored" },
+        {
+          authoringPolicy: "user_authored",
+          ...(item.request.threadContext
+            ? { threadContext: item.request.threadContext }
+            : {}),
+        },
         { persisted: true }
       );
       this.ctx.waitUntil(this.flushPendingSpaceInboxProjectionOutbox());
@@ -8444,7 +8460,8 @@ export class Space extends DurableObject<CoreBindings> {
   private async handleInputQueue(
     body: unknown,
     context: CoreRpcContextInput,
-    includeRecovery = false
+    includeRecovery = false,
+    includeConversationContext = false
   ): Promise<Response> {
     // Current public callers act as themselves. Native Center delivery retains
     // its stricter original-Human DM policy.
@@ -8470,6 +8487,9 @@ export class Space extends DurableObject<CoreBindings> {
     const read = () =>
       spaceInputQueueResponseSchema.parse({
         ...recoveryProjection,
+        ...(includeConversationContext
+          ? { conversationContextIncluded: true }
+          : {}),
         items: listQueuedSpaceExecutionInputs(this.ctx.storage.sql)
           .filter(
             (item) =>
@@ -8480,6 +8500,9 @@ export class Space extends DurableObject<CoreBindings> {
           )
           .map((item) => ({
             inputId: item.inputId,
+            ...(includeConversationContext
+              ? { threadId: item.request.threadContext?.threadId ?? null }
+              : {}),
             target: {
               ...item.signal.data.meta?.centerAgentExecutionInput,
               dispatchId: item.afterDispatchId,
@@ -8564,6 +8587,10 @@ export class Space extends DurableObject<CoreBindings> {
     context: CoreRpcContextInput
   ): Promise<void> {
     const target = await this.resolveQueuedInputTarget(mutation.target);
+    const threadContext = await this.resolveQueuedInputThreadContext(
+      target,
+      member.profileId
+    );
     const signal = this.buildTextSignal(
       {
         kind: "human",
@@ -8602,12 +8629,73 @@ export class Space extends DurableObject<CoreBindings> {
     if (nativeDelivery || dm?.centerAgentProfileId === target.targetProfileId) {
       await this.publishExecutionInput(
         signal,
-        { authoringPolicy: "user_authored", requestTimeContext },
+        {
+          authoringPolicy: "user_authored",
+          requestTimeContext,
+          ...(threadContext ? { threadContext } : {}),
+        },
         true
       );
       return;
     }
-    await this.enqueueLocalExecutionInput(signal, context, requestTimeContext);
+    await this.enqueueLocalExecutionInput(
+      signal,
+      context,
+      requestTimeContext,
+      threadContext
+    );
+  }
+
+  private async resolveQueuedInputThreadContext(
+    target: { dispatchId: string; targetProfileId: string },
+    authorProfileId: string
+  ): Promise<SpaceThreadContext | null> {
+    const outbox = readDispatchOutboxRecordByDispatchId(
+      this.ctx.storage.sql,
+      target.dispatchId
+    );
+    let sourceSignalId =
+      outbox?.targetProfileId === target.targetProfileId
+        ? outbox.sourceEventId
+        : null;
+    if (!sourceSignalId) {
+      const db = getPostgresDatabase(this.bindings);
+      const delivery = db
+        ? await readRemoteAgentNativeDeliveryByExecution({
+            db,
+            ...target,
+            profileId: target.targetProfileId,
+            spaceId: this.spaceId,
+          })
+        : null;
+      sourceSignalId = delivery?.triggerMessageId ?? null;
+      if (!sourceSignalId && db) {
+        const execution =
+          await readRuntimeCoordinatorExecutionProjectionByDispatch({
+            db,
+            ...target,
+            spaceId: this.spaceId,
+          });
+        sourceSignalId =
+          this.resolveSourceSignalIdForDispatchLookupClientMessageId(
+            execution?.sourceClientMessageId ?? undefined
+          );
+      }
+    }
+    const source = sourceSignalId ? this.readSignalById(sourceSignalId) : null;
+    if (
+      !source ||
+      source.profile.kind !== "human" ||
+      source.profile.profileId !== authorProfileId
+    ) {
+      throw new SpaceSignalAuthoringError({
+        code: "space.execution_input.invalid",
+        status: 409,
+        message:
+          "This response’s original request is unavailable. Your draft is still here.",
+      });
+    }
+    return this.resolveThreadContextForSignal(source.id);
   }
 
   private async mutateQueuedExecutionInput(
@@ -8754,7 +8842,9 @@ export class Space extends DurableObject<CoreBindings> {
     try {
       const response = remoteAgentWorkerExecutionInputResponseSchema.parse(
         await worker.receiveExecutionInput(
-          remoteAgentWorkerExecutionInputRequestSchema.parse(item.request)
+          remoteAgentWorkerExecutionInputRequestSchema.parse(
+            omitQueuedInputThreadContext(item.request)
+          )
         )
       );
       this.applyQueuedExecutionInputReceipt(item, response);
@@ -8883,13 +8973,21 @@ export class Space extends DurableObject<CoreBindings> {
         outcome === "applied" &&
         this.persistSignalWithOptionalOutbox(item.signal, false, {
           authoringPolicy: "user_authored",
+          ...(item.request.threadContext
+            ? { threadContext: item.request.threadContext }
+            : {}),
         }).persistedSignal
       );
     });
     if (published) {
       this.broadcastSignal(
         item.signal,
-        { authoringPolicy: "user_authored" },
+        {
+          authoringPolicy: "user_authored",
+          ...(item.request.threadContext
+            ? { threadContext: item.request.threadContext }
+            : {}),
+        },
         { persisted: true }
       );
       this.ctx.waitUntil(this.flushPendingSpaceInboxProjectionOutbox());
@@ -24835,6 +24933,7 @@ export class Space extends DurableObject<CoreBindings> {
       spaceId: this.spaceId,
       storage: this.ctx.storage,
     });
+    const queuedContext = buildQueuedInputThreadContext(queued, signalContext);
     const saved = this.ctx.storage.transactionSync(() => {
       const raced = readSpaceExecutionInput(this.ctx.storage.sql, inputId);
       if (raced) {
@@ -24878,6 +24977,7 @@ export class Space extends DurableObject<CoreBindings> {
       }
       insertSpaceExecutionInput(this.ctx.storage.sql, {
         request: {
+          ...queuedContext,
           ...(signalContext?.requestTimeContext
             ? { requestTimeContext: signalContext.requestTimeContext }
             : {}),
@@ -25045,6 +25145,9 @@ export class Space extends DurableObject<CoreBindings> {
         await this.publishTextSignal(signal, {
           requestTimeContext: item.request.requestTimeContext,
           authoringPolicy: "user_authored",
+          ...(item.request.threadContext
+            ? { threadContext: item.request.threadContext }
+            : {}),
           queuedInputHandoff: {
             inputId,
             afterDispatchId: item.afterDispatchId,
@@ -25106,8 +25209,9 @@ export class Space extends DurableObject<CoreBindings> {
     const response = remoteAgentWorkerExecutionInputResponseSchema.parse(
       await worker.readExecutionInput({
         inputId: item.inputId,
-        target: remoteAgentWorkerExecutionInputRequestSchema.parse(item.request)
-          .target,
+        target: remoteAgentWorkerExecutionInputRequestSchema.parse(
+          omitQueuedInputThreadContext(item.request)
+        ).target,
       })
     );
     if (response.status === "not_found" || response.status === "rejected") {
@@ -25150,7 +25254,9 @@ export class Space extends DurableObject<CoreBindings> {
         }
         const response = remoteAgentWorkerExecutionInputResponseSchema.parse(
           await worker.receiveExecutionInput(
-            remoteAgentWorkerExecutionInputRequestSchema.parse(item.request)
+            remoteAgentWorkerExecutionInputRequestSchema.parse(
+              omitQueuedInputThreadContext(item.request)
+            )
           )
         );
         if (
@@ -29391,3 +29497,15 @@ import {
   type NativeReplyPlacementRecord,
   nativeReplyPlacementRecordSchema,
 } from "../../application/native-reply-placement";
+
+function omitQueuedInputThreadContext(request: SpaceExecutionInputRequest) {
+  const { threadContext: _threadContext, ...wireRequest } = request;
+  return wireRequest;
+}
+
+function buildQueuedInputThreadContext(
+  queued: boolean,
+  context: SignalPublishContext | undefined
+) {
+  return queued ? { threadContext: context?.threadContext ?? null } : {};
+}

@@ -27,6 +27,12 @@ vi.mock("sonner", () => ({
 }));
 
 vi.mock("@tanstack/react-router", () => ({
+	useNavigate: () => vi.fn(async () => undefined),
+	useLocation: ({
+		select,
+	}: {
+		select: (location: { pathname: string }) => string;
+	}) => select({ pathname: "/o/acme/spaces/space-1" }),
 	Link: ({ children, to, ...props }: { children: ReactNode; to: string }) => (
 		<a href={to} {...props}>
 			{children}
@@ -206,8 +212,11 @@ describe("SpaceMemberRow", () => {
 		const dialog = screen.getByRole("dialog");
 		expect(dialog.className).toContain("w-[min(22rem,calc(100vw-1.5rem))]");
 		expect(
-			screen.getByTestId("profile-details-popover-scroll-area").className
-		).toContain("overflow-y-auto");
+			screen
+				.getByTestId("profile-details-popover-scroll-area")
+				.querySelector('[data-slot="scroll-area-viewport"]')
+				?.getAttribute("data-orientation")
+		).toBe("vertical");
 		expect(screen.queryByText("Controller conversation ID")).toBeNull();
 		expect(screen.queryByText("thread-codex-1")).toBeNull();
 		const detailsLink = screen.getByRole("link", {
@@ -422,7 +431,7 @@ describe("SpaceMemberRow", () => {
 		).toBeTruthy();
 	});
 
-	it("shows the controller default model when a member has no selected model", () => {
+	it("does not invent an active model when a member uses the controller default", () => {
 		renderSpaceMemberRow({
 			entry: buildAgentEntry({
 				modelSelection: null,
@@ -436,9 +445,7 @@ describe("SpaceMemberRow", () => {
 			screen.getByRole("button", { name: "Check Codex Profile" })
 		);
 		expect(
-			within(screen.getByRole("dialog")).getByText(
-				"Codex · GPT-5.5 · model default"
-			)
+			within(screen.getByRole("dialog")).getByText("Codex · Controller default")
 		).toBeTruthy();
 	});
 
@@ -671,7 +678,14 @@ describe("SpaceMemberRow", () => {
 	it("treats the Center Agent as the canonical Center Agent chat, not an editable Agent Profile", () => {
 		renderSpaceMemberRow({
 			centerAgentProfileId: "agt-1",
-			entry: buildAgentEntry({ profileName: "Amplift Center Agent" }),
+			entry: buildAgentEntry({
+				agentControllerRef: "hosted:center-agent",
+				availabilityCategory: "available",
+				availabilityBadgeLabel: "Available",
+				availabilitySummary: "This Agent can answer now.",
+				modelSelection: { modelId: "anthropic/claude-opus-5.5" },
+				profileName: "Amplift Center Agent",
+			}),
 		});
 
 		fireEvent.click(
@@ -690,6 +704,14 @@ describe("SpaceMemberRow", () => {
 			dialog.queryByRole("link", { name: "Edit Amplift Center Agent" })
 		).toBeNull();
 		expect(dialog.queryByText("Check more or edit")).toBeNull();
+		expect(
+			dialog.getByRole("button", { name: "Open Center Agent settings" })
+		).toBeTruthy();
+		expect(dialog.getByRole("img", { name: "Remote Agent" })).toBeTruthy();
+		expect(dialog.queryByText("Available")).toBeNull();
+		expect(dialog.queryByText("This Agent can answer now.")).toBeNull();
+		expect(dialog.getByText("anthropic/claude-opus-5.5")).toBeTruthy();
+		expect(dialog.queryByText("model default", { exact: false })).toBeNull();
 	});
 
 	it("uses the generic agent icon without a bound controller", () => {

@@ -1,12 +1,14 @@
 import * as z from "zod/v4";
 import { localExecutionInputBindingSchema } from "./local-execution-input";
 import { remoteAgentWorkerExecutionInputRequestSchema } from "./schemas/runtime/remote-agent-execution-input";
+import { spaceThreadContextSchema } from "./schemas/space-mesh/space-thread";
 import { userRequestTimeContextSchema } from "./user-time-context";
 
 // Stored in the existing Space input outbox. The kind selects a carrier, not
 // a different queue or an execution authority.
 export const localSpaceExecutionInputSchema = z.strictObject({
   kind: z.literal("local"),
+  threadContext: spaceThreadContextSchema.nullable().optional(),
   target: z.union([
     localExecutionInputBindingSchema.extend({ spaceId: z.string().min(1) }),
     // Durable Queue intake can precede Coordinator admission. Only Send now
@@ -24,6 +26,7 @@ export const localSpaceExecutionInputSchema = z.strictObject({
 });
 export const spaceExecutionInputRequestSchema = z.union([
   remoteAgentWorkerExecutionInputRequestSchema.extend({
+    threadContext: spaceThreadContextSchema.nullable().optional(),
     // Queue storage can precede native admission. Resolve the exact submission
     // before sending; the Remote Agent wire contract remains fully bound.
     target: remoteAgentWorkerExecutionInputRequestSchema.shape.target.partial({

@@ -14,8 +14,16 @@ export async function readOrUpdateSpaceInputQueue(
   input: SpaceRequestInput &
     SpaceInputQueueOptions & { mutation?: SpaceInputQueueMutation }
 ) {
+  const params = new URLSearchParams();
+  if (input.includeRecovery) {
+    params.set("recovery", "1");
+  }
+  if (input.includeConversationContext) {
+    params.set("conversation", "1");
+  }
+  const query = params.size ? `?${params}` : "";
   return await client.requestJson({
-    url: `/v1/spaces/${encodeURIComponent(input.spaceId)}/input-queue${input.includeRecovery ? "?recovery=1" : ""}`,
+    url: `/v1/spaces/${encodeURIComponent(input.spaceId)}/input-queue${query}`,
     operation: "space.input-queue",
     method: input.mutation ? "PATCH" : "GET",
     ...(input.mutation

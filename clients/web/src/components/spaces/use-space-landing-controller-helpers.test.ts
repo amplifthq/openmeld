@@ -43,6 +43,7 @@ import {
 	reconcilePolledWakeProgressItems,
 	resolveComposerAddressingTargets,
 	resolveComposerWakeProgressTargetProfileIds,
+	resolveQueuedExecutionInput,
 } from "./use-space-landing-controller-helpers";
 
 vi.mock("#/lib/spaces/api", () => ({
@@ -273,6 +274,84 @@ describe("Thread conversation policy during live replies", () => {
 
 const AGENT_PROFILE_ID = "agent-profile-1";
 const HUMAN_PROFILE_ID = "human-profile-1";
+
+describe("queued follow-up conversation scope", () => {
+	const centerAgentProfileId = "agt_center";
+	const progress = (threadId: string | null, profileId = HUMAN_PROFILE_ID) =>
+		createWakeProgressItem({
+			clientMessageId: threadId ?? "main",
+			dispatchId: threadId ?? "main",
+			sourceSignalId: threadId ?? "main",
+			phase: "running",
+			targetLabel: "Center",
+			targetProfileId: centerAgentProfileId,
+			updatedAtMs: 1,
+			sourceContext: {
+				profileId,
+				profileKind: "human",
+				profileName: "Mira",
+				messagePreview: "Review",
+				threadId,
+			},
+		});
+	it("targets only the requester's active task in the current conversation", () => {
+		const items = [
+			progress(null),
+			progress("thread-a"),
+			progress("thread-b"),
+			progress("thread-a", "other-member"),
+		];
+		const input = {
+			profileId: HUMAN_PROFILE_ID,
+			timelineItems: [],
+			centerAgentProfileId,
+			members: null,
+			activationTargets: [],
+			hasFiles: false,
+			items,
+		};
+		expect(
+			resolveQueuedExecutionInput({ ...input, threadId: "thread-a" })
+		).toEqual({
+			dispatchId: "thread-a",
+			targetProfileId: centerAgentProfileId,
+		});
+		expect(resolveQueuedExecutionInput(input)).toEqual({
+			dispatchId: "main",
+			targetProfileId: centerAgentProfileId,
+		});
+		expect(
+			resolveQueuedExecutionInput({ ...input, threadId: "thread-c" })
+		).toBeUndefined();
+	});
+	it("requires a source selection when the same requester has multiple active tasks in one Thread", () => {
+		const items = [
+			progress("thread-a"),
+			{
+				...progress("thread-a"),
+				dispatchId: "second",
+				sourceSignalId: "source-second",
+			},
+		];
+		const input = {
+			profileId: HUMAN_PROFILE_ID,
+			timelineItems: [],
+			centerAgentProfileId,
+			members: null,
+			activationTargets: [],
+			hasFiles: false,
+			items,
+			threadId: "thread-a",
+		};
+		expect(resolveQueuedExecutionInput(input)).toBe("ambiguous");
+		expect(
+			resolveQueuedExecutionInput({
+				...input,
+				replyToSignalId: "source-second",
+			})
+		).toEqual({ dispatchId: "second", targetProfileId: centerAgentProfileId });
+	});
+});
 
 describe("unconfirmed Wake presentation diagnostics", () => {
 	const item = createWakeProgressItem({

@@ -1,4 +1,3 @@
-import { supportsLocalExecutionInput } from "@openmeld/agent-runtime";
 import type { StructuredApiClientFailure } from "@openmeld/api-client";
 import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import { normalizeSpacePasswordText } from "@openmeld/schemas";
@@ -13,6 +12,7 @@ import type {
 	SpaceAccessMode,
 	SpaceInboxUnreadTarget,
 	SpaceInboxUnreadTargetsResponse,
+	SpaceInputQueueResponse,
 	SpaceLinkJoinPolicy,
 	SpaceMembersSnapshot,
 	SpaceMessageFileReference,
@@ -210,6 +210,7 @@ import {
 	resolveDiagnosticReportProblemType,
 	resolveLeaveSpaceErrorMessage,
 	resolveQueryError,
+	resolveQueuedExecutionInput,
 	resolveSpaceMembersLoadErrorMessage,
 	resolveWakeProgressPollDelayMs,
 } from "./use-space-landing-controller-helpers";
@@ -425,82 +426,6 @@ function buildComposerFileSubmission(input: {
 	return {
 		hasSendableFiles: composerFiles.some((file) => file.status !== "failed"),
 	};
-}
-
-function resolveQueuedExecutionInput(input: {
-	profileId: string;
-	timelineItems: readonly SpaceTimelineItem[];
-	centerAgentProfileId?: string | null;
-	members: SpaceMembersSnapshot | null;
-	activationTargets: readonly string[];
-	hasFiles: boolean;
-	replyToSignalId?: string;
-	items: readonly Pick<
-		WakeProgressItem,
-		| "terminal"
-		| "dispatchId"
-		| "clientMessageId"
-		| "targetProfileId"
-		| "sourceContext"
-		| "sourceSignalId"
-	>[];
-}) {
-	const localProfileIds =
-		input.members?.agents
-			.filter((agent) => supportsLocalExecutionInput(agent.agentControllerRef))
-			.map((agent) => agent.profileId) ?? [];
-	if (input.hasFiles) {
-		return undefined;
-	}
-	let targetProfileId: string | null | undefined;
-	if (input.activationTargets.length === 1) {
-		targetProfileId = input.activationTargets[0];
-	} else if (input.activationTargets.length === 0) {
-		targetProfileId = input.centerAgentProfileId;
-		if (
-			!targetProfileId &&
-			localProfileIds.length === 1 &&
-			(input.members?.humans.length === 1 || input.replyToSignalId)
-		) {
-			targetProfileId = localProfileIds[0];
-		}
-	}
-	if (
-		!targetProfileId ||
-		(targetProfileId !== input.centerAgentProfileId &&
-			!localProfileIds.includes(targetProfileId))
-	) {
-		return undefined;
-	}
-	const responses = input.items.filter(
-		(item) =>
-			!item.terminal &&
-			(item.dispatchId || item.clientMessageId) &&
-			item.targetProfileId === targetProfileId &&
-			(!input.replyToSignalId ||
-				item.sourceSignalId === input.replyToSignalId) &&
-			!item.sourceContext?.threadId &&
-			(item.sourceContext?.profileId ??
-				input.timelineItems.find((source) => source.id === item.sourceSignalId)
-					?.actorProfileId) === input.profileId
-	);
-	if (responses.length > 1) {
-		return "ambiguous" as const;
-	}
-	const response = responses[0];
-	if (response?.dispatchId) {
-		return {
-			dispatchId: response.dispatchId,
-			targetProfileId: response.targetProfileId,
-		};
-	}
-	if (response?.clientMessageId) {
-		return {
-			clientMessageId: response.clientMessageId,
-			targetProfileId: response.targetProfileId,
-		};
-	}
-	return undefined;
 }
 
 function buildNormalMessagePostInput(input: {
@@ -1159,6 +1084,18 @@ function resolveConfirmedViewedUpdatesHandler(input: {
 	return input.isCurrentAccessConfirmed ? input.onViewedUpdates : undefined;
 }
 
+function resolveSpaceQueuedInputItems(input: {
+	queue: ReturnType<typeof useSpaceInputQueue>;
+	accessConfirmed: boolean;
+	isActiveMember: boolean;
+}): SpaceInputQueueResponse["items"] {
+	return input.accessConfirmed &&
+		input.isActiveMember &&
+		input.queue.supportsConversationContext
+		? input.queue.items
+		: [];
+}
+
 function shouldShowSpaceLandingLoading(input: {
 	bootstrapPending: boolean;
 	currentStatusConfirmationPending: boolean;
@@ -1230,6 +1167,7 @@ export type SpaceLandingConversationController = {
 	composerReplyToSignalId: string | null;
 	composerText: string;
 	presentedWakeProgressItems: readonly SpaceEphemeralActivityItem[];
+	queuedInputItems: readonly SpaceInputQueueResponse["items"][number][];
 	ownActiveWakesHaveMore: boolean;
 	historyNavigation: SpaceHistoryNavigationController;
 	hasEarlierHistory: boolean;
@@ -1341,6 +1279,9 @@ export type SpaceLandingConversationController = {
 	threadComposerErrorMessage: string | null;
 	threadComposerHasAuthoredMentions: boolean;
 	threadComposerText: string;
+	threadComposerReplyToSignalId: string | null;
+	onClearThreadComposerReplyTo: () => void;
+	onThreadReplyToMessage: (item: SpaceTimelineItem) => void;
 	threadComposerFiles: readonly SpaceComposerFile[];
 	threadComposerFileLimitReached: boolean;
 	threadComposerFileCleanup: readonly ComposerFileDraftCleanup[];
@@ -1870,24 +1811,36 @@ export function useSpaceLandingController(input: {
 			...(historySnapshot ? { data: historySnapshot } : {}),
 		},
 	});
+	const currentWakeProgressItems = useMemo(
+		() =>
+			mergeActiveWakeProgressPresentation({
+				detailedItems: wakeProgressItems,
+				summaryItems: readConfirmedWakeProgressItems({
+					presentation: wakeProgressPresentationQuery.data,
+					spaceSummary: activeWakeProgressSummaryQuery.data,
+					ownSummary: ownActiveWakeProgressQuery.data,
+					spaceSummaryFetchedAfterMount:
+						activeWakeProgressSummaryQuery.isFetchedAfterMount,
+					ownSummaryFetchedAfterMount:
+						ownActiveWakeProgressQuery.isFetchedAfterMount,
+					signals: [],
+				}),
+				signals: [],
+			}),
+		[
+			wakeProgressItems,
+			wakeProgressPresentationQuery.data,
+			activeWakeProgressSummaryQuery.data,
+			activeWakeProgressSummaryQuery.isFetchedAfterMount,
+			ownActiveWakeProgressQuery.data,
+			ownActiveWakeProgressQuery.isFetchedAfterMount,
+		]
+	);
 	const agentStreamProjections = useMemo(
 		() =>
 			projectAgentStreamReplyPlacements(
 				liveAgentStreamProjections,
-				mergeWakeProgressItemState({
-					currentItems: wakeProgressItems,
-					incomingItems: readConfirmedWakeProgressItems({
-						presentation: wakeProgressPresentationQuery.data,
-						spaceSummary: activeWakeProgressSummaryQuery.data,
-						ownSummary: ownActiveWakeProgressQuery.data,
-						spaceSummaryFetchedAfterMount:
-							activeWakeProgressSummaryQuery.isFetchedAfterMount,
-						ownSummaryFetchedAfterMount:
-							ownActiveWakeProgressQuery.isFetchedAfterMount,
-						signals: [],
-					}),
-					signals: [],
-				})
+				currentWakeProgressItems
 			).filter(
 				(stream) =>
 					!hasSpaceWakeProgressOutcome({
@@ -1903,12 +1856,8 @@ export function useSpaceLandingController(input: {
 			),
 		[
 			liveAgentStreamProjections,
-			wakeProgressItems,
+			currentWakeProgressItems,
 			wakeProgressPresentationQuery.data,
-			activeWakeProgressSummaryQuery.data,
-			activeWakeProgressSummaryQuery.isFetchedAfterMount,
-			ownActiveWakeProgressQuery.data,
-			ownActiveWakeProgressQuery.isFetchedAfterMount,
 		]
 	);
 	const historyNavigation = useSpaceHistoryNavigation({
@@ -2141,6 +2090,9 @@ export function useSpaceLandingController(input: {
 		[setWakeProgressItems]
 	);
 	const threadController = useSpaceThreadController({
+		inputQueue,
+		centerAgentProfileId: input.centerAgentProfileId,
+		queueProgressItems: currentWakeProgressItems,
 		entryConfirmed,
 		initialFocusRequestId: input.initialFocusRequestId,
 		isMembersLoading: membersLoading,
@@ -2793,6 +2745,11 @@ export function useSpaceLandingController(input: {
 			isLoadingEarlierHistory,
 		}),
 		presentedWakeProgressItems,
+		queuedInputItems: resolveSpaceQueuedInputItems({
+			queue: inputQueue,
+			accessConfirmed: statusReady,
+			isActiveMember: currentProfileIsActiveSpaceMember,
+		}),
 		ownActiveWakesHaveMore:
 			ownActiveWakeProgressQuery.data?.pageInfo?.hasMore === true,
 		historyNavigation,
@@ -2922,6 +2879,10 @@ export function useSpaceLandingController(input: {
 		threadComposerHasAuthoredMentions:
 			threadController.threadComposerHasAuthoredMentions,
 		threadComposerText: threadController.threadComposerText,
+		threadComposerReplyToSignalId:
+			threadController.threadComposerReplyToSignalId,
+		onClearThreadComposerReplyTo: threadController.onClearThreadComposerReplyTo,
+		onThreadReplyToMessage: threadController.onThreadReplyToMessage,
 		threadComposerFiles: threadController.threadComposerFiles,
 		threadComposerFileLimitReached:
 			threadController.threadComposerFileLimitReached,
@@ -3921,6 +3882,9 @@ export function useSpaceLandingController(input: {
 }
 
 function useSpaceThreadController(input: {
+	inputQueue: ReturnType<typeof useSpaceInputQueue>;
+	centerAgentProfileId?: string | null;
+	queueProgressItems: readonly WakeProgressItem[];
 	entryConfirmed: boolean;
 	initialFocusRequestId?: string;
 	initialFocusSignalId?: string;
@@ -4171,6 +4135,14 @@ function useSpaceThreadController(input: {
 		threadComposerErrorMessage: composerErrorMessage,
 		threadComposerHasAuthoredMentions: mentionAuthoring.hasAuthoredMentions,
 		threadComposerText: mentionAuthoring.composerText,
+		threadComposerReplyToSignalId: mentionAuthoring.replyTo?.signalId ?? null,
+		onClearThreadComposerReplyTo: mentionAuthoring.onClearReplyTo,
+		onThreadReplyToMessage: (item: SpaceTimelineItem) =>
+			mentionAuthoring.onReplyToSignal({
+				signalId: item.id,
+				wakeTargetProfileId:
+					item.actorProfileKind === "agent" ? item.actorProfileId : null,
+			}),
 		threadComposerFiles: composerFilesController.files,
 		threadComposerFileLimitReached: composerFilesController.isAtLimit,
 		threadComposerFileCleanup: composerFilesController.cleanup,
@@ -4415,6 +4387,9 @@ function useSpaceThreadController(input: {
 				},
 				onPosted: () => {
 					posted = true;
+					if (!submissionClaimed) {
+						mentionAuthoring.recordPendingSubmission(submittedAtMs);
+					}
 					completeSpaceSend(clientMessageId);
 					mentionAuthoring.recordSuccessfulSubmission(preparedSubmission);
 					composerFilesController.consumePublishedFiles(publishedLocalIds);
@@ -4592,7 +4567,7 @@ function useSpaceThreadController(input: {
 		}
 	}
 
-	async function sendPreparedThreadMessage(sendInput: {
+	type ThreadMessageSendInput = {
 		onMessageStaged?: SpaceComposerSendOptions["onMessageStaged"];
 		composerFiles?: readonly SpaceComposerFile[];
 		clientMessageId?: string;
@@ -4604,9 +4579,94 @@ function useSpaceThreadController(input: {
 		onPosted?: () => void;
 		preparedSubmission: PreparedSpaceMessageSubmission;
 		thread: SpaceThread;
-	}): Promise<void> {
+	};
+	async function tryQueueThreadMessage(
+		sendInput: ThreadMessageSendInput,
+		clientMessageId: string
+	): Promise<boolean> {
+		const submission = sendInput.preparedSubmission;
+		const queueTarget = resolveQueuedExecutionInput({
+			profileId: input.profileId,
+			threadId: sendInput.thread.threadId,
+			timelineItems: buildSpaceTimelineItems({
+				envelopes: threadSignals,
+				membersSnapshot: input.membersSnapshot,
+			}),
+			centerAgentProfileId: input.centerAgentProfileId,
+			automaticTargetProfileId:
+				threadSignalsQuery.data?.wakeContinuation?.automaticTargetProfileId,
+			replyToSignalId: submission.messageEnvelope?.replyToSignalId,
+			members: input.membersSnapshot,
+			activationTargets: submission.messageEnvelope?.activationTargets ?? [],
+			hasFiles: Boolean(sendInput.composerFiles?.length),
+			items: mergeWakeProgressItemState({
+				currentItems: input.queueProgressItems,
+				incomingItems: wakeProgressItems,
+				signals: threadSignals,
+			}),
+		});
+		if (
+			queueTarget &&
+			!submission.contextSelection &&
+			!submission.contextSelections &&
+			!submission.taskDraft &&
+			!submission.deviceWait
+		) {
+			const request = composerSession.send.reserveRequest();
+			try {
+				if (queueTarget === "ambiguous") {
+					throw new Error(
+						"More than one task is active in this Thread. Reply to your original request to choose which task to update."
+					);
+				}
+				if (!input.inputQueue.supportsConversationContext) {
+					throw new Error(
+						"This server can’t queue Thread replies yet. Your draft is still here. Refresh and try again."
+					);
+				}
+				await request.ready;
+				await requireThreadWakeAdmission(submission);
+				await input.inputQueue.enqueue({
+					action: "enqueue",
+					inputId: clientMessageId,
+					target: queueTarget,
+					text: submission.text,
+				});
+				sendInput.onPosted?.();
+				sendInput.onMessageStaged?.(clientMessageId);
+				return true;
+			} catch (error) {
+				throw new PreparedSpaceMessageSendError({
+					clientMessageId,
+					originalError: error,
+					outcomeUnknown: false,
+					postedMessage: false,
+				});
+			} finally {
+				request.complete();
+			}
+		}
+		return false;
+	}
+
+	function buildThreadDeliveryOptions(
+		submission: PreparedSpaceMessageSubmission
+	) {
+		return {
+			...(submission.threadWakeContinuation
+				? { threadWakeContinuation: true as const }
+				: {}),
+			...(submission.deviceWait ? { deviceWait: submission.deviceWait } : {}),
+		};
+	}
+	async function sendPreparedThreadMessage(
+		sendInput: ThreadMessageSendInput
+	): Promise<void> {
 		const clientMessageId =
 			sendInput.clientMessageId ?? createClientMessageId();
+		if (await tryQueueThreadMessage(sendInput, clientMessageId)) {
+			return;
+		}
 		const request = composerSession.send.reserveRequest();
 		markSpaceSendPending(clientMessageId, () => {
 			const files = sendInput.composerFiles ?? [];
@@ -4673,12 +4733,7 @@ function useSpaceThreadController(input: {
 					contextSelection: sendInput.preparedSubmission.contextSelection,
 					contextSelections: sendInput.preparedSubmission.contextSelections,
 					taskDraft: sendInput.preparedSubmission.taskDraft,
-					...(sendInput.preparedSubmission.threadWakeContinuation
-						? { threadWakeContinuation: true as const }
-						: {}),
-					...(sendInput.preparedSubmission.deviceWait
-						? { deviceWait: sendInput.preparedSubmission.deviceWait }
-						: {}),
+					...buildThreadDeliveryOptions(sendInput.preparedSubmission),
 					clientMessageId,
 					restoredFromSignalId:
 						sendInput.preparedSubmission.restoredFromSignalId,

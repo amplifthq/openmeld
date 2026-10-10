@@ -1,3 +1,4 @@
+import { supportsLocalExecutionInput } from "@openmeld/agent-runtime";
 import type { StructuredApiClientFailure } from "@openmeld/api-client";
 import type {
 	CreateSpaceDiagnosticReportResponse,
@@ -41,6 +42,85 @@ import {
 } from "./use-space-mention-authoring";
 
 const LAST_WAKE_DIAGNOSTIC_STORAGE_KEY = "openmeld.space.last-wake-diagnostic";
+export function resolveQueuedExecutionInput(input: {
+	threadId?: string | null;
+	automaticTargetProfileId?: string | null;
+	profileId: string;
+	timelineItems: readonly SpaceTimelineItem[];
+	centerAgentProfileId?: string | null;
+	members: SpaceMembersSnapshot | null;
+	activationTargets: readonly string[];
+	hasFiles: boolean;
+	replyToSignalId?: string;
+	items: readonly Pick<
+		WakeProgressItem,
+		| "terminal"
+		| "dispatchId"
+		| "clientMessageId"
+		| "targetProfileId"
+		| "sourceContext"
+		| "sourceSignalId"
+	>[];
+}) {
+	const localProfileIds =
+		input.members?.agents
+			.filter((agent) => supportsLocalExecutionInput(agent.agentControllerRef))
+			.map((agent) => agent.profileId) ?? [];
+	if (input.hasFiles) {
+		return undefined;
+	}
+	let targetProfileId: string | null | undefined;
+	if (input.activationTargets.length === 1) {
+		targetProfileId = input.activationTargets[0];
+	} else if (input.activationTargets.length === 0) {
+		targetProfileId =
+			input.automaticTargetProfileId ?? input.centerAgentProfileId;
+		if (
+			!targetProfileId &&
+			localProfileIds.length === 1 &&
+			(input.members?.humans.length === 1 || input.replyToSignalId)
+		) {
+			targetProfileId = localProfileIds[0];
+		}
+	}
+	if (
+		!targetProfileId ||
+		(targetProfileId !== input.centerAgentProfileId &&
+			!localProfileIds.includes(targetProfileId))
+	) {
+		return undefined;
+	}
+	const responses = input.items.filter(
+		(item) =>
+			!item.terminal &&
+			(item.dispatchId || item.clientMessageId) &&
+			item.targetProfileId === targetProfileId &&
+			(!input.replyToSignalId ||
+				item.sourceSignalId === input.replyToSignalId) &&
+			(item.sourceContext?.threadId ?? null) === (input.threadId ?? null) &&
+			(item.sourceContext?.profileId ??
+				input.timelineItems.find((source) => source.id === item.sourceSignalId)
+					?.actorProfileId) === input.profileId
+	);
+	if (responses.length > 1) {
+		return "ambiguous" as const;
+	}
+	const response = responses[0];
+	if (response?.dispatchId) {
+		return {
+			dispatchId: response.dispatchId,
+			targetProfileId: response.targetProfileId,
+		};
+	}
+	if (response?.clientMessageId) {
+		return {
+			clientMessageId: response.clientMessageId,
+			targetProfileId: response.targetProfileId,
+		};
+	}
+	return undefined;
+}
+
 const LAST_DIAGNOSTIC_REPORT_STORAGE_KEY =
 	"openmeld.space.last-diagnostic-report";
 
