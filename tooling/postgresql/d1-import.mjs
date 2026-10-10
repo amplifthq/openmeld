@@ -147,6 +147,18 @@ async function reconcileTable(client, database, table, columns) {
 }
 
 export async function verifyNativeTarget(client, migrationsDirectory, remote) {
+  return verifyNativeTargetWithMigrations(
+    client,
+    await readMigrations(migrationsDirectory),
+    remote
+  );
+}
+
+export async function verifyNativeTargetWithMigrations(
+  client,
+  migrations,
+  remote
+) {
   let identity;
   if (remote) {
     const observed = (
@@ -168,7 +180,6 @@ export async function verifyNativeTarget(client, migrationsDirectory, remote) {
     }
     identity = await importTargetIdentity(client, directory);
   }
-  const migrations = await readMigrations(migrationsDirectory);
   const applied = (
     await client.query(
       "SELECT hash,created_at::text FROM drizzle.__drizzle_migrations ORDER BY created_at,id"

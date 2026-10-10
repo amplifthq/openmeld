@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { readMigrationFiles } from "drizzle-orm/migrator";
@@ -9,6 +11,8 @@ export const migrationDirectory = fileURLToPath(
   new URL("../../packages/db/postgresql/migrations/", import.meta.url)
 );
 export const migrationLock = 640_021_017;
+const EXACT_SOURCE_SHA = /^[0-9a-f]{40}$/u;
+const MIGRATION_TAG = /^\d{4}_[a-z0-9_-]+$/u;
 
 export function connectionOptions(connectionString, local = false) {
   const url = new URL(connectionString);
@@ -100,6 +104,38 @@ export async function readMigrations(directory = migrationDirectory) {
     name: `${journal.entries[index].tag}.sql`,
     checksum: entry.hash,
   }));
+}
+
+// Read the immutable journal from the exact previously verified release. No
+// checkout, migration, or credential changes are required by this proof.
+export function readMigrationsAtSource(sourceSha, cwd) {
+  if (!EXACT_SOURCE_SHA.test(sourceSha)) {
+    throw new Error("PostgreSQL retry baseline requires an exact source SHA");
+  }
+  const read = (path) =>
+    execFileSync(
+      "git",
+      ["show", `${sourceSha}:packages/db/postgresql/migrations/${path}`],
+      { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
+    );
+  const journal = JSON.parse(read("meta/_journal.json"));
+  if (
+    !(Array.isArray(journal.entries) && journal.entries.length) ||
+    journal.entries.some(
+      (entry, index) =>
+        entry.idx !== index ||
+        !MIGRATION_TAG.test(entry.tag) ||
+        !Number.isSafeInteger(entry.when) ||
+        (index > 0 && entry.when <= journal.entries[index - 1].when)
+    )
+  ) {
+    throw new Error("PostgreSQL retry baseline journal is invalid");
+  }
+  return journal.entries.map((entry) => {
+    const name = `${entry.tag}.sql`;
+    const hash = createHash("sha256").update(read(name)).digest("hex");
+    return { name, hash, checksum: hash, folderMillis: entry.when };
+  });
 }
 
 export async function migrate(client, directory = migrationDirectory) {
