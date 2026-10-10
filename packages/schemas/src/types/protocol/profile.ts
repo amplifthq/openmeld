@@ -17,3 +17,6 @@ export type ProfileWorkspaceMode = z.infer<ProfileWorkspaceModeSchema>;
 export type ProfileWorkspaceReadResult = z.infer<
   typeof import("../../schemas/protocol/profile")["profileWorkspaceReadResultSchema"]
 >;
+export type ProfileWorkspaceOrigin = z.infer<
+  typeof import("../../schemas/protocol/profile")["profileWorkspaceOriginSchema"]
+>;

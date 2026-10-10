@@ -16,7 +16,10 @@ import {
 	resolveAgentWakeAvailabilityDisplayCategory,
 	resolveNativeAgentControllerCollaborationModeForController,
 } from "@openmeld/agent-runtime";
-import { isHostedAgentControllerRef } from "@openmeld/schemas";
+import {
+	isHostedAgentControllerRef,
+	resolvePublicAgentFailureRecovery,
+} from "@openmeld/schemas";
 import type {
 	AgentControllerCollaborationMode,
 	AgentControllerPermissionMode,
@@ -133,6 +136,7 @@ import {
 import { shouldShowAgentProfileProjectSettings } from "#/components/profiles/agent-profile-project-settings";
 import { AgentProfileProjectSettingsDialog } from "#/components/profiles/agent-profile-project-settings-dialog";
 import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
+import { AgentProfileWorkingFolderRecoveryAction } from "#/components/profiles/agent-profile-working-folder-recovery-action";
 import {
 	type AgentProfileModelCompatibilityContext,
 	AgentProfileModelSelectionFields,
@@ -152,8 +156,10 @@ import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationAgentActivitySessionsPath,
 	buildOrganizationComputerPath,
+	buildOrganizationComputersPath,
 	buildOrganizationDirectMessagePath,
 } from "#/lib/organizations/organization-routes";
+import { buildAgentProfilePath } from "#/lib/profile-routes";
 import { resolveWebAgentControllerPermissionModeDisplayFromBinding } from "#/lib/profiles/agent-controller-permission-mode-display";
 import { resolveAgentProfileControllerModelDetail } from "#/lib/profiles/agent-profile-model-display";
 import {
@@ -164,6 +170,7 @@ import { executeAgentProfileWorkRecovery } from "#/lib/profiles/agent-profile-wo
 import { deleteStartAgentProfile } from "#/lib/profiles/delete-agent-profile";
 import { resolveProfileBindingCatalogExecutionTarget } from "#/lib/profiles/profile-binding-target";
 import { formatProfileDate } from "#/lib/profiles/profile-date-format";
+import { buildComputerSettingsPath } from "#/lib/settings-routes";
 import { isAgentExecutionSelfHealingReadiness } from "#/lib/spaces/agent-route-status";
 import {
 	openCurrentDirectMessageSpace,
@@ -1934,6 +1941,18 @@ function buildAgentProfileDirectoryRowConfiguration(input: {
 			readiness: input.readiness,
 			serviceUpdatePath: input.cardInput.serviceUpdatePath,
 			setupPath: input.cardInput.setupPath,
+			computerSettingsPath: input.readiness?.routeDeviceId
+				? buildComputerSettingsPath({
+						orgSlug: input.controller.currentOrganization.slug,
+						deviceId: input.readiness.routeDeviceId,
+					})
+				: buildOrganizationComputersPath(
+						input.controller.currentOrganization.slug
+					),
+			agentSettingsPath: buildAgentProfilePath({
+				orgSlug: input.controller.currentOrganization.slug,
+				profileId: input.profile.openMeldProfileId,
+			}),
 		}),
 	};
 }
@@ -2395,6 +2414,13 @@ function AgentProfileExecutionReadinessRow(
 		repairActions: input.repairActions,
 		repairIsPending: input.pendingState.repair,
 		setupAction: input.setupAction,
+		folderRecovery: {
+			actorProfileId: input.actorProfileId,
+			organizationId: input.organizationId,
+			storageScope: input.storageScope,
+			profile: input.profile,
+			onProfileUpdated: input.onProfileUpdated,
+		},
 	});
 	const supportingContent = cardActions;
 	const presentations: Record<
@@ -2596,6 +2622,7 @@ function resolveAgentProfileVisualAvailability(input: {
 }
 
 function renderAgentProfileCardActions(input: {
+	folderRecovery: Parameters<typeof AgentProfileWorkingFolderRecoveryAction>[0];
 	canCheckExpiredWakeRouteAgain: boolean;
 	checkAgainIsPending: boolean;
 	duplicateConversationProfileNames: readonly string[];
@@ -2631,7 +2658,12 @@ function renderAgentProfileCardActions(input: {
 			/>
 		);
 	} else if (input.setupAction && !input.hideSetupAction) {
-		recoveryAction = <AgentProfileSetupActionLink action={input.setupAction} />;
+		recoveryAction = (
+			<AgentProfileSetupActionLink
+				action={input.setupAction}
+				folderRecovery={input.folderRecovery}
+			/>
+		);
 	}
 
 	const checkAgainAction = input.canCheckExpiredWakeRouteAgain ? (
@@ -3769,6 +3801,13 @@ function AgentProfileWorkspacePresentation(input: {
 		input.input.readinessIsMissing &&
 		input.input.readinessErrorMessage ? null : (
 			<AgentProfileWakeAvailabilityRecoveryActions
+				folderRecovery={{
+					actorProfileId: input.input.actorProfileId,
+					organizationId: input.input.organizationId,
+					storageScope: input.input.storageScope,
+					profile: input.input.profile,
+					onProfileUpdated: input.input.onProfileUpdated,
+				}}
 				isPending={input.input.pendingState.repair}
 				onRepairAction={input.input.onRepairAction}
 				readinessIsPending={input.input.readinessIsPending}
@@ -4337,12 +4376,13 @@ export function AgentProfileConfigurationOverview(
 		: "Controller default";
 	const owner = resolveProfileDetailsValue(input.details, "owner") ?? "You";
 	const ownerProfileId = input.ownerProfileId ?? owner;
-	const workingFolderMissing = isWorkingFolderMissing(
-		input.wakeAvailability?.reasonCode
-	);
+	const workingFolderNeedsAttention =
+		resolvePublicAgentFailureRecovery({
+			errorCode: input.wakeAvailability?.reasonCode,
+		})?.recoveryTarget === "working_folder";
 	const workingFolder = resolveWorkingFolderSummary(
 		input,
-		workingFolderMissing
+		workingFolderNeedsAttention
 	);
 	return (
 		<section
@@ -4376,7 +4416,7 @@ export function AgentProfileConfigurationOverview(
 					<>
 						<AgentProfileWorkingFolderConfigurationCard
 							disabled={input.disabled}
-							missing={workingFolderMissing}
+							needsAttention={workingFolderNeedsAttention}
 							onOpen={input.onOpenProjectSettings}
 							summary={workingFolder}
 						/>
@@ -4414,10 +4454,10 @@ export function AgentProfileConfigurationOverview(
 
 function resolveWorkingFolderSummary(
 	input: AgentProfileConfigurationOverviewProps,
-	missing: boolean
+	needsAttention: boolean
 ): string {
-	if (missing) {
-		return "Working folder missing";
+	if (needsAttention) {
+		return "Working folder needs attention";
 	}
 	if (input.workingFolderProjectName) {
 		return `Project: ${input.workingFolderProjectName}`;
@@ -4573,23 +4613,25 @@ function AgentProfileOwnerConfigurationCard(input: {
 
 function AgentProfileWorkingFolderConfigurationCard(input: {
 	disabled: boolean;
-	missing: boolean;
+	needsAttention: boolean;
 	onOpen: (() => void) | undefined;
 	summary: string;
 }) {
 	return (
 		<AgentConfigurationCard
-			actionLabel={input.missing ? "Choose folder" : undefined}
-			attention={input.missing}
+			actionLabel={input.needsAttention ? "Review working folder" : undefined}
+			attention={input.needsAttention}
 			description={
-				input.missing ? "Choose a working folder for this Agent." : undefined
+				input.needsAttention
+					? "Review the working folder for this Agent."
+					: undefined
 			}
 			disabled={input.disabled || !input.onOpen}
 			icon={<FolderOpenIcon aria-hidden="true" />}
 			inlineContent={
-				input.missing ? (
+				input.needsAttention ? (
 					<span className="font-medium text-primary text-xs">
-						Choose folder
+						Review working folder
 					</span>
 				) : undefined
 			}
@@ -4601,15 +4643,6 @@ function AgentProfileWorkingFolderConfigurationCard(input: {
 			summaryClassName="truncate"
 			summaryTitle={input.summary}
 		/>
-	);
-}
-
-function isWorkingFolderMissing(reasonCode: string | null | undefined) {
-	return (
-		reasonCode === "workspace.missing" ||
-		reasonCode === "profile.workspace.missing" ||
-		reasonCode === "project.local_connection.missing" ||
-		reasonCode === "project.local_connection.folder_missing"
 	);
 }
 
@@ -6539,7 +6572,15 @@ function AgentProfileCheckAgainAction(input: {
 
 function AgentProfileSetupActionLink(input: {
 	action: AgentProfileSetupAction;
+	folderRecovery: Parameters<typeof AgentProfileWorkingFolderRecoveryAction>[0];
 }) {
+	if (input.action.recoveryTarget === "working_folder") {
+		return (
+			<div className="flex justify-start pt-1">
+				<AgentProfileWorkingFolderRecoveryAction {...input.folderRecovery} />
+			</div>
+		);
+	}
 	return (
 		<div className="flex justify-start pt-1">
 			<Link
@@ -6554,6 +6595,7 @@ function AgentProfileSetupActionLink(input: {
 }
 
 function AgentProfileWakeAvailabilityRecoveryActions(input: {
+	folderRecovery: Parameters<typeof AgentProfileWorkingFolderRecoveryAction>[0];
 	isPending: boolean;
 	onRepairAction: (action: AgentProfileRepairAction) => Promise<void>;
 	readinessIsPending: boolean;
@@ -6573,7 +6615,12 @@ function AgentProfileWakeAvailabilityRecoveryActions(input: {
 		);
 	}
 	if (input.setupAction) {
-		return <AgentProfileSetupActionLink action={input.setupAction} />;
+		return (
+			<AgentProfileSetupActionLink
+				action={input.setupAction}
+				folderRecovery={input.folderRecovery}
+			/>
+		);
 	}
 	return null;
 }

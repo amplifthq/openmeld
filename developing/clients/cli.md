@@ -911,6 +911,14 @@ still do not prove Wake readiness; CLI
 must keep Wake readiness under the existing readiness/reporting and diagnostic
 surfaces.
 
+With no folder option, `add-me` records its observed current directory as a
+native-session import through the existing local configuration writer. Explicit
+folder options record explicit configuration instead. Initialization runs under
+the existing lock only when no configuration exists; a concurrent or later
+saved choice wins. Reuse validates that saved choice and refuses a mismatch
+rather than replacing it. Import origin is local metadata, not permission to
+follow a native worktree or infer a replacement for a missing directory.
+
 Agent-facing command output must stay compact by default. The default answer is
 the result, the next useful action, and the command to inspect details. Expensive
 diagnostic evidence, full trace payloads, candidate scans, and projection

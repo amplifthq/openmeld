@@ -46,6 +46,7 @@ const PRIMARY_RECOVERY_REASON_CODES = [
   "profile.workspace.invalid",
   "profile.workspace.missing",
   "project.local_connection.folder_missing",
+  "project.local_connection.invalid",
   "project.local_connection.missing",
   "controller.client.upgrade_required",
   "controller.runtime.missing",
@@ -85,6 +86,7 @@ const AGENT_PROFILE_PREPARATION_REASON_CODES = new Set<string>([
   "profile.workspace.invalid",
   "profile.workspace.missing",
   "project.local_connection.folder_missing",
+  "project.local_connection.invalid",
   "project.local_connection.missing",
   "controller.client.upgrade_required",
   "controller.runtime.missing",
@@ -948,12 +950,9 @@ function planAgentProfilePreparationRecovery(input: {
   const recovery = resolvePublicAgentFailureRecovery({
     errorCode: input.reasonCode,
   });
-  let primaryActionId: AgentRecoveryActionId = "connect_local_agent";
-  if (recovery?.recoveryTarget === "working_folder") {
-    primaryActionId = recovery.primaryActionId;
-  } else if (input.reasonCode === "controller.client.upgrade_required") {
-    primaryActionId = "manage_local_agent";
-  }
+  const primaryActionId: AgentRecoveryActionId = recovery?.recoveryTarget
+    ? recovery.primaryActionId
+    : "check_status";
   return {
     body: copy.body,
     kind: "prepare_agent_profile",

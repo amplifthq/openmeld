@@ -281,6 +281,7 @@ function LocalAgentProfileProjectSettingsDialog(
 							{savedConfigurationError}
 						</p>
 					) : null}
+					<ImportedWorkingFolderNotice workspace={savedSettings?.workspace} />
 					<AgentProfileProjectSelector
 						disabled={disabled}
 						localFolderChangesBlocked={localFolderChangesBlocked}
@@ -369,6 +370,24 @@ function LocalAgentProfileProjectSettingsDialog(
 				</DialogFooter>
 			</DialogContent>
 		</Dialog>
+	);
+}
+
+function ImportedWorkingFolderNotice(input: {
+	workspace?: ProfileWorkspaceReadResult;
+}) {
+	if (
+		input.workspace?.status !== "configured" ||
+		input.workspace.configurationOrigin !== "imported_native_session"
+	) {
+		return null;
+	}
+	return (
+		<p className="text-muted-foreground text-sm">
+			This folder came from a local agent conversation. If it becomes
+			unavailable, restore the original folder in that app or choose a folder
+			for new work. A different folder does not restore its files.
+		</p>
 	);
 }
 

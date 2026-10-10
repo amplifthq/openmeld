@@ -6589,6 +6589,17 @@ adapts browser-local and current-local-runtime evidence into that shared copy,
 then presents one clear next action. The copy explains known evidence and the
 next step. It does not decide Wakeability or execution truth.
 
+Profile and Space recovery resolve the same shared reason-to-action mapping.
+Missing or invalid folder and Project connections open the existing owner
+working-folder dialog. Authentication, installation, disabled local agents,
+and missing or stale controller reports lead to the relevant Computer controls.
+A missing report is not a missing connection. Only connection actions carry
+the compact **Needs connection** label; other actions use **Needs attention**.
+The dialog freezes its canonical Binding and exact Computer/lane, reads current
+saved configuration, and retains its draft through refreshes. Space adapters
+provide their editing context to the shared Profile action; they do not create
+a separate recovery form or configuration authority.
+
 Known blockers name the affected object and place the action beside the
 explanation. Computer recovery uses **Connect computer**, **Reconnect
 computer**, or **Update** with copy such as **Felix's MacBook Pro is not

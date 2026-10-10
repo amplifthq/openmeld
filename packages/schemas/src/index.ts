@@ -98,6 +98,7 @@ export {
   type AgentRecoveryActionId,
   agentRecoveryActionLabels,
   formatAgentRecoveryActionLabel,
+  isAgentRecoveryConnectionAction,
 } from "./agent-recovery-action";
 export {
   isAgentWorkActivityPresentable,

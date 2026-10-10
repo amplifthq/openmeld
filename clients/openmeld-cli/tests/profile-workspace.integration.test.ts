@@ -3,6 +3,7 @@ import {
   chmod,
   mkdir,
   readFile,
+  rename,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -57,6 +58,120 @@ async function readLocalMetaFile(openMeldProfileId: string): Promise<unknown> {
 }
 
 describe("profile workspace service", () => {
+  it("keeps a native import observation separate from later explicit folder choices", async () => {
+    await withTempHome(async (home) => {
+      const profileId = "agt-imported-workspace";
+      const original = join(home, "original-worktree");
+      const retained = join(home, "retained-worktree");
+      await mkdir(original);
+      const importedSession = {
+        agentControllerRef: "builtin:codex" as const,
+        agentControllerConversationId: "thread-imported",
+      };
+      await setCustomProfileWorkspace({
+        account: FALLBACK_ACCOUNT,
+        openMeldProfileId: profileId,
+        customWorkspacePath: original,
+        importedSession,
+        onlyIfUnconfigured: true,
+      });
+      expect(
+        await readProfileWorkspaceConfigForAccount({
+          account: FALLBACK_ACCOUNT,
+          openMeldProfileId: profileId,
+        })
+      ).toMatchObject({
+        origin: { kind: "imported_native_session", ...importedSession },
+      });
+      await rename(original, retained);
+      expect(
+        await resolveProfileWorkspaceRuntimeForAccount({
+          account: FALLBACK_ACCOUNT,
+          openMeldProfileId: profileId,
+          mode: "inspect",
+        })
+      ).toMatchObject({ status: "invalid", reasonCode: "workspace.invalid" });
+      await expect(access(original)).rejects.toThrow();
+      expect(
+        await readSavedProfileWorkspaceForAccount({
+          account: FALLBACK_ACCOUNT,
+          openMeldProfileId: profileId,
+        })
+      ).toMatchObject({
+        status: "configured",
+        configurationOrigin: "imported_native_session",
+        workspacePath: original,
+      });
+      const importRetry = await setCustomProfileWorkspace({
+        account: FALLBACK_ACCOUNT,
+        openMeldProfileId: profileId,
+        customWorkspacePath: retained,
+        importedSession,
+        onlyIfUnconfigured: true,
+      });
+      expect(importRetry).toMatchObject({
+        changed: false,
+        workspacePath: original,
+      });
+      await setCustomProfileWorkspace({
+        account: FALLBACK_ACCOUNT,
+        openMeldProfileId: profileId,
+        customWorkspacePath: retained,
+      });
+      const explicit = await readProfileWorkspaceConfigForAccount({
+        account: FALLBACK_ACCOUNT,
+        openMeldProfileId: profileId,
+      });
+      expect(explicit).toMatchObject({
+        origin: { kind: "explicit" },
+        value: { mode: "custom", customWorkspacePath: retained },
+      });
+      expect(
+        explicit.status === "valid" &&
+          explicit.origin &&
+          "agentControllerConversationId" in explicit.origin
+      ).toBe(false);
+      const laterImport = await setCustomProfileWorkspace({
+        account: FALLBACK_ACCOUNT,
+        openMeldProfileId: profileId,
+        customWorkspacePath: retained,
+        importedSession: {
+          ...importedSession,
+          agentControllerConversationId: "thread-second",
+        },
+        onlyIfUnconfigured: true,
+      });
+      expect(laterImport.changed).toBe(false);
+      expect(
+        await readSavedProfileWorkspaceForAccount({
+          account: FALLBACK_ACCOUNT,
+          openMeldProfileId: profileId,
+        })
+      ).toMatchObject({ configurationOrigin: "explicit" });
+      const oldWriterEnvelope = (await readLocalMetaFile(profileId)) as Record<
+        string,
+        unknown
+      >;
+      await writeLocalMetaFile({
+        openMeldProfileId: profileId,
+        payload: {
+          ...oldWriterEnvelope,
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+      });
+      const historical = await readProfileWorkspaceConfigForAccount({
+        account: FALLBACK_ACCOUNT,
+        openMeldProfileId: profileId,
+      });
+      expect(historical).toMatchObject({
+        status: "valid",
+        value: { mode: "custom", customWorkspacePath: retained },
+      });
+      expect(
+        historical.status === "valid" && historical.origin
+      ).toBeUndefined();
+    });
+  });
   it("reads a valid v2 openmeld-managed workspace config", async () => {
     await withTempHome(async () => {
       const path = await writeLocalMetaFile({
@@ -575,6 +690,10 @@ describe("profile workspace service", () => {
         workspace: {
           customWorkspacePath,
           mode: "custom",
+        },
+        workspaceOrigin: {
+          kind: "explicit",
+          configurationUpdatedAt: expect.any(String),
         },
       });
     });

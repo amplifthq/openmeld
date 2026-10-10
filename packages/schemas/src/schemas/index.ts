@@ -2932,6 +2932,7 @@ export {
   profileSchema,
   profileWorkingDirectorySchema,
   profileWorkspaceModeSchema,
+  profileWorkspaceOriginSchema,
   profileWorkspaceReadResultSchema,
   uuidProfileIdSchema,
 } from "./protocol/profile";

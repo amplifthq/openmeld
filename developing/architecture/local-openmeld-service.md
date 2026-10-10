@@ -1991,6 +1991,15 @@ and includes a saved path only for immediate forwarding to the requesting owner.
 It does not publish paths to Profile identity, logs, Agent Activity or Center
 Agent context. Reading never migrates the configuration or provisions a folder.
 
+The configured result may include `configurationOrigin`, the kind of the
+current local import or explicit-save observation. It exposes no native
+conversation ID. The same local configuration envelope stores the observation,
+and the existing writer removes or replaces it when the folder changes.
+Unknown legacy origin remains absent. Origin does not authorize automatic
+folder selection or change readiness. This final response shape is part of the
+new private-read rollout: older strict result receivers can reject it, so the
+complete Core/Gateway receiver must precede the publishing Service.
+
 Old registration parsers strictly reject the new capability field even though
 it is optional in the new schema. Deploy the Core receiver, then Gateway, before
 the new Service advertises it or Web calls the new GET. A new receiver with an

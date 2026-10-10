@@ -18,3 +18,12 @@ Reopening Working folder loads the saved folder choice from the Agent's
 Computer. Changing that Computer while settings are open keeps your draft and
 asks you to reopen settings before saving. Folder paths retain meaningful
 spaces and Unicode characters.
+
+Folder errors now open Working folder settings from both Profile and Space
+recovery. Missing or stale local-agent reports lead to Computer status rather
+than another connection flow.
+
+Newly imported local conversations keep the folder observed during import.
+If that folder disappears, settings explain how to restore the original worktree
+or choose a folder for new work. OpenMeld does not replace the saved folder
+automatically, and a later manual choice survives import retries.

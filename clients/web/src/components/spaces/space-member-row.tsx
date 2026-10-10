@@ -1,5 +1,6 @@
 import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
 import { isAgentProfileWorkspaceBlockerReasonCode } from "@openmeld/agent-runtime";
+import { isAgentRecoveryConnectionAction } from "@openmeld/schemas";
 import type { ModelCatalog } from "@openmeld/schemas/types";
 import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
 import { Button } from "@openmeld/ui/components/button";
@@ -362,10 +363,11 @@ function AgentSpaceMemberRecoveryAction(input: {
 	return (
 		<div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-xs">
 			<span>
-				{input.presentation.displayedAgentRecoveryPlan.primaryActionId ===
-				"review_agent_settings"
-					? "Needs attention"
-					: "Needs connection"}
+				{isAgentRecoveryConnectionAction(
+					input.presentation.displayedAgentRecoveryPlan.primaryActionId
+				)
+					? "Needs connection"
+					: "Needs attention"}
 			</span>
 			{action}
 		</div>

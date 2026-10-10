@@ -3,10 +3,12 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import {
   profileWorkspaceModeSchema,
+  profileWorkspaceOriginSchema,
   providerDispatchRuntimeContextSchema,
 } from "@openmeld/schemas";
 import type {
   ProfileWorkspaceMode,
+  ProfileWorkspaceOrigin,
   ProfileWorkspaceReadResult,
 } from "@openmeld/schemas/types";
 import { resolveCurrentOpenMeldAccountContext } from "../config/account-context";
@@ -49,6 +51,7 @@ export type ProfileLocalMetaEnvelope = {
   updatedAt: string;
   v: 2;
   workspace?: ProfileWorkspaceConfig;
+  workspaceOrigin?: ProfileWorkspaceOrigin;
 };
 
 type ProfileLocalMetaLegacyV1 = {
@@ -74,6 +77,7 @@ export type ProfileWorkspaceConfigReadResult =
       status: "valid";
       updatedAt: string;
       value: ProfileWorkspaceConfig;
+      origin?: ProfileWorkspaceOrigin;
     };
 
 export type ProfileWorkspaceMigrationResult =
@@ -198,6 +202,7 @@ export async function readProfileWorkspaceConfigForAccount(input: {
     status: "valid",
     updatedAt: envelope.updatedAt,
     value: envelope.workspace,
+    ...(envelope.workspaceOrigin ? { origin: envelope.workspaceOrigin } : {}),
   };
 }
 
@@ -225,6 +230,7 @@ export async function readSavedProfileWorkspaceForAccount(input: {
     }),
     configurationVersion: result.persistedVersion,
     updatedAt: result.updatedAt,
+    ...(result.origin ? { configurationOrigin: result.origin.kind } : {}),
   };
 }
 
@@ -261,6 +267,11 @@ export async function setCustomProfileWorkspace(input: {
   openMeldProfileId: string;
   customWorkspacePath: string;
   updatedAt?: string;
+  importedSession?: Pick<
+    Extract<ProfileWorkspaceOrigin, { kind: "imported_native_session" }>,
+    "agentControllerRef" | "agentControllerConversationId"
+  >;
+  onlyIfUnconfigured?: boolean;
 }): Promise<ProfileWorkspaceWriteResult> {
   const account = await resolveAccountKey(input.account);
   const openMeldProfileId = normalizeOpenMeldProfileId(input.openMeldProfileId);
@@ -281,11 +292,25 @@ export async function setCustomProfileWorkspace(input: {
     openMeldProfileId,
     updatedAt,
     value,
+    origin: profileWorkspaceOriginSchema.parse(
+      input.importedSession
+        ? {
+            kind: "imported_native_session",
+            configurationUpdatedAt: updatedAt,
+            ...input.importedSession,
+          }
+        : { kind: "explicit", configurationUpdatedAt: updatedAt }
+    ),
+    onlyIfUnconfigured: input.onlyIfUnconfigured,
   });
   return {
     path: accountProfileLocalMetaPath(account, openMeldProfileId),
     ...saved,
-    workspacePath: validation.value,
+    workspacePath: resolveConfiguredProfileWorkspacePathForAccount({
+      account,
+      openMeldProfileId,
+      value: saved.value,
+    }),
   };
 }
 
@@ -376,6 +401,7 @@ async function writeProfileWorkspaceConfigForAccount(input: {
   updatedAt: string;
   value: ProfileWorkspaceConfig;
   onlyIfUnconfigured?: boolean;
+  origin?: ProfileWorkspaceOrigin;
 }): Promise<
   Pick<ProfileWorkspaceWriteResult, "changed" | "updatedAt" | "value">
 > {
@@ -419,6 +445,9 @@ async function writeProfileWorkspaceConfigForAccount(input: {
         updatedAt: input.updatedAt,
         v: PROFILE_LOCAL_META_ENVELOPE_VERSION,
         workspace: buildWorkspacePayload(input.value),
+        // An ordinary folder save supersedes the import observation. Omitted
+        // origin clears preserved metadata when switching to managed mode.
+        workspaceOrigin: input.origin,
       };
       await mkdir(dirname(path), { recursive: true });
       const tempPath = `${path}.tmp-${process.pid}-${Date.now()}-${randomUUID()}`;
@@ -496,11 +525,19 @@ function parseProfileLocalMetaEnvelopeV2(
   );
   const updatedAt = normalizeTimestamp(record.updatedAt);
   const workspace = parseWorkspaceSection(record.workspace);
+  const parsedOrigin = profileWorkspaceOriginSchema.safeParse(
+    record.workspaceOrigin
+  );
   if (!(openMeldProfileId && updatedAt) || workspace === null) {
     return null;
   }
   return {
     ...(workspace ? { workspace } : {}),
+    ...(workspace?.mode === "custom" &&
+    parsedOrigin.success &&
+    parsedOrigin.data.configurationUpdatedAt === updatedAt
+      ? { workspaceOrigin: parsedOrigin.data }
+      : {}),
     openMeldProfileId,
     updatedAt,
     v: 2,

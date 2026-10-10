@@ -27,6 +27,7 @@ function isWorkingFolderRecovery(reasonCode: string): boolean {
 }
 
 function renderProfileSettingsRecoveryAction(input: {
+	actionLabel?: string;
 	className?: string;
 	orgSlug: string;
 	plan: Exclude<AgentProfileReplyRecoveryPlan, { kind: "none" }>;
@@ -46,6 +47,25 @@ function renderProfileSettingsRecoveryAction(input: {
 				orgSlug={input.orgSlug}
 				profileId={input.plan.profileId}
 			/>
+		);
+	}
+	if (
+		resolvePublicAgentFailureRecovery({
+			errorCode: input.plan.recoveryReasonCode,
+		})?.recoveryTarget === "computer"
+	) {
+		return (
+			<Link
+				className={cn(
+					buttonVariants({ size: "xs", variant: "outline" }),
+					"mt-1 text-foreground",
+					input.className
+				)}
+				to={buildOrganizationComputersPath(input.orgSlug)}
+			>
+				<WrenchIcon aria-hidden="true" data-icon="inline-start" />
+				{input.actionLabel ?? input.plan.primaryActionLabel}
+			</Link>
 		);
 	}
 	return null;
@@ -76,14 +96,6 @@ export function SpaceAgentRecoveryActionControl(input: {
 	if (plan.kind === "none") {
 		return null;
 	}
-	const settingsAction = renderProfileSettingsRecoveryAction({
-		className: input.className,
-		orgSlug,
-		plan,
-	});
-	if (settingsAction) {
-		return settingsAction;
-	}
 	if (plan.primaryActionId === "manage_cursor_plan") {
 		return (
 			<a
@@ -107,6 +119,15 @@ export function SpaceAgentRecoveryActionControl(input: {
 	// that this exact Agent still needs that Computer action.
 	if (plan.kind === "review_computer" && !input.allowComputerAction) {
 		return null;
+	}
+	const settingsAction = renderProfileSettingsRecoveryAction({
+		actionLabel: input.actionLabel,
+		className: input.className,
+		orgSlug,
+		plan,
+	});
+	if (settingsAction) {
+		return settingsAction;
 	}
 	if (plan.primaryActionId === "manage_local_agent") {
 		return (

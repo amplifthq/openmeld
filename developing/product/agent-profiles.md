@@ -839,6 +839,23 @@ Organization context.
 - `custom`: the current computer stores and validates one explicit absolute
   working directory for the profile.
 
+Importing the current native Codex or Claude Code conversation records its
+observed folder through the same local working-folder writer, only when no
+configuration exists. The local envelope may record `imported_native_session`
+with that conversation's controller and ID. An explicit custom-folder save
+replaces that origin with `explicit`; selecting managed removes it. Origin is
+valid only for the envelope's current `updatedAt`. Legacy configuration or
+metadata retained by an older writer has unknown origin, not inferred human
+intent. The owner-private saved-configuration read exposes only the origin kind.
+
+An imported folder is an observation, not authority to follow a moving native
+worktree. If it disappears, OpenMeld keeps the saved folder and fails closed.
+The owner can restore the original worktree in its app or explicitly select a
+folder for new work. A different folder does not restore the original files.
+Import retries must not replace an existing configuration, including a later
+explicit choice. No client guesses a replacement path, creates the missing
+custom directory, clears native history, or automatically changes the Computer.
+
 Working-folder mode and its resolved path are local execution facts. They are
 scoped to the current device and OpenMeld lane, may appear in owner-self
 diagnostics, and must not become public Agent Profile identity,

@@ -1070,9 +1070,9 @@ describe("public agent failure reason mapping", () => {
   it.each([
     [
       "controller.runtime.missing",
-      "This local agent is not available on this device. Connect a local agent, then try again.",
+      "This local agent is not available on the computer that runs this Agent. Check its installation on that computer, then try again.",
     ],
-  ] as const)("keeps readiness-impact failure %s mapped to local setup recovery", (reasonCode, body) => {
+  ] as const)("keeps readiness-impact failure %s mapped to local-agent management", (reasonCode, body) => {
     expect(isAgentExecutionReadinessImpactReasonCode(reasonCode)).toBe(true);
     expect(
       resolvePublicAgentFailureRecovery({
@@ -1082,9 +1082,9 @@ describe("public agent failure reason mapping", () => {
     ).toEqual({
       body,
       kind: "local_agent_prepare",
-      primaryActionId: "connect_local_agent",
-      primaryActionLabel: "Connect local agent",
-      recoveryTarget: "prepare_setup",
+      primaryActionId: "manage_local_agent",
+      primaryActionLabel: "Update or change local agent",
+      recoveryTarget: "computer",
     });
     expect(resolveMappedPublicAgentFailureReason(reasonCode)).toBe(body);
   });
@@ -1210,31 +1210,31 @@ describe("public agent failure reason mapping", () => {
     ],
     [
       "controller.bootstrap.failed",
-      "Runner is connected, but local agent setup is not complete on this computer yet. Finish local agent setup here.",
+      "Runner's local agent could not complete setup on its computer. Check its status on that computer, then try again.",
     ],
     [
       "controller.gateway.unhealthy",
-      "Runner is connected, but local agent setup is not complete on this computer yet. Finish local agent setup here.",
+      "Runner's local agent could not complete setup on its computer. Check its status on that computer, then try again.",
     ],
     [
       "agent_profile_binding.agent_controller_report_missing",
-      "Runner is connected, but OpenMeld needs a current local agent connection from this computer before it can reply.",
+      "Runner is connected, but OpenMeld has no current local agent report from its computer. Check the local agent’s status on that computer.",
     ],
     [
       "agent_profile_binding.agent_controller_report_stale",
-      "Runner is connected, but this computer's local agent connection is out of date. Connect the local agent again.",
+      "Runner is connected, but its local agent report is out of date. Check the local agent’s status on that computer.",
     ],
     [
       "runtime.projection_missing",
-      "Runner is connected, but OpenMeld needs a current local agent connection from this computer before it can reply.",
+      "Runner is connected, but OpenMeld has no current local agent report from its computer. Check the local agent’s status on that computer.",
     ],
     [
       "runtime.agent_controller_report_missing",
-      "Runner is connected, but OpenMeld needs a current local agent connection from this computer before it can reply.",
+      "Runner is connected, but OpenMeld has no current local agent report from its computer. Check the local agent’s status on that computer.",
     ],
     [
       "runtime.agent_controller_report_stale",
-      "Runner is connected, but this computer's local agent connection is out of date. Connect the local agent again.",
+      "Runner is connected, but its local agent report is out of date. Check the local agent’s status on that computer.",
     ],
   ] as const)("moves reply-recovery copy for %s into the shared dictionary", (reasonCode, body) => {
     expect(resolveMappedPublicAgentFailureReason(reasonCode, "Runner")).toBe(
@@ -1303,6 +1303,10 @@ describe("public agent failure reason mapping", () => {
     [
       "project.local_connection.folder_missing",
       "Runner couldn’t start because its Project folder is no longer available on the computer that runs it. Reconnect the folder in Projects, then try again.",
+    ],
+    [
+      "project.local_connection.invalid",
+      "Runner couldn’t start because its Project connection could not be used on the computer that runs it. Review that connection and its folder, then try again.",
     ],
   ] as const)("owns Project connection failure copy for %s", (reasonCode, text) => {
     expect(

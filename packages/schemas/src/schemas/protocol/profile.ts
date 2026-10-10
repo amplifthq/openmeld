@@ -43,6 +43,20 @@ export const profileWorkingDirectorySchema = z
     message: "workingDirectory must not contain NUL bytes",
   });
 
+/** Import observation only; it does not authorize moving a native conversation. */
+export const profileWorkspaceOriginSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("explicit"),
+    configurationUpdatedAt: z.string().min(1),
+  }),
+  z.strictObject({
+    kind: z.literal("imported_native_session"),
+    configurationUpdatedAt: z.string().min(1),
+    agentControllerRef: z.enum(["builtin:codex", "builtin:claude-code"]),
+    agentControllerConversationId: z.string().trim().min(1).max(512),
+  }),
+]);
+
 /** Saved owner-local configuration, not effective Project resolution or readiness. */
 export const profileWorkspaceReadResultSchema = z.discriminatedUnion("status", [
   z.strictObject({
@@ -51,6 +65,9 @@ export const profileWorkspaceReadResultSchema = z.discriminatedUnion("status", [
     workspacePath: profileWorkingDirectorySchema,
     configurationVersion: z.union([z.literal(1), z.literal(2)]),
     updatedAt: z.string().min(1),
+    configurationOrigin: z
+      .enum(["explicit", "imported_native_session"])
+      .optional(),
   }),
   z.strictObject({ status: z.literal("missing") }),
   z.strictObject({

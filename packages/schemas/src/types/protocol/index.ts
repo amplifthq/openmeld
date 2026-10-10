@@ -54,6 +54,7 @@ export type {
   Profile,
   ProfileKind,
   ProfileWorkspaceMode,
+  ProfileWorkspaceOrigin,
   ProfileWorkspaceReadResult,
 } from "./profile";
 export type {
