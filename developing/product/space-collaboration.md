@@ -526,6 +526,30 @@ limits and access policy still apply.
 
 ### Selected work handoffs
 
+Message details offers **Hand off code** for a readable result. The sender
+selects one existing Codex or Claude Agent in the Space, a Project/repository,
+and a complete published commit SHA. The brief includes the goal, current state,
+verified evidence, attempted approaches, decisions, constraints, open questions,
+next steps, and completion criteria. The original shared result is loaded into
+the draft; private native history is never an input. Shared files are optional,
+explicitly selected, and pinned to exact revisions.
+
+Code handoffs use the same ordinary Message/Thread publication and Wake owners
+as selected-file work. The accepted manifest binds the source message revision,
+receiver, code revision, and execution choices. A changed or recalled source,
+changed retry payload, or different destination thread is rejected. An unknown
+send outcome retains the same request identity for retry. The UI says requested
+until existing execution/publication owners produce the actual outcome.
+
+The receiving Service resolves its own authorized Project connection and prepares
+the frozen commit before model work. The Web action selects a separate copy;
+Agent settings remain the default, with supported explicit restrictions available.
+It never transfers a sender-local path, credentials, native conversation, or
+approval. Selected shared files live in a separate child directory and code work
+keeps the repository working directory. The first workstation slice uses the
+existing macOS handoff capability plus Context capability 5. Version 1 file-only
+handoffs retain their existing Codex Space-only boundary described below.
+
 A selected work handoff is an ordinary Space Message or Thread reply with one
 Wake target, exact file revisions, optional immutable Organization Skill
 releases, a goal, completed work, next steps, and requirements. The containing
@@ -540,7 +564,8 @@ execution. Missing files or Skills fail explicitly; neither current revisions
 nor latest Skill releases silently replace the selection. Files remain owned by
 the Space, and ordinary Space membership and Wake admission still apply.
 
-Hosted Agents use their existing Computer identity. Workstation continuation
+Version 1 file-only handoffs let hosted Agents use their existing Computer
+identity. Their workstation continuation
 requires the macOS Codex App Server Space-only execution boundary. Other
 controllers/platforms are not advertised as supporting this handoff. This is
 not a user-owned private Computer, cross-device process migration, background

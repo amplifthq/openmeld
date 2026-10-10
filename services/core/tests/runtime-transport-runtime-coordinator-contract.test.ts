@@ -2114,7 +2114,7 @@ const registerCompatibleRoute = (input: {
 
 const createContextHarness = async (
   input?: Parameters<typeof createHarness>[0] & {
-    contextVersion?: 1 | 2 | 3 | 4 | null;
+    contextVersion?: 1 | 2 | 3 | 4 | 5 | null;
   }
 ) => {
   const harness = await createHarness(input);
@@ -4212,10 +4212,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
     }
   });
 
-  it("requires a v4 Service and freezes exact Project repository work on admission", async () => {
+  it.each([
+    false,
+    true,
+  ])("requires a compatible Service and freezes exact Project work (pinned=%s)", async (pinned) => {
     const projectWork = {
       projectId: "project-payments",
       repositoryFingerprint: `sha256:${"a".repeat(64)}`,
+      ...(pinned ? { commit: "b".repeat(40) } : {}),
     };
     const request = buildRuntimeCoordinatorHeadAcceptRequest({
       acceptedDispatchSnapshot: {
@@ -4238,7 +4242,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
         },
       },
     });
-    for (const contextVersion of [2, 3] as const) {
+    const olderVersions = pinned ? ([2, 3, 4] as const) : ([2, 3] as const);
+    for (const contextVersion of olderVersions) {
       const olderService = await createContextHarness({ contextVersion });
       expect(
         await (
@@ -4250,7 +4255,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
         ).json()
       ).toMatchObject({ ok: false, reasonCode: "service.update_required" });
     }
-    const currentService = await createContextHarness({ contextVersion: 4 });
+    const currentService = await createContextHarness({
+      contextVersion: pinned ? 5 : 4,
+    });
     expect(
       await (
         await fetchRuntimeTransportJson(

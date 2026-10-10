@@ -52,6 +52,150 @@ const signal: SignalTextEnvelope = {
   },
 };
 describe("Space-owned work handoff admission", () => {
+  it("binds code handoffs to the reviewed source, commit, and execution choices", async () => {
+    const envelope = {
+      text: signal.data.text,
+      activationTargets: ["e344e2c3-59f1-44c9-a4f1-63922aeb0f99"],
+      referenceTargets: [],
+      mentionTargets: [],
+    };
+    const code = {
+      schemaVersion: 2 as const,
+      files: [],
+      skills: [],
+      requirements: [],
+      sourceSignalId: signal.id,
+      sourceRevision: 1,
+      code: {
+        projectId: "project",
+        repositoryFingerprint: `sha256:${"a".repeat(64)}`,
+        commit: "b".repeat(40),
+      },
+      execution: { workspace: "isolated" as const },
+      work: {
+        ...handoff.work,
+        evidence: [],
+        attemptedApproaches: [],
+        decisions: [],
+        constraints: [],
+        openQuestions: [],
+        completionCriteria: ["Targeted checks pass"],
+      },
+    };
+    const candidate: SignalTextEnvelope = {
+      ...signal,
+      id: "handoff-message",
+      data: {
+        ...signal.data,
+        files: [],
+        meta: { clientMessageId: "code-handoff", workHandoff: code },
+        contextSelection: {
+          mode: "new",
+          ...code.execution,
+          projectWork: code.code,
+        },
+        messageEnvelope: {
+          ...envelope,
+          replyToSignalId: signal.id,
+        },
+      },
+    };
+    const input = {
+      env: {} as CoreBindings,
+      organizationId: "org",
+      signal: candidate,
+      resolveFiles: () => [],
+      readSource: () => ({ signal, threadId: null }),
+    };
+    await expect(validateSpaceWorkHandoff(input)).resolves.toBeUndefined();
+    await expect(
+      validateSpaceWorkHandoff({
+        ...input,
+        threadId: "source-thread",
+        threadRootSignalId: signal.id,
+      })
+    ).resolves.toBeUndefined();
+    for (const data of [
+      {
+        ...candidate.data,
+        contextSelection: {
+          mode: "new" as const,
+          ...code.execution,
+          projectWork: { ...code.code, commit: "c".repeat(40) },
+        },
+      },
+      {
+        ...candidate.data,
+        contextSelection: {
+          mode: "new" as const,
+          access: "workspace" as const,
+          ...code.execution,
+          projectWork: code.code,
+        },
+      },
+      {
+        ...candidate.data,
+        messageEnvelope: {
+          ...envelope,
+          replyToSignalId: "another-message",
+        },
+      },
+    ]) {
+      await expect(
+        validateSpaceWorkHandoff({ ...input, signal: { ...candidate, data } })
+      ).rejects.toThrow("Keep the exact source");
+    }
+    await expect(
+      validateSpaceWorkHandoff({ ...input, readSource: () => null })
+    ).rejects.toThrow("original result");
+    await expect(
+      validateSpaceWorkHandoff({
+        ...input,
+        readSource: () => ({
+          signal: {
+            ...signal,
+            data: {
+              ...signal.data,
+              text: "Changed after review",
+              meta: { ...signal.data.meta, messageRevision: 2 },
+            },
+          },
+          threadId: null,
+        }),
+      })
+    ).rejects.toThrow("original result changed");
+    await expect(
+      validateSpaceWorkHandoff({ ...input, threadId: "another-thread" })
+    ).rejects.toThrow("original result's conversation");
+    const replay = {
+      existing: candidate,
+      authorProfileId: signal.profile.profileId,
+      text: candidate.data.text,
+      targetProfileIds: envelope.activationTargets,
+      contextSelection: candidate.data.contextSelection,
+      handoff: code,
+      evidenceRefs: candidate.data.meta?.evidenceRefs,
+    };
+    expect(() => assertSameSpaceSignalReplay(replay)).not.toThrow();
+    expect(() =>
+      assertSameSpaceSignalReplay({
+        ...replay,
+        contextSelection: {
+          mode: "new",
+          ...code.execution,
+          access: "workspace",
+          projectWork: code.code,
+        },
+      })
+    ).toThrow("different work");
+    expect(() =>
+      assertSameSpaceSignalReplay({
+        ...replay,
+        handoff: { ...code, code: { ...code.code, commit: "c".repeat(40) } },
+      })
+    ).toThrow("different work");
+  });
+
   it("fences reference changes under an existing handoff identity", () => {
     const evidenceRefs = [
       {

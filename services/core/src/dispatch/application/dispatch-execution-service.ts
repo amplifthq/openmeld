@@ -1308,7 +1308,9 @@ function assertDaemonRouteExecutionContextCapable(input: {
     input.message.controllerSnapshot.agentControllerRef
   )?.id;
   let requiredExecutionContextVersion = 1;
-  if (
+  if (input.message.executionContext.projectWork?.commit) {
+    requiredExecutionContextVersion = 5;
+  } else if (
     input.message.controllerSnapshot.agentControllerRef ===
       "builtin:claude-code" &&
     input.message.executionContext.access === "workspace"

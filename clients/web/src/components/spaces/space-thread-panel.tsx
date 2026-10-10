@@ -749,6 +749,7 @@ function ThreadSelectedMessageDetails(input: {
 			targetProfileDisplayNamesByProfileId={
 				input.wakeStopTargetLabelsByProfileId
 			}
+			threadId={input.activeThread.threadId}
 			threadRootSignalId={input.activeThread.rootSignalId}
 			wakeFailureTargetContextsByProfileId={
 				panelInput.wakeFailureTargetContextsByProfileId

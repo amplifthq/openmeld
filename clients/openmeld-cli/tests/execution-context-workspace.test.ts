@@ -116,6 +116,64 @@ function prepare(
 }
 
 describe("Execution Context workspaces", () => {
+  it("prepares the requested commit even when the receiver has a newer HEAD", async () => {
+    const commit = await initializeRepository();
+    await writeFile(join(source, "tracked.txt"), "newer receiver revision\n");
+    await git(source, ["commit", "-am", "Advance receiver checkout"]);
+    const receiverHead = await git(source, ["rev-parse", "HEAD"]);
+    const pinned = {
+      ...context,
+      projectWork: {
+        projectId: "project",
+        repositoryFingerprint: `sha256:${"a".repeat(64)}`,
+        commit,
+      },
+    };
+    const copy = await prepare({ context: pinned });
+    expect(await git(copy.workingDirectory, ["rev-parse", "HEAD"])).toBe(
+      commit
+    );
+    expect(
+      await readFile(join(copy.workingDirectory, "tracked.txt"), "utf8")
+    ).toBe("committed source\n");
+    expect(await git(source, ["rev-parse", "HEAD"])).toBe(receiverHead);
+    expect(await prepare({ context: pinned })).toEqual(copy);
+    await expect(
+      prepare({
+        context: { ...pinned, id: randomUUID(), workspace: "current" },
+      })
+    ).rejects.toThrow("project_revision_mismatch");
+    await expect(
+      prepare({
+        context: {
+          ...pinned,
+          id: randomUUID(),
+          projectWork: { ...pinned.projectWork, commit: "f".repeat(40) },
+        },
+      })
+    ).rejects.toThrow("project_revision_unavailable");
+    await git(source, ["checkout", "--detach", commit]);
+    await writeFile(join(source, "local-only.txt"), "do not transfer");
+    await expect(
+      prepare({
+        context: { ...pinned, id: randomUUID(), workspace: "current" },
+      })
+    ).rejects.toThrow("project_worktree_dirty");
+    const retainedCurrent = await prepare({
+      context: {
+        ...pinned,
+        id: randomUUID(),
+        workspace: "current",
+        nativeConversationId: "retained-current-session",
+        runtimeWorkspaceFingerprint: "retained-current-folder",
+      },
+    });
+    expect(retainedCurrent.workingDirectory).toBe(source);
+    expect(await readFile(join(source, "local-only.txt"), "utf8")).toBe(
+      "do not transfer"
+    );
+  });
+
   it("keeps ordinary Git settings and restores executable settings after native quiescence", async () => {
     await initializeRepository();
     const workspace = await prepare();

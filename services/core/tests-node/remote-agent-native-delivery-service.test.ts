@@ -19,6 +19,7 @@ import {
   remoteAgentWorkerSubmitTurnRequestSchema,
   resolveListSignalsReadQuerySemantics,
   signalSystemNoticeDataSchema,
+  spaceCodeWorkHandoffSchema,
   spaceMemberDirectorySchema,
 } from "@openmeld/schemas";
 import type {
@@ -162,6 +163,80 @@ const UNSUPPORTED_INTERRUPTION_DETAIL = /502|overloaded|Please try again/u;
 const INTERRUPTION_REPLAY_CAUTION =
   /actions may have taken effect.*Check.*before repeating/s;
 describe("Remote Agent native delivery callback service", () => {
+  it("rejects a pinned code handoff before starting a hosted provider", async () => {
+    const harness = await createPostgresHarness();
+    await seedRemoteAgentSubmitAuthority(harness);
+    const workerSubmit = vi.fn();
+    const env = buildEnv(harness.db, {
+      remoteAgentWorker: { submitConversationTurn: workerSubmit },
+    });
+    const message = createDispatchMessage();
+    message.sourceSignalSnapshot = {
+      profileId: HUMAN_PROFILE_ID,
+      profileKind: "human",
+      text: "Implement the published plan",
+      workHandoff: spaceCodeWorkHandoffSchema.parse({
+        schemaVersion: 2,
+        sourceSignalId: "planning-result",
+        sourceRevision: 1,
+        code: {
+          projectId: "project",
+          repositoryFingerprint: `sha256:${"a".repeat(64)}`,
+          commit: "b".repeat(40),
+        },
+        execution: { workspace: "isolated" },
+        files: [],
+        skills: [],
+        requirements: [],
+        work: {
+          goal: "Implement",
+          completed: "Plan",
+          nextSteps: "Fix",
+          evidence: [],
+          attemptedApproaches: [],
+          decisions: [],
+          constraints: [],
+          openQuestions: [],
+          completionCriteria: ["Checks pass"],
+        },
+      }),
+    };
+    try {
+      await expect(
+        submitRemoteAgentNativeDelivery({
+          binding: createBinding(),
+          db: harness.db,
+          env,
+          executionAttemptId: "attempt_1",
+          memoryService: null,
+          message,
+          nowMs: 2100,
+        })
+      ).resolves.toEqual({ shouldAck: true, status: "failed" });
+      expect(workerSubmit).not.toHaveBeenCalled();
+      expect(env.__spaceStub.rpcPostSystemNoticeSignal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            noticeType: "terminal_failure",
+            reasonCode: "space.handoff.code_receiver_unsupported",
+            text: expect.stringContaining("Choose a supported Agent"),
+          }),
+        })
+      );
+      await expect(
+        readRemoteAgentNativeDeliveryByIdempotencyKey({
+          db: harness.db,
+          idempotencyKey: message.idempotencyKey,
+        })
+      ).resolves.toMatchObject({
+        status: "failed",
+        failureCode: "space.handoff.code_receiver_unsupported",
+      });
+    } finally {
+      await harness.close();
+    }
+  });
+
   it("finishes an accepted legacy Remote turn across a Core upgrade without redispatch or duplicate publication", async () => {
     const harness = await createPostgresHarness();
     await seedRemoteAgentSubmitAuthority(harness);

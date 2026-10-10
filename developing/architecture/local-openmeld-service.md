@@ -19,6 +19,15 @@
 
 ## Product Role
 
+For a version 2 code handoff, the Service resolves the admitted Project through
+the receiving account's local connection and pins its exact published commit.
+It never follows a sender-local path or substitutes the receiving HEAD. Code
+keeps its repository cwd; explicitly selected Space file revisions use the
+existing working-copy owner in a separate child directory. The Source Context,
+Computer policy, and controller permission contract still govern preparation
+and execution. Missing commits, changed account/Organization, and mismatched
+Context selection fail before model work with the existing visible outcome.
+
 Selected Space work reuses this carrier and RuntimeCoordinator. Before local
 execution, the Service materializes the exact admitted file/Skill selection
 into a fresh child of the isolated task workspace. It advertises the optional

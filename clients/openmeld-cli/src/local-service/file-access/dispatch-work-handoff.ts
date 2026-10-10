@@ -39,17 +39,13 @@ export async function prepareDispatchWorkHandoff(input: {
   if (!task.workHandoff) {
     return input.workingDirectory;
   }
-  if (
-    !task.executionContext ||
-    task.executionContext.access !== "space_context" ||
-    task.agentControllerRef !== "builtin:codex" ||
-    task.transportMode !== "codex-app-server"
-  ) {
-    throw new Error(
-      "Selected-file handoffs require a new Space-only context on Codex App Server. This controller cannot enforce that boundary."
-    );
+  const context = requireHandoffContext(task);
+  const codeHandoff =
+    task.workHandoff.schemaVersion === 2 ? task.workHandoff : null;
+  if (codeHandoff) {
+    task.prompt += `\n\nCode handoff brief (public source ${codeHandoff.sourceSignalId}, exact commit ${codeHandoff.code.commit}):\n${JSON.stringify(codeHandoff.work)}\nReturn implementation evidence and verification through the existing Space reply action. No sender-local paths or private conversation are available.`;
   }
-  const organizationId = task.executionContext.scope.organizationId;
+  const organizationId = context.scope.organizationId;
   const baseUrl = await resolveBaseUrl();
   const laneRoot = resolveOpenMeldRootDir();
   const assertCurrentIdentity = async () => {
@@ -64,6 +60,10 @@ export async function prepareDispatchWorkHandoff(input: {
     }
   };
   await assertCurrentIdentity();
+  // Only the code manifest permits an empty file selection.
+  if (task.workHandoff.files.length === 0) {
+    return input.workingDirectory;
+  }
   const requestContext = buildOpenMeldRequestContextFromProfileIdentity({
     profileIdentity: {
       openMeldProfileId: task.targetProfileId,
@@ -191,7 +191,46 @@ export async function prepareDispatchWorkHandoff(input: {
   await assertCurrentIdentity();
   await copies.status(copyId);
   task.workingCopyId = copyId;
-  task.prompt +=
-    "\n\nThe selected inputs are prepared in your working directory. Selected Skills (including resources) are in .openmeld-skills/<selection index>/SKILL.md. Use the working_copy tool to check, commit or reconcile your edits; it does not complete this Wake. Attach the exact saved file references with the reply tool when delivering results.";
-  return root;
+  task.prompt += codeHandoff
+    ? `\n\nSelected shared files are prepared under ${root}. Keep code work in the repository working directory. Use working_copy for saving shared-file revisions and the ordinary reply action for the result.`
+    : "\n\nThe selected inputs are prepared in your working directory. Selected Skills (including resources) are in .openmeld-skills/<selection index>/SKILL.md. Use the working_copy tool to check, commit or reconcile your edits; it does not complete this Wake. Attach the exact saved file references with the reply tool when delivering results.";
+  return codeHandoff ? input.workingDirectory : root;
+}
+
+function requireHandoffContext(
+  task: Parameters<typeof prepareDispatchWorkHandoff>[0]["task"]
+) {
+  const context = task.executionContext;
+  const handoff = task.workHandoff;
+  if (!(context && handoff)) {
+    throw new Error("execution_context.handoff_context_required");
+  }
+  if (handoff.schemaVersion === 2) {
+    if (
+      context.projectWork?.projectId !== handoff.code.projectId ||
+      context.projectWork.repositoryFingerprint !==
+        handoff.code.repositoryFingerprint ||
+      context.projectWork.commit !== handoff.code.commit ||
+      context.workspace !== handoff.execution.workspace ||
+      (handoff.execution.access
+        ? context.access !== handoff.execution.access ||
+          context.permissionSource === "agent_settings"
+        : context.permissionSource !== "agent_settings") ||
+      !(
+        task.agentControllerRef === "builtin:codex" ||
+        task.agentControllerRef === "builtin:claude-code"
+      )
+    ) {
+      throw new Error("execution_context.code_handoff_mismatch");
+    }
+  } else if (
+    context.access !== "space_context" ||
+    task.agentControllerRef !== "builtin:codex" ||
+    task.transportMode !== "codex-app-server"
+  ) {
+    throw new Error(
+      "Selected-file handoffs require a new Space-only context on Codex App Server. This controller cannot enforce that boundary."
+    );
+  }
+  return context;
 }

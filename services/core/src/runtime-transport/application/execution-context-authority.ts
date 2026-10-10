@@ -785,7 +785,8 @@ function sameProjectWork(
 ): boolean {
   return (
     left?.projectId === right?.projectId &&
-    left?.repositoryFingerprint === right?.repositoryFingerprint
+    left?.repositoryFingerprint === right?.repositoryFingerprint &&
+    left?.commit === right?.commit
   );
 }
 

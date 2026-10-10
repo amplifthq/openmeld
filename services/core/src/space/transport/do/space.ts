@@ -5646,6 +5646,7 @@ export class Space extends DurableObject<CoreBindings> {
                   existing: existingSignal,
                   authorProfileId: author.profileId,
                   handoff: input.meta?.workHandoff,
+                  contextSelection: input.contextSelection,
                   evidenceRefs: input.meta?.evidenceRefs,
                   text: input.text,
                   targetProfileIds:
@@ -14352,6 +14353,7 @@ export class Space extends DurableObject<CoreBindings> {
         existing: input.signal,
         authorProfileId: input.authorProfileId,
         handoff: input.body.workHandoff,
+        contextSelection: input.body.contextSelection,
         evidenceRefs: input.body.evidenceRefs,
         text: input.body.text,
         targetProfileIds: input.body.messageEnvelope?.activationTargets ?? [],
@@ -25245,6 +25247,19 @@ export class Space extends DurableObject<CoreBindings> {
         env: this.env,
         organizationId: this.readSpaceMetaRecord()?.organizationId ?? null,
         signal,
+        threadId: signalContext?.threadContext?.threadId ?? null,
+        threadRootSignalId: signalContext?.threadContext?.rootSignalId ?? null,
+        readSource: (signalId) => {
+          const source = this.readSignalById(signalId);
+          return source
+            ? {
+                signal: source,
+                threadId:
+                  this.resolveThreadContextForSignal(signalId)?.threadId ??
+                  null,
+              }
+            : null;
+        },
         resolveFiles: (files) => this.resolveSpaceMessageFileReferences(files),
       });
     }

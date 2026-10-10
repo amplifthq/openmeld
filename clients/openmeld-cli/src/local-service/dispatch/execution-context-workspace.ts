@@ -133,6 +133,28 @@ export async function prepareExecutionContextWorkspace(input: {
   if (source) {
     assertSourceAllowed(source, input.policy);
     if (identity.workspace === "current") {
+      if (
+        identity.projectWork?.commit &&
+        !(
+          nativeConversationId ||
+          runtimeWorkspaceFingerprint ||
+          identity.forkSource
+        )
+      ) {
+        const head = await resolveSourceCommit(source);
+        if (head !== identity.projectWork.commit) {
+          throw failure("project_revision_mismatch");
+        }
+        if (
+          await git(source, [
+            "status",
+            "--porcelain",
+            "--untracked-files=normal",
+          ])
+        ) {
+          throw failure("project_worktree_dirty");
+        }
+      }
       return { workingDirectory: source, boundaryRoot: source };
     }
   }
@@ -174,7 +196,9 @@ export async function prepareExecutionContextWorkspace(input: {
     if (await inspectPath(boundaryRoot)) {
       throw failure("workspace_already_exists");
     }
-    const baseCommit = source ? await resolveSourceCommit(source) : null;
+    const baseCommit = source
+      ? await resolveSourceCommit(source, identity.projectWork?.commit)
+      : null;
     const manifest: Manifest = {
       version: 2,
       identity,
@@ -980,7 +1004,10 @@ function assertSourceAllowed(
   }
 }
 
-async function resolveSourceCommit(source: string): Promise<string> {
+async function resolveSourceCommit(
+  source: string,
+  requestedCommit?: string
+): Promise<string> {
   // Requiring a marker at the selected root prevents Git's upward discovery
   // from escalating a selected subdirectory into the surrounding repository.
   if (!(await inspectPath(join(source, ".git")))) {
@@ -993,10 +1020,18 @@ async function resolveSourceCommit(source: string): Promise<string> {
   const commit = await git(source, [
     "rev-parse",
     "--verify",
-    "HEAD^{commit}",
+    `${requestedCommit ?? "HEAD"}^{commit}`,
   ]).catch((cause: unknown) => {
-    throw new Error("execution_context.project_commit_required", { cause });
+    throw new Error(
+      requestedCommit
+        ? "execution_context.project_revision_unavailable"
+        : "execution_context.project_commit_required",
+      { cause }
+    );
   });
+  if (requestedCommit && commit !== requestedCommit) {
+    throw failure("project_revision_mismatch");
+  }
   if (!COMMIT_PATTERN.test(commit)) {
     throw failure("project_commit_required");
   }

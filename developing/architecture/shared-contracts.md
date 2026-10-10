@@ -7989,9 +7989,10 @@ A fork source's completed-history boundary is optional in the assignment: when
 no checkpoint was frozen, Core names the source identity and the harness
 confirms the boundary from that source's own retained history.
 
-An omitted access preference selects `space_context`, including an ordinary
-Claude Code Wake in parallel mode that creates a new implicit context. A retained
-context keeps its existing access. An explicit independent project task selects
+An explicit new Codex or Claude Code Context with no access restriction inherits
+the Agent's settings when that controller supports permission inheritance.
+A retained Context keeps its existing access contract; explicitly selected
+Space-only work remains code-free. An independent project task selects
 `workspace: isolated`. `workspace: isolated`
 with local access now means a committed project worktree with private Git data.
 The local preparation journal binds the shared assignment to its source and
@@ -8024,6 +8025,37 @@ An assignment with `projectWork` requires Service adapter
 `service.update_required` at admission before an execution token or local
 workspace is used. The optional field leaves legacy assignments readable and
 keeps the assignment wire version at v1.
+
+An optional `projectWork.commit` freezes a complete 40- or 64-character Git
+commit ID. Such assignments require adapter capability 5 at admission and
+delivery, including reconnect. An older Service must receive update guidance
+before execution, never a selection with the commit removed. The local journal
+retains the requested commit and the existing workspace lifecycle owns retry,
+continuation, and retention. Starting a current-folder Context verifies HEAD and
+rejects preexisting local changes; resuming its established native Context keeps
+subsequent work. Isolated preparation leaves the connected checkout unchanged.
+
+`SpaceWorkHandoff` version 2 adds the exact source message revision, Project and
+commit, execution choices, and a complete code brief. It allows an empty shared
+file selection. Version 1 remains readable and keeps its selected-file contract.
+Normal-message HTTP callers send the matching `workHandoffVersion`; thread
+callers carry the same versioned manifest. Space validates the current source,
+original placement, one target, and matching Context selection. Its existing
+client-message idempotency also fences changed Context selections. Public history
+omits the v2 manifest so older readers retain the readable message and files;
+the authored manifest stays in persistence and dispatch snapshots.
+
+Contract impact: deploy Core/Gateway schema readers, admission checks, and read
+projections first; then publish the CLI/Service with capability 5, then the Web
+entry point/new CLI manifests. Older Services continue ordinary and v1 work but
+reject pinned-code work; older clients can read its message. No database migration,
+new cloud resource, or new handoff lifecycle is introduced. Roll back callers
+first. Once v2 messages are persisted, retain compatible Core readers for their
+entire retention lifetime, including completed handoffs. Computers that ran
+pinned-code tasks must also retain a compatible Service reader for their retained
+Context/workspace records. The
+CLI/Service bundle and registry require normal local-component release validation;
+this feature does not authorize production deployment or release stamping.
 
 The public signal read encoder omits `contextSelection` so older strict history
 readers remain usable. This encoder must never be used for persistence, dispatch

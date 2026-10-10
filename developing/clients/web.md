@@ -25,6 +25,18 @@
 
 ## App and public website boundary
 
+Message details can start an explicit code handoff from its current readable
+message. Its inline form loads the source revision, current Space member Agents, and
+Organization Project/repository choices. It starts a new independent copy at a
+complete published commit and makes extra access restrictions a separate choice.
+The source result prepopulates the brief; shared file revisions are unchecked
+until selected. A send retry freezes the same input and client message ID.
+Publication success is displayed as requested; existing message/Wake projections
+own execution and final delivery. A thread handoff retains that exact thread;
+a root message can also be handed off within its own thread. Project/repository
+fields are shared with the composer rather than opening a second modal over
+the Message details drawer.
+
 `clients/web` is the App at `app.openmeld.ai` (Staging:
 `app.staging.openmeld.ai`). Its root enters the authenticated Organization
 resolver or sends anonymous visitors to `/login`. Public marketing, legal,
