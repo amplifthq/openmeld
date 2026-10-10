@@ -26,6 +26,10 @@ outputs. `scripts/vite/shared-public-assets.mjs` materializes ignored client
 copies when Vite loads. Edit shared sources, not generated copies. Shared font
 declarations live in `packages/ui/src/styles/fonts.css`.
 
+`OpenMeldLoadingScreen` accepts an optional content slot beneath the shared
+opening mark. Clients own any guidance in that slot; the primitive reads no
+platform, credential, or session state.
+
 Static brand exports follow [the brand asset guide](../../packages/ui/brand/README.md).
 Run `pnpm brand:generate` to update the shared public images and the existing
 Desktop resources; `pnpm brand:preview` renders the approved surface matrix.

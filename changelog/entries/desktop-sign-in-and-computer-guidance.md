@@ -6,7 +6,9 @@ areas: ["desktop", "web", "computers"]
 audiences: ["users"]
 ---
 
-Desktop sign-in makes the browser handoff and recovery steps clearer. Computer
-setup explains background work, and Agent creation offers refresh and conditional
-installation guidance when usable local agent details are unavailable. Account attention
-indicators remain compact circles in the sidebar.
+Desktop sign-in makes the browser handoff and recovery steps clearer. While
+opening on macOS, Desktop explains that your computer may show a prompt to access
+saved sign-in information. Computer setup explains background work, and Agent
+creation offers refresh and conditional installation guidance when usable local
+agent details are unavailable. Account attention indicators remain compact
+circles in the sidebar.

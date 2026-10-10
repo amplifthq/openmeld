@@ -239,6 +239,11 @@ packaged inline scripts for CSP. It never enables arbitrary inline scripts.
   account-scoped Composer drafts until the authoritative reread confirms no
   session or a different account. Explicit sign-out still clears those drafts.
   Entry distinguishes an unknown/failed session read from confirmed sign-out.
+  While a macOS session read is pending, the shared opening screen can show
+  conditional system-prompt guidance before platform metadata returns. This
+  notice does not establish a Keychain wait or session state, enable sign-in,
+  or change credential protection. Resolved platform metadata keeps local
+  mock-Keychain builds outside the installed credential notice.
   Manual Retry and focus reuse the same serialized, revision-fenced revalidation;
   native session changes supersede older reads. A confirmed native session is
   shared through the renderer's TanStack Query cache for 30 seconds of same-account
