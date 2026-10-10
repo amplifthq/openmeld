@@ -4,6 +4,9 @@ title: Keep customer conversations out of routine diagnostics
 kind: security
 areas: ["privacy", "center-agent", "diagnostics"]
 audiences: ["members", "admins", "operators"]
+publishedAt: 2026-10-10
+release: v0.3.251
+evidence: ["commit:afc9cb1bbb1b862534c1492b8da32c5e1687b2be", "commit:03668cdc6506ea4ed93f4166387533e5bd30bd84", "pr:1638", "workflow:38078641800"]
 ---
 
 For customer organizations in production, model logs keep usage and status

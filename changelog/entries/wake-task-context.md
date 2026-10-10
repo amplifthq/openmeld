@@ -4,6 +4,9 @@ title: Understand a Wake's task access and start fresh
 kind: improved
 areas: ["spaces", "agents", "cli"]
 audiences: ["members", "operators"]
+publishedAt: 2026-10-10
+release: v0.3.251
+evidence: ["commit:13ae481f54d2bf8ef14779e2931849912a3167b3", "commit:03668cdc6506ea4ed93f4166387533e5bd30bd84", "pr:1638", "workflow:38078641800"]
 ---
 
 Message details explains a Wake's task access, working-folder selection, and
