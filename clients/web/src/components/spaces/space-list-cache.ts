@@ -1,11 +1,22 @@
+import type { ListCenterAgentSessionsResponse } from "@openmeld/schemas";
 import type { OrganizationSpaceDirectoryWithMemberCountsResponse } from "@openmeld/schemas/types";
-import type { Query, QueryClient, QueryKey } from "@tanstack/react-query";
+import type {
+	InfiniteData,
+	Query,
+	QueryClient,
+	QueryKey,
+} from "@tanstack/react-query";
 import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
+import { removeAccountSpaceFromSections } from "./account-space-sections";
 
-export type SpaceDeleteCacheSnapshot = {
+export type SpaceListCacheSnapshot = {
 	spaceId: string;
+	centerAgentSessions?: readonly [
+		QueryKey,
+		InfiniteData<ListCenterAgentSessionsResponse> | undefined,
+	][];
 	stopKeepingRemoved: () => void;
 	accountSpaces: readonly [QueryKey, AccountSpaceSections | undefined][];
 	organizationSpaces:
@@ -24,18 +35,47 @@ export async function optimisticallyRemoveSpaceFromListCaches(input: {
 	organizationId: string | null;
 	queryClient: QueryClient;
 	spaceId: string;
-}): Promise<SpaceDeleteCacheSnapshot> {
+}): Promise<SpaceListCacheSnapshot> {
+	return await optimisticallyUpdateSpaceListCaches(input);
+}
+
+export async function optimisticallyDeleteSpaceInListCaches(input: {
+	organizationId: string | null;
+	queryClient: QueryClient;
+	spaceId: string;
+}): Promise<SpaceListCacheSnapshot> {
+	return await optimisticallyUpdateSpaceListCaches({
+		...input,
+		deletedAt: new Date().toISOString(),
+	});
+}
+
+async function optimisticallyUpdateSpaceListCaches(input: {
+	organizationId: string | null;
+	queryClient: QueryClient;
+	spaceId: string;
+	deletedAt?: string;
+}): Promise<SpaceListCacheSnapshot> {
 	const organizationSpacesKey = input.organizationId
 		? organizationQueryKeys.spaces(input.organizationId)
 		: null;
+	const centerFilters = {
+		queryKey: ["center-agent", input.organizationId],
+		predicate: (query: Query) => query.queryKey[3] === "sessions",
+	};
 	await Promise.all([
+		input.queryClient.cancelQueries(centerFilters),
 		input.queryClient.cancelQueries(accountListFilters),
 		organizationSpacesKey
 			? input.queryClient.cancelQueries({ queryKey: organizationSpacesKey })
 			: Promise.resolve(),
 	]);
-	const snapshot: SpaceDeleteCacheSnapshot = {
+	const snapshot: SpaceListCacheSnapshot = {
 		spaceId: input.spaceId,
+		centerAgentSessions:
+			input.queryClient.getQueriesData<
+				InfiniteData<ListCenterAgentSessionsResponse>
+			>(centerFilters),
 		stopKeepingRemoved: (): void => undefined,
 		accountSpaces: input.queryClient.getQueriesData<AccountSpaceSections>({
 			...accountListFilters,
@@ -43,9 +83,26 @@ export async function optimisticallyRemoveSpaceFromListCaches(input: {
 		organizationSpaces: organizationSpacesKey
 			? input.queryClient.getQueryData(organizationSpacesKey)
 			: undefined,
-	} satisfies SpaceDeleteCacheSnapshot;
+	} satisfies SpaceListCacheSnapshot;
 
 	const keepRemoved = () => {
+		input.queryClient.setQueriesData<
+			InfiniteData<ListCenterAgentSessionsResponse>
+		>(centerFilters, (current) =>
+			current?.pages.some((page) =>
+				page.sessions.some((session) => session.spaceId === input.spaceId)
+			)
+				? {
+						...current,
+						pages: current.pages.map((page) => ({
+							...page,
+							sessions: page.sessions.filter(
+								(session) => session.spaceId !== input.spaceId
+							),
+						})),
+					}
+				: current
+		);
 		input.queryClient.setQueriesData<AccountSpaceSections>(
 			accountListFilters,
 			(current) =>
@@ -53,15 +110,7 @@ export async function optimisticallyRemoveSpaceFromListCaches(input: {
 				[...current.pinnedItems, ...current.spaceItems].some(
 					(item) => item.spaceId === input.spaceId
 				)
-					? {
-							...current,
-							pinnedItems: current.pinnedItems.filter(
-								(item) => item.spaceId !== input.spaceId
-							),
-							spaceItems: current.spaceItems.filter(
-								(item) => item.spaceId !== input.spaceId
-							),
-						}
+					? applySpaceListIntent(current, input)
 					: current
 		);
 		if (organizationSpacesKey) {
@@ -113,6 +162,12 @@ export async function optimisticallyRemoveSpaceFromListCaches(input: {
 					snapshot.organizationSpaces ??= input.queryClient.getQueryData(
 						organizationSpacesKey
 					);
+				} else if (
+					key[0] === "center-agent" &&
+					key[1] === input.organizationId &&
+					centerFilters.predicate(event.query)
+				) {
+					// Use the same pending removal across the specialized session list.
 				} else {
 					return;
 				}
@@ -125,12 +180,34 @@ export async function optimisticallyRemoveSpaceFromListCaches(input: {
 export function restoreSpaceListCaches(
 	queryClient: QueryClient,
 	organizationId: string | null,
-	snapshot: SpaceDeleteCacheSnapshot | undefined
+	snapshot: SpaceListCacheSnapshot | undefined
 ): void {
 	if (!snapshot) {
 		return;
 	}
 	snapshot.stopKeepingRemoved();
+	for (const [key, before] of snapshot.centerAgentSessions ?? []) {
+		if (!before) {
+			continue;
+		}
+		queryClient.setQueryData<InfiniteData<ListCenterAgentSessionsResponse>>(
+			key,
+			(current) =>
+				current
+					? {
+							...current,
+							pages: current.pages.map((page, index) => ({
+								...page,
+								sessions: restoreDeletedItem(
+									page.sessions,
+									before.pages[index]?.sessions ?? [],
+									snapshot.spaceId
+								),
+							})),
+						}
+					: before
+		);
+	}
 	for (const [queryKey, spaces] of snapshot.accountSpaces) {
 		if (!spaces) {
 			continue;
@@ -176,15 +253,42 @@ function restoreDeletedItem<T extends { spaceId: string }>(
 	before: readonly T[],
 	spaceId: string
 ): T[] {
-	if (current.some((item) => item.spaceId === spaceId)) {
-		return [...current];
-	}
 	const index = before.findIndex((item) => item.spaceId === spaceId);
 	const item = before[index];
 	if (!item) {
 		return [...current];
 	}
+	if (current.some((entry) => entry.spaceId === spaceId)) {
+		return current.map((entry) => (entry.spaceId === spaceId ? item : entry));
+	}
 	const restored = [...current];
 	restored.splice(Math.min(index, restored.length), 0, item);
 	return restored;
+}
+
+function updateItems(
+	items: AccountSpaceSections["spaceItems"],
+	input: { spaceId: string; deletedAt?: string }
+): AccountSpaceSections["spaceItems"] {
+	return input.deletedAt
+		? items.map((item) =>
+				item.spaceId === input.spaceId
+					? { ...item, deletedAt: input.deletedAt }
+					: item
+			)
+		: items.filter((item) => item.spaceId !== input.spaceId);
+}
+
+function applySpaceListIntent(
+	current: AccountSpaceSections,
+	input: { spaceId: string; deletedAt?: string }
+): AccountSpaceSections {
+	if (!input.deletedAt) {
+		return removeAccountSpaceFromSections(current, input.spaceId);
+	}
+	return {
+		...current,
+		pinnedItems: updateItems(current.pinnedItems, input),
+		spaceItems: updateItems(current.spaceItems, input),
+	};
 }

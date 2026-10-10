@@ -35,6 +35,7 @@ type SqlMetaRow = {
   password_proof_json: string | null;
   created_at: number;
   updated_at: number;
+  deleted_at: number | null;
 };
 
 export type SpaceMetaRecord = {
@@ -57,6 +58,7 @@ export type SpaceMetaRecord = {
   passwordProof?: SpacePasswordProof;
   createdAt: string;
   updatedAt: string;
+  deletedAt?: string;
 };
 
 export const readSpaceMetaRecordFromSql = (
@@ -81,7 +83,8 @@ export const readSpaceMetaRecordFromSql = (
           link_join_policy,
           password_proof_json,
           created_at,
-          updated_at
+          updated_at,
+          deleted_at
         FROM space_meta
         WHERE space_id = ?
         LIMIT 1
@@ -129,6 +132,9 @@ export const readSpaceMetaRecordFromSql = (
     ...(passwordProof ? { passwordProof } : {}),
     createdAt,
     updatedAt,
+    ...(row.deleted_at === null
+      ? {}
+      : { deletedAt: timestampMsToIso(row.deleted_at) }),
   };
 };
 
@@ -166,9 +172,10 @@ export const initializeSpaceMetaRecordIfAbsent = (
         password_proof_json,
         archive_cursor_ts,
         created_at,
-        updated_at
+        updated_at,
+        deleted_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
     `,
     record.spaceId,
     record.name ?? null,
@@ -186,7 +193,10 @@ export const initializeSpaceMetaRecordIfAbsent = (
     record.linkJoinPolicy ?? null,
     passwordProofJson,
     createdAtMs,
-    updatedAtMs
+    updatedAtMs,
+    record.deletedAt
+      ? parseIsoTimestampMs(record.deletedAt, "meta.deletedAt")
+      : null
   );
 
   const current = readSpaceMetaRecordFromSql(sql, record.spaceId);
@@ -231,9 +241,10 @@ export const upsertSpaceMetaRecord = (
         password_proof_json,
         archive_cursor_ts,
         created_at,
-        updated_at
+        updated_at,
+        deleted_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
       ON CONFLICT(space_id) DO UPDATE SET
         name = excluded.name,
         purpose = excluded.purpose,
@@ -245,7 +256,8 @@ export const upsertSpaceMetaRecord = (
         access_mode = excluded.access_mode,
         link_join_policy = excluded.link_join_policy,
         password_proof_json = excluded.password_proof_json,
-        updated_at = excluded.updated_at
+        updated_at = excluded.updated_at,
+        deleted_at = COALESCE(space_meta.deleted_at, excluded.deleted_at)
     `,
     record.spaceId,
     record.name ?? null,
@@ -262,7 +274,10 @@ export const upsertSpaceMetaRecord = (
     record.linkJoinPolicy ?? null,
     passwordProofJson,
     createdAtMs,
-    updatedAtMs
+    updatedAtMs,
+    record.deletedAt
+      ? parseIsoTimestampMs(record.deletedAt, "meta.deletedAt")
+      : null
   );
 };
 

@@ -2,6 +2,7 @@ import type { SpaceMembersSnapshot } from "@openmeld/schemas/types";
 import { isSpaceOwner } from "../access/space-ownership";
 
 export type SpaceDeleteActionVisibilityReason =
+  | "space_deleted"
   | "space_owner"
   | "members_unavailable"
   | "not_space_owner";
@@ -13,9 +14,13 @@ export type SpaceDeleteActionVisibility = {
 
 export function resolveSpaceDeleteActionVisibility(input: {
   currentProfileId: string;
+  deletedAt?: string;
   membersSnapshot: SpaceMembersSnapshot | null | undefined;
   ownerUserIds?: readonly string[];
 }): SpaceDeleteActionVisibility {
+  if (input.deletedAt) {
+    return { reason: "space_deleted", visible: false };
+  }
   if (!input.membersSnapshot) {
     return { reason: "members_unavailable", visible: false };
   }

@@ -987,9 +987,9 @@ describe("SpaceHeader", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Delete space" }));
 
 		const confirmButton = screen.getByRole("button", {
-			name: "Delete permanently",
+			name: "Delete Space",
 		});
-		expect(screen.getByText("Delete this space permanently?")).toBeTruthy();
+		expect(screen.getByText("Delete this Space?")).toBeTruthy();
 		expect((confirmButton as HTMLButtonElement).disabled).toBe(true);
 
 		fireEvent.change(screen.getByLabelText(DELETE_CONFIRMATION_LABEL_TEXT), {

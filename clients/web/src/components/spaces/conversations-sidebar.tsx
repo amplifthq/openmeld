@@ -842,9 +842,7 @@ export function ConversationsSidebar(
 														)}
 														conversation={item}
 														disabled={model.disabled}
-														dragDisabled={
-															view === "recent" && section.id !== "pinned"
-														}
+														dragDisabled={false}
 														groups={model.sections.filter(
 															(target) =>
 																target.kind === "pinned" ||
@@ -853,6 +851,10 @@ export function ConversationsSidebar(
 														index={index}
 														key={item.spaceId}
 														memberAppearances={memberAppearances}
+														messageUnreadCount={
+															dm.indicators.unreadBySpaceId.get(item.spaceId)
+																?.messageUnreadCount
+														}
 														onArchive={
 															item.kind === "direct-message"
 																? () =>

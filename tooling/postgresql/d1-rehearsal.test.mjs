@@ -377,7 +377,7 @@ test("historical D1 capture to native PG18 preserves business data and rolls bac
           assert.deepEqual(
             (
               await client.query(
-                "SELECT id,sequence::text,read_at_ms IS NOT NULL AS read,cleared_at_ms IS NOT NULL AS cleared FROM openmeld.inbox_items ORDER BY sequence"
+                "SELECT id,sequence::text,read_at_ms IS NOT NULL AS read,cleared_at_ms IS NOT NULL AS cleared FROM openmeld.inbox_items WHERE kind <> 'space_joined' ORDER BY sequence"
               )
             ).rows,
             [
@@ -392,6 +392,12 @@ test("historical D1 capture to native PG18 preserves business data and rolls bac
               { id: "cleared", sequence: "79", read: true, cleared: true },
             ]
           );
+          const baseline = (
+            await client.query(
+              "SELECT sequence::text, read_at_ms = occurred_at_ms AS read FROM openmeld.inbox_items WHERE kind = 'space_joined'"
+            )
+          ).rows;
+          assert.deepEqual(baseline, [{ sequence: "901", read: true }]);
           await client.query(
             "INSERT INTO openmeld.inbox_items(id,organization_id,recipient_user_id,kind,attention,importance,title,preview,source_kind,source_key,source_target_json,resolution_status,occurred_at_ms,created_at_ms,updated_at_ms) SELECT 'arrival',organization_id,recipient_user_id,kind,attention,importance,title,preview,source_kind,'arrival',source_target_json,resolution_status,occurred_at_ms,created_at_ms,updated_at_ms FROM openmeld.inbox_items WHERE id='unread'"
           );
@@ -401,7 +407,7 @@ test("historical D1 capture to native PG18 preserves business data and rolls bac
                 "SELECT sequence::text FROM openmeld.inbox_items WHERE id='arrival'"
               )
             ).rows[0].sequence,
-            "901"
+            "902"
           );
           assert.equal(
             (
@@ -425,7 +431,7 @@ test("historical D1 capture to native PG18 preserves business data and rolls bac
           );
           evidence.cases.push(
             "business_data_and_owner_guards",
-            "inbox_deleted_tail_900_to_901",
+            "inbox_deleted_tail_900_and_membership_baseline_to_902",
             "autoincrement_deleted_tail_700_to_701",
             "populated_target_rejected"
           );

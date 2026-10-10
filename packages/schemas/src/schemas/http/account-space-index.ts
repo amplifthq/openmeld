@@ -70,6 +70,9 @@ export const accountSpaceIndexIncludeDirectMessageProfileIdsSchema = z
   .optional();
 
 export const accountSpaceIndexQuerySchema = z.strictObject({
+  includeDeletedSpaces: z
+    .preprocess((value) => value === true || value === "true", z.boolean())
+    .optional(),
   includeMessagePreviews: z
     .preprocess((value) => value === true || value === "true", z.boolean())
     .optional(),
@@ -104,6 +107,7 @@ const accountSpaceMessagePreviewSchema = z.strictObject({
   text: z.string().max(240),
 });
 export const accountSpaceIndexItemSchema = z.strictObject({
+  deletedAt: ISO_DATE_TIME_SCHEMA.optional(),
   recentMessagePreviews: z
     .array(accountSpaceMessagePreviewSchema)
     .max(2)

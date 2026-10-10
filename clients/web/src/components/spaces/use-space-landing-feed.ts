@@ -218,6 +218,7 @@ export function useSpaceLandingFeed(input: {
 		isError: boolean;
 		data?: {
 			envelopes: readonly SignalEnvelope[];
+			personalHistoryDeletedAt?: number;
 			confirmedCursor?: string | null;
 		};
 	};
@@ -231,7 +232,7 @@ export function useSpaceLandingFeed(input: {
 	const [liveState, setLiveState] = useState<SpaceLiveState>("connecting");
 	const [liveErrorMessage, setLiveErrorMessage] = useState<string | null>(null);
 	const [reconnectKey, setReconnectKey] = useState(0);
-	const feedIdentity = `${input.spaceId}::${input.openMeldProfileId}`;
+	const feedIdentity = `${input.spaceId}::${input.openMeldProfileId}::${input.history.data?.personalHistoryDeletedAt ?? 0}`;
 	// Capture only the history available on entry. A later cold-cache bootstrap is
 	// already the authoritative recent window and must not be mistaken for a
 	// reason to issue an extra mount-time catch-up request.
@@ -699,7 +700,7 @@ export function useSpaceLandingFeed(input: {
 	}, [input.onWakeFinalOutcomeFactsRefresh]);
 
 	useEffect(() => {
-		if (input.spaceId.trim().length === 0) {
+		if (!feedIdentity.split("::")[0]?.trim()) {
 			return;
 		}
 
@@ -722,7 +723,7 @@ export function useSpaceLandingFeed(input: {
 		lastInboundFrameTsRef.current = null;
 		clearWakeFinalOutcomeRefreshTimer(wakeFinalOutcomeRefreshTimerRef);
 		clearReconnectTimer(reconnectTimerRef);
-	}, [input.spaceId]);
+	}, [feedIdentity]);
 
 	useEffect(() => {
 		return () => {

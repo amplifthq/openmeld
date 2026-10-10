@@ -324,6 +324,7 @@ function useSpaceSetupRecallWiring(input: {
 }
 
 function resolveCurrentSpaceControls(input: {
+	isDeleted: boolean;
 	isGuest?: boolean;
 	isActiveSpaceMember: boolean;
 	isCurrentAccessConfirmed: boolean;
@@ -357,6 +358,7 @@ function resolveCurrentSpaceControls(input: {
 	) => Promise<SpaceAddProfilesResult>;
 } {
 	if (
+		input.isDeleted ||
 		!input.isCurrentAccessConfirmed ||
 		input.isGuest ||
 		(input.currentSpaceIsDirectMessage && !input.isActiveSpaceMember)
@@ -1383,7 +1385,6 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 	const isDirectMessage =
 		controller.mode === "ready" &&
 		isDirectMessageSpace({
-			activeMemberCount: controller.status.members.totalCount,
 			directMessageConvertedAt: controller.status.directMessageConvertedAt,
 			purpose: controller.status.spacePurpose,
 		});
@@ -1610,6 +1611,7 @@ function SpaceLandingConversationShell({
 		currentProfileName,
 	} = useSpaceLandingViewerState({ controller, state });
 	const currentSpaceControls = resolveCurrentSpaceControls({
+		isDeleted: Boolean(controller.status?.deletedAt),
 		isGuest: input.isGuest,
 		isActiveSpaceMember: currentProfileIsActiveSpaceMember,
 		isCurrentAccessConfirmed: controller.isCurrentAccessConfirmed,
@@ -1636,18 +1638,19 @@ function SpaceLandingConversationShell({
 			spaceId={controller.spaceId}
 		/>
 	);
-	const humanJoinControl = controller.isCurrentAccessConfirmed
-		? resolveSpaceHumanJoinControl({
-				humanProfile: currentHumanViewer.humanProfile,
-				isActiveSpaceMember: currentProfileIsActiveSpaceMember,
-				isCenterAgentDirectMessage: currentSpaceIsCenterAgentDirectMessage,
-				isDirectMessage,
-				membersSnapshot: controller.membersSnapshot,
-				onJoin: async (profileId) => {
-					await handleAddProfiles([profileId]);
-				},
-			})
-		: null;
+	const humanJoinControl =
+		controller.isCurrentAccessConfirmed && !controller.status?.deletedAt
+			? resolveSpaceHumanJoinControl({
+					humanProfile: currentHumanViewer.humanProfile,
+					isActiveSpaceMember: currentProfileIsActiveSpaceMember,
+					isCenterAgentDirectMessage: currentSpaceIsCenterAgentDirectMessage,
+					isDirectMessage,
+					membersSnapshot: controller.membersSnapshot,
+					onJoin: async (profileId) => {
+						await handleAddProfiles([profileId]);
+					},
+				})
+			: null;
 	const managementControl = (
 		<SpaceLandingManagementControl
 			agentOwnerDirectMessageJoin={agentOwnerDirectMessageJoin}
@@ -2241,7 +2244,10 @@ function SpaceLandingConversation({
 		welcomeRecipients,
 	]);
 	let readOnlyComposerPlaceholder: string | undefined;
-	if (agentOwnerDirectMessageObserver) {
+	if (controller.status?.deletedAt) {
+		readOnlyComposerPlaceholder =
+			"This Space was deleted. You can still read and search its history.";
+	} else if (agentOwnerDirectMessageObserver) {
 		readOnlyComposerPlaceholder =
 			agentOwnerDirectMessageObserver.composerPlaceholder;
 	} else if (
@@ -2468,8 +2474,9 @@ function SpaceLandingConversation({
 				isPersonalContext: input.isPersonalContext === true,
 				isSendingMessage: controller.isSendingMessage,
 				readOnly:
-					controller.isCurrentAccessConfirmed &&
-					controller.currentProfileMembershipState === "nonmember",
+					Boolean(controller.status?.deletedAt) ||
+					(controller.isCurrentAccessConfirmed &&
+						controller.currentProfileMembershipState === "nonmember"),
 				threadsIsLoading: controller.threadsIsLoading,
 				unreadStateReady: controller.unreadStateReady,
 			}}
@@ -3043,7 +3050,10 @@ function SpaceLandingSecondaryPanels({
 					pendingActionSurface={pendingActionSurface}
 					prepareSetupHref={prepareSetupHref}
 					profileControl={composerProfileControl}
-					readOnly={!currentProfileIsActiveSpaceMember}
+					readOnly={
+						Boolean(controller.status?.deletedAt) ||
+						!currentProfileIsActiveSpaceMember
+					}
 					selfAvatarImageUrl={currentUserAvatarImageUrl}
 					selfProfileId={controller.profileId}
 					signals={controller.threadSignals}
@@ -3201,6 +3211,7 @@ function resolveAutomaticWakeConversationKind(
 		return null;
 	}
 	const state = {
+		automaticWakeEnabled: status.automaticWakeEnabled,
 		activeMemberCount: status.members.totalCount,
 		agentMemberCount: status.members.agentCount,
 		humanMemberCount: status.members.humanCount,

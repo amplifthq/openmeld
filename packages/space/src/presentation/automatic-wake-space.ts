@@ -2,6 +2,7 @@ import { isDirectMessageSpace } from "./direct-message-space";
 import { OPENMELD_WELCOMING_SPACE_PURPOSE } from "./welcoming-space";
 
 export type AutomaticWakeSpaceStateInput = {
+  automaticWakeEnabled?: boolean;
   activeMemberCount: number | null | undefined;
   agentMemberCount: number | null | undefined;
   humanMemberCount: number | null | undefined;
@@ -14,6 +15,7 @@ export function isAutomaticWakeSpace(
   input: AutomaticWakeSpaceStateInput
 ): boolean {
   return (
+    input.automaticWakeEnabled !== false &&
     input.purpose !== OPENMELD_WELCOMING_SPACE_PURPOSE &&
     (!input.isThreadMessage || isDirectMessageSpace(input)) &&
     isOneHumanAgentConversation(input)

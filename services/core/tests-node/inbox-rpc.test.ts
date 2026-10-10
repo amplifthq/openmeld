@@ -27,6 +27,39 @@ import {
 } from "./helpers/postgresql-harness.test-support";
 
 describe("Inbox Core RPC", () => {
+  it("returns membership kinds only to opted-in receivers without changing item identity", async () => {
+    const harness = await createInboxHarness();
+    try {
+      const saved = await seedItem(harness.db, "user-1");
+      await harness.query({
+        text: `UPDATE "openmeld"."inbox_items" SET kind = 'space_joined' WHERE id = $1`,
+        values: [saved.itemId],
+      });
+      const env = {
+        OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
+      } as unknown as CoreBindings;
+      for (const includeMembershipNotices of [undefined, true]) {
+        const request = {
+          context: contextFor("user-1"),
+          includeMembershipNotices,
+        };
+        const list = await rpcListInboxItems(env, request);
+        const get = await rpcGetInboxItem(env, {
+          ...request,
+          itemId: saved.itemId,
+        });
+        const feed = await rpcListInboxFeed(env, request);
+        for (const item of [list.items[0], get.item, feed.rows[0]?.item]) {
+          expect(item).toMatchObject({
+            id: saved.itemId,
+            kind: includeMembershipNotices ? "space_joined" : "system_issue",
+          });
+        }
+      }
+    } finally {
+      await harness.close();
+    }
+  });
   it("binds notification observations to the authenticated recipient and rejects injected scope", async () => {
     const harness = await createInboxHarness();
     try {
@@ -271,6 +304,7 @@ describe("Inbox Core RPC", () => {
             latestUnreadOccurredAtMs: 1000,
             spaceId: "space-1",
             unreadCount: 1,
+            messageUnreadCount: 1,
           },
         ],
       });

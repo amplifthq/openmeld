@@ -18,6 +18,10 @@ export function buildCurrentInboxSourceAccessSql(
     (
       ${itemAlias}.kind IN (${inboxItemKindSchema.options.map((kind) => `'${kind}'`).join(", ")})
       AND ${currentInboxRecipientRelationshipSql(itemAlias, useFeedAgentScope)}
+      AND NOT EXISTS (SELECT 1 FROM "openmeld"."conversation_history_deletions" AS history_deletion
+        WHERE history_deletion.user_id = ${itemAlias}.recipient_user_id
+          AND history_deletion.space_id = ((${itemAlias}.source_target_json)::jsonb #>> '{spaceId}')
+          AND ${itemAlias}.occurred_at_ms <= history_deletion.deleted_at_ms)
       AND (${itemAlias}.kind != 'computer_connection' OR EXISTS (
         SELECT 1 FROM "openmeld"."openMeldDaemon_owned_devices" AS inbox_device
         WHERE inbox_device.owner_user_id = ${itemAlias}.recipient_user_id

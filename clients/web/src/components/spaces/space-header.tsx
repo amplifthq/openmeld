@@ -26,6 +26,7 @@ import { MessageSearchButton } from "#/components/search/message-search";
 import { ChatHeaderMenu } from "./chat-header-menu";
 import { useConversationNames } from "./conversation-names";
 import { PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP } from "./space-access-editor";
+import { SpaceDeletedLabel } from "./space-deleted-label";
 import { SpaceHeaderNavigationMenu } from "./space-header-navigation-menu";
 import { SpacePinsRecallAction } from "./space-pins";
 import { useSpaceReadingHeader } from "./space-reading-header";
@@ -247,7 +248,6 @@ export function SpaceHeader(input: {
 		visibility: input.status.organizationVisibility,
 	});
 	const isDirectMessage = isDirectMessageSpace({
-		activeMemberCount: input.status.members.totalCount,
 		directMessageConvertedAt: input.status.directMessageConvertedAt,
 		purpose: input.status.spacePurpose,
 	});
@@ -355,6 +355,7 @@ export function SpaceHeader(input: {
 								isVisible: input.showDeleteSpaceAction,
 								onDelete: input.onDeleteSpace,
 							}}
+							deleted={Boolean(input.status.deletedAt)}
 							draftController={sharingDraft}
 							initialSection={settingsInitialSection}
 							isCenterAgentDirectMessage={input.isCenterAgentDirectMessage}
@@ -376,14 +377,24 @@ export function SpaceHeader(input: {
 								value: spaceName,
 							}}
 							onOpenChange={(open) => handleDialogOpenChange("settings", open)}
-							onOpenInvitations={() => {
-								setShareInitialView(sharingDraft.isDirty ? "main" : "invite");
-								setActiveDialog("share");
-							}}
-							onOpenShare={() => {
-								setShareInitialView("main");
-								setActiveDialog("share");
-							}}
+							onOpenInvitations={
+								input.status.deletedAt
+									? undefined
+									: () => {
+											setShareInitialView(
+												sharingDraft.isDirty ? "main" : "invite"
+											);
+											setActiveDialog("share");
+										}
+							}
+							onOpenShare={
+								input.status.deletedAt
+									? undefined
+									: () => {
+											setShareInitialView("main");
+											setActiveDialog("share");
+										}
+							}
 							open={activeDialog === "settings"}
 							openMeldProfileId={input.currentProfileId}
 							showTrigger={!showChatMenu}
@@ -438,6 +449,7 @@ export function SpaceHeader(input: {
 			title={spaceName}
 			titleAdornment={
 				<span className="flex shrink-0 items-center gap-2 text-muted-foreground text-xs">
+					{input.status.deletedAt && <SpaceDeletedLabel />}
 					{!input.conversationTitleControl &&
 						input.conversationTitleAction?.(spaceName)}
 					{input.isCenterAgentDirectMessage || isDirectMessage

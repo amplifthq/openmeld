@@ -645,6 +645,15 @@ Deleting a personal group removes its presentation association only.
 | Space Truth                        | Space collaboration truth.                                                                                                                                                                          | Space Durable Object source of truth.                                                                                                                                                                                                                                                                                                                                  |
 
 Inbox message notification preferences have two Core-owned PostgreSQL records:
+Personal Direct Message deletion is an account read policy, separate from shared
+Space history. Core owns `conversation_history_deletions` in PostgreSQL. The Space
+command captures the monotonically accepted SQLite signal position and writes
+that boundary through Core. History, search, Inbox, links, and live Human reads
+respect it; other participants and Agent execution continuity remain unchanged.
+The boundary date is opt-in history metadata for Web cache reconciliation. Old
+strict readers retain their response shape. Rolling Core back after an accepted
+personal deletion must retain this policy; otherwise earlier history can reappear.
+
 `inbox_message_notification_defaults` stores one mode per account, and
 `inbox_conversation_notification_preferences` stores explicit overrides per
 account, Organization, and Space. Absence of an override means live inheritance.

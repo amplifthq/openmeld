@@ -185,7 +185,10 @@ import {
   currentLocalAgentInstallationsResponseSchema,
   currentLocalAgentInstallationsRouteParamsSchema,
   currentLocalRuntimeReplyReadinessResponseSchema,
+  type DeleteConversationForMeInput,
+  type DeleteConversationForMeResponse,
   daemonServiceLaneSchema,
+  deleteConversationForMeInputSchema,
   deleteSpaceAttachmentRecordInputSchema,
   deleteSpaceAttachmentRecordResultSchema,
   deriveCenterAgentDirectMessageSpaceProjection,
@@ -214,6 +217,7 @@ import {
   getCenterAgentOperatingStateResponseSchema,
   getCurrentAgentProfileWorkspaceQuerySchema,
   getCurrentAgentProfileWorkspaceResponseSchema,
+  type getCurrentOrganizationSpaceDirectoryRpcInputSchema,
   getLocalRuntimeExpectedRoutesQuerySchema,
   getPrepareReadinessQuerySchema,
   getPrepareReadinessResponseSchema,
@@ -776,6 +780,7 @@ import {
   OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
   type SpaceAccessContext,
 } from "@openmeld/space";
+import type { z } from "zod/v4";
 import {
   rpcCenterAgentListAgentActivitySessions as centerAgentListAgentActivitySessions,
   rpcCenterAgentReadAgentActivity as centerAgentReadAgentActivity,
@@ -2405,6 +2410,7 @@ export type CreateSpaceResult = {
   meta?: SpaceMeta;
 };
 export type ListSignalsInput = {
+  includePersonalHistoryBoundary?: boolean;
   q?: string;
   spaceId: string;
   afterTs?: number;
@@ -2426,6 +2432,7 @@ export type ListSignalsInput = {
   spaceAccess?: SpaceAccessContext;
 };
 export type ListSignalsResult = {
+  personalHistoryDeletedAt?: number;
   searchIndexing?: boolean;
   signals: SignalEnvelope[];
   nextCursor: string | null;
@@ -2695,6 +2702,7 @@ export type DeleteSpaceResult = {
   deleted: true;
 };
 export type ListAccountSpacesInput = {
+  includeDeletedSpaces?: boolean;
   gatewayHost: string;
   ownerUserId: string;
   scope: AccountSpaceIndexQuery["scope"];
@@ -3266,9 +3274,9 @@ export type GetCurrentOrganizationComputersInput = {
 export type GetCurrentOrganizationMemberOpenMeldServiceStatusesInput = {
   context?: CoreRpcContextInput;
 };
-export type GetCurrentOrganizationSpaceDirectoryInput = {
-  context?: CoreRpcContextInput;
-};
+export type GetCurrentOrganizationSpaceDirectoryInput = z.infer<
+  typeof getCurrentOrganizationSpaceDirectoryRpcInputSchema
+>;
 export type JoinOrganizationPublicSpaceInput = {
   spaceId: string;
   password?: string;
@@ -7802,7 +7810,11 @@ export async function rpcGetCurrentOrganizationSpaceDirectory(
     generatedAt: response.generatedAt,
     organizationId: response.organizationId,
     spaces: response.spaces.map(
-      ({ activeMemberCount: _activeMemberCount, ...space }) => space
+      ({
+        activeMemberCount: _activeMemberCount,
+        memberPreviews: _memberPreviews,
+        ...space
+      }) => space
     ),
   };
   const validated = organizationSpaceDirectoryResponseSchema.safeParse(
@@ -7853,6 +7865,7 @@ async function readCurrentOrganizationSpaceDirectoryWithMemberCounts(
   const response = await listOrganizationSpacesFromSpaceIndex({
     db: requireSpaceIndexDb(env),
     generatedAt: new Date().toISOString(),
+    includeMemberPreviews: input.includeMemberPreviews,
     limit: ORGANIZATION_SPACE_DIRECTORY_LIMIT,
     organizationId: directoryCaller.organizationId,
     ownerUserId: directoryCaller.userId,
@@ -9552,6 +9565,7 @@ export async function rpcListCenterAgentSessions(
     };
   }
   return await listAuthorizedCenterAgentSessions({
+    ownerUserId: activeOrganization.userId,
     ...parsed.data,
     db: requireSpaceIndexDb(env),
     organizationId: activeOrganization.organizationId,
@@ -20405,6 +20419,7 @@ export async function rpcGetSpaceEntryResolution(
   }
   const target = parsed.data;
   const indexed = await readSpaceIndexOrganizationJoinTarget({
+    includeDeletedSpaces: true,
     db: requireSpaceIndexDb(env),
     spaceId: target.spaceId,
   });
@@ -20449,6 +20464,7 @@ export async function rpcGetSpaceEntryResolution(
     access,
     authenticated: Boolean(context),
     indexed: {
+      deletedAt: indexed.deletedAt,
       organizationId: indexed.organizationId,
       ...(organizationSlug ? { organizationSlug } : {}),
       ...(indexed.creatorProfileId
@@ -20780,6 +20796,15 @@ export async function rpcDeleteSpace(
     context,
   });
 }
+export async function rpcDeleteConversationForMe(
+  env: CoreBindings,
+  raw: DeleteConversationForMeInput
+): Promise<DeleteConversationForMeResponse> {
+  const input = deleteConversationForMeInputSchema.parse(raw);
+  const context = requireRpcContext(input.context);
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcDeleteConversationForMe({ spaceId, context });
+}
 export async function rpcListAccountSpaces(
   env: CoreBindings,
   input: ListAccountSpacesInput
@@ -20796,6 +20821,7 @@ export async function rpcListAccountSpaces(
       ? Math.min(500, Math.max(1, Math.trunc(input.limit)))
       : 500;
   return await listAccountSpacesFromSpaceIndex({
+    includeDeletedSpaces: input.includeDeletedSpaces === true,
     db: requireSpaceIndexDb(env),
     gatewayHost,
     ownerUserId,

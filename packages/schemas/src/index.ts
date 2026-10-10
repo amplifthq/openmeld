@@ -158,6 +158,12 @@ export {
   computerConnectionProgressPhaseSchema,
 } from "./computer-connection-progress";
 export {
+  type DeleteConversationForMeInput,
+  type DeleteConversationForMeResponse,
+  deleteConversationForMeInputSchema,
+  deleteConversationForMeResponseSchema,
+} from "./conversation-history";
+export {
   DESKTOP_AUTH_SCHEME,
   DESKTOP_INSTALLED_AUTH_SCHEME,
   DESKTOP_TEST_AUTH_SCHEME,
@@ -563,6 +569,12 @@ export {
   spaceOwnerDepartureResultSchema,
   spaceOwnerDepartureSpaceInputSchema,
 } from "./space-owner-departure";
+export {
+  type SpacePreferences,
+  type SpacePreferencesRpc,
+  spacePreferencesRpcSchema,
+  spacePreferencesSchema,
+} from "./space-preferences";
 export {
   SPACE_WORK_HANDOFF_CAPABILITY_HEADER,
   SPACE_WORK_MAX_BYTES,

@@ -21,6 +21,7 @@ import {
 	PuzzlePieceIcon,
 	RobotIcon,
 	TimerIcon,
+	UsersThreeIcon,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { type ReactElement, useState } from "react";
@@ -83,11 +84,15 @@ export type RailShortcutGroup = "spaces" | "team";
 const SHORTCUT_GROUPS = {
 	spaces: {
 		label: "Spaces",
+		primaryLabel: "Your Spaces",
+		icon: ChatCircleTextIcon,
 		path: buildOrganizationSpacesPath,
 		ids: ["messages", "discover"],
 	},
 	team: {
 		label: "Team",
+		primaryLabel: "People",
+		icon: UsersThreeIcon,
 		path: buildOrganizationPeoplePath,
 		ids: ["agents", "plugins", "skills", "files", "routines"],
 	},
@@ -189,6 +194,22 @@ export function AppRailShortcutsPopover(input: {
 				sideOffset={8}
 			>
 				<FluidActionList gapClick={false}>
+					<FluidActionListItem
+						className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+						index={0}
+						render={
+							<Link
+								onClick={() => {
+									setOpen(false);
+									dismiss();
+								}}
+								to={group.path(input.orgSlug)}
+							/>
+						}
+					>
+						<group.icon aria-hidden="true" className="size-4" />
+						{group.primaryLabel}
+					</FluidActionListItem>
 					{visibleSidebarShortcuts(group.ids, input.isPersonal).map(
 						(id, index) => {
 							const item = SHORTCUTS[id];
@@ -197,7 +218,7 @@ export function AppRailShortcutsPopover(input: {
 								<div className="relative" key={id}>
 									<FluidActionListItem
 										className="flex h-8 w-full min-w-0 items-center gap-2 rounded-md pr-9 pl-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-										index={index}
+										index={index + 1}
 										render={
 											<Link
 												onClick={() => {

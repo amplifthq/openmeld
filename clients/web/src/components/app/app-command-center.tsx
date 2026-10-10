@@ -510,7 +510,7 @@ function spaceCommandEntry(
 		accessibleLabel: [
 			item.spaceName,
 			status?.label,
-			unread ? "Unread messages" : "",
+			unread ? "Unread updates" : "",
 		]
 			.filter(Boolean)
 			.join(", "),
@@ -552,7 +552,7 @@ function CommandSpaceStatus({
 	if (trailing === "unread") {
 		return (
 			<span
-				aria-label="Unread messages"
+				aria-label="Unread updates"
 				className="size-1.5 rounded-full bg-unread"
 				role="img"
 			/>

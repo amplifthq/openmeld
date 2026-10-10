@@ -17,7 +17,7 @@ export async function seedBusinessFixture(client) {
         "SELECT table_name FROM information_schema.tables WHERE table_schema='openmeld' ORDER BY table_name"
       )
     ).rows;
-    if (tables.length !== 159) {
+    if (tables.length !== 168) {
       throw new Error(
         "Expected the reviewed complete native application schema"
       );

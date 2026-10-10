@@ -13,6 +13,9 @@ const SIGNAL_TYPE_VALUES = [
 const SIGNAL_TYPE_SET = new Set<string>(SIGNAL_TYPE_VALUES);
 
 const listSignalsQueryInputSchema = z.strictObject({
+  includePersonalHistoryBoundary: z
+    .union([z.literal("true"), z.literal("false"), z.null()])
+    .optional(),
   q: spaceMessageSearchQuerySchema.shape.q.nullable().optional(),
   afterTs: z.string().nullable(),
   cursor: z.string().nullable(),
@@ -27,12 +30,22 @@ const listSignalsQueryInputSchema = z.strictObject({
   hasLimit: z.boolean(),
 });
 
-type ListSignalsQueryRawValues = z.infer<typeof listSignalsQueryInputSchema>;
+type ListSignalsQueryRawValues = Omit<
+  z.infer<typeof listSignalsQueryInputSchema>,
+  "includePersonalHistoryBoundary"
+> & { includePersonalHistoryBoundary?: string | null };
 
 export function readListSignalsQueryRawValues(
   searchParams: URLSearchParams
 ): ListSignalsQueryRawValues {
   return {
+    ...(searchParams.has("includePersonalHistoryBoundary")
+      ? {
+          includePersonalHistoryBoundary: searchParams.get(
+            "includePersonalHistoryBoundary"
+          ),
+        }
+      : {}),
     ...(searchParams.has("q") ? { q: searchParams.get("q") } : {}),
     afterTs: searchParams.get("afterTs"),
     cursor: searchParams.get("cursor"),
@@ -394,6 +407,9 @@ export const listSignalsQuerySchema = listSignalsQueryInputSchema
 
     return {
       ...(value.q ? { q: value.q } : {}),
+      ...(value.includePersonalHistoryBoundary === "true"
+        ? { includePersonalHistoryBoundary: true }
+        : {}),
       afterTs,
       cursor,
       limit: semantics.limit,

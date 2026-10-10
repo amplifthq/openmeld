@@ -3,7 +3,7 @@ import type {
   MutateSpaceInboxReadBody,
   MutateSpaceInboxReadResponse,
 } from "@openmeld/schemas/types";
-import { INBOX_SPACE_MESSAGE_FILTER, InboxServiceError } from "./inbox-service";
+import { INBOX_SPACE_UNREAD_FILTER, InboxServiceError } from "./inbox-service";
 import { buildCurrentInboxSourceAccessSql } from "./inbox-source-access";
 // The same recipient Inbox rows own both visible-message reads and explicit
 // Space-wide reads. Snapshots freeze selection only; they are not a read ledger.
@@ -20,7 +20,7 @@ export async function mutateSpaceInboxRead(input: {
     parameterOffset: number
   ) => `organization_id = $${parameterOffset + 1} AND recipient_user_id = $${parameterOffset + 2}
     AND cleared_at_ms IS NULL AND read_at_ms IS NULL
-    AND ${INBOX_SPACE_MESSAGE_FILTER}
+    AND ${INBOX_SPACE_UNREAD_FILTER}
     AND ((source_target_json)::jsonb #>> '{spaceId}') = $${parameterOffset + 3}
     AND ${buildCurrentInboxSourceAccessSql("inbox_items")}`;
   const scope = [organizationId, recipientUserId, body.spaceId];

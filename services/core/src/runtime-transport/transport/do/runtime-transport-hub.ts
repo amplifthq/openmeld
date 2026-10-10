@@ -181,7 +181,9 @@ import {
   runtimeTransportWaitDispatchResultRequestSchema,
   SERVICE_CONNECTION_ID_QUERY_PARAMETER,
   SPACE_WORK_HANDOFF_CAPABILITY_HEADER,
+  type SpacePreferences,
   serviceConnectionDiagnosticIdSchema,
+  spacePreferencesSchema,
   toLegacySpaceAddressingWireValue,
   wakeStopEligibilityReadModelSchema,
 } from "@openmeld/schemas";
@@ -1604,6 +1606,20 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   >();
   private scheduledHousekeepingAlarmAtMs: number | null | undefined;
   private reasoningStreamEnabled = true;
+  async rpcSpacePreferences(
+    input: Partial<SpacePreferences>
+  ): Promise<SpacePreferences> {
+    if (input.automaticWakeEnabled !== undefined) {
+      const preference = spacePreferencesSchema.parse(input);
+      await this.ctx.storage.put("space-preferences", preference);
+      return preference;
+    }
+    const stored =
+      await this.ctx.storage.get<SpacePreferences>("space-preferences");
+    return stored === undefined
+      ? { automaticWakeEnabled: true }
+      : spacePreferencesSchema.parse(stored);
+  }
   async rpcReasoningPreferences(
     input: Omit<LocalAgentReasoningPreferencesRpc, "context">
   ): Promise<LocalAgentReasoningPreferences> {

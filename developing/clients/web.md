@@ -114,6 +114,18 @@ acceptance.
 
 ## Space creation feedback
 
+The account Space query uses one `reconcileAccountSpaceSections` owner for
+accepted Create/Join receipts, accepted message previews, and pending Pin
+choices. Sidebar and Browse render that same query. Receipts bridge a stale
+index read, clear when its projection catches up, and are not persisted as
+membership authority. Recent activity includes creation and joining even when
+a Space has no messages. Discover excludes current account memberships.
+
+Leave removes the visible entry and navigates away before requesting membership
+revocation. Success clears the departed conversation's read cache; it does not
+refetch the now inaccessible Space. Failure restores only that entry and shows
+the server's error. Other pending entries remain intact.
+
 Create opens the conversation immediately with the submitted name, shared Space
 header and tabs, and the normal editable composer. A small `Preparing…` notice
 is centered in the empty message area using shared `TextShimmer`, with static
@@ -301,8 +313,14 @@ cards keep peer and Center Agent session identity, unread destinations, groups,
 pinning, and archive actions. Their 56px peer avatar has no reserved multi-member
 grid height; the title follows directly, with one latest-message preview row
 only when messages exist. Discover cards and rows expose the same Preview and
-Join actions, pending state, and access checks. Responsive member grids mount
+Join actions, pending state, and access checks. Cards place the primary Join
+action at the right of the member count in one row, separate from the card's
+preview target. Responsive member grids mount
 each avatar once; CSS changes visible slots without duplicating avatar drawing.
+The App's read-only Discover preview omits the Agent-facing Space context
+disclosure and structured JSON link. The standalone public reader retains them;
+the existing presentation context owns this distinction without changing read
+access or the context API.
 The Agents directory uses the same store to remember grouped versus expanded
 presentation per viewer, Organization, and person. Search and temporary filters
 do not become saved layout preferences.
@@ -345,7 +363,7 @@ mutually exclusive drawers; a collapsed desktop preference never hides the
 mobile list. Recent is the default conversation view. Grouped offers a
 shared Pinned section, existing personal groups, Spaces, and Direct messages.
 Recent retains the same Pinned section and orders the remaining conversations
-by the latest message timestamp across both kinds. Both views use the same rows,
+by the latest message, creation, or joining timestamp across both kinds. Both views use the same rows,
 previews, identities, indicators, and canonical destinations. The view menu
 changes only the sidebar; the open conversation, draft, and reading position
 remain mounted. View choice is remembered in this browser per account and
@@ -1356,10 +1374,15 @@ and use the shared action icons. Ordinary Space rows read Index previews without
 creating per-Space message-preview observers. Rows use
 the same preview and activity sources for selected and unopened conversations;
 navigation is not required to discover their latest message or pending action.
-Recent uses
-only message time, with an empty conversation at zero and Space ID as a stable
+Recent uses message, creation, and joining time, with Space ID as a stable
 tie-breaker; unread, visit time, and running progress do not promote it. Recent
-does not permit manual row ordering outside Pinned. Space and direct-message
+rows can be dragged to Pinned; Grouped also exposes compatible personal groups.
+Recent does not permit manual row ordering outside Pinned. Layout intents render
+immediately from pending account-scoped query mutations. Native mutation scopes
+serialize saves against the latest confirmed sidebar revision; a pending save
+does not disable the list or delay a drop. Pin membership remains owned by Space
+Index, independently from personal ordering. Keyboard and reduced-motion drops
+have no travel animation. Space and direct-message
 custom groups retain their existing preference owners; cross-kind moves are
 rejected before any pin or preference write. Rename and archive remain direct-
 message actions and are never offered on ordinary Space rows.
@@ -1535,6 +1558,35 @@ CLI controls.
 
 ### Settings structure
 
+**Personal → Spaces** contains **Automatically wake the only Agent**. It is on
+by default and uses the shared Settings row and Switch. Its account-owned value
+applies across organizations. Conversation guidance uses Core's Space status
+projection, so turning it off removes automatic-Wake guidance as well as implicit
+work admission. Explicit Agent mentions remain available.
+The row uses one full-width composer preview. Its message explains the saved
+choice directly: automatic replies without a mention when enabled, or an explicit
+Agent mention to request a reply when disabled. This explanation remains available
+to assistive technology; the decorative toolbar is hidden from it. The static
+preview is not an editor or an execution-status projection. Send-shortcut cards
+use the same decorative composer, with the product send icon and one keyboard
+hint for the option's sending action; they do not repeat the newline shortcut.
+
+The same section owns personal conversation preferences. Reading contains
+**Conversation layout**, **Your messages**, and **History slider**, moved from
+Appearance without changing their browser-local keys or defaults. Conversation
+list contains **Message previews**, using the same browser/profile/organization
+preference as the sidebar display menu. Fluid radio cards show the reading and
+list choices with static previews and stack on narrow screens. Appearance keeps
+global theme, shape, navigation, toolbar, and Bot avatar controls.
+
+Sending also contains **Send shortcut**. Enter sends by default, and Shift+Enter
+inserts a line. The optional Cmd/Ctrl+Enter choice makes unmodified Enter insert
+a line. It uses one browser-local preference in the shared composer across
+Spaces, Direct Messages, Center Agent conversations, creation, and Threads.
+IME composition and mention-picker confirmation never submit a draft. The
+plain-text recovery input retains the same send rule. Inline message editing
+keeps its existing Enter-to-save behavior. Mobile Send buttons are unchanged.
+
 Account display reads use Auth's `/v1/account/session` projection through the
 shared API client and the existing `userQueryKeys.session` cache. The projection
 preserves the Joined date, verification badge, name/avatar identity updates, and
@@ -1577,7 +1629,7 @@ to Account through the same capability-filtered registry.
 
 The Settings secondary sidebar always shows these two groups:
 
-- **Personal** — **Account**, **Appearance**, **Notifications**, **Privacy &
+- **Personal** — **Account**, **Appearance**, **Notifications**, **Spaces**, **Privacy &
   Safety**, and **Send feedback**. In a Personal Workspace, it also includes
   **Center Agent** (placed after Privacy & Safety, before Send feedback).
   Account preferences do not change when the selected Organization changes.
@@ -1690,7 +1742,7 @@ retain normal access checks; files without a public navigation link retain
 their existing download/copy operations. Editors and selected text retain
 native menus; progress-only message rows do not create empty custom menus.
 
-Appearance also owns the browser-local **Your messages** placement used by
+Personal Spaces settings owns the browser-local **Your messages** placement used by
 every Space, Direct Message, Center Agent, and thread conversation that
 renders the shared message primitives. A message placed on the right uses a
 trailing-aligned, content-sized bubble; a message placed on the left uses the

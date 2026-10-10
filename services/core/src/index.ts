@@ -13,6 +13,7 @@ import type {
   SpaceCursor,
   SpaceMeta,
 } from "@openmeld/protocol";
+import type { SpacePreferencesRpc } from "@openmeld/schemas";
 import {
   type ListCenterAgentSessionsResponse,
   type ModelCatalogReadOptions,
@@ -939,6 +940,7 @@ import {
   rpcCreateSpaceDiagnosticReport,
   rpcCreateSpaceFolder,
   rpcCreateSpaceTask,
+  rpcDeleteConversationForMe,
   rpcDeleteRoutine,
   rpcDeleteSpace,
   rpcDeleteSpaceAttachmentRecord,
@@ -1201,6 +1203,7 @@ import { emitCoreCloudflareRuntimeEvidence } from "./shared/observability/cloudf
 import { handleCoreQueueBatch } from "./shared/queue/core-queue-router";
 import { verifyGitHubAppWebhook } from "./space/application/github-app-webhook-service";
 import type { SpaceBootstrapWithTiming } from "./space/application/space-bootstrap-timing";
+import { spacePreferences } from "./space/application/space-preferences";
 import { Space } from "./space/transport/do/space";
 import {
   type ProjectSpaceIndexMembershipOverlayRpcInput,
@@ -1873,6 +1876,11 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   localAgentReasoningPreferences(input: LocalAgentReasoningPreferencesRpc) {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       reasoningPreferences(this.env, input)
+    );
+  }
+  accountSpacePreferences(input: SpacePreferencesRpc) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      spacePreferences(this.env, input)
     );
   }
   updateInboxNotificationPreferences(
@@ -2828,6 +2836,13 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   deleteSpace(input: DeleteSpaceInput): Promise<DeleteSpaceResult> {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       rpcDeleteSpace(this.env, input)
+    );
+  }
+  deleteConversationForMe(
+    input: import("@openmeld/schemas").DeleteConversationForMeInput
+  ): Promise<import("@openmeld/schemas").DeleteConversationForMeResponse> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcDeleteConversationForMe(this.env, input)
     );
   }
   updateSpaceMeta(input: UpdateSpaceMetaInput): Promise<SpaceMeta> {
@@ -5422,6 +5437,11 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   }
   deleteSpace(input: DeleteSpaceInput): Promise<DeleteSpaceResult> {
     return super.deleteSpace(input);
+  }
+  deleteConversationForMe(
+    input: import("@openmeld/schemas").DeleteConversationForMeInput
+  ): Promise<import("@openmeld/schemas").DeleteConversationForMeResponse> {
+    return super.deleteConversationForMe(input);
   }
   updateSpaceMeta(input: UpdateSpaceMetaInput): Promise<SpaceMeta> {
     return super.updateSpaceMeta(input);

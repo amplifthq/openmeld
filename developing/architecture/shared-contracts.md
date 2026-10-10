@@ -27,6 +27,18 @@
 
 ## Storage and migration references
 
+Space membership notifications add `space_joined` to Inbox kinds. Space summary
+adds optional `messageUnreadCount`; exact unread-target receivers also get
+optional `joinedItems` when they request item IDs. Existing message targets,
+scopes, and message totals keep their meaning. The Space membership projection
+outbox owns retries; Inbox owns read state. No client membership or read ledger
+is introduced. Deploy the database migration and receiving Core/Gateway before
+the new Web client and writer. Inbox item-kind version 2 opts in to the new kind;
+older HTTP and RPC receivers get the existing generic update kind with the same
+title and Space target. Historical migration/import baselines are read.
+Older CLI, Service, and Skills retain their previous Space, setup, Wake, and
+diagnostic contracts; no local component update is required by this addition.
+
 Production shared relational storage is PostgreSQL. Numeric migration references
 from the original D1 rollout describe historical schema dependencies already
 absorbed into the native baseline; they are not D1 commands to run now. New
@@ -3007,7 +3019,11 @@ other Directory administration fields.
 
 The old Space Directory HTTP/RPC shape remains unchanged. The nullable count is
 available only through the new Core method and versioned Gateway route, so
-existing Center Agent and Remote Agent consumers remain compatible. Deploy Core
+existing Center Agent and Remote Agent consumers remain compatible. The member-count
+route can opt into `includeMemberPreviews=true`. Core reuses the bounded Space
+Index member projection for already authorized directory candidates; the default
+response omits previews for strict older receivers. Web resolves appearance through
+the existing Profile Directory and reuses Space member avatars. Deploy Core
 first, then Gateway, then Web; roll back Web before Gateway or Core. These cloud
 additions do not change CLI, OpenMeld Service, daemon, Prepare, Wake dispatch,
 Space action, or diagnostic semantics.
@@ -8848,13 +8864,15 @@ surfaces and CLI Agent/Human View reuse this builder so a copied destination has
 one cross-client form while authorization remains owned by the resolver and
 the eventual read endpoint.
 
-For an Organization member outside a listed Space, `membership_required` view
-can accompany `self_join_available` participation. This permits a Join action,
-not a content preview. Space membership POST verifies the actual Organization
+For a verified Organization member outside an active listed Space, `allowed`
+view with the `public` experience accompanies `self_join_available` participation.
+This permits a read-only preview. Preview does not create membership and cannot
+open a writable WebSocket, post messages, Wake Agents, or mutate content.
+Deleted Spaces retain their original-member read gate. Space membership POST verifies the actual Organization
 membership and rechecks canonical Space visibility after that lookup, admitting
 only the caller's own Human Profile. Directory projections and URL targets do
 not grant authority. Private Spaces, outsiders, Agent actors, and member batches
-do not receive this grant. Existing password/access grants retain their own rules.
+do not receive the self-join grant. Existing password/access grants retain their own rules.
 
 Web resolves tenant-neutral links before mounting a public viewer. When the
 resolution supplies the caller's Organization slug, it opens the App Space
@@ -8911,11 +8929,45 @@ to decide when password is still required.
 
 ## Unified Space Access and Ownership
 
+### Deleted Space history
+
+The Space owner persists `deletedAt` in its canonical metadata. Deletion retains
+signals and original membership grants, disables all publication actions, and
+restricts reads to those grants. Removing a deleted Space leaves only this
+account's memberships. Account deletion remains a separate physical purge.
+The account index derives the deleted state from that metadata; subsequent
+member or signal projections cannot restore an active Space.
+
+Contract Impact Audit: metadata and status add optional `deletedAt`. Account
+list callers opt into retained entries with `includeDeletedSpaces`; older CLI
+callers retain their existing list shape. Status actions may be empty for a
+deleted Space. Core must precede new Gateway and Web readers. Old clients can
+read retained history but Core rejects their writes. No Service, Wake execution,
+live invalidation, or local component protocol changes. Rollback the new Web
+first; an older Core does not enforce the retained read-only state.
+
+### Account Space preferences
+
+`packages/schemas` owns `SpacePreferences` and its authenticated RPC input.
+`GET/PATCH /v1/account/space-preferences` addresses the verified Human's existing
+account owner shard. That shard is the sole durable writer; an absent record
+means automatic Wake is enabled, preserving existing behavior. Core reads the
+author's preference at automatic dispatch admission. Space status and bootstrap
+project `automaticWakeEnabled` for the viewer without granting work authority.
+
+The status field is additive and optional. Existing clients keep their previous
+guidance and can still send messages; Core applies the saved preference. New
+clients require the preference receiver for Settings, and show a load error when
+it is unavailable. No CLI, Service, Gateway live-frame, or Wake execution protocol
+changes. Older status readers accept the added field. Rollback preserves the
+stored preference, but an older Core does not enforce it.
+
 `packages/space` owns the pure Space access and ownership policy over verified
 facts. Core obtains current identity and membership facts and enforces the policy
 for HTTP, RPC, live connections, and Agent callers. UI capability projections do
-not grant authority. Organization-open discovery grants eligible colleagues a
-join action, not automatic content access or Organization membership.
+not grant authority. Organization-open discovery grants current Organization
+members read-only preview and explicit joining. It does not grant Organization
+membership or publication before joining.
 
 The Space Durable Object is the sole writer of `ownerUserIds` and `allowGuests`.
 Creator attribution remains immutable. Owners are current Organization members

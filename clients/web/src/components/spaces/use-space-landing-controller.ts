@@ -64,7 +64,6 @@ import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { ComposerFileDraftCleanup } from "#/lib/spaces/composer-file-drafts";
 import type { SpaceConversationVisibleStreamProjection } from "#/lib/spaces/conversation-stream";
-import { removeDeletedSpaceFromAccountHistory } from "#/lib/spaces/delete-space-history-cleanup";
 import type { SpaceEphemeralActivityItem } from "#/lib/spaces/dispatch-activity";
 import {
 	isCurrentSpaceAccessRejection,
@@ -74,6 +73,7 @@ import {
 	runSpaceComposerIdempotentRequestWithRetry,
 } from "#/lib/spaces/errors";
 import {
+	applyConfirmedSpaceDeletionToCache,
 	applySpaceBootstrapSnapshotToCache,
 	enrichSpaceHistoryAgentControllerPresentation,
 	resolveSpaceMembersPresentationSnapshot,
@@ -152,16 +152,17 @@ import type {
 	SpaceComposerInputRef,
 } from "./space-composer-editor";
 import { requireCurrentSpaceComposerWakeAdmission } from "./space-composer-wake-admission";
-import {
-	optimisticallyRemoveSpaceFromListCaches,
-	restoreSpaceListCaches,
-} from "./space-delete-cache";
 import { useSpaceEntryConfirmation } from "./space-entry-confirmation";
 import { projectSpaceExecutionRecoveryResolution } from "./space-execution-recovery";
 import type {
 	SpaceExecutionRecoveryAttempt,
 	SpaceExecutionRecoveryResolution,
 } from "./space-execution-recovery-actions";
+import {
+	optimisticallyDeleteSpaceInListCaches,
+	optimisticallyRemoveSpaceFromListCaches,
+	restoreSpaceListCaches,
+} from "./space-list-cache";
 import { resolveMissingSpaceMembersMessage } from "./space-members-error-copy";
 import { persistSpaceNameUpdate } from "./space-name-update";
 import {
@@ -1551,6 +1552,32 @@ function readPresentedWakeProgressItems(input: {
 	});
 }
 
+async function clearDepartedSpaceCaches(input: {
+	queryClient: ReturnType<typeof useQueryClient>;
+	organizationId?: string | null;
+	orgSlug?: string;
+	ownerAccountId: string;
+	profileId: string;
+	spaceId: string;
+}): Promise<void> {
+	input.queryClient.removeQueries({
+		predicate: (query) =>
+			query.queryKey[0] === "spaces" &&
+			query.queryKey[2] === input.spaceId &&
+			query.queryKey[3] === input.profileId,
+	});
+	if (input.organizationId && input.orgSlug) {
+		await resolveAppQueryPersistenceController().clearSpaceConversation({
+			organizationId: input.organizationId,
+			organizationSlug: input.orgSlug,
+			ownerAccountId: input.ownerAccountId,
+			queryClient: input.queryClient,
+			spaceId: input.spaceId,
+			openMeldProfileId: input.profileId,
+		});
+	}
+}
+
 export function useSpaceLandingController(input: {
 	initialFocusRequestId?: string;
 	initialFocusSignalId?: string;
@@ -2711,6 +2738,7 @@ export function useSpaceLandingController(input: {
 
 	const deleteActionVisibility = resolveSpaceDeleteActionVisibility({
 		currentProfileId: input.profileId,
+		deletedAt: statusSnapshot?.deletedAt,
 		membersSnapshot,
 		ownerUserIds: statusSnapshot?.ownerUserIds ?? [],
 	});
@@ -3115,6 +3143,7 @@ export function useSpaceLandingController(input: {
 			await requireCurrentSpaceComposerWakeAdmission({
 				deviceWait: preparedSubmission.deviceWait,
 				agentProfileIds: resolveComposerWakeProgressTargetProfileIds({
+					automaticWakeEnabled: statusSnapshot?.automaticWakeEnabled,
 					explicitActivationTargets:
 						preparedSubmission.messageEnvelope?.activationTargets ?? [],
 					explicitReferenceTargets:
@@ -3297,6 +3326,7 @@ export function useSpaceLandingController(input: {
 			sendInput.preparedSubmission.messageEnvelope?.activationTargets ?? [];
 		const wakeProgressTargetProfileIds =
 			resolveComposerWakeProgressTargetProfileIds({
+				automaticWakeEnabled: sendInput.status?.automaticWakeEnabled,
 				explicitActivationTargets,
 				explicitReferenceTargets:
 					sendInput.preparedSubmission.messageEnvelope?.referenceTargets,
@@ -3556,13 +3586,29 @@ export function useSpaceLandingController(input: {
 	async function handleLeaveSpace() {
 		setIsLeavingSpace(true);
 		setLeaveSpaceErrorMessage(null);
+		let left = false;
+		let cacheSnapshot:
+			| Awaited<ReturnType<typeof optimisticallyRemoveSpaceFromListCaches>>
+			| undefined;
 
 		try {
+			cacheSnapshot = await optimisticallyRemoveSpaceFromListCaches({
+				organizationId: input.organizationId ?? null,
+				queryClient,
+				spaceId: input.spaceId,
+			});
+			await navigate({
+				to: input.orgSlug
+					? buildOrganizationSpacesPath(input.orgSlug)
+					: "/invitations",
+				replace: true,
+			});
 			const response = await createUnscopedWebSpaceApi({
 				openMeldProfileId: input.profileId,
 			}).leaveSpace({
 				spaceId: input.spaceId,
 			});
+			left = true;
 			clearSpaceFileMediaResources(queryClient, input.spaceId);
 			const historyReason =
 				response.status === "already_absent"
@@ -3586,31 +3632,33 @@ export function useSpaceLandingController(input: {
 				);
 			}
 
-			await Promise.all([
-				queryClient.invalidateQueries({
-					queryKey: spaceQueryKeys.status(input.spaceId, input.profileId),
-				}),
-				queryClient.invalidateQueries({
-					queryKey: spaceQueryKeys.members(input.spaceId, input.profileId),
-				}),
-				queryClient.invalidateQueries({
-					queryKey: spaceQueryKeys.history(input.spaceId, input.profileId),
-				}),
-				queryClient.invalidateQueries({
-					queryKey: accountSpaceQueryKeys.all,
-				}),
-			]);
-			toast.success("You left this Space.");
-			await navigate({
-				to: input.orgSlug
-					? buildOrganizationSpacesPath(input.orgSlug)
-					: "/invitations",
-				replace: true,
+			await clearDepartedSpaceCaches({ ...input, queryClient });
+			await queryClient.invalidateQueries({
+				queryKey: accountSpaceQueryKeys.all,
 			});
+			toast.success(
+				statusSnapshot?.deletedAt
+					? "Space removed from your list."
+					: "You left this Space."
+			);
 		} catch (error) {
+			if (left) {
+				toast.warning(
+					"You left this Space, but its list could not be refreshed."
+				);
+				return;
+			}
 			const failure = toStructuredApiClientFailure(error);
-			setLeaveSpaceErrorMessage(resolveLeaveSpaceErrorMessage(failure));
+			const message = resolveLeaveSpaceErrorMessage(failure);
+			restoreSpaceListCaches(
+				queryClient,
+				input.organizationId ?? null,
+				cacheSnapshot
+			);
+			setLeaveSpaceErrorMessage(message);
+			toast.error(`Leave failed: ${message}`);
 		} finally {
+			cacheSnapshot?.stopKeepingRemoved();
 			setIsLeavingSpace(false);
 		}
 	}
@@ -3715,11 +3763,11 @@ export function useSpaceLandingController(input: {
 		setDeleteSpaceErrorMessage(null);
 		let deleted = false;
 		let cacheSnapshot:
-			| Awaited<ReturnType<typeof optimisticallyRemoveSpaceFromListCaches>>
+			| Awaited<ReturnType<typeof optimisticallyDeleteSpaceInListCaches>>
 			| undefined;
 
 		try {
-			cacheSnapshot = await optimisticallyRemoveSpaceFromListCaches({
+			cacheSnapshot = await optimisticallyDeleteSpaceInListCaches({
 				organizationId: input.organizationId ?? null,
 				queryClient,
 				spaceId: input.spaceId,
@@ -3739,20 +3787,10 @@ export function useSpaceLandingController(input: {
 			});
 			deleted = true;
 			clearSpaceFileMediaResources(queryClient, input.spaceId);
-
-			try {
-				await removeDeletedSpaceFromAccountHistory({
-					currentProfileId: input.profileId,
-					reason: "deleted_space",
-					spaceId: input.spaceId,
-				});
-			} catch (error) {
-				toast.warning(
-					error instanceof Error
-						? `Space deleted, but OpenMeld could not update your sidebar history. ${error.message}`
-						: "Space deleted, but OpenMeld could not update your sidebar history."
-				);
-			}
+			await applyConfirmedSpaceDeletionToCache({
+				queryClient,
+				spaceId: input.spaceId,
+			});
 
 			await Promise.all([
 				input.organizationId
@@ -4449,6 +4487,7 @@ function useSpaceThreadController(input: {
 		await requireCurrentSpaceComposerWakeAdmission({
 			deviceWait: preparedSubmission.deviceWait,
 			agentProfileIds: resolveComposerWakeProgressTargetProfileIds({
+				automaticWakeEnabled: input.status?.automaticWakeEnabled,
 				isThreadMessage: true,
 				explicitActivationTargets:
 					preparedSubmission.messageEnvelope?.activationTargets ?? [],

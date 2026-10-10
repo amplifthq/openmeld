@@ -33,6 +33,7 @@ const postgresqlOnlyTables = [
   { name: "space_task_project_links" },
   { name: "space_task_project_projection_states" },
   { name: "user_time_contexts" },
+  { name: "conversation_history_deletions" },
 ];
 
 function csv(value) {
@@ -117,7 +118,7 @@ async function reconcileTable(client, database, table, columns) {
     )
     .join(",");
   await client.query(
-    `DECLARE migration_rows NO SCROLL CURSOR FOR SELECT ${columns.map((column) => `${quote(column.name)}::text AS ${quote(column.name)}`).join(",")} FROM openmeld.${quote(table.name)} AS source ORDER BY ${order}`
+    `DECLARE migration_rows NO SCROLL CURSOR FOR SELECT ${columns.map((column) => `${quote(column.name)}::text AS ${quote(column.name)}`).join(",")} FROM openmeld.${quote(table.name)} AS source ${table.name === "inbox_items" ? "WHERE source.kind <> 'space_joined'" : ""} ORDER BY ${order}`
   );
   const expected = sourceRows(database, table, columns, true);
   let count = 0;
@@ -750,6 +751,28 @@ async function processD1Snapshot(
       importData,
     });
     await reconcileIdentities(client, manifest, importData, layout.identities);
+    if (importData) {
+      // Native migrations precede the frozen import. Baseline its historical
+      // membership generations after the original rows have been reconciled.
+      const baseline = (
+        await readFile(
+          new URL(
+            "../../packages/db/postgresql/migrations/0033_space_joined_inbox.sql",
+            import.meta.url
+          ),
+          "utf8"
+        )
+      )
+        .split("--> statement-breakpoint")
+        .at(-1);
+      if (!baseline) {
+        throw new Error("Missing Space membership baseline");
+      }
+      await client.query(baseline);
+      // Derived Inbox baseline rows consume native identities after the import.
+      // Re-establish an uncalled next identity before the receipt is committed.
+      await reconcileIdentities(client, manifest, true, layout.identities);
+    }
     const receipt = {
       ...binding,
       tables: imported,

@@ -10,7 +10,7 @@ import type { RemoteAgentNativeDeliveryRecord } from "../../remote-agent/infrast
 import type { SpaceMetaRecord } from "../infrastructure/sql/space-meta-repo";
 
 export type PasswordAuthorizationResult =
-  | { ok: true; meta: SpaceMetaRecord }
+  | { ok: true; meta: SpaceMetaRecord; organizationPreview?: boolean }
   | { ok: false; response: Response };
 
 export type SourceDispatchChainContext = {

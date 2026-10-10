@@ -169,7 +169,7 @@ export async function rehearseFrozenD1Capture({
           "SELECT nextval(pg_get_serial_sequence('openmeld.inbox_items','sequence'))::text AS next"
         )
       ).rows[0].next,
-      "901"
+      "902"
     );
     assert.equal(
       (

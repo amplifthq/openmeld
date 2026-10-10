@@ -98,6 +98,7 @@ export const inboxResolutionStatusSchema = z.enum([
   "resolved",
 ]);
 export const inboxItemKindSchema = z.enum([
+  "space_joined",
   "space_message",
   "space_mention",
   "agent_reply",
@@ -321,6 +322,7 @@ export const inboxNotificationObservationsResponseSchema = z.strictObject({
 export const observeInboxNotificationsRpcInputSchema =
   inboxNotificationObservationsQuerySchema.extend({
     context: openMeldRequestContextSchema,
+    includeMembershipNotices: z.boolean().optional(),
   });
 
 export const listInboxItemsQuerySchema = z.strictObject({
@@ -370,6 +372,7 @@ export const centerAgentInboxSummaryResponseSchema = z.strictObject({
 });
 
 export const spaceInboxSummaryItemSchema = z.strictObject({
+  messageUnreadCount: z.number().int().nonnegative().optional(),
   latestUnreadOccurredAtMs: timestampMsSchema,
   spaceId: identifierSchema,
   unreadCount: z.number().int().positive(),
@@ -405,6 +408,15 @@ export const spaceInboxUnreadTargetSchema = z.strictObject({
 });
 
 export const spaceInboxUnreadTargetsResponseSchema = z.strictObject({
+  joinedItems: z
+    .array(
+      z.strictObject({
+        itemId: identifierSchema,
+        occurredAtMs: timestampMsSchema,
+      })
+    )
+    .max(INBOX_SPACE_UNREAD_TARGETS_MAX_ITEMS)
+    .optional(),
   scopes: z
     .array(
       z.strictObject({
@@ -611,6 +623,7 @@ function normalizeInboxItemWireKind(
 
 export const listInboxItemsRpcInputSchema = listInboxItemsQuerySchema.extend({
   context: openMeldRequestContextSchema,
+  includeMembershipNotices: z.boolean().optional(),
   includeReplyToRecipient: z.boolean().optional(),
   includeSourceFacts: z.boolean().optional(),
   includeAccountItems: z.boolean().optional(),
@@ -641,6 +654,7 @@ export const markSpaceInboxReadThroughRpcInputSchema =
   });
 export const getInboxItemRpcInputSchema = inboxItemRouteParamsSchema.extend({
   context: openMeldRequestContextSchema,
+  includeMembershipNotices: z.boolean().optional(),
   includeReplyToRecipient: z.boolean().optional(),
   includeSourceFacts: z.boolean().optional(),
   includeAccountItems: z.boolean().optional(),
@@ -654,6 +668,7 @@ export const dismissInboxItemRpcInputSchema = inboxItemRouteParamsSchema.extend(
 export const markInboxItemReadRpcInputSchema =
   markInboxItemReadBodySchema.extend({
     context: openMeldRequestContextSchema,
+    includeMembershipNotices: z.boolean().optional(),
     includeReplyToRecipient: z.boolean().optional(),
     includeSourceFacts: z.boolean().optional(),
     includeAccountItems: z.boolean().optional(),
