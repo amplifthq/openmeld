@@ -111,8 +111,8 @@ export class SpaceTaskDeliveryRepository {
 
   fail(id: string, nowMs: number, message: string, terminal = false): void {
     const row = this.sql
-      .exec<{ attempts: number }>(
-        "SELECT attempts FROM space_task_delivery_outbox WHERE id = ?",
+      .exec<{ attempts: number; kind: SpaceTaskDeliveryKind }>(
+        "SELECT attempts, kind FROM space_task_delivery_outbox WHERE id = ?",
         id
       )
       .toArray()[0];
@@ -120,7 +120,11 @@ export class SpaceTaskDeliveryRepository {
       return;
     }
     const attempts = row.attempts + 1;
-    const exhausted = terminal || attempts >= MAX_DELIVERY_ATTEMPTS;
+    // Internal Inbox reconciliation must survive a prolonged database outage.
+    // Public delivery actions retain their visible terminal failure policy.
+    const exhausted =
+      terminal ||
+      (row.kind !== "inbox_projection" && attempts >= MAX_DELIVERY_ATTEMPTS);
     const retryDelayMs = Math.min(
       60_000 * 2 ** Math.min(attempts - 1, 6),
       3_600_000

@@ -127,6 +127,46 @@ function createSqlHarness(previousOutboxSchema = false) {
 afterEach(() => vi.useRealTimers());
 
 describe("Space Task durable delivery", () => {
+  it("recovers Inbox projection after a prolonged outage without dropping its delivery intent", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-10T03:00:00.000Z"));
+    const harness = createSqlHarness();
+    try {
+      harness.service().create(
+        { operationId: "create-during-outage", title: "Review the report" },
+        {
+          actor: requester,
+          requestedBy: requester,
+          isSpaceOwner: true,
+          resolveMember: () => null,
+        }
+      );
+      for (let attempt = 0; attempt < 13; attempt++) {
+        await flushSpaceTaskDeliveries({
+          repository: harness.deliveries,
+          deliver: () =>
+            Promise.reject(new Error("Inbox database is unavailable")),
+          onFailure: () => undefined,
+        });
+        vi.advanceTimersByTime(3_600_000);
+      }
+      vi.advanceTimersByTime(31 * 24 * 60 * 60 * 1000);
+      harness.deliveries.cleanupTerminal(Date.now());
+      expect(harness.deliveries.pending(Date.now())).toMatchObject([
+        { kind: "inbox_projection" },
+      ]);
+      const recovered = vi.fn(() => Promise.resolve());
+      await flushSpaceTaskDeliveries({
+        repository: harness.deliveries,
+        deliver: recovered,
+        onFailure: () => undefined,
+      });
+      expect(recovered).toHaveBeenCalledOnce();
+      expect(harness.deliveries.nextAttempt()).toBeNull();
+    } finally {
+      harness.close();
+    }
+  });
   it("keeps review attention source-owned across reads, reviewer changes, rework decisions, and acceptance", async () => {
     const f = await createInboxFeedFixture();
     const harness = createSqlHarness();

@@ -214,7 +214,7 @@ Every mutation compares the expected Task revision inside the Space transaction.
 An operation id may replay only the exact same request and returns the retained
 receipt without appending another event.
 The same transaction writes `space_task_delivery_outbox` rows for necessary
-handoff, completion, GitHub issue and Project link projections, and authorized
+handoff, completion, Inbox, GitHub issue and Project link projections, and authorized
 Stop effects. The Project link PostgreSQL projection contains only Organization,
 Project, Space, and Task keys plus Task revision and update time. Its versioned
 write rejects an older Task revision; a Project read rechecks Space membership
@@ -227,10 +227,13 @@ a Task-authored Signal, Space rechecks the Task's phase, target, result, and
 brief so a cancellation or change cannot admit a stale handoff. The
 `space_task_wake_refs` table records exact Signal and Agent target pairs only
 for Task-associated Wakes; it is a Stop lookup, not an execution ledger.
-Only mutations that may create a delivery intent pre-arm recovery before their
-transaction; checking for due rows only after commit would leave a lost-alarm
-window. Each delivery has bounded backoff and becomes a visible terminal failure
-after twelve attempts. A malformed outbox row is quarantined without blocking
+Each Task mutation pre-arms recovery before its transaction; checking for due
+rows only after commit would leave a lost-alarm window. Public delivery effects
+have bounded backoff and become a visible terminal failure after twelve attempts.
+Internal Inbox projection keeps retrying with capped backoff until it can reconcile
+the latest source-owned review or rework decision. It is excluded from public Task
+actions and does not become an invisible terminal failure during a database outage.
+A malformed outbox row is quarantined without blocking
 other Task deliveries. Terminal rows remain available for diagnosis for thirty
 days, then the same bounded Space alarm lane reclaims them.
 
