@@ -38,6 +38,8 @@ import {
   mutateInboxFeedResponseSchema,
   mutateSpaceInboxReadBodySchema,
   mutateSpaceInboxReadResponseSchema,
+  projectSpaceInboxSummaryForMembershipReceiver,
+  projectSpaceInboxUnreadTargetsForMembershipReceiver,
   spaceInboxSummaryResponseSchema,
   spaceInboxUnreadTargetsResponseSchema,
   spaceInboxUnreadTargetsRouteParamsSchema,
@@ -260,12 +262,16 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       c,
       execute: async () =>
         await c.var.coreRpc.getSpaceInboxSummary({
+          includeMembershipNotices: true,
           context: buildCoreRpcContext(c),
         }),
       method: "GET",
       responseSchema: spaceInboxSummaryResponseSchema,
       resolveSuccessPayload: (result) => {
-        const response = spaceInboxSummaryResponseSchema.parse(result);
+        const response = projectSpaceInboxSummaryForMembershipReceiver(
+          spaceInboxSummaryResponseSchema.parse(result),
+          resolveInboxItemKindVersion(c) === "current"
+        );
         if (
           SPACE_INBOX_CONVERSATION_COUNTS_VERSIONS.has(
             c.req.header(OPENMELD_HEADER_INBOX_SUMMARY_VERSION) ?? ""
@@ -302,6 +308,7 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       c,
       execute: async () =>
         await c.var.coreRpc.getSpaceInboxUnreadTargets({
+          includeMembershipNotices: true,
           ...(c.req.query("includeItemIds") === "true"
             ? { includeItemIds: true }
             : {}),
@@ -310,6 +317,11 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
         }),
       method: "GET",
       responseSchema: spaceInboxUnreadTargetsResponseSchema,
+      resolveSuccessPayload: (result) =>
+        projectSpaceInboxUnreadTargetsForMembershipReceiver(
+          spaceInboxUnreadTargetsResponseSchema.parse(result),
+          resolveInboxItemKindVersion(c) === "current"
+        ),
       route: SPACE_INBOX_UNREAD_TARGETS_ROUTE,
     });
   });

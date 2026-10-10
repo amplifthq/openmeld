@@ -1,3 +1,4 @@
+import type * as zod from "zod/v4";
 import * as z from "../../lazy-zod";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
 import { daemonServiceLaneSchema } from "../daemon/service-contract";
@@ -443,6 +444,33 @@ export const markCenterAgentInboxReadThroughBodySchema = z.strictObject({
   throughOccurredAtMs: timestampMsSchema,
 });
 
+// Membership fields share the item-kind opt-in. Summary version 3 predates them.
+export function projectSpaceInboxSummaryForMembershipReceiver(
+  response: zod.infer<typeof spaceInboxSummaryResponseSchema>,
+  includeMembershipNotices?: boolean
+): zod.infer<typeof spaceInboxSummaryResponseSchema> {
+  if (includeMembershipNotices === true) {
+    return response;
+  }
+  return {
+    ...response,
+    spaces: response.spaces.map(
+      ({ messageUnreadCount: _messages, ...space }) => space
+    ),
+  };
+}
+
+export function projectSpaceInboxUnreadTargetsForMembershipReceiver(
+  response: zod.infer<typeof spaceInboxUnreadTargetsResponseSchema>,
+  includeMembershipNotices?: boolean
+): zod.infer<typeof spaceInboxUnreadTargetsResponseSchema> {
+  if (includeMembershipNotices === true) {
+    return response;
+  }
+  const { joinedItems: _joined, ...legacy } = response;
+  return legacy;
+}
+
 export const markCenterAgentInboxReadThroughResponseSchema = z.strictObject({
   markedReadCount: z.number().int().nonnegative(),
   readThroughAt: isoDateTimeSchema,
@@ -638,8 +666,10 @@ export const getCenterAgentInboxSummaryRpcInputSchema = z.strictObject({
 });
 export const getSpaceInboxSummaryRpcInputSchema = z.strictObject({
   context: openMeldRequestContextSchema,
+  includeMembershipNotices: z.boolean().optional(),
 });
 export const getSpaceInboxUnreadTargetsRpcInputSchema = z.strictObject({
+  includeMembershipNotices: z.boolean().optional(),
   includeItemIds: z.boolean().optional(),
   context: openMeldRequestContextSchema,
   spaceId: identifierSchema,

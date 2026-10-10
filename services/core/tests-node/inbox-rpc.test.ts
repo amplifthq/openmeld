@@ -32,16 +32,18 @@ describe("Inbox Core RPC", () => {
     try {
       const saved = await seedItem(harness.db, "user-1");
       await harness.query({
-        text: `UPDATE "openmeld"."inbox_items" SET kind = 'space_joined' WHERE id = $1`,
+        text: `UPDATE "openmeld"."inbox_items" SET kind = 'space_joined', source_kind = 'system_attention_event' WHERE id = $1`,
         values: [saved.itemId],
       });
       const env = {
         OPENMELD_POSTGRESQL: postgresTestBinding(harness.db),
       } as unknown as CoreBindings;
-      for (const includeMembershipNotices of [undefined, true]) {
+      for (const includeMembershipNotices of [undefined, false, true]) {
         const request = {
           context: contextFor("user-1"),
-          includeMembershipNotices,
+          ...(includeMembershipNotices === undefined
+            ? {}
+            : { includeMembershipNotices }),
         };
         const list = await rpcListInboxItems(env, request);
         const get = await rpcGetInboxItem(env, {
@@ -49,6 +51,29 @@ describe("Inbox Core RPC", () => {
           itemId: saved.itemId,
         });
         const feed = await rpcListInboxFeed(env, request);
+        const summary = await rpcGetSpaceInboxSummary(env, request);
+        const targets = await rpcGetSpaceInboxUnreadTargets(env, {
+          ...request,
+          includeItemIds: true,
+          spaceId: "space-1",
+        });
+        expect(summary.spaces).toEqual([
+          {
+            latestUnreadOccurredAtMs: 1000,
+            spaceId: "space-1",
+            unreadCount: 1,
+            ...(includeMembershipNotices ? { messageUnreadCount: 0 } : {}),
+          },
+        ]);
+        expect(targets.targets).toEqual([]);
+        expect(targets.totalUnreadCount).toBe(0);
+        if (includeMembershipNotices) {
+          expect(targets.joinedItems).toEqual([
+            { itemId: saved.itemId, occurredAtMs: 1000 },
+          ]);
+        } else {
+          expect(targets).not.toHaveProperty("joinedItems");
+        }
         for (const item of [list.items[0], get.item, feed.rows[0]?.item]) {
           expect(item).toMatchObject({
             id: saved.itemId,
@@ -56,6 +81,21 @@ describe("Inbox Core RPC", () => {
           });
         }
       }
+      await expect(
+        rpcGetSpaceInboxSummary(env, {
+          context: contextFor("user-1"),
+          // @ts-expect-error Only explicit boolean opt-in is valid.
+          includeMembershipNotices: "true",
+        })
+      ).rejects.toMatchObject({ status: 400 });
+      await expect(
+        rpcGetSpaceInboxUnreadTargets(env, {
+          context: contextFor("user-1"),
+          spaceId: "space-1",
+          // @ts-expect-error Unknown opt-in values cannot expose new fields.
+          includeMembershipNotices: "unknown",
+        })
+      ).rejects.toMatchObject({ status: 400 });
     } finally {
       await harness.close();
     }
@@ -291,7 +331,10 @@ describe("Inbox Core RPC", () => {
         unresolvedActionCount: 0,
       });
       await expect(
-        rpcGetSpaceInboxSummary(env, { context: contextFor("user-1") })
+        rpcGetSpaceInboxSummary(env, {
+          context: contextFor("user-1"),
+          includeMembershipNotices: true,
+        })
       ).resolves.toEqual({
         attention: [],
         chatUnreadCount: 0,

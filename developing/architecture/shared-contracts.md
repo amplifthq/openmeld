@@ -33,9 +33,18 @@ optional `joinedItems` when they request item IDs. Existing message targets,
 scopes, and message totals keep their meaning. The Space membership projection
 outbox owns retries; Inbox owns read state. No client membership or read ledger
 is introduced. Deploy the database migration and receiving Core/Gateway before
-the new Web client and writer. Inbox item-kind version 2 opts in to the new kind;
-older HTTP and RPC receivers get the existing generic update kind with the same
-title and Space target. Historical migration/import baselines are read.
+the new Web client and writer. Inbox item-kind version 2 opts in to the new kind
+and the two membership fields. Summary version 3 predates these fields and does
+not enable them. Core RPC sends membership kinds and fields only when
+`includeMembershipNotices` is explicitly `true`; absent or false opts out.
+Gateway explicitly opts in to Core, then projects HTTP output using item-kind
+version 2. Missing, older, and unknown HTTP versions omit `messageUnreadCount`
+and `joinedItems`, and receive the existing generic update kind with the same
+title and Space target. The shared schema owner holds the two response
+projections; storage, message counts, and read state retain their meaning.
+Deploy Core before the updated Gateway: older strict Core request schemas reject
+the new opt-in. This narrow projection does not prove other Inbox source-target
+or request contracts. Historical migration/import baselines are read.
 Older CLI, Service, and Skills retain their previous Space, setup, Wake, and
 diagnostic contracts; no local component update is required by this addition.
 

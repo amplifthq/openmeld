@@ -32,6 +32,8 @@ import {
   mutateSpaceInboxReadResponseSchema,
   mutateSpaceInboxReadRpcInputSchema,
   observeInboxNotificationsRpcInputSchema,
+  projectSpaceInboxSummaryForMembershipReceiver,
+  projectSpaceInboxUnreadTargetsForMembershipReceiver,
   spaceInboxSummaryResponseSchema,
   spaceInboxUnreadTargetsResponseSchema,
   updateInboxMessageNotificationPreferencesRpcInputSchema,
@@ -359,10 +361,17 @@ export async function rpcGetSpaceInboxSummary(
   return parseResponse(
     spaceInboxSummaryResponseSchema,
     await runService(() =>
-      prepared.service.spaceSummary({
-        organizationId: prepared.organizationId,
-        recipientUserId: prepared.userId,
-      })
+      prepared.service
+        .spaceSummary({
+          organizationId: prepared.organizationId,
+          recipientUserId: prepared.userId,
+        })
+        .then((response) =>
+          projectSpaceInboxSummaryForMembershipReceiver(
+            response,
+            request.includeMembershipNotices
+          )
+        )
     )
   );
 }
@@ -376,12 +385,19 @@ export async function rpcGetSpaceInboxUnreadTargets(
   return parseResponse(
     spaceInboxUnreadTargetsResponseSchema,
     await runService(() =>
-      prepared.service.spaceUnreadTargets({
-        includeItemIds: request.includeItemIds,
-        organizationId: prepared.organizationId,
-        recipientUserId: prepared.userId,
-        spaceId: request.spaceId,
-      })
+      prepared.service
+        .spaceUnreadTargets({
+          includeItemIds: request.includeItemIds,
+          organizationId: prepared.organizationId,
+          recipientUserId: prepared.userId,
+          spaceId: request.spaceId,
+        })
+        .then((response) =>
+          projectSpaceInboxUnreadTargetsForMembershipReceiver(
+            response,
+            request.includeMembershipNotices
+          )
+        )
     )
   );
 }

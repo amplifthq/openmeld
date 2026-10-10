@@ -430,6 +430,67 @@ describe("Inbox routes", () => {
     }
   });
 
+  it("negotiates membership summary fields with item-kind capability instead of the unchanged summary version", async () => {
+    const { coreRpc, env } = makeEnv();
+    const summary = {
+      organizationId: "org-1",
+      spaces: [
+        { latestUnreadOccurredAtMs: 1000, spaceId: "space-1", unreadCount: 1 },
+      ],
+    };
+    const targets = {
+      hasMoreTargets: false,
+      organizationId: "org-1",
+      spaceId: "space-1",
+      targets: [],
+      totalUnreadCount: 0,
+    };
+    const currentSummary = {
+      ...summary,
+      spaces: [{ ...summary.spaces[0], messageUnreadCount: 0 }],
+    };
+    const currentTargets = {
+      ...targets,
+      joinedItems: [{ itemId: "joined-1", occurredAtMs: 1000 }],
+    };
+    coreRpc.getSpaceInboxSummary.mockResolvedValue(currentSummary);
+    coreRpc.getSpaceInboxUnreadTargets.mockResolvedValue(currentTargets);
+    for (const version of [undefined, "1", "unknown", "2"]) {
+      const headers = {
+        "x-openmeld-inbox-summary-version": "3",
+        ...(version ? { "x-openmeld-inbox-item-kind-version": version } : {}),
+      };
+      const summaryResponse = await app.fetch(
+        new Request("http://local/v1/inbox/spaces/summary", { headers }),
+        env,
+        TEST_EXECUTION_CONTEXT
+      );
+      const targetsResponse = await app.fetch(
+        new Request(
+          "http://local/v1/inbox/spaces/space-1/unread-targets?includeItemIds=true",
+          { headers }
+        ),
+        env,
+        TEST_EXECUTION_CONTEXT
+      );
+      expect(summaryResponse.status).toBe(200);
+      expect(targetsResponse.status).toBe(200);
+      const summaryBody = await summaryResponse.json();
+      const targetsBody = await targetsResponse.json();
+      expect(summaryBody).toEqual(version === "2" ? currentSummary : summary);
+      expect(targetsBody).toEqual(version === "2" ? currentTargets : targets);
+    }
+    expect(coreRpc.getSpaceInboxSummary).toHaveBeenCalledWith(
+      expect.objectContaining({ includeMembershipNotices: true })
+    );
+    expect(coreRpc.getSpaceInboxUnreadTargets).toHaveBeenCalledWith(
+      expect.objectContaining({
+        includeMembershipNotices: true,
+        includeItemIds: true,
+      })
+    );
+  });
+
   it("preserves older routing and gates new source facts independently of version 7 reply facts", async () => {
     const { coreRpc, env } = makeEnv();
     const sourceTarget = {
