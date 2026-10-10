@@ -432,11 +432,14 @@ describe("Inbox routes", () => {
 
   it("negotiates membership summary fields with item-kind capability instead of the unchanged summary version", async () => {
     const { coreRpc, env } = makeEnv();
+    const space = {
+      latestUnreadOccurredAtMs: 1000,
+      spaceId: "space-1",
+      unreadCount: 1,
+    };
     const summary = {
       organizationId: "org-1",
-      spaces: [
-        { latestUnreadOccurredAtMs: 1000, spaceId: "space-1", unreadCount: 1 },
-      ],
+      spaces: [space],
     };
     const targets = {
       hasMoreTargets: false,
@@ -447,7 +450,7 @@ describe("Inbox routes", () => {
     };
     const currentSummary = {
       ...summary,
-      spaces: [{ ...summary.spaces[0], messageUnreadCount: 0 }],
+      spaces: [{ ...space, messageUnreadCount: 0 }],
     };
     const currentTargets = {
       ...targets,
