@@ -228,7 +228,7 @@ keeps launchd registration and local state separate from the published
 ## Run The Computer Update Smoke
 
 The Computer smoke is the reusable regression check for the highest-risk local
-update path. Sign in to `https://staging.openmeld.ai` with a magic link and copy
+update path. Sign in to `https://app.staging.openmeld.ai` with a magic link and copy
 a fresh Computer Setup command. Save that single command in a private file
 outside the repository, then run:
 
