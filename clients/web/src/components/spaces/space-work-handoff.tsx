@@ -62,6 +62,7 @@ export function SpaceWorkHandoffAction(input: HandoffProps) {
 			{open ? (
 				<WorkHandoffContent
 					{...input}
+					key={`${input.spaceId}:${input.sourceSignalId}:${input.profileId}:${input.threadId ?? ""}`}
 					onClose={() => setOpen(false)}
 					organizationId={organization.currentOrganization.id}
 				/>
@@ -89,7 +90,9 @@ function WorkHandoffContent(
 		retry: false,
 	});
 	let content = <output>Loading the original result…</output>;
-	if (source.isError) {
+	if (source.data) {
+		content = <WorkHandoffForm {...input} api={api} source={source.data} />;
+	} else if (source.isError) {
 		content = (
 			<div role="alert">
 				<p>{source.error.message}</p>
@@ -103,15 +106,6 @@ function WorkHandoffContent(
 				</Button>
 			</div>
 		);
-	} else if (source.data && !source.isFetching) {
-		content = (
-			<WorkHandoffForm
-				{...input}
-				api={api}
-				key={source.data.sourceRevision}
-				source={source.data}
-			/>
-		);
 	}
 	return (
 		<div className="mt-4 grid gap-4">
@@ -121,6 +115,32 @@ function WorkHandoffContent(
 				repository if needed. The receiving Agent replies in this conversation.
 			</p>
 			{content}
+			{source.data && source.isError ? (
+				<p role="alert">
+					The original result could not be refreshed. Your draft and any pending
+					request are preserved.
+				</p>
+			) : null}
+		</div>
+	);
+}
+
+function HandoffSourceChangeNotice(input: {
+	uncertain: boolean;
+	onReview(): void;
+}) {
+	return (
+		<div role="alert">
+			<p>
+				{input.uncertain
+					? "The original result changed. Retry will resend the original handoff so it can be confirmed without creating a second request."
+					: "The original result changed. Your instructions are preserved. Review the updated result and select any shared files again before sending."}
+			</p>
+			{input.uncertain ? null : (
+				<Button onClick={input.onReview} variant="outline">
+					Review latest result
+				</Button>
+			)}
 		</div>
 	);
 }
@@ -134,6 +154,9 @@ function WorkHandoffForm(
 	}
 ) {
 	const formId = useId();
+	const [reviewedSource, setReviewedSource] = useState(input.source);
+	const sourceChanged =
+		input.source.sourceRevision !== reviewedSource.sourceRevision;
 	const members = useQuery(
 		spaceMembersQueryOptions({
 			spaceId: input.spaceId,
@@ -161,7 +184,7 @@ function WorkHandoffForm(
 	const [goal, setGoal] = useState(
 		"Continue the work described in this result."
 	);
-	const [completed, setCompleted] = useState(input.source.text);
+	const [completed, setCompleted] = useState(reviewedSource.text);
 	const [nextSteps, setNextSteps] = useState("");
 	const [criteria, setCriteria] = useState("");
 	const [brief, setBrief] = useState({
@@ -182,6 +205,12 @@ function WorkHandoffForm(
 	const [requested, setRequested] = useState(false);
 	const [error, setError] = useState("");
 	function readSubmission() {
+		if (sourceChanged) {
+			setError(
+				"Review the updated original result before sending this handoff."
+			);
+			return null;
+		}
 		const receiver = agents.find((agent) => agent.profileId === target);
 		if (!receiver) {
 			setError(
@@ -210,8 +239,8 @@ function WorkHandoffForm(
 			: spaceContextWorkHandoffSchema;
 		const parsed = schema.safeParse({
 			schemaVersion: 2,
-			sourceSignalId: input.source.sourceSignalId,
-			sourceRevision: input.source.sourceRevision,
+			sourceSignalId: reviewedSource.sourceSignalId,
+			sourceRevision: reviewedSource.sourceRevision,
 			...(includeRepository && project
 				? {
 						code: {
@@ -224,7 +253,7 @@ function WorkHandoffForm(
 				: {
 						execution: { workspace: "isolated", access: "space_context" },
 					}),
-			files: input.source.files
+			files: reviewedSource.files
 				.filter((file) => files.includes(file.fileId))
 				.map((file) => ({
 					fileId: file.fileId,
@@ -295,6 +324,18 @@ function WorkHandoffForm(
 	}
 	return (
 		<>
+			{sourceChanged && !requested ? (
+				<HandoffSourceChangeNotice
+					onReview={() => {
+						setReviewedSource(input.source);
+						setCompleted(input.source.text);
+						setFiles([]);
+						setFilePaths({});
+						setError("");
+					}}
+					uncertain={acceptedInput.current !== null}
+				/>
+			) : null}
 			{requested ? (
 				<output>
 					Handoff requested. Follow the handoff message for progress and the
@@ -456,10 +497,10 @@ function WorkHandoffForm(
 								))}
 							</div>
 						</details>
-						{input.source.files.length ? (
+						{reviewedSource.files.length ? (
 							<div className="grid gap-2 text-sm">
 								<p>Shared files (optional; exact displayed revisions)</p>
-								{input.source.files.map((file) => (
+								{reviewedSource.files.map((file) => (
 									<div className="grid gap-2" key={file.fileId}>
 										<label className="flex gap-2">
 											<input

@@ -3123,6 +3123,8 @@ async function resolveDispatchComputerFileAccess(input: {
       input.parsedTask.agentControllerRef === "builtin:claude-code" &&
       context.access === "space_context"
     ) {
+      // Claude enforces this with tools: [] and strict dispatch-only MCP in
+      // buildClaudeSpaceToolOptions, rather than a filesystem verifier.
       return null;
     }
     if (

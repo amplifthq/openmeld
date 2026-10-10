@@ -16,3 +16,6 @@ published commit. The receiving Agent starts a separate copy through its own
 Project connection. Missing revisions fail with a
 clear next step instead of silently using different code. Agent permissions and
 Computer file policies continue to apply. Results return to the same conversation.
+
+Drafts and pending handoff requests survive reconnects. Selected Skill releases
+and their resources are prepared even when no shared files are selected.

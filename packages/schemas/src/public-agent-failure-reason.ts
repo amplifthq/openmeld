@@ -1937,6 +1937,14 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: "agents",
     },
     {
+      body: "This Agent's connection cannot enforce the handoff's file-access limits. Use a Codex Agent connected through App Server, or another supported Agent, then send a new handoff.",
+      kind: "local_agent_prepare",
+      patterns: ["=execution_context.handoff_transport_unsupported"],
+      primaryActionId: "manage_local_agent",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "agents",
+    },
+    {
       body: "OpenMeld could not verify file-access limits with this Agent's previous permission settings, so the task did not start. Choose Ask for approval, Approve for me, or Full access in this Agent's settings, then try again.",
       kind: "local_agent_prepare",
       patterns: ["=execution_context.custom_config_file_access_unverified"],

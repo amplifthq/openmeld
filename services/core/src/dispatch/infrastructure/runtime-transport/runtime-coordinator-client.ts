@@ -380,7 +380,9 @@ function buildRuntimeTransportSourceSignalSnapshot(input: {
         (adapter.capabilityDeclaration.executionContextVersion ?? 0) >= 5
     )
   ) {
-    throw new Error("service.update_required");
+    throw new Error(
+      "service.update_required: Update this Computer's OpenMeld Service before handing off work."
+    );
   }
   const snapshot = {
     ...sourceSnapshot,

@@ -136,6 +136,9 @@ or switch the owner's checkout. An isolated copy starts at the requested commit.
 Starting a current-folder Context requires that exact HEAD and a clean working
 tree. Continuation retains its existing work and progress, while current source
 identity and file policy are rechecked.
+For a continuation or fork, selecting the same Project/repository without a
+commit inherits the retained commit. An explicit different commit still requires
+a new Context; a fork never drops the source's pin.
 An unavailable revision has a visible failure with guidance to fetch the
 published commit into the receiving connection before submitting new work.
 

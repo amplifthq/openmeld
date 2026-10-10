@@ -8054,6 +8054,9 @@ retains the requested commit and the existing workspace lifecycle owns retry,
 continuation, and retention. Starting a current-folder Context verifies HEAD and
 rejects preexisting local changes; resuming its established native Context keeps
 subsequent work. Isolated preparation leaves the connected checkout unchanged.
+For continuation and fork selections, an omitted commit with the same Project
+and repository inherits the retained pin. An explicitly different commit is
+rejected. Fork assignment always retains the complete source Project work.
 
 `SpaceWorkHandoff` version 2 adds the exact source message revision, execution
 choices, and a complete work brief. Its strict variants separate materials:

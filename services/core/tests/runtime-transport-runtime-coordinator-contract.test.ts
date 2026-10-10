@@ -4294,20 +4294,23 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it.each([
-    { restricted: false, workspace: "current" },
-    { restricted: false, workspace: "isolated" },
-    { restricted: true, workspace: "current" },
-    { restricted: true, workspace: "isolated" },
-  ] as const)("keeps the accepted context and fork working copy after Head retirement ($restricted / $workspace)", async ({
+    { restricted: false, workspace: "current", pinned: false },
+    { restricted: false, workspace: "isolated", pinned: false },
+    { restricted: true, workspace: "current", pinned: false },
+    { restricted: true, workspace: "isolated", pinned: false },
+    { restricted: true, workspace: "isolated", pinned: true },
+  ] as const)("keeps the accepted context and fork working copy after Head retirement ($restricted / $workspace / pinned=$pinned)", async ({
     restricted,
     workspace,
+    pinned,
   }) => {
     const { hub, storageRecords } = await createContextHarness({
-      contextVersion: 4,
+      contextVersion: pinned ? 5 : 4,
     });
     const projectWork = {
       projectId: "project-payments",
       repositoryFingerprint: `sha256:${"a".repeat(64)}`,
+      ...(pinned ? { commit: "b".repeat(40) } : {}),
     };
     const request = buildRuntimeCoordinatorHeadAcceptRequest({
       acceptedDispatchSnapshot: {
@@ -4427,7 +4430,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
           },
         })
       );
-    const fork = await planFork("human");
+    const fork = await planFork("human", {
+      projectId: projectWork.projectId,
+      repositoryFingerprint: projectWork.repositoryFingerprint,
+    });
     expect(
       fork.record.acceptedDispatchSnapshot?.executionContext
     ).toMatchObject({
@@ -4448,6 +4454,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
         repositoryFingerprint: `sha256:${"b".repeat(64)}`,
       })
     ).rejects.toThrow("project_work_changed_requires_new_task");
+    if (pinned) {
+      await expect(
+        planFork("human", { ...projectWork, commit: "c".repeat(40) })
+      ).rejects.toThrow("project_work_changed_requires_new_task");
+    }
     await expect(
       recordExecutionContextCompletion({
         storage,
@@ -4484,7 +4495,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
                 ...sourceRequest,
                 selection:
                   mode === "auto"
-                    ? { mode }
+                    ? {
+                        mode,
+                        projectWork: {
+                          projectId: projectWork.projectId,
+                          repositoryFingerprint:
+                            projectWork.repositoryFingerprint,
+                        },
+                      }
                     : { mode, sourceWakeId: original.targetWakeLifecycleId },
               },
             },
@@ -4503,10 +4521,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
         replacementContextId: replacement.id,
       })
     );
-    expect(
-      (await selectNextContext()).record.acceptedDispatchSnapshot
-        ?.executionContext?.id
-    ).toBe(replacement.id);
+    const continued = (await selectNextContext()).record
+      .acceptedDispatchSnapshot?.executionContext;
+    expect(continued?.id).toBe(replacement.id);
+    expect(continued?.projectWork).toEqual(projectWork);
     // Recovery changes only the automatic route; explicit source history survives.
     expect(
       (await selectNextContext("resume")).record.acceptedDispatchSnapshot

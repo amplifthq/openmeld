@@ -8,7 +8,11 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SpaceApi } from "@openmeld/api-client";
+import type { OrganizationSkillsApi, SpaceApi } from "@openmeld/api-client";
+import {
+  getOrganizationSkillResponseSchema,
+  stringifyOrganizationSkillBundleCanonicalJson,
+} from "@openmeld/schemas";
 import type { SpaceFileDescriptor } from "@openmeld/schemas/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { prepareDispatchWorkHandoff } from "../src/local-service/file-access/dispatch-work-handoff";
@@ -19,11 +23,13 @@ import {
 } from "../src/runtime/dispatch-space-action-context";
 import { recordDispatchSpaceReply } from "../src/space/action-command";
 import { runSpaceWorkingCopy } from "../src/space/working-copy-command";
+import { makeTreeWritableForRemoval } from "./helpers/fs";
 
 const network = vi.hoisted(() => ({
   streamFileContent: vi.fn<SpaceApi["streamFileContent"]>(),
   getFile: vi.fn<SpaceApi["getFile"]>(),
   updateFileContent: vi.fn<SpaceApi["updateFileContent"]>(),
+  getSkill: vi.fn<OrganizationSkillsApi["get"]>(),
 }));
 const identity = vi.hoisted(() => ({
   account: "account",
@@ -34,6 +40,7 @@ const identity = vi.hoisted(() => ({
 vi.mock("@openmeld/api-client", async (original) => ({
   ...(await original<typeof import("@openmeld/api-client")>()),
   createSpaceApi: () => network,
+  createOrganizationSkillsApi: () => ({ get: network.getSkill }),
 }));
 vi.mock("../src/config/auth-session", () => ({
   getAuthSessionState: async () => ({
@@ -158,6 +165,87 @@ it.each(
     expect(await prepareDispatchWorkHandoff(input)).toBe(root);
     expect(task.prompt).toContain("The calculation test passes");
     expect(task.workingCopyId).toBeUndefined();
+    if (agentControllerRef === "builtin:codex" && task.workHandoff) {
+      const bundle = {
+        files: [
+          {
+            path: "references/checklist.md",
+            encoding: "utf8" as const,
+            mediaType: "text/markdown",
+            content: "Exact resource.\n",
+            size: 16,
+          },
+        ],
+        instructions: "# Review\nRead references/checklist.md.",
+        portable: {
+          name: "review",
+          description: "Review the shared result",
+          allowedTools: null,
+          compatibility: null,
+          license: null,
+          metadata: {},
+        },
+      };
+      const digest = createHash("sha256")
+        .update(stringifyOrganizationSkillBundleCanonicalJson(bundle))
+        .digest("hex");
+      const response = getOrganizationSkillResponseSchema.parse({
+        skill: {
+          id: "skill",
+          organizationId: identity.org,
+          name: "review",
+          description: bundle.portable.description,
+          enabled: true,
+          bundle,
+          activeRelease: {
+            id: "release",
+            digest,
+            createdAt: "2026-01-01T00:00:00Z",
+            createdByUserId: identity.account,
+            source: { kind: "created" },
+          },
+          createdAt: "2026-01-01T00:00:00Z",
+          updatedAt: "2026-01-01T00:00:00Z",
+          version: 1,
+          permissions: { canEdit: false, canManage: false },
+          source: { kind: "created" },
+          maintainerUserIds: [],
+          releases: [],
+        },
+        selectedRelease: {
+          skillId: "skill",
+          releaseId: "release",
+          digest,
+          bundle,
+        },
+      });
+      network.getSkill.mockResolvedValue(response);
+      task.workHandoff.skills = [
+        { skillId: "skill", releaseId: "release", digest, name: "review" },
+      ];
+      expect(await prepareDispatchWorkHandoff(input)).toBe(root);
+      expect(
+        await readFile(
+          join(root, ".openmeld-skills/0/references/checklist.md"),
+          "utf8"
+        )
+      ).toBe("Exact resource.\n");
+      expect(
+        await readFile(join(root, ".openmeld-skills/0/SKILL.md"), "utf8")
+      ).toContain(bundle.instructions);
+      expect(task.workingCopyId).toBeUndefined();
+      expect(network.getSkill).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          skillId: "skill",
+          releaseId: "release",
+          digest,
+        })
+      );
+      network.getSkill.mockResolvedValueOnce({ skill: response.skill });
+      await expect(prepareDispatchWorkHandoff(input)).rejects.toThrow(
+        "selected Skill release is unavailable"
+      );
+    }
     await expect(
       prepareDispatchWorkHandoff({ ...input, ownerUserId: "wrong-account" })
     ).rejects.toThrow("account or Organization changed");
@@ -173,9 +261,17 @@ it.each(
         },
       })
     ).rejects.toThrow(
-      hasRepository ? "code_handoff_mismatch" : "Space-only context"
+      hasRepository ? "code_handoff_mismatch" : "handoff_context_required"
     );
     if (!hasRepository) {
+      if (agentControllerRef === "builtin:codex") {
+        await expect(
+          prepareDispatchWorkHandoff({
+            ...input,
+            task: { ...task, transportMode: "local-cli" },
+          })
+        ).rejects.toThrow("handoff_transport_unsupported");
+      }
       expect(task.prompt).not.toContain("exact commit");
       expect(task.executionContext?.projectWork).toBeUndefined();
       if (agentControllerRef === "builtin:claude-code" && task.workHandoff) {
@@ -196,6 +292,7 @@ it.each(
       }
     }
   } finally {
+    await makeTreeWritableForRemoval(root);
     await rm(root, { recursive: true, force: true });
   }
 });
@@ -443,3 +540,5 @@ describe.skipIf(process.platform !== "darwin")(
     });
   }
 );
+
+import { createHash } from "node:crypto";

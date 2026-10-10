@@ -745,6 +745,14 @@ Profile UI must not copy the Computer policy or offer a profile-level override;
 the current Computer detail is its one management home. Direct user-launched
 controller sessions remain governed by the controller's own settings.
 
+Handoff `execution.access` is an additional task restriction, not a replacement
+for the receiving Profile's permission mode. `read_only` is a Context access
+value, not a Codex Profile permission mode. The supported Codex modes already
+allow writes inside their working folder; unknown previous/custom settings are
+not silently widened and fail boundary verification. An actual native read-only
+response cannot satisfy a requested writable Context. A handoff never supplies
+or changes the receiver's controller permission mode.
+
 Starting a new Codex task for its owner does not add a single-folder restriction.
 The same rule applies to a currently verified Center delegation from that owner.
 With no explicit task access choice, the new task uses the current Profile

@@ -313,7 +313,7 @@ describe("dispatch runtime working folder", () => {
     });
   });
 
-  it("accepts selected Project work when the Default Project folder is missing while ordinary work remains blocked", async () => {
+  it("keeps ordinary Project work blocked but prepares explicit Space-only work independently of default folders", async () => {
     const selectedFingerprint = `sha256:${"a".repeat(64)}`;
     const routeConfig = createCurrentRoute();
     routeConfig.workingFolderRuntime = createMissingDefaultFolder(9000);
@@ -380,6 +380,14 @@ describe("dispatch runtime working folder", () => {
         defaultProjectId: "different-unavailable-default",
       };
       const result = await resolveDispatchWorkingFolderRuntimeContext(input);
+      // No handoff metadata is involved: this is the general Space-only contract.
+      await expect(
+        resolveDispatchWorkingFolderRuntimeContext({
+          ...input,
+          routeConfig: createCurrentRoute({ observedAtMs: 1 }),
+          nowMs: 300_000,
+        })
+      ).resolves.toEqual(result);
       expect(result.providerRuntimeWorkingDirectory).toBe(
         join(ledgerRootPath, "execution-context-workspaces", spaceOnly.id)
       );
