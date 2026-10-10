@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
+  buildProductionDeployStepSpecs,
   buildProductionReleasePlan,
   resolveAutomaticReleaseScopes,
   resolveProductionCompatibilityDependencies,
@@ -28,6 +29,207 @@ const WINDOWS_PREVIEW_PATHS = [
   "scripts/release/publish-windows-internal-preview.mjs",
 ];
 const PENDING_RECEIVER = /pending prerequisite/u;
+const INBOX_SOURCE_TARGET_SCOPE_REQUIRED =
+  /requires the Web, Gateway, and Core scopes/u;
+const inboxMembershipFixture = JSON.parse(
+  readFileSync(
+    new URL(
+      "./fixtures/inbox-membership-opt-in-increment.json",
+      import.meta.url
+    ),
+    "utf8"
+  )
+);
+const INBOX_MEMBERSHIP_OPT_IN = {
+  contract: "inbox-membership-opt-in",
+  receiver: "core",
+  producer: "gateway",
+};
+// Captured real request calls identify an obligation only, never a witness.
+function inboxMembershipContext(sourceSha) {
+  const reads = [];
+  return {
+    sourceSha,
+    reads,
+    readGitFile(ref, file) {
+      reads.push([ref, file]);
+      if (
+        ref !== sourceSha ||
+        file !== inboxMembershipFixture.callers.target.path
+      ) {
+        throw new Error("Read the explicit product caller, not control HEAD.");
+      }
+      const caller = Object.values(inboxMembershipFixture.callers).find(
+        (item) => item.sha === ref
+      );
+      if (!caller) {
+        throw new Error("Read a captured exact source.");
+      }
+      return caller.source;
+    },
+  };
+}
+
+test("Inbox membership opt-in real increment requires Core before Gateway", () => {
+  const context = inboxMembershipContext(inboxMembershipFixture.sourceSha);
+  assert.deepEqual(
+    resolveProductionCompatibilityObligations(
+      inboxMembershipFixture.changedPaths,
+      false,
+      context
+    ),
+    [INBOX_MEMBERSHIP_OPT_IN]
+  );
+  assert.deepEqual(
+    resolveProductionCompatibilityDependencies(
+      inboxMembershipFixture.changedPaths,
+      false,
+      context
+    ),
+    [["core", "gateway"]]
+  );
+  const steps = buildProductionDeployStepSpecs(["core", "gateway"], {
+    changedPaths: inboxMembershipFixture.changedPaths,
+    compatibilityContext: context,
+    databaseBackend: "postgresql",
+  });
+  const coreComplete = steps.findIndex(
+    (step) => step.releaseScope === "core" && step.completesReleaseScope
+  );
+  const gatewayFirst = steps.findIndex(
+    (step) => step.releaseScope === "gateway"
+  );
+  assert.ok(coreComplete >= 0 && coreComplete < gatewayFirst);
+  assert.ok(context.reads.length > 0);
+  assert.ok(
+    context.reads.every(
+      ([ref, file]) =>
+        ref === inboxMembershipFixture.sourceSha &&
+        file === inboxMembershipFixture.callers.target.path
+    )
+  );
+});
+
+test("Inbox membership opt-in caller-only uses target source and preserves unknown prerequisites", () => {
+  const paths = [inboxMembershipFixture.callers.target.path];
+  for (const context of [
+    inboxMembershipContext(inboxMembershipFixture.sourceSha),
+    {},
+    {
+      sourceSha: inboxMembershipFixture.sourceSha,
+      readGitFile() {
+        throw new Error("unreadable product caller");
+      },
+    },
+  ]) {
+    assert.deepEqual(
+      resolveProductionCompatibilityObligations(paths, false, context),
+      [INBOX_MEMBERSHIP_OPT_IN]
+    );
+  }
+  assert.deepEqual(
+    resolveProductionCompatibilityObligations(
+      paths,
+      false,
+      inboxMembershipContext(inboxMembershipFixture.callers.legacy.sha)
+    ),
+    []
+  );
+  assert.deepEqual(
+    resolveProductionCompatibilityObligations(
+      ["clients/website/src/components/footer.tsx"],
+      false,
+      {}
+    ),
+    []
+  );
+});
+
+test("Inbox membership opt-in actual Gateway stage rejects pending Core and another contract witness", () => {
+  for (const paths of [
+    inboxMembershipFixture.changedPaths,
+    [inboxMembershipFixture.callers.target.path],
+  ]) {
+    const context = inboxMembershipContext(inboxMembershipFixture.sourceSha);
+    const sourceSha = inboxMembershipFixture.sourceSha;
+    const receiver = {
+      scope: "core",
+      state: "pending",
+      sha: "96cb28b5a32f3757c6fd2b78ede81044a45a5a6b",
+    };
+    const producer = {
+      scope: "gateway",
+      state: "pending",
+      sha: inboxMembershipFixture.callers.legacy.sha,
+      compatibilityObligations: resolveProductionCompatibilityObligations(
+        paths,
+        false,
+        context
+      ),
+      compatibilityDependencies: resolveProductionCompatibilityDependencies(
+        paths,
+        false,
+        context
+      ),
+      compatibilityReceiverWitnesses: [
+        {
+          receiver: "core",
+          producer: "gateway",
+          contracts: ["profile-workspace-read"],
+          evidence: {
+            result: "match",
+            baselineSha: receiver.sha,
+            targetSha: sourceSha,
+          },
+        },
+      ],
+    };
+    const stage = {
+      sourceSha,
+      selectedScopes: ["gateway"],
+      components: [receiver, producer],
+    };
+    // A scoped step describes intent. The actual stage needs receiver receipt.
+    const steps = buildProductionDeployStepSpecs(["gateway"], {
+      changedPaths: paths,
+      compatibilityContext: context,
+    });
+    assert.ok(steps.some((step) => step.releaseScope === "gateway"));
+    assert.throws(
+      () => assertProductionStageAdmission(stage),
+      PENDING_RECEIVER
+    );
+    receiver.state = "unknown";
+    assert.throws(
+      () => assertProductionStageAdmission(stage),
+      UNRESOLVED_RECEIVER
+    );
+    receiver.state = "current";
+    receiver.sha = sourceSha;
+    assert.doesNotThrow(() => assertProductionStageAdmission(stage));
+    assert.deepEqual(
+      resolveProductionCompatibilityReceiverWitnesses(paths, context),
+      [],
+      "registration must not create an Inbox compatibility witness"
+    );
+  }
+});
+
+test("Inbox membership opt-in does not remove source-target scope protection", () => {
+  assert.throws(
+    () =>
+      buildProductionDeployStepSpecs(["core"], {
+        changedPaths: [
+          "packages/schemas/src/schemas/http/inbox.ts",
+          "services/core/src/remote-agent/application/native-delivery-service.ts",
+        ],
+        compatibilityContext: inboxMembershipContext(
+          inboxMembershipFixture.sourceSha
+        ),
+      }),
+    INBOX_SOURCE_TARGET_SCOPE_REQUIRED
+  );
+});
 // The eight changed paths from the safe-workspace named receiver increment.
 const SAFE_WORKSPACE_INCREMENT = [
   "changelog/entries/agent-setup-recovery.md",
@@ -529,7 +731,7 @@ test("keeps Inbox readers before a new target writer during a storage migration"
       "services/gateway/src/routes/rpc-http.inbox.ts",
       "clients/web/src/components/inbox/inbox-page.tsx",
     ],
-    sourceSha: "a".repeat(40),
+    ...inboxMembershipContext(inboxMembershipFixture.callers.legacy.sha),
     scope: "web,gateway,core,cli",
   });
   assert.deepEqual(plan.deployScopeOrder, ["web", "gateway", "core", "cli"]);
@@ -663,10 +865,11 @@ test("deploys Inbox observation receivers before callers, composed with Remote t
   components[1].state = "current";
   assert.doesNotThrow(() => admit("web"));
   assert.deepEqual(
-    resolveProductionCompatibilityDependencies([
-      INBOX_OBSERVATIONS[0],
-      "clients/web/src/routes/unrelated.tsx",
-    ]),
+    resolveProductionCompatibilityDependencies(
+      [INBOX_OBSERVATIONS[0], "clients/web/src/routes/unrelated.tsx"],
+      false,
+      inboxMembershipContext(inboxMembershipFixture.callers.legacy.sha)
+    ),
     []
   );
 });
@@ -1090,14 +1293,28 @@ test("preserves proven retirement direction instead of reclassifying its schema"
     "packages/schemas/src/schemas/http/inbox.ts",
     "services/core/src/remote-agent/application/native-delivery-inbox-producer.ts",
   ];
-  assert.deepEqual(resolveProductionCompatibilityDependencies(paths), [
-    ["web", "core"],
-    ["gateway", "core"],
-  ]);
-  assert.deepEqual(resolveProductionCompatibilityDependencies(paths, true), [
-    ["core", "gateway"],
-    ["core", "web"],
-  ]);
+  assert.deepEqual(
+    resolveProductionCompatibilityDependencies(
+      paths,
+      false,
+      inboxMembershipContext(inboxMembershipFixture.callers.legacy.sha)
+    ),
+    [
+      ["web", "core"],
+      ["gateway", "core"],
+    ]
+  );
+  assert.deepEqual(
+    resolveProductionCompatibilityDependencies(
+      paths,
+      true,
+      inboxMembershipContext(inboxMembershipFixture.callers.legacy.sha)
+    ),
+    [
+      ["core", "gateway"],
+      ["core", "web"],
+    ]
+  );
 });
 
 test("adds invitation callers only when their producer path changes", () => {

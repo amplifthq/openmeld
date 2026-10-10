@@ -40,6 +40,29 @@ import {
   resolveLocalReleaseOwner,
 } from "./production-release.mjs";
 
+// These tests exercise historical target expansion/retirement, before membership
+// opt-in. An unavailable caller is now correctly unknown, so name its captured
+// actual legacy product source instead of borrowing the current checkout.
+const legacyInboxCaller = JSON.parse(
+  readFileSync(
+    new URL(
+      "./fixtures/inbox-membership-opt-in-increment.json",
+      import.meta.url
+    ),
+    "utf8"
+  )
+).callers.legacy;
+const historicalInboxTargetSource = {
+  readGitFile(ref, file) {
+    return file === legacyInboxCaller.path
+      ? legacyInboxCaller.source
+      : execFileSync("git", ["show", `${ref}:${file}`], {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+  },
+};
+
 const REMOTE_SOURCE_SHA = "79178c150dc976b13f05d84a7711465c44447e3c";
 const IMAGE_GEOMETRY_PATHS = [
   "packages/schemas/src/schemas/http/space-files.ts",
@@ -2478,6 +2501,7 @@ test("deploys Inbox Message Channel receivers before the Core writer", () => {
     changedPaths,
     scope: "web,gateway,core,cli",
     sourceSha: REMOTE_SOURCE_SHA,
+    ...historicalInboxTargetSource,
   });
 
   assert.equal(plan.deployOrderProfile, "inbox-source-target-receiver-first");
@@ -2507,6 +2531,7 @@ test("deploys Agent Interaction Inbox receivers before the Core writer", () => {
     changedPaths,
     scope: "web,gateway,core,cli",
     sourceSha: REMOTE_SOURCE_SHA,
+    ...historicalInboxTargetSource,
   });
 
   assert.equal(plan.deployOrderProfile, "inbox-source-target-receiver-first");
@@ -2570,6 +2595,7 @@ test("composes Remote Agent and Inbox receiver-first constraints before Core", (
     ],
     scope: "web,gateway,core,remote-agent",
     sourceSha: REMOTE_SOURCE_SHA,
+    ...historicalInboxTargetSource,
   });
 
   assert.equal(
@@ -2672,6 +2698,7 @@ export const inboxSourceTargetSchema = z.discriminatedUnion("kind", [
     git("config", "user.email", "release-test@openmeld.ai");
     git("config", "user.name", "Release test");
     write(schemaPath, before);
+    write(legacyInboxCaller.path, legacyInboxCaller.source);
     write(producerPath, "old Task producer\n");
     for (const file of remotePaths) {
       write(file, "before\n");
@@ -2789,6 +2816,7 @@ test("fails closed when a combined receiver-first release omits Remote Agent", (
         changedPaths,
         scope: "web,gateway,core",
         sourceSha: REMOTE_SOURCE_SHA,
+        ...historicalInboxTargetSource,
       }),
     COMBINED_REMOTE_AGENT_SCOPE_ERROR_RE
   );
@@ -2806,6 +2834,7 @@ test("keeps Core before a response producer while retaining Inbox receiver-first
     ],
     scope: "web,gateway,core,remote-agent",
     sourceSha: REMOTE_SOURCE_SHA,
+    ...historicalInboxTargetSource,
   });
 
   assert.equal(plan.deployOrderProfile, "inbox-source-target-receiver-first");

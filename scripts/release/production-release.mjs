@@ -561,6 +561,11 @@ export function resolveProductionCompatibilityObligations(
       ],
     },
     {
+      contract: "inbox-membership-opt-in",
+      enabled: isInboxMembershipOptInDiff(changedPaths, context),
+      edges: [["core", "gateway"]],
+    },
+    {
       contract: "inbox-source-target",
       enabled:
         isInboxSourceTargetReceiverFirstDiff(changedPaths) && !taskInboxRetired,
@@ -1732,6 +1737,7 @@ function resolveProductionDeployScopeOrder(
       isCenterAgentEvidenceDiff(changedPaths) ||
       isSpaceMessageSearchReceiverFirstDiff(changedPaths) ||
       isInboxNotificationObservationDiff(changedPaths) ||
+      isInboxMembershipOptInDiff(changedPaths, context) ||
       isGatewayRequestContextReceiverFirstDiff(changedPaths, context) ||
       isAgentProfileDefaultProjectRevisionDiff(changedPaths, context) ||
       isAgentProfileDefaultProjectInitializerDiff(changedPaths, context) ||
@@ -2702,6 +2708,20 @@ function isInboxSourceTargetReceiverFirstDiff(changedPaths) {
   return (
     changedPaths.includes(INBOX_SCHEMA_PATH) &&
     changedPaths.some((path) => INBOX_SOURCE_TARGET_WRITER_PATHS.has(path))
+  );
+}
+
+function isInboxMembershipOptInDiff(changedPaths, context) {
+  const caller = "services/gateway/src/routes/rpc-http.inbox.ts";
+  return (
+    [
+      caller,
+      INBOX_SCHEMA_PATH,
+      "services/core/src/inbox/transport/rpc/inbox-rpc.ts",
+    ].some((path) => changedPaths.includes(path)) &&
+    // The named field identifies the caller's obligation, not compatibility.
+    // Read the explicit product source; unknown source retains the prerequisite.
+    targetProductSourceMentions(context, caller, ["includeMembershipNotices"])
   );
 }
 
