@@ -10389,7 +10389,10 @@ describe("handleDispatchQueueBatch", () => {
     });
   });
 
-  it("admits an explicit Project with a missing Default Project folder while preserving other Wake blockers", async () => {
+  it.each([
+    "project",
+    "space",
+  ])("admits explicit %s work with a missing Default Project folder while preserving other Wake blockers", async (work) => {
     const targetProfileId = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     const message = createDispatchBody({
       dispatchId: "selected-project-missing-default",
@@ -10401,11 +10404,15 @@ describe("handleDispatchQueueBatch", () => {
       ...message,
       contextSelection: {
         mode: "new" as const,
-        access: "read_only" as const,
-        projectWork: {
-          projectId: "project-selected",
-          repositoryFingerprint: `sha256:${"a".repeat(64)}`,
-        },
+        ...(work === "space"
+          ? { access: "space_context" as const }
+          : {
+              access: "read_only" as const,
+              projectWork: {
+                projectId: "project-selected",
+                repositoryFingerprint: `sha256:${"a".repeat(64)}`,
+              },
+            }),
         workspace: "isolated" as const,
       },
     };

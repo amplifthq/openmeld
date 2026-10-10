@@ -17,6 +17,7 @@ import {
 } from "../../provider-hosts/prepare-provider-runtime";
 import type { DaemonProfileRouteConfig } from "../core/types";
 import { DaemonServiceRunError } from "../core/types";
+import { executionContextWorkingDirectory } from "../dispatch/execution-context-session";
 
 // A healthy session re-observes the route at most every 45 seconds. Keep the
 // compatibility launch fence aligned with the current route-lease freshness
@@ -102,6 +103,7 @@ export async function resolveDispatchWorkingFolderRuntimeContext(input: {
   defaultProjectId: string | null;
   defaultProjectIdWasProvided: boolean;
   executionContext?: ExecutionContextTask;
+  ledgerRootPath?: string;
   ownerUserId?: string;
   executionIdentity: RuntimeTransportDeliveryExecutionIdentity;
   nowMs?: number;
@@ -110,23 +112,11 @@ export async function resolveDispatchWorkingFolderRuntimeContext(input: {
   targetProfileId: string;
 }): Promise<ProviderDispatchRuntimeContext> {
   const route = input.routeConfig;
-  const workingFolderRuntime = route?.workingFolderRuntime;
-  if (!(route && workingFolderRuntime)) {
+  if (!route) {
     rejectCurrentWorkingFolderFact(
       input,
       "missing",
-      "the current route has no working-folder observation"
-    );
-  }
-  if (
-    input.defaultProjectIdWasProvided &&
-    input.defaultProjectId !==
-      workingFolderRuntime.workingFolderFact.defaultProjectId
-  ) {
-    rejectCurrentWorkingFolderFact(
-      input,
-      "identity_mismatch",
-      "the delivered Default Project does not match the current route observation"
+      "the current route is unavailable"
     );
   }
   const identity = input.executionIdentity.core;
@@ -147,6 +137,31 @@ export async function resolveDispatchWorkingFolderRuntimeContext(input: {
       input,
       "identity_mismatch",
       "the current route does not match the accepted dispatch identity"
+    );
+  }
+  if (input.executionContext?.access === "space_context") {
+    return await resolveSpaceOnlyWorkingFolder(
+      input.executionContext,
+      input.ledgerRootPath
+    );
+  }
+  const workingFolderRuntime = route.workingFolderRuntime;
+  if (!workingFolderRuntime) {
+    rejectCurrentWorkingFolderFact(
+      input,
+      "missing",
+      "the current route has no working-folder observation"
+    );
+  }
+  if (
+    input.defaultProjectIdWasProvided &&
+    input.defaultProjectId !==
+      workingFolderRuntime.workingFolderFact.defaultProjectId
+  ) {
+    rejectCurrentWorkingFolderFact(
+      input,
+      "identity_mismatch",
+      "the delivered Default Project does not match the current route observation"
     );
   }
   const observedAtMs = workingFolderRuntime.workingFolderFact.observedAtMs;
@@ -202,6 +217,27 @@ export async function resolveDispatchWorkingFolderRuntimeContext(input: {
     throw new DaemonServiceRunError({ code: reasonCode, message: reasonCode });
   }
   return workingFolderRuntime.runtimeContext;
+}
+
+async function resolveSpaceOnlyWorkingFolder(
+  context: ExecutionContextTask,
+  ledgerRootPath: string | undefined
+): Promise<ProviderDispatchRuntimeContext> {
+  if (
+    !ledgerRootPath ||
+    context.workspace !== "isolated" ||
+    context.projectWork ||
+    context.permissionSource
+  ) {
+    throw new Error("execution_context.invalid_workspace_context");
+  }
+  return {
+    providerRuntimeWorkingDirectory: await executionContextWorkingDirectory({
+      context,
+      ledgerRootPath,
+      currentWorkingDirectory: ledgerRootPath,
+    }),
+  };
 }
 
 async function resolveSelectedProjectWorkingFolder(

@@ -207,6 +207,7 @@ export const buildRuntimeTransportDeliverDispatchRequest = (input: {
     input.sourceSignal.profileMentionLabel
   );
   const sourceSignalSnapshot = buildRuntimeTransportSourceSignalSnapshot({
+    agentControllerRef: input.message.controllerSnapshot.agentControllerRef,
     executionIdentity: input.executionIdentity,
     route: input.route,
     sourceSignalSnapshot: input.message.sourceSignalSnapshot,
@@ -340,6 +341,7 @@ function buildWorkingLanguagePayload(
   return workingLanguage ? { workingLanguage } : {};
 }
 function buildRuntimeTransportSourceSignalSnapshot(input: {
+  agentControllerRef: string | null;
   executionIdentity: RuntimeTransportDeliveryExecutionIdentity;
   route: Extract<
     RuntimeTransportLookupRouteResponse,
@@ -363,9 +365,25 @@ function buildRuntimeTransportSourceSignalSnapshot(input: {
     evidenceRefs,
     ...sourceSnapshot
   } = input.sourceSignalSnapshot;
-  if (workHandoff && input.route.capabilities.spaceWorkHandoff !== true) {
+  if (
+    workHandoff?.files.length &&
+    input.route.capabilities.spaceWorkHandoff !== true
+  ) {
     throw new Error(
       "Update this Computer's OpenMeld Service before handing off selected files."
+    );
+  }
+  if (
+    workHandoff?.schemaVersion === 2 &&
+    !input.route.capabilities.runtimeAdapters?.some(
+      (adapter) =>
+        adapter.adapterId ===
+          parseAgentControllerRef(input.agentControllerRef)?.id &&
+        (adapter.capabilityDeclaration.executionContextVersion ?? 0) >= 5
+    )
+  ) {
+    throw new Error(
+      "service.update_required: Update this Computer's OpenMeld Service before handing off work."
     );
   }
   const snapshot = {

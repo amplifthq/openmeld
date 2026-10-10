@@ -4,6 +4,7 @@ import {
   SPACE_MESSAGE_FILE_MAX_COUNT,
   spaceMessageFileReferenceSchema,
 } from "./schemas/http/space-files";
+import { executionContextProjectWorkSchema } from "./schemas/protocol/execution-context";
 
 export const SPACE_WORK_HANDOFF_CAPABILITY_HEADER =
   "x-openmeld-space-work-handoff";
@@ -37,15 +38,10 @@ export const spaceWorkFileSelectionSchema = z.strictObject({
   revision: z.number().int().positive(),
   relativePath: spaceWorkRelativePathSchema,
 });
-export const spaceWorkSelectionSchema = z
-  .strictObject({
-    schemaVersion: z.literal(1),
-    files: z
-      .array(spaceWorkFileSelectionSchema)
-      .min(1)
-      .max(SPACE_MESSAGE_FILE_MAX_COUNT),
-  })
-  .superRefine(({ files }, context) => {
+const selectedFiles = z
+  .array(spaceWorkFileSelectionSchema)
+  .max(SPACE_MESSAGE_FILE_MAX_COUNT)
+  .superRefine((files, context) => {
     const paths = new Set<string>();
     const ids = new Set<string>();
     for (const file of files) {
@@ -69,11 +65,15 @@ export const spaceWorkSelectionSchema = z
       paths.add(path);
     }
   });
+export const spaceWorkSelectionSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  files: selectedFiles.min(1),
+});
 export const SPACE_WORK_MAX_BYTES =
   SPACE_MESSAGE_FILE_MAX_COUNT * SPACE_FILE_RAW_UPLOAD_MAX_BYTES;
 export type SpaceWorkSelection = z.infer<typeof spaceWorkSelectionSchema>;
 
-export const spaceWorkHandoffSchema = spaceWorkSelectionSchema.safeExtend({
+const selectedFileWorkHandoffSchema = spaceWorkSelectionSchema.safeExtend({
   skills: z
     .array(
       z.strictObject({
@@ -96,6 +96,46 @@ export const spaceWorkHandoffSchema = spaceWorkSelectionSchema.safeExtend({
   }),
   requirements: z.array(z.string().min(1).max(500)).max(10),
 });
+// Version 2 binds the brief and optional materials to one reviewed source.
+const briefItems = z.array(z.string().trim().min(1).max(2000)).max(20);
+const workHandoffV2BaseSchema = selectedFileWorkHandoffSchema.extend({
+  schemaVersion: z.literal(2),
+  files: selectedFiles,
+  sourceSignalId: z.string().trim().min(1).max(2048),
+  sourceRevision: z.number().int().positive(),
+  work: selectedFileWorkHandoffSchema.shape.work.extend({
+    evidence: briefItems,
+    attemptedApproaches: briefItems,
+    decisions: briefItems,
+    constraints: briefItems,
+    openQuestions: briefItems,
+    completionCriteria: briefItems.min(1),
+  }),
+});
+export const spaceCodeWorkHandoffSchema = workHandoffV2BaseSchema.extend({
+  code: executionContextProjectWorkSchema.required({ commit: true }),
+  execution: z.strictObject({
+    workspace: z.enum(["current", "isolated"]),
+    access: z.enum(["read_only", "workspace"]).optional(),
+  }),
+});
+export const spaceContextWorkHandoffSchema = workHandoffV2BaseSchema.extend({
+  code: z.never().optional(),
+  execution: z.strictObject({
+    workspace: z.literal("isolated"),
+    access: z.literal("space_context"),
+  }),
+});
+export const spaceWorkHandoffV2Schema = z.union([
+  spaceCodeWorkHandoffSchema,
+  spaceContextWorkHandoffSchema,
+]);
+export const spaceWorkHandoffSchema = z.union([
+  selectedFileWorkHandoffSchema,
+  spaceWorkHandoffV2Schema,
+]);
+export type SpaceCodeWorkHandoff = z.infer<typeof spaceCodeWorkHandoffSchema>;
+export type SpaceWorkHandoffV2 = z.infer<typeof spaceWorkHandoffV2Schema>;
 export type SpaceWorkHandoff = z.infer<typeof spaceWorkHandoffSchema>;
 
 /** Service-only projection after preparing the dispatch's selected inputs. */

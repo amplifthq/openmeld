@@ -21,6 +21,8 @@ export type ProjectLocalConnectionFailureReasonCode =
 
 export const CODEX_UPGRADE_REQUIRED_REASON =
   "Codex on this computer can't use the selected model. Update Codex or choose another Codex installation, then try again.";
+export const CODE_HANDOFF_RECEIVER_UNSUPPORTED_PUBLIC_COPY =
+  "This handoff needs a local Codex or Claude Agent with a matching Project connection. Choose a supported Agent and send a new handoff.";
 export const CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY =
   "Center Agent couldn't finish your request. Open Diagnostics in OpenMeld for details. If you can't open OpenMeld, ask the person who set it up for your team.";
 export const CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY =
@@ -1916,6 +1918,54 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       primaryActionId: "manage_local_agent",
       preferMappedReasonOverDetail: true,
       recoveryTarget: "computer",
+    },
+    {
+      body: "The requested commit is not available in the Agent's Project connection. Fetch that published commit on the Agent's computer, then send a new handoff.",
+      kind: "local_agent_prepare",
+      patterns: ["=execution_context.project_revision_unavailable"],
+      primaryActionId: "check_status",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "computer",
+    },
+    {
+      body: "The current folder is on a different commit. Choose a separate copy for the requested revision, or switch the connected checkout before sending a new handoff.",
+      kind: "local_agent_prepare",
+      patterns: ["=execution_context.project_revision_mismatch"],
+      primaryActionId: "check_status",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "computer",
+    },
+    {
+      body: "The current folder has local changes. Choose a separate copy, or finish those changes before handing off a fixed revision.",
+      kind: "local_agent_prepare",
+      patterns: ["=execution_context.project_worktree_dirty"],
+      primaryActionId: "check_status",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "computer",
+    },
+    {
+      body: CODE_HANDOFF_RECEIVER_UNSUPPORTED_PUBLIC_COPY,
+      kind: "local_agent_prepare",
+      patterns: ["=space.handoff.code_receiver_unsupported"],
+      primaryActionId: "manage_local_agent",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "agents",
+    },
+    {
+      body: "This Agent cannot receive the selected handoff materials. Choose a supported Agent and send a new handoff. Shared files without a repository require Codex or a Remote Agent.",
+      kind: "local_agent_prepare",
+      patterns: ["=execution_context.handoff_receiver_unsupported"],
+      primaryActionId: "manage_local_agent",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "agents",
+    },
+    {
+      body: "This Agent's connection cannot enforce the handoff's file-access limits. Use a Codex Agent connected through App Server, or another supported Agent, then send a new handoff.",
+      kind: "local_agent_prepare",
+      patterns: ["=execution_context.handoff_transport_unsupported"],
+      primaryActionId: "manage_local_agent",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "agents",
     },
     {
       body: "OpenMeld could not verify file-access limits with this Agent's previous permission settings, so the task did not start. Choose Ask for approval, Approve for me, or Full access in this Agent's settings, then try again.",

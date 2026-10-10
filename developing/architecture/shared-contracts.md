@@ -8165,9 +8165,10 @@ A fork source's completed-history boundary is optional in the assignment: when
 no checkpoint was frozen, Core names the source identity and the harness
 confirms the boundary from that source's own retained history.
 
-An omitted access preference selects `space_context`, including an ordinary
-Claude Code Wake in parallel mode that creates a new implicit context. A retained
-context keeps its existing access. An explicit independent project task selects
+An explicit new Codex or Claude Code Context with no access restriction inherits
+the Agent's settings when that controller supports permission inheritance.
+A retained Context keeps its existing access contract; explicitly selected
+Space-only work remains code-free. An independent project task selects
 `workspace: isolated`. `workspace: isolated`
 with local access now means a committed project worktree with private Git data.
 The local preparation journal binds the shared assignment to its source and
@@ -8200,6 +8201,52 @@ An assignment with `projectWork` requires Service adapter
 `service.update_required` at admission before an execution token or local
 workspace is used. The optional field leaves legacy assignments readable and
 keeps the assignment wire version at v1.
+
+An optional `projectWork.commit` freezes a complete 40- or 64-character Git
+commit ID. Such assignments require adapter capability 5 at admission and
+delivery, including reconnect. An older Service must receive update guidance
+before execution, never a selection with the commit removed. The local journal
+retains the requested commit and the existing workspace lifecycle owns retry,
+continuation, and retention. Starting a current-folder Context verifies HEAD and
+rejects preexisting local changes; resuming its established native Context keeps
+subsequent work. Isolated preparation leaves the connected checkout unchanged.
+For continuation and fork selections, an omitted commit with the same Project
+and repository inherits the retained pin. An explicitly different commit is
+rejected. Fork assignment always retains the complete source Project work.
+
+`SpaceWorkHandoff` version 2 adds the exact source message revision, execution
+choices, and a complete work brief. Its strict variants separate materials:
+without `code`, execution must be `space_context` and `isolated`, and a Project
+selection is rejected; with `code`, an exact Project/repository and full commit
+are required with the existing repository permission choices. Both allow an
+empty shared-file selection. Version 1 retains its selected-file contract.
+The Core-created accepted dispatch snapshot freezes optional `workHandoffVersion`
+from the authored manifest so admission and reconnect check capability 5 for all
+v2 workstation handoffs, including brief-only work. Delivery rechecks the active
+adapter version. Only nonempty selected-file sets also require `spaceWorkHandoff`.
+Normal-message HTTP callers send the matching `workHandoffVersion`; thread
+callers carry the same versioned manifest. Space validates the current source,
+original placement, one target, and matching Context selection. Its existing
+client-message idempotency also fences changed Context selections. Public history
+omits the v2 manifest so older readers retain the readable message and files;
+the authored manifest stays in persistence and dispatch snapshots.
+
+Contract impact: deploy compatible Core and Remote Agent schema readers and
+materialization before Gateway and new callers. Then publish the CLI/Service
+with capability 5 before enabling the Web entry point/new CLI manifests.
+The Remote Agent native path accepts brief/shared-file v2 work and rejects
+repository work before provider submission. An empty shared-file set reuses its
+existing working directory without creating an unmaterialized copy receipt.
+Capability 5 and v2 are unreleased additions in this PR; earlier draft artifacts
+must be replaced together. Older Services continue ordinary and v1 work but
+reject v2 work; older clients can read its message. No database migration,
+new cloud resource, or new handoff lifecycle is introduced. Roll back callers
+first. Once v2 messages are persisted, retain compatible Core readers for their
+entire retention lifetime, including completed handoffs. Computers that ran
+v2 tasks must also retain a compatible Service reader for their retained
+Context/workspace records. The
+CLI/Service bundle and registry require normal local-component release validation;
+this feature does not authorize production deployment or release stamping.
 
 The public signal read encoder omits `contextSelection` so older strict history
 readers remain usable. This encoder must never be used for persistence, dispatch

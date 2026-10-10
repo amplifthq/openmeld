@@ -535,6 +535,43 @@ limits and access policy still apply.
 
 ### Selected work handoffs
 
+Message details offers **Hand off** to ask another Agent to continue work from
+a readable result. The default is a brief with optional shared files; it needs
+no Project, repository, or commit. **Include a repository** adds an explicit
+Project/repository and complete published commit SHA. The sender selects an
+existing Agent in the Space that supports the selected materials. The brief includes the goal, current state,
+verified evidence, attempted approaches, decisions, constraints, open questions,
+next steps, and completion criteria. The original shared result is loaded into
+the draft; private native history is never an input. Shared files are optional,
+explicitly selected, and pinned to exact revisions.
+
+These handoffs use the same ordinary Message/Thread publication and Wake owners
+as selected-file work. The accepted manifest binds the source message revision,
+receiver, selected materials, and execution choices. A changed or recalled source,
+changed retry payload, or different destination thread is rejected. An unknown
+send outcome retains the same request identity for retry. The UI says requested
+until existing execution/publication owners produce the actual outcome.
+
+Without a repository, workstation handoffs select a new isolated Space-only
+Context and never resolve a default Project or borrow a local repository.
+Brief-only work supports Codex, Claude Code, and Remote Agents. Selected shared
+files without a repository support Codex App Server and Remote Agents; Claude's
+Space-only boundary has no writable selected-file projection. These material
+support rules are projected by `packages/agent-runtime`; live readiness and
+execution permissions remain their existing owners' checks.
+
+With a repository, the receiving Service resolves its own authorized Project
+connection and prepares the frozen commit before model work. This supports
+local Codex and Claude Code. The Web action selects a separate copy;
+Agent settings remain the default, with supported explicit restrictions available.
+It never transfers a sender-local path, credentials, native conversation, or
+approval. Selected shared files live in a separate child directory and code work
+keeps the repository working directory. Workstation v2 handoffs require Context
+capability 5; selected-file preparation additionally requires the existing macOS
+handoff capability. Remote Agents retain their existing native admission, file
+preparation, and reply owners and reject repository handoffs. Version 1 file-only
+handoffs retain their existing Codex Space-only boundary described below.
+
 A selected work handoff is an ordinary Space Message or Thread reply with one
 Wake target, exact file revisions, optional immutable Organization Skill
 releases, a goal, completed work, next steps, and requirements. The containing
@@ -549,7 +586,8 @@ execution. Missing files or Skills fail explicitly; neither current revisions
 nor latest Skill releases silently replace the selection. Files remain owned by
 the Space, and ordinary Space membership and Wake admission still apply.
 
-Hosted Agents use their existing Computer identity. Workstation continuation
+Version 1 file-only handoffs let hosted Agents use their existing Computer
+identity. Their workstation continuation
 requires the macOS Codex App Server Space-only execution boundary. Other
 controllers/platforms are not advertised as supporting this handoff. This is
 not a user-owned private Computer, cross-device process migration, background

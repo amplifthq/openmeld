@@ -25,6 +25,29 @@
 
 ## App and public website boundary
 
+Message details offers **Hand off** to continue work from its current readable
+message with another Agent. The current form requires a Project/repository and
+published commit only when **Include a repository** is selected. By default it
+hands off a brief and optional shared-file revisions with no repository. Local
+receivers use an isolated Space-only Context. The receiver list follows the
+shared material-support policy; selected files without a repository require
+Codex or a Remote Agent. Repository fields load only when selected, start a new
+independent copy at a complete published commit, and keep extra access
+restrictions a separate choice.
+The Web always selects an isolated repository copy. Current-folder repository
+handoffs are available only through an explicit CLI manifest.
+The source result prepopulates the brief; shared file revisions are unchecked
+until selected. A send retry freezes the same input and client message ID.
+Background source refetches, reconnects, and refresh errors preserve the mounted
+draft and frozen request. A new source revision requires explicit review before
+a first submission; an uncertain submission keeps its original revision, payload,
+and request identity for retry even if the source changes.
+Publication success is displayed as requested; existing message/Wake projections
+own execution and final delivery. A thread handoff retains that exact thread;
+a root message can also be handed off within its own thread. Project/repository
+fields are shared with the composer rather than opening a second modal over
+the Message details drawer.
+
 `clients/web` is the App at `app.openmeld.ai` (Staging:
 `app.staging.openmeld.ai`). Its root enters the authenticated Organization
 resolver or sends anonymous visitors to `/login`. Public marketing, legal,

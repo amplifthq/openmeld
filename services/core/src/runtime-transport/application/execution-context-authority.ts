@@ -735,7 +735,7 @@ function createContext(
   if (
     selection.mode === "fork" &&
     preferences.projectWork &&
-    !sameProjectWork(
+    !matchesSelectedProjectWork(
       preferences.projectWork,
       source?.context.assignment.projectWork
     )
@@ -745,7 +745,9 @@ function createContext(
     );
   }
   const projectWork =
-    preferences.projectWork ?? source?.context.assignment.projectWork;
+    selection.mode === "fork"
+      ? source?.context.assignment.projectWork
+      : (preferences.projectWork ?? source?.context.assignment.projectWork);
   return {
     assignment: {
       version: 1,
@@ -782,13 +784,14 @@ function supportsContextAccess(
   );
 }
 
-function sameProjectWork(
-  left: ExecutionContextAssignment["projectWork"],
-  right: ExecutionContextAssignment["projectWork"]
+function matchesSelectedProjectWork(
+  selection: ExecutionContextAssignment["projectWork"],
+  retained: ExecutionContextAssignment["projectWork"]
 ): boolean {
   return (
-    left?.projectId === right?.projectId &&
-    left?.repositoryFingerprint === right?.repositoryFingerprint
+    selection?.projectId === retained?.projectId &&
+    selection?.repositoryFingerprint === retained?.repositoryFingerprint &&
+    (selection?.commit === undefined || selection.commit === retained?.commit)
   );
 }
 
@@ -842,7 +845,7 @@ function assertContextPreferences(
   }
   if (
     selection.projectWork &&
-    !sameProjectWork(selection.projectWork, assignment.projectWork)
+    !matchesSelectedProjectWork(selection.projectWork, assignment.projectWork)
   ) {
     throw new ExecutionContextSelectionError(
       "execution_context.project_work_changed_requires_new_task"

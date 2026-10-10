@@ -24,6 +24,14 @@ export async function materializeSpaceWork(input: {
     return input.workingDirectory;
   }
   const handoff = spaceWorkHandoffSchema.parse(input.context.workHandoff);
+  if (handoff.schemaVersion === 2 && handoff.code) {
+    throw new Error(
+      "This receiver cannot prepare a pinned repository handoff."
+    );
+  }
+  if (handoff.files.length === 0) {
+    return input.workingDirectory;
+  }
   const key = `space-work:${input.context.submissionId}`;
   const previous = await input.storage.get<string>(key);
   if (previous) {

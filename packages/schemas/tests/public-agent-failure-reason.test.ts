@@ -123,6 +123,17 @@ describe("public agent failure reason mapping", () => {
       "connected Git repository",
     ],
     ["execution_context.workspace_access_unverified", "project file boundary"],
+    [
+      "execution_context.project_revision_unavailable",
+      "Fetch that published commit",
+    ],
+    ["execution_context.project_revision_mismatch", "Choose a separate copy"],
+    ["execution_context.project_worktree_dirty", "Choose a separate copy"],
+    ["space.handoff.code_receiver_unsupported", "Choose a supported Agent"],
+    [
+      "execution_context.handoff_transport_unsupported",
+      "Codex Agent connected through App Server",
+    ],
     ["claude_project.container_runtime_unavailable", "Docker or Podman"],
     ["claude_project.isolation_unverified", "file isolation"],
     ["claude_project.outside_access_unverified", "file isolation"],

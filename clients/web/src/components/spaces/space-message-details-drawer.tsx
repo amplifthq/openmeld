@@ -111,7 +111,10 @@ type MessageDetailsQueryState =
 			status: "ready";
 	  };
 
+import { SpaceWorkHandoffAction } from "./space-work-handoff";
+
 export function SpaceMessageDetailsDrawer(input: {
+	threadId?: string;
 	canStartNewTask?: boolean;
 	agentRecoveryPlansByProfileId?: ReadonlyMap<
 		string,
@@ -252,6 +255,20 @@ export function SpaceMessageDetailsDrawer(input: {
 							data-vaul-no-drag
 							orientation="vertical"
 						>
+							{input.canStartNewTask &&
+							input.openMeldProfileId &&
+							input.item.signalType === "signal.text" &&
+							input.item.deliveryState === "sent" &&
+							!input.item.recalledAt ? (
+								<SpaceWorkHandoffAction
+									key={`${input.spaceId}:${input.openMeldProfileId}:${input.item.id}:${input.threadId ?? "main"}`}
+									profileId={input.openMeldProfileId}
+									sourceSignalId={input.item.id}
+									spaceId={input.spaceId}
+									spacePassword={input.spacePassword}
+									threadId={input.threadId}
+								/>
+							) : null}
 							<MessageDetailsBody
 								agentRecoveryPlansByProfileId={
 									input.agentRecoveryPlansByProfileId
