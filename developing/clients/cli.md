@@ -1691,6 +1691,13 @@ cannot move a continued or forked Context. Core and the current local
 Service still verify the Project, repository, owner-local connection, and file
 policy before execution. No CLI flag grants repository access by itself.
 
+Project selection defaults to an independent working copy while retaining the
+Agent's native permissions. `--task-workspace isolated|current` chooses placement
+only. `--task-access space_context|read_only|workspace` adds an explicit task
+restriction; omit it to use Agent settings and the current Computer policy.
+Continuations retain their accepted settings, and forks inherit their source's
+working-copy mode rather than returning an isolated task to the current folder.
+
 Message text is literal, including old `@Name(wake)` syntax, code, and examples.
 `--plain` optionally asserts that no recipient flags were supplied. Plain sends
 need no member-directory read. Explicit recipients are resolved against one

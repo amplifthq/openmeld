@@ -708,6 +708,7 @@ function createContext(
   source: ContextSource | null
 ): ContextRecord {
   const selection = request.selection;
+  const forkSource = forkCheckpoint(request, source);
   const inheritsAgentSettings =
     (snapshot.controllerSnapshot.agentControllerRef === "builtin:codex" ||
       snapshot.controllerSnapshot.agentControllerRef ===
@@ -722,13 +723,15 @@ function createContext(
     (selection.mode === "auto" &&
       !source &&
       snapshot.controllerSnapshot.agentControllerRef === "builtin:codex")
-      ? ({ access: "workspace", workspace: "current" } as const)
+      ? ({
+          access: "workspace",
+          workspace: forkSource?.workspace ?? "current",
+        } as const)
       : {};
   const preferences: Partial<
     Pick<ExecutionContextAssignment, "access" | "projectWork" | "workspace">
   > =
     selection.mode === "resume" ? {} : { ...implicitPreferences, ...selection };
-  const forkSource = forkCheckpoint(request, source);
   if (
     selection.mode === "fork" &&
     preferences.projectWork &&
@@ -756,7 +759,7 @@ function createContext(
         source?.context.assignment.access ??
         "space_context",
       ...(projectWork ? { projectWork } : {}),
-      workspace: preferences.workspace ?? "isolated",
+      workspace: preferences.workspace ?? forkSource?.workspace ?? "isolated",
       ...(forkSource ? { forkSource } : {}),
     },
     bindingId: snapshot.controllerSnapshot.bindingId,

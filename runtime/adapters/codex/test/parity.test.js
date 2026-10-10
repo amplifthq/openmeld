@@ -4714,7 +4714,7 @@ test("invokeCodexAppServerTransport applies bounded policy-driven approval param
     ).params;
     assert.equal(
       boundedMessages[0].argv.includes(
-        `permissions.openmeld_computer_boundary={ extends = ":workspace", filesystem = { ":root" = "deny", ${JSON.stringify(boundedDispatchDir)} = "read", ${JSON.stringify(`${boundedDispatchDir}/**`)} = "read" } }`
+        `permissions.openmeld_computer_boundary={ extends = ":workspace", filesystem = { ":root" = "deny", ":minimal" = "read", ${JSON.stringify(boundedDispatchDir)} = "read", ${JSON.stringify(`${boundedDispatchDir}/**`)} = "read" } }`
       ),
       true
     );
