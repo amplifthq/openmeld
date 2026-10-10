@@ -567,6 +567,14 @@ export function resolveProductionCompatibilityObligations(
       edges: [["core", "gateway"]],
     },
     {
+      contract: "visible-source-read",
+      enabled: isVisibleSourceReadDiff(changedPaths, context),
+      edges: [
+        ["core", "gateway"],
+        ["gateway", "web"],
+      ],
+    },
+    {
       contract: "inbox-source-target",
       enabled:
         isInboxSourceTargetReceiverFirstDiff(changedPaths, context) &&
@@ -2739,6 +2747,36 @@ function isInboxMembershipOptInDiff(changedPaths, context) {
     // The named field identifies the caller's obligation, not compatibility.
     // Read the explicit product source; unknown source retains the prerequisite.
     targetProductSourceMentions(context, caller, ["includeMembershipNotices"])
+  );
+}
+
+function isVisibleSourceReadDiff(changedPaths, context) {
+  const gateway = "services/gateway/src/routes/rpc-http.inbox.ts";
+  const gatewayChanged = [
+    gateway,
+    INBOX_SCHEMA_PATH,
+    "services/core/src/inbox/transport/rpc/inbox-rpc.ts",
+    "services/core/src/inbox/application/space-inbox-read.ts",
+  ].some((file) => changedPaths.includes(file));
+  const httpCallers = [
+    "packages/api-client/src/inbox/api.ts",
+    "clients/web/src/lib/organizations/inbox.ts",
+    "clients/web/src/components/spaces/use-space-inbox-read-position.ts",
+  ];
+  // These names register the actual target caller's strict-read obligation.
+  // They do not prove receiver compatibility or create a witness. Unreadable
+  // product source keeps the prerequisite, as with the other named contracts.
+  return (
+    (gatewayChanged &&
+      targetProductSourceMentions(context, gateway, ["includeSourceKeys"])) ||
+    httpCallers.some(
+      (file) =>
+        changedPaths.includes(file) &&
+        targetProductSourceMentions(context, file, [
+          "read_sources",
+          "includeSourceKeys",
+        ])
+    )
   );
 }
 
