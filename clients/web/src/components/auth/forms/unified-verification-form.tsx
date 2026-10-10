@@ -447,6 +447,9 @@ export function UnifiedVerificationForm({
 		[]
 	);
 	const shouldAutoRedirectToDevice = redirectTarget.startsWith("/device");
+	const preserveRequestedEntry =
+		isInvitationRedirectTarget(redirectTarget) ||
+		redirectTarget.split("?")[0]?.split("#")[0] === "/desktop-sign-in";
 
 	const [state, setState] = useState<VerificationState>("checking");
 	const [message, setMessage] = useState("");
@@ -500,9 +503,8 @@ export function UnifiedVerificationForm({
 			};
 		}
 
-		// A magic link started from an invitation returns to that invitation page
-		// instead of dropping the visitor on their default organization entry.
-		if (isInvitationRedirectTarget(redirectTarget)) {
+		// Preserve the original invitation or Desktop authorization request.
+		if (preserveRequestedEntry) {
 			return {
 				entryPath: redirectTarget,
 				ok: true,
@@ -516,7 +518,12 @@ export function UnifiedVerificationForm({
 			entryPath,
 			ok: true,
 		};
-	}, [redirectTarget, refetchSession, shouldAutoRedirectToDevice]);
+	}, [
+		preserveRequestedEntry,
+		redirectTarget,
+		refetchSession,
+		shouldAutoRedirectToDevice,
+	]);
 
 	const applyMissingMagicLinkSessionFailure = useCallback(() => {
 		applyFailure({
@@ -528,9 +535,7 @@ export function UnifiedVerificationForm({
 	}, [applyFailure]);
 
 	const resolveEmailSuccessTarget = useCallback(async (): Promise<string> => {
-		// An invitation-origin verification returns to that invitation page once
-		// the verified session is live.
-		if (isInvitationRedirectTarget(redirectTarget)) {
+		if (preserveRequestedEntry) {
 			return redirectTarget;
 		}
 
@@ -547,7 +552,12 @@ export function UnifiedVerificationForm({
 		return resolveActiveOrganizationEntryPath({
 			data: { routeFamily: EMAIL_ROUTE_FAMILY },
 		});
-	}, [redirectTarget, refetchSession, shouldAutoRedirectToDevice]);
+	}, [
+		preserveRequestedEntry,
+		redirectTarget,
+		refetchSession,
+		shouldAutoRedirectToDevice,
+	]);
 
 	const startVerification = useCallback(async () => {
 		if (errorCode) {

@@ -64,7 +64,7 @@ import type { AgentComputer } from "./computer-workspace";
 import {
   AGENT_COMPUTER_SHELL_BACKEND_ID,
   resolveAgentComputerWorkingDirectory,
-} from "./computer-workspace";
+} from "./computer-workspace-config";
 import { getGitHubWorkingCopyTools } from "./github-working-copy-tools";
 import type { createMemberProfileReportComputerFileStore } from "./member-profile-report-computer-files";
 import { prepareOrganizationDocumentsComputerSnapshot } from "./organization-document-computer-snapshot";

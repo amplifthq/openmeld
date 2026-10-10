@@ -20,7 +20,7 @@ export async function listCurrentOrganizationSpaces(input: {
 			createOrganizationScopedWebOpenMeldApiFoundation({
 				organizationId: input.organizationId,
 			})
-		).listCurrentSpacesWithMemberCounts();
+		).listCurrentSpacesWithMemberCounts({ includeMemberPreviews: true });
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);
 	}

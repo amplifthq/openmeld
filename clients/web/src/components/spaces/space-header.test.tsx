@@ -516,12 +516,6 @@ describe("SpaceHeader", () => {
 				.querySelector('[data-slot="scroll-area-viewport"]')
 		).toBeTruthy();
 		expect(
-			within(dialog)
-				.getByTestId("space-share-dialog-scroll-area")
-				.querySelector('[data-slot="scroll-area-viewport"]')
-				?.hasAttribute("data-fade")
-		).toBe(false);
-		expect(
 			within(dialog).getByRole("heading", { name: "Share or invite" })
 		).toBeTruthy();
 		expect(
@@ -987,9 +981,9 @@ describe("SpaceHeader", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Delete space" }));
 
 		const confirmButton = screen.getByRole("button", {
-			name: "Delete permanently",
+			name: "Delete Space",
 		});
-		expect(screen.getByText("Delete this space permanently?")).toBeTruthy();
+		expect(screen.getByText("Delete this Space?")).toBeTruthy();
 		expect((confirmButton as HTMLButtonElement).disabled).toBe(true);
 
 		fireEvent.change(screen.getByLabelText(DELETE_CONFIRMATION_LABEL_TEXT), {

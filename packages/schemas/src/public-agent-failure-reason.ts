@@ -763,7 +763,8 @@ export type PublicAgentFailureRecoveryTarget =
   | "agents"
   | "computer"
   | "cursor_account"
-  | "prepare_setup";
+  | "prepare_setup"
+  | "working_folder";
 
 export type PublicAgentAvailabilityCopyContext = {
   agentControllerId?: string | null;
@@ -1045,20 +1046,42 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: null,
     },
     {
+      availabilityBadgeLabel: "Working folder missing",
+      availabilitySummary: "Connect this Agent’s Project on its Computer.",
+      availabilityTooltip: "Project folder is not connected",
       body: (targetName) =>
         `${targetName} couldn’t start because its Project isn’t connected on the computer that runs it. Connect that Project on the Agent’s computer, then try again.`,
       kind: "local_agent_prepare",
       patterns: ["=project.local_connection.missing"],
-      primaryActionId: "connect_local_agent",
-      recoveryTarget: "prepare_setup",
+      primaryActionId: "review_agent_settings",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "working_folder",
     },
     {
+      availabilityBadgeLabel: "Working folder missing",
+      availabilitySummary:
+        "Reconnect this Agent’s Project folder on its Computer.",
+      availabilityTooltip: "Project folder is no longer available",
       body: (targetName) =>
         `${targetName} couldn’t start because its Project folder is no longer available on the computer that runs it. Reconnect the folder in Projects, then try again.`,
       kind: "local_agent_prepare",
       patterns: ["=project.local_connection.folder_missing"],
-      primaryActionId: "connect_local_agent",
-      recoveryTarget: "prepare_setup",
+      primaryActionId: "review_agent_settings",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "working_folder",
+    },
+    {
+      availabilityBadgeLabel: "Working folder needs attention",
+      availabilitySummary:
+        "Review this Agent’s Project connection on its Computer.",
+      availabilityTooltip: "Project connection could not be used",
+      body: (targetName) =>
+        `${targetName} couldn’t start because its Project connection could not be used on the computer that runs it. Review that connection and its folder, then try again.`,
+      kind: "local_agent_prepare",
+      patterns: ["=project.local_connection.invalid"],
+      primaryActionId: "review_agent_settings",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "working_folder",
     },
     {
       body: "OpenMeld ran into a system problem before this Wake could run. Try again. If it keeps happening, open diagnostics.",
@@ -1117,8 +1140,8 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
         "credential.",
         "login.",
       ],
-      primaryActionId: "reconnect_local_agent",
-      recoveryTarget: "prepare_setup",
+      primaryActionId: "review_agent_settings",
+      recoveryTarget: "computer",
     },
     {
       body: (targetName) =>
@@ -1154,13 +1177,13 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     },
     {
       body: (targetName) =>
-        `${targetName} reached a current Usage Limit and cannot start new work. Review Usage Limits before waking it again.`,
+        `${targetName}'s AI account reached its Usage Limit. Review Usage Limits in agent settings before waking it again.`,
       kind: "account_access",
       mappedReasonBody: (targetName) =>
-        `${targetName} reached a current Usage Limit and cannot start new work. Review Usage Limits before waking it again.`,
+        `${targetName}'s AI account reached its Usage Limit. Review Usage Limits in agent settings before waking it again.`,
       availabilityBadgeLabel: "Usage Limit reached",
       availabilitySummary:
-        "This agent reached a Usage Limit and cannot start new work. Review Usage Limits before waking it again.",
+        "This agent's AI account reached its Usage Limit. Review Usage Limits in agent settings before waking it again.",
       availabilityTooltip: "Usage Limit reached. Review Usage Limits.",
       patterns: ["=usage_exhausted"],
       primaryActionId: "review_agent_settings",
@@ -1415,7 +1438,7 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     },
     {
       body: (targetName) =>
-        `${targetName} is connected to an older computer setup. Update setup on this computer, then try again.`,
+        `OpenMeld could not confirm ${targetName}'s current local agent setup. Check its status on the computer that runs it, then try again.`,
       kind: "local_agent_prepare",
       patterns: [
         "claim_eligibility.openmeld_service_runtime_id_missing",
@@ -1429,57 +1452,57 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
         "claim_eligibility.agent_controller_report_disabled",
         "claim_eligibility.agent_controller_report_unavailable",
       ],
-      primaryActionId: "connect_local_agent",
-      recoveryTarget: "prepare_setup",
+      primaryActionId: "check_status",
+      recoveryTarget: "computer",
     },
     {
-      availabilityBadgeLabel: "Connect",
+      availabilityBadgeLabel: "Needs attention",
       availabilitySummary:
-        "Connect a local agent before this profile can reply.",
-      availabilityTooltip: "Connect local agent",
+        "Check the local agent's status on the computer that runs it.",
+      availabilityTooltip: "Local agent report unavailable",
       body: (targetName) =>
-        `${targetName} is connected, but OpenMeld needs a current local agent connection from this computer before it can reply.`,
+        `${targetName} is connected, but OpenMeld has no current local agent report from its computer. Check the local agent’s status on that computer.`,
       kind: "local_agent_prepare",
       patterns: ["=agent_profile_binding.agent_controller_report_missing"],
-      primaryActionId: "connect_local_agent",
-      recoveryTarget: "prepare_setup",
+      primaryActionId: "check_status",
+      recoveryTarget: "computer",
     },
     {
-      availabilityBadgeLabel: "Connect",
+      availabilityBadgeLabel: "Needs attention",
       availabilitySummary:
-        "Connect a local agent before this profile can reply.",
-      availabilityTooltip: "Connect local agent",
+        "Check the local agent's status on the computer that runs it.",
+      availabilityTooltip: "Local agent report out of date",
       body: (targetName) =>
-        `${targetName} is connected, but this computer's local agent connection is out of date. Connect the local agent again.`,
+        `${targetName} is connected, but its local agent report is out of date. Check the local agent’s status on that computer.`,
       kind: "local_agent_prepare",
       patterns: ["=agent_profile_binding.agent_controller_report_stale"],
-      primaryActionId: "connect_local_agent",
-      recoveryTarget: "prepare_setup",
+      primaryActionId: "check_status",
+      recoveryTarget: "computer",
     },
     {
       availabilityBadgeLabel: "Checking",
       availabilitySummary: "Checking this agent's local controller.",
       availabilityTooltip: "Checking local agent",
       body: (targetName) =>
-        `${targetName} is connected, but OpenMeld needs a current local agent connection from this computer before it can reply.`,
+        `${targetName} is connected, but OpenMeld has no current local agent report from its computer. Check the local agent’s status on that computer.`,
       kind: "local_agent_prepare",
       patterns: [
         "=runtime.projection_missing",
         "=runtime.agent_controller_report_missing",
       ],
-      primaryActionId: "connect_local_agent",
-      recoveryTarget: "prepare_setup",
+      primaryActionId: "check_status",
+      recoveryTarget: "computer",
     },
     {
       availabilityBadgeLabel: "Checking",
       availabilitySummary: "Checking this agent's local controller.",
       availabilityTooltip: "Checking local agent",
       body: (targetName) =>
-        `${targetName} is connected, but this computer's local agent connection is out of date. Connect the local agent again.`,
+        `${targetName} is connected, but its local agent report is out of date. Check the local agent’s status on that computer.`,
       kind: "local_agent_prepare",
       patterns: ["=runtime.agent_controller_report_stale"],
-      primaryActionId: "connect_local_agent",
-      recoveryTarget: "prepare_setup",
+      primaryActionId: "check_status",
+      recoveryTarget: "computer",
     },
     {
       availabilityBadgeLabel: "Connect",
@@ -1841,8 +1864,8 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       body: "OpenMeld found more than one install for this agent on this device. Choose which one OpenMeld should use here, then try again.",
       kind: "local_agent_prepare",
       patterns: ["controller.launch.choice_required", "launch choice"],
-      primaryActionId: "connect_local_agent",
-      recoveryTarget: "prepare_setup",
+      primaryActionId: "choose_local_agent",
+      recoveryTarget: "computer",
     },
     {
       body: "Claude project tasks need Docker or Podman running on the Agent's computer. Start a Linux container engine, then try again. For a reply without project files, choose a Space-only task.",
@@ -2029,18 +2052,28 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: null,
     },
     {
-      body: "This agent is missing its local workspace on this device. Run `openmeld doctor --repair`, then `openmeld setup --profile <agent-profile-id>`, and try again.",
+      availabilityBadgeLabel: "Working folder missing",
+      availabilitySummary: "Choose a working folder for this Agent.",
+      availabilityTooltip: "Working folder missing",
+      body: (targetName) =>
+        `${targetName} couldn’t start because its working folder is not configured on the computer that runs it. Choose a working folder, then try again.`,
       kind: "local_agent_prepare",
       patterns: ["workspace.missing", "profile.workspace.missing"],
-      primaryActionId: "connect_local_agent",
-      recoveryTarget: "prepare_setup",
+      primaryActionId: "review_agent_settings",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "working_folder",
     },
     {
-      body: "This agent's local workspace is broken on this device. Run `openmeld doctor --repair`, then `openmeld setup --profile <agent-profile-id>`, and try again.",
+      availabilityBadgeLabel: "Working folder unavailable",
+      availabilitySummary: "Review this Agent’s working folder.",
+      availabilityTooltip: "Working folder unavailable",
+      body: (targetName) =>
+        `${targetName} couldn’t start because its working folder could not be used on the computer that runs it. Review that folder, then try again.`,
       kind: "local_agent_prepare",
       patterns: ["workspace.invalid", "profile.workspace.invalid"],
-      primaryActionId: "connect_local_agent",
-      recoveryTarget: "prepare_setup",
+      primaryActionId: "review_agent_settings",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "working_folder",
     },
     {
       body: CODEX_UPGRADE_REQUIRED_REASON,
@@ -2050,19 +2083,19 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: "computer",
     },
     {
-      body: "This local agent is not available on this device. Connect a local agent, then try again.",
+      body: "This local agent is not available on the computer that runs this Agent. Check its installation on that computer, then try again.",
       kind: "local_agent_prepare",
       patterns: ["controller.runtime.missing"],
-      primaryActionId: "connect_local_agent",
-      recoveryTarget: "prepare_setup",
+      primaryActionId: "manage_local_agent",
+      recoveryTarget: "computer",
     },
     {
       body: (targetName) =>
         `${targetName} could not start on this device. Repair it on this device, then try again.`,
       kind: "local_agent_prepare",
       patterns: ["controller.launch.needs_repair"],
-      primaryActionId: "connect_local_agent",
-      recoveryTarget: "prepare_setup",
+      primaryActionId: "review_agent_settings",
+      recoveryTarget: "computer",
     },
     {
       availabilityBadgeLabel: "Turned off",
@@ -2076,23 +2109,23 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       mappedReasonBody:
         "This local agent is turned off in OpenMeld on this computer. Turn it on, then wake the agent again.",
       patterns: ["=controller.registry.disabled"],
-      primaryActionId: "connect_local_agent",
-      recoveryTarget: "prepare_setup",
+      primaryActionId: "turn_on_local_agent",
+      recoveryTarget: "computer",
     },
     {
-      availabilityBadgeLabel: "Connect",
+      availabilityBadgeLabel: "Needs attention",
       availabilitySummary:
-        "Connect a local agent before this profile can reply.",
-      availabilityTooltip: "Connect local agent",
+        "Check the local agent's status on the computer that runs it.",
+      availabilityTooltip: "Local agent setup needs attention",
       body: (targetName) =>
-        `${targetName} is connected, but local agent setup is not complete on this computer yet. Finish local agent setup here.`,
+        `${targetName}'s local agent could not complete setup on its computer. Check its status on that computer, then try again.`,
       kind: "local_agent_prepare",
       patterns: [
         "=controller.bootstrap.failed",
         "=controller.gateway.unhealthy",
       ],
-      primaryActionId: "connect_local_agent",
-      recoveryTarget: "prepare_setup",
+      primaryActionId: "check_status",
+      recoveryTarget: "computer",
     },
     {
       body: "The model provider rejected this request because the provider credentials are invalid or expired. Reconnect the provider account, then wake the agent again.",
@@ -2129,6 +2162,29 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       kind: "system_retry",
       patterns: ["=interaction.unsupported"],
       recoveryTarget: null,
+    },
+    {
+      body: "The selected local agent is not ready to connect. Finish local agent setup on the Computer, then retry setup.",
+      kind: "local_agent_prepare",
+      patterns: ["=agent_profile_creation_request.local_agent_not_ready"],
+      primaryActionId: "connect_local_agent",
+      recoveryTarget: "prepare_setup",
+    },
+    {
+      body: "The selected model isn't offered by this local agent. Choose another model or update the local agent, then retry setup.",
+      kind: "local_agent_prepare",
+      patterns: ["=agent_profile_creation_request.model_not_offered"],
+      primaryActionId: "review_agent_settings",
+      recoveryTarget: "agents",
+    },
+    {
+      body: "The selected model requires a newer local agent. Update the local agent or choose another model, then retry setup.",
+      kind: "local_agent_prepare",
+      patterns: [
+        "=agent_profile_creation_request.model_requires_newer_controller",
+      ],
+      primaryActionId: "review_agent_settings",
+      recoveryTarget: "agents",
     },
     {
       body: UNSUPPORTED_REASONING_PUBLIC_COPY,

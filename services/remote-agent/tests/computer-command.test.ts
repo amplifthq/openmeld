@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import type {
   WorkspaceClient,
   WorkspaceRuntimeEvent,
@@ -14,9 +15,12 @@ import {
 } from "@earendil-works/pi-ai";
 import { defineTool, init, useModel, useTool } from "@flue/runtime";
 import { sqlite, start } from "@flue/runtime/node";
-import { buildPersonalRemoteAgentConversationId } from "@openmeld/schemas";
+import {
+  buildPersonalRemoteAgentConversationId,
+  type CloudComputerCommandReference,
+} from "@openmeld/schemas";
 import { type GenericSchema, object, parse } from "valibot";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createRemoteAgentCallbackContext,
   putRemoteAgentCallbackContext,
@@ -27,12 +31,12 @@ import {
   readRemoteAgentExecutionState,
 } from "../agent-core/execution-state";
 import {
-  collectComputerCommands,
   createComputerCommandTool,
   readCommandSlice,
   stopRemoteAgentComputerCommands,
   stopStoredComputerCommands,
 } from "../flue-adapter/computer-command";
+import { ComputerCommandSqlStorage } from "../flue-adapter/computer-command-storage";
 import { resolveRemoteAgentComputerName } from "../flue-adapter/computer-identity";
 import { cancelFlueRemoteAgentExecution } from "../flue-adapter/execution-cancellation";
 import { finishRemoteAgentComputerCommands } from "../flue-adapter/execution-cleanup";
@@ -47,6 +51,7 @@ import {
   createSubmitTurnRequestV2,
   TEST_NOW_MS,
 } from "./fixtures";
+import { collectDueComputerCommands as collectComputerCommands } from "./fixtures/computer-command-results";
 import { InMemoryDurableObjectStorage } from "./storage";
 
 const cleanupAccess = vi.hoisted(() => vi.fn());
@@ -134,8 +139,28 @@ function handle(
   }) as WorkspaceRuntimeExecHandle<"utf8">;
 }
 
+const commandDatabases: DatabaseSync[] = [];
+afterEach(() => {
+  for (const database of commandDatabases) {
+    database.close();
+  }
+  commandDatabases.length = 0;
+});
+
 function fixture() {
-  const storage = new InMemoryDurableObjectStorage();
+  const database = new DatabaseSync(":memory:");
+  commandDatabases.push(database);
+  const storage = new ComputerCommandSqlStorage({
+    exec(query, ...bindings) {
+      const rows = database.prepare(query).all(...(bindings as never[]));
+      return {
+        toArray: () => rows,
+        rowsWritten: Number(
+          database.prepare("SELECT changes() AS count").get()?.count ?? 0
+        ),
+      };
+    },
+  });
   const processes = new Set<string>();
   const exec = vi.fn((_source: string, options: { id: string }) => {
     processes.add(options.id);
@@ -339,8 +364,10 @@ describe("retained Computer commands", () => {
         ).resolves.toMatchObject({ status: "completed", exitCode: 137 });
         expect(f.killExec).toHaveBeenCalledOnce();
       }
-      expect(await tool.execute({ action: "list" })).toMatchObject([
-        { key: "late" },
+      expect(
+        await tool.execute({ action: "list", includeReceiptDetails: true })
+      ).toMatchObject([
+        { key: "late", ...(action === "start" ? { phase: "accepted" } : {}) },
       ]);
     } finally {
       acquired.resolve();
@@ -441,6 +468,9 @@ describe("retained Computer commands", () => {
       command: "printf recovered",
     });
     await expect(launch).rejects.toThrow("dispatch acknowledgement lost");
+    await expect(
+      f.tool().execute({ action: "list", includeReceiptDetails: true })
+    ).resolves.toMatchObject([{ key: "uncertain", phase: "launch_unknown" }]);
     f.getExec.mockRejectedValue(
       Object.assign(new Error("not dispatched yet"), { code: "ENOENT" })
     );
@@ -1282,7 +1312,10 @@ describe("retained Computer commands", () => {
     }
     await expect(
       f.tool().execute({ action: "poll", key: "lost" })
-    ).rejects.toMatchObject({ code });
+    ).rejects.toMatchObject({
+      code: "computer.execution_result_unavailable",
+      cause: { status: 404, code: "computer.execution_result_unavailable" },
+    });
     cleanupAccess.mockReturnValue(f.workspaceAccess);
     await expect(
       stopRemoteAgentComputerCommands({
@@ -1703,26 +1736,124 @@ describe("retained Computer commands", () => {
       key: "report",
       command: "python3 report.py",
     };
-    await f.tool().execute(request);
+    const receipt = (await f.tool().execute(request)) as {
+      id: string;
+      reference: CloudComputerCommandReference;
+    };
+    expect(receipt).toMatchObject({
+      phase: "running",
+      reference: {
+        invocationId: "execution-a",
+        key: "report",
+        id: receipt.id,
+        backend: "container",
+      },
+    });
     await f.tool().execute(request);
     expect(f.exec).toHaveBeenCalledTimes(1);
     expect(f.getExec).toHaveBeenCalledTimes(1);
     expect(f.killExec).not.toHaveBeenCalled();
-    expect(await f.tool().execute({ action: "list" })).toMatchObject([
-      { key: "report" },
+    expect(
+      await f.tool().execute({ action: "list", includeReceiptDetails: true })
+    ).toMatchObject([
+      { key: "report", reference: receipt.reference, phase: "running" },
     ]);
+    await expect(
+      f.tool().execute({
+        action: "poll",
+        key: "report",
+        reference: receipt.reference,
+        waitSeconds: 0,
+      })
+    ).resolves.toMatchObject({ reference: receipt.reference });
+    expect(f.exec).toHaveBeenCalledOnce();
+    await expect(f.tool().execute({ action: "list" })).resolves.toEqual([
+      { id: receipt.id, key: "report", createdAt: expect.any(Number) },
+    ]);
+  });
+
+  it.each([
+    { acknowledged: false, nativeCode: "ENOENT", phase: "launch_unknown" },
+    {
+      acknowledged: true,
+      nativeCode: "EEXEC_LOST",
+      phase: "result_unavailable",
+    },
+  ] as const)("reports unavailable native results without changing $phase identity", async ({
+    acknowledged,
+    nativeCode,
+    phase,
+  }) => {
+    const f = fixture();
+    if (!acknowledged) {
+      f.exec.mockRejectedValueOnce(new Error("dispatch acknowledgement lost"));
+    }
+    const start = f.tool().execute({
+      action: "start",
+      key: "retained",
+      command: "python3 report.py",
+    });
+    if (acknowledged) {
+      await start;
+    } else {
+      await expect(start).rejects.toThrow("dispatch acknowledgement lost");
+    }
+    const listed = (await f
+      .tool()
+      .execute({ action: "list", includeReceiptDetails: true })) as {
+      reference: CloudComputerCommandReference;
+    }[];
+    const reference = listed[0]?.reference;
+    expect(reference).toBeDefined();
+    // This native error contract was observed on the actual container and is
+    // already used by the installed SDK's retained-execution boundary.
+    f.getExec.mockRejectedValueOnce(
+      Object.assign(new Error("native result is unavailable"), {
+        code: nativeCode,
+      })
+    );
+    await expect(
+      f
+        .tool()
+        .execute({ action: "poll", key: "retained", reference, waitSeconds: 0 })
+    ).rejects.toMatchObject({
+      code: "computer.execution_result_unavailable",
+      cause: { status: 404, code: "computer.execution_result_unavailable" },
+    });
+    await expect(
+      f.tool().execute({ action: "list", includeReceiptDetails: true })
+    ).resolves.toMatchObject([{ reference, phase }]);
+    expect(f.exec).toHaveBeenCalledOnce();
+    expect(f.killExec).not.toHaveBeenCalled();
   });
 
   it("rejects another execution's control key and rejects changed commands", async () => {
     const f = fixture();
-    await f.tool().execute({
+    const receipt = (await f.tool().execute({
       action: "start",
       key: "report",
       command: "python3 report.py",
-    });
+    })) as { reference: CloudComputerCommandReference };
     await expect(
       f.tool("execution-b").execute({ action: "stop", key: "report" })
-    ).rejects.toThrow("Unknown Computer command");
+    ).rejects.toMatchObject({
+      code: "computer.command_not_found",
+      cause: { status: 404, code: "computer.command_not_found" },
+    });
+    for (const changed of [
+      { invocationId: "execution-b" },
+      { key: "another-key" },
+      { id: "another-native-id" },
+      { backend: "worker-javascript" as const },
+    ]) {
+      await expect(
+        f.tool().execute({
+          action: "stop",
+          key: "report",
+          reference: { ...receipt.reference, ...changed },
+        })
+      ).rejects.toMatchObject({ code: "computer.command_reference_mismatch" });
+    }
     await expect(
       f
         .tool()

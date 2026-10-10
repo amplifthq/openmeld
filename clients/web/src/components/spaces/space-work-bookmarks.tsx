@@ -1,4 +1,7 @@
-import type { WakeProgressItem } from "@openmeld/schemas/types";
+import type {
+	SpaceInputQueueResponse,
+	WakeProgressItem,
+} from "@openmeld/schemas/types";
 import { isActiveWakeProgressItem } from "@openmeld/space";
 import { Button } from "@openmeld/ui/components/button";
 import {
@@ -7,8 +10,12 @@ import {
 	PopoverTitle,
 	PopoverTrigger,
 } from "@openmeld/ui/components/popover";
+import {
+	FluidActionList,
+	FluidActionListItem,
+} from "@openmeld/ui/fluid/action-list";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
-import { CaretUpIcon } from "@phosphor-icons/react";
+import { CaretUpIcon, ClockIcon } from "@phosphor-icons/react";
 import {
 	AnimatePresence,
 	motion,
@@ -37,21 +44,29 @@ export function wakeBookmarkKey(item: WakeProgressItem): string {
 	return `${item.clientMessageId ?? item.sourceSignalId ?? item.dispatchId}:${item.targetProfileId}`;
 }
 
+type QueueItem = SpaceInputQueueResponse["items"][number];
+type WorkBookmark = {
+	key: string;
+	threadId: string | null;
+	wake?: WakeProgressItem;
+	queuedItems: readonly QueueItem[];
+};
 type BookmarkContext = {
-	items: readonly WakeProgressItem[];
-	activeItems: readonly WakeProgressItem[];
+	items: readonly WorkBookmark[];
+	activeItems: readonly WorkBookmark[];
 	hasMore: boolean;
 	activeThreadId: string | null;
-	jump: (item: WakeProgressItem) => void;
+	jump: (item: WorkBookmark) => void;
 	register: (key: string, element: HTMLElement) => () => void;
 };
 const Context = createContext<BookmarkContext | null>(null);
 
-/** Viewport state controls placement only; execution remains owned by Wake progress. */
-export function SpaceWakeBookmarksProvider(input: {
+/** Navigation only: Wake progress owns execution, and the authorized Queue owns pending input. */
+export function SpaceWorkBookmarksProvider(input: {
 	children: ReactNode;
 	profileId: string;
 	items: readonly WakeProgressItem[];
+	queuedItems: readonly QueueItem[];
 	hasMore: boolean;
 	activeThreadId: string | null;
 	onShowConversation: () => void;
@@ -148,7 +163,7 @@ export function SpaceWakeBookmarksProvider(input: {
 		},
 		[jumpToElement]
 	);
-	const activeItems = useMemo(
+	const activeWakes = useMemo(
 		() =>
 			input.items
 				.filter((item) => item.sourceContext?.profileId === input.profileId)
@@ -158,14 +173,54 @@ export function SpaceWakeBookmarksProvider(input: {
 				),
 		[input.items, input.profileId]
 	);
+	const activeItems = useMemo(() => {
+		const bookmarks: WorkBookmark[] = activeWakes.map((wake) => ({
+			key: wakeBookmarkKey(wake),
+			threadId: wake.sourceContext?.threadId ?? null,
+			wake,
+			queuedItems: [],
+		}));
+		const threads = new Map<string, QueueItem[]>();
+		for (const item of input.queuedItems) {
+			if (
+				item.authorProfileId !== input.profileId ||
+				!item.threadId ||
+				item.threadId === input.activeThreadId
+			) {
+				continue;
+			}
+			const group = threads.get(item.threadId) ?? [];
+			group.push(item);
+			threads.set(item.threadId, group);
+		}
+		for (const [threadId, queuedItems] of threads) {
+			const key = `queue:${threadId}`;
+			const originalWork = bookmarks.find(
+				(bookmark) =>
+					bookmark.threadId === threadId &&
+					queuedItems.some(
+						(item) =>
+							item.target.dispatchId === bookmark.wake?.dispatchId &&
+							item.target.targetProfileId === bookmark.wake?.targetProfileId
+					)
+			);
+			if (originalWork) {
+				originalWork.key = key;
+				originalWork.queuedItems = queuedItems;
+			} else {
+				bookmarks.push({ key, threadId, queuedItems });
+			}
+		}
+		return bookmarks;
+	}, [activeWakes, input.queuedItems, input.profileId, input.activeThreadId]);
 	const items = activeItems.filter(
-		(item) => !visibleKeys.has(wakeBookmarkKey(item))
+		(item) => item.queuedItems.length > 0 || !visibleKeys.has(item.key)
 	);
-	const jump = (item: WakeProgressItem) => {
-		const key = wakeBookmarkKey(item);
+	const jump = (item: WorkBookmark) => {
+		const key = item.key;
 		const element = elements.current.get(key)?.values().next().value;
 		input.onShowConversation();
-		const threadId = item.sourceContext?.threadId;
+		const threadId = item.threadId;
 		if (threadId && threadId !== input.activeThreadId) {
 			if (input.threadHasAttachments) {
 				toast.info(
@@ -173,7 +228,9 @@ export function SpaceWakeBookmarksProvider(input: {
 				);
 				return;
 			}
-			pendingJump.current = key;
+			// Opening restores the Thread's composer and its Queue tray. Only
+			// ordinary work bookmarks need to seek a message status anchor.
+			pendingJump.current = item.queuedItems.length ? null : key;
 			input.onOpenThread(threadId);
 			return;
 		}
@@ -223,7 +280,7 @@ export function SpaceWakeBookmarkAnchor(input: {
 	);
 }
 
-export function SpaceComposerActiveWakes(input: {
+export function SpaceComposerWorkBookmarks(input: {
 	placement: "conversation" | "thread";
 }) {
 	const context = useContext(Context);
@@ -231,14 +288,14 @@ export function SpaceComposerActiveWakes(input: {
 		return null;
 	}
 	const threadId = input.placement === "thread" ? context.activeThreadId : null;
-	const belongsHere = (item: WakeProgressItem) => {
-		const sourceThreadId = item.sourceContext?.threadId ?? null;
+	const belongsHere = (item: WorkBookmark) => {
+		const sourceThreadId = item.threadId;
 		return input.placement === "thread"
 			? sourceThreadId === threadId
 			: !sourceThreadId || sourceThreadId !== context.activeThreadId;
 	};
 	return (
-		<SpaceComposerWakeBookmarks
+		<SpaceComposerWorkBookmarkControl
 			context={{
 				...context,
 				items: context.items.filter(belongsHere),
@@ -249,38 +306,38 @@ export function SpaceComposerActiveWakes(input: {
 	);
 }
 
-function SpaceComposerWakeBookmarks({ context }: { context: BookmarkContext }) {
+function SpaceComposerWorkBookmarkControl({
+	context,
+}: {
+	context: BookmarkContext;
+}) {
 	const [open, setOpen] = useState(false);
-	const [openedItems, setOpenedItems] = useState<readonly WakeProgressItem[]>(
-		[]
-	);
+	const [openedItems, setOpenedItems] = useState<readonly WorkBookmark[]>([]);
 	const items = open
 		? openedItems.map(
 				(item) =>
-					context.activeItems.find(
-						(current) => wakeBookmarkKey(current) === wakeBookmarkKey(item)
-					) ?? item
+					context.activeItems.find((current) => current.key === item.key) ??
+					item
 			)
 		: context.items;
 	const selected = items
 		.filter((item) =>
-			context.activeItems.some(
-				(current) => wakeBookmarkKey(current) === wakeBookmarkKey(item)
-			)
+			context.activeItems.some((current) => current.key === item.key)
 		)
 		.sort((left, right) => {
-			const a = resolveWakeProgressStatus(left);
-			const b = resolveWakeProgressStatus(right);
+			const a = left.wake ? resolveWakeProgressStatus(left.wake) : null;
+			const b = right.wake ? resolveWakeProgressStatus(right.wake) : null;
 			return (
 				(a ? WAKE_PROGRESS_STATUS_PRIORITY[a.kind] : 99) -
 				(b ? WAKE_PROGRESS_STATUS_PRIORITY[b.kind] : 99)
 			);
 		})[0];
-	const status = selected ? resolveWakeProgressStatus(selected) : null;
+	const status = selected ? resolveBookmarkStatus(selected) : null;
 	const visible = open || Boolean(selected && status);
 	const multiple = items.length > 1 || context.hasMore || open;
 	const button = renderBookmarkTrigger({
 		status,
+		threadId: selected?.threadId ?? null,
 		multiple,
 		count: items.length,
 		hasMore: context.hasMore,
@@ -290,7 +347,7 @@ function SpaceComposerWakeBookmarks({ context }: { context: BookmarkContext }) {
 		return null;
 	}
 	return (
-		<div className="min-w-0" data-slot="composer-active-wakes">
+		<div className="min-w-0" data-slot="composer-work-bookmarks">
 			<Popover
 				onOpenChange={(next) => {
 					if (next && !multiple) {
@@ -311,22 +368,22 @@ function SpaceComposerWakeBookmarks({ context }: { context: BookmarkContext }) {
 				>
 					<ScrollArea className="max-h-72">
 						<PopoverTitle>Work outside your view</PopoverTitle>
-						<div className="flex flex-col gap-1">
-							{items.map((item) => (
-								<WakeBookmarkRow
+						<FluidActionList className="gap-1" gapClick={false}>
+							{items.map((item, index) => (
+								<WorkBookmarkRow
 									current={context.activeItems.find(
-										(candidate) =>
-											wakeBookmarkKey(candidate) === wakeBookmarkKey(item)
+										(candidate) => candidate.key === item.key
 									)}
+									index={index}
 									item={item}
-									key={wakeBookmarkKey(item)}
+									key={item.key}
 									onClick={() => {
 										context.jump(item);
 										setOpen(false);
 									}}
 								/>
 							))}
-						</div>
+						</FluidActionList>
 						{context.hasMore ? (
 							<p className="text-muted-foreground">
 								This list may be incomplete. More work is active in this Space.
@@ -341,23 +398,25 @@ function SpaceComposerWakeBookmarks({ context }: { context: BookmarkContext }) {
 
 function renderBookmarkTrigger({
 	status,
+	threadId,
 	multiple,
 	count,
 	hasMore,
 	onJump,
 }: {
-	status: ReturnType<typeof resolveWakeProgressStatus>;
+	status: ReturnType<typeof resolveBookmarkStatus> | null;
+	threadId: string | null;
 	multiple: boolean;
 	count: number;
 	hasMore: boolean;
 	onJump: () => void;
 }) {
+	const destination = threadId ? "View Thread" : "View working agent";
+	const action = multiple ? "Show work and queued messages" : destination;
 	return (
 		<Button
 			aria-label={
-				status
-					? `${status.label}. ${multiple ? "Show active Wakes" : "View working agent"}`
-					: "Active Wakes"
+				status ? `${status.label}. ${action}` : "Work and queued messages"
 			}
 			className="w-full min-w-0 max-w-56 gap-2 text-muted-foreground transition-colors"
 			onClick={multiple ? undefined : onJump}
@@ -365,15 +424,22 @@ function renderBookmarkTrigger({
 			type="button"
 			variant="ghost"
 		>
-			{status ? (
-				<SpaceAgentOrb state={WAKE_STATUS_ORB_STATE[status.kind]} />
-			) : null}
-			<WakeBookmarkText
+			{status?.wake ? (
+				<SpaceAgentOrb state={WAKE_STATUS_ORB_STATE[status.wake.kind]} />
+			) : (
+				<ClockIcon className="size-4" />
+			)}
+			<WorkBookmarkText
 				textKey={`${status?.label}:${multiple}:${count}:${hasMore}`}
 			>
 				<span className="min-w-0 truncate text-xs">
-					{status?.label ?? "Active Wakes"}
+					{status?.wake?.label ?? status?.label ?? "Work and queued messages"}
 				</span>
+				{status?.wake && status.queueLabel ? (
+					<span className="shrink-0 text-xs tabular-nums">
+						{status.queueLabel}
+					</span>
+				) : null}
 				{multiple ? (
 					<>
 						<span className="text-xs tabular-nums">
@@ -383,12 +449,12 @@ function renderBookmarkTrigger({
 						<CaretUpIcon className="size-3" />
 					</>
 				) : null}
-			</WakeBookmarkText>
+			</WorkBookmarkText>
 		</Button>
 	);
 }
 
-function WakeBookmarkText({
+function WorkBookmarkText({
 	textKey,
 	children,
 }: {
@@ -398,13 +464,13 @@ function WakeBookmarkText({
 	return (
 		<span aria-hidden className="relative block min-w-0 overflow-hidden">
 			<AnimatePresence initial={false}>
-				<WakeBookmarkTextFrame key={textKey}>{children}</WakeBookmarkTextFrame>
+				<WorkBookmarkTextFrame key={textKey}>{children}</WorkBookmarkTextFrame>
 			</AnimatePresence>
 		</span>
 	);
 }
 
-function WakeBookmarkTextFrame({ children }: { children: ReactNode }) {
+function WorkBookmarkTextFrame({ children }: { children: ReactNode }) {
 	const present = useIsPresent();
 	const reducedMotion = useReducedMotion();
 	return (
@@ -438,31 +504,64 @@ function WakeBookmarkTextFrame({ children }: { children: ReactNode }) {
 	);
 }
 
-function WakeBookmarkRow(input: {
-	item: WakeProgressItem;
-	current: WakeProgressItem | undefined;
+function resolveBookmarkStatus(item: WorkBookmark) {
+	const wake = item.wake ? resolveWakeProgressStatus(item.wake) : null;
+	const count = item.queuedItems.length;
+	if (!(wake || count)) {
+		return null;
+	}
+	let queueLabel =
+		count === 1 ? "1 queued message" : `${count} queued messages`;
+	if (item.queuedItems.some((queued) => queued.state === "unconfirmed")) {
+		queueLabel = "Queue needs attention";
+	} else if (
+		count &&
+		item.queuedItems.every((queued) => queued.state === "claimed")
+	) {
+		queueLabel = "Confirming delivery…";
+	}
+	return {
+		wake,
+		queueLabel: count ? queueLabel : null,
+		label: wake
+			? `${wake.label}${count ? ` · ${queueLabel}` : ""}`
+			: queueLabel,
+	};
+}
+
+function WorkBookmarkRow(input: {
+	item: WorkBookmark;
+	current: WorkBookmark | undefined;
+	index: number;
 	onClick: () => void;
 }) {
-	const step = input.current ? resolveWakeProgressStatus(input.current) : null;
+	const step = input.current ? resolveBookmarkStatus(input.current) : null;
 	return (
-		<button
-			className="flex items-start gap-2 rounded-md p-2 text-left hover:bg-accent focus-visible:bg-accent disabled:text-muted-foreground"
+		<FluidActionListItem
+			className="flex items-start gap-2 rounded-md p-2 text-left disabled:text-muted-foreground"
 			disabled={!input.current}
+			index={input.index}
 			onClick={input.onClick}
 			type="button"
 		>
-			{step ? <SpaceAgentOrb state={WAKE_STATUS_ORB_STATE[step.kind]} /> : null}
+			{step?.wake ? (
+				<SpaceAgentOrb state={WAKE_STATUS_ORB_STATE[step.wake.kind]} />
+			) : (
+				<ClockIcon className="size-4 shrink-0" />
+			)}
 			<span className="min-w-0">
 				<span className="block text-xs">
-					{step?.label ?? `${input.item.targetLabel} · No longer active`}
+					{step?.label ?? "No longer active"}
 				</span>
 				<span className="mt-1 block truncate text-muted-foreground text-xs">
-					{input.item.sourceContext?.messagePreview ?? "View request"}
+					{input.item.queuedItems[0]?.text ??
+						input.item.wake?.sourceContext?.messagePreview ??
+						"View request"}
 				</span>
-				{input.item.sourceContext?.threadId ? (
+				{input.item.threadId ? (
 					<span className="text-muted-foreground text-xs">Thread</span>
 				) : null}
 			</span>
-		</button>
+		</FluidActionListItem>
 	);
 }

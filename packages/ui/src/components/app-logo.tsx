@@ -55,7 +55,9 @@ export function AppLogo(input: {
         className={cn(
           "max-h-full max-w-full object-contain",
           input.surfaceLevel !== undefined &&
-            (input.app.service === "github" || input.app.service === "linear")
+            ["github", "linear", "vercel", "resend", "mailchimp"].includes(
+              input.app.service
+            )
             ? "dark:invert"
             : null,
           input.muted ? "opacity-50 grayscale" : null

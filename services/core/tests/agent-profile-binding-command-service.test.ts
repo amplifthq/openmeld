@@ -182,6 +182,28 @@ describe("Agent Profile Binding command service", () => {
     expect(bindingStore.records).toHaveLength(1);
   });
 
+  it("initialization validates retained settings instead of stale creation model intent", async () => {
+    const bindingStore = createInMemoryBindingStore();
+    await ensurePrimaryAgentProfileBinding({
+      ...createValidCommandInput(),
+      bindingStore,
+      modelId: "gpt-6-astra",
+      reasoningLevel: "high",
+    });
+    await expect(
+      ensurePrimaryAgentProfileBinding({
+        ...createValidCommandInput(),
+        bindingStore,
+        modelId: "gpt-6",
+        reasoningLevel: "invalid-effort",
+        writeMode: "initialize",
+      })
+    ).resolves.toMatchObject({
+      status: "accepted",
+      binding: { modelId: "gpt-6-astra", reasoningLevel: "high" },
+    });
+    expect(bindingStore.records).toHaveLength(1);
+  });
   it.each([
     {
       agentControllerRef: "builtin:codex",

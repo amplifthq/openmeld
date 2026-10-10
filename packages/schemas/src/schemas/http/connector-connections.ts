@@ -26,6 +26,25 @@ export const CONNECTOR_CONNECTION_STATUSES = [
   "disconnected",
 ] as const;
 export const CONNECTOR_CONNECTION_SCOPES = ["member", "shared"] as const;
+/** Account-wide mail, calendar and meeting access remains member-private.
+ * Other catalog providers support both ownership scopes; Agent permissions
+ * still apply to every connection. No provider currently requires shared-only.
+ */
+export const CONNECTOR_PERSONAL_ONLY_SERVICES: readonly string[] = [
+  "gmail",
+  "outlook",
+  "googlecalendar",
+  "googlemeet",
+];
+
+export function connectorConnectionScopeAllowed(
+  service: string,
+  scope: (typeof CONNECTOR_CONNECTION_SCOPES)[number]
+): boolean {
+  return (
+    scope === "member" || !CONNECTOR_PERSONAL_ONLY_SERVICES.includes(service)
+  );
+}
 export const CONNECTOR_CONNECTION_PREFERENCES = [
   "automatic",
   "requester",

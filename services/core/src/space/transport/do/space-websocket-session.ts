@@ -22,6 +22,7 @@ export type SpaceQueuedWebSocketMessage =
   | SpaceAgentStreamTerminalFrame;
 
 export type SpaceWebSocketSession = {
+  viewerDeletedThroughPosition?: number;
   callerPrincipalId?: string;
   supportsAgentWorkOutcomes?: boolean;
   supportsAgentReplyPlacement?: boolean;

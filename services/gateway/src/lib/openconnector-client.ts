@@ -44,7 +44,7 @@ const openConnectorInstallationLookupSchema = z.object({
 });
 
 const openConnectorProviderListSchema = z.object({
-  data: z.array(connectorAppCatalogProviderSchema).max(5000),
+  data: z.array(connectorAppCatalogProviderSchema.strip()).max(5000),
   success: z.literal(true),
 });
 
@@ -70,11 +70,13 @@ export class OpenConnectorClient {
   readonly #adminToken: string;
   readonly #baseUrl: string;
   readonly #fetch: typeof fetch;
+  readonly #runtimeToken: string | undefined;
 
   constructor(input: {
     adminToken: string;
     baseUrl: string;
     fetch?: typeof fetch;
+    runtimeToken?: string;
   }) {
     this.#adminToken = requireConfigurationValue(
       input.adminToken,
@@ -86,6 +88,7 @@ export class OpenConnectorClient {
     ).replace(TRAILING_SLASH_PATTERN, "");
     const fetchImplementation = input.fetch ?? globalThis.fetch;
     this.#fetch = fetchImplementation.bind(globalThis);
+    this.#runtimeToken = input.runtimeToken;
   }
 
   async startAuthorization(input: {
@@ -115,7 +118,11 @@ export class OpenConnectorClient {
   async listProviders(): Promise<ConnectorAppCatalogProvider[]> {
     const payload = await this.#request(
       "/v1/providers?includeConnectionAuth=true",
-      { method: "GET" }
+      { method: "GET" },
+      requireConfigurationValue(
+        this.#runtimeToken ?? "",
+        "OpenConnector runtime token"
+      )
     );
     return parseOpenConnectorPayload({
       operation: "list providers",
@@ -230,11 +237,15 @@ export class OpenConnectorClient {
     }
   }
 
-  async #request(path: string, init: RequestInit): Promise<unknown> {
+  async #request(
+    path: string,
+    init: RequestInit,
+    token = this.#adminToken
+  ): Promise<unknown> {
     const response = await this.#fetch(`${this.#baseUrl}${path}`, {
       ...init,
       headers: {
-        authorization: `Bearer ${this.#adminToken}`,
+        authorization: `Bearer ${token}`,
         ...(init.body ? { "content-type": "application/json" } : {}),
       },
     });

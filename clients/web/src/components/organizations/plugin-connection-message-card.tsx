@@ -3,11 +3,13 @@
 import {
 	findPluginDefinition,
 	type PluginDefinition,
+	pluginFromProvider,
 } from "@openmeld/product-catalog/plugins";
 import type {
 	NavigationAction,
 	OpenMeldNavigationTarget,
 } from "@openmeld/schemas";
+import { connectorConnectionScopeAllowed } from "@openmeld/schemas";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	Dialog,
@@ -25,7 +27,10 @@ import { useOptionalAppOrganization } from "#/lib/organizations/organization-con
 import { canManageOrganizationArea } from "#/lib/organizations/organization-permissions";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
 import { organizationMemberRoleQueryOptions } from "#/query/organizations/organization-directory";
-import { organizationPluginServiceConnectionsQueryOptions } from "#/query/organizations/plugin-connections";
+import {
+	organizationPluginProviderCatalogQueryOptions,
+	organizationPluginServiceConnectionsQueryOptions,
+} from "#/query/organizations/plugin-connections";
 import {
 	PluginConnectionContinuation,
 	type PluginConnectionContinuationContext,
@@ -44,13 +49,46 @@ export function PluginConnectionMessageCard(input: {
 	continuation?: PluginConnectionContinuationContext;
 }) {
 	const organization = useOptionalAppOrganization();
-	const [open, setOpen] = useState(false);
-	const plugin = findPluginDefinition(input.action.target.service);
 	if (
 		!organization ||
-		organization.currentOrganization.slug !== input.organizationSlug ||
-		plugin?.availability !== "available"
+		organization.currentOrganization.slug !== input.organizationSlug
 	) {
+		return (
+			<DesktopAwareLink href={input.action.url}>
+				{input.action.label}
+			</DesktopAwareLink>
+		);
+	}
+	return (
+		<OrganizationPluginConnectionMessageCard
+			{...input}
+			organization={organization}
+		/>
+	);
+}
+
+function OrganizationPluginConnectionMessageCard(input: {
+	action: NavigationAction & { target: PluginConnectionTarget };
+	continuation?: PluginConnectionContinuationContext;
+	organization: NonNullable<ReturnType<typeof useOptionalAppOrganization>>;
+}) {
+	const { organization } = input;
+	const [open, setOpen] = useState(false);
+	const catalog = useQuery({
+		...organizationPluginProviderCatalogQueryOptions({
+			organizationId: organization.currentOrganization.id,
+		}),
+		enabled: open,
+		refetchOnMount: "always",
+	});
+	const provider = catalog.data?.providers.find(
+		(item) => item.service === input.action.target.service
+	);
+	const plugin = provider ? pluginFromProvider(provider) : null;
+	const name =
+		findPluginDefinition(input.action.target.service)?.name ??
+		input.action.target.service;
+	if (catalog.isSuccess && plugin?.availability !== "available") {
 		return (
 			<DesktopAwareLink href={input.action.url}>
 				{input.action.label}
@@ -62,19 +100,31 @@ export function PluginConnectionMessageCard(input: {
 			<DialogTrigger
 				render={<Button size="sm" type="button" variant="outline" />}
 			>
-				Connect or review {plugin.name}
+				Connect or review {plugin?.name ?? name}
 			</DialogTrigger>
 			<DialogContent className="overflow-hidden" size="lg">
 				<DialogHeader>
-					<DialogTitle>{plugin.name} connection</DialogTitle>
+					<DialogTitle>{plugin?.name ?? name} access</DialogTitle>
 					<DialogDescription>
-						Set up access without leaving this conversation. Use the provider’s
-						authorization window or the secure form below, never a chat message,
-						to enter credentials.
+						Connect your account, choose the Agent’s access, then continue the
+						original task here. Enter credentials only in the provider’s window
+						or the secure form below.
 					</DialogDescription>
 				</DialogHeader>
 				<ScrollArea className="max-h-[65dvh] min-h-0">
-					{open ? (
+					{catalog.isError ? (
+						<div className="space-y-3 py-4">
+							<p role="alert">Plugin setup could not be checked.</p>
+							<Button
+								onClick={() => catalog.refetch()}
+								size="sm"
+								variant="outline"
+							>
+								Try again
+							</Button>
+						</div>
+					) : null}
+					{!catalog.isError && open && plugin?.availability === "available" ? (
 						<PluginConnectionSetupPanel
 							continuation={input.continuation}
 							currentUserId={organization.currentUserId}
@@ -83,6 +133,11 @@ export function PluginConnectionMessageCard(input: {
 							plugin={plugin}
 							target={input.action.target}
 						/>
+					) : null}
+					{catalog.isPending ? (
+						<output className="block py-4 text-muted-foreground text-sm">
+							Checking Plugin setup…
+						</output>
 					) : null}
 				</ScrollArea>
 			</DialogContent>
@@ -193,7 +248,10 @@ function PluginConnectionSetup(input: {
 		if (input.target.scope !== "choose") {
 			return input.target.scope;
 		}
-		if (isPersonalWorkspace) {
+		if (
+			isPersonalWorkspace ||
+			!connectorConnectionScopeAllowed(input.plugin.service, "shared")
+		) {
 			return "member";
 		}
 		if (input.hasMemberConnection && input.hasSharedConnection) {
@@ -210,6 +268,14 @@ function PluginConnectionSetup(input: {
 		}
 		return "member";
 	});
+	if (scope && !connectorConnectionScopeAllowed(input.plugin.service, scope)) {
+		return (
+			<p className="py-3 text-muted-foreground text-sm">
+				{input.plugin.name} requires a personal account. This organization
+				request cannot use it.
+			</p>
+		);
+	}
 	if (!scope) {
 		return (
 			<div className="space-y-3 py-4">

@@ -2,6 +2,7 @@ import {
   currentDeviceTargetResponseSchema,
   forgetComputerResponseSchema,
   forgetCurrentComputerResponseSchema,
+  getCurrentAgentProfileWorkspaceResponseSchema,
   localRuntimesResponseSchema,
   refreshCurrentLocalAgentCatalogResponseSchema,
   setCurrentAgentProfileWorkspaceResponseSchema,
@@ -12,37 +13,57 @@ import { describe, expect, it, vi } from "vitest";
 import { createCurrentDeviceApi, createOpenMeldApiClient } from "../src";
 
 describe("api-client current device api", () => {
-  it("exposes current-device and explicitly targeted PeopleComputers methods", () => {
-    const client = createOpenMeldApiClient({
-      baseUrl: "https://gateway.openmeld.invalid",
-      transport: vi.fn(() => Promise.resolve(new Response("ok"))),
+  it.each([
+    "bound",
+    "explicit",
+  ] as const)("reads saved settings with the Binding precondition (%s)", async (selection) => {
+    const agentProfileId = "agt_11111111-1111-4111-8111-111111111111";
+    const expectedBindingTarget = {
+      bindingId: "binding-1",
+      agentControllerRef: "builtin:codex",
+      agentControllerConversationId: null,
+      openMeldServiceRuntimeId: "runtime-1",
+    };
+    const target = {
+      deviceId: "selected-device",
+      runtimeLane: "canary" as const,
+    };
+    // Configuration fields follow the sanitized native saved-reader capture.
+    const receipt = getCurrentAgentProfileWorkspaceResponseSchema.parse({
+      agentProfileId,
+      target,
+      workspace: {
+        status: "configured",
+        workspaceMode: "openmeld_managed",
+        workspacePath: "/managed/profile/workspace",
+        configurationVersion: 2,
+        updatedAt: "2026-10-09T22:24:57.270Z",
+      },
     });
-
-    expect(Object.keys(createCurrentDeviceApi(client)).sort()).toEqual([
-      "enrollLocalRuntime",
-      "forgetComputer",
-      "forgetCurrentComputer",
-      "getCurrentLocalAgentInstallations",
-      "getCurrentLocalRuntimeReplyReadiness",
-      "getCurrentTarget",
-      "getPeopleComputerLocalAgentInstallations",
-      "getPeopleComputerReplyReadiness",
-      "listLocalRuntimes",
-      "listPeopleComputers",
-      "refreshCurrentLocalAgentCatalog",
-      "refreshPeopleComputerLocalAgentCatalog",
-      "requestCurrentOpenMeldToolsUpdate",
-      "requestPeopleComputerOpenMeldToolsUpdate",
-      "selectCurrentLocalAgentInstallation",
-      "selectPeopleComputerLocalAgentInstallation",
-      "setCurrentAgentProfileWorkspace",
-      "setCurrentLocalAgentEnabled",
-      "setCurrentOpenMeldToolsMaintenance",
-      "setDisplayName",
-      "setPeopleComputerLocalAgentEnabled",
-      "setPeopleComputerOpenMeldToolsMaintenance",
-      "writeObservedMetadata",
-    ]);
+    const transport = vi.fn(async () => Response.json(receipt));
+    const api = createCurrentDeviceApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+    await expect(
+      api.getCurrentAgentProfileWorkspace({
+        agentProfileId,
+        expectedBindingTarget,
+        ...(selection === "explicit" ? { target } : {}),
+      })
+    ).resolves.toEqual(receipt);
+    const path =
+      selection === "explicit"
+        ? `/v1/people-computers/selected-device/lanes/canary/agent-profiles/${agentProfileId}/workspace`
+        : `/v1/local-runtimes/current/agent-profiles/${agentProfileId}/workspace`;
+    expect(transport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: `https://gateway.openmeld.invalid${path}?${new URLSearchParams({ expectedBindingTarget: JSON.stringify(expectedBindingTarget) })}`,
+        init: expect.objectContaining({ method: "GET" }),
+      })
+    );
   });
 
   it("uses one-click OpenMeld Tools update routes", async () => {
@@ -871,7 +892,16 @@ describe("api-client current device api", () => {
     );
   });
 
-  it("sets the current Agent Profile workspace through the canonical current-service route", async () => {
+  it.each([
+    false,
+    true,
+  ])("sets an Agent Profile workspace with its required Binding precondition (bound=%s)", async (bound) => {
+    const expectedBindingTarget = {
+      bindingId: "binding-1",
+      agentControllerRef: "builtin:codex",
+      agentControllerConversationId: null,
+      openMeldServiceRuntimeId: "runtime-1",
+    };
     const transport = vi.fn(() =>
       Promise.resolve(
         new Response(
@@ -899,6 +929,15 @@ describe("api-client current device api", () => {
       agentProfileId: "agt_99999999-9999-4999-8999-999999999999",
       workspaceMode: "custom",
       workspacePath: "/Users/felix/Desktop/work/openmeld",
+      ...(bound
+        ? {
+            expectedBindingTarget,
+            target: {
+              deviceId: "selected-device",
+              runtimeLane: "canary" as const,
+            },
+          }
+        : {}),
     });
 
     expect(result).toMatchObject({
@@ -909,13 +948,16 @@ describe("api-client current device api", () => {
     });
     expect(transport).toHaveBeenCalledWith(
       expect.objectContaining({
-        url: "https://gateway.openmeld.invalid/v1/local-runtimes/current/agent-profiles/agt_99999999-9999-4999-8999-999999999999/workspace",
+        url: bound
+          ? "https://gateway.openmeld.invalid/v1/people-computers/selected-device/lanes/canary/agent-profiles/agt_99999999-9999-4999-8999-999999999999/workspace"
+          : "https://gateway.openmeld.invalid/v1/local-runtimes/current/agent-profiles/agt_99999999-9999-4999-8999-999999999999/workspace",
         operation: "local_runtime.current.agent_profile_workspace.write",
         init: expect.objectContaining({
           method: "PUT",
           body: JSON.stringify({
             workspaceMode: "custom",
             workspacePath: "/Users/felix/Desktop/work/openmeld",
+            ...(bound ? { expectedBindingTarget } : {}),
           }),
           headers: {
             "content-type": "application/json",

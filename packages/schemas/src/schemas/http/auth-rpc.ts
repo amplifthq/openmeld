@@ -9,6 +9,15 @@ import { agentAvatarOptionsSchema, agentAvatarStyleSchema } from "./profiles";
 
 const trimmedNonEmptyStringSchema = z.string().trim().min(1);
 
+export const authRpcUpdateAgentProfileDefaultProjectInputSchema =
+  z.strictObject({
+    defaultProjectId: trimmedNonEmptyStringSchema.max(256).nullable(),
+    onlyIfUnmodified: z.boolean().optional(),
+    organizationId: trimmedNonEmptyStringSchema.max(256),
+    ownerUserId: trimmedNonEmptyStringSchema.max(256),
+    profileId: agentProfileIdSchema,
+  });
+
 export const openMeldRequestedOrganizationSelectorSchema = z.union([
   z.strictObject({
     organizationId: trimmedNonEmptyStringSchema.max(256),

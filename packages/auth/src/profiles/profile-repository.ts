@@ -125,8 +125,9 @@ export type OpenMeldProfileRepository = {
     ownerUserId: string,
     organizationId: string,
     profileId: string,
-    defaultProjectId: string | null
-  ) => Promise<void>;
+    defaultProjectId: string | null,
+    onlyIfUnmodified?: boolean
+  ) => Promise<boolean>;
   deleteProfileForOwner: (
     ownerUserId: string,
     profileId: string
@@ -332,6 +333,7 @@ export function createDrizzleOpenMeldProfileRepository(
         creationActorProfileId: input.creationActorProfileId ?? null,
         creatorProfileId: input.creatorProfileId ?? null,
         creationIdempotencyKey: input.creationIdempotencyKey ?? null,
+        defaultProjectRevision: 0,
         managedRole: input.managedRole ?? null,
         source: input.source ?? "cli_create",
         createdAt: now,
@@ -426,22 +428,28 @@ export function createDrizzleOpenMeldProfileRepository(
       ownerUserId,
       organizationId,
       profileId,
-      defaultProjectId
+      defaultProjectId,
+      onlyIfUnmodified
     ) {
-      await db
+      const updated = await db
         .update(openMeldProfiles)
         .set({
           defaultProjectId,
-          updatedAt: new Date(),
+          updatedAt: sql`GREATEST(${Date.now()}, ${openMeldProfiles.updatedAt} + 1)`,
         })
         .where(
           and(
             eq(openMeldProfiles.ownerUserId, ownerUserId),
             eq(openMeldProfiles.organizationId, organizationId),
             eq(openMeldProfiles.profileId, profileId),
-            eq(openMeldProfiles.profileKind, "agent")
+            eq(openMeldProfiles.profileKind, "agent"),
+            ...(onlyIfUnmodified
+              ? [eq(openMeldProfiles.defaultProjectRevision, 0)]
+              : [])
           )
-        );
+        )
+        .returning({ profileId: openMeldProfiles.profileId });
+      return updated.length === 1;
     },
     async deleteProfileForOwner(ownerUserId, profileId) {
       await db

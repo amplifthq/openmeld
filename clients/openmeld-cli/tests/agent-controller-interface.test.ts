@@ -1410,7 +1410,9 @@ describe("agent controller interface inventory", () => {
             "    reply(message.id, { skills: [] });",
             "  }",
             '  if (message.method === "account/rateLimits/read") {',
-            '    reply(message.id, { rateLimits: { limitId: "codex", primary: { usedPercent: 81, resetsAt: 1787259600, windowDurationMins: 300 }, secondary: { usedPercent: 34, resetsAt: null, windowDurationMins: 10080 } } });',
+            // Captured native account/rateLimits/read shape; account and
+            // monetary values are anonymized. Model listing remains hung.
+            '    reply(message.id, { accountId: "fixture-workspace-a", ordinaryUsageAllowed: false, rateLimits: { limitId: "codex", primary: { usedPercent: 100, resetsAt: 1787259600, windowDurationMins: 10080 }, secondary: null, credits: { hasCredits: true, unlimited: false, balance: "10" }, spendControlReached: false, rateLimitReachedType: "rate_limit_reached" } });',
             "  }",
             "  // model/list is intentionally never answered: a hung auxiliary listing.",
             "};",
@@ -1443,18 +1445,16 @@ describe("agent controller interface inventory", () => {
           auth: { email: "dev@example.com", status: "authenticated" },
           models: [],
           status: "ready",
+          usageAdmission: {
+            blocksNewWork: false,
+            observedAt: expect.any(String),
+          },
           usageLimits: [
             {
               key: "codex:primary",
-              label: "5-hour usage",
-              status: "available",
-              usedPercent: 81,
-            },
-            {
-              key: "codex:secondary",
               label: "Weekly usage",
-              status: "available",
-              usedPercent: 34,
+              status: "exhausted",
+              usedPercent: 100,
             },
           ],
           version: "0.142.5",

@@ -29,6 +29,7 @@ import { botAvatarPoster } from "#lib/bot-avatar-poster";
 
 export type { BotAvatarType } from "bot-avatars";
 export type BotAvatarMaterial = "fabric" | "plastic";
+export type BotAvatarInteraction = "subtle" | "playful";
 
 // The stock renderer blends lighting during motion. Keep pristine still frames
 // in their own contexts, shared across identical avatars and bounded in memory.
@@ -70,15 +71,15 @@ type BotAvatarProps = Omit<ComponentPropsWithoutRef<"canvas">, "type"> & {
   followPointer?: boolean;
   /** Use the library's idle motion, nearby pointer tracking, and full jumps. */
   ambient?: boolean;
-  /** Keep the library's existing full interaction in the avatar editor. */
-  preview?: boolean;
+  /** Use the library's natural idle motion and full click spin. */
+  interaction?: BotAvatarInteraction;
 };
 
 export const BotAvatar = forwardRef<HTMLCanvasElement, BotAvatarProps>(
   function BotAvatar(
     {
-      preview,
       ambient = false,
+      interaction = "subtle",
       working = false,
       motionEnabled = true,
       shading = "fabric",
@@ -92,7 +93,7 @@ export const BotAvatar = forwardRef<HTMLCanvasElement, BotAvatarProps>(
       "(prefers-reduced-motion: reduce)"
     );
     const reducedMotion = prefersReducedMotion || !motionEnabled;
-    if (preview || ambient) {
+    if (ambient) {
       return (
         <AnimatedBotAvatar
           {...props}
@@ -116,6 +117,7 @@ export const BotAvatar = forwardRef<HTMLCanvasElement, BotAvatarProps>(
       <InteractiveBotAvatar
         {...props}
         followPointer={followPointer}
+        interaction={interaction}
         palette={palette}
         reducedMotion={reducedMotion}
         ref={ref}
@@ -172,7 +174,8 @@ const InteractiveBotAvatar = forwardRef<
     type,
     size,
     working = false,
-    followPointer = false,
+    interaction = "subtle",
+    followPointer = interaction === "playful",
     reducedMotion,
     shading = "fabric",
     palette = "soft",
@@ -200,6 +203,8 @@ const InteractiveBotAvatar = forwardRef<
     canvas.width = canvas.height = Math.round(size * BOT_AVATAR_OVERSCAN * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const preset = botAvatarPresets[type];
+    const playful = interaction === "playful";
+    const continuous = working || playful;
     const color = botAvatarColor(type, palette);
     const config: BotAvatarDrawConfig = {
       ...preset,
@@ -215,12 +220,13 @@ const InteractiveBotAvatar = forwardRef<
       // Let the renderer own each material's lighting defaults. Keep the same
       // palette in both rendering paths so a preview matches the saved avatar.
       shading,
+      furOnIdle: playful,
       typeKey: type,
       dpr,
     };
     const state = working ? "working" : "default";
     const stillFrame = restingFrame(
-      `${type}:${palette}:${size}:${dpr}:${state}:${shading}`,
+      `${type}:${palette}:${size}:${dpr}:${state}:${shading}:${interaction}`,
       size,
       restPose(state),
       config
@@ -229,8 +235,12 @@ const InteractiveBotAvatar = forwardRef<
       [...id].reduce((sum, char) => sum + (char.codePointAt(0) ?? 0), 0) / 1000;
     const createSimulation = () => {
       const simulation = new BotAvatarSim(seed, state);
+      if (playful) {
+        return simulation;
+      }
       simulation.setTurn(0);
-      // A small, single hop rather than the preview's full spin.
+      // Conversation avatars use one small hop; playful surfaces keep the
+      // library's default gaze, jump timing, and full spin.
       simulation.setJump({
         every: 0,
         height: 14,
@@ -297,7 +307,7 @@ const InteractiveBotAvatar = forwardRef<
       previous = now;
       clickTime = Math.max(0, clickTime - delta);
       settling = Math.max(0, settling - delta);
-      if (!(working || clickTime || following || settling)) {
+      if (!(continuous || clickTime || following || settling)) {
         rest();
         return;
       }
@@ -307,12 +317,12 @@ const InteractiveBotAvatar = forwardRef<
     };
     const visibilityChanged = () => {
       if (document.hidden || !visible) {
-        if (working) {
+        if (continuous) {
           suspend();
         } else {
           rest();
         }
-      } else if (working) {
+      } else if (continuous) {
         start();
       } else {
         rest();
@@ -326,13 +336,13 @@ const InteractiveBotAvatar = forwardRef<
         observer = new IntersectionObserver(([entry]) => {
           visible = entry?.isIntersecting ?? false;
           if (!visible) {
-            // Only ongoing work needs to resume when it becomes visible.
-            if (working) {
+            // Only continuous motion resumes when it becomes visible.
+            if (continuous) {
               suspend();
             } else {
               rest();
             }
-          } else if (working) {
+          } else if (continuous) {
             start();
           }
         });
@@ -345,12 +355,12 @@ const InteractiveBotAvatar = forwardRef<
     };
     handlers.current = {
       click: () => {
-        if (reducedMotion || clickTime || document.hidden) {
+        if (reducedMotion || (!playful && clickTime) || document.hidden) {
           return;
         }
         sim.poke();
         // Covers the public jump timing through its final settling frame.
-        clickTime = 0.4;
+        clickTime = playful ? 0 : 0.4;
         start();
       },
       pointer: (x, y) => {
@@ -382,14 +392,24 @@ const InteractiveBotAvatar = forwardRef<
       },
     };
     suspend();
-    if (working) {
+    if (continuous) {
       start();
     }
     return () => {
       stop();
       handlers.current = {};
     };
-  }, [followPointer, id, palette, reducedMotion, shading, size, type, working]);
+  }, [
+    followPointer,
+    id,
+    interaction,
+    palette,
+    reducedMotion,
+    shading,
+    size,
+    type,
+    working,
+  ]);
 
   const margin = (BOT_AVATAR_OVERSCAN - 1) / 2;
   return (

@@ -92,12 +92,29 @@ All backends retain bounded command output in this same receipt owner. New
 receipts use one monotonic observation, including exit and synchronization facts;
 older terminal receipts remain readable. A Computer alarm inspects saved command
 identities independently of model polling. It never repeats a launch.
-The alarm is armed before external dispatch and stays armed while dispatch is
-pending. It can recover a dispatch whose acknowledgement was lost, but an absent
+The alarm is armed before external dispatch. It follows the next due check in
+the existing command receipt, with at most 16 due identities per collection and
+four concurrent native observations. A partial SQLite index over these receipts
+keeps historical completed output out of the alarm scan. Before external I/O,
+the receipt atomically reserves its unconfirmed-attempt count and next due time.
+This survives a Worker termination before catch/finally. Bounded backoff pauses
+later automatic checks after eight unconfirmed attempts; a normal caught error
+does not count its already reserved attempt again;
+this is a scheduling budget, never process failure, loss or replay authority.
+Fresh accepted native evidence resets that count. Successful manual inspection
+or Stop resumes the same receipt. Paused receipts remain available under the
+existing retention policy, and an older failed read cannot overwrite a newer
+manual recovery. No separate command queue or execution ledger is introduced.
+The alarm can recover a dispatch whose acknowledgement was lost, but an absent
 record during pending dispatch is not evidence that the execution was lost.
+Native result absence returns a structured result-unavailable error rather than
+an unreachable-upstream error. This projection preserves the saved command
+identity and its existing launch or loss evidence; it does not authorize replay.
 Output cursors select retained slices; clipping is explicit. Native log expiry
-does not invalidate a saved terminal receipt. Command records retain the existing
-seven-day storage policy; this is not an indefinite output archive.
+does not invalidate a saved terminal receipt. Writes retain the existing
+seven-day retention marker, but command reads and lists do not filter it and
+there is no command-prefix cleanup owner. The marker does not prove deletion at
+that time or indefinite archival availability.
 
 An exit receipt is saved before waiting for file synchronization. Only the SDK's
 explicit synchronization result confirms that step. Stream closure is not proof:
@@ -628,6 +645,15 @@ Deleting a personal group removes its presentation association only.
 | Space Truth                        | Space collaboration truth.                                                                                                                                                                          | Space Durable Object source of truth.                                                                                                                                                                                                                                                                                                                                  |
 
 Inbox message notification preferences have two Core-owned PostgreSQL records:
+Personal Direct Message deletion is an account read policy, separate from shared
+Space history. Core owns `conversation_history_deletions` in PostgreSQL. The Space
+command captures the monotonically accepted SQLite signal position and writes
+that boundary through Core. History, search, Inbox, links, and live Human reads
+respect it; other participants and Agent execution continuity remain unchanged.
+The boundary date is opt-in history metadata for Web cache reconciliation. Old
+strict readers retain their response shape. Rolling Core back after an accepted
+personal deletion must retain this policy; otherwise earlier history can reappear.
+
 `inbox_message_notification_defaults` stores one mode per account, and
 `inbox_conversation_notification_preferences` stores explicit overrides per
 account, Organization, and Space. Absence of an override means live inheritance.
@@ -2376,6 +2402,51 @@ time; only the publication claim excludes concurrent consumers.
 own the publication claim, retry schedule, completion gate, or the only copy
 of the frozen command. A future observability-only split keeps this outbox on
 the authoritative Core database.
+
+For an exact user-authored Wake, this outbox completes only after the Space's
+saved final claim is projected into the existing Agent Task terminal outcome.
+The producer uses the saved claim's signal id, not the system-notice RPC's
+constructed return value. Its frozen internal command includes a signal id;
+only that exact saved failure allows it to create a pre-head-owned Task event.
+A competing success, stopped result, or failure remains with its original
+producer. If that producer has not written its Task outcome yet, recovery stays
+pending until the original command replays. Older frozen commands without this
+identity cannot claim ownership of a saved notice. Before any publication, a
+legacy intent with no saved claim freezes its identity under the same outbox
+claim and version check. Publication uses a named required Space RPC that
+reuses the existing system-notice implementation. An older receiver rejects
+the call before any visible write; there is no ordinary-RPC fallback.
+An already-published legacy claim can complete when a compatible Task outcome
+exists. Without that evidence, the original notice cannot identify its Task
+event owner. The outbox records `needs_attention` with
+`dispatch.pre_head_failure_legacy_claim_unattributed` only after the existing
+Agent Task owner durably records a nonterminal needs-attention observation.
+The event identity includes the dispatch and saved claim. Its occurrence time
+is when recovery first discovers this blocker, distinct from the old failure
+time. Replay reads and reuses the existing Task observation's time; it does not
+relax the immutable-event or stale-observation checks. Existing and later attention
+watches receive that same observation. A failed observation write or attention
+transition keeps the original outbox pending. Queue delivery uses the existing
+ready-subscription redrive, including after the outbox stops retrying.
+The outbox then releases its claim and stops automatic publication attempts.
+Ordinary delegation accepts only terminal outcomes, so this historical branch
+does not resume an ordinary delegated parent. It remains an unrepaired Task
+result, not success or completed recovery. Its original command, visible
+claim, and failure reason remain available for diagnosis. It never invents an
+event or silently rewrites historical results.
+An existing compatible task outcome retains its original event and timestamp;
+conflicting task evidence keeps recovery pending. A failed claim read, missing or
+unknown claim, or failed task projection also keeps the frozen publication
+recoverable. Task subscriptions and their continuation queue use the existing
+Agent Task Coordination owner. Legacy input without a client message id has no
+exact Space Wake task handle and retains its publication-only contract.
+
+Native migration `0032` adds the nullable recovery blocker and extends the
+existing outbox status/completion constraints. Apply it before Core. Pending
+and completed rows retain their previous meaning. Older Core does not enqueue
+the new attention status; rollback does not resume these rows or repair their
+Task outcomes. Core and Space must retain the required publication receiver
+while upgraded callers or frozen identities remain in use.
 
 When accepted-result publication exhausts its repair window, Space first owns
 the atomic visible-outcome choice. Its existing final claim wins, or Space

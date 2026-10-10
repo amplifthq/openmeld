@@ -4,6 +4,7 @@ export function readSpaceHistoryNavigationGroups(
   input: {
     startSignalId?: string;
     endSignalId?: string;
+    afterPosition?: number;
   }
 ) {
   return sql
@@ -23,6 +24,7 @@ export function readSpaceHistoryNavigationGroups(
       WHERE s.type IN ('signal.text', 'signal.status', 'signal.system_notice')
         AND NOT (s.profile_kind = 'system' AND COALESCE(json_extract(s.payload_json, '$.data.meta.purpose'), '') = 'space_message_changed')
         AND (p.placement IS NULL OR p.placement != 'thread')
+        AND s.rowid > ?
         AND (? IS NULL OR s.rowid >= (SELECT rowid FROM space_signals WHERE id = ?))
         AND (? IS NULL OR s.rowid <= (SELECT rowid FROM space_signals WHERE id = ?))
     ), ranked AS (
@@ -38,6 +40,7 @@ export function readSpaceHistoryNavigationGroups(
     JOIN space_signals last ON last.rowid = groups.last
     ORDER BY groups.first
   `,
+      input.afterPosition ?? 0,
       input.startSignalId ?? null,
       input.startSignalId ?? null,
       input.endSignalId ?? null,

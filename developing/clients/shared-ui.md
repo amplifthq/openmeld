@@ -26,6 +26,10 @@ outputs. `scripts/vite/shared-public-assets.mjs` materializes ignored client
 copies when Vite loads. Edit shared sources, not generated copies. Shared font
 declarations live in `packages/ui/src/styles/fonts.css`.
 
+`OpenMeldLoadingScreen` accepts an optional content slot beneath the shared
+opening mark. Clients own any guidance in that slot; the primitive reads no
+platform, credential, or session state.
+
 Static brand exports follow [the brand asset guide](../../packages/ui/brand/README.md).
 Run `pnpm brand:generate` to update the shared public images and the existing
 Desktop resources; `pnpm brand:preview` renders the approved surface matrix.
@@ -561,10 +565,13 @@ The Website demo
 starts with Original to match the hero; the product keeps its existing Soft default.
 The regular renderer includes an SVG first frame using the vendor's shape and
 face placement in server HTML, then replaces it with the rendered canvas on mount.
-Space/sidebar avatars
-and profile popovers play one small hop on an explicit click without following
+Space/sidebar avatars play one small hop on an explicit click without following
 the pointer; popover opening and navigation still belong to their existing
-controls. The Team Center Agent card has a separate avatar button that also
+controls. Profile popovers use the shared Bot's explicit `playful` interaction:
+natural idle gaze, fine-pointer following, and the library's full click spin.
+Avatar editors use the same simulation and rendering path, with saved identity
+and draft identity remaining separate. The Team Center Agent card has a
+separate avatar button that also
 follows a fine pointer while hovered; its remaining area opens the conversation.
 The avatar editor retains the library's original preview interaction. The Website
 hero opts into `ambient` motion: the vendor's idle movement, nearby pointer
@@ -572,8 +579,9 @@ tracking, and full click jumps, with one shared vendor ticker. Its SVG first
 frame remains visible before hydration; the canvas replaces it after its first
 layout paint. Reduced motion keeps a still pose, and the vendor pauses ambient
 rendering offscreen and in hidden documents.
-Regular product avatars do not hop when idle and animate for real working state. Clicks do
-not queue or restart a hop. Static instances do not subscribe to animation
+Subtle Bot avatars do not hop when idle and animate for real working state.
+Clicks do not queue or restart a subtle hop; playful clicks use the library's
+own spin interruption rules. Static instances do not subscribe to animation
 frames or visibility observation; active rendering pauses offscreen and in hidden
 documents. A cache of at most 64 independently rendered still frames avoids
 freezing the library's lighting blend when animation stops.

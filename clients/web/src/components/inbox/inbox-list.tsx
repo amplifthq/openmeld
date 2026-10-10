@@ -560,6 +560,7 @@ function InboxItemMenuItems(input: {
 function InboxKindIcon(input: { item: InboxItem }): ReactNode {
 	switch (input.item.kind) {
 		case "space_message":
+		case "space_joined":
 		case "space_mention":
 			return <ChatCircleTextIcon aria-hidden="true" className="size-4" />;
 		case "agent_reply":

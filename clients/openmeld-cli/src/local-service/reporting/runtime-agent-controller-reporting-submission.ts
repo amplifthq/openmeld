@@ -775,6 +775,7 @@ function omitUsageLimitsFromReports(
     reports: input.reports.map((report) => {
       if (
         !(
+          report.agentControllerInterface?.usageAdmission ||
           report.agentControllerInterface?.usageLimits ||
           report.agentControllerInterface?.usageLimitsSupportMatrixVersion
         )
@@ -782,6 +783,7 @@ function omitUsageLimitsFromReports(
         return report;
       }
       const {
+        usageAdmission: _usageAdmission,
         usageLimits: _usageLimits,
         usageLimitsSupportMatrixVersion: _usageLimitsSupportMatrixVersion,
         ...agentControllerInterface
@@ -798,6 +800,7 @@ function shouldRetryWithoutUsageLimits(input: {
   if (
     !input.submittedReports.some(
       (report) =>
+        report.agentControllerInterface?.usageAdmission ||
         report.agentControllerInterface?.usageLimits ||
         report.agentControllerInterface?.usageLimitsSupportMatrixVersion
     )
@@ -809,7 +812,10 @@ function shouldRetryWithoutUsageLimits(input: {
     return false;
   }
   const diagnosticText = collectCompatibilityDiagnosticText(failure);
-  if (diagnosticText.includes("usagelimits")) {
+  if (
+    diagnosticText.includes("usagelimits") ||
+    diagnosticText.includes("usageadmission")
+  ) {
     return true;
   }
   return (

@@ -39,54 +39,29 @@ describe("direct message Space presentation", () => {
       })
     ).toBe(expected);
   });
-  it("derives Direct Message state from origin purpose and exactly two active members", () => {
+  it.each([
+    0, 1, 2,
+  ])("keeps an unconverted Direct Message with %i remaining members", (activeMemberCount) => {
+    const conversation = {
+      activeMemberCount,
+      directMessageConvertedAt: null,
+      purpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+    };
+    expect(isDirectMessageSpace(conversation)).toBe(true);
     expect(
       isDirectMessageSpace({
-        activeMemberCount: 2,
-        directMessageConvertedAt: null,
-        purpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
-      })
-    ).toBe(true);
-
-    expect(
-      isDirectMessageSpace({
-        activeMemberCount: 3,
-        purpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
-      })
-    ).toBe(false);
-
-    expect(
-      isDirectMessageSpace({
-        activeMemberCount: 2,
-        purpose: "ordinary_private_space",
-      })
-    ).toBe(false);
-  });
-
-  it("never turns a converted Space back into a Direct Message", () => {
-    expect(
-      isDirectMessageSpace({
-        activeMemberCount: 2,
+        ...conversation,
         directMessageConvertedAt: "2026-08-07T12:00:00.000Z",
-        purpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
       })
     ).toBe(false);
   });
 
-  it("treats missing projection fields as not Direct Message state", () => {
-    expect(
-      isDirectMessageSpace({
-        activeMemberCount: null,
-        purpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
-      })
-    ).toBe(false);
-
-    expect(
-      isDirectMessageSpace({
-        activeMemberCount: 2,
-        purpose: null,
-      })
-    ).toBe(false);
+  it.each([
+    "ordinary_private_space",
+    null,
+    undefined,
+  ])("requires Direct Message origin: %s", (purpose) => {
+    expect(isDirectMessageSpace({ purpose })).toBe(false);
   });
 
   it("builds the same pair key regardless of profile order", () => {
@@ -115,14 +90,18 @@ describe("direct message Space presentation", () => {
     ).toBe(false);
   });
 
-  it("automatically addresses ordinary one-human one-agent Spaces", () => {
+  it.each([
+    true,
+    false,
+  ])("respects the automatic Wake preference in ordinary one-human one-agent Spaces: %s", (automaticWakeEnabled) => {
     expect(
       isAutomaticWakeSpace({
+        automaticWakeEnabled,
         activeMemberCount: 2,
         agentMemberCount: 1,
         humanMemberCount: 1,
         purpose: "ordinary_private_space",
       })
-    ).toBe(true);
+    ).toBe(automaticWakeEnabled);
   });
 });

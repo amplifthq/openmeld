@@ -1198,6 +1198,7 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "let completionTimer = null;",
       "let pendingServerRequest = null;",
       "let turnCompleted = false;",
+      "let usageReads = 0;",
       "const write = (message) => process.stdout.write(JSON.stringify(message) + '\\n');",
       "const log = (message) => {",
       "  if (!logPath) return;",
@@ -1251,6 +1252,17 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "    return;",
       "  }",
       "  if (message.method === 'initialized') return;",
+      // Codex 0.162 generated GetAccountResponse / GetAccountRateLimitsResponse.
+      "  if (message.method === 'account/read' && process.env.OPENMELD_FAKE_CODEX_USAGE_TIMEOUT === '1') { write({ id: message.id, result: { account: { type: 'chatgpt', email: 'usage@example.invalid', planType: 'plus' }, requiresOpenaiAuth: true } }); return; }",
+      "  if (message.method === 'account/rateLimits/read' && process.env.OPENMELD_FAKE_CODEX_USAGE_TIMEOUT === '1') {",
+      "    usageReads++;",
+      "    const response = { accountId: 'test-workspace', ordinaryUsageAllowed: true, rateLimits: { limitId: 'codex', limitName: null, primary: { usedPercent: 23, windowDurationMins: 300, resetsAt: 1791600000 }, secondary: null, credits: { hasCredits: false, unlimited: false, balance: '0' }, planType: 'plus', spendControlReached: false, rateLimitReachedType: null }, rateLimitsByLimitId: null };",
+      "    if (usageReads === 1) {",
+      "      setTimeout(() => write({ method: 'account/rateLimits/updated', params: { rateLimits: response.rateLimits } }), 3000);",
+      "      setTimeout(() => write({ id: message.id, result: { ...response, ordinaryUsageAllowed: false, rateLimits: { ...response.rateLimits, spendControlReached: true } } }), 4500);",
+      "    } else write({ id: message.id, result: response });",
+      "    return;",
+      "  }",
       "  if (message.method === process.env.OPENMELD_FAKE_CODEX_MISSING_METHOD) { write({ id: message.id, error: { code: -32601, message: 'Method not found' } }); return; }",
       "  if (message.method === 'config/read') { write({ id: message.id, result: { config: { mcp_servers: { openmeld_internal_dispatch_space_action: JSON.parse(process.env.OPENMELD_FAKE_CODEX_SPACE_POLICY ?? '{}') } }, origins: {}, layers: null } }); return; }",
       "  if (message.method === 'configRequirements/read') { write({ id: message.id, result: { requirements: JSON.parse(process.env.OPENMELD_FAKE_CODEX_MANAGED_REQUIREMENTS ?? 'null') } }); return; }",
@@ -1334,6 +1346,7 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "      activeTurn = { cwd, prompt, threadId: message.params.threadId, turnId: 'turn-1' };",
       "      write({ method: 'turn/started', params: { threadId: activeTurn.threadId, turn: { id: activeTurn.turnId, status: 'inProgress', items: [] } } });",
       "      turnCompleted = false;",
+      "      if (process.env.OPENMELD_FAKE_CODEX_USAGE_TIMEOUT === '1') write({ method: 'account/rateLimits/updated', params: { rateLimits: { limitId: 'codex', primary: null, secondary: null, credits: null, spendControlReached: null, rateLimitReachedType: null } } });",
       "      const serverRequest = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_REQUEST;",
       "      if (serverRequest) {",
       "        const parsed = JSON.parse(serverRequest);",
@@ -2848,6 +2861,62 @@ test("codex app-server keeps the complete fallback prompt for legacy resumed thr
     await rm(dispatchDir, { force: true, recursive: true });
   }
 });
+
+test(
+  "codex auxiliary quota timeout permits later observations and ignores late replies without ending the turn",
+  { timeout: 10_000 },
+  async () => {
+    const { invokeCodexAppServerTransport } = await import("../dist/index.js");
+    const fixtureDir = await mkdtemp(join(tmpdir(), "codex-usage-timeout-"));
+    const fixturePath = join(fixtureDir, "app-server.mjs");
+    const logPath = join(fixtureDir, "rpc-log.jsonl");
+    await writeFakeCodexAppServerFixture(fixturePath);
+    const events = [];
+    try {
+      const result = await invokeCodexAppServerTransport({
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        codexTimeoutMs: null,
+        codexWorkdir: fixtureDir,
+        env: {
+          OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+          OPENMELD_FAKE_CODEX_APP_SERVER_TURN_DELAY_MS: "5500",
+          OPENMELD_FAKE_CODEX_USAGE_TIMEOUT: "1",
+        },
+        onRuntimeEvent: (event) => events.push(event),
+        prompt: "continue the business turn",
+        taskId: "usage-timeout-turn",
+        threadId: "usage-timeout-thread",
+      });
+      assert.ok(result.output.includes("continue the business turn"));
+      const observations = events.filter(
+        (event) => event.phase === "provider_usage_limits_observed"
+      );
+      assert.equal(observations.length, 1);
+      assert.equal(observations[0].usageAdmission.blocksNewWork, false);
+      assert.equal(observations[0].usageLimits[0].usedPercent, 23);
+      assert.equal(
+        events.some((event) => event.phase === "timeout_triggered"),
+        false
+      );
+      const requests = await readFakeAppServerMessages(logPath);
+      assert.equal(
+        requests.filter((item) => item.method === "account/rateLimits/read")
+          .length,
+        3
+      );
+      assert.equal(
+        requests.filter((item) => item.method === "turn/start").length,
+        1
+      );
+      assert.equal(
+        requests.some((item) => item.method === "turn/interrupt"),
+        false
+      );
+    } finally {
+      await rm(fixtureDir, { force: true, recursive: true });
+    }
+  }
+);
 
 test("codex app-server reuses the native user prompt on matching resumed threads", async () => {
   const { invokeCodexAppServerTransport } = await import("../dist/index.js");

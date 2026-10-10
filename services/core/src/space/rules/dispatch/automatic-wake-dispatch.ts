@@ -11,6 +11,7 @@ export type AutomaticWakeDispatchReadyDecision = DispatchReadyDecision & {
 };
 
 export function buildAutomaticWakeDispatchReadyDecisions(input: {
+  automaticWakeEnabled?: boolean;
   activeMemberRecords: readonly SpaceMemberRecord[];
   senderProfileId: string;
   signal: SignalEnvelope;
@@ -30,6 +31,7 @@ export function buildAutomaticWakeDispatchReadyDecisions(input: {
   );
   if (
     !isAutomaticWakeSpace({
+      automaticWakeEnabled: input.automaticWakeEnabled,
       activeMemberCount: input.activeMemberRecords.length,
       agentMemberCount: activeAgentMembers.length,
       humanMemberCount: activeHumanMembers.length,

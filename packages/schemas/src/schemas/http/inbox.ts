@@ -1,3 +1,4 @@
+import type * as zod from "zod/v4";
 import * as z from "../../lazy-zod";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
 import { daemonServiceLaneSchema } from "../daemon/service-contract";
@@ -98,6 +99,7 @@ export const inboxResolutionStatusSchema = z.enum([
   "resolved",
 ]);
 export const inboxItemKindSchema = z.enum([
+  "space_joined",
   "space_message",
   "space_mention",
   "agent_reply",
@@ -321,6 +323,7 @@ export const inboxNotificationObservationsResponseSchema = z.strictObject({
 export const observeInboxNotificationsRpcInputSchema =
   inboxNotificationObservationsQuerySchema.extend({
     context: openMeldRequestContextSchema,
+    includeMembershipNotices: z.boolean().optional(),
   });
 
 export const listInboxItemsQuerySchema = z.strictObject({
@@ -370,6 +373,7 @@ export const centerAgentInboxSummaryResponseSchema = z.strictObject({
 });
 
 export const spaceInboxSummaryItemSchema = z.strictObject({
+  messageUnreadCount: z.number().int().nonnegative().optional(),
   latestUnreadOccurredAtMs: timestampMsSchema,
   spaceId: identifierSchema,
   unreadCount: z.number().int().positive(),
@@ -405,6 +409,15 @@ export const spaceInboxUnreadTargetSchema = z.strictObject({
 });
 
 export const spaceInboxUnreadTargetsResponseSchema = z.strictObject({
+  joinedItems: z
+    .array(
+      z.strictObject({
+        itemId: identifierSchema,
+        occurredAtMs: timestampMsSchema,
+      })
+    )
+    .max(INBOX_SPACE_UNREAD_TARGETS_MAX_ITEMS)
+    .optional(),
   scopes: z
     .array(
       z.strictObject({
@@ -430,6 +443,33 @@ export const markCenterAgentInboxReadThroughBodySchema = z.strictObject({
   spaceId: identifierSchema,
   throughOccurredAtMs: timestampMsSchema,
 });
+
+// Membership fields share the item-kind opt-in. Summary version 3 predates them.
+export function projectSpaceInboxSummaryForMembershipReceiver(
+  response: zod.infer<typeof spaceInboxSummaryResponseSchema>,
+  includeMembershipNotices?: boolean
+): zod.infer<typeof spaceInboxSummaryResponseSchema> {
+  if (includeMembershipNotices === true) {
+    return response;
+  }
+  return {
+    ...response,
+    spaces: response.spaces.map(
+      ({ messageUnreadCount: _messages, ...space }) => space
+    ),
+  };
+}
+
+export function projectSpaceInboxUnreadTargetsForMembershipReceiver(
+  response: zod.infer<typeof spaceInboxUnreadTargetsResponseSchema>,
+  includeMembershipNotices?: boolean
+): zod.infer<typeof spaceInboxUnreadTargetsResponseSchema> {
+  if (includeMembershipNotices === true) {
+    return response;
+  }
+  const { joinedItems: _joined, ...legacy } = response;
+  return legacy;
+}
 
 export const markCenterAgentInboxReadThroughResponseSchema = z.strictObject({
   markedReadCount: z.number().int().nonnegative(),
@@ -611,6 +651,7 @@ function normalizeInboxItemWireKind(
 
 export const listInboxItemsRpcInputSchema = listInboxItemsQuerySchema.extend({
   context: openMeldRequestContextSchema,
+  includeMembershipNotices: z.boolean().optional(),
   includeReplyToRecipient: z.boolean().optional(),
   includeSourceFacts: z.boolean().optional(),
   includeAccountItems: z.boolean().optional(),
@@ -625,8 +666,10 @@ export const getCenterAgentInboxSummaryRpcInputSchema = z.strictObject({
 });
 export const getSpaceInboxSummaryRpcInputSchema = z.strictObject({
   context: openMeldRequestContextSchema,
+  includeMembershipNotices: z.boolean().optional(),
 });
 export const getSpaceInboxUnreadTargetsRpcInputSchema = z.strictObject({
+  includeMembershipNotices: z.boolean().optional(),
   includeItemIds: z.boolean().optional(),
   context: openMeldRequestContextSchema,
   spaceId: identifierSchema,
@@ -641,6 +684,7 @@ export const markSpaceInboxReadThroughRpcInputSchema =
   });
 export const getInboxItemRpcInputSchema = inboxItemRouteParamsSchema.extend({
   context: openMeldRequestContextSchema,
+  includeMembershipNotices: z.boolean().optional(),
   includeReplyToRecipient: z.boolean().optional(),
   includeSourceFacts: z.boolean().optional(),
   includeAccountItems: z.boolean().optional(),
@@ -654,6 +698,7 @@ export const dismissInboxItemRpcInputSchema = inboxItemRouteParamsSchema.extend(
 export const markInboxItemReadRpcInputSchema =
   markInboxItemReadBodySchema.extend({
     context: openMeldRequestContextSchema,
+    includeMembershipNotices: z.boolean().optional(),
     includeReplyToRecipient: z.boolean().optional(),
     includeSourceFacts: z.boolean().optional(),
     includeAccountItems: z.boolean().optional(),

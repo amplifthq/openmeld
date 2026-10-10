@@ -115,6 +115,17 @@ becomes a first-class, user-selectable property of an Agent Profile.
    fallback only. Changing the catalog is a core deploy, not a CLI publish and
    not a DB edit.
 
+   The October 9 native OpenCode 1.18.34 review adds Step 5 Preview Free through
+   Zen and Go, and eleven additional Zen routes with exact native variant keys.
+   Paid Zen metadata was captured with a noncredential placeholder; it does not
+   establish account access. Step 5 Zen inference succeeded. Fledge's discovery
+   status is deprecated, but no scoped withdrawal was confirmed; remove its New
+   label without inventing a retirement notice. Discovery lifecycle changes now
+   request review, and the collector also reads the official Zen and Go notices.
+   Spark withdrawal is confirmed only for Codex ChatGPT sign-in by the official
+   September 14 notice and an October 9 native rejection. API-key use remains
+   outside that withdrawal scope.
+
    Antigravity is included in both catalogs. Its exact model IDs come from
    `agy models`; the September 22, 2026 CLI 1.2.7 capture lists 14 choices
    covering Gemini, Claude, and GPT-OSS. Gemini High/Medium/Low variants and

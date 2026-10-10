@@ -42,8 +42,7 @@ import { messageEnvelopeSchema } from "../protocol/message-envelope";
 import {
   agentProfileIdSchema,
   profileHandleSchema,
-  profileWorkingDirectorySchema,
-  profileWorkspaceModeSchema,
+  profileWorkspaceWriteSchema,
 } from "../protocol/profile";
 import { targetWakeLifecycleIdentitySchema } from "../protocol/target-wake-lifecycle";
 import { workingLanguageGuidanceSchema } from "../runtime/working-language";
@@ -58,6 +57,8 @@ import {
   openMeldDaemonInterruptRequestPayloadSchema,
   openMeldDaemonManageLocalAgentInstallationPayloadSchema,
   openMeldDaemonManageLocalAgentInstallationRequestPayloadSchema,
+  openMeldDaemonReadProfileWorkspacePayloadSchema,
+  openMeldDaemonReadProfileWorkspaceRequestPayloadSchema,
   openMeldDaemonSetLocalAgentEnabledPayloadSchema,
   openMeldDaemonSetLocalAgentEnabledRequestPayloadSchema,
   openMeldDaemonSetProfileWorkspacePayloadSchema,
@@ -476,6 +477,8 @@ export const runtimeTransportBaseCapabilitiesSchema = z.strictObject({
       resumeControllerConversation: z.literal(true).optional(),
       setEnabled: z.literal(true).optional(),
       setProfileWorkspace: z.literal(true).optional(),
+      readProfileWorkspace: z.literal(true).optional(),
+      initializeProfileWorkspace: z.literal(true).optional(),
     })
     .optional(),
   localProjectControl: z
@@ -906,32 +909,13 @@ export const runtimeTransportRefreshLocalAgentCatalogResponseSchema =
     }),
   ]);
 
-export const runtimeTransportSetProfileWorkspaceRequestSchema = z
-  .strictObject({
+export const runtimeTransportSetProfileWorkspaceRequestSchema =
+  profileWorkspaceWriteSchema.safeExtend({
     v: z.literal(RUNTIME_TRANSPORT_SCHEMA_VERSION),
     ownerUserId: z.string().min(1),
     deviceId: z.string().min(1),
     lane: daemonServiceLaneSchema,
     targetProfileId: agentProfileIdSchema,
-    workspaceMode: profileWorkspaceModeSchema,
-    workspacePath: profileWorkingDirectorySchema.optional(),
-  })
-  .superRefine((value, context) => {
-    if (value.workspaceMode === "custom" && !value.workspacePath) {
-      context.addIssue({
-        code: "custom",
-        message: "workspacePath is required for a custom profile workspace",
-        path: ["workspacePath"],
-      });
-    }
-    if (value.workspaceMode === "openmeld_managed" && value.workspacePath) {
-      context.addIssue({
-        code: "custom",
-        message:
-          "workspacePath must be omitted for an OpenMeld-managed profile workspace",
-        path: ["workspacePath"],
-      });
-    }
   });
 
 export const runtimeTransportSetProfileWorkspaceResponseSchema =
@@ -939,6 +923,29 @@ export const runtimeTransportSetProfileWorkspaceResponseSchema =
     z.strictObject({
       status: z.literal("accepted"),
       payload: openMeldDaemonSetProfileWorkspacePayloadSchema,
+    }),
+    z.strictObject({
+      status: z.literal("rejected"),
+      reasonCode: z.string().min(1),
+      message: z.string().min(1),
+    }),
+  ]);
+
+export const runtimeTransportReadProfileWorkspaceRequestSchema = z.strictObject(
+  {
+    v: z.literal(RUNTIME_TRANSPORT_SCHEMA_VERSION),
+    ownerUserId: z.string().min(1),
+    deviceId: z.string().min(1),
+    lane: daemonServiceLaneSchema,
+    targetProfileId: agentProfileIdSchema,
+  }
+);
+
+export const runtimeTransportReadProfileWorkspaceResponseSchema =
+  z.discriminatedUnion("status", [
+    z.strictObject({
+      status: z.literal("accepted"),
+      payload: openMeldDaemonReadProfileWorkspacePayloadSchema,
     }),
     z.strictObject({
       status: z.literal("rejected"),
@@ -1012,6 +1019,12 @@ export const runtimeTransportLocalAgentControlSetProfileWorkspaceFramePayloadSch
     payload: openMeldDaemonSetProfileWorkspaceRequestPayloadSchema,
   });
 
+export const runtimeTransportLocalAgentControlReadProfileWorkspaceFramePayloadSchema =
+  z.strictObject({
+    requestId: z.string().min(1),
+    payload: openMeldDaemonReadProfileWorkspaceRequestPayloadSchema,
+  });
+
 export const runtimeTransportLocalAgentControlCancelFramePayloadSchema =
   z.strictObject({
     requestId: z.string().min(1),
@@ -1031,6 +1044,7 @@ export const runtimeTransportLocalAgentControlResultFramePayloadSchema =
       openMeldDaemonManageLocalAgentInstallationPayloadSchema,
       openMeldDaemonSetLocalAgentEnabledPayloadSchema,
       openMeldDaemonSetProfileWorkspacePayloadSchema,
+      openMeldDaemonReadProfileWorkspacePayloadSchema,
       openMeldDaemonSyncRouteCatalogPayloadSchema,
       openMeldDaemonCancelPayloadSchema,
       openMeldDaemonInterruptPayloadSchema,
@@ -2392,6 +2406,7 @@ export const daemonStreamCodeSchema = z.enum([
   "daemon.local_agent_control.refresh_catalog",
   "daemon.local_agent_control.set_enabled",
   "daemon.local_agent_control.set_profile_workspace",
+  "daemon.local_agent_control.read_profile_workspace",
   "daemon.local_agent_control.result",
   "daemon.openmeld_tools_control.request",
   "daemon.openmeld_tools_control.result",

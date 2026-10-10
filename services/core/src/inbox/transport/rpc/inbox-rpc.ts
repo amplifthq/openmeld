@@ -32,6 +32,8 @@ import {
   mutateSpaceInboxReadResponseSchema,
   mutateSpaceInboxReadRpcInputSchema,
   observeInboxNotificationsRpcInputSchema,
+  projectSpaceInboxSummaryForMembershipReceiver,
+  projectSpaceInboxUnreadTargetsForMembershipReceiver,
   spaceInboxSummaryResponseSchema,
   spaceInboxUnreadTargetsResponseSchema,
   updateInboxMessageNotificationPreferencesRpcInputSchema,
@@ -118,7 +120,7 @@ export async function rpcListInboxFeed(
   input: ListInboxFeedRpcInput,
   measure: InboxFeedMeasure = runInboxFeedStage
 ): Promise<InboxFeedResponse> {
-  const { context, ...query } = parseRequest(
+  const { context, includeMembershipNotices, ...query } = parseRequest(
     listInboxFeedRpcInputSchema,
     input
   );
@@ -135,13 +137,24 @@ export async function rpcListInboxFeed(
         db: prepared.db,
         canManageOrganization: prepared.canManageOrganization,
         measure,
-      }).list(
-        {
-          organizationId: prepared.organizationId,
-          recipientUserId: prepared.userId,
-        },
-        query
-      )
+      })
+        .list(
+          {
+            organizationId: prepared.organizationId,
+            recipientUserId: prepared.userId,
+          },
+          query
+        )
+        .then((response) => ({
+          ...response,
+          rows: response.rows.map((row) => ({
+            ...row,
+            item: projectMembershipNoticeForReceiver(
+              row.item,
+              includeMembershipNotices
+            ),
+          })),
+        }))
     )
   );
 }
@@ -211,7 +224,15 @@ export async function rpcObserveInboxNotifications(
         recipientUserId: prepared.userId,
         cursor: request.cursor,
         limit: request.limit,
-      })
+      }).then((response) => ({
+        ...response,
+        items: response.items.map((item) =>
+          projectMembershipNoticeForReceiver(
+            item,
+            request.includeMembershipNotices
+          )
+        ),
+      }))
     )
   );
 }
@@ -248,7 +269,8 @@ export async function rpcListInboxItems(
             projectReplyToRecipientForReceiver(
               item,
               request.includeReplyToRecipient,
-              request.includeSourceFacts
+              request.includeSourceFacts,
+              request.includeMembershipNotices
             )
           ),
         }))
@@ -280,7 +302,8 @@ export async function rpcGetInboxItem(
           item: projectReplyToRecipientForReceiver(
             response.item,
             request.includeReplyToRecipient,
-            request.includeSourceFacts
+            request.includeSourceFacts,
+            request.includeMembershipNotices
           ),
         }))
     )
@@ -338,10 +361,17 @@ export async function rpcGetSpaceInboxSummary(
   return parseResponse(
     spaceInboxSummaryResponseSchema,
     await runService(() =>
-      prepared.service.spaceSummary({
-        organizationId: prepared.organizationId,
-        recipientUserId: prepared.userId,
-      })
+      prepared.service
+        .spaceSummary({
+          organizationId: prepared.organizationId,
+          recipientUserId: prepared.userId,
+        })
+        .then((response) =>
+          projectSpaceInboxSummaryForMembershipReceiver(
+            response,
+            request.includeMembershipNotices
+          )
+        )
     )
   );
 }
@@ -355,12 +385,19 @@ export async function rpcGetSpaceInboxUnreadTargets(
   return parseResponse(
     spaceInboxUnreadTargetsResponseSchema,
     await runService(() =>
-      prepared.service.spaceUnreadTargets({
-        includeItemIds: request.includeItemIds,
-        organizationId: prepared.organizationId,
-        recipientUserId: prepared.userId,
-        spaceId: request.spaceId,
-      })
+      prepared.service
+        .spaceUnreadTargets({
+          includeItemIds: request.includeItemIds,
+          organizationId: prepared.organizationId,
+          recipientUserId: prepared.userId,
+          spaceId: request.spaceId,
+        })
+        .then((response) =>
+          projectSpaceInboxUnreadTargetsForMembershipReceiver(
+            response,
+            request.includeMembershipNotices
+          )
+        )
     )
   );
 }
@@ -433,7 +470,8 @@ export async function rpcMarkInboxItemRead(
           item: projectReplyToRecipientForReceiver(
             response.item,
             request.includeReplyToRecipient,
-            request.includeSourceFacts
+            request.includeSourceFacts,
+            request.includeMembershipNotices
           ),
         }))
     )
@@ -544,10 +582,15 @@ export async function rpcUpdateInboxMessageNotificationPreferences(
 function projectReplyToRecipientForReceiver(
   item: InboxItem,
   includeReplyToRecipient?: boolean,
-  includeSourceFacts?: boolean
+  includeSourceFacts?: boolean,
+  includeMembershipNotices?: boolean
 ): InboxItem {
-  const { sourceFacts: _sourceFacts, ...legacyItem } = item;
-  const compatibleItem = includeSourceFacts === true ? item : legacyItem;
+  const projected = projectMembershipNoticeForReceiver(
+    item,
+    includeMembershipNotices
+  );
+  const { sourceFacts: _sourceFacts, ...legacyItem } = projected;
+  const compatibleItem = includeSourceFacts === true ? projected : legacyItem;
   if (
     includeReplyToRecipient === true ||
     compatibleItem.sourceTarget.kind !== "space"
@@ -557,6 +600,15 @@ function projectReplyToRecipientForReceiver(
   const { replyToRecipient: _replyToRecipient, ...sourceTarget } =
     compatibleItem.sourceTarget;
   return { ...compatibleItem, sourceTarget };
+}
+
+function projectMembershipNoticeForReceiver(
+  item: InboxItem,
+  supported?: boolean
+): InboxItem {
+  return item.kind === "space_joined" && supported !== true
+    ? { ...item, kind: "system_issue" }
+    : item;
 }
 
 async function prepareRequest(

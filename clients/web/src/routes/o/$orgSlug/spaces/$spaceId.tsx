@@ -836,10 +836,8 @@ function ValidatedDirectMessageEntryContent(
 function toDirectMessageState(status: {
 	directMessageConvertedAt?: string;
 	spacePurpose?: string;
-	members: { totalCount: number };
 }) {
 	return {
-		activeMemberCount: status.members.totalCount,
 		directMessageConvertedAt: status.directMessageConvertedAt,
 		purpose: status.spacePurpose,
 	};

@@ -184,7 +184,13 @@ describe("space add-me command", () => {
       status: "found",
     });
     readProfileWorkspaceConfigMock.mockResolvedValue({ status: "missing" });
-    setCustomProfileWorkspaceMock.mockResolvedValue({});
+    setCustomProfileWorkspaceMock.mockImplementation(
+      async (
+        input: Parameters<
+          typeof import("../src/profile-workspace/service").setCustomProfileWorkspace
+        >[0]
+      ) => ({ changed: true, workspacePath: input.customWorkspacePath })
+    );
     validateCustomProfileWorkspacePathMock.mockImplementation(
       async (path: string) => ({ status: "valid", value: path })
     );
@@ -529,7 +535,10 @@ describe("space add-me command", () => {
     );
   });
 
-  it("routes agent add-me through add-members and does not claim Wake readiness", async () => {
+  it.each([
+    "explicit",
+    "native",
+  ] as const)("routes %s folder add-me through add-members without claiming Wake readiness", async (folderSource) => {
     const { runSpaceAddMe } = await import("../src/space/add-me-command");
     const project = await mkdtemp(join(tmpdir(), "openmeld-add-me-project-"));
     const presenter = createPresenterCapture();
@@ -545,7 +554,8 @@ describe("space add-me command", () => {
     await runSpaceAddMe({
       addMembers: runSpaceAddMembersMock,
       env: { CODEX_THREAD_ID: "codex-thread" },
-      projectFolders: { projectFolder: [project] },
+      projectFolders:
+        folderSource === "explicit" ? { projectFolder: [project] } : undefined,
       space: SPACE_ID,
       workingDirectory: project,
     });
@@ -558,6 +568,14 @@ describe("space add-me command", () => {
     expect(setCustomProfileWorkspaceMock).toHaveBeenCalledWith({
       openMeldProfileId: CREATED_AGENT_PROFILE.openMeldProfileId,
       customWorkspacePath: project,
+      importedSession:
+        folderSource === "native"
+          ? {
+              agentControllerRef: "builtin:codex",
+              agentControllerConversationId: "codex-thread",
+            }
+          : undefined,
+      onlyIfUnconfigured: true,
     });
     expect(ensureAgentProfileRuntimeBindingMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -723,6 +741,8 @@ describe("space add-me command", () => {
     expect(setCustomProfileWorkspaceMock).toHaveBeenCalledWith({
       openMeldProfileId: partialAgentProfile.openMeldProfileId,
       customWorkspacePath: project,
+      importedSession: undefined,
+      onlyIfUnconfigured: true,
     });
     expect(ensureAgentProfileRuntimeBindingMock).toHaveBeenCalledWith(
       expect.objectContaining({

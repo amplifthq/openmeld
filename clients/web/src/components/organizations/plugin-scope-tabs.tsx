@@ -1,25 +1,35 @@
 import { TabItem, Tabs, TabsList } from "@openmeld/ui/fluid/tabs";
 import { BuildingsIcon, UserIcon } from "@phosphor-icons/react";
-import { useQueryState } from "nuqs";
-import { pluginScopeParser } from "#/lib/page-tab-search";
+import { getRouteApi, useLocation } from "@tanstack/react-router";
+
+const pluginsRoute = getRouteApi("/o/$orgSlug/plugins");
 
 export function usePluginScope() {
-	return useQueryState("scope", pluginScopeParser)[0];
+	return pluginsRoute.useSearch({ select: (search) => search.scope });
 }
 
 export function PluginScopeTabs(input: {
 	organizationName: string;
 	isPersonalWorkspace: boolean;
 }) {
-	const [scope, setScope] = useQueryState("scope", pluginScopeParser);
+	const scope = usePluginScope();
+	const navigate = pluginsRoute.useNavigate();
+	const pathname = useLocation({ select: (location) => location.pathname });
 	if (input.isPersonalWorkspace) {
 		return null;
 	}
 	return (
 		<Tabs
-			onValueChange={(value) =>
-				setScope(value === "personal" ? "personal" : "organization")
-			}
+			onValueChange={(value) => {
+				navigate({
+					to: pathname,
+					resetScroll: false,
+					search: (previous) => ({
+						...previous,
+						scope: value === "personal" ? "personal" : "organization",
+					}),
+				});
+			}}
 			value={scope}
 		>
 			<TabsList aria-label="Configure plugins for" className="w-fit max-w-full">

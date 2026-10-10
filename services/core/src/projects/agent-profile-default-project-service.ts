@@ -4,6 +4,10 @@ import {
   updateAgentProfileDefaultProjectResponseSchema,
 } from "@openmeld/schemas";
 import type { UpdateAgentProfileDefaultProjectResponse } from "@openmeld/schemas/types";
+import {
+  type AgentProfileBindingTarget,
+  requireSameAgentProfileBindingTarget,
+} from "../agent-profile-binding/application/agent-profile-binding-target";
 import { readPrimaryAgentProfileBindingRecord } from "../agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import {
   acquireRuntimeTransportAgentProfileFutureWorkSettingsMutation,
@@ -19,6 +23,8 @@ export async function updateAgentProfileDefaultProjectForAuthority(input: {
   agentProfileId: string;
   authority: ProjectAuthority;
   defaultProjectId: string | null;
+  onlyIfUnmodified?: boolean;
+  expectedBindingTarget?: AgentProfileBindingTarget;
   env: CoreBindings;
   service: ProjectService;
 }): Promise<UpdateAgentProfileDefaultProjectResponse> {
@@ -67,6 +73,12 @@ export async function updateAgentProfileDefaultProjectForAuthority(input: {
       db,
       owner: { id: input.authority.userId, kind: "owner_account" },
     });
+    if (input.expectedBindingTarget) {
+      requireSameAgentProfileBindingTarget(
+        binding,
+        input.expectedBindingTarget
+      );
+    }
     if (isHostedAgentRuntimeKind(binding?.runtimeKind)) {
       throw createCoreRpcHttpError({
         code: "profile.default_project_not_supported",
@@ -76,13 +88,19 @@ export async function updateAgentProfileDefaultProjectForAuthority(input: {
     }
     const updated = await callRequiredAuthWorkerRpc({
       authWorker: input.env.OPENMELD_AUTH_WORKER,
-      call: (authWorker) =>
-        authWorker.updateAgentProfileDefaultProjectInOrganization({
+      call: (authWorker) => {
+        const request = {
           defaultProjectId: input.defaultProjectId,
           organizationId: input.authority.organizationId,
           ownerUserId: input.authority.userId,
           profileId: input.agentProfileId,
-        }),
+        };
+        return input.onlyIfUnmodified
+          ? authWorker.initializeAgentProfileDefaultProjectInOrganization(
+              request
+            )
+          : authWorker.updateAgentProfileDefaultProjectInOrganization(request);
+      },
       unavailable: {
         code: "profile.default_project_unavailable",
         reason: "Agent Profile settings are unavailable.",

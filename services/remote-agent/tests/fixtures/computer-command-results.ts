@@ -3,18 +3,56 @@ import {
   Workspace,
   type WorkspaceRuntimeEvent,
 } from "@cloudflare/computer";
+import type { AgentComputerWorkspaceAccess } from "../../flue-adapter/agent-computer-workspace-access";
+import type { ComputerCommandRecord } from "../../flue-adapter/computer-command";
 import {
   collectComputerCommands,
   createComputerCommandTool,
   stopStoredComputerCommands,
 } from "../../flue-adapter/computer-command";
-import { RemoteAgentSqlStorage } from "../../flue-adapter/storage";
+import {
+  COMPUTER_COMMAND_PREFIX,
+  ComputerCommandSqlStorage,
+} from "../../flue-adapter/computer-command-storage";
+
+/** Existing native-result checks need due receipts, rather than a 15-second
+ * wall-clock sleep. Scheduling and failure budgets have their own clock tests. */
+export async function collectDueComputerCommands(input: {
+  storage: ComputerCommandSqlStorage;
+  workspaceAccess: AgentComputerWorkspaceAccess;
+}) {
+  for (const [key, command] of await input.storage.list<ComputerCommandRecord>({
+    prefix: COMPUTER_COMMAND_PREFIX,
+  })) {
+    if (
+      command.collection?.nextAttemptAtMs !== null &&
+      command.collection?.nextAttemptAtMs !== undefined &&
+      command.collection.nextAttemptAtMs > Date.now()
+    ) {
+      const due = {
+        ...command,
+        collection: { ...command.collection, nextAttemptAtMs: Date.now() },
+      };
+      if (command.recordExpiresAtMs === undefined) {
+        await input.storage.compareAndSet(key, command, due);
+      } else {
+        await input.storage.compareAndSetExpiring(
+          key,
+          command,
+          due,
+          command.recordExpiresAtMs
+        );
+      }
+    }
+  }
+  return await collectComputerCommands(input);
+}
 
 /** Exercise the real SDK sync bracket and the real SQLite receipt owner. Only
  * the external computerd RPC is controlled, using its shipped event contract. */
 export async function verifyDurableCommandResults(
   storage: ConstructorParameters<typeof Workspace>[0]["storage"],
-  sql: ConstructorParameters<typeof RemoteAgentSqlStorage>[0],
+  sql: ConstructorParameters<typeof ComputerCommandSqlStorage>[0],
   syncOutcome: "complete" | "ENOENT" | "EEXEC_LOST" = "complete"
 ) {
   let exited = false;
@@ -131,7 +169,7 @@ export async function verifyDurableCommandResults(
   const tool = () =>
     createComputerCommandTool({
       context: { submissionId: "durable-result" },
-      storage: new RemoteAgentSqlStorage(sql),
+      storage: new ComputerCommandSqlStorage(sql),
       workspaceAccess,
       workingDirectory: "/computer",
     });
@@ -150,14 +188,14 @@ export async function verifyDurableCommandResults(
     // An exited process is never signalled while synchronization is pending.
     const pendingCleanup = await stopStoredComputerCommands({
       context: { submissionId: "durable-result" },
-      storage: new RemoteAgentSqlStorage(sql),
+      storage: new ComputerCommandSqlStorage(sql),
       access: () => workspaceAccess,
     });
     pullFails = syncOutcome !== "complete";
     expired = syncOutcome !== "complete";
     // No model poll: collection must retain the terminal result itself.
-    await collectComputerCommands({
-      storage: new RemoteAgentSqlStorage(sql),
+    await collectDueComputerCommands({
+      storage: new ComputerCommandSqlStorage(sql),
       workspaceAccess,
     });
     expired = true;
@@ -168,7 +206,7 @@ export async function verifyDurableCommandResults(
     });
     const cleanup = await stopStoredComputerCommands({
       context: { submissionId: "durable-result" },
-      storage: new RemoteAgentSqlStorage(sql),
+      storage: new ComputerCommandSqlStorage(sql),
       access: () => workspaceAccess,
     });
     return { started, pending, pendingCleanup, recovered, cleanup, starts };

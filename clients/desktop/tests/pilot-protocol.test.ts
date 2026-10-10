@@ -5,15 +5,86 @@ import { join } from "node:path";
 import { createOpenMeldApiClient, createSpaceApi } from "@openmeld/api-client";
 import {
   OPENMELD_HEADER_INBOX_SUMMARY_VERSION,
+  OPENMELD_HEADER_SPACE_FILES_ORIGIN_VERSION,
+  OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION,
   OPENMELD_INBOX_SUMMARY_VERSION,
+  OPENMELD_SPACE_FILES_ORIGIN_VERSION,
+  OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
 } from "@openmeld/gateway-contract";
 import {
   DESKTOP_APP_ORIGIN,
   DESKTOP_CONTRACT_HEADER,
   SPACE_ACCESS_VERSION_HEADER,
+  toLegacySpaceFilesOriginWireValue,
 } from "@openmeld/schemas";
 import { expect, it, vi } from "vitest";
 import { createPilotProtocol } from "../src/main/pilot-protocol";
+
+it.each([
+  false,
+  true,
+])("preserves file response capabilities through the native API in installed=%s", async (installed) => {
+  const list = {
+    spaceId: "space-1",
+    parentId: null,
+    view: "active",
+    origin: "all",
+    breadcrumbs: [{ id: null, name: "Files" }],
+    entries: [],
+    capabilities: { canRead: true, canWrite: true },
+  };
+  // Gateway selects the legacy response when the caller omits its capability.
+  const reply = (headers: Headers) =>
+    Response.json(
+      headers.get(OPENMELD_HEADER_SPACE_FILES_ORIGIN_VERSION) ===
+        OPENMELD_SPACE_FILES_ORIGIN_VERSION
+        ? list
+        : toLegacySpaceFilesOriginWireValue(list)
+    );
+  const cloudRequest = vi.fn(
+    async (_path: string, request: { headers: Headers }) =>
+      reply(request.headers)
+  );
+  const fetchCloud = vi.fn<typeof fetch>(async (_url, options) =>
+    reply(new Headers(options?.headers))
+  );
+  const handle = createPilotProtocol({
+    assets: "/unused",
+    webOrigin: "https://web.example",
+    webBuild: "a".repeat(64),
+    installed,
+    ensureCompatible: async () => undefined,
+    cookie: () => "session=native",
+    fetch: fetchCloud,
+    ...(installed ? { cloudRequest } : {}),
+  });
+  const api = createSpaceApi(
+    createOpenMeldApiClient({
+      baseUrl: "https://web.example",
+      transport: async ({ url, init }) => {
+        const target = new URL(url);
+        return await handle(
+          new Request(
+            `${DESKTOP_APP_ORIGIN}${target.pathname}${target.search}`,
+            init
+          )
+        );
+      },
+    })
+  );
+  await expect(
+    api.listFiles({
+      spaceId: "space-1",
+      query: { origin: "all", view: "active" },
+    })
+  ).resolves.toMatchObject({ origin: "all" });
+  const headers = installed
+    ? cloudRequest.mock.calls[0]?.[1].headers
+    : new Headers(fetchCloud.mock.calls[0]?.[1]?.headers);
+  expect(headers?.get(OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION)).toBe(
+    OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION
+  );
+});
 
 it("preserves authenticated media ranges without exposing native credentials", async () => {
   const cloudRequest = vi.fn(
