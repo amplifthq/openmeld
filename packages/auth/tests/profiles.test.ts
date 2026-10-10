@@ -33,6 +33,7 @@ type ProfileSeed = Omit<
   | "defaultProjectId"
   | "managedRole"
   | "avatarStyle"
+  | "avatarOptions"
   | "organizationId"
 > &
   Partial<
@@ -45,6 +46,7 @@ type ProfileSeed = Omit<
       | "defaultProjectId"
       | "managedRole"
       | "avatarStyle"
+      | "avatarOptions"
       | "organizationId"
     >
   >;
@@ -63,6 +65,7 @@ function withProfileDefaults(profile: ProfileSeed): OpenMeldProfileRecord {
     defaultProjectId: profile.defaultProjectId ?? null,
     managedRole: profile.managedRole ?? null,
     avatarStyle: profile.avatarStyle ?? null,
+    avatarOptions: profile.avatarOptions ?? null,
   };
 }
 
