@@ -70,6 +70,7 @@ import {
 	type SpaceMessageReferencesById,
 	SpaceMessageReferenceText,
 } from "./space-message-reference";
+import { SpaceMessageTaskContext } from "./space-message-task-context";
 import { SpaceProfileIcon } from "./space-profile-icon";
 import { SpaceWakeFailureActionControl } from "./space-wake-failure-action";
 import {
@@ -110,7 +111,11 @@ type MessageDetailsQueryState =
 			status: "ready";
 	  };
 
+import { SpaceWorkHandoffAction } from "./space-work-handoff";
+
 export function SpaceMessageDetailsDrawer(input: {
+	threadId?: string;
+	canStartNewTask?: boolean;
 	agentRecoveryPlansByProfileId?: ReadonlyMap<
 		string,
 		AgentProfileReplyRecoveryPlan
@@ -250,11 +255,26 @@ export function SpaceMessageDetailsDrawer(input: {
 							data-vaul-no-drag
 							orientation="vertical"
 						>
+							{input.canStartNewTask &&
+							input.openMeldProfileId &&
+							input.item.signalType === "signal.text" &&
+							input.item.deliveryState === "sent" &&
+							!input.item.recalledAt ? (
+								<SpaceWorkHandoffAction
+									key={`${input.spaceId}:${input.openMeldProfileId}:${input.item.id}:${input.threadId ?? "main"}`}
+									profileId={input.openMeldProfileId}
+									sourceSignalId={input.item.id}
+									spaceId={input.spaceId}
+									spacePassword={input.spacePassword}
+									threadId={input.threadId}
+								/>
+							) : null}
 							<MessageDetailsBody
 								agentRecoveryPlansByProfileId={
 									input.agentRecoveryPlansByProfileId
 								}
 								canJumpToMessage={input.canJumpToMessage}
+								canStartNewTask={input.canStartNewTask === true}
 								detailsState={detailsState}
 								diagnosticReportStatus={input.diagnosticReportStatus}
 								errorLogMessage={input.errorLogMessage}
@@ -283,8 +303,11 @@ export function SpaceMessageDetailsDrawer(input: {
 								onWakeStopRequest={input.onWakeStopRequest}
 								orgSlug={input.orgSlug}
 								prepareSetupHref={input.prepareSetupHref}
+								profileId={input.openMeldProfileId}
 								profilePresentationsById={input.profilePresentationsById}
 								replyItems={input.replyItems ?? []}
+								spaceId={input.spaceId}
+								spacePassword={input.spacePassword}
 								spaceReferencesById={input.spaceReferencesById}
 								targetProfileDisplayNamesByProfileId={
 									input.targetProfileDisplayNamesByProfileId
@@ -305,6 +328,10 @@ export function SpaceMessageDetailsDrawer(input: {
 }
 
 function MessageDetailsBody(input: {
+	canStartNewTask: boolean;
+	profileId?: string;
+	spaceId: string;
+	spacePassword?: string;
 	agentRecoveryPlansByProfileId?: ReadonlyMap<
 		string,
 		AgentProfileReplyRecoveryPlan
@@ -394,6 +421,15 @@ function MessageDetailsBody(input: {
 	return (
 		<div className="flex flex-col gap-5">
 			<OriginalErrorsSection wakeContext={data.wakeContext} />
+			{data.wakeContext.targets.some((target) => target.taskContext) ? (
+				<SpaceMessageTaskContext
+					canStartNewTask={input.canStartNewTask}
+					data={data}
+					profileId={input.profileId}
+					spaceId={input.spaceId}
+					spacePassword={input.spacePassword}
+				/>
+			) : null}
 			<ActivitySection
 				actionNotices={actionNotices}
 				agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
@@ -1261,6 +1297,13 @@ function buildWakeTargetTechnicalDetailFields(
 					)
 				: []),
 			{ label: `${labelPrefix} profile ID`, value: target.targetProfileId },
+			target.taskContext?.assignment.readStatus === "found" &&
+			target.taskContext.assignment.contextId
+				? {
+						label: `${labelPrefix} Context ID`,
+						value: target.taskContext.assignment.contextId,
+					}
+				: null,
 			target.reasonCode
 				? { label: `${labelPrefix} reason code`, value: target.reasonCode }
 				: null,

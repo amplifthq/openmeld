@@ -181,6 +181,7 @@ export async function getCurrentSpaceInboxUnreadTargets(input: {
 			signal: input.signal,
 			spaceId: input.spaceId,
 			includeItemIds: true,
+			includeSourceKeys: true,
 		});
 		assertOrganizationMatch(response.organizationId, input.organizationId);
 		if (response.spaceId !== input.spaceId) {

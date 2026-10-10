@@ -323,6 +323,33 @@ describe("Computer Space file transfer", () => {
       await storage.get(`space-work:${context.submissionId}`)
     ).toBeUndefined();
     context.workHandoff.files.pop();
+    context.workHandoff = {
+      ...context.workHandoff,
+      schemaVersion: 2,
+      sourceSignalId: "reviewed-result",
+      sourceRevision: 4,
+      execution: { access: "space_context", workspace: "isolated" },
+      work: {
+        ...context.workHandoff.work,
+        evidence: [],
+        attemptedApproaches: [],
+        decisions: [],
+        constraints: [],
+        openQuestions: [],
+        completionCriteria: ["Return the checked file"],
+      },
+    };
+    const selectedFiles = context.workHandoff.files;
+    context.workHandoff.files = [];
+    const readsBeforeBrief = readSpaceFileContent.mock.calls.length;
+    expect(await materializeSpaceWork(preparation)).toBe(
+      preparation.workingDirectory
+    );
+    expect(readSpaceFileContent.mock.calls).toHaveLength(readsBeforeBrief);
+    expect(
+      await storage.get(`space-work:${context.submissionId}`)
+    ).toBeUndefined();
+    context.workHandoff.files = selectedFiles;
     const preparedRoot = await materializeSpaceWork(preparation);
     expect(stored.get(`${preparedRoot}/inputs/input.bin`)).toEqual(bytes);
     stored.set(`${preparedRoot}/inputs/input.bin`, new Uint8Array([9]));

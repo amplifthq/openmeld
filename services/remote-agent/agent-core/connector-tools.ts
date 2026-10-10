@@ -55,7 +55,7 @@ import {
   getConnectedAppDisplayName,
 } from "./connector-service-presentation";
 import { CONNECTOR_WRITE_RECOVERY_GUIDANCE } from "./connector-write-recovery";
-import { callCoreRpc, requireCoreRpc } from "./core-rpc";
+import { callCoreRpc, readCoreRpcErrorCode, requireCoreRpc } from "./core-rpc";
 import {
   resolveRemoteAgentDestructiveAuthorization,
   resolveRemoteAgentRoutineDestructiveActionBlock,
@@ -478,6 +478,18 @@ async function executeAppAction(input: {
       toolContext,
     });
   } catch (error) {
+    if (readCoreRpcErrorCode(error) === "plugin.action_forbidden") {
+      const requester = resolveConnectorTurnRequester(
+        toolContext,
+        input.request.connectionPreference
+      );
+      await recordConnectorAccessReview({
+        ...input.dependencies,
+        toolContext,
+        service: input.request.service,
+        connectionPreference: requester.connectionPreference,
+      });
+    }
     if (
       !(
         error instanceof ConnectorActionTerminalReceipt &&
@@ -1238,19 +1250,17 @@ export async function requireAvailableConnectorConnection(
   input: Parameters<typeof resolveConnectorConnection>[0] &
     Pick<ConnectorToolDependencies, "storage" | "submissionId">
 ) {
-  const selection = await resolveConnectorConnection(input);
-  if (!(selection.connection && selection.selection)) {
-    if (input.toolContext.turnEnvelope?.organization.webUrl) {
-      await recordRemoteAgentNavigationTarget({
-        storage: input.storage,
-        submissionId: input.submissionId,
-        target: {
-          kind: "plugin_connection",
-          service: input.service,
-          scope: input.connectionPreference === "shared" ? "shared" : "choose",
-        },
-      });
+  let selection: Awaited<ReturnType<typeof resolveConnectorConnection>>;
+  try {
+    selection = await resolveConnectorConnection(input);
+  } catch (error) {
+    if (readCoreRpcErrorCode(error) === "plugin.action_forbidden") {
+      await recordConnectorAccessReview(input);
     }
+    throw error;
+  }
+  if (!(selection.connection && selection.selection)) {
+    await recordConnectorAccessReview(input);
     throw new Error(
       `${getConnectedAppDisplayName(input.service as CenterAgentAppConnectorService)} is not available for this request. Review the account and Agent access using the Plugin connection action, or open Plugins. An unavailable selection does not prove the account is disconnected; reconnecting cannot override denied Agent or provider permissions.`
     );
@@ -1260,6 +1270,35 @@ export async function requireAvailableConnectorConnection(
     permission: selection.permission,
     selection: selection.selection,
   };
+}
+
+async function recordConnectorAccessReview(input: {
+  storage: RemoteAgentStorage;
+  submissionId: string;
+  service: ConnectorService;
+  toolContext: ConnectorToolContext;
+  connectionPreference: "automatic" | "requester" | "shared";
+}) {
+  if (
+    !input.toolContext.turnEnvelope?.organization.webUrl ||
+    input.toolContext.turnEnvelope.trigger.source === "routine"
+  ) {
+    return;
+  }
+  const scope = {
+    automatic: "choose",
+    requester: "member",
+    shared: "shared",
+  } as const;
+  await recordRemoteAgentNavigationTarget({
+    storage: input.storage,
+    submissionId: input.submissionId,
+    target: {
+      kind: "plugin_connection",
+      service: input.service,
+      scope: scope[input.connectionPreference],
+    },
+  });
 }
 
 export function resolveConnectorTurnRequester(

@@ -1,18 +1,21 @@
-import { createHash } from "node:crypto";
-import type { PluginConnectionContinuationBinding } from "@openmeld/schemas";
+import type {
+  PluginConnectionContinuationBinding,
+  PluginConnectionExecutionSource,
+} from "@openmeld/schemas";
 import { normalizeMessageEnvelope } from "@openmeld/schemas";
 import type {
   SignalEnvelope,
   SpaceThreadContext,
 } from "@openmeld/schemas/types";
 import { stringifyCanonicalJson } from "@openmeld/utils";
+import {
+  pluginConnectionSourceEnvelopeDigest,
+  pluginContinuationTextDigest,
+} from "../../connectors/plugin-connection-source-fingerprint";
+import type { RemoteAgentNativeDeliveryRecord } from "../../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { createCoreRpcHttpError } from "../../rpc/errors";
-import type { OpenMeldDaemonDispatchOutboxRecoveryCandidate } from "../infrastructure/outbox/dispatch-outbox-repo";
 
 export const PLUGIN_CONTINUATION_CLIENT_PREFIX = "plugin-continue:";
-export function pluginContinuationTextDigest(text: string): string {
-  return createHash("sha256").update(text).digest("hex");
-}
 
 /** Both the previewing Core caller and the accepting Space use this exact
  * projection. Revision catches edit-and-revert; content catches stale snapshots. */
@@ -56,16 +59,17 @@ export function assertPluginContinuationSource(input: {
   binding: PluginConnectionContinuationBinding;
   source: SignalEnvelope | null;
   reply: SignalEnvelope | null;
-  dispatch: OpenMeldDaemonDispatchOutboxRecoveryCandidate | null;
+  nativeSource?: RemoteAgentNativeDeliveryRecord;
+  localSource?: PluginConnectionExecutionSource;
   sourceThread: SpaceThreadContext | null;
   replyThread: SpaceThreadContext | null;
 }) {
-  const { binding: b, source, reply, dispatch } = input;
+  const { binding: b, source, reply } = input;
   if (
     !(
       source?.type === "signal.text" &&
       reply?.type === "signal.text" &&
-      dispatch
+      (input.localSource || input.nativeSource)
     )
   ) {
     throw pluginContinuationConflict();
@@ -75,22 +79,14 @@ export function assertPluginContinuationSource(input: {
     source.spaceId !== b.spaceId ||
     source.profile.kind !== "human" ||
     source.profile.profileId !== b.requesterProfileId ||
-    source.data.meta?.recalledAt
-  ) {
-    throw pluginContinuationConflict();
-  }
-  if (
+    source.data.meta?.recalledAt ||
     reply.id !== b.reply.signalId ||
     reply.spaceId !== b.spaceId ||
     reply.profile.kind !== "agent" ||
     reply.profile.profileId !== b.targetProfileId ||
     reply.data.meta?.recalledAt ||
     reply.data.meta?.editedAt ||
-    reply.data.meta?.dispatchId !== b.sourceDispatchId
-  ) {
-    throw pluginContinuationConflict();
-  }
-  if (
+    reply.data.meta?.dispatchId !== b.sourceDispatchId ||
     (source.data.meta?.messageRevision ?? 0) !== b.source.revision ||
     pluginContinuationMessageFingerprint(source) !== b.source.fingerprint ||
     (reply.data.meta?.messageRevision ?? 0) !== b.reply.revision ||
@@ -98,32 +94,93 @@ export function assertPluginContinuationSource(input: {
   ) {
     throw pluginContinuationConflict();
   }
-  // The outbox is the original admitted message snapshot, not a fresh client
-  // assertion. No post-dispatch edit may be accepted merely because Core saw it.
-  if (
-    dispatch.dispatchId !== b.sourceDispatchId ||
-    dispatch.spaceId !== b.spaceId ||
-    dispatch.organizationId !== b.organizationId ||
-    dispatch.sourceEventId !== source.id ||
-    dispatch.targetProfileId !== b.targetProfileId ||
-    dispatch.sourceSignalSnapshot?.profileId !== b.requesterProfileId ||
-    dispatch.outboxStatus === "cancelled"
-  ) {
+  if (input.nativeSource) {
+    assertNativePluginContinuationSource({
+      binding: b,
+      source,
+      reply,
+      delivery: input.nativeSource,
+      sourceThread: input.sourceThread,
+      replyThread: input.replyThread,
+    });
+    return;
+  }
+  const local = input.localSource;
+  if (!local) {
     throw pluginContinuationConflict();
   }
+  // RuntimeCoordinator retains admission after the conveyor is retired. This
+  // narrow read contains no credential and is never accepted from a browser.
   if (
-    !dispatch.sourceMessageEnvelope ||
-    dispatch.sourceMessageEnvelope.text !== source.data.text ||
-    (source.data.meta?.editedAt !== undefined &&
-      source.data.meta.editedAt >= dispatch.createdAtMs)
+    local.spaceId !== b.spaceId ||
+    local.dispatchId !== b.sourceDispatchId ||
+    local.targetProfileId !== b.targetProfileId ||
+    local.sourceSignalId !== source.id ||
+    local.requesterProfileId !== b.requesterProfileId ||
+    !source.data.messageEnvelope ||
+    source.data.messageEnvelope.text !== source.data.text ||
+    pluginConnectionSourceEnvelopeDigest(source.data.messageEnvelope) !==
+      local.sourceEnvelopeDigest ||
+    source.data.meta?.editedAt ||
+    (source.data.meta?.messageRevision ?? 0) !== 0
   ) {
     throw pluginContinuationConflict();
   }
   if (
     !(
-      sameThread(input.sourceThread, dispatch.threadContext ?? null) &&
+      sameThread(input.sourceThread, local.threadContext) &&
       sameThread(input.replyThread, b.threadContext)
     )
+  ) {
+    throw pluginContinuationConflict();
+  }
+}
+
+function assertNativePluginContinuationSource(input: {
+  binding: PluginConnectionContinuationBinding;
+  source: Extract<SignalEnvelope, { type: "signal.text" }>;
+  reply: Extract<SignalEnvelope, { type: "signal.text" }>;
+  delivery: RemoteAgentNativeDeliveryRecord;
+  sourceThread: SpaceThreadContext | null;
+  replyThread: SpaceThreadContext | null;
+}) {
+  const { binding: b, source, reply, delivery } = input;
+  const request = delivery.executionRecoverySubmitRequest;
+  const sender = request?.turnEnvelope.sender;
+  // Native admission retires the Space conveyor. Its retained execution
+  // request owns accepted identity; do not reconstruct a dispatch payload.
+  // Older native requests do not retain the raw message envelope, so an
+  // edited original must be sent again rather than guessed from rendered text.
+  if (
+    !request ||
+    delivery.organizationId !== b.organizationId ||
+    delivery.spaceId !== b.spaceId ||
+    delivery.dispatchId !== b.sourceDispatchId ||
+    delivery.profileId !== b.targetProfileId ||
+    delivery.triggerMessageId !== source.id ||
+    delivery.publishedSignalId !== reply.id ||
+    delivery.status !== "completed" ||
+    delivery.failureCode !== null ||
+    delivery.completedAtMs === null ||
+    delivery.conversationKind !== "space" ||
+    delivery.routineRunId ||
+    request.organizationId !== b.organizationId ||
+    request.spaceId !== b.spaceId ||
+    request.dispatchId !== b.sourceDispatchId ||
+    request.triggerMessageId !== source.id ||
+    request.agentProfileId !== b.targetProfileId ||
+    request.bindingId !== delivery.bindingId ||
+    request.author.profileKind !== "human" ||
+    request.author.profileId !== b.requesterProfileId ||
+    sender?.kind !== "member" ||
+    !sender.verified ||
+    sender.ownerUserId !== b.requesterUserId ||
+    sender.profileId !== b.requesterProfileId ||
+    source.data.meta?.editedAt ||
+    (source.data.meta?.messageRevision ?? 0) !== 0 ||
+    source.ts > delivery.createdAtMs ||
+    !sameThread(input.sourceThread, delivery.threadContext) ||
+    !sameThread(input.replyThread, b.threadContext)
   ) {
     throw pluginContinuationConflict();
   }

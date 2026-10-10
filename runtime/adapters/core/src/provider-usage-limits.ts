@@ -1,9 +1,13 @@
-import type { AgentControllerUsageLimit } from "@openmeld/schemas/types";
+import type {
+  AgentControllerUsageAdmission,
+  AgentControllerUsageLimit,
+} from "@openmeld/schemas/types";
 
 const PROVIDER_USAGE_LIMIT_KEY = "provider";
 const PROVIDER_USAGE_LIMIT_LABEL = "Usage limits";
 
 export type AdapterProviderUsageLimit = AgentControllerUsageLimit;
+export type AdapterProviderUsageAdmission = AgentControllerUsageAdmission;
 
 export type AdapterUsageProvider = NonNullable<
   AgentControllerUsageLimit["provider"]

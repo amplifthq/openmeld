@@ -205,13 +205,15 @@ describe("UnifiedVerificationForm magic-link session confirmation", () => {
 	});
 
 	it.each([
-		"/accept-invitation",
-		"/accept-space-invitation",
-	])("returns a magic-link visitor to %s", async (invitationPath) => {
+		"/accept-invitation?invitationId=inv-1",
+		"/accept-space-invitation?invitationId=inv-1",
+		"/join-organization?token=joinlink_123",
+		"/desktop-sign-in?client_id=electron&code_challenge=test-challenge&code_challenge_method=S256&state=test-state",
+	])("returns a magic-link visitor to %s", async (redirectTarget) => {
 		window.history.replaceState(
 			{},
 			"",
-			`http://localhost:3000/magic-link?token=token-123&redirect=${encodeURIComponent(`${invitationPath}?invitationId=inv-1`)}`
+			`http://localhost:3000/magic-link?token=token-123&redirect=${encodeURIComponent(redirectTarget)}`
 		);
 		authFormHookMocks.verifyMagicLinkMutateAsync.mockResolvedValue({
 			redirectTo: "/login",
@@ -227,53 +229,39 @@ describe("UnifiedVerificationForm magic-link session confirmation", () => {
 		const continueLink = screen.getByRole("link", {
 			name: "Continue to OpenMeld",
 		});
-		expect(continueLink.getAttribute("href")).toContain(invitationPath);
-		expect(resolveActiveOrganizationEntryPathMock).not.toHaveBeenCalled();
-	});
-
-	it("returns a magic-link visitor to the organization join page", async () => {
-		window.history.replaceState(
-			{},
-			"",
-			"http://localhost:3000/magic-link?token=token-123&redirect=%2Fjoin-organization%3Ftoken%3Djoinlink_123"
-		);
-		authFormHookMocks.verifyMagicLinkMutateAsync.mockResolvedValue({
-			redirectTo: "/login",
-		});
-		authSessionMock.refetch.mockResolvedValue({
-			data: { session: { id: "session-1" }, user: { id: "user-1" } },
-		});
-
-		render(<UnifiedVerificationForm verificationKind="magic-link" />);
-
-		await screen.findByText("You're signed in.");
-
-		const continueLink = screen.getByRole("link", {
-			name: "Continue to OpenMeld",
-		});
-		expect(continueLink.getAttribute("href")).toContain("/join-organization");
+		expect(continueLink.getAttribute("href")).toBe(redirectTarget);
 		expect(resolveActiveOrganizationEntryPathMock).not.toHaveBeenCalled();
 	});
 
 	it.each([
-		"/accept-invitation",
-		"/accept-space-invitation",
-	])("returns a verified-email visitor to %s", async (invitationPath) => {
+		[
+			"/accept-invitation?invitationId=inv-1",
+			"Continue to accept the invitation",
+		],
+		[
+			"/accept-space-invitation?invitationId=inv-1",
+			"Continue to accept the invitation",
+		],
+		[
+			"/desktop-sign-in?client_id=electron&code_challenge=test-challenge&state=test-state",
+			"Continue to OpenMeld",
+		],
+	])("returns a verified-email visitor to %s", async (redirectTarget, label) => {
 		window.history.replaceState(
 			{},
 			"",
-			`http://localhost:3000/verify-email?token=token-123&redirect=${encodeURIComponent(`${invitationPath}?invitationId=inv-1`)}`
+			`http://localhost:3000/verify-email?token=token-123&redirect=${encodeURIComponent(redirectTarget)}`
 		);
 		authFormHookMocks.verifyEmailMutateAsync.mockResolvedValue(undefined);
 
 		render(<UnifiedVerificationForm verificationKind="email" />);
 
 		const continueLink = await screen.findByRole("link", {
-			name: "Continue to accept the invitation",
+			name: label,
 		});
-		expect(continueLink.getAttribute("href")).toContain(invitationPath);
+		expect(continueLink.getAttribute("href")).toBe(redirectTarget);
 		expect(authFormHookMocks.verifyEmailMutateAsync).toHaveBeenCalledWith({
-			callbackURL: `http://localhost:3000/verify-email?redirect=${encodeURIComponent(`${invitationPath}?invitationId=inv-1`)}`,
+			callbackURL: `http://localhost:3000/verify-email?redirect=${encodeURIComponent(redirectTarget)}`,
 			token: "token-123",
 		});
 	});

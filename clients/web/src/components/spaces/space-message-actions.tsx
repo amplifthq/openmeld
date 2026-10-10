@@ -68,6 +68,7 @@ export function MessageDetailsActionButton(input: {
 	buttonClassName?: string;
 	hasWakeProblem: boolean;
 	label?: string;
+	readSources?: string;
 	onClick: () => void;
 }) {
 	const label = input.label ?? "Message details";
@@ -82,6 +83,7 @@ export function MessageDetailsActionButton(input: {
 						hasWakeProblem: input.hasWakeProblem,
 					})
 				)}
+				data-message-read-sources={input.readSources}
 				onClick={input.onClick}
 				size="icon-sm"
 				type="button"

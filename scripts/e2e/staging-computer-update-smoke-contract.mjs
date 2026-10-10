@@ -1,8 +1,9 @@
 export const STAGING_ORIGIN = "https://staging.openmeld.ai";
+export const STAGING_APP_ORIGIN = "https://app.staging.openmeld.ai";
 export const STAGING_AUTH_URL = "https://auth.staging.openmeld.ai";
 export const STAGING_GATEWAY_URL = "https://gateway.staging.openmeld.ai";
 export const STAGING_MANIFEST_URL = `${STAGING_ORIGIN}/cli/manifest.json`;
-export const STAGING_COMPUTER_SMOKE_SETUP_URL = `${STAGING_ORIGIN}/setup?dist=binary&lane=canary`;
+export const STAGING_COMPUTER_SMOKE_SETUP_URL = `${STAGING_APP_ORIGIN}/setup?dist=binary&lane=canary`;
 
 const SETUP_COMMAND_ERROR =
   "Use the official Staging Canary binary setup command copied from OpenMeld Staging.";

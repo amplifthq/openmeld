@@ -30,6 +30,47 @@ vi.mock("#/lib/spaces/api", () => ({
 }));
 
 describe("space history helpers", () => {
+	it("drops retained history at a new personal deletion boundary and ignores older responses", () => {
+		const old = createTextSignal({ id: "old", ts: 1 });
+		const current = {
+			envelopes: [old],
+			nextCursor: "old-cursor",
+			confirmedCursor: old.id,
+			personalHistoryDeletedAt: 0,
+		};
+		const deleted = mergeSpaceHistorySnapshots({
+			current,
+			incoming: {
+				envelopes: [],
+				nextCursor: null,
+				personalHistoryDeletedAt: 20,
+			},
+		});
+		expect(deleted.envelopes).toEqual([]);
+		expect(deleted.confirmedCursor).toBeUndefined();
+		expect(
+			mergeSpaceHistorySnapshots({ current: deleted, incoming: current })
+		).toBe(deleted);
+		const client = new QueryClient();
+		const key = spaceHistoryQueryOptions({
+			spaceId: "space-a",
+			openMeldProfileId: "human-a",
+			enabled: false,
+		}).queryKey;
+		client.setQueryData(key, deleted);
+		const fresh = createTextSignal({ id: "fresh", ts: 30 });
+		writeSpaceHistoryEnvelopesToCache({
+			queryClient: client,
+			spaceId: "space-a",
+			openMeldProfileId: "human-a",
+			envelopes: [fresh],
+		});
+		expect(client.getQueryData<SpaceHistorySnapshot>(key)).toMatchObject({
+			envelopes: [fresh],
+			personalHistoryDeletedAt: 20,
+		});
+		client.clear();
+	});
 	it("records a cache write only when saved history changes", () => {
 		const queryClient = new QueryClient();
 		const spaceId = "space-a";
@@ -296,6 +337,7 @@ describe("space history helpers", () => {
 		expect(listSignalEnvelopesMock).toHaveBeenCalledWith({
 			query: {
 				afterTs: startAtMs - 1,
+				includePersonalHistoryBoundary: true,
 				kinds: ["text", "status", "system_notice"],
 				limit: SPACE_DATE_HISTORY_PAGE_MAX_MESSAGES,
 			},

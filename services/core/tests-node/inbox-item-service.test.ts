@@ -313,7 +313,7 @@ describe("Inbox item service", () => {
     }
   });
 
-  it("resolves source-owned action state without mutating read state", async () => {
+  it("marks an ended Agent interaction read and suppresses its undelivered email", async () => {
     const harness = await createInboxHarness();
     try {
       const candidate = buildCandidate();
@@ -334,7 +334,7 @@ describe("Inbox item service", () => {
         }>({
           text: 'SELECT read_at_ms, resolution_status FROM "openmeld"."inbox_items"',
         })
-      ).toEqual({ read_at_ms: null, resolution_status: "resolved" });
+      ).toEqual({ read_at_ms: 4000, resolution_status: "resolved" });
       expect(
         (
           await harness.queryFirst<{ state: string }>({

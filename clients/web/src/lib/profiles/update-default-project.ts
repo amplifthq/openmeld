@@ -2,7 +2,10 @@ import {
 	createProfilesApi,
 	toStructuredApiClientFailure,
 } from "@openmeld/api-client";
-import type { AuthProfileView } from "@openmeld/schemas/types";
+import type {
+	AgentProfileBindingTarget,
+	AuthProfileView,
+} from "@openmeld/schemas/types";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 export async function updateAgentProfileDefaultProject(input: {
@@ -10,6 +13,7 @@ export async function updateAgentProfileDefaultProject(input: {
 	defaultProjectId: string | null;
 	organizationId: string;
 	profileId: string;
+	expectedBindingTarget?: AgentProfileBindingTarget;
 }): Promise<AuthProfileView> {
 	try {
 		const response = await createProfilesApi(
@@ -20,6 +24,9 @@ export async function updateAgentProfileDefaultProject(input: {
 					: {}),
 			})
 		).updateDefaultProject({
+			...(input.expectedBindingTarget
+				? { expectedBindingTarget: input.expectedBindingTarget }
+				: {}),
 			defaultProjectId: input.defaultProjectId,
 			expectedOrganizationId: input.organizationId,
 			profileId: input.profileId,

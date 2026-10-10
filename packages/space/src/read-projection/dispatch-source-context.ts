@@ -1,4 +1,5 @@
 import type { SignalEnvelope } from "@openmeld/protocol";
+import { buildAgentRequestTimeContext } from "@openmeld/schemas";
 import type { OpenMeldDaemonDispatchQueueMessage } from "@openmeld/schemas/types";
 
 type SourceSnapshot = NonNullable<
@@ -124,6 +125,7 @@ export function buildDispatchQuotedMessage(input: {
 
 /** One rendering for hosted and workstation delivery. Reply placement is separate. */
 export function renderDispatchSourceText(input: {
+  requestTimeContext?: SourceSnapshot["requestTimeContext"];
   evidenceRefs?: SourceSnapshot["evidenceRefs"];
   workHandoff?: SourceSnapshot["workHandoff"];
   text: string;
@@ -137,7 +139,8 @@ export function renderDispatchSourceText(input: {
       input.workHandoff ||
       input.contextMessages?.length ||
       input.quotedMessage ||
-      input.pinnedFiles?.length
+      input.pinnedFiles?.length ||
+      input.requestTimeContext
     )
   ) {
     return input.text;
@@ -176,6 +179,9 @@ export function renderDispatchSourceText(input: {
           JSON.stringify(input.pinnedFiles),
           "Before relying on a relevant file, read its current content through Space Files. Do not assume a prior conversation has the latest version. Use the revision returned by that read as baseRevision when saving. A received notice is not proof of reading or understanding.",
         ]
+      : []),
+    ...(input.requestTimeContext
+      ? [buildAgentRequestTimeContext(input.requestTimeContext)]
       : []),
   ].join("\n\n");
 }

@@ -76,6 +76,7 @@ class ConnectorConnectionRouteError extends Error {
 
 type OpenConnectorBindings = {
   OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN?: string;
+  OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN?: string;
   OPENMELD_CONNECTORS_BASE_URL?: string;
   GITHUB_OPENMELD_APP_SLUG?: string;
 };
@@ -1130,6 +1131,7 @@ function createOpenConnectorClient(
   const bindings = env as CloudflareBindings & OpenConnectorBindings;
   return new OpenConnectorClient({
     adminToken: bindings.OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN ?? "",
+    runtimeToken: bindings.OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN,
     baseUrl: bindings.OPENMELD_CONNECTORS_BASE_URL ?? "",
   });
 }

@@ -5,11 +5,16 @@ import type {
   WorkspaceRuntimeValue,
 } from "@cloudflare/computer";
 import {
+  type CloudComputerCommandCollection,
+  type CloudComputerCommandPhase,
+  type CloudComputerCommandReference,
   type CloudComputerOperation,
   cloudComputerCleanupResultSchema,
+  cloudComputerCommandErrorSchema,
   cloudComputerCommandSchema,
 } from "@openmeld/schemas";
 import {
+  boolean,
   integer,
   maxValue,
   minLength,
@@ -27,6 +32,7 @@ import type {
   RemoteAgentCallbackContext,
   RemoteAgentStorage,
 } from "../agent-core/callback-context";
+import { remoteAgentDiagnosticErrorFields } from "../agent-core/diagnostics-content-policy";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 import {
   type AgentComputerNamespace,
@@ -34,10 +40,13 @@ import {
   createAgentComputerWorkspaceAccess,
 } from "./agent-computer-workspace-access";
 import { buildComputerCommandProcess } from "./computer-command-process";
+import {
+  COMPUTER_COMMAND_PREFIX,
+  type ComputerCommandSqlStorage,
+} from "./computer-command-storage";
 import { resolveRemoteAgentComputerName } from "./computer-identity";
-import { AGENT_COMPUTER_CONTAINER_BACKEND_ID } from "./computer-workspace";
+import { AGENT_COMPUTER_CONTAINER_BACKEND_ID } from "./computer-workspace-config";
 
-const PREFIX = "openmeld:remote-agent:computer-command:";
 const COMPUTER_TARGET_PREFIX = "openmeld:computer-target:";
 
 export async function bindComputerCommandTarget(input: {
@@ -76,11 +85,32 @@ const OBSERVATION_SETUP_BUDGET_MS = 5000;
 const STOP_INSPECTION_BUDGET_MS = 1000;
 const READER_CANCEL_BUDGET_MS = 100;
 const COLLECTION_CONCURRENCY = 4;
+const COLLECTION_BATCH_SIZE = 16;
+const COLLECTION_INTERVAL_MS = 15_000;
+const COLLECTION_ATTEMPT_BUDGET = 8;
+const COMMAND_RECORD_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const COMMAND_ACTIONS = ["start", "poll", "stop", "list"] as const;
+const COMMAND_DIAGNOSTIC_PHASES = [
+  "workspace-acquisition",
+  "launch",
+  "poll",
+  "stop",
+  "cleanup",
+] as const;
 // Flue requires an object at the tool boundary. The action-specific schema
 // in packages/schemas is the shared execution validator, including forbidden fields.
 const commandToolSchema = strictObject({
-  action: picklist(["start", "poll", "stop", "list"]),
+  action: picklist(COMMAND_ACTIONS),
+  includeReceiptDetails: optional(boolean()),
   key: optional(pipe(string(), minLength(1))),
+  reference: optional(
+    strictObject({
+      invocationId: pipe(string(), minLength(1)),
+      key: pipe(string(), minLength(1)),
+      id: pipe(string(), minLength(1)),
+      backend: picklist(["container", "worker-shell", "worker-javascript"]),
+    })
+  ),
   command: optional(pipe(string(), minLength(1))),
   backend: optional(
     picklist(["container", "worker-shell", "worker-javascript"])
@@ -101,6 +131,9 @@ type Command = {
   key: string;
   fingerprint: string;
   createdAt: number;
+  recordExpiresAtMs?: number;
+  launchRequestedAt?: number;
+  launchAcknowledgedAt?: number;
   observedAt?: number;
   exitedAt?: number;
   stopRequested?: boolean;
@@ -117,7 +150,9 @@ type Command = {
   lossConfirmed?: boolean;
   collectable?: boolean;
   backend?: "container" | "worker-shell" | "worker-javascript";
+  collection?: CloudComputerCommandCollection;
 };
+export type ComputerCommandRecord = Command;
 type CommandResult = {
   id: string;
   key: string;
@@ -235,7 +270,7 @@ export class ConfirmedLostComputerCommandsError extends AggregateError {
 }
 
 function commandPrefix(submissionId: string): string {
-  return `${PREFIX}${encodeURIComponent(submissionId)}:`;
+  return `${COMPUTER_COMMAND_PREFIX}${encodeURIComponent(submissionId)}:`;
 }
 
 type StartCommand = Extract<
@@ -245,6 +280,78 @@ type StartCommand = Extract<
 
 function commandBackend(command: Pick<Command, "backend">) {
   return command.backend ?? AGENT_COMPUTER_CONTAINER_BACKEND_ID;
+}
+
+function commandReceiptAddress(command: Command, invocationId: string) {
+  const result = command.observation ?? command.terminalResult;
+  let phase: CloudComputerCommandPhase = "accepted";
+  if (isCommandComplete(command)) {
+    phase = "completed";
+  } else if (command.loss || result?.syncError) {
+    phase = "result_unavailable";
+  } else if (result?.syncPending) {
+    phase = "sync_pending";
+  } else if (result && result.exitCode !== null) {
+    phase = "process_exited";
+  } else if (result || command.launchAcknowledgedAt !== undefined) {
+    phase = "running";
+  } else if (command.launchRequestedAt !== undefined || command.collectable) {
+    phase = "launch_unknown";
+  }
+  return {
+    reference: {
+      invocationId,
+      key: command.key,
+      id: command.id,
+      backend: commandBackend(command),
+    } satisfies CloudComputerCommandReference,
+    phase,
+    ...(command.collection
+      ? {
+          collection: {
+            ...command.collection,
+            nextAttemptAtMs: isCollectableCommand(command)
+              ? command.collection.nextAttemptAtMs
+              : null,
+          },
+        }
+      : {}),
+    ...(command.recordExpiresAtMs !== undefined
+      ? { recordExpiresAtMs: command.recordExpiresAtMs }
+      : {}),
+  };
+}
+
+function commandRequestError(value: unknown) {
+  const failure = cloudComputerCommandErrorSchema.parse(value);
+  return Object.assign(
+    new Error(
+      `HTTP ${failure.status}: ${JSON.stringify({ ok: false, error: failure })}`,
+      { cause: failure }
+    ),
+    { code: failure.code, status: failure.status }
+  );
+}
+
+function assertCommandReference(
+  reference: CloudComputerCommandReference | undefined,
+  command: Command,
+  invocationId: string
+) {
+  if (
+    reference &&
+    (reference.invocationId !== invocationId ||
+      reference.key !== command.key ||
+      reference.id !== command.id ||
+      reference.backend !== commandBackend(command))
+  ) {
+    throw commandRequestError({
+      status: 409,
+      code: "computer.command_reference_mismatch",
+      message:
+        "The command reference does not match this invocation's receipt. Use the original reference.",
+    });
+  }
 }
 
 function isCommandComplete(command: Command) {
@@ -366,6 +473,13 @@ function mergeCommandObservation(
       : {}),
     collectable: true,
     observedAt,
+    collection: {
+      unconfirmedAttempts: 0,
+      nextAttemptAtMs:
+        result.status === "completed"
+          ? null
+          : observedAt + COLLECTION_INTERVAL_MS,
+    },
     ...(result.exitCode !== null && !command.exitedAt
       ? { exitedAt: observedAt }
       : {}),
@@ -384,19 +498,13 @@ function launchBudgetMs(request: StartCommand, created: boolean) {
     : 60_000;
 }
 
-export async function hasCollectableComputerCommands(
-  storage: RemoteAgentStorage
-) {
-  const commands = await storage.list<Command>({ prefix: PREFIX });
-  return [...commands.values()].some(isCollectableCommand);
-}
-
 function isCollectableCommand(command: Command) {
   return (
     command.collectable !== undefined &&
     !(
       isCommandComplete(command) ||
       command.loss ||
+      command.observation?.syncError ||
       command.lostDuringCleanup ||
       command.backend === "worker-shell"
     )
@@ -427,16 +535,13 @@ async function updateCommand(
       throw new Error("Computer command receipt is missing.");
     }
     const next = update(current);
+    const expiresAtMs = Date.now() + COMMAND_RECORD_RETENTION_MS;
+    const retained = { ...next, recordExpiresAtMs: expiresAtMs };
     if (
       next === current ||
-      (await storage.compareAndSetExpiring(
-        key,
-        current,
-        next,
-        Date.now() + 7 * 24 * 60 * 60 * 1000
-      ))
+      (await storage.compareAndSetExpiring(key, current, retained, expiresAtMs))
     ) {
-      return next;
+      return next === current ? current : retained;
     }
   }
   throw new Error(
@@ -527,9 +632,12 @@ export function createComputerCommandTool(input: {
       `${prefix}${encodeURIComponent(key)}`
     );
     if (!command) {
-      throw new Error(
-        "Unknown Computer command for this execution. Use action list to recover its keys."
-      );
+      throw commandRequestError({
+        status: 404,
+        code: "computer.command_not_found",
+        message:
+          "No Computer command receipt was found for this invocation. Acceptance is unknown. Use list or the original command reference; do not restart automatically.",
+      });
     }
     return command;
   };
@@ -796,6 +904,15 @@ export function createComputerCommandTool(input: {
       throw new Error("Computer command was stopped during launch.");
     }
     observationSignal.throwIfAborted();
+    await updateCommand(
+      input.storage,
+      `${prefix}${encodeURIComponent(command.key)}`,
+      (current) => ({
+        ...current,
+        launchRequestedAt: Date.now(),
+      })
+    );
+    observationSignal.throwIfAborted();
     const handle = await workspace.runtime.exec(
       command.backend === AGENT_COMPUTER_CONTAINER_BACKEND_ID
         ? buildComputerCommandProcess(request.command)
@@ -814,7 +931,11 @@ export function createComputerCommandTool(input: {
     await updateCommand(
       input.storage,
       `${prefix}${encodeURIComponent(command.key)}`,
-      (current) => ({ ...current, collectable: true })
+      (current) => ({
+        ...current,
+        collectable: true,
+        launchAcknowledgedAt: Date.now(),
+      })
     );
     await input.scheduleCollection?.();
     let result: CommandResult;
@@ -878,10 +999,12 @@ export function createComputerCommandTool(input: {
       backend: request.backend ?? AGENT_COMPUTER_CONTAINER_BACKEND_ID,
       collectable: false,
     };
+    candidate.recordExpiresAtMs =
+      candidate.createdAt + COMMAND_RECORD_RETENTION_MS;
     const created = await input.storage.putIfAbsentExpiring(
       key,
       candidate,
-      Date.now() + 7 * 24 * 60 * 60 * 1000
+      candidate.createdAt + COMMAND_RECORD_RETENTION_MS
     );
     // Arm recovery before spawn or any other external I/O. Pending launches
     // can be inspected, but an absent record does not prove dispatch failed.
@@ -982,12 +1105,24 @@ export function createComputerCommandTool(input: {
       if (request.action === "list") {
         return [
           ...(await input.storage.list<Command>({ prefix })).values(),
-        ].map(({ key, id, createdAt }) => ({ key, id, createdAt }));
+        ].map((command) => ({
+          key: command.key,
+          id: command.id,
+          createdAt: command.createdAt,
+          ...(request.includeReceiptDetails
+            ? commandReceiptAddress(command, input.context.submissionId)
+            : {}),
+        }));
       }
       if (request.action === "start") {
         return await startCommand(request, options?.signal);
       }
       const command = await read(request.key);
+      assertCommandReference(
+        request.reference,
+        command,
+        input.context.submissionId
+      );
       if (command.observation?.syncError) {
         return await reportUnconfirmedSync(
           command,
@@ -1074,30 +1209,78 @@ export function createComputerCommandTool(input: {
       );
     }
     if (source === "tool" || (isCommandLoss(error) && !command?.loss)) {
+      const action =
+        COMMAND_ACTIONS.find((candidate) => candidate === rawInput.action) ??
+        "invalid_request";
+      const reportedPhase =
+        error instanceof Error && "phase" in error ? error.phase : undefined;
       console.warn("[remote_agent.computer_command_failed]", {
         source,
         submissionId: input.context.submissionId,
-        action: rawInput.action,
+        action,
         ...commandDiagnostics(command),
         phase:
-          error instanceof Error && "phase" in error
-            ? error.phase
-            : rawInput.action,
-        errorName: error instanceof Error ? error.name : "UnknownError",
-        errorCode:
-          error instanceof Error && "code" in error ? error.code : undefined,
+          COMMAND_DIAGNOSTIC_PHASES.find(
+            (candidate) => candidate === reportedPhase
+          ) ?? action,
+        ...remoteAgentDiagnosticErrorFields(error, {}),
       });
     }
   };
   return {
     ...definition,
+    description: `${definition.description} Replies include reference and phase. Keep the exact reference for later owner inspection; poll and stop validate it against this invocation's saved receipt. list with includeReceiptDetails:true returns references, phases and collection. collection.unconfirmedAttempts counts checks without confirmed native evidence, including interrupted checks. Automatic checks pause when that count reaches ${COLLECTION_ATTEMPT_BUDGET}; nextAttemptAtMs is then null. The process may still be running. Poll the same reference manually; a successful check resumes automatic collection. An accepted receipt is not proof of launch; launch_unknown does not permit replay. Missing receipt means acceptance is unknown, not an unreachable service. recordExpiresAtMs is a retention marker; command reads currently do not enforce it. It does not extend native result retention.`,
     async execute(rawInput, options) {
       try {
         const result = await definition.execute(rawInput, options);
+        const observed = await readDiagnosticCommand(rawInput.key);
+        if (observed) {
+          await updateCommand(
+            input.storage,
+            `${prefix}${encodeURIComponent(observed.key)}`,
+            (current) => {
+              if (!(isCollectableCommand(current) || current.collection)) {
+                return current;
+              }
+              const collection = {
+                unconfirmedAttempts: 0,
+                nextAttemptAtMs: isCollectableCommand(current)
+                  ? Date.now() + COLLECTION_INTERVAL_MS
+                  : null,
+              };
+              return JSON.stringify(collection) ===
+                JSON.stringify(current.collection)
+                ? current
+                : { ...current, collection };
+            }
+          );
+          if (source === "tool" && isCollectableCommand(observed)) {
+            await input.scheduleCollection?.();
+          }
+        }
         await logResult(rawInput, result);
-        return result;
+        const command = await readDiagnosticCommand(rawInput.key);
+        return command &&
+          result &&
+          typeof result === "object" &&
+          !Array.isArray(result)
+          ? {
+              ...result,
+              ...commandReceiptAddress(command, input.context.submissionId),
+            }
+          : result;
       } catch (error) {
         await recordFailure(rawInput, error);
+        if (source === "tool" && isCommandLoss(error)) {
+          const command = await readDiagnosticCommand(rawInput.key);
+          if (command) {
+            throw commandRequestError({
+              status: 404,
+              code: "computer.execution_result_unavailable",
+              message: `No retained execution result is available for command ${command.id}. Keep its original reference and inspect existing output and files. Do not restart automatically.`,
+            });
+          }
+        }
         throw error;
       }
     },
@@ -1113,14 +1296,12 @@ function completedResult(result: CommandResult, after?: number): CommandResult {
 /** Collect retained results even when the model is busy with other work. This
  * observes existing IDs only; it never dispatches or repeats a command. */
 export async function collectComputerCommands(input: {
-  storage: RemoteAgentStorage;
+  storage: ComputerCommandSqlStorage;
   workspaceAccess: AgentComputerWorkspaceAccess;
 }): Promise<boolean> {
-  const commands = await input.storage.list<Command>({ prefix: PREFIX });
-  let pending = false;
-  const remaining = [...commands].filter(([, command]) =>
-    isCollectableCommand(command)
-  );
+  const remaining = [
+    ...(await input.storage.listDueCommands(Date.now(), COLLECTION_BATCH_SIZE)),
+  ];
   const collect = async () => {
     for (;;) {
       const next = remaining.shift();
@@ -1132,10 +1313,45 @@ export async function collectComputerCommands(input: {
         continue;
       }
       const submissionId = decodeURIComponent(
-        key.slice(PREFIX.length, key.lastIndexOf(":"))
+        key.slice(COMPUTER_COMMAND_PREFIX.length, key.lastIndexOf(":"))
       );
+      // Persist this observation attempt before external I/O. A terminated
+      // Worker cannot run catch/finally, so failures counted only there would
+      // permit unlimited attempts after each replacement.
+      let reserved = false;
+      const attempt = await updateCommand(input.storage, key, (current) => {
+        reserved = false;
+        if (
+          !isCollectableCommand(current) ||
+          current.collection?.nextAttemptAtMs === null ||
+          (current.collection?.nextAttemptAtMs ?? 0) > Date.now() ||
+          current.observedAt !== command.observedAt ||
+          current.launchAcknowledgedAt !== command.launchAcknowledgedAt ||
+          JSON.stringify(current.collection) !==
+            JSON.stringify(command.collection)
+        ) {
+          return current;
+        }
+        reserved = true;
+        const unconfirmedAttempts =
+          (current.collection?.unconfirmedAttempts ?? 0) + 1;
+        return {
+          ...current,
+          collection: {
+            unconfirmedAttempts,
+            nextAttemptAtMs:
+              unconfirmedAttempts >= COLLECTION_ATTEMPT_BUDGET
+                ? null
+                : Date.now() +
+                  Math.min(30_000 * 2 ** (unconfirmedAttempts - 1), 300_000),
+          },
+        };
+      });
+      if (!reserved) {
+        continue;
+      }
       try {
-        const result = (await createComputerCommandTool({
+        await createComputerCommandTool({
           ...input,
           context: { submissionId },
           workingDirectory: "/computer",
@@ -1144,14 +1360,25 @@ export async function collectComputerCommands(input: {
           action: "poll",
           key: command.key,
           waitSeconds: 1,
-        })) as CommandResult;
-        pending ||= result.status !== "completed" && !result.syncError;
-      } catch (error) {
-        // Record confirmed loss but do not mark it delivered to the model.
-        // Transport failures remain retryable by this same owner.
-        pending ||= !(
-          hasErrorCode(error, "ENOENT") || hasErrorCode(error, "EEXEC_LOST")
-        );
+        });
+      } catch {
+        // The attempt was already counted. A late failure makes no scheduling
+        // write and cannot consume a successful manual recovery's budget.
+        const current = await input.storage.get<Command>(key);
+        if (
+          current &&
+          isCollectableCommand(current) &&
+          current.collection?.nextAttemptAtMs === null &&
+          JSON.stringify(current.collection) ===
+            JSON.stringify(attempt.collection)
+        ) {
+          console.warn("[remote_agent.computer_command_collection_paused]", {
+            submissionId,
+            commandId: current.id,
+            backend: commandBackend(current),
+            unconfirmedAttempts: current.collection.unconfirmedAttempts,
+          });
+        }
       }
     }
   };
@@ -1161,7 +1388,7 @@ export async function collectComputerCommands(input: {
       collect
     )
   );
-  return pending;
+  return (await input.storage.nextCollectionAt()) !== null;
 }
 
 async function pollComputerCommand(
@@ -1504,9 +1731,7 @@ async function stopAndRecordComputerCommand(input: {
       submissionId: input.context.submissionId,
       ...commandDiagnostics(current),
       phase: "cleanup",
-      errorName: error instanceof Error ? error.name : "UnknownError",
-      errorCode:
-        error instanceof Error && "code" in error ? error.code : undefined,
+      ...remoteAgentDiagnosticErrorFields(error, {}),
     });
     throw error;
   }

@@ -80,15 +80,3 @@
 			linear-gradient(transparent, #000 5%, #000 78%, transparent);
 	}
 }
-.meld-computer-ambient {
-	position: absolute;
-	inset: -40px -7%;
-	z-index: -1;
-	pointer-events: none;
-	background: radial-gradient(
-		ellipse at 60% 50%,
-		#a39e8920,
-		#8376660a 40%,
-		transparent 70%
-	);
-}

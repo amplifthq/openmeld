@@ -12,6 +12,7 @@ import {
 } from "@openmeld/ui/components/avatar";
 import {
 	BotAvatar,
+	type BotAvatarInteraction,
 	type BotAvatarType,
 } from "@openmeld/ui/components/bot-avatar";
 import {
@@ -44,6 +45,7 @@ type AgentAvatarProps = Omit<FluidAvatarProps, "seed" | "fallback" | "size"> & {
 	agentControllerRef?: string | null;
 	working?: boolean;
 	clickable?: boolean;
+	botInteraction?: BotAvatarInteraction;
 	followPointer?: boolean;
 	preview?: boolean;
 	fallbackTestId?: string;
@@ -93,6 +95,7 @@ function AgentAvatarPresentation({
 	variant = "default",
 	working = false,
 	clickable = false,
+	botInteraction = "subtle",
 	followPointer,
 	animated = working,
 	shape = "rounded-square",
@@ -150,9 +153,9 @@ function AgentAvatarPresentation({
 			<BotAvatar
 				aria-hidden="true"
 				followPointer={followPointer}
+				interaction={botInteraction}
 				motionEnabled={motionEnabled}
 				palette={avatarOptions?.palette ?? palette}
-				preview={clickable && followPointer === undefined}
 				ref={botCanvas}
 				shading={shading}
 				size={size}

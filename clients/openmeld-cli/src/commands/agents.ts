@@ -2351,11 +2351,17 @@ export async function runAgentsShow(input: AgentsShowInput): Promise<void> {
 function projectLegacyAgentControllerInterface(
   snapshot: AgentControllerInterfaceSnapshot | null
 ): AgentControllerInterfaceSnapshot | null {
-  if (!snapshot?.usageLimits) {
+  if (!snapshot) {
     return snapshot;
   }
-  const { usageLimits: _usageLimits, ...legacySnapshot } = snapshot;
-  return legacySnapshot;
+  const {
+    usageLimits: _usageLimits,
+    usageAdmission: _usageAdmission,
+    auth,
+    ...legacySnapshot
+  } = snapshot;
+  const { accountKey: _accountKey, ...legacyAuth } = auth;
+  return { ...legacySnapshot, auth: legacyAuth };
 }
 
 function createSilentAgentsPresenter(

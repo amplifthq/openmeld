@@ -14,15 +14,18 @@ export function useChatArchive(spaceId: string) {
 			return false;
 		}
 		try {
-			await store.saveAsync({
-				...store.preferences,
-				messages: undefined,
-				chats: {
-					...chats,
-					archivedIds: archived
-						? chats.archivedIds.filter((id) => id !== spaceId)
-						: [...chats.archivedIds, spaceId],
-				},
+			await store.updateAsync((current) => {
+				const currentChats = mergeChatPreferences(current, []);
+				return {
+					...current,
+					messages: undefined,
+					chats: {
+						...currentChats,
+						archivedIds: archived
+							? currentChats.archivedIds.filter((id) => id !== spaceId)
+							: [...new Set([...currentChats.archivedIds, spaceId])],
+					},
+				};
 			});
 			toast.success(
 				archived ? "Conversation unarchived" : "Conversation archived",

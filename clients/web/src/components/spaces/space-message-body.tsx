@@ -173,6 +173,7 @@ function useSpaceMessageTextPresentation(input: SpaceMessageBodyProps) {
 		isExpanded,
 		isStreaming,
 		pluginAction: pluginReply?.action,
+		linkPreviewText: pluginReply?.text ?? input.item.text,
 		renderedText,
 		setIsExpanded,
 		shouldCollapse,
@@ -556,7 +557,7 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 						revision={input.item.messageRevision ?? 0}
 						signalId={input.item.id}
 						spaceId={input.item.spaceId}
-						text={input.item.text}
+						text={text.linkPreviewText}
 						viewerKey={`${input.orgSlug ?? "personal"}:${input.openMeldProfileId ?? "viewer"}`}
 					/>
 				) : null

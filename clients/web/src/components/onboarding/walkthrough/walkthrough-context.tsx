@@ -1,4 +1,7 @@
-import { createFirstWorkApi } from "@openmeld/api-client";
+import {
+	createFirstWorkApi,
+	type StructuredApiClientFailure,
+} from "@openmeld/api-client";
 import type {
 	FirstWorkAction,
 	FirstWorkRecord,
@@ -31,7 +34,7 @@ type WalkthroughContextValue = {
 	hasStartedTutorial: boolean;
 	loading: boolean;
 	pending: boolean;
-	error: Error | null;
+	error: Error | StructuredApiClientFailure | null;
 	retry: () => Promise<void>;
 	record: FirstWorkRecord | null;
 	start: (replay?: boolean) => Promise<void>;
@@ -85,6 +88,12 @@ function ScopedWalkthroughProvider({ children }: PropsWithChildren) {
 		profiles: profiles.data ?? [],
 		selectedHumanProfileId: null,
 	});
+	const profileError =
+		profiles.error ??
+		(profiles.isSuccess && !profile
+			? new Error("Your account profile is unavailable. Try again.")
+			: null);
+	const tutorialEnabled = Boolean(profile) && !profileError;
 	const api = useMemo(
 		() =>
 			createFirstWorkApi(
@@ -104,7 +113,7 @@ function ScopedWalkthroughProvider({ children }: PropsWithChildren) {
 	const query = useQuery({
 		queryKey,
 		queryFn: ({ signal }) => api.read(signal),
-		enabled: Boolean(profile),
+		enabled: tutorialEnabled,
 		retry: false,
 	});
 	const progressErrorToastId = `tutorial-progress-${organization.id}`;
@@ -163,12 +172,18 @@ function ScopedWalkthroughProvider({ children }: PropsWithChildren) {
 		setNoticeAnchor,
 		pauseNotice,
 		dismissPauseNotice: () => setPauseNotice(false),
-		available: query.isSuccess,
+		available: tutorialEnabled && query.isSuccess,
 		hasStartedTutorial: query.data?.hasStartedTutorial === true,
-		loading: profiles.isPending || (Boolean(profile) && query.isPending),
+		loading: profiles.isPending || (tutorialEnabled && query.isPending),
 		pending: update.isPending,
-		error: query.error ?? update.error,
+		error: profileError ?? query.error ?? update.error,
 		retry: async () => {
+			if (profileError || !profile) {
+				// Re-enabling the identity-scoped query reads the tutorial after
+				// this succeeds. Never refetch the old identity-less query.
+				await profiles.refetch();
+				return;
+			}
 			await query.refetch();
 		},
 		record,

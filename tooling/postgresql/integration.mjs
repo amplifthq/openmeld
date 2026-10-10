@@ -11,6 +11,7 @@ import {
   withPostgresRequest,
 } from "../../packages/db/src/postgresql.ts";
 import { acceptRuntime } from "./acceptance.mjs";
+import { verifyNativeTargetWithMigrations } from "./d1-import.mjs";
 import {
   connect,
   connectionOptions,
@@ -19,6 +20,7 @@ import {
   migrationDirectory,
   migrationLock,
   readMigrations,
+  withSpaceMembershipBackfillScope,
 } from "./database.mjs";
 
 const NESTED_TRANSACTION_PATTERN = /Nested PostgreSQL/u;
@@ -65,6 +67,99 @@ try {
   assert.equal((await migrate(owner)).applied.length, baselineCount);
   assert.equal((await migrate(owner)).applied.length, 0);
   pass("empty database baseline and repeat migration");
+  await owner.query("CREATE DATABASE openmeld_pg_membership_backfill");
+  const historical = await connect(
+    ownerUrl.replace(
+      /\/openmeld_pg_local$/u,
+      "/openmeld_pg_membership_backfill"
+    ),
+    true
+  );
+  try {
+    const prefix = path.join(temp, "membership-prefix");
+    await cp(migrationDirectory, prefix, { recursive: true });
+    const prefixJournalPath = path.join(prefix, "meta/_journal.json");
+    const prefixJournal = JSON.parse(await readFile(prefixJournalPath, "utf8"));
+    prefixJournal.entries = prefixJournal.entries.slice(0, 31);
+    await writeFile(prefixJournalPath, JSON.stringify(prefixJournal));
+    await migrate(historical, prefix);
+    const verifiedPrefix = await readMigrations(prefix);
+    await historical.query("BEGIN READ ONLY");
+    await verifyNativeTargetWithMigrations(historical, verifiedPrefix);
+    await historical.query("COMMIT");
+    await historical.query(
+      "INSERT INTO openmeld.users(id,name,email,email_verified,created_at,updated_at) VALUES('synthetic-member','Synthetic member','synthetic-member@example.com',1,1,1)"
+    );
+    await historical.query(
+      "INSERT INTO openmeld.organizations(id,name,slug,created_at,created_by_user_id) VALUES('synthetic-live-org','Synthetic organization','synthetic-live-org',1,'synthetic-member')"
+    );
+    for (const [space, organization] of [
+      ["synthetic-live-space", "synthetic-live-org"],
+      ["synthetic-stale-space", "synthetic-missing-org"],
+    ]) {
+      await historical.query(
+        "INSERT INTO openmeld.space_index_spaces(space_id,organization_id,organization_visibility,status,space_name,source_updated_at_ms,projected_at_ms,projection_event_id) VALUES($1,$2,'private','active','Synthetic Space',1,1,$1)",
+        [space, organization]
+      );
+      await historical.query(
+        "INSERT INTO openmeld.space_index_memberships(space_id,profile_id,profile_kind_snapshot,profile_name_snapshot,owner_user_id_snapshot,status,member_source,added_at_ms,source_updated_at_ms,projected_at_ms,projection_event_id) VALUES($1,'synthetic-profile','human','Synthetic member','synthetic-member','active','manual',1,1,1,$1)",
+        [space]
+      );
+    }
+    assert.equal((await migrate(historical)).total, baselineCount);
+    await historical.query("BEGIN READ ONLY");
+    await assert.rejects(
+      verifyNativeTargetWithMigrations(historical, verifiedPrefix),
+      /journal mismatch/u
+    );
+    await historical.query("ROLLBACK");
+    assert.deepEqual(
+      (
+        await historical.query(
+          "SELECT source_target_json::jsonb ->> 'spaceId' AS space,read_at_ms=occurred_at_ms AS read FROM openmeld.inbox_items WHERE kind='space_joined'"
+        )
+      ).rows,
+      [{ space: "synthetic-live-space", read: true }]
+    );
+    assert.equal(
+      (
+        await historical.query(
+          "SELECT count(*)::int AS count FROM openmeld.space_index_spaces WHERE status='active'"
+        )
+      ).rows[0].count,
+      2
+    );
+    assert.equal(
+      (
+        await historical.query(
+          "SELECT count(*)::int AS count FROM pg_trigger WHERE tgname='openmeld_membership_backfill_scope'"
+        )
+      ).rows[0].count,
+      0
+    );
+    await historical.query("BEGIN");
+    await assert.rejects(
+      withSpaceMembershipBackfillScope(historical, () =>
+        historical.query("SELECT 1/0")
+      ),
+      { code: "22012" }
+    );
+    await historical.query("ROLLBACK");
+    assert.equal(
+      (
+        await historical.query(
+          "SELECT count(*)::int AS count FROM pg_trigger WHERE tgname='openmeld_membership_backfill_scope'"
+        )
+      ).rows[0].count,
+      0
+    );
+    assert.equal((await migrate(historical)).applied.length, 0);
+    pass(
+      "historical membership backfill preserves orphaned snapshots and skips unavailable organizations"
+    );
+  } finally {
+    await historical.end();
+  }
   const contender = await connect(ownerUrl, true);
   try {
     await owner.query("SELECT pg_advisory_lock($1)", [migrationLock]);

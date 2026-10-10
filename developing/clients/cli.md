@@ -210,6 +210,38 @@ the membership boundary.
 
 Keep the command model stable across terminal use, Web handoff, and docs.
 
+### Space Watch Recovery
+
+`space watch` retains the same view, read anchor, deduplication set and command
+lock through a temporary socket interruption. The existing Space session
+connection retries at most five times per failure episode, with capped backoff
+and a five-second socket-open deadline. Completed catch-up followed by at least
+30 seconds of stable connection resets that retry budget. Current authentication
+headers are resolved on each reconnect; access or protocol refusals fail without
+retry.
+
+Human session initialization installs its history barrier before socket I/O.
+An initialization error releases the barrier and closes its owned connection;
+manual Stop retains normal completion. A disconnect during the first member
+read leaves the replacement hello and catch-up with the recovery owner.
+Stream-only sessions observe socket events before their startup HTTP reads.
+Recovery that ends during those reads retains its nonzero exit and cannot
+report a connected session after the reads return.
+
+Reconnect catches up from the last confirmed durable Signal ID, advances full
+200-message pages and deduplicates history with buffered live messages. The
+anchor follows Space's storage order, not message timestamps. Catch-up stops
+after 50 pages or when its live buffer overflows; a missing or expired anchor
+also fails explicitly. It never falls back to a recent window and silently
+omits a larger gap. Only the current socket's completed catch-up can report
+recovery. A watch that has not observed a durable message has no resume anchor.
+
+Exhausted recovery, access refusal and incomplete catch-up exit nonzero. An
+explicit Ctrl+C, Ctrl+D, `/quit` or `:q` retains normal exit behavior. Recovery
+does not resend unconfirmed messages, replay Wakes, or change execution truth.
+An exact message echo read during catch-up can confirm its original send
+receipt; a historical text match without that receipt ID cannot.
+
 ### Local Agent to Center Agent
 
 Local Agent harnesses use the authenticated member's canonical Center Agent
@@ -879,6 +911,14 @@ still do not prove Wake readiness; CLI
 must keep Wake readiness under the existing readiness/reporting and diagnostic
 surfaces.
 
+With no folder option, `add-me` records its observed current directory as a
+native-session import through the existing local configuration writer. Explicit
+folder options record explicit configuration instead. Initialization runs under
+the existing lock only when no configuration exists; a concurrent or later
+saved choice wins. Reuse validates that saved choice and refuses a mismatch
+rather than replacing it. Import origin is local metadata, not permission to
+follow a native worktree or infer a replacement for a missing directory.
+
 Agent-facing command output must stay compact by default. The default answer is
 the result, the next useful action, and the command to inspect details. Expensive
 diagnostic evidence, full trace payloads, candidate scans, and projection
@@ -1053,6 +1093,17 @@ Deployment order and the separate W2/W5 Remote Agent windows live in
 `developing/engineering/development-workflow.md`.
 
 ### Space File Commands
+
+`space files handoff` also accepts a version 2 work manifest. It binds a shared
+source message revision, execution choices, and a complete brief. A manifest
+without `code` uses `execution: { workspace: "isolated", access: "space_context" }`
+and permits an empty or explicit shared-file selection. No Project connection
+is required. A manifest with `code` requires its Project/repository fingerprint
+and complete commit SHA, and keeps the existing repository access choices.
+The receiving Service resolves its own local connection only for that variant
+and reports the actual outcome. Reuse the client
+message ID only for an unchanged retry and retain the original `--thread`.
+The manifest grants no sender identity, private history, or local path access.
 
 Selected-file work uses these explicit boundaries:
 
@@ -1469,6 +1520,26 @@ the same Computer. CLI must not source this target from cached local state or
 reuse it across accounts, and enrollment must not create or move Agent Profile
 Binding truth.
 
+Standalone Profile setup must enroll its local runtime and save the returned
+Computer identity before reporting completion. A previously accepted runtime
+report is not proof of that enrollment. Tokenized Prepare setup retains its
+existing trusted enrollment and reconnect target; completion must not repeat
+it without that target.
+Enrollment fixes the request to the Service contract's account and Gateway.
+Its returned identity commits under the existing lifecycle-then-auth locks,
+only while the account and exact contract state/generation remain unchanged.
+A late response must not replace newer Computer evidence or restore a stopped
+Service. First enrollment still preserves the running generation.
+Computer Prepare may read its own pending sign-in candidate under the auth
+mutation lock. The existing journal must remain pending, have the same frozen
+ID, and belong to the current active process identity and Gateway. This read
+does not refresh credentials or recover the journal. Other processes,
+replaced/expired candidates and changed accounts cannot commit enrollment.
+Ordinary Service admission still requires a committed sign-in. All canonical
+contract writes and clears use the same owner-root lifecycle lock, including
+ordinary installation; nested callers reuse that lock and explicit path inputs
+select the matching owner root.
+
 Setup may help the local side become able to work by checking OpenMeld Service,
 discovering local Agent Controllers, preparing runnable Agent Controllers,
 updating OpenMeld-managed skills, and reporting Agent Controller availability
@@ -1691,6 +1762,13 @@ cannot move a continued or forked Context. Core and the current local
 Service still verify the Project, repository, owner-local connection, and file
 policy before execution. No CLI flag grants repository access by itself.
 
+Project selection defaults to an independent working copy while retaining the
+Agent's native permissions. `--task-workspace isolated|current` chooses placement
+only. `--task-access space_context|read_only|workspace` adds an explicit task
+restriction; omit it to use Agent settings and the current Computer policy.
+Continuations retain their accepted settings, and forks inherit their source's
+working-copy mode rather than returning an isolated task to the current folder.
+
 Message text is literal, including old `@Name(wake)` syntax, code, and examples.
 `--plain` optionally asserts that no recipient flags were supplied. Plain sends
 need no member-directory read. Explicit recipients are resolved against one
@@ -1899,7 +1977,10 @@ CLI trace reads the shared observability model. It must not become a direct Post
 reader, direct Durable Object reader, or second trace system.
 
 The current CLI explicitly requests dispatch-trace response contract version
-`3`. Its default Agent View surfaces an authoritative RuntimeCoordinator
+`7`. The detailed trace includes the Core-owned retained task assignment when
+available, alongside the Service's existing conversation and working-directory
+observations. An unavailable Context projection is not current Agent settings.
+Its default Agent View surfaces an authoritative RuntimeCoordinator
 head-waiting reason, hard deadline, wait target, and recovery action before it
 considers historical attempt errors. An older Core may return the legacy
 subset; the CLI must still parse that response and report only the evidence it

@@ -24,6 +24,8 @@ type AgentControllerInterfaceStatusSchema =
   typeof import("../../schemas/runtime/agent-controller-interface")["agentControllerInterfaceStatusSchema"];
 type AgentControllerUsageLimitSchema =
   typeof import("../../schemas/runtime/agent-controller-interface")["agentControllerUsageLimitSchema"];
+type AgentControllerUsageAdmissionSchema =
+  typeof import("../../schemas/runtime/agent-controller-interface")["agentControllerUsageAdmissionSchema"];
 type AgentControllerUsageLimitsSchema =
   typeof import("../../schemas/runtime/agent-controller-interface")["agentControllerUsageLimitsSchema"];
 type AgentControllerUsageLimitStatusSchema =
@@ -57,6 +59,8 @@ export type AgentControllerInterfaceStatus =
   z.infer<AgentControllerInterfaceStatusSchema>;
 export type AgentControllerUsageLimit =
   z.infer<AgentControllerUsageLimitSchema>;
+export type AgentControllerUsageAdmission =
+  z.infer<AgentControllerUsageAdmissionSchema>;
 export type AgentControllerUsageLimits =
   z.infer<AgentControllerUsageLimitsSchema>;
 export type AgentControllerUsageLimitStatus =

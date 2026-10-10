@@ -9,6 +9,7 @@ import {
 } from "@openmeld/schemas";
 import type { RuntimeTransportLookupOwnerServiceResponse } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
+import { ensurePrimaryAgentProfileBindingRecord } from "../src/agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import { handleAgentProfileCreationMessage } from "../src/agent-profile-creation-request/agent-profile-creation-execution";
 import { recoverAgentProfileCreationRequests } from "../src/agent-profile-creation-request/agent-profile-creation-request-recovery";
 import { createPostgresAgentProfileCreationRequestRepository } from "../src/agent-profile-creation-request/agent-profile-creation-request-repository";
@@ -425,6 +426,144 @@ describe("Agent Profile creation request RPC", () => {
       addProfileToSpace.mockRestore();
     }
   });
+  it.each([
+    "gpt-5.6-sol",
+    "gpt-6",
+  ])("persists a fenced model correction for stored model %s while retaining committed identity and setup intent", async (storedModelId) => {
+    const fixture = await seedFixture();
+    const createAgentProfileInOrganization = vi.fn();
+    const send = vi.fn();
+    const bindings = {
+      OPENMELD_AUTH_WORKER: { createAgentProfileInOrganization },
+      OPENMELD_DAEMON_DISPATCH_QUEUE: { send },
+      OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+    } as unknown as CoreBindings;
+    const accepted = await submitRequest(bindings, {
+      configuration: {
+        ...DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+        agentControllerRef: "builtin:codex",
+        defaultProjectId: `project-${fixture.suffix}`,
+        modelId: "gpt-5.6-sol",
+        reasoningLevel: "high",
+        targetComputerId: "device-model-guard",
+      },
+      context: contextFor(fixture.requesterUserId, fixture.requesterProfileId),
+      idempotencyKey: `correct-model-${fixture.suffix}`,
+      organizationId: fixture.organizationId,
+      profileName: "Model Guard Reviewer",
+      requestedSpaceId: `space-${fixture.suffix}`,
+      sessionStrategy: "new",
+      source: "web",
+      targetOwnerUserId: fixture.requesterUserId,
+    });
+    const repository = createPostgresAgentProfileCreationRequestRepository(
+      getPostgresDatabase(env)
+    );
+    // Older requests could store the unsupported generic model ID. Admission
+    // uses a valid current model; only this isolated historical fixture stores
+    // the old selection through the request repository.
+    const storedConfiguration = {
+      ...accepted.request.configuration,
+      modelId: storedModelId,
+    };
+    const updatedAtMs = Date.parse(accepted.request.updatedAt) + 1;
+    const createdAgentProfileId = `agt_${crypto.randomUUID()}`;
+    const failed = await repository.transition({
+      expectedStatuses: ["approved"],
+      expectedUpdatedAtMs: Date.parse(accepted.request.updatedAt),
+      requestId: accepted.request.id,
+      update: {
+        configuration: storedConfiguration,
+        createdAgentProfileId,
+        failureMessage: "Binding setup did not complete.",
+        status: "failed",
+        statusReason: "profile_created",
+        updatedAtMs,
+      },
+    });
+    expect(failed).not.toBeNull();
+    const correction = {
+      context: contextFor(fixture.requesterUserId, fixture.requesterProfileId),
+      expectedUpdatedAt: new Date(updatedAtMs).toISOString(),
+      modelSelection: { modelId: "gpt-6-astra", reasoningLevel: "high" },
+      organizationId: fixture.organizationId,
+      requestId: accepted.request.id,
+    };
+    const bindingRecord = {
+      agentProfileId: createdAgentProfileId,
+      bindingId: `binding-${fixture.suffix}`,
+      agentControllerRef: "builtin:codex",
+      createdAtMs: updatedAtMs,
+      owner: { id: fixture.requesterUserId, kind: "owner_account" as const },
+      modelId: storedModelId,
+      reasoningLevel: "high",
+      openMeldServiceRuntimeId: `runtime-${fixture.suffix}`,
+      updatedAtMs,
+    };
+    await getPostgresDatabase(env).query({
+      text: `INSERT INTO openmeld.openmeld_profiles
+        (profile_id,profile_name,profile_handle,profile_kind,is_default,status,organization_id,owner_user_id,source)
+        VALUES ($1,'Model Guard Reviewer',$2,'agent',0,'active',$3,$4,'web_create')`,
+      values: [
+        createdAgentProfileId,
+        `model-reviewer-${fixture.suffix}`,
+        fixture.organizationId,
+        fixture.requesterUserId,
+      ],
+    });
+    await ensurePrimaryAgentProfileBindingRecord({
+      db: getPostgresDatabase(env),
+      record: bindingRecord,
+    });
+    await expect(retryRequest(bindings, correction)).rejects.toMatchObject({
+      code: "agent_profile_creation_request.state_conflict",
+      status: 409,
+    });
+    expect(
+      await repository.getById({
+        organizationId: fixture.organizationId,
+        requestId: accepted.request.id,
+      })
+    ).toMatchObject({
+      status: "failed",
+      configuration: storedConfiguration,
+    });
+    // Existing Binding settings change through their owner before request
+    // recovery; the request must never replace that later choice itself.
+    await ensurePrimaryAgentProfileBindingRecord({
+      db: getPostgresDatabase(env),
+      record: bindingRecord,
+      modelSelectionPatch: correction.modelSelection,
+    });
+    const corrected = await retryRequest(bindings, correction);
+    expect(corrected.request).toMatchObject({
+      id: accepted.request.id,
+      createdAgentProfileId,
+      configuration: {
+        ...storedConfiguration,
+        ...correction.modelSelection,
+      },
+      requestedSpaceId: accepted.request.requestedSpaceId,
+      sessionStrategy: "new",
+      status: "approved",
+    });
+    expect(
+      await repository.getById({
+        organizationId: fixture.organizationId,
+        requestId: accepted.request.id,
+      })
+    ).toMatchObject({
+      createdAgentProfileId,
+      configuration: corrected.request.configuration,
+      status: "approved",
+    });
+    await expect(retryRequest(bindings, correction)).rejects.toMatchObject({
+      code: "agent_profile_creation_request.state_conflict",
+      status: 409,
+    });
+    expect(createAgentProfileInOrganization).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledTimes(2);
+  });
   it("does not create an Agent Profile when the selected local agent is no longer available", async () => {
     const fixture = await seedFixture();
     const createAgentProfileInOrganizationMock = vi.fn().mockResolvedValue({
@@ -484,7 +623,72 @@ describe("Agent Profile creation request RPC", () => {
       listLocalRuntimes.mockRestore();
     }
   });
-  it("blocks an explicitly unavailable model before every creation entry reaches Auth", async () => {
+  it.each([
+    {
+      modelId: "gpt-6",
+      reasoningLevel: "high",
+      code: "agent_profile_binding.model_not_supported",
+    },
+    {
+      modelId: "gpt-6-astra",
+      reasoningLevel: "invalid-effort",
+      code: "agent_profile_binding.reasoning_level_not_supported",
+    },
+  ])("rejects invalid catalog selection before persisting a request: $modelId/$reasoningLevel", async ({
+    modelId,
+    reasoningLevel,
+    code,
+  }) => {
+    const fixture = await seedFixture();
+    const createAgentProfileInOrganization = vi.fn();
+    const listLocalRuntimes = vi.spyOn(
+      currentDeviceTargetService,
+      "listLocalRuntimesUseCase"
+    );
+    const bindings = {
+      OPENMELD_AUTH_WORKER: { createAgentProfileInOrganization },
+      OPENMELD_POSTGRESQL: env.OPENMELD_POSTGRESQL,
+    } as unknown as CoreBindings;
+    try {
+      await expect(
+        submitRequest(bindings, {
+          configuration: {
+            ...DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+            agentControllerRef: "builtin:codex",
+            modelId,
+            reasoningLevel,
+            targetComputerId: "device-model-guard",
+          },
+          context: contextFor(
+            fixture.requesterUserId,
+            fixture.requesterProfileId
+          ),
+          idempotencyKey: `invalid-model-${fixture.suffix}`,
+          organizationId: fixture.organizationId,
+          profileName: "Model Guard Reviewer",
+          sessionStrategy: "new",
+          source: "web",
+          targetOwnerUserId: fixture.requesterUserId,
+        })
+      ).rejects.toMatchObject({ code, status: 400 });
+      expect(createAgentProfileInOrganization).not.toHaveBeenCalled();
+      expect(listLocalRuntimes).not.toHaveBeenCalled();
+      expect(
+        await rpcListAgentProfileCreationRequests(bindings, {
+          context: contextFor(
+            fixture.requesterUserId,
+            fixture.requesterProfileId
+          ),
+          organizationId: fixture.organizationId,
+        })
+      ).toMatchObject({ requests: [] });
+    } finally {
+      listLocalRuntimes.mockRestore();
+    }
+  });
+  it("persists a retryable failure when the device does not offer a valid catalog model", async () => {
+    const modelId = "gpt-5.6-sol";
+    const reasoningLevel = "high";
     const fixture = await seedFixture();
     const createAgentProfileInOrganization = vi.fn().mockResolvedValue({
       ok: true,
@@ -541,9 +745,9 @@ describe("Agent Profile creation request RPC", () => {
           agentControllerRef: "builtin:codex",
           authorizeForOrganization: true,
           defaultProjectId: null,
-          modelId: "gpt-5.6-sol",
+          modelId,
           openCodePermission: null,
-          reasoningLevel: "high",
+          reasoningLevel,
           targetComputerId: "device-model-guard",
         },
         context: contextFor(
@@ -559,9 +763,8 @@ describe("Agent Profile creation request RPC", () => {
       });
       expect(result.request).toMatchObject({
         createdAgentProfileId: null,
-        failureMessage: expect.stringContaining(
-          "gpt-5.6-sol isn't available for Codex on Model Guard Mac"
-        ),
+        failureMessage:
+          "The selected model isn't offered by this local agent. Choose another model or update the local agent, then retry setup. Reason: agent_profile_creation_request.model_not_offered.",
         status: "failed",
       });
       expect(createAgentProfileInOrganization).not.toHaveBeenCalled();

@@ -1,6 +1,7 @@
 import type {
 	AgentWakeAvailability,
 	AuthProfileView,
+	GetSpaceStatusResponse,
 	SignalEnvelope,
 	SpaceMemberAgentSnapshot,
 	SpaceMemberHumanSnapshot,
@@ -12,12 +13,142 @@ import type { SpaceBootstrapSnapshot } from "#/query/spaces/bootstrap";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import {
 	applyConfirmedHumanSpaceMemberToCache,
+	applyConfirmedSpaceDeletionToCache,
 	applySpaceBootstrapSnapshotToCache,
 	applySpaceMemberRemovalToCache,
 	mergeSpaceMembersSnapshot,
 } from "./member-cache";
 
 describe("mergeSpaceMembersSnapshot", () => {
+	it("makes every cached viewing profile read only after accepted deletion without losing history", async () => {
+		const queryClient = new QueryClient();
+		const history = {
+			envelopes: [createHistorySignal({ id: "retained", ts: 10 })],
+			nextCursor: null,
+		};
+		try {
+			for (const profileId of ["viewer-profile", "other-profile"]) {
+				const bootstrap = createBootstrapSnapshot({
+					history,
+					members: createSpaceMembersSnapshot({
+						humans: [createHumanMember()],
+						agents: [],
+					}),
+				});
+				bootstrap.status = {
+					allowedActions: ["post_message"],
+				} as GetSpaceStatusResponse;
+				queryClient.setQueryData(
+					spaceQueryKeys.bootstrap("space-123", profileId),
+					bootstrap
+				);
+				queryClient.setQueryData(
+					spaceQueryKeys.status("space-123", profileId),
+					bootstrap.status
+				);
+				queryClient.setQueryData(
+					spaceQueryKeys.history("space-123", profileId),
+					history
+				);
+				queryClient.setQueryData(
+					spaceQueryKeys.displaySnapshot("space-123", profileId),
+					{ version: 1, status: {} }
+				);
+			}
+			await applyConfirmedSpaceDeletionToCache({
+				queryClient,
+				spaceId: "space-123",
+			});
+			for (const profileId of ["viewer-profile", "other-profile"]) {
+				const bootstrap = queryClient.getQueryData<SpaceBootstrapSnapshot>(
+					spaceQueryKeys.bootstrap("space-123", profileId)
+				);
+				expect(bootstrap?.status.deletedAt).toBeTruthy();
+				expect(bootstrap?.status.allowedActions).toEqual([]);
+				expect(bootstrap?.history).toEqual(history);
+				expect(
+					queryClient.getQueryData(
+						spaceQueryKeys.history("space-123", profileId)
+					)
+				).toEqual(history);
+				expect(
+					queryClient.getQueryData<GetSpaceStatusResponse>(
+						spaceQueryKeys.status("space-123", profileId)
+					)?.allowedActions
+				).toEqual([]);
+				expect(
+					queryClient.getQueryData<{ status: { deletedAt?: string } }>(
+						spaceQueryKeys.displaySnapshot("space-123", profileId)
+					)?.status.deletedAt
+				).toBeTruthy();
+			}
+		} finally {
+			queryClient.clear();
+		}
+	});
+
+	it.each([
+		false,
+		true,
+	])("does not restore writable status from a stale bootstrap (deleted: %s)", (deleted) => {
+		const queryClient = new QueryClient();
+		const status: GetSpaceStatusResponse = {
+			spaceId: "space-123",
+			generatedAt: "2026-10-09T12:10:40.000Z",
+			...(deleted ? { deletedAt: "2026-10-09T12:10:39.000Z" } : {}),
+			accessMode: "members_only",
+			passwordProtected: false,
+			dispatchPolicy: { mode: "mention_only" },
+			publicationMode: "collaboration",
+			allowedActions: [],
+			resultArchivePolicy: { mode: "all_final_results" },
+			entryBrief: "default",
+			dispatchBrief: "default",
+			members: {
+				totalCount: 1,
+				humanCount: 1,
+				agentCount: 0,
+				liveNowCount: 0,
+				wakeableAgentCount: 0,
+				offlineAgentCount: 0,
+				liveHumanCount: 0,
+				liveAgentCount: 0,
+			},
+		};
+		try {
+			queryClient.setQueryData(
+				spaceQueryKeys.status("space-123", "viewer-profile"),
+				status
+			);
+			applySpaceBootstrapSnapshotToCache({
+				bootstrap: {
+					...createBootstrapSnapshot({
+						members: createSpaceMembersSnapshot({
+							humans: [createHumanMember()],
+							agents: [],
+						}),
+					}),
+					status: {
+						...status,
+						generatedAt: "2026-10-09T12:09:00.000Z",
+						deletedAt: undefined,
+						allowedActions: ["post_message"],
+					},
+				},
+				queryClient,
+				spaceId: "space-123",
+				viewerProfileId: "viewer-profile",
+			});
+			expect(
+				queryClient.getQueryData(
+					spaceQueryKeys.status("space-123", "viewer-profile")
+				)
+			).toEqual(status);
+		} finally {
+			queryClient.clear();
+		}
+	});
+
 	it("keeps a confirmed joining Human in members and bootstrap caches", () => {
 		const queryClient = new QueryClient();
 		const viewerProfileId = "viewer-profile";

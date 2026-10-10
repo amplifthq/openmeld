@@ -39,6 +39,7 @@ export async function readSpaceBootstrap(input: {
 			includeAgentStreamPresence: true,
 			includeAgentStreamRecovery: true,
 			historyQuery: {
+				includePersonalHistoryBoundary: true,
 				recent: true,
 				limit: SPACE_INITIAL_HISTORY_MAX_MESSAGES,
 				kinds: SPACE_HISTORY_SIGNAL_KINDS,
@@ -52,6 +53,8 @@ export async function readSpaceBootstrap(input: {
 		return {
 			...response,
 			history: {
+				personalHistoryDeletedAt:
+					response.history.personalHistoryDeletedAt ?? 0,
 				confirmedCursor: envelopes.at(-1)?.id ?? null,
 				envelopes,
 				nextCursor: response.history.nextCursor,

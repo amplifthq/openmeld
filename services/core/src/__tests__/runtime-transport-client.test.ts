@@ -1500,7 +1500,10 @@ describe("runtime transport split clients call fallback behavior", () => {
     });
   });
 
-  it("reads RuntimeCoordinator head lifecycle trace from the owner shard without mutation fields", async () => {
+  it.each([
+    false,
+    true,
+  ])("reads owner trace without mutation fields and context opt-in %s", async (includeExecutionContext) => {
     const { env, stub } = createEnv();
     const targetWakeLifecycleIdentity = projectTargetWakeLifecycleIdentity({
       clientMessageId: "client-message-1",
@@ -1550,6 +1553,7 @@ describe("runtime transport split clients call fallback behavior", () => {
     const response =
       await readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace({
         env,
+        includeExecutionContext,
         ownerUserId: "owner",
         request: {
           v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
@@ -1571,12 +1575,137 @@ describe("runtime transport split clients call fallback behavior", () => {
     }
     const [url, init] = firstCall;
     expect(url).toBe(
-      "https://runtime-transport.internal/runtime-coordinator/head/trace"
+      `https://runtime-transport.internal/runtime-coordinator/head/trace${includeExecutionContext ? "?executionContext=1" : ""}`
     );
+    if (includeExecutionContext) {
+      expect(response.executionContext).toEqual({
+        readStatus: "authority_unavailable",
+        reasonCode: "execution_context.diagnostics_not_reported",
+      });
+    } else {
+      expect(response).not.toHaveProperty("executionContext");
+    }
     expect(JSON.parse(String(init?.body))).toEqual({
       v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
       targetWakeLifecycleIdentity,
     });
+  });
+
+  it.each([
+    false,
+    true,
+  ])("keeps the five-second Head trace deadline with context opt-in %s", async (includeExecutionContext) => {
+    vi.useFakeTimers();
+    const warnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    const { env, stub } = createEnv();
+    let signal: AbortSignal | null | undefined;
+    stub.fetch.mockImplementation((_url: string, init?: RequestInit) => {
+      signal = init?.signal;
+      return new Promise<Response>((_resolve, reject) => {
+        signal?.addEventListener("abort", () =>
+          reject(new Error("request aborted"))
+        );
+      });
+    });
+    try {
+      const pending = readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace({
+        env,
+        includeExecutionContext,
+        ownerUserId: "owner",
+        request: {
+          v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+          targetWakeLifecycleIdentity: projectTargetWakeLifecycleIdentity({
+            clientMessageId: "client-message-1",
+            dispatchId: "dispatch-1",
+            sourceSignalId: "signal-1",
+            spaceId: "space-1",
+            targetProfileId: "agent-1",
+          }),
+        },
+      });
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(signal?.aborted).toBe(true);
+      expect(await pending).toMatchObject({
+        readStatus: "authority_unavailable",
+      });
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[core.runtime_transport_client.request_timeout]",
+        expect.objectContaining({
+          path: "/runtime-coordinator/head/trace",
+          timeoutMs: 5000,
+        })
+      );
+    } finally {
+      await vi.runAllTimersAsync();
+      vi.useRealTimers();
+      warnSpy.mockRestore();
+    }
+  });
+
+  it.each([
+    {
+      failure: "network",
+      status: 0,
+      reasonCode: "runtime_coordinator.head_lifecycle_trace_unavailable",
+    },
+    {
+      failure: "invalid_response",
+      status: 200,
+      reasonCode: "runtime_coordinator.head_lifecycle_trace_unavailable",
+    },
+    {
+      failure: "server_error",
+      status: 500,
+      reasonCode: "runtime_coordinator.head_lifecycle_trace_unavailable",
+    },
+    {
+      failure: "restarting",
+      status: 503,
+      reasonCode: "core.transport_restarting",
+    },
+  ])("reports unavailable Context and preserves the Head reason on $failure", async ({
+    failure,
+    status,
+    reasonCode,
+  }) => {
+    const { env, stub } = createEnv();
+    if (failure === "network") {
+      stub.fetch.mockRejectedValue(new Error("connection unavailable"));
+    } else {
+      stub.fetch.mockResolvedValue(new Response("not JSON", { status }));
+    }
+    const request = {
+      v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+      targetWakeLifecycleIdentity: projectTargetWakeLifecycleIdentity({
+        clientMessageId: "client-message-1",
+        dispatchId: "dispatch-1",
+        sourceSignalId: "signal-1",
+        spaceId: "space-1",
+        targetProfileId: "agent-1",
+      }),
+    };
+    const response =
+      await readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace({
+        env,
+        includeExecutionContext: true,
+        ownerUserId: "owner",
+        request,
+      });
+    expect(response).toMatchObject({
+      ok: false,
+      readStatus: "authority_unavailable",
+      reasonCode,
+      executionContext: { readStatus: "authority_unavailable", reasonCode },
+    });
+    const legacy =
+      await readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace({
+        env,
+        ownerUserId: "owner",
+        request,
+      });
+    expect(legacy).not.toHaveProperty("executionContext");
   });
 
   it("returns timeout reason when wait response is non-JSON 409", async () => {
@@ -1686,7 +1815,10 @@ describe("runtime transport split clients call fallback behavior", () => {
     }
   });
 
-  it("preserves daemon-facing dispatch snapshots needed by the runtime", () => {
+  it.each([
+    false,
+    true,
+  ])("preserves daemon-facing dispatch snapshots needed by the runtime (accepted clock: %s)", (hasRequestTime) => {
     const request = buildRuntimeTransportDeliverDispatchRequest({
       attemptId: "attempt-1",
       executionIdentity: createDeliveryExecutionIdentity(),
@@ -1704,6 +1836,23 @@ describe("runtime transport split clients call fallback behavior", () => {
       },
       message: {
         ...createDispatchQueueMessage(),
+        sourceSignalSnapshot: {
+          text: "hello",
+          profileId: "hum-1",
+          profileKind: "human",
+          ...(hasRequestTime
+            ? {
+                requestTimeContext: {
+                  submittedAtMs: 1000,
+                  userTime: {
+                    timeZone: "Asia/Taipei",
+                    source: "web" as const,
+                    observedAtMs: 900,
+                  },
+                },
+              }
+            : {}),
+        },
         replyToSnapshot: {
           signalId: "sig-1",
           profileId: "11111111-1111-4111-8111-111111111111",
@@ -1723,7 +1872,7 @@ describe("runtime transport split clients call fallback behavior", () => {
 
     expect(request.payload).toMatchObject({
       sourceSignalSnapshot: {
-        text: "hello",
+        text: request.payload.sourceSignal.text,
         profileId: "hum-1",
         profileKind: "human",
       },
@@ -1736,5 +1885,20 @@ describe("runtime transport split clients call fallback behavior", () => {
       },
       spaceNameSnapshot: "OpenClaw Ops Room",
     });
+    if (hasRequestTime) {
+      expect(request.payload.sourceSignal.text).toContain(
+        "Request received at UTC: 1970-01-01T00:00:01.000Z"
+      );
+      expect(request.payload.sourceSignal.text).toContain(
+        "Request timezone: Asia/Taipei (authenticated web observation)"
+      );
+    } else {
+      expect(request.payload.sourceSignal.text).toBe("hello");
+    }
+    // Installed Service snapshots are strict. Retained request data must reach
+    // their existing text field without requiring a new transport field.
+    expect(request.payload.sourceSignalSnapshot).not.toHaveProperty(
+      "requestTimeContext"
+    );
   });
 });

@@ -1036,6 +1036,7 @@ async function restoreAndSubscribe(input: {
 }
 
 const spaceHistorySnapshotSchema = z.strictObject({
+	personalHistoryDeletedAt: z.number().int().nonnegative().optional(),
 	confirmedCursor: z.string().nullable().optional(),
 	threadDisplay: listSpaceThreadsResponseSchema
 		.refine(

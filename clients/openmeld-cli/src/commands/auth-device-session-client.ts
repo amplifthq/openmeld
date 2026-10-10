@@ -89,6 +89,8 @@ export async function requestDeviceToken(input: {
         "content-type": "application/json",
       },
       body: JSON.stringify(parsedRequest.data),
+      // Each poll uses a new connection; a successful grant cannot be replayed.
+      keepalive: false,
       signal: AbortSignal.timeout(10_000),
     });
   } catch (error) {

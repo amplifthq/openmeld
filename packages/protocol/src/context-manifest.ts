@@ -15,6 +15,10 @@ const CURSOR_VERSION = "center_agent_context_cursor.v1" as const;
 const TEXT_ENCODER = new TextEncoder();
 
 type TextSignalEnvelope = Extract<SignalEnvelope, { type: "signal.text" }>;
+type MessageEvidenceSignal = Extract<
+  SignalEnvelope,
+  { type: "signal.text" | "signal.system_notice" }
+>;
 type TruncationReason =
   CreateCenterAgentContextManifestResponse["budget"]["truncationReasons"][number];
 
@@ -148,30 +152,29 @@ export function validateCenterAgentContextManifestResponse(
 }
 
 async function materializeEntry(input: {
-  signal: TextSignalEnvelope;
+  signal: MessageEvidenceSignal;
   spaceId: string;
 }): Promise<CenterAgentContextManifestEntry> {
   const originalText = input.signal.data.text;
+  const textSignal = input.signal.type === "signal.text" ? input.signal : null;
+  const reactions = textSignal?.reactions;
+  const replyToSignalId =
+    textSignal?.data.messageEnvelope?.replyToSignalId ??
+    input.signal.data.replyTo?.signalId;
   const redactions: CenterAgentContextManifestEntry["redactions"] = [];
-  if ((input.signal.data.attachments?.length ?? 0) > 0) {
+  if ((textSignal?.data.attachments?.length ?? 0) > 0) {
     redactions.push("attachments_not_in_messages_view");
   }
-  const interactionSource =
-    input.signal.data.meta?.centerAgentInteractionSource;
+  const interactionSource = textSignal?.data.meta?.centerAgentInteractionSource;
   if (interactionSource?.sessionId) {
     redactions.push("local_session_locator_omitted");
   }
   const version = await sha256(
     JSON.stringify({
       data: {
-        replyToSignalId:
-          input.signal.data.messageEnvelope?.replyToSignalId ??
-          input.signal.data.replyTo?.signalId ??
-          null,
+        replyToSignalId: replyToSignalId ?? null,
         text: originalText,
-        ...(input.signal.reactions
-          ? { reactions: input.signal.reactions }
-          : {}),
+        ...(reactions ? { reactions } : {}),
       },
       id: input.signal.id,
       profile: {
@@ -203,25 +206,15 @@ async function materializeEntry(input: {
       truncated: false,
       type: "text",
     },
-    ...(input.signal.reactions ? { reactions: input.signal.reactions } : {}),
+    ...(reactions ? { reactions } : {}),
     materializedContentHash: await sha256(
-      input.signal.reactions
-        ? JSON.stringify({
-            text: originalText,
-            reactions: input.signal.reactions,
-          })
+      reactions
+        ? JSON.stringify({ text: originalText, reactions })
         : originalText
     ),
     occurredAt: new Date(input.signal.ts).toISOString(),
     redactions,
-    ...((input.signal.data.messageEnvelope?.replyToSignalId ??
-    input.signal.data.replyTo?.signalId)
-      ? {
-          replyToSignalId:
-            input.signal.data.messageEnvelope?.replyToSignalId ??
-            input.signal.data.replyTo?.signalId,
-        }
-      : {}),
+    ...(replyToSignalId ? { replyToSignalId } : {}),
     sourceRef: {
       id: input.signal.id,
       type: "space_signal",
@@ -234,12 +227,15 @@ async function materializeEntry(input: {
 
 /** One exact message page; access must be checked by the source owner per call. */
 export async function buildSpaceMessageEvidence(input: {
-  signal: TextSignalEnvelope;
+  signal: MessageEvidenceSignal;
   spaceId: string;
   version?: string;
   offset?: number;
 }) {
-  if (input.signal.data.meta?.recalledAt !== undefined) {
+  if (
+    input.signal.type === "signal.text" &&
+    input.signal.data.meta?.recalledAt !== undefined
+  ) {
     throw new Error("space.evidence_unavailable: This message was recalled.");
   }
   const entry = await materializeEntry(input);

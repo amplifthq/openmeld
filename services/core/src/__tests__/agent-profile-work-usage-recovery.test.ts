@@ -26,7 +26,7 @@ describe("Agent Profile work Usage recovery", () => {
       status: "updated",
     });
     const resumeInterruptedWork = vi.fn().mockResolvedValue(undefined);
-    const report = createReport("available");
+    const report = createReport("exhausted", false);
 
     await notifyAgentProfileWorkUsageRecoveryAvailable({
       bindingStore: { listBindings },
@@ -85,7 +85,7 @@ describe("Agent Profile work Usage recovery", () => {
 
     await notifyAgentProfileWorkUsageRecoveryAvailable({
       bindingStore: { listBindings: vi.fn().mockResolvedValue([]) },
-      currentReport: createReport("available"),
+      currentReport: createReport("available", false),
       notifyUsageAvailable,
       nowMs: NOW_MS,
       ownerUserId: "owner-1",
@@ -97,7 +97,7 @@ describe("Agent Profile work Usage recovery", () => {
   });
 
   it("recovers only Profiles using the OpenCode provider whose usage is available", async () => {
-    const report = createReport("available");
+    const report = createReport("available", false);
     const agentControllerInterface = report.agentControllerInterface;
     if (!agentControllerInterface) {
       throw new Error("expected Agent Controller Interface fixture");
@@ -164,7 +164,7 @@ describe("Agent Profile work Usage recovery", () => {
           .fn()
           .mockResolvedValue([{ agentProfileId: PROFILE_1 }]),
       },
-      currentReport: createReport("available"),
+      currentReport: createReport("available", false),
       notifyUsageAvailable: vi.fn().mockResolvedValue({
         changedProfileIds: [PROFILE_1],
         status: "updated",
@@ -204,7 +204,7 @@ describe("Agent Profile work Usage recovery", () => {
             profileIds.map((agentProfileId) => ({ agentProfileId }))
           ),
       },
-      currentReport: createReport("available"),
+      currentReport: createReport("available", false),
       notifyUsageAvailable,
       nowMs: NOW_MS,
       ownerUserId: "owner-1",
@@ -251,7 +251,7 @@ describe("Agent Profile work Usage recovery", () => {
             { agentProfileId: PROFILE_2 },
           ]),
       },
-      currentReport: createReport("available"),
+      currentReport: createReport("available", false),
       notifyUsageAvailable,
       nowMs: NOW_MS,
       ownerUserId: "owner-1",
@@ -280,7 +280,8 @@ function createReport(
     | "exhausted"
     | "stale"
     | "unavailable"
-    | "unsupported"
+    | "unsupported",
+  blocksNewWork: boolean | null = null
 ): AcceptedRuntimeAgentControllerReport {
   const usageKnown =
     usageStatus === "available" ||
@@ -315,6 +316,7 @@ function createReport(
     schemaVersion: 1,
     skills: [],
     status: "ready",
+    usageAdmission: { blocksNewWork, observedAt: "2026-08-30T00:09:00.000Z" },
     usageLimits: [
       {
         key: "five_hour",

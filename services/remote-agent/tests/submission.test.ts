@@ -2559,9 +2559,12 @@ describe("remote agent submission", () => {
       expect(warning).toHaveBeenCalledWith(
         "[remote_agent.attachment_load_degraded]",
         expect.objectContaining({
-          error: "R2 body decode failed",
+          errorName: "Error",
           reason: "r2_read_failed",
         })
+      );
+      expect(JSON.stringify(warning.mock.calls)).not.toContain(
+        "R2 body decode failed"
       );
     } finally {
       warning.mockRestore();

@@ -207,6 +207,7 @@ export const buildRuntimeTransportDeliverDispatchRequest = (input: {
     input.sourceSignal.profileMentionLabel
   );
   const sourceSignalSnapshot = buildRuntimeTransportSourceSignalSnapshot({
+    agentControllerRef: input.message.controllerSnapshot.agentControllerRef,
     executionIdentity: input.executionIdentity,
     route: input.route,
     sourceSignalSnapshot: input.message.sourceSignalSnapshot,
@@ -239,6 +240,8 @@ export const buildRuntimeTransportDeliverDispatchRequest = (input: {
         ? { profileMentionLabel: sourceProfileMentionLabel }
         : {}),
       text: renderDispatchSourceText({
+        requestTimeContext:
+          input.message.sourceSignalSnapshot?.requestTimeContext,
         evidenceRefs: input.message.sourceSignalSnapshot?.evidenceRefs,
         workHandoff: input.message.sourceSignalSnapshot?.workHandoff,
         text: input.sourceSignal.text,
@@ -338,6 +341,7 @@ function buildWorkingLanguagePayload(
   return workingLanguage ? { workingLanguage } : {};
 }
 function buildRuntimeTransportSourceSignalSnapshot(input: {
+  agentControllerRef: string | null;
   executionIdentity: RuntimeTransportDeliveryExecutionIdentity;
   route: Extract<
     RuntimeTransportLookupRouteResponse,
@@ -353,7 +357,7 @@ function buildRuntimeTransportSourceSignalSnapshot(input: {
   // Preserve the installed Service's strict snapshot shape. Context is rendered
   // into the existing source text at this transport boundary.
   const {
-    requestTimeContext: _requestTimeContext,
+    requestTimeContext,
     quotedMessage,
     pinnedFiles,
     contextMessages,
@@ -361,9 +365,25 @@ function buildRuntimeTransportSourceSignalSnapshot(input: {
     evidenceRefs,
     ...sourceSnapshot
   } = input.sourceSignalSnapshot;
-  if (workHandoff && input.route.capabilities.spaceWorkHandoff !== true) {
+  if (
+    workHandoff?.files.length &&
+    input.route.capabilities.spaceWorkHandoff !== true
+  ) {
     throw new Error(
       "Update this Computer's OpenMeld Service before handing off selected files."
+    );
+  }
+  if (
+    workHandoff?.schemaVersion === 2 &&
+    !input.route.capabilities.runtimeAdapters?.some(
+      (adapter) =>
+        adapter.adapterId ===
+          parseAgentControllerRef(input.agentControllerRef)?.id &&
+        (adapter.capabilityDeclaration.executionContextVersion ?? 0) >= 5
+    )
+  ) {
+    throw new Error(
+      "service.update_required: Update this Computer's OpenMeld Service before handing off work."
     );
   }
   const snapshot = {
@@ -392,6 +412,7 @@ function buildRuntimeTransportSourceSignalSnapshot(input: {
         }
       : {}),
     text: renderDispatchSourceText({
+      requestTimeContext,
       evidenceRefs,
       text: sourceSnapshot.text,
       workHandoff,
@@ -667,6 +688,7 @@ export const recordRuntimeTransportRuntimeCoordinatorHeadWaiting =
 export const readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace =
   async (input: {
     env: CoreBindings;
+    includeExecutionContext?: boolean;
     ownerUserId: string;
     request: RuntimeTransportRuntimeCoordinatorHeadLifecycleTraceRequest;
   }): Promise<RuntimeTransportRuntimeCoordinatorHeadLifecycleTraceResponse> => {
@@ -678,34 +700,64 @@ export const readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace =
       input.request.targetWakeLifecycleIdentity?.targetWakeLifecycleId ??
       "unknown";
     if (!parsedRequest.success) {
-      return {
-        ok: false,
-        readStatus: "authority_unavailable",
-        reasonCode: "runtime_coordinator.head_lifecycle_trace_request_invalid",
-        targetWakeLifecycleId,
-      };
+      return projectHeadTraceExecutionContext({
+        response: {
+          ok: false,
+          readStatus: "authority_unavailable",
+          reasonCode:
+            "runtime_coordinator.head_lifecycle_trace_request_invalid",
+          targetWakeLifecycleId,
+        },
+        includeExecutionContext: input.includeExecutionContext,
+      });
     }
     const response = await callRuntimeTransportApi({
       env: input.env,
       ownerUserId: input.ownerUserId,
       path: "/runtime-coordinator/head/trace",
+      ...(input.includeExecutionContext
+        ? { query: { executionContext: "1" } }
+        : {}),
       body: parsedRequest.data,
     });
     const parsed =
       runtimeTransportRuntimeCoordinatorHeadLifecycleTraceResponseSchema.safeParse(
         response
       );
-    if (!parsed.success) {
-      return {
-        ok: false,
-        readStatus: "authority_unavailable",
-        reasonCode: "runtime_coordinator.head_lifecycle_trace_unavailable",
-        targetWakeLifecycleId:
-          parsedRequest.data.targetWakeLifecycleIdentity.targetWakeLifecycleId,
-      };
-    }
-    return parsed.data;
+    return projectHeadTraceExecutionContext({
+      includeExecutionContext: input.includeExecutionContext,
+      response: parsed.success
+        ? parsed.data
+        : {
+            ok: false,
+            readStatus: "authority_unavailable",
+            reasonCode: "runtime_coordinator.head_lifecycle_trace_unavailable",
+            targetWakeLifecycleId:
+              parsedRequest.data.targetWakeLifecycleIdentity
+                .targetWakeLifecycleId,
+          },
+    });
   };
+
+function projectHeadTraceExecutionContext(input: {
+  includeExecutionContext?: boolean;
+  response: RuntimeTransportRuntimeCoordinatorHeadLifecycleTraceResponse;
+}): RuntimeTransportRuntimeCoordinatorHeadLifecycleTraceResponse {
+  if (!input.includeExecutionContext || input.response.executionContext) {
+    return input.response;
+  }
+  return {
+    ...input.response,
+    executionContext: {
+      readStatus: "authority_unavailable",
+      reasonCode:
+        input.response.readStatus === "authority_unavailable"
+          ? input.response.reasonCode
+          : "execution_context.diagnostics_not_reported",
+    },
+  };
+}
+
 export const readRuntimeTransportRuntimeCoordinatorPublicationWakeStopEligibility =
   async (input: {
     env: CoreBindings;

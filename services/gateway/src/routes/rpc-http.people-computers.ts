@@ -2,6 +2,8 @@ import {
   computerFileAccessPolicyResponseSchema,
   currentLocalAgentInstallationsResponseSchema,
   currentLocalAgentInstallationsRouteParamsSchema,
+  getCurrentAgentProfileWorkspaceQuerySchema,
+  getCurrentAgentProfileWorkspaceResponseSchema,
   localFolderPickerResultSchema,
   localProjectControlDiscoverProjectsRequestSchema,
   localProjectControlDiscoverProjectsResponseSchema,
@@ -69,6 +71,48 @@ export function registerPeopleComputerControlRoutes(
   registerPeopleComputerProjectMutationRoutes(app);
   const workspaceRoute =
     "/v1/people-computers/:deviceId/lanes/:runtimeLane/agent-profiles/:profileId/workspace";
+  app.get(
+    workspaceRoute,
+    async (c, next) => {
+      await next();
+      c.header("Cache-Control", "no-store");
+    },
+    (c) => {
+      const target = peopleComputerTargetSchema.safeParse({
+        deviceId: c.req.param("deviceId"),
+        runtimeLane: c.req.param("runtimeLane"),
+      });
+      const profile =
+        setCurrentAgentProfileWorkspaceRouteParamsSchema.safeParse({
+          agentProfileId: c.req.param("profileId"),
+        });
+      const query = getCurrentAgentProfileWorkspaceQuerySchema.safeParse(
+        c.req.query()
+      );
+      if (!(target.success && profile.success && query.success)) {
+        return respondBadRequest({
+          c,
+          route: workspaceRoute,
+          method: "GET",
+          code: "invalid_payload",
+          message: "Invalid computer working-folder read request.",
+        });
+      }
+      return executeRpcRoute({
+        c,
+        route: workspaceRoute,
+        method: "GET",
+        responseSchema: getCurrentAgentProfileWorkspaceResponseSchema,
+        execute: () =>
+          c.var.coreRpc.getPeopleComputerAgentProfileWorkspace({
+            ...target.data,
+            ...profile.data,
+            ...query.data,
+            context: buildCoreRpcContext(c),
+          }),
+      });
+    }
+  );
   app.put(workspaceRoute, async (c) => {
     const target = peopleComputerTargetSchema.safeParse({
       deviceId: c.req.param("deviceId"),
@@ -95,13 +139,19 @@ export function registerPeopleComputerControlRoutes(
       route: workspaceRoute,
       method: "PUT",
       responseSchema: setCurrentAgentProfileWorkspaceResponseSchema,
-      execute: () =>
-        c.var.coreRpc.setPeopleComputerAgentProfileWorkspace({
+      execute: () => {
+        const request = {
           ...target.data,
           ...profile.data,
           ...parsed.data,
           context: buildCoreRpcContext(c),
-        }),
+        };
+        // A named required receiver prevents older Core from discarding the
+        // precondition. Never fall back to an unguarded explicit-target write.
+        return parsed.data.expectedBindingTarget
+          ? c.var.coreRpc.setBoundPeopleComputerAgentProfileWorkspace(request)
+          : c.var.coreRpc.setPeopleComputerAgentProfileWorkspace(request);
+      },
     });
   });
   const projectDiscoveryRoute =

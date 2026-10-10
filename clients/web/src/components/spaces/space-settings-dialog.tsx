@@ -34,6 +34,7 @@ type SpaceInfoLeaveAction = {
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: the shared settings shell keeps mutually exclusive sections in one dialog.
 export function SpaceSettingsDialog(input: {
+	deleted?: boolean;
 	access: {
 		allowGuests?: boolean;
 		canManage: boolean;
@@ -178,7 +179,7 @@ export function SpaceSettingsDialog(input: {
 							successMessage="Space ID copied."
 							value={input.spaceId}
 						/>
-						{showSpaceAccessControls ? (
+						{showSpaceAccessControls && !input.deleted ? (
 							<SpaceInfoCopyField
 								ariaLabel="Copy CLI join command"
 								label="CLI join command"
@@ -233,6 +234,7 @@ export function SpaceSettingsDialog(input: {
 				{section === "advanced" && showSpaceAccessControls ? (
 					<SpaceInfoLeaveSection
 						action={input.leaveAction}
+						deleted={input.deleted}
 						isConfirming={isConfirmingLeave}
 						isSpaceMutationPending={isSpaceMutationPending}
 						onConfirmingChange={setIsConfirmingLeave}
@@ -265,6 +267,7 @@ function resolveSpaceInfoMutationPending(input: {
 }
 
 function SpaceInfoLeaveSection(input: {
+	deleted?: boolean;
 	action?: SpaceInfoLeaveAction;
 	isConfirming: boolean;
 	isSpaceMutationPending: boolean;
@@ -273,14 +276,20 @@ function SpaceInfoLeaveSection(input: {
 	if (!input.action) {
 		return null;
 	}
+	const pendingLabel = input.deleted ? "Removing..." : "Leaving...";
+	const confirmLabel = input.deleted ? "Remove from my list" : "Confirm leave";
 
 	return (
 		<div className="min-w-0 border-border/60 border-t pt-4">
 			<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 				<div className="min-w-0">
-					<p className="font-medium text-sm">Leave space</p>
+					<p className="font-medium text-sm">
+						{input.deleted ? "Remove from my list" : "Leave space"}
+					</p>
 					<p className="text-muted-foreground text-xs">
-						Remove your current profile from this space.
+						{input.deleted
+							? "Remove this deleted Space from your list. Other members can still read its history."
+							: "Remove your current profile from this space."}
 					</p>
 				</div>
 				<Button
@@ -289,14 +298,18 @@ function SpaceInfoLeaveSection(input: {
 					type="button"
 					variant="destructive"
 				>
-					Leave space
+					{input.deleted ? "Remove from my list" : "Leave space"}
 				</Button>
 			</div>
 
 			{input.isConfirming ? (
 				<div className="mt-3 space-y-3 rounded-md border border-destructive/30 bg-destructive/5 p-3">
 					<div className="space-y-1">
-						<p className="font-medium text-sm">Leave this space?</p>
+						<p className="font-medium text-sm">
+							{input.deleted
+								? "Remove this Space from your list?"
+								: "Leave this space?"}
+						</p>
 						<p className="text-muted-foreground text-xs">
 							You will stop seeing this space in your active list for the
 							current profile.
@@ -324,7 +337,7 @@ function SpaceInfoLeaveSection(input: {
 							type="button"
 							variant="destructive"
 						>
-							{input.action.isPending ? "Leaving..." : "Confirm leave"}
+							{input.action.isPending ? pendingLabel : confirmLabel}
 						</Button>
 					</div>
 				</div>
@@ -379,8 +392,8 @@ function SpaceInfoDeleteSection(input: {
 				<div className="min-w-0">
 					<p className="font-medium text-sm">Delete space</p>
 					<p className="text-muted-foreground text-xs">
-						Permanently delete this space for everyone. Only its owner can
-						delete it.
+						Stop new messages and Agent work. Members can still read and search
+						the history.
 					</p>
 				</div>
 				<Button
@@ -403,12 +416,10 @@ function SpaceInfoDeleteSection(input: {
 					ref={deleteConfirmationPanelRef}
 				>
 					<div className="space-y-1">
-						<p className="font-medium text-sm">
-							Delete this space permanently?
-						</p>
+						<p className="font-medium text-sm">Delete this Space?</p>
 						<p className="text-muted-foreground text-xs">
-							Messages, members, and space list entries will be removed. This
-							cannot be undone.
+							Members can still read and search past messages. No one can send
+							new messages or wake Agents in this Space.
 						</p>
 					</div>
 					<label
@@ -455,9 +466,7 @@ function SpaceInfoDeleteSection(input: {
 							type="button"
 							variant="destructive"
 						>
-							{input.isDeleteSpacePending
-								? "Deleting..."
-								: "Delete permanently"}
+							{input.isDeleteSpacePending ? "Deleting..." : "Delete Space"}
 						</Button>
 					</div>
 				</div>

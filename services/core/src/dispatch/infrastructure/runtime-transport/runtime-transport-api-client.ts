@@ -23,6 +23,7 @@ export type RuntimeTransportApiPath =
   | "/local-agent-control/refresh-catalog"
   | "/local-agent-control/set-enabled"
   | "/local-agent-control/set-profile-workspace"
+  | "/local-agent-control/read-profile-workspace"
   | "/openmeld-tools-control"
   | "/local-project-control/connect-candidate"
   | "/local-project-control/connect-declared-path"
@@ -51,10 +52,14 @@ export const callRuntimeTransportApi = async (input: {
   env: CoreBindings;
   ownerUserId: string;
   path: RuntimeTransportApiPath;
+  query?: Record<string, string>;
   body: unknown;
 }): Promise<unknown> => {
   const shard = resolveRuntimeTransportOwnerShard(input.env, input.ownerUserId);
-  const requestPath = `https://runtime-transport.internal${input.path}`;
+  const requestUrl = new URL(`https://runtime-transport.internal${input.path}`);
+  if (input.query) {
+    requestUrl.search = new URLSearchParams(input.query).toString();
+  }
   const requestTimeoutMs = resolveRuntimeTransportApiTimeoutMs({
     path: input.path,
     body: input.body,
@@ -66,7 +71,7 @@ export const callRuntimeTransportApi = async (input: {
 
   let response: Response;
   try {
-    response = await shard.fetch(requestPath, {
+    response = await shard.fetch(requestUrl.toString(), {
       method: "POST",
       headers: {
         "content-type": "application/json",

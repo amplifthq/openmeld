@@ -493,7 +493,23 @@ describe("agent wake availability", () => {
     );
   });
 
-  it("keeps a missing working folder more specific than a derived unbound reason", () => {
+  it.each([
+    [
+      "profile.workspace.missing",
+      "Working folder missing",
+      "Choose a working folder for this Agent.",
+    ],
+    [
+      "profile.workspace.invalid",
+      "Working folder unavailable",
+      "Review this Agent’s working folder.",
+    ],
+    [
+      "workspace.invalid",
+      "Working folder unavailable",
+      "Review this Agent’s working folder.",
+    ],
+  ])("keeps working-folder reason %s more specific than a derived unbound reason", (reasonCode, label, summary) => {
     const readiness = resolveAgentExecutionStatus({
       agentProfileId,
       binding: createPrimaryBinding(),
@@ -511,7 +527,7 @@ describe("agent wake availability", () => {
       runtimeReadiness: {
         displayState: "needs_prepare",
         ready: false,
-        reasonCodes: ["profile.workspace.missing", "profile.unbound"],
+        reasonCodes: [reasonCode, "profile.unbound"],
       },
     });
 
@@ -521,11 +537,11 @@ describe("agent wake availability", () => {
         readiness,
       })
     ).toMatchObject({
-      badgeLabel: "Working folder missing",
-      label: "Working folder missing",
-      reasonCode: "profile.workspace.missing",
-      summary: "Choose a working folder for this Agent.",
-      tooltip: "Working folder missing",
+      badgeLabel: label,
+      label,
+      reasonCode,
+      summary,
+      tooltip: label,
     });
   });
 

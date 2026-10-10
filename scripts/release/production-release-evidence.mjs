@@ -160,9 +160,10 @@ export function readGuardedLocalReleaseSources(input = {}) {
             : {}),
           sha: evidence.metadata.sourceSha,
           source: "guarded-local",
-          url: evidence.reconciliation
-            ? `https://github.com/${evidence.reconciliation.repository}/actions/runs/${evidence.reconciliation.runId}`
-            : undefined,
+          url:
+            evidence.reconciliation?.kind === "reconciled-hosted-core-receiver"
+              ? `https://github.com/${evidence.reconciliation.repository}/actions/runs/${evidence.reconciliation.runId}`
+              : undefined,
           ...(evidence.reconciliation
             ? {
                 reconciliation: evidence.reconciliation,
@@ -292,6 +293,100 @@ function createReconciliationProofMetadata(
   metadata,
   reconciliation
 ) {
+  if (reconciliation.kind === "reconciled-postgresql-rollback") {
+    const proof = productionReleaseEvidenceSchema.parse({
+      ...metadata,
+      schemaVersion: 6,
+      reconciliation,
+    });
+    const baseline = parseEvidenceMetadata({
+      scope: "db",
+      evidenceSha: reconciliation.baselineReceipt.evidenceSha,
+      message: runGit(context, [
+        "show",
+        "-s",
+        "--format=%B",
+        reconciliation.baselineReceipt.evidenceSha,
+      ]).stdout,
+    });
+    if (
+      current?.evidenceSha !== reconciliation.supersededReceipt.evidenceSha ||
+      current.metadata.sourceSha !==
+        reconciliation.supersededReceipt.sourceSha ||
+      current.metadata.scope !== "db" ||
+      current.metadata.receipt?.status !== "failed" ||
+      current.metadata.receipt.application !== "unknown" ||
+      current.metadata.receipt.identity ||
+      metadata.receipt.attemptId === current.metadata.receipt.attemptId ||
+      baseline.sourceSha !== reconciliation.baselineReceipt.sourceSha ||
+      baseline.receipt?.status !== "verified" ||
+      baseline.receipt.identity?.kind !== "release-source" ||
+      Date.parse(baseline.recordedAt) >
+        Date.parse(current.metadata.receipt.startedAt) ||
+      Date.parse(reconciliation.verifiedAt) <
+        Date.parse(current.metadata.recordedAt) ||
+      runGit(
+        context,
+        [
+          "merge-base",
+          "--is-ancestor",
+          reconciliation.baselineReceipt.evidenceSha,
+          current.evidenceSha,
+        ],
+        { allowFailure: true }
+      ).status !== 0 ||
+      runGit(
+        context,
+        [
+          "merge-base",
+          "--is-ancestor",
+          baseline.sourceSha,
+          current.metadata.sourceSha,
+        ],
+        { allowFailure: true }
+      ).status !== 0 ||
+      runGit(
+        context,
+        [
+          "merge-base",
+          "--is-ancestor",
+          current.metadata.sourceSha,
+          metadata.sourceSha,
+        ],
+        { allowFailure: true }
+      ).status !== 0 ||
+      runGit(
+        context,
+        [
+          "diff",
+          "--quiet",
+          current.metadata.sourceSha,
+          metadata.sourceSha,
+          "--",
+          "packages/db/postgresql/migrations",
+          "tooling/postgresql/resources.json",
+        ],
+        { allowFailure: true }
+      ).status !== 0 ||
+      runGit(
+        context,
+        [
+          "diff",
+          "--quiet",
+          baseline.sourceSha,
+          current.metadata.sourceSha,
+          "--",
+          "tooling/postgresql/resources.json",
+        ],
+        { allowFailure: true }
+      ).status !== 0
+    ) {
+      throw new Error(
+        "PostgreSQL rollback proof must preserve its exact failed attempt and verified baseline."
+      );
+    }
+    return proof;
+  }
   if (metadata.schemaVersion !== 3 || metadata.receipt.status !== "applied") {
     throw new Error(
       "Reconciliation must first retain an applied identity, never fabricate an original start event."
@@ -341,7 +436,7 @@ function readReconciliationProof(context, evidenceSha, metadata) {
     proofSha,
   ]).stdout.trim();
   const raw = JSON.parse(message);
-  if (raw.schemaVersion !== 5) {
+  if (![5, 6].includes(raw.schemaVersion)) {
     if (metadata.receipt?.identity?.proof === "reconciled-hosted") {
       throw new Error("Reconciled identity has the wrong provenance schema.");
     }
@@ -362,8 +457,9 @@ function readReconciliationProof(context, evidenceSha, metadata) {
         "rev-parse",
         `${metadata.sourceSha}^{tree}`,
       ]).stdout.trim() ||
-    JSON.stringify(proof.receipt.identity) !==
-      JSON.stringify(metadata.receipt?.identity)
+    (proof.schemaVersion === 5 &&
+      JSON.stringify(proof.receipt.identity) !==
+        JSON.stringify(metadata.receipt?.identity))
   ) {
     throw new Error(
       "Reconciled provenance does not match the canonical applied receiver."

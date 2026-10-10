@@ -20,6 +20,7 @@ import {
   resolveListSignalsReadQuerySemantics,
   signalSystemNoticeDataSchema,
   spaceMemberDirectorySchema,
+  spaceWorkHandoffV2Schema,
 } from "@openmeld/schemas";
 import type {
   CenterAgentModelRoute,
@@ -111,6 +112,7 @@ import {
 import {
   rpcExecuteExecutionRecovery,
   rpcInspectExecutionRecovery,
+  rpcPostCenterAgentWakePublicationSignal,
 } from "../src/rpc/methods";
 import { createSpaceBootstrapTimingCollector } from "../src/space/application/space-bootstrap-timing";
 import { truncateSpaceTextToProtocolLimit } from "../src/space/application/space-text";
@@ -162,6 +164,119 @@ const UNSUPPORTED_INTERRUPTION_DETAIL = /502|overloaded|Please try again/u;
 const INTERRUPTION_REPLAY_CAUTION =
   /actions may have taken effect.*Check.*before repeating/s;
 describe("Remote Agent native delivery callback service", () => {
+  it.each([
+    "repository",
+    "brief",
+    "files",
+  ])("admits supported handoff materials before starting a hosted provider (%s)", async (materials) => {
+    const harness = await createPostgresHarness();
+    await seedRemoteAgentSubmitAuthority(harness);
+    const workerSubmit = vi.fn(
+      async (_request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        accepted: true,
+        createdAt: 2100,
+        status: "pending" as const,
+        submissionId: "handoff-submission",
+      })
+    );
+    const env = buildEnv(harness.db, {
+      remoteAgentWorker: { submitConversationTurn: workerSubmit },
+    });
+    const message = createDispatchMessage();
+    message.sourceSignalSnapshot = {
+      profileId: HUMAN_PROFILE_ID,
+      profileKind: "human",
+      text: "Implement the published plan",
+      workHandoff: spaceWorkHandoffV2Schema.parse({
+        schemaVersion: 2,
+        sourceSignalId: "planning-result",
+        sourceRevision: 1,
+        ...(materials === "repository"
+          ? {
+              code: {
+                projectId: "project",
+                repositoryFingerprint: `sha256:${"a".repeat(64)}`,
+                commit: "b".repeat(40),
+              },
+              execution: { workspace: "isolated" },
+            }
+          : {
+              execution: { workspace: "isolated", access: "space_context" },
+            }),
+        files:
+          materials === "files"
+            ? [{ fileId: "report", revision: 3, relativePath: "report.md" }]
+            : [],
+        skills: [],
+        requirements: [],
+        work: {
+          goal: "Implement",
+          completed: "Plan",
+          nextSteps: "Fix",
+          evidence: [],
+          attemptedApproaches: [],
+          decisions: [],
+          constraints: [],
+          openQuestions: [],
+          completionCriteria: ["Checks pass"],
+        },
+      }),
+    };
+    try {
+      if (materials !== "repository") {
+        await submitRemoteAgentNativeDelivery({
+          binding: createBinding(),
+          db: harness.db,
+          env,
+          executionAttemptId: "attempt_1",
+          memoryService: null,
+          message,
+          nowMs: 2100,
+        });
+        expect(workerSubmit).toHaveBeenCalledOnce();
+        expect(workerSubmit.mock.calls[0]?.[0].workHandoff).toEqual(
+          message.sourceSignalSnapshot.workHandoff
+        );
+        expect(
+          env.__spaceStub.rpcPostSystemNoticeSignal
+        ).not.toHaveBeenCalled();
+        return;
+      }
+      await expect(
+        submitRemoteAgentNativeDelivery({
+          binding: createBinding(),
+          db: harness.db,
+          env,
+          executionAttemptId: "attempt_1",
+          memoryService: null,
+          message,
+          nowMs: 2100,
+        })
+      ).resolves.toEqual({ shouldAck: true, status: "failed" });
+      expect(workerSubmit).not.toHaveBeenCalled();
+      expect(env.__spaceStub.rpcPostSystemNoticeSignal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            noticeType: "terminal_failure",
+            reasonCode: "space.handoff.code_receiver_unsupported",
+            text: expect.stringContaining("Choose a supported Agent"),
+          }),
+        })
+      );
+      await expect(
+        readRemoteAgentNativeDeliveryByIdempotencyKey({
+          db: harness.db,
+          idempotencyKey: message.idempotencyKey,
+        })
+      ).resolves.toMatchObject({
+        status: "failed",
+        failureCode: "space.handoff.code_receiver_unsupported",
+      });
+    } finally {
+      await harness.close();
+    }
+  });
+
   it("finishes an accepted legacy Remote turn across a Core upgrade without redispatch or duplicate publication", async () => {
     const harness = await createPostgresHarness();
     await seedRemoteAgentSubmitAuthority(harness);
@@ -1737,6 +1852,14 @@ describe("Remote Agent native delivery callback service", () => {
     "signal-child-result",
     null,
   ])("submits one idempotent continuation with the child's exact result locator %s", async (childSignalId) => {
+    const requestTimeContext = {
+      submittedAtMs: 800,
+      userTime: {
+        timeZone: "America/Los_Angeles",
+        source: "web" as const,
+        observedAtMs: 700,
+      },
+    };
     const harness = await createPostgresHarness();
     await seedRemoteAgentSubmitAuthority(harness);
     const stageLogs = vi
@@ -1784,6 +1907,7 @@ describe("Remote Agent native delivery callback service", () => {
         db: harness.db,
         dispatchId: "dispatch-parent",
         idempotencyKey: "idempotency-parent",
+        requestTimeContext,
         spaceId: SPACE_ID,
         triggerMessageId: "signal_1",
       });
@@ -1803,6 +1927,54 @@ describe("Remote Agent native delivery callback service", () => {
       if (!observerDelivery) {
         throw new Error("expected parent delivery fixture");
       }
+      const delegatedWake = {
+        activationTargets: ["agt_33333333-3333-4333-8333-333333333333"],
+        attribution: {
+          actorProfileId: AGENT_PROFILE_ID,
+          onBehalfOf: {
+            profileId: HUMAN_PROFILE_ID,
+            userId: "user_1",
+            displayName: "Ari",
+          },
+        },
+        clientMessageId: "client-child-1",
+        completionMode: "resume_parent_when_all_terminal" as const,
+        context: {
+          activeOrganizationId: "org_1",
+          actorContext: {
+            openMeldProfileId: AGENT_PROFILE_ID,
+            profileKind: "agent" as const,
+            requestId: "delegated-wake",
+          },
+        },
+        delegationId: "delegation-1",
+        fallbackAgentProfileId: null,
+        mentionTargets: [],
+        organizationId: "org_1",
+        parentSubmissionId: "submission-parent",
+        profile: { kind: "agent" as const, profileId: AGENT_PROFILE_ID },
+        referenceTargets: [],
+        spaceId: SPACE_ID,
+        subscriptionIds: ["subscription-1"],
+        text: "Continue the original request in ten minutes.",
+        v: 1 as const,
+      };
+      // Publication recovery re-reads the retained parent, not a fresh clock.
+      await rpcPostCenterAgentWakePublicationSignal(env, delegatedWake);
+      await rpcPostCenterAgentWakePublicationSignal(env, delegatedWake);
+      expect(
+        env.__spaceStub.rpcPostSignalOnceByClientMessageId
+      ).toHaveBeenLastCalledWith(
+        expect.objectContaining({ requestTimeContext })
+      );
+      await expect(
+        rpcPostCenterAgentWakePublicationSignal(env, {
+          ...delegatedWake,
+          organizationId: "another-organization",
+        })
+      ).rejects.toMatchObject({
+        cause: { code: "center_agent.delegation_parent_unavailable" },
+      });
       const recalledContinuationMemory = {
         items: [
           {
@@ -1967,6 +2139,7 @@ describe("Remote Agent native delivery callback service", () => {
             }),
           ],
           turnEnvelope: expect.objectContaining({
+            requestTimeContext,
             interactionEnvironment: "requester_private",
             memory: recalledContinuationMemory,
             sender: expect.objectContaining({
@@ -5041,6 +5214,14 @@ describe("Remote Agent native delivery callback service", () => {
     }
   });
   it("retries an ambiguous Center Agent watch admission without settling it", async () => {
+    const requestTimeContext = {
+      submittedAtMs: 800,
+      userTime: {
+        timeZone: "Asia/Taipei",
+        source: "web" as const,
+        observedAtMs: 700,
+      },
+    };
     const harness = await createPostgresHarness();
     await seedRemoteAgentSubmitAuthority(harness);
     const workerSubmit = vi
@@ -5084,6 +5265,7 @@ describe("Remote Agent native delivery callback service", () => {
         db: harness.db,
         dispatchId: "dispatch-watch-parent",
         idempotencyKey: "idempotency-watch-parent",
+        requestTimeContext,
         spaceId: SPACE_ID,
         triggerMessageId: "signal_1",
       });
@@ -5160,6 +5342,7 @@ describe("Remote Agent native delivery callback service", () => {
             }),
           ],
           turnEnvelope: expect.objectContaining({
+            requestTimeContext,
             sender: expect.objectContaining({
               ownerUserId: "user_1",
               profileId: HUMAN_PROFILE_ID,
@@ -13764,6 +13947,7 @@ async function persistTestCenterAgentWorkerSubmitRequest(input: {
   idempotencyKey: string;
   modelRoute?: CenterAgentModelRoute;
   requestVersion?: 2 | 4;
+  requestTimeContext?: RemoteAgentTurnEnvelope["requestTimeContext"];
   spaceId: string;
   triggerMessageId: string;
   turnEnvelope?: RemoteAgentTurnEnvelope;
@@ -13798,6 +13982,9 @@ async function persistTestCenterAgentWorkerSubmitRequest(input: {
       spaceId: input.spaceId,
       triggerMessageId: input.triggerMessageId,
       turnEnvelope: input.turnEnvelope ?? {
+        ...(input.requestTimeContext
+          ? { requestTimeContext: input.requestTimeContext }
+          : {}),
         centerAgent: {
           profileHandle: "center-agent",
           profileName: "Center Agent",

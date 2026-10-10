@@ -52,6 +52,8 @@ export function assertProductionStageAdmission(input) {
       !(
         selected.has(component.scope) &&
         (component.recovery?.kind === "guarded-health-resume" ||
+          (component.scope === "db" &&
+            component.recovery?.kind === "guarded-postgresql-forward-retry") ||
           (component.scope === "core" &&
             component.recovery?.kind === "guarded-core-upload-retry")) &&
         component.recovery.admission === "candidate" &&
@@ -122,13 +124,25 @@ export function isProductionCompatibilityReceiverSatisfied(
   if (receiverComponent?.state !== "pending") {
     return false;
   }
-  return (producerComponent.compatibilityReceiverWitnesses ?? []).some(
-    (witness) =>
-      witness.receiver === receiver &&
-      witness.producer === producer &&
-      witness.evidence?.result === "match" &&
-      witness.evidence.baselineSha === receiverComponent.sha &&
-      witness.evidence.targetSha === sourceSha
+  const obligations = (producerComponent.compatibilityObligations ?? []).filter(
+    (obligation) =>
+      obligation.receiver === receiver && obligation.producer === producer
+  );
+  // A matching pair does not prove its other contracts, including contracts
+  // with no witness. Missing obligation metadata cannot admit a pending receiver.
+  return (
+    obligations.length > 0 &&
+    obligations.every((obligation) =>
+      (producerComponent.compatibilityReceiverWitnesses ?? []).some(
+        (witness) =>
+          witness.receiver === receiver &&
+          witness.producer === producer &&
+          witness.contracts?.includes(obligation.contract) &&
+          witness.evidence?.result === "match" &&
+          witness.evidence.baselineSha === receiverComponent.sha &&
+          witness.evidence.targetSha === sourceSha
+      )
+    )
   );
 }
 

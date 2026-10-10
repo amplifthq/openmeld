@@ -1,5 +1,9 @@
 import type { z } from "zod/v4";
 
+export type AgentProfileBindingTarget = z.infer<
+  typeof import("../../schemas/http/agent-profile-binding")["agentProfileBindingTargetSchema"]
+>;
+
 type AgentProfileBindingAuthoritySourceSchema =
   typeof import("../../schemas/http/agent-profile-binding")["agentProfileBindingAuthoritySourceSchema"];
 type AgentProfileBindingAgentControllerPermissionModeSchema =

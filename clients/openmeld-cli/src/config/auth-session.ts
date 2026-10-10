@@ -17,6 +17,7 @@ import {
   withAuthSessionCandidateRefreshLock,
   withAuthSessionTransitionMutationLock,
 } from "./auth-session-transition-lock";
+import { normalizeGatewayBaseUrlOrNull } from "./base-url";
 import { isLoopbackHostname } from "./loopback-hostname";
 import { openMeldRootDir } from "./paths";
 import {
@@ -352,7 +353,62 @@ export async function readServiceAdmissionSessionWithOwnership(): Promise<Stored
   if (await readAuthSessionTransitionJournal()) {
     throw new AuthSessionRecoveryInProgressError();
   }
-  const state = await getLocalAuthSessionState({ recover: false });
+  return requireValidOwnedLocalAuthSession(
+    await getLocalAuthSessionState({ recover: false })
+  );
+}
+
+// Called under the auth mutation lock. Computer Prepare can use its own
+// pending candidate; ordinary account controls cannot. The existing journal
+// id fences replacement across enrollment I/O without refresh or recovery.
+export async function readComputerSetupSessionWithOwnership(input: {
+  gatewayUrl: string;
+  expectedTransitionId?: string | null;
+}): Promise<{ session: StoredAuthSession; transitionId: string | null }> {
+  const journal = await readAuthSessionTransitionJournal();
+  const transitionId = journal?.id ?? null;
+  if (
+    input.expectedTransitionId !== undefined &&
+    transitionId !== input.expectedTransitionId
+  ) {
+    throw new AuthSessionRecoveryInProgressError();
+  }
+  if (!journal) {
+    return {
+      session: await readServiceAdmissionSessionWithOwnership(),
+      transitionId,
+    };
+  }
+  if (
+    journal.state !== "pending" ||
+    !activeAuthSessionTransitionIds.has(journal.id) ||
+    !isSameProcessIdentity(journal, {
+      ownerPid: process.pid,
+      ownerProcessStartedAt: CURRENT_PROCESS_START_IDENTITY,
+    }) ||
+    !journal.computerHandoff ||
+    normalizeGatewayBaseUrlOrNull(journal.computerHandoff.gatewayUrl) !==
+      normalizeGatewayBaseUrlOrNull(input.gatewayUrl)
+  ) {
+    throw new AuthSessionRecoveryInProgressError();
+  }
+  const session = await readStoredAuthSessionFromPayload(
+    journal.candidatePayload
+  );
+  return {
+    session: requireValidOwnedLocalAuthSession(
+      resolveLocalStoredSessionState(
+        session,
+        buildAuthSessionPayloadKey(journal.candidatePayload)
+      )
+    ),
+    transitionId,
+  };
+}
+
+function requireValidOwnedLocalAuthSession(
+  state: LocalAuthSessionState
+): StoredAuthSession {
   if (state.state !== "valid" || !state.session?.user?.id) {
     throw new Error(
       "Service control requires a valid CLI sign-in. Sign in with the matching account and try again."

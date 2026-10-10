@@ -22,6 +22,9 @@ import {
 import { readCurrentAccountOrganizationContext } from "#/lib/organizations/account-organization-context";
 import { DesktopEntry } from "./desktop-entry";
 
+const SYSTEM_PERMISSION_NOTICE_PATTERN =
+	/may ask.*(?:Keychain|saved sign-in information)/u;
+
 const bridge = vi.hoisted(() => ({
 	onSessionChanged: vi.fn<(callback: () => void) => () => void>(
 		() => () => undefined
@@ -132,7 +135,7 @@ describe("Desktop entry session revalidation", () => {
 		);
 		await screen.findByRole("button", { name: "Sign in with browser" });
 		const note = screen.queryByText(
-			"macOS may ask for Keychain access to securely remember your sign-in."
+			"Your computer may ask to access saved sign-in information. If a system prompt appears, respond to it to continue."
 		);
 		if (testCase.visible) {
 			expect(note).toBeTruthy();
@@ -144,6 +147,9 @@ describe("Desktop entry session revalidation", () => {
 
 	it("retries temporary session failures without signing in or clearing same-account data", async () => {
 		const first = createDeferred<DesktopSession>();
+		const platform = createDeferred<unknown>();
+		vi.spyOn(window.navigator, "platform", "get").mockReturnValue("MacIntel");
+		bridge.platform.mockReturnValue(platform.promise);
 		bridge.session
 			.mockReturnValueOnce(first.promise)
 			.mockRejectedValueOnce(new Error("offline"))
@@ -165,6 +171,12 @@ describe("Desktop entry session revalidation", () => {
 		).toBe("true");
 		expect(screen.queryByRole("button")).toBeNull();
 		expect(screen.queryByText("Sign in to Desktop")).toBeNull();
+		await waitFor(() => expect(bridge.session).toHaveBeenCalledTimes(1));
+		expect(bridge.platform).toHaveBeenCalledTimes(1);
+		expect(screen.getByText(SYSTEM_PERMISSION_NOTICE_PATTERN)).toBeTruthy();
+		expect(bridge.signIn).not.toHaveBeenCalled();
+		expect(client.getQueryData(["private-data"])).toBe("preserved");
+		expect(readComposerDraft(scope)?.text).toBe("Private draft");
 		// An unknown read is an error, not an authoritative signed-out response.
 		await act(() => first.reject(new Error("offline")));
 		fireEvent.click(await screen.findByRole("button", { name: "Retry" }));

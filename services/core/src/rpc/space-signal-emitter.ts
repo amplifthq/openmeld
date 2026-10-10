@@ -2,7 +2,6 @@ import type {
   Profile,
   SignalEnvelope,
   SignalStatusData,
-  SignalSystemNoticeData,
   SignalText,
 } from "@openmeld/protocol";
 import type {
@@ -16,6 +15,7 @@ import type {
   CoreRpcContextInput,
   ExecutionRecoveryNoticeSignalData,
   PostExecutionRecoveryNoticeSignalResponse,
+  PostSystemNoticeSignalInput,
 } from "./methods";
 import {
   rpcPostExecutionRecoveryNoticeSignal,
@@ -134,16 +134,8 @@ type EmitSpaceStatusSignalInput = {
   spaceAccess?: SpaceAccessContext;
   threadContext?: SpaceThreadContext;
 };
-type EmitSpaceSystemNoticeSignalInput = {
+type EmitSpaceSystemNoticeSignalInput = PostSystemNoticeSignalInput & {
   env: CoreBindings;
-  spaceId: string;
-  profile: Profile;
-  data: SignalSystemNoticeData;
-  finalOutcomeAuthority?: FinalOutcomeWriteAuthority;
-  password?: string;
-  context?: CoreRpcContextInput;
-  spaceAccess?: SpaceAccessContext;
-  threadContext?: SpaceThreadContext;
 };
 type EmitSpaceExecutionRecoveryNoticeSignalInput = Omit<
   EmitSpaceSystemNoticeSignalInput,
@@ -174,6 +166,9 @@ export const emitSpaceSystemNoticeSignal = async (
     spaceId: input.spaceId,
     profile: input.profile,
     data: input.data,
+    ...(input.preHeadFailurePublication
+      ? { preHeadFailurePublication: input.preHeadFailurePublication }
+      : {}),
     ...(input.finalOutcomeAuthority
       ? { finalOutcomeAuthority: input.finalOutcomeAuthority }
       : {}),

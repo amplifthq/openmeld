@@ -1,9 +1,13 @@
 import type { CenterAgentModelRoute } from "@openmeld/schemas/types";
+import {
+  allowsRemoteAgentContentDiagnostics,
+  type RemoteAgentDiagnosticsEnv,
+} from "./diagnostics-content-policy";
 
 export const REMOTE_AGENT_OPENROUTER_MODEL_ID = "x-ai/grok-4.5";
 export const REMOTE_AGENT_MODEL_DISPLAY_NAME = "xAI's Grok 4.5";
 export const REMOTE_AGENT_MAX_OUTPUT_TOKENS = 8192;
-export type RemoteAgentModelEnv = {
+export type RemoteAgentModelEnv = RemoteAgentDiagnosticsEnv & {
   OPENMELD_CORE_WORKER?: unknown;
   OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID?: string;
   OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID?: string;
@@ -146,10 +150,21 @@ export function buildRemoteAgentAiGatewayHeaders(input: {
     RemoteAgentModelEnv,
     | "CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN"
     | "OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS"
+    | "OPENMELD_WORKER_ENVIRONMENT"
+    | "CLOUDFLARE_OPENMELD_INTERNAL_DIAGNOSTICS_ORGANIZATION_ID"
   >;
+  organizationId?: string | null;
   metadata?: Record<string, string>;
 }): Record<string, string | null> {
   const metadata = input.metadata ?? buildRemoteAgentGatewayMetadata();
+  // Keep attribution useful without copying arbitrary headers or client blobs.
+  const safeMetadata = Object.fromEntries(
+    Object.entries(metadata).filter(([key]) =>
+      ["model", "provider", "worker", "organizationId", "operation"].includes(
+        key
+      )
+    )
+  );
   return {
     // The OpenAI SDK injects provider Authorization from its apiKey. Cloudflare
     // BYOK requires that provider Authorization be absent so the stored key is used.
@@ -159,6 +174,11 @@ export function buildRemoteAgentAiGatewayHeaders(input: {
     )}`,
     "cf-aig-byok-alias": resolveRemoteAgentOpenRouterByokAlias(input.env),
     "cf-aig-collect-log": "true",
-    "cf-aig-metadata": JSON.stringify(metadata),
+    // Cloudflare preserves usage, costs and status when payload storage is off.
+    // https://developers.cloudflare.com/ai-gateway/observability/logging/
+    "cf-aig-collect-log-payload": String(
+      allowsRemoteAgentContentDiagnostics(input)
+    ),
+    "cf-aig-metadata": JSON.stringify(safeMetadata),
   };
 }

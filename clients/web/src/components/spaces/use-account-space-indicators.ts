@@ -68,6 +68,7 @@ export function useSpaceInboxUnreadById(input: {
 					{
 						latestUnreadOccurredAtMs: item.latestUnreadOccurredAtMs,
 						unreadCount: item.unreadCount,
+						messageUnreadCount: item.messageUnreadCount,
 					},
 				])
 			),

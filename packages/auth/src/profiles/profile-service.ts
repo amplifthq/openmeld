@@ -103,6 +103,7 @@ export type UpdateProfileForOwnerInput = {
 
 export type UpdateAgentProfileDefaultProjectForOwnerInput = {
   defaultProjectId: string | null;
+  onlyIfUnmodified?: boolean;
   organizationId: string;
   ownerUserId: string;
   profileId: string;
@@ -1003,14 +1004,24 @@ export function createOpenMeldProfileService(
           "Default Project is only available for ordinary Agent Profiles."
         );
       }
-      if (existing.defaultProjectId === defaultProjectId) {
+      if (
+        input.onlyIfUnmodified &&
+        existing.defaultProjectId === defaultProjectId
+      ) {
         return existing;
+      }
+      if (input.onlyIfUnmodified && existing.defaultProjectRevision === null) {
+        throw new ProfileValidationError(
+          "Confirm this Agent's working folder in Agent settings, then retry setup.",
+          "profile.default_project_confirmation_required"
+        );
       }
       await repository.updateAgentProfileDefaultProjectForOwner(
         ownerUserId,
         organizationId,
         profileId,
-        defaultProjectId
+        defaultProjectId,
+        input.onlyIfUnmodified
       );
       const updated = await repository.findByOwnerAndProfileId(
         ownerUserId,

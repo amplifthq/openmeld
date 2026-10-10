@@ -59,6 +59,7 @@ export function AgentAvatarEditor(input: {
 							: HOSTED_REMOTE_AGENT_CONTROLLER_REF
 					}
 					avatarStyle={changed ? candidate : current}
+					botInteraction="playful"
 					clickable
 					modelId={input.modelId}
 					preview={changed}
