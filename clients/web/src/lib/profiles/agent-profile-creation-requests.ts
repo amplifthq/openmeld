@@ -11,6 +11,7 @@ import type {
 	CreateAgentProfileCreationRequestResponse,
 	GetAgentProfileCreationApprovalPreferenceResponse,
 	ListAgentProfileCreationRequestsResponse,
+	RetryAgentProfileCreationRequestBody,
 	SetAgentProfileCreationApprovalPreferenceResponse,
 } from "@openmeld/schemas/types";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
@@ -286,10 +287,12 @@ export async function cancelAgentProfileCreationRequest(input: {
 	}
 }
 
-export async function retryAgentProfileCreationRequest(input: {
-	organizationId: string;
-	requestId: string;
-}): Promise<AgentProfileCreationRequestMutationResponse> {
+export async function retryAgentProfileCreationRequest(
+	input: RetryAgentProfileCreationRequestBody & {
+		organizationId: string;
+		requestId: string;
+	}
+): Promise<AgentProfileCreationRequestMutationResponse> {
 	try {
 		const result = await createApi(
 			input.organizationId

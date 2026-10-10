@@ -9,6 +9,7 @@ import type {
 	AgentProfileCreationRequest,
 	OrganizationDirectoryResponse,
 	OrganizationProfileDirectoryResponse,
+	RetryAgentProfileCreationRequestBody,
 } from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
@@ -55,6 +56,7 @@ import {
 } from "#/query/profiles/agent-profile-creation-requests";
 import { AgentCreationComputerRecovery } from "./agent-creation-computer-recovery";
 import { agentCreationNeedsAttention } from "./agent-creation-history-model";
+import { AgentCreationModelRecovery } from "./agent-creation-model-recovery";
 import { normalizeAgentSearch } from "./agent-list-model";
 
 type DirectoryMember = OrganizationProfileDirectoryResponse["members"][number];
@@ -77,6 +79,8 @@ export function AgentProfileCreationRequestsPanel(input: {
 	const [resultFilter, setResultFilter] = useState("all");
 	const [typeFilter, setTypeFilter] = useState("all");
 	const [recoveryRequest, setRecoveryRequest] =
+		useState<AgentProfileCreationRequest | null>(null);
+	const [modelRecoveryRequest, setModelRecoveryRequest] =
 		useState<AgentProfileCreationRequest | null>(null);
 	const focusedRequestRef = useRef<HTMLTableRowElement | null>(null);
 	const selectedHumanProfileId =
@@ -189,6 +193,7 @@ export function AgentProfileCreationRequestsPanel(input: {
 						action.request.status === "completed"
 							? { request: action.request }
 							: await retryAgentProfileCreationRequest({
+									...action.correction,
 									organizationId: input.organizationId,
 									requestId: action.request.id,
 								});
@@ -384,6 +389,21 @@ export function AgentProfileCreationRequestsPanel(input: {
 					</div>
 				</fieldset>
 			)}
+			<AgentCreationModelRecovery
+				onClose={() => setModelRecoveryRequest(null)}
+				onRetry={(request, correction) =>
+					mutation.mutate(
+						{
+							kind: "retry",
+							request,
+							correction,
+						},
+						{ onSuccess: () => setModelRecoveryRequest(null) }
+					)
+				}
+				pending={mutation.isPending}
+				request={modelRecoveryRequest}
+			/>
 			{recoveryRequest ? (
 				<AgentCreationComputerRecovery
 					currentUserId={input.currentUserId}
@@ -566,6 +586,7 @@ export function AgentProfileCreationRequestsPanel(input: {
 											onAction={(kind) => mutation.mutate({ kind, request })}
 											onChooseComputer={() => setRecoveryRequest(request)}
 											onOpenAgent={input.onOpenAgent}
+											onReviewModel={() => setModelRecoveryRequest(request)}
 											request={request}
 										/>
 									</TableCell>
@@ -582,10 +603,12 @@ export function AgentProfileCreationRequestsPanel(input: {
 type RequestAction = {
 	kind: "approve" | "cancel" | "decline" | "retry";
 	request: AgentProfileCreationRequest;
+	correction?: RetryAgentProfileCreationRequestBody;
 };
 
 function RequestActions(input: {
 	onChooseComputer: () => void;
+	onReviewModel: () => void;
 	currentUserId: string;
 	isPending: boolean;
 	localSetupPending: boolean;
@@ -628,6 +651,12 @@ function RequestActions(input: {
 				>
 					View Agent
 				</Button>
+				<ReviewCreationModelButton
+					currentUserId={input.currentUserId}
+					disabled={input.isPending}
+					onClick={input.onReviewModel}
+					request={input.request}
+				/>
 				{input.request.status === "failed" || input.localSetupRetryAvailable ? (
 					<Button
 						disabled={input.isPending}
@@ -676,6 +705,12 @@ function RequestActions(input: {
 	if (input.request.status === "failed") {
 		return (
 			<div className="flex shrink-0 flex-wrap gap-2">
+				<ReviewCreationModelButton
+					currentUserId={input.currentUserId}
+					disabled={input.isPending}
+					onClick={input.onReviewModel}
+					request={input.request}
+				/>
 				{isRequester ? (
 					<Button
 						disabled={input.isPending}
@@ -719,6 +754,31 @@ function RequestActions(input: {
 		);
 	}
 	return null;
+}
+
+function ReviewCreationModelButton(input: {
+	request: AgentProfileCreationRequest;
+	currentUserId: string;
+	onClick: () => void;
+	disabled: boolean;
+}) {
+	if (
+		input.request.targetOwnerUserId !== input.currentUserId ||
+		input.request.status !== "failed" ||
+		!input.request.configuration.modelId
+	) {
+		return null;
+	}
+	return (
+		<Button
+			disabled={input.disabled}
+			onClick={input.onClick}
+			size="sm"
+			variant="outline"
+		>
+			Review model
+		</Button>
+	);
 }
 
 function statusLabel(

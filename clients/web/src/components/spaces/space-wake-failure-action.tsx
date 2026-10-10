@@ -9,6 +9,7 @@ import {
 } from "#/lib/profile-routes";
 import type { WakeFailureDisplay } from "#/lib/spaces/wake-failure-display";
 import { AgentModelRecoveryAction } from "./agent-model-recovery-action";
+import { AgentWorkingFolderRecoveryAction } from "./agent-working-folder-recovery-action";
 
 export function SpaceWakeFailureActionControl(input: {
 	className?: string;
@@ -21,6 +22,14 @@ export function SpaceWakeFailureActionControl(input: {
 	const profileHomeRoutes = buildProfileHomeRoutes(orgSlug);
 	if (input.display.actionTarget === null) {
 		return null;
+	}
+	if (input.display.actionTarget === "working_folder") {
+		return (
+			<AgentWorkingFolderRecoveryAction
+				className={input.className}
+				profileId={input.targetProfileId}
+			/>
+		);
 	}
 	if (input.display.primaryActionId === "change_model") {
 		return (

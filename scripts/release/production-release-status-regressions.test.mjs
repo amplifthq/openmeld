@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import capturedSourceImpact from "./fixtures/component-status-e050-98446.json" with {
   type: "json",
@@ -6,6 +7,8 @@ import capturedSourceImpact from "./fixtures/component-status-e050-98446.json" w
 import {
   buildProductionReleaseImpact,
   buildProductionReleasePlan,
+  resolveProductionCompatibilityObligations,
+  resolveProductionCompatibilityReceiverWitnesses,
 } from "./production-release.mjs";
 import { RELEASE_SCOPES } from "./production-release-history.mjs";
 import {
@@ -367,6 +370,78 @@ test("proves a pending receiver contract from its verified historical source", a
       targetSha: TARGET,
     }
   );
+});
+
+test("collects usage evidence only from the actual verified receiver receipt source", async () => {
+  const changedPaths = ["services/remote-agent/agent-core/ai-usage.ts"];
+  for (const scenario of [
+    "match",
+    "mismatch",
+    "missing source",
+    "unverified receipt",
+  ]) {
+    let comparisons = 0;
+    const { result } = await report({
+      readReleaseRuns: async () => [first],
+      readReleaseJobs: async () => [
+        job("Deploy Core Worker", OLD, "2026-09-18T11:00:00Z"),
+        job("Deploy Remote Agent Worker", WEB, "2026-09-18T12:00:00Z"),
+      ],
+      readLocalReleaseSources: async () =>
+        scenario === "unverified receipt"
+          ? new Map([
+              [
+                "core",
+                {
+                  sha: OLD,
+                  recordedAt: "2026-09-18T13:00:00Z",
+                  source: "guarded-local",
+                  receipt: { status: "failed", application: "applied" },
+                },
+              ],
+            ])
+          : new Map(),
+      buildPlan: ({ base }) => ({
+        changedPaths,
+        scopes: base === OLD ? ["core"] : ["remote-agent"],
+        compatibilityDependencies: [["core", "remote-agent"]],
+        compatibilityObligations:
+          resolveProductionCompatibilityObligations(changedPaths),
+        compatibilityReceiverWitnesses:
+          resolveProductionCompatibilityReceiverWitnesses(changedPaths),
+      }),
+      readGitFile: (sha, path) => {
+        assert.ok([OLD, TARGET].includes(sha));
+        if (scenario === "missing source") {
+          throw new Error("missing source");
+        }
+        return readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
+      },
+      compareGitPathContents: ({ fromSha, toSha }) => {
+        comparisons += 1;
+        assert.equal(fromSha, OLD);
+        assert.equal(toSha, TARGET);
+        return scenario !== "mismatch";
+      },
+    });
+    const producer = result.components.find((c) => c.scope === "remote-agent");
+    assert.deepEqual(producer.compatibilityObligations, [
+      {
+        receiver: "core",
+        producer: "remote-agent",
+        contract: "remote-ai-usage",
+      },
+    ]);
+    const evidence = producer.compatibilityReceiverWitnesses[0].evidence;
+    assert.equal(evidence.baselineSha, OLD);
+    assert.equal(evidence.targetSha, TARGET);
+    assert.equal(
+      evidence.result,
+      ["match", "mismatch"].includes(scenario) ? scenario : "unknown",
+      scenario
+    );
+    assert.equal(comparisons, ["match", "mismatch"].includes(scenario) ? 2 : 0);
+  }
 });
 
 test("unverified local deployment replaces older hosted success without appearing current", async () => {

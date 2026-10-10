@@ -57,8 +57,12 @@ const INBOX_SPACE_TARGET_FILTER = `
 `;
 export const INBOX_SPACE_MESSAGE_FILTER = `
   source_kind = 'space_signal'
-  AND attention = 'update'
   AND ${INBOX_SPACE_TARGET_FILTER}
+`;
+export const INBOX_SPACE_UNREAD_FILTER = `
+  ${INBOX_SPACE_TARGET_FILTER}
+  AND (source_kind = 'space_signal' OR
+    (attention = 'update' AND kind = 'space_joined' AND cleared_at_ms IS NULL))
 `;
 export function inboxAttentionPresentationFilterSql(
   useFeedAgentScope = false
@@ -143,15 +147,6 @@ const INBOX_CENTER_AGENT_MESSAGE_FILTER = `
 const inboxDirectMessageSpaceRowSql = (purposeParameter: string) => `
   unread_space.space_purpose IS NOT DISTINCT FROM ${purposeParameter}
   AND unread_space.direct_message_converted_at_ms IS NULL
-  AND COALESCE(
-    unread_space.active_member_count,
-    (
-      SELECT count(*)
-      FROM "openmeld"."space_index_memberships" AS unread_space_member
-      WHERE unread_space_member.space_id = unread_space.space_id
-        AND unread_space_member.status = 'active'
-    )
-  ) = 2
 `;
 const inboxDirectMessageSpaceSql = (purposeParameter: string) => `
   EXISTS (
@@ -248,7 +243,6 @@ export function createInboxService(input: {
             FROM "openmeld"."inbox_items"
             WHERE organization_id = $1
               AND recipient_user_id = $2
-              AND cleared_at_ms IS NULL
               AND read_at_ms IS NULL
               AND ${INBOX_CENTER_AGENT_MESSAGE_FILTER}
               AND ${CURRENT_SOURCE_ACCESS_FILTER}
@@ -273,6 +267,7 @@ export function createInboxService(input: {
       requireIdentifier(summaryInput.organizationId, "organizationId");
       requireIdentifier(summaryInput.recipientUserId, "recipientUserId");
       const result = await input.db.query<{
+        message_unread_count: number;
         latest_unread_occurred_at_ms: number;
         space_id: string;
         unread_count: number;
@@ -281,13 +276,13 @@ export function createInboxService(input: {
             SELECT
               ((source_target_json)::jsonb #>> '{spaceId}') AS space_id,
               count(*) AS unread_count,
+              count(*) FILTER (WHERE source_kind = 'space_signal') AS message_unread_count,
               max(occurred_at_ms) AS latest_unread_occurred_at_ms
             FROM "openmeld"."inbox_items"
             WHERE organization_id = $1
               AND recipient_user_id = $2
-              AND cleared_at_ms IS NULL
               AND read_at_ms IS NULL
-              AND ${INBOX_SPACE_MESSAGE_FILTER}
+              AND ${INBOX_SPACE_UNREAD_FILTER}
               AND ${CURRENT_SOURCE_ACCESS_FILTER}
             GROUP BY ((source_target_json)::jsonb #>> '{spaceId}')
             ORDER BY latest_unread_occurred_at_ms DESC NULLS LAST, space_id ASC NULLS FIRST
@@ -308,9 +303,8 @@ export function createInboxService(input: {
             FROM "openmeld"."inbox_items"
             WHERE organization_id = $1
               AND recipient_user_id = $2
-              AND cleared_at_ms IS NULL
               AND read_at_ms IS NULL
-              AND ${INBOX_SPACE_MESSAGE_FILTER}
+              AND ${INBOX_SPACE_UNREAD_FILTER}
               AND ${CURRENT_SOURCE_ACCESS_FILTER}
               AND ${inboxOrdinarySpaceSql("$3", "$4")}
           `,
@@ -352,17 +346,16 @@ export function createInboxService(input: {
         -- planner repeat its permission checks for every direct-message Space.
         WITH accessible_inbox AS MATERIALIZED (
           SELECT organization_id, source_target_json, source_kind,
-            read_at_ms, attention, resolution_status, importance, kind
+            read_at_ms, cleared_at_ms, attention, resolution_status, importance, kind
           FROM "openmeld"."inbox_items"
           WHERE organization_id = $1 AND recipient_user_id = $2
-            AND cleared_at_ms IS NULL
             AND (${INBOX_SUMMARY_CANDIDATE_FILTER})
             AND ${CURRENT_SOURCE_ACCESS_FILTER}
         )
         SELECT
-          sum(CASE WHEN read_at_ms IS NULL AND ${INBOX_SPACE_MESSAGE_FILTER} THEN 1 ELSE 0 END) AS unread,
-          sum(CASE WHEN attention = 'action_required' AND resolution_status = 'open' THEN 1 ELSE 0 END) AS actions,
-          sum(CASE WHEN ${UNREAD_URGENT_UPDATE_FILTER} AND coalesce(source_target_json::jsonb -> 'agentOwnerActivity', 'false'::jsonb) != 'true'::jsonb THEN 1 ELSE 0 END) AS urgent
+          sum(CASE WHEN read_at_ms IS NULL AND ${INBOX_SPACE_UNREAD_FILTER} THEN 1 ELSE 0 END) AS unread,
+          sum(CASE WHEN cleared_at_ms IS NULL AND attention = 'action_required' AND resolution_status = 'open' THEN 1 ELSE 0 END) AS actions,
+          sum(CASE WHEN cleared_at_ms IS NULL AND ${UNREAD_URGENT_UPDATE_FILTER} AND coalesce(source_target_json::jsonb -> 'agentOwnerActivity', 'false'::jsonb) != 'true'::jsonb THEN 1 ELSE 0 END) AS urgent
         FROM accessible_inbox AS inbox_items
         WHERE ${inboxDirectMessageSpaceSql("$3")}
       `,
@@ -387,6 +380,7 @@ export function createInboxService(input: {
         ),
         organizationId: summaryInput.organizationId,
         spaces: (result.rows ?? []).map((row) => ({
+          messageUnreadCount: countValue(row.message_unread_count),
           latestUnreadOccurredAtMs: nonnegativeIntegerValue(
             row.latest_unread_occurred_at_ms
           ),
@@ -397,6 +391,7 @@ export function createInboxService(input: {
     },
     async spaceUnreadTargets(targetInput: {
       includeItemIds?: boolean;
+      includeSourceKeys?: boolean;
       organizationId: string;
       recipientUserId: string;
       spaceId: string;
@@ -407,12 +402,24 @@ export function createInboxService(input: {
       const filters = `
         organization_id = $1
         AND recipient_user_id = $2
-        AND cleared_at_ms IS NULL
         AND read_at_ms IS NULL
         AND ${INBOX_SPACE_MESSAGE_FILTER}
         AND ((source_target_json)::jsonb #>> '{spaceId}') = $3
         AND ${CURRENT_SOURCE_ACCESS_FILTER}
       `;
+      const joinedRows = targetInput.includeItemIds
+        ? await input.db.query<{ id: string; occurred_at_ms: number }>({
+            text: `SELECT id, occurred_at_ms FROM "openmeld"."inbox_items" WHERE organization_id = $1 AND recipient_user_id = $2
+          AND source_target_json::jsonb ->> 'spaceId' = $3 AND kind = 'space_joined' AND read_at_ms IS NULL AND cleared_at_ms IS NULL
+          AND ${CURRENT_SOURCE_ACCESS_FILTER} ORDER BY occurred_at_ms, id LIMIT $4`,
+            values: [
+              targetInput.organizationId,
+              targetInput.recipientUserId,
+              targetInput.spaceId,
+              INBOX_SPACE_UNREAD_TARGETS_MAX_ITEMS,
+            ],
+          })
+        : null;
       const countRow = await input.db
         .query<{
           unread_count: number;
@@ -430,7 +437,7 @@ export function createInboxService(input: {
         source_target_json: string;
       }>({
         text: `
-            SELECT id, occurred_at_ms, source_target_json
+            SELECT id, source_key, occurred_at_ms, source_target_json
             FROM "openmeld"."inbox_items"
             WHERE ${filters}
               AND ((source_target_json)::jsonb #>> '{signalId}') IS NOT NULL
@@ -460,6 +467,7 @@ export function createInboxService(input: {
       const totalUnreadCount = countValue(countRow?.unread_count);
       const rows = (targetResult.rows ?? []) as Array<{
         id: string;
+        source_key: string;
         occurred_at_ms: number;
         source_target_json: string;
       }>;
@@ -479,6 +487,9 @@ export function createInboxService(input: {
           }
           return {
             ...(targetInput.includeItemIds ? { itemId: row.id } : {}),
+            ...(targetInput.includeSourceKeys
+              ? { sourceKey: row.source_key }
+              : {}),
             occurredAtMs: nonnegativeIntegerValue(row.occurred_at_ms),
             signalId: parsed.data.signalId,
             threadRootSignalId:
@@ -489,6 +500,14 @@ export function createInboxService(input: {
         })
         .filter((target) => target !== null);
       return {
+        ...(joinedRows
+          ? {
+              joinedItems: joinedRows.rows.map((row) => ({
+                itemId: row.id,
+                occurredAtMs: nonnegativeIntegerValue(row.occurred_at_ms),
+              })),
+            }
+          : {}),
         ...(scopeRows
           ? {
               scopes: (scopeRows.rows ?? []).map((row) => ({
@@ -1058,7 +1077,7 @@ async function markSpaceInboxReadThrough(input: {
   }
   const itemTargetFilter =
     input.itemScope === "space"
-      ? INBOX_SPACE_MESSAGE_FILTER
+      ? INBOX_SPACE_UNREAD_FILTER
       : INBOX_CENTER_AGENT_MESSAGE_FILTER;
   const threadScoped =
     input.itemScope === "space" && input.threadRootSignalId !== undefined;

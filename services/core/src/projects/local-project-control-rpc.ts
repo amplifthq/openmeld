@@ -42,6 +42,7 @@ type LocalProjectControlCapability =
   | "connectCandidate"
   | "connectDeclaredPath"
   | "discoverProjects"
+  | "readConnections"
   | "moveConnection"
   | "removeConnection"
   | "removeMissingConnections"
@@ -174,7 +175,10 @@ export function createLocalProjectControlRpc(
         (project) => selectedIds?.has(project.id) ?? true
       );
       const target = await dependencies.resolveCurrentTarget({
-        capability: "discoverProjects",
+        capability:
+          request.includeCandidates === false
+            ? "readConnections"
+            : "discoverProjects",
         env,
         userId: prepared.userId,
       });

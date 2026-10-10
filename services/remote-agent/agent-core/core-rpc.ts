@@ -2,6 +2,44 @@ const RPC_RECEIVER_METHOD_NOT_IMPLEMENTED_MESSAGE =
   "The RPC receiver does not implement the method";
 const TRAILING_PERIOD_PATTERN = /\.$/;
 const WRAPPING_DOUBLE_QUOTE_PATTERN = /^"|"$/g;
+const HTTP_STYLE_RPC_ERROR_PATTERN = /^HTTP\s+\d{3}:\s*(\{[\s\S]*\})\s*$/u;
+
+/** Core preserves this envelope in Error.message across Worker RPC. */
+export function readCoreRpcErrorCode(error: unknown): string | null {
+  if (!(error instanceof Error)) {
+    return null;
+  }
+  const cause = error.cause;
+  if (
+    cause &&
+    typeof cause === "object" &&
+    "code" in cause &&
+    typeof cause.code === "string"
+  ) {
+    return cause.code;
+  }
+  const match = HTTP_STYLE_RPC_ERROR_PATTERN.exec(error.message);
+  if (!match?.[1]) {
+    return null;
+  }
+  try {
+    const envelope: unknown = JSON.parse(match[1]);
+    if (envelope && typeof envelope === "object" && "error" in envelope) {
+      const detail = envelope.error;
+      if (
+        detail &&
+        typeof detail === "object" &&
+        "code" in detail &&
+        typeof detail.code === "string"
+      ) {
+        return detail.code;
+      }
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
 
 export function requireCoreRpc<T extends (input: unknown) => Promise<unknown>>(
   rpc: T | undefined,

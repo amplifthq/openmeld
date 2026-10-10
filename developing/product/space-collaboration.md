@@ -171,6 +171,15 @@ acceptance against a refreshed revision. A human Space owner can take over an
 Agent-requested Task decision, and approving further rework hands the next
 correction to the assignee through the same Space Wake path.
 
+A submitted result awaiting a Human reviewer creates a separate pending Inbox
+request, in addition to its public handoff message. At the automatic-rework limit,
+the existing Human decision target receives the request instead. Task mutations
+persist Inbox projection intent in the existing delivery outbox; retries use the
+current Task state and close superseded requests. Reading the handoff, marking
+the Space read, replying normally or dismissing Inbox attention never approves
+the result. Agent reviewers retain their existing Wake path without treating
+their personal owners as substitute reviewers.
+
 Task transition messages are idempotent and return to the source Thread when
 one exists. They mention a human reviewer through normal Inbox delivery or
 Wake an Agent reviewer through the existing Space path. Completion posts the
@@ -526,6 +535,43 @@ limits and access policy still apply.
 
 ### Selected work handoffs
 
+Message details offers **Hand off** to ask another Agent to continue work from
+a readable result. The default is a brief with optional shared files; it needs
+no Project, repository, or commit. **Include a repository** adds an explicit
+Project/repository and complete published commit SHA. The sender selects an
+existing Agent in the Space that supports the selected materials. The brief includes the goal, current state,
+verified evidence, attempted approaches, decisions, constraints, open questions,
+next steps, and completion criteria. The original shared result is loaded into
+the draft; private native history is never an input. Shared files are optional,
+explicitly selected, and pinned to exact revisions.
+
+These handoffs use the same ordinary Message/Thread publication and Wake owners
+as selected-file work. The accepted manifest binds the source message revision,
+receiver, selected materials, and execution choices. A changed or recalled source,
+changed retry payload, or different destination thread is rejected. An unknown
+send outcome retains the same request identity for retry. The UI says requested
+until existing execution/publication owners produce the actual outcome.
+
+Without a repository, workstation handoffs select a new isolated Space-only
+Context and never resolve a default Project or borrow a local repository.
+Brief-only work supports Codex, Claude Code, and Remote Agents. Selected shared
+files without a repository support Codex App Server and Remote Agents; Claude's
+Space-only boundary has no writable selected-file projection. These material
+support rules are projected by `packages/agent-runtime`; live readiness and
+execution permissions remain their existing owners' checks.
+
+With a repository, the receiving Service resolves its own authorized Project
+connection and prepares the frozen commit before model work. This supports
+local Codex and Claude Code. The Web action selects a separate copy;
+Agent settings remain the default, with supported explicit restrictions available.
+It never transfers a sender-local path, credentials, native conversation, or
+approval. Selected shared files live in a separate child directory and code work
+keeps the repository working directory. Workstation v2 handoffs require Context
+capability 5; selected-file preparation additionally requires the existing macOS
+handoff capability. Remote Agents retain their existing native admission, file
+preparation, and reply owners and reject repository handoffs. Version 1 file-only
+handoffs retain their existing Codex Space-only boundary described below.
+
 A selected work handoff is an ordinary Space Message or Thread reply with one
 Wake target, exact file revisions, optional immutable Organization Skill
 releases, a goal, completed work, next steps, and requirements. The containing
@@ -540,7 +586,8 @@ execution. Missing files or Skills fail explicitly; neither current revisions
 nor latest Skill releases silently replace the selection. Files remain owned by
 the Space, and ordinary Space membership and Wake admission still apply.
 
-Hosted Agents use their existing Computer identity. Workstation continuation
+Version 1 file-only handoffs let hosted Agents use their existing Computer
+identity. Their workstation continuation
 requires the macOS Codex App Server Space-only execution boundary. Other
 controllers/platforms are not advertised as supporting this handoff. This is
 not a user-owned private Computer, cross-device process migration, background
@@ -790,17 +837,16 @@ directMessage.pairKey = sorted profile ids for the intended pair
 That origin marker never changes. It records where the Space came from, not
 what the Space is allowed to become.
 
-Current DM state is derived from origin, membership, and the irreversible
+Current DM state is derived from origin and the irreversible
 conversion marker:
 
 ```text
 isDirectMessage = purpose is openmeld_dm_space
-  AND active member count is 2
   AND directMessage.convertedAt is absent
 ```
 
-Active member count uses the same active membership semantics as the normal
-Space member directory. This derived predicate is the single product meaning
+Removing or deleting a participant does not convert a Direct Message. Only the
+explicit conversion transaction changes its kind. This predicate is the single product meaning
 used by navigation and headers. Automatic Wake addressing is derived separately
 from active membership. Do not reimplement local
 "looks like a DM" checks from name, visibility, member types, or route shape.
@@ -907,6 +953,22 @@ Existing non-default names are preserved. Failed or empty results keep **New
 chat**; later Human messages can retry, capped at three persisted attempts per
 Space. No automatic historical title rewrite or periodic regeneration occurs.
 
+### Personal Direct Message deletion
+
+Archive hides a Direct Message from the person's active list. Archived rows offer
+**Delete for me**, with an explicit confirmation. This permanently hides all
+messages accepted through that command's position from that account's history,
+search, links, update feeds, and Inbox. Other participants and Agent execution
+continuity keep their shared history. New messages can make the Direct Message
+visible again; they do not restore the person's earlier messages. Conversion
+into an ordinary Space does not undo a personal history boundary.
+
+Core owns one account/Space boundary in PostgreSQL. Space captures a monotonic
+SQLite signal position; retention must never reuse an accepted position. Web
+opts into the boundary date on history reads and uses it to reject older cache
+responses and discard retained pages. Legacy readers receive their existing
+response shape and the same server-side content restriction.
+
 ### Ordinary Direct Message opening
 
 Humans, Local Agents, personal Remote Agents, and the Center Agent use the same
@@ -987,6 +1049,12 @@ not change membership. Converted DM-origin Spaces follow this ordinary Space
 addressing rule without regaining DM identity, privacy or mutation restrictions.
 Explicit Reference remains an opt-out. Existing explicit listen-all Space policy
 is separate from this default and is not enabled by membership changes.
+Automatic Wake is enabled by default. **App settings → Personal → Spaces →
+Automatically wake the only Agent** is a durable account preference across
+organizations and clients. Turning it off disables implicit main-conversation
+and Thread Wake for that Human author; explicit Wake addressing still works.
+Core reads the verified author's preference when admitting automatic work.
+Space status projects the viewer's preference for composer guidance.
 Agents use structured Wake targets to request another Agent's work; a plain reply
 never implies another Agent-to-Agent Wake under the default policy.
 Ordinary Space Threads retain their independent participant-based addressing;
@@ -1036,9 +1104,9 @@ Space Access defines what a link visitor can do before they have joined the
 Space. Organization visibility and link access are separate controls:
 `visibility = private` makes the Space invite-only in the Organization, while
 `accessMode = members_only` prevents an unadmitted visitor from reading content.
-An authenticated Organization member can explicitly join a listed (`public`)
-Space from the directory or its destination link, independently of external
-link access. Core verifies current Organization membership and canonical Space
+An authenticated Organization member can preview a listed (`public`) Space
+before explicitly joining from the directory or its destination link, independently of external
+link access. Preview is read only and never creates membership. Core verifies current Organization membership and canonical Space
 policy; this grant admits only the caller's own Human Profile. It cannot add
 someone else, an Agent, or members to an unconverted Direct Message.
 The common UI asks **Who can read this Space?** and **Who can join this Space?**
@@ -1065,8 +1133,8 @@ migrated, and visibility and access mode remain independently owned facts.
 
 OpenMeld has four access modes:
 
-- `members_only`: only an active member or another active Profile
-  owned by the same account can view the Space. New participants must be added
+- `members_only`: an active member or another active Profile
+  owned by the same account can view the Space. Current Organization members can also preview Organization-public Spaces. New participants must be added
   explicitly or self-join under the Organization-public policy above.
 - `public`: anyone with the link can view the Space. Signed-in external visitors
   can explicitly join only while external guest access is enabled.
@@ -1115,8 +1183,16 @@ Before Organization departure or account removal, the departing person must
 hand over every owned Space and become a Member. Organization deletion requires
 its ordinary Spaces to be deleted first; it cannot strand their history.
 
-Leaving or removing a member preserves shared history and files. Permanent Space
-deletion is a separate, human-owner-confirmed action affecting everyone. It must
+Leaving or removing a member preserves shared history and files. Delete Space is
+a human-owner-confirmed transition to a retained, read-only Space. The Space owns
+`deletedAt`; original members retain their existing read grant and can search past
+messages. Public links and passwords do not admit new readers after deletion.
+Deleted Spaces stay in members' lists with a small red `Deleted` label. Members
+can use `Remove from my list` to remove their account's memberships; other members'
+history is unchanged. The active-Space owner handoff rule does not block this
+personal removal. Shared message, file, member, and access mutations are rejected
+by the Space, not merely disabled in the client. Account erasure remains a separate
+trusted purge path and can physically clear data. Ordinary deletion must
 reject with `space.wakes_pending` while dispatch handoff/recovery, a workstation
 execution, a native delivery (including Routine runs and uncertain publication),
 an admitted Routine awaiting delivery or failure publication, a task continuation,
@@ -1511,6 +1587,21 @@ Space conversation.
 
 Thread messages reuse the normal Space publication model. There is no second
 message system for threads.
+
+Main and Thread share message grouping, Profile popovers, message tools, quoted
+reply composition, supported queued follow-ups, and scroll controls. Narrow
+containers use the shared compact message-tools presentation. Thread has no
+nested Thread action or date-navigation surface. Per-message times remain visible.
+
+Thread unread navigation includes only that Thread's replies. Visible-message
+acknowledgements use the existing Space read owner and update the aggregate main
+unread projection; there is no independent Thread counter. Jump to latest and
+navigation alone do not mark unseen replies read. Each Thread retains the
+viewer's reading position independently of the main conversation.
+
+In full-width layout, the message rail reserves an avatar and its gap on both
+sides. Long self and other messages share the same content edges; short self
+messages keep their right alignment. Composer and header width remain unchanged.
 
 Thread replies use the same one-to-one rule as human-to-Agent Direct Messages:
 when the retained thread authors consist of one human and one Agent, sending a

@@ -2,6 +2,7 @@ import {
   createModels,
   fauxAssistantMessage,
   fauxToolCall,
+  isContextOverflow,
 } from "@earendil-works/pi-ai";
 // biome-ignore lint/performance/noNamespaceImport: Vitest spies on the real provider registration export.
 import * as flue from "@flue/runtime";
@@ -382,12 +383,12 @@ describe("remote agent model routing", () => {
         { apiKey: "unused" }
       );
 
-      await expect(stream.result()).resolves.toMatchObject({
-        errorMessage: expect.stringContaining(
-          "context_length_exceeded: estimated provider input"
-        ),
-        stopReason: "error",
-      });
+      const result = await stream.result();
+      expect(result.stopReason).toBe("error");
+      expect(isContextOverflow(result, constrainedRoute.contextWindow)).toBe(
+        true
+      );
+      expect(result.errorMessage).toContain("(request_too_large)");
     } finally {
       resetProviderRuntime();
     }
@@ -423,7 +424,53 @@ describe("remote agent model routing", () => {
         { apiKey: "unused" }
       ).result();
       expect(providerFetch).toHaveBeenCalled();
-      expect(result.errorMessage).toContain("provider reached");
+      expect(result.stopReason).toBe("error");
+      expect(result.errorMessage).toContain("HTTP 400");
+      expect(result.errorMessage).not.toContain("provider reached");
+    } finally {
+      resetProviderRuntime();
+    }
+  });
+
+  it.each([
+    { environment: "prod", rich: false },
+    { environment: undefined, rich: false },
+    { environment: "dev", rich: true },
+  ])("applies content policy to both registered model entry points: $environment", async (policy) => {
+    resetProviderRuntime();
+    const privateText = "Private provider excerpt: Project Cedar";
+    const runtime = await registerRemoteAgentCloudflareProvider({
+      env: {
+        ...CONFIGURED_AI_GATEWAY_ENV,
+        CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-token",
+        OPENMELD_WORKER_ENVIRONMENT: policy.environment,
+      },
+      modelRoute: TEST_CENTER_AGENT_MODEL_ROUTE,
+      organizationId: "external",
+    });
+    try {
+      const model = resolveModel(runtime.modelSpecifier);
+      const context = {
+        messages: [
+          { role: "user" as const, content: "Answer briefly.", timestamp: 1 },
+        ],
+      };
+      const options = {
+        apiKey: "unused",
+        fetch: () =>
+          Promise.resolve(
+            Response.json({ error: { message: privateText } }, { status: 400 })
+          ),
+      };
+      for (const stream of [
+        streamRegisteredModel(model, context, options),
+        models.streamSimple(model, context, options),
+      ]) {
+        const result = await stream.result();
+        expect(result.stopReason).toBe("error");
+        expect(result.errorMessage).toContain("400");
+        expect(result.errorMessage?.includes(privateText)).toBe(policy.rich);
+      }
     } finally {
       resetProviderRuntime();
     }
@@ -1034,11 +1081,63 @@ describe("remote agent model routing", () => {
       "cf-aig-authorization": "Bearer token_123",
       "cf-aig-byok-alias": "openrouter",
       "cf-aig-collect-log": "true",
+      "cf-aig-collect-log-payload": "false",
       "cf-aig-metadata": JSON.stringify({
         model: REMOTE_AGENT_OPENROUTER_MODEL_ID,
         worker: "openmeld-remote-agent",
       }),
     });
+  });
+
+  it.each([
+    ["prod", "00000000-0000-4000-8000-000000000002", false],
+    ["prod", "00000000-0000-4000-8000-000000000001", true],
+    ["local", undefined, true],
+    ["dev", undefined, true],
+    ["stg", undefined, true],
+    [undefined, "00000000-0000-4000-8000-000000000001", false],
+    ["production", "00000000-0000-4000-8000-000000000001", false],
+    ["prod", undefined, false],
+    ["prod", "invalid", false],
+  ])("keeps usage logs and applies content privacy for %s / %s", (environment, organizationId, allowed) => {
+    const headers = buildRemoteAgentAiGatewayHeaders({
+      env: {
+        CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "token_123",
+        OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS: "openrouter",
+        OPENMELD_WORKER_ENVIRONMENT: environment,
+        CLOUDFLARE_OPENMELD_INTERNAL_DIAGNOSTICS_ORGANIZATION_ID:
+          "00000000-0000-4000-8000-000000000001",
+      },
+      organizationId,
+      // Attribution metadata cannot grant the internal Organization exception.
+      metadata: {
+        organizationId: "00000000-0000-4000-8000-000000000001",
+        Authorization: "Bearer must-not-be-logged",
+      },
+    });
+    expect(headers["cf-aig-collect-log"]).toBe("true");
+    expect(headers["cf-aig-collect-log-payload"]).toBe(String(allowed));
+    expect(headers["cf-aig-metadata"]).not.toContain("must-not-be-logged");
+  });
+
+  it.each([
+    undefined,
+    "",
+    "invalid",
+    " 00000000-0000-4000-8000-000000000001 ",
+  ])("omits content when the production internal Organization configuration is %s", (configuredOrganizationId) => {
+    const headers = buildRemoteAgentAiGatewayHeaders({
+      env: {
+        CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "token_123",
+        OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS: "openrouter",
+        OPENMELD_WORKER_ENVIRONMENT: "prod",
+        CLOUDFLARE_OPENMELD_INTERNAL_DIAGNOSTICS_ORGANIZATION_ID:
+          configuredOrganizationId,
+      },
+      organizationId: "00000000-0000-4000-8000-000000000001",
+    });
+    expect(headers["cf-aig-collect-log"]).toBe("true");
+    expect(headers["cf-aig-collect-log-payload"]).toBe("false");
   });
 
   it("tags AI Gateway metadata with the organization for per-org usage attribution", () => {

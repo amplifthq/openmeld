@@ -4,7 +4,6 @@ import {
   type DurableObjectStorageLike,
   getWorkspace,
   Workspace,
-  type WorkspaceClient,
   type WorkspaceStub,
 } from "@cloudflare/computer";
 import {
@@ -48,10 +47,10 @@ import {
 import {
   collectComputerCommands,
   createComputerCommandTool,
-  hasCollectableComputerCommands,
   listPendingRemoteAgentComputerCommands,
   stopStoredComputerCommands,
 } from "./computer-command";
+import { ComputerCommandSqlStorage } from "./computer-command-storage";
 import { ComputerFiles } from "./computer-files";
 import { createComputerFileTools, describeComputer } from "./computer-native";
 import {
@@ -64,6 +63,13 @@ import {
   withComputerCapacityErrors,
 } from "./computer-storage";
 import {
+  AGENT_COMPUTER_BINDING,
+  AGENT_COMPUTER_CONTAINER_BACKEND_ID,
+  AGENT_COMPUTER_CONTAINER_ENV,
+  AGENT_COMPUTER_SHELL_BACKEND_ID,
+  buildAgentComputerSpaceDirectory,
+} from "./computer-workspace-config";
+import {
   COMPUTER_GIT_PATH,
   COMPUTER_PLUGIN_PATH,
 } from "./computer-workspace-proxy";
@@ -73,7 +79,6 @@ import {
   gitUploadPackRequest,
 } from "./git-upload-pack-stream";
 import { authorizePluginConnection } from "./plugin-connection-authorization";
-import { RemoteAgentSqlStorage } from "./storage";
 
 /**
  * The human account's Computer: a durable workspace backed by
@@ -93,21 +98,7 @@ import { RemoteAgentSqlStorage } from "./storage";
  *   real binaries); syncs changes back over capnweb.
  */
 
-export const AGENT_COMPUTER_BINDING = "AGENT_COMPUTER";
-export const AGENT_COMPUTER_SHELL_BACKEND_ID = "worker-shell";
-export const AGENT_COMPUTER_CONTAINER_BACKEND_ID = "container";
 const COMPUTER_PREVIEW_PATH = /^\/__preview\/(\d+)(\/.*)?$/u;
-
-/** Root layout of the computer. Prompt conventions reference these. */
-export const AGENT_COMPUTER_ROOT = "/computer";
-export const AGENT_COMPUTER_LAYOUT_DIRECTORIES = [
-  `${AGENT_COMPUTER_ROOT}/org`,
-  `${AGENT_COMPUTER_ROOT}/projects`,
-  `${AGENT_COMPUTER_ROOT}/spaces`,
-  `${AGENT_COMPUTER_ROOT}/routines`,
-  `${AGENT_COMPUTER_ROOT}/home`,
-  `${AGENT_COMPUTER_ROOT}/tasks`,
-] as const;
 
 type AgentComputerEnv = {
   LOADER: WorkerLoader;
@@ -218,7 +209,7 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
       await eraseAccountStorage(this.ctx);
     });
   }
-  readonly #commands = new RemoteAgentSqlStorage(this.ctx.storage.sql);
+  readonly #commands = new ComputerCommandSqlStorage(this.ctx.storage.sql);
 
   private async scheduleAlarm(at: number) {
     const current = await this.ctx.storage.getAlarm();
@@ -538,15 +529,18 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
       const jobs = await this.ctx.storage.list<GitPackJob>({
         prefix: GIT_PACK_JOB_PREFIX,
       });
-      if (
-        !(
-          (await hasCollectableComputerCommands(this.#commands)) ||
-          [...jobs.values()].some(
-            (job) => job.status === "pending" || job.status === "running"
-          )
-        )
-      ) {
+      const nextCommandAt = await this.#commands.nextCollectionAt();
+      const hasGitWork = [...jobs.values()].some(
+        (job) => job.status === "pending" || job.status === "running"
+      );
+      if (nextCommandAt === null && !hasGitWork) {
         await this.ctx.storage.deleteAlarm();
+      } else {
+        await this.ctx.storage.setAlarm(
+          hasGitWork
+            ? Date.now() + 15_000
+            : Math.max(Date.now() + 15_000, nextCommandAt ?? 0)
+        );
       }
     });
   }
@@ -790,7 +784,7 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
     // The backend defaults MOUNT_POINT to /workspace; our tree lives
     // under /computer, so pin the FUSE mount there for same-path
     // fidelity between the isolate and the container.
-    containerEnv: { MOUNT_POINT: AGENT_COMPUTER_ROOT },
+    containerEnv: AGENT_COMPUTER_CONTAINER_ENV,
     id: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
     workspace: workspaceRef(this.ctx),
   });
@@ -875,58 +869,4 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
     await this.workspace.ready();
     return this.workspace.stub();
   }
-}
-
-export function buildAgentComputerSpaceDirectory(spaceId: string): string {
-  return `${AGENT_COMPUTER_ROOT}/spaces/${spaceId}`;
-}
-
-export function buildAgentComputerRoutineDirectory(routineId: string): string {
-  return `${AGENT_COMPUTER_ROOT}/routines/${encodePathIdentity(routineId)}`;
-}
-
-export function resolveAgentComputerWorkingDirectory(input: {
-  taskId?: string;
-  conversationId?: string | null;
-  routineId?: string | null;
-  spaceId: string | null;
-}): string {
-  if (input.taskId) {
-    return `${AGENT_COMPUTER_ROOT}/tasks/${encodePathIdentity(input.taskId)}`;
-  }
-  if (input.routineId) {
-    return buildAgentComputerRoutineDirectory(input.routineId);
-  }
-  return input.spaceId
-    ? buildAgentComputerSpaceDirectory(input.spaceId)
-    : `${AGENT_COMPUTER_ROOT}/home`;
-}
-
-/**
- * Idempotently create the computer's base layout plus the working
- * directory for the current conversation.
- */
-export async function ensureAgentComputerLayout(
-  workspace: Pick<WorkspaceClient, "fs">,
-  input: {
-    taskId?: string;
-    conversationId?: string | null;
-    routineId?: string | null;
-    spaceId: string | null;
-  }
-): Promise<{ workingDirectory: string }> {
-  for (const directory of AGENT_COMPUTER_LAYOUT_DIRECTORIES) {
-    await workspace.fs.mkdir(directory, { recursive: true });
-  }
-  const workingDirectory = resolveAgentComputerWorkingDirectory(input);
-  await workspace.fs.mkdir(workingDirectory, { recursive: true });
-  return { workingDirectory };
-}
-
-function encodePathIdentity(value: string): string {
-  const normalized = value.trim();
-  if (!normalized) {
-    throw new Error("Agent Computer directory identity cannot be empty.");
-  }
-  return encodeURIComponent(normalized);
 }

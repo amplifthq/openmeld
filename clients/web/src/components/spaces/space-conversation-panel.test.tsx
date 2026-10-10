@@ -4782,6 +4782,9 @@ describe("SpaceConversationPanel", () => {
 			.getByText("@Runner(wake) please investigate")
 			.closest("[data-message-row-id='sig-wake']");
 		expect(sourceMessage).not.toBeNull();
+		expect(sourceMessage?.getAttribute("data-message-source-at")).toBe(
+			String(createTimelineItem().createdAtMs)
+		);
 		const footer = sourceMessage?.querySelector(
 			"[data-slot='message-footer']"
 		) as HTMLElement;

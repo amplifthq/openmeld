@@ -6,6 +6,10 @@ import {
   type RemoteAiUsageScope,
 } from "./ai-usage";
 import {
+  allowsRemoteAgentContentDiagnostics,
+  remoteAgentDiagnosticErrorFields,
+} from "./diagnostics-content-policy";
+import {
   buildRemoteAgentAiGatewayHeaders,
   buildRemoteAgentGatewayMetadata,
   type RemoteAgentModelEnv,
@@ -88,6 +92,7 @@ export async function understandRemoteAgentImages(input: {
     Object.entries(
       buildRemoteAgentAiGatewayHeaders({
         env: input.env,
+        organizationId: input.organizationId,
         metadata: buildRemoteAgentGatewayMetadata({
           modelId: input.model.modelId,
           organizationId: input.organizationId,
@@ -180,6 +185,7 @@ async function requestRemoteAgentImageUnderstandingBatch(input: {
     ].join(": ")
   );
   const response = await createMeteredRemoteFetch({
+    env: input.env,
     ...input.usageDurability,
     coreWorker: input.env.OPENMELD_CORE_WORKER,
     fetch: input.fetch,
@@ -239,12 +245,28 @@ async function requestRemoteAgentImageUnderstandingBatch(input: {
       method: "POST",
       signal: AbortSignal.timeout(IMAGE_UNDERSTANDING_TIMEOUT_MS),
     }
-  );
+  ).catch((error: unknown) => {
+    if (allowsRemoteAgentContentDiagnostics(input)) {
+      throw error;
+    }
+    const fields = remoteAgentDiagnosticErrorFields(error, input);
+    throw Object.assign(
+      new Error(
+        `Image understanding request failed for ${input.model.modelId}.${fields.status ? ` HTTP ${fields.status}.` : ""}${fields.errorCode ? ` ${fields.errorCode}.` : ""}`
+      ),
+      fields
+    );
+  });
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
-    const providerError = resolveImageUnderstandingProviderError(payload);
-    throw new Error(
-      `Image understanding failed for ${input.model.modelId} with HTTP ${response.status}.${providerError ? ` Provider: ${providerError}` : ""}`
+    const providerError = allowsRemoteAgentContentDiagnostics(input)
+      ? resolveImageUnderstandingProviderError(payload)
+      : null;
+    throw Object.assign(
+      new Error(
+        `Image understanding failed for ${input.model.modelId} with HTTP ${response.status}.${providerError ? ` Provider: ${providerError}` : ""}`
+      ),
+      { status: response.status }
     );
   }
   const parsed = imageUnderstandingResponseSchema.safeParse(payload);

@@ -67,7 +67,11 @@ export type InboxApi = {
     input?: InboxRequestInput
   ) => Promise<SpaceInboxSummaryResponse>;
   spaceUnreadTargets: (
-    input: InboxRequestInput & { spaceId: string; includeItemIds?: boolean }
+    input: InboxRequestInput & {
+      spaceId: string;
+      includeItemIds?: boolean;
+      includeSourceKeys?: boolean;
+    }
   ) => Promise<SpaceInboxUnreadTargetsResponse>;
   markSpaceReadThrough: (
     input: InboxRequestInput & {

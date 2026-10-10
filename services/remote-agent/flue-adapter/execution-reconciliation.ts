@@ -12,6 +12,10 @@ import {
   readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
 import {
+  type RemoteAgentDiagnosticsEnv,
+  remoteAgentDiagnosticErrorFields,
+} from "../agent-core/diagnostics-content-policy";
+import {
   completeRemoteAgentExecutionState,
   RemoteAgentTerminalExecutionOwnerMissingError,
   readRemoteAgentExecutionState,
@@ -32,7 +36,7 @@ export type FlueSubmissionLifecycle = Pick<
 >;
 
 export async function reconcileSettledRemoteAgentExecutions(input: {
-  env?: { AGENT_COMPUTER?: unknown };
+  env?: RemoteAgentDiagnosticsEnv & { AGENT_COMPUTER?: unknown };
   coreWorker?: RemoteAgentCoreWorkerBinding;
   nowMs?: () => number;
   readSubmission: (
@@ -84,7 +88,10 @@ export async function reconcileSettledRemoteAgentExecutions(input: {
       }
     } catch (error) {
       console.error("[remote_agent.execution.reconciliation_failed]", {
-        error: error instanceof Error ? error.message : String(error),
+        ...remoteAgentDiagnosticErrorFields(error, {
+          env: input.env,
+          organizationId: context.organizationId,
+        }),
         submissionId: context.submissionId,
       });
     }
@@ -93,7 +100,7 @@ export async function reconcileSettledRemoteAgentExecutions(input: {
 }
 
 export async function reconcileRemoteAgentExecution(input: {
-  env?: { AGENT_COMPUTER?: unknown };
+  env?: RemoteAgentDiagnosticsEnv & { AGENT_COMPUTER?: unknown };
   coreWorker?: RemoteAgentCoreWorkerBinding;
   identity: RemoteAgentWorkerExecutionQuery;
   nowMs?: () => number;
@@ -115,6 +122,7 @@ export async function reconcileRemoteAgentExecution(input: {
     current.execution.status === "aborted"
   ) {
     await projectRemoteAgentTerminalExecution({
+      env: input.env,
       coreWorker: input.coreWorker,
       execution: current.execution,
       identity: input.identity,
@@ -191,6 +199,7 @@ export async function reconcileRemoteAgentExecution(input: {
       }),
   });
   await projectRemoteAgentTerminalExecution({
+    env: input.env,
     coreWorker: input.coreWorker,
     execution: settledExecution,
     identity: input.identity,
@@ -205,7 +214,7 @@ export async function reconcileRemoteAgentExecution(input: {
 }
 
 async function reconcileCompletedRemoteAgentExecution(input: {
-  env?: { AGENT_COMPUTER?: unknown };
+  env?: RemoteAgentDiagnosticsEnv & { AGENT_COMPUTER?: unknown };
   coreWorker?: RemoteAgentCoreWorkerBinding;
   identity: RemoteAgentWorkerExecutionQuery;
   nowMs?: () => number;
@@ -283,6 +292,7 @@ function normalizeTerminalMetadata(
 }
 
 async function projectRemoteAgentTerminalExecution(input: {
+  env?: RemoteAgentDiagnosticsEnv;
   coreWorker?: RemoteAgentCoreWorkerBinding;
   execution: Awaited<ReturnType<typeof completeRemoteAgentExecutionState>>;
   identity: RemoteAgentWorkerExecutionQuery;
@@ -305,6 +315,7 @@ async function projectRemoteAgentTerminalExecution(input: {
     requestId: input.identity.submissionId,
   });
   await projectRemoteAgentTerminalOutcomeToCallback({
+    env: input.env,
     coreWorker: input.coreWorker,
     nowMs: input.nowMs,
     outcome,

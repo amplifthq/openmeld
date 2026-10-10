@@ -40,6 +40,72 @@ const OWNER = {
   kind: "owner_account",
 } as const;
 describe("Agent Profile Binding repo write-side", () => {
+  it("initializes a Binding once, retains later model settings, and refuses a changed target", async () => {
+    const harness = await createPostgresHarness();
+    await applyMigrationForTable(
+      harness,
+      "openMeldDaemon_agent_profile_bindings"
+    );
+    try {
+      const record = createBindingRecord({
+        bindingId: "creation-binding",
+        agentControllerRef: "builtin:codex",
+        openMeldServiceRuntimeId: "creation-runtime",
+      });
+      const initial = await ensurePrimaryAgentProfileBindingRecord({
+        db: harness.db,
+        initializeOnly: true,
+        record: { ...record, modelId: "gpt-5.6-sol", reasoningLevel: "high" },
+      });
+      expect(initial).toMatchObject({
+        status: "accepted",
+        outcome: "created",
+        binding: { modelId: "gpt-5.6-sol", reasoningLevel: "high" },
+      });
+      const chosen = await ensurePrimaryAgentProfileBindingRecord({
+        db: harness.db,
+        modelSelectionPatch: {
+          modelId: "gpt-6-astra",
+          reasoningLevel: "medium",
+        },
+        record: { ...record, updatedAtMs: 2000 },
+      });
+      const resumed = await ensurePrimaryAgentProfileBindingRecord({
+        db: harness.db,
+        initializeOnly: true,
+        modelSelectionPatch: { modelId: "gpt-5.6-sol", reasoningLevel: "high" },
+        record: { ...record, updatedAtMs: 3000 },
+      });
+      expect(resumed).toEqual({ ...chosen, outcome: "reused" });
+      expect(resumed).toMatchObject({
+        binding: {
+          modelId: "gpt-6-astra",
+          reasoningLevel: "medium",
+          updatedAtMs: 2000,
+        },
+      });
+      expect(
+        await ensurePrimaryAgentProfileBindingRecord({
+          db: harness.db,
+          initializeOnly: true,
+          record: { ...record, openMeldServiceRuntimeId: "other-runtime" },
+        })
+      ).toMatchObject({ status: "rejected", reason: "primary_conflict" });
+      expect(
+        await readPrimaryAgentProfileBindingRecord({
+          agentProfileId: AGENT_PROFILE_ID,
+          db: harness.db,
+          owner: OWNER,
+        })
+      ).toMatchObject({
+        modelId: "gpt-6-astra",
+        openMeldServiceRuntimeId: "creation-runtime",
+      });
+    } finally {
+      await harness.close();
+    }
+  });
+
   it("reads member-visible configuration for exact authorized Profile/owner pairs without extra query rounds", async () => {
     const harness = await createPostgresHarness();
     await applyMigrationForTable(

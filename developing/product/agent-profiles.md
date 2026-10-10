@@ -89,6 +89,11 @@ it must not invent Controller branding.
 Local Agent message headers show the owner's name after a middle dot, without
 an owner avatar or prefix. Profile popovers place availability beside the Agent
 name and show `Owned by` with the owner's small Human Profile avatar and name.
+Center Agent popovers show a cloud icon and the current model, with a settings
+action that opens the current Organization's Center Agent section in App
+Settings. They omit routine availability and default reasoning labels, but
+retain unavailable or paused status and its explanation. This presentation is
+shared by message authors, mentions, and member rows, including Thread replies.
 Hosted Agents retain the `Hosted by OpenMeld` message attribution.
 Hosted Remote Agent default avatars use the selected model provider's logo,
 resolved from the exact provider namespace in the current `avatarModelId`.
@@ -287,6 +292,11 @@ Computer retains the incomplete-setup marker and requires folder reselection.
 Cancellation is presented as **Cancel setup**, followed by an explicit cancelled
 outcome; it must not imply that the Agent was created or repaired.
 
+Creation failure messages retain a safe reason and recovery guidance rather than
+copying private RPC diagnostics into the request or Center Agent context. The
+same public projection protects older saved failures, including truncated RPC
+responses. Local Service diagnostics retain the original local error detail.
+
 The frozen facts are:
 
 - requester user and acting Profile
@@ -376,6 +386,29 @@ Core checkpoints the committed ID on the fenced `approved` request immediately
 after Auth returns and before starting Space, Binding, working-folder, or
 Default Project setup. A stale-attempt recovery therefore cannot relabel a
 known committed identity as a creation failure.
+Before identity creation, an explicit model and reasoning selection must pass
+the same canonical catalog validation as a Binding write. Current device
+reports can add a compatibility rejection; absent device model evidence does
+not invalidate a valid catalog selection. Local candidates expose model
+options only when requested.
+
+The owner can correct model and reasoning together while retrying the same
+failed request. The correction requires the exact request version and changes
+no identity, Computer, Project, or intended Space. If a primary Binding already
+exists, its current settings win: a different model must first be saved through
+Agent settings. Retry never restores stale model or permission settings.
+Web offers **Review model** even when identity was committed before failure.
+
+Creation initializes managed working-folder state only when the local writer
+confirms that no configuration exists under its Profile lock. A later custom
+choice, including a missing folder, is preserved. Binding initialization reuses
+the same target without changing its settings; another target is a conflict.
+Auth initializes Default Project only while its field-specific revision is
+zero. New supporting Auth writes explicitly record zero; historical and old
+writer inserts remain unknown (`null`). An explicit Project choice or clear
+advances the revision, even when the value is unchanged. Name and avatar edits
+do not advance it. Unknown history requires an explicit save in Agent settings;
+a retry must not infer that an empty Project was never configured.
 After Binding, Core completes the working-folder mutation and releases its
 execution-target mutation lease before setting Default Project. The two
 operations must not compete for the same lease. The request checkpoints each
@@ -745,6 +778,14 @@ Profile UI must not copy the Computer policy or offer a profile-level override;
 the current Computer detail is its one management home. Direct user-launched
 controller sessions remain governed by the controller's own settings.
 
+Handoff `execution.access` is an additional task restriction, not a replacement
+for the receiving Profile's permission mode. `read_only` is a Context access
+value, not a Codex Profile permission mode. The supported Codex modes already
+allow writes inside their working folder; unknown previous/custom settings are
+not silently widened and fail boundary verification. An actual native read-only
+response cannot satisfy a requested writable Context. A handoff never supplies
+or changes the receiver's controller permission mode.
+
 Starting a new Codex task for its owner does not add a single-folder restriction.
 The same rule applies to a currently verified Center delegation from that owner.
 With no explicit task access choice, the new task uses the current Profile
@@ -811,12 +852,38 @@ Organization context.
 - `custom`: the current computer stores and validates one explicit absolute
   working directory for the profile.
 
+Importing the current native Codex or Claude Code conversation records its
+observed folder through the same local working-folder writer, only when no
+configuration exists. The local envelope may record `imported_native_session`
+with that conversation's controller and ID. An explicit custom-folder save
+replaces that origin with `explicit`; selecting managed removes it. Origin is
+valid only for the envelope's current `updatedAt`. Legacy configuration or
+metadata retained by an older writer has unknown origin, not inferred human
+intent. The owner-private saved-configuration read exposes only the origin kind.
+
+An imported folder is an observation, not authority to follow a moving native
+worktree. If it disappears, OpenMeld keeps the saved folder and fails closed.
+The owner can restore the original worktree in its app or explicitly select a
+folder for new work. A different folder does not restore the original files.
+Import retries must not replace an existing configuration, including a later
+explicit choice. No client guesses a replacement path, creates the missing
+custom directory, clears native history, or automatically changes the Computer.
+
 Working-folder mode and its resolved path are local execution facts. They are
 scoped to the current device and OpenMeld lane, may appear in owner-self
 diagnostics, and must not become public Agent Profile identity,
 Organization-shared data, Agent Activity, snapshot data, or Center Agent
 context. A missing or invalid custom folder fails closed; it does not silently
 become `openmeld_managed`.
+Center runtime-settings results expose the local mutation's Profile, status,
+and exact target Computer/lane, plus existing safe Binding/readiness evidence.
+The configuration version remains null when the Service write receipt does not
+report one; a Binding revision is not a working-folder configuration version.
+They omit local mode and
+absolute paths, including failure details. Selecting custom or managed through
+that operation saves the local folder first, then clears Default Project
+through Auth's existing writer. A failure to clear reports partial setup and
+must not claim that future tasks use the saved folder.
 
 The working folder may be read or changed only while the Profile's canonical
 Organization is the active Workspace. Switching Workspaces never makes another
@@ -863,6 +930,44 @@ mode cannot inherit a Project path. Choosing a Project writes only its cloud
 ID, not a second custom-folder preference. Changing its device default is a
 separate, explicitly confirmed Project mutation affecting future work for all
 Agents using that Project on that computer.
+
+When the Working folder selector opens, it acquires the saved Default Project
+through the existing account-scoped Auth Profile query and the saved local
+working-folder configuration from the exact owner Service before enabling
+edits or Save. The Service read distinguishes configured, missing, and invalid
+configuration. It does not migrate configuration, create a managed folder,
+validate its current availability, or substitute an effective Project or
+controller-session directory. Its configuration version identifies the stored
+v1/v2 envelope, not a revision or compare-and-swap precondition. An older Service
+without the read capability returns an explicit update-required result.
+A pending Auth read started before opening cannot initialize the draft:
+cancel that read, keep the existing display snapshot stale, then acquire the
+authorized snapshot for this opening. Cached display data is not the draft's
+starting preference. A failed read keeps Save disabled and provides retry with
+its diagnostic context.
+Once acquired, the selector retains its draft, pending save, and error while
+Profile, readiness, or mutation eligibility queries refresh. It keeps the
+original Profile and Binding target; changed or unavailable target evidence
+blocks Save without silently moving the draft to another Computer. The owner
+closes and reopens the
+selector to review a changed target.
+
+Center Agent and Space recovery working-folder writes verify their Binding target inside
+the existing execution-target mutation admission before calling Service. The
+subsequent Default Project clear verifies that same target inside its existing
+future-work settings admission. These are two ordered writes, not one atomic
+transaction. If the target changes between them, the local save receipt remains
+visible, the Project is not cleared, and setup reports partial failure.
+
+Profile settings and Space recovery send their frozen `expectedBindingTarget`
+on the private read and both HTTP writes. Core verifies the same canonical
+Binding before and after the asynchronous read, and rejects a mismatched
+current Binding even after Save has started;
+disabling a later click in Web is not the write fence. A successful local save
+followed by a failed Default Project update keeps the dialog open with an accurate
+partial result in both Profile settings and Space recovery. Ordinary explicit
+Computer configuration may omit this precondition and retains its existing
+target semantics.
 
 `defaultProjectId` is a separate Organization-scoped cloud preference for a
 local Agent Profile. It identifies the Project that future Wakes and new
@@ -1149,13 +1254,17 @@ mode, an ordinary Claude Wake starts an independent native context when no
 retained context has been selected. It needs neither Git nor a container engine.
 A Wake continuing a retained context keeps its existing access. Forks preserve
 the source restriction unless an explicit supported choice changes it.
-The Task menu makes New task the default choice and groups optional restrictions
-under Limit task access. Explicit task choices may
-instead select Space-only access, an independent project worktree, or read-only
-current-folder access. Codex App Server also supports independent
-project worktrees or read-only/current-folder access. The CLI options
+Agent mention menus separate Session, Working copy, and Access. Selecting a
+separate copy or a Project does not itself select a file restriction: new Codex
+and Claude tasks keep Agent settings unless the requester explicitly chooses
+additional access limits. Forks preserve their source's working-copy mode as
+well as its access contract. Explicit access choices can select Space-only,
+read-only, or bounded project access. Read-only and bounded current-folder
+access require Codex; bounded Claude project access requires a separate copy.
+The CLI options
 are `--task-access space_context|read_only|workspace` and
-`--task-workspace isolated|current`. Current-folder writers wait for conflicting
+`--task-workspace isolated|current`; omitting `--task-access` keeps Agent settings
+even with `--project` or `--task-workspace isolated`. Current-folder writers wait for conflicting
 local work. An independent project task requires a confirmed working folder that
 is the root of a Git repository with a committed HEAD. The Service checks the
 source against the Computer owner's file policy, then prepares a private Git
@@ -1166,9 +1275,9 @@ Retries and continuation preserve the task's worktree and frozen starting commit
 The local Agent receives the repository label, task working folder, and starting
 commit; it does not discover a source by searching the computer.
 
-The task boundary confines project files and Git metadata. Codex retains its
+An explicit task boundary confines project files and Git metadata. Codex retains its
 native runtime's platform temporary-directory rules; that is not a promise of
-complete temporary-directory isolation. Explicit isolated Claude project tasks require a
+complete temporary-directory isolation. Explicitly bounded isolated Claude project tasks require a
 running Docker or Podman Linux-container engine on macOS, Linux, or Windows.
 The Service mounts only the task-owned repository and worktree, disables
 container networking, runs as a non-root user, and gives Claude restricted file

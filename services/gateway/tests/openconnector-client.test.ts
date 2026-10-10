@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import capturedProviders from "../../../packages/product-catalog/test-support/openconnector-providers.json";
 import {
   OpenConnectorClient,
   OpenConnectorClientError,
@@ -6,37 +7,28 @@ import {
 
 describe("OpenConnectorClient", () => {
   it("reads the live runtime provider catalog", async () => {
-    const fetchMock = vi.fn(async () =>
-      Response.json({
-        data: [
-          {
-            authTypes: ["oauth2", "api_key"],
-            categories: [
-              { displayName: "Developer Tools", id: "Developer Tools" },
-            ],
-            displayName: "GitHub",
-            homepageUrl: "https://github.com",
-            iconUrl: null,
-            service: "github",
-          },
-        ],
-        message: "OK",
-        meta: {},
-        success: true,
-      })
-    );
+    const fetchMock = vi.fn(async () => Response.json(capturedProviders));
     const client = new OpenConnectorClient({
       adminToken: "admin-token",
       baseUrl: "https://connectors.example.test",
       fetch: fetchMock,
+      runtimeToken: "runtime-token",
     });
 
-    await expect(client.listProviders()).resolves.toEqual([
-      expect.objectContaining({ displayName: "GitHub", service: "github" }),
-    ]);
+    await expect(client.listProviders()).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ displayName: "GitHub", service: "github" }),
+      ])
+    );
+    expect(
+      (await client.listProviders()).some((provider) => "scenario" in provider)
+    ).toBe(false);
     expect(fetchMock).toHaveBeenCalledWith(
       "https://connectors.example.test/v1/providers?includeConnectionAuth=true",
-      expect.objectContaining({ method: "GET" })
+      expect.objectContaining({
+        method: "GET",
+        headers: { authorization: "Bearer runtime-token" },
+      })
     );
   });
 

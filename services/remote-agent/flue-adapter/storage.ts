@@ -19,7 +19,8 @@ const TABLE_NAME = "openmeld_remote_agent_adapter_kv";
 export class RemoteAgentSqlStorage
   implements RemoteAgentReadableStorage, RemoteAgentWritableStorage
 {
-  private readonly sql: SqlStorage;
+  protected readonly sql: SqlStorage;
+  protected readonly tableName = TABLE_NAME;
 
   constructor(sql: SqlStorage) {
     this.sql = sql;

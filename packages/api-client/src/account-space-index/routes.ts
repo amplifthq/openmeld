@@ -23,6 +23,7 @@ export function buildAccountSpaceIndexPath(input: {
   gatewayHost: string;
   includeDirectMessageProfileIds?: boolean;
   includePurposes?: boolean;
+  includeDeletedSpaces?: boolean;
   includeMemberPreviews?: boolean;
   includeMessagePreviews?: boolean;
   includeDirectoryPreviews?: boolean;
@@ -49,6 +50,9 @@ export function buildAccountSpaceIndexPath(input: {
   }
   if (input.includePurposes === true) {
     url.searchParams.set("includePurposes", "true");
+  }
+  if (input.includeDeletedSpaces === true) {
+    url.searchParams.set("includeDeletedSpaces", "true");
   }
   if (input.includeMemberPreviews === true) {
     url.searchParams.set("includeMemberPreviews", "true");

@@ -9,10 +9,10 @@ describe("shared Space access", () => {
     activeMember: false,
     password: "missing",
   } as const;
-  it("lets a colleague discover and join without exposing content before joining", () => {
+  it("lets a colleague discover and preview before explicitly joining", () => {
     expect(resolveSpaceAccess(internal)).toEqual({
       canDiscover: true,
-      canRead: false,
+      canRead: true,
       canJoin: true,
     });
     expect(

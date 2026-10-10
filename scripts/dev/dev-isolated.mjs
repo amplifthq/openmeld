@@ -175,7 +175,6 @@ export async function runIsolatedDev(args = process.argv.slice(2)) {
           ...process.env,
           ...isolatedEnvironment,
           ...postgres.env,
-          OPENMELD_DEV_WITH_WEB: "1",
         },
         extraArgs: options.devGuardArgs,
       });

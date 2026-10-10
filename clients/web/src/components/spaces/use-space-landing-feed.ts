@@ -91,6 +91,7 @@ type ReconcileFlight = {
 	feedIdentity: string;
 	promise: Promise<void>;
 	reconnectKey: number;
+	includesThreads: boolean;
 };
 
 type MountHistoryAnchor = {
@@ -217,6 +218,7 @@ export function useSpaceLandingFeed(input: {
 		isError: boolean;
 		data?: {
 			envelopes: readonly SignalEnvelope[];
+			personalHistoryDeletedAt?: number;
 			confirmedCursor?: string | null;
 		};
 	};
@@ -230,7 +232,7 @@ export function useSpaceLandingFeed(input: {
 	const [liveState, setLiveState] = useState<SpaceLiveState>("connecting");
 	const [liveErrorMessage, setLiveErrorMessage] = useState<string | null>(null);
 	const [reconnectKey, setReconnectKey] = useState(0);
-	const feedIdentity = `${input.spaceId}::${input.openMeldProfileId}`;
+	const feedIdentity = `${input.spaceId}::${input.openMeldProfileId}::${input.history.data?.personalHistoryDeletedAt ?? 0}`;
 	// Capture only the history available on entry. A later cold-cache bootstrap is
 	// already the authoritative recent window and must not be mistaken for a
 	// reason to issue an extra mount-time catch-up request.
@@ -387,7 +389,10 @@ export function useSpaceLandingFeed(input: {
 	// falling back to a recent-window reload rather than re-presenting the dead
 	// anchor.
 	const reconcileConversationOnce = useCallback(
-		async (afterSubscription = false): Promise<void> => {
+		async (
+			afterSubscription = false,
+			includeThreads = false
+		): Promise<void> => {
 			const startIdentity = feedIdentityRef.current;
 			const startReconnectKey = reconnectKeyRef.current;
 			const subscribedAtStart = readySocketAttemptKeyRef.current;
@@ -480,6 +485,37 @@ export function useSpaceLandingFeed(input: {
 				spaceId: input.spaceId,
 			};
 
+			// Main history excludes Thread replies. Recover mounted Threads from
+			// their existing authorized reads, and keep unopened snapshots stale.
+			try {
+				if (includeThreads) {
+					await queryClient.invalidateQueries(
+						{
+							predicate: ({ queryKey }) =>
+								queryKey[0] === "spaces" &&
+								queryKey[2] === input.spaceId &&
+								((queryKey[1] === "threads" &&
+									queryKey[3] === input.openMeldProfileId) ||
+									(queryKey[1] === "thread-signals" &&
+										queryKey[4] === input.openMeldProfileId)),
+						},
+						{ throwOnError: true }
+					);
+				}
+			} catch (error) {
+				if (isCurrentReconcile()) {
+					console.warn("[openmeld.web.space.thread_reconcile_failed]", {
+						error: toStructuredApiClientFailure(error).message,
+						spaceId: input.spaceId,
+					});
+					markReconcileStale();
+				}
+				return;
+			}
+			if (!isCurrentReconcile()) {
+				return;
+			}
+
 			const anchorSignalId = confirmedCatchUpCursorRef.current;
 			if (!anchorSignalId) {
 				await reconcileFromRecentWindow(reconcileControls);
@@ -518,7 +554,10 @@ export function useSpaceLandingFeed(input: {
 	// Core's ready barrier can also require a trailing read in the same generation;
 	// that read must never be satisfied by the speculative pre-ready flight.
 	const reconcileConversation = useCallback(
-		async (options?: { afterActiveFlight?: boolean }): Promise<void> => {
+		async (options?: {
+			afterActiveFlight?: boolean;
+			includeThreads?: boolean;
+		}): Promise<void> => {
 			const requestedFeedIdentity = feedIdentityRef.current;
 			const runSerializedReconcile = async (
 				afterActiveFlight: boolean
@@ -536,6 +575,7 @@ export function useSpaceLandingFeed(input: {
 					await activeFlight.promise;
 					if (
 						!afterActiveFlight &&
+						(!options?.includeThreads || activeFlight.includesThreads) &&
 						activeFlight.feedIdentity === requestedFeedIdentity &&
 						activeFlight.reconnectKey === requestedReconnectKey
 					) {
@@ -548,9 +588,11 @@ export function useSpaceLandingFeed(input: {
 				const flight = {
 					feedIdentity: requestedFeedIdentity,
 					promise: reconcileConversationOnce(
-						options?.afterActiveFlight === true
+						options?.afterActiveFlight === true,
+						options?.includeThreads === true
 					),
 					reconnectKey: requestedReconnectKey,
+					includesThreads: options?.includeThreads === true,
 				};
 				reconcileFlightRef.current = flight;
 				const clearFlight = (): void => {
@@ -581,7 +623,7 @@ export function useSpaceLandingFeed(input: {
 			// triggers a fresh probe, not immediate teardown. reconcile catches internally;
 			// the catch here
 			// is a defensive backstop only.
-			reconcileConversation().catch(() => undefined);
+			reconcileConversation({ includeThreads: true }).catch(() => undefined);
 
 			const lastInboundFrameTs = lastInboundFrameTsRef.current;
 			const isInboundStale =
@@ -658,7 +700,7 @@ export function useSpaceLandingFeed(input: {
 	}, [input.onWakeFinalOutcomeFactsRefresh]);
 
 	useEffect(() => {
-		if (input.spaceId.trim().length === 0) {
+		if (!feedIdentity.split("::")[0]?.trim()) {
 			return;
 		}
 
@@ -681,7 +723,7 @@ export function useSpaceLandingFeed(input: {
 		lastInboundFrameTsRef.current = null;
 		clearWakeFinalOutcomeRefreshTimer(wakeFinalOutcomeRefreshTimerRef);
 		clearReconnectTimer(reconnectTimerRef);
-	}, [input.spaceId]);
+	}, [feedIdentity]);
 
 	useEffect(() => {
 		return () => {
@@ -787,7 +829,10 @@ export function useSpaceLandingFeed(input: {
 		}
 
 		skippedReadyReconcilePendingRef.current = false;
-		reconcileConversation({ afterActiveFlight: true }).catch(() => undefined);
+		reconcileConversation({
+			afterActiveFlight: true,
+			includeThreads: true,
+		}).catch(() => undefined);
 	}, [
 		input.history.isPending,
 		input.history.isSuccess,
@@ -949,9 +994,10 @@ export function useSpaceLandingFeed(input: {
 			markSubscribed();
 			if (historyReadyRef.current) {
 				skippedReadyReconcilePendingRef.current = false;
-				reconcileConversation({ afterActiveFlight: true }).catch(
-					() => undefined
-				);
+				reconcileConversation({
+					afterActiveFlight: true,
+					includeThreads: true,
+				}).catch(() => undefined);
 				return true;
 			}
 			skippedReadyReconcilePendingRef.current = true;
@@ -1102,7 +1148,7 @@ export function useSpaceLandingFeed(input: {
 		liveState,
 		retryLiveUpdates: () => {
 			if (liveStateRef.current === "stale") {
-				reconcileConversation().catch(() => undefined);
+				reconcileConversation({ includeThreads: true }).catch(() => undefined);
 			} else {
 				reconnectNow();
 			}

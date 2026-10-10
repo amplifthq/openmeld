@@ -419,7 +419,11 @@ printed by the launcher so a newcomer does not mistake first compilation for a
 failed start.
 
 For real CLI/Service Setup smoke, run `pnpm cli:binary:serve:worktree` in the same
-worktree and use the Web-generated lane command. The CLI resolves its default
+worktree and use the Web-generated lane command. This entry reserves heavy
+capacity only for its build, signing, and archive preparation. It releases that
+reservation before starting HTTP serving. Start it directly; wrapping the
+long-lived server in `pnpm dev:run` retains the outer heavy reservation.
+The CLI resolves its default
 OAuth client from the active lane:
 `dev-local` uses `openmeld-cli-dev`, matching the Web-issued grant; production
 and canary use `openmeld-cli`. Explicit CLI/client environment overrides retain

@@ -653,7 +653,7 @@ describe("AppOuterRail", () => {
 		renderRail();
 		expect(
 			await screen.findByRole("link", {
-				name: "Spaces, Priority attention, 5 unread messages",
+				name: "Spaces, Priority attention, 5 unread updates",
 			})
 		).toBeTruthy();
 	});
@@ -715,7 +715,7 @@ describe("AppOuterRail", () => {
 		renderRail({ tier });
 
 		const link = await screen.findByRole("link", {
-			name: "Spaces, 3 unread messages",
+			name: "Spaces, 3 unread updates",
 		});
 		const indicator = link.querySelector(
 			'[data-app-rail-status-indicator="chats-unread"]'

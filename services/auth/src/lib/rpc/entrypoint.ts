@@ -51,6 +51,7 @@ import {
   authRpcResolveUserDisplayNameResultSchema,
   authRpcSendInboxUrgentEmailInputSchema,
   authRpcSendInboxUrgentEmailResultSchema,
+  authRpcUpdateAgentProfileDefaultProjectInputSchema,
   buildDefaultCenterAgentProfileName,
   ensureMessageChannelMemberOrganizationMembershipRpcInputSchema,
   ensureMessageChannelMemberOrganizationMembershipRpcResponseSchema,
@@ -278,12 +279,8 @@ type UpdateProfileRpcResult =
       code: string;
       message: string;
     };
-type UpdateAgentProfileDefaultProjectInOrganizationRpcInput = {
-  defaultProjectId: string | null;
-  organizationId?: string | null;
-  ownerUserId?: string | null;
-  profileId?: string | null;
-};
+type UpdateAgentProfileDefaultProjectInOrganizationRpcInput =
+  import("@openmeld/schemas/types").AuthRpcUpdateAgentProfileDefaultProjectInput;
 type DeleteProfileRpcInput = ResolveRequestAuthInput & {
   openMeldProfileId?: string;
 };
@@ -1687,28 +1684,34 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
       }
     });
   }
+  async initializeAgentProfileDefaultProjectInOrganization(
+    input: UpdateAgentProfileDefaultProjectInOrganizationRpcInput
+  ): Promise<UpdateProfileRpcResult> {
+    return await this.updateAgentProfileDefaultProjectInOrganization({
+      ...input,
+      onlyIfUnmodified: true,
+    });
+  }
   async updateAgentProfileDefaultProjectInOrganization(
     input: UpdateAgentProfileDefaultProjectInOrganizationRpcInput
   ): Promise<UpdateProfileRpcResult> {
     return await withPostgresRequest(this.env.OPENMELD_POSTGRESQL, async () => {
-      const organizationId = normalizeOptionalText(input.organizationId);
-      const ownerUserId = normalizeOptionalText(input.ownerUserId);
-      const profileId = normalizeOptionalText(input.profileId);
-      if (!(organizationId && ownerUserId && profileId)) {
+      const parsed =
+        authRpcUpdateAgentProfileDefaultProjectInputSchema.safeParse(input);
+      if (!parsed.success) {
         return {
           ok: false,
-          code: "organization.context_required",
-          message: "organizationId, ownerUserId, and profileId are required",
+          code: "profile.invalid_input",
+          message:
+            parsed.error.issues[0]?.message ??
+            "Invalid Default Project settings.",
         };
       }
       try {
         const profile =
           await this.getProfileService().updateAgentProfileDefaultProjectForOwner(
             {
-              defaultProjectId: normalizeOptionalText(input.defaultProjectId),
-              organizationId,
-              ownerUserId,
-              profileId,
+              ...parsed.data,
             }
           );
         return {

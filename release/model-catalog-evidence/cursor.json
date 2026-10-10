@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "controller": "cursor",
-  "observedAt": "2026-10-08T01:14:00.056Z",
-  "fingerprint": "e413a0ffb7e99ab7f96c86b98ec75cc7a1fc04185fc1a7d02a9e5c9e8b0b09ee",
+  "observedAt": "2026-10-09T01:15:22.889Z",
+  "fingerprint": "ab87969fbf133c70303ca92d118e6c02add4a7f9d986e03c8130522531922f67",
   "sources": [
     {
       "url": "https://cursor.com/docs/cli/reference/parameters.md",
@@ -1051,6 +1051,19 @@
                       "reasoning": {
                         "mode": "pro"
                       }
+                    }
+                  }
+                },
+                "ultrafast": {
+                  "cost": {
+                    "input": 12,
+                    "output": 60,
+                    "cache_read": 0.6,
+                    "cache_write": 15
+                  },
+                  "provider": {
+                    "body": {
+                      "service_tier": "ultrafast"
                     }
                   }
                 }

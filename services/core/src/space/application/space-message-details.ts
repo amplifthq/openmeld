@@ -25,6 +25,7 @@ type WakeSourceSignal = Extract<SignalEnvelope, { type: "signal.text" }>;
 const LEADING_AT_PATTERN = /^@/;
 
 export type ProjectSpaceMessageDetailsInput = {
+  newTaskSource?: { signal: WakeSourceSignal; threadId: string | null };
   originalErrorByTargetProfileId?: ReadonlyMap<string, string>;
   replySignal: VisibleMessageSignal | null;
   signal: VisibleMessageSignal;
@@ -36,6 +37,7 @@ export type ProjectSpaceMessageDetailsInput = {
   workingDetails?: SpaceMessageDetailsWorkingDetails | null;
   targetOwnerUserIdByProfileId?: ReadonlyMap<string, string | null>;
   viewerOwnerUserId?: string | null;
+  viewerProfileId?: string;
 };
 
 export function projectSpaceMessageDetails(
@@ -51,8 +53,14 @@ export function projectSpaceMessageDetails(
     wakeSourceSignal: input.wakeSourceSignal,
     wakeTraceItems: input.wakeTraceItems ?? [],
   });
+  const newTaskSource = projectNewTaskSource(
+    input.newTaskSource,
+    wakeContext,
+    input.viewerProfileId
+  );
 
   return {
+    ...(newTaskSource ? { newTaskSource } : {}),
     query: {
       spaceId: input.spaceId,
       signalId: input.signal.id,
@@ -95,6 +103,37 @@ export function projectSpaceMessageDetails(
         wakeContext,
       }),
     },
+  };
+}
+
+function projectNewTaskSource(
+  source: ProjectSpaceMessageDetailsInput["newTaskSource"],
+  wakeContext: SpaceMessageDetailsWakeContext,
+  viewerProfileId: string | undefined
+): GetSpaceMessageDetailsResponse["newTaskSource"] {
+  // Any authenticated viewer may copy the readable source. Normal message
+  // authoring checks the new sender's permissions, not the source author's.
+  if (
+    !(source && viewerProfileId) ||
+    source.signal.data.meta?.recalledAt ||
+    source.signal.data.meta?.workHandoff ||
+    // Legacy attachments have no reusable Space File revision. Only `files`
+    // can be copied through the normal message-authoring contract.
+    source.signal.data.attachments?.length ||
+    !wakeContext.targets.some(
+      (target) =>
+        target.taskContext?.assignment.readStatus === "found" &&
+        target.taskContext.assignment.access === "space_context"
+    )
+  ) {
+    return undefined;
+  }
+  return {
+    sourceSignalId: source.signal.id,
+    sourceRevision: source.signal.data.meta?.messageRevision ?? 1,
+    threadId: source.threadId,
+    text: source.signal.data.text,
+    ...(source.signal.data.files ? { files: source.signal.data.files } : {}),
   };
 }
 
@@ -235,6 +274,9 @@ function projectWakeTarget(input: {
   }
 
   return {
+    ...(input.wakeTraceItem.executionContext.taskContext
+      ? { taskContext: input.wakeTraceItem.executionContext.taskContext }
+      : {}),
     targetProfileId: input.targetProfileId,
     targetLabel: input.wakeTraceItem.targetLabel,
     status: input.wakeTraceItem.summary.status,

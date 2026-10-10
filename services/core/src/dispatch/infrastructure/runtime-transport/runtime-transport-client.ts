@@ -7,6 +7,10 @@ import {
   localProjectControlRemoveConnectionResultSchema,
   localProjectControlRemoveMissingConnectionsResultSchema,
   localProjectControlSetDefaultConnectionResultSchema,
+  type PluginConnectionExecutionSource,
+  type PluginConnectionExecutionSourceRequest,
+  pluginConnectionExecutionSourceRequestSchema,
+  pluginConnectionExecutionSourceResponseSchema,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   runtimeTransportAgentProfileExecutionStateRequestSchema,
   runtimeTransportAgentProfileExecutionStateResponseSchema,
@@ -41,6 +45,8 @@ import {
   runtimeTransportNotifyRouteCatalogChangedResponseSchema,
   runtimeTransportOpenMeldToolsControlRequestSchema,
   runtimeTransportOpenMeldToolsControlResponseSchema,
+  runtimeTransportReadProfileWorkspaceRequestSchema,
+  runtimeTransportReadProfileWorkspaceResponseSchema,
   runtimeTransportRefreshLocalAgentCatalogRequestSchema,
   runtimeTransportRefreshLocalAgentCatalogResponseSchema,
   runtimeTransportSetLocalAgentEnabledRequestSchema,
@@ -267,6 +273,31 @@ export const releaseRuntimeTransportAgentProfileExecutionTargetMutation =
       await shard.rpcReleaseAgentProfileControllerMutation(request)
     );
   };
+
+export async function readRuntimeTransportPluginConnectionExecutionSource(
+  env: CoreBindings,
+  input: PluginConnectionExecutionSourceRequest
+): Promise<PluginConnectionExecutionSource | null> {
+  const request = pluginConnectionExecutionSourceRequestSchema.safeParse(input);
+  if (!request.success) {
+    return null;
+  }
+  const shard = resolveRuntimeTransportOwnerShard(
+    env,
+    request.data.ownerUserId
+  );
+  const response = await shard.rpcReadPluginConnectionExecutionSource(
+    request.data
+  );
+  const parsed =
+    pluginConnectionExecutionSourceResponseSchema.safeParse(response);
+  if (!parsed.success) {
+    throw new Error(
+      "runtime_coordinator.plugin_connection_source_response_invalid"
+    );
+  }
+  return parsed.data.source;
+}
 
 export const readRuntimeTransportAgentProfileExecutionState = async (input: {
   env: CoreBindings;
@@ -725,6 +756,48 @@ export const forkRuntimeTransportAgentSession = async (input: {
   });
 };
 
+export const readRuntimeTransportProfileWorkspace = async (input: {
+  deviceId: string;
+  env: CoreBindings;
+  ownerUserId: string;
+  runtimeLane: DaemonServiceLane;
+  targetProfileId: string;
+}): Promise<
+  import("@openmeld/schemas/types").RuntimeTransportReadProfileWorkspaceResponse
+> => {
+  const parsedRequest =
+    runtimeTransportReadProfileWorkspaceRequestSchema.safeParse({
+      v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+      ownerUserId: input.ownerUserId,
+      deviceId: input.deviceId,
+      lane: input.runtimeLane,
+      targetProfileId: input.targetProfileId,
+    });
+  if (!parsedRequest.success) {
+    return {
+      status: "rejected",
+      reasonCode: "local_agent_control.invalid_request",
+      message: "Invalid working-folder read request.",
+    };
+  }
+  const response = await callRuntimeTransportApi({
+    env: input.env,
+    ownerUserId: input.ownerUserId,
+    path: "/local-agent-control/read-profile-workspace",
+    body: parsedRequest.data,
+  });
+  const parsed =
+    runtimeTransportReadProfileWorkspaceResponseSchema.safeParse(response);
+  return parsed.success
+    ? parsed.data
+    : {
+        status: "rejected",
+        reasonCode: "local_agent_control.invalid_response",
+        message:
+          "OpenMeld could not confirm the saved working-folder settings.",
+      };
+};
+
 export const setRuntimeTransportProfileWorkspace = async (input: {
   deviceId: string;
   env: CoreBindings;
@@ -733,6 +806,7 @@ export const setRuntimeTransportProfileWorkspace = async (input: {
   targetProfileId: string;
   workspaceMode: "custom" | "openmeld_managed";
   workspacePath?: string;
+  onlyIfUnconfigured?: boolean;
 }): Promise<RuntimeTransportSetProfileWorkspaceResponse> => {
   const parsedRequest =
     runtimeTransportSetProfileWorkspaceRequestSchema.safeParse({
@@ -742,6 +816,7 @@ export const setRuntimeTransportProfileWorkspace = async (input: {
       lane: input.runtimeLane,
       targetProfileId: input.targetProfileId,
       workspaceMode: input.workspaceMode,
+      ...(input.onlyIfUnconfigured ? { onlyIfUnconfigured: true } : {}),
       ...(input.workspacePath === undefined
         ? {}
         : { workspacePath: input.workspacePath }),

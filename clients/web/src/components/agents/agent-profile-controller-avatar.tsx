@@ -1,5 +1,7 @@
 "use client";
 
+import type { BotAvatarInteraction } from "@openmeld/ui/components/bot-avatar";
+
 import type { AgentAvatarStyle } from "./remote-agent-avatar";
 import { RemoteAgentAvatar } from "./remote-agent-avatar";
 
@@ -12,6 +14,8 @@ export function AgentProfileControllerAvatar(input: {
 	profileId: string;
 	profileName: string;
 	working?: boolean;
+	clickable?: boolean;
+	botInteraction?: BotAvatarInteraction;
 	variant?: "default" | "plain";
 	size: number;
 }) {

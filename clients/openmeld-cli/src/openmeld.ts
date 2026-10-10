@@ -4000,11 +4000,11 @@ withSpaceProfileOption(
     )
     .option(
       "--task-access <mode>",
-      "File access: space_context, read_only, or workspace (local files require Codex)"
+      "Extra restriction: space_context, read_only (Codex), or workspace. Omit to use Agent settings"
     )
     .option(
       "--task-workspace <mode>",
-      "Task folder: isolated (private project worktree for local work) or current"
+      "Working copy: isolated (private project worktree) or current; does not change task access"
     )
     .option("--project <slug>", "Project for a new code task")
     .option("--repository <url>", "Repository associated with --project")
@@ -4802,11 +4802,11 @@ program
   )
   .option(
     "--task-access <mode>",
-    "File access: space_context, read_only, or workspace (local files require Codex)"
+    "Extra restriction: space_context, read_only (Codex), or workspace. Omit to use Agent settings"
   )
   .option(
     "--task-workspace <mode>",
-    "Task folder: isolated (private project worktree for local work) or current"
+    "Working copy: isolated (private project worktree) or current; does not change task access"
   )
   .option("--project <slug>", "Project for a new code task")
   .option("--repository <url>", "Repository associated with --project")

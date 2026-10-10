@@ -40,7 +40,13 @@ export const providerRuntimeWorkspaceResumeBehaviorSchema = z.enum([
 export const providerRuntimeCapabilityDeclarationSchema = z.strictObject({
   executionContextPermissionInheritance: z.literal(true).optional(),
   executionContextVersion: z
-    .union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)])
+    .union([
+      z.literal(1),
+      z.literal(2),
+      z.literal(3),
+      z.literal(4),
+      z.literal(5),
+    ])
     .optional(),
   streamingCapability: providerRuntimeStreamingCapabilitySchema,
   imageInputCapability: providerRuntimeImageInputCapabilitySchema.optional(),

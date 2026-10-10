@@ -6,6 +6,45 @@ import { selectSpaceInboxRecipients } from "../src/space/application/space-inbox
 import type { SpaceMemberRecord } from "../src/space/infrastructure/sql/space-member-repo";
 
 describe("Space Inbox recipient and addressing boundaries", () => {
+  it.each([
+    "agent",
+    "system",
+  ] as const)("makes a proactive %s result unread for current Human members without a requester", (kind) => {
+    const signal = {
+      ...message({}),
+      profile: {
+        kind,
+        profileId: kind === "system" ? "openmeld-system" : "center",
+        profileName: "Center Agent",
+      },
+    };
+    const record = buildSpaceInboxProjectionOutboxRecord(
+      projectionInput(signal)
+    );
+    expect(
+      record?.candidates
+        .filter(
+          (item) =>
+            item.sourceTarget.kind === "space" &&
+            !item.sourceTarget.agentOwnerActivity
+        )
+        .map((item) => item.recipientUserId)
+        .sort()
+    ).toEqual(["felix", "monica"]);
+    expect(
+      record?.candidates.every(
+        (item) => item.attention === "update" && item.importance === "normal"
+      )
+    ).toBe(true);
+    expect(
+      buildSpaceInboxProjectionOutboxRecord(
+        projectionInput({
+          ...signal,
+          data: { ...signal.data, meta: { transient: true } },
+        })
+      )
+    ).toBeNull();
+  });
   it("delivers one threaded Agent reply notification to the requester and each Human mention", async () => {
     const reply = {
       ...message({ mentionTargets: ["felix"] }),

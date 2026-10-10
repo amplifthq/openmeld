@@ -10,6 +10,11 @@ import type {
 } from "@openmeld/schemas/types";
 import type { RemoteAgentCoreWorkerBinding } from "./callback-context";
 import { requireCoreRpc } from "./core-rpc";
+import {
+  allowsRemoteAgentContentDiagnostics,
+  type RemoteAgentDiagnosticsEnv,
+  remoteAgentDiagnosticErrorFields,
+} from "./diagnostics-content-policy";
 
 const HTTP_STYLE_RPC_ERROR_PATTERN = /^HTTP (\d{3}):\s*(.+)$/s;
 
@@ -46,6 +51,7 @@ export function requireFeedbackOrganizationId(
 
 export async function readFeedbackReportingPolicyForTool(input: {
   coreWorker: RemoteAgentCoreWorkerBinding;
+  env?: RemoteAgentDiagnosticsEnv;
   organizationId: string;
 }): Promise<
   { ok: true; policy: FeedbackReportingPolicyResponse } | RemoteAgentToolFailure
@@ -75,7 +81,7 @@ export async function readFeedbackReportingPolicyForTool(input: {
     console.warn("[remote_agent.feedback.policy_read_failed]", {
       event: "remote_agent.feedback.policy_read_failed",
       organizationId: input.organizationId,
-      error: errorMessage(error),
+      ...remoteAgentDiagnosticErrorFields(error, input),
     });
     return feedbackToolFailure({
       code: "feedback.reporting.policy_unavailable",
@@ -87,7 +93,10 @@ export async function readFeedbackReportingPolicyForTool(input: {
 
 export async function submitFeedbackThroughPublicEndpoint(input: {
   config?: RemoteAgentFeedbackSubmissionConfig;
+  env?: RemoteAgentDiagnosticsEnv;
+  organizationId?: string | null;
   request: SubmitFeedbackIssueRequest;
+  submissionId?: string;
 }): Promise<unknown> {
   const baseUrl = input.config?.baseUrl?.trim();
   const inboxKey = input.config?.inboxKey?.trim();
@@ -108,7 +117,7 @@ export async function submitFeedbackThroughPublicEndpoint(input: {
   } catch (error) {
     console.warn("[remote_agent.feedback.endpoint_invalid]", {
       event: "remote_agent.feedback.endpoint_invalid",
-      error: errorMessage(error),
+      ...remoteAgentDiagnosticErrorFields(error, input),
     });
     return feedbackToolFailure({
       code: "feedback.reporting.unavailable",
@@ -120,14 +129,30 @@ export async function submitFeedbackThroughPublicEndpoint(input: {
   let response: Response;
   try {
     response = await (input.config?.fetch ?? globalThis.fetch)(endpoint, {
-      body: JSON.stringify(input.request),
+      body: JSON.stringify(
+        allowsRemoteAgentContentDiagnostics(input)
+          ? input.request
+          : {
+              category: input.request.category,
+              clientContext: { clientKind: "center_agent" },
+              details: `Content omitted from automatic feedback.${input.submissionId ? ` Remote Agent submission: ${input.submissionId}.` : ""}`,
+              sourceOrganizationId: input.organizationId,
+              submitterKind: "center_agent",
+              summary: {
+                bug: "Center Agent reported a product bug.",
+                experience: "Center Agent reported an experience issue.",
+                idea: "Center Agent suggested a product improvement.",
+                question: "Center Agent reported a product question.",
+              }[input.request.category],
+            }
+      ),
       headers: { "content-type": "application/json" },
       method: "POST",
     });
   } catch (error) {
     console.warn("[remote_agent.feedback.submit_network_failed]", {
       event: "remote_agent.feedback.submit_network_failed",
-      error: errorMessage(error),
+      ...remoteAgentDiagnosticErrorFields(error, input),
     });
     return feedbackToolFailure({
       code: "feedback.reporting.network_error",
@@ -175,12 +200,16 @@ export async function submitFeedbackThroughPublicEndpoint(input: {
 }
 
 export function feedbackIssueUpdateFailure(
-  error: unknown
+  error: unknown,
+  diagnostics: {
+    env?: RemoteAgentDiagnosticsEnv;
+    organizationId?: string | null;
+  } = {}
 ): RemoteAgentToolFailure {
   const structured = parseStructuredRpcError(error);
   console.warn("[remote_agent.feedback.issue_update_failed]", {
     event: "remote_agent.feedback.issue_update_failed",
-    error: errorMessage(error),
+    ...remoteAgentDiagnosticErrorFields(error, diagnostics),
     reasonCode: structured?.code ?? "feedback.issue.update_failed",
     status: structured?.status,
   });
@@ -289,8 +318,4 @@ async function readJsonResponse(response: Response): Promise<unknown> {
   } catch {
     return null;
   }
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
