@@ -505,7 +505,12 @@ function describeReleaseComponent(input) {
     const receipt = releaseSource.receipt;
     const recovery = describeGuardedReceiptRecoveryCandidate(
       releaseSource,
-      scope
+      scope,
+      {
+        sourceSha,
+        sourceIsAncestor: adapters.sourceIsAncestor,
+        compareGitPathContents: adapters.compareGitPathContents,
+      }
     );
     if (recovery) {
       return unknown(

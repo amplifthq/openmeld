@@ -345,6 +345,35 @@ test("admits only exact-source health recovery while preserving source validatio
   await assert.rejects(runProductionStageAdmission(input), SOURCE_PROOF);
 });
 
+test("admits a PostgreSQL rollback candidate only for its validated target database source", async () => {
+  const recovery = {
+    kind: "guarded-postgresql-forward-retry",
+    admission: "candidate",
+    sourceSha: SOURCE,
+    retainedSourceSha: "4".repeat(40),
+  };
+  const status = {
+    blockers: [],
+    sourceValidationBlockers: [],
+    components: [{ scope: "db", state: "unknown", recovery }],
+  };
+  const input = {
+    collectStatus: async () => status,
+    scope: "db",
+    sourceSha: SOURCE,
+    write: () => undefined,
+  };
+  await runProductionStageAdmission(input);
+  recovery.sourceSha = "4".repeat(40);
+  await assert.rejects(runProductionStageAdmission(input), UNRESOLVED);
+  recovery.sourceSha = SOURCE;
+  status.components[0].scope = "core";
+  await assert.rejects(
+    runProductionStageAdmission({ ...input, scope: "core" }),
+    UNRESOLVED
+  );
+});
+
 function component(scope, state, sourceSha, changedPaths) {
   return {
     changedPaths,
