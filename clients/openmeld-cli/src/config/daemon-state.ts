@@ -396,9 +396,10 @@ export function withDaemonServiceRegistrationMutationLock<T>(
 
 export function withDaemonServiceLifecycleLock<T>(
   meta: DaemonLifecycleLockMeta,
-  callback: () => Promise<T>
+  callback: () => Promise<T>,
+  pathInput: OpenMeldPathResolutionInput = {}
 ): Promise<T> {
-  const pathResolution = resolveOpenMeldServiceOwnedPathInput();
+  const pathResolution = resolveOpenMeldServiceOwnedPathInput(pathInput);
   const ownerRoot = resolveOpenMeldRootDir(pathResolution);
   const currentContext = daemonServiceLifecycleLockContext.getStore();
   if (currentContext?.active && currentContext.ownerRoot === ownerRoot) {

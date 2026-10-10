@@ -66,18 +66,16 @@ export async function upsertDaemonServiceContract(
   options: { expectedCurrentContract?: DaemonServiceContract } = {}
 ): Promise<DaemonServiceContract> {
   assertDaemonServiceContractMutationAllowed(pathInput);
-  if (options.expectedCurrentContract) {
-    return await withDaemonServiceLifecycleLock(
-      { intent: "upgrade_reconcile", command: "openmeld setup" },
-      async () =>
-        await writeDaemonServiceContractState(
-          input,
-          pathInput,
-          options.expectedCurrentContract
-        )
-    );
-  }
-  return await writeDaemonServiceContractState(input, pathInput);
+  return await withDaemonServiceLifecycleLock(
+    { intent: "upgrade_reconcile", command: "OpenMeld Service contract write" },
+    async () =>
+      await writeDaemonServiceContractState(
+        input,
+        pathInput,
+        options.expectedCurrentContract
+      ),
+    pathInput
+  );
 }
 
 async function writeDaemonServiceContractState(
@@ -142,7 +140,11 @@ export async function clearDaemonServiceContract(
   pathInput: OpenMeldPathResolutionInput = {}
 ): Promise<void> {
   assertDaemonServiceContractMutationAllowed(pathInput);
-  await rm(daemonServiceContractPath(pathInput), { force: true });
+  await withDaemonServiceLifecycleLock(
+    { intent: "status_cleanup", command: "OpenMeld Service contract clear" },
+    async () => await rm(daemonServiceContractPath(pathInput), { force: true }),
+    pathInput
+  );
 }
 
 function assertDaemonServiceContractMutationAllowed(

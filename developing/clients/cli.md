@@ -1519,6 +1519,15 @@ Its returned identity commits under the existing lifecycle-then-auth locks,
 only while the account and exact contract state/generation remain unchanged.
 A late response must not replace newer Computer evidence or restore a stopped
 Service. First enrollment still preserves the running generation.
+Computer Prepare may read its own pending sign-in candidate under the auth
+mutation lock. The existing journal must remain pending, have the same frozen
+ID, and belong to the current active process identity and Gateway. This read
+does not refresh credentials or recover the journal. Other processes,
+replaced/expired candidates and changed accounts cannot commit enrollment.
+Ordinary Service admission still requires a committed sign-in. All canonical
+contract writes and clears use the same owner-root lifecycle lock, including
+ordinary installation; nested callers reuse that lock and explicit path inputs
+select the matching owner root.
 
 Setup may help the local side become able to work by checking OpenMeld Service,
 discovering local Agent Controllers, preparing runnable Agent Controllers,
