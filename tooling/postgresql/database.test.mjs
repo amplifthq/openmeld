@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
+import { formatCutoverDataFailure } from "./cutover.mjs";
 import { closeMigrationClient } from "./database.mjs";
 
 function clientWithShutdown(end) {
@@ -8,6 +9,19 @@ function clientWithShutdown(end) {
   client.end = () => end(client);
   return client;
 }
+
+test("reports the wrapped driver code without SQL or private parameter content", () => {
+  const driver = Object.assign(new Error("private row data"), {
+    code: "23503",
+  });
+  const wrapped = new Error("Failed query with private parameters", {
+    cause: driver,
+  });
+  assert.equal(
+    formatCutoverDataFailure(wrapped),
+    "Cutover data operation failed (23503); preserve source and target"
+  );
+});
 
 test("reports the observed peer TLS shutdown error without losing completed work", async () => {
   const warnings = [];

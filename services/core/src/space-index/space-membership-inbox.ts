@@ -50,6 +50,7 @@ export async function projectSpaceMembershipInbox(input: {
           offset
         ) => `EXISTS (SELECT 1 FROM "openmeld"."space_index_memberships" AS member
           JOIN "openmeld"."space_index_spaces" AS space ON space.space_id = member.space_id
+          JOIN "openmeld"."organizations" AS organization ON organization.id = space.organization_id
           JOIN "openmeld"."users" AS recipient ON recipient.id = member.owner_user_id_snapshot AND recipient.deleted_at IS NULL
           WHERE member.space_id = $${offset + 1} AND member.profile_id = $${offset + 2}
           AND member.owner_user_id_snapshot = $${offset + 3} AND member.added_at_ms = $${offset + 4}

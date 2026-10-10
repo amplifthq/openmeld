@@ -22,6 +22,7 @@ import {
   migrationLock,
   quoteIdentifier as quote,
   readMigrations,
+  withSpaceMembershipBackfillScope,
 } from "./database.mjs";
 import { readCutoverTarget, verifyRemoteCredential } from "./remote-target.mjs";
 
@@ -768,7 +769,9 @@ async function processD1Snapshot(
       if (!baseline) {
         throw new Error("Missing Space membership baseline");
       }
-      await client.query(baseline);
+      await withSpaceMembershipBackfillScope(client, () =>
+        client.query(baseline)
+      );
       // Derived Inbox baseline rows consume native identities after the import.
       // Re-establish an uncalled next identity before the receipt is committed.
       await reconcileIdentities(client, manifest, true, layout.identities);

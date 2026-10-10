@@ -24,6 +24,13 @@ import {
 } from "./database.mjs";
 import { readCutoverTarget, verifyRemoteCredential } from "./remote-target.mjs";
 
+export function formatCutoverDataFailure(error) {
+  const sqlState = error.code ?? error.cause?.code;
+  return sqlState
+    ? `Cutover data operation failed (${sqlState}); preserve source and target`
+    : error.message;
+}
+
 function readCommand(program, args) {
   const result = spawnSync(program, args, { encoding: "utf8" });
   if (result.status !== 0) {
@@ -239,11 +246,7 @@ if (
     }
     console.log(JSON.stringify(result));
   } catch (error) {
-    console.error(
-      error.code
-        ? `Cutover data operation failed (${error.code}); preserve source and target`
-        : error.message
-    );
+    console.error(formatCutoverDataFailure(error));
     process.exitCode = 1;
   }
 }
