@@ -458,6 +458,11 @@ test("merged query and source-read imports cannot change targets or escape the e
     ],
     [
       CORE_RPC,
+      "const prepared = await prepareRequest(env, request.context);",
+      'const prepared = await prepareRequest(env, request.context); await prepared.db.execute("UPDATE inbox_items SET source_target_json = \'{\\"kind\\":\\"settings\\",\\"section\\":\\"computers\\"}\' WHERE id = \'synthetic-only\'");',
+    ],
+    [
+      CORE_RPC,
       "return inboxSourceCandidateSchema.array().parse(",
       "return inboxSourceCandidateSchema.transform(changeTarget).array().parse(",
     ],

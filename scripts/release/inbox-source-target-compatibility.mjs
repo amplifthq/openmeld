@@ -284,6 +284,16 @@ export function hasUnchangedInboxSourceTargetContract(context) {
     ) {
       return false;
     }
+    const sourceReadDelegates = core.map((file) => {
+      const delegate = assertExclusiveSourceReadBindings(file);
+      return replacedModuleTokens(
+        named(file, "rpcMutateSpaceInboxRead"),
+        new Map(delegate ? [[delegate, undefined]] : [])
+      );
+    });
+    if (sourceReadDelegates[0] !== sourceReadDelegates[1]) {
+      return false;
+    }
     for (const file of core) {
       assertUnreadSourcePassthrough(file, "core");
     }
@@ -801,6 +811,7 @@ function assertExclusiveSourceReadBindings(file) {
       throw new Error("Source-read binding escapes its read delegate.");
     }
   }
+  return delegates[0];
 }
 function assertTargetDependencies(declaration) {
   const allowed = new Set([
@@ -1932,10 +1943,18 @@ function replacedModuleTokens(parsed, replacements) {
   try {
     return tokens(
       syntax(
-        ts
-          .createPrinter({ removeComments: true })
-          .printFile(transformed.transformed[0]),
-        parsed.fileName
+        ts.isSourceFile(parsed)
+          ? ts
+              .createPrinter({ removeComments: true })
+              .printFile(transformed.transformed[0])
+          : ts
+              .createPrinter({ removeComments: true })
+              .printNode(
+                ts.EmitHint.Unspecified,
+                transformed.transformed[0],
+                parsed.getSourceFile()
+              ),
+        parsed.getSourceFile().fileName
       )
     );
   } finally {
