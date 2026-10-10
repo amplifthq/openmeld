@@ -33,9 +33,17 @@ export function DesktopEntry() {
 	const [browserOpened, setBrowserOpened] = useState(false);
 	const [signedOut, setSignedOut] = useState(false);
 	const [workspaceUnavailable, setWorkspaceUnavailable] = useState(false);
-	const [showKeychainNotice, setShowKeychainNotice] = useState(false);
-	const primaryAction = useRef<() => void>(() => undefined);
 	const bridge = getDesktopPlatform();
+	const [showKeychainNotice, setShowKeychainNotice] = useState(() =>
+		Boolean(bridge && shouldShowMacOSKeychainNotice(undefined, navigator))
+	);
+	const primaryAction = useRef<() => void>(() => undefined);
+	const keychainNotice = showKeychainNotice ? (
+		<p className="max-w-sm text-muted-foreground text-xs leading-relaxed">
+			Your computer may ask to access saved sign-in information. If a system
+			prompt appears, respond to it to continue.
+		</p>
+	) : null;
 
 	useEffect(() => {
 		let disposed = false;
@@ -231,7 +239,11 @@ export function DesktopEntry() {
 	}, [bridge, router, returnPath, queryClient]);
 
 	if (pendingOperation === "session") {
-		return <OpenMeldLoadingScreen className="bg-[var(--app-canvas)]" />;
+		return (
+			<OpenMeldLoadingScreen className="bg-[var(--app-canvas)]">
+				{keychainNotice}
+			</OpenMeldLoadingScreen>
+		);
 	}
 
 	const copy = workspaceUnavailable
@@ -267,7 +279,7 @@ export function DesktopEntry() {
 					</p>
 				)}
 				{bridge && !workspaceUnavailable && (
-					<div>
+					<div className="space-y-2">
 						<Button
 							className="w-full"
 							disabled={pending}
@@ -275,12 +287,7 @@ export function DesktopEntry() {
 						>
 							{copy.action}
 						</Button>
-						{showKeychainNotice && signedOut && (
-							<p className="mt-2 text-muted-foreground text-xs leading-relaxed">
-								macOS may ask for Keychain access to securely remember your
-								sign-in.
-							</p>
-						)}
+						{signedOut && keychainNotice}
 					</div>
 				)}
 			</section>
@@ -289,7 +296,7 @@ export function DesktopEntry() {
 }
 
 export function shouldShowMacOSKeychainNotice(
-	platform: DesktopPlatform,
+	platform: DesktopPlatform | undefined,
 	nativeNavigator: Pick<Navigator, "platform" | "userAgent">
 ) {
 	const userAgentData = nativeNavigator as Pick<Navigator, "platform"> & {
@@ -300,7 +307,8 @@ export function shouldShowMacOSKeychainNotice(
 		nativeNavigator.platform ||
 		nativeNavigator.userAgent;
 	return Boolean(
-		platform.installedTarget && MAC_OS_PLATFORM_PATTERN.test(operatingSystem)
+		(!platform || platform.installedTarget) &&
+			MAC_OS_PLATFORM_PATTERN.test(operatingSystem)
 	);
 }
 
