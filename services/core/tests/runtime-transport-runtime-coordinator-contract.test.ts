@@ -4225,9 +4225,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it.each([
-    false,
-    true,
-  ])("requires a compatible Service and freezes exact Project work (pinned=%s)", async (pinned) => {
+    "project",
+    "pinned",
+    "brief",
+  ])("requires a compatible Service and freezes exact work (%s)", async (materials) => {
+    const pinned = materials === "pinned";
     const projectWork = {
       projectId: "project-payments",
       repositoryFingerprint: `sha256:${"a".repeat(64)}`,
@@ -4236,6 +4238,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const request = buildRuntimeCoordinatorHeadAcceptRequest({
       acceptedDispatchSnapshot: {
         ...buildAcceptedDispatchSnapshot({ fingerprint: "7" }),
+        ...(materials === "brief" ? { workHandoffVersion: 2 as const } : {}),
         contextRequest: {
           required: true,
           scope: {
@@ -4247,14 +4250,15 @@ describe("runtime transport runtime coordinator transport contract", () => {
           },
           selection: {
             mode: "new",
-            access: "workspace",
+            access: materials === "brief" ? "space_context" : "workspace",
             workspace: "isolated",
-            projectWork,
+            ...(materials === "brief" ? {} : { projectWork }),
           },
         },
       },
     });
-    const olderVersions = pinned ? ([2, 3, 4] as const) : ([2, 3] as const);
+    const olderVersions =
+      materials !== "project" ? ([2, 3, 4] as const) : ([2, 3] as const);
     for (const contextVersion of olderVersions) {
       const olderService = await createContextHarness({ contextVersion });
       expect(
@@ -4268,20 +4272,25 @@ describe("runtime transport runtime coordinator transport contract", () => {
       ).toMatchObject({ ok: false, reasonCode: "service.update_required" });
     }
     const currentService = await createContextHarness({
-      contextVersion: pinned ? 5 : 4,
+      contextVersion: materials !== "project" ? 5 : 4,
     });
-    expect(
-      await (
-        await fetchRuntimeTransportJson(
-          currentService.hub,
-          "/runtime-coordinator/head/accept",
-          request
-        )
-      ).json()
-    ).toMatchObject({
+    const accepted = (await (
+      await fetchRuntimeTransportJson(
+        currentService.hub,
+        "/runtime-coordinator/head/accept",
+        request
+      )
+    ).json()) as { executionContext: Record<string, unknown> };
+    expect(accepted).toMatchObject({
       status: "accepted",
-      executionContext: { projectWork },
+      executionContext:
+        materials === "brief"
+          ? { access: "space_context", workspace: "isolated" }
+          : { projectWork },
     });
+    if (materials === "brief") {
+      expect(accepted.executionContext).not.toHaveProperty("projectWork");
+    }
   });
 
   it.each([

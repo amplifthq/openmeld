@@ -1,3 +1,6 @@
+import { mkdtemp, realpath, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { executionContextTaskSchema } from "@openmeld/schemas";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DaemonProfileRouteConfig } from "../src/local-service/core/types";
@@ -357,6 +360,50 @@ describe("dispatch runtime working folder", () => {
     ).rejects.toMatchObject({
       code: "project.local_connection.folder_missing",
     });
+    const ledgerRootPath = await realpath(
+      await mkdtemp(join(tmpdir(), "openmeld-space-handoff-"))
+    );
+    try {
+      const { projectWork: _projectWork, ...context } =
+        createProjectExecutionContext(selectedFingerprint, "project-2");
+      const spaceOnly = {
+        ...context,
+        access: "space_context" as const,
+        workspace: "isolated" as const,
+      };
+      resolveCurrentEffectiveProfileWorkingFolderRuntime.mockClear();
+      listProjectConnectionsWithStatus.mockClear();
+      const input = {
+        ...request,
+        ledgerRootPath,
+        executionContext: spaceOnly,
+        defaultProjectId: "different-unavailable-default",
+      };
+      const result = await resolveDispatchWorkingFolderRuntimeContext(input);
+      expect(result.providerRuntimeWorkingDirectory).toBe(
+        join(ledgerRootPath, "execution-context-workspaces", spaceOnly.id)
+      );
+      expect(
+        (await stat(result.providerRuntimeWorkingDirectory)).isDirectory()
+      ).toBe(true);
+      expect(
+        resolveCurrentEffectiveProfileWorkingFolderRuntime
+      ).not.toHaveBeenCalled();
+      expect(listProjectConnectionsWithStatus).not.toHaveBeenCalled();
+      await expect(
+        resolveDispatchWorkingFolderRuntimeContext({
+          ...input,
+          controllerSnapshot: {
+            ...input.controllerSnapshot,
+            bindingId: "another-binding",
+          },
+        })
+      ).rejects.toMatchObject({
+        code: "profile.working_folder.current_fact_identity_mismatch",
+      });
+    } finally {
+      await rm(ledgerRootPath, { recursive: true, force: true });
+    }
   });
 
   it("uses the configured local default among clones and blocks an unresolved clone choice", async () => {

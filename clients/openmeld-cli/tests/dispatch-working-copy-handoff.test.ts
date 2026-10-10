@@ -71,10 +71,17 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-it.each([
-  "builtin:codex",
-  "builtin:claude-code",
-] as const)("keeps code work in the receiver's prepared repository (%s)", async (agentControllerRef) => {
+it.each(
+  ["builtin:codex", "builtin:claude-code"].flatMap((agentControllerRef) =>
+    [true, false].map((hasRepository) => ({
+      agentControllerRef,
+      hasRepository,
+    }))
+  )
+)("prepares the reviewed brief without borrowing a repository ($agentControllerRef, repository=$hasRepository)", async ({
+  agentControllerRef,
+  hasRepository,
+}) => {
   const root = await realpath(
     await mkdtemp(join(tmpdir(), "openmeld-code-handoff-"))
   );
@@ -100,10 +107,14 @@ it.each([
       executionContext: {
         version: 1,
         id: identity.profile,
-        access: "workspace",
-        permissionSource: "agent_settings",
+        ...(hasRepository
+          ? ({
+              access: "workspace",
+              permissionSource: "agent_settings",
+              projectWork: code,
+            } as const)
+          : ({ access: "space_context" } as const)),
         workspace: "isolated",
-        projectWork: code,
         nativeConversationId: null,
         runtimeWorkspaceFingerprint: null,
         scope: {
@@ -118,8 +129,11 @@ it.each([
         schemaVersion: 2,
         sourceSignalId: "planning-result",
         sourceRevision: 1,
-        code,
-        execution: { workspace: "isolated" },
+        ...(hasRepository
+          ? ({ code, execution: { workspace: "isolated" } } as const)
+          : ({
+              execution: { workspace: "isolated", access: "space_context" },
+            } as const)),
         files: [],
         skills: [],
         requirements: [],
@@ -158,7 +172,29 @@ it.each([
           } as NonNullable<typeof task.executionContext>,
         },
       })
-    ).rejects.toThrow("code_handoff_mismatch");
+    ).rejects.toThrow(
+      hasRepository ? "code_handoff_mismatch" : "Space-only context"
+    );
+    if (!hasRepository) {
+      expect(task.prompt).not.toContain("exact commit");
+      expect(task.executionContext?.projectWork).toBeUndefined();
+      if (agentControllerRef === "builtin:claude-code" && task.workHandoff) {
+        await expect(
+          prepareDispatchWorkHandoff({
+            ...input,
+            task: {
+              ...task,
+              workHandoff: {
+                ...task.workHandoff,
+                files: [
+                  { fileId: "file", revision: 1, relativePath: "file.md" },
+                ],
+              },
+            },
+          })
+        ).rejects.toThrow("handoff_receiver_unsupported");
+      }
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -169,9 +205,11 @@ describe.skipIf(process.platform !== "darwin")(
   "dispatch-bound shared file handoffs",
   () => {
     it.each([
-      false,
-      true,
-    ])("Service prepares selected files that can be saved in the original reply (code=%s)", async (codeHandoff) => {
+      "legacy",
+      "repository",
+      "space",
+    ])("Service prepares selected files that can be saved in the original reply (%s)", async (materials) => {
+      const codeHandoff = materials === "repository";
       const root = await realpath(
         await mkdtemp(join(tmpdir(), "openmeld-handoff-entry-"))
       );
@@ -256,24 +294,36 @@ describe.skipIf(process.platform !== "darwin")(
             requirements: [],
           },
         };
-        if (codeHandoff && task.executionContext && task.workHandoff) {
+        if (
+          materials !== "legacy" &&
+          task.executionContext &&
+          task.workHandoff?.schemaVersion === 1
+        ) {
           const code = {
             projectId: "project",
             repositoryFingerprint: `sha256:${"a".repeat(64)}`,
             commit: "b".repeat(40),
           };
-          task.executionContext = {
-            ...task.executionContext,
-            access: "workspace",
-            projectWork: code,
-          };
+          if (codeHandoff) {
+            task.executionContext = {
+              ...task.executionContext,
+              access: "workspace",
+              projectWork: code,
+            };
+          }
           task.workHandoff = {
             ...task.workHandoff,
             schemaVersion: 2,
             sourceSignalId: "plan",
             sourceRevision: 1,
-            code,
-            execution: { workspace: "isolated", access: "workspace" },
+            ...(codeHandoff
+              ? ({
+                  code,
+                  execution: { workspace: "isolated", access: "workspace" },
+                } as const)
+              : ({
+                  execution: { workspace: "isolated", access: "space_context" },
+                } as const)),
             work: {
               ...task.workHandoff.work,
               evidence: [],

@@ -1,6 +1,6 @@
 import type { SpaceApi } from "@openmeld/api-client";
 
-export async function readCodeHandoffSource(
+export async function readWorkHandoffSource(
 	api: SpaceApi,
 	input: {
 		spaceId: string;

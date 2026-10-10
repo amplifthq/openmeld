@@ -1533,7 +1533,10 @@ function parseStoredAutomaticToolsUpdateUnavailableRetry(
 function requiredExecutionContextVersion(
   record: RuntimeCoordinatorHeadLifecycleRecord
 ): 2 | 3 | 4 | 5 {
-  if (record.acceptedDispatchSnapshot?.executionContext?.projectWork?.commit) {
+  if (
+    record.acceptedDispatchSnapshot?.executionContext?.projectWork?.commit ||
+    record.acceptedDispatchSnapshot?.workHandoffVersion === 2
+  ) {
     return 5;
   }
   if (record.acceptedDispatchSnapshot?.executionContext?.projectWork) {

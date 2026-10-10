@@ -30,7 +30,7 @@ export async function postSpaceWorkHandoff(
     handoff.schemaVersion === 2
       ? [
           handoff.work.goal,
-          `Published commit: ${handoff.code.commit}`,
+          ...(handoff.code ? [`Published commit: ${handoff.code.commit}`] : []),
           ...Object.entries(handoff.work)
             .filter(([key]) => key !== "goal")
             .map(
@@ -60,7 +60,7 @@ export async function postSpaceWorkHandoff(
       ? {
           mode: "new" as const,
           ...handoff.execution,
-          projectWork: handoff.code,
+          ...(handoff.code ? { projectWork: handoff.code } : {}),
         }
       : {
           mode: "new" as const,

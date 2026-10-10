@@ -1,11 +1,15 @@
 import { createHash, randomUUID } from "node:crypto";
 import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { supportsSpaceWorkHandoff } from "@openmeld/agent-runtime";
 import {
   createOrganizationSkillsApi,
   createSpaceApi,
 } from "@openmeld/api-client";
-import { spaceWorkSelectionSchema } from "@openmeld/schemas";
+import {
+  type SpaceWorkHandoffV2,
+  spaceWorkSelectionSchema,
+} from "@openmeld/schemas";
 import { getAuthSessionState } from "../../config/auth-session";
 import { resolveBaseUrl } from "../../config/base-url";
 import { buildOpenMeldRequestContextFromProfileIdentity } from "../../config/openmeld-request-context";
@@ -15,6 +19,11 @@ import { createCliApiClientFoundation } from "../../space/api-client-foundation"
 import { downloadWorkingCopyFile } from "../../space/working-copy-download";
 import type { ParsedDispatchTask } from "../core/types";
 import { createSpaceWorkingCopies } from "./space-working-copy";
+
+function describeHandoffBrief(handoff: SpaceWorkHandoffV2): string {
+  const revision = handoff.code ? `, exact commit ${handoff.code.commit}` : "";
+  return `\n\nHandoff brief (public source ${handoff.sourceSignalId}${revision}):\n${JSON.stringify(handoff.work)}\nReturn your result and verification through the existing Space reply action. No sender-local paths or private conversation are available.`;
+}
 
 /** The admitted Service prepares inputs; no login state is copied into the workspace. */
 export async function prepareDispatchWorkHandoff(input: {
@@ -40,10 +49,11 @@ export async function prepareDispatchWorkHandoff(input: {
     return input.workingDirectory;
   }
   const context = requireHandoffContext(task);
-  const codeHandoff =
+  const sourceHandoff =
     task.workHandoff.schemaVersion === 2 ? task.workHandoff : null;
-  if (codeHandoff) {
-    task.prompt += `\n\nHandoff brief (public source ${codeHandoff.sourceSignalId}, exact commit ${codeHandoff.code.commit}):\n${JSON.stringify(codeHandoff.work)}\nReturn your result and verification through the existing Space reply action. No sender-local paths or private conversation are available.`;
+  const codeHandoff = sourceHandoff?.code;
+  if (sourceHandoff) {
+    task.prompt += describeHandoffBrief(sourceHandoff);
   }
   const organizationId = context.scope.organizationId;
   const baseUrl = await resolveBaseUrl();
@@ -60,7 +70,7 @@ export async function prepareDispatchWorkHandoff(input: {
     }
   };
   await assertCurrentIdentity();
-  // Only the code manifest permits an empty file selection.
+  // A brief-only handoff needs no file copy or repository preparation.
   if (task.workHandoff.files.length === 0) {
     return input.workingDirectory;
   }
@@ -205,7 +215,17 @@ function requireHandoffContext(
   if (!(context && handoff)) {
     throw new Error("execution_context.handoff_context_required");
   }
-  if (handoff.schemaVersion === 2) {
+  if (
+    handoff.schemaVersion === 2 &&
+    !supportsSpaceWorkHandoff({
+      agentControllerRef: task.agentControllerRef,
+      hasRepository: Boolean(handoff.code),
+      hasFiles: handoff.files.length > 0,
+    })
+  ) {
+    throw new Error("execution_context.handoff_receiver_unsupported");
+  }
+  if (handoff.schemaVersion === 2 && handoff.code) {
     if (
       context.projectWork?.projectId !== handoff.code.projectId ||
       context.projectWork.repositoryFingerprint !==
@@ -215,18 +235,22 @@ function requireHandoffContext(
       (handoff.execution.access
         ? context.access !== handoff.execution.access ||
           context.permissionSource === "agent_settings"
-        : context.permissionSource !== "agent_settings") ||
-      !(
-        task.agentControllerRef === "builtin:codex" ||
-        task.agentControllerRef === "builtin:claude-code"
-      )
+        : context.permissionSource !== "agent_settings")
     ) {
       throw new Error("execution_context.code_handoff_mismatch");
     }
   } else if (
     context.access !== "space_context" ||
-    task.agentControllerRef !== "builtin:codex" ||
-    task.transportMode !== "codex-app-server"
+    context.workspace !== "isolated" ||
+    context.projectWork !== undefined ||
+    context.permissionSource !== undefined ||
+    !(
+      (task.agentControllerRef === "builtin:codex" &&
+        task.transportMode === "codex-app-server") ||
+      (handoff.schemaVersion === 2 &&
+        handoff.files.length === 0 &&
+        task.agentControllerRef === "builtin:claude-code")
+    )
   ) {
     throw new Error(
       "Selected-file handoffs require a new Space-only context on Codex App Server. This controller cannot enforce that boundary."

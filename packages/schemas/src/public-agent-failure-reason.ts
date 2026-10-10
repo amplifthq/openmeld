@@ -1929,6 +1929,14 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: "agents",
     },
     {
+      body: "This Agent cannot receive the selected handoff materials. Choose a supported Agent and send a new handoff. Shared files without a repository require Codex or a Remote Agent.",
+      kind: "local_agent_prepare",
+      patterns: ["=execution_context.handoff_receiver_unsupported"],
+      primaryActionId: "manage_local_agent",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "agents",
+    },
+    {
       body: "OpenMeld could not verify file-access limits with this Agent's previous permission settings, so the task did not start. Choose Ask for approval, Approve for me, or Full access in this Agent's settings, then try again.",
       kind: "local_agent_prepare",
       patterns: ["=execution_context.custom_config_file_access_unverified"],

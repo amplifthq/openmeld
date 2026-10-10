@@ -1,6 +1,7 @@
 import type { SignalTextEnvelope } from "@openmeld/protocol";
 import {
   postNormalMessageBodySchema,
+  spaceContextWorkHandoffSchema,
   spaceWorkHandoffSchema,
 } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
@@ -52,6 +53,95 @@ const signal: SignalTextEnvelope = {
   },
 };
 describe("Space-owned work handoff admission", () => {
+  it.each([
+    false,
+    true,
+  ])("accepts a source-bound handoff without a repository (files=%s) and rejects ambient access", async (withFiles) => {
+    const brief = spaceContextWorkHandoffSchema.parse({
+      ...handoff,
+      schemaVersion: 2,
+      sourceSignalId: signal.id,
+      sourceRevision: 1,
+      execution: { access: "space_context", workspace: "isolated" },
+      files: withFiles ? handoff.files : [],
+      work: {
+        ...handoff.work,
+        evidence: [],
+        attemptedApproaches: [],
+        decisions: [],
+        constraints: [],
+        openQuestions: [],
+        completionCriteria: ["Report the checked totals"],
+      },
+    });
+    const candidate: SignalTextEnvelope = {
+      ...signal,
+      id: "handoff-result",
+      data: {
+        ...signal.data,
+        files: withFiles ? signal.data.files : [],
+        meta: { clientMessageId: "brief-handoff", workHandoff: brief },
+        messageEnvelope: {
+          text: signal.data.text,
+          activationTargets: ["e344e2c3-59f1-44c9-a4f1-63922aeb0f99"],
+          referenceTargets: [],
+          mentionTargets: [],
+          replyToSignalId: signal.id,
+        },
+      },
+    };
+    const input = {
+      env: {} as CoreBindings,
+      organizationId: "org",
+      signal: candidate,
+      resolveFiles: () => signal.data.files ?? [],
+      readSource: () => ({ signal, threadId: null }),
+    };
+    await expect(validateSpaceWorkHandoff(input)).resolves.toBeUndefined();
+    for (const selection of [
+      { mode: "new", workspace: "isolated" },
+      { mode: "new", access: "workspace", workspace: "isolated" },
+      { mode: "new", access: "space_context", workspace: "current" },
+      {
+        mode: "new",
+        access: "space_context",
+        workspace: "isolated",
+        projectWork: {
+          projectId: "ambient-project",
+          repositoryFingerprint: `sha256:${"a".repeat(64)}`,
+        },
+      },
+    ] as const) {
+      await expect(
+        validateSpaceWorkHandoff({
+          ...input,
+          signal: {
+            ...candidate,
+            data: { ...candidate.data, contextSelection: selection },
+          },
+        })
+      ).rejects.toThrow("Keep the exact source");
+    }
+    for (const execution of [
+      { workspace: "current", access: "space_context" },
+      { workspace: "isolated" },
+      { workspace: "isolated", access: "workspace" },
+    ]) {
+      expect(
+        spaceWorkHandoffSchema.safeParse({ ...brief, execution }).success
+      ).toBe(false);
+    }
+    expect(
+      spaceWorkHandoffSchema.safeParse({
+        ...brief,
+        code: {
+          projectId: "p",
+          repositoryFingerprint: `sha256:${"a".repeat(64)}`,
+        },
+      }).success
+    ).toBe(false);
+  });
+
   it("binds code handoffs to the reviewed source, commit, and execution choices", async () => {
     const envelope = {
       text: signal.data.text,

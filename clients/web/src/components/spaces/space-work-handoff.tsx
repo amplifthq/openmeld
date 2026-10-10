@@ -1,18 +1,21 @@
 "use client";
 
+import { supportsSpaceWorkHandoff } from "@openmeld/agent-runtime";
 import { postSpaceWorkHandoff } from "@openmeld/api-client";
 import {
-	type SpaceCodeWorkHandoff,
+	type SpaceWorkHandoffV2,
 	spaceCodeWorkHandoffSchema,
+	spaceContextWorkHandoffSchema,
 } from "@openmeld/schemas";
 import { Button } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
+import { Switch } from "@openmeld/ui/components/switch";
 import { Textarea } from "@openmeld/ui/components/textarea";
 import { useQuery } from "@tanstack/react-query";
 import { useId, useRef, useState } from "react";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
-import { readCodeHandoffSource } from "#/lib/spaces/code-handoff";
+import { readWorkHandoffSource } from "#/lib/spaces/work-handoff";
 import { spaceMembersQueryOptions } from "#/query/spaces/members";
 import { buildSpaceMemberDirectoryEntryByProfileId } from "./space-collaboration-profile";
 import {
@@ -40,7 +43,7 @@ const lines = (value: string) =>
 		.map((line) => line.trim())
 		.filter(Boolean);
 
-export function SpaceCodeHandoffAction(input: HandoffProps) {
+export function SpaceWorkHandoffAction(input: HandoffProps) {
 	const organization = useOptionalAppOrganization();
 	const [open, setOpen] = useState(false);
 	if (!organization) {
@@ -51,11 +54,13 @@ export function SpaceCodeHandoffAction(input: HandoffProps) {
 			<p className="mb-2 text-muted-foreground text-sm">
 				Ask another Agent in this Space to continue this work.
 			</p>
-			<Button onClick={() => setOpen(true)} size="sm" variant="outline">
-				Hand off
-			</Button>
+			{open ? null : (
+				<Button onClick={() => setOpen(true)} size="sm" variant="outline">
+					Hand off
+				</Button>
+			)}
 			{open ? (
-				<CodeHandoffContent
+				<WorkHandoffContent
 					{...input}
 					onClose={() => setOpen(false)}
 					organizationId={organization.currentOrganization.id}
@@ -65,7 +70,7 @@ export function SpaceCodeHandoffAction(input: HandoffProps) {
 	);
 }
 
-function CodeHandoffContent(
+function WorkHandoffContent(
 	input: HandoffProps & { onClose(): void; organizationId: string }
 ) {
 	const [api] = useState(() =>
@@ -73,12 +78,12 @@ function CodeHandoffContent(
 	);
 	const source = useQuery({
 		queryKey: [
-			"code-handoff-source",
+			"work-handoff-source",
 			input.spaceId,
 			input.profileId,
 			input.sourceSignalId,
 		],
-		queryFn: () => readCodeHandoffSource(api, input),
+		queryFn: () => readWorkHandoffSource(api, input),
 		staleTime: 0,
 		refetchOnWindowFocus: false,
 		retry: false,
@@ -100,7 +105,7 @@ function CodeHandoffContent(
 		);
 	} else if (source.data && !source.isFetching) {
 		content = (
-			<CodeHandoffForm
+			<WorkHandoffForm
 				{...input}
 				api={api}
 				key={source.data.sourceRevision}
@@ -112,18 +117,18 @@ function CodeHandoffContent(
 		<div className="mt-4 grid gap-4">
 			<h3 className="font-medium">Hand off</h3>
 			<p className="text-muted-foreground text-sm">
-				Choose a Project and published commit for this handoff. The receiving
-				Agent uses its own Project connection and replies in this conversation.
+				Share the goal, progress, and next steps. Add shared files or a
+				repository if needed. The receiving Agent replies in this conversation.
 			</p>
 			{content}
 		</div>
 	);
 }
 
-function CodeHandoffForm(
+function WorkHandoffForm(
 	input: HandoffProps & {
 		api: ReturnType<typeof createUnscopedWebSpaceApi>;
-		source: Awaited<ReturnType<typeof readCodeHandoffSource>>;
+		source: Awaited<ReturnType<typeof readWorkHandoffSource>>;
 		organizationId: string;
 		onClose(): void;
 	}
@@ -136,13 +141,18 @@ function CodeHandoffForm(
 			enabled: true,
 		})
 	);
+	const [includeRepository, setIncludeRepository] = useState(false);
+	const [files, setFiles] = useState<string[]>([]);
 	const agents = [
 		...buildSpaceMemberDirectoryEntryByProfileId(members.data ?? null).values(),
 	].filter(
 		(entry) =>
 			entry.profileKind === "agent" &&
-			(entry.agentControllerRef === "builtin:codex" ||
-				entry.agentControllerRef === "builtin:claude-code")
+			supportsSpaceWorkHandoff({
+				agentControllerRef: entry.agentControllerRef,
+				hasRepository: includeRepository,
+				hasFiles: files.length > 0,
+			})
 	);
 	const [target, setTarget] = useState("");
 	const [project, setProject] = useState<SelectedProjectWork | null>(null);
@@ -161,11 +171,10 @@ function CodeHandoffForm(
 		constraints: "",
 		openQuestions: "",
 	});
-	const [files, setFiles] = useState<string[]>([]);
 	const [filePaths, setFilePaths] = useState<Record<string, string>>({});
 	const [clientMessageId] = useState(() => crypto.randomUUID());
 	const acceptedInput = useRef<{
-		handoff: SpaceCodeWorkHandoff;
+		handoff: SpaceWorkHandoffV2;
 		targetProfileId: string;
 	} | null>(null);
 	const sending = useRef(false);
@@ -174,11 +183,20 @@ function CodeHandoffForm(
 	const [error, setError] = useState("");
 	function readSubmission() {
 		const receiver = agents.find((agent) => agent.profileId === target);
-		if (!(project && receiver)) {
-			setError("Choose a Project and an Agent who is currently in this Space.");
+		if (!receiver) {
+			setError(
+				"Choose an Agent in this Space that supports the selected materials."
+			);
+			return null;
+		}
+		if (includeRepository && !project) {
+			setError(
+				"Choose a Project and repository, or remove the repository from this handoff."
+			);
 			return null;
 		}
 		if (
+			includeRepository &&
 			access === "read_only" &&
 			receiver.agentControllerRef !== "builtin:codex"
 		) {
@@ -187,16 +205,25 @@ function CodeHandoffForm(
 			);
 			return null;
 		}
-		const parsed = spaceCodeWorkHandoffSchema.safeParse({
+		const schema = includeRepository
+			? spaceCodeWorkHandoffSchema
+			: spaceContextWorkHandoffSchema;
+		const parsed = schema.safeParse({
 			schemaVersion: 2,
 			sourceSignalId: input.source.sourceSignalId,
 			sourceRevision: input.source.sourceRevision,
-			code: {
-				projectId: project.projectId,
-				repositoryFingerprint: project.repositoryFingerprint,
-				commit: commit.trim().toLowerCase(),
-			},
-			execution: { workspace: "isolated", ...(access ? { access } : {}) },
+			...(includeRepository && project
+				? {
+						code: {
+							projectId: project.projectId,
+							repositoryFingerprint: project.repositoryFingerprint,
+							commit: commit.trim().toLowerCase(),
+						},
+						execution: { workspace: "isolated", ...(access ? { access } : {}) },
+					}
+				: {
+						execution: { workspace: "isolated", access: "space_context" },
+					}),
 			files: input.source.files
 				.filter((file) => files.includes(file.fileId))
 				.map((file) => ({
@@ -300,38 +327,67 @@ function CodeHandoffForm(
 								Space members could not load. Reopen this handoff to retry.
 							</p>
 						) : null}
-						<SpaceProjectRepositoryFields
-							onChange={setProject}
-							organizationId={input.organizationId}
-						/>
-						<label className="grid gap-1 text-sm" htmlFor={`${formId}-commit`}>
-							Published commit SHA
-							<Input
-								id={`${formId}-commit`}
-								onChange={(event) => setCommit(event.target.value)}
-								placeholder="Full commit SHA, including a PR's published head"
-								value={commit}
-							/>
-						</label>
 						<p className="text-muted-foreground text-sm">
-							A separate copy starts at this exact commit. If it is missing on
-							the receiving computer, the task stops with guidance; it does not
-							use a different revision.
+							Agents are listed according to the materials selected for this
+							handoff. Shared files without a repository require Codex or a
+							Remote Agent.
 						</p>
-						<label className="grid gap-1 text-sm">
-							Access
-							<select
-								className="h-9 rounded-md border bg-background px-3"
-								onChange={(event) =>
-									setAccess(event.target.value as typeof access)
-								}
-								value={access}
-							>
-								<option value="">Use Agent settings</option>
-								<option value="workspace">Project files only</option>
-								<option value="read_only">Read files only (Codex)</option>
-							</select>
+						<label
+							className="flex gap-2 text-sm"
+							htmlFor={`${formId}-repository`}
+						>
+							<Switch
+								checked={includeRepository}
+								disabled={pending || acceptedInput.current !== null}
+								id={`${formId}-repository`}
+								onCheckedChange={setIncludeRepository}
+							/>
+							Include a repository
 						</label>
+						{includeRepository ? (
+							<>
+								<SpaceProjectRepositoryFields
+									onChange={setProject}
+									organizationId={input.organizationId}
+								/>
+								<label
+									className="grid gap-1 text-sm"
+									htmlFor={`${formId}-commit`}
+								>
+									Published commit SHA
+									<Input
+										id={`${formId}-commit`}
+										onChange={(event) => setCommit(event.target.value)}
+										placeholder="Full commit SHA, including a PR's published head"
+										value={commit}
+									/>
+								</label>
+								<p className="text-muted-foreground text-sm">
+									A separate copy starts at this exact commit. If it is missing
+									on the receiving computer, the task stops with guidance; it
+									does not use a different revision.
+								</p>
+								<label className="grid gap-1 text-sm">
+									Access
+									<select
+										className="h-9 rounded-md border bg-background px-3"
+										onChange={(event) =>
+											setAccess(event.target.value as typeof access)
+										}
+										value={access}
+									>
+										<option value="">Use Agent settings</option>
+										<option value="workspace">Project files only</option>
+										<option value="read_only">Read files only (Codex)</option>
+									</select>
+								</label>
+							</>
+						) : (
+							<p className="text-muted-foreground text-sm">
+								The handoff includes your brief and selected Space files. No
+								repository is attached.
+							</p>
+						)}
 						<label className="grid gap-1 text-sm" htmlFor={`${formId}-goal`}>
 							Goal
 							<Input
@@ -437,9 +493,8 @@ function CodeHandoffForm(
 						) : null}
 					</fieldset>
 					<p className="text-muted-foreground text-sm">
-						Only this brief, the published revision, and selected shared files
-						are handed off. The receiving Agent keeps its own credentials and
-						approvals.
+						Only this brief and the materials you select are handed off. The
+						receiving Agent keeps its own credentials and approvals.
 					</p>
 				</>
 			)}

@@ -1054,10 +1054,14 @@ Deployment order and the separate W2/W5 Remote Agent windows live in
 
 ### Space File Commands
 
-`space files handoff` also accepts a version 2 code manifest. It binds a shared
-source message revision, Project/repository fingerprint, complete commit SHA,
-execution choices, and implementation brief. The receiving Service resolves
-its own local connection and reports the actual outcome. Reuse the client
+`space files handoff` also accepts a version 2 work manifest. It binds a shared
+source message revision, execution choices, and a complete brief. A manifest
+without `code` uses `execution: { workspace: "isolated", access: "space_context" }`
+and permits an empty or explicit shared-file selection. No Project connection
+is required. A manifest with `code` requires its Project/repository fingerprint
+and complete commit SHA, and keeps the existing repository access choices.
+The receiving Service resolves its own local connection only for that variant
+and reports the actual outcome. Reuse the client
 message ID only for an unchanged retry and retain the original `--thread`.
 The manifest grants no sender identity, private history, or local path access.
 

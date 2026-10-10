@@ -1,12 +1,19 @@
-import { spaceCodeWorkHandoffSchema } from "@openmeld/schemas";
+import { spaceWorkHandoffV2Schema } from "@openmeld/schemas";
 import { expect, it, vi } from "vitest";
 import type { SpaceApi } from "../src/space/types";
 import { postSpaceWorkHandoff } from "../src/space/work-handoff";
 
-it.each([
-  undefined,
-  "thread-1",
-])("publishes one pinned code request in its original placement (%s)", async (threadId) => {
+it.each(
+  [undefined, "thread-1"].flatMap((threadId) =>
+    ["brief", "files", "repository"].map((materials) => ({
+      threadId,
+      materials,
+    }))
+  )
+)("publishes one $materials handoff in its original placement ($threadId)", async ({
+  threadId,
+  materials,
+}) => {
   const postNormalMessage = vi
     .fn<SpaceApi["postNormalMessage"]>()
     .mockRejectedValue(new Error("Unknown send outcome"));
@@ -14,17 +21,26 @@ it.each([
     .fn<SpaceApi["postThreadSignal"]>()
     .mockRejectedValue(new Error("Unknown send outcome"));
   const api = { postNormalMessage, postThreadSignal } as unknown as SpaceApi;
-  const handoff = spaceCodeWorkHandoffSchema.parse({
+  const handoff = spaceWorkHandoffV2Schema.parse({
     schemaVersion: 2,
     sourceSignalId: "plan",
     sourceRevision: 3,
-    code: {
-      projectId: "project",
-      repositoryFingerprint: `sha256:${"a".repeat(64)}`,
-      commit: "b".repeat(40),
-    },
-    execution: { workspace: "isolated" },
-    files: [],
+    ...(materials === "repository"
+      ? {
+          code: {
+            projectId: "project",
+            repositoryFingerprint: `sha256:${"a".repeat(64)}`,
+            commit: "b".repeat(40),
+          },
+          execution: { workspace: "isolated" },
+        }
+      : {
+          execution: { workspace: "isolated", access: "space_context" },
+        }),
+    files:
+      materials === "files"
+        ? [{ fileId: "report", revision: 7, relativePath: "report.md" }]
+        : [],
     skills: [],
     requirements: [],
     work: {
@@ -57,8 +73,22 @@ it.each([
   expect(body?.contextSelection).toEqual({
     mode: "new",
     workspace: "isolated",
-    projectWork: handoff.code,
+    ...(handoff.code
+      ? { projectWork: handoff.code }
+      : { access: "space_context" }),
   });
+  if (!handoff.code) {
+    expect(body?.text).not.toContain("Published commit:");
+    expect(body?.contextSelection).not.toHaveProperty("projectWork");
+  }
+  expect(body?.files).toEqual(
+    handoff.files.map((file) =>
+      expect.objectContaining({
+        fileId: file.fileId,
+        revision: file.revision,
+      })
+    )
+  );
   expect(body?.messageEnvelope).toMatchObject({
     activationTargets: ["receiver"],
     replyToSignalId: "plan",

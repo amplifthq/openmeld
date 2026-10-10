@@ -8055,9 +8055,16 @@ continuation, and retention. Starting a current-folder Context verifies HEAD and
 rejects preexisting local changes; resuming its established native Context keeps
 subsequent work. Isolated preparation leaves the connected checkout unchanged.
 
-`SpaceWorkHandoff` version 2 adds the exact source message revision, Project and
-commit, execution choices, and a complete code brief. It allows an empty shared
-file selection. Version 1 remains readable and keeps its selected-file contract.
+`SpaceWorkHandoff` version 2 adds the exact source message revision, execution
+choices, and a complete work brief. Its strict variants separate materials:
+without `code`, execution must be `space_context` and `isolated`, and a Project
+selection is rejected; with `code`, an exact Project/repository and full commit
+are required with the existing repository permission choices. Both allow an
+empty shared-file selection. Version 1 retains its selected-file contract.
+The Core-created accepted dispatch snapshot freezes optional `workHandoffVersion`
+from the authored manifest so admission and reconnect check capability 5 for all
+v2 workstation handoffs, including brief-only work. Delivery rechecks the active
+adapter version. Only nonempty selected-file sets also require `spaceWorkHandoff`.
 Normal-message HTTP callers send the matching `workHandoffVersion`; thread
 callers carry the same versioned manifest. Space validates the current source,
 original placement, one target, and matching Context selection. Its existing
@@ -8065,14 +8072,19 @@ client-message idempotency also fences changed Context selections. Public histor
 omits the v2 manifest so older readers retain the readable message and files;
 the authored manifest stays in persistence and dispatch snapshots.
 
-Contract impact: deploy Core/Gateway schema readers, admission checks, and read
-projections first; then publish the CLI/Service with capability 5, then the Web
-entry point/new CLI manifests. Older Services continue ordinary and v1 work but
-reject pinned-code work; older clients can read its message. No database migration,
+Contract impact: deploy compatible Core and Remote Agent schema readers and
+materialization before Gateway and new callers. Then publish the CLI/Service
+with capability 5 before enabling the Web entry point/new CLI manifests.
+The Remote Agent native path accepts brief/shared-file v2 work and rejects
+repository work before provider submission. An empty shared-file set reuses its
+existing working directory without creating an unmaterialized copy receipt.
+Capability 5 and v2 are unreleased additions in this PR; earlier draft artifacts
+must be replaced together. Older Services continue ordinary and v1 work but
+reject v2 work; older clients can read its message. No database migration,
 new cloud resource, or new handoff lifecycle is introduced. Roll back callers
 first. Once v2 messages are persisted, retain compatible Core readers for their
 entire retention lifetime, including completed handoffs. Computers that ran
-pinned-code tasks must also retain a compatible Service reader for their retained
+v2 tasks must also retain a compatible Service reader for their retained
 Context/workspace records. The
 CLI/Service bundle and registry require normal local-component release validation;
 this feature does not authorize production deployment or release stamping.

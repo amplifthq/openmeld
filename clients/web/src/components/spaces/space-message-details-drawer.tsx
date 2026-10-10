@@ -111,7 +111,7 @@ type MessageDetailsQueryState =
 			status: "ready";
 	  };
 
-import { SpaceCodeHandoffAction } from "./space-code-handoff";
+import { SpaceWorkHandoffAction } from "./space-work-handoff";
 
 export function SpaceMessageDetailsDrawer(input: {
 	threadId?: string;
@@ -260,7 +260,7 @@ export function SpaceMessageDetailsDrawer(input: {
 							input.item.signalType === "signal.text" &&
 							input.item.deliveryState === "sent" &&
 							!input.item.recalledAt ? (
-								<SpaceCodeHandoffAction
+								<SpaceWorkHandoffAction
 									key={`${input.spaceId}:${input.openMeldProfileId}:${input.item.id}:${input.threadId ?? "main"}`}
 									profileId={input.openMeldProfileId}
 									sourceSignalId={input.item.id}

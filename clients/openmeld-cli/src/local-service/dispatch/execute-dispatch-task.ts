@@ -1186,6 +1186,7 @@ export async function handleDispatchDeliverFrame(input: {
   try {
     await currentSocketRef.confirmExecutionAdmission?.(input.deliverRequest);
     dispatchRuntimeContext = await resolveDispatchWorkingFolderRuntimeContext({
+      ledgerRootPath: input.ledgerPaths.rootDirPath,
       controllerSnapshot: input.deliverRequest.payload.controllerSnapshot,
       defaultProjectId: parsedTask.defaultProjectId,
       defaultProjectIdWasProvided: Object.hasOwn(

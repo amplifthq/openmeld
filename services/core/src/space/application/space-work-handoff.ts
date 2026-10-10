@@ -2,7 +2,7 @@ import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
   SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
-  type SpaceCodeWorkHandoff,
+  type SpaceWorkHandoffV2,
   spaceWorkHandoffSchema,
 } from "@openmeld/schemas";
 import type { SpaceMessageFileReference } from "@openmeld/schemas/types";
@@ -31,7 +31,7 @@ export async function validateSpaceWorkHandoff(input: {
   const data = input.signal.data;
   const handoff = spaceWorkHandoffSchema.parse(data.meta?.workHandoff);
   if (handoff.schemaVersion === 2) {
-    validateCodeWorkHandoff({ ...input, signal: input.signal }, handoff);
+    validateSourceWorkHandoff({ ...input, signal: input.signal }, handoff);
   } else if (
     data.contextSelection?.mode !== "new" ||
     data.contextSelection.access !== "space_context"
@@ -118,11 +118,11 @@ export async function validateSpaceWorkHandoff(input: {
   }
 }
 
-function validateCodeWorkHandoff(
+function validateSourceWorkHandoff(
   input: Parameters<typeof validateSpaceWorkHandoff>[0] & {
     signal: Extract<SignalEnvelope, { type: "signal.text" }>;
   },
-  handoff: SpaceCodeWorkHandoff
+  handoff: SpaceWorkHandoffV2
 ) {
   const data = input.signal.data;
   const sourceContext = input.readSource?.(handoff.sourceSignalId);
@@ -160,12 +160,17 @@ function validateCodeWorkHandoff(
     });
   }
   const selected = data.contextSelection;
+  const projectMatches =
+    selected?.mode === "new" &&
+    (handoff.code
+      ? selected?.projectWork?.projectId === handoff.code.projectId &&
+        selected.projectWork.repositoryFingerprint ===
+          handoff.code.repositoryFingerprint &&
+        selected.projectWork.commit === handoff.code.commit
+      : selected.projectWork === undefined);
   if (
     selected?.mode !== "new" ||
-    selected.projectWork?.projectId !== handoff.code.projectId ||
-    selected.projectWork.repositoryFingerprint !==
-      handoff.code.repositoryFingerprint ||
-    selected.projectWork.commit !== handoff.code.commit ||
+    !projectMatches ||
     selected.workspace !== handoff.execution.workspace ||
     selected.access !== handoff.execution.access ||
     data.messageEnvelope?.replyToSignalId !== handoff.sourceSignalId
@@ -174,7 +179,7 @@ function validateCodeWorkHandoff(
       status: 400,
       code: "space.handoff.code_context_mismatch",
       reason:
-        "Keep the exact source result, Project, commit, and execution choices in the new handoff.",
+        "Keep the exact source result, selected materials, and execution choices in the new handoff.",
     });
   }
 }

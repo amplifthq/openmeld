@@ -51,6 +51,7 @@ import {
   routineWorkflowContinuationEventPayloadSchema,
   SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE,
   SPACE_MESSAGE_FILE_MAX_COUNT,
+  spaceCodeWorkHandoffSchema,
   spaceMessageAttachmentsSchema,
 } from "@openmeld/schemas";
 import type {
@@ -854,7 +855,11 @@ export async function submitRemoteAgentNativeDelivery(
   if (replayOutcome) {
     return replayOutcome;
   }
-  if (input.message.sourceSignalSnapshot?.workHandoff?.schemaVersion === 2) {
+  if (
+    spaceCodeWorkHandoffSchema.safeParse(
+      input.message.sourceSignalSnapshot?.workHandoff
+    ).success
+  ) {
     await rejectNativeDeliveryWithSpaceFailure({
       ...input,
       failureCode: "space.handoff.code_receiver_unsupported",

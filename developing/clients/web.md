@@ -27,9 +27,13 @@
 
 Message details offers **Hand off** to continue work from its current readable
 message with another Agent. The current form requires a Project/repository and
-published commit. It loads the source revision, current Space member Agents, and
-Organization Project/repository choices. It starts a new independent copy at a
-complete published commit and makes extra access restrictions a separate choice.
+published commit only when **Include a repository** is selected. By default it
+hands off a brief and optional shared-file revisions with no repository. Local
+receivers use an isolated Space-only Context. The receiver list follows the
+shared material-support policy; selected files without a repository require
+Codex or a Remote Agent. Repository fields load only when selected, start a new
+independent copy at a complete published commit, and keep extra access
+restrictions a separate choice.
 The source result prepopulates the brief; shared file revisions are unchecked
 until selected. A send retry freezes the same input and client message ID.
 Publication success is displayed as requested; existing message/Wake projections

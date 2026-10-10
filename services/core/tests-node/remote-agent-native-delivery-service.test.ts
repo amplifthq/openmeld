@@ -19,8 +19,8 @@ import {
   remoteAgentWorkerSubmitTurnRequestSchema,
   resolveListSignalsReadQuerySemantics,
   signalSystemNoticeDataSchema,
-  spaceCodeWorkHandoffSchema,
   spaceMemberDirectorySchema,
+  spaceWorkHandoffV2Schema,
 } from "@openmeld/schemas";
 import type {
   CenterAgentModelRoute,
@@ -163,10 +163,21 @@ const UNSUPPORTED_INTERRUPTION_DETAIL = /502|overloaded|Please try again/u;
 const INTERRUPTION_REPLAY_CAUTION =
   /actions may have taken effect.*Check.*before repeating/s;
 describe("Remote Agent native delivery callback service", () => {
-  it("rejects a pinned code handoff before starting a hosted provider", async () => {
+  it.each([
+    "repository",
+    "brief",
+    "files",
+  ])("admits supported handoff materials before starting a hosted provider (%s)", async (materials) => {
     const harness = await createPostgresHarness();
     await seedRemoteAgentSubmitAuthority(harness);
-    const workerSubmit = vi.fn();
+    const workerSubmit = vi.fn(
+      async (_request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        accepted: true,
+        createdAt: 2100,
+        status: "pending" as const,
+        submissionId: "handoff-submission",
+      })
+    );
     const env = buildEnv(harness.db, {
       remoteAgentWorker: { submitConversationTurn: workerSubmit },
     });
@@ -175,17 +186,26 @@ describe("Remote Agent native delivery callback service", () => {
       profileId: HUMAN_PROFILE_ID,
       profileKind: "human",
       text: "Implement the published plan",
-      workHandoff: spaceCodeWorkHandoffSchema.parse({
+      workHandoff: spaceWorkHandoffV2Schema.parse({
         schemaVersion: 2,
         sourceSignalId: "planning-result",
         sourceRevision: 1,
-        code: {
-          projectId: "project",
-          repositoryFingerprint: `sha256:${"a".repeat(64)}`,
-          commit: "b".repeat(40),
-        },
-        execution: { workspace: "isolated" },
-        files: [],
+        ...(materials === "repository"
+          ? {
+              code: {
+                projectId: "project",
+                repositoryFingerprint: `sha256:${"a".repeat(64)}`,
+                commit: "b".repeat(40),
+              },
+              execution: { workspace: "isolated" },
+            }
+          : {
+              execution: { workspace: "isolated", access: "space_context" },
+            }),
+        files:
+          materials === "files"
+            ? [{ fileId: "report", revision: 3, relativePath: "report.md" }]
+            : [],
         skills: [],
         requirements: [],
         work: {
@@ -202,6 +222,25 @@ describe("Remote Agent native delivery callback service", () => {
       }),
     };
     try {
+      if (materials !== "repository") {
+        await submitRemoteAgentNativeDelivery({
+          binding: createBinding(),
+          db: harness.db,
+          env,
+          executionAttemptId: "attempt_1",
+          memoryService: null,
+          message,
+          nowMs: 2100,
+        });
+        expect(workerSubmit).toHaveBeenCalledOnce();
+        expect(workerSubmit.mock.calls[0]?.[0].workHandoff).toEqual(
+          message.sourceSignalSnapshot.workHandoff
+        );
+        expect(
+          env.__spaceStub.rpcPostSystemNoticeSignal
+        ).not.toHaveBeenCalled();
+        return;
+      }
       await expect(
         submitRemoteAgentNativeDelivery({
           binding: createBinding(),

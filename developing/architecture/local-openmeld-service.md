@@ -19,7 +19,19 @@
 
 ## Product Role
 
-For a version 2 code handoff, the Service resolves the admitted Project through
+Version 2 handoffs can carry a brief alone or exact shared-file revisions without
+a repository. They require an isolated Space-only Context with no Project or
+inherited Agent-settings permission source. The Service uses its owned scratch
+workspace and never resolves a default repository. Codex and Claude can receive
+a brief; writable selected-file preparation remains Codex App Server only.
+The complete brief is delivered even when no file copy is required.
+Dispatch preparation verifies the accepted route/Binding identity before choosing
+the owned Space-only workspace. It does not consult Default Project folder
+observations for that Context, so an unavailable default connection cannot block
+repository-free work. Repository and ordinary current-folder tasks retain their
+existing current-folder checks.
+
+For a version 2 handoff with code, the Service resolves the admitted Project through
 the receiving account's local connection and pins its exact published commit.
 It never follows a sender-local path or substitutes the receiving HEAD. Code
 keeps its repository cwd; explicitly selected Space file revisions use the
@@ -31,10 +43,12 @@ Context selection fail before model work with the existing visible outcome.
 Selected Space work reuses this carrier and RuntimeCoordinator. Before local
 execution, the Service materializes the exact admitted file/Skill selection
 into a fresh child of the isolated task workspace. It advertises the optional
-`spaceWorkHandoff` capability on macOS only; unsupported routes fail with an
+`spaceWorkHandoff` capability on macOS only for selected-file preparation; unsupported routes fail with an
 update-required outcome instead of running a prompt without its selected inputs.
-Codex App Server and the existing Space-only containment verifier remain
-required. A working directory or separate metadata directory is not itself an
+Brief-only v2 handoffs need Context capability 5 but do not require that
+selected-file capability. Codex App Server and the existing Space-only containment
+verifier remain required for editable shared files without a repository.
+A working directory or separate metadata directory is not itself an
 OS security boundary.
 
 Managed working-copy metadata lives under the effective lane root, outside the

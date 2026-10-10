@@ -96,19 +96,13 @@ const selectedFileWorkHandoffSchema = spaceWorkSelectionSchema.safeExtend({
   }),
   requirements: z.array(z.string().min(1).max(500)).max(10),
 });
-// Published code uses the same message, dispatch, file, and result owners as a
-// selected-file handoff. Version 2 requires a receiver that pins the commit.
+// Version 2 binds the brief and optional materials to one reviewed source.
 const briefItems = z.array(z.string().trim().min(1).max(2000)).max(20);
-export const spaceCodeWorkHandoffSchema = selectedFileWorkHandoffSchema.extend({
+const workHandoffV2BaseSchema = selectedFileWorkHandoffSchema.extend({
   schemaVersion: z.literal(2),
   files: selectedFiles,
   sourceSignalId: z.string().trim().min(1).max(2048),
   sourceRevision: z.number().int().positive(),
-  code: executionContextProjectWorkSchema.required({ commit: true }),
-  execution: z.strictObject({
-    workspace: z.enum(["current", "isolated"]),
-    access: z.enum(["read_only", "workspace"]).optional(),
-  }),
   work: selectedFileWorkHandoffSchema.shape.work.extend({
     evidence: briefItems,
     attemptedApproaches: briefItems,
@@ -118,11 +112,30 @@ export const spaceCodeWorkHandoffSchema = selectedFileWorkHandoffSchema.extend({
     completionCriteria: briefItems.min(1),
   }),
 });
+export const spaceCodeWorkHandoffSchema = workHandoffV2BaseSchema.extend({
+  code: executionContextProjectWorkSchema.required({ commit: true }),
+  execution: z.strictObject({
+    workspace: z.enum(["current", "isolated"]),
+    access: z.enum(["read_only", "workspace"]).optional(),
+  }),
+});
+export const spaceContextWorkHandoffSchema = workHandoffV2BaseSchema.extend({
+  code: z.never().optional(),
+  execution: z.strictObject({
+    workspace: z.literal("isolated"),
+    access: z.literal("space_context"),
+  }),
+});
+export const spaceWorkHandoffV2Schema = z.union([
+  spaceCodeWorkHandoffSchema,
+  spaceContextWorkHandoffSchema,
+]);
 export const spaceWorkHandoffSchema = z.union([
   selectedFileWorkHandoffSchema,
-  spaceCodeWorkHandoffSchema,
+  spaceWorkHandoffV2Schema,
 ]);
 export type SpaceCodeWorkHandoff = z.infer<typeof spaceCodeWorkHandoffSchema>;
+export type SpaceWorkHandoffV2 = z.infer<typeof spaceWorkHandoffV2Schema>;
 export type SpaceWorkHandoff = z.infer<typeof spaceWorkHandoffSchema>;
 
 /** Service-only projection after preparing the dispatch's selected inputs. */
