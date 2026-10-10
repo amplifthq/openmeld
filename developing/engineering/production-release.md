@@ -1071,6 +1071,17 @@ artifacts and updates Core's release projection through the normal guarded path.
 
 The planner selects `inbox-source-target-receiver-first` when a diff changes the
 strict Inbox source-target schema together with a Core writer for those targets.
+The path signal remains conservative. The existing classifier omits this
+obligation only when the explicit baseline and candidate sources prove the
+same complete target union, direct schema dependencies, actual writers and
+storage delegate, target-bearing RPC/HTTP projections, Web interpreter, and
+their import/export, production binding and resolver configuration. It supports
+only the reviewed pure membership-kind projections, source-guard forwarding,
+and four retained request-time edits; every other owner change, unreadable
+source, ambiguous declaration or unknown structure retains the original gate.
+This proof does not emit a compatibility witness. In particular, the separate
+`inbox-membership-opt-in` Core-before-Gateway obligation still requires its own
+receiver admission; another witness for that service pair cannot satisfy it.
 Its cloud stage, including the combined Remote receiver profile, deploys Core
 through the existing current-published-CLI projection owner. That owner verifies
 the immutable published npm/R2 identity and required floor before activation,

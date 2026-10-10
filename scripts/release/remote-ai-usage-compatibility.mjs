@@ -189,7 +189,7 @@ function assertUsageEntrypoint(source) {
   }
 }
 
-function parseUnambiguousConfig(path, source) {
+export function parseUnambiguousConfig(path, source) {
   const tree = parseJsonText(path, source);
   const check = (node) => {
     if (isObjectLiteralExpression(node)) {

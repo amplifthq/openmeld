@@ -13,6 +13,7 @@ import {
   restoreProductCrons,
   verifyProductCrons,
 } from "./database-backend-admission.mjs";
+import { hasUnchangedInboxSourceTargetContract } from "./inbox-source-target-compatibility.mjs";
 import {
   cutoverConfigArgs,
   cutoverDeploySteps,
@@ -568,7 +569,8 @@ export function resolveProductionCompatibilityObligations(
     {
       contract: "inbox-source-target",
       enabled:
-        isInboxSourceTargetReceiverFirstDiff(changedPaths) && !taskInboxRetired,
+        isInboxSourceTargetReceiverFirstDiff(changedPaths, context) &&
+        !taskInboxRetired,
       edges: [
         ["web", "core"],
         ["gateway", "core"],
@@ -1150,7 +1152,10 @@ export function resolveAutomaticReleaseScopes(input) {
     scopes.add("cli");
   }
   if (
-    isInboxSourceTargetReceiverFirstDiff(input.changedPaths) ||
+    isInboxSourceTargetReceiverFirstDiff(
+      input.changedPaths,
+      input.compatibilityContext
+    ) ||
     isInboxNotificationObservationDiff(input.changedPaths)
   ) {
     for (const scope of INBOX_CLOUD_SCOPES) {
@@ -1215,7 +1220,10 @@ export function buildProductionVerifyStepSpecs(input) {
       scope === "core" &&
       !input.scopes.includes("cli") &&
       !input.taskInboxRetired &&
-      !isInboxSourceTargetReceiverFirstDiff(input.changedPaths) &&
+      !isInboxSourceTargetReceiverFirstDiff(
+        input.changedPaths,
+        input.compatibilityContext
+      ) &&
       !isDeviceWaitReceiverFirstDiff(input.changedPaths) &&
       !isLocalServiceRuntimeReceiverFirstDiff(input.changedPaths) &&
       !isWorkingFolderRecoveryDiff(input.changedPaths) &&
@@ -1318,7 +1326,10 @@ export function buildProductionPreflightStepSpecs(input) {
     input.scopes.includes("core") &&
     !input.scopes.includes("cli") &&
     !input.taskInboxRetired &&
-    !isInboxSourceTargetReceiverFirstDiff(input.changedPaths) &&
+    !isInboxSourceTargetReceiverFirstDiff(
+      input.changedPaths,
+      input.compatibilityContext
+    ) &&
     !isDeviceWaitReceiverFirstDiff(input.changedPaths) &&
     !isLocalServiceRuntimeReceiverFirstDiff(input.changedPaths) &&
     !isWorkingFolderRecoveryDiff(input.changedPaths) &&
@@ -1472,7 +1483,10 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
         isLocalServiceRuntimeReceiverFirstDiff(changedPaths) ||
         deployOrderProfile === "core-worker-response-reader-first" ||
         deployOrderProfile === "remote-agent-receiver-first" ||
-        isInboxSourceTargetReceiverFirstDiff(changedPaths),
+        isInboxSourceTargetReceiverFirstDiff(
+          changedPaths,
+          input.compatibilityContext
+        ),
       deployOrderProfile,
       releaseSha: input.releaseSha,
       scope,
@@ -2281,8 +2295,10 @@ function isPeopleComputersReceiverFirstDiff(changedPaths) {
 function resolveExistingProductionDeployOrderProfile(changedPaths, context) {
   const isConnectComputerReceiverFirst =
     isConnectComputerCliReceiverFirstDiff(changedPaths);
-  const isInboxReceiverFirst =
-    isInboxSourceTargetReceiverFirstDiff(changedPaths);
+  const isInboxReceiverFirst = isInboxSourceTargetReceiverFirstDiff(
+    changedPaths,
+    context
+  );
   const isRemoteAgentRequestReceiverFirst =
     isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths, context);
   const isRemoteAgentReceiverFirst = changedPaths.some(
@@ -2704,10 +2720,11 @@ function assertLocalServiceRuntimeReleaseScopes(scopes, changedPaths) {
   );
 }
 
-function isInboxSourceTargetReceiverFirstDiff(changedPaths) {
+function isInboxSourceTargetReceiverFirstDiff(changedPaths, context = {}) {
   return (
     changedPaths.includes(INBOX_SCHEMA_PATH) &&
-    changedPaths.some((path) => INBOX_SOURCE_TARGET_WRITER_PATHS.has(path))
+    changedPaths.some((path) => INBOX_SOURCE_TARGET_WRITER_PATHS.has(path)) &&
+    !hasUnchangedInboxSourceTargetContract(context)
   );
 }
 
@@ -2732,7 +2749,10 @@ function assertInboxSourceTargetReleaseScopes(
   context = {}
 ) {
   if (
-    !(taskInboxRetired || isInboxSourceTargetReceiverFirstDiff(changedPaths))
+    !(
+      taskInboxRetired ||
+      isInboxSourceTargetReceiverFirstDiff(changedPaths, context)
+    )
   ) {
     return;
   }
@@ -3084,7 +3104,11 @@ function resolveProductionReleaseContext(input) {
     : (input.affectedPackages ?? resolveAffectedPackages(changedPaths));
   const scopes =
     requested ??
-    resolveAutomaticReleaseScopes({ affectedPackages, changedPaths });
+    resolveAutomaticReleaseScopes({
+      affectedPackages,
+      changedPaths,
+      compatibilityContext,
+    });
   return {
     affectedPackages,
     base: input.base,
@@ -3222,6 +3246,7 @@ export function buildProductionReleasePlan(input) {
       releaseSha: sourceSha,
     }),
     preflightSteps: buildProductionPreflightStepSpecs({
+      compatibilityContext,
       coreCurrentCliProjection,
       databaseCutoverRestoreCrons: input.databaseCutoverRestoreCrons,
       changedPaths,
@@ -3230,6 +3255,7 @@ export function buildProductionReleasePlan(input) {
       taskInboxRetired,
     }),
     verifySteps: buildProductionVerifyStepSpecs({
+      compatibilityContext,
       coreCurrentCliProjection,
       changedPaths,
       scopes,
@@ -4035,6 +4061,7 @@ function readHeadSha() {
 function runGit(args) {
   return execFileSync(resolveCommandBinary("git"), args, {
     encoding: "utf8",
+    maxBuffer: 8 * 1024 * 1024,
   });
 }
 
