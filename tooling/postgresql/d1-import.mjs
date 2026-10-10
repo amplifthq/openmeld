@@ -22,6 +22,7 @@ import {
   migrationLock,
   quoteIdentifier as quote,
   readMigrations,
+  withSpaceMembershipBackfillScope,
 } from "./database.mjs";
 import { readCutoverTarget, verifyRemoteCredential } from "./remote-target.mjs";
 
@@ -146,6 +147,18 @@ async function reconcileTable(client, database, table, columns) {
 }
 
 export async function verifyNativeTarget(client, migrationsDirectory, remote) {
+  return verifyNativeTargetWithMigrations(
+    client,
+    await readMigrations(migrationsDirectory),
+    remote
+  );
+}
+
+export async function verifyNativeTargetWithMigrations(
+  client,
+  migrations,
+  remote
+) {
   let identity;
   if (remote) {
     const observed = (
@@ -167,7 +180,6 @@ export async function verifyNativeTarget(client, migrationsDirectory, remote) {
     }
     identity = await importTargetIdentity(client, directory);
   }
-  const migrations = await readMigrations(migrationsDirectory);
   const applied = (
     await client.query(
       "SELECT hash,created_at::text FROM drizzle.__drizzle_migrations ORDER BY created_at,id"
@@ -768,7 +780,9 @@ async function processD1Snapshot(
       if (!baseline) {
         throw new Error("Missing Space membership baseline");
       }
-      await client.query(baseline);
+      await withSpaceMembershipBackfillScope(client, () =>
+        client.query(baseline)
+      );
       // Derived Inbox baseline rows consume native identities after the import.
       // Re-establish an uncalled next identity before the receipt is committed.
       await reconcileIdentities(client, manifest, true, layout.identities);
