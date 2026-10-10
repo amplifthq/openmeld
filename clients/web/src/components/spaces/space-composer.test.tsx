@@ -197,6 +197,48 @@ it("keeps two agents' session choices independent and sends without a task by de
 });
 
 it.each([
+	{
+		setting: "access",
+		choices: [
+			["Access", "No project files"],
+			["Access", "Use agent settings"],
+		],
+	},
+	{
+		setting: "working copy",
+		choices: [
+			["Working copy", "Separate copy"],
+			["Working copy", "Current folder"],
+		],
+	},
+] as const)("returns to Automatic after changing $setting", async ({
+	choices,
+}) => {
+	const onSubmit = vi.fn<(options?: SpaceComposerSendOptions) => void>();
+	render(<MultiAgentHarness onSubmit={onSubmit} />);
+	for (const [menu, choice] of choices) {
+		fireEvent.click(
+			screen.getByRole("button", { name: "Change relation for Engineer" })
+		);
+		fireEvent.click(await screen.findByText(menu));
+		fireEvent.click(await screen.findByText(choice));
+	}
+	fireEvent.click(
+		screen.getByRole("button", { name: "Change relation for Engineer" })
+	);
+	fireEvent.click(await screen.findByText("Session"));
+	const automatic = await screen.findByRole("menuitemradio", {
+		name: "Automatic",
+	});
+	expect(automatic.getAttribute("aria-disabled")).not.toBe("true");
+	fireEvent.click(automatic);
+	fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+	expect(onSubmit.mock.calls[0]?.[0]?.contextSelections).toEqual({
+		[agentTargets[0].profileId]: { mode: "auto" },
+	});
+});
+
+it.each([
 	true,
 	false,
 ])("selects a copy independently from access restrictions (%s)", async (supportsCurrentFolder) => {
@@ -265,6 +307,12 @@ it.each([
 		projectWork,
 	});
 	expect(onChange.mock.lastCall?.[0].selection.access).toBeUndefined();
+	fireEvent.click(screen.getByRole("button", { name: "Options" }));
+	fireEvent.click(await screen.findByText("Session"));
+	fireEvent.click(
+		await screen.findByRole("menuitemradio", { name: "Automatic" })
+	);
+	expect(onChange.mock.lastCall?.[0].selection).toEqual({ mode: "auto" });
 	for (const { label, access, workspace } of [
 		{
 			label: "No project files",

@@ -110,14 +110,19 @@ export function SpaceComposerAgentOptions(input: {
 					<FluidDropdownMenuSubContent className="w-64">
 						<p className="px-2 py-1 text-muted-foreground text-xs">
 							Automatic continuation keeps an earlier session's restrictions,
-							including Space-only access. To use the agent's current settings,
-							choose Start new and Access → Use agent settings.
+							including Space-only access. Choosing Automatic clears the
+							working-copy, Project, and access choices below. To use the
+							agent's current settings, choose Start new and Access → Use agent
+							settings.
 						</p>
 						<DropdownMenuRadioGroup
 							onValueChange={(value) => {
 								if (value === "auto" || value === "new") {
 									choose(
-										{ mode: value, ...restrictions },
+										{
+											mode: value,
+											...(value === "new" ? restrictions : {}),
+										},
 										value === "auto" ? "Automatic" : "Start new"
 									);
 									return;
@@ -141,16 +146,7 @@ export function SpaceComposerAgentOptions(input: {
 							}}
 							value={sessionValue}
 						>
-							<FluidDropdownMenuRadioItem
-								closeOnClick
-								disabled={
-									accessValue !== "defaults" ||
-									preferences?.workspace !== undefined ||
-									preferences?.projectWork !== undefined
-								}
-								index={0}
-								value="auto"
-							>
+							<FluidDropdownMenuRadioItem closeOnClick index={0} value="auto">
 								Automatic
 							</FluidDropdownMenuRadioItem>
 							<FluidDropdownMenuRadioItem closeOnClick index={1} value="new">

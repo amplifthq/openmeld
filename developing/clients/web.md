@@ -4558,6 +4558,9 @@ adding a task restriction. **Access** independently offers **Use agent settings*
 **No project files**, and supported **Read files only** / **Project files only**
 restrictions. Returning to Agent settings preserves an existing project copy;
 leaving Space-only scratch work returns to the current folder by default.
+**Session → Automatic** remains selectable and clears explicit Access, Working
+copy, and Project preferences. The existing session retains its own restrictions;
+copy and access choices remain in place until the user selects Automatic.
 Claude's explicit project restriction requires a separate copy and its tooltip
 explains the container and network limits. Continuation and fork choices inherit
 their source settings and disable both controls. Shared Tooltips explain copy
