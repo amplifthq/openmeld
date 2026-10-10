@@ -1724,6 +1724,10 @@ verification uses its explicit `production` profile in this lane, so a staging
 contract introduced after the approved cutoff cannot retroactively invalidate
 that immutable production source. Normal repository verification keeps using
 the full environment profile and continues to enforce staging requirements.
+Gateway runtime-token declarations follow the connector reader and client in
+the exact product source. Historical readers that use only the admin token do not require
+the later runtime token. Current readers still require its examples, secrets
+declarations, and generated binding. An unreadable reader fails closed.
 
 ```sh
 release_sha="$(git rev-parse origin/main)"
