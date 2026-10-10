@@ -383,9 +383,12 @@ describe("Runtime Agent Controller reporting submission", () => {
     }
   });
 
-  it("retries without usage limits when an older Core rejects only the nested capacity field", async () => {
+  it.each([
+    "usageLimits",
+    "usageAdmission",
+  ])("retries without Usage evidence when an older Core rejects %s", async (field) => {
     submitAgentControllerReportsMock.mockRejectedValueOnce(
-      Object.assign(new Error('Unrecognized key: "usageLimits"'), {
+      Object.assign(new Error(`Unrecognized key: "${field}"`), {
         code: "invalid_payload",
         status: 400,
       })
@@ -398,6 +401,10 @@ describe("Runtime Agent Controller reporting submission", () => {
       agentControllerRef: "builtin:codex",
       agentControllerInterface: {
         ...CODEX_AGENT_CONTROLLER_INTERFACE,
+        usageAdmission: {
+          blocksNewWork: false,
+          observedAt: "2026-06-28T00:00:00.000Z",
+        },
         usageLimits: [
           {
             key: "codex:primary",
@@ -429,6 +436,10 @@ describe("Runtime Agent Controller reporting submission", () => {
       submitAgentControllerReportsMock.mock.calls[1]?.[0]?.reports?.[0]
         ?.agentControllerInterface
     ).not.toHaveProperty("usageLimits");
+    expect(
+      submitAgentControllerReportsMock.mock.calls[1]?.[0]?.reports?.[0]
+        ?.agentControllerInterface
+    ).not.toHaveProperty("usageAdmission");
     expect(
       submitAgentControllerReportsMock.mock.calls[1]?.[0]?.reports?.[0]
         ?.agentControllerInterface

@@ -239,6 +239,8 @@ export const buildRuntimeTransportDeliverDispatchRequest = (input: {
         ? { profileMentionLabel: sourceProfileMentionLabel }
         : {}),
       text: renderDispatchSourceText({
+        requestTimeContext:
+          input.message.sourceSignalSnapshot?.requestTimeContext,
         evidenceRefs: input.message.sourceSignalSnapshot?.evidenceRefs,
         workHandoff: input.message.sourceSignalSnapshot?.workHandoff,
         text: input.sourceSignal.text,
@@ -353,7 +355,7 @@ function buildRuntimeTransportSourceSignalSnapshot(input: {
   // Preserve the installed Service's strict snapshot shape. Context is rendered
   // into the existing source text at this transport boundary.
   const {
-    requestTimeContext: _requestTimeContext,
+    requestTimeContext,
     quotedMessage,
     pinnedFiles,
     contextMessages,
@@ -392,6 +394,7 @@ function buildRuntimeTransportSourceSignalSnapshot(input: {
         }
       : {}),
     text: renderDispatchSourceText({
+      requestTimeContext,
       evidenceRefs,
       text: sourceSnapshot.text,
       workHandoff,

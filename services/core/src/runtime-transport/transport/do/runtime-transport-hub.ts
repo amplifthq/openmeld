@@ -51,6 +51,7 @@ import {
   OPENMELD_LOCAL_FOLDER_PICKER_CAPABILITY_HEADER,
   OPENMELD_REASONING_STREAM_HEADER,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
+  openMeldDaemonReadProfileWorkspacePayloadSchema,
   openMeldToolsControlResultSchema,
   type PluginConnectionExecutionSourceRequest,
   pluginConnectionExecutionSourceRequestSchema,
@@ -118,6 +119,7 @@ import {
   runtimeTransportInspectExecutionRecoveryResponseSchema,
   runtimeTransportLocalAgentControlForkSessionFramePayloadSchema,
   runtimeTransportLocalAgentControlManageInstallationFramePayloadSchema,
+  runtimeTransportLocalAgentControlReadProfileWorkspaceFramePayloadSchema,
   runtimeTransportLocalAgentControlRefreshCatalogFramePayloadSchema,
   runtimeTransportLocalAgentControlResultFramePayloadSchema,
   runtimeTransportLocalAgentControlSetEnabledFramePayloadSchema,
@@ -141,6 +143,8 @@ import {
   runtimeTransportOpenMeldToolsControlResponseSchema,
   runtimeTransportOpenMeldToolsControlResultFramePayloadSchema,
   runtimeTransportPreExecutionHandoffRequestSchema,
+  runtimeTransportReadProfileWorkspaceRequestSchema,
+  runtimeTransportReadProfileWorkspaceResponseSchema,
   runtimeTransportRefreshLocalAgentCatalogRequestSchema,
   runtimeTransportRefreshLocalAgentCatalogResponseSchema,
   runtimeTransportRegisterSessionRequestSchema,
@@ -773,6 +777,7 @@ export type LocalAgentControlResultPayloadKind =
   | "manage_installation"
   | "refresh_catalog"
   | "set_profile_workspace"
+  | "read_profile_workspace"
   | "set_enabled";
 export function resolveLocalAgentControlResponseTimeoutMs(
   expectedPayload: LocalAgentControlResultPayloadKind
@@ -8797,7 +8802,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     const commandState =
       await this.readRuntimeCoordinatorRunCommandStateForProgress({
-        pending,
         request: parsed.data,
       });
     const tokenValidationContext =
@@ -8827,6 +8831,20 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
       return;
     }
+    const routeReasonCode =
+      this.resolveRuntimeCoordinatorLifecycleRouteRejection({
+        commandState,
+        request: parsed.data,
+        webSocket,
+      });
+    if (routeReasonCode) {
+      await acknowledge(false, routeReasonCode);
+      this.sendErrorFrame(webSocket, {
+        code: routeReasonCode,
+        message: "dispatch lifecycle rejected",
+      });
+      return;
+    }
     // Same-run keepalives still pass connection validation and acknowledgement,
     // but cannot move the occupied wait's progress or watchdog baseline.
     const { isOccupiedKeepalive } =
@@ -8835,59 +8853,51 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         request: parsed.data,
         tokenValidationContext,
       });
-    if (!pending && commandState) {
-      if (!isOccupiedKeepalive) {
-        await this.writeRuntimeCoordinatorRunCommandState(
-          buildRuntimeCoordinatorRunCommandStateFromLifecycle({
-            commandState,
-            lifecycle: parsed.data,
-            nowMs: Date.now(),
-          })
+    if (pending) {
+      const response = handleDispatchLifecycle(this.state, parsed.data, {
+        recordProgress: !isOccupiedKeepalive,
+      });
+      if (!response.ok) {
+        await acknowledge(
+          false,
+          response.reasonCode ?? "daemon.session.not_found"
         );
+        this.recordRuntimeCoordinatorDiagnosticEvent({
+          attemptId: parsed.data.attemptId,
+          eventType: "coordinator_pending_state_missing",
+          reasonCode: response.reasonCode ?? "daemon.session.not_found",
+          runtimeCoordinatorExecutionId: pending.runtimeCoordinatorExecutionId,
+        });
+        this.sendErrorFrame(webSocket, {
+          code: response.reasonCode ?? "daemon.session.not_found",
+          message: "dispatch lifecycle rejected",
+        });
+        return;
       }
-      this.recordRuntimeCoordinatorLifecycleProjectionFromCommandState({
-        commandState,
-        request: parsed.data,
-      });
-      await this.clearReadinessImpactFromRunningLifecycle({
-        executionAuthorizedAtMs: tokenValidation.run.issuedAtMs,
-        request: parsed.data,
-        tokenValidationContext,
-      });
-      this.queueHousekeepingAlarmSync();
-      await acknowledge(true, null);
-      return;
-    }
-    const response = handleDispatchLifecycle(this.state, parsed.data, {
-      recordProgress: !isOccupiedKeepalive,
-    });
-    if (!response.ok) {
-      await acknowledge(
-        false,
-        response.reasonCode ?? "daemon.session.not_found"
-      );
-      this.recordRuntimeCoordinatorDiagnosticEvent({
-        attemptId: parsed.data.attemptId,
-        eventType: "coordinator_pending_state_missing",
-        reasonCode: response.reasonCode ?? "daemon.session.not_found",
-        runtimeCoordinatorExecutionId:
-          pending?.runtimeCoordinatorExecutionId ?? null,
-      });
-      this.sendErrorFrame(webSocket, {
-        code: response.reasonCode ?? "daemon.session.not_found",
-        message: "dispatch lifecycle rejected",
-      });
-      return;
     }
     const updatedPending = this.state.pendingDispatches.get(
       buildDispatchAttemptKey(parsed.data.dispatchId, parsed.data.attemptId)
     );
-    if (updatedPending && !isOccupiedKeepalive) {
-      await this.updateRuntimeCoordinatorRunCommandStateFromPending({
-        pending: updatedPending,
+    const rejected =
+      await this.updateRuntimeCoordinatorRunCommandStateFromLifecycle({
+        activeRunId: tokenValidation.run.runId,
+        pending: updatedPending ?? null,
+        recordProgress: !isOccupiedKeepalive,
+        request: parsed.data,
+        webSocket,
       });
+    if (rejected) {
+      await acknowledge(false, rejected);
+      return;
     }
-    this.recordRuntimeCoordinatorLifecycleProjection(parsed.data);
+    if (!pending && commandState) {
+      this.recordRuntimeCoordinatorLifecycleProjectionFromCommandState({
+        commandState,
+        request: parsed.data,
+      });
+    } else {
+      this.recordRuntimeCoordinatorLifecycleProjection(parsed.data);
+    }
     await this.clearReadinessImpactFromRunningLifecycle({
       executionAuthorizedAtMs: tokenValidation.run.issuedAtMs,
       request: parsed.data,
@@ -9006,15 +9016,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     return { isOccupiedKeepalive };
   }
   private async readRuntimeCoordinatorRunCommandStateForProgress(input: {
-    pending: PendingDispatchState | undefined;
     request: Pick<
       RuntimeTransportDispatchLifecycleRequest,
       "attemptId" | "dispatchId" | "runtimeCoordinatorExecutionId"
     >;
   }): Promise<RuntimeCoordinatorRunCommandState | null> {
-    if (input.pending) {
-      return null;
-    }
     const runtimeCoordinatorExecutionId = normalizeOptionalText(
       input.request.runtimeCoordinatorExecutionId
     );
@@ -9047,7 +9053,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     }
     const commandState =
       await this.readRuntimeCoordinatorRunCommandStateForProgress({
-        pending,
         request,
       });
     if (!commandState) {
@@ -10700,6 +10705,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         this.handleRefreshLocalAgentCatalogRequest(input),
       "/local-agent-control/set-profile-workspace": (input: Request) =>
         this.handleSetProfileWorkspaceRequest(input),
+      "/local-agent-control/read-profile-workspace": (input: Request) =>
+        this.handleReadProfileWorkspaceRequest(input),
     }[url.pathname];
     if (localAgentControlHandler) {
       return localAgentControlHandler(request);
@@ -11201,6 +11208,89 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
     }
   }
+  private async handleReadProfileWorkspaceRequest(
+    request: Request
+  ): Promise<Response> {
+    const reject = (status: number, reasonCode: string, message: string) =>
+      Response.json(
+        {
+          status: "rejected",
+          reasonCode,
+          message,
+        } satisfies import("@openmeld/schemas/types").RuntimeTransportReadProfileWorkspaceResponse,
+        { status }
+      );
+    const parsed = runtimeTransportReadProfileWorkspaceRequestSchema.safeParse(
+      await readJsonBody(request)
+    );
+    if (!parsed.success) {
+      return reject(
+        400,
+        "local_agent_control.invalid_request",
+        "Invalid working-folder read request."
+      );
+    }
+    this.reapExpiredLeases(Date.now());
+    const session = this.resolveLocalAgentControlSession({
+      ...parsed.data,
+      capability: "readProfileWorkspace",
+      unsupportedMessage:
+        "Update OpenMeld Service to read saved working-folder settings.",
+      updateRequiredMessage:
+        "Update OpenMeld Service to read saved working-folder settings.",
+    });
+    if (!session.ok) {
+      return reject(409, session.reasonCode, session.message);
+    }
+    const requestId = crypto.randomUUID();
+    const payload =
+      runtimeTransportLocalAgentControlReadProfileWorkspaceFramePayloadSchema.parse(
+        { requestId, payload: { targetProfileId: parsed.data.targetProfileId } }
+      );
+    try {
+      const result = await this.sendCurrentDeviceOperationAndWait<
+        import("@openmeld/schemas/types").OpenMeldDaemonReadProfileWorkspacePayload
+      >({
+        code: "daemon.local_agent_control.read_profile_workspace",
+        expectedResponseCode: "daemon.local_agent_control.result",
+        isExpectedPayload: (value) =>
+          openMeldDaemonReadProfileWorkspacePayloadSchema.safeParse(value)
+            .success,
+        payload: payload as unknown as Record<string, unknown>,
+        requestId,
+        session: session.session,
+        timeoutMs: resolveLocalAgentControlResponseTimeoutMs(
+          "read_profile_workspace"
+        ),
+      });
+      if (!result.accepted) {
+        return reject(409, result.reasonCode, result.message);
+      }
+      if (result.targetProfileId !== parsed.data.targetProfileId) {
+        return reject(
+          502,
+          "local_agent_control.invalid_response",
+          "OpenMeld Service returned settings for a different Agent."
+        );
+      }
+      return Response.json(
+        runtimeTransportReadProfileWorkspaceResponseSchema.parse({
+          status: "accepted",
+          payload: result,
+        })
+      );
+    } catch (error) {
+      return reject(
+        504,
+        error instanceof CurrentDeviceOperationError &&
+          error.kind === "invalid_response"
+          ? "local_agent_control.invalid_response"
+          : "local_agent_control.timeout",
+        "OpenMeld could not confirm the saved working-folder settings. Try again."
+      );
+    }
+  }
+
   private async handleSetProfileWorkspaceRequest(
     request: Request
   ): Promise<Response> {
@@ -11222,7 +11312,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     this.reapExpiredLeases(Date.now());
     const session = this.resolveLocalAgentControlSession({
       ...parsed.data,
-      capability: "setProfileWorkspace",
+      capability: parsed.data.onlyIfUnconfigured
+        ? "initializeProfileWorkspace"
+        : "setProfileWorkspace",
       unsupportedMessage:
         "The current local OpenMeld Service does not support Project folder changes from OpenMeld Web.",
       updateRequiredMessage:
@@ -11246,6 +11338,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           payload: {
             targetProfileId: parsed.data.targetProfileId,
             workspaceMode: parsed.data.workspaceMode,
+            ...(parsed.data.onlyIfUnconfigured
+              ? { onlyIfUnconfigured: true }
+              : {}),
             ...(parsed.data.workspacePath === undefined
               ? {}
               : { workspacePath: parsed.data.workspacePath }),
@@ -13593,22 +13688,105 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       updatedAtMs: input.nowMs,
     };
   }
-  private async updateRuntimeCoordinatorRunCommandStateFromPending(input: {
-    pending: PendingDispatchState;
-  }): Promise<void> {
-    const commandState = await this.readRuntimeCoordinatorRunCommandState(
-      input.pending.runtimeCoordinatorExecutionId
-    );
-    if (!commandState) {
-      return;
+  private resolveRuntimeCoordinatorLifecycleRouteRejection(input: {
+    commandState: RuntimeCoordinatorRunCommandState | null;
+    request: RuntimeTransportDispatchLifecycleRequest;
+    webSocket: WebSocket;
+  }): string | null {
+    if (!input.commandState) {
+      return "daemon.session.not_found";
     }
-    await this.writeRuntimeCoordinatorRunCommandState({
-      ...commandState,
-      lastWatchdogCheckAtMs: null,
-      localProgress: buildRuntimeCoordinatorRunLocalProgressFromPending(
-        input.pending
-      ),
-      updatedAtMs: Date.now(),
+    const session = this.state.sessionsById.get(input.request.daemonSessionId);
+    const provenance = input.commandState.lastDeliveryProvenance;
+    if (
+      !session?.socket ||
+      session.socket !== input.webSocket ||
+      session.ownerUserId !== input.commandState.ownerUserId ||
+      this.resolveVerifiedOwnerUserId(input.webSocket) !==
+        input.commandState.ownerUserId ||
+      input.request.daemonSessionId !== provenance.daemonSessionId ||
+      !session.profileIds.has(input.commandState.profileId)
+    ) {
+      return "daemon.session.not_found";
+    }
+    if (
+      session.connectionGeneration !== input.request.connectionGeneration ||
+      input.request.connectionGeneration < provenance.connectionGeneration ||
+      (input.request.connectionGeneration !== provenance.connectionGeneration &&
+        (!hasRuntimeCoordinatorDurableLocalProgress(
+          input.commandState.localProgress
+        ) ||
+          provenance.deviceId !== session.deviceId ||
+          provenance.lane !== session.lane))
+    ) {
+      return "daemon.session.connection_replaced";
+    }
+    const lease = this.state.profileLeasesByProfileId.get(
+      input.commandState.profileId
+    );
+    if (
+      !lease ||
+      lease.daemonSessionId !== session.daemonSessionId ||
+      lease.deviceId !== session.deviceId ||
+      lease.lane !== session.lane ||
+      lease.leaseEpoch !== provenance.leaseEpoch ||
+      input.request.leaseEpoch !== provenance.leaseEpoch
+    ) {
+      return "daemon.session.stale_lease";
+    }
+    return null;
+  }
+  private async updateRuntimeCoordinatorRunCommandStateFromLifecycle(input: {
+    activeRunId: string;
+    pending: PendingDispatchState | null;
+    recordProgress: boolean;
+    request: RuntimeTransportDispatchLifecycleRequest;
+    webSocket: WebSocket;
+  }): Promise<string | null> {
+    return await this.ctx.storage.transaction(async (transaction) => {
+      const current = await readRuntimeCoordinatorRunCommandStateFromStorage(
+        transaction,
+        input.request.runtimeCoordinatorExecutionId ?? ""
+      );
+      if (
+        !current ||
+        current.activeRunId !== input.activeRunId ||
+        current.dispatchId !== input.request.dispatchId ||
+        current.attemptId !== input.request.attemptId
+      ) {
+        return "daemon.session.not_found";
+      }
+      const rejected = this.resolveRuntimeCoordinatorLifecycleRouteRejection({
+        commandState: current,
+        request: input.request,
+        webSocket: input.webSocket,
+      });
+      if (rejected) {
+        return rejected;
+      }
+      const nowMs = Date.now();
+      const next = input.recordProgress
+        ? buildRuntimeCoordinatorRunCommandStateFromLifecycle({
+            commandState: current,
+            lifecycle: {
+              ...input.request,
+              lifecycleAtMs:
+                input.pending?.lastLifecycleAtMs ?? input.request.lifecycleAtMs,
+            },
+            nowMs,
+          })
+        : current;
+      await writeRuntimeCoordinatorRunCommandStateInTransaction(transaction, {
+        ...next,
+        // Same-process reconnect changes transport control, not execution or
+        // progress. Occupied keepalives must also retain their watchdog baseline.
+        lastDeliveryProvenance: {
+          ...current.lastDeliveryProvenance,
+          connectionGeneration: input.request.connectionGeneration,
+        },
+        updatedAtMs: nowMs,
+      });
+      return null;
     });
   }
   private async markRuntimeCoordinatorRunCommandStateResultReceived(input: {
@@ -21187,7 +21365,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       | "manageInstallationsSafely"
       | "refreshCatalog"
       | "setEnabled"
-      | "setProfileWorkspace";
+      | "initializeProfileWorkspace"
+      | "setProfileWorkspace"
+      | "readProfileWorkspace";
     ownerUserId: string;
     deviceId: string;
     lane: string;
@@ -21429,16 +21609,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
   }
 }
-const buildRuntimeCoordinatorRunLocalProgressFromPending = (
-  pending: PendingDispatchState
-): RuntimeCoordinatorRunLocalProgressState => ({
-  acceptedLocalAtMs: pending.acceptedLocalAtMs,
-  completedLocalAtMs: pending.completedLocalAtMs,
-  lastLifecycleAtMs: pending.lastLifecycleAtMs,
-  phase: pending.phase,
-  resultReceivedAtMs: pending.phase === "result_received" ? Date.now() : null,
-  runningAtMs: pending.runningAtMs,
-});
 const hasRuntimeCoordinatorLocalProgress = (
   pending: PendingDispatchState
 ): boolean =>

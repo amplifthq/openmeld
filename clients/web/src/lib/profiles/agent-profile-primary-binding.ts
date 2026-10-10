@@ -6,12 +6,36 @@ import type {
 	AgentControllerCollaborationMode,
 	AgentControllerPermissionMode,
 	AgentProfileBindingOpenCodePermission,
+	AgentProfileBindingTarget,
 	DisableAgentProfilePrimaryBindingResponse,
 	EnsureAgentProfilePrimaryBindingResponse,
 	GetAgentProfileControllerChangeEligibilityResponse,
 	GetAgentProfilePrimaryBindingResponse,
 } from "@openmeld/schemas/types";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+
+/** An editor precondition projected from Core's canonical Binding. */
+export function projectAgentProfileBindingTarget(
+	binding:
+		| Pick<
+				NonNullable<GetAgentProfilePrimaryBindingResponse["binding"]>,
+				"bindingId" | "executionTarget"
+		  >
+		| null
+		| undefined
+): AgentProfileBindingTarget | null {
+	if (!(binding?.bindingId && binding.executionTarget)) {
+		return null;
+	}
+	return {
+		bindingId: binding.bindingId,
+		openMeldServiceRuntimeId:
+			binding.executionTarget.openMeldServiceRuntimeId.value,
+		agentControllerRef: binding.executionTarget.agentControllerRef,
+		agentControllerConversationId:
+			binding.executionTarget.agentControllerConversationId ?? null,
+	};
+}
 
 export async function readAgentProfilePrimaryBinding(input: {
 	agentProfileId: string;

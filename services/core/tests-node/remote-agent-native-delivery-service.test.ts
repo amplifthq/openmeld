@@ -111,6 +111,7 @@ import {
 import {
   rpcExecuteExecutionRecovery,
   rpcInspectExecutionRecovery,
+  rpcPostCenterAgentWakePublicationSignal,
 } from "../src/rpc/methods";
 import { createSpaceBootstrapTimingCollector } from "../src/space/application/space-bootstrap-timing";
 import { truncateSpaceTextToProtocolLimit } from "../src/space/application/space-text";
@@ -1737,6 +1738,14 @@ describe("Remote Agent native delivery callback service", () => {
     "signal-child-result",
     null,
   ])("submits one idempotent continuation with the child's exact result locator %s", async (childSignalId) => {
+    const requestTimeContext = {
+      submittedAtMs: 800,
+      userTime: {
+        timeZone: "America/Los_Angeles",
+        source: "web" as const,
+        observedAtMs: 700,
+      },
+    };
     const harness = await createPostgresHarness();
     await seedRemoteAgentSubmitAuthority(harness);
     const stageLogs = vi
@@ -1784,6 +1793,7 @@ describe("Remote Agent native delivery callback service", () => {
         db: harness.db,
         dispatchId: "dispatch-parent",
         idempotencyKey: "idempotency-parent",
+        requestTimeContext,
         spaceId: SPACE_ID,
         triggerMessageId: "signal_1",
       });
@@ -1803,6 +1813,54 @@ describe("Remote Agent native delivery callback service", () => {
       if (!observerDelivery) {
         throw new Error("expected parent delivery fixture");
       }
+      const delegatedWake = {
+        activationTargets: ["agt_33333333-3333-4333-8333-333333333333"],
+        attribution: {
+          actorProfileId: AGENT_PROFILE_ID,
+          onBehalfOf: {
+            profileId: HUMAN_PROFILE_ID,
+            userId: "user_1",
+            displayName: "Ari",
+          },
+        },
+        clientMessageId: "client-child-1",
+        completionMode: "resume_parent_when_all_terminal" as const,
+        context: {
+          activeOrganizationId: "org_1",
+          actorContext: {
+            openMeldProfileId: AGENT_PROFILE_ID,
+            profileKind: "agent" as const,
+            requestId: "delegated-wake",
+          },
+        },
+        delegationId: "delegation-1",
+        fallbackAgentProfileId: null,
+        mentionTargets: [],
+        organizationId: "org_1",
+        parentSubmissionId: "submission-parent",
+        profile: { kind: "agent" as const, profileId: AGENT_PROFILE_ID },
+        referenceTargets: [],
+        spaceId: SPACE_ID,
+        subscriptionIds: ["subscription-1"],
+        text: "Continue the original request in ten minutes.",
+        v: 1 as const,
+      };
+      // Publication recovery re-reads the retained parent, not a fresh clock.
+      await rpcPostCenterAgentWakePublicationSignal(env, delegatedWake);
+      await rpcPostCenterAgentWakePublicationSignal(env, delegatedWake);
+      expect(
+        env.__spaceStub.rpcPostSignalOnceByClientMessageId
+      ).toHaveBeenLastCalledWith(
+        expect.objectContaining({ requestTimeContext })
+      );
+      await expect(
+        rpcPostCenterAgentWakePublicationSignal(env, {
+          ...delegatedWake,
+          organizationId: "another-organization",
+        })
+      ).rejects.toMatchObject({
+        cause: { code: "center_agent.delegation_parent_unavailable" },
+      });
       const recalledContinuationMemory = {
         items: [
           {
@@ -1967,6 +2025,7 @@ describe("Remote Agent native delivery callback service", () => {
             }),
           ],
           turnEnvelope: expect.objectContaining({
+            requestTimeContext,
             interactionEnvironment: "requester_private",
             memory: recalledContinuationMemory,
             sender: expect.objectContaining({
@@ -5041,6 +5100,14 @@ describe("Remote Agent native delivery callback service", () => {
     }
   });
   it("retries an ambiguous Center Agent watch admission without settling it", async () => {
+    const requestTimeContext = {
+      submittedAtMs: 800,
+      userTime: {
+        timeZone: "Asia/Taipei",
+        source: "web" as const,
+        observedAtMs: 700,
+      },
+    };
     const harness = await createPostgresHarness();
     await seedRemoteAgentSubmitAuthority(harness);
     const workerSubmit = vi
@@ -5084,6 +5151,7 @@ describe("Remote Agent native delivery callback service", () => {
         db: harness.db,
         dispatchId: "dispatch-watch-parent",
         idempotencyKey: "idempotency-watch-parent",
+        requestTimeContext,
         spaceId: SPACE_ID,
         triggerMessageId: "signal_1",
       });
@@ -5160,6 +5228,7 @@ describe("Remote Agent native delivery callback service", () => {
             }),
           ],
           turnEnvelope: expect.objectContaining({
+            requestTimeContext,
             sender: expect.objectContaining({
               ownerUserId: "user_1",
               profileId: HUMAN_PROFILE_ID,
@@ -13764,6 +13833,7 @@ async function persistTestCenterAgentWorkerSubmitRequest(input: {
   idempotencyKey: string;
   modelRoute?: CenterAgentModelRoute;
   requestVersion?: 2 | 4;
+  requestTimeContext?: RemoteAgentTurnEnvelope["requestTimeContext"];
   spaceId: string;
   triggerMessageId: string;
   turnEnvelope?: RemoteAgentTurnEnvelope;
@@ -13798,6 +13868,9 @@ async function persistTestCenterAgentWorkerSubmitRequest(input: {
       spaceId: input.spaceId,
       triggerMessageId: input.triggerMessageId,
       turnEnvelope: input.turnEnvelope ?? {
+        ...(input.requestTimeContext
+          ? { requestTimeContext: input.requestTimeContext }
+          : {}),
         centerAgent: {
           profileHandle: "center-agent",
           profileName: "Center Agent",

@@ -783,7 +783,15 @@ call the same Core Project service after a verified member explicitly opts in;
 it must not simulate a model turn or create a parallel permission path.
 
 Current-computer discovery and Local Project Connection mutations are not
-Center Agent tools. Slack and hosted Remote Agent turns have no trustworthy
+Center Agent tools. Private owner readiness can opt into a path-free Default
+Project connection read on the Agent's exact Binding device and lane. It reads
+the existing Service connection owner with `includeCandidates: false` and
+requires `readConnections`; it never scans folders or falls back to another
+Computer. The result retains the Project, target, checked time, default
+connection generation, and a safe reason code. Unknown or unsupported evidence
+is unavailable, not a missing connection or execution result. Older callers
+omit this optional projection and keep their previous response.
+Slack and hosted Remote Agent turns have no trustworthy
 "current computer," and absolute paths are private owner-self device facts.
 After cloud configuration, the Center Agent returns the trusted Project detail
 Navigation Action. Core rebuilds the canonical Organization URL from the

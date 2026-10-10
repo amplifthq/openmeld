@@ -325,6 +325,8 @@ export {
   openMeldDaemonProviderConversationProofProviderSchema,
   openMeldDaemonProviderConversationProofSchema,
   openMeldDaemonProviderConversationProofStatusSchema,
+  openMeldDaemonReadProfileWorkspacePayloadSchema,
+  openMeldDaemonReadProfileWorkspaceRequestPayloadSchema,
   openMeldDaemonRequestAgentActivitySyncPayloadSchema,
   openMeldDaemonRequestAgentActivitySyncRequestPayloadSchema,
   openMeldDaemonRequestAgentActivitySyncResponseSchema,
@@ -700,6 +702,7 @@ export {
   runtimeTransportLocalAgentControlForkSessionFramePayloadSchema,
   runtimeTransportLocalAgentControlInterruptFramePayloadSchema,
   runtimeTransportLocalAgentControlManageInstallationFramePayloadSchema,
+  runtimeTransportLocalAgentControlReadProfileWorkspaceFramePayloadSchema,
   runtimeTransportLocalAgentControlRefreshCatalogFramePayloadSchema,
   runtimeTransportLocalAgentControlResultFramePayloadSchema,
   runtimeTransportLocalAgentControlSetEnabledFramePayloadSchema,
@@ -721,6 +724,8 @@ export {
   runtimeTransportPreExecutionHandoffReasonCodeSchema,
   runtimeTransportPreExecutionHandoffRequestSchema,
   runtimeTransportPreExecutionHandoffResponseSchema,
+  runtimeTransportReadProfileWorkspaceRequestSchema,
+  runtimeTransportReadProfileWorkspaceResponseSchema,
   runtimeTransportRefreshLocalAgentCatalogRequestSchema,
   runtimeTransportRefreshLocalAgentCatalogResponseSchema,
   runtimeTransportRegisterSessionRequestSchema,
@@ -1007,6 +1012,7 @@ export {
   agentProfileBindingRouteParamsSchema,
   agentProfileBindingRuntimeIdSchema,
   agentProfileBindingStateSchema,
+  agentProfileBindingTargetSchema,
   agentProfileBindingWriteModeSchema,
   agentProfileCreationDefaultsSchema,
   currentAgentProfileSessionLookupQuerySchema,
@@ -1047,6 +1053,7 @@ export {
   decideAgentProfileCreationRequestBodySchema,
   getAgentProfileCreationApprovalPreferenceResponseSchema,
   listAgentProfileCreationRequestsResponseSchema,
+  retryAgentProfileCreationRequestBodySchema,
   setAgentProfileCreationApprovalPreferenceBodySchema,
   setAgentProfileCreationApprovalPreferenceResponseSchema,
   TEAMMATE_AGENT_REQUESTS_ENABLED,
@@ -1099,6 +1106,7 @@ export {
   authRpcResolveUserDisplayNameResultSchema,
   authRpcSendInboxUrgentEmailInputSchema,
   authRpcSendInboxUrgentEmailResultSchema,
+  authRpcUpdateAgentProfileDefaultProjectInputSchema,
   openMeldRequestedOrganizationSelectorSchema,
 } from "./http/auth-rpc";
 export { catchupResponseSchema } from "./http/catchup-response";
@@ -1650,6 +1658,8 @@ export {
   currentLocalAgentInstallationsResponseSchema,
   currentLocalAgentInstallationsRouteParamsSchema,
   currentLocalRuntimeReplyReadinessResponseSchema,
+  getCurrentAgentProfileWorkspaceQuerySchema,
+  getCurrentAgentProfileWorkspaceResponseSchema,
   localRuntimeComputerFileAccessSchema,
   localRuntimeComputerSchema,
   localRuntimeDeviceTypeSchema,
@@ -2927,6 +2937,8 @@ export {
   profileSchema,
   profileWorkingDirectorySchema,
   profileWorkspaceModeSchema,
+  profileWorkspaceOriginSchema,
+  profileWorkspaceReadResultSchema,
   uuidProfileIdSchema,
 } from "./protocol/profile";
 export { serverErrorFrameSchema } from "./protocol/server-error";
@@ -3009,6 +3021,7 @@ export {
   agentControllerInterfaceStatusSchema,
   agentControllerInterfaceVersionAdvisorySchema,
   agentControllerInterfaceVersionAdvisoryStatusSchema,
+  agentControllerUsageAdmissionSchema,
   agentControllerUsageLimitSchema,
   agentControllerUsageLimitStatusSchema,
   agentControllerUsageLimitsSchema,
@@ -3284,6 +3297,7 @@ export {
   spaceStatusSchema,
 } from "./space-mesh/signal-status";
 export {
+  preHeadFailurePublicationIdentitySchema,
   signalSystemNoticeDataSchema as signalSystemNoticeDataPayloadSchema,
   signalSystemNoticeFailureStageSchema,
   signalSystemNoticeGeneratedBySchema,

@@ -12,6 +12,7 @@ export type {
   AgentControllerInterfaceStatus,
   AgentControllerInterfaceVersionAdvisory,
   AgentControllerInterfaceVersionAdvisoryStatus,
+  AgentControllerUsageAdmission,
   AgentControllerUsageLimit,
   AgentControllerUsageLimitStatus,
   AgentControllerUsageLimits,

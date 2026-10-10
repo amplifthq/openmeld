@@ -4,7 +4,7 @@ import {
   AGENT_COMPUTER_CONTAINER_BACKEND_ID,
   AGENT_COMPUTER_SHELL_BACKEND_ID,
   ensureAgentComputerLayout,
-} from "./computer-workspace";
+} from "./computer-workspace-config";
 
 /**
  * Development-lane end-to-end exercise of the Center Agent's computer:

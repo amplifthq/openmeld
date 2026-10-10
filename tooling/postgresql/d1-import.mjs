@@ -300,6 +300,13 @@ function nativeColumns(table, targetColumns) {
       hidden: 0,
       source: "new_nullable",
     });
+    // A historical null does not prove that the owner never cleared Project.
+    columns.push({
+      name: "default_project_revision",
+      type: "INTEGER",
+      hidden: 0,
+      source: "new_nullable",
+    });
   }
   if (table.name === "projects") {
     // Historical Projects retain their repository and identity. Workflow
@@ -358,6 +365,16 @@ function nativeColumns(table, targetColumns) {
   if (table.name === "space_index_spaces") {
     columns.push({
       name: "recent_message_previews_json",
+      type: "TEXT",
+      hidden: 0,
+      source: "new_nullable",
+    });
+  }
+  if (table.name === "openMeldDaemon_pre_head_failure_publication_outbox") {
+    // Import keeps the historical publication state. Attribution is reviewed
+    // by the owning recovery command, never inferred by the migration.
+    columns.push({
+      name: "recovery_blocker_reason",
       type: "TEXT",
       hidden: 0,
       source: "new_nullable",

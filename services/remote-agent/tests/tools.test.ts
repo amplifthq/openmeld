@@ -3123,7 +3123,11 @@ describe("remote agent OpenMeld tool catalog", () => {
       executeTool(tools, "openmeld_check_agent_profile_readiness", {
         agentProfileId: AGENT_PROFILE_ID,
       })
-    ).rejects.toThrow("private conversation");
+    ).rejects.toMatchObject({
+      code: "center_agent.requester_private_required",
+      retryable: false,
+      message: expect.stringContaining("openmeld_read_organization_directory"),
+    });
     expect(centerAgentCheckAgentProfileReadiness).not.toHaveBeenCalled();
   });
 
@@ -3705,11 +3709,11 @@ describe("remote agent OpenMeld tool catalog", () => {
       "verified represented member only"
     );
     expect(descriptions.get("openmeld_create_agent_profile_request")).toContain(
-      "Default Project alone does not set that folder"
+      "Default Project resolves future tasks to that local connection"
     );
     expect(
       descriptions.get("openmeld_update_agent_profile_runtime_settings")
-    ).toContain("use workspacePath to correct a folder");
+    ).toContain("saves the local folder and then clears Default Project");
     expect(
       [...descriptions.keys()].includes(
         "openmeld_create_configured_agent_profile"
@@ -5301,6 +5305,37 @@ describe("remote agent OpenMeld tool catalog", () => {
     ).rejects.toThrow(
       "OpenMeld Core RPC centerAgentGetOrganizationInviteLink returned an invalid Organization invite-link response."
     );
+  });
+
+  it("rejects working-folder changes before calling old Core, while retaining model-only compatibility", async () => {
+    const request = createSubmitTurnRequest();
+    const storage = await createStorageWithPendingContext(request);
+    const legacyWrite = vi.fn(async () => updateRuntimeSettingsResponse());
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: {
+        centerAgentUpdateAgentProfileRuntimeSettings: legacyWrite,
+      },
+      storage,
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_update_agent_profile_runtime_settings", {
+        agentProfileId: AGENT_PROFILE_ID,
+        workspaceMode: "openmeld_managed",
+      })
+    ).rejects.toThrow(
+      "OpenMeld Core RPC centerAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace is unavailable."
+    );
+    expect(legacyWrite).not.toHaveBeenCalled();
+
+    await expect(
+      executeTool(tools, "openmeld_update_agent_profile_runtime_settings", {
+        agentProfileId: AGENT_PROFILE_ID,
+        modelId: "gpt-6.1-sol",
+        reasoningLevel: "high",
+      })
+    ).resolves.toMatchObject({ agentProfileId: AGENT_PROFILE_ID });
+    expect(legacyWrite).toHaveBeenCalledOnce();
   });
 
   for (const scenario of toolPayloadScenarios()) {
@@ -7533,12 +7568,13 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
         ...runtimeSettings,
       },
       response: updateRuntimeSettingsResponse(),
-      rpcName: "centerAgentUpdateAgentProfileRuntimeSettings",
+      rpcName: "centerAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace",
       toolName: "openmeld_update_agent_profile_runtime_settings",
     },
     {
       expectedPayload: {
         agentProfileId: AGENT_PROFILE_ID,
+        includeDefaultProjectConnection: true,
         onBehalfOf,
       },
       input: {

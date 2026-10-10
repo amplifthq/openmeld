@@ -24,7 +24,7 @@ import {
 	isWakeProgressSourceSignalRecoverable,
 	mergeWakeProgressItems,
 } from "@openmeld/space";
-import type { useQueryClient } from "@tanstack/react-query";
+import type { QueryKey, useQueryClient } from "@tanstack/react-query";
 import { isSessionExpiredError } from "#/lib/session-expired";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceConversationVisibleStreamProjection } from "#/lib/spaces/conversation-stream";
@@ -979,6 +979,8 @@ export function mergeLiveThreadSignalIntoCache(input: {
 		input.queryClient.getQueryData<ListSpaceThreadSignalsResponse>(
 			threadSignalsKey
 		);
+	const threadSignalsState = input.queryClient.getQueryState(threadSignalsKey);
+	const threadReadInFlight = threadSignalsState?.fetchStatus === "fetching";
 	const introducesAuthor =
 		input.signal.type === "signal.text" &&
 		!input.signal.data.meta?.transient &&
@@ -988,8 +990,7 @@ export function mergeLiveThreadSignalIntoCache(input: {
 	// Live events can populate an unopened Thread with only its newest messages.
 	// Keep that partial snapshot stale until a full server read completes.
 	const needsFullSnapshot =
-		!previous ||
-		input.queryClient.getQueryState(threadSignalsKey)?.isInvalidated;
+		!previous || threadSignalsState?.isInvalidated || threadReadInFlight;
 	const changesWakeSelection =
 		input.signal.type === "signal.text" &&
 		input.signal.profile.kind === "human" &&
@@ -1000,11 +1001,13 @@ export function mergeLiveThreadSignalIntoCache(input: {
 		(current) => mergeThreadSignalsCache(current, input)
 	);
 	if (introducesAuthor || needsFullSnapshot || changesWakeSelection) {
-		input.queryClient
-			.invalidateQueries({ queryKey: threadSignalsKey })
-			.catch((error) => {
-				console.error("Could not refresh Thread participants.", error);
-			});
+		invalidateThreadSnapshotAfterLiveReply({
+			queryClient: input.queryClient,
+			queryKey: threadSignalsKey,
+			readInFlight: threadReadInFlight,
+		}).catch((error) => {
+			console.error("Could not refresh Thread participants.", error);
+		});
 	}
 
 	const threadsKey = spaceQueryKeys.threads(
@@ -1016,24 +1019,61 @@ export function mergeLiveThreadSignalIntoCache(input: {
 		?.threads.some(
 			(thread) => thread.threadId === input.threadContext.threadId
 		);
+	const catalogState = input.queryClient.getQueryState(threadsKey);
+	const catalogReadInFlight = catalogState?.fetchStatus === "fetching";
+	const needsCatalogSnapshot =
+		catalogState?.isInvalidated || catalogReadInFlight;
 	input.queryClient.setQueryData<ListSpaceThreadsResponse>(
 		threadsKey,
 		(current) => mergeThreadPreviewCache(current, input)
 	);
-	if (!knownThread) {
-		input.queryClient
-			.fetchQuery({
-				...spaceThreadsQueryOptions({
-					spaceId: input.spaceId,
-					openMeldProfileId: input.openMeldProfileId,
-					enabled: true,
-				}),
-				staleTime: 0,
+	if (!knownThread || needsCatalogSnapshot) {
+		invalidateThreadSnapshotAfterLiveReply({
+			queryClient: input.queryClient,
+			queryKey: threadsKey,
+			readInFlight: catalogReadInFlight,
+		})
+			.then(async () => {
+				if (!knownThread) {
+					await input.queryClient.fetchQuery({
+						...spaceThreadsQueryOptions({
+							spaceId: input.spaceId,
+							openMeldProfileId: input.openMeldProfileId,
+							enabled: true,
+						}),
+						staleTime: 0,
+					});
+				}
 			})
 			.catch((error) => {
-				console.error("Could not refresh the new Thread.", error);
+				console.error("Could not refresh the Thread catalog.", error);
 			});
 	}
+}
+
+async function invalidateThreadSnapshotAfterLiveReply(input: {
+	queryClient: ReturnType<typeof useQueryClient>;
+	queryKey: QueryKey;
+	readInFlight: boolean;
+}): Promise<void> {
+	if (input.readInFlight) {
+		// Cancellation restores the pre-read state. Restore the live snapshot
+		// immediately so it stays current without exposing a cancellation error
+		// when this query has no active observer to refetch it.
+		const liveSnapshot = input.queryClient.getQueryData(input.queryKey);
+		const cancellation = input.queryClient.cancelQueries({
+			queryKey: input.queryKey,
+			exact: true,
+		});
+		input.queryClient.setQueryData(input.queryKey, liveSnapshot);
+		await cancellation;
+	}
+	// setQueryData clears invalidation. Restore it after merging so active
+	// observers read again and unopened snapshots wait for an authorized read.
+	await input.queryClient.invalidateQueries({
+		queryKey: input.queryKey,
+		exact: true,
+	});
 }
 
 export function mergeThreadSignalsCache(

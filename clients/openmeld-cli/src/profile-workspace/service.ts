@@ -3,9 +3,14 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import {
   profileWorkspaceModeSchema,
+  profileWorkspaceOriginSchema,
   providerDispatchRuntimeContextSchema,
 } from "@openmeld/schemas";
-import type { ProfileWorkspaceMode } from "@openmeld/schemas/types";
+import type {
+  ProfileWorkspaceMode,
+  ProfileWorkspaceOrigin,
+  ProfileWorkspaceReadResult,
+} from "@openmeld/schemas/types";
 import { resolveCurrentOpenMeldAccountContext } from "../config/account-context";
 import { acquireLock, runWithHeldLock } from "../config/lock";
 import {
@@ -46,6 +51,7 @@ export type ProfileLocalMetaEnvelope = {
   updatedAt: string;
   v: 2;
   workspace?: ProfileWorkspaceConfig;
+  workspaceOrigin?: ProfileWorkspaceOrigin;
 };
 
 type ProfileLocalMetaLegacyV1 = {
@@ -71,6 +77,7 @@ export type ProfileWorkspaceConfigReadResult =
       status: "valid";
       updatedAt: string;
       value: ProfileWorkspaceConfig;
+      origin?: ProfileWorkspaceOrigin;
     };
 
 export type ProfileWorkspaceMigrationResult =
@@ -95,6 +102,7 @@ export type ProfileWorkspaceMigrationResult =
     };
 
 export type ProfileWorkspaceWriteResult = {
+  changed: boolean;
   path: string;
   updatedAt: string;
   value: ProfileWorkspaceConfig;
@@ -194,6 +202,35 @@ export async function readProfileWorkspaceConfigForAccount(input: {
     status: "valid",
     updatedAt: envelope.updatedAt,
     value: envelope.workspace,
+    ...(envelope.workspaceOrigin ? { origin: envelope.workspaceOrigin } : {}),
+  };
+}
+
+/** Reads saved configuration without migration, provisioning, or path validation. */
+export async function readSavedProfileWorkspaceForAccount(input: {
+  account: OpenMeldAccountKey;
+  openMeldProfileId: string;
+}): Promise<ProfileWorkspaceReadResult> {
+  const result = await readProfileWorkspaceConfigForAccount(input);
+  if (result.status === "missing") {
+    return { status: "missing" };
+  }
+  if (result.status === "invalid") {
+    return {
+      status: "invalid",
+      reasonCode: `profile.workspace.${result.reason}`,
+    };
+  }
+  return {
+    status: "configured",
+    workspaceMode: result.value.mode,
+    workspacePath: resolveConfiguredProfileWorkspacePathForAccount({
+      ...input,
+      value: result.value,
+    }),
+    configurationVersion: result.persistedVersion,
+    updatedAt: result.updatedAt,
+    ...(result.origin ? { configurationOrigin: result.origin.kind } : {}),
   };
 }
 
@@ -201,25 +238,26 @@ export async function setOpenMeldManagedProfileWorkspace(input: {
   account?: OpenMeldAccountKey;
   openMeldProfileId: string;
   updatedAt?: string;
+  onlyIfUnconfigured?: boolean;
 }): Promise<ProfileWorkspaceWriteResult> {
   const account = await resolveAccountKey(input.account);
   const openMeldProfileId = normalizeOpenMeldProfileId(input.openMeldProfileId);
   const value: ProfileWorkspaceConfig = { mode: "openmeld_managed" };
   const updatedAt = normalizeUpdatedAt(input.updatedAt);
-  await writeProfileWorkspaceConfigForAccount({
+  const saved = await writeProfileWorkspaceConfigForAccount({
     account,
     openMeldProfileId,
     updatedAt,
     value,
+    onlyIfUnconfigured: input.onlyIfUnconfigured,
   });
   return {
     path: accountProfileLocalMetaPath(account, openMeldProfileId),
-    updatedAt,
-    value,
+    ...saved,
     workspacePath: resolveConfiguredProfileWorkspacePathForAccount({
       account,
       openMeldProfileId,
-      value,
+      value: saved.value,
     }),
   };
 }
@@ -229,6 +267,11 @@ export async function setCustomProfileWorkspace(input: {
   openMeldProfileId: string;
   customWorkspacePath: string;
   updatedAt?: string;
+  importedSession?: Pick<
+    Extract<ProfileWorkspaceOrigin, { kind: "imported_native_session" }>,
+    "agentControllerRef" | "agentControllerConversationId"
+  >;
+  onlyIfUnconfigured?: boolean;
 }): Promise<ProfileWorkspaceWriteResult> {
   const account = await resolveAccountKey(input.account);
   const openMeldProfileId = normalizeOpenMeldProfileId(input.openMeldProfileId);
@@ -244,17 +287,30 @@ export async function setCustomProfileWorkspace(input: {
     mode: "custom",
   };
   const updatedAt = normalizeUpdatedAt(input.updatedAt);
-  await writeProfileWorkspaceConfigForAccount({
+  const saved = await writeProfileWorkspaceConfigForAccount({
     account,
     openMeldProfileId,
     updatedAt,
     value,
+    origin: profileWorkspaceOriginSchema.parse(
+      input.importedSession
+        ? {
+            kind: "imported_native_session",
+            configurationUpdatedAt: updatedAt,
+            ...input.importedSession,
+          }
+        : { kind: "explicit", configurationUpdatedAt: updatedAt }
+    ),
+    onlyIfUnconfigured: input.onlyIfUnconfigured,
   });
   return {
     path: accountProfileLocalMetaPath(account, openMeldProfileId),
-    updatedAt,
-    value,
-    workspacePath: validation.value,
+    ...saved,
+    workspacePath: resolveConfiguredProfileWorkspacePathForAccount({
+      account,
+      openMeldProfileId,
+      value: saved.value,
+    }),
   };
 }
 
@@ -262,20 +318,20 @@ export async function ensureOpenMeldManagedProfileWorkspace(input: {
   account?: OpenMeldAccountKey;
   openMeldProfileId: string;
   updatedAt?: string;
+  onlyIfUnconfigured?: boolean;
 }): Promise<ProfileWorkspaceWriteResult> {
   const account = await resolveAccountKey(input.account);
   const openMeldProfileId = normalizeOpenMeldProfileId(input.openMeldProfileId);
-  const workspacePath = accountProfileWorkspacePath(account, openMeldProfileId);
-  await mkdir(workspacePath, { recursive: true });
   const result = await setOpenMeldManagedProfileWorkspace({
     account,
     openMeldProfileId,
     updatedAt: input.updatedAt,
+    onlyIfUnconfigured: input.onlyIfUnconfigured,
   });
-  return {
-    ...result,
-    workspacePath,
-  };
+  if (result.value.mode === "openmeld_managed") {
+    await mkdir(result.workspacePath, { recursive: true });
+  }
+  return result;
 }
 
 export async function migrateLegacyProfileWorkspaceConfigIfNeeded(input: {
@@ -344,19 +400,41 @@ async function writeProfileWorkspaceConfigForAccount(input: {
   openMeldProfileId: string;
   updatedAt: string;
   value: ProfileWorkspaceConfig;
-}): Promise<void> {
+  onlyIfUnconfigured?: boolean;
+  origin?: ProfileWorkspaceOrigin;
+}): Promise<
+  Pick<ProfileWorkspaceWriteResult, "changed" | "updatedAt" | "value">
+> {
   const openMeldProfileId = normalizeOpenMeldProfileId(input.openMeldProfileId);
   const lock = await acquireLock({
     openMeldProfileId,
     key: PROFILE_WORKSPACE_CONFIG_LOCK_KEY,
   });
-  await runWithHeldLock({
+  return await runWithHeldLock({
     lock,
     run: async () => {
       const path = accountProfileLocalMetaPath(
         input.account,
         openMeldProfileId
       );
+      if (input.onlyIfUnconfigured) {
+        const current = await readProfileWorkspaceConfigForAccount({
+          account: input.account,
+          openMeldProfileId,
+        });
+        if (current.status === "invalid") {
+          throw new Error(
+            `The working folder settings are invalid (${current.reason}). Repair them before retrying setup.`
+          );
+        }
+        if (current.status === "valid") {
+          return {
+            changed: false,
+            updatedAt: current.updatedAt,
+            value: current.value,
+          };
+        }
+      }
       const existingDraft = await readExistingEnvelopeDraft({
         openMeldProfileId,
         path,
@@ -367,6 +445,9 @@ async function writeProfileWorkspaceConfigForAccount(input: {
         updatedAt: input.updatedAt,
         v: PROFILE_LOCAL_META_ENVELOPE_VERSION,
         workspace: buildWorkspacePayload(input.value),
+        // An ordinary folder save supersedes the import observation. Omitted
+        // origin clears preserved metadata when switching to managed mode.
+        workspaceOrigin: input.origin,
       };
       await mkdir(dirname(path), { recursive: true });
       const tempPath = `${path}.tmp-${process.pid}-${Date.now()}-${randomUUID()}`;
@@ -381,6 +462,7 @@ async function writeProfileWorkspaceConfigForAccount(input: {
         await rm(tempPath, { force: true }).catch(() => undefined);
         throw error;
       }
+      return { changed: true, updatedAt: input.updatedAt, value: input.value };
     },
     releaseContext: {
       account: input.account,
@@ -443,11 +525,19 @@ function parseProfileLocalMetaEnvelopeV2(
   );
   const updatedAt = normalizeTimestamp(record.updatedAt);
   const workspace = parseWorkspaceSection(record.workspace);
+  const parsedOrigin = profileWorkspaceOriginSchema.safeParse(
+    record.workspaceOrigin
+  );
   if (!(openMeldProfileId && updatedAt) || workspace === null) {
     return null;
   }
   return {
     ...(workspace ? { workspace } : {}),
+    ...(workspace?.mode === "custom" &&
+    parsedOrigin.success &&
+    parsedOrigin.data.configurationUpdatedAt === updatedAt
+      ? { workspaceOrigin: parsedOrigin.data }
+      : {}),
     openMeldProfileId,
     updatedAt,
     v: 2,

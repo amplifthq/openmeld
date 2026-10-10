@@ -218,6 +218,20 @@
       "when": 1791488639828,
       "tag": "0030_user_time_account_guard",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1791520408187,
+      "tag": "0031_profile_default_project_revision",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1791526907988,
+      "tag": "0032_pre_head_failure_attention",
+      "breakpoints": true
     }
   ]
 }

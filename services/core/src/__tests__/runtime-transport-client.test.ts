@@ -1815,7 +1815,10 @@ describe("runtime transport split clients call fallback behavior", () => {
     }
   });
 
-  it("preserves daemon-facing dispatch snapshots needed by the runtime", () => {
+  it.each([
+    false,
+    true,
+  ])("preserves daemon-facing dispatch snapshots needed by the runtime (accepted clock: %s)", (hasRequestTime) => {
     const request = buildRuntimeTransportDeliverDispatchRequest({
       attemptId: "attempt-1",
       executionIdentity: createDeliveryExecutionIdentity(),
@@ -1833,6 +1836,23 @@ describe("runtime transport split clients call fallback behavior", () => {
       },
       message: {
         ...createDispatchQueueMessage(),
+        sourceSignalSnapshot: {
+          text: "hello",
+          profileId: "hum-1",
+          profileKind: "human",
+          ...(hasRequestTime
+            ? {
+                requestTimeContext: {
+                  submittedAtMs: 1000,
+                  userTime: {
+                    timeZone: "Asia/Taipei",
+                    source: "web" as const,
+                    observedAtMs: 900,
+                  },
+                },
+              }
+            : {}),
+        },
         replyToSnapshot: {
           signalId: "sig-1",
           profileId: "11111111-1111-4111-8111-111111111111",
@@ -1852,7 +1872,7 @@ describe("runtime transport split clients call fallback behavior", () => {
 
     expect(request.payload).toMatchObject({
       sourceSignalSnapshot: {
-        text: "hello",
+        text: request.payload.sourceSignal.text,
         profileId: "hum-1",
         profileKind: "human",
       },
@@ -1865,5 +1885,20 @@ describe("runtime transport split clients call fallback behavior", () => {
       },
       spaceNameSnapshot: "OpenClaw Ops Room",
     });
+    if (hasRequestTime) {
+      expect(request.payload.sourceSignal.text).toContain(
+        "Request received at UTC: 1970-01-01T00:00:01.000Z"
+      );
+      expect(request.payload.sourceSignal.text).toContain(
+        "Request timezone: Asia/Taipei (authenticated web observation)"
+      );
+    } else {
+      expect(request.payload.sourceSignal.text).toBe("hello");
+    }
+    // Installed Service snapshots are strict. Retained request data must reach
+    // their existing text field without requiring a new transport field.
+    expect(request.payload.sourceSignalSnapshot).not.toHaveProperty(
+      "requestTimeContext"
+    );
   });
 });

@@ -27,6 +27,28 @@ vi.mock("../src/config/daemon-service-contract", () => ({
   upsertDaemonServiceContract: upsertDaemonServiceContractMock,
 }));
 
+vi.mock("../src/config/daemon-state", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/config/daemon-state")>()),
+  withDaemonServiceLifecycleLock: (
+    _meta: unknown,
+    run: () => Promise<unknown>
+  ) => run(),
+}));
+
+vi.mock("../src/config/auth-session-transition-lock", () => ({
+  withAuthSessionTransitionMutationLock: (run: () => Promise<unknown>) => run(),
+}));
+
+vi.mock("../src/config/auth-session", () => ({
+  readServiceAdmissionSessionWithOwnership: vi.fn().mockResolvedValue({
+    user: { id: "owner-current" },
+  }),
+}));
+
+vi.mock("../src/config/request-headers", () => ({
+  buildRequestAuthHeaders: vi.fn().mockResolvedValue({}),
+}));
+
 vi.mock("../src/space/api-client-foundation", () => ({
   createCliApiClientFoundation: createCliApiClientFoundationMock,
 }));
@@ -79,7 +101,15 @@ describe("syncLocalSetupCurrentDeviceTargetFromServiceContract", () => {
     });
   });
 
-  it("does not submit cached connected computer identity across account switches", async () => {
+  it.each([
+    null,
+    "connected-from-previous-account",
+  ])("saves current enrollment without trusting cached Computer identity %s", async (connectedComputerId) => {
+    const serviceContract = await readDaemonServiceContractMock();
+    readDaemonServiceContractMock.mockResolvedValue({
+      ...serviceContract,
+      connectedComputerId,
+    });
     await expect(
       syncLocalSetupCurrentDeviceTargetFromServiceContract({
         gatewayUrl: "https://gateway.openmeld.test",
@@ -93,20 +123,30 @@ describe("syncLocalSetupCurrentDeviceTargetFromServiceContract", () => {
       deviceId: "device-local",
       runtimeLane: "dev-local",
     });
-    expect(upsertDaemonServiceContractMock).toHaveBeenCalledWith({
-      autoStart: true,
-      bundleId: "bundle-1",
-      connectedComputerId: "connected-for-current-account",
-      daemonVersion: "0.6.9",
-      desiredState: "background",
-      deviceId: "device-local",
-      gatewayUrl: "https://gateway.openmeld.test",
-      heartbeatMs: 25_000,
-      lane: "dev-local",
-      ownerUserId: "owner-current",
-      profileId: "profile-from-previous-account",
-      serviceController: "launchd",
-    });
+    expect(upsertDaemonServiceContractMock).toHaveBeenCalledWith(
+      {
+        autoStart: true,
+        bundleId: "bundle-1",
+        connectedComputerId: "connected-for-current-account",
+        daemonVersion: "0.6.9",
+        desiredState: "background",
+        deviceId: "device-local",
+        gatewayUrl: "https://gateway.openmeld.test",
+        heartbeatMs: 25_000,
+        lane: "dev-local",
+        ownerUserId: "owner-current",
+        profileId: "profile-from-previous-account",
+        serviceController: "launchd",
+      },
+      {},
+      {
+        expectedCurrentContract: expect.objectContaining({
+          ownerUserId: "owner-current",
+          deviceId: "device-local",
+          generation: 12,
+        }),
+      }
+    );
   });
 
   it("reconnects to the computer selected by the trusted Prepare Session", async () => {

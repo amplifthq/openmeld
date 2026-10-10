@@ -74,6 +74,7 @@ import {
 } from "../src/rpc/methods";
 import { rpcSearchMessages } from "../src/search/message-search";
 import { upsertJoinedSpaceMember } from "../src/space/application/space-members-service";
+import type { SignalPublishContext } from "../src/space/application/types";
 import {
   createDispatchOutboxRecord,
   insertDispatchOutboxRecord,
@@ -11658,15 +11659,47 @@ describe("OpenMeld Core", () => {
       profileId: rpcContext.actorContext.openMeldProfileId,
       profileName: "Idempotent Author",
     };
-    const posted = await stub.rpcPostSignalOnceByClientMessageId({
-      authoringPolicy: "system_emitted",
-      clientMessageId,
-      context: rpcContext,
-      meta: { clientMessageId, purpose: "idempotent_rpc_test" },
-      profile,
-      spaceId,
-      text: "idempotent direct rpc signal",
-    });
+    const requestTimeContext = {
+      submittedAtMs: 800,
+      userTime: {
+        timeZone: "Asia/Taipei",
+        source: "web" as const,
+        observedAtMs: 700,
+      },
+    };
+    const posted = await runInDurableObject(
+      namespace.get(namespace.idFromString(spaceId)),
+      async (instance) => {
+        const publish = vi.spyOn(
+          instance as unknown as {
+            publishTextSignal(
+              signal: SignalEnvelope,
+              context?: SignalPublishContext
+            ): Promise<void>;
+          },
+          "publishTextSignal"
+        );
+        try {
+          const signal = await instance.rpcPostSignalOnceByClientMessageId({
+            authoringPolicy: "system_emitted",
+            clientMessageId,
+            context: rpcContext,
+            meta: { clientMessageId, purpose: "idempotent_rpc_test" },
+            profile,
+            requestTimeContext,
+            spaceId,
+            text: "idempotent direct rpc signal",
+          });
+          expect(publish).toHaveBeenCalledWith(
+            signal,
+            expect.objectContaining({ requestTimeContext })
+          );
+          return signal;
+        } finally {
+          publish.mockRestore();
+        }
+      }
+    );
     expect(posted.data.text).toBe("idempotent direct rpc signal");
     await expect(
       stub.rpcResolveOrRejectTextSignalByClientMessageId({
@@ -13222,6 +13255,112 @@ describe("OpenMeld Core", () => {
         noticeType: "terminal_failure",
         dispatchId: "dispatch-openclaw-auth-1",
       },
+    });
+  });
+  it("retains the frozen pre-head failure signal identity across Space publication replay", async () => {
+    const spaceId = await createSpace({ name: "pre-head-failure-replay" });
+    const response = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/signals`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          type: "signal.text",
+          data: { text: "Check the task." },
+        }),
+      }
+    );
+    expect(response.status).toBe(200);
+    const source = parseEnvelope(await response.json());
+    if (!source) {
+      throw new Error("Expected the saved source message.");
+    }
+    const targetProfileId = "agt_99999999-9999-4999-8999-999999999999";
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    const dispatch = await runInDurableObject(stub, (_instance, state) => {
+      const record = createDispatchOutboxRecord({
+        bindingEnabled: true,
+        bindingState: "bound",
+        dispatchPolicy: "mention_only",
+        nowMs: Date.now(),
+        ruleId: "wake_explicit_activation",
+        ruleReason: "Explicit Wake target",
+        ruleSource: "registry",
+        senderProfileId: DEFAULT_HUMAN_PROFILE_ID,
+        sourceEventId: source.id,
+        sourceSignalSnapshot: {
+          profileId: DEFAULT_HUMAN_PROFILE_ID,
+          profileKind: "human",
+          text: "Check the task.",
+        },
+        spaceId,
+        targetProfileId,
+      });
+      insertDispatchOutboxRecord(state.storage.sql, record);
+      return record;
+    });
+    const context = createRpcContext({
+      requestId: "rpc-pre-head-replay",
+      profileId: "openmeld-system",
+      profileKind: "system",
+      profileName: "OpenMeld System",
+    });
+    const command = {
+      context,
+      spaceId,
+      finalOutcomeAuthority: "runtime_coordinator_failure_publication" as const,
+      preHeadFailurePublication: { signalId: randomUUID() },
+      profile: {
+        kind: "system" as const,
+        profileId: "openmeld-system",
+        profileName: "OpenMeld System",
+      },
+      data: {
+        noticeType: "terminal_failure" as const,
+        actorProfileId: targetProfileId,
+        dispatchId: dispatch.dispatchId,
+        failureStage: "execution" as const,
+        generatedBy: "openmeld" as const,
+        reasonCode: "profile.workspace.missing",
+        text: "Choose a working folder before retrying this task.",
+      },
+      spaceAccess: createDispatchContinuationSpaceAccessContext({
+        dispatchId: dispatch.dispatchId,
+        requestContext: context,
+        sourceSignalId: source.id,
+        spaceId,
+        targetProfileId,
+      }),
+    };
+    await expect(
+      rpcPostSystemNoticeSignal(env as unknown as CoreBindings, {
+        ...command,
+        spaceAccess: undefined,
+      })
+    ).rejects.toThrow(
+      "dispatch.pre_head_failure_publication_authority_required"
+    );
+    await rpcPostSystemNoticeSignal(env as unknown as CoreBindings, command);
+    await rpcPostSystemNoticeSignal(env as unknown as CoreBindings, command);
+    await expect(
+      stub.rpcReadFinalReplyClaimOutcome({
+        dispatchId: dispatch.dispatchId,
+        spaceId,
+        profileId: targetProfileId,
+      })
+    ).resolves.toEqual({
+      outcome: "failure",
+      signalId: command.preHeadFailurePublication.signalId,
+    });
+    await runInDurableObject(stub, (_instance, state) => {
+      const notices = state.storage.sql
+        .exec<{ id: string }>(
+          "SELECT id FROM space_signals WHERE id = ?",
+          command.preHeadFailurePublication.signalId
+        )
+        .toArray();
+      expect(notices).toHaveLength(1);
     });
   });
   it("keeps a pre-agent stop notice in the originating thread when its publisher lacks thread context", async () => {

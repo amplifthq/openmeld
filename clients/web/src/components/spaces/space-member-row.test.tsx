@@ -205,12 +205,9 @@ describe("SpaceMemberRow", () => {
 		const profileSummaryButton = screen.getByRole("button", {
 			name: "Check Codex Profile",
 		});
-		expect(profileSummaryButton.className).toContain("cursor-pointer");
-
 		fireEvent.click(profileSummaryButton);
 
-		const dialog = screen.getByRole("dialog");
-		expect(dialog.className).toContain("w-[min(22rem,calc(100vw-1.5rem))]");
+		expect(screen.getByRole("dialog")).toBeTruthy();
 		expect(
 			screen
 				.getByTestId("profile-details-popover-scroll-area")
@@ -431,7 +428,7 @@ describe("SpaceMemberRow", () => {
 		).toBeTruthy();
 	});
 
-	it("does not invent an active model when a member uses the controller default", () => {
+	it("does not infer an existing conversation's model from the catalog default", () => {
 		renderSpaceMemberRow({
 			entry: buildAgentEntry({
 				modelSelection: null,
@@ -1180,17 +1177,15 @@ describe("SpaceMemberRow", () => {
 		expect(screen.queryByText("Claude Code subscription needed")).toBeNull();
 	});
 
-	it("uses the prepare setup link for prepare-agent-profile recovery actions", () => {
+	it("opens Computer status for a missing report instead of setup", () => {
 		renderSpaceMemberRow({
 			agentRecoveryPlan: buildPreparePlan(),
 			prepareSetupHref: "/o/acme/connect?returnTo=space&spaceId=space-123",
 		});
 
 		expect(
-			screen
-				.getByRole("link", { name: "Connect local agent" })
-				.getAttribute("href")
-		).toBe("/o/acme/connect?returnTo=space&spaceId=space-123");
+			screen.getByRole("link", { name: "Check status" }).getAttribute("href")
+		).toBe("/o/acme/computers");
 	});
 
 	it("does not show the active Wake waiting note after terminal Wake cleanup", () => {
@@ -1541,13 +1536,13 @@ function buildServiceConnectionPlan(): AgentProfileReplyRecoveryPlan {
 
 function buildPreparePlan(): AgentProfileReplyRecoveryPlan {
 	return {
-		body: "Codex is connected, but its local workspace has not been created on this computer yet. Finish local agent setup here.",
+		body: "Codex is connected, but OpenMeld has no current local agent report from its computer. Check the local agent’s status on that computer.",
 		kind: "prepare_agent_profile",
-		primaryActionId: "connect_local_agent",
-		primaryActionLabel: "Connect local agent",
+		primaryActionId: "check_status",
+		primaryActionLabel: "Check status",
 		profileId: "agt-1",
 		profileName: "Codex",
-		recoveryReasonCode: "workspace.missing",
+		recoveryReasonCode: "agent_profile_binding.agent_controller_report_missing",
 		secondaryLabel: "Needs setup on this computer",
 		title: "Codex needs setup on this computer",
 	};

@@ -734,6 +734,7 @@ import {
   type GetCenterAgentModelInput,
   type GetCenterAgentOperatingStateInput,
   type GetCurrentAgentProfileSessionInput,
+  type GetCurrentAgentProfileWorkspaceInput,
   type GetCurrentDeviceTargetInput,
   type GetCurrentLocalAgentInstallationsInput,
   type GetCurrentLocalRuntimeReplyReadinessInput,
@@ -910,6 +911,7 @@ import {
   rpcCenterAgentStartSelfMemberResearch,
   rpcCenterAgentStopSpaceWake,
   rpcCenterAgentUpdateAgentProfileRuntimeSettings,
+  rpcCenterAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace,
   rpcCenterAgentUpdateSpaceSettings,
   rpcCenterAgentWakeAgentProfilesInSpace,
   rpcCenterAgentWakeAgentProfilesInSpaces,
@@ -966,6 +968,7 @@ import {
   rpcGetCenterAgentModel,
   rpcGetCenterAgentOperatingState,
   rpcGetCurrentAgentProfileSession,
+  rpcGetCurrentAgentProfileWorkspace,
   rpcGetCurrentDeviceTarget,
   rpcGetCurrentLocalAgentInstallations,
   rpcGetCurrentLocalRuntimeReplyReadiness,
@@ -1091,6 +1094,7 @@ import {
   rpcSelectPeopleComputerFolders,
   rpcSelectPeopleComputerLocalAgentInstallation,
   rpcSetAgentProfileCreationDefaults,
+  rpcSetBoundPeopleComputerAgentProfileWorkspace,
   rpcSetCenterAgentOrganizationMemoryPolicy,
   rpcSetCurrentAgentProfileWorkspace,
   rpcSetCurrentLocalAgentEnabled,
@@ -1123,6 +1127,7 @@ import {
   rpcUpdateAgentProfilePrimaryBindingAgentControllerPermissionMode,
   rpcUpdateAgentProfilePrimaryBindingModelSelection,
   rpcUpdateAgentProfilePrimaryBindingOpenCodePermission,
+  rpcUpdateBoundAgentProfileDefaultProject,
   rpcUpdateCenterAgentModel,
   rpcUpdateCenterAgentOperatingState,
   rpcUpdateCenterAgentProfile,
@@ -1514,6 +1519,13 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       rpcUpdateAgentProfileDefaultProject(this.env, input)
     );
   }
+  updateBoundAgentProfileDefaultProject(
+    input: UpdateAgentProfileDefaultProjectInput
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdateBoundAgentProfileDefaultProject(this.env, input)
+    );
+  }
   archiveProject(input: ArchiveProjectInput) {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       rpcArchiveProject(this.env, input)
@@ -1536,6 +1548,18 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       rpcConnectPeopleComputerProjectCandidate(this.env, input)
     );
   }
+  getPeopleComputerAgentProfileWorkspace(
+    input: GetCurrentAgentProfileWorkspaceInput &
+      import("@openmeld/schemas/types").PeopleComputerTarget
+  ) {
+    const { deviceId, runtimeLane, ...request } = input;
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCurrentAgentProfileWorkspace(this.env, request, {
+        deviceId,
+        runtimeLane,
+      })
+    );
+  }
   setPeopleComputerAgentProfileWorkspace(
     input: SetCurrentAgentProfileWorkspaceInput &
       import("@openmeld/schemas/types").PeopleComputerTarget
@@ -1546,6 +1570,14 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
         deviceId,
         runtimeLane,
       })
+    );
+  }
+  setBoundPeopleComputerAgentProfileWorkspace(
+    input: SetCurrentAgentProfileWorkspaceInput &
+      import("@openmeld/schemas/types").PeopleComputerTarget
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSetBoundPeopleComputerAgentProfileWorkspace(this.env, input)
     );
   }
   connectPeopleComputerProjectPath(
@@ -3767,6 +3799,16 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       rpcCenterAgentUpdateAgentProfileRuntimeSettings(this.env, input)
     );
   }
+  centerAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace(
+    input: CenterAgentUpdateAgentProfileRuntimeSettingsInput
+  ): Promise<CenterAgentUpdateAgentProfileRuntimeSettingsResponse> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace(
+        this.env,
+        input
+      )
+    );
+  }
   centerAgentCheckAgentProfileReadiness(
     input: CenterAgentCheckAgentProfileReadinessInput
   ): Promise<CenterAgentCheckAgentProfileReadinessResponse> {
@@ -4397,6 +4439,11 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       rpcSetCurrentOpenMeldToolsMaintenance(this.env, input)
     );
   }
+  getCurrentAgentProfileWorkspace(input: GetCurrentAgentProfileWorkspaceInput) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCurrentAgentProfileWorkspace(this.env, input)
+    );
+  }
   setCurrentAgentProfileWorkspace(
     input: SetCurrentAgentProfileWorkspaceInput
   ): Promise<SetCurrentAgentProfileWorkspaceResponse> {
@@ -4546,6 +4593,11 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   ) {
     return super.updateAgentProfileDefaultProject(input);
   }
+  updateBoundAgentProfileDefaultProject(
+    input: UpdateAgentProfileDefaultProjectInput
+  ) {
+    return super.updateBoundAgentProfileDefaultProject(input);
+  }
   archiveProject(input: ArchiveProjectInput) {
     return super.archiveProject(input);
   }
@@ -4562,11 +4614,23 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   ) {
     return super.connectPeopleComputerProjectCandidate(input);
   }
+  getPeopleComputerAgentProfileWorkspace(
+    input: GetCurrentAgentProfileWorkspaceInput &
+      import("@openmeld/schemas/types").PeopleComputerTarget
+  ) {
+    return super.getPeopleComputerAgentProfileWorkspace(input);
+  }
   setPeopleComputerAgentProfileWorkspace(
     input: SetCurrentAgentProfileWorkspaceInput &
       import("@openmeld/schemas/types").PeopleComputerTarget
   ) {
     return super.setPeopleComputerAgentProfileWorkspace(input);
+  }
+  setBoundPeopleComputerAgentProfileWorkspace(
+    input: SetCurrentAgentProfileWorkspaceInput &
+      import("@openmeld/schemas/types").PeopleComputerTarget
+  ) {
+    return super.setBoundPeopleComputerAgentProfileWorkspace(input);
   }
   connectPeopleComputerProjectPath(
     input: Parameters<typeof rpcConnectPeopleComputerProjectPath>[1]
@@ -5481,6 +5545,9 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: SetCurrentOpenMeldToolsMaintenanceInput
   ): Promise<SetCurrentOpenMeldToolsMaintenanceResponse> {
     return super.setCurrentOpenMeldToolsMaintenance(input);
+  }
+  getCurrentAgentProfileWorkspace(input: GetCurrentAgentProfileWorkspaceInput) {
+    return super.getCurrentAgentProfileWorkspace(input);
   }
   setCurrentAgentProfileWorkspace(
     input: SetCurrentAgentProfileWorkspaceInput

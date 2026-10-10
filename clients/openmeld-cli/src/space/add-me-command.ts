@@ -389,6 +389,13 @@ async function ensureCurrentAgentProfile(input: {
   projectFolder: NormalizedProjectFolder;
   spaceId: string;
 }): Promise<AgentProfileResolution> {
+  const importedSession = input.projectFolder.provided
+    ? undefined
+    : {
+        agentControllerRef: input.detectedSubject.agentControllerRef,
+        agentControllerConversationId:
+          input.detectedSubject.agentControllerConversationId,
+      };
   const match = await resolveRequestedAgentProfile({
     agentProfileId: input.agentProfileId,
     baseUrl: input.baseUrl,
@@ -400,6 +407,7 @@ async function ensureCurrentAgentProfile(input: {
     const projectFolderAction = await ensureAgentProfileProjectFolder({
       profile: match.profile,
       projectFolder: input.projectFolder.path,
+      importedSession,
     });
     const bindingUpdate = await updateExistingAgentProfileBinding({
       controllerPermissionMode: input.controllerPermissionMode,
@@ -420,6 +428,7 @@ async function ensureCurrentAgentProfile(input: {
       const projectFolderAction = await ensureAgentProfileProjectFolder({
         profile: match.profile,
         projectFolder: input.projectFolder.path,
+        importedSession,
       });
       const binding = await bindAgentProfileToCurrentSession({
         controllerPermissionMode: input.controllerPermissionMode,
@@ -449,9 +458,10 @@ async function ensureCurrentAgentProfile(input: {
     creatorProfileId: input.actorProfile.openMeldProfileId,
   });
   input.onAgentProfileCreated(profile);
-  await setCustomProfileWorkspace({
-    openMeldProfileId: profile.openMeldProfileId,
-    customWorkspacePath: input.projectFolder.path,
+  const projectFolderAction = await ensureAgentProfileProjectFolder({
+    profile,
+    projectFolder: input.projectFolder.path,
+    importedSession,
   });
   const binding = await bindAgentProfileToCurrentSession({
     controllerPermissionMode: input.controllerPermissionMode,
@@ -464,7 +474,7 @@ async function ensureCurrentAgentProfile(input: {
     bindingStatus: binding.status,
     profile,
     profileAction: "created",
-    projectFolderAction: "created",
+    projectFolderAction,
   };
 }
 
@@ -752,16 +762,26 @@ function quoteShellArg(value: string): string {
 async function ensureAgentProfileProjectFolder(input: {
   profile: OpenMeldProfile;
   projectFolder: string;
+  importedSession: Parameters<
+    typeof setCustomProfileWorkspace
+  >[0]["importedSession"];
 }): Promise<"created" | "reused"> {
   const config = await readProfileWorkspaceConfig({
     openMeldProfileId: input.profile.openMeldProfileId,
   });
   if (config.status === "missing") {
-    await setCustomProfileWorkspace({
+    const initialized = await setCustomProfileWorkspace({
       openMeldProfileId: input.profile.openMeldProfileId,
       customWorkspacePath: input.projectFolder,
+      importedSession: input.importedSession,
+      onlyIfUnconfigured: true,
     });
-    return "created";
+    if (initialized.workspacePath !== input.projectFolder) {
+      throw new AgentProfileProjectFolderMismatchError(
+        "The saved working folder changed during this import. Review the Agent’s folder before importing this conversation."
+      );
+    }
+    return initialized.changed ? "created" : "reused";
   }
   if (config.status === "invalid") {
     throw new Error(

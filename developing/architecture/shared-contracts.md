@@ -54,9 +54,18 @@ Client payload timestamps, identities and time blocks do not supply authority.
 Already captured RPC and Queue context is retained. The shared
 dispatch snapshot, Remote Agent turn envelope and exact-execution input carry
 that same optional object. Queue promotion and retries keep the accepted anchor;
-active Steer gets its own anchor. Relative dates use this anchor. Each model
-request gets one fresh UTC runtime-clock data message at the end of its outgoing
-provider payload, with the same static system guidance across requests,
+active Steer gets its own anchor. Relative dates use this anchor.
+Delegated Wakes and task continuations, including watch admission retries, read
+the original request's retained turn envelope and preserve this same context.
+Core's internal Space writer passes it as a verified publication option, never
+as public message data. Space validates it with the shared schema before
+publication; new ordinary input still freezes its own accepted time.
+Workstation delivery renders that retained context into the existing source
+text before removing the optional object from the installed Service's strict
+snapshot. Hosted and workstation prompts use the shared renderer in
+`packages/schemas`; this does not add a Service field or change its version floor.
+Each model request gets one fresh UTC runtime-clock data message at the end of
+its outgoing provider payload, with the same static system guidance across requests,
 without changing retained history. Explicit timezone in a user's request takes
 precedence; saved Routine schedules retain their timezone.
 
@@ -104,6 +113,19 @@ Command operations use an invocation ID and stable key. Local invocation IDs are
 namespaced separately from hosted submissions. The Computer holds the command
 receipt and native execution ID. Poll and Stop address that receipt; a retry
 must not allocate another process. Different invocations may run concurrently.
+Optional command `collection` metadata describes automatic observation attempts,
+not command execution. `unconfirmedAttempts` counts consecutive checks without
+confirmed native evidence, reserved before external I/O; a caught error never
+counts its attempt twice. `nextAttemptAtMs` is the next check time; null after
+the budget is exhausted means later checks paused. Completed or unavailable
+receipts also have no next check. Existing running/completed statuses and normal
+list rows retain their contract. Detailed list rows are opt-in through
+`includeReceiptDetails`, introduced in the same command-reference feature. Their
+strict receiver must know the optional collection schema before that feature is
+exposed. Single-result readers retain the existing extensible object contract.
+Schema receivers must precede callers that request detailed rows; removing that
+capability requires rolling back those callers first. No Service, Wake or
+RuntimeCoordinator contract changes are introduced by this scheduling metadata.
 File `edit` compares exact old text under the Computer's mutation queue; `write`
 can require `expectedContent`. Arbitrary shell writes are outside that queue.
 
@@ -1158,6 +1180,13 @@ implementation. Continuing a source page requires its original version. Missing,
 recalled, or changed evidence fails explicitly; it never selects the latest
 version in place of a requested version. This adds a local tool, without adding
 a cloud route or granting access to another Space.
+
+Exact message evidence also accepts a visible `signal.system_notice`. The
+materializer returns its public text, system author and reply anchor through the
+existing manifest shape. It does not disclose diagnostic supplements, change
+Space authorization, or treat a notice as task approval. Center, personal Remote
+and local dispatch readers share this selection; status and presence signals
+remain outside message evidence. Existing text source versions are unchanged.
 
 Large local tool results remain transport snapshots. Before `read_result`
 discloses each cached page, it reruns the original source read with the original
@@ -6480,10 +6509,31 @@ project several providers without flattening their independent capacity.
 `Low` is derived by presentation code and is not stored. Missing provider facts
 remain null; they must not become zero, 100, or unlimited capacity.
 
+ACI may also carry one strict account-level `usageAdmission` object with
+`blocksNewWork: boolean | null` and `observedAt`. It belongs to this same Usage
+report, rather than individual windows or another readiness store. Matrix
+version 6 uses that fact for Codex admission and recovery: 100% included usage
+remains visible, while native account permission, credits, and spend control
+determine whether new work is blocked. No credit amount, payment fact, or
+account identifier crosses the Service boundary. A full unknown account read
+records null; sparse native rolling updates do not clear or refresh an older
+account verdict. Codex uses the same-session full native snapshot collector for
+probes and rolling observations. Matching native quota account ids bracket its
+account read, and an unchanged account-notification epoch fences collection and
+consumption. Missing or mismatched identity discards capacity evidence. The
+existing local ACI auth comparison may carry an opaque `accountKey`; cloud
+allowlists and legacy `agents show` projections omit it. Legacy machine output
+also omits `usageAdmission`, preserving older strict Desktop readers.
+Core's non-opted-in Local Runtime responses omit admission together with windows,
+including mutation responses that return the same legacy inventory.
+Missing or older matrix versions cannot authorize recovery.
+An older strict Core receiver may reject this optional field; the existing
+report compatibility retry omits windows, admission, and matrix together.
+
 Provider adapters may add evidence either from a dedicated native non-task
 probe or from a provider-native event passively observed during an ordinary
 already-running controller turn. Both sources must normalize into this same
-list before crossing the local Service boundary. A passive observation must
+Usage report before crossing the local Service boundary. A passive observation must
 not start work, modify the turn, retain its raw event, or create a second usage
 store. Claude Code's Agent SDK event is partial: a missing utilization value
 creates no percentage evidence, while allowlisted 0–1 utilization is normalized
@@ -7467,6 +7517,47 @@ cloud contract.
 `createdAgentProfileId`; no new strict response enum is required for older CLI
 and cloud readers to understand the payload.
 
+The failed-request retry body optionally carries `expectedUpdatedAt` and one
+paired `modelSelection` (`modelId`, nullable `reasoningLevel`). Both fields are
+required for a correction. Core validates the canonical selection, ownership,
+failed state, exact version, and any retained Binding before atomically saving
+the correction with the new attempt. Ordinary retries retain their empty body.
+Center reads can select the exact `requestId`; local candidates opt into the
+existing catalog's `modelOptions` with `includeModelOptions`.
+
+Local workspace request validators share `profileWorkspaceWriteSchema`.
+Creation's `onlyIfUnconfigured` flag requires the Service's
+`initializeProfileWorkspace` capability. Runtime Transport must reject an old
+Service rather than strip the flag or fall back to an ordinary write. Binding
+`initialize` reuses an identical target while preserving current settings.
+Auth's required `initializeAgentProfileDefaultProjectInOrganization` RPC owns
+the field-specific compare-and-set. Core must not fall back to the ordinary
+Auth setter when that receiver is missing. The nullable database revision has
+no zero default; only the supporting Auth creation writer records zero.
+
+Center runtime-settings responses project local workspace writes to Profile ID
+and status. The owner-self workspace response retains its private fields.
+Operation steps distinguish a saved folder from a failed Default Project clear
+and use path-free failure copy with a reason code when known.
+
+Working-folder mutations require the named Core receiver
+`centerAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace`. The legacy
+runtime-settings receiver rejects any request containing `workspaceMode` before
+calling the operation, including requests that also change model, permission,
+or collaboration. It cannot change other settings and then reject the folder.
+Model- and permission-only requests retain the legacy receiver. Both receivers
+use the same authorization and operation owner.
+
+Deploy Core before Remote. Old Remote with new Core receives a 409 before any
+settings write for a folder change. New Remote with old Core receives
+`core.rpc.unavailable` before any settings write; it never retries through the
+legacy receiver. Matched new components return the safe workspace receipt and
+all completed or failed steps, including a partial Default Project clear.
+Rollback Remote before removing the named receiver. During that transition,
+legacy folder changes remain unavailable rather than returning an incompatible
+receipt after a write. No Service, CLI, Skills, setup, Wake, diagnostic, or local
+component compatibility floor changes are needed for this cloud RPC correction.
+
 The Center Agent RPC wrapper does not create a second state machine. It verifies
 the current designation, resolves the represented member, preserves the Center
 Agent Profile as actor, and delegates to the same Core request operations.
@@ -8122,6 +8213,32 @@ treated as conflicts. The association is omitted from local workspace identity
 and never grants the requesting member access to the legacy transcript.
 
 ## Agent Profile Binding Contract
+
+Profile settings and Space working-folder recovery carry the shared
+`expectedBindingTarget` tuple:
+Binding ID, Service Runtime ID, controller ref, and nullable conversation ID.
+It is a read/write precondition, not another Binding store or execution authority.
+The private saved-configuration GET verifies it before and after its Service
+read. Its configured/missing/invalid result is defined in `packages/schemas`;
+the configuration version is the local envelope format, not a Binding revision.
+GET responses use no-store and do not populate a second configuration cache.
+Core checks the tuple inside the existing execution-target admission before
+Service writes, and inside the existing future-work admission before Auth's
+Default Project write. These remain two ordered writes with explicit partial
+success; they are not an atomic cross-service transaction.
+
+Gateway requires the named Core receivers
+`setBoundPeopleComputerAgentProfileWorkspace` and
+`updateBoundAgentProfileDefaultProject` when that tuple is present. An old Core
+receiver must fail without fallback to the unguarded methods; an old Gateway's
+strict HTTP body rejects the new tuple before writing. Deploy Core, then
+Gateway, then Web. Ordinary explicit Computer configuration without the tuple
+retains its existing contract. The write precondition changes no Auth or Service
+write payload. The private saved-configuration read adds a separate Service
+capability and correlated frame; its strict registration receivers must deploy
+before the new Service. An old readiness projection without a canonical Binding ID
+cannot acquire a recovery draft. Local CLI/Service, Skills, setup, Wake and
+diagnostic compatibility floors remain unchanged by this correction.
 
 The shared Agent Profile Binding contract must stay synchronized across schemas,
 API client, Core command/lookup services, and Gateway route behavior.

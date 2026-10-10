@@ -37,7 +37,7 @@ import {
 import { supportsAgentControllerVersion } from "@openmeld/agent-runtime";
 import { classifyCodexProviderAccountFailure } from "../output/codex-provider-failure.js";
 import { extractCodexToolActivityEvent } from "../output/codex-tool-activity.js";
-import { projectCodexUsageLimits } from "../usage/codex-usage-limits.js";
+import { readCodexAccountUsageObservation } from "../usage/codex-usage-limits.js";
 import {
   type CodexAppServerControlOperation,
   resolveCodexAppServerControlRequestTimeoutMs,
@@ -103,6 +103,7 @@ export type CodexAppServerThreadProofResult = {
 };
 
 export type CodexAppServerAccountProbeResult = {
+  accountKey?: string;
   authStatus: "authenticated" | "unauthenticated" | "unknown";
   email?: string;
   version: string | null;
@@ -133,7 +134,7 @@ type PendingJsonRpcRequest = {
 
 type JsonRpcRequestTimeout = {
   code: string;
-  operation: CodexAppServerControlOperation;
+  operation: string;
   timeoutMs: number;
   terminateSession?: boolean;
 };
@@ -245,6 +246,7 @@ type CodexAgentControllerPermissionMode = Extract<
 
 const APP_SERVER_PROCESS_KILL_GRACE_MS = 1000;
 const DEFAULT_APP_SERVER_STARTUP_TIMEOUT_MS = 15_000;
+const CODEX_USAGE_REQUEST_TIMEOUT_MS = 2500;
 
 export class CodexAppServerTransportError extends Error {
   readonly agentControllerConversationOccupancy?: AdapterAgentControllerConversationOccupancy;
@@ -323,10 +325,33 @@ export async function probeCodexAppServerAccount(input: {
       startupTimeoutMs: timeoutMs,
     },
     async (session, initialized) => {
-      const response = toRecord(await session.request("account/read", {}));
+      const currentAccount = await session.request("account/read", {});
+      const usagePromise = readCodexAccountUsageObservation({
+        readAccountEpoch: () => session.accountEpoch,
+        request: (method, params) => session.request(method, params),
+      }).catch(() => null);
+      let graceTimer: NodeJS.Timeout | undefined;
+      const accountUsage = await Promise.race([
+        usagePromise,
+        new Promise<null>((resolve) => {
+          graceTimer = setTimeout(() => resolve(null), 2500);
+        }),
+      ]).finally(() => clearTimeout(graceTimer));
+      const usageIsCurrent = Boolean(
+        accountUsage?.accountKey &&
+          accountUsage.accountEpoch === session.accountEpoch
+      );
+      const response = toRecord(
+        usageIsCurrent && accountUsage
+          ? accountUsage.accountResponse
+          : currentAccount
+      );
       const account = toRecord(response?.account);
       return {
         authStatus: resolveCodexAppServerAuthStatus({ account, response }),
+        ...(usageIsCurrent && accountUsage?.accountKey
+          ? { accountKey: accountUsage.accountKey }
+          : {}),
         ...(typeof account?.email === "string" && account.email.trim()
           ? { email: account.email.trim() }
           : {}),
@@ -1471,6 +1496,12 @@ async function withCodexAppServerSession<T>(
 }
 
 class CodexAppServerSession {
+  #accountEpoch = 0;
+  #usageObservationPending: Promise<void> | null = null;
+
+  get accountEpoch(): number {
+    return this.#accountEpoch;
+  }
   readonly spaceToolInvocation: CodexSpaceDynamicToolInvocation;
   readonly #spaceActionTools?: AdapterDispatchRequest["spaceActionTools"];
   readonly deliveryOnly: boolean;
@@ -2232,7 +2263,9 @@ class CodexAppServerSession {
   async requestControl(
     method: string,
     params: unknown,
-    timeout: Omit<JsonRpcRequestTimeout, "timeoutMs">
+    timeout: Omit<JsonRpcRequestTimeout, "operation" | "timeoutMs"> & {
+      operation: CodexAppServerControlOperation;
+    }
   ): Promise<unknown> {
     return await this.request(method, params, {
       ...timeout,
@@ -2474,17 +2507,14 @@ class CodexAppServerSession {
   }
 
   #handleNotification(message: JsonRpcMessage): void {
+    if (
+      message.method === "account/updated" ||
+      message.method === "account/login/completed"
+    ) {
+      this.#accountEpoch += 1;
+    }
     if (message.method === "account/rateLimits/updated") {
-      const tsMs = Date.now();
-      const usageLimits = projectCodexUsageLimits({
-        response: message.params,
-        observedAt: new Date(tsMs).toISOString(),
-      });
-      this.#emitRuntimeEvent({
-        phase: "provider_usage_limits_observed",
-        tsMs,
-        usageLimits,
-      });
+      this.#observeCurrentAccountUsage();
     }
     this.#startupDiagnostics.observeNotification(
       message.method ?? "",
@@ -2516,6 +2546,45 @@ class CodexAppServerSession {
       this.#waiters.delete(waiter);
       waiter.resolve(message);
     }
+  }
+
+  #observeCurrentAccountUsage(): void {
+    if (!this.#onRuntimeEvent || this.#usageObservationPending) {
+      return;
+    }
+    // Sparse rolling events have no account id. Refetch a bounded snapshot on
+    // this same native session rather than binding the event to another probe.
+    // One pending read coalesces notifications and never delays the turn.
+    this.#usageObservationPending = readCodexAccountUsageObservation({
+      readAccountEpoch: () => this.#accountEpoch,
+      request: (method, params) =>
+        this.request(method, params, {
+          code: "runtime.usage_observation_timeout",
+          operation: method,
+          terminateSession: false,
+          timeoutMs: CODEX_USAGE_REQUEST_TIMEOUT_MS,
+        }),
+    })
+      .then((observation) => {
+        if (
+          !observation.accountKey ||
+          observation.accountEpoch !== this.#accountEpoch
+        ) {
+          return;
+        }
+        this.#emitRuntimeEvent({
+          phase: "provider_usage_limits_observed",
+          tsMs: Date.now(),
+          usageAccountKey: observation.accountKey,
+          ...observation.usageObservation,
+        });
+      })
+      .catch(() => {
+        // An unavailable auxiliary endpoint supplies no capacity evidence.
+      })
+      .finally(() => {
+        this.#usageObservationPending = null;
+      });
   }
 
   #observeContextTelemetry(message: JsonRpcMessage): void {

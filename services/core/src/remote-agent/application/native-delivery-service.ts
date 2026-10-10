@@ -2526,6 +2526,7 @@ function requireTaskContinuationObserverContext(
 }
 async function resolveTaskContinuationTurnContext(input: {
   continuationContext: TaskContinuationObserverContext;
+  inheritedWorkerRequest: RemoteAgentWorkerSubmitTurnRequest;
   input: RemoteAgentTaskContinuationDeliveryInput;
 }): Promise<{
   author: RemoteAgentWorkerAuthorContext;
@@ -2539,6 +2540,8 @@ async function resolveTaskContinuationTurnContext(input: {
     profileId: observer.profileId,
   });
   const sharedEnvelopeInput = {
+    requestTimeContext:
+      input.inheritedWorkerRequest.turnEnvelope.requestTimeContext,
     centerAgentProfileId: observer.profileId,
     db: input.input.db,
     organizationId: observer.organizationId,
@@ -3351,10 +3354,13 @@ export async function submitRemoteAgentTaskContinuationDelivery(
   if (!worker) {
     throw new Error("remote_agent.worker_unavailable");
   }
+  const inheritedWorkerRequest =
+    requireInheritedCenterAgentWorkerRequest(observer);
   const { author, targetProfile, turnEnvelope } =
     await observeTaskContinuationPreparation(input, "turn_context", () =>
       resolveTaskContinuationTurnContext({
         continuationContext,
+        inheritedWorkerRequest,
         input,
       })
     );
@@ -3385,8 +3391,6 @@ export async function submitRemoteAgentTaskContinuationDelivery(
             organizationId: observer.organizationId,
           })
   );
-  const inheritedWorkerRequest =
-    requireInheritedCenterAgentWorkerRequest(observer);
   const request = remoteAgentWorkerSubmitTurnRequestSchema.parse({
     agentProfileId: observer.profileId,
     agentProfileOwnerUserId: targetOwnerUserId,

@@ -98,6 +98,7 @@ export {
   type AgentRecoveryActionId,
   agentRecoveryActionLabels,
   formatAgentRecoveryActionLabel,
+  isAgentRecoveryConnectionAction,
 } from "./agent-recovery-action";
 export {
   isAgentWorkActivityPresentable,
@@ -408,9 +409,16 @@ export * from "./schemas/index";
 export { agentControllerSessionTitleSchema } from "./schemas/runtime/agent-controller-session";
 export {
   type CloudComputer,
+  type CloudComputerCommandCollection,
+  type CloudComputerCommandPhase,
+  type CloudComputerCommandReference,
   type CloudComputerOperation,
   type CloudComputerStorage,
   cloudComputerCleanupResultSchema,
+  cloudComputerCommandCollectionSchema,
+  cloudComputerCommandErrorSchema,
+  cloudComputerCommandPhaseSchema,
+  cloudComputerCommandReferenceSchema,
   cloudComputerCommandSchema,
   cloudComputerOperationResultSchema,
   cloudComputerOperationSchema,
@@ -569,6 +577,7 @@ export {
 } from "./space-work-handoff";
 export type * from "./types/index";
 export {
+  buildAgentRequestTimeContext,
   normalizeUserTimeZone,
   observeUserTimeZone,
   resolveUserTimeContext,

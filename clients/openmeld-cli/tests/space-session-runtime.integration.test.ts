@@ -1,4 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  rememberSpaceWatchAnchor,
+  type SpaceWatchReadState,
+} from "../src/space/connect-catchup";
 import type { SpaceRuntimeEvent } from "../src/space/runtime/space-runtime-events";
 import { SpaceSessionRuntime } from "../src/space/runtime/space-session-runtime";
 import type { WsClient } from "../src/transport/ws";
@@ -15,8 +19,411 @@ vi.mock("../src/transport/ws", () => {
 
 describe("SpaceSessionRuntime", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.clearAllMocks();
+  });
+
+  it.each([
+    "resolve",
+    "reject",
+    "history-reject",
+    "stop",
+  ] as const)("settles startup after a socket loss while the initial members read is pending (%s)", async (outcome) => {
+    vi.useFakeTimers();
+    const first = createWsHarness();
+    const second = createWsHarness();
+    connectWebSocketMock
+      .mockReset()
+      .mockResolvedValueOnce(first.client)
+      .mockResolvedValueOnce(second.client);
+    const members = Promise.withResolvers<null>();
+    const loadMembers = vi
+      .fn()
+      .mockImplementationOnce(() => members.promise)
+      .mockResolvedValue(null);
+    const error = new Error("initial read failed");
+    const replayHistory = vi.fn<
+      ConstructorParameters<typeof SpaceSessionRuntime>[0]["replayHistory"]
+    >((_onEvent, _reconnect) =>
+      outcome === "history-reject"
+        ? Promise.reject(error)
+        : Promise.resolve({ synced: true })
+    );
+    const events: SpaceRuntimeEvent[] = [];
+    const runtime = new SpaceSessionRuntime({
+      wsUrl: "wss://example.com/v1/spaces/ops-room",
+      wsHeaders: {},
+      recoverConnection: true,
+      helloProfile: {
+        kind: "human",
+        profileId: "self-profile",
+        profileName: "Felix",
+      },
+      selfProfileId: "self-profile",
+      loadMembers,
+      replayHistory,
+      formatError: String,
+      scheduleDeferredWork: (work) => work(),
+    });
+    runtime.subscribe((event) => events.push(event));
+    const starting = runtime.start().then(
+      (result) => ({ status: "started" as const, result }),
+      (error: unknown) => ({ status: "failed" as const, error })
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(loadMembers).toHaveBeenCalledTimes(1);
+    first.close(1006, "lost during initial members read");
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(connectWebSocketMock).toHaveBeenCalledTimes(2);
+    expect(events.some((event) => event.type === "connected")).toBe(false);
+    if (outcome === "reject") {
+      members.reject(error);
+    } else {
+      if (outcome === "stop") {
+        runtime.stop("SIGINT");
+        second.close(1000, "SIGINT");
+      }
+      members.resolve(null);
+    }
+    const result = await starting;
+    await vi.advanceTimersByTimeAsync(0);
+    if (outcome === "reject") {
+      expect(result).toEqual({ status: "failed", error });
+      expect(second.isClosed()).toBe(true);
+      expect(
+        events.find((event) => event.type === "connection.closed")
+      ).toMatchObject({ source: "error", error });
+      expect(replayHistory).not.toHaveBeenCalled();
+    } else {
+      expect(result.status).toBe("started");
+      if (result.status !== "started") {
+        throw new Error("Expected startup to settle normally");
+      }
+      if (outcome === "history-reject") {
+        expect(
+          events.find((event) => event.type === "connection.closed")
+        ).toMatchObject({ source: "error", error });
+        expect(
+          events.some(
+            (event) =>
+              event.type === "connected" || event.type === "history.loaded"
+          )
+        ).toBe(false);
+        expect(replayHistory).toHaveBeenCalledTimes(1);
+      } else if (outcome === "resolve") {
+        expect(
+          replayHistory.mock.calls.map(([, reconnect]) => reconnect)
+        ).toEqual([false, true]);
+        expect(
+          events.filter((event) => event.type === "connected")
+        ).toHaveLength(1);
+        runtime.stop("SIGINT");
+        second.close(1000, "SIGINT");
+      } else {
+        expect(replayHistory).not.toHaveBeenCalled();
+        expect(events.some((event) => event.type === "connected")).toBe(false);
+      }
+      await result.result.closed;
+    }
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(connectWebSocketMock).toHaveBeenCalledTimes(2);
+    expect(second.isClosed()).toBe(true);
+  });
+
+  it("keeps the initial history anchor while a replacement socket buffers later messages", async () => {
+    vi.useFakeTimers();
+    const first = createWsHarness();
+    const second = createWsHarness();
+    connectWebSocketMock
+      .mockReset()
+      .mockResolvedValueOnce(first.client)
+      .mockResolvedValueOnce(second.client);
+    const initial = Promise.withResolvers<{ synced: boolean }>();
+    const state: SpaceWatchReadState = {
+      anchorSignalId: null,
+      hasReconnected: false,
+    };
+    const seen = new Set<string>();
+    const delivered: string[] = [];
+    const anchors: Array<string | null> = [];
+    const signal = (id: string) =>
+      createSignalTextEvent({
+        id,
+        ts: 1,
+        profileId: "other",
+        profileName: "Other",
+        text: id,
+      });
+    let finishInitial: () => void = () => undefined;
+    const runtime = new SpaceSessionRuntime({
+      wsUrl: "wss://example.com/v1/spaces/ops-room",
+      wsHeaders: {},
+      recoverConnection: true,
+      helloProfile: {
+        kind: "human",
+        profileId: "self-profile",
+        profileName: "Felix",
+      },
+      selfProfileId: "self-profile",
+      loadMembers: () => Promise.resolve(null),
+      formatError: String,
+      scheduleDeferredWork: (work) => work(),
+      replayHistory: (onEvent, reconnect) => {
+        if (!reconnect) {
+          finishInitial = () => {
+            onEvent(signal("A"));
+            initial.resolve({ synced: true });
+          };
+          return initial.promise;
+        }
+        anchors.push(state.anchorSignalId);
+        if (state.anchorSignalId === "A") {
+          onEvent(signal("B"));
+          onEvent(signal("Z"));
+        }
+        return Promise.resolve({ synced: true });
+      },
+    });
+    runtime.subscribe((event) => {
+      if (event.type === "connection.reconnecting") {
+        state.hasReconnected = true;
+      }
+      if (
+        event.type === "signal.received" &&
+        "id" in event.event &&
+        !seen.has(event.event.id)
+      ) {
+        seen.add(event.event.id);
+        delivered.push(event.event.id);
+        rememberSpaceWatchAnchor(state, event.event);
+      }
+    });
+    const started = await runtime.start();
+    first.close(1006, "interrupted during initial history");
+    await vi.advanceTimersByTimeAsync(1000);
+    second.emit(JSON.stringify(signal("Z")));
+    finishInitial();
+    await vi.advanceTimersByTimeAsync(0);
+    runtime.stop("SIGINT");
+    second.close(1000, "SIGINT");
+    await started.closed;
+    expect(anchors).toEqual(["A"]);
+    expect(delivered).toEqual(["A", "B", "Z"]);
+  });
+
+  it.each([
+    "unfinished",
+    "successful-stability",
+  ] as const)("bounds recovery across long catch-up attempts (%s)", async (outcome) => {
+    vi.useFakeTimers();
+    const sockets: ReturnType<typeof createWsHarness>[] = [];
+    connectWebSocketMock.mockReset().mockImplementation(() => {
+      const socket = createWsHarness();
+      sockets.push(socket);
+      return Promise.resolve(socket.client);
+    });
+    const reads: ReturnType<
+      typeof Promise.withResolvers<{ synced: boolean }>
+    >[] = [];
+    const events: SpaceRuntimeEvent[] = [];
+    const runtime = new SpaceSessionRuntime({
+      wsUrl: "wss://example.com/v1/spaces/ops-room",
+      wsHeaders: {},
+      recoverConnection: true,
+      helloProfile: {
+        kind: "human",
+        profileId: "self-profile",
+        profileName: "Felix",
+      },
+      selfProfileId: "self-profile",
+      loadMembers: () => Promise.resolve(null),
+      formatError: String,
+      scheduleDeferredWork: (work) => work(),
+      replayHistory: (_onEvent, reconnect) => {
+        if (!reconnect) {
+          return Promise.resolve({ synced: true });
+        }
+        const read = Promise.withResolvers<{ synced: boolean }>();
+        reads.push(read);
+        return read.promise;
+      },
+    });
+    runtime.subscribe((event) => events.push(event));
+    const started = await runtime.start();
+    await vi.advanceTimersByTimeAsync(0);
+    sockets[0]?.close(1006, "network interrupted");
+    if (outcome === "unfinished") {
+      for (const [index, delay] of [1000, 2000, 4000, 8000, 8000].entries()) {
+        await vi.advanceTimersByTimeAsync(delay);
+        await vi.advanceTimersByTimeAsync(31_000);
+        sockets[index + 1]?.close(1006, "catch-up still unfinished");
+        reads[index]?.resolve({ synced: true });
+        await vi.advanceTimersByTimeAsync(0);
+      }
+    } else {
+      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(31_000);
+      reads[0]?.resolve({ synced: true });
+      await vi.advanceTimersByTimeAsync(0);
+      // A long open socket is not 30 seconds of successful recovery.
+      sockets[1]?.close(1006, "closed immediately after catch-up");
+      await vi.advanceTimersByTimeAsync(2000);
+      reads[1]?.resolve({ synced: true });
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(31_000);
+      sockets[2]?.close(
+        1006,
+        "new failure after a stable recovered connection"
+      );
+      await vi.advanceTimersByTimeAsync(1000);
+    }
+    const attempts = events
+      .filter((event) => event.type === "connection.reconnecting")
+      .map((event) => event.attempt);
+    const closedBeforeStop = events.find(
+      (event) => event.type === "connection.closed"
+    );
+    runtime.stop("SIGINT");
+    reads.at(-1)?.resolve({ synced: true });
+    sockets.at(-1)?.close(1000, "SIGINT");
+    await started.closed;
+    expect(attempts).toEqual(
+      outcome === "unfinished" ? [1, 2, 3, 4, 5] : [1, 2, 1]
+    );
+    if (outcome === "unfinished") {
+      expect(sockets).toHaveLength(6);
+      expect(closedBeforeStop).toMatchObject({
+        source: "error",
+        reason: expect.stringContaining("could not reconnect after 5 attempts"),
+      });
+    } else {
+      expect(closedBeforeStop).toBeUndefined();
+      expect(sockets).toHaveLength(4);
+    }
+  });
+
+  it.each([
+    false,
+    true,
+  ])("keeps the watch lifetime and exact send receipt across recovery (interrupted=%s)", async (interrupted) => {
+    vi.useFakeTimers();
+    const first = createWsHarness();
+    const second = createWsHarness();
+    const third = createWsHarness();
+    connectWebSocketMock
+      .mockReset()
+      .mockResolvedValueOnce(first.client)
+      .mockResolvedValueOnce(second.client)
+      .mockResolvedValueOnce(third.client);
+    const events: SpaceRuntimeEvent[] = [];
+    const replayReads: Array<{ deliver: () => void; finish: () => void }> = [];
+    let receipt: ReturnType<SpaceSessionRuntime["sendText"]>;
+    const runtime = new SpaceSessionRuntime({
+      wsUrl: "wss://example.com/v1/spaces/ops-room",
+      wsHeaders: {},
+      recoverConnection: true,
+      helloProfile: {
+        kind: "human",
+        profileId: "self-profile",
+        profileName: "Felix",
+      },
+      selfProfileId: "self-profile",
+      loadMembers: () => Promise.resolve(null),
+      formatError: (error) => String(error),
+      scheduleDeferredWork: (work) => work(),
+      replayHistory: (onEvent, reconnect) => {
+        if (!reconnect) {
+          return Promise.resolve({ synced: true });
+        }
+        return new Promise((resolve) =>
+          replayReads.push({
+            deliver: () => {
+              if (!receipt.queued) {
+                throw new Error("expected queued receipt");
+              }
+              onEvent({
+                ...createSignalTextEvent({
+                  id: "confirmed-after-gap",
+                  ts: 2,
+                  profileId: "self-profile",
+                  profileName: "Felix",
+                  text: "one message",
+                }),
+                data: {
+                  text: "one message",
+                  meta: { clientMessageId: receipt.clientMessageId },
+                },
+              });
+            },
+            finish: () => resolve({ synced: true }),
+          })
+        );
+      },
+    });
+    runtime.subscribe((event) => events.push(event));
+    const started = await runtime.start();
+    await vi.advanceTimersByTimeAsync(0);
+    receipt = runtime.sendText({ text: "one message" });
+    let closed = false;
+    started.closed.then(() => {
+      closed = true;
+    });
+    first.close(1006, "network interrupted");
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(closed).toBe(false);
+    expect(events.filter((event) => event.type === "connected")).toHaveLength(
+      1
+    );
+    expect(runtime.sendText({ text: "during recovery" })).toEqual({
+      queued: false,
+    });
+    const read = replayReads[0];
+    if (!read) {
+      throw new Error("missing recovery read");
+    }
+    if (interrupted) {
+      second.close(1006, "interrupted during catch-up");
+    }
+    read.deliver();
+    read.finish();
+    await vi.advanceTimersByTimeAsync(0);
+    if (interrupted) {
+      expect(events.filter((event) => event.type === "connected")).toHaveLength(
+        1
+      );
+      await vi.advanceTimersByTimeAsync(2000);
+      const resumed = replayReads[1];
+      if (!resumed) {
+        throw new Error("missing resumed recovery read");
+      }
+      resumed.deliver();
+      resumed.finish();
+      await vi.advanceTimersByTimeAsync(0);
+    }
+    expect(events.filter((event) => event.type === "send.confirmed")).toEqual([
+      expect.objectContaining({
+        clientMessageId: receipt.queued ? receipt.clientMessageId : null,
+      }),
+    ]);
+    expect(
+      events.filter((event) => event.type === "signal.received")
+    ).toHaveLength(1);
+    expect(events.filter((event) => event.type === "connected")).toHaveLength(
+      2
+    );
+    expect(
+      [first, second, third]
+        .flatMap((harness) => harness.send.mock.calls)
+        .map((call) => JSON.parse(String(call[0])).type)
+        .filter((type) => type === "signal.text")
+    ).toEqual(["signal.text"]);
+    runtime.stop("SIGINT");
+    (interrupted ? third : second).close(1000, "SIGINT");
+    await started.closed;
+    expect(
+      events.filter((event) => event.type === "connection.closed")
+    ).toEqual([expect.objectContaining({ source: "close", code: 1000 })]);
   });
 
   it("loads members, replays history, then drains buffered live events", async () => {
@@ -569,13 +976,18 @@ function createWsHarness(): {
   emit: (raw: string) => void;
   close: (code: number, reason: string) => void;
   send: ReturnType<typeof vi.fn>;
+  isClosed: () => boolean;
 } {
   let onMessageHandler: ((data: string) => void) | null = null;
   let onCloseHandler: ((code: number, reason: string) => void) | null = null;
   let resolveClosed: (() => void) | null = null;
   const send = vi.fn();
   const close = vi.fn();
-  const terminate = vi.fn();
+  let nativeClosed = false;
+  const terminate = vi.fn(() => {
+    nativeClosed = true;
+    resolveClosed?.();
+  });
   const closed = new Promise<void>((resolve) => {
     resolveClosed = resolve;
   });
@@ -605,9 +1017,11 @@ function createWsHarness(): {
         throw new Error("missing onClose handler");
       }
       onCloseHandler(code, reason);
+      nativeClosed = true;
       resolveClosed();
     },
     send,
+    isClosed: () => nativeClosed,
   };
 }
 

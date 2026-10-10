@@ -1,5 +1,12 @@
 import { relations, sql } from "drizzle-orm";
-import { check, index, jsonb, text, uniqueIndex } from "drizzle-orm/pg-core";
+import {
+  check,
+  index,
+  integer,
+  jsonb,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
 import {
   applicationTable,
   currentTimestampMilliseconds,
@@ -80,6 +87,7 @@ export const openMeldProfiles = applicationTable(
     managedRole: text("managed_role").$type<OpenMeldProfileManagedRole>(),
     creationIdempotencyKey: text("creation_idempotency_key"),
     defaultProjectId: text("default_project_id"),
+    defaultProjectRevision: integer("default_project_revision"),
     avatarStyle: text("avatar_style"),
     avatarOptions: jsonb("avatar_options").$type<{
       palette?: "original" | "balanced" | "soft";
@@ -96,6 +104,10 @@ export const openMeldProfiles = applicationTable(
       .notNull(),
   },
   (table) => [
+    check(
+      "openmeld_profiles_default_project_revision_check",
+      sql`${table.defaultProjectRevision} is null or ${table.defaultProjectRevision} >= 0`
+    ),
     index("openmeld_profiles_owner_user_id_idx").on(table.ownerUserId),
     index("openmeld_profiles_owner_kind_idx").on(
       table.ownerUserId,

@@ -58,6 +58,7 @@ import type {
   LocalRuntimesResponse,
   OpenMeldRequestContext,
   PostSpaceWakeStopResponse,
+  SignalEnvelope,
   SignalTextEnvelope,
 } from "@openmeld/schemas/types";
 import { OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE } from "@openmeld/space";
@@ -8007,6 +8008,40 @@ describe("organization Core RPC", () => {
       text: `${"x".repeat(4000)}selected remainder`,
       ts: TEST_NOW_MS + 2,
     });
+    // Public terminal notice captured by normal CLI history on 2026-10-09;
+    // identifiers and text are anonymized, with the envelope shape retained.
+    const failureNotice: Extract<
+      SignalEnvelope,
+      { type: "signal.system_notice" }
+    > = {
+      v: 1,
+      id: "signal-failure-notice",
+      spaceId: JOINED_PRIVATE_SPACE_ID,
+      ts: TEST_NOW_MS + 3,
+      profile: {
+        kind: "system",
+        profileId: "openmeld-system",
+        profileName: "OpenMeld System",
+      },
+      type: "signal.system_notice",
+      data: {
+        noticeType: "terminal_failure",
+        actorProfileId: AGENT_PROFILE_ID,
+        actorName: "Runner",
+        dispatchId: "dispatch-refused",
+        replyTo: {
+          signalId: latestReply.id,
+          profileId: AGENT_PROFILE_ID,
+          profileKind: "agent",
+          profileName: "Runner",
+          previewText: "Original message",
+        },
+        reasonCode: "usage_exhausted",
+        failureStage: "execution",
+        text: "The AI account used by Runner reached its Usage Limit.",
+        generatedBy: "openmeld",
+      },
+    };
     const createdAt = new Date(TEST_NOW_MS).toISOString();
     const thread = {
       createdAt,
@@ -8038,7 +8073,7 @@ describe("organization Core RPC", () => {
     ];
     const spaceStub = createSpaceStub({
       getThreadResponse: { rootSignal, thread },
-      initialSignals: [rootSignal, firstReply, latestReply],
+      initialSignals: [rootSignal, firstReply, latestReply, failureNotice],
       listThreadSignalsResponse: {
         placements,
         signals: [rootSignal, firstReply, latestReply],
@@ -8063,6 +8098,38 @@ describe("organization Core RPC", () => {
       profileKind: "agent",
       userId: "user-a",
     });
+
+    const noticeRequest = {
+      context,
+      scope: "source_evidence" as const,
+      sourceSignalId: failureNotice.id,
+      spaceId: JOINED_PRIVATE_SPACE_ID,
+    };
+    const noticeEvidence = await rpcCenterAgentReadSpaceContext(
+      env,
+      noticeRequest
+    );
+    expect(noticeEvidence).toMatchObject({
+      context: {
+        scope: "source_evidence",
+        message: {
+          author: { profileKind: "system", profileName: "OpenMeld System" },
+          content: { text: failureNotice.data.text, truncated: false },
+          replyToSignalId: latestReply.id,
+          sourceRef: {
+            id: failureNotice.id,
+            version: expect.stringMatching(EVIDENCE_VERSION_PATTERN),
+          },
+        },
+        nextOffset: null,
+      },
+    });
+    await expect(
+      rpcCenterAgentReadSpaceContext(env, {
+        ...noticeRequest,
+        version: `sha256:${"0".repeat(64)}`,
+      })
+    ).rejects.toThrow("space.evidence_version_unavailable");
 
     const exactRequest = {
       context,
@@ -8188,7 +8255,7 @@ describe("organization Core RPC", () => {
     ).resolves.toMatchObject({
       context: {
         scope: "history",
-        signals: [firstReply, latestReply],
+        signals: [latestReply, failureNotice],
         truncated: true,
       },
     });
@@ -13168,7 +13235,7 @@ function createSpaceStub(
     initialActiveMemberProfileIdsBySpace?: Readonly<
       Record<string, readonly string[]>
     >;
-    initialSignals?: SignalTextEnvelope[];
+    initialSignals?: SignalEnvelope[];
     listThreadSignalsResponse?: ListSpaceThreadSignalsResponse;
     listThreadsResponse?: ListSpaceThreadsResponse;
     spaces?: ReturnType<typeof spaceRow>[];
@@ -13257,7 +13324,7 @@ function createSpaceStub(
       ),
     ])
   );
-  const signals: SignalTextEnvelope[] = [...(input.initialSignals ?? [])];
+  const signals: SignalEnvelope[] = [...(input.initialSignals ?? [])];
   const patchSpaceMeta = vi.fn(
     async (request: {
       accessMode?:
@@ -13508,7 +13575,8 @@ function createSpaceStub(
         });
       }
       const existingSignal = signals.find(
-        (signal) =>
+        (signal): signal is SignalTextEnvelope =>
+          signal.type === "signal.text" &&
           signal.spaceId === request.spaceId &&
           signal.data.meta?.clientMessageId === request.clientMessageId
       );

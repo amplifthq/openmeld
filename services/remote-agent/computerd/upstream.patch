@@ -1,0 +1,594 @@
+diff --git a/packages/dofs/src/storage.ts b/packages/dofs/src/storage.ts
+--- a/packages/dofs/src/storage.ts
++++ b/packages/dofs/src/storage.ts
+@@ -3,37 +3,14 @@
+ export class Database {
+   readonly sql: SQLStorageLike;
+   readonly transactionSync: <T>(closure: () => T) => T;
+-  // Depth counter so reentrant transactionSync() calls work. The
+-  // outer call uses the storage adapter's transactionSync (or
+-  // BEGIN/COMMIT under the hood); nested calls use SAVEPOINTs
+-  // through sql.exec directly. SQLite forbids a real BEGIN inside
+-  // an active transaction.
++  // Track depth for resolve-cache isolation. The storage adapter owns
++  // every transaction, including nesting: Durable Objects forbid raw
++  // SQL transaction statements and supply their own transactionSync API.
+   #txDepth = 0;
+ 
+   constructor(storage: DurableObjectStorageLike) {
+     this.sql = storage.sql;
+     this.transactionSync = <T>(closure: () => T): T => {
+-      if (this.#txDepth > 0) {
+-        // Reentrant call: use a savepoint. SQLite's RELEASE on a
+-        // savepoint inside an outer transaction commits the inner
+-        // work without ending the outer one.
+-        const sp = `_t${this.#txDepth}`;
+-        this.sql.exec(`SAVEPOINT ${sp}`);
+-        this.#txDepth++;
+-        try {
+-          const result = closure();
+-          this.sql.exec(`RELEASE ${sp}`);
+-          return result;
+-        } catch (error) {
+-          this.sql.exec(`ROLLBACK TO ${sp}`);
+-          this.sql.exec(`RELEASE ${sp}`);
+-          throw error;
+-        } finally {
+-          this.#txDepth--;
+-        }
+-      }
+-      // Outer call: hand off to the storage adapter so the DO
+-      // runtime's transaction semantics apply.
+       this.#txDepth++;
+       try {
+         if (storage.transactionSync !== undefined) {
+diff --git a/packages/dofs/src/node-storage.ts b/packages/dofs/src/node-storage.ts
+--- a/packages/dofs/src/node-storage.ts
++++ b/packages/dofs/src/node-storage.ts
+@@ -65,6 +65,7 @@
+   readonly location: string;
+   private readonly db: DatabaseSync;
+   private readonly cache = new Map<string, StatementSync>();
++  private transactionDepth = 0;
+   readonly sql: {
+     exec: <Row extends object>(query: string, ...bindings: unknown[]) => SQLCursorLike<Row>;
+   };
+@@ -136,14 +137,24 @@
+   }
+ 
+   transactionSync<T>(closure: () => T): T {
+-    this.db.exec("BEGIN");
++    const nested = this.transactionDepth > 0;
++    const savepoint = `_n${this.transactionDepth}`;
++    this.db.exec(nested ? `SAVEPOINT ${savepoint}` : "BEGIN");
++    this.transactionDepth++;
+     try {
+       const result = closure();
+-      this.db.exec("COMMIT");
++      this.db.exec(nested ? `RELEASE ${savepoint}` : "COMMIT");
+       return result;
+     } catch (error) {
+-      this.db.exec("ROLLBACK");
++      if (nested) {
++        this.db.exec(`ROLLBACK TO ${savepoint}`);
++        this.db.exec(`RELEASE ${savepoint}`);
++      } else {
++        this.db.exec("ROLLBACK");
++      }
+       throw error;
++    } finally {
++      this.transactionDepth--;
+     }
+   }
+ 
+diff --git a/packages/dofs/src/node-storage.test.ts b/packages/dofs/src/node-storage.test.ts
+--- a/packages/dofs/src/node-storage.test.ts
++++ b/packages/dofs/src/node-storage.test.ts
+@@ -242,6 +242,23 @@
+ 
+     expect(value).toBeUndefined();
+   });
++
++  it("rolls back a failed inner transaction while the outer continues", () => {
++    const path = join(dir, "state.db");
++    const { storage, db } = openStore(path);
++    db.transactionSync(() => {
++      db.run("INSERT INTO vfs_meta (k, v) VALUES (?, ?)", "outer_before", 1);
++      expect(() => db.transactionSync(() => {
++        db.run("INSERT INTO vfs_meta (k, v) VALUES (?, ?)", "inner_failed", 2);
++        throw new Error("inner failure");
++      })).toThrow("inner failure");
++      db.run("INSERT INTO vfs_meta (k, v) VALUES (?, ?)", "outer_after", 3);
++    });
++    expect(db.scalar<number>("SELECT v FROM vfs_meta WHERE k = ?", "outer_before")).toBe(1);
++    expect(db.scalar<number>("SELECT v FROM vfs_meta WHERE k = ?", "inner_failed")).toBeUndefined();
++    expect(db.scalar<number>("SELECT v FROM vfs_meta WHERE k = ?", "outer_after")).toBe(3);
++    storage.close();
++  });
+ });
+ 
+ describe("NodeSQLiteStorage in memory", () => {
+diff --git a/packages/dofs/src/sync/apply.ts b/packages/dofs/src/sync/apply.ts
+--- a/packages/dofs/src/sync/apply.ts
++++ b/packages/dofs/src/sync/apply.ts
+@@ -13,6 +13,7 @@
+ import type { ChangeEntry } from "./changes.js";
+ import { computeManifestHash } from "./manifests.js";
+ import { pathOf } from "./paths.js";
++import { type ChangeCursor, compareChangeCursors } from "./watermarks.js";
+ 
+ // One container-side change that landed under a read-only mount and
+ // was therefore skipped rather than applied. Callers (the workspace
+@@ -63,6 +64,11 @@
+   // rev further, bounding the echo at one extra round trip per
+   // upstream apply.
+   source?: "local" | "upstream";
++  // Last durably accepted cursor from this same ordered source. Its
++  // revision is in the sender's clock, unlike vfs_nodes.rev. The caller
++  // must commit metadata and the advanced source cursor atomically.
++  // Replays at or below this fence cannot overwrite newer local work.
++  sourceCursor?: ChangeCursor;
+   // Backend id whose watermark row this apply should touch. The
+   // DO hosts independent sync cursors per backend; threading the
+   // id through here keeps a pull from backend A from bumping
+@@ -283,6 +289,7 @@
+   };
+ 
+   for await (const entry of entries) {
++    if (isSourceReplay(entry, options)) continue;
+     // Idempotent skip: if the entry already matches the local
+     // state, drop it on the floor. The check is what stops a
+     // pull from bumping vfs_meta.rev for entries that are
+@@ -291,9 +298,9 @@
+     if (options.source === "upstream" && entry.kind !== "delete") {
+       if (alreadyApplied(db, entry)) continue;
+     }
+-    // A replayed tombstone must not delete a path that was recreated
+-    // above the tombstone's revision.
+-    if (options.source === "upstream" && entry.kind === "delete" && tombstoneIsStale(db, entry)) {
++    // Unsequenced callers retain their existing tombstone guard. Ordered
++    // peers use the source cursor; their node and sender clocks differ.
++    if (options.source === "upstream" && options.sourceCursor === undefined && entry.kind === "delete" && tombstoneIsStale(db, entry)) {
+       continue;
+     }
+     // Read-only mount guard. Entries under a registered read-only
+@@ -312,11 +319,7 @@
+       continue;
+     }
+     if (entry.kind === "delete") {
+-      try {
+-        rm(db, entry.path, { recursive: true, force: true });
+-      } catch {
+-        // Already gone is fine — idempotent apply.
+-      }
++      rm(db, entry.path, { recursive: true, force: true });
+       applied++;
+       pathsInBatch++;
+       if (pathsInBatch >= maxPaths) flush();
+@@ -418,12 +421,13 @@
+   };
+ 
+   for (const entry of entries) {
++    if (isSourceReplay(entry, options)) continue;
+     if (options.source === "upstream" && entry.kind !== "delete") {
+       if (alreadyApplied(db, entry)) continue;
+     }
+-    // See tombstoneIsStale: a replayed delete must not clobber a
+-    // newer local recreation.
+-    if (options.source === "upstream" && entry.kind === "delete" && tombstoneIsStale(db, entry)) {
++    // Ordered peers have already rejected replays using their source cursor.
++    // Retain the prior guard for unsequenced callers.
++    if (options.source === "upstream" && options.sourceCursor === undefined && entry.kind === "delete" && tombstoneIsStale(db, entry)) {
+       continue;
+     }
+     const blockingRoot = readOnlyRootFor(db, entry.path);
+@@ -437,11 +441,7 @@
+       continue;
+     }
+     if (entry.kind === "delete") {
+-      try {
+-        rm(db, entry.path, { recursive: true, force: true });
+-      } catch {
+-        // Already gone is fine — idempotent apply.
+-      }
++      rm(db, entry.path, { recursive: true, force: true });
+       applied++;
+       pathsInBatch++;
+       if (pathsInBatch >= maxPaths) flush();
+@@ -568,6 +568,7 @@
+ }
+ 
+ // Decide whether an upstream tombstone may delete the live path.
++// This legacy guard is used only without an ordered source cursor.
+ //
+ // A tombstone describes the path as of the revision it was stamped
+ // with. Because the sync cursor only advances after a block applies,
+@@ -583,6 +584,11 @@
+ //
+ // Local deletes are exempt. They are authored here, not replayed, so
+ // there is no earlier revision to compare against.
++function isSourceReplay(entry: ChangeEntry, options: ApplyOptions): boolean {
++  return options.source === "upstream" && options.sourceCursor !== undefined &&
++    compareChangeCursors({ rev: entry.rev, path: entry.path }, options.sourceCursor) <= 0;
++}
++
+ function tombstoneIsStale(db: Database, entry: ChangeEntry & { kind: "delete" }): boolean {
+   const live = resolveInode(db, entry.path, { followSymlinks: false });
+   if (live === null) return false;
+diff --git a/packages/rpc/src/server.ts b/packages/rpc/src/server.ts
+--- a/packages/rpc/src/server.ts
++++ b/packages/rpc/src/server.ts
+@@ -139,13 +139,16 @@
+     // assembly step) rolls back every prior entry. Without this
+     // wrapper the receiver could be left with a subset of the
+     // pushed entries committed.
+-    this.db.transactionSync(() => {
+-      applyChangesSync(this.db, entries, new Map(), {
++    const result = this.db.transactionSync(() => {
++      const accepted = readFetchCursor(this.db);
++      const applied = applyChangesSync(this.db, entries, new Map(), {
+         source: isPeer ? "upstream" : "local",
++        ...(isPeer ? { sourceCursor: accepted } : {}),
+       });
+-      if (isPeer && compareChangeCursors(senderCursor, readFetchCursor(this.db)) > 0) {
++      if (isPeer && compareChangeCursors(senderCursor, accepted) > 0) {
+         writeFetchCursor(this.db, senderCursor);
+       }
++      return applied;
+     });
+     // Settle the receiver's shim, and let the outcome decide what the
+     // caller is told — which differs by who the caller is.
+@@ -157,8 +160,7 @@
+     // acknowledgment, and only then spawns: acknowledging an
+     // unflushed block would retire it and let the command read stale
+     // disk. Replay is safe because these entries carry
+-    // source: "upstream", which routes them through the
+-    // already-applied and stale-tombstone guards.
++    // source: "upstream", which rejects already accepted source cursors.
+     //
+     // An external push is not replayable. It has no durable cursor to
+     // rewind, and its entries are applied as source: "local", which
+@@ -183,7 +185,7 @@
+     }
+     return {
+       rev: currentRev(this.db),
+-      applied: entries.length,
++      applied: result.applied,
+       appliedPushCursor: isPeer ? senderCursor : { rev: 0, path: null },
+     };
+   }
+@@ -294,12 +296,19 @@
+     for (const [key, bytes] of decoded.objects) {
+       stageBlob(this.db, hexToBytes(key), bytes, Date.now());
+     }
+-    const result = applyChangesSync(this.db, decoded.entries, new Map(), {
+-      source: "upstream",
++    const result = this.db.transactionSync(() => {
++      const accepted = readFetchCursor(this.db);
++      const applied = applyChangesSync(this.db, decoded.entries, new Map(), {
++        source: "upstream",
++        sourceCursor: accepted,
++      });
++      if (compareChangeCursors(decoded.footer.blockCursor, accepted) > 0) {
++        writeFetchCursor(this.db, decoded.footer.blockCursor);
++      }
++      return applied;
+     });
+     // The footer's block cursor is the sender's checkpoint; echo it so
+     // the sender advances only through what actually applied here.
+-    writeFetchCursor(this.db, decoded.footer.blockCursor);
+     // Mirror push(): settle the receiver's shim so a subsequent
+     // shell.exec sees the just-pushed files on disk. Pack mode is
+     // selected for exactly the large windows a pre-command push
+@@ -312,7 +321,7 @@
+     // lets the command read stale disk. Failing the RPC leaves the
+     // sender cursor where it was and the next push replans the same
+     // block; the entries are already committed here, and applying
+-    // them again is absorbed by alreadyApplied().
++    // them again is absorbed by the durable source cursor.
+     if (this.options.afterApply !== undefined && decoded.entries.length > 0) {
+       await this.options.afterApply();
+     }
+diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
+--- a/packages/rpc/src/sync-engine.ts
++++ b/packages/rpc/src/sync-engine.ts
+@@ -17,7 +17,7 @@
+ // to call `next()`, from a request, an alarm, a queue, or a Workflow.
+ 
+ import {
+-  applyChanges,
++  applyChangesSync,
+   assertAppliedPushCursor,
+   type BlockProfile,
+   type ChangeCursor,
+@@ -207,13 +207,21 @@
+     bytes += payload.byteLength;
+   }
+ 
+-  const result = await applyChanges(db, decoded.entries, new Map(), {
+-    source: "upstream",
+-    backend,
++  const result = db.transactionSync(() => {
++    const accepted = readFetchCursor(db, backend);
++    const applied = applyChangesSync(db, decoded.entries, new Map(), {
++      source: "upstream",
++      sourceCursor: accepted,
++      backend,
++    });
++    for (const skip of applied.skipped) {
++      recordSkip(db, backend, "pull", operation.generation, skip.path, skip.reason, now());
++    }
++    if (compareChangeCursors(decoded.footer.blockCursor, accepted) > 0) {
++      writeFetchCursor(db, decoded.footer.blockCursor, backend);
++    }
++    return applied;
+   });
+-  for (const skip of result.skipped) {
+-    recordSkip(db, backend, "pull", operation.generation, skip.path, skip.reason, now());
+-  }
+ 
+   // The footer's block cursor is authoritative: it is what the encoder
+   // committed to, and it already accounts for a drained window jumping
+@@ -351,9 +359,6 @@
+       target,
+       effectiveProfile,
+     );
+-    if (compareChangeCursors(packed.cursor, after) > 0) {
+-      writeFetchCursor(db, packed.cursor, backend);
+-    }
+     clearBlockMarker(db, backend, "pull", operation.generation, now());
+     const packComplete = compareChangeCursors(packed.cursor, target) >= 0;
+     if (packComplete) {
+@@ -450,27 +455,25 @@
+     }
+   }
+ 
+-  // 4. Apply metadata before the cursor moves. Chunk bytes come from
+-  //    the staged blob store, not from an in-memory map.
+-  const result = await applyChanges(db, entries, new Map(), {
+-    source: "upstream",
+-    backend,
+-  });
+-
+-  // 5. Record refusals durably. The cursor advances past them so the
+-  //    operation cannot stall on an entry that can never apply, which
+-  //    would otherwise loop forever on the same rejection.
+-  for (const skip of result.skipped) {
+-    recordSkip(db, backend, "pull", operation.generation, skip.path, skip.reason, now());
+-  }
+-
+-  // 6. Advance the cursor. Drained means every change through the
+-  //    target was offered, so the cursor jumps to the target itself.
++  // Commit metadata, deliberate refusals and source progress together.
++  // Chunk bytes were staged before this synchronous transaction.
+   const lastEntry = entries[entries.length - 1];
+   const cursor = drained ? target : lastEntry === undefined ? after : entryCursor(lastEntry);
+-  if (compareChangeCursors(cursor, after) > 0) {
+-    writeFetchCursor(db, cursor, backend);
+-  }
++  const result = db.transactionSync(() => {
++    const accepted = readFetchCursor(db, backend);
++    const applied = applyChangesSync(db, entries, new Map(), {
++      source: "upstream",
++      sourceCursor: accepted,
++      backend,
++    });
++    for (const skip of applied.skipped) {
++      recordSkip(db, backend, "pull", operation.generation, skip.path, skip.reason, now());
++    }
++    if (compareChangeCursors(cursor, accepted) > 0) {
++      writeFetchCursor(db, cursor, backend);
++    }
++    return applied;
++  });
+   clearBlockMarker(db, backend, "pull", operation.generation, now());
+ 
+   // 7. Complete when the cursor reaches the fixed target.
+@@ -551,8 +554,8 @@
+   if (operation.status === "capturing") {
+     pruneSkips(db, backend, "push", operation.generation);
+     // Push plans locally, so mode selection is a local probe rather
+-    // than a remote round trip. selectMode returns the first block from
+-    // the same pass, which is why this does not scan the window twice.
++    // than a remote round trip. Only the selected mode is consumed here;
++    // the transfer plans each actual block under its current profile.
+     const target = { rev: currentRev(db), path: null };
+     const decision = await selectMode(db, {
+       after: readPushCursor(db, backend),
+diff --git a/packages/rpc/src/sync-driver.ts b/packages/rpc/src/sync-driver.ts
+--- a/packages/rpc/src/sync-driver.ts
++++ b/packages/rpc/src/sync-driver.ts
+@@ -11,7 +11,7 @@
+ 
+ import {
+   type ApplyResult,
+-  applyChanges,
++  applyChangesSync,
+   assertAppliedPushCursor,
+   type ChangeCursor,
+   type ChangeEntry,
+@@ -244,17 +244,16 @@
+           }
+         }
+ 
+-        const batchResult = await applyChanges(db, batch, new Map(), {
+-          source: "upstream",
+-          backend,
++        const last = batch[batch.length - 1];
++        const batchResult = db.transactionSync(() => {
++          const result = applyChangesSync(db, batch, new Map(), {
++            source: "upstream",
++            sourceCursor: readFetchCursor(db, backend),
++            backend,
++          });
++          writeFetchCursorIfAhead(db, { rev: last.rev, path: last.path }, backend);
++          return result;
+         });
+-        const last = batch[batch.length - 1];
+-        // Cursor advancement intentionally happens after applyChanges()
+-        // and is not atomic with it. A crash between apply and this
+-        // checkpoint re-fetches the batch; upstream apply is idempotent
+-        // because alreadyApplied() drops entries whose live state
+-        // already matches.
+-        writeFetchCursorIfAhead(db, { rev: last.rev, path: last.path }, backend);
+         totalApplied += batchResult.applied;
+         if (batchResult.skipped.length > 0) {
+           for (const s of batchResult.skipped) totalSkipped.push(s);
+diff --git a/packages/rpc/src/sync-driver.test.ts b/packages/rpc/src/sync-driver.test.ts
+--- a/packages/rpc/src/sync-driver.test.ts
++++ b/packages/rpc/src/sync-driver.test.ts
+@@ -88,6 +88,32 @@
+ }
+ 
+ describe("sync driver — pullOnce", () => {
++  it("rolls fresh deletion and accepted source progress back together", async () => {
++    const source = makePeer();
++    const receiver = makePeer();
++    try {
++      const upstream = new SQLiteWorkspaceProvider(source.db, { now: () => 1 });
++      const local = new SQLiteWorkspaceProvider(receiver.db, { now: () => 1 });
++      upstream.writeFileSync("/deleted.txt", "original");
++      await pullOnce(receiver.db, source.rpc);
++      const accepted = readFetchCursor(receiver.db);
++      for (let i = 0; i < 10; i++) local.writeFileSync("/local.txt", `${i}`);
++      upstream.unlinkSync("/deleted.txt");
++      expect(currentRev(receiver.db)).toBeGreaterThan(currentRev(source.db));
++      receiver.db.run("CREATE TRIGGER reject_cursor BEFORE INSERT ON _vfs_watermark WHEN NEW.k = 'fetchRev' BEGIN SELECT RAISE(ABORT, 'cursor unavailable'); END");
++      await expect(pullOnce(receiver.db, source.rpc)).rejects.toThrow("cursor unavailable");
++      expect(local.readFileSync("/deleted.txt", "utf8")).toBe("original");
++      expect(readFetchCursor(receiver.db)).toEqual(accepted);
++      receiver.db.run("DROP TRIGGER reject_cursor");
++      await pullOnce(receiver.db, source.rpc);
++      expect(local.existsSync("/deleted.txt")).toBe(false);
++      expect(readFetchCursor(receiver.db)).toEqual({ rev: currentRev(source.db), path: null });
++    } finally {
++      source.close();
++      receiver.close();
++    }
++  });
++
+   it("pulls a single entry from upstream", async () => {
+     const a = makePeer();
+     const b = makePeer();
+@@ -1145,11 +1171,15 @@
+       providerA.writeFileSync("/before-stale-path.txt", "pushed");
+       const pushedRev = currentRev(a.db);
+ 
++      // An accepted cursor represents applied metadata. A later peer push
++      // may complete that revision, but must not undo newer receiver writes.
++      await pullOnce(b.db, a.rpc);
+       writeFetchCursor(b.db, { rev: pushedRev, path: "/zzzz" });
++      providerB.writeFileSync("/before-stale-path.txt", "receiver changed");
+ 
+       expect(await pushOnce(a.db, b.rpc)).toBeGreaterThan(0);
+       expect(readFetchCursor(b.db)).toEqual({ rev: pushedRev, path: null });
+-      expect(providerB.readFileSync("/before-stale-path.txt", "utf8")).toBe("pushed");
++      expect(providerB.readFileSync("/before-stale-path.txt", "utf8")).toBe("receiver changed");
+ 
+       providerA.writeFileSync("/after-push.txt", "pulled later");
+       const pulled = await pullOnce(b.db, a.rpc);
+diff --git a/packages/rpc/src/sync-engine-push.test.ts b/packages/rpc/src/sync-engine-push.test.ts
+--- a/packages/rpc/src/sync-engine-push.test.ts
++++ b/packages/rpc/src/sync-engine-push.test.ts
+@@ -1,6 +1,7 @@
+ import {
+   Database,
+   initializeSchema,
++  readFetchCursor,
+   readOperation,
+   readPushCursor,
+   SQLiteWorkspaceProvider,
+@@ -114,6 +115,58 @@
+   });
+ 
+   describe("acknowledgment is the only cursor authority", () => {
++    it.each(["entries", "pack"] as const)("preserves receiver writes after a lost %s acknowledgment", async (mode) => {
++      const local = makePeer();
++      const remote = makePeer();
++      const options = mode === "pack" ? { thresholdEntries: 1 } : {};
++      try {
++        const source = new SQLiteWorkspaceProvider(local.db);
++        const receiver = new SQLiteWorkspaceProvider(remote.db);
++        source.writeFileSync("/deleted.txt", "original");
++        source.writeFileSync("/modified.txt", "original");
++        for (let i = 0; i < 30; i++) receiver.writeFileSync("/receiver-clock.txt", `${i}`);
++        await drainPush(local.db, remote.rpc, options);
++        await source.unlink("/deleted.txt");
++        source.writeFileSync("/modified.txt", "sender change");
++        const beforeFailure = readFetchCursor(remote.db);
++        remote.db.run("CREATE TRIGGER reject_cursor BEFORE INSERT ON _vfs_watermark WHEN NEW.k = 'fetchRev' BEGIN SELECT RAISE(ABORT, 'cursor unavailable'); END");
++        await expect(pushOneBlock(local.db, remote.rpc, options)).rejects.toThrow("cursor unavailable");
++        expect(await receiver.readFile("/deleted.txt", "utf8")).toBe("original");
++        expect(await receiver.readFile("/modified.txt", "utf8")).toBe("original");
++        expect(readFetchCursor(remote.db)).toEqual(beforeFailure);
++        remote.db.run("DROP TRIGGER reject_cursor");
++        let accepted: ReturnType<typeof readFetchCursor> | undefined;
++        let dropped = false;
++        const lossy = new Proxy(remote.rpc, {
++          get(target, prop, object) {
++            if (prop === (mode === "pack" ? "applyChangePack" : "push")) {
++              return async (...args: unknown[]) => {
++                const ack = await Reflect.get(target, prop, object).apply(target, args);
++                if (!dropped) {
++                  dropped = true;
++                  expect(await receiver.exists("/deleted.txt")).toBe(false);
++                  accepted = readFetchCursor(remote.db);
++                  receiver.writeFileSync("/deleted.txt", "receiver recreation");
++                  receiver.writeFileSync("/modified.txt", "receiver modification");
++                  throw new Error("acknowledgment lost after receiver writes");
++                }
++                return ack;
++              };
++            }
++            return Reflect.get(target, prop, object);
++          },
++        }) as SyncRPC;
++        await expect(pushOneBlock(local.db, lossy, options)).rejects.toThrow("acknowledgment lost after receiver writes");
++        await drainPush(local.db, lossy, options);
++        expect(await receiver.readFile("/deleted.txt", "utf8")).toBe("receiver recreation");
++        expect(await receiver.readFile("/modified.txt", "utf8")).toBe("receiver modification");
++        expect(readFetchCursor(remote.db)).toEqual(accepted);
++      } finally {
++        local.close();
++        remote.close();
++      }
++    });
++
+     it("advances the push cursor after a successful acknowledgment", async () => {
+       const local = makePeer();
+       const remote = makePeer();
+diff --git a/packages/rpc/src/sync-engine.test.ts b/packages/rpc/src/sync-engine.test.ts
+--- a/packages/rpc/src/sync-engine.test.ts
++++ b/packages/rpc/src/sync-engine.test.ts
+@@ -68,6 +68,31 @@
+ 
+ describe("restartable pull engine", () => {
+   describe("completion contract", () => {
++    it.each(["entries", "pack"] as const)("rolls back a %s apply when its source cursor cannot commit", async (mode) => {
++      const local = makePeer();
++      const remote = makePeer();
++      const options = mode === "pack" ? { thresholdEntries: 1 } : {};
++      try {
++        seedRemote(remote.db, 2);
++        local.db.run("CREATE TRIGGER reject_cursor BEFORE INSERT ON _vfs_watermark WHEN NEW.k = 'fetchRev' BEGIN SELECT RAISE(ABORT, 'cursor unavailable'); END");
++        await expect(pullOneBlock(local.db, remote.rpc, options)).rejects.toThrow("cursor unavailable");
++        expect(localNames(local.db)).toEqual([]);
++        expect(readFetchCursor(local.db)).toEqual({ rev: 0, path: null });
++        local.db.run("DROP TRIGGER reject_cursor");
++        await drainPull(local.db, remote.rpc, options);
++        const receiver = new SQLiteWorkspaceProvider(local.db);
++        expect(await receiver.readFile("/f000.txt", "utf8")).toBe("content-0");
++        expect(await receiver.readFile("/f001.txt", "utf8")).toBe("content-1");
++        await new SQLiteWorkspaceProvider(remote.db).unlink("/f000.txt");
++        for (let i = 0; i < 30; i++) receiver.writeFileSync("/receiver-clock.txt", `${i}`);
++        await drainPull(local.db, remote.rpc, options);
++        expect(await receiver.exists("/f000.txt")).toBe(false);
++      } finally {
++        local.close();
++        remote.close();
++      }
++    });
++
+     it("yields nothing but a complete value for an empty window", async () => {
+       const local = makePeer();
+       const remote = makePeer();

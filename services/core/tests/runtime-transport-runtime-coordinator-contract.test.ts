@@ -14257,7 +14257,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
   });
 
-  it("records Wake Stop as cancellation_requested for an eligible active RuntimeCoordinator execution", async () => {
+  it.each([
+    "connected",
+    "same_service_reconnect",
+    "same_service_reconnect_after_hibernation",
+  ] as const)("records Wake Stop as cancellation_requested for an eligible active RuntimeCoordinator execution (%s)", async (connection) => {
     const {
       hub,
       recordingPostgres,
@@ -14294,6 +14298,39 @@ describe("runtime transport runtime coordinator transport contract", () => {
       socket,
       buildInteractionRequest(executionToken)
     );
+
+    if (connection !== "connected") {
+      const lifecycleHub = hub as unknown as {
+        handleDispatchLifecycleFrame: (
+          webSocket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+      };
+      await lifecycleHub.handleDispatchLifecycleFrame(
+        socket,
+        buildLifecycleRequest({
+          executionTokenEcho: buildExecutionTokenEcho(executionToken),
+          runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        })
+      );
+      session.connectionGeneration += 1;
+      if (connection === "same_service_reconnect_after_hibernation") {
+        state.pendingDispatches.clear();
+      }
+      await lifecycleHub.handleDispatchLifecycleFrame(
+        socket,
+        buildLifecycleRequest({
+          acknowledgementId: "09ea9be9-3a69-4c95-81ed-0236f56efddd",
+          connectionGeneration: session.connectionGeneration,
+          executionTokenEcho: buildExecutionTokenEcho(executionToken),
+          runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        })
+      );
+      expect(sentFrames.at(-1)).toMatchObject({
+        code: "daemon.dispatch.lifecycle_acknowledged",
+        payload: { accepted: true },
+      });
+    }
 
     const response = await requestRuntimeCoordinatorWakeStop(hub);
 
@@ -14389,6 +14426,99 @@ describe("runtime transport runtime coordinator transport contract", () => {
         (call) => call.params[2] === "cancellation_requested"
       )
     ).toHaveLength(1);
+  });
+
+  it.each([
+    ["replaced_socket", "daemon.session.not_found"],
+    ["stale_generation", "daemon.session.connection_replaced"],
+    ["different_owner", "daemon.session.not_found"],
+    ["stale_lease", "daemon.session.stale_lease"],
+    ["different_device", "daemon.session.connection_replaced"],
+    ["different_lane", "daemon.session.connection_replaced"],
+    ["missing_profile", "daemon.session.not_found"],
+  ] as const)("does not move Wake Stop control to an unowned reconnect (%s)", async (mismatch, reasonCode) => {
+    const harness = await createHarness({
+      agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
+    });
+    const { hub, sentFrames, socket, state, storageRecords } = harness;
+    const token = await issueDeliveryToken(harness);
+    const session = state.sessionsById.get("daemon-session-1");
+    const lease = state.profileLeasesByProfileId.get(TARGET_AGENT_PROFILE_ID);
+    if (!(session && lease)) {
+      throw new Error("Expected owned Service route.");
+    }
+    session.capabilities.localAgentControl = { cancel: true };
+    const lifecycleHub = hub as unknown as {
+      handleDispatchLifecycleFrame: (
+        webSocket: WebSocket,
+        payload: unknown
+      ) => Promise<void>;
+    };
+    await lifecycleHub.handleDispatchLifecycleFrame(
+      socket,
+      buildLifecycleRequest({
+        executionTokenEcho: buildExecutionTokenEcho(token),
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+      })
+    );
+    const before = findRuntimeCoordinatorRunCommandState(storageRecords);
+    session.connectionGeneration += 1;
+    state.pendingDispatches.clear();
+    switch (mismatch) {
+      case "replaced_socket":
+        // biome-ignore lint/correctness/noUndeclaredVariables: Cloudflare Workers provides this native constructor.
+        session.socket = new WebSocketPair()[0];
+        break;
+      case "different_owner":
+        session.ownerUserId = "different-owner";
+        break;
+      case "stale_lease":
+        lease.leaseEpoch += 1;
+        break;
+      case "different_device":
+        session.deviceId = "different-device";
+        break;
+      case "different_lane":
+        session.lane = "canary";
+        break;
+      case "missing_profile":
+        session.profileIds.delete(TARGET_AGENT_PROFILE_ID);
+        break;
+      default:
+        break;
+    }
+    sentFrames.length = 0;
+
+    await lifecycleHub.handleDispatchLifecycleFrame(
+      socket,
+      buildLifecycleRequest({
+        acknowledgementId: "09ea9be9-3a69-4c95-81ed-0236f56efddd",
+        connectionGeneration:
+          mismatch === "stale_generation" ? 1 : session.connectionGeneration,
+        executionTokenEcho: buildExecutionTokenEcho(token),
+        lifecycleAtMs: 1_700_000_000_200,
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+      })
+    );
+
+    expect(sentFrames).toContainEqual(
+      expect.objectContaining({
+        code: "daemon.dispatch.lifecycle_acknowledged",
+        payload: expect.objectContaining({ accepted: false, reasonCode }),
+      })
+    );
+    expect(findRuntimeCoordinatorRunCommandState(storageRecords)).toEqual(
+      before
+    );
+    const stop = await requestRuntimeCoordinatorWakeStop(hub);
+    await expect(stop.json()).resolves.toMatchObject({ ok: false });
+    expect(
+      sentFrames.some(
+        (frame) =>
+          (frame as { code?: string }).code ===
+          "daemon.local_agent_control.cancel"
+      )
+    ).toBe(false);
   });
 
   it("keeps the Wake Stop fence when a repeated delivery would otherwise fail to send", async () => {

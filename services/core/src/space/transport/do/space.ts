@@ -96,6 +96,7 @@ import {
   postSpaceThreadSignalBodySchema,
   postSpaceWakeStopInputSchema,
   postSpaceWakeStopResponseSchema,
+  preHeadFailurePublicationIdentitySchema,
   projectSpaceDispatchTraceFinalVisibleOutcome,
   projectTargetWakeLifecycleIdentity,
   putSpaceContractBodySchema,
@@ -172,6 +173,7 @@ import {
   toLegacySpaceImageGeometryWireValue,
   toSpaceSignalReadWireValue,
   updateSpaceFileEntryBodySchema,
+  userRequestTimeContextSchema,
   validateSpaceSignalClientMessageIdPolicy,
   wakeDeviceWaitAccessRequestSchema,
 } from "@openmeld/schemas";
@@ -1165,6 +1167,13 @@ async function authorizeRpcSignalWrite(input: {
   await assertRpcSpaceAccessAuthorized(accessResult);
   return author;
 }
+function parseRpcRequestTimeContext(
+  context: SignalPublishContext["requestTimeContext"]
+): SignalPublishContext["requestTimeContext"] {
+  return context === undefined
+    ? undefined
+    : userRequestTimeContextSchema.parse(context);
+}
 async function assertRpcSpaceAccessAuthorized(
   accessResult: PasswordAuthorizationResult
 ): Promise<void> {
@@ -1936,6 +1945,7 @@ type WakeProgressTerminalFailureNotice = {
 };
 type Session = SpaceWebSocketSession;
 type SpaceDispatchAccessOptions = {
+  requestTimeContext?: SignalPublishContext["requestTimeContext"];
   includeAgentReadiness?: boolean;
   agentStreamId?: string;
   authoringPolicy?: SpaceSignalAuthoringPolicy;
@@ -5311,6 +5321,7 @@ export class Space extends DurableObject<CoreBindings> {
       },
     });
     const response = await owner.dispatchSignalsRequest(request, {
+      requestTimeContext: input.requestTimeContext,
       ...(agentStreamId ? { agentStreamId } : {}),
       authoringPolicy: input.authoringPolicy,
       ...(input.finalOutcomeAuthority
@@ -5759,6 +5770,9 @@ export class Space extends DurableObject<CoreBindings> {
     input: PostSignalOnceByClientMessageIdInput;
   }): PostSignalInput {
     return {
+      ...(input.input.requestTimeContext
+        ? { requestTimeContext: input.input.requestTimeContext }
+        : {}),
       ...(input.input.deviceWait ? { deviceWait: input.input.deviceWait } : {}),
       ...(input.input.contextSelection
         ? { contextSelection: input.input.contextSelection }
@@ -6012,15 +6026,18 @@ export class Space extends DurableObject<CoreBindings> {
       }
     );
     const spacePassword = resolveRpcInputSpacePassword(input);
+    const requestContext = input.spaceAccess
+      ? getSpaceAccessRequestContext(input.spaceAccess)
+      : input.context;
     try {
       await this.publishTextSignal(signal, {
-        requestTimeContext: await resolveUserRequestTimeContext({
-          db: getPostgresDatabase(this.bindings),
-          context: input.spaceAccess
-            ? getSpaceAccessRequestContext(input.spaceAccess)
-            : input.context,
-          submittedAtMs: signal.ts,
-        }),
+        requestTimeContext:
+          parseRpcRequestTimeContext(input.requestTimeContext) ??
+          (await resolveUserRequestTimeContext({
+            db: getPostgresDatabase(this.bindings),
+            context: requestContext,
+            submittedAtMs: signal.ts,
+          })),
         workRecoveryQueueHandoff,
         pluginContinuationNativeSource,
         pluginContinuationLocalSource,
@@ -6030,9 +6047,7 @@ export class Space extends DurableObject<CoreBindings> {
           ? { finalOutcomeAuthority: input.finalOutcomeAuthority }
           : {}),
         sourceDispatchChainContext: resolveSourceDispatchChainContext(
-          input.spaceAccess
-            ? (getSpaceAccessRequestContext(input.spaceAccess) ?? undefined)
-            : input.context
+          requestContext ?? undefined
         ),
         ...(spacePassword === undefined ? {} : { spacePassword }),
         supportsCurrentSpaceAddressing:
@@ -6094,6 +6109,22 @@ export class Space extends DurableObject<CoreBindings> {
       Space.#executeRpcPostSystemNoticeSignal(this, input)
     );
   }
+  async rpcPostPreHeadFailureNoticeSignal(
+    input: PostSystemNoticeSignalInput & {
+      preHeadFailurePublication: import("@openmeld/schemas/types").PreHeadFailurePublicationIdentity;
+    }
+  ): Promise<SignalEnvelope> {
+    if (
+      !preHeadFailurePublicationIdentitySchema.safeParse(
+        input.preHeadFailurePublication
+      ).success
+    ) {
+      throw new Error(
+        "dispatch.pre_head_failure_publication_identity_required"
+      );
+    }
+    return await this.rpcPostSystemNoticeSignal(input);
+  }
   static async #executeRpcPostSystemNoticeSignal(
     owner: Space,
     input: PostSystemNoticeSignalInput
@@ -6112,6 +6143,25 @@ export class Space extends DurableObject<CoreBindings> {
     ) {
       throw new Error(
         `${parsedData.data.noticeType} is reserved for the execution recovery command`
+      );
+    }
+    const publication = preHeadFailurePublicationIdentitySchema
+      .optional()
+      .safeParse(input.preHeadFailurePublication);
+    if (
+      !publication.success ||
+      (publication.data &&
+        (input.finalOutcomeAuthority !==
+          "runtime_coordinator_failure_publication" ||
+          parsedData.data.noticeType !== "terminal_failure" ||
+          parsedData.data.failureStage !== "execution" ||
+          input.spaceAccess?.actor.kind !== "dispatch_continuation" ||
+          input.spaceAccess.actor.dispatchId !== parsedData.data.dispatchId ||
+          input.spaceAccess.actor.targetProfileId !==
+            parsedData.data.actorProfileId))
+    ) {
+      throw new Error(
+        "dispatch.pre_head_failure_publication_authority_required"
       );
     }
     const author = await authorizeRpcSignalWrite({
@@ -6142,7 +6192,8 @@ export class Space extends DurableObject<CoreBindings> {
         ...(stoppedReplyTo && !parsedData.data.replyTo
           ? { replyTo: stoppedReplyTo }
           : {}),
-      }
+      },
+      publication.data?.signalId
     );
     // A pre-agent stop can be published after RuntimeCoordinator has discarded
     // its delivery payload. The authorized dispatch source still owns placement.
@@ -13825,6 +13876,7 @@ export class Space extends DurableObject<CoreBindings> {
     }
     if (request.method === "POST") {
       return this.dispatchPostSignalRequest(request, resolved.spaceAccess, {
+        requestTimeContext: options.requestTimeContext,
         agentStreamId: options.agentStreamId,
         authoringPolicy: options.authoringPolicy ?? "user_authored",
         finalOutcomeAuthority: options.finalOutcomeAuthority,
@@ -13839,6 +13891,7 @@ export class Space extends DurableObject<CoreBindings> {
     request: Request,
     spaceAccess: SpaceAccessContext,
     options: {
+      requestTimeContext?: SignalPublishContext["requestTimeContext"];
       agentStreamId?: string;
       authoringPolicy: NonNullable<SignalPublishContext["authoringPolicy"]>;
       finalOutcomeAuthority?: SignalPublishContext["finalOutcomeAuthority"];
@@ -13870,6 +13923,9 @@ export class Space extends DurableObject<CoreBindings> {
         authoringPolicy: options.authoringPolicy,
       },
       {
+        requestTimeContext: parseRpcRequestTimeContext(
+          options.requestTimeContext
+        ),
         ...(options.agentStreamId
           ? { agentStreamId: options.agentStreamId }
           : {}),

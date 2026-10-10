@@ -1,7 +1,10 @@
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { describe, expect, it } from "vitest";
+import type { LocalRuntimeEnrollmentResponse } from "@openmeld/schemas/types";
+import { describe, expect, it, vi } from "vitest";
+import { syncLocalSetupCurrentDeviceTargetFromServiceContract } from "../src/commands/setup-current-device";
+import { setAuthSession } from "../src/config/auth-session";
 import {
   clearDaemonServiceContract,
   daemonServiceContractPath,
@@ -10,8 +13,16 @@ import {
   readDaemonServiceContract,
   upsertDaemonServiceContract,
 } from "../src/config/daemon-service-contract";
-import { daemonRuntimeStateRootPath } from "../src/config/daemon-state";
+import {
+  daemonRuntimeStateRootPath,
+  withDaemonServiceLifecycleLock,
+} from "../src/config/daemon-state";
+import { collectObservedDeviceMetadata } from "../src/system/observed-device-metadata";
 import { withTempHome } from "./helpers/fs";
+
+vi.mock("../src/system/observed-device-metadata", () => ({
+  collectObservedDeviceMetadata: vi.fn(),
+}));
 
 describe("local service contract store", () => {
   it("classifies known production fixture identities as unsafe", () => {
@@ -282,6 +293,121 @@ describe("local service contract store", () => {
         connectedComputerId: "computer-other",
       });
       expect(accountSwitch.generation).toBe(replaced.generation + 1);
+    });
+  });
+
+  it.each([
+    "account before request",
+    "gateway before request",
+    "account during request",
+    "owner",
+    "device",
+    "lane",
+    "gateway",
+    "stop",
+    "generation",
+    "first enrollment",
+  ])("rejects a late enrollment after %s changes", async (change) => {
+    await withTempHome(async () => {
+      process.env.OPENMELD_ENV_PRESET = "dev-local";
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      const signIn = async (
+        id: string,
+        authBaseUrl = "https://auth.openmeld.invalid"
+      ) =>
+        await setAuthSession({
+          accessToken: `test-token-${id}`,
+          tokenType: "Bearer",
+          authBaseUrl,
+          clientId: "openmeld-cli-dev",
+          user: { id, email: `${id}@example.invalid` },
+        });
+      await signIn("owner-current");
+      const running = await upsertDaemonServiceContract({
+        daemonVersion: "0.2.6",
+        bundleId: "service-bundle-1",
+        desiredState: "background",
+        serviceController: "launchd",
+        autoStart: true,
+        gatewayUrl: "https://gateway.openmeld.invalid",
+        ownerUserId: "owner-current",
+        deviceId: "device-current",
+        heartbeatMs: 5000,
+      });
+      let preserved = running;
+      if (change === "account before request") {
+        await signIn("owner-other");
+      }
+      if (change === "gateway before request") {
+        await signIn("owner-current", "https://auth.other.invalid");
+      }
+      const metadata = vi.mocked(collectObservedDeviceMetadata);
+      const transport = vi
+        .spyOn(globalThis, "fetch")
+        .mockImplementation(async () => {
+          if (change === "account during request") {
+            await signIn("owner-other");
+          } else if (change !== "account before request") {
+            await withDaemonServiceLifecycleLock(
+              {
+                intent: "upgrade_reconcile",
+                command: "test concurrent Service change",
+              },
+              async () => {
+                if (change === "generation") {
+                  await upsertDaemonServiceContract({
+                    ...running,
+                    heartbeatMs: 6000,
+                  });
+                  preserved = await upsertDaemonServiceContract(running);
+                } else {
+                  preserved = await upsertDaemonServiceContract({
+                    ...running,
+                    ...(change === "owner"
+                      ? { ownerUserId: "owner-other" }
+                      : {}),
+                    ...(change === "device"
+                      ? { deviceId: "device-other" }
+                      : {}),
+                    ...(change === "lane" ? { lane: "canary" as const } : {}),
+                    ...(change === "gateway"
+                      ? { gatewayUrl: "https://other.invalid" }
+                      : {}),
+                    ...(change === "stop"
+                      ? { desiredState: "stopped" as const, autoStart: false }
+                      : {}),
+                    ...(change === "first enrollment"
+                      ? { connectedComputerId: "computer-newer" }
+                      : {}),
+                  });
+                }
+              }
+            );
+          }
+          return Response.json({
+            deviceId: "device-current",
+            runtimeLane: "dev-local",
+            connectedComputerId: "computer-late",
+          } satisfies LocalRuntimeEnrollmentResponse);
+        });
+      try {
+        await expect(
+          syncLocalSetupCurrentDeviceTargetFromServiceContract({
+            gatewayUrl:
+              change === "gateway before request"
+                ? "https://gateway.other.invalid"
+                : running.gatewayUrl,
+          })
+        ).rejects.toThrow();
+        expect(await readDaemonServiceContract()).toEqual(preserved);
+        if (change.endsWith("before request")) {
+          expect(transport).not.toHaveBeenCalled();
+        }
+        expect(metadata).not.toHaveBeenCalled();
+      } finally {
+        transport.mockRestore();
+        metadata.mockReset();
+      }
     });
   });
 

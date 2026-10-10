@@ -3899,7 +3899,19 @@ history query owns that cursor separately from retained and live display rows;
 receiving a live row does not prove that intervening history was read. A missing
 or reaped anchor falls back to the bounded recent-history read, which saves its
 confirmed cursor for later visits and reloads. Older saved records without this
-cursor use a recent-history read before catch-up. On a
+cursor use a recent-history read before catch-up. After Core accepts a live
+subscription, on returning to a visible tab, or explicit recovery,
+the same reconciliation owner also refreshes the current Space and viewer's
+Thread catalog and retained Thread queries. Main-history cursors do not cover
+Thread-only replies. Mounted Threads use their existing authorized reads;
+unopened Thread snapshots remain stale until opened. Live Thread frames still
+update the existing query cache directly. A live reply cancels an older pending
+Thread or catalog read without reverting that update, then invalidates the
+snapshot for its next authorized read. A later server snapshot can still remove
+withdrawn replies; clients do not permanently union retained and live rows.
+The periodic main-history reconcile
+does not poll Thread history. Thread read failures retain their diagnostic
+error and leave catch-up stale without restarting execution. On a
 cold restore with no successful in-memory status snapshot, the safe display
 snapshot and history may render read-only while current Space status confirms
 access; no mutation can become available before that confirmation. Status and
@@ -6611,6 +6623,17 @@ Reply recovery copy may be shared through Agent Profile recovery semantics. Web
 adapts browser-local and current-local-runtime evidence into that shared copy,
 then presents one clear next action. The copy explains known evidence and the
 next step. It does not decide Wakeability or execution truth.
+
+Profile and Space recovery resolve the same shared reason-to-action mapping.
+Missing or invalid folder and Project connections open the existing owner
+working-folder dialog. Authentication, installation, disabled local agents,
+and missing or stale controller reports lead to the relevant Computer controls.
+A missing report is not a missing connection. Only connection actions carry
+the compact **Needs connection** label; other actions use **Needs attention**.
+The dialog freezes its canonical Binding and exact Computer/lane, reads current
+saved configuration, and retains its draft through refreshes. Space adapters
+provide their editing context to the shared Profile action; they do not create
+a separate recovery form or configuration authority.
 
 Known blockers name the affected object and place the action beside the
 explanation. Computer recovery uses **Connect computer**, **Reconnect

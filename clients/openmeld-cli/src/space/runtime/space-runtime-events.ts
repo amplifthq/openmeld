@@ -7,6 +7,7 @@ export type SpaceRuntimeEvent =
   | {
       type: "connected";
     }
+  | { type: "connection.reconnecting"; attempt: number }
   | {
       type: "history.loaded";
       synced: boolean;
