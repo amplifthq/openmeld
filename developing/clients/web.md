@@ -25,8 +25,9 @@
 
 ## App and public website boundary
 
-Message details can start an explicit code handoff from its current readable
-message. Its inline form loads the source revision, current Space member Agents, and
+Message details offers **Hand off** to continue work from its current readable
+message with another Agent. The current form requires a Project/repository and
+published commit. It loads the source revision, current Space member Agents, and
 Organization Project/repository choices. It starts a new independent copy at a
 complete published commit and makes extra access restrictions a separate choice.
 The source result prepopulates the brief; shared file revisions are unchecked

@@ -43,7 +43,7 @@ export async function prepareDispatchWorkHandoff(input: {
   const codeHandoff =
     task.workHandoff.schemaVersion === 2 ? task.workHandoff : null;
   if (codeHandoff) {
-    task.prompt += `\n\nCode handoff brief (public source ${codeHandoff.sourceSignalId}, exact commit ${codeHandoff.code.commit}):\n${JSON.stringify(codeHandoff.work)}\nReturn implementation evidence and verification through the existing Space reply action. No sender-local paths or private conversation are available.`;
+    task.prompt += `\n\nHandoff brief (public source ${codeHandoff.sourceSignalId}, exact commit ${codeHandoff.code.commit}):\n${JSON.stringify(codeHandoff.work)}\nReturn your result and verification through the existing Space reply action. No sender-local paths or private conversation are available.`;
   }
   const organizationId = context.scope.organizationId;
   const baseUrl = await resolveBaseUrl();

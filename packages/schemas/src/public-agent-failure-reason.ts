@@ -22,7 +22,7 @@ export type ProjectLocalConnectionFailureReasonCode =
 export const CODEX_UPGRADE_REQUIRED_REASON =
   "Codex on this computer can't use the selected model. Update Codex or choose another Codex installation, then try again.";
 export const CODE_HANDOFF_RECEIVER_UNSUPPORTED_PUBLIC_COPY =
-  "This code handoff needs a local Codex or Claude Agent with a matching Project connection. Choose a supported Agent and send a new handoff.";
+  "This handoff needs a local Codex or Claude Agent with a matching Project connection. Choose a supported Agent and send a new handoff.";
 export const CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY =
   "Center Agent couldn't finish your request. Open Diagnostics in OpenMeld for details. If you can't open OpenMeld, ask the person who set it up for your team.";
 export const CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY =

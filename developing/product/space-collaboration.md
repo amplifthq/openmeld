@@ -526,15 +526,16 @@ limits and access policy still apply.
 
 ### Selected work handoffs
 
-Message details offers **Hand off code** for a readable result. The sender
-selects one existing Codex or Claude Agent in the Space, a Project/repository,
-and a complete published commit SHA. The brief includes the goal, current state,
+Message details offers **Hand off** to ask another Agent to continue work from
+a readable result. The current form supports work with a Project/repository
+and a complete published commit SHA. The sender selects one existing Codex or
+Claude Agent in the Space. The brief includes the goal, current state,
 verified evidence, attempted approaches, decisions, constraints, open questions,
 next steps, and completion criteria. The original shared result is loaded into
 the draft; private native history is never an input. Shared files are optional,
 explicitly selected, and pinned to exact revisions.
 
-Code handoffs use the same ordinary Message/Thread publication and Wake owners
+These handoffs use the same ordinary Message/Thread publication and Wake owners
 as selected-file work. The accepted manifest binds the source message revision,
 receiver, code revision, and execution choices. A changed or recalled source,
 changed retry payload, or different destination thread is rejected. An unknown

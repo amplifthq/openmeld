@@ -49,11 +49,10 @@ export function SpaceCodeHandoffAction(input: HandoffProps) {
 	return (
 		<section className="mb-5 rounded-lg border p-3">
 			<p className="mb-2 text-muted-foreground text-sm">
-				Send this result and a published code revision to an Agent in this
-				Space.
+				Ask another Agent in this Space to continue this work.
 			</p>
 			<Button onClick={() => setOpen(true)} size="sm" variant="outline">
-				Hand off code
+				Hand off
 			</Button>
 			{open ? (
 				<CodeHandoffContent
@@ -111,10 +110,10 @@ function CodeHandoffContent(
 	}
 	return (
 		<div className="mt-4 grid gap-4">
-			<h3 className="font-medium">Hand off code</h3>
+			<h3 className="font-medium">Hand off</h3>
 			<p className="text-muted-foreground text-sm">
-				The receiving Agent uses its own Project connection. Its reply returns
-				to this conversation.
+				Choose a Project and published commit for this handoff. The receiving
+				Agent uses its own Project connection and replies in this conversation.
 			</p>
 			{content}
 		</div>
@@ -149,7 +148,9 @@ function CodeHandoffForm(
 	const [project, setProject] = useState<SelectedProjectWork | null>(null);
 	const [commit, setCommit] = useState("");
 	const [access, setAccess] = useState<"" | "workspace" | "read_only">("");
-	const [goal, setGoal] = useState("Implement the plan from this result.");
+	const [goal, setGoal] = useState(
+		"Continue the work described in this result."
+	);
 	const [completed, setCompleted] = useState(input.source.text);
 	const [nextSteps, setNextSteps] = useState("");
 	const [criteria, setCriteria] = useState("");
@@ -259,9 +260,9 @@ function CodeHandoffForm(
 			setPending(false);
 		}
 	}
-	let submitLabel = "Hand off and wake";
+	let submitLabel = "Hand off";
 	if (pending) {
-		submitLabel = "Requesting…";
+		submitLabel = "Requesting handoff…";
 	} else if (acceptedInput.current) {
 		submitLabel = "Retry same handoff";
 	}
@@ -269,8 +270,8 @@ function CodeHandoffForm(
 		<>
 			{requested ? (
 				<output>
-					Handoff requested. Follow its message for the Agent's execution status
-					and result.
+					Handoff requested. Follow the handoff message for progress and the
+					Agent's result.
 				</output>
 			) : (
 				<>
@@ -355,7 +356,7 @@ function CodeHandoffForm(
 							className="grid gap-1 text-sm"
 							htmlFor={`${formId}-nextSteps`}
 						>
-							Implementation instructions
+							Next steps
 							<Textarea
 								id={`${formId}-nextSteps`}
 								onChange={(event) => setNextSteps(event.target.value)}
