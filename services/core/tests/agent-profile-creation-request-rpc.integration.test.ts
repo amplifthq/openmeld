@@ -426,7 +426,10 @@ describe("Agent Profile creation request RPC", () => {
       addProfileToSpace.mockRestore();
     }
   });
-  it("persists a fenced model correction on the failed request while retaining committed identity and setup intent", async () => {
+  it.each([
+    "gpt-5.6-sol",
+    "gpt-6",
+  ])("persists a fenced model correction for stored model %s while retaining committed identity and setup intent", async (storedModelId) => {
     const fixture = await seedFixture();
     const createAgentProfileInOrganization = vi.fn();
     const send = vi.fn();
@@ -456,6 +459,13 @@ describe("Agent Profile creation request RPC", () => {
     const repository = createPostgresAgentProfileCreationRequestRepository(
       getPostgresDatabase(env)
     );
+    // Older requests could store the unsupported generic model ID. Admission
+    // uses a valid current model; only this isolated historical fixture stores
+    // the old selection through the request repository.
+    const storedConfiguration = {
+      ...accepted.request.configuration,
+      modelId: storedModelId,
+    };
     const updatedAtMs = Date.parse(accepted.request.updatedAt) + 1;
     const createdAgentProfileId = `agt_${crypto.randomUUID()}`;
     const failed = await repository.transition({
@@ -463,6 +473,7 @@ describe("Agent Profile creation request RPC", () => {
       expectedUpdatedAtMs: Date.parse(accepted.request.updatedAt),
       requestId: accepted.request.id,
       update: {
+        configuration: storedConfiguration,
         createdAgentProfileId,
         failureMessage: "Binding setup did not complete.",
         status: "failed",
@@ -484,7 +495,7 @@ describe("Agent Profile creation request RPC", () => {
       agentControllerRef: "builtin:codex",
       createdAtMs: updatedAtMs,
       owner: { id: fixture.requesterUserId, kind: "owner_account" as const },
-      modelId: "gpt-5.6-sol",
+      modelId: storedModelId,
       reasoningLevel: "high",
       openMeldServiceRuntimeId: `runtime-${fixture.suffix}`,
       updatedAtMs,
@@ -515,7 +526,7 @@ describe("Agent Profile creation request RPC", () => {
       })
     ).toMatchObject({
       status: "failed",
-      configuration: accepted.request.configuration,
+      configuration: storedConfiguration,
     });
     // Existing Binding settings change through their owner before request
     // recovery; the request must never replace that later choice itself.
@@ -529,7 +540,7 @@ describe("Agent Profile creation request RPC", () => {
       id: accepted.request.id,
       createdAgentProfileId,
       configuration: {
-        ...accepted.request.configuration,
+        ...storedConfiguration,
         ...correction.modelSelection,
       },
       requestedSpaceId: accepted.request.requestedSpaceId,
