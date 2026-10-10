@@ -222,6 +222,7 @@ import {
   prepareExecutionContextConversation,
 } from "./execution-context-session";
 import {
+  deriveExecutionContextComputerFileAccessPolicy,
   type ExecutionContextWorkspace,
   type ExecutionContextWorkspaceUse,
   markExecutionContextWorkspaceInUse,
@@ -3104,9 +3105,13 @@ async function resolveDispatchComputerFileAccess(input: {
   runtimePreparation: DispatchRuntimePreparation;
   taskWorkspace?: ExecutionContextWorkspace;
 }): Promise<AdapterComputerFileAccessBoundary | null> {
-  const policy = await readComputerFileAccessPolicy(
-    input.computerFileAccessStorePath
-  );
+  const policy = deriveExecutionContextComputerFileAccessPolicy({
+    context: input.parsedTask.executionContext,
+    workspace: input.taskWorkspace,
+    policy: await readComputerFileAccessPolicy(
+      input.computerFileAccessStorePath
+    ),
+  });
   const verifier =
     input.runtimeControllerSupport.localAdapterEntry.adapter
       .verifyComputerFileAccessBoundary;

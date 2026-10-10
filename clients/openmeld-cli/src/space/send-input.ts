@@ -111,7 +111,7 @@ function resolveTaskPreferences(input: SpaceTaskSelectionInput) {
     );
   }
   return {
-    access: input.taskAccess ?? (input.projectWork ? "workspace" : undefined),
+    access: input.taskAccess,
     workspace:
       input.taskWorkspace ?? (input.projectWork ? "isolated" : undefined),
     ...(input.projectWork ? { projectWork: input.projectWork } : {}),

@@ -243,6 +243,9 @@ function resolveFileAccess(input: {
       extendsProfile,
       filesystemEntries: [
         '":root" = "deny"',
+        // Root denial also covers system executables and libraries. Keep the
+        // native runtime baseline readable without granting other user files.
+        '":minimal" = "read"',
         ...buildFolderEntries(input.boundary.folders, selectedFolderAccess),
       ],
       fullNetwork: isFullAccess,

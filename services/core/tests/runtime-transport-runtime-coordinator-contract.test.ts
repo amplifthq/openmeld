@@ -4086,7 +4086,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
               ...firstSnapshot,
               contextRequest: {
                 ...contextRequest,
-                selection: { mode: "new", ...(access ? { access } : {}) },
+                selection: {
+                  mode: "new",
+                  ...(access ? { access } : { workspace: "isolated" }),
+                },
               },
               payloadFingerprint: `sha256:${"c".repeat(64)}`,
             },
@@ -4096,6 +4099,15 @@ describe("runtime transport runtime coordinator transport contract", () => {
       expect(
         next.record.acceptedDispatchSnapshot?.executionContext?.permissionSource
       ).toBe(access ? undefined : "agent_settings");
+      if (!access) {
+        expect(
+          next.record.acceptedDispatchSnapshot?.executionContext
+        ).toMatchObject({
+          access: "workspace",
+          workspace: "isolated",
+          permissionSource: "agent_settings",
+        });
+      }
       if (access) {
         expect(
           next.record.acceptedDispatchSnapshot?.executionContext?.access
@@ -4265,7 +4277,15 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
   });
 
-  it("keeps the accepted context through linking and retains its fork checkpoint after Head retirement", async () => {
+  it.each([
+    { restricted: false, workspace: "current" },
+    { restricted: false, workspace: "isolated" },
+    { restricted: true, workspace: "current" },
+    { restricted: true, workspace: "isolated" },
+  ] as const)("keeps the accepted context and fork working copy after Head retirement ($restricted / $workspace)", async ({
+    restricted,
+    workspace,
+  }) => {
     const { hub, storageRecords } = await createContextHarness({
       contextVersion: 4,
     });
@@ -4287,8 +4307,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
           },
           selection: {
             mode: "new",
-            access: "workspace",
-            workspace: "isolated",
+            ...(restricted ? { access: "workspace" as const } : {}),
+            workspace,
             projectWork,
           },
         },
@@ -4395,6 +4415,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect(
       fork.record.acceptedDispatchSnapshot?.executionContext
     ).toMatchObject({
+      workspace,
       projectWork,
       forkSource: {
         contextId: response.executionContext.id,

@@ -380,6 +380,10 @@ Agent delegation. Requester ownership informs disclosure judgment, not native
 tool availability. Core requires the Service's
 `executionContextPermissionInheritance` capability.
 The Service reuses ordinary Computer policy admission for inherited permissions.
+The workspace choice is independent: `workspace: isolated` with omitted access
+prepares a managed copy while preserving `permissionSource: agent_settings`.
+Fork defaults retain their source's working-copy mode; native permission
+inheritance must not move an isolated source back into the user's current folder.
 Context identity, history-loss failure, writer admission, and process ownership
 remain enforced even when no extra filesystem boundary is required.
 
