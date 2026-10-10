@@ -5,6 +5,7 @@ import {
 } from "@openmeld/db/postgresql";
 import {
   buildAgentControllerRoutingKey,
+  buildAgentTaskKey,
   buildRuntimeCoordinatorExecutionId,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
   DISPATCH_ACTIVITY_DISPATCHING_PURPOSE,
@@ -21,13 +22,21 @@ import {
 } from "@openmeld/schemas";
 import type {
   AgentTaskContinuationQueueMessage,
+  AgentTaskHandle,
   AgentTaskObservationRedriveQueueMessage,
+  AgentTaskTerminalOutcome,
   OpenMeldDaemonAcceptedDispatchSnapshot,
   OpenMeldDaemonDispatchQueueMessage,
   RemoteAgentNativeDeliveryDeadlineProbeQueueMessage,
   RuntimeTransportRuntimeCoordinatorDecisionResponse,
 } from "@openmeld/schemas/types";
 import { processAgentTaskContinuationQueueMessage } from "../../agent-task-coordination/application/agent-task-continuation-service";
+import { recordAndEnqueueAgentTaskNeedsAttentionObservation } from "../../agent-task-coordination/application/agent-task-needs-attention-observation-service";
+import { recordAndEnqueueAgentTaskTerminalOutcomeIfMatching } from "../../agent-task-coordination/application/agent-task-terminal-outcome-service";
+import {
+  readAgentTaskNeedsAttentionObservation,
+  readAgentTaskTerminalOutcome,
+} from "../../agent-task-coordination/infrastructure/postgresql/agent-task-coordination-repo";
 import type { CoreBindings } from "../../lib/bindings";
 import { createConfiguredMessageChannelProviderRegistry } from "../../remote-agent/application/message-channel-provider-runtime";
 import {
@@ -69,8 +78,10 @@ import {
   createPreHeadFailurePublicationIntent,
   createPreHeadFailureRedriveMessage,
   ensurePreHeadFailurePublicationIntent,
+  freezePreHeadFailurePublicationIdentity,
   listDuePreHeadFailurePublicationIntents,
   markPreHeadFailurePublicationCompleted,
+  markPreHeadFailurePublicationNeedsAttention,
   PRE_HEAD_FAILURE_PUBLICATION_PENDING_ERROR_CODE,
   type PreHeadFailurePublicationCommand,
   type PreHeadFailurePublicationIntent,
@@ -110,6 +121,10 @@ import {
   resolveDispatchFailureHintText,
   shouldPersistDispatchFailureHintToSpaceHistory,
 } from "../rules/dispatch-hint-policy";
+import type {
+  OpenMeldDaemonDispatchAttemptState,
+  OpenMeldDaemonDispatchState,
+} from "../rules/dispatch-lifecycle-contract";
 import {
   DISPATCH_DEDUPE_WINDOW_RISK_CODE,
   isDispatchDedupeWindowRisk,
@@ -1441,7 +1456,7 @@ const resumeExistingPreHeadFailurePublication = async (input: {
   if (state.status === "missing") {
     return null;
   }
-  if (state.status === "completed") {
+  if (state.status === "completed" || state.status === "needs_attention") {
     return {
       controllerWaitPromise: null,
       shouldAck: true,
@@ -4860,17 +4875,94 @@ const resumePreHeadFailurePublication = async (input: {
     dispatchId: input.intent.dispatchId,
     nowMs: input.nowMs,
   });
-  if (claim.outcome === "busy" || claim.outcome === "completed") {
+  if (
+    claim.outcome === "busy" ||
+    claim.outcome === "completed" ||
+    claim.outcome === "needs_attention"
+  ) {
     return true;
   }
   if (claim.outcome === "missing") {
     throw new Error("dispatch.pre_head_failure_publication_intent_missing");
   }
-  const intent = claim.intent;
-  const publication = await emitFrozenPreHeadFailurePublication({
-    env: input.env,
-    intent,
-  });
+  let intent = claim.intent;
+  let publication: "persisted" | "retry_required";
+  try {
+    if (!input.env.OPENMELD_SPACES) {
+      throw new Error("dispatch.pre_head_failure_space_unavailable");
+    }
+    const identity = intent.publicationCommand.preHeadFailurePublication;
+    const legacyClaim =
+      !identity || identity.legacyUpgrade
+        ? await readSpaceFinalOutcomeClaim({
+            dispatchId: intent.dispatchId,
+            env: input.env,
+            spaceId: intent.redriveMessage.spaceId,
+            targetProfileId: intent.redriveMessage.targetProfileId,
+          })
+        : null;
+    if (
+      legacyClaim &&
+      legacyClaim.signalId !== identity?.signalId &&
+      intent.redriveMessage.sourceClientMessageId
+    ) {
+      const stored = await readAgentTaskTerminalOutcome({
+        db: input.recoveryDb,
+        taskKey: buildAgentTaskKey({
+          kind: "space_wake",
+          sourceClientMessageId: intent.redriveMessage.sourceClientMessageId,
+          spaceId: intent.redriveMessage.spaceId,
+          targetProfileId: intent.redriveMessage.targetProfileId,
+          v: 1,
+        }),
+      });
+      if (!stored) {
+        await recordLegacyPreHeadRecoveryAttention({
+          db: input.recoveryDb,
+          env: input.env,
+          intent,
+          nowMs: input.nowMs,
+          publishedSignalId: legacyClaim.signalId,
+          task: {
+            kind: "space_wake",
+            sourceClientMessageId: intent.redriveMessage.sourceClientMessageId,
+            spaceId: intent.redriveMessage.spaceId,
+            targetProfileId: intent.redriveMessage.targetProfileId,
+            v: 1,
+          },
+        });
+        return true;
+      }
+    }
+    if (legacyClaim) {
+      publication = "persisted";
+    } else {
+      intent = await freezePreHeadFailurePublicationIdentity({
+        db: input.recoveryDb,
+        intent,
+        nowMs: input.nowMs,
+      });
+      publication = await emitFrozenPreHeadFailurePublication({
+        env: input.env,
+        intent,
+      });
+    }
+  } catch (error) {
+    console.warn(
+      "[core.openMeldDaemon.dispatch_queue.pre_head_failure_prepare_failed]",
+      {
+        dispatchId: intent.dispatchId,
+        error: toErrorMessage(error),
+      }
+    );
+    return await redrivePreHeadFailurePublication({
+      env: input.env,
+      intent,
+      message: input.message,
+      nowMs: input.nowMs,
+      recoveryDb: input.recoveryDb,
+    });
+  }
   if (publication === "retry_required") {
     await markDispatchStatus({
       attemptId: intent.attemptId,
@@ -4891,24 +4983,46 @@ const resumePreHeadFailurePublication = async (input: {
     });
   }
   try {
-    await writeDispatchDlq({
-      db: input.evidenceDb,
-      message: intent.redriveMessage,
-      errorCode: intent.errorCode,
-      errorMessage: intent.errorMessage,
+    const taskStatus = await recordPreHeadPublicationTaskOutcome({
+      db: input.recoveryDb,
+      env: input.env,
+      intent,
       nowMs: input.nowMs,
     });
+    let status: OpenMeldDaemonDispatchState = intent.finalStatus;
+    let errorCode = intent.errorCode;
+    let errorMessage = intent.errorMessage;
+    let attemptStatus: OpenMeldDaemonDispatchAttemptState =
+      intent.finalStatus === OPENMELD_DAEMON_DISPATCH_STATE.blocked
+        ? OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.blocked
+        : OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedTerminal;
+    if (taskStatus === "succeeded") {
+      status = OPENMELD_DAEMON_DISPATCH_STATE.deduped;
+      errorCode = "space.final_outcome_already_claimed";
+      errorMessage = "Space already has the authoritative final outcome";
+      attemptStatus = OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.superseded;
+    } else if (taskStatus === "stopped") {
+      status = OPENMELD_DAEMON_DISPATCH_STATE.cancelled;
+      errorCode = RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE;
+      errorMessage = "Space stopped this Wake before delivery";
+      attemptStatus = OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.superseded;
+    } else {
+      await writeDispatchDlq({
+        db: input.evidenceDb,
+        message: intent.redriveMessage,
+        errorCode: intent.errorCode,
+        errorMessage: intent.errorMessage,
+        nowMs: input.nowMs,
+      });
+    }
     await markDispatchStatus({
       attemptId: intent.attemptId,
-      attemptStatus:
-        intent.finalStatus === OPENMELD_DAEMON_DISPATCH_STATE.blocked
-          ? OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.blocked
-          : OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedTerminal,
+      attemptStatus,
       db: input.evidenceDb,
       idempotencyKey: intent.idempotencyKey,
-      status: intent.finalStatus,
-      errorCode: intent.errorCode,
-      errorMessage: intent.errorMessage,
+      status,
+      errorCode,
+      errorMessage,
       nowMs: input.nowMs,
     });
     await markPreHeadFailurePublicationCompleted({
@@ -4941,6 +5055,128 @@ const resumePreHeadFailurePublication = async (input: {
       recoveryDb: input.recoveryDb,
     });
   }
+};
+const recordLegacyPreHeadRecoveryAttention = async (input: {
+  db: PostgresDatabase;
+  env: CoreBindings;
+  intent: PreHeadFailurePublicationIntent;
+  nowMs: number;
+  publishedSignalId: string;
+  task: Extract<AgentTaskHandle, { kind: "space_wake" }>;
+}): Promise<void> => {
+  const reasonCode = "dispatch.pre_head_failure_legacy_claim_unattributed";
+  const eventId = `pre-head:${input.intent.dispatchId}:legacy-claim:${input.publishedSignalId}`;
+  const priorObservation = await readAgentTaskNeedsAttentionObservation({
+    db: input.db,
+    eventId,
+    taskKey: buildAgentTaskKey(input.task),
+  });
+  await recordAndEnqueueAgentTaskNeedsAttentionObservation({
+    db: input.db,
+    env: input.env,
+    nowMs: input.nowMs,
+    observation: {
+      attentionCode: reasonCode,
+      eventId,
+      occurredAtMs: priorObservation?.observation.occurredAtMs ?? input.nowMs,
+      status: "needs_attention",
+    },
+    task: input.task,
+  });
+  await markPreHeadFailurePublicationNeedsAttention({
+    db: input.db,
+    intent: input.intent,
+    nowMs: input.nowMs,
+    reasonCode,
+  });
+  console.warn(
+    "[core.openMeldDaemon.dispatch_queue.pre_head_failure_needs_attention]",
+    {
+      dispatchId: input.intent.dispatchId,
+      publishedSignalId: input.publishedSignalId,
+      reasonCode,
+    }
+  );
+};
+const recordPreHeadPublicationTaskOutcome = async (input: {
+  db: PostgresDatabase;
+  env: CoreBindings;
+  intent: PreHeadFailurePublicationIntent;
+  nowMs: number;
+}): Promise<AgentTaskTerminalOutcome["status"] | null> => {
+  const message = input.intent.redriveMessage;
+  if (!message.sourceClientMessageId) {
+    return null;
+  }
+  // Space can reject a duplicate notice while returning a constructed signal.
+  // Only its saved final claim supplies the task result locator and status.
+  const claim = await readSpaceFinalOutcomeClaim({
+    dispatchId: input.intent.dispatchId,
+    env: input.env,
+    spaceId: message.spaceId,
+    targetProfileId: message.targetProfileId,
+  });
+  if (!claim || claim.outcome === "unknown") {
+    throw new Error("dispatch.pre_head_failure_final_claim_required");
+  }
+  const task = {
+    kind: "space_wake" as const,
+    sourceClientMessageId: message.sourceClientMessageId,
+    spaceId: message.spaceId,
+    targetProfileId: message.targetProfileId,
+    v: 1 as const,
+  };
+  const stored = await readAgentTaskTerminalOutcome({
+    db: input.db,
+    taskKey: buildAgentTaskKey(task),
+  });
+  let status: AgentTaskTerminalOutcome["status"] = "failed";
+  let errorCode: string | null = input.intent.errorCode;
+  if (claim.outcome === "success") {
+    status = "succeeded";
+    errorCode = null;
+  } else if (claim.outcome === "stopped") {
+    status = "stopped";
+    errorCode = RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE;
+  } else if (stored?.outcome.status === "publication_failed") {
+    status = "publication_failed";
+  }
+  if (
+    stored &&
+    (stored.outcome.status !== status ||
+      stored.outcome.publishedSignalId !== claim.signalId)
+  ) {
+    throw new Error("dispatch.pre_head_failure_task_outcome_conflict");
+  }
+  if (
+    !stored &&
+    (claim.outcome !== "failure" ||
+      claim.signalId !==
+        input.intent.publicationCommand.preHeadFailurePublication?.signalId)
+  ) {
+    // Space publication and the original producer's Task write are separate
+    // durable steps. Do not invent that producer's event or completion time
+    // in the gap: its frozen command must remain replayable without conflict.
+    throw new Error("dispatch.pre_head_failure_task_outcome_owner_pending");
+  }
+  const outcome: AgentTaskTerminalOutcome = stored?.outcome ?? {
+    errorCode,
+    eventId: `pre-head-final-outcome:${input.intent.dispatchId}:${claim.signalId}`,
+    occurredAtMs: input.intent.createdAtMs,
+    publishedSignalId: claim.signalId,
+    status,
+  };
+  const recorded = await recordAndEnqueueAgentTaskTerminalOutcomeIfMatching({
+    db: input.db,
+    env: input.env,
+    nowMs: input.nowMs,
+    outcome,
+    task,
+  });
+  if (!recorded.matches) {
+    throw new Error("dispatch.pre_head_failure_task_outcome_conflict");
+  }
+  return recorded.storedOutcome.status;
 };
 const redrivePreHeadFailurePublication = async (input: {
   env: CoreBindings;
@@ -5770,6 +6006,7 @@ const buildPreHeadFailurePublicationCommand = (input: {
   });
   return {
     context: requestContext,
+    preHeadFailurePublication: { signalId: crypto.randomUUID() },
     data: {
       noticeType: "terminal_failure",
       actorProfileId: input.message.targetProfileId,

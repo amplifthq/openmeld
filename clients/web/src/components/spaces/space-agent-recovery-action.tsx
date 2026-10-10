@@ -1,4 +1,5 @@
 import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
+import { resolvePublicAgentFailureRecovery } from "@openmeld/schemas";
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowSquareOutIcon, WrenchIcon } from "@phosphor-icons/react";
@@ -8,8 +9,8 @@ import {
 	buildAgentProfilePath,
 	buildProfileHomeRoutes,
 } from "#/lib/profile-routes";
-
 import { AgentModelRecoveryAction } from "./agent-model-recovery-action";
+import { AgentWorkingFolderRecoveryAction } from "./agent-working-folder-recovery-action";
 
 export type SpaceAgentProfileBindingRecoveryPlan = Extract<
 	AgentProfileReplyRecoveryPlan,
@@ -17,6 +18,76 @@ export type SpaceAgentProfileBindingRecoveryPlan = Extract<
 		kind: "connect_controller" | "turn_on_controller";
 	}
 >;
+
+function isWorkingFolderRecovery(reasonCode: string): boolean {
+	return (
+		resolvePublicAgentFailureRecovery({ errorCode: reasonCode })
+			?.recoveryTarget === "working_folder"
+	);
+}
+
+function renderProfileSettingsRecoveryAction(input: {
+	actionLabel?: string;
+	className?: string;
+	orgSlug: string;
+	plan: Exclude<AgentProfileReplyRecoveryPlan, { kind: "none" }>;
+}) {
+	if (isWorkingFolderRecovery(input.plan.recoveryReasonCode)) {
+		return (
+			<AgentWorkingFolderRecoveryAction
+				className={input.className}
+				profileId={input.plan.profileId}
+			/>
+		);
+	}
+	if (input.plan.primaryActionId === "change_model") {
+		return (
+			<AgentModelRecoveryAction
+				className={input.className}
+				orgSlug={input.orgSlug}
+				profileId={input.plan.profileId}
+			/>
+		);
+	}
+	if (input.plan.primaryActionId === "manage_local_agent") {
+		return (
+			<Link
+				className={cn(
+					buttonVariants({ size: "xs", variant: "outline" }),
+					"mt-1 text-foreground",
+					input.className
+				)}
+				to={buildAgentProfilePath({
+					orgSlug: input.orgSlug,
+					profileId: input.plan.profileId,
+				})}
+			>
+				<WrenchIcon aria-hidden="true" data-icon="inline-start" />
+				{input.actionLabel ?? input.plan.primaryActionLabel}
+			</Link>
+		);
+	}
+	if (
+		resolvePublicAgentFailureRecovery({
+			errorCode: input.plan.recoveryReasonCode,
+		})?.recoveryTarget === "computer"
+	) {
+		return (
+			<Link
+				className={cn(
+					buttonVariants({ size: "xs", variant: "outline" }),
+					"mt-1 text-foreground",
+					input.className
+				)}
+				to={buildOrganizationComputersPath(input.orgSlug)}
+			>
+				<WrenchIcon aria-hidden="true" data-icon="inline-start" />
+				{input.actionLabel ?? input.plan.primaryActionLabel}
+			</Link>
+		);
+	}
+	return null;
+}
 
 function isSpaceAgentProfileBindingRecoveryPlan(
 	plan: AgentProfileReplyRecoveryPlan | null | undefined
@@ -43,15 +114,6 @@ export function SpaceAgentRecoveryActionControl(input: {
 	if (plan.kind === "none") {
 		return null;
 	}
-	if (plan.primaryActionId === "change_model") {
-		return (
-			<AgentModelRecoveryAction
-				className={input.className}
-				orgSlug={orgSlug}
-				profileId={plan.profileId}
-			/>
-		);
-	}
 	if (plan.primaryActionId === "manage_cursor_plan") {
 		return (
 			<a
@@ -76,20 +138,14 @@ export function SpaceAgentRecoveryActionControl(input: {
 	if (plan.kind === "review_computer" && !input.allowComputerAction) {
 		return null;
 	}
-	if (plan.primaryActionId === "manage_local_agent") {
-		return (
-			<Link
-				className={cn(
-					buttonVariants({ size: "xs", variant: "outline" }),
-					"mt-1 text-foreground",
-					input.className
-				)}
-				to={buildAgentProfilePath({ orgSlug, profileId: plan.profileId })}
-			>
-				<WrenchIcon aria-hidden="true" data-icon="inline-start" />
-				{input.actionLabel ?? plan.primaryActionLabel}
-			</Link>
-		);
+	const settingsAction = renderProfileSettingsRecoveryAction({
+		actionLabel: input.actionLabel,
+		className: input.className,
+		orgSlug,
+		plan,
+	});
+	if (settingsAction) {
+		return settingsAction;
 	}
 
 	const actionLabel = input.actionLabel ?? plan.primaryActionLabel;

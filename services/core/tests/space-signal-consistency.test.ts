@@ -2803,6 +2803,32 @@ describe("space signal consistency matrix", () => {
         selection: contextSelection ?? { mode: "auto" },
       });
     }
+    message.sourceSignalSnapshot.workHandoff = {
+      schemaVersion: 2,
+      sourceSignalId: "reviewed-message",
+      sourceRevision: 1,
+      execution: { workspace: "isolated", access: "space_context" },
+      files: [],
+      skills: [],
+      requirements: [],
+      work: {
+        goal: "Review",
+        completed: "Drafted",
+        nextSteps: "Summarize",
+        evidence: [],
+        attemptedApproaches: [],
+        decisions: [],
+        constraints: [],
+        openQuestions: [],
+        completionCriteria: ["Return findings"],
+      },
+    };
+    const handoffSnapshot = await buildAcceptedDispatchSnapshot({
+      message,
+      openMeldServiceRuntimeId: "runtime-thread-context",
+      runtimeKind: "openmeld_service",
+    });
+    expect(handoffSnapshot?.workHandoffVersion).toBe(2);
   });
 
   it("keeps the accepted Wake payload fingerprint stable across transport redrive metadata", async () => {

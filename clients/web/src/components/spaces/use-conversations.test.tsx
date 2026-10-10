@@ -1,3 +1,4 @@
+import type { AccountSidebarPreferences } from "@openmeld/schemas";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { EMPTY_CHAT_PREFERENCES } from "#/lib/organizations/center-agent-chat-preferences";
@@ -7,6 +8,7 @@ import { useConversations } from "./use-conversations";
 const save = vi.fn();
 const setPinned = vi.fn();
 const saveAsync = vi.fn();
+const updateAsync = vi.fn();
 function fixture() {
 	const preferences = {
 		pinned: { sort: "manual" as const, spaceIds: ["hidden-pin"] },
@@ -18,7 +20,14 @@ function fixture() {
 		org: { id: "org", slug: "test" },
 		profileId: "human",
 		selected: "release",
-		store: { preferences, save, saveAsync, disabled: false },
+		store: {
+			preferences,
+			save,
+			saveAsync,
+			updateAsync,
+			update: vi.fn(),
+			disabled: false,
+		},
 		preferences: EMPTY_CHAT_PREFERENCES,
 		spaces: {
 			data: {
@@ -62,6 +71,14 @@ beforeEach(() => {
 	directMessages = fixture();
 	setPinned.mockResolvedValue(true);
 	saveAsync.mockResolvedValue(undefined);
+	updateAsync.mockImplementation(
+		(
+			update: (current: AccountSidebarPreferences) => AccountSidebarPreferences
+		) => {
+			saveAsync(update(directMessages.store.preferences));
+			return Promise.resolve();
+		}
+	);
 });
 afterEach(cleanup);
 
@@ -78,12 +95,12 @@ it("uses authorized organization rows, the Human Space viewer, and exact session
 	expect(result.current.conversations[1]).toMatchObject({
 		title: "My saved title",
 		url: "/o/test/chats/center-agent?session=session",
-		activity: 900,
+		activity: Date.parse("2026-09-10"),
 	});
 	expect(save).not.toHaveBeenCalled();
 	expect(setPinned).not.toHaveBeenCalled();
 });
-it("does not invent message activity for empty conversations and uses real message time", () => {
+it("uses creation and joining recency for empty conversations without inventing a message", () => {
 	directMessages.spaces.data.spaceItems[0] = {
 		...fixtureSpace("release", "Release"),
 		spaceCreatedAt: "2026-09-12T00:00:00.000Z",
@@ -93,7 +110,8 @@ it("does not invent message activity for empty conversations and uses real messa
 	directMessages.previews = [];
 	const { result, rerender } = renderHook(() => useConversations({}));
 	expect(result.current.conversations.map(({ activity }) => activity)).toEqual([
-		0, 0,
+		Date.parse("2026-09-12T00:00:00.000Z"),
+		Date.parse("2026-09-10"),
 	]);
 	expect(
 		result.current
@@ -118,7 +136,7 @@ it("does not invent message activity for empty conversations and uses real messa
 			.map(({ spaceId }) => spaceId)
 	).toEqual(["session", "release"]);
 });
-it("does not save a new placement when the canonical pin mutation fails", async () => {
+it("saves ordering independently while canonical pin failure remains owned by the pin mutation", async () => {
 	setPinned.mockResolvedValue(false);
 	const { result } = renderHook(() => useConversations({}));
 	await act(async () => {
@@ -128,7 +146,7 @@ it("does not save a new placement when the canonical pin mutation fails", async 
 		expect.objectContaining({ spaceId: "release" }),
 		true
 	);
-	expect(saveAsync).not.toHaveBeenCalled();
+	expect(updateAsync).toHaveBeenCalledOnce();
 });
 it("pins ordinary Spaces through Space Index and preserves hidden ordering preferences", async () => {
 	const { result } = renderHook(() => useConversations({}));

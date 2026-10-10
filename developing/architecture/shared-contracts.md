@@ -27,6 +27,27 @@
 
 ## Storage and migration references
 
+Space membership notifications add `space_joined` to Inbox kinds. Space summary
+adds optional `messageUnreadCount`; exact unread-target receivers also get
+optional `joinedItems` when they request item IDs. Existing message targets,
+scopes, and message totals keep their meaning. The Space membership projection
+outbox owns retries; Inbox owns read state. No client membership or read ledger
+is introduced. Deploy the database migration and receiving Core/Gateway before
+the new Web client and writer. Inbox item-kind version 2 opts in to the new kind
+and the two membership fields. Summary version 3 predates these fields and does
+not enable them. Core RPC sends membership kinds and fields only when
+`includeMembershipNotices` is explicitly `true`; absent or false opts out.
+Gateway explicitly opts in to Core, then projects HTTP output using item-kind
+version 2. Missing, older, and unknown HTTP versions omit `messageUnreadCount`
+and `joinedItems`, and receive the existing generic update kind with the same
+title and Space target. The shared schema owner holds the two response
+projections; storage, message counts, and read state retain their meaning.
+Deploy Core before the updated Gateway: older strict Core request schemas reject
+the new opt-in. This narrow projection does not prove other Inbox source-target
+or request contracts. Historical migration/import baselines are read.
+Older CLI, Service, and Skills retain their previous Space, setup, Wake, and
+diagnostic contracts; no local component update is required by this addition.
+
 Production shared relational storage is PostgreSQL. Numeric migration references
 from the original D1 rollout describe historical schema dependencies already
 absorbed into the native baseline; they are not D1 commands to run now. New
@@ -54,9 +75,18 @@ Client payload timestamps, identities and time blocks do not supply authority.
 Already captured RPC and Queue context is retained. The shared
 dispatch snapshot, Remote Agent turn envelope and exact-execution input carry
 that same optional object. Queue promotion and retries keep the accepted anchor;
-active Steer gets its own anchor. Relative dates use this anchor. Each model
-request gets one fresh UTC runtime-clock data message at the end of its outgoing
-provider payload, with the same static system guidance across requests,
+active Steer gets its own anchor. Relative dates use this anchor.
+Delegated Wakes and task continuations, including watch admission retries, read
+the original request's retained turn envelope and preserve this same context.
+Core's internal Space writer passes it as a verified publication option, never
+as public message data. Space validates it with the shared schema before
+publication; new ordinary input still freezes its own accepted time.
+Workstation delivery renders that retained context into the existing source
+text before removing the optional object from the installed Service's strict
+snapshot. Hosted and workstation prompts use the shared renderer in
+`packages/schemas`; this does not add a Service field or change its version floor.
+Each model request gets one fresh UTC runtime-clock data message at the end of
+its outgoing provider payload, with the same static system guidance across requests,
 without changing retained history. Explicit timezone in a user's request takes
 precedence; saved Routine schedules retain their timezone.
 
@@ -104,6 +134,19 @@ Command operations use an invocation ID and stable key. Local invocation IDs are
 namespaced separately from hosted submissions. The Computer holds the command
 receipt and native execution ID. Poll and Stop address that receipt; a retry
 must not allocate another process. Different invocations may run concurrently.
+Optional command `collection` metadata describes automatic observation attempts,
+not command execution. `unconfirmedAttempts` counts consecutive checks without
+confirmed native evidence, reserved before external I/O; a caught error never
+counts its attempt twice. `nextAttemptAtMs` is the next check time; null after
+the budget is exhausted means later checks paused. Completed or unavailable
+receipts also have no next check. Existing running/completed statuses and normal
+list rows retain their contract. Detailed list rows are opt-in through
+`includeReceiptDetails`, introduced in the same command-reference feature. Their
+strict receiver must know the optional collection schema before that feature is
+exposed. Single-result readers retain the existing extensible object contract.
+Schema receivers must precede callers that request detailed rows; removing that
+capability requires rolling back those callers first. No Service, Wake or
+RuntimeCoordinator contract changes are introduced by this scheduling metadata.
 File `edit` compares exact old text under the Computer's mutation queue; `write`
 can require `expectedContent`. Arbitrary shell writes are outside that queue.
 
@@ -133,6 +176,26 @@ its current Computer policy and Profile-native permission intent; this field is
 not a full-access grant. `executionContextPermissionInheritance` is an explicit
 adapter capability, separate from workspace protocol versions. Core checks it
 before delivering such an assignment.
+
+Working-copy selection uses the existing independent `workspace` preference.
+New Web and CLI Project/copy choices omit `access` unless a restriction was
+explicitly selected. No payload, schema version, or context epoch changes.
+Core preserves the source's workspace mode when a native-permission task forks.
+The updated Service derives an ephemeral allowlist for a verified managed copy
+from the current Computer policy; older Services may reject such a copy when
+only its source folder is allowed, but must not bypass that policy.
+Codex selected-folder profiles also retain the existing native `:minimal` read
+baseline so system commands can start; this uses the already-supported permission
+profile contract and does not add user folders or change approval modes.
+
+Contract impact: deploy the Core fork-default correction before exposing the
+new independent-copy callers, then publish the updated CLI/Service as available
+and expose the Web choices. Old callers keep sending their explicit restrictions;
+existing tasks, setup, Space actions, trace and diagnostics remain compatible.
+The Service update is advisory because older versions fail closed for unsupported
+policy placement. Roll back the new callers before rolling back the Core fix;
+retained assignments keep their existing permission source. Rebuild and stamp
+local components through the normal release owner during an authorized release.
 
 Core derives the per-Wake `requesterIsAgentOwner` delivery projection from current
 identity or recorded Center delegation. It is prompt context, not authorization.
@@ -834,6 +897,29 @@ binding; it receives a named connection and Core-authorized effect, never a
 client-selected provider URL or credential. Center Agent tools and personal
 Remote Agent tools share this provider runtime.
 
+The shared `connectorConnectionScopeAllowed` policy admits member/shared
+ownership for a service. It is not OAuth readiness or an Agent grant. Core
+enforces it before creating a shared authorization, selecting a connection,
+executing a named connection, or adding Agent access. Legacy incompatible
+connections project all-none access but remain readable and disconnectable.
+Revocation audits retain the actual stored previous policy. This changes
+authorization behavior without adding wire fields or moving credentials.
+
+Plugin connection continuation uses the original admitted request and the actual
+published reply Thread. For workstation requests, RuntimeCoordinator exposes a
+strict internal read over its retained command state: execution, account, target,
+source message, Binding, admission time, source Thread and canonical message
+envelope digest. This projection contains no message body, token, Space password
+or protected information. It proves admission only. Space separately requires
+the RuntimeCoordinator `reply_published` outcome and its matching published reply,
+then checks the current original and reply inside the insertion transaction.
+The retired dispatch conveyor is not retained or reconstructed for this check.
+Native continuation keeps its retained native execution request. Missing or
+mismatched evidence, edits and recalls fail closed. Neither path grants Plugin
+access. This additive Core-to-Core read does not change Service/CLI payloads,
+setup, Wake, publication or diagnostic contracts; no epoch bump or client update
+is required. Deploy the Core receiver and caller together.
+
 Access responses include the canonical connection scope and policy revision.
 The access list contains active Core connection records and does not require a
 successful provider inventory request. A provider outage must not prevent an
@@ -1135,6 +1221,13 @@ implementation. Continuing a source page requires its original version. Missing,
 recalled, or changed evidence fails explicitly; it never selects the latest
 version in place of a requested version. This adds a local tool, without adding
 a cloud route or granting access to another Space.
+
+Exact message evidence also accepts a visible `signal.system_notice`. The
+materializer returns its public text, system author and reply anchor through the
+existing manifest shape. It does not disclose diagnostic supplements, change
+Space authorization, or treat a notice as task approval. Center, personal Remote
+and local dispatch readers share this selection; status and presence signals
+remain outside message evidence. Existing text source versions are unchanged.
 
 Large local tool results remain transport snapshots. Before `read_result`
 discloses each cached page, it reruns the original source read with the original
@@ -1848,6 +1941,23 @@ component epoch is required. CLI, Service, Skills, setup, Wake and Space action
 contracts are unchanged.
 
 Each client maps only supported targets to its canonical navigation surface.
+Space unread readers opt into additive source identities with
+`includeSourceKeys=true`; strict legacy responses omit them. `sourceKey` names
+the actual publication or reaction occurrence, while `signalId` remains the
+navigation anchor. Visible-source reads use `read_sources` with exact Signal IDs
+and occurrence times. Space checks its retained publication intent and current
+recipient eligibility; Core creates and reads the same canonical Inbox row
+atomically. This RPC does not resolve source requests or accept client-supplied
+Inbox content. Task review attention uses the existing system-attention source
+kind and Space target; Task's durable delivery outbox remains its writer.
+
+Deploy Core and Gateway before Web starts using the new read operation and
+source-key query. Old Web, CLI, Service and Skills retain their existing request
+shapes. Roll Web back first if these receivers must be rolled back. This slice
+adds no persisted schema, target discriminator, RuntimeCoordinator state, Wake
+authority, or local-component epoch. Feature verification uses deferred local
+release readiness; a later integrated component release owns stamping.
+
 Unknown target kinds fail closed and remain visible without creating an
 arbitrary URL. A Slack `message_channel` target is the bounded exception for an
 external canonical source: it carries exact provider ids and a permalink that
@@ -2955,7 +3065,11 @@ other Directory administration fields.
 
 The old Space Directory HTTP/RPC shape remains unchanged. The nullable count is
 available only through the new Core method and versioned Gateway route, so
-existing Center Agent and Remote Agent consumers remain compatible. Deploy Core
+existing Center Agent and Remote Agent consumers remain compatible. The member-count
+route can opt into `includeMemberPreviews=true`. Core reuses the bounded Space
+Index member projection for already authorized directory candidates; the default
+response omits previews for strict older receivers. Web resolves appearance through
+the existing Profile Directory and reuses Space member avatars. Deploy Core
 first, then Gateway, then Web; roll back Web before Gateway or Core. These cloud
 additions do not change CLI, OpenMeld Service, daemon, Prepare, Wake dispatch,
 Space action, or diagnostic semantics.
@@ -6457,10 +6571,31 @@ project several providers without flattening their independent capacity.
 `Low` is derived by presentation code and is not stored. Missing provider facts
 remain null; they must not become zero, 100, or unlimited capacity.
 
+ACI may also carry one strict account-level `usageAdmission` object with
+`blocksNewWork: boolean | null` and `observedAt`. It belongs to this same Usage
+report, rather than individual windows or another readiness store. Matrix
+version 6 uses that fact for Codex admission and recovery: 100% included usage
+remains visible, while native account permission, credits, and spend control
+determine whether new work is blocked. No credit amount, payment fact, or
+account identifier crosses the Service boundary. A full unknown account read
+records null; sparse native rolling updates do not clear or refresh an older
+account verdict. Codex uses the same-session full native snapshot collector for
+probes and rolling observations. Matching native quota account ids bracket its
+account read, and an unchanged account-notification epoch fences collection and
+consumption. Missing or mismatched identity discards capacity evidence. The
+existing local ACI auth comparison may carry an opaque `accountKey`; cloud
+allowlists and legacy `agents show` projections omit it. Legacy machine output
+also omits `usageAdmission`, preserving older strict Desktop readers.
+Core's non-opted-in Local Runtime responses omit admission together with windows,
+including mutation responses that return the same legacy inventory.
+Missing or older matrix versions cannot authorize recovery.
+An older strict Core receiver may reject this optional field; the existing
+report compatibility retry omits windows, admission, and matrix together.
+
 Provider adapters may add evidence either from a dedicated native non-task
 probe or from a provider-native event passively observed during an ordinary
 already-running controller turn. Both sources must normalize into this same
-list before crossing the local Service boundary. A passive observation must
+Usage report before crossing the local Service boundary. A passive observation must
 not start work, modify the turn, retain its raw event, or create a second usage
 store. Claude Code's Agent SDK event is partial: a missing utilization value
 creates no percentage evidence, while allowlisted 0–1 utilization is normalized
@@ -7444,6 +7579,47 @@ cloud contract.
 `createdAgentProfileId`; no new strict response enum is required for older CLI
 and cloud readers to understand the payload.
 
+The failed-request retry body optionally carries `expectedUpdatedAt` and one
+paired `modelSelection` (`modelId`, nullable `reasoningLevel`). Both fields are
+required for a correction. Core validates the canonical selection, ownership,
+failed state, exact version, and any retained Binding before atomically saving
+the correction with the new attempt. Ordinary retries retain their empty body.
+Center reads can select the exact `requestId`; local candidates opt into the
+existing catalog's `modelOptions` with `includeModelOptions`.
+
+Local workspace request validators share `profileWorkspaceWriteSchema`.
+Creation's `onlyIfUnconfigured` flag requires the Service's
+`initializeProfileWorkspace` capability. Runtime Transport must reject an old
+Service rather than strip the flag or fall back to an ordinary write. Binding
+`initialize` reuses an identical target while preserving current settings.
+Auth's required `initializeAgentProfileDefaultProjectInOrganization` RPC owns
+the field-specific compare-and-set. Core must not fall back to the ordinary
+Auth setter when that receiver is missing. The nullable database revision has
+no zero default; only the supporting Auth creation writer records zero.
+
+Center runtime-settings responses project local workspace writes to Profile ID
+and status. The owner-self workspace response retains its private fields.
+Operation steps distinguish a saved folder from a failed Default Project clear
+and use path-free failure copy with a reason code when known.
+
+Working-folder mutations require the named Core receiver
+`centerAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace`. The legacy
+runtime-settings receiver rejects any request containing `workspaceMode` before
+calling the operation, including requests that also change model, permission,
+or collaboration. It cannot change other settings and then reject the folder.
+Model- and permission-only requests retain the legacy receiver. Both receivers
+use the same authorization and operation owner.
+
+Deploy Core before Remote. Old Remote with new Core receives a 409 before any
+settings write for a folder change. New Remote with old Core receives
+`core.rpc.unavailable` before any settings write; it never retries through the
+legacy receiver. Matched new components return the safe workspace receipt and
+all completed or failed steps, including a partial Default Project clear.
+Rollback Remote before removing the named receiver. During that transition,
+legacy folder changes remain unavailable rather than returning an incompatible
+receipt after a write. No Service, CLI, Skills, setup, Wake, diagnostic, or local
+component compatibility floor changes are needed for this cloud RPC correction.
+
 The Center Agent RPC wrapper does not create a second state machine. It verifies
 the current designation, resolves the represented member, preserves the Center
 Agent Profile as actor, and delegates to the same Core request operations.
@@ -7989,9 +8165,10 @@ A fork source's completed-history boundary is optional in the assignment: when
 no checkpoint was frozen, Core names the source identity and the harness
 confirms the boundary from that source's own retained history.
 
-An omitted access preference selects `space_context`, including an ordinary
-Claude Code Wake in parallel mode that creates a new implicit context. A retained
-context keeps its existing access. An explicit independent project task selects
+An explicit new Codex or Claude Code Context with no access restriction inherits
+the Agent's settings when that controller supports permission inheritance.
+A retained Context keeps its existing access contract; explicitly selected
+Space-only work remains code-free. An independent project task selects
 `workspace: isolated`. `workspace: isolated`
 with local access now means a committed project worktree with private Git data.
 The local preparation journal binds the shared assignment to its source and
@@ -8024,6 +8201,52 @@ An assignment with `projectWork` requires Service adapter
 `service.update_required` at admission before an execution token or local
 workspace is used. The optional field leaves legacy assignments readable and
 keeps the assignment wire version at v1.
+
+An optional `projectWork.commit` freezes a complete 40- or 64-character Git
+commit ID. Such assignments require adapter capability 5 at admission and
+delivery, including reconnect. An older Service must receive update guidance
+before execution, never a selection with the commit removed. The local journal
+retains the requested commit and the existing workspace lifecycle owns retry,
+continuation, and retention. Starting a current-folder Context verifies HEAD and
+rejects preexisting local changes; resuming its established native Context keeps
+subsequent work. Isolated preparation leaves the connected checkout unchanged.
+For continuation and fork selections, an omitted commit with the same Project
+and repository inherits the retained pin. An explicitly different commit is
+rejected. Fork assignment always retains the complete source Project work.
+
+`SpaceWorkHandoff` version 2 adds the exact source message revision, execution
+choices, and a complete work brief. Its strict variants separate materials:
+without `code`, execution must be `space_context` and `isolated`, and a Project
+selection is rejected; with `code`, an exact Project/repository and full commit
+are required with the existing repository permission choices. Both allow an
+empty shared-file selection. Version 1 retains its selected-file contract.
+The Core-created accepted dispatch snapshot freezes optional `workHandoffVersion`
+from the authored manifest so admission and reconnect check capability 5 for all
+v2 workstation handoffs, including brief-only work. Delivery rechecks the active
+adapter version. Only nonempty selected-file sets also require `spaceWorkHandoff`.
+Normal-message HTTP callers send the matching `workHandoffVersion`; thread
+callers carry the same versioned manifest. Space validates the current source,
+original placement, one target, and matching Context selection. Its existing
+client-message idempotency also fences changed Context selections. Public history
+omits the v2 manifest so older readers retain the readable message and files;
+the authored manifest stays in persistence and dispatch snapshots.
+
+Contract impact: deploy compatible Core and Remote Agent schema readers and
+materialization before Gateway and new callers. Then publish the CLI/Service
+with capability 5 before enabling the Web entry point/new CLI manifests.
+The Remote Agent native path accepts brief/shared-file v2 work and rejects
+repository work before provider submission. An empty shared-file set reuses its
+existing working directory without creating an unmaterialized copy receipt.
+Capability 5 and v2 are unreleased additions in this PR; earlier draft artifacts
+must be replaced together. Older Services continue ordinary and v1 work but
+reject v2 work; older clients can read its message. No database migration,
+new cloud resource, or new handoff lifecycle is introduced. Roll back callers
+first. Once v2 messages are persisted, retain compatible Core readers for their
+entire retention lifetime, including completed handoffs. Computers that ran
+v2 tasks must also retain a compatible Service reader for their retained
+Context/workspace records. The
+CLI/Service bundle and registry require normal local-component release validation;
+this feature does not authorize production deployment or release stamping.
 
 The public signal read encoder omits `contextSelection` so older strict history
 readers remain usable. This encoder must never be used for persistence, dispatch
@@ -8099,6 +8322,32 @@ treated as conflicts. The association is omitted from local workspace identity
 and never grants the requesting member access to the legacy transcript.
 
 ## Agent Profile Binding Contract
+
+Profile settings and Space working-folder recovery carry the shared
+`expectedBindingTarget` tuple:
+Binding ID, Service Runtime ID, controller ref, and nullable conversation ID.
+It is a read/write precondition, not another Binding store or execution authority.
+The private saved-configuration GET verifies it before and after its Service
+read. Its configured/missing/invalid result is defined in `packages/schemas`;
+the configuration version is the local envelope format, not a Binding revision.
+GET responses use no-store and do not populate a second configuration cache.
+Core checks the tuple inside the existing execution-target admission before
+Service writes, and inside the existing future-work admission before Auth's
+Default Project write. These remain two ordered writes with explicit partial
+success; they are not an atomic cross-service transaction.
+
+Gateway requires the named Core receivers
+`setBoundPeopleComputerAgentProfileWorkspace` and
+`updateBoundAgentProfileDefaultProject` when that tuple is present. An old Core
+receiver must fail without fallback to the unguarded methods; an old Gateway's
+strict HTTP body rejects the new tuple before writing. Deploy Core, then
+Gateway, then Web. Ordinary explicit Computer configuration without the tuple
+retains its existing contract. The write precondition changes no Auth or Service
+write payload. The private saved-configuration read adds a separate Service
+capability and correlated frame; its strict registration receivers must deploy
+before the new Service. An old readiness projection without a canonical Binding ID
+cannot acquire a recovery draft. Local CLI/Service, Skills, setup, Wake and
+diagnostic compatibility floors remain unchanged by this correction.
 
 The shared Agent Profile Binding contract must stay synchronized across schemas,
 API client, Core command/lookup services, and Gateway route behavior.
@@ -8562,8 +8811,8 @@ maintainability without weakening UX.
 `packages/schemas/src/schemas/http/space-dispatch-trace.ts` owns both the
 legacy and current strict trace response schemas. A caller requests the current
 contract by sending
-`x-openmeld-space-dispatch-trace-response-version: 3`. Core also accepts the
-frozen version `2`; without the header, Core projects the legacy version `1`
+`x-openmeld-space-dispatch-trace-response-version: 7`. Core also accepts
+versions `2` through `6`; without the header, Core projects the legacy version `1`
 subset. Version `2` omits every version-3-only head no-execution detail,
 including disabled-Local-Agent, reliable Usage, and newer canonical blocker
 families, while retaining the surrounding generic dispatch and attempt
@@ -8572,14 +8821,57 @@ schema and omit newer values instead of substituting a misleading historical
 Binding reason or sending a payload an already-published strict CLI cannot
 parse.
 
-The current schema accepts the legacy subset, so a new CLI remains compatible
-with an older Core that ignores the header. A new Core remains compatible with
-an older CLI because an explicit version `2` request receives the frozen
-projection and a missing header selects version `1`. Deploy Core and Gateway
-receivers before a new CLI starts requesting version `3`; rollback to a
-version-2 CLI remains safe while those cloud receivers continue accepting both
-versions. Clients must not rebuild current waiting truth from historical
-dispatch attempts when the current head projection is absent.
+Version 7 adds optional `executionContext` diagnostics to the Head trace,
+including a `missing` Head whose exact Wake-to-Context association remains.
+The owner reads that association and validates its Space and target. The
+projection contains only Context id, assigned access, permission source and
+workspace; it contains no native history or new execution authority. A legacy
+assignment without `permissionSource` is reported as `context_restriction`,
+without asserting that a human explicitly chose that restriction. Responses
+negotiated as v1–6 omit this field. The v6 native-delivery projection and v5
+waiting evidence retain their existing version gates.
+
+The existing internal Head trace route accepts the opt-in
+`?executionContext=1` query. Its request body is unchanged. Old callers
+receive their original strict shape; an older shard that ignores the query
+reports no Context diagnostics, which the new reader presents as unavailable.
+The query does not change the Head trace's five-second read deadline or
+transport error classification. An unavailable owner or failed read remains an
+explicit unavailable task-context projection in v7; it does not remove the
+section from Message details. Versions 1–6 retain their original shapes.
+This adds no storage writer, migration, or dependency on retaining transient
+Heads.
+
+Message details opts in separately with `executionContextVersion=1`. New
+Gateway/Core readers forward it; old readers ignore it and keep their original
+response. Only opted-in responses add each target's task-context projection
+and an eligible readable `newTaskSource` for an authenticated viewer Profile.
+The viewer need not be the source author. Source content is redacted for the
+viewer before projection; a missing viewer Profile receives no recovery copy.
+Existing local-origin redaction
+also removes Context identifiers for non-owners. The source copy preserves
+Space-owned text/file revision facts and grants no permission; its new Wake
+uses the existing message-authoring contract under the current acting Profile,
+with that sender's permissions and no inherited approvals from the source.
+Its stable client message id
+reuses the existing Space authoring receipt for the same reviewed request,
+requester, target and placement, including retries after accepted publication.
+Every Space and Thread publication receipt is checked against the authorized
+sender before replay. Reusing another sender's message identity returns an
+explicit conflict rather than a successful recovery. The client-generated id
+grants no authority and does not prevent another sender from attempting to use
+it; a conflict requires a new message from the composer.
+
+Contract impact: deploy Core and Gateway trace-v7 receivers before publishing
+a CLI that requests v7; old Gateways reject unknown trace versions. Existing
+CLIs continue requesting v2–6, and old/new Services retain setup, Wake, Space
+Action, status and recovery compatibility. Web's Message details opt-in
+degrades to the old details when older readers ignore it. No execution epoch,
+required Service/Skills update, or new Cloudflare resource is needed. The
+updated local prompt guidance is an advisory available component change.
+Rollback the new CLI caller before removing v7 receivers; Web can roll back
+independently. Clients must not rebuild missing Context or waiting truth from
+current Profile preferences or historical dispatch attempts.
 
 ## OpenMeld Request Context Header Text Encoding
 
@@ -8665,13 +8957,15 @@ surfaces and CLI Agent/Human View reuse this builder so a copied destination has
 one cross-client form while authorization remains owned by the resolver and
 the eventual read endpoint.
 
-For an Organization member outside a listed Space, `membership_required` view
-can accompany `self_join_available` participation. This permits a Join action,
-not a content preview. Space membership POST verifies the actual Organization
+For a verified Organization member outside an active listed Space, `allowed`
+view with the `public` experience accompanies `self_join_available` participation.
+This permits a read-only preview. Preview does not create membership and cannot
+open a writable WebSocket, post messages, Wake Agents, or mutate content.
+Deleted Spaces retain their original-member read gate. Space membership POST verifies the actual Organization
 membership and rechecks canonical Space visibility after that lookup, admitting
 only the caller's own Human Profile. Directory projections and URL targets do
 not grant authority. Private Spaces, outsiders, Agent actors, and member batches
-do not receive this grant. Existing password/access grants retain their own rules.
+do not receive the self-join grant. Existing password/access grants retain their own rules.
 
 Web resolves tenant-neutral links before mounting a public viewer. When the
 resolution supplies the caller's Organization slug, it opens the App Space
@@ -8728,11 +9022,45 @@ to decide when password is still required.
 
 ## Unified Space Access and Ownership
 
+### Deleted Space history
+
+The Space owner persists `deletedAt` in its canonical metadata. Deletion retains
+signals and original membership grants, disables all publication actions, and
+restricts reads to those grants. Removing a deleted Space leaves only this
+account's memberships. Account deletion remains a separate physical purge.
+The account index derives the deleted state from that metadata; subsequent
+member or signal projections cannot restore an active Space.
+
+Contract Impact Audit: metadata and status add optional `deletedAt`. Account
+list callers opt into retained entries with `includeDeletedSpaces`; older CLI
+callers retain their existing list shape. Status actions may be empty for a
+deleted Space. Core must precede new Gateway and Web readers. Old clients can
+read retained history but Core rejects their writes. No Service, Wake execution,
+live invalidation, or local component protocol changes. Rollback the new Web
+first; an older Core does not enforce the retained read-only state.
+
+### Account Space preferences
+
+`packages/schemas` owns `SpacePreferences` and its authenticated RPC input.
+`GET/PATCH /v1/account/space-preferences` addresses the verified Human's existing
+account owner shard. That shard is the sole durable writer; an absent record
+means automatic Wake is enabled, preserving existing behavior. Core reads the
+author's preference at automatic dispatch admission. Space status and bootstrap
+project `automaticWakeEnabled` for the viewer without granting work authority.
+
+The status field is additive and optional. Existing clients keep their previous
+guidance and can still send messages; Core applies the saved preference. New
+clients require the preference receiver for Settings, and show a load error when
+it is unavailable. No CLI, Service, Gateway live-frame, or Wake execution protocol
+changes. Older status readers accept the added field. Rollback preserves the
+stored preference, but an older Core does not enforce it.
+
 `packages/space` owns the pure Space access and ownership policy over verified
 facts. Core obtains current identity and membership facts and enforces the policy
 for HTTP, RPC, live connections, and Agent callers. UI capability projections do
-not grant authority. Organization-open discovery grants eligible colleagues a
-join action, not automatic content access or Organization membership.
+not grant authority. Organization-open discovery grants current Organization
+members read-only preview and explicit joining. It does not grant Organization
+membership or publication before joining.
 
 The Space Durable Object is the sole writer of `ownerUserIds` and `allowGuests`.
 Creator attribution remains immutable. Owners are current Organization members
@@ -8934,6 +9262,26 @@ plain text during a confirmed response is Queue; only the explicit Steer action
 calls native execution input. Queue mutations use the existing
 `space.meta.changed` invalidation envelope, without message text or author data.
 The client rereads its authorized queue, including after reconnect.
+
+Queue intake freezes the original Human request's retained conversation placement
+in the existing outbox request. The Space resolves it from the exact dispatch
+source; callers cannot supply or replace it. A missing or mismatched source
+rejects intake without consuming the draft. Ordinary handoff and applied Steer
+publish into that original conversation. Thread context is private Core storage
+metadata and is removed before strict Remote Agent execution-input requests.
+
+Readers can opt into `includeConversationContext` (`conversation=1` over HTTP).
+Only opted-in responses include `conversationContextIncluded: true` and each
+item's nullable `threadId`. Legacy readers retain their existing response shape;
+legacy stored requests without context retain main-conversation placement.
+Web shares one authorized queue cache and shows only the current conversation's
+rows. The existing composer work bookmarks also read that cache to locate the
+author's queued input in closed or other Threads. They merge a Thread's queue
+count with its matching original Wake when present, or show a Queue-only entry;
+queued input never implies a running execution. The open Thread's tray stays its
+only Queue entry. Reordering a Thread replaces only its visible slots in the
+author's full queue. A server without the scoped projection cannot accept Web Thread Queue
+intake; Web keeps the draft rather than assuming main-conversation placement.
 
 The Web Queue is one compact, inset tray behind the Composer, shared with the
 existing pending-action tray geometry. Rows expose Steer, delete, and an accessible

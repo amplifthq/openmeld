@@ -5,21 +5,27 @@ import {
 } from "@openmeld/schemas";
 import type {
 	AccountSpaceActiveWakeSummaryResponse,
+	OrganizationSpaceDirectoryWithMemberCountsResponse,
+	PostSpaceMembersResponse,
 	SignalEnvelope,
 } from "@openmeld/schemas/types";
 import type { QueryClient } from "@tanstack/react-query";
 import { queryOptions } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import {
+	applyAcceptedAccountSpaceMembership,
 	applyAcceptedAccountSpaceMessage,
-	preserveOptimisticAccountSpacePinUpdates,
+	reconcileAccountSpaceSections,
 } from "#/components/spaces/account-space-sections";
 import { withLocalAccountRuntimeFixtures } from "#/lib/dev/space-runtime-fixtures";
 import { getAccountSpaceActiveWakeSummary } from "#/lib/spaces/account-space-active-wake";
 import {
+	type AccountSpaceItem,
 	type AccountSpaceSections,
+	createAcceptedAccountSpaceItem,
 	listAccountSpaceItems,
 } from "#/lib/spaces/account-spaces";
+import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import {
 	baseQueryOptions,
 	DISPLAY_REVISIT_GC_TIME_MS,
@@ -49,6 +55,94 @@ export const accountSpaceQueryKeys = {
 	items: (profileId: string, scope: "account" | "profile") =>
 		["spaces", "account-spaces", profileId, scope] as const,
 } as const;
+
+export function updateAccountSpaceAcceptedMembership(
+	client: QueryClient,
+	profileId: string,
+	item: AccountSpaceItem
+): void {
+	const filters = {
+		queryKey: [...accountSpaceQueryKeys.all, profileId],
+		predicate: (query: { queryKey: readonly unknown[] }) =>
+			query.queryKey[3] === "account" || query.queryKey[3] === "profile",
+	};
+	client.setQueriesData<AccountSpaceSections>(filters, (current) =>
+		applyAcceptedAccountSpaceMembership(
+			current ?? { pinnedItems: [], spaceItems: [] },
+			item
+		)
+	);
+	if (!client.getQueryData(accountSpaceQueryKeys.items(profileId, "account"))) {
+		client.setQueryData(
+			accountSpaceQueryKeys.items(profileId, "account"),
+			applyAcceptedAccountSpaceMembership(
+				{ pinnedItems: [], spaceItems: [] },
+				item
+			)
+		);
+	}
+}
+
+export function acceptOrganizationSpaceMembership(
+	client: QueryClient,
+	input: {
+		organizationId: string;
+		spaceId: string;
+		profileId: string;
+		response: PostSpaceMembersResponse;
+	}
+): void {
+	const key = organizationQueryKeys.spaces(input.organizationId);
+	const directory =
+		client.getQueryData<OrganizationSpaceDirectoryWithMemberCountsResponse>(
+			key
+		);
+	const space = directory?.spaces.find(
+		(item) => item.spaceId === input.spaceId
+	);
+	const member = input.response.items.find(
+		(item) => item.profileId === input.profileId && item.status === "active"
+	);
+	if (space && member) {
+		updateAccountSpaceAcceptedMembership(
+			client,
+			input.profileId,
+			createAcceptedAccountSpaceItem({
+				organizationId: input.organizationId,
+				spaceId: input.spaceId,
+				name: space.name,
+				visibility: space.visibility,
+				profileId: member.profileId,
+				profileName: member.profileName,
+				joinedAt: member.addedAt,
+				createdAt: space.spaceCreatedAt,
+				activeMemberCount:
+					space.activeMemberCount === null
+						? null
+						: space.activeMemberCount +
+							Number(input.response.addedMemberIds.includes(member.profileId)),
+			})
+		);
+	}
+	client.setQueryData<OrganizationSpaceDirectoryWithMemberCountsResponse>(
+		key,
+		(current) =>
+			current
+				? {
+						...current,
+						spaces: current.spaces.map((item) =>
+							item.spaceId === input.spaceId
+								? {
+										...item,
+										joined: true,
+										lastJoinedAt: member?.addedAt ?? item.lastJoinedAt,
+									}
+								: item
+						),
+					}
+				: current
+	);
+}
 
 // The accepted Space signal is already authoritative while its index catches up.
 export function updateAccountSpaceAcceptedMessage(
@@ -102,7 +196,7 @@ export function accountSpaceItemsQueryOptions(input: {
 		staleTime: 30 * 1000,
 		refetchOnMount: true,
 		refetchOnWindowFocus: "always",
-		structuralSharing: preserveOptimisticAccountSpacePinUpdates,
+		structuralSharing: reconcileAccountSpaceSections,
 	});
 }
 

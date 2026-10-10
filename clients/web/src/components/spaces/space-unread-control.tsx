@@ -35,6 +35,7 @@ function subscribeDocumentFocus(notify: () => void) {
 export function SpaceConversationUnreadControl(
 	input: ComponentProps<typeof SpaceUnreadControl> & {
 		firstUnreadSignalId: string | null;
+		threadRootSignalId?: string | null;
 	}
 ) {
 	const { end: canScrollToEnd } = useMessageScrollerScrollable();
@@ -50,12 +51,16 @@ export function SpaceConversationUnreadControl(
 		!canScrollToEnd &&
 		input.firstUnreadSignalId === null &&
 		input.count === input.targets.length &&
-		input.targets.every((target) => target.threadRootSignalId === null);
+		input.targets.every(
+			(target) =>
+				target.threadRootSignalId === (input.threadRootSignalId ?? null)
+		);
 	return <SpaceUnreadControl {...input} hideNavigation={followingArrivals} />;
 }
 
 export function SpaceUnreadControl(input: {
 	count: number;
+	scope?: "thread";
 	hideNavigation?: boolean;
 	targets: readonly SpaceInboxUnreadTarget[];
 	onNavigate: (target: SpaceInboxUnreadTarget) => Promise<boolean>;
@@ -68,7 +73,10 @@ export function SpaceUnreadControl(input: {
 	const [error, setError] = useState<string | null>(null);
 	const request = useRef(0);
 	const readyLabel = selection ? "Mark all as read" : "Try again";
-	const label = `${input.count} unread ${input.count === 1 ? "update" : "updates"}`;
+	const singular = input.scope === "thread" ? "reply" : "update";
+	const plural = input.scope === "thread" ? "replies" : "updates";
+	const noun = input.count === 1 ? singular : plural;
+	const label = `${input.count} unread ${noun}`;
 	const prepare = async () => {
 		if (!input.onPrepareMarkAllRead) {
 			return;

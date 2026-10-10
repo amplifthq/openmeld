@@ -194,6 +194,29 @@ function documentsAndSpace(database, now) {
     projected_at_ms: now,
     projection_event_id: "membership-event",
   });
+  insert(database, "space_index_spaces", {
+    space_id: "historical-orphan-space",
+    organization_id: "historical-missing-organization",
+    organization_visibility: "private",
+    status: "active",
+    space_name: "Historical orphaned projection",
+    source_updated_at_ms: now,
+    projected_at_ms: now,
+    projection_event_id: "orphan-space-event",
+  });
+  insert(database, "space_index_memberships", {
+    space_id: "historical-orphan-space",
+    profile_id: fixture.human,
+    profile_kind_snapshot: "human",
+    profile_name_snapshot: "Migration Owner",
+    owner_user_id_snapshot: fixture.owner,
+    status: "active",
+    member_source: "owner_added",
+    added_at_ms: now,
+    source_updated_at_ms: now,
+    projected_at_ms: now,
+    projection_event_id: "orphan-membership-event",
+  });
   insert(database, "slack_workspace_tokens", {
     slack_team_id: "SYNTHETIC",
     encrypted_bot_token: fixture.envelope,

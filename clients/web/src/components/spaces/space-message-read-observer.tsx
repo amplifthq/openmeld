@@ -1,6 +1,21 @@
+import { spaceInboxReadSourceSchema } from "@openmeld/schemas";
 import type { SpaceInboxUnreadTarget } from "@openmeld/schemas/types";
 import { useLayoutEffect, useRef } from "react";
 import { isInboxDocumentFocused } from "#/lib/inbox/desktop-notifications";
+import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
+
+export function spaceMessageReadSourceAt(
+	item: SpaceTimelineItem
+): number | undefined {
+	if (
+		item.deliveryState !== "sent" ||
+		item.transientActivityPurpose !== null ||
+		(item.signalType === "signal.status" && item.spaceStatus === "working")
+	) {
+		return;
+	}
+	return item.createdAtMs;
+}
 
 // Acknowledges rendered updates, including out-of-order reading. A short batch
 // accumulates evidence during scrolling; leaving the viewport does not erase it.
@@ -137,23 +152,91 @@ function visibleTargets(
 		return [];
 	}
 	const viewed = new Set<string>();
+	const sources = new Map<string, SpaceInboxUnreadTarget>();
 	for (const element of viewport.querySelectorAll<HTMLElement>(
-		"[data-message-row-id]"
+		"[data-message-row-id], [data-message-read-sources], [data-message-reactions-for]"
 	)) {
-		const rect = element.getBoundingClientRect();
-		if (
-			rect.width > 0 &&
-			rect.height > 0 &&
-			rect.top >= top &&
-			rect.right > Math.max(bounds.left, 0) &&
-			rect.left < Math.min(bounds.right, window.innerWidth) &&
-			rect.top + Math.min(80, rect.height) <= bottom &&
-			isMessageBeginningUncovered(element, rect)
-		) {
+		if (isVisibleMessageBeginning(element, bounds, top, bottom)) {
 			viewed.add(element.dataset.messageRowId ?? "");
+			for (const source of readElementSources(element)) {
+				viewed.add(source.signalId);
+				sources.set(`${source.signalId}:${source.occurredAtMs}`, {
+					...source,
+					threadRootSignalId: null,
+				});
+			}
+			for (const target of visibleReactionTargets(element, targets)) {
+				if (target.sourceKey) {
+					viewed.add(target.sourceKey);
+				}
+			}
 		}
 	}
-	return targets.filter((target) => viewed.has(target.signalId));
+	const selected = targets.filter((target) =>
+		viewed.has(target.sourceKey ?? target.signalId)
+	);
+	for (const target of selected) {
+		sources.delete(
+			`${target.sourceKey ?? target.signalId}:${target.occurredAtMs}`
+		);
+	}
+	selected.push(...sources.values());
+	return selected;
+}
+
+function isVisibleMessageBeginning(
+	element: HTMLElement,
+	bounds: DOMRect,
+	top: number,
+	bottom: number
+) {
+	const rect = element.getBoundingClientRect();
+	return (
+		rect.width > 0 &&
+		rect.height > 0 &&
+		rect.top >= top &&
+		rect.right > Math.max(bounds.left, 0) &&
+		rect.left < Math.min(bounds.right, window.innerWidth) &&
+		rect.top + Math.min(80, rect.height) <= bottom &&
+		isMessageBeginningUncovered(element, rect)
+	);
+}
+
+function visibleReactionTargets(
+	element: HTMLElement,
+	targets: readonly SpaceInboxUnreadTarget[]
+) {
+	const signalId = element.dataset.messageReactionsFor;
+	if (!signalId) {
+		return [];
+	}
+	const prefix = `reaction:${signalId}:`;
+	const version = Number(element.dataset.messageReactionsVersion);
+	return targets.filter(
+		(target) =>
+			target.sourceKey?.startsWith(prefix) &&
+			Number(target.sourceKey.slice(prefix.length)) <= version
+	);
+}
+
+function readElementSources(element: HTMLElement) {
+	if (element.dataset.messageReadSources) {
+		return spaceInboxReadSourceSchema
+			.array()
+			.parse(JSON.parse(element.dataset.messageReadSources));
+	}
+	if (
+		element.dataset.messageRowId &&
+		element.dataset.messageSourceAt !== undefined
+	) {
+		return [
+			spaceInboxReadSourceSchema.parse({
+				signalId: element.dataset.messageRowId,
+				occurredAtMs: Number(element.dataset.messageSourceAt),
+			}),
+		];
+	}
+	return [];
 }
 
 function isMessageBeginningUncovered(

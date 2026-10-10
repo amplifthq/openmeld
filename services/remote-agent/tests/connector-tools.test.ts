@@ -413,24 +413,58 @@ describe("Remote Agent generic App tools", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("keeps an explicit authorization failure instead of treating it as missing setup", async () => {
-    const storage = await createStorage(createSubmitTurnRequest());
+  it.each([
+    {
+      error: new Error(
+        'HTTP 403: {"ok":false,"error":{"code":"plugin.action_forbidden","message":"Agent access denied"}}'
+      ),
+      review: true,
+    },
+    { error: new Error("plugin.action_forbidden"), review: false },
+    {
+      error: new Error(
+        'HTTP 503: {"ok":false,"error":{"code":"plugin.verification_unavailable","message":"Unavailable"}}'
+      ),
+      review: false,
+    },
+  ])("preserves the error and offers review only for a verified permission denial ($review)", async ({
+    error,
+    review,
+  }) => {
+    const base = createSubmitTurnRequest();
+    const storage = await createStorage(
+      createSubmitTurnRequest({
+        turnEnvelope: {
+          ...base.turnEnvelope,
+          organization: {
+            ...base.turnEnvelope.organization,
+            webUrl: "https://openmeld.ai/o/acme",
+          },
+        },
+      })
+    );
     const tools = getRemoteAgentConnectorToolDefinitions({
       coreWorker: {
-        centerAgentResolveConnectorConnection: vi
-          .fn()
-          .mockRejectedValue(new Error("plugin.action_forbidden")),
+        centerAgentResolveConnectorConnection: vi.fn().mockRejectedValue(error),
       },
       storage,
       submissionId: ACK.submissionId,
     });
     await expect(
       executeTool(tools, "openmeld_list_app_actions", { service: "linear" })
-    ).rejects.toThrow("plugin.action_forbidden");
-    expect(
-      (await readRemoteAgentCallbackContext(storage, ACK.submissionId))
-        ?.pluginConnectionTarget
-    ).toBeUndefined();
+    ).rejects.toThrow(error.message);
+    const target = (
+      await readRemoteAgentCallbackContext(storage, ACK.submissionId)
+    )?.pluginConnectionTarget;
+    if (review) {
+      expect(target).toMatchObject({
+        kind: "plugin_connection",
+        service: "linear",
+        scope: "choose",
+      });
+    } else {
+      expect(target).toBeUndefined();
+    }
   });
 
   it("registers discovery and execution as one shared tool surface", () => {

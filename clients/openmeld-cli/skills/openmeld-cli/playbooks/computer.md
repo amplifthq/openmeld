@@ -48,6 +48,21 @@ Start once with a stable invocation ID and command key. Poll that same key.
 Use `list` after an uncertain response. A timeout or missing native record
 never proves the command had no effect and never permits an automatic relaunch.
 
+Keep the returned `reference`. It addresses the exact invocation, key, native
+execution ID and backend. For owner CLI inspection of a Remote command, use
+that reference's `invocationId` as the operation's `invocationId`, its `key`
+as the poll/stop key, and include the unchanged object as `command.reference`.
+This avoids adding the CLI's `local:` namespace to a Remote invocation.
+The reference grants no access to another account's Computer. Contradictory
+references fail closed. Add `includeReceiptDetails:true` to `action:list`
+when recovering references and phases; ordinary list keeps its older shape.
+
+`phase` separates accepted receipt, uncertain launch, observed running process,
+exit, pending file sync, completed sync and unavailable result. A missing receipt
+returns `computer.command_not_found`; acceptance remains unknown. Receipt
+expiry is separate from the provider's native result retention. Already collected
+output survives native expiry, but an uncollected expired result may be lost.
+
 `syncPending` means the process exited but file synchronization is unconfirmed.
 Continue polling unless `syncError` or `nextAction: inspect` is present. Then
 stop polling and inspect persistent files. The receipt preserves the known

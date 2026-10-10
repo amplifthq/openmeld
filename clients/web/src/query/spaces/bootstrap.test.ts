@@ -51,12 +51,14 @@ describe("spaceBootstrapQueryOptions", () => {
 			includeAgentStreamPresence: true,
 			includeAgentStreamRecovery: true,
 			historyQuery: {
+				includePersonalHistoryBoundary: true,
 				recent: true,
 				limit: SPACE_INITIAL_HISTORY_MAX_MESSAGES,
 				kinds: SPACE_HISTORY_SIGNAL_KINDS,
 			},
 		});
 		expect(result.history).toEqual({
+			personalHistoryDeletedAt: 0,
 			confirmedCursor: null,
 			envelopes: [],
 			nextCursor: null,
@@ -99,6 +101,7 @@ describe("spaceBootstrapQueryOptions", () => {
 			includeAgentStreamPresence: true,
 			includeAgentStreamRecovery: true,
 			historyQuery: {
+				includePersonalHistoryBoundary: true,
 				recent: true,
 				limit: SPACE_INITIAL_HISTORY_MAX_MESSAGES,
 				kinds: SPACE_HISTORY_SIGNAL_KINDS,

@@ -1,5 +1,8 @@
 import { listCenterAgentModelChoices } from "@openmeld/agent-runtime";
-import { modelCatalogSchema } from "@openmeld/schemas/schemas";
+import {
+	listOrganizationDocumentsResponseSchema,
+	modelCatalogSchema,
+} from "@openmeld/schemas/schemas";
 import type { OrganizationDirectoryResponse } from "@openmeld/schemas/types";
 import {
 	cleanup,
@@ -12,6 +15,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentConfigurationGrid } from "#/components/profiles/agent-configuration-card";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
+import { organizationDocumentQueryKeys } from "#/query/organizations/organization-documents";
 import { buildRemoteCenterAgentReadiness } from "#/test-support/center-agent-readiness";
 import {
 	createTestQueryClient,
@@ -204,6 +208,81 @@ describe("CenterAgentSettingsContent", () => {
 	});
 
 	afterEach(cleanup);
+
+	it.each([
+		false,
+		true,
+	])("uses the document permission for an absent Team Brief: canManage=%s", async (canManage) => {
+		const queryClient = createTestQueryClient();
+		queryClient.setQueryData(
+			organizationDocumentQueryKeys.list(ORGANIZATION_ID),
+			listOrganizationDocumentsResponseSchema.parse({
+				organizationId: ORGANIZATION_ID,
+				currentUserId: "member-1",
+				canManage,
+				documents: [],
+				folders: [],
+			})
+		);
+		renderSettings({ canManage: true, queryClient });
+		await screen.findByText("Team Brief");
+		if (canManage) {
+			fireEvent.click(
+				screen.getByRole("button", { name: "Create Team Brief" })
+			);
+			expect(navigateMock).toHaveBeenCalledWith({
+				to: "/o/acme/files?view=knowledge&create=1&kind=brief",
+			});
+		} else {
+			expect(screen.getByText("Not set")).toBeTruthy();
+			expect(
+				screen.queryByRole("button", { name: "Create Team Brief" })
+			).toBeNull();
+			expect(
+				screen.queryByRole("button", { name: "Open Team Brief" })
+			).toBeNull();
+			fireEvent.click(screen.getByText("Team Brief"));
+			expect(navigateMock).not.toHaveBeenCalled();
+		}
+	});
+
+	it("lets a member open an existing Team Brief without an edit action", async () => {
+		const queryClient = createTestQueryClient();
+		queryClient.setQueryData(
+			organizationDocumentQueryKeys.list(ORGANIZATION_ID),
+			listOrganizationDocumentsResponseSchema.parse({
+				organizationId: ORGANIZATION_ID,
+				currentUserId: "member-1",
+				canManage: false,
+				folders: [],
+				documents: [
+					{
+						id: "brief-1",
+						organizationId: ORGANIZATION_ID,
+						title: "Team Brief",
+						kind: "brief",
+						canManage: false,
+						canEditContent: false,
+						folderId: null,
+						subjectUserId: null,
+						hasDraft: false,
+						createdAt: "2026-10-09T00:00:00.000Z",
+						updatedAt: "2026-10-09T00:00:00.000Z",
+					},
+				],
+			})
+		);
+		renderSettings({ canManage: false, queryClient });
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Open Team Brief" })
+		);
+		expect(
+			screen.queryByRole("button", { name: "Edit Team Brief" })
+		).toBeNull();
+		expect(navigateMock).toHaveBeenCalledWith({
+			to: "/o/acme/files?view=knowledge&document=brief-1",
+		});
+	});
 
 	it("shows Center Agent essentials first and loads the audit log on demand", async () => {
 		const view = renderSettings({ canManage: false });

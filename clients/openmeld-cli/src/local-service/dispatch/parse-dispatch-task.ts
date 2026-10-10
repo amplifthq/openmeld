@@ -579,7 +579,7 @@ function renderDispatchPrompt(input: {
   }
   if (promptInput.executionContextAccess === "space_context") {
     sections.push(
-      "Task access: Space context only. This task has no authorized project repository or project code checkout; its local working folder is scratch space, not the Agent Profile's configured working folder. Do not claim to have reviewed code or a PR diff you cannot read. If the request needs repository access, report that limitation through the required Space Action and ask for an authorized code-access Wake or the relevant diff."
+      "Task access: Space context only. This task has no authorized project repository or project code checkout; its local working folder is scratch space, not the Agent Profile's configured working folder. Do not claim to have reviewed code or a PR diff you cannot read. If the request needs repository access, explain this task's restriction through the required Space Action. The requester can choose New task to use the Agent's current permitted settings, or provide the relevant diff. A local clone is not required when a new task has permitted remote repository tools; verify those tools before claiming access."
     );
   }
   if (promptInput.projectWork) {

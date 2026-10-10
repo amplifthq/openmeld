@@ -96,6 +96,9 @@ export type DesktopPilotBridge = DesktopSpaceStreamBridge &
     connectComputer(
       input: DesktopComputerConnectionRequest
     ): Promise<DesktopComputerConnectionResult>;
+    updateComputer?(
+      input: DesktopComputerConnectionRequest
+    ): Promise<DesktopComputerConnectionResult>;
     disconnectComputer(
       input: DesktopComputerDisconnectRequest
     ): Promise<boolean>;

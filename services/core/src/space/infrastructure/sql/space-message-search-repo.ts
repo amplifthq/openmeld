@@ -76,6 +76,7 @@ export function searchSpaceMessages(
     query: string;
     before: number | null;
     limit: number;
+    afterPosition?: number;
   }
 ) {
   // Literal substring search works inside words and unsegmented CJK text.
@@ -96,9 +97,10 @@ export function searchSpaceMessages(
       JOIN space_signals s ON s.rowid = f.rowid
       LEFT JOIN space_thread_signal_placements p ON p.signal_id = s.id AND p.placement = 'thread'
       LEFT JOIN space_threads t ON t.thread_id = p.thread_id
-      WHERE ${searchClause} AND (? IS NULL OR s.rowid < ?)
+      WHERE ${searchClause} AND s.rowid > ? AND (? IS NULL OR s.rowid < ?)
       ORDER BY s.rowid DESC LIMIT ?`,
       searchValue,
+      input.afterPosition ?? 0,
       input.before,
       input.before,
       input.limit + 1

@@ -139,6 +139,9 @@ export const buildListSignalsRpcInput = (input: {
   spaceId: string;
 }) => ({
   spaceId: input.spaceId,
+  ...(input.query.includePersonalHistoryBoundary
+    ? { includePersonalHistoryBoundary: true }
+    : {}),
   ...(input.query.afterTs === null ? {} : { afterTs: input.query.afterTs }),
   ...(input.hasLimit ? { limit: input.query.limit } : {}),
   ...(input.query.q ? { q: input.query.q } : {}),

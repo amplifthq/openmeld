@@ -20,6 +20,7 @@ import {
   DESKTOP_CONTRACT_VERSION,
   DESKTOP_WEB_BUILD_HEADER,
   type DesktopComputerConnectionProgress,
+  type DesktopComputerConnectionRequest,
   type DesktopComputerConnectionResult,
   type DesktopComputerDisconnectPhase,
   type DesktopComputerDisconnectResult,
@@ -31,6 +32,7 @@ import {
   redactPrepareStepDiagnosticsText,
   SERVICE_ACCOUNT_STOP_REFUSED_CODE,
 } from "@openmeld/schemas";
+import type { PrepareSessionSnapshot } from "@openmeld/schemas/types";
 import type { CommandDeps } from "./cli/commands";
 import { installComputerTools } from "./cli/computer-tools";
 import { resolveOpenMeldBin } from "./cli/resolve-openmeld";
@@ -80,13 +82,22 @@ export function createComputerConnection(input: {
         env: deps.env,
         override: deps.openMeldBin,
       });
-      const { bin, review } = await reviewComputerConnection(
+      const inspected = await reviewComputerConnection(
         selectedBin,
         input.webOrigin,
         deps,
-        observe
+        observe,
+        {
+          allowBootstrap: !(
+            intent.serviceAction === "update_service" &&
+            intent.connectedComputerId
+          ),
+        }
       );
-      const switchingAccount = isSwitchingAccount(review.account, account.id);
+      const switchingAccount = isSwitchingAccount(
+        inspected.review.account,
+        account.id
+      );
       if (switchingAccount) {
         observe(
           "waiting_for_confirmation",
@@ -95,7 +106,7 @@ export function createComputerConnection(input: {
       }
       if (
         !(await approveAccountSwitch(
-          review.account,
+          inspected.review.account,
           account,
           input.confirmSwitch
         ))
@@ -107,8 +118,11 @@ export function createComputerConnection(input: {
         );
         return { status: "cancelled" };
       }
+      const { review } = inspected;
       const canReuse = !(
+        intent.serviceAction ||
         intent.resetThisComputer ||
+        intent.targetSpaceId ||
         intent.sourceNavigationAction ||
         intent.connectedComputerId
       );
@@ -162,12 +176,10 @@ export function createComputerConnection(input: {
         })
       );
       prepareSessionId = prepare.snapshot.prepareSessionId;
-      observe(
-        switchingAccount ? "switching_account" : "connecting_service",
-        switchingAccount
-          ? "desktop.connection.switching_account"
-          : "desktop.connection.connecting_service"
-      );
+      const connectionPhase = switchingAccount
+        ? "switching_account"
+        : "connecting_service";
+      observe(connectionPhase, `desktop.connection.${connectionPhase}`);
       const result = await withPrepareDiagnostics(
         prepare.snapshot.diagnosticCorrelationId,
         async () => {
@@ -176,6 +188,25 @@ export function createComputerConnection(input: {
               "The computer connection belongs to another account."
             );
           }
+          assertPrepareConnectionTarget({
+            intent,
+            snapshot: prepare.snapshot,
+            review,
+          });
+          const { bin, review: setupReview } =
+            await prepareReviewedComputerTools({
+              serviceAction: intent.serviceAction,
+              inspected,
+              webOrigin: input.webOrigin,
+              deps,
+              observe,
+              assertAccount,
+            });
+          assertPrepareConnectionTarget({
+            intent,
+            snapshot: prepare.snapshot,
+            review: setupReview,
+          });
           const grant = await createComputerAuthorizationGrant(
             (path, method, body) => cloud(`/api/auth${path}`, method, body),
             { clientId: deps.env?.OPENMELD_AUTH_CLIENT_ID }
@@ -199,7 +230,8 @@ export function createComputerConnection(input: {
                   "--connection-intent",
                   JSON.stringify({
                     expectedAccount: account.id,
-                    previousSessionIdentity: review.previousSessionIdentity,
+                    previousSessionIdentity:
+                      setupReview.previousSessionIdentity,
                   }),
                 ],
                 deps.env,
@@ -564,30 +596,99 @@ async function reviewComputerConnection(
     options?: {
       measurement?: DesktopComputerConnectionProgress["measurement"];
     }
-  ) => void
+  ) => void,
+  options: { forceInstall?: boolean; allowBootstrap?: boolean } = {}
 ) {
-  try {
-    return { bin, review: await readComputerConnection(bin, deps) };
-  } catch (error) {
-    if (!isComputerConnectionBootstrapError(error)) {
-      throw error;
+  if (!options.forceInstall) {
+    try {
+      return {
+        bin,
+        review: await readComputerConnection(bin, deps),
+        installedNow: false,
+      };
+    } catch (error) {
+      if (!isComputerConnectionBootstrapError(error)) {
+        throw error;
+      }
+      if (options.allowBootstrap === false) {
+        throw new Error(
+          "OpenMeld cannot verify this computer. Open Desktop on the selected computer and connect it before updating.",
+          { cause: error }
+        );
+      }
     }
-    const installedBin = await installComputerTools(webOrigin, deps, {
-      onDownloadProgress: (progress) =>
-        observe("downloading", "desktop.tools.download", {
-          measurement: {
-            unit: "bytes",
-            value: progress.receivedBytes,
-            total: progress.totalBytes,
-            transferAttempt: progress.transferAttempt,
-          },
-        }),
-      onStage: (stage) => observe(stage, `desktop.tools.${stage}`),
-    });
-    return {
-      bin: installedBin,
-      review: await readComputerConnection(installedBin, deps),
-    };
+  }
+  const installedBin = await installComputerTools(webOrigin, deps, {
+    onDownloadProgress: (progress) =>
+      observe("downloading", "desktop.tools.download", {
+        measurement: {
+          unit: "bytes",
+          value: progress.receivedBytes,
+          total: progress.totalBytes,
+          transferAttempt: progress.transferAttempt,
+        },
+      }),
+    onStage: (stage) => observe(stage, `desktop.tools.${stage}`),
+  });
+  return {
+    bin: installedBin,
+    review: await readComputerConnection(installedBin, deps),
+    installedNow: true,
+  };
+}
+
+async function prepareReviewedComputerTools(input: {
+  serviceAction: DesktopComputerConnectionRequest["serviceAction"];
+  inspected: Awaited<ReturnType<typeof reviewComputerConnection>>;
+  webOrigin: string;
+  deps: CommandDeps;
+  observe: Parameters<typeof reviewComputerConnection>[3];
+  assertAccount(): Promise<unknown>;
+}) {
+  if (
+    input.serviceAction !== "update_service" ||
+    input.inspected.installedNow
+  ) {
+    return input.inspected;
+  }
+  await input.assertAccount();
+  // The verified installer owns acquisition. CLI setup then joins and verifies
+  // the canonical Service update; native main does not become another updater.
+  const updated = await reviewComputerConnection(
+    input.inspected.bin,
+    input.webOrigin,
+    input.deps,
+    input.observe,
+    { forceInstall: true }
+  );
+  if (
+    (updated.review.account?.id ?? null) !==
+    (input.inspected.review.account?.id ?? null)
+  ) {
+    throw new Error("Local sign-in changed. Check the account and try again.");
+  }
+  await input.assertAccount();
+  return updated;
+}
+
+function assertPrepareConnectionTarget(input: {
+  intent: DesktopComputerConnectionRequest;
+  snapshot: PrepareSessionSnapshot;
+  review: Awaited<ReturnType<typeof readComputerConnection>>;
+}) {
+  const { intent, snapshot, review } = input;
+  if (
+    (intent.humanProfileId &&
+      snapshot.humanProfileId !== intent.humanProfileId) ||
+    (intent.targetSpaceId && snapshot.targetSpaceId !== intent.targetSpaceId) ||
+    (intent.connectedComputerId &&
+      (!review.existingConnection ||
+        snapshot.deviceId !== review.existingConnection.deviceId ||
+        snapshot.runtimeLane !== review.existingConnection.runtimeLane))
+  ) {
+    throw new Error(
+      "The connection request does not match this profile, Space, or computer."
+    );
   }
 }
 

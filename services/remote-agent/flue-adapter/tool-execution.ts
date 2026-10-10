@@ -1,8 +1,5 @@
 import type { JsonValue } from "@flue/runtime";
-import {
-  REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE,
-  sanitizeDispatchErrorSummary,
-} from "@openmeld/schemas";
+import { REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE } from "@openmeld/schemas";
 import type {
   RemoteAgentCallbackContext,
   RemoteAgentStorage,
@@ -12,6 +9,10 @@ import {
   ConnectorActionOutcomeUnknownError,
   ConnectorActionTerminalReceipt,
 } from "../agent-core/connector-tools";
+import {
+  type RemoteAgentDiagnosticsEnv,
+  remoteAgentDiagnosticErrorFields,
+} from "../agent-core/diagnostics-content-policy";
 import {
   assertRemoteAgentExecutionCanContinue,
   buildRemoteAgentExecutionIdentity,
@@ -57,6 +58,7 @@ export async function requireRemoteAgentToolExecutionContext(input: {
 }
 
 export async function executeRemoteAgentToolDefinition(input: {
+  env?: RemoteAgentDiagnosticsEnv;
   callLimit?: number;
   definition: RemoteAgentToolDefinition;
   signal?: AbortSignal;
@@ -68,7 +70,7 @@ export async function executeRemoteAgentToolDefinition(input: {
 }): Promise<unknown> {
   return await runRemoteAgentToolSerially(input, async () => {
     input.signal?.throwIfAborted();
-    await requireRemoteAgentToolExecutionContext(input);
+    const context = await requireRemoteAgentToolExecutionContext(input);
     const attempt = await beginRemoteAgentToolExecutionAttempt({
       callLimit: input.callLimit,
       progressTracking: input.definition.progressTracking,
@@ -99,10 +101,10 @@ export async function executeRemoteAgentToolDefinition(input: {
           submissionId: input.submissionId,
           toolName: input.definition.name,
           source: input.source ?? "direct",
-          errorName: error instanceof Error ? error.name : "UnknownError",
-          errorSummary: sanitizeDispatchErrorSummary(
-            error instanceof Error ? error.message : String(error)
-          ),
+          ...remoteAgentDiagnosticErrorFields(error, {
+            env: input.env,
+            organizationId: context.organizationId,
+          }),
         });
         throw error;
       }

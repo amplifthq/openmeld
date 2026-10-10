@@ -149,7 +149,7 @@ vi.mock("@openmeld/ui/components/openmeld-logo-strong", () => ({
 	OpenMeldLogoStrong: openMeldLogoStrongMock,
 }));
 
-import { PublicSpacePage } from "./$spaceId";
+import { PublicSpacePage } from "#/components/spaces/public-space-page";
 
 const MESSAGE_TEXTBOX_NAME = "Message this space";
 const SIGN_IN_LINK_NAME = "Sign in";
@@ -282,7 +282,6 @@ describe("PublicSpacePage", () => {
 			["spaces", "space-123", "__public_space_viewer__", "history-navigation"],
 			await api.getHistoryNavigation({ spaceId: "space-123" })
 		);
-		const apiCreationsBeforeRender = createWebSpaceApiMock.mock.calls.length;
 
 		const html = renderToString(
 			<TestQueryClientProvider queryClient={queryClient}>
@@ -294,9 +293,10 @@ describe("PublicSpacePage", () => {
 
 		expect(body.textContent).toContain("Hello public viewer.");
 		expect(body.textContent).not.toContain("Loading the latest messages");
-		expect(createWebSpaceApiMock).toHaveBeenCalledTimes(
-			apiCreationsBeforeRender
-		);
+		expect(api.getStatus).toHaveBeenCalledOnce();
+		expect(api.listSignalEnvelopes).toHaveBeenCalledOnce();
+		expect(api.listThreads).toHaveBeenCalledOnce();
+		expect(api.getHistoryNavigation).toHaveBeenCalledOnce();
 	});
 
 	it.each([
@@ -773,10 +773,12 @@ describe("PublicSpacePage", () => {
 		renderPublicSpace({ isAuthenticated: true });
 
 		await waitFor(() => {
-			expect(useNavigateMock).toHaveBeenCalledWith({
-				replace: true,
-				to: "/o/acme/spaces/space-123",
-			});
+			expect(useNavigateMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					replace: true,
+					to: "/o/acme/spaces/space-123",
+				})
+			);
 		});
 		expect(resolveActiveOrganizationSpacePathMock).not.toHaveBeenCalled();
 	});
@@ -802,11 +804,16 @@ describe("PublicSpacePage", () => {
 		renderPublicSpace({ isAuthenticated: true });
 
 		await waitFor(() => {
-			expect(useNavigateMock).toHaveBeenCalledWith({
-				replace: true,
-				to: "/o/acme/spaces/space-123",
-			});
+			expect(useNavigateMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					replace: true,
+					to: "/o/acme/spaces/space-123",
+				})
+			);
 		});
+		expect(useNavigateMock.mock.calls[0]?.[0].search).not.toHaveProperty(
+			"profileId"
+		);
 		expect(spaceApi.addMembers).not.toHaveBeenCalled();
 	});
 
@@ -844,10 +851,12 @@ describe("PublicSpacePage", () => {
 		renderPublicSpace({ isAuthenticated: true });
 
 		await waitFor(() => {
-			expect(useNavigateMock).toHaveBeenCalledWith({
-				replace: true,
-				to: "/o/acme/spaces/space-123",
-			});
+			expect(useNavigateMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					replace: true,
+					to: "/o/acme/spaces/space-123",
+				})
+			);
 		});
 		expect(
 			screen.queryByRole("combobox", { name: "Join Space as" })

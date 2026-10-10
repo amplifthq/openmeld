@@ -1,5 +1,6 @@
 import { resolveAgentControllerModelCompatibility } from "@openmeld/agent-runtime";
 import type { ModelCatalogAgentController } from "@openmeld/schemas/types";
+import { validateAgentModelSelection } from "../config/agent-model-availability";
 
 export type AgentProfileCreationModelGuard = {
   code: string;
@@ -9,23 +10,32 @@ export type AgentProfileCreationModelGuard = {
 /**
  * Admission-time model compatibility guard for Agent Profile creation.
  *
- * Fails closed only when the shared compatibility judgment produces an
- * explicit negative fact: the selected controller does not offer the model
- * (`not_offered`) or the installed controller is too old
- * (`requires_newer_controller`). Missing catalog, unknown controllers, or
- * missing version/inventory evidence stays unknown and must not block
- * creation, so stale or partial Computer snapshots cannot deny a valid
- * request.
+ * Validate explicit catalog intent before checking device compatibility.
+ * Missing device evidence must not deny a valid catalog selection.
  */
 export function evaluateAgentProfileCreationModelGuard(input: {
   agentDisplayName: string;
+  agentControllerRef: string;
   catalogControllers: Record<string, ModelCatalogAgentController> | null;
   controllerId: string;
   controllerInterfaceVersion: string | null;
   deviceDisplayName: string;
   modelId: string;
+  reasoningLevel?: string | null;
   reportedModelIds: readonly string[] | null;
 }): AgentProfileCreationModelGuard | null {
+  if (input.catalogControllers) {
+    const issue = validateAgentModelSelection({
+      agentControllerRef: input.agentControllerRef,
+      catalog: { agentControllers: input.catalogControllers },
+      modelId: input.modelId,
+      nowMs: Date.now(),
+      reasoningLevel: input.reasoningLevel,
+    });
+    if (issue) {
+      return issue;
+    }
+  }
   const controller = input.catalogControllers?.[input.controllerId];
   if (!controller) {
     return null;

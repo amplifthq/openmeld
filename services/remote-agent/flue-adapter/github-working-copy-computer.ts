@@ -5,7 +5,7 @@ import {
   remoteAgentGitNativeRequestSchema,
   remoteAgentGitNativeResultSchema,
 } from "@openmeld/schemas";
-import { AGENT_COMPUTER_CONTAINER_BACKEND_ID } from "./computer-workspace";
+import { AGENT_COMPUTER_CONTAINER_BACKEND_ID } from "./computer-workspace-config";
 
 export type GitWorkingCopyLocation = {
   directory: string;

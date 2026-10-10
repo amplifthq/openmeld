@@ -487,15 +487,33 @@ describe("Gateway connector connection routes", () => {
     );
   });
 
-  it("stores shared API credentials only in OpenConnector and activates the Core record", async () => {
+  it.each([
+    {
+      service: "posthog",
+      authType: "api_key",
+      values: { apiKey: "phx_test_secret", baseUrl: "https://us.posthog.com" },
+    },
+    {
+      service: "cloudflare_docs",
+      authType: "custom_credential",
+      values: {},
+    },
+  ])("registers $service credentials only in OpenConnector and activates the Core record", async ({
+    service,
+    authType,
+    values,
+  }) => {
+    const connection = {
+      ...SHARED_POSTHOG_CONNECTION,
+      connectionName: `org_aaaaaaaaaaaaaaaaaa__shared__${service}`,
+      service,
+    };
     const beginCurrentOrganizationSharedConnectorAuthorization = vi.fn(
-      async () => SHARED_POSTHOG_CONNECTION
+      async () => connection
     );
     const reconcileCurrentOrganizationConnectorConnections = vi.fn(
       async () => ({
-        connections: [
-          { ...SHARED_POSTHOG_CONNECTION, status: "active" as const },
-        ],
+        connections: [{ ...connection, status: "active" as const }],
         currentUserId: "user-1",
         organizationId: "org-1",
       })
@@ -505,16 +523,16 @@ describe("Gateway connector connection routes", () => {
       .mockResolvedValueOnce(
         Response.json({
           configured: true,
-          connectionName: SHARED_POSTHOG_CONNECTION.connectionName,
-          service: "posthog",
+          connectionName: connection.connectionName,
+          service,
         })
       )
       .mockResolvedValueOnce(
         Response.json([
           {
             configured: true,
-            connectionName: SHARED_POSTHOG_CONNECTION.connectionName,
-            service: "posthog",
+            connectionName: connection.connectionName,
+            service,
           },
         ])
       );
@@ -522,14 +540,11 @@ describe("Gateway connector connection routes", () => {
 
     const response = await app.fetch(
       new Request(
-        "http://local/v1/organizations/current/connectors/posthog/shared-credential?expectedOrganizationId=org-1",
+        `http://local/v1/organizations/current/connectors/${service}/shared-credential?expectedOrganizationId=org-1`,
         {
           body: JSON.stringify({
-            authType: "api_key",
-            values: {
-              apiKey: "phx_test_secret",
-              baseUrl: "https://us.posthog.com",
-            },
+            authType,
+            values,
           }),
           headers: { "content-type": "application/json" },
           method: "POST",
@@ -545,15 +560,12 @@ describe("Gateway connector connection routes", () => {
     expect(response.status).toBe(200);
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
-      "https://connectors.example.test/api/connections/posthog",
+      `https://connectors.example.test/api/connections/${service}`,
       expect.objectContaining({
         body: JSON.stringify({
-          authType: "api_key",
-          connectionName: SHARED_POSTHOG_CONNECTION.connectionName,
-          values: {
-            apiKey: "phx_test_secret",
-            baseUrl: "https://us.posthog.com",
-          },
+          authType,
+          connectionName: connection.connectionName,
+          values,
         }),
         method: "PUT",
       })
@@ -562,8 +574,8 @@ describe("Gateway connector connection routes", () => {
       reconcileCurrentOrganizationConnectorConnections
     ).toHaveBeenCalledWith(
       expect.objectContaining({
-        availableConnectionNames: [SHARED_POSTHOG_CONNECTION.connectionName],
-        service: "posthog",
+        availableConnectionNames: [connection.connectionName],
+        service,
       })
     );
     expect(JSON.stringify(await response.json())).not.toContain(
@@ -1248,6 +1260,7 @@ function makeEnv(
   };
   return {
     OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN: "test-admin-token",
+    OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN: "test-runtime-token",
     OPENMELD_AUTH_WORKER: authRpc,
     OPENMELD_CONNECTORS_BASE_URL: "https://connectors.example.test",
     OPENMELD_CORE_WORKER: {

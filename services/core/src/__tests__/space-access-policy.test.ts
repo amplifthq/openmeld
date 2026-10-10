@@ -98,6 +98,33 @@ function createMemberRecord(input: {
 }
 
 describe("space access policy", () => {
+  it("grants verified colleagues read access only to active Organization-public Spaces", async () => {
+    const authorize = (meta: SpaceMetaRecord) =>
+      authorizeProtectedSpaceAccess({
+        context: requestContext,
+        organizationMember: true,
+        meta,
+        readMemberByProfileId: () => null,
+        hasActiveMemberForOwnerUserId: () => false,
+        verifySpacePasswordProof: async () => false,
+      });
+    const meta = {
+      ...protectedMeta,
+      visibility: "public" as const,
+      accessMode: "members_only" as const,
+    };
+    await expect(authorize(meta)).resolves.toEqual({
+      ok: true,
+      reason: "organization_preview",
+    });
+    await expect(
+      authorize({ ...meta, visibility: "private" })
+    ).resolves.toEqual({ ok: false, code: "space.membership_required" });
+    await expect(authorize({ ...meta, deletedAt: nowIso })).resolves.toEqual({
+      ok: false,
+      code: "space.membership_required",
+    });
+  });
   it("resolves viewer identity for authenticated actors", () => {
     const access = createAuthenticatedSpaceAccessContext({
       requestContext,

@@ -33,6 +33,27 @@ export function supportsLocalExecutionInput(
   return ref === "builtin:codex" || ref === "builtin:claude-code";
 }
 
+/** Material support only; live readiness and permissions remain owner checks. */
+export function supportsSpaceWorkHandoff(input: {
+  agentControllerRef: string | null | undefined;
+  hasRepository: boolean;
+  hasFiles: boolean;
+}): boolean {
+  const ref = input.agentControllerRef;
+  if (ref === "builtin:codex") {
+    return true;
+  }
+  if (ref === "builtin:claude-code") {
+    // Claude's Space-only boundary has no writable selected-file projection.
+    return input.hasRepository || !input.hasFiles;
+  }
+  return (
+    !input.hasRepository &&
+    (ref === HOSTED_REMOTE_AGENT_CONTROLLER_REF ||
+      ref === HOSTED_CENTER_AGENT_CONTROLLER_REF)
+  );
+}
+
 export type RuntimeAdapterCapabilityIdentity = {
   adapterId: string | null | undefined;
 };

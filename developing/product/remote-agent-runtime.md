@@ -65,6 +65,16 @@ ordinary canonical Markdown link instead of sending a new strict-union variant
 to old Signal readers. The current Web reader enhances that link only for the
 trusted origin and current Organization.
 
+A verified `plugin.action_forbidden` response also attaches the existing
+Plugin connection action. The reply keeps the permission failure visible and
+asks the human to review this Agent's access. Web resolves the service from the
+live provider catalog, including providers outside the featured Plugin list,
+and opens the existing account and access editor inside the message. An
+explicit requester or shared account remains constrained to that scope.
+Catalog errors, unrelated failures and Routine turns do not become access
+grants or automatic retries. The human must save access and explicitly continue
+the original task; neither an OAuth callback nor an Agent tool grants access.
+
 The explicit continuation uses a distinct internal Core-to-Space receiver so an
 older receiver cannot silently ignore its account constraint. Space binds the
 existing idempotent Message to the selected service, account and connection
@@ -73,6 +83,14 @@ binding from the admitted trigger before selecting or claiming a new App action.
 Neither a model argument nor a personal-first automatic selector can replace it;
 existing operation replays retain the original operation identity. Generic App
 tools also accept an explicit requester/shared preference for normal requests.
+
+Space checks the completed native delivery's retained execution request after
+the temporary dispatch conveyor has retired. It never recreates that conveyor
+or treats its absence as permission. The final SQL insertion rechecks the current
+source and reply fingerprints, identities and placement. Native continuations
+require an unedited original message because historical execution requests lack
+the raw source envelope; an edited request must be sent again. Workstation continuations retain their
+RuntimeCoordinator completion and original outbox snapshot checks.
 
 An operation's historical attribution is not current permission. Every provider
 attempt, including an exact replay, reauthorizes the original connection and
@@ -199,6 +217,18 @@ is retained. Files persist; running processes, OS packages and browser login
 state are not promised to survive runtime recreation. Shared Organization or
 Space Computers, other providers and human desktop UI remain separate work.
 
+The next Linux command must see synchronized file contents, existence and size.
+The native backend refreshes FUSE attributes using
+`COMPUTERD_FUSE_ATTR_TIMEOUT=0` and prevents file-data cache reuse across opens
+using `COMPUTERD_FUSE_AUTO_CACHE=0`. Equal-mtime/size changes must be visible;
+the automatic cache's mtime/size check cannot detect them. Entry caching,
+per-open kernel page caching and the default 512 KiB read/write blocks remain
+enabled. Direct I/O and unconditional kernel-cache retention are not enabled.
+The SDK's launch-spec owner replaces an existing container with a different configuration
+on its next native connection. Workspace files and saved command identities
+remain in durable SQLite. An interrupted process reports the existing explicit
+loss outcome; configuration adoption must not clear the workspace or replay it.
+
 Center, personal Remote and optional Local Agents consume the same Computer
 operation contract. `describe` returns the official file-tool schemas and live
 browser availability. `files` invokes Cloudflare's `read`, `ls`, `find`, `grep`,
@@ -276,6 +306,11 @@ a bounded summary and an actual continuation reference. The common
 `openmeld_read_tool_result` capability reads at most 12,000 UTF-16 code units or
 20 literal search hits with context. Direct tools and Code Mode share this path;
 reading a result never reruns the original operation.
+
+Code Mode keeps structured tool results as objects, or selects the fields needed
+to establish the requested outcome. Generated code must not stringify and slice
+away a mutation receipt, status, or step result before the presentation owner
+can retain it.
 
 References require the same execution/audience plus current source connection
 access and version before and after reading. Sources are host-owned metadata,
@@ -468,6 +503,23 @@ mechanism. The runtime persists a dispatch key before spawn, scopes controls to
 the exact submission, and reconnects to the same native execution ID after a
 Worker replacement. An ambiguous spawn or lost container must never trigger an
 automatic replacement process. Polling is bounded and does not kill the command.
+Command results and opt-in list receipts include an exact reference (invocation, key,
+native execution ID, and backend) and a phase separate from the legacy status.
+Accepted receipt, uncertain launch, observed running process, exit, pending file
+sync, completed sync, and unavailable result remain distinct. Missing receipts
+return `computer.command_not_found`; they do not prove that dispatch never
+occurred. Missing native results return
+`computer.execution_result_unavailable`, preserve the receipt's existing phase,
+and direct inspection without implying an unreachable service or allowing replay.
+Owner CLI inspection can use a returned reference to address the
+original Remote invocation without adding the CLI's `local:` namespace. The
+reference is an address, not authority: account authorization remains unchanged,
+and the command owner checks every field against the saved receipt. Start never
+accepts a reference. Receipt writes report `recordExpiresAtMs` as their current
+seven-day retention marker; historical markers stay unknown until an update.
+Current command reads do not filter that marker and no command-receipt cleanup
+owner enforces deletion at that time. It is not a hard TTL or an indefinite
+archive promise. It does not extend the provider's native result retention.
 Completion requires its exit receipt and completed file synchronization; a stop
 acknowledgement is only a request. The Computer remains shared across sessions.
 The Computer collects results without depending on the model's next poll and
@@ -494,10 +546,28 @@ The public command entrypoint enters this owner before native readiness or
 directory preparation. Only a new launch prepares its directory, within its
 launch budget, and checks timeout and Stop again before dispatch.
 Reader cancellation has a 100 ms grace period before local detachment. The
-collector observes up to four existing identities concurrently so a hung native
-call does not prevent collection of the other receipts. Neither budget permits
+collector reads at most 16 due receipts through an index on the existing
+command records, and observes up to four existing identities concurrently. Old
+completed receipts do not enter that scan. A hung native call does not prevent
+collection of the other receipts. Neither budget permits
 another launch. A launch acknowledgement received after Stop still addresses
 the original command identity through a fresh Workspace client.
+Automatic observation uses the same receipt's `collection` metadata. Before
+external I/O, a compare-and-set reserves an `unconfirmedAttempts` increment and
+the next check time. A Worker termination cannot bypass that persisted budget.
+Checks without confirmed native evidence back off from 30 seconds to five
+minutes; the eighth unconfirmed attempt pauses later automatic checks with
+`nextAttemptAtMs: null`. A normal caught error does not count that attempt again.
+Successful checks clear the count and schedule another check after 15 seconds.
+This does not stop or fail the process, confirm loss, or authorize another
+launch. A successful manual poll or Stop
+resumes collection of the same identity. Fresh accepted process evidence resets
+the unconfirmed-attempt count even for an old, silent command. An older failed
+observation cannot consume the budget after a successful manual recovery. The Computer
+alarm reads the next due time from the same receipts; pending Git transfers
+retain their existing alarm cadence. The index adds a write cost to eligible
+receipt updates and an initial build on existing storage; it is not a separate
+queue or execution state.
 The command receipt retains the requested Stop signal and its native delivery
 acknowledgement. After an acquisition timeout, polling and collection continue
 the pending Stop for that same identity. A short native inspection can avoid
@@ -509,6 +579,52 @@ Structured diagnostics include command and submission IDs, backend, observation
 and exit times, exit code, synchronization state and failure phase. They exclude
 command text, output, credentials and temporary transport URLs. Background
 collection does not log every running poll.
+
+The Computer SDK's synchronization planner keeps its native generation and
+frozen `(revision, path)` cursor. Its path query returns completed root paths
+through the existing child-inode index instead of materializing every ancestor
+segment in JavaScript. Every hardlink path, tombstone and same-revision entry
+remains eligible; an inode limit or revision-only cursor must not replace this
+contract. Mode selection does not compute an unused first block. The actual
+block is planned after the SDK's existing target/generation fence, including
+restart and later-write handling. The SDK patch does not change command
+ownership, native shell execution, synchronization acknowledgements or storage
+schema. Local planner measurements do not establish production CPU-limit
+recovery or native Linux acceptance.
+
+Ordered sync receivers use their existing source fetch cursor to reject a
+replayed entry. Sender revisions must not be compared with receiver-local node
+revisions. Shared dofs application commits metadata and source progress in the
+same transaction for both entry and pack transport. A lost ACK followed by a
+receiver-local recreation or modification must preserve that newer work. The
+stored cursor advances monotonically; the ACK still echoes the exact submitted
+block cursor, including a smaller adaptive replay at the same revision.
+Unsequenced callers retain the existing tombstone guard. Refused metadata does
+not advance the cursor, except deliberate read-only skips recorded by the owning
+sync contract. See `services/remote-agent/computerd/README.md` for the pinned
+source patch, Worker compilation and native SEA provenance. Deploy the image,
+Worker package patch and FUSE settings together; changing only the Worker package
+does not correct an existing precompiled native receiver.
+
+Nested transactions remain storage-owned: Durable Objects use their public
+synchronous transaction API; the native SQLite adapter manages savepoints.
+An inner failure must roll back its writes even when the outer transaction
+catches it and continues. Runtime post-command pulls use the same ordered
+application and atomic source-progress contract. Previously acknowledged
+deletions are not automatically replayed; this correction preserves existing
+Workspace state and adds no production reset.
+
+The opt-in native container check uses actual computerd and a required FUSE
+mount, with disposable SQLite and a separate container per run. From the repo
+root, run `pnpm dev:run -- node services/remote-agent/scripts/verify-computer-container.mjs`
+with `matrix`, `adoption` or `pack`. The matrix checks immediate file mutations
+and lost-entry-ACK receiver writes, and reports stat and read costs plus native
+source/binary provenance. Adoption replaces an old configured instance while
+retaining files, completed receipts and original lost-command references.
+Pack checks real apply, lost acknowledgement, sender recreation, aliases,
+frozen later writes and receiver reset. `matrix default` is the before-fix
+control and must fail on stale reads. Reports include source hashes and remain
+outside the disposable runtime state. No test touches installed Service state.
 
 This is an additive Computer response and local Skill guidance change. Existing
 CLI command-result parsers use a non-strict object, ignore the optional

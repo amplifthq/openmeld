@@ -37,7 +37,7 @@ function createUsageLimit(
 }
 
 describe("resolveAgentProfileUsageWakeability", () => {
-  it("blocks new work only for reliable fresh Usage that is explicitly exhausted", () => {
+  it("blocks Codex only from a fresh account verdict, even without quota windows", () => {
     expect(
       resolveAgentProfileUsageWakeability({
         agentControllerRef: "builtin:codex",
@@ -45,7 +45,10 @@ describe("resolveAgentProfileUsageWakeability", () => {
         report: {
           expiresAtMs: NOW_MS + 60_000,
           status: "ready",
-          usageLimits: [createUsageLimit("exhausted")],
+          usageAdmission: {
+            blocksNewWork: true,
+            observedAt: "2026-08-30T00:00:00.000Z",
+          },
           usageLimitsSupportMatrixVersion:
             AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
         },
@@ -55,6 +58,33 @@ describe("resolveAgentProfileUsageWakeability", () => {
       reasonCode: "usage_exhausted",
       status: "unavailable",
     });
+  });
+
+  it.each([
+    ["credits available", false, "2026-08-30T00:00:00.000Z", true],
+    ["unknown capacity", null, "2026-08-30T00:00:00.000Z", false],
+    ["stale block", true, "2026-08-29T23:49:59.999Z", false],
+    ["stale recovery", false, "2026-08-29T23:49:59.999Z", false],
+    ["future observation", false, "2026-08-30T00:11:00.000Z", false],
+  ] as const)("does not block from percentages when Codex reports %s", (_label, blocksNewWork, observedAt, recovered) => {
+    const input = {
+      agentControllerRef: "builtin:codex",
+      nowMs: NOW_MS,
+      report: {
+        expiresAtMs: NOW_MS + 60_000,
+        status: "ready" as const,
+        usageAdmission: { blocksNewWork, observedAt },
+        usageLimits: [createUsageLimit("exhausted")],
+        usageLimitsSupportMatrixVersion:
+          AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
+      },
+    };
+    expect(resolveAgentProfileUsageWakeability(input).blocksNewWork).toBe(
+      false
+    );
+    expect(resolveAgentProfileUsageRecoveryAvailability(input).available).toBe(
+      recovered
+    );
   });
 
   it.each([
@@ -130,7 +160,7 @@ describe("resolveAgentProfileUsageWakeability", () => {
     for (const value of cases) {
       expect(
         resolveAgentProfileUsageWakeability({
-          agentControllerRef: "builtin:codex",
+          agentControllerRef: "builtin:grok-build",
           nowMs: NOW_MS,
           report: {
             ...value,
@@ -433,7 +463,7 @@ describe("resolveAgentProfileUsageWakeability", () => {
 });
 
 describe("resolveAgentProfileUsageRecoveryAvailability", () => {
-  it("requires a fresh ready report whose supported Usage Limits are all explicitly available", () => {
+  it("requires a fresh ready report with positive Codex account capacity", () => {
     expect(
       resolveAgentProfileUsageRecoveryAvailability({
         agentControllerRef: "builtin:codex",
@@ -441,6 +471,10 @@ describe("resolveAgentProfileUsageRecoveryAvailability", () => {
         report: {
           expiresAtMs: NOW_MS + 60_000,
           status: "ready",
+          usageAdmission: {
+            blocksNewWork: false,
+            observedAt: "2026-08-30T00:00:00.000Z",
+          },
           usageLimits: [
             createUsageLimit("available"),
             createUsageLimit("available", {
@@ -457,7 +491,7 @@ describe("resolveAgentProfileUsageRecoveryAvailability", () => {
   it("ignores explicitly unsupported limits when supported Usage has recovered", () => {
     expect(
       resolveAgentProfileUsageRecoveryAvailability({
-        agentControllerRef: "builtin:codex",
+        agentControllerRef: "builtin:grok-build",
         nowMs: NOW_MS,
         report: {
           expiresAtMs: NOW_MS + 60_000,

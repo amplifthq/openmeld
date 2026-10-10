@@ -127,6 +127,8 @@ describe("Agent Profile availability presentation", () => {
 				localAgentDisplayName: "OpenCode",
 				readiness,
 				serviceUpdatePath: "/update",
+				computerSettingsPath: "/computer",
+				agentSettingsPath: "/agent",
 				setupPath: "/connect",
 			})
 		).toBeNull();
@@ -160,6 +162,8 @@ describe("Agent Profile availability presentation", () => {
 				localAgentDisplayName: "OpenCode",
 				readiness,
 				serviceUpdatePath: "/update",
+				computerSettingsPath: "/computer",
+				agentSettingsPath: "/agent",
 				setupPath: "/connect",
 			})
 		).toBeNull();
@@ -229,8 +233,39 @@ describe("Agent Profile availability presentation", () => {
 		).toEqual([]);
 	});
 
-	it("uses the Core verdict and a concrete local-agent action when Prepare is required", () => {
+	it.each([
+		["workspace.missing", "/agent", "Review working folder", "working_folder"],
+		["workspace.invalid", "/agent", "Review working folder", "working_folder"],
+		[
+			"project.local_connection.invalid",
+			"/agent",
+			"Review working folder",
+			"working_folder",
+		],
+		["auth.required", "/computer", "Review agent settings", undefined],
+		[
+			"runtime.agent_controller_report_stale",
+			"/computer",
+			"Check status",
+			undefined,
+		],
+		[
+			"controller.registry.disabled",
+			"/computer",
+			"Turn on local agent",
+			undefined,
+		],
+		[
+			"controller.runtime.missing",
+			"/computer",
+			"Update or change local agent",
+			undefined,
+		],
+	] as const)("uses the Core verdict and the recovery destination for %s", (reasonCode, href, label, recoveryTarget) => {
 		const readiness = createLocalAgentSetupReadiness();
+		readiness.agentWakeAvailability.reasonCode = reasonCode;
+		readiness.agentExecutionReadiness.reasonCodes = [reasonCode];
+		readiness.agentExecutionReadiness.facts.runtime.reasonCodes = [reasonCode];
 
 		expect(
 			resolveAgentProfileRowWakeAvailability({
@@ -244,12 +279,11 @@ describe("Agent Profile availability presentation", () => {
 				localAgentDisplayName: "OpenCode",
 				readiness,
 				serviceUpdatePath: "/update",
+				computerSettingsPath: "/computer",
+				agentSettingsPath: "/agent",
 				setupPath: "/connect",
 			})
-		).toEqual({
-			href: "/connect",
-			label: "Connect local agent",
-		});
+		).toEqual({ href, label, ...(recoveryTarget ? { recoveryTarget } : {}) });
 	});
 
 	it("uses the exact action verbs from the canonical Core action plan", () => {
@@ -287,6 +321,8 @@ describe("Agent Profile availability presentation", () => {
 				currentLocalRuntimeCanReply: null,
 				readiness,
 				serviceUpdatePath: "/update",
+				computerSettingsPath: "/computer",
+				agentSettingsPath: "/agent",
 				setupPath: "/connect",
 			});
 

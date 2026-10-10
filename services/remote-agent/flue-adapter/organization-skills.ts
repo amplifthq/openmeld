@@ -18,6 +18,10 @@ import type {
   RemoteAgentCoreWorkerBinding,
 } from "../agent-core/callback-context";
 import { callCoreRpc } from "../agent-core/core-rpc";
+import {
+  type RemoteAgentDiagnosticsEnv,
+  remoteAgentDiagnosticErrorFields,
+} from "../agent-core/diagnostics-content-policy";
 import { buildRemoteAgentCoreContext } from "../agent-core/tool-context";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 
@@ -192,6 +196,7 @@ export function materializeOrganizationSkillFlueSkillsFromCatalog(input: {
 }
 
 export async function recordOrganizationSkillActivation(input: {
+  env?: RemoteAgentDiagnosticsEnv;
   context: RemoteAgentCallbackContext;
   coreWorker: RemoteAgentCoreWorkerBinding;
   skillName: string;
@@ -231,7 +236,10 @@ export async function recordOrganizationSkillActivation(input: {
     return true;
   } catch (error) {
     console.warn("[remote_agent.organization_skill.activation_record_failed]", {
-      error: error instanceof Error ? error.message : String(error),
+      ...remoteAgentDiagnosticErrorFields(error, {
+        env: input.env,
+        organizationId: input.context.organizationId,
+      }),
       organizationId: input.context.organizationId,
       releaseId: release.releaseId,
       skillId: release.skillId,

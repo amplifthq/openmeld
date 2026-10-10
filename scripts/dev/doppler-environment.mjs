@@ -76,7 +76,7 @@ export const DEVELOPMENT_SECRET_SOURCES = [
 const DEVELOPMENT_COMPONENT_PROJECTS = new Map([
   ["web", ["openmeld-web"]],
   ["auth", ["openmeld-auth", "openmeld-core"]],
-  ["gateway", ["openmeld-gateway"]],
+  ["gateway", ["openmeld-gateway", "openmeld-remote-agent"]],
   ["remote-agent", ["openmeld-remote-agent"]],
 ]);
 
@@ -84,8 +84,17 @@ export const PRODUCTION_WORKER_SECRET_SOURCES = DEVELOPMENT_SECRET_SOURCES.map(
   (source) => ({
     ...source,
     config: "prd",
-    requiredSecrets: [...source.requiredSecrets, ...source.optionalSecrets],
-    optionalSecrets: [],
+    requiredSecrets: [
+      ...source.requiredSecrets,
+      ...source.optionalSecrets,
+      ...(source.project === "openmeld-gateway"
+        ? ["OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN"]
+        : []),
+    ],
+    optionalSecrets:
+      source.project === "openmeld-remote-agent"
+        ? ["CLOUDFLARE_OPENMELD_INTERNAL_DIAGNOSTICS_ORGANIZATION_ID"]
+        : [],
   })
 );
 
@@ -128,6 +137,7 @@ export const STAGING_WORKER_SECRET_SOURCES = [
     optionalSecrets: [
       "OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN",
       "SLACK_OPENMELD_OAUTH_CLIENT_ID",
+      "OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN",
       "SLACK_OPENMELD_OAUTH_CLIENT_SECRET",
       "SLACK_OPENMELD_SIGNING_SECRET",
     ],
@@ -482,6 +492,15 @@ export function resolveDevelopmentComponentSources(component) {
     );
     if (!source) {
       throw new Error(`Missing Doppler development source for ${project}.`);
+    }
+    if (component === "gateway" && project === "openmeld-remote-agent") {
+      // Share the catalog credential from its existing development owner;
+      // never inject the Remote Agent's AI Gateway credential into Gateway.
+      return {
+        ...source,
+        requiredSecrets: ["OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN"],
+        optionalSecrets: [],
+      };
     }
     return source;
   });

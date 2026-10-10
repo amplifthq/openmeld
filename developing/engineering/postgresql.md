@@ -125,6 +125,12 @@ registered hostname and branch identity before connecting. Production uses the
 separate `tooling/postgresql/cutover.mjs` entry in the
 [maintenance runbook](postgresql-cutover.md#executable-maintenance-window-entries).
 
+Migration 0033 is immutable on shared Staging. When it remains pending on an
+existing database, the migration owner temporarily filters its Space-joined
+Inbox inserts to existing organizations. This guard leaves historical Space and
+membership snapshots unchanged and is removed after the migration transaction.
+The migration SQL, checksum and journal order remain unchanged.
+
 The current `db:generate`, `db:check` and `db:studio` commands use the native
 PostgreSQL configuration. Run local migration and acceptance inside `pg:local`
 with its explicit isolated connection variables. Legacy production D1 commands

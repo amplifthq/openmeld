@@ -51,7 +51,10 @@ afterEach(() => {
 	vi.restoreAllMocks();
 });
 
-async function setup(cached = false) {
+async function setup(
+	cached = false,
+	summary: { count: number; messageUnreadCount?: number } = { count: 1 }
+) {
 	const client = new QueryClient();
 	const otherPath: string = "/other";
 	if (cached) {
@@ -64,9 +67,10 @@ async function setup(cached = false) {
 		component: () => (
 			<QueryClientProvider client={client}>
 				<SpaceUnreadLink
-					count={1}
+					{...summary}
 					spaceId="space"
 					url="/space?profileId=human"
+					variant="badge"
 				/>
 				<Link to={otherPath}>Other conversation</Link>
 				<Outlet />
@@ -91,10 +95,37 @@ async function setup(cached = false) {
 		router,
 		client,
 		dot: await screen.findByRole("link", {
-			name: "1 unread update. Jump to first unread",
+			name:
+				summary.messageUnreadCount === 0
+					? "New Space. Open to view"
+					: `${summary.messageUnreadCount ?? summary.count} unread update. Jump to first unread`,
 		}),
 	};
 }
+
+it.each([
+	{ count: 1, messageUnreadCount: 0, label: "New" },
+	{ count: 2, messageUnreadCount: 1, label: "1 unread" },
+])("presents membership separately from messages: $label", async ({
+	count,
+	messageUnreadCount,
+	label,
+}) => {
+	readTargets.mockResolvedValue({
+		...unread,
+		targets: [],
+		totalUnreadCount: 0,
+	});
+	const { router, client, dot } = await setup(false, {
+		count,
+		messageUnreadCount,
+	});
+	expect(dot.textContent).toBe(label);
+	fireEvent.click(dot);
+	await waitFor(() => expect(router.state.location.pathname).toBe("/space"));
+	expect(router.state.location.search).toEqual({ profileId: "human" });
+	client.clear();
+});
 
 it("uses fresh canonical unread data immediately and retains the reply's thread destination", async () => {
 	const { router, client, dot } = await setup(true);

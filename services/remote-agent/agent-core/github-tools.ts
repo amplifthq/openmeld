@@ -60,6 +60,10 @@ import {
   resolveRemoteAgentRoutineExternalWriteBlock,
 } from "./destructive-authorization";
 import {
+  type RemoteAgentDiagnosticsEnv,
+  remoteAgentDiagnosticErrorFields,
+} from "./diagnostics-content-policy";
+import {
   isDelegatedGitHubTurn,
   readRemoteAgentExecutionAccess,
   requireRemoteAgentExecutionAccess,
@@ -377,6 +381,7 @@ type GitHubIssueBatchManifest = {
 
 export function getRemoteAgentGitHubToolDefinitions(input: {
   connectorExecution?: ConnectorExecutionConfig;
+  env?: RemoteAgentDiagnosticsEnv;
   coreWorker: RemoteAgentCoreWorkerBinding;
   storage: RemoteAgentStorage;
   submissionId: string;
@@ -1109,6 +1114,7 @@ export function getRemoteAgentGitHubToolDefinitions(input: {
 
 function githubIssueBatchToolDefinition(input: {
   connectorExecution?: ConnectorExecutionConfig;
+  env?: RemoteAgentDiagnosticsEnv;
   coreWorker: RemoteAgentCoreWorkerBinding;
   storage: RemoteAgentStorage;
   submissionId: string;
@@ -1144,6 +1150,7 @@ function githubIssueBatchToolDefinition(input: {
     execute: async (payload) =>
       await executeGitHubIssueBatch({
         connectorExecution: input.connectorExecution,
+        env: input.env,
         coreWorker: input.coreWorker,
         payload,
         storage: input.storage,
@@ -1212,6 +1219,7 @@ function resolveGitHubIssueBatchBlockedReasons(
 
 async function executeGitHubIssueBatch(input: {
   connectorExecution?: ConnectorExecutionConfig;
+  env?: RemoteAgentDiagnosticsEnv;
   coreWorker: RemoteAgentCoreWorkerBinding;
   payload: Record<string, unknown>;
   storage: RemoteAgentStorage;
@@ -1332,6 +1340,7 @@ async function executeGitHubIssueBatch(input: {
   const result = await executeGitHubIssueBatchManifest({
     attribution,
     connectorExecution: input.connectorExecution,
+    env: input.env,
     coreWorker: input.coreWorker,
     manifest,
     manifestKey,
@@ -1361,6 +1370,7 @@ async function executeGitHubIssueBatch(input: {
 async function executeGitHubIssueBatchManifest(input: {
   attribution: Record<string, unknown>;
   connectorExecution?: ConnectorExecutionConfig;
+  env?: RemoteAgentDiagnosticsEnv;
   coreWorker: RemoteAgentCoreWorkerBinding;
   manifest: GitHubIssueBatchManifest;
   manifestKey: string;
@@ -1407,6 +1417,7 @@ async function executeGitHubIssueBatchManifest(input: {
 
 async function executeGitHubIssueBatchItem(input: {
   connectorExecution?: ConnectorExecutionConfig;
+  env?: RemoteAgentDiagnosticsEnv;
   coreWorker: RemoteAgentCoreWorkerBinding;
   index: number;
   item: GitHubIssueBatchManifest["items"][number];
@@ -1436,6 +1447,7 @@ async function executeGitHubIssueBatchItem(input: {
   try {
     reconciled = await findGitHubIssueByOperationMarker({
       connectorExecution: input.connectorExecution,
+      env: input.env,
       connectionName: input.manifest.connectionName,
       marker: input.item.marker,
       owner: input.owner,
@@ -1513,6 +1525,7 @@ async function executeGitHubIssueBatchItem(input: {
 
 async function bindGitHubIssueBatchItemToSpaceTask(input: {
   connectorExecution?: ConnectorExecutionConfig;
+  env?: RemoteAgentDiagnosticsEnv;
   coreWorker: RemoteAgentCoreWorkerBinding;
   index: number;
   item: GitHubIssueBatchManifest["items"][number];
@@ -1587,7 +1600,10 @@ async function bindGitHubIssueBatchItemToSpaceTask(input: {
   } catch (error) {
     console.warn("[remote_agent.space_task_github_binding_failed]", {
       actionId: "github.create_issue",
-      error: error instanceof Error ? error.message : String(error),
+      ...remoteAgentDiagnosticErrorFields(error, {
+        env: input.env,
+        organizationId: input.toolContext.context.activeOrganizationId,
+      }),
       operationId: input.manifest.operationId,
     });
     input.manifest.items[input.index] = {
@@ -1792,6 +1808,7 @@ function githubToolDefinition(input: {
   input: RemoteAgentToolInputSchema;
   inputConfig: {
     connectorExecution?: ConnectorExecutionConfig;
+    env?: RemoteAgentDiagnosticsEnv;
     coreWorker: RemoteAgentCoreWorkerBinding;
     storage: RemoteAgentStorage;
     submissionId: string;
@@ -1815,6 +1832,7 @@ function githubToolDefinition(input: {
       await executeGitHubAction({
         actionId: input.actionId,
         connectorExecution: input.inputConfig.connectorExecution,
+        env: input.inputConfig.env,
         coreWorker: input.inputConfig.coreWorker,
         payload,
         storage: input.inputConfig.storage,
@@ -2044,6 +2062,7 @@ function buildGitHubActionAttributionFromExecutionConnection(
 async function executeGitHubAction(input: {
   actionId: GitHubActionId;
   connectorExecution?: ConnectorExecutionConfig;
+  env?: RemoteAgentDiagnosticsEnv;
   coreWorker: RemoteAgentCoreWorkerBinding;
   payload: Record<string, unknown>;
   storage: RemoteAgentStorage;
@@ -2079,6 +2098,7 @@ async function executeGitHubAction(input: {
       actionId: input.actionId,
       actionInput,
       connectorExecution: input.connectorExecution,
+      env: input.env,
       coreWorker: input.coreWorker,
       githubActor,
       operationId: requireGitHubWriteOperationId(rawOperationId),
@@ -2122,7 +2142,10 @@ async function executeGitHubAction(input: {
       actionId: input.actionId,
       connectionName: selection.connection.connectionName,
       connectionOwnerUserId: selection.connection.userId,
-      error: error instanceof Error ? error.message : String(error),
+      ...remoteAgentDiagnosticErrorFields(error, {
+        env: input.env,
+        organizationId: toolContext.context.activeOrganizationId,
+      }),
       organizationId: selection.connection.organizationId,
       requestId: toolContext.context.actorContext.requestId,
       requesterUserId,
@@ -2162,6 +2185,7 @@ async function executeGitHubAction(input: {
 async function resolveGitHubCatalogActionPolicy(input: {
   actionId: string;
   connectorExecution?: ConnectorExecutionConfig;
+  env?: RemoteAgentDiagnosticsEnv;
   toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
 }): Promise<{
   action?: OpenConnectorRuntimeAction;
@@ -2228,6 +2252,7 @@ async function executeIdempotentGitHubAction(input: {
   actionId: GitHubActionId;
   actionInput: Record<string, unknown>;
   connectorExecution?: ConnectorExecutionConfig;
+  env?: RemoteAgentDiagnosticsEnv;
   coreWorker: RemoteAgentCoreWorkerBinding;
   githubActor: GitHubActor;
   operationId: string;
@@ -2368,7 +2393,10 @@ async function executeIdempotentGitHubAction(input: {
       actionId: input.actionId,
       connectionName,
       connectionOwnerUserId,
-      error: error instanceof Error ? error.message : String(error),
+      ...remoteAgentDiagnosticErrorFields(error, {
+        env: input.env,
+        organizationId: input.toolContext.context.activeOrganizationId,
+      }),
       operationId: input.operationId,
       organizationId: input.toolContext.context.activeOrganizationId,
       requestId: input.toolContext.context.actorContext.requestId,
@@ -2419,6 +2447,7 @@ async function executeIdempotentGitHubAction(input: {
       actionId: input.actionId,
       actionInput: input.actionInput,
       connectorExecution: input.connectorExecution,
+      env: input.env,
       coreWorker: input.coreWorker,
       githubActor: input.githubActor,
       operationId: input.operationId,
@@ -2453,6 +2482,7 @@ async function withGitHubIssueSpaceTaskBinding(input: {
   actionId: GitHubActionId;
   actionInput: Record<string, unknown>;
   connectorExecution?: ConnectorExecutionConfig;
+  env?: RemoteAgentDiagnosticsEnv;
   coreWorker: RemoteAgentCoreWorkerBinding;
   githubActor: GitHubActor;
   operationId: string;
@@ -2496,7 +2526,10 @@ async function withGitHubIssueSpaceTaskBinding(input: {
   } catch (error) {
     console.warn("[remote_agent.space_task_github_binding_failed]", {
       actionId: input.actionId,
-      error: error instanceof Error ? error.message : String(error),
+      ...remoteAgentDiagnosticErrorFields(error, {
+        env: input.env,
+        organizationId: input.toolContext.context.activeOrganizationId,
+      }),
       operationId: input.operationId,
     });
     return {
@@ -2526,6 +2559,7 @@ async function withGitHubIssueSpaceTaskBinding(input: {
             repo: identity.repo,
           },
           connectorExecution: input.connectorExecution,
+          env: input.env,
           coreWorker: input.coreWorker,
           githubActor: input.githubActor,
           operationId: `${input.operationId}:space-task-link`,
@@ -2539,7 +2573,10 @@ async function withGitHubIssueSpaceTaskBinding(input: {
         });
       } catch (error) {
         console.warn("[remote_agent.space_task_github_link_failed]", {
-          error: error instanceof Error ? error.message : String(error),
+          ...remoteAgentDiagnosticErrorFields(error, {
+            env: input.env,
+            organizationId: input.toolContext.context.activeOrganizationId,
+          }),
           operationId: input.operationId,
         });
       }
@@ -3539,6 +3576,7 @@ function githubIssueBatchManifestMatches(
 
 async function findGitHubIssueByOperationMarker(input: {
   connectorExecution?: ConnectorExecutionConfig;
+  env?: RemoteAgentDiagnosticsEnv;
   connectionName: string;
   marker: string;
   owner: string;

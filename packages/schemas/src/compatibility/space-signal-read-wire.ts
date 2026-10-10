@@ -71,9 +71,21 @@ function projectSignalTextRead(
     ...data
   } = record.data as Record<string, unknown>;
   const meta = data.meta as Record<string, unknown> | undefined;
+  // The authored v2 manifest stays in the dispatch snapshot. Older history
+  // readers know workHandoff only as v1, so retain the readable message and
+  // files without exposing a manifest they cannot parse.
+  const workHandoff = meta?.workHandoff as
+    | { schemaVersion?: unknown }
+    | undefined;
+  const readMeta =
+    workHandoff?.schemaVersion === 2
+      ? Object.fromEntries(
+          Object.entries(meta ?? {}).filter(([key]) => key !== "workHandoff")
+        )
+      : meta;
   const projectedMeta = supportsAgentWorkOutcomes
-    ? meta
-    : projectLegacyAgentWorkMetadata(meta);
+    ? readMeta
+    : projectLegacyAgentWorkMetadata(readMeta);
   if (
     !(
       deviceWait ||

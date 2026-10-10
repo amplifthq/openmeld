@@ -21,6 +21,7 @@ import {
 	type ReactNode,
 	useCallback,
 	useContext,
+	useEffect,
 	useLayoutEffect,
 	useMemo,
 	useRef,
@@ -51,6 +52,16 @@ export function SidebarDrag(input: {
 	const reduced = useMediaQuery("(prefers-reduced-motion: reduce)");
 	const surface = useRef<HTMLDivElement>(null);
 	const settling = useRef<{ node: HTMLElement; top: number }[]>([]);
+	const animations = useRef(new Set<Animation>());
+	const keyboardDrag = useRef(false);
+	useEffect(
+		() => () => {
+			for (const animation of animations.current) {
+				animation.cancel();
+			}
+		},
+		[]
+	);
 	// Apply the inverse transform in the ordering commit, before its first paint.
 	useLayoutEffect(() => {
 		const movements = settling.current.map(({ node, top }) => ({
@@ -63,13 +74,15 @@ export function SidebarDrag(input: {
 		settling.current = [];
 		for (const { node, delta } of movements) {
 			if (!reduced && node.isConnected && delta !== 0) {
-				node.animate(
+				const animation = node.animate(
 					[
 						{ transform: `translateY(${delta}px)` },
 						{ transform: "translateY(0)" },
 					],
 					{ duration: 160, easing: "cubic-bezier(0.22, 1, 0.36, 1)" }
 				);
+				animations.current.add(animation);
+				animation.onfinish = () => animations.current.delete(animation);
 			}
 		}
 	});
@@ -153,27 +166,38 @@ export function SidebarDrag(input: {
 				) {
 					return true;
 				}
-				settling.current = reduced
-					? []
-					: Array.from(
-							surface.current?.querySelectorAll<HTMLElement>(
-								`[data-sidebar-drag-kind="${target.kind}"]`
-							) ?? []
-						)
-							.filter((node) => node !== active.data.current?.node?.current)
-							.map((node) => ({ node, top: node.getBoundingClientRect().top }));
+				settling.current =
+					reduced || keyboardDrag.current
+						? []
+						: Array.from(
+								surface.current?.querySelectorAll<HTMLElement>(
+									`[data-sidebar-drag-kind="${target.kind}"]`
+								) ?? []
+							)
+								.filter((node) => node !== active.data.current?.node?.current)
+								.map((node) => ({
+									node,
+									top: node.getBoundingClientRect().top,
+								}));
+				for (const animation of animations.current) {
+					animation.cancel();
+				}
+				animations.current.clear();
 				if (target.kind === "group") {
 					input.onMoveGroup?.(active.data.current?.itemId, target.beforeId);
 				} else {
-					await input.onMove(
-						target.section,
-						active.data.current?.itemId,
-						target.beforeId
+					Promise.resolve(
+						input.onMove(
+							target.section,
+							active.data.current?.itemId,
+							target.beforeId
+						)
+					).catch((error: unknown) =>
+						console.error("Could not save sidebar move.", error)
 					);
 				}
 				// Let the existing optimistic preference update settle before dnd-kit
 				// measures the real destination for its drop animation.
-				await nextFrame();
 				await nextFrame();
 				settling.current = [];
 				return false;
@@ -187,7 +211,8 @@ export function SidebarDrag(input: {
 				setPreview(null);
 				setDropping(false);
 			}}
-			onDragStart={({ active }) => {
+			onDragStart={({ active, activatorEvent }) => {
+				keyboardDrag.current = activatorEvent instanceof KeyboardEvent;
 				const node = active.data.current?.node?.current as
 					| HTMLElement
 					| undefined;
@@ -217,7 +242,7 @@ export function SidebarDrag(input: {
 			<SidebarInsertionLine />
 			<DragOverlay
 				dropAnimation={
-					reduced
+					reduced || keyboardDrag.current
 						? null
 						: {
 								duration: 160,
@@ -227,7 +252,7 @@ export function SidebarDrag(input: {
 								}),
 							}
 				}
-				transition={reduced ? "none" : undefined}
+				transition={reduced || keyboardDrag.current ? "none" : undefined}
 			>
 				{preview ? <SidebarDragPreview node={preview} /> : null}
 			</DragOverlay>

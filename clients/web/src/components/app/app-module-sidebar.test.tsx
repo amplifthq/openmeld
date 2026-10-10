@@ -194,6 +194,92 @@ it("persists keyboard resizing without changing the current draft", () => {
 	mount();
 	expect(screen.getByTestId("app-module-sidebar").style.width).toBe(width);
 });
+it("restores an older narrow preference at the readable minimum", () => {
+	rememberClientSidebarState("outer", { tier: "expanded", width: "160px" });
+	mount();
+	expect(screen.getByTestId("app-module-sidebar").style.width).toBe("176px");
+	expect(
+		screen.getByTestId("app-module-sidebar").getAttribute("data-state")
+	).toBe("expanded");
+});
+it.each([
+	176, 308,
+])("buffers collapse when dragging the %ipx middle list and restores its readable width", (initialWidth) => {
+	rememberClientSidebarState("outer", {
+		tier: "expanded",
+		width: `${initialWidth}px`,
+	});
+	const view = mount();
+	const sidebar = screen.getByTestId("app-module-sidebar");
+	const draft = screen.getByRole("textbox", { name: "Draft" });
+	const rail = sidebar.querySelector<HTMLElement>('[data-sidebar="rail"]');
+	if (!rail) {
+		throw new Error("Missing sidebar rail");
+	}
+	rail.setPointerCapture = vi.fn();
+	rail.releasePointerCapture = vi.fn();
+	rail.hasPointerCapture = () => true;
+	function pointer(type: string, clientX: number) {
+		fireEvent(
+			rail as HTMLElement,
+			new PointerEvent(type, {
+				bubbles: true,
+				pointerId: 1,
+				pointerType: "mouse",
+				button: 0,
+				clientX,
+			})
+		);
+	}
+	pointer("pointerdown", initialWidth);
+	pointer("pointermove", 176);
+	expect(sidebar.getAttribute("data-state")).toBe("expanded");
+	expect(sidebar.style.width).toBe("176px");
+	pointer("pointermove", 175);
+	expect(sidebar.getAttribute("data-state")).toBe("expanded");
+	expect(sidebar.style.width).toBe("176px");
+	pointer("pointermove", 102);
+	expect(sidebar.getAttribute("data-state")).toBe("expanded");
+	expect(sidebar.style.width).toBe("176px");
+	pointer("pointermove", 101);
+	expect(sidebar.getAttribute("data-state")).toBe("hidden");
+	pointer("pointermove", 100);
+	expect(sidebar.getAttribute("data-state")).toBe("hidden");
+	pointer("pointermove", 125);
+	expect(sidebar.getAttribute("data-state")).toBe("hidden");
+	pointer("pointermove", 126);
+	expect(sidebar.getAttribute("data-state")).toBe("expanded");
+	pointer("pointermove", 125);
+	expect(sidebar.getAttribute("data-state")).toBe("expanded");
+	pointer("pointermove", 176);
+	expect(sidebar.style.width).toBe("176px");
+	pointer("pointermove", 100);
+	pointer("pointerup", 100);
+	expect(screen.getByRole("textbox", { name: "Draft" })).toBe(draft);
+	view.unmount();
+	mount();
+	expect(
+		screen.getByTestId("app-module-sidebar").getAttribute("data-state")
+	).toBe("hidden");
+	fireEvent.click(
+		within(screen.getByRole("main")).getByRole("button", {
+			name: "Show sidebar",
+		})
+	);
+	expect(screen.getByTestId("app-module-sidebar").style.width).toBe("176px");
+	const restoredRail = screen
+		.getByTestId("app-module-sidebar")
+		.querySelector('[data-sidebar="rail"]') as HTMLElement;
+	fireEvent.keyDown(restoredRail, { key: "ArrowLeft" });
+	expect(
+		screen.getByTestId("app-module-sidebar").getAttribute("data-state")
+	).toBe("hidden");
+	fireEvent.keyDown(restoredRail, { key: "ArrowRight" });
+	expect(
+		screen.getByTestId("app-module-sidebar").getAttribute("data-state")
+	).toBe("expanded");
+	expect(screen.getByTestId("app-module-sidebar").style.width).toBe("176px");
+});
 it("renders the mobile list despite a saved collapsed desktop preference", () => {
 	rememberClientSidebarState("outer", { tier: "hidden", width: "308px" });
 	render(

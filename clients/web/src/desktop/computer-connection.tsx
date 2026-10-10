@@ -22,6 +22,7 @@ import {
 import { Button } from "@openmeld/ui/components/button";
 import { SettingsAddComputerCardContent } from "@openmeld/ui/components/settings-computers";
 import { CheckIcon } from "@phosphor-icons/react";
+import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useBringAgentsSetupContext } from "#/components/connect/bring-agents-setup-context";
 import { useAuthSession } from "#/hooks/auth.hooks";
@@ -29,6 +30,7 @@ import {
 	buildConnectComputerPath,
 	buildConnectRouteSearch,
 	type ConnectRouteIntent,
+	resolveConnectCompletionTarget,
 } from "#/lib/connect/connect-route";
 import {
 	buildOrganizationConnectPath,
@@ -45,7 +47,7 @@ type ComputerConnectionProps = {
 	onCompleted?: (
 		connection: Pick<PrepareSessionSnapshot, "deviceId" | "runtimeLane">
 	) => void;
-	onContinue?: () => void;
+	onContinue?: () => void | Promise<void>;
 };
 
 function buildConnectionRequestKey(
@@ -59,6 +61,7 @@ function buildConnectionRequestKey(
 		request.resetThisComputer === true,
 		request.sourceNavigationAction?.spaceId ?? null,
 		request.sourceNavigationAction?.signalId ?? null,
+		request.serviceAction ?? null,
 	]);
 }
 
@@ -89,6 +92,7 @@ async function applyAdoptedConnectionSettlement(input: {
 	setFailed(value: boolean): void;
 	setMessage(value: string | null): void;
 	setRefreshWarning(value: string | null): void;
+	requireUpdate?: boolean;
 }) {
 	if (input.operationState.errorMessage) {
 		input.setFailed(true);
@@ -110,11 +114,20 @@ async function applyAdoptedConnectionSettlement(input: {
 		input.setDiagnosticsPath(result.diagnosticsPath ?? null);
 		return;
 	}
-	input.setMessage(
-		result.status === "completed"
-			? "Computer connected."
-			: "Using the existing connection."
-	);
+	if (input.requireUpdate && result.status === "reused") {
+		input.setFailed(true);
+		input.setMessage("The update was not confirmed. Try again.");
+		return;
+	}
+	if (input.requireUpdate) {
+		input.setMessage("OpenMeld Tools updated.");
+	} else {
+		input.setMessage(
+			result.status === "completed"
+				? "Computer connected."
+				: "Using the existing connection."
+		);
+	}
 	await refreshConnectionDisplay(input);
 	if (!input.isActive()) {
 		return;
@@ -122,7 +135,7 @@ async function applyAdoptedConnectionSettlement(input: {
 	input.onCompleted?.(
 		result.status === "completed" ? result.snapshot : result.connection
 	);
-	input.onContinue?.();
+	await input.onContinue?.();
 }
 
 async function refreshConnectionDisplay(input: {
@@ -160,9 +173,17 @@ export function DesktopComputerConnection(input: ComputerConnectionProps) {
 	const { routeIntent, selectedHumanProfileId, targetSpaceId } =
 		useBringAgentsSetupContext();
 	const account = useAuthSession().data?.user.id;
+	const navigate = useNavigate();
+	const continueToCompletionTarget = useCallback(
+		() =>
+			navigate({
+				to: resolveConnectCompletionTarget(routeIntent, input.orgSlug),
+			}),
+		[navigate, routeIntent, input.orgSlug]
+	);
 	if (
-		routeIntent.serviceAction === "update_service" ||
-		routeIntent.kind === "space_recovery"
+		routeIntent.serviceAction === "update_service" &&
+		!getDesktopPlatform()?.updateComputer
 	) {
 		return <DesktopWebConnection {...input} intent={routeIntent} />;
 	}
@@ -174,11 +195,24 @@ export function DesktopComputerConnection(input: ComputerConnectionProps) {
 		targetSpaceId,
 		routeIntent.resetThisComputer,
 		routeIntent.connectedComputerId,
+		routeIntent.serviceAction,
 		input.sourceNavigationAction?.spaceId,
 		input.sourceNavigationAction?.signalId,
 		input.allowDisconnect,
 	]);
-	return <NativeComputerConnection {...input} key={requestKey} />;
+	return (
+		<NativeComputerConnection
+			{...input}
+			key={requestKey}
+			onContinue={
+				input.onContinue ??
+				(routeIntent.kind === "space_recovery" ||
+				routeIntent.serviceAction === "update_service"
+					? continueToCompletionTarget
+					: undefined)
+			}
+		/>
+	);
 }
 
 function useComputerConnection(input: ComputerConnectionProps) {
@@ -218,8 +252,15 @@ function useComputerConnection(input: ComputerConnectionProps) {
 	const settledProgressIdsRef = useRef(new Set<string>());
 	const expectedAccount = session.data?.user.id;
 	const intent = setup.routeIntent;
+	const updateService = intent.serviceAction === "update_service";
+	const refetchConnectionContext =
+		intent.kind === "space_recovery" || updateService
+			? setup.refreshAll
+			: setup.localRuntimesQuery.refetch;
 	const requiresConnection = Boolean(
 		intent.resetThisComputer ||
+			updateService ||
+			setup.targetSpaceId ||
 			input.sourceNavigationAction ||
 			intent.connectedComputerId
 	);
@@ -233,6 +274,9 @@ function useComputerConnection(input: ComputerConnectionProps) {
 					resetThisComputer: intent.resetThisComputer,
 					sourceNavigationAction: input.sourceNavigationAction,
 					connectedComputerId: intent.connectedComputerId,
+					...(updateService
+						? { serviceAction: "update_service" as const }
+						: {}),
 				};
 	const connectionRequestKey = connectionRequest
 		? buildConnectionRequestKey(connectionRequest)
@@ -255,11 +299,11 @@ function useComputerConnection(input: ComputerConnectionProps) {
 		(revision: number) =>
 			refreshConnectionDisplay({
 				connectionRefetch: connection.refetch,
-				localRuntimesRefetch: setup.localRuntimesQuery.refetch,
+				localRuntimesRefetch: refetchConnectionContext,
 				isActive: () => isCurrentAction(revision),
 				setRefreshWarning,
 			}),
-		[connection.refetch, setup.localRuntimesQuery.refetch, isCurrentAction]
+		[connection.refetch, refetchConnectionContext, isCurrentAction]
 	);
 	const applyDisconnectResult = useCallback(
 		async (result: DesktopComputerDisconnectResult, revision: number) => {
@@ -356,10 +400,11 @@ function useComputerConnection(input: ComputerConnectionProps) {
 			await applyAdoptedConnectionSettlement({
 				connectionRefetch: connection.refetch,
 				isActive: () => isCurrentAction(revision),
-				localRuntimesRefetch: setup.localRuntimesQuery.refetch,
+				localRuntimesRefetch: refetchConnectionContext,
 				onCompleted: input.onCompleted,
 				onContinue: input.onContinue,
 				operationState,
+				requireUpdate: updateService,
 				setDiagnosticId,
 				setDiagnosticsPath,
 				setFailed,
@@ -523,7 +568,8 @@ function useComputerConnection(input: ComputerConnectionProps) {
 		input.onCompleted,
 		input.onContinue,
 		isCurrentAction,
-		setup.localRuntimesQuery.refetch,
+		refetchConnectionContext,
+		updateService,
 	]);
 	const beginOperation = (kind: "connect" | "disconnect") => {
 		if (
@@ -573,7 +619,10 @@ function useComputerConnection(input: ComputerConnectionProps) {
 	};
 	const connect = async () => {
 		const desktop = getDesktopPlatform();
-		if (!(desktop && connectionRequest && setup.selectedHumanProfileId)) {
+		const action = updateService
+			? desktop?.updateComputer
+			: desktop?.connectComputer;
+		if (!(action && connectionRequest && setup.selectedHumanProfileId)) {
 			return;
 		}
 		const revision = beginOperation("connect");
@@ -583,7 +632,7 @@ function useComputerConnection(input: ComputerConnectionProps) {
 		let result: DesktopComputerConnectionResult;
 		try {
 			result = desktopComputerConnectionResultSchema.parse(
-				await desktop.connectComputer(connectionRequest)
+				await action(connectionRequest)
 			);
 		} catch (error) {
 			if (isCurrentAction(revision)) {
@@ -604,7 +653,7 @@ function useComputerConnection(input: ComputerConnectionProps) {
 		try {
 			await applyAdoptedConnectionSettlement({
 				connectionRefetch: connection.refetch,
-				localRuntimesRefetch: setup.localRuntimesQuery.refetch,
+				localRuntimesRefetch: refetchConnectionContext,
 				isActive: () => isCurrentAction(revision),
 				onCompleted: input.onCompleted,
 				onContinue: input.onContinue,
@@ -612,6 +661,7 @@ function useComputerConnection(input: ComputerConnectionProps) {
 					result,
 					errorMessage: null,
 				},
+				requireUpdate: updateService,
 				setDiagnosticId,
 				setDiagnosticsPath,
 				setFailed,
@@ -689,6 +739,7 @@ function useComputerConnection(input: ComputerConnectionProps) {
 	};
 	const useExistingConnection = connected && !requiresConnection;
 	return {
+		updateService,
 		connection,
 		connect: useExistingConnection ? continueWithConnection : connect,
 		disconnect,
@@ -780,9 +831,16 @@ function nativeConnectionActionLabel(
 		| "operation"
 		| "disconnectPhase"
 		| "checking"
+		| "updateService"
 	>,
 	disconnectFeedbackAvailable: boolean
 ) {
+	if (state.updateService) {
+		if (state.operation === "connect") {
+			return "Updating OpenMeld Tools…";
+		}
+		return state.failed ? "Try again" : "Update OpenMeld Tools";
+	}
 	if (state.operation === "disconnect") {
 		return disconnectFeedbackAvailable
 			? {
@@ -868,9 +926,16 @@ function ConnectionReadError({ error }: { error: unknown }) {
 function nativeConnectionDescription(
 	state: Pick<
 		ReturnType<typeof useComputerConnection>,
-		"connected" | "requiresConnection" | "connection" | "pending"
+		| "connected"
+		| "requiresConnection"
+		| "connection"
+		| "pending"
+		| "updateService"
 	>
 ) {
+	if (state.updateService) {
+		return "Install the latest OpenMeld Tools and verify the background Service before continuing.";
+	}
 	if (state.connected) {
 		return state.requiresConnection
 			? "This Mac is connected to OpenMeld. Reconnect to refresh its connection."
@@ -884,6 +949,7 @@ function nativeConnectionDescription(
 
 function NativeComputerConnection(input: ComputerConnectionProps) {
 	const {
+		updateService,
 		connection,
 		connect,
 		disconnect,
@@ -910,6 +976,7 @@ function NativeComputerConnection(input: ComputerConnectionProps) {
 	);
 	const actionLabel = nativeConnectionActionLabel(
 		{
+			updateService,
 			failed,
 			connected,
 			canDisconnect,
@@ -921,10 +988,14 @@ function NativeComputerConnection(input: ComputerConnectionProps) {
 		disconnectFeedbackAvailable
 	);
 	let title = connected ? "Connected" : "Connect this Mac";
+	if (updateService) {
+		title = "Update OpenMeld Tools";
+	}
 	if (needsCheck) {
 		title = "Connection unconfirmed";
 	}
 	const description = nativeConnectionDescription({
+		updateService,
 		connected,
 		requiresConnection,
 		connection,

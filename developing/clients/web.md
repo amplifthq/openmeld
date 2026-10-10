@@ -25,6 +25,29 @@
 
 ## App and public website boundary
 
+Message details offers **Hand off** to continue work from its current readable
+message with another Agent. The current form requires a Project/repository and
+published commit only when **Include a repository** is selected. By default it
+hands off a brief and optional shared-file revisions with no repository. Local
+receivers use an isolated Space-only Context. The receiver list follows the
+shared material-support policy; selected files without a repository require
+Codex or a Remote Agent. Repository fields load only when selected, start a new
+independent copy at a complete published commit, and keep extra access
+restrictions a separate choice.
+The Web always selects an isolated repository copy. Current-folder repository
+handoffs are available only through an explicit CLI manifest.
+The source result prepopulates the brief; shared file revisions are unchecked
+until selected. A send retry freezes the same input and client message ID.
+Background source refetches, reconnects, and refresh errors preserve the mounted
+draft and frozen request. A new source revision requires explicit review before
+a first submission; an uncertain submission keeps its original revision, payload,
+and request identity for retry even if the source changes.
+Publication success is displayed as requested; existing message/Wake projections
+own execution and final delivery. A thread handoff retains that exact thread;
+a root message can also be handed off within its own thread. Project/repository
+fields are shared with the composer rather than opening a second modal over
+the Message details drawer.
+
 `clients/web` is the App at `app.openmeld.ai` (Staging:
 `app.staging.openmeld.ai`). Its root enters the authenticated Organization
 resolver or sends anonymous visitors to `/login`. Public marketing, legal,
@@ -113,6 +136,18 @@ Independent authenticated browser/installed Desktop acceptance remains in
 acceptance.
 
 ## Space creation feedback
+
+The account Space query uses one `reconcileAccountSpaceSections` owner for
+accepted Create/Join receipts, accepted message previews, and pending Pin
+choices. Sidebar and Browse render that same query. Receipts bridge a stale
+index read, clear when its projection catches up, and are not persisted as
+membership authority. Recent activity includes creation and joining even when
+a Space has no messages. Discover excludes current account memberships.
+
+Leave removes the visible entry and navigates away before requesting membership
+revocation. Success clears the departed conversation's read cache; it does not
+refetch the now inaccessible Space. Failure restores only that entry and shows
+the server's error. Other pending entries remain intact.
 
 Create opens the conversation immediately with the submitted name, shared Space
 header and tabs, and the normal editable composer. A small `Preparing…` notice
@@ -301,8 +336,14 @@ cards keep peer and Center Agent session identity, unread destinations, groups,
 pinning, and archive actions. Their 56px peer avatar has no reserved multi-member
 grid height; the title follows directly, with one latest-message preview row
 only when messages exist. Discover cards and rows expose the same Preview and
-Join actions, pending state, and access checks. Responsive member grids mount
+Join actions, pending state, and access checks. Cards place the primary Join
+action at the right of the member count in one row, separate from the card's
+preview target. Responsive member grids mount
 each avatar once; CSS changes visible slots without duplicating avatar drawing.
+The App's read-only Discover preview omits the Agent-facing Space context
+disclosure and structured JSON link. The standalone public reader retains them;
+the existing presentation context owns this distinction without changing read
+access or the context API.
 The Agents directory uses the same store to remember grouped versus expanded
 presentation per viewer, Organization, and person. Search and temporary filters
 do not become saved layout preferences.
@@ -329,8 +370,13 @@ when collapsed, list-page work-area headers show the expand control beside that
 list's edge. Spaces uses this control in place of its decorative title icon,
 and Team uses the same placement. Toggling does not hide the application rail or
 remount the conversation. The existing Fluid sidebar engine owns resizing and
-keyboard shortcuts. Dragging the middle column can collapse it,
-and a 32px hover-intent strip along the content edge reveals a floating preview.
+keyboard shortcuts. The middle column has only expanded and hidden states,
+with a 200px minimum expanded width. Dragging below that minimum collapses it
+directly; returning past a small drag deadband restores the expanded column.
+Keyboard resizing uses the same bounds and skips the icon-only tier. Saved
+narrow widths are clamped to the readable minimum before rendering. Row titles
+remain single-line and use an ellipsis when space is limited. A 32px hover-intent
+strip along the content edge reveals a floating preview.
 The preview keeps the same title toggle, which restores the full column even on
 detail pages without a work-area header. The existing outer-sidebar cookie
 now stores middle-column geometry, with a 308px default; legacy icon mode maps
@@ -340,7 +386,7 @@ mutually exclusive drawers; a collapsed desktop preference never hides the
 mobile list. Recent is the default conversation view. Grouped offers a
 shared Pinned section, existing personal groups, Spaces, and Direct messages.
 Recent retains the same Pinned section and orders the remaining conversations
-by the latest message timestamp across both kinds. Both views use the same rows,
+by the latest message, creation, or joining timestamp across both kinds. Both views use the same rows,
 previews, identities, indicators, and canonical destinations. The view menu
 changes only the sidebar; the open conversation, draft, and reading position
 remain mounted. View choice is remembered in this browser per account and
@@ -393,8 +439,12 @@ Space and direct-message pending routes retain the authorized conversation
 sidebar and use the loaded conversation's header and centered content/composer
 rails. They do not add an empty app header above the conversation header.
 Loading shells reserve persisted Members panel geometry without reading protected
-content or deciding membership. A later product-driven panel opening remains a
-separate interaction. The existing Space-open performance report also covers
+content or deciding membership. Loaded and loading Thread headers and the desktop
+Members header reuse `SpaceInlineSidePanelHeader` at a fixed 56px height. Their
+16px trailing inset matches `SpaceWindowHeader`, keeping the last Space action
+and panel close buttons on the same vertical centerline.
+A later product-driven panel opening remains a separate interaction. The
+existing Space-open performance report also covers
 Organization direct-message routes; Center Agent session routes are not Space
 IDs and are excluded from that route matcher.
 
@@ -1347,10 +1397,15 @@ and use the shared action icons. Ordinary Space rows read Index previews without
 creating per-Space message-preview observers. Rows use
 the same preview and activity sources for selected and unopened conversations;
 navigation is not required to discover their latest message or pending action.
-Recent uses
-only message time, with an empty conversation at zero and Space ID as a stable
+Recent uses message, creation, and joining time, with Space ID as a stable
 tie-breaker; unread, visit time, and running progress do not promote it. Recent
-does not permit manual row ordering outside Pinned. Space and direct-message
+rows can be dragged to Pinned; Grouped also exposes compatible personal groups.
+Recent does not permit manual row ordering outside Pinned. Layout intents render
+immediately from pending account-scoped query mutations. Native mutation scopes
+serialize saves against the latest confirmed sidebar revision; a pending save
+does not disable the list or delay a drop. Pin membership remains owned by Space
+Index, independently from personal ordering. Keyboard and reduced-motion drops
+have no travel animation. Space and direct-message
 custom groups retain their existing preference owners; cross-kind moves are
 rejected before any pin or preference write. Rename and archive remain direct-
 message actions and are never offered on ordinary Space rows.
@@ -1526,6 +1581,35 @@ CLI controls.
 
 ### Settings structure
 
+**Personal → Spaces** contains **Automatically wake the only Agent**. It is on
+by default and uses the shared Settings row and Switch. Its account-owned value
+applies across organizations. Conversation guidance uses Core's Space status
+projection, so turning it off removes automatic-Wake guidance as well as implicit
+work admission. Explicit Agent mentions remain available.
+The row uses one full-width composer preview. Its message explains the saved
+choice directly: automatic replies without a mention when enabled, or an explicit
+Agent mention to request a reply when disabled. This explanation remains available
+to assistive technology; the decorative toolbar is hidden from it. The static
+preview is not an editor or an execution-status projection. Send-shortcut cards
+use the same decorative composer, with the product send icon and one keyboard
+hint for the option's sending action; they do not repeat the newline shortcut.
+
+The same section owns personal conversation preferences. Reading contains
+**Conversation layout**, **Your messages**, and **History slider**, moved from
+Appearance without changing their browser-local keys or defaults. Conversation
+list contains **Message previews**, using the same browser/profile/organization
+preference as the sidebar display menu. Fluid radio cards show the reading and
+list choices with static previews and stack on narrow screens. Appearance keeps
+global theme, shape, navigation, toolbar, and Bot avatar controls.
+
+Sending also contains **Send shortcut**. Enter sends by default, and Shift+Enter
+inserts a line. The optional Cmd/Ctrl+Enter choice makes unmodified Enter insert
+a line. It uses one browser-local preference in the shared composer across
+Spaces, Direct Messages, Center Agent conversations, creation, and Threads.
+IME composition and mention-picker confirmation never submit a draft. The
+plain-text recovery input retains the same send rule. Inline message editing
+keeps its existing Enter-to-save behavior. Mobile Send buttons are unchanged.
+
 Account display reads use Auth's `/v1/account/session` projection through the
 shared API client and the existing `userQueryKeys.session` cache. The projection
 preserves the Joined date, verification badge, name/avatar identity updates, and
@@ -1568,7 +1652,7 @@ to Account through the same capability-filtered registry.
 
 The Settings secondary sidebar always shows these two groups:
 
-- **Personal** — **Account**, **Appearance**, **Notifications**, **Privacy &
+- **Personal** — **Account**, **Appearance**, **Notifications**, **Spaces**, **Privacy &
   Safety**, and **Send feedback**. In a Personal Workspace, it also includes
   **Center Agent** (placed after Privacy & Safety, before Send feedback).
   Account preferences do not change when the selected Organization changes.
@@ -1681,7 +1765,7 @@ retain normal access checks; files without a public navigation link retain
 their existing download/copy operations. Editors and selected text retain
 native menus; progress-only message rows do not create empty custom menus.
 
-Appearance also owns the browser-local **Your messages** placement used by
+Personal Spaces settings owns the browser-local **Your messages** placement used by
 every Space, Direct Message, Center Agent, and thread conversation that
 renders the shared message primitives. A message placed on the right uses a
 trailing-aligned, content-sized bubble; a message placed on the left uses the
@@ -3890,7 +3974,19 @@ history query owns that cursor separately from retained and live display rows;
 receiving a live row does not prove that intervening history was read. A missing
 or reaped anchor falls back to the bounded recent-history read, which saves its
 confirmed cursor for later visits and reloads. Older saved records without this
-cursor use a recent-history read before catch-up. On a
+cursor use a recent-history read before catch-up. After Core accepts a live
+subscription, on returning to a visible tab, or explicit recovery,
+the same reconciliation owner also refreshes the current Space and viewer's
+Thread catalog and retained Thread queries. Main-history cursors do not cover
+Thread-only replies. Mounted Threads use their existing authorized reads;
+unopened Thread snapshots remain stale until opened. Live Thread frames still
+update the existing query cache directly. A live reply cancels an older pending
+Thread or catalog read without reverting that update, then invalidates the
+snapshot for its next authorized read. A later server snapshot can still remove
+withdrawn replies; clients do not permanently union retained and live rows.
+The periodic main-history reconcile
+does not poll Thread history. Thread read failures retain their diagnostic
+error and leave catch-up stale without restarting execution. On a
 cold restore with no successful in-memory status snapshot, the safe display
 snapshot and history may render read-only while current Space status confirms
 access; no mutation can become available before that confirmation. Status and
@@ -4541,13 +4637,21 @@ or composer. Submitting creates the chat and Task directly, then stays on Tasks;
 it does not send a message or start an Agent. Opening Tasks alone creates no chat.
 The Messages composer separately supports a Task in its first-message handoff.
 
-Agent mention menus keep execution settings separate from Tasks. **Files** offers
-**Use agent settings** and **No project files**. A readable configured Project
-adds its name and the supported **Edit a separate copy**, **Read files only**, and
-**Edit project files** modes. Without a resolved Project, Web does not guess a
-local folder or offer project operations. Each choice has a short shared Tooltip
-on hover and keyboard focus; the separate-copy hint explains that uncommitted
-changes are not included. These choices retain the existing execution contracts.
+Agent mention menus keep execution settings separate from Tasks. **Working copy**
+chooses **Current folder** or **Separate copy**, and offers **Choose Project…**.
+A separate copy requires a readable configured Project; selecting it retains
+the selected access policy. Project selection defaults to a separate copy without
+adding a task restriction. **Access** independently offers **Use agent settings**,
+**No project files**, and supported **Read files only** / **Project files only**
+restrictions. Returning to Agent settings preserves an existing project copy;
+leaving Space-only scratch work returns to the current folder by default.
+**Session → Automatic** remains selectable and clears explicit Access, Working
+copy, and Project preferences. The existing session retains its own restrictions;
+copy and access choices remain in place until the user selects Automatic.
+Claude's explicit project restriction requires a separate copy and its tooltip
+explains the container and network limits. Continuation and fork choices inherit
+their source settings and disable both controls. Shared Tooltips explain copy
+and permission effects without presenting a working folder as an access grant.
 
 The Project selector in Task detail supports zero or several associations and
 uses the current Task revision. Unavailable saved associations remain removable,
@@ -5290,6 +5394,32 @@ default, sole, or explicitly selected repository for that new task. The
 selection travels as an accepted Execution Context fact, not as a change to
 the Agent Profile's Default Project. The Service must find the matching local
 connection on the Agent's computer or return a visible failure.
+
+The Agent's Session options explain that automatic continuation can retain an
+earlier session's restrictions. Message details shows the admitted task access and
+workspace separately from the Service's new/continued native-conversation
+observation. Missing diagnostics remain unavailable; the client never infers
+network or GitHub access from a working folder.
+
+For a recorded Space-only Wake, any member who can read the request and send
+messages can review its shared file revisions and send it to the same target
+as a new task under their current acting Profile. Confirmation explains that
+the sender's permissions apply and the original requester's approvals do not
+carry over. Normal authoring rechecks message, file, and Wake authorization;
+the new task uses the Agent's current permitted settings and computer policy.
+The confirmation also names the destination and possible repeated work. It uses
+normal Space/thread authoring with a stable request id derived from the reviewed
+source revision and content, requester, target and placement. Reopening details,
+reloading, and retrying after either an uncertain or successful response reuse
+that id. The existing Space authoring receipt deduplicates the recovery without
+browser storage or a second server-side recovery store. Starting additional work
+uses the ordinary composer. Main and thread recovery both require current message
+permission, including when confirmation is already open.
+The reviewed request is pinned even if details refresh before confirmation.
+The action preserves the user's composer draft and never clears the retained
+Context. Recalled sources, managed file handoffs and unsupported legacy
+attachments do not receive an automatic request-copy action; the ordinary
+composer remains available for a deliberately authored new task.
 
 Draft editing and opening the `+` and `@` tools do not require permission to
 send. The `+` menu explains why file selection is unavailable when uploads are
@@ -6576,6 +6706,17 @@ Reply recovery copy may be shared through Agent Profile recovery semantics. Web
 adapts browser-local and current-local-runtime evidence into that shared copy,
 then presents one clear next action. The copy explains known evidence and the
 next step. It does not decide Wakeability or execution truth.
+
+Profile and Space recovery resolve the same shared reason-to-action mapping.
+Missing or invalid folder and Project connections open the existing owner
+working-folder dialog. Authentication, installation, disabled local agents,
+and missing or stale controller reports lead to the relevant Computer controls.
+A missing report is not a missing connection. Only connection actions carry
+the compact **Needs connection** label; other actions use **Needs attention**.
+The dialog freezes its canonical Binding and exact Computer/lane, reads current
+saved configuration, and retains its draft through refreshes. Space adapters
+provide their editing context to the shared Profile action; they do not create
+a separate recovery form or configuration authority.
 
 Known blockers name the affected object and place the action beside the
 explanation. Computer recovery uses **Connect computer**, **Reconnect

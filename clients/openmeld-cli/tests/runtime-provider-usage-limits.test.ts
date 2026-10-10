@@ -8,6 +8,7 @@ import { probeAgentControllerUsageObservationAuth } from "../src/local-service/i
 import {
   buildAgentControllerInterfaceKeeperKey,
   readLastKnownAgentControllerUsageLimits,
+  readReusableAgentControllerInterfaceSnapshot,
   recordAgentControllerInterfaceProbeSuccess,
   resetAgentControllerInterfaceKeeperForTests,
   resolveAgentControllerCommandFingerprint,
@@ -29,6 +30,67 @@ afterEach(async () => {
 });
 
 describe("runtime provider usage-limit observations", () => {
+  it.each([
+    ["same native account", "codex:subject-a", true],
+    ["same email in a different workspace", "codex:subject-b", false],
+    ["unattributed rolling notification", undefined, false],
+  ] as const)("retains Codex rolling evidence only for %s", async (_label, observedKey, retained) => {
+    const directory = await mkdtemp(join(tmpdir(), "openmeld-codex-usage-"));
+    temporaryDirectories.push(directory);
+    const commandPath = join(directory, "codex");
+    await writeFile(commandPath, "#!/bin/sh\nexit 0\n", "utf8");
+    await chmod(commandPath, 0o755);
+    const commandFingerprint = await resolveAgentControllerCommandFingerprint({
+      commandPath,
+      launchContractKind: "executable",
+    });
+    if (!commandFingerprint) {
+      throw new Error("Expected isolated command fingerprint");
+    }
+    const auth = {
+      email: "same@example.com",
+      status: "authenticated" as const,
+      type: "chatgpt",
+      accountKey: "codex:subject-a",
+    };
+    const keeperKey = buildAgentControllerInterfaceKeeperKey({
+      agentId: "codex",
+      commandPath,
+    });
+    recordAgentControllerInterfaceProbeSuccess({
+      commandFingerprint,
+      keeperKey,
+      nowMs: 1000,
+      snapshot: {
+        ...createSnapshot(commandPath),
+        agentControllerRef: "builtin:codex",
+        controllerId: "codex",
+        auth,
+      },
+    });
+    const usageAdmission = {
+      blocksNewWork: false,
+      observedAt: "2026-08-20T10:00:00.000Z",
+    };
+    await expect(
+      recordRuntimeProviderUsageLimits({
+        agentId: "codex",
+        authSnapshot: auth,
+        launchContract: { commandPath, kind: "executable" },
+        usageAccountKey: observedKey,
+        usageAdmission,
+        usageLimits: [],
+      })
+    ).resolves.toBe(retained);
+    expect(
+      readReusableAgentControllerInterfaceSnapshot({
+        commandFingerprint,
+        keeperKey,
+        nowMs: 1001,
+      })?.usageAdmission
+    ).toEqual(retained ? usageAdmission : undefined);
+  });
+
   it("preserves a machine-readable Claude email for passive usage binding", async () => {
     const directory = await mkdtemp(join(tmpdir(), "openmeld-claude-auth-"));
     temporaryDirectories.push(directory);

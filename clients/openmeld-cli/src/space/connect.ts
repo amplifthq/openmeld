@@ -52,7 +52,6 @@ import { resolveRuntimeContext } from "../runtime/context";
 import { formatMessage } from "../runtime/messages";
 import { createPresenter } from "../runtime/presenter/index";
 import type { ResolvedCliView } from "../runtime/types";
-import { connectWebSocket } from "../transport/ws";
 import { errLine, outJsonLine } from "../ui/io";
 import {
   formatConnectIntro,
@@ -77,6 +76,7 @@ import {
   normalizeRecentHistoryLimit,
   processIgnoredOlderThanLiveFloorSignal,
   rememberSeenSignalId,
+  rememberSpaceWatchAnchor,
   resolveInitialLiveFloorTs,
   shouldIgnoreIncomingSignal,
 } from "./connect-catchup";
@@ -96,7 +96,8 @@ import {
 } from "./connect-dispatch-activity";
 import {
   emitHumanConnectTranscriptEvent,
-  replayConnectInitialHistoryBootstrap,
+  replayConnectHistoryBootstrap,
+  replaySpaceWatchHistory,
 } from "./connect-history-transcript-bootstrap";
 import {
   buildSpaceCursorPatch,
@@ -148,6 +149,7 @@ import {
 import { resolveSpaceSessionDiagnostics } from "./preflight";
 import { buildFormalSignalReadPayload } from "./read-projection/formal-message-read-output";
 import type { SpaceRuntimeEvent } from "./runtime/space-runtime-events";
+import { connectSpaceSessionWebSocket } from "./runtime/space-session-connection";
 import { SpaceSessionRuntime } from "./runtime/space-session-runtime";
 import {
   buildActiveSpaceSessionContext,
@@ -303,6 +305,9 @@ function handleInteractiveRuntimeEvent(input: {
   ) => void;
 }): void {
   switch (input.event.type) {
+    case "connection.reconnecting":
+      input.store.dispatch({ type: "connection.reconnecting" });
+      return;
     case "connected":
       input.store.dispatch({
         type: "connection.connected",
@@ -1087,10 +1092,15 @@ export async function runConnect(input: {
       clearInteractiveOverlay();
     };
     const catchupSeenSignalIds = new Set<string>();
+    const watchReadState = {
+      anchorSignalId: null as string | null,
+      hasReconnected: false,
+    };
     const recordConnectEvent = (
       event: SignalEnvelope | HelloAck,
       source: "history" | "live"
     ): void => {
+      rememberSpaceWatchAnchor(watchReadState, event);
       scheduleEventLastSeen(event);
       if (isSignalEnvelope(event)) {
         liveFloorTs = Math.max(liveFloorTs, event.ts);
@@ -1162,85 +1172,75 @@ export async function runConnect(input: {
       }
       emitHumanTextEvent(event);
     };
-    const ws = await connectWebSocket(wsUrl, {
-      headers: await buildOpenMeldProfileIdentityRequestHeadersWithAuth({
-        requestUrl: wsUrl,
-        profileIdentity,
-        spacePassword: input.password,
-      }),
+    let isReplayingHistory = true;
+    const bufferedLiveEvents: Array<SignalEnvelope | HelloAck> = [];
+    let finishInitialReplay: () => void = () => undefined;
+    const initialReplayReady = new Promise<void>((resolve) => {
+      finishInitialReplay = resolve;
+    });
+    const ws = await connectSpaceSessionWebSocket({
+      url: wsUrl,
+      headers: async () =>
+        await buildOpenMeldProfileIdentityRequestHeadersWithAuth({
+          requestUrl: wsUrl,
+          profileIdentity,
+          spacePassword: input.password,
+        }),
+      ...(connectionMode === "watch"
+        ? {
+            recovery: {
+              onReconnecting: (attempt: number) => {
+                watchReadState.hasReconnected = true;
+                isReplayingHistory = true;
+                presenter.event("info", "connect.reconnecting", { attempt });
+              },
+              onReconnected: async (client, isCurrent) => {
+                await initialReplayReady;
+                if (sessionEnded() || !isCurrent()) {
+                  return;
+                }
+                isReplayingHistory = true;
+                client.send(
+                  JSON.stringify(makeHello(toProtocolProfile(profileIdentity)))
+                );
+                await replaySpaceWatchHistory({
+                  profileIdentity,
+                  baseUrl,
+                  space,
+                  password: input.password,
+                  recentHistoryLimit,
+                  watchReadState,
+                  shouldContinue: () => !sessionEnded() && isCurrent(),
+                  readModelSeed,
+                  ownerDisplayNameByUserId,
+                  seenSignalIds: catchupSeenSignalIds,
+                  onReplayEvent: (event) => emitEvent(event, "history"),
+                  onError: (error) =>
+                    presenter.event("info", "connect.warn.catchup_failed", {
+                      error: toErrorMessage(error),
+                    }),
+                });
+                if (sessionEnded() || !isCurrent()) {
+                  return;
+                }
+                isReplayingHistory = false;
+                for (const event of bufferedLiveEvents) {
+                  handleIncomingEvent(event);
+                }
+                bufferedLiveEvents.length = 0;
+                presenter.event("info", "connect.reconnected");
+              },
+            },
+          }
+        : {}),
     }).catch((err) => {
       throw new Error(toErrorMessage(err));
     });
-    const initialMembersSnapshot = await readModelSeed
-      .ensureMembersSnapshotLoaded()
-      .catch((error: unknown) => {
-        presenter.event("info", "connect.warn.members_fetch_failed", {
-          error: toErrorMessage(error),
-        });
-        return readModelSeed.getMembersSnapshot();
-      });
-
-    if (gatewayHost) {
-      await syncProfileSpaceHistoryActive({
-        openMeldProfileId,
-        requestContext: buildProfileRequestContext(),
-        baseUrl,
-        space,
-        gatewayHost,
-        spaceMeta,
-        lastSeenTs,
-      }).catch((error) => {
-        presenter.event(
-          "info",
-          "connect.warn.profile_space_history_sync_failed",
-          {
-            error: toErrorMessage(error),
-          }
-        );
-      });
-    }
-
-    emitSessionMeta({
-      accessMode: sessionMeta.accessMode,
-      output,
-      spaceId: sessionMeta.spaceId,
-      spaceName: sessionMeta.spaceName,
-      spaceCreatedAt: sessionMeta.spaceCreatedAt,
-      spaceCreatorName: sessionMeta.spaceCreatorName,
-      spaceCreatorId: sessionMeta.spaceCreatorId,
-      passwordProtected: sessionMeta.passwordProtected,
-      profileId: profileIdentity.openMeldProfileId,
-      profileName: profileIdentity.profileName,
-      profileKind: profileIdentity.kind,
-      ownerUserId: profileIdentity.ownerUserId,
-      ownerName: profileIdentity.ownerName,
-      agentControllerRef: profileIdentity.agentControllerRef,
-      agentControllerConversationId:
-        profileIdentity.agentControllerConversationId,
-      modelSelection: resolveSessionProfileModelSelection({
-        profileId: profileIdentity.openMeldProfileId,
-        spaceMembersSnapshot: readModelSeed.getMembersSnapshot() ?? undefined,
-      }),
-      spaceMembersSnapshot: readModelSeed.getMembersSnapshot() ?? undefined,
-      gatewayUrl: baseUrl,
-      stdio: input.stdio,
-      visibility: sessionMeta.visibility,
-    });
-    if (output === "ndjson" && initialMembersSnapshot) {
-      emitSpaceMembers(
-        runtime.resolvedView === "agent"
-          ? normalizeAgentOutputMembersSnapshot(initialMembersSnapshot)
-          : initialMembersSnapshot
-      );
-    }
-
-    let isReplayingHistory = true;
-    const bufferedLiveEvents: Array<SignalEnvelope | HelloAck> = [];
     // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Event handling keeps the replay/live merge rules in one place.
     const handleIncomingEvent = (event: SignalEnvelope | HelloAck): void => {
       const ignoreResult = shouldIgnoreIncomingSignal({
         event,
-        liveFloorTs,
+        liveFloorTs: watchReadState.hasReconnected ? 0 : liveFloorTs,
         seenSignalIds: catchupSeenSignalIds,
         selfProfileId: profileIdentity.openMeldProfileId,
       });
@@ -1261,6 +1261,13 @@ export async function runConnect(input: {
       if (isReplayingHistory) {
         if (bufferedLiveEvents.length < CATCHUP_LIVE_BUFFER_MAX) {
           bufferedLiveEvents.push(event);
+          return;
+        }
+        if (watchReadState.hasReconnected) {
+          ws.close(
+            1009,
+            "Space watch catch-up exceeded its live buffer. Read Space history before starting another watch."
+          );
           return;
         }
         isReplayingHistory = false;
@@ -1302,6 +1309,7 @@ export async function runConnect(input: {
     let isClosing = false;
     let localCloseReason: string | null = null;
     let wsEnded = false;
+    const sessionEnded = () => isClosing || wsEnded;
     ws.onClose((code, reason) => {
       wsEnded = true;
       const closeDetails = resolveWebSocketCloseDetails({ code, reason });
@@ -1310,6 +1318,7 @@ export async function runConnect(input: {
         reason: closeDetails.reason,
       });
       if (
+        output === "text" &&
         shouldRenderHumanNormalLeaveCard({
           resolvedView: runtime.resolvedView,
           closeCode: closeDetails.code,
@@ -1336,7 +1345,7 @@ export async function runConnect(input: {
         return;
       }
       presenter.event("info", "connect.closed_with_code_reason", closeDetails);
-      process.exitCode = process.exitCode ?? 0;
+      process.exitCode = process.exitCode ?? (isClosing ? 0 : 1);
     });
 
     ws.onError((err) => {
@@ -1353,9 +1362,86 @@ export async function runConnect(input: {
       process.exitCode = 1;
     });
 
-    ws.send(JSON.stringify(makeHello(toProtocolProfile(profileIdentity))));
+    // Observe terminal socket events before startup's HTTP reads. A failed
+    // recovery can finish while those reads are still pending.
+    const initialMembersSnapshot = await readModelSeed
+      .ensureMembersSnapshotLoaded()
+      .catch((error: unknown) => {
+        presenter.event("info", "connect.warn.members_fetch_failed", {
+          error: toErrorMessage(error),
+        });
+        return readModelSeed.getMembersSnapshot();
+      });
+    if (gatewayHost) {
+      await syncProfileSpaceHistoryActive({
+        openMeldProfileId,
+        requestContext: buildProfileRequestContext(),
+        baseUrl,
+        space,
+        gatewayHost,
+        spaceMeta,
+        lastSeenTs,
+      }).catch((error) => {
+        presenter.event(
+          "info",
+          "connect.warn.profile_space_history_sync_failed",
+          {
+            error: toErrorMessage(error),
+          }
+        );
+      });
+    }
+    if (wsEnded) {
+      finishInitialReplay();
+      if (replyingStatusSweepTimer) {
+        clearTimeout(replyingStatusSweepTimer);
+        replyingStatusSweepTimer = null;
+      }
+      cancelLastSeenTimer();
+      await flushLastSeen();
+      return;
+    }
+    emitSessionMeta({
+      accessMode: sessionMeta.accessMode,
+      output,
+      spaceId: sessionMeta.spaceId,
+      spaceName: sessionMeta.spaceName,
+      spaceCreatedAt: sessionMeta.spaceCreatedAt,
+      spaceCreatorName: sessionMeta.spaceCreatorName,
+      spaceCreatorId: sessionMeta.spaceCreatorId,
+      passwordProtected: sessionMeta.passwordProtected,
+      profileId: profileIdentity.openMeldProfileId,
+      profileName: profileIdentity.profileName,
+      profileKind: profileIdentity.kind,
+      ownerUserId: profileIdentity.ownerUserId,
+      ownerName: profileIdentity.ownerName,
+      agentControllerRef: profileIdentity.agentControllerRef,
+      agentControllerConversationId:
+        profileIdentity.agentControllerConversationId,
+      modelSelection: resolveSessionProfileModelSelection({
+        profileId: profileIdentity.openMeldProfileId,
+        spaceMembersSnapshot: readModelSeed.getMembersSnapshot() ?? undefined,
+      }),
+      spaceMembersSnapshot: readModelSeed.getMembersSnapshot() ?? undefined,
+      gatewayUrl: baseUrl,
+      stdio: input.stdio,
+      visibility: sessionMeta.visibility,
+    });
+    if (output === "ndjson" && initialMembersSnapshot) {
+      emitSpaceMembers(
+        runtime.resolvedView === "agent"
+          ? normalizeAgentOutputMembersSnapshot(initialMembersSnapshot)
+          : initialMembersSnapshot
+      );
+    }
 
-    const replayState = await replayConnectInitialHistoryBootstrap({
+    // Recovery sends its own hello after the initial read establishes an
+    // anchor. The wrapper rejects sends while that recovery is in progress.
+    if (!(watchReadState.hasReconnected || wsEnded)) {
+      ws.send(JSON.stringify(makeHello(toProtocolProfile(profileIdentity))));
+    }
+
+    const replayState = await replayConnectHistoryBootstrap({
       profileIdentity,
       baseUrl,
       space,
@@ -1388,11 +1474,17 @@ export async function runConnect(input: {
     if (!replayState.synced) {
       pauseLiveCursorPersistence();
     }
-    isReplayingHistory = false;
-    for (const event of bufferedLiveEvents) {
-      handleIncomingEvent(event);
+    // A replacement socket can buffer later messages while the initial HTTP
+    // read is pending. Only its anchored catch-up may merge those messages;
+    // draining them here would skip the disconnect gap by moving the anchor.
+    if (!watchReadState.hasReconnected) {
+      isReplayingHistory = false;
+      for (const event of bufferedLiveEvents) {
+        handleIncomingEvent(event);
+      }
+      bufferedLiveEvents.length = 0;
     }
-    bufferedLiveEvents.length = 0;
+    finishInitialReplay();
     let forceTerminateTimer: NodeJS.Timeout | null = null;
     const clearForceTerminate = () => {
       if (!forceTerminateTimer) {
@@ -1839,6 +1931,10 @@ async function runInteractiveHumanTextSession(input: {
 
   const activityRowsById = new Map<string, DispatchActivityRowState>();
   const catchupSeenSignalIds = new Set<string>();
+  const watchReadState = {
+    anchorSignalId: null as string | null,
+    hasReconnected: false,
+  };
   let liveFloorTs = input.initialLiveFloorTs;
   let allowLiveCursorPersistence = true;
   let persistedLastSeenFloorTs = input.initialLiveFloorTs;
@@ -2003,11 +2099,13 @@ async function runInteractiveHumanTextSession(input: {
 
   const runtime = new SpaceSessionRuntime({
     wsUrl: input.wsUrl,
-    wsHeaders: await buildOpenMeldProfileIdentityRequestHeadersWithAuth({
-      requestUrl: input.wsUrl,
-      profileIdentity: input.profileIdentity,
-      spacePassword: input.password,
-    }),
+    wsHeaders: async () =>
+      await buildOpenMeldProfileIdentityRequestHeadersWithAuth({
+        requestUrl: input.wsUrl,
+        profileIdentity: input.profileIdentity,
+        spacePassword: input.password,
+      }),
+    recoverConnection: input.connectionMode === "watch",
     helloProfile: toProtocolProfile(input.profileIdentity),
     selfProfileId: input.profileIdentity.openMeldProfileId,
     loadMembers: async () => {
@@ -2020,23 +2118,27 @@ async function runInteractiveHumanTextSession(input: {
           return input.readModelSeed.getMembersSnapshot();
         });
     },
-    replayHistory: async (onEvent) => {
-      const replayState = await replayConnectInitialHistoryBootstrap({
+    replayHistory: async (onEvent, reconnect, shouldContinue) => {
+      const replayInput = {
         profileIdentity: input.profileIdentity,
         baseUrl: input.baseUrl,
         space: input.space,
         password: input.password,
         recentHistoryLimit: input.recentHistoryLimit,
+        shouldContinue,
         readModelSeed: input.readModelSeed,
         ownerDisplayNameByUserId: input.ownerDisplayNameByUserId,
         seenSignalIds: catchupSeenSignalIds,
         onReplayEvent: onEvent,
-        onError: (error) => {
+        onError: (error: unknown) => {
           input.presenter.event("info", "connect.warn.catchup_failed", {
             error: toErrorMessage(error),
           });
         },
-      });
+      };
+      const replayState = reconnect
+        ? await replaySpaceWatchHistory({ ...replayInput, watchReadState })
+        : await replayConnectHistoryBootstrap(replayInput);
       return { synced: replayState.synced };
     },
     formatError: toErrorMessage,
@@ -2289,6 +2391,7 @@ async function runInteractiveHumanTextSession(input: {
     event: SignalEnvelope | HelloAck,
     source: "history" | "live"
   ): void => {
+    rememberSpaceWatchAnchor(watchReadState, event);
     scheduleEventLastSeen(event);
     if (isSignalEnvelope(event)) {
       liveFloorTs = Math.max(liveFloorTs, event.ts);
@@ -2319,7 +2422,7 @@ async function runInteractiveHumanTextSession(input: {
     handleInteractiveIncomingEvent({
       appendTranscriptEvent,
       event,
-      liveFloorTs,
+      liveFloorTs: watchReadState.hasReconnected ? 0 : liveFloorTs,
       onIgnoredOlderThanLiveFloor: (ignoredEvent) => {
         processIgnoredOlderThanLiveFloorSignal({
           event: ignoredEvent,
@@ -2502,9 +2605,19 @@ async function runInteractiveHumanTextSession(input: {
       "connect.closed_with_code_reason",
       closeDetails
     );
-    process.exitCode = process.exitCode ?? 0;
+    process.exitCode = process.exitCode ?? 1;
   };
   const removeRuntimeListener = runtime.subscribe((event) => {
+    if (event.type === "connection.reconnecting") {
+      watchReadState.hasReconnected = true;
+      shell.prepareExternalWrite();
+      input.presenter.event("info", "connect.reconnecting", {
+        attempt: event.attempt,
+      });
+    }
+    if (event.type === "connected" && watchReadState.hasReconnected) {
+      input.presenter.event("info", "connect.reconnected");
+    }
     handleInteractiveRuntimeEvent({
       event,
       handleConnectionClosedEvent,

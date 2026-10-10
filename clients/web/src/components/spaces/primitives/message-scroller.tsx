@@ -18,7 +18,9 @@ export const MESSAGE_SCROLLER_BUTTON_MOTION_CLASS_NAME =
 function MessageScrollerProvider(
 	props: ComponentProps<typeof MessageScrollerPrimitive.Provider>
 ) {
-	return <MessageScrollerPrimitive.Provider {...props} />;
+	return (
+		<MessageScrollerPrimitive.Provider scrollEdgeThreshold={48} {...props} />
+	);
 }
 
 function MessageScroller({

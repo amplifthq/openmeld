@@ -240,6 +240,19 @@ export type RuntimeTransportSetProfileWorkspaceRequest = import("zod/v4").infer<
   typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportSetProfileWorkspaceRequestSchema"]
 >;
 
+export type RuntimeTransportReadProfileWorkspaceRequest =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportReadProfileWorkspaceRequestSchema"]
+  >;
+export type RuntimeTransportReadProfileWorkspaceResponse =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportReadProfileWorkspaceResponseSchema"]
+  >;
+export type RuntimeTransportLocalAgentControlReadProfileWorkspaceFramePayload =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportLocalAgentControlReadProfileWorkspaceFramePayloadSchema"]
+  >;
+
 export type RuntimeTransportSetProfileWorkspaceResponse =
   import("zod/v4").infer<
     typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportSetProfileWorkspaceResponseSchema"]

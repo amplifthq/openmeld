@@ -21,6 +21,7 @@ import {
   readOrganizationRouteSlug,
   resolveActiveOrganizationMembership,
 } from "../organizations/organization-context";
+import { resolveNativeDeliveryReplyThreadContext } from "../remote-agent/application/reply-placement";
 import { readRemoteAgentNativeDeliveryByExecution } from "../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
@@ -29,15 +30,13 @@ import {
   rpcPostSignalOnceByClientMessageId,
   rpcReadPluginConnectionLocalSource,
 } from "../rpc/methods";
-import {
-  pluginContinuationMessageFingerprint,
-  pluginContinuationTextDigest,
-} from "../space/application/plugin-connection-continuation-guard";
+import { pluginContinuationMessageFingerprint } from "../space/application/plugin-connection-continuation-guard";
 import { selectActiveConnectorConnection } from "./connector-connection-repository";
 import {
   requirePluginPermission,
   requireRemotePluginConnection,
 } from "./plugin-access";
+import { pluginContinuationTextDigest } from "./plugin-connection-source-fingerprint";
 import { requirePluginProfile } from "./plugin-local-caller";
 /** Provider callbacks never call this. The authenticated human explicitly
  * requests one new continuation Message; existing Wake and operation owners
@@ -241,7 +240,6 @@ async function readOriginalRequestGuard(
     aroundSignalId: input.signalId,
     beforeCount: 0,
     afterCount: 0,
-    limit: 1,
   });
   const original =
     signals.signals.find((signal) => signal.id === input.signalId) ?? null;
@@ -304,7 +302,6 @@ async function readContinuationSource(
     aroundSignalId: input.sourceSignalId,
     beforeCount: 0,
     afterCount: 0,
-    limit: 1,
   });
   const reply = signals.signals.find(
     (signal) => signal.id === input.sourceSignalId
@@ -333,7 +330,9 @@ async function readContinuationSource(
   if (!delivery) {
     return await readLocalContinuationSource(env, input, member, reply);
   }
-  const request = delivery.workerSubmitRequest;
+  // Admission clears its queue payload. Completed tasks retain the immutable
+  // execution recovery request for identity and exact-request checks.
+  const request = delivery.executionRecoverySubmitRequest;
   if (
     !(
       delivery &&
@@ -383,7 +382,10 @@ async function readContinuationSource(
       dispatchId: delivery.dispatchId,
       createdAtMs: delivery.createdAtMs,
       completedAtMs: delivery.completedAtMs,
-      threadContext: delivery.threadContext,
+      threadContext: await resolveNativeDeliveryReplyThreadContext({
+        env,
+        delivery,
+      }),
     },
     sender: { profileId: sender.profileId, displayName: sender.displayName },
     consumer: {
@@ -409,7 +411,12 @@ async function readLocalContinuationSource(
     }
   >
 ) {
-  const source = await rpcReadPluginConnectionLocalSource(env, input);
+  const source = await rpcReadPluginConnectionLocalSource(env, {
+    context: input.context,
+    spaceId: input.spaceId,
+    sourceSignalId: input.sourceSignalId,
+    ...(input.password !== undefined ? { password: input.password } : {}),
+  });
   const agent = await requirePluginProfile(env, source.targetProfileId);
   if (
     agent.profileKind !== "agent" ||

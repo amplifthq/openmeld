@@ -33,7 +33,7 @@ export function registerSpaceFilesCommands(spaceCommand: Command): void {
         .argument("<space>", "Space ID")
         .requiredOption(
           "--manifest <path>",
-          "Selected file and Skill revisions, progress, and next steps"
+          "Versioned work brief with exact file/Skill revisions or a published code commit"
         )
         .requiredOption("--target <profile-id>", "Agent Profile to Wake")
         .requiredOption(

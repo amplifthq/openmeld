@@ -11,7 +11,6 @@ import {
 	PencilSimpleIcon,
 	PlayIcon,
 	PlusIcon,
-	SidebarSimpleIcon,
 } from "@phosphor-icons/react";
 import { useInView } from "motion/react";
 import { useEffect, useRef, useState } from "react";
@@ -86,9 +85,7 @@ export function CliShowcase() {
 					</div>
 					<div aria-hidden="true" className="meld-codex-layout">
 						<aside className="meld-codex-sidebar">
-							<strong>
-								Codex <SidebarSimpleIcon size={17} />
-							</strong>
+							<strong>Codex</strong>
 							<div>
 								<PencilSimpleIcon size={16} />
 								New chat
@@ -161,7 +158,7 @@ export function CliShowcase() {
 							<div className="composer-surface meld-codex-composer">
 								<div className="meld-codex-context">
 									<FolderIcon size={14} />
-									OpenMeld <span>This computer</span>
+									OpenMeld
 								</div>
 								<div className="meld-codex-input">
 									{sent ? (
@@ -172,8 +169,6 @@ export function CliShowcase() {
 								</div>
 								<div className="meld-codex-composer-tools">
 									<PlusIcon size={18} />
-									<span>Local</span>
-									<span className="meld-codex-model">Codex</span>
 									<span
 										className={
 											!sent && typed.length === prompt.length

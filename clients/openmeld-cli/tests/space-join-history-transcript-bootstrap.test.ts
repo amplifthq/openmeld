@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { setAuthSession } from "../src/config/auth-session";
 import {
   emitHumanConnectTranscriptEvent,
-  replayConnectInitialHistoryBootstrap,
+  replayConnectHistoryBootstrap,
 } from "../src/space/connect-history-transcript-bootstrap";
 import { withTempHome } from "./helpers/fs";
 
@@ -181,7 +181,7 @@ describe("space join history transcript bootstrap", () => {
       const replaySeedSnapshots: string[][] = [];
       let replayedLines: readonly string[] = [];
 
-      const result = await replayConnectInitialHistoryBootstrap({
+      const result = await replayConnectHistoryBootstrap({
         profileIdentity: {
           kind: "human",
           openMeldProfileId: "11111111-0000-0000-0000-000000000001",
@@ -265,7 +265,7 @@ describe("space join history transcript bootstrap", () => {
         })
       );
 
-      const result = await replayConnectInitialHistoryBootstrap({
+      const result = await replayConnectHistoryBootstrap({
         profileIdentity: {
           kind: "agent",
           openMeldProfileId: "agt_11111111-0000-0000-0000-000000000001",
@@ -283,6 +283,7 @@ describe("space join history transcript bootstrap", () => {
 
       expect(result).toEqual({
         synced: false,
+        confirmedAnchorSignalId: null,
         latestReplayedSignalTs: null,
         lastTranscriptGroupKey: null,
       });

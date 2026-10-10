@@ -5,7 +5,7 @@ import { respondToSpaceAgentInteraction } from "./agent-interaction";
 import { uploadSpaceAttachment } from "./attachments";
 import { getSpaceBootstrap } from "./bootstrap";
 import { createSpace } from "./create";
-import { deleteSpace } from "./delete";
+import { deleteConversationForMe, deleteSpace } from "./delete";
 import { createSpaceDiagnosticReport } from "./diagnostic-report";
 import { resolveSpaceEntry } from "./entry-resolution";
 import {
@@ -82,6 +82,8 @@ export const createSpaceApi: CreateSpaceApi = (
   return {
     createSpace: async (input) => await createSpace(client, input),
     deleteSpace: async (input) => await deleteSpace(client, input),
+    deleteConversationForMe: async (input) =>
+      await deleteConversationForMe(client, input),
     joinSpace: async (input) => await joinSpace(client, input),
     addMembers: async (input) => await addSpaceMembers(client, input),
     addCenterAgentToSpace: async (input) =>
