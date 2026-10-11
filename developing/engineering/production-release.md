@@ -2090,7 +2090,12 @@ CLI stage. This does not introduce a second npm publisher or dispatch tracker.
 Use `release:status -- --ref <product-sha> --change-base <pre-merge-sha>
 --check-complete` for the deployment closeout check. It requires real receipts,
 rejects `--deployed` planning overrides, and exits nonzero for missing or pending
-components. Human output labels deployable work as incomplete. This check does
+components. Scope impact and deployed completion are independent of whether the
+changes admit one combined deployment order. Ambiguous ordering remains visible
+and blocks automatic continuation; explicitly reviewed single-component stages
+still use receipt-based admission. Once all affected components have current
+receipts, the completion check can succeed without inventing a combined order.
+Human output labels deployable work as incomplete. This check does
 not certify product smoke, Desktop installation, or Desktop update acceptance.
 
 The guarded local executor is safe to rerun after interruption. Completion

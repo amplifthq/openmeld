@@ -210,6 +210,16 @@ test("resumes only unfinished components and waits for their verified receipts",
   for (const [unchanged, expectedAttempts] of [
     [initial, 1],
     [unresolved, 0],
+    [
+      {
+        ...initial,
+        currentChange: {
+          ...initial.currentChange,
+          orderingError: "Ambiguous request owner",
+        },
+      },
+      0,
+    ],
   ]) {
     const attempted = [];
     await assert.rejects(

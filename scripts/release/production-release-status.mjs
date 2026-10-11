@@ -255,6 +255,7 @@ export async function collectProductionReleaseStatus(input = {}) {
         baseRef: options.changeBase,
         baseSha: changeBaseSha,
         buildPlan: adapters.buildPlan,
+        buildImpact: adapters.buildImpact,
         globalPendingScopes: pendingScopes,
         sourceSha,
       })
@@ -378,9 +379,12 @@ function resolveChangeBaseSha(input) {
 }
 
 function buildCurrentChangeFacts(input) {
-  let plan;
+  let impact;
   try {
-    plan = input.buildPlan({ base: input.baseSha, sourceSha: input.sourceSha });
+    impact = input.buildImpact({
+      base: input.baseSha,
+      sourceSha: input.sourceSha,
+    });
   } catch (error) {
     return {
       baseRef: input.baseRef,
@@ -391,14 +395,23 @@ function buildCurrentChangeFacts(input) {
       error: error.message,
     };
   }
+  // Completion describes deployed facts. Ordering remains a separate admission
+  // requirement for automatic continuation, including after manual stages.
+  let orderingError;
+  try {
+    input.buildPlan({ base: input.baseSha, sourceSha: input.sourceSha });
+  } catch (error) {
+    orderingError = error.message;
+  }
   return {
     baseRef: input.baseRef,
     baseSha: input.baseSha,
-    changedPaths: plan.changedPaths,
-    pendingScopes: plan.scopes.filter((scope) =>
+    changedPaths: impact.changedPaths,
+    ...(orderingError ? { orderingError } : {}),
+    pendingScopes: impact.scopes.filter((scope) =>
       input.globalPendingScopes.includes(scope)
     ),
-    scopes: plan.scopes,
+    scopes: impact.scopes,
   };
 }
 
@@ -1403,7 +1416,13 @@ function formatReleaseStatus(result) {
         ]),
     `Global pending scopes: ${result.globalPendingScopes.length > 0 ? result.globalPendingScopes.join(", ") : "none"}`,
     `Workflow mapping (facts only): ${result.workflowMapping}`,
-    ...(result.currentChange?.pendingScopes.length > 0
+    ...(result.currentChange?.orderingError
+      ? [
+          `Automatic ordering unavailable: ${result.currentChange.orderingError}`,
+        ]
+      : []),
+    ...(result.currentChange?.pendingScopes.length > 0 &&
+    !result.currentChange.orderingError
       ? [
           `Local continuation from the clean approved source checkout: pnpm release:deploy:local -- --base ${result.currentChange.baseSha} --scope auto`,
           "Continuation uses the existing local component commands and credentials. It skips current components and stops on unresolved evidence or unsupported prerequisites.",

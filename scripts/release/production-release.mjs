@@ -3602,7 +3602,8 @@ function assertContinuationScope(status, input, scopes) {
   if (
     status.sourceSha !== input.sourceSha ||
     status.currentChange?.baseSha !== input.baseSha ||
-    status.currentChange.error
+    status.currentChange.error ||
+    status.currentChange.orderingError
   ) {
     throw new Error(
       "Release continuation requires the unchanged source and change base with a valid scope plan."
