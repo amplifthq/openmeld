@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-10T18:06:14.422Z",
+  "updatedAt": "2026-10-11T07:50:01.871Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-project-work-v1",
-      "packageVersion": "0.3.251",
-      "updatePolicy": "required",
-      "reason": "New native setup, account-journal locking and targeted Computer update checks are required before new main-path commands; update and self-rescue remain available."
+      "packageVersion": "0.3.252",
+      "updatePolicy": "available",
+      "reason": "The optional account-context cancellation options preserve existing CLI commands, setup, Space actions and diagnostics with both cloud versions."
     },
     "service": {
-      "bundleHash": "aa3c88c4d05c566b120ab9b3dd00a7823ea01a6cc5244ad8743572a56d7aa15f",
-      "portableBundleHash": "9fadcf1f72f298877f262585363306a9ba4a34c2f0fe6f1e2e29df3455442a00",
-      "bundleVersion": "0.3.251",
+      "bundleHash": "72985243d650dda61c41b7dfb7ef47c6fb1067115bf067924f7870504027ba8e",
+      "portableBundleHash": "ec12d7f7d0aa1f3782aa0b32169ed3f80f93e16dc3d746a905fea2957e4f164b",
+      "bundleVersion": "0.3.252",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
       "serviceContractVersion": "openmeld-service-contract-2026-09-project-work-v1",
-      "updatePolicy": "required",
-      "reason": "New work handoff requires execution Context 5 and the saved-workspace read contract; Core receivers must deploy first, and older Services must not receive new unsafe work."
+      "updatePolicy": "available",
+      "reason": "Existing cloud and Service versions use the same admission and lifecycle payloads; this update corrects OpenCode evidence without changing setup, Wake dispatch, Space actions or diagnostics contracts."
     },
     "skills": {
       "bundleHash": "0507d367ef298936053223f81441697545949fbf4d39b1b306872f7c254a4871",

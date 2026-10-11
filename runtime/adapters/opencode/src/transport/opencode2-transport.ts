@@ -58,6 +58,8 @@ export async function runOpenCode2Turn(input: OpenCode2TurnInput) {
     delivered: new Set(),
     assistantMessages: new Set(),
     started: false,
+    receiptId: null,
+    admissionReported: false,
     output: "",
     previewEmitted: false,
   };
@@ -105,12 +107,8 @@ export async function runOpenCode2Turn(input: OpenCode2TurnInput) {
       },
       { signal }
     );
-    await input.onRuntimeEvent?.({
-      phase: "provider_turn_accepted",
-      agentControllerConversationId: session.id,
-      turnId: receipt.id,
-      tsMs: Date.now(),
-    });
+    state.receiptId = receipt.id;
+    await reportOpenCode2Admission(input, state);
     await done.promise;
     if (!state.delivered.has(receipt.id)) {
       throw openCode2Error(
@@ -384,9 +382,34 @@ type TurnState = {
   delivered: Set<string>;
   assistantMessages: Set<string>;
   started: boolean;
+  receiptId: string | null;
+  admissionReported: boolean;
   output: string;
   previewEmitted: boolean;
 };
+
+async function reportOpenCode2Admission(
+  input: OpenCode2TurnInput,
+  state: TurnState
+) {
+  if (
+    !(
+      state.started &&
+      state.receiptId &&
+      state.delivered.has(state.receiptId)
+    ) ||
+    state.admissionReported
+  ) {
+    return;
+  }
+  state.admissionReported = true;
+  await input.onRuntimeEvent?.({
+    phase: "provider_turn_accepted",
+    agentControllerConversationId: state.sessionId,
+    turnId: state.receiptId,
+    tsMs: Date.now(),
+  });
+}
 
 async function observeEvent(
   input: OpenCode2TurnInput,
@@ -479,9 +502,11 @@ async function observeRootEvent(
   switch (event.type) {
     case "session.inbox.delivered":
       state.delivered.add(event.data.inboxID);
+      await reportOpenCode2Admission(input, state);
       break;
     case "session.execution.started":
       state.started = true;
+      await reportOpenCode2Admission(input, state);
       break;
     case "session.text.delta":
       state.output += event.data.delta;
