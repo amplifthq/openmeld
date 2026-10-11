@@ -6,7 +6,7 @@ import {
 } from "@cloudflare/computer";
 import { expect, it } from "vitest";
 
-it("bounds native path materialization before the first large-tree sync block", async () => {
+it("returns bounded preparation without materializing or acknowledging the large tree", async () => {
   const namespace = (env as { COMPUTER_PROBE: DurableObjectNamespace })
     .COMPUTER_PROBE;
   const stub = namespace.get(namespace.newUniqueId());
@@ -30,6 +30,11 @@ it("bounds native path materialization before the first large-tree sync block", 
       // the SDK's actual stream and acknowledges its exact cursor; it does not
       // manufacture planned entries or a successful shell execution.
       sync: {
+        retentionHead: async () => ({
+          epoch: "planning-peer",
+          generation: null,
+        }),
+        beginRetention: () => Promise.resolve(),
         watermarks: async () => ({
           currentRev: 0,
           pushRev: 0,
@@ -70,7 +75,7 @@ it("bounds native path materialization before the first large-tree sync block", 
         sql: {
           exec<Row extends object>(query: string, ...bindings: unknown[]) {
             if (
-              query.includes("targets(inode)") &&
+              query.includes("SELECT inode,rev FROM vfs_nodes") &&
               pathQueryPlans.length === 0
             ) {
               pathQueryPlans.push(
@@ -85,7 +90,7 @@ it("bounds native path materialization before the first large-tree sync block", 
             }
             const cursor = state.storage.sql.exec(query, ...bindings);
             const rows = cursor.toArray() as Row[];
-            if (query.includes("targets(inode)")) {
+            if (query.startsWith("SELECT") && !query.includes("EXPLAIN")) {
               pathQueries.push({
                 rowsRead: cursor.rowsRead,
                 returned: rows.length,
@@ -103,7 +108,7 @@ it("bounds native path materialization before the first large-tree sync block", 
           type: "typed-sync-probe",
           connect: async () => ({
             rpc,
-            sync: "remote",
+            sync: "remote" as const,
             close: async () => undefined,
           }),
         },
@@ -166,14 +171,18 @@ it("bounds native path materialization before the first large-tree sync block", 
     }
   });
   expect(result.first.complete).toBe(false);
+  expect(result.first.phase).toBe("preparing");
   expect(result.received).toBe(result.first.entries);
-  expect(result.first.cursor.rev).toBe(result.first.targetCursor.rev);
-  expect(result.first.cursor.path).not.toBeNull();
+  expect(result.received).toBe(0);
+  expect(result.first.cursor).toEqual({ rev: 0, path: null });
   // This fixture has one directory path per inode. Returning every ancestor
   // multiplies materialized JS rows by depth before any bounded block is sent.
   expect(
     Math.max(...result.pathQueries.map((query) => query.returned))
-  ).toBeLessThanOrEqual(512);
+  ).toBeLessThanOrEqual(1);
+  expect(
+    result.pathQueries.reduce((sum, query) => sum + query.rowsRead, 0)
+  ).toBeLessThan(1100);
   console.info(
     "sdk-sync-planning-probe",
     JSON.stringify({

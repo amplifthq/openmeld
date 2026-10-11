@@ -37,7 +37,7 @@ const job = (name, releaseSha, completedAt) => ({
 });
 const first = run(2),
   second = run(1);
-async function report(overrides = {}) {
+async function report(overrides = {}, checkComplete = false) {
   let output = "";
   const headSha = "1".repeat(40);
   const baseSha = "2".repeat(40);
@@ -85,7 +85,14 @@ async function report(overrides = {}) {
     ...overrides,
   };
   const code = await runProductionReleaseStatus({
-    argv: ["--ref", "target", "--change-base", "base", "--json"],
+    argv: [
+      "--ref",
+      "target",
+      "--change-base",
+      "base",
+      "--json",
+      ...(checkComplete ? ["--check-complete"] : []),
+    ],
     adapters,
     write: (s) => {
       output += s;
@@ -95,6 +102,47 @@ async function report(overrides = {}) {
 }
 
 const HISTORICAL_ORDER_CONFLICT = /Incompatible release dependencies/u;
+for (const state of ["current", "pending", "unknown"]) {
+  test(`checks manually staged completion despite ambiguous combined order: ${state}`, async () => {
+    const input = { ...capturedSourceImpact, scope: "auto" };
+    assert.throws(
+      () => buildProductionReleasePlan(input),
+      HISTORICAL_ORDER_CONFLICT
+    );
+    const { code, result } = await report(
+      {
+        readReleaseRuns: async () => [],
+        readLocalReleaseSources: async () =>
+          new Map(
+            RELEASE_SCOPES.filter(
+              (scope) => scope !== "web" || state !== "unknown"
+            ).map((scope) => [
+              scope,
+              {
+                sha: scope === "web" && state === "pending" ? OLD : TARGET,
+                source: "guarded-local",
+                recordedAt: "2026-09-18T12:00:00Z",
+                receipt: { status: "verified", application: "applied" },
+              },
+            ])
+          ),
+        buildImpact: ({ base }) =>
+          base === TARGET
+            ? { scopes: [], changedPaths: [] }
+            : buildProductionReleaseImpact(input),
+        buildPlan: () => buildProductionReleasePlan(input),
+      },
+      true
+    );
+    assert.match(result.currentChange.orderingError, HISTORICAL_ORDER_CONFLICT);
+    assert.ok(result.currentChange.scopes.includes("web"));
+    assert.equal(
+      result.components.find(({ scope }) => scope === "web").state,
+      state
+    );
+    assert.equal(code, state === "current" ? 0 : 1);
+  });
+}
 for (const scenario of [
   "complete",
   "listing-failure",

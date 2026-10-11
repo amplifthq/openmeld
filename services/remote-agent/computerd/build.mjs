@@ -1,11 +1,23 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmod, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
 
 // Use the pinned upstream compiler and SEA bootstrap. Only the Linux image is
 // built here; the upstream release script also builds an unrelated macOS binary.
 const root = process.cwd();
+const requireRpc = createRequire(resolve(root, "packages/rpc/package.json"));
+const capnwebRoot = resolve(requireRpc.resolve("capnweb"), "../..");
+const capnwebPackage = JSON.parse(
+  await readFile(resolve(capnwebRoot, "package.json"), "utf8")
+);
+if (capnwebPackage.version !== "0.12.0") {
+  throw new Error("Unexpected native capnweb version");
+}
+execFileSync("patch", ["-p1", "-i", resolve(root, "openmeld-capnweb.patch")], {
+  cwd: capnwebRoot,
+});
 if (
   process.platform !== "linux" ||
   process.arch !== "x64" ||
@@ -69,11 +81,12 @@ await writeFile(
   resolve(work, "source.json"),
   `${JSON.stringify(
     {
-      upstreamCommit: "070359ff2db12442845bfce84512ec9beae35cdf",
+      upstreamCommit: "ec39cb693a5be73a735d375e228b4e2adb754abb",
       sourceArchiveSha256:
-        "5e6edfdc33a15326a7aaa60382ff52931b09fe10080205b12ed5f0decaf04341",
+        "f01ac86d7716bca575517f29786ace8c8e5be6d3908914ca7894656b7b81c74d",
       dependencyLockSha256: await hash(resolve(root, "package-lock.json")),
       sourcePatchSha256: await hash(resolve(root, "openmeld-source.patch")),
+      transportPatchSha256: await hash(resolve(root, "openmeld-capnweb.patch")),
       binarySha256: await hash(binary),
       nodeVersion: process.version,
     },

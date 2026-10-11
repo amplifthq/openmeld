@@ -29,8 +29,7 @@ const WINDOWS_PREVIEW_PATHS = [
   "scripts/release/publish-windows-internal-preview.mjs",
 ];
 const PENDING_RECEIVER = /pending prerequisite/u;
-const INBOX_SOURCE_TARGET_SCOPE_REQUIRED =
-  /requires the Web, Gateway, and Core scopes/u;
+const UNRESOLVED_TASK_RECEIVER = /evidence is unresolved/u;
 const inboxMembershipFixture = JSON.parse(
   readFileSync(
     new URL(
@@ -217,20 +216,71 @@ test("Inbox membership opt-in actual Gateway stage rejects pending Core and anot
   }
 });
 
-test("Inbox membership opt-in does not remove source-target scope protection", () => {
-  assert.throws(
-    () =>
-      buildProductionDeployStepSpecs(["core"], {
-        changedPaths: [
-          "packages/schemas/src/schemas/http/inbox.ts",
-          "services/core/src/remote-agent/application/native-delivery-service.ts",
-        ],
-        compatibilityContext: inboxMembershipContext(
-          inboxMembershipFixture.sourceSha
-        ),
-      }),
-    INBOX_SOURCE_TARGET_SCOPE_REQUIRED
+test("Inbox membership opt-in preserves source-target receiver admission", () => {
+  const changedPaths = [
+    "packages/schemas/src/schemas/http/inbox.ts",
+    "services/core/src/remote-agent/application/native-delivery-service.ts",
+  ];
+  const sourceSha = inboxMembershipFixture.sourceSha;
+  const context = inboxMembershipContext(sourceSha);
+  const obligations = resolveProductionCompatibilityObligations(
+    changedPaths,
+    false,
+    context
   );
+  assert.deepEqual(
+    obligations.filter(({ contract }) => contract === "inbox-source-target"),
+    [
+      { contract: "inbox-source-target", receiver: "web", producer: "core" },
+      {
+        contract: "inbox-source-target",
+        receiver: "gateway",
+        producer: "core",
+      },
+    ]
+  );
+  const steps = buildProductionDeployStepSpecs(["core"], {
+    changedPaths,
+    compatibilityContext: context,
+  });
+  assert.ok(steps.some((step) => step.releaseScope === "core"));
+  const receivers = ["web", "gateway"].map((scope) => ({
+    scope,
+    state: "current",
+    sha: sourceSha,
+  }));
+  const stage = {
+    sourceSha,
+    selectedScopes: ["core"],
+    components: [
+      ...receivers,
+      {
+        scope: "core",
+        state: "pending",
+        sha: inboxMembershipFixture.callers.legacy.sha,
+        compatibilityObligations: obligations,
+        compatibilityDependencies: resolveProductionCompatibilityDependencies(
+          changedPaths,
+          false,
+          context
+        ),
+      },
+    ],
+  };
+  for (const receiver of receivers) {
+    receiver.state = "pending";
+    assert.throws(
+      () => assertProductionStageAdmission(stage),
+      PENDING_RECEIVER
+    );
+    receiver.state = "unknown";
+    assert.throws(
+      () => assertProductionStageAdmission(stage),
+      UNRESOLVED_RECEIVER
+    );
+    receiver.state = "current";
+  }
+  assert.doesNotThrow(() => assertProductionStageAdmission(stage));
 });
 // The eight changed paths from the safe-workspace named receiver increment.
 const SAFE_WORKSPACE_INCREMENT = [
@@ -1053,6 +1103,80 @@ const SPACE_TASK_RECEIVERS = [
   "services/core/src/rpc/methods.ts",
   "services/core/src/space/transport/do/space.ts",
 ];
+
+test("the real Task v2-to-v3 increment requires receivers for unchanged transitive callers", () => {
+  const sourceSha = "44719d48eeab319d84852e7cba4fcf68621640a6";
+  const base = `${sourceSha}^1`;
+  const changedPaths = execFileSync(
+    "git",
+    ["diff", "--name-only", base, sourceSha],
+    { encoding: "utf8" }
+  )
+    .trim()
+    .split("\n");
+  assert.ok(!changedPaths.includes("packages/api-client/src/space/tasks.ts"));
+  assert.ok(
+    !changedPaths.includes("clients/openmeld-cli/src/space/dispatch-task.ts")
+  );
+  const compatibilityDependencies = resolveProductionCompatibilityDependencies(
+    changedPaths,
+    false,
+    { base, sourceSha }
+  );
+  for (const [scope, receiver] of [
+    ["cli", "gateway"],
+    ["web", "gateway"],
+    ["remote-agent", "core"],
+  ]) {
+    const components = [
+      "core",
+      "gateway",
+      "web",
+      "cli",
+      "remote-agent",
+      "auth",
+      "db",
+    ].map((item) => ({
+      scope: item,
+      state: item === scope || item === receiver ? "pending" : "current",
+      compatibilityDependencies,
+    }));
+    const input = { components, selectedScopes: [scope], sourceSha };
+    assert.throws(
+      () => assertProductionStageAdmission(input),
+      PENDING_RECEIVER
+    );
+    const prerequisite = components.find((item) => item.scope === receiver);
+    prerequisite.state = "unknown";
+    assert.throws(
+      () => assertProductionStageAdmission(input),
+      UNRESOLVED_TASK_RECEIVER
+    );
+    prerequisite.state = "current";
+    assert.deepEqual(assertProductionStageAdmission(input).selectedScopes, [
+      scope,
+    ]);
+  }
+  assert.deepEqual(
+    resolveProductionCompatibilityDependencies(
+      [SPACE_TASK_RECEIVERS[0]],
+      false,
+      {
+        base,
+        sourceSha,
+        readGitFile: () => {
+          throw new Error("unavailable");
+        },
+      }
+    ),
+    [
+      ["core", "gateway"],
+      ["gateway", "web"],
+      ["gateway", "cli"],
+      ["core", "remote-agent"],
+    ]
+  );
+});
 const DEVICE_WAIT_RECEIVERS = [
   "packages/schemas/src/schemas/protocol/wake-device-wait.ts",
   "services/core/src/space/transport/do/space.ts",
@@ -1082,6 +1206,7 @@ test("keeps default scheduling and unrelated pending scopes out of the dependenc
 
 test("adds only the Space Task dependency for the changed caller", () => {
   const context = {
+    base: "0".repeat(40),
     sourceSha: "1".repeat(40),
     readGitFile: () => "// legacy caller",
   };
@@ -1113,6 +1238,32 @@ test("adds only the Space Task dependency for the changed caller", () => {
   );
 });
 
+test("routes changed Web and shared Task callers through Gateway receipts", () => {
+  const context = {
+    base: "0".repeat(40),
+    sourceSha: "1".repeat(40),
+    readGitFile: () => "// legacy caller",
+  };
+  for (const caller of [
+    "clients/web/src/components/spaces/use-space-tasks-panel-controller.ts",
+    "clients/web/src/components/spaces/use-space-message-task-action.ts",
+    "packages/api-client/src/space/tasks.ts",
+  ]) {
+    assert.deepEqual(
+      resolveProductionCompatibilityDependencies(
+        [...SPACE_TASK_RECEIVERS, caller],
+        false,
+        context
+      ),
+      [
+        ["core", "gateway"],
+        ["gateway", "web"],
+        ...(caller.startsWith("packages/") ? [["gateway", "cli"]] : []),
+      ]
+    );
+  }
+});
+
 test("retains all contracts on a deduplicated receiver/producer edge", () => {
   const changedPaths = [
     ...REMOTE_AI_USAGE,
@@ -1123,6 +1274,7 @@ test("retains all contracts on a deduplicated receiver/producer edge", () => {
     "services/remote-agent/agent-core/tools.ts",
   ];
   const context = {
+    base: "0".repeat(40),
     sourceSha: "1".repeat(40),
     readGitFile: (_ref, file) =>
       file === "services/remote-agent/agent-core/tools.ts"
@@ -1366,7 +1518,7 @@ test("attaches exact Remote receiver content witnesses and preserves reviewed co
   const executionReconciliation = [
     "packages/schemas/src/schemas/runtime/remote-agent-worker.ts",
     "services/core/src/remote-agent/application/native-delivery-service.ts",
-    "services/remote-agent/flue-adapter/execution-reconciliation.ts",
+    "services/remote-agent/flue-adapter/cloudflare-entrypoint.ts",
   ];
   assert.deepEqual(
     resolveProductionCompatibilityDependencies(executionReconciliation),
@@ -1381,7 +1533,7 @@ test("attaches exact Remote receiver content witnesses and preserves reviewed co
         contracts: ["remote-agent-request"],
         receiverPaths: [
           "packages/schemas/src/schemas/runtime/remote-agent-worker.ts",
-          "services/remote-agent/flue-adapter/execution-reconciliation.ts",
+          "services/remote-agent/flue-adapter/cloudflare-entrypoint.ts",
         ],
       },
     ]

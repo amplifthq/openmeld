@@ -1,11 +1,17 @@
+import type {
+  CloudComputerInvocationOwner,
+  CloudComputerRecoveryQuery,
+} from "@openmeld/schemas";
 import type { ComputerCommandRecord } from "./computer-command";
 import { RemoteAgentSqlStorage } from "./storage";
 
 export const COMPUTER_COMMAND_PREFIX =
   "openmeld:remote-agent:computer-command:";
+export const COMPUTER_INVOCATION_OWNER_PREFIX =
+  "openmeld:computer-invocation-owner:";
 const NEXT_ATTEMPT =
   "COALESCE(json_extract(value_json, '$.collection.nextAttemptAtMs'), 0)";
-const COLLECTION_INDEX = "openmeld_computer_command_collection_idx";
+const COLLECTION_INDEX = "openmeld_computer_command_collection_v2_idx";
 // This index is a read projection of the existing receipt, not another queue.
 // An absent collection field keeps historical receipts eligible. Explicit null
 // pauses automatic collection only. collectable:false retains uncertain launch.
@@ -14,7 +20,8 @@ const ELIGIBLE = `key >= '${COMPUTER_COMMAND_PREFIX}'
   AND json_type(value_json, '$.collectable') IS NOT NULL
   AND COALESCE(json_extract(value_json, '$.completed'), 0) != 1
   AND COALESCE(json_extract(value_json, '$.observation.status'), '') != 'completed'
-  AND json_extract(value_json, '$.loss') IS NULL
+  AND COALESCE(json_extract(value_json, '$.lossConfirmed'), 0) != 1
+  AND COALESCE(json_extract(value_json, '$.loss'), '') != 'EEXEC_LOST'
   AND json_extract(value_json, '$.observation.syncError') IS NULL
   AND COALESCE(json_extract(value_json, '$.lostDuringCleanup'), 0) != 1
   AND COALESCE(json_extract(value_json, '$.backend'), 'container') != 'worker-shell'
@@ -25,6 +32,35 @@ export class ComputerCommandSqlStorage extends RemoteAgentSqlStorage {
     super(sql);
     this.sql.exec(`CREATE INDEX IF NOT EXISTS ${COLLECTION_INDEX}
       ON ${this.tableName}(${NEXT_ATTEMPT}, key) WHERE ${ELIGIBLE}`);
+    this.sql.exec(
+      "DROP INDEX IF EXISTS openmeld_computer_command_collection_idx"
+    );
+  }
+
+  listInvocationOwners(
+    query: CloudComputerRecoveryQuery
+  ): CloudComputerInvocationOwner[] {
+    return this.sql
+      .exec(
+        `SELECT value_json FROM ${this.tableName}
+      WHERE key >= ? AND key < ? AND key > ?
+      AND json_extract(value_json, '$.organizationId') = ?
+      AND json_extract(value_json, '$.spaceId') = ?
+      AND json_extract(value_json, '$.agentProfileId') = ?
+      ORDER BY key LIMIT 33`,
+        COMPUTER_INVOCATION_OWNER_PREFIX,
+        `${COMPUTER_INVOCATION_OWNER_PREFIX}\uffff`,
+        COMPUTER_INVOCATION_OWNER_PREFIX +
+          (query.cursor ? encodeURIComponent(query.cursor) : ""),
+        query.organizationId,
+        query.spaceId,
+        query.agentProfileId
+      )
+      .toArray()
+      .map(
+        (row) =>
+          JSON.parse(String(row.value_json)) as CloudComputerInvocationOwner
+      );
   }
 
   listDueCommands(

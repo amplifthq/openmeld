@@ -758,6 +758,18 @@ remain extensible. This permits a Core receiver stage while the old Gateway
 still rejects new opt-in inputs. Recheck the actual caller chain on the final
 source: these source and parser facts are not mixed-version Worker smoke.
 
+Internal Computer storage and result changes do not reintroduce this request
+edge when the existing request prefix, its imported schema owners and locked
+parser resolution, and the complete Core/Gateway/API/CLI callers are unchanged.
+The bounded comparison rejects unknown history, imports, executable result
+suffixes and unrecognized schema construction. It proves only unchanged public
+requests; response readers and all other release obligations remain independent.
+Execution reconciliation produces terminal responses. It is not a request
+admission owner; request entrypoints retain their receiver-first classification.
+When the mixed native-delivery ambiguity check still applies, use separately
+admitted component stages and their verified receipts rather than a combined
+plan or a manufactured base ref.
+
 Each obligation is registered from its bounded changed owners and the explicit
 product source, including caller-only changes. Known historical sources without
 the feature stay independent; an unreadable source retains the obligation. The
@@ -966,8 +978,18 @@ Core RPC and Space receiver, and a Task caller together. Core deploys with the
 immutable current published CLI projection first, followed by Gateway, Web,
 Remote Agent, and CLI when selected. CLI and Web call Gateway's Task HTTP
 routes; Remote Agent calls Core directly and does not require Gateway.
-Every selected consumer requires Core in the plan, and CLI/Web also require
-Gateway. Core-only and Core/Gateway receiver stages remain supported without
+The compatibility graph records the changed callers' receiver obligations:
+Core before Remote, and Core before Gateway before changed Web/CLI callers.
+A shared Task API-client change covers both Web and CLI. A changed shared Task
+schema also covers its transitive consumers, including unchanged API-client and
+Remote binding files that import its wire-version constant. Unavailable schema
+history retains those prerequisites. Unrelated client edits do not add Task
+dependencies. Receipt-based stage admission accepts an already
+verified receiver; it does not require selecting or deploying that receiver
+again. Remote remains blocked while its required Core receiver is pending or
+unknown, even when Core is selected in the same command. Center Agent evidence
+tools use the same receipt-based Core-before-Remote admission.
+Core-only and Core/Gateway receiver stages remain supported without
 requiring the future Service fingerprint to match the published channel;
 the existing receiver executor verifies the real channel and immutable tag.
 Opposing receiver constraints fail closed rather than overriding their order.
@@ -975,9 +997,10 @@ Opposing receiver constraints fail closed rather than overriding their order.
 Keep the same pre-feature base (for example the previously published CLI tag)
 through every stage, including after a version-only PR. A narrow version-PR
 diff cannot establish the Task dependency. Use the guarded ordered local
-Core/Gateway/Web/CLI plan for the first publication; CLI-only with that base is
-rejected. The static hosted fleet admission also rejects a selected order it
-cannot execute. No direct receiver script invocation or hash-check bypass is
+Core/Gateway/Web/CLI plan for the first publication, or complete its receiver
+stages first and publish the caller after receipt-based admission succeeds.
+Missing prerequisites remain blocked. The static hosted fleet admission also
+rejects a selected order it cannot execute. No direct receiver script invocation or hash-check bypass is
 part of this rollout. The final normal CLI stage publishes artifacts and
 updates Core to the new CLI projection after the receivers are healthy.
 
@@ -2038,6 +2061,43 @@ continue to require the checked-in manifest and stable channel to match.
 
 ## Resumable Execution
 
+For a multi-component release from a clean, approved checkout, use the existing
+local entrypoint with the exact pre-merge base:
+
+```sh
+pnpm release:deploy:local -- --base <pre-merge-sha> --scope auto
+```
+
+It fixes the checkout SHA and base, reads the affected component receipts, skips
+components that are current, and selects the next component through the existing
+production stage admission rules. Each component still runs its own guarded
+preflight, lease, deployment, health, and receipt path. After each component,
+the command reads the receipts again before continuing. It stops on a failure,
+unknown evidence without an admitted recovery, or a missing completion record;
+it never treats a subprocess exit as deployment evidence. Rerun the same command
+from the same source to continue after an interruption. Dependencies outside the
+selected change require an explicit scope decision; the command does not add
+historical backlog to the release. Database cutover and domain transitions keep
+their existing dedicated commands. An intentional redeploy requires an explicit
+component scope and `--redeploy`.
+
+CLI publication stays with the official GitHub Trusted Publishing workflow.
+When a pending CLI stage becomes eligible, local continuation stops before CLI
+mutation and prints that workflow command with the original source and train.
+After it succeeds, rerun the same local command; the receipt skips the completed
+CLI stage. This does not introduce a second npm publisher or dispatch tracker.
+
+Use `release:status -- --ref <product-sha> --change-base <pre-merge-sha>
+--check-complete` for the deployment closeout check. It requires real receipts,
+rejects `--deployed` planning overrides, and exits nonzero for missing or pending
+components. Scope impact and deployed completion are independent of whether the
+changes admit one combined deployment order. Ambiguous ordering remains visible
+and blocks automatic continuation; explicitly reviewed single-component stages
+still use receipt-based admission. Once all affected components have current
+receipts, the completion check can succeed without inventing a combined order.
+Human output labels deployable work as incomplete. This check does
+not certify product smoke, Desktop installation, or Desktop update acceptance.
+
 The guarded local executor is safe to rerun after interruption. Completion
 probes are read-only. A completed stage prints `SKIP (already done)` with its
 criterion; an incomplete stage prints `RUN` and executes the existing command
@@ -2067,8 +2127,9 @@ Workers. After every selected Worker deploy and health check, the production
 executor reruns the same resumable CLI command as the terminal three-way
 alignment check; when the release is complete, that rerun is read-only and all
 stages skip. Before each Worker deploy, the executor prints the current
-production version ID for comparison. Repeated Worker deploys remain allowed
-because they are safe, even though they create another Worker version.
+production version ID for comparison. Current components are skipped from their
+receipts; deliberately creating another Worker version requires the explicit
+redeploy path.
 
 | Stage | `SKIP` criterion | Criterion level |
 | --- | --- | --- |

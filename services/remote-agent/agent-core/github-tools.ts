@@ -23,6 +23,7 @@ import {
   picklist,
   pipe,
   record,
+  strictObject,
   string,
   trim,
   union,
@@ -396,19 +397,7 @@ export function getRemoteAgentGitHubToolDefinitions(input: {
       inputConfig: input,
       name: "github_get_current_user",
     }),
-    githubToolDefinition({
-      actionId: "github.list_my_repositories",
-      description:
-        "List repositories visible to the selected Organization member's GitHub connection.",
-      input: object({
-        direction: optional(picklist(["asc", "desc"])),
-        ...optionalPaginationFields,
-        sort: optional(picklist(["created", "updated", "pushed", "full_name"])),
-        visibility: optional(picklist(["all", "public", "private"])),
-      }),
-      inputConfig: input,
-      name: "github_list_my_repositories",
-    }),
+    githubRepositoryListToolDefinition(input),
     githubToolDefinition({
       actionId: "github.get_repository",
       description:
@@ -1764,7 +1753,6 @@ function githubCatalogToolDefinitions(
           githubActor: request.githubActor,
           operationId: request.operationId,
           toolContext,
-          useRuntimeCatalog: true,
           writeConfirmationToken: request.writeConfirmationToken,
           writeDisclosure: (actionInput) =>
             `${request.actionId} with input ${JSON.stringify(actionInput)}`,
@@ -1782,18 +1770,20 @@ function githubCatalogToolDefinitions(
           submissionId: dependencies.submissionId,
           toolName: "github_list_actions",
         });
-        const { attribution, permission } = await resolveGitHubActionContext({
-          ...dependencies,
-          githubActor: request.githubActor,
-          includeAccessPolicy: true,
-          toolContext,
-        });
+        const { attribution, permission, selection } =
+          await resolveGitHubActionContext({
+            ...dependencies,
+            githubActor: request.githubActor,
+            includeAccessPolicy: true,
+            toolContext,
+          });
         return {
           attribution,
           ...(await listConnectorActionCatalog({
             ...request,
             limit: request.limit ?? 25,
             connectorExecution: dependencies.connectorExecution,
+            connectionName: selection.connection.connectionName,
             readOnly:
               permission === "read" ||
               toolContext.turnEnvelope?.trigger.source === "member_research",
@@ -1803,6 +1793,41 @@ function githubCatalogToolDefinitions(
       },
     },
   ];
+}
+
+function githubRepositoryListToolDefinition(
+  inputConfig: Parameters<typeof getRemoteAgentGitHubToolDefinitions>[0]
+): RemoteAgentGitHubToolDefinition {
+  const userFields = {
+    direction: optional(picklist(["asc", "desc"])),
+    ...optionalPaginationFields,
+    sort: optional(picklist(["created", "updated", "pushed", "full_name"])),
+    visibility: optional(picklist(["all", "public", "private"])),
+  };
+  const input = pipe(
+    strictObject({ githubActor: githubActorSchema, ...userFields }),
+    check(
+      (request) =>
+        request.githubActor === "requester" ||
+        (request.sort === undefined &&
+          request.visibility === undefined &&
+          request.direction === undefined),
+      "Organization GitHub repository listing accepts only page and perPage."
+    )
+  );
+  const tool = githubToolDefinition({
+    actionId: "github.list_my_repositories",
+    description:
+      "List repositories visible to the selected GitHub identity. Organization access uses a GitHub App installation and accepts only page and perPage. Requester access also accepts sort, visibility, and direction. Do not silently remove requested sorting or filters: use requester access if authorized, or explain this connection's limitation.",
+    input: object(userFields),
+    inputConfig,
+    name: "github_list_my_repositories",
+  });
+  return {
+    ...tool,
+    input,
+    execute: async (payload) => tool.execute(parse(input, payload)),
+  };
 }
 
 function githubToolDefinition(input: {
@@ -2234,7 +2259,7 @@ async function prepareNewGitHubAction(
 ) {
   const context = await resolveGitHubActionContext({
     ...input,
-    includeAccessPolicy: input.useRuntimeCatalog ? true : undefined,
+    includeAccessPolicy: true,
   });
   if (context.permission === "read" && action?.effect !== "read") {
     throw new Error("This GitHub connection grants read-only Agent access.");
@@ -2260,7 +2285,6 @@ async function executeIdempotentGitHubAction(input: {
   githubActor: GitHubActor;
   operationId: string;
   skipSpaceTaskBinding?: boolean;
-  useRuntimeCatalog?: boolean;
   storage: RemoteAgentStorage;
   submissionId: string;
   toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
@@ -2290,17 +2314,8 @@ async function executeIdempotentGitHubAction(input: {
     input,
     Boolean(existingOperation)
   );
-  const action = input.useRuntimeCatalog
-    ? await resolveGitHubCatalogActionPolicy({
-        ...input,
-      })
-    : undefined;
-  // Named tools reach this path only for their declared writes. Catalog tools
-  // retain the catalog's effect, including an unknown effect's stricter policy.
-  const namedEffect = GITHUB_DESTRUCTIVE_WRITE_ACTION_IDS.has(input.actionId)
-    ? "destructive"
-    : "write";
-  const effect = input.useRuntimeCatalog ? action?.action?.effect : namedEffect;
+  const action = await resolveGitHubCatalogActionPolicy(input);
+  const effect = action.action?.effect;
   if (action?.blockedResult) {
     return action.blockedResult;
   }
@@ -2517,6 +2532,7 @@ async function withGitHubIssueSpaceTaskBinding(input: {
 }): Promise<Record<string, unknown>> {
   let binding: Awaited<ReturnType<typeof applyGitHubIssueSpaceTaskBinding>> =
     null;
+  let githubLink: Record<string, unknown> | undefined;
   const connectionName = asRecord(input.result.attribution)?.connectionName;
   try {
     binding = await applyGitHubIssueSpaceTaskBinding({
@@ -2565,7 +2581,7 @@ async function withGitHubIssueSpaceTaskBinding(input: {
     );
     if (identity && nextBody) {
       try {
-        await executeIdempotentGitHubAction({
+        const linkResult = await executeIdempotentGitHubAction({
           actionId: "github.update_issue",
           actionInput: {
             body: nextBody,
@@ -2586,6 +2602,22 @@ async function withGitHubIssueSpaceTaskBinding(input: {
           writeDisclosure: () =>
             `add the OpenMeld Task link to ${identity.owner}/${identity.repo}#${String(identity.number)}`,
         });
+        if (asRecord(linkResult)?.status !== "completed") {
+          githubLink = {
+            status: "not_updated",
+            action: {
+              actionId: "github.update_issue",
+              input: {
+                body: nextBody,
+                issueNumber: identity.number,
+                owner: identity.owner,
+                repo: identity.repo,
+              },
+              operationId: `${input.operationId}:space-task-link`,
+            },
+            result: linkResult,
+          };
+        }
       } catch (error) {
         console.warn("[remote_agent.space_task_github_link_failed]", {
           ...remoteAgentDiagnosticErrorFields(error, {
@@ -2594,6 +2626,7 @@ async function withGitHubIssueSpaceTaskBinding(input: {
           }),
           operationId: input.operationId,
         });
+        githubLink = { status: "unconfirmed" };
       }
     }
   }
@@ -2602,7 +2635,10 @@ async function withGitHubIssueSpaceTaskBinding(input: {
   }
   return {
     ...input.result,
-    spaceTask: toSpaceTaskGitHubBindingToolResult(binding),
+    spaceTask: {
+      ...toSpaceTaskGitHubBindingToolResult(binding),
+      ...(githubLink ? { githubLink } : {}),
+    },
   };
 }
 

@@ -5,6 +5,10 @@ import {
 } from "./agent-recovery-action";
 import { RUNTIME_COORDINATOR_ACCEPTED_DISPATCH_PAYLOAD_CONFLICT_REASON_CODE } from "./runtime-coordinator-reason-code";
 import type { AgentFailureFacts } from "./schemas/runtime/agent-failure";
+import {
+  type CloudComputerCleanupReport,
+  REMOTE_AGENT_COMPUTER_CLEANUP_FAILED_CODE,
+} from "./schemas/runtime/cloud-computer";
 
 export const PROJECT_LOCAL_CONNECTION_FAILURE_REASON_CODES = [
   "project.local_connection.missing",
@@ -533,7 +537,31 @@ export function resolveCenterAgentCallbackFailureMessage(input: {
   failureCode: string;
   failureDetail?: string | null;
   failureMessage: string;
+  explanationText?: string;
+  computerCleanup?: CloudComputerCleanupReport;
 }): string {
+  if (
+    input.failureCode === REMOTE_AGENT_COMPUTER_CLEANUP_FAILED_CODE &&
+    input.explanationText
+  ) {
+    return input.explanationText;
+  }
+  if (input.computerCleanup) {
+    const cleanup = input.computerCleanup;
+    const progress =
+      input.failureCode === "remote_agent.execution_cancelled"
+        ? "New work for this request was stopped."
+        : `${input.agentLabel ?? "Center Agent"} could not finish this request.`;
+    let state =
+      "Computer cleanup has ended, but the requested work was not confirmed complete.";
+    if (!cleanup.state || cleanup.state.unfinished > 0) {
+      state = "Some Computer processes have not confirmed termination.";
+    } else if (cleanup.state.pendingResults > 0) {
+      state =
+        "Computer processes have ended, but some results or file synchronization are still unconfirmed.";
+    }
+    return `${progress} ${state} Completed actions were not undone. Original command receipts and saved results remain available. Check those results before repeating any operation.`;
+  }
   const agentLabel = input.agentLabel ?? "Center Agent";
   const requestFailed = buildHostedAgentRequestFailedPublicCopy(agentLabel);
   const mapped = resolveHostedCallbackMappedFailure(input, agentLabel);

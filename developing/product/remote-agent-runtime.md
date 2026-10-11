@@ -251,7 +251,7 @@ to decide whether to use or disclose personal files. Access to a filesystem is
 not permission to publish all its contents. Files publication retains its own
 audience contract. No new per-task permission UI is introduced.
 
-Cloudflare Computer and computerd use 0.4.1 with the official
+Cloudflare Computer and computerd use 0.5.0 with the official
 `LegacyContainerBackend`. The current platform-scheduled container deployment
 is retained. Files persist; running processes, OS packages and browser login
 state are not promised to survive runtime recreation. Shared Organization or
@@ -578,9 +578,12 @@ Loss first discovered by cleanup keeps the explicit failed outcome.
 An authoritative completed synchronization receipt clears uncommitted command
 loss markers. Cleanup checks the current receipts before reporting loss. This
 does not change an execution whose failed outcome was already committed.
-The cleanup owner uses `remote_agent.computer.command_cleanup_failed` only for
-confirmed command loss. Transport timeouts and pending Stop keep their separate
-errors. User cancellation retains priority.
+`remote_agent.computer.command_cleanup_failed` identifies an incomplete task
+whose Computer result or cleanup cannot yet be confirmed. Its typed
+`computerCleanup` projection separates Stop acceptance, process termination,
+result collection, synchronization and paused automatic observation. It never
+asserts that a pending Stop terminated a process. User cancellation and safety
+failures retain their original codes and carry the same cleanup facts.
 Workspace acquisition and native observation share a bounded operation budget.
 The public command entrypoint enters this owner before native readiness or
 directory preparation. Only a new launch prepares its directory, within its
@@ -620,22 +623,42 @@ and exit times, exit code, synchronization state and failure phase. They exclude
 command text, output, credentials and temporary transport URLs. Background
 collection does not log every running poll.
 
-The Computer SDK's synchronization planner keeps its native generation and
-frozen `(revision, path)` cursor. Its path query returns completed root paths
-through the existing child-inode index instead of materializing every ancestor
-segment in JavaScript. Every hardlink path, tombstone and same-revision entry
-remains eligible; an inode limit or revision-only cursor must not replace this
-contract. Mode selection does not compute an unused first block. The actual
-block is planned after the SDK's existing target/generation fence, including
-restart and later-write handling. The SDK patch does not change command
-ownership, native shell execution, synchronization acknowledgements or storage
-schema. Local planner measurements do not establish production CPU-limit
-recovery or native Linux acceptance.
+The Computer 0.5.0 patch bounds producer planning, transfer and receiver cleanup
+per invocation. Durable SQLite generations retain traversal progress, hardlink
+paths, tombstones and same-revision ordering. Large directories resume across
+Worker replacement and native restart without excluding dependency files.
+Each execution pins its own start and settled output target; another command's
+older shared transfer cannot prove its completion. The native shell receiver
+checks database epoch and accepted input cursor synchronously before spawning.
+Only a proven pre-dispatch rejection permits preparation to resume.
+
+Deliberate read-only refusals do not block unrelated file transfer. They commit
+with the accepted cursor and remain in an execution-scoped frozen outcome, with
+16 path samples and a truncation flag. This outcome is independently readable
+after native logs expire; it does not replace process exit or output receipts.
+The execution owner retires old-epoch pending windows with explicit lost outcomes.
+AgentComputer alarms drive bounded journal cleanup even after commands finish.
+The same maintenance owner reclaims unused content after file-only operations
+and cold start. Native storage is file-backed SQLite; native and canonical
+storage enforce a 4 GiB application budget with maintenance headroom. Live
+files, active reads and durable transfer generations prevent reclamation.
+Creation reserves deletion metadata so a full workspace can still remove files.
+Legacy reservation preparation is resumable and blocks new mutations while
+preserving reads. An already-full legacy store is an explicit migration limit,
+not authorization to discard content. Connection deadlines apply to setup and
+health probes, not to the lifetime of running commands. See the native storage
+contract in `services/remote-agent/computerd/README.md`.
+The durable command receipt records `ESYNC_READ_ONLY` as a terminal refusal.
+Its public result preserves known exit/output and exposes `syncPending: true`,
+`nextAction: inspect`, and additive `syncSkipped` paths. This keeps the existing
+public error enum compatible with installed clients without claiming every file
+was saved. Local measurements
+do not certify production CPU limits or historical OOM attribution.
 
 Ordered sync receivers use their existing source fetch cursor to reject a
 replayed entry. Sender revisions must not be compared with receiver-local node
 revisions. Shared dofs application commits metadata and source progress in the
-same transaction for both entry and pack transport. A lost ACK followed by a
+same transaction for bounded entry transport. A lost ACK followed by a
 receiver-local recreation or modification must preserve that newer work. The
 stored cursor advances monotonically; the ACK still echoes the exact submitted
 block cursor, including a smaller adaptive replay at the same revision.
@@ -657,20 +680,21 @@ Workspace state and adds no production reset.
 The opt-in native container check uses actual computerd and a required FUSE
 mount, with disposable SQLite and a separate container per run. From the repo
 root, run `pnpm dev:run -- node services/remote-agent/scripts/verify-computer-container.mjs`
-with `matrix`, `adoption` or `pack`. The matrix checks immediate file mutations
-and lost-entry-ACK receiver writes, and reports stat and read costs plus native
-source/binary provenance. Adoption replaces an old configured instance while
-retaining files, completed receipts and original lost-command references.
-Pack checks real apply, lost acknowledgement, sender recreation, aliases,
-frozen later writes and receiver reset. `matrix default` is the before-fix
-control and must fail on stale reads. Reports include source hashes and remain
-outside the disposable runtime state. No test touches installed Service state.
+with `bounded candidate` for the bounded sync path. It checks large directories
+in both directions, lost ACKs, native restart, deletion and immediate recreation.
+Reports include source hashes and remain outside disposable runtime state.
+Older pack and unbounded matrix fixtures do not certify this new path.
+No test touches installed Service state.
 
 This is an additive Computer response and local Skill guidance change. Existing
 CLI command-result parsers use a non-strict object, ignore the optional
-`syncError`, and retain exit, `syncPending` and `nextAction`. No status enum,
-command input, setup, Wake, Space action, Service or daemon contract changes.
-Old and new cloud/local components continue to interoperate. Updated Skills
+`syncSkipped`, and retain the existing `syncError` enum, exit, `syncPending` and
+`nextAction`. No status
+enum, command input, setup, Wake, Space action or local Service contract changes.
+Cloud Worker SDK and native Computer must upgrade together: bounded planning,
+source epochs and pre-dispatch fencing change their private protocol. Old and
+new CLI, local Service, Core and Web remain compatible with the additive public
+response fields. Updated Skills
 are available guidance, not a required local-component update.
 The container's `EEXEC_BUSY` is explicit evidence of a live process with an
 existing output subscriber, not a failed command. A bounded poll can report
@@ -686,17 +710,18 @@ reaches shell children and pipelines belonging to that command. Each command
 gets its own process group on the shared Computer. No parallel PID registry is
 introduced. Terminal cleanup still attempts every owned command when output
 inspection fails; an output transport error must not strand an active process.
-If the retained record for one exact command is absent from both inspection and
-Stop, cleanup records that loss and requests an explicit failed outcome for the
-same native delivery. The recovery reconciler may then publish that failure
-without repeatedly stopping a process that no longer exists. A failed
-inspection alone does not prove termination; a Stop request without an exit
-receipt keeps cleanup pending. Neither case replays the command.
+If an acknowledged or previously observed command is absent from both inspection
+and Stop, its owner records confirmed loss. Before launch acknowledgement,
+both missing-record responses still leave launch unknown: the SDK may be
+preparing files before spawning the original process. Its receipt and bounded
+collector remain responsible. Inspection failure alone does not prove
+termination; a Stop acknowledgement without exit evidence leaves cleanup
+pending. Neither case permits replay.
 The Computer's `EEXEC_LOST` also confirms that the retained execution belonged
 to a replaced container runtime. When cleanup first discovers that loss, it
 records the exact command as lost without signaling an unrelated new runtime.
-Recovery must record the failed execution even if the Worker restarted after
-the command-loss record was saved but before the failure request was stored.
+Recovery projects the original receipts even if the Worker restarted before
+the model could explain their loss.
 Other owned commands still require their own termination evidence; a transient
 inspection failure never becomes a confirmed loss.
 A missing-record error already delivered to the model follows the same recovery
@@ -704,10 +729,44 @@ contract as a replaced runtime. Cleanup still confirms absence for the exact
 command, then preserves the model's subsequent response instead of introducing
 the same failure again. Errors first discovered by cleanup retain their failed
 outcome. The model must explain unresolved work rather than claim it succeeded.
-If the member already requested Stop, the durable cancellation request is
-acknowledged once exact-command absence is confirmed; reconciliation publishes
-the stopped outcome without treating the missing command as a local Service
-connection failure.
+If the member requested Stop, reconciliation publishes the cancelled task
+outcome after recording cleanup responsibility. That acknowledgement does not
+claim process termination or undo external effects. The visible explanation
+retains any unknown termination or file-synchronization facts.
+
+Computer command execution, model completion, and final publication have separate
+owners. Tool registration and ordinary file reads do not create command cleanup
+obligations. A pure answer can finish while Computer is offline. Model commands
+and internal Git/video helper executions use the same original invocation,
+retained command receipts, Stop fence and collector. Helpers cannot restart an
+unconfirmed operation for the same resource; a rejected concurrent helper does
+not acquire authority to stop another accepted call.
+
+The finish hook can feed pending receipts back once, then supply recovery facts
+once. It persists that disposition with Flue's hook state. Continuing output
+does not create an unbounded finish loop or a fixed execution lifetime. When
+the model finishes again, Remote preserves its explanation only if the reviewed
+facts still match. Otherwise Core publishes controlled facts and retained file
+references. Cleanup progress cannot upgrade that blocked task to success.
+
+Remote persists Stop delivery before its RPC and retries it at most eight times
+with backoff. The original Computer independently owns bounded receipt
+collection. Old commands stored in Remote retain bounded observation there;
+they are not falsely handed to a collector that cannot read them. Missing
+routing evidence pauses automatic attempts. `computer_recovery stop` resumes
+the original obligation explicitly; acknowledgement, exit and synchronization
+remain separate facts. No recovery action starts a replacement command.
+
+The Computer stores an immutable Organization/Space/Agent disclosure scope for
+each invocation. Recovery reads that scope and original receipts across Flue
+conversation generations, with cursor pagination. An original v3 callback
+context can register its scope lazily when inspected. Historical receipts whose
+original trusted context was not registered and is no longer readable in the
+current generation cannot be recovered by supplying an unverified invocation ID.
+This is a routing and migration limit, not evidence that old data was deleted.
+This path fails closed.
+New independent turns remain usable; the model must inspect original operation
+and provider receipts before repeating any action with an unknown effect.
 
 Computer availability and conversation continuity are separate requirements.
 A Computer replacement may interrupt a native command; preserving that Linux
@@ -1609,20 +1668,20 @@ the outer Code Mode invocation also counts so script-only retries are bounded.
 Unchanged observation protection and bounded result policies still apply;
 refused unchanged observations consume attempts without repeating the read.
 Reaching the backstop durably requests failure and fences further tools and
-model rounds through the existing runtime boundary. The execution remains
-stoppable until Flue settles and retained Computer commands have confirmed
-termination. The observer and recovery reconciler share that cleanup gate;
-a stop request alone is not termination evidence. Only then does the execution
-publish an explicit incomplete outcome, with an intervening Stop taking
-precedence. It does not create another continuation, refund unknown writes,
-or allow later assistant prose to turn that failure into success.
+model rounds through the existing runtime boundary. The model execution settles
+when Flue settles, with an intervening Stop taking precedence. Before publishing
+the incomplete outcome, Remote durably records Stop delivery responsibility.
+The original Computer receipts and collector retain resource cleanup independently;
+publication does not confirm termination. This does not create another
+continuation, refund unknown writes, or allow later assistant prose or cleanup
+progress to upgrade the task to success.
 
 Long Computer operations retain their command keys and are followed through
 separate bounded `computer_command` polls. Code Mode's 60-second script timeout
-is not the assignment lifetime. The shared `useAgentFinish` check only feeds
-back owned pending command receipts; it neither judges arbitrary deliverable
-quality nor waits for downstream final publication. Completed receipts stop
-the feedback. Explicit stopping and command-loss handling remain authoritative.
+is not the assignment lifetime. The shared `useAgentFinish` check feeds bounded
+owned-command and recovery facts back to the model; it neither judges arbitrary
+deliverable quality nor waits for downstream publication. Explicit stopping
+and command-loss handling remain authoritative.
 Cancellation reaches cancellable Code Mode inner operations and is checked
 again when each serialized operation can start. An aborted promise alone does
 not prove an accepted external effect was undone.
@@ -1781,6 +1840,10 @@ inference retry; no outer turn replay is added.
 Core also requests this same single summary automatically after an exact Space
 coordinator continuation has published a confirmed
 `remote_agent.computer.command_cleanup_failed` terminal failure. The failed
+publication must not already contain a model-reviewed failure explanation;
+its frozen payload retains that provenance across callback and Queue retries.
+Controlled failure notices remain eligible for the existing restricted summary.
+The failed
 delivery must match the settled source subscription's delivery and idempotency
 identity. Native failure projection and continuation settlement call the same
 helper; existing callback and Queue retries cover either arrival order. They
@@ -2947,7 +3010,7 @@ surface adopts official features where they are free**:
     The native `computer` tool exposes the official file tools and three
     execution backends described under Personal cloud Computer above.
     `computer_command` uses the same command owner and defaults to Linux.
-    Computer SDK and computerd use version 0.4.1 together. All three engines
+    Computer SDK and computerd use version 0.5.0 together. All three engines
     have direct network access. A replaced runtime reports
     `EEXEC_LOST` for an old command instead of replaying its launch. The model
     receives that loss and may inspect durable files and choose a safe next
@@ -3442,6 +3505,13 @@ and its execution-owned output schema, under the shared bounded-result boundary;
 named segmented file/search tools remain available for their bounded projections.
 No omitted provider log prefix or harness excerpt is advertised as retrievable.
 
+Action discovery resolves the selected actor to one authorized connection and
+passes its `connectionName` to the Connector catalog. The Connector advertises
+and validates the input schema for that connection's authentication type. GitHub
+App installation repository listing accepts pagination only; user OAuth listing
+also accepts visibility and sorting. Tools must not silently discard requested
+filters or switch credentials.
+
 The catalog executor shares the existing GitHub operation identity, claim,
 provider idempotency key, destructive preview, and result recovery path. Current
 catalog effects govern new operations and restricted-context calls; known GitHub
@@ -3454,6 +3524,12 @@ The issue-to-Task binding owner acquires a stable observation timestamp only
 for an applicable issue creation or closure in a shared Space. Ordinary reads
 and unrelated writes do not create issue-observation records; existing operation
 receipts and the stable timestamp used to replay actual bindings are unchanged.
+
+Named and catalog-based GitHub mutations use the same runtime catalog effect,
+output contract, and current connection policy. Destructive actions require
+the same exact-action approval in both paths. A linked Space Task does not prove
+its GitHub backlink was updated; blocked or uncertain backlink writes are
+reported separately.
 
 Before every new action operation that is eligible to run, Remote Agent asks
 Core to resolve an active connection inside the turn Organization. A Routine
@@ -3605,7 +3681,7 @@ Current hosted capability inventory:
 | OpenRouter web search and fetch               | OpenRouter server tools through the existing AI Gateway route           | Yes                           | Adds current public-web research without a new OpenMeld data store                                        | Provider requests and model context consumption              | Tool payload, citation, usage, and failure tests                                                              |
 | Browser Run rendered reads                    | Browser Run Quick Actions                                               | Yes                           | Reads JavaScript-rendered pages with a browser binding only                                               | Browser time and untrusted page content                      | Markdown, links, extraction, scraping, and browser-time tests                                                 |
 | Browser Run screenshots                       | Browser Run Quick Actions plus the existing Space attachment contract   | Yes for OpenMeld Space output | Lets the Center Agent return a real visual artifact                                                       | Image size, browser time, and private attachment lifecycle   | Browser response, R2 write, Core metadata, callback, and final publication tests                              |
-| Personal cloud Computer | `@cloudflare/computer` 0.4.1 Workspace, native tools and execution backends | Yes | Gives Center, Remote and optional Local Agents the user's persistent Computer | Preview-stage API drift and Durable Object storage growth | Native tool contracts, concurrent command receipts, shared files and real private Git clone smoke |
+| Personal cloud Computer | `@cloudflare/computer` 0.5.0 Workspace, native tools and execution backends | Yes | Gives Center, Remote and optional Local Agents the user's persistent Computer | Preview-stage API drift and Durable Object storage growth | Native tool contracts, concurrent command receipts, shared files and real private Git clone smoke |
 | Computer container backend (computerd)        | `@cloudflare/computer/backends/container` + computerd FUSE image        | Yes                           | Full Linux userland (python3, git, curl, jq) over the same durable file world as worker-shell             | Container boot latency and standard-2 instance cost          | Backend routing tests plus local Docker smoke: python3 reads DO-written file, container write syncs back      |
 | Cloudflare Sandbox (removed)                  | Cloudflare Sandbox SDK plus Flue Cloudflare adapter                     | Removed                       | Fully superseded by the computer's container backend                                                      | None (class deleted via `v6_retire_sandbox`)                 | Dependency removed; no `SANDBOX` binding or `Sandbox` class remains                                           |
 | Browser Live View and retained sessions       | Browser Run Live View and CDP session APIs                              | No                            | Headless one-shot execution covers the current product need                                               | Human takeover and retained-session lifecycle                | No Live View URL, browser session state, or takeover surface exists                                           |
@@ -3723,8 +3799,12 @@ but not trigger.
 3. **Failure is explicit.** Model errors, platform faults, runtime policy
    blocks, and worker submission failures must surface on that conversation's
    result surface as a visible failure. A member-authored trigger must never
-   silently disappear. Core owns all failure and system copy; the worker
-   produces successful answers only. Core maps only known failure codes to
+   silently disappear. Core owns system failure copy. A worker may also produce
+   a reviewed explanation for `remote_agent.computer.command_cleanup_failed`,
+   after the original model has received the current Computer recovery facts.
+   The failed callback carries this explanation, cleanup facts and existing
+   authorized file/attachment references; it remains a failed task for parents,
+   Routines and task coordination. Core maps other known failure codes to
    approved public copy; an unknown code always uses the generic request-failed
    copy, while the worker detail remains diagnostic-only. Failure copy names
    Center Agent, the user's request, and one next action; it never exposes the hosted runtime's
@@ -3745,7 +3825,8 @@ but not trigger.
    Channel result, Core also replaces the worker's completed text with one fixed
    account-connection explanation before publication, task projection, or
    memory. Model-written infrastructure explanations are never the public
-   fallback. Routine branches additionally use the
+   fallback. Reviewed Computer explanations are business results, not raw
+   provider errors or inferred infrastructure diagnoses. Routine branches additionally use the
    Run id as the Space publication idempotency key.
    An accepted native delivery has no fixed total execution deadline. The
    admission watchdog applies only before a real worker ACK; accepted/running
@@ -3984,6 +4065,32 @@ emitting attachment-bearing turn messages. The field is optional, so old Core
 works with the new worker and attachment-free turns keep their prior JSON
 shape. The reverse mixed version is unsafe because the old worker's strict
 message schema rejects the new field; keep that deployment window closed.
+
+Computer failure continuity has its own deployment and rollback contract:
+
+- Deploy all Core callback receivers, execution-query readers and frozen-payload
+  readers before enabling the new Remote producer. New Core accepts old Remote
+  responses without terminal `result`; old Remote does not emit the reviewed
+  explanation that causes Core to write the new provenance marker. Confirm the
+  Core rollout and drain old receiver instances before deploying Remote.
+- New Remote is incompatible with old Core: strict failed-callback parsing
+  rejects the new explanation, cleanup and artifact fields, and strict terminal
+  query parsing rejects `result`. A rejected callback is not an automatically
+  retryable transport failure. Optional fields provide reader compatibility only.
+- The frozen v3 publication payload may now retain
+  `reviewedFailureExplanation`. A rollback must stop the new Remote producer
+  first and retain compatible Core readers until these records are drained or
+  explicitly migrated. Reverting Core to its old strict parser is unsafe even
+  after Remote has rolled back. Prefer a forward correction.
+- Connection-specific action schemas require the upstream Connector
+  implementation to be committed and published before adopting its verified
+  integration pin; a local upstream candidate alone is not production support.
+- These changes affect hosted Core/Remote RPC, Computer Durable Object receipts,
+  and the Connector catalog. They do not change CLI commands, local Service
+  transport, Prepare, workstation Wake, local helper skills, or their contract
+  epochs. No relational migration or local artifact stamp is required. Computer
+  receipt indexing remains owned by the existing Durable Object; account erasure
+  and the immutable Organization/Space/Agent disclosure boundary still apply.
 
 Routine rollout has three different strict windows:
 

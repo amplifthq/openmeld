@@ -154,6 +154,37 @@ describe("SpaceThreadPanel", () => {
 		expect(composer?.className).not.toContain("border-border");
 	});
 
+	it.each([
+		"found",
+		"missing",
+		"error",
+	])("waits for the Thread read before resolving a linked reply (%s)", (outcome) => {
+		const target = createTextSignal();
+		const { rerenderThreadPanel } = renderThreadPanel({
+			initialFocusSignalId: target.id,
+			initialFocusThreadRootSignalId: "sig-root",
+			signals: [],
+			signalsIsLoading: true,
+		});
+		expect(screen.queryByLabelText("Linked reply isn't available")).toBeNull();
+		rerenderThreadPanel({
+			signalsIsLoading: false,
+			signals: outcome === "found" ? [target] : [],
+			signalsErrorMessage: outcome === "error" ? "Read failed" : null,
+		});
+		if (outcome === "found") {
+			expect(
+				screen.queryByLabelText("Linked reply isn't available")
+			).toBeNull();
+		} else {
+			expect(
+				screen.getByLabelText("Linked reply isn't available").textContent
+			).toContain(
+				outcome === "error" ? "Couldn’t load" : "isn’t available in the thread"
+			);
+		}
+	});
+
 	it("keeps known live work visible while Thread history is still loading", () => {
 		const { rerenderThreadPanel } = renderThreadPanel({
 			signals: [],

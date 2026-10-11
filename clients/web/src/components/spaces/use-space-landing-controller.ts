@@ -4196,7 +4196,8 @@ function useSpaceThreadController(input: {
 			null,
 		threadSignalsErrorMessage: resolveThreadLoadError(),
 		threadSignalsIsLoading: activeThread
-			? threadSignalsQuery.isPending
+			? threadSignalsQuery.isPending ||
+				threadSignalsQuery.fetchStatus !== "idle"
 			: isCreatingThread || input.threadsLoading || threadsQuery.isFetching,
 		threadTextareaRef: mentionAuthoring.textareaRef,
 		threads,

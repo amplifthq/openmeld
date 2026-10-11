@@ -134,9 +134,14 @@ describe("Thread conversation policy during live replies", () => {
 			signal("newer", 2),
 			signal("newest", 3),
 		];
-		const listThreadSignals = vi
-			.fn()
-			.mockResolvedValue({ signals, placements: [] });
+		let finishRead: () => void = () => undefined;
+		const historyRead = new Promise<{
+			signals: SignalEnvelope[];
+			placements: [];
+		}>((resolve) => {
+			finishRead = () => resolve({ signals, placements: [] });
+		});
+		const listThreadSignals = vi.fn(() => historyRead);
 		createWebSpaceApiMock.mockReturnValue({
 			listThreadSignals,
 		} as unknown as ReturnType<typeof createUnscopedWebSpaceApi>);
@@ -175,6 +180,13 @@ describe("Thread conversation policy during live replies", () => {
 			})
 		);
 		const unsubscribe = observer.subscribe(vi.fn());
+		if (!completeSnapshot) {
+			// Live replies do not prove that older replies are absent. Only the
+			// history response can turn the first read into a successful snapshot.
+			expect(observer.getCurrentResult().isPending).toBe(true);
+			expect(observer.getCurrentResult().data).toBeUndefined();
+		}
+		finishRead();
 		await vi.waitFor(() =>
 			expect(
 				observer.getCurrentResult().data?.signals.map((reply) => reply.id)
@@ -254,6 +266,7 @@ describe("Thread conversation policy during live replies", () => {
 		["messages", "invalidate"],
 		["messages", "refetch"],
 		["messages", "fetch"],
+		["cold-messages", "refetch"],
 	] as const)("keeps live replies when an older %s read arrives after %s, then accepts withdrawal", async (cache, trigger) => {
 		const complete = listSpaceThreadSignalsResponseSchema.parse(
 			threadReconnectFixture
@@ -296,7 +309,9 @@ describe("Thread conversation policy during live replies", () => {
 			"viewer"
 		);
 		queryClient.setQueryData(threadsKey, catalog(before));
-		queryClient.setQueryData(signalsKey, before);
+		if (cache !== "cold-messages") {
+			queryClient.setQueryData(signalsKey, before);
+		}
 		let releaseOldRead: () => void = () => undefined;
 		const key = cache === "catalog" ? threadsKey : signalsKey;
 		const previous = cache === "catalog" ? catalog(before) : before;
@@ -334,6 +349,9 @@ describe("Thread conversation policy during live replies", () => {
 			signal: complete.signals[1],
 			placement: complete.placements[1],
 		});
+		if (cache === "cold-messages") {
+			expect(observer.getCurrentResult().isPending).toBe(true);
+		}
 		releaseOldRead();
 		await recovery.catch((error) => {
 			if (!isCancelledError(error)) {

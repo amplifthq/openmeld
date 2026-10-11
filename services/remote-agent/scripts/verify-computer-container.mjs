@@ -9,17 +9,20 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { resourceMonitor } from "./computer-resource-monitor.mjs";
 
 // Run through the repository's resource guard. Docker is required; this is an
 // isolated native check, not a deployment or a production CPU-limit certificate.
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const mode = process.argv[2] ?? "matrix";
 const profile = process.argv[3] ?? "candidate";
+const stress = process.argv.includes("--stress");
+assert(!stress || mode === "bounded", "Stress requires bounded mode");
 const workerName = `openmeld-container-check-${randomUUID().slice(0, 8)}`;
 const execFileAsync = promisify(execFile);
 assert(
-  ["matrix", "adoption", "pack"].includes(mode),
-  "Use matrix, adoption or pack"
+  ["matrix", "adoption", "pack", "bounded"].includes(mode),
+  "Use matrix, adoption, pack or bounded"
 );
 assert(
   ["candidate", "default", "ac-only", "attr-ac"].includes(profile),
@@ -39,6 +42,7 @@ const artifactRoot = await mkdtemp(
   join(tmpdir(), "openmeld-container-evidence-")
 );
 const sourcePaths = [
+  "services/remote-agent/scripts/computer-resource-monitor.mjs",
   "services/remote-agent/flue-adapter/computer-workspace.ts",
   "services/remote-agent/flue-adapter/computer-workspace-config.ts",
   "services/remote-agent/flue-adapter/computer-command.ts",
@@ -46,8 +50,9 @@ const sourcePaths = [
   "services/remote-agent/scripts/verify-computer-container.mjs",
   "services/remote-agent/Dockerfile",
   "services/remote-agent/computerd/upstream.patch",
+  "services/remote-agent/computerd/capnweb-0.12.0.patch",
   "services/remote-agent/computerd/build.mjs",
-  "patches/@cloudflare__computer@0.4.1.patch",
+  "patches/@cloudflare__computer@0.5.0.patch",
 ];
 const sourceHashes = Object.fromEntries(
   await Promise.all(
@@ -59,9 +64,16 @@ const sourceHashes = Object.fromEntries(
     ])
   )
 );
+await writeFile(
+  join(artifactRoot, "source-hashes.json"),
+  `${JSON.stringify({ mode, profile, stress, sourceHashes }, null, 2)}\n`
+);
 const reserve = createServer();
 await new Promise((done) => reserve.listen(0, "127.0.0.1", done));
 const port = reserve.address().port;
+await new Promise((done) => reserve.close(done));
+await new Promise((done) => reserve.listen(0, "127.0.0.1", done));
+const inspectorPort = stress ? reserve.address().port : 0;
 await new Promise((done) => reserve.close(done));
 const built = await build({
   entryPoints: [
@@ -88,7 +100,7 @@ await writeFile(
       main: "worker.js",
       compatibility_date: "2026-07-15",
       compatibility_flags: ["nodejs_compat"],
-      vars: { FUSE_PROFILE: profile },
+      vars: { FUSE_PROFILE: profile, STRESS: stress ? "true" : "false" },
       containers: [
         {
           class_name: "ComputerContainerProbe",
@@ -108,6 +120,9 @@ await writeFile(
     2
   )
 );
+const monitor = stress
+  ? resourceMonitor(join(artifactRoot, "resources.json"), workerName)
+  : undefined;
 const child = spawn(
   process.execPath,
   [
@@ -121,13 +136,17 @@ const child = spawn(
     "--port",
     String(port),
     "--inspector-port",
-    "0",
+    String(inspectorPort),
     "--persist-to",
     join(stateRoot, "state"),
   ],
   {
     cwd: repoRoot,
-    env: { ...process.env, CI: "true", WRANGLER_SEND_METRICS: "false" },
+    env: {
+      ...process.env,
+      CI: "true",
+      WRANGLER_SEND_METRICS: "false",
+    },
     stdio: ["ignore", "pipe", "pipe"],
   }
 );
@@ -152,7 +171,16 @@ for (const stream of [child.stdout, child.stderr]) {
   });
 }
 const startedAt = Date.now();
-console.log(JSON.stringify({ mode, profile, artifactRoot, workerLog }));
+console.log(
+  JSON.stringify({
+    mode,
+    profile,
+    artifactRoot,
+    workerLog,
+    inspectorPort,
+    stateRoot,
+  })
+);
 let failure;
 try {
   while (
@@ -169,17 +197,72 @@ try {
     );
     await new Promise((done) => setTimeout(done, 500));
   }
-  const response = await fetch(
+  async function admitLimitedContainer() {
+    const warmed = await fetch(`http://127.0.0.1:${port}/warm`, {
+      signal: AbortSignal.timeout(120_000),
+    });
+    assert(warmed.ok, await warmed.text());
+    await monitor.gate();
+  }
+  if (monitor) {
+    await admitLimitedContainer();
+  }
+  let gatedRestarts = 0;
+  let response = await fetch(
     `http://127.0.0.1:${port}/${mode === "pack" ? "run" : mode}`,
     { signal: AbortSignal.any([shutdown.signal, AbortSignal.timeout(360_000)]) }
   );
-  const body = await response.text();
+  let body = await response.text();
   assert(response.status === 200, body.slice(0, 2000));
-  const data = JSON.parse(body);
+  let data = JSON.parse(body);
+  if (mode === "bounded") {
+    let previousPhase;
+    for (let steps = 0; !data.done; steps++) {
+      assert(
+        steps < 12_000 && Date.now() - startedAt < 3_600_000,
+        "Bounded native run did not converge"
+      );
+      if (data.phase !== previousPhase) {
+        console.log(
+          JSON.stringify({
+            phase: data.phase,
+            steps: data.steps,
+            elapsedMs: Date.now() - startedAt,
+          })
+        );
+        previousPhase = data.phase;
+      }
+      if (monitor && (data.restarts ?? 0) > gatedRestarts) {
+        await admitLimitedContainer();
+        gatedRestarts = data.restarts;
+      }
+      if (monitor && data.phase.startsWith("destroy")) {
+        await monitor.checkpoint();
+      }
+      await writeFile(
+        join(artifactRoot, "last-progress.json"),
+        `${JSON.stringify({ recordedAt: new Date().toISOString(), ...data }, null, 2)}\n`
+      );
+      response = await fetch(`http://127.0.0.1:${port}/bounded`, {
+        signal: AbortSignal.any([
+          shutdown.signal,
+          AbortSignal.timeout(
+            data.phase === "native-write" ? 360_000 : 120_000
+          ),
+        ]),
+      });
+      body = await response.text();
+      assert(response.status === 200, body.slice(0, 2000));
+      data = JSON.parse(body);
+    }
+  }
   const reportPath = join(artifactRoot, "report.json");
+  if (monitor) {
+    await monitor.checkpoint();
+  }
   await writeFile(
     reportPath,
-    `${JSON.stringify({ mode, profile, sourceHashes, compatibilityDate: "2026-07-15", elapsedMs: Date.now() - startedAt, ...data }, null, 2)}\n`
+    `${JSON.stringify({ mode, profile, stress, sourceHashes, compatibilityDate: "2026-07-15", elapsedMs: Date.now() - startedAt, ...data }, null, 2)}\n`
   );
   let summary;
   const finalMount = mode === "adoption" ? data.afterMount : data.mount;
@@ -188,7 +271,22 @@ try {
       sourceHashes["services/remote-agent/computerd/upstream.patch"],
     "Native image was built from a different source patch"
   );
-  if (mode === "matrix") {
+  assert(
+    finalMount.source.transportPatchSha256 ===
+      sourceHashes["services/remote-agent/computerd/capnweb-0.12.0.patch"],
+    "Native transport patch differs from the candidate"
+  );
+  if (mode === "bounded") {
+    summary = {
+      leaves: data.leaves,
+      steps: data.steps,
+      phases: data.phases,
+      maxStepMs: data.maxStepMs,
+      maxSyncStepMs: data.maxSyncStepMs,
+      lostInitial: data.lostInitial,
+      lostDelete: data.lostDelete,
+    };
+  } else if (mode === "matrix") {
     summary = { records: data.records, cost: data.cost, mount: data.mount };
   } else if (mode === "adoption") {
     summary = {
@@ -212,7 +310,12 @@ try {
       ...summary,
     })
   );
-  if (mode === "matrix") {
+  if (mode === "bounded") {
+    assert(
+      data.leaves === 20_200 && data.lostInitial && data.lostDelete,
+      "Large tree and lost ACK injections must all complete"
+    );
+  } else if (mode === "matrix") {
     assert(
       data.records.every((record) => record.passed),
       "Native mutation matrix failed"
@@ -233,6 +336,13 @@ try {
   }
 } catch (error) {
   failure = error;
+  if (monitor) {
+    try {
+      await monitor.checkpoint();
+    } catch (samplingError) {
+      console.error("failure_checkpoint", String(samplingError));
+    }
+  }
 } finally {
   if (!exited) {
     child.kill("SIGINT");
@@ -245,6 +355,16 @@ try {
     }),
   ]);
   await new Promise((done) => liveLog.end(done));
+  if (monitor) {
+    try {
+      await monitor.close();
+    } catch (error) {
+      failure = new AggregateError(
+        [...(failure ? [failure] : []), error],
+        "Resource validation failed"
+      );
+    }
+  }
   process.off("SIGINT", abort);
   process.off("SIGTERM", abort);
   if (terminated === "timeout") {
@@ -277,7 +397,9 @@ try {
           });
         }
       }
-      await rm(stateRoot, { recursive: true, force: true });
+      if (!failure) {
+        await rm(stateRoot, { recursive: true, force: true });
+      }
     } catch (error) {
       failure = new AggregateError(
         [...(failure ? [failure] : []), error],

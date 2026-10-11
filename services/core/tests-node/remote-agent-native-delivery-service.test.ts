@@ -94,6 +94,7 @@ import { attachCenterAgentMemoryToTurnEnvelope } from "../src/remote-agent/appli
 import { submitRemoteAgentWorkerAdmission } from "../src/remote-agent/application/remote-agent-worker-admission";
 import { resolveNativeDeliveryReplyThreadContext } from "../src/remote-agent/application/reply-placement";
 import {
+  claimRemoteAgentFinalPublication,
   claimRemoteAgentNativeDeliveryTerminalFailure,
   listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceBySpace,
   markRemoteAgentCallbackPublishFailure,
@@ -521,8 +522,11 @@ describe("Remote Agent native delivery callback service", () => {
         outcome === "continuation_required" ? 1 : 0
       );
       expect(env.__spaceStub.rpcPostSignal).toHaveBeenCalledTimes(
-        outcome === "continuation_required" ? 0 : 1
+        outcome === "completed" ? 1 : 0
       );
+      expect(
+        env.__spaceStub.rpcPostSignalOnceByClientMessageId
+      ).toHaveBeenCalledTimes(outcome === "failed" ? 1 : 0);
     } finally {
       await harness.close();
     }
@@ -1484,8 +1488,12 @@ describe("Remote Agent native delivery callback service", () => {
       expect(workerSubmit).toHaveBeenCalledTimes(
         REMOTE_AGENT_WORK_LOOP_CONTINUATION_MAX_ATTEMPTS
       );
-      expect(env.__spaceStub.rpcPostSignal).toHaveBeenCalledTimes(1);
-      expect(env.__spaceStub.rpcPostSignal).toHaveBeenCalledWith(
+      expect(
+        env.__spaceStub.rpcPostSignalOnceByClientMessageId
+      ).toHaveBeenCalledTimes(1);
+      expect(
+        env.__spaceStub.rpcPostSignalOnceByClientMessageId
+      ).toHaveBeenCalledWith(
         expect.objectContaining({
           text: "Codex kept working but could not finish this request within the safe execution limit. Review the results and open Diagnostics in OpenMeld before starting more work.",
         })
@@ -4845,7 +4853,9 @@ describe("Remote Agent native delivery callback service", () => {
         failureCode: "remote_agent.admission_timeout",
         status: "failed",
       });
-      expect(env.__spaceStub.rpcPostSignal).toHaveBeenCalledWith(
+      expect(
+        env.__spaceStub.rpcPostSignalOnceByClientMessageId
+      ).toHaveBeenCalledWith(
         expect.objectContaining({
           text: expect.stringContaining(
             languageTag === "en" ? "after 3 attempts" : "共 3 次"
@@ -4853,7 +4863,9 @@ describe("Remote Agent native delivery callback service", () => {
         })
       );
       const failureText =
-        env.__spaceStub.rpcPostSignal.mock.calls.at(-1)?.[0]?.text;
+        env.__spaceStub.rpcPostSignalOnceByClientMessageId.mock.calls.at(
+          -1
+        )?.[0]?.text;
       expect(failureText).toContain(
         languageTag === "en"
           ? "There will be no automatic recovery"
@@ -6431,8 +6443,11 @@ describe("Remote Agent native delivery callback service", () => {
         failureCode: "remote_agent.admission_timeout",
         status: "failed",
       });
-      expect(env.__spaceStub.rpcPostSignal).toHaveBeenCalledOnce();
-      const failureNotice = env.__spaceStub.rpcPostSignal.mock.calls[0]?.[0];
+      expect(
+        env.__spaceStub.rpcPostSignalOnceByClientMessageId
+      ).toHaveBeenCalledOnce();
+      const failureNotice =
+        env.__spaceStub.rpcPostSignalOnceByClientMessageId.mock.calls[0]?.[0];
       expect(failureNotice?.text).toContain(
         "OpenMeld could not confirm whether"
       );
@@ -6457,7 +6472,9 @@ describe("Remote Agent native delivery callback service", () => {
           probe,
         })
       ).resolves.toMatchObject({ status: "skipped" });
-      expect(env.__spaceStub.rpcPostSignal).toHaveBeenCalledOnce();
+      expect(
+        env.__spaceStub.rpcPostSignalOnceByClientMessageId
+      ).toHaveBeenCalledOnce();
       expect(workerCancel).toHaveBeenCalledOnce();
     } finally {
       await harness.close();
@@ -10791,7 +10808,10 @@ describe("Remote Agent native delivery callback service", () => {
       await harness.close();
     }
   });
-  it("projects a confirmed cancellation callback as stopped rather than failed", async () => {
+  it.each([
+    false,
+    true,
+  ])("projects cancellation as stopped and preserves unconfirmed Computer termination=%s", async (unconfirmedTermination) => {
     const harness = await createPostgresHarness();
     await seedRemoteAgentSubmitAuthority(harness);
     try {
@@ -10802,6 +10822,9 @@ describe("Remote Agent native delivery callback service", () => {
         spaceId: SPACE_ID,
       });
       const env = buildEnv(harness.db, { postSignalId: "signal_cancelled" });
+      const noticeText = unconfirmedTermination
+        ? "New work for this request was stopped. Some Computer processes have not confirmed termination. Completed actions were not undone. Original command receipts and saved results remain available. Check those results before repeating any operation."
+        : "This request was stopped.";
       await expect(
         completeRemoteAgentNativeDelivery(env, {
           submissionId: "sub_cancelled",
@@ -10815,6 +10838,15 @@ describe("Remote Agent native delivery callback service", () => {
           status: "failed",
           failureCode: "remote_agent.execution_cancelled",
           failureMessage: "This request was stopped.",
+          ...(unconfirmedTermination
+            ? {
+                computerCleanup: {
+                  stopAccepted: true,
+                  automaticRetryPaused: true,
+                  state: null,
+                },
+              }
+            : {}),
         })
       ).resolves.toEqual({
         status: "accepted",
@@ -10826,9 +10858,17 @@ describe("Remote Agent native delivery callback service", () => {
         terminal: {
           kind: "stopped",
           reasonCode: "remote_agent.execution_cancelled",
-          noticeText: "This request was stopped.",
+          noticeText,
         },
       });
+      expect(env.__spaceStub.rpcPostSystemNoticeSignal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            noticeType: "wake_stopped",
+            text: noticeText,
+          }),
+        })
+      );
     } finally {
       await harness.close();
     }
@@ -10880,7 +10920,9 @@ describe("Remote Agent native delivery callback service", () => {
         status: "accepted",
         publishedSignalId: "signal_failure_1",
       });
-      expect(env.__spaceStub.rpcPostSignal).toHaveBeenCalledWith(
+      expect(
+        env.__spaceStub.rpcPostSignalOnceByClientMessageId
+      ).toHaveBeenCalledWith(
         expect.objectContaining({
           finalOutcomeAuthority: "remote_agent_native_delivery",
           meta: expect.objectContaining({
@@ -10918,7 +10960,8 @@ describe("Remote Agent native delivery callback service", () => {
         status: "failed",
       });
       const publishedText =
-        env.__spaceStub.rpcPostSignal.mock.calls[0]?.[0]?.text;
+        env.__spaceStub.rpcPostSignalOnceByClientMessageId.mock.calls[0]?.[0]
+          ?.text;
       expect(publishedText).not.toMatch(UNSUPPORTED_INTERRUPTION_DETAIL);
       if (retainedChild) {
         expect(publishedText).toContain(
@@ -10944,7 +10987,9 @@ describe("Remote Agent native delivery callback service", () => {
         failureCode: "remote_agent.turn_not_completed",
         failureMessage: "Please try again.",
       });
-      expect(env.__spaceStub.rpcPostSignal).toHaveBeenCalledTimes(1);
+      expect(
+        env.__spaceStub.rpcPostSignalOnceByClientMessageId
+      ).toHaveBeenCalledTimes(1);
       expect(workerSubmit).not.toHaveBeenCalled();
     } finally {
       resultReader.mockRestore();
@@ -11013,7 +11058,9 @@ describe("Remote Agent native delivery callback service", () => {
         failureDetail: "remote_agent.requester_membership_revoked",
         failureMessage: "Internal callback failure",
       });
-      expect(env.__spaceStub.rpcPostSignal).toHaveBeenCalledWith(
+      expect(
+        env.__spaceStub.rpcPostSignalOnceByClientMessageId
+      ).toHaveBeenCalledWith(
         expect.objectContaining({
           profile: expect.objectContaining({
             agentControllerRef: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
@@ -11187,7 +11234,9 @@ describe("Remote Agent native delivery callback service", () => {
         status: "accepted",
         publishedSignalId: "signal_rate_limited",
       });
-      expect(env.__spaceStub.rpcPostSignal).toHaveBeenCalledWith(
+      expect(
+        env.__spaceStub.rpcPostSignalOnceByClientMessageId
+      ).toHaveBeenCalledWith(
         expect.objectContaining({
           meta: expect.objectContaining({
             errorCode: "remote_agent.provider.rate_limited",
@@ -11808,7 +11857,9 @@ describe("Remote Agent native delivery callback service", () => {
         publishedSignalId: "signal_execution_identity_mismatch",
         status: "failed",
       });
-      expect(env.__spaceStub.rpcPostSignal).toHaveBeenCalledWith(
+      expect(
+        env.__spaceStub.rpcPostSignalOnceByClientMessageId
+      ).toHaveBeenCalledWith(
         expect.objectContaining({
           finalOutcomeAuthority: "remote_agent_native_delivery",
           meta: expect.objectContaining({
@@ -11870,7 +11921,7 @@ describe("Remote Agent native delivery callback service", () => {
         failureCode: "remote_agent.callback_failure_publish_failed",
         finalPublicationPayload: {
           failureCode: "remote_agent.execution_identity_mismatch",
-          text: "OpenMeld stopped this request because it could not confirm that the reply came from your Center Agent. Send the request again. If it keeps happening, open diagnostics in OpenMeld.",
+          text: "OpenMeld stopped this request because it could not confirm that the reply came from Codex. Open Diagnostics in OpenMeld for details.",
         },
         finalPublicationState: null,
         publishedSignalId: null,
@@ -11898,7 +11949,9 @@ describe("Remote Agent native delivery callback service", () => {
         status: "expired",
       });
       expect(reconcileExecution).toHaveBeenCalledOnce();
-      expect(env.__spaceStub.rpcPostSignal).toHaveBeenCalledTimes(2);
+      expect(
+        env.__spaceStub.rpcPostSignalOnceByClientMessageId
+      ).toHaveBeenCalledTimes(2);
       expect(dispatchQueueSend).not.toHaveBeenCalled();
       await expect(
         readRemoteAgentNativeDeliveryBySubmissionId({
@@ -11953,7 +12006,9 @@ describe("Remote Agent native delivery callback service", () => {
           probe,
         })
       ).resolves.toEqual({ status: "expired" });
-      expect(env.__spaceStub.rpcPostSignal).toHaveBeenCalledWith(
+      expect(
+        env.__spaceStub.rpcPostSignalOnceByClientMessageId
+      ).toHaveBeenCalledWith(
         expect.objectContaining({
           finalOutcomeAuthority: "remote_agent_native_delivery",
           meta: expect.objectContaining({
@@ -12033,6 +12088,256 @@ describe("Remote Agent native delivery callback service", () => {
     }
   });
   it.each([
+    "remote_agent.empty_assistant_response",
+    "remote_agent.turn.output_limit_exceeded",
+    "remote_agent.execution_cancelled",
+  ])("preserves saved files when publishing %s", async (failureCode) => {
+    const harness = await createPostgresHarness();
+    await seedRemoteAgentSubmitAuthority(harness);
+    try {
+      await createAcceptedDelivery({
+        db: harness.db,
+        idempotencyKey: "idem_1",
+        submissionId: "sub_saved_failure",
+        spaceId: SPACE_ID,
+      });
+      const file = {
+        fileId: "saved-report",
+        name: "report.md",
+        mimeType: "text/markdown",
+        revision: 1,
+        sizeBytes: 10,
+      };
+      const env = buildEnv(harness.db, { postSignalId: "saved-failure" });
+      await expect(
+        completeRemoteAgentNativeDelivery(env, {
+          ...createFailedCallbackBody({
+            callbackAttempt: 1,
+            submissionId: "sub_saved_failure",
+          }),
+          failureCode,
+          files: [file],
+        })
+      ).resolves.toMatchObject({
+        status: "accepted",
+        publishedSignalId: "saved-failure",
+      });
+      expect(env.__spaceStub.rpcPostSystemNoticeSignal).not.toHaveBeenCalled();
+      expect(
+        env.__spaceStub.rpcPostSignalOnceByClientMessageId
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          clientMessageId: "sub_saved_failure",
+          files: [file],
+          meta: expect.objectContaining({ errorCode: failureCode }),
+        })
+      );
+      await expect(
+        readRemoteAgentNativeDeliveryBySubmissionId({
+          db: harness.db,
+          submissionId: "sub_saved_failure",
+        })
+      ).resolves.toMatchObject({
+        status: "failed",
+        failureCode,
+        publishedSignalId: "saved-failure",
+      });
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it.each([
+    "publication_rejected",
+    "crash_after_claim",
+    "space_ack_lost",
+  ] as const)("retains blocked explanation and files through %s without upgrading task success", async (fault) => {
+    const harness = await createPostgresHarness();
+    await seedRemoteAgentSubmitAuthority(harness);
+    try {
+      await seedWaitingNativeDeliveryDispatch(harness);
+      await createAcceptedDelivery({
+        db: harness.db,
+        deliveryId: "delivery-blocked",
+        idempotencyKey: "idem_1",
+        submissionId: "sub_blocked",
+        spaceId: SPACE_ID,
+      });
+      const task = {
+        deliveryId: "delivery-blocked",
+        kind: "native_delivery" as const,
+        v: 1 as const,
+      };
+      await registerAgentTaskCompletionSubscription({
+        completionCondition: "terminal",
+        continuation: null,
+        db: harness.db,
+        idempotencyKey: "watch-blocked",
+        nowMs: 1100,
+        organizationId: "org_1",
+        observerTask: {
+          agentControllerRef: "builtin:codex",
+          hostId: "host-1",
+          kind: "controller_task",
+          taskId: "observer-blocked",
+          v: 1,
+        },
+        subscriptionId: "subscription-blocked",
+        watchedTask: task,
+      });
+      const file = {
+        fileId: "saved-report",
+        name: "report.md",
+        mimeType: "text/markdown",
+        revision: 1,
+        sizeBytes: 10,
+      };
+      const text =
+        "The report is saved. Publication is unconfirmed; I have not repeated it.";
+      const body = {
+        ...createFailedCallbackBody({
+          callbackAttempt: 1,
+          submissionId: "sub_blocked",
+        }),
+        failureCode: "remote_agent.computer.command_cleanup_failed",
+        explanationText: text,
+        files: [file],
+      };
+      const recovered = buildEnv(harness.db, {
+        postSignalId: "blocked-result",
+      });
+      const publishedSignals = new Map<
+        string,
+        { text: string; files: unknown }
+      >();
+      if (fault === "space_ack_lost") {
+        // Model the Space's public once contract: the write survives a lost
+        // transport acknowledgement and the same key returns the saved Signal.
+        recovered.__spaceStub.rpcPostSignalOnceByClientMessageId.mockImplementation(
+          (request) => {
+            if (!publishedSignals.has(request.clientMessageId)) {
+              publishedSignals.set(request.clientMessageId, {
+                text: request.text,
+                files: request.files,
+              });
+              throw new Error(
+                "Space persisted the Signal but its acknowledgement was lost"
+              );
+            }
+            return createSignalEnvelope("blocked-result");
+          }
+        );
+      }
+      if (fault === "crash_after_claim") {
+        const claimed = await claimRemoteAgentFinalPublication({
+          db: harness.db,
+          claimId: "crashed-owner",
+          claimExpiresAtMs: 2,
+          nowMs: 1,
+          submissionId: body.submissionId,
+          idempotencyKey: body.idempotencyKey,
+          terminalFailureCode: body.failureCode,
+          payload: {
+            storageVersion: 3,
+            resumeStatus: "accepted",
+            failureCode: body.failureCode,
+            failureDetail: null,
+            reviewedFailureExplanation: true,
+            text,
+            files: [file],
+            attachments: [],
+          },
+        });
+        expect(claimed?.status).toBe("failed");
+      } else if (fault === "space_ack_lost") {
+        await expect(
+          completeRemoteAgentNativeDelivery(recovered, body)
+        ).resolves.toMatchObject({ status: "retryable" });
+        expect([...publishedSignals.values()]).toEqual([
+          { text, files: [file] },
+        ]);
+      } else {
+        const unavailable = buildEnv(harness.db);
+        unavailable.__spaceStub.rpcPostSignalOnceByClientMessageId.mockRejectedValueOnce(
+          new Error("Space unavailable")
+        );
+        await expect(
+          completeRemoteAgentNativeDelivery(unavailable, body)
+        ).resolves.toMatchObject({ status: "retryable" });
+      }
+      await expect(
+        completeRemoteAgentNativeDelivery(recovered, {
+          ...body,
+          callbackAttempt: 2,
+          explanationText: "An obsolete replacement draft",
+          files: [],
+        })
+      ).resolves.toMatchObject({
+        status: "accepted",
+        publishedSignalId: "blocked-result",
+      });
+      expect(
+        recovered.__spaceStub.rpcPostSignalOnceByClientMessageId
+      ).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          clientMessageId: "sub_blocked",
+          text,
+          files: [file],
+        })
+      );
+      await expect(
+        readRemoteAgentNativeDeliveryBySubmissionId({
+          db: harness.db,
+          submissionId: "sub_blocked",
+        })
+      ).resolves.toMatchObject({
+        status: "failed",
+        failureCode: body.failureCode,
+        finalPublicationState: "published",
+        publishedSignalId: "blocked-result",
+        finalPublicationPayload: expect.objectContaining({
+          reviewedFailureExplanation: true,
+          text,
+          files: [file],
+        }),
+      });
+      await completeRemoteAgentNativeDelivery(recovered, {
+        ...body,
+        callbackAttempt: 3,
+      });
+      expect(
+        recovered.__spaceStub.rpcPostSignalOnceByClientMessageId
+      ).toHaveBeenCalledTimes(fault === "space_ack_lost" ? 2 : 1);
+      if (fault === "space_ack_lost") {
+        expect([...publishedSignals.values()]).toEqual([
+          { text, files: [file] },
+        ]);
+      }
+      await expect(
+        readDispatchProjection(harness.db, "idem_1")
+      ).resolves.toMatchObject({
+        dispatchStatus: "failed_terminal",
+        attemptStatus: "failed_terminal",
+      });
+      await expect(
+        readAgentTaskTerminalOutcome({
+          db: harness.db,
+          taskKey: buildAgentTaskKey(task),
+        })
+      ).resolves.toMatchObject({
+        task,
+        outcome: {
+          status: "failed",
+          errorCode: body.failureCode,
+          publishedSignalId: "blocked-result",
+        },
+      });
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it.each([
     "remote_agent.turn_not_completed",
     "remote_agent.empty_assistant_response",
     "remote_agent.turn.output_limit_exceeded",
@@ -12100,7 +12405,9 @@ describe("Remote Agent native delivery callback service", () => {
         publishedSignalId: "signal_failure_retry",
       });
       if (failureCode === "remote_agent.turn_not_completed") {
-        expect(recoveredEnv.__spaceStub.rpcPostSignal).toHaveBeenCalledWith(
+        expect(
+          recoveredEnv.__spaceStub.rpcPostSignalOnceByClientMessageId
+        ).toHaveBeenCalledWith(
           expect.objectContaining({
             text: retained?.finalPublicationPayload?.text,
           })
@@ -12223,7 +12530,9 @@ describe("Remote Agent native delivery callback service", () => {
           callbackAttempt: 2,
         }),
       ]);
-      expect(env.__spaceStub.rpcPostSignal).toHaveBeenCalledOnce();
+      expect(
+        env.__spaceStub.rpcPostSignalOnceByClientMessageId
+      ).toHaveBeenCalledOnce();
       expect(results).toContainEqual({
         status: "accepted",
         publishedSignalId: "signal_failure_concurrent",
@@ -13211,6 +13520,34 @@ function buildEnv(
   __spaceStub: TestSpaceStub;
 } {
   let postSignalAttempts = 0;
+  const postSignal = (input: {
+    text?: string;
+    messageEnvelope?: { text?: string };
+  }) => {
+    postSignalAttempts += 1;
+    if (
+      options.postSignalFailuresBeforeSuccess &&
+      postSignalAttempts <= options.postSignalFailuresBeforeSuccess
+    ) {
+      throw new Error("space temporarily unavailable");
+    }
+    if (options.postSignalError) {
+      throw typeof options.postSignalError === "string"
+        ? new Error(options.postSignalError)
+        : options.postSignalError;
+    }
+    if (options.enforceSignalTextLimit) {
+      const text = String(input?.text ?? "");
+      const envelopeText = String(input?.messageEnvelope?.text ?? "");
+      if (
+        text.length > MAX_TEXT_LENGTH ||
+        envelopeText.length > MAX_TEXT_LENGTH
+      ) {
+        throw new Error("text exceeds MAX_TEXT_LENGTH");
+      }
+    }
+    return createSignalEnvelope(options.postSignalId ?? "signal_reply_1");
+  };
   const listSignalsResult = (input: {
     afterCount?: number;
     aroundSignalId?: string;
@@ -13296,34 +13633,8 @@ function buildEnv(
     rpcListDispatchConversationContinuitySignalsResult:
       vi.fn(listSignalsResult),
     rpcListSignalsResult: vi.fn(listSignalsResult),
-    rpcPostSignal: vi.fn((input) => {
-      postSignalAttempts += 1;
-      if (
-        options.postSignalFailuresBeforeSuccess &&
-        postSignalAttempts <= options.postSignalFailuresBeforeSuccess
-      ) {
-        throw new Error("space temporarily unavailable");
-      }
-      if (options.postSignalError) {
-        throw typeof options.postSignalError === "string"
-          ? new Error(options.postSignalError)
-          : options.postSignalError;
-      }
-      if (options.enforceSignalTextLimit) {
-        const text = String(input?.text ?? "");
-        const envelopeText = String(input?.messageEnvelope?.text ?? "");
-        if (
-          text.length > MAX_TEXT_LENGTH ||
-          envelopeText.length > MAX_TEXT_LENGTH
-        ) {
-          throw new Error("text exceeds MAX_TEXT_LENGTH");
-        }
-      }
-      return createSignalEnvelope(options.postSignalId ?? "signal_reply_1");
-    }),
-    rpcPostSignalOnceByClientMessageId: vi.fn(() =>
-      createSignalEnvelope(options.postSignalId ?? "signal_reply_1")
-    ),
+    rpcPostSignal: vi.fn(postSignal),
+    rpcPostSignalOnceByClientMessageId: vi.fn(postSignal),
     rpcPostExecutionRecoveryNoticeSignal: vi.fn((input) => {
       signalSystemNoticeDataSchema.parse(input.data);
       return {
