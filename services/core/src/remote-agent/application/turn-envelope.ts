@@ -366,6 +366,7 @@ export async function resolveRemoteAgentMemberResearchTurnEnvelope(input: {
   });
 }
 export async function resolveRemoteAgentTaskContinuationTurnEnvelope(input: {
+  requestTimeContext?: RemoteAgentTurnEnvelope["requestTimeContext"];
   centerAgentProfileId: string;
   db: PostgresDatabase;
   delegation: AgentDelegationSnapshot;
@@ -475,6 +476,7 @@ export async function resolveRemoteAgentRoutineTaskContinuationTurnEnvelope(inpu
   });
 }
 export async function resolveRemoteAgentTaskWatchContinuationTurnEnvelope(input: {
+  requestTimeContext?: RemoteAgentTurnEnvelope["requestTimeContext"];
   centerAgentProfileId: string;
   db: PostgresDatabase;
   externalSpace?: SpaceEnvelopeFacts;
@@ -500,6 +502,7 @@ export async function resolveRemoteAgentTaskWatchContinuationTurnEnvelope(input:
   });
 }
 async function resolveRemoteAgentContinuationTurnEnvelope(input: {
+  requestTimeContext?: RemoteAgentTurnEnvelope["requestTimeContext"];
   centerAgentProfileId: string;
   db: PostgresDatabase;
   externalSpace?: SpaceEnvelopeFacts;
@@ -575,6 +578,7 @@ async function resolveRemoteAgentContinuationTurnEnvelope(input: {
       );
     }
     return parseCoreOwnedRemoteAgentTurnEnvelope({
+      requestTimeContext: input.requestTimeContext,
       centerAgent,
       interactionEnvironment: "externally_shared",
       organization,
@@ -607,6 +611,7 @@ async function resolveRemoteAgentContinuationTurnEnvelope(input: {
     name: normalizeOptionalText(spaceRow.space_name) ?? "this Space",
   };
   return parseCoreOwnedRemoteAgentTurnEnvelope({
+    requestTimeContext: input.requestTimeContext,
     centerAgent,
     interactionEnvironment: resolveSpaceInteractionEnvironment(space),
     organization,

@@ -145,7 +145,7 @@ describe("shared plugin runtime", () => {
     expect(result.status).toBe("failed");
     expect(transport).toHaveBeenCalledTimes(1);
     expect(transport.mock.calls[0]?.[0]).toBe(
-      "https://connector.example/v1/actions?service=posthog&actionId=posthog.list_projects"
+      "https://connector.example/v1/actions?service=posthog&actionId=posthog.list_projects&connectionName=org_aaaaaaaaaaaaaaaaaa__shared__posthog"
     );
   });
 

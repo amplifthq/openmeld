@@ -96,6 +96,9 @@ const HUMAN_MESSAGES = {
   "connect.closing": (params) =>
     `Closing the connection (${String(params?.why ?? "")})...`,
   "connect.watch_ready": () => "Watching the stream. Press Ctrl+C to quit.",
+  "connect.reconnecting": (params) =>
+    `The connection dropped. Reconnecting (attempt ${String(params?.attempt ?? "")}/5)…`,
+  "connect.reconnected": () => "Reconnected. Missed messages are now loaded.",
   "connect.connected_no_stdio": (params) =>
     formatConnectedNoStdioMessage("human", params),
   "connect.chat_mention_hint": () =>
@@ -201,6 +204,10 @@ const AGENT_MESSAGES = {
   "connect.closing": (params) =>
     `closing connection (${String(params?.why ?? "")})`,
   "connect.watch_ready": () => "watch mode active; Ctrl+C to quit",
+  "connect.reconnecting": (params) =>
+    `space watch reconnecting attempt=${String(params?.attempt ?? "")}/5; no messages or tasks are resent`,
+  "connect.reconnected": () =>
+    "space watch reconnected; message-anchor catch-up complete",
   "connect.connected_no_stdio": (params) =>
     formatConnectedNoStdioMessage("agent", params),
   "connect.chat_mention_hint": () =>

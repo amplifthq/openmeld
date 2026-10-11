@@ -6,11 +6,11 @@ import { demoHumanAvatars } from "./demo-avatars";
 
 export function DemoOrganizationSwitcher() {
 	return (
-		<div className="flex justify-center px-2 pt-3 pb-4">
+		<div className="flex justify-center px-2 pt-4 pb-4">
 			<OrganizationSwitcher
 				account={{ name: "Maya Chen" }}
 				avatar={
-					<OpenMeldLetterLogoStrong pointerTracking="viewport" size={6} />
+					<OpenMeldLetterLogoStrong pointerTracking="viewport" size={5} />
 				}
 				humanProfileAvatar={null}
 				tier="icon"

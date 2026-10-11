@@ -78,24 +78,46 @@ demo builds against the same output directory at once.
 The demo supplies fictional content through real header slots. The Space member
 button opens the product's resizable member panel or mobile drawer. The panel
 starts open on desktop at a demo-specific minimum width of 12rem. Live and You
-labels are hidden in demo member rows. Thread starts at 21rem with a 20rem resize
-minimum. The product's default resize limits and labels remain unchanged. The
-module sidebar starts at 200px, enough to show Customer research in full. The 28px user avatar
+labels are hidden in demo member rows. Thread starts at its 20rem resize minimum
+to leave room for the main conversation's initial draft. The product's default
+resize limits and labels remain unchanged. The
+Space sidebar starts at the product's 176px minimum. Product and demo share
+expanded/hidden dragging and keyboard resizing, with no icon-only intermediate
+tier. Titles remain single-line with an ellipsis when needed; Center Agent fits
+at the minimum. Its search input is omitted through `ConversationsSidebar.showSearch`.
+Team uses the same minimum. Product and demo reuse the same 16px trailing
+header inset and fixed 56px `SpaceInlineSidePanelHeader` for Members and Thread,
+including the loading state. The demo adds no separate alignment override.
+The 28px user avatar
 shares the rail's centerline with the organization switcher and navigation.
+The organization trigger keeps its 36px hit area and starts 16px below the canvas
+top. Its pointer-reactive O logo uses a 5px glyph size to keep its visual weight
+close to the rail controls. Hover actions use the product's row layout: titles
+truncate without wrapping, and row heights stay fixed as the actions appear.
 Claude Code and Codex messages show their human owner.
 The first Space follows a checkout regression: James reports the failure, Maya
 sets the review requirements, and Center Agent delegates to Codex and Claude Code
 before reporting to both people. Billing review and patch review have compact
-reply previews and an Open thread action. Threads start closed, open between the
-main conversation and Members, and reuse the same message rows and Composer. The main conversation
-stays widest, Thread is next, and Members is narrowest at their initial sizes.
+reply previews and an Open thread action. Billing review starts open on desktop;
+other threads and phone threads start closed. Threads open between the main
+conversation and Members, and reuse the same message rows and Composer. The main
+conversation uses the remaining width; Thread has a readable initial width and
+Members stays compact.
 Thread and Members widths remain draggable through the product's sidebar rail.
 A thread reply stays in its thread and updates its main-timeline preview. Closing
 and reopening a thread retains replies for the current demo session.
 A pinned Center Agent private chat links to
 Release handoff, a three-agent Space with no human composer. A prefilled Wake draft lets
-visitors send the next step with one click. Optimistic messages and replies use
-the same transcript layout. Each requested Agent starts with Working inside its
+visitors send the next step with one click.
+
+The prefilled Composer has one subdued, eight-second BorderBeam lap, composed
+through `@openmeld/ui` from the installed Libraries.dev primitive. The cue pauses
+offscreen or while hidden and stops on focus, after one lap, or when the draft
+clears. Reduced motion keeps a static edge. Empty reply Composers do not glow;
+ordinary product Composers are unchanged.
+
+Optimistic messages and replies use the same transcript layout. Each requested
+Agent starts with Working inside its
 reply bubble; streamed text fills that same bubble without a separate status row.
 The message column uses the available width. Sidebar
 pinning changes memory-only state. Team uses the shared header and the real

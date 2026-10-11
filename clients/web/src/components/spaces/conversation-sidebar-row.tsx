@@ -69,6 +69,7 @@ import {
 	type SpaceActiveWakePresentation,
 	type SpaceSidebarActiveWakeSummary,
 } from "./space-active-wake-presentation";
+import { SpaceDeletedLabel } from "./space-deleted-label";
 import {
 	type SpaceMemberAppearance,
 	SpaceMemberAvatars,
@@ -81,6 +82,7 @@ type ConversationSidebarRowProps = {
 	index: number;
 	profileId: string;
 	unreadCount: number;
+	messageUnreadCount?: number;
 	activeWakeSummary?: SpaceSidebarActiveWakeSummary;
 	conversation: Conversation;
 	dragDisabled?: boolean;
@@ -235,7 +237,7 @@ function ConversationSidebarRowContent(
 									aria-label={[
 										input.title,
 										resolveInboxAttentionLabel(input.attentionTone),
-										hasUnread ? "unread messages" : null,
+										hasUnread ? "unread updates" : null,
 										presentation?.label,
 									]
 										.filter(Boolean)
@@ -270,11 +272,13 @@ function ConversationSidebarRowContent(
 							>
 								<span className="flex min-w-0 flex-1 items-center gap-1.5">
 									<span
-										className={`truncate text-foreground ${hasUnread ? "font-semibold" : ""}`}
+										className={`min-w-0 flex-1 truncate text-foreground ${hasUnread ? "font-semibold" : ""}`}
 										data-conversation-title="true"
 									>
 										{input.title}
 									</span>
+									{input.conversation.kind === "space" &&
+										input.conversation.item.deletedAt && <SpaceDeletedLabel />}
 								</span>
 								{timestamp !== null && !presentation && (
 									<ConversationSidebarRowTime timestamp={timestamp} />
@@ -320,6 +324,7 @@ function ConversationSidebarRowContent(
 						) : (
 							<SpaceUnreadLink
 								count={input.unreadCount}
+								messageUnreadCount={input.messageUnreadCount}
 								spaceId={input.conversation.spaceId}
 								url={input.url}
 							/>

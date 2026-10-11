@@ -52,6 +52,7 @@ export {
   resolveAgentControllerRefFromAgentTarget,
   runtimeAgentControllerRefMatchesAdapterSnapshot,
   supportsLocalExecutionInput,
+  supportsSpaceWorkHandoff,
 } from "./agent-controller-ref";
 export {
   AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,

@@ -274,7 +274,7 @@ describe("canonical Inbox attention feed", () => {
         all: 4,
         unread: 3,
         needsAction: 1,
-        priority: 1,
+        priority: 2,
       });
       expect(
         remaining.rows.find((row) => row.group?.kind === "system")
@@ -338,7 +338,7 @@ describe("canonical Inbox attention feed", () => {
         presentation: "attention",
       });
       expect(summary).toMatchObject({
-        priorityCount: 1,
+        priorityCount: 3,
         needsReviewCount: 1,
         needsActionCount: 1,
         unreadPriorityUpdateCount: 1,
@@ -363,8 +363,8 @@ describe("canonical Inbox attention feed", () => {
       expect(
         feed.rows.find((row) => row.item.id === review.itemId)
       ).toMatchObject({
-        dot: null,
-        section: "open",
+        dot: "yellow",
+        section: "priority",
         requestCategory: "review",
       });
       const legacy = await createInboxService({ db: f.db }).summary({
@@ -415,22 +415,22 @@ describe("canonical Inbox attention feed", () => {
       });
       expect(first.selectionUnreadCount).toBe(83);
       expect(first.rows.map((row) => row.item.id)).toEqual([
-        urgent.itemId,
         normal.itemId,
+        urgent.itemId,
       ]);
       expect(first.rows.map((row) => [row.section, row.dot])).toEqual([
         ["priority", "yellow"],
-        ["open", "blue"],
+        ["priority", "yellow"],
       ]);
       expect(first.counts).toMatchObject({
         all: 83,
         unread: 83,
         needsAction: 2,
-        priority: 1,
+        priority: 2,
       });
       const ids = await allIds(feed, fixture.identity, { limit: 7 });
       expect(new Set(ids).size).toBe(83);
-      expect(ids.slice(0, 2)).toEqual([urgent.itemId, normal.itemId]);
+      expect(ids.slice(0, 2)).toEqual([normal.itemId, urgent.itemId]);
     } finally {
       await fixture.close();
     }
@@ -717,7 +717,7 @@ describe("canonical Inbox attention feed", () => {
         (
           await feed.list(fixture.identity, { category: "needs_review" })
         ).rows.map((row) => [row.item.id, row.dot])
-      ).toEqual([[review.itemId, null]]);
+      ).toEqual([[review.itemId, "yellow"]]);
       expect(
         (
           await feed.list(fixture.identity, { category: "needs_action" })

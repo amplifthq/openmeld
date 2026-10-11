@@ -13,6 +13,7 @@ import {
   readD1ImportCompletion,
   reconcileD1Snapshot,
   verifyNativeTarget,
+  verifyNativeTargetWithMigrations,
 } from "./d1-import.mjs";
 import { createRemoteD1Source } from "./d1-remote.mjs";
 import { captureD1Snapshot } from "./d1-snapshot.mjs";
@@ -21,8 +22,16 @@ import {
   connect,
   grantRuntime,
   migrate,
+  readMigrationsAtSource,
 } from "./database.mjs";
 import { readCutoverTarget, verifyRemoteCredential } from "./remote-target.mjs";
+
+export function formatCutoverDataFailure(error) {
+  const sqlState = error.code ?? error.cause?.code;
+  return sqlState
+    ? `Cutover data operation failed (${sqlState}); preserve source and target`
+    : error.message;
+}
 
 function readCommand(program, args) {
   const result = spawnSync(program, args, { encoding: "utf8" });
@@ -96,6 +105,7 @@ export async function runCutoverDataCommand([command, ...args]) {
         "capture <maintenance-id> <new-snapshot>",
         "migrate",
         "verify",
+        "verify-retry-baseline <exact-verified-source>",
         "import <snapshot>",
         "reconcile <snapshot>",
         "completion <snapshot>",
@@ -165,37 +175,52 @@ export async function runCutoverDataCommand([command, ...args]) {
     });
   }
   if (
-    ["migrate", "verify", "grant-runtime"].includes(command) &&
-    args.length === 0
+    (["migrate", "verify", "grant-runtime"].includes(command) &&
+      args.length === 0) ||
+    (command === "verify-retry-baseline" && args.length === 1)
   ) {
-    const client = await connect(migrationCredential(registered));
-    try {
-      if (command === "migrate") {
-        return await migrate(client);
-      }
-      if (command === "verify") {
-        await client.query("BEGIN READ ONLY");
-        const target = await verifyNativeTarget(client, undefined, registered);
-        await verifyRuntimeGrants(client, registered.runtimeRole);
-        await client.query("COMMIT");
-        return {
-          target: target.identity,
-          nativeJournal: target.migrations.map(({ name, checksum }) => ({
-            name,
-            checksum,
-          })),
-          runtimeGrantsVerified: true,
-        };
-      }
-      await grantRuntime(client, registered.runtimeRole);
-      return { runtimeGrantsApplied: true };
-    } finally {
-      await closeMigrationClient(client);
-    }
+    return runNativeDataCommand(command, args, registered);
   }
   throw new Error(
-    "Usage: cutover.mjs plan | prepare-barrier <maintenance-id> <new-directory> | inspect-barrier <maintenance-id> | capture <maintenance-id> <new-snapshot> | <migrate|verify|grant-runtime> | <import|reconcile|completion> <snapshot>"
+    "Usage: cutover.mjs plan | prepare-barrier <maintenance-id> <new-directory> | inspect-barrier <maintenance-id> | capture <maintenance-id> <new-snapshot> | <migrate|verify|grant-runtime> | verify-retry-baseline <exact-verified-source> | <import|reconcile|completion> <snapshot>"
   );
+}
+
+async function runNativeDataCommand(command, args, registered) {
+  const client = await connect(migrationCredential(registered));
+  try {
+    if (command === "migrate") {
+      return await migrate(client);
+    }
+    if (command === "grant-runtime") {
+      await grantRuntime(client, registered.runtimeRole);
+      return { runtimeGrantsApplied: true };
+    }
+    await client.query("BEGIN READ ONLY");
+    const target =
+      command === "verify-retry-baseline"
+        ? await verifyNativeTargetWithMigrations(
+            client,
+            readMigrationsAtSource(args[0]),
+            registered
+          )
+        : await verifyNativeTarget(client, undefined, registered);
+    await verifyRuntimeGrants(client, registered.runtimeRole);
+    await client.query("COMMIT");
+    return {
+      target: target.identity,
+      nativeJournal: target.migrations.map(({ name, checksum }) => ({
+        name,
+        checksum,
+      })),
+      runtimeGrantsVerified: true,
+      ...(command === "verify-retry-baseline"
+        ? { baselineSourceSha: args[0] }
+        : {}),
+    };
+  } finally {
+    await closeMigrationClient(client);
+  }
 }
 
 export async function verifyRuntimeGrants(client, role) {
@@ -239,11 +264,7 @@ if (
     }
     console.log(JSON.stringify(result));
   } catch (error) {
-    console.error(
-      error.code
-        ? `Cutover data operation failed (${error.code}); preserve source and target`
-        : error.message
-    );
+    console.error(formatCutoverDataFailure(error));
     process.exitCode = 1;
   }
 }

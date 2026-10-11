@@ -54,6 +54,7 @@ vi.mock("#/lib/profiles/agent-profile-creation-local-setup", () => ({
 }));
 
 const BASE_REQUEST = {
+	configuration: DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
 	actorProfileId: "profile-alex",
 	completedAt: null,
 	createdAgentProfileId: null,

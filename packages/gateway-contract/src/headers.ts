@@ -64,7 +64,7 @@ export const OPENMELD_SPACE_FILES_ORIGIN_VERSION = "1";
 export const OPENMELD_HEADER_SPACE_IMAGE_GEOMETRY_VERSION =
   "x-openmeld-space-image-geometry-version";
 export const OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION = "1";
-export const OPENMELD_INBOX_ITEM_KIND_VERSION = "1";
+export const OPENMELD_INBOX_ITEM_KIND_VERSION = "2";
 export const OPENMELD_HEADER_INBOX_SUMMARY_VERSION =
   "x-openmeld-inbox-summary-version";
 export const OPENMELD_INBOX_SUMMARY_VERSION = "3";

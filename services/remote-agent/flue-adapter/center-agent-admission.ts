@@ -6,6 +6,7 @@ import {
   type RemoteAgentStorage,
   redeliverDueRemoteAgentCallbacks,
 } from "../agent-core/callback-context";
+import type { RemoteAgentDiagnosticsEnv } from "../agent-core/diagnostics-content-policy";
 import { appendRemoteAgentImageUnderstanding } from "../agent-core/image-understanding";
 import {
   buildRemoteAgentName,
@@ -17,6 +18,7 @@ import {
   type RemoteAgentConversationFootprint,
   resolveRemoteAgentConversationFootprintAdmission,
 } from "./conversation-footprint";
+import { retryComputerCleanupHandoffs } from "./execution-cleanup";
 import {
   type FlueSubmissionLifecycle,
   reconcileSettledRemoteAgentExecutions,
@@ -249,6 +251,7 @@ export async function scheduleRemoteAgentCallbackRetry(input: {
 }
 
 export async function redeliverRemoteAgentCallbacksAndScheduleNextRetry(input: {
+  env?: RemoteAgentDiagnosticsEnv;
   coreWorker?: RemoteAgentCoreWorkerBinding;
   excludeSubmissionIds?: ReadonlySet<string>;
   nowMs?: () => number;
@@ -256,6 +259,7 @@ export async function redeliverRemoteAgentCallbacksAndScheduleNextRetry(input: {
   storage: RemoteAgentStorage;
 }): Promise<{ processed: number; nextDueAtMs: number | null }> {
   const callbackRetry = await redeliverDueRemoteAgentCallbacks({
+    env: input.env,
     coreWorker: input.coreWorker,
     excludeSubmissionIds: input.excludeSubmissionIds,
     nowMs: input.nowMs,
@@ -272,7 +276,7 @@ export async function redeliverRemoteAgentCallbacksAndScheduleNextRetry(input: {
 }
 
 export async function reconcileAndRedeliverRemoteAgentCallbacks(input: {
-  env?: { AGENT_COMPUTER?: unknown };
+  env?: RemoteAgentDiagnosticsEnv & { AGENT_COMPUTER?: unknown };
   coreWorker?: RemoteAgentCoreWorkerBinding;
   nowMs?: () => number;
   readSubmission: (
@@ -288,25 +292,39 @@ export async function reconcileAndRedeliverRemoteAgentCallbacks(input: {
   const nowMs = input.nowMs?.() ?? Date.now();
   // Fence the exact retryable set through the execution owner before this
   // alarm can redeliver any callback projection captured before a restart.
-  const retryableContexts = (
-    await listDueRetryableCallbackContexts(input.storage, nowMs)
-  ).filter((context) => context.callbackStatus === "retryable");
-  const reconciliation = await reconcileSettledRemoteAgentExecutions({
-    env: input.env,
-    coreWorker: input.coreWorker,
-    nowMs: () => nowMs,
-    readSubmission: input.readSubmission,
-    retryableContexts,
-    storage: input.storage,
-  });
-  const redelivery = await redeliverRemoteAgentCallbacksAndScheduleNextRetry({
-    coreWorker: input.coreWorker,
-    excludeSubmissionIds: new Set(
-      retryableContexts.map((context) => context.submissionId)
-    ),
-    nowMs: () => nowMs,
-    schedule: input.schedule,
-    storage: input.storage,
-  });
-  return { ...redelivery, reconciled: reconciliation.reconciled };
+  try {
+    const retryableContexts = (
+      await listDueRetryableCallbackContexts(input.storage, nowMs)
+    ).filter((context) => context.callbackStatus === "retryable");
+    const reconciliation = await reconcileSettledRemoteAgentExecutions({
+      env: input.env,
+      coreWorker: input.coreWorker,
+      nowMs: () => nowMs,
+      readSubmission: input.readSubmission,
+      retryableContexts,
+      storage: input.storage,
+    });
+    const redelivery = await redeliverRemoteAgentCallbacksAndScheduleNextRetry({
+      env: input.env,
+      coreWorker: input.coreWorker,
+      excludeSubmissionIds: new Set(
+        retryableContexts.map((context) => context.submissionId)
+      ),
+      nowMs: () => nowMs,
+      schedule: input.schedule,
+      storage: input.storage,
+    });
+    return { ...redelivery, reconciled: reconciliation.reconciled };
+  } finally {
+    // Stop delivery remains owned even when callback recovery or scheduling
+    // fails. Both duties use the existing alarm, but neither gates the other.
+    const cleanupDueAtMs = await retryComputerCleanupHandoffs(input);
+    if (cleanupDueAtMs !== null) {
+      await scheduleRemoteAgentCallbackRetry({
+        dueAtIso: new Date(cleanupDueAtMs).toISOString(),
+        nowMs: input.nowMs,
+        schedule: input.schedule,
+      });
+    }
+  }
 }

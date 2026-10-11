@@ -72,6 +72,43 @@ const ITEM = {
   updatedAt: "2026-08-04T01:00:00.000Z",
 };
 
+it.each([
+  undefined,
+  "1",
+  "2",
+])("projects membership notices for Inbox item capability %s", async (version) => {
+  const { coreRpc, env } = makeEnv();
+  const item = {
+    ...ITEM,
+    kind: "space_joined" as const,
+    attention: "update" as const,
+    resolutionStatus: "not_applicable" as const,
+    sourceTarget: { kind: "space" as const, spaceId: "space-1" },
+  };
+  coreRpc.getInboxItem.mockResolvedValue({ item });
+  const response = await app.fetch(
+    new Request("http://local/v1/inbox/items/inbox-item-1", {
+      headers: {
+        "x-openmeld-inbox-source-target-version": "10",
+        ...(version ? { "x-openmeld-inbox-item-kind-version": version } : {}),
+      },
+    }),
+    env,
+    TEST_EXECUTION_CONTEXT
+  );
+  expect(response.status).toBe(200);
+  const result = (await response.json()) as GetInboxItemResponse;
+  expect(result.item).toMatchObject({
+    id: item.id,
+    title: item.title,
+    sourceTarget: item.sourceTarget,
+    kind: version === "2" ? "space_joined" : "system_issue",
+  });
+  expect(coreRpc.getInboxItem).toHaveBeenCalledWith(
+    expect.objectContaining({ includeMembershipNotices: true })
+  );
+});
+
 const MESSAGE_CHANNEL_ITEM = {
   ...ITEM,
   id: "inbox-item-2",
@@ -391,6 +428,70 @@ describe("Inbox routes", () => {
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual(version === "1" ? legacy : current);
     }
+  });
+
+  it("negotiates membership summary fields with item-kind capability instead of the unchanged summary version", async () => {
+    const { coreRpc, env } = makeEnv();
+    const space = {
+      latestUnreadOccurredAtMs: 1000,
+      spaceId: "space-1",
+      unreadCount: 1,
+    };
+    const summary = {
+      organizationId: "org-1",
+      spaces: [space],
+    };
+    const targets = {
+      hasMoreTargets: false,
+      organizationId: "org-1",
+      spaceId: "space-1",
+      targets: [],
+      totalUnreadCount: 0,
+    };
+    const currentSummary = {
+      ...summary,
+      spaces: [{ ...space, messageUnreadCount: 0 }],
+    };
+    const currentTargets = {
+      ...targets,
+      joinedItems: [{ itemId: "joined-1", occurredAtMs: 1000 }],
+    };
+    coreRpc.getSpaceInboxSummary.mockResolvedValue(currentSummary);
+    coreRpc.getSpaceInboxUnreadTargets.mockResolvedValue(currentTargets);
+    for (const version of [undefined, "1", "unknown", "2"]) {
+      const headers = {
+        "x-openmeld-inbox-summary-version": "3",
+        ...(version ? { "x-openmeld-inbox-item-kind-version": version } : {}),
+      };
+      const summaryResponse = await app.fetch(
+        new Request("http://local/v1/inbox/spaces/summary", { headers }),
+        env,
+        TEST_EXECUTION_CONTEXT
+      );
+      const targetsResponse = await app.fetch(
+        new Request(
+          "http://local/v1/inbox/spaces/space-1/unread-targets?includeItemIds=true",
+          { headers }
+        ),
+        env,
+        TEST_EXECUTION_CONTEXT
+      );
+      expect(summaryResponse.status).toBe(200);
+      expect(targetsResponse.status).toBe(200);
+      const summaryBody = await summaryResponse.json();
+      const targetsBody = await targetsResponse.json();
+      expect(summaryBody).toEqual(version === "2" ? currentSummary : summary);
+      expect(targetsBody).toEqual(version === "2" ? currentTargets : targets);
+    }
+    expect(coreRpc.getSpaceInboxSummary).toHaveBeenCalledWith(
+      expect.objectContaining({ includeMembershipNotices: true })
+    );
+    expect(coreRpc.getSpaceInboxUnreadTargets).toHaveBeenCalledWith(
+      expect.objectContaining({
+        includeMembershipNotices: true,
+        includeItemIds: true,
+      })
+    );
   });
 
   it("preserves older routing and gates new source facts independently of version 7 reply facts", async () => {

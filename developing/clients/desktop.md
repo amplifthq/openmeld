@@ -239,6 +239,11 @@ packaged inline scripts for CSP. It never enables arbitrary inline scripts.
   account-scoped Composer drafts until the authoritative reread confirms no
   session or a different account. Explicit sign-out still clears those drafts.
   Entry distinguishes an unknown/failed session read from confirmed sign-out.
+  While a macOS session read is pending, the shared opening screen can show
+  conditional system-prompt guidance before platform metadata returns. This
+  notice does not establish a Keychain wait or session state, enable sign-in,
+  or change credential protection. Resolved platform metadata keeps local
+  mock-Keychain builds outside the installed credential notice.
   Manual Retry and focus reuse the same serialized, revision-fenced revalidation;
   native session changes supersede older reads. A confirmed native session is
   shared through the renderer's TanStack Query cache for 30 seconds of same-account
@@ -344,15 +349,16 @@ apply feedback to a replacement card.
 
 The shared Connect flow, including New Agent's embedded recovery, offers a
 fixed `connectComputer` operation in Desktop. Its strict request contains the
-displayed account and optional Human Profile/Space IDs only. Main validates its
+displayed account, optional Human Profile/Space/Computer targets, fresh-session
+intent, source navigation action, and supported Tools update action. Main validates its
 current native account, reads the CLI-owned `computer connection-review --json`
 projection, and reuses an account-aligned existing Service when that projection
 positively identifies it. Reuse selects its actual device/lane; it does not
 claim Agent Wakeability or rewrite a Computer session.
 
-Fresh-session requests (including New Agent recovery) and source navigation
-actions bypass that reuse shortcut. Source actions enter the existing Prepare
-request unchanged. A requested `connectedComputerId` also bypasses reuse and
+Fresh-session requests (including New Agent recovery), Space targets and source
+navigation actions bypass that reuse shortcut. Source actions enter the existing
+Prepare request unchanged. A requested `connectedComputerId` also bypasses reuse and
 enters Prepare unchanged: Core validates account ownership, and the existing CLI
 executor enrolls the current Service against that stable Computer identity.
 New Agent must not derive this reconnect intent from a sole enrolled Computer,
@@ -361,18 +367,44 @@ native connection leaves the target unspecified so the CLI uses its own Service
 identity. The recovery picker (shown even for one saved Computer) and an explicit
 session intent can select an existing Computer; the same resolved intent drives
 both embedded setup and its recovery link.
-Service updates and Space recovery stay in the Web flow until the native path supports their full intent;
-Desktop offers the original route, or the original Space for a source action,
-without reporting native completion. Once Prepare exists, later authorization,
-account, execution, or snapshot failures retain its diagnostic correlation ID.
+Space recovery uses this native owner, keeps the Human Profile, Space, requested
+Computer and source action, refreshes the existing recovery queries, and returns
+through the shared completion target. Main rejects a returned profile/Space or
+requested Computer device/lane mismatch before authorizing CLI setup.
 
-When the managed CLI is absent or lacks the connection contract, main downloads
-the fixed Web origin's managed binary manifest and the Apple silicon or Windows
-x64 artifact.
+The optional `updateComputer` bridge capability uses the same native operation,
+progress, account fences and strict request schema with `serviceAction=update_service`.
+An update for an explicitly selected Computer requires a successful trusted
+CLI connection review before any installation. A missing CLI or obsolete
+connection-review command returns normal Desktop connection guidance without
+installing; ordinary first Connect retains automatic acquisition.
+After review, main validates the returned Prepare targets before acquiring the
+current verified managed binary after account-switch approval. It rechecks local
+account ownership and bypasses connection reuse. The CLI owns
+Service update joining and installed-version verification before `setup.complete`;
+Desktop requires both that command success and completed Prepare before returning.
+It does not introduce a second Service updater or cloud readiness authority.
+Older Desktop without this capability retains the explicit original Web update
+route and cannot report native update completion. Once Prepare exists, later
+authorization, account, execution, or snapshot failures retain its diagnostic
+correlation ID.
+
+For ordinary Connect, when the managed CLI is absent or lacks the connection
+contract, main downloads the fixed Web origin's managed binary manifest and the
+Apple silicon or Windows x64 artifact.
 The shared `@openmeld/local-service/cli-binary-update-artifact` implementation
 verifies transport and executable hashes and the production signing identity.
 The verified binary's `install-self` owns installation. No Node/npm prerequisite,
 arbitrary renderer executable, URL, path, or shell command is accepted.
+
+Contract impact: ordinary connection payloads are unchanged. The optional update
+action is emitted only through the new bridge capability, so older native strict
+readers never receive it from a newer renderer. Old renderers keep their ordinary
+Connect/Web update paths with new main. Core/Gateway Prepare, CLI setup, Service,
+Skills, Space actions, diagnostics and contract epochs retain their wire contracts.
+No required-client floor change is introduced. The Desktop/shared source change
+still requires the final packaged-artifact and local-component audit; source tests
+do not certify installation or mixed-version behavior.
 
 Windows uses the same managed installer, with a separately verified native
 process companion and Authenticode publisher. Electron is never the background
@@ -870,9 +902,10 @@ native transport prerequisite; these adapters do not relax it.
 
 `pilot-protocol.ts` owns a fixed-endpoint request adapter:
 
-Its header allowlist preserves shared Inbox, Space addressing, and Space access capability
-negotiation. These version headers select an existing response contract; they
-do not grant authorization. Renderer cookies and authorization remain excluded.
+Its header allowlist preserves shared Inbox, Space addressing, Space access,
+Space file origin, and image geometry capability negotiation. These version
+headers select an existing response contract; they do not grant authorization.
+Renderer cookies and authorization remain excluded.
 
 File download responses preserve `x-openmeld-file-revision` for the shared
 Space file reader. Local image previews use Blob URLs, which are allowed only
@@ -1176,6 +1209,10 @@ do not combine test and private identities by registering duplicate plugins.
 Browser sign-in validates that configured identity, displays the intended
 account, and preserves the normal add-account entry when another account is
 needed. Invalid or expired native returns require a fresh browser sign-in.
+Magic Link and email verification preserve the original `/desktop-sign-in`
+target and its authorization parameters. Successful verification returns to
+that request instead of the default Organization entry. Native callback and
+process-local verifier ownership remain with the existing auth SDK.
 
 Installed requests carry `x-openmeld-desktop-contract: 1`; before authenticated
 business reads or streams, native verifies the strict, no-store

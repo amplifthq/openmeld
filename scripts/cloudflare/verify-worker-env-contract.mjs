@@ -14,6 +14,22 @@ const repoRoot = path.resolve(
 const hasCoreAccountDeletion = existsSync(
   path.join(repoRoot, "services/core/src/organizations/account-deletion.ts")
 );
+const gatewayConnectorReader = readFileSync(
+  path.join(
+    repoRoot,
+    "services/gateway/src/routes/rpc-http.connector-connections.ts"
+  ),
+  "utf8"
+);
+const gatewayConnectorClient = readFileSync(
+  path.join(repoRoot, "services/gateway/src/lib/openconnector-client.ts"),
+  "utf8"
+);
+const gatewayRuntimeSecretNames =
+  gatewayConnectorReader.includes("OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN") ||
+  gatewayConnectorClient.includes("#runtimeToken")
+    ? ["OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN"]
+    : [];
 const verificationProfile = parseVerificationProfile(process.argv.slice(2));
 verifyPostgresqlEnvironment(repoRoot, { profile: verificationProfile });
 const verifiesStaging = verificationProfile === "all";
@@ -344,6 +360,9 @@ const workerPackages = [
     ],
     secretOwned: true,
     stagingSecretOwned: true,
+    optionalProductionSecretNames: [
+      "CLOUDFLARE_OPENMELD_INTERNAL_DIAGNOSTICS_ORGANIZATION_ID",
+    ],
     requiredSecretNames: [
       "OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN",
       "CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN",
@@ -427,6 +446,7 @@ const workerPackages = [
     secretOwned: true,
     requiredSecretNames: [
       "OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN",
+      ...gatewayRuntimeSecretNames,
       "SLACK_OPENMELD_OAUTH_CLIENT_ID",
       "SLACK_OPENMELD_OAUTH_CLIENT_SECRET",
       "SLACK_OPENMELD_SIGNING_SECRET",
@@ -448,6 +468,7 @@ const workerPackages = [
       "OPENMELD_FEEDBACK_IP_RATE_LIMITER",
       "OPENMELD_OBSERVABILITY",
       "OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN",
+      ...gatewayRuntimeSecretNames,
       "OPENMELD_IMAGES",
       "OPENMELD_GATEWAY_URL",
       "OPENMELD_ORGANIZATION_LOGOS",
@@ -665,6 +686,12 @@ for (const workerPackage of workerPackages) {
 
       const definedKeys = readDefinedEnvKeys(relativePath);
       const expectedKeys = workerPackage.requiredSecretNames ?? [];
+      const allowedKeys = [
+        ...expectedKeys,
+        ...(fileName === ".dev.vars.prod.example"
+          ? (workerPackage.optionalProductionSecretNames ?? [])
+          : []),
+      ];
 
       for (const secretName of expectedKeys) {
         ensure(
@@ -675,7 +702,7 @@ for (const workerPackage of workerPackages) {
 
       for (const definedKey of definedKeys) {
         ensure(
-          expectedKeys.includes(definedKey),
+          allowedKeys.includes(definedKey),
           `${relativePath} must not define unexpected key ${definedKey}.`
         );
       }

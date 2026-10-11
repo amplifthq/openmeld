@@ -1290,7 +1290,7 @@ function assertDaemonRouteExecutionContextCapable(input: {
   executionContext: DispatchExecutionContext;
 }): void {
   if (
-    input.message.sourceSignalSnapshot?.workHandoff &&
+    input.message.sourceSignalSnapshot?.workHandoff?.files.length &&
     input.route.capabilities.spaceWorkHandoff !== true
   ) {
     throw buildDispatchExecutionValidationError({
@@ -1309,6 +1309,11 @@ function assertDaemonRouteExecutionContextCapable(input: {
   )?.id;
   let requiredExecutionContextVersion = 1;
   if (
+    input.message.executionContext.projectWork?.commit ||
+    input.message.sourceSignalSnapshot?.workHandoff?.schemaVersion === 2
+  ) {
+    requiredExecutionContextVersion = 5;
+  } else if (
     input.message.controllerSnapshot.agentControllerRef ===
       "builtin:claude-code" &&
     input.message.executionContext.access === "workspace"
@@ -3480,12 +3485,14 @@ function canAdmitContextWithUnavailableDefaultFolder(input: {
   readiness: AgentExecutionStatusProjection;
 }): boolean {
   // RuntimeCoordinator resolves a resume/fork source only after this preflight.
-  // Later Core and Service checks still require a valid selected repository.
+  // Later checks require a valid selected repository or the owned Space-only workspace.
   const selection = input.message.contextSelection;
   if (
     !(
       (input.message.executionContext?.projectWork ||
+        input.message.executionContext?.access === "space_context" ||
         (selection?.mode === "new" && selection.projectWork) ||
+        (selection?.mode === "new" && selection.access === "space_context") ||
         selection?.mode === "resume" ||
         selection?.mode === "fork") &&
       DEFAULT_FOLDER_UNAVAILABLE_REASONS.has(input.blockReasonCode)

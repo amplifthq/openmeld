@@ -6,6 +6,7 @@ import {
 } from "../../src/index";
 import { modelRetirementNoticeSchema } from "../../src/schemas/config/model-catalog";
 import codexGpt6Capture from "../fixtures/codex-gpt-6-sol-luna-2026.09.23.json";
+import sparkWithdrawal from "../fixtures/codex-spark-withdrawal-2026.10.09.json";
 import cursorModelCatalogCapture from "../fixtures/cursor-model-catalog-2026.09.10.json";
 import cursorOctoberReviewCapture from "../fixtures/cursor-model-catalog-2026.10.07.json";
 import haikuCapture from "../fixtures/haiku-5.5-local-model-catalog-2026.10.08.json";
@@ -16,6 +17,7 @@ import openCodeModelCatalogCapture from "../fixtures/opencode-model-catalog-1.18
 import openCodeOctoberCapture from "../fixtures/opencode-model-catalog-1.18.34.json";
 import openCodeReviewCapture from "../fixtures/opencode-model-catalog-2026.10.06.json";
 import openCodeLatestReviewCapture from "../fixtures/opencode-model-catalog-2026.10.07.json";
+import openCodeAlignmentCapture from "../fixtures/opencode-model-catalog-2026.10.09.json";
 
 describe("model catalog schema", () => {
   it.each([
@@ -60,6 +62,25 @@ describe("model catalog schema", () => {
         date: { value: "2026-02-30", kind: "on" },
       }).success
     ).toBe(false);
+  });
+
+  it("scopes Spark withdrawal to the rejected native login method", () => {
+    const model = modelCatalogSchema
+      .parse(vendorModelCatalog)
+      .agentControllers.codex?.models.find(
+        (entry) => entry.id === sparkWithdrawal.modelId
+      );
+    expect(model?.unavailable).toBe(false);
+    expect(model?.retirement).toEqual({
+      status: "withdrawn",
+      date: { value: sparkWithdrawal.retirementDate, kind: "on" },
+      scope: {
+        controllerRef: "builtin:codex",
+        authType: sparkWithdrawal.capture.authType,
+      },
+      sourceUrl: sparkWithdrawal.sourceUrl,
+      verifiedAt: sparkWithdrawal.capture.observedAt,
+    });
   });
 
   it("preserves reviewed local model IDs and reasoning options", () => {
@@ -123,6 +144,7 @@ describe("model catalog schema", () => {
       ...openCodeOctoberCapture.models,
       ...openCodeReviewCapture.models,
       ...haikuCapture.opencode.models,
+      ...openCodeAlignmentCapture.models,
     ]) {
       expect(agentControllers.opencode?.models).toContainEqual(
         expect.objectContaining({
@@ -198,8 +220,9 @@ describe("model catalog schema", () => {
           (model) => `${model.providerID}/${model.id}`
         ),
         "opencode/exo-free",
-        "opencode/fledge-alpha-free",
         "opencode/mistral-large-4",
+        "opencode/step-5-preview-free",
+        "opencode-go/step-5-preview-free",
       ].toSorted()
     );
   });
@@ -273,7 +296,7 @@ describe("model catalog schema", () => {
                   },
                   sourceUrl:
                     "https://learn.chatgpt.com/docs/models#deprecated-codex-models",
-                  verifiedAt: "2026-09-23T14:09:57Z",
+                  verifiedAt: "2026-10-09T03:16:42Z",
                 },
               }
             : {}),

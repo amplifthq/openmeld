@@ -16,6 +16,7 @@ type CoreRpcMock = {
   getCurrentAgentProfileSession: ReturnType<typeof vi.fn>;
   setAgentProfileCreationDefaults: ReturnType<typeof vi.fn>;
   updateAgentProfileDefaultProject: ReturnType<typeof vi.fn>;
+  updateBoundAgentProfileDefaultProject: ReturnType<typeof vi.fn>;
   updateAgentProfilePrimaryBindingAgentControllerCollaborationMode: ReturnType<
     typeof vi.fn
   >;
@@ -149,6 +150,7 @@ function makeEnv(input?: {
       updatedAt: "2026-08-18T12:00:00.000Z",
       userId: "owner-1",
     })),
+    updateBoundAgentProfileDefaultProject: vi.fn(),
     updateAgentProfileDefaultProject: vi.fn(async () => ({
       ok: true,
       profile: {
@@ -785,8 +787,28 @@ describe("agent profile binding routes", () => {
     expect(coreRpc.ensureAgentProfilePrimaryBinding).not.toHaveBeenCalled();
   });
 
-  it("forwards Default Project updates with canonical organization context", async () => {
+  it.each([
+    false,
+    true,
+  ])("forwards Default Project updates with canonical organization context (bound=%s)", async (bound) => {
     const { coreRpc, env } = makeEnv();
+    const expectedBindingTarget = {
+      bindingId: "binding-1",
+      agentControllerRef: "builtin:codex",
+      agentControllerConversationId: null,
+      openMeldServiceRuntimeId: "runtime-1",
+    };
+    const rpc = bound
+      ? coreRpc.updateBoundAgentProfileDefaultProject
+      : coreRpc.updateAgentProfileDefaultProject;
+    if (bound) {
+      const response =
+        coreRpc.updateAgentProfileDefaultProject.getMockImplementation();
+      if (!response) {
+        throw new Error("Missing Default Project response fixture");
+      }
+      rpc.mockImplementation(response);
+    }
 
     const response = await app.fetch(
       new Request(
@@ -795,6 +817,7 @@ describe("agent profile binding routes", () => {
           body: JSON.stringify({
             defaultProjectId: "project-1",
             expectedOrganizationId: "org-1",
+            ...(bound ? { expectedBindingTarget } : {}),
           }),
           headers: { "content-type": "application/json" },
           method: "PATCH",
@@ -812,11 +835,12 @@ describe("agent profile binding routes", () => {
         openMeldProfileId: AGENT_PROFILE_ID,
       },
     });
-    expect(coreRpc.updateAgentProfileDefaultProject).toHaveBeenCalledWith(
+    expect(rpc).toHaveBeenCalledWith(
       expect.objectContaining({
         agentProfileId: AGENT_PROFILE_ID,
         defaultProjectId: "project-1",
         expectedOrganizationId: "org-1",
+        ...(bound ? { expectedBindingTarget } : {}),
       })
     );
   });

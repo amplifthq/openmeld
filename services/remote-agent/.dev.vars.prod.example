@@ -4,6 +4,10 @@ CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN=
 # OpenConnector runtime token used only for the approved action execution surface.
 OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN=
 
+# Optional exact internal Organization ID. Maintain in scoped Doppler prd config;
+# sync separately with sync:secrets:diagnostics:prod. Absence disables the exception.
+CLOUDFLARE_OPENMELD_INTERNAL_DIAGNOSTICS_ORGANIZATION_ID=
+
 # Non-secret model route config is managed in wrangler.jsonc vars:
 # - OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID
 # - OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID

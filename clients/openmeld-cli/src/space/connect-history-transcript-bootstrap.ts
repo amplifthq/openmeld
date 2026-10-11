@@ -1,5 +1,9 @@
 import type { HelloAck, SignalEnvelope } from "@openmeld/protocol";
-import { replayRecentSignals } from "./connect-catchup";
+import {
+  replayMissedSignals,
+  replayRecentSignals,
+  type SpaceWatchReadState,
+} from "./connect-catchup";
 import type { SpaceJoinReadModelSeed } from "./join-read-model-seed";
 import {
   buildSpaceSessionProfileContextFromIdentity,
@@ -14,18 +18,21 @@ import {
 
 export type ConnectHistoryTranscriptBootstrapResult = {
   synced: boolean;
+  confirmedAnchorSignalId: string | null;
   latestReplayedSignalTs: number | null;
   lastTranscriptGroupKey: string | null;
 };
 
-// Neutral connect/runtime seam: owns initial replay bootstrap and shared
+// Neutral connect/runtime seam: owns initial and anchored replay and shared
 // transcript-pipeline parity, without owning join handoff or read seed state.
-export async function replayConnectInitialHistoryBootstrap(input: {
+export async function replayConnectHistoryBootstrap(input: {
   profileIdentity: SpaceSessionProfileIdentity;
   baseUrl: string;
   space: string;
   password?: string;
   recentHistoryLimit: number;
+  afterSignalId?: string;
+  shouldContinue?: () => boolean;
   readModelSeed: Pick<
     SpaceJoinReadModelSeed,
     | "rememberSignal"
@@ -44,17 +51,17 @@ export async function replayConnectInitialHistoryBootstrap(input: {
   renderWidth?: number;
 }): Promise<ConnectHistoryTranscriptBootstrapResult> {
   let latestReplayedSignalTs: number | null = null;
+  let confirmedAnchorSignalId: string | null = null;
   const replayedTranscriptItems: SpaceTranscriptItem[] = [];
 
   try {
-    await replayRecentSignals({
+    const replayInput = {
       profileIdentity: input.profileIdentity,
       baseUrl: input.baseUrl,
       space: input.space,
       password: input.password,
-      limit: input.recentHistoryLimit,
       seenSignalIds: input.seenSignalIds,
-      onEvent: (event) => {
+      onEvent: (event: SignalEnvelope | HelloAck) => {
         if (isSignalEnvelope(event)) {
           input.readModelSeed.rememberSignal(event);
           latestReplayedSignalTs = Math.max(
@@ -77,11 +84,24 @@ export async function replayConnectInitialHistoryBootstrap(input: {
 
         input.onReplayEvent(event);
       },
-    });
+    };
+    if (input.afterSignalId) {
+      confirmedAnchorSignalId = await replayMissedSignals({
+        ...replayInput,
+        afterSignalId: input.afterSignalId,
+        shouldContinue: input.shouldContinue,
+      });
+    } else {
+      await replayRecentSignals({
+        ...replayInput,
+        limit: input.recentHistoryLimit,
+      });
+    }
   } catch (error) {
     input.onError(error);
     return {
       synced: false,
+      confirmedAnchorSignalId,
       latestReplayedSignalTs,
       lastTranscriptGroupKey: replayedTranscriptItems.at(-1)?.groupKey ?? null,
     };
@@ -110,9 +130,40 @@ export async function replayConnectInitialHistoryBootstrap(input: {
 
   return {
     synced: true,
+    confirmedAnchorSignalId,
     latestReplayedSignalTs,
     lastTranscriptGroupKey: replayedTranscriptItems.at(-1)?.groupKey ?? null,
   };
+}
+
+export async function replaySpaceWatchHistory(
+  input: Omit<
+    Parameters<typeof replayConnectHistoryBootstrap>[0],
+    "afterSignalId"
+  > & { watchReadState: SpaceWatchReadState }
+): Promise<ConnectHistoryTranscriptBootstrapResult> {
+  const afterSignalId = input.watchReadState.anchorSignalId;
+  if (!afterSignalId) {
+    throw new Error(
+      "Space watch has no saved message anchor. Read Space history before starting another watch."
+    );
+  }
+  const replay = await replayConnectHistoryBootstrap({
+    ...input,
+    afterSignalId,
+  });
+  if (input.shouldContinue?.() === false) {
+    return { ...replay, synced: false };
+  }
+  if (!replay.synced) {
+    throw new Error(
+      "Space watch could not complete catch-up. Read Space history before starting another watch."
+    );
+  }
+  if (replay.confirmedAnchorSignalId) {
+    input.watchReadState.anchorSignalId = replay.confirmedAnchorSignalId;
+  }
+  return replay;
 }
 
 export function emitHumanConnectTranscriptEvent(input: {

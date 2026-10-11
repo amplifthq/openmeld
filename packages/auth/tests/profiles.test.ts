@@ -31,8 +31,10 @@ type ProfileSeed = Omit<
   | "creatorProfileId"
   | "creationIdempotencyKey"
   | "defaultProjectId"
+  | "defaultProjectRevision"
   | "managedRole"
   | "avatarStyle"
+  | "avatarOptions"
   | "organizationId"
 > &
   Partial<
@@ -43,8 +45,10 @@ type ProfileSeed = Omit<
       | "creatorProfileId"
       | "creationIdempotencyKey"
       | "defaultProjectId"
+      | "defaultProjectRevision"
       | "managedRole"
       | "avatarStyle"
+      | "avatarOptions"
       | "organizationId"
     >
   >;
@@ -61,8 +65,10 @@ function withProfileDefaults(profile: ProfileSeed): OpenMeldProfileRecord {
     creationActorProfileId: profile.creationActorProfileId ?? null,
     creationIdempotencyKey: profile.creationIdempotencyKey ?? null,
     defaultProjectId: profile.defaultProjectId ?? null,
+    defaultProjectRevision: profile.defaultProjectRevision ?? 0,
     managedRole: profile.managedRole ?? null,
     avatarStyle: profile.avatarStyle ?? null,
+    avatarOptions: profile.avatarOptions ?? null,
   };
 }
 
@@ -190,6 +196,7 @@ function createInMemoryRepository(
         creatorProfileId: input.creatorProfileId ?? null,
         creationIdempotencyKey: null,
         defaultProjectId: null,
+        defaultProjectRevision: 0,
         avatarStyle: null,
         avatarOptions: null,
         managedRole: null,
@@ -243,6 +250,7 @@ function createInMemoryRepository(
         creatorProfileId: input.creatorProfileId ?? null,
         creationIdempotencyKey: input.creationIdempotencyKey ?? null,
         defaultProjectId: null,
+        defaultProjectRevision: 0,
         avatarStyle: null,
         avatarOptions: null,
         managedRole: input.managedRole ?? null,
@@ -277,6 +285,7 @@ function createInMemoryRepository(
         creatorProfileId: input.creatorProfileId ?? null,
         creationIdempotencyKey: null,
         defaultProjectId: null,
+        defaultProjectRevision: 0,
         avatarStyle: null,
         avatarOptions: null,
         managedRole: null,
@@ -339,7 +348,8 @@ function createInMemoryRepository(
       ownerUserId,
       organizationId,
       profileId,
-      defaultProjectId
+      defaultProjectId,
+      onlyIfUnmodified
     ) {
       const profile = profiles.find(
         (candidate) =>
@@ -348,11 +358,17 @@ function createInMemoryRepository(
           candidate.profileId === profileId &&
           candidate.profileKind === "agent"
       );
-      if (profile) {
+      if (
+        profile &&
+        (!onlyIfUnmodified || profile.defaultProjectRevision === 0)
+      ) {
         profile.defaultProjectId = defaultProjectId;
-        profile.updatedAt = new Date("2026-02-19T00:00:00.000Z");
+        profile.defaultProjectRevision =
+          (profile.defaultProjectRevision ?? 0) + 1;
+        profile.updatedAt = new Date(profile.updatedAt.getTime() + 1);
+        return Promise.resolve(true);
       }
-      return Promise.resolve();
+      return Promise.resolve(false);
     },
     deleteProfileForOwner(ownerUserId, profileId) {
       const index = profiles.findIndex(

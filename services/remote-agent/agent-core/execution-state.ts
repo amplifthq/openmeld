@@ -213,9 +213,46 @@ export async function readRemoteAgentExecutionState(input: {
   if (stored.status !== "found") {
     return remoteAgentWorkerExecutionQueryResponseSchema.parse(stored);
   }
+  const terminal =
+    stored.execution.status === "completed" ||
+    stored.execution.status === "failed" ||
+    stored.execution.status === "aborted";
+  const context = terminal
+    ? await readRemoteAgentCallbackContext(
+        input.storage,
+        input.identity.submissionId
+      )
+    : null;
+  if (
+    context &&
+    (context.organizationId !== input.identity.organizationId ||
+      context.spaceId !== input.identity.spaceId ||
+      context.idempotencyKey !== input.identity.idempotencyKey)
+  ) {
+    throw new Error(
+      "Remote Agent result projection has mismatched callback authority."
+    );
+  }
   return remoteAgentWorkerExecutionQueryResponseSchema.parse({
     execution: stored.execution,
     status: "found",
+    ...(terminal
+      ? {
+          result: {
+            status: stored.execution.status,
+            text:
+              stored.execution.status === "completed"
+                ? stored.completedText
+                : (stored.terminalFailure?.explanationText ?? null),
+            failureCode: stored.terminalFailure?.code ?? null,
+            ...(stored.terminalFailure?.computerCleanup
+              ? { computerCleanup: stored.terminalFailure.computerCleanup }
+              : {}),
+            files: context?.outputFiles ?? [],
+            attachments: context?.outputAttachments ?? [],
+          },
+        }
+      : {}),
   });
 }
 
@@ -430,6 +467,7 @@ export async function completeRemoteAgentExecutionState(
     });
     const terminalFailure = resolveSettledTerminalFailure({
       execution: result.execution,
+      computerCleanup: requestedTerminalFailure?.computerCleanup,
       requestedTerminalFailure:
         result.stored.requestedFailure ?? requestedTerminalFailure,
       settledStatus,
@@ -491,6 +529,7 @@ function resolveRequestedTerminalFailure(
 
 function resolveSettledTerminalFailure(input: {
   execution: RemoteAgentWorkerExecutionState;
+  computerCleanup?: RemoteAgentTerminalFailureFact["computerCleanup"];
   requestedTerminalFailure: RemoteAgentTerminalFailureFact | null;
   settledStatus: "aborted" | "completed" | "failed";
 }): RemoteAgentTerminalFailureFact | null {
@@ -498,14 +537,26 @@ function resolveSettledTerminalFailure(input: {
     return null;
   }
   if (input.settledStatus === "failed") {
-    return input.requestedTerminalFailure;
+    return input.requestedTerminalFailure
+      ? {
+          ...input.requestedTerminalFailure,
+          ...(input.computerCleanup
+            ? { computerCleanup: input.computerCleanup }
+            : {}),
+        }
+      : null;
   }
-  return createRemoteAgentTerminalFailureFact({
-    ...(input.execution.cancellationReason
-      ? { error: input.execution.cancellationReason }
+  return {
+    ...createRemoteAgentTerminalFailureFact({
+      ...(input.execution.cancellationReason
+        ? { error: input.execution.cancellationReason }
+        : {}),
+      status: "aborted",
+    }),
+    ...(input.computerCleanup
+      ? { computerCleanup: input.computerCleanup }
       : {}),
-    status: "aborted",
-  });
+  };
 }
 
 export async function repairRemoteAgentCompletedExecutionWithoutAnswer(input: {

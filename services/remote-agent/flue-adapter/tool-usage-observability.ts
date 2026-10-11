@@ -1,3 +1,8 @@
+import {
+  type RemoteAgentDiagnosticsEnv,
+  remoteAgentDiagnosticErrorFields,
+} from "../agent-core/diagnostics-content-policy";
+
 export type RemoteAgentToolUsageOutcome = "failed" | "succeeded";
 
 export type RemoteAgentToolUsageRecord = {
@@ -21,7 +26,7 @@ export type RemoteAgentToolUsageRecord = {
   toolName: string;
 };
 
-export type RemoteAgentToolUsageObservabilityEnv = {
+export type RemoteAgentToolUsageObservabilityEnv = RemoteAgentDiagnosticsEnv & {
   OPENMELD_OBSERVABILITY?: AnalyticsEngineDataset;
 };
 
@@ -53,7 +58,10 @@ export function emitRemoteAgentToolUsage(
     });
   } catch (error) {
     console.error("[remote-agent.tool-usage.observability_failed]", {
-      error: error instanceof Error ? error.message : String(error),
+      ...remoteAgentDiagnosticErrorFields(error, {
+        env,
+        organizationId: record.organizationId,
+      }),
       organizationId: record.organizationId,
       provider: record.provider,
       spaceId: record.spaceId,

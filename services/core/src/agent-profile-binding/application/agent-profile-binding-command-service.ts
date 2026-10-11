@@ -3,7 +3,6 @@ import {
   type AgentProfileBindingProfileOwnerValidationResult,
   type AuthorityOpenMeldServiceRuntimeId,
   createAuthorityOpenMeldServiceRuntimeId,
-  getAgentControllerModelCatalogId,
   parseAgentControllerRef,
   type RuntimeAgentControllerReport,
   type RuntimeLookupInput,
@@ -20,11 +19,12 @@ import {
 import type {
   AgentControllerCollaborationMode,
   AgentControllerPermissionMode,
+  AgentProfileBindingWriteMode,
   GatewayErrorCode,
   ModelCatalog,
   OpenCodePermissionConfig,
 } from "@openmeld/schemas/types";
-import { resolveCurrentAgentModelAvailability } from "../../config/agent-model-availability";
+import { validateAgentModelSelection } from "../../config/agent-model-availability";
 import { readAuthoredModelCatalog as readCoreModelCatalog } from "../../config/model-catalog";
 import { assertAgentControllerPermissionModeReleased } from "../../local-components/runtime-contract-rollout";
 import type { AcceptedRuntimeAgentControllerReport } from "../../runtime-registry/application/runtime-agent-controller-report-service";
@@ -93,7 +93,7 @@ export type AgentProfileBindingCommandRecord = Omit<
   disabledAtMs: number | null;
 };
 
-export type AgentProfileBindingWriteMode = "ensure" | "reconnect";
+export type { AgentProfileBindingWriteMode } from "@openmeld/schemas/types";
 export type AgentProfileBindingModelSelectionPatch = {
   modelId: string | null;
   reasoningLevel: string | null;
@@ -161,6 +161,7 @@ export type AgentProfileBindingCommandStore = {
     owner: AgentProfileBindingOwner;
   }) => Promise<AgentProfileBindingCommandRecord | null>;
   ensurePrimaryBinding: (input: {
+    initializeOnly?: boolean;
     agentControllerCollaborationModePatch?: AgentProfileBindingAgentControllerCollaborationModePatch;
     agentControllerPermissionModePatch?: AgentProfileBindingAgentControllerPermissionModePatch;
     modelSelectionPatch?: AgentProfileBindingModelSelectionPatch;
@@ -375,26 +376,33 @@ export async function ensurePrimaryAgentProfileBinding(input: {
     return rejectWith(eligibility.reasonCodes);
   }
 
+  const requestedSettings = resolveBindingWriteSettings(
+    input,
+    currentBinding,
+    localEvidence.agentControllerRef
+  );
   const modelSelectionPatch = resolveModelSelectionPatch({
     agentControllerRef: localEvidence.agentControllerRef,
     currentReport: currentReport.report,
     nowMs: input.nowMs,
     openMeldServiceRuntimeId: localEvidence.openMeldServiceRuntimeId.value,
-    modelId: input.modelId,
+    modelId: requestedSettings.modelId,
     readModelCatalog: input.readModelCatalog,
-    reasoningLevel: input.reasoningLevel,
+    reasoningLevel: requestedSettings.reasoningLevel,
   });
   const agentControllerModePatches = resolveAgentControllerModePatches({
-    agentControllerCollaborationMode: input.agentControllerCollaborationMode,
+    agentControllerCollaborationMode:
+      requestedSettings.agentControllerCollaborationMode,
     agentControllerRef: localEvidence.agentControllerRef,
-    agentControllerPermissionMode: input.agentControllerPermissionMode,
+    agentControllerPermissionMode:
+      requestedSettings.agentControllerPermissionMode,
   });
   if (agentControllerModePatches.status === "rejected") {
     return rejectWith([agentControllerModePatches.reasonCode]);
   }
   const openCodePermissionPatch = resolveOpenCodePermissionPatch({
     agentControllerRef: localEvidence.agentControllerRef,
-    openCodePermission: input.openCodePermission,
+    openCodePermission: requestedSettings.openCodePermission,
   });
   if (openCodePermissionPatch.status === "rejected") {
     return rejectWith([openCodePermissionPatch.reasonCode]);
@@ -425,6 +433,7 @@ export async function ensurePrimaryAgentProfileBinding(input: {
   const writeResult = await (input.writeMode === "reconnect"
     ? input.bindingStore.reconnectPrimaryBinding
     : input.bindingStore.ensurePrimaryBinding)({
+    ...(input.writeMode === "initialize" ? { initializeOnly: true } : {}),
     ...agentControllerModePatches.writePatches,
     ...(modelSelectionPatch ? { modelSelectionPatch } : {}),
     ...(openCodePermissionPatch.status === "accepted"
@@ -437,6 +446,35 @@ export async function ensurePrimaryAgentProfileBinding(input: {
     reasonCodes: eligibility.reasonCodes,
     writeResult,
   });
+}
+
+function resolveBindingWriteSettings(
+  requested: Pick<
+    AgentProfileBindingCommandRecordInput,
+    | "modelId"
+    | "reasoningLevel"
+    | "agentControllerCollaborationMode"
+    | "agentControllerPermissionMode"
+    | "openCodePermission"
+  > & { writeMode?: AgentProfileBindingWriteMode },
+  currentBinding: AgentProfileBindingCommandRecord | null,
+  agentControllerRef: string
+) {
+  if (
+    requested.writeMode !== "initialize" ||
+    currentBinding?.agentControllerRef !== agentControllerRef
+  ) {
+    return requested;
+  }
+  return {
+    modelId: currentBinding.modelId,
+    reasoningLevel: currentBinding.reasoningLevel,
+    agentControllerCollaborationMode:
+      currentBinding.agentControllerCollaborationMode ?? undefined,
+    agentControllerPermissionMode:
+      currentBinding.agentControllerPermissionMode ?? undefined,
+    openCodePermission: currentBinding.openCodePermission ?? undefined,
+  };
 }
 
 function resolveBindingControllerSettings(input: {
@@ -758,57 +796,16 @@ function resolveModelSelectionPatch(input: {
     ? (normalizeOptionalText(input.reasoningLevel) ?? null)
     : null;
   if (modelId) {
-    const parsedControllerRef = parseAgentControllerRef(
-      input.agentControllerRef
-    );
-    const catalog = (input.readModelCatalog ?? readCoreModelCatalog)();
-    const controller = parsedControllerRef
-      ? catalog.agentControllers[
-          getAgentControllerModelCatalogId(parsedControllerRef)
-        ]
-      : undefined;
-    const availability = resolveCurrentAgentModelAvailability({
+    const issue = validateAgentModelSelection({
       ...input,
       modelId,
-      catalog,
+      reasoningLevel,
+      catalog: (input.readModelCatalog ?? readCoreModelCatalog)(),
     });
-    // Keep unknown-ID diagnostics intact; retirement is about a known model.
-    if (
-      !availability.available &&
-      controller?.models.some((model) => model.id === modelId)
-    ) {
+    if (issue) {
       throw new AgentProfileBindingModelSelectionValidationError({
-        code: "agent_profile_binding.model_not_supported",
-        message: availability.message,
-      });
-    }
-    const supportedModels =
-      controller?.models.filter(
-        (model) =>
-          resolveCurrentAgentModelAvailability({
-            ...input,
-            modelId: model.id,
-            catalog,
-          }).available
-      ) ?? [];
-    const selectedModel = supportedModels.find((model) => model.id === modelId);
-    if (!selectedModel) {
-      throw new AgentProfileBindingModelSelectionValidationError({
-        code: "agent_profile_binding.model_not_supported",
-        message: `Model "${modelId}" is not supported for Agent Controller "${input.agentControllerRef}". Supported models: ${formatSupportedValues(
-          supportedModels.map((model) => model.id)
-        )}.`,
-      });
-    }
-    if (
-      reasoningLevel &&
-      !selectedModel.supportedReasoningLevels.includes(reasoningLevel)
-    ) {
-      throw new AgentProfileBindingModelSelectionValidationError({
-        code: "agent_profile_binding.reasoning_level_not_supported",
-        message: `Reasoning level "${reasoningLevel}" is not supported for model "${modelId}". Supported reasoning levels: ${formatSupportedValues(
-          selectedModel.supportedReasoningLevels
-        )}.`,
+        code: issue.code,
+        message: issue.reason,
       });
     }
   }
@@ -816,10 +813,6 @@ function resolveModelSelectionPatch(input: {
     modelId,
     reasoningLevel,
   };
-}
-
-function formatSupportedValues(values: readonly string[]): string {
-  return values.length > 0 ? values.join(", ") : "none";
 }
 
 function resolveAgentControllerModePatches(input: {

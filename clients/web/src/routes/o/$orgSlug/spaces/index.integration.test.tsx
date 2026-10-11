@@ -251,7 +251,11 @@ describe("app spaces index route", () => {
 		navigateComponentMock.mockClear();
 		navigateMock.mockReset().mockResolvedValue(undefined);
 		spaceWindowShellMock.mockClear();
-		joinOrganizationSpaceMock.mockReset().mockResolvedValue({});
+		joinOrganizationSpaceMock.mockReset().mockResolvedValue({
+			addedMemberIds: [],
+			alreadyMemberIds: [],
+			items: [],
+		});
 		clearOrganizationPersistenceMock.mockReset().mockResolvedValue(undefined);
 		getAccountSpaceActiveWakeSummaryMock.mockReset().mockResolvedValue({
 			generatedAtMs: 0,

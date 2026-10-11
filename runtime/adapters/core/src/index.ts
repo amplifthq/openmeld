@@ -21,6 +21,7 @@ import type {
   AgentControllerConversationRef,
   AgentControllerPermissionMode,
   AgentControllerSessionTitle,
+  AgentControllerUsageAdmission,
   AgentControllerUsageLimit,
   AgentExecutionSteerRequest,
   AgentExecutionSteerResponse,
@@ -158,6 +159,7 @@ export {
 } from "./process-environment.js";
 export { createProviderOriginalError } from "./provider-original-error.js";
 export {
+  type AdapterProviderUsageAdmission,
   type AdapterProviderUsageLimit,
   createUnavailableProviderUsageLimits,
   createUnsupportedProviderUsageLimits,
@@ -250,6 +252,8 @@ export type AdapterProviderTurnAcceptedEvent = {
 export type AdapterProviderUsageLimitsObservedEvent = {
   phase: "provider_usage_limits_observed";
   tsMs: number;
+  usageAdmission?: AgentControllerUsageAdmission;
+  usageAccountKey?: string;
   usageLimits: AgentControllerUsageLimit[];
 };
 export const AGENT_CONTROLLER_CONVERSATION_OCCUPANCY_CONTRACT_VERSION = 1;

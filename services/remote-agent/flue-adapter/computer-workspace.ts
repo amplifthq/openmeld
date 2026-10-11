@@ -1,10 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
 import { posix } from "node:path";
 import {
-  type DurableObjectStorageLike,
   getWorkspace,
   Workspace,
-  type WorkspaceClient,
   type WorkspaceStub,
 } from "@cloudflare/computer";
 import {
@@ -13,6 +11,8 @@ import {
 } from "@cloudflare/computer/backends/container-legacy";
 import { WorkerJavaScriptBackend } from "@cloudflare/computer/backends/worker-javascript";
 import { WorkerShellBackend } from "@cloudflare/computer/backends/worker-shell";
+import { createArtifactsModule } from "@cloudflare/computer/modules/artifacts";
+import { createGitModule } from "@cloudflare/computer/modules/git";
 import curlModules from "@cloudflare/computer/shell/curl";
 import fileModules from "@cloudflare/computer/shell/file";
 import htmlToMarkdownModules from "@cloudflare/computer/shell/html-to-markdown";
@@ -48,11 +48,17 @@ import {
 import {
   collectComputerCommands,
   createComputerCommandTool,
-  hasCollectableComputerCommands,
   listPendingRemoteAgentComputerCommands,
+  readStoredComputerInvocation,
+  requestStoredComputerCleanup,
   stopStoredComputerCommands,
 } from "./computer-command";
+import { ComputerCommandSqlStorage } from "./computer-command-storage";
 import { ComputerFiles } from "./computer-files";
+import {
+  readComputerRecovery,
+  registerComputerInvocation,
+} from "./computer-invocations";
 import { createComputerFileTools, describeComputer } from "./computer-native";
 import {
   inspectComputerPreview,
@@ -64,6 +70,14 @@ import {
   withComputerCapacityErrors,
 } from "./computer-storage";
 import {
+  AGENT_COMPUTER_BINDING,
+  AGENT_COMPUTER_CONTAINER_BACKEND_ID,
+  AGENT_COMPUTER_CONTAINER_ENV,
+  AGENT_COMPUTER_SHELL_BACKEND_ID,
+  AGENT_COMPUTER_STORAGE_CAPACITY_BYTES,
+  buildAgentComputerSpaceDirectory,
+} from "./computer-workspace-config";
+import {
   COMPUTER_GIT_PATH,
   COMPUTER_PLUGIN_PATH,
 } from "./computer-workspace-proxy";
@@ -73,7 +87,6 @@ import {
   gitUploadPackRequest,
 } from "./git-upload-pack-stream";
 import { authorizePluginConnection } from "./plugin-connection-authorization";
-import { RemoteAgentSqlStorage } from "./storage";
 
 /**
  * The human account's Computer: a durable workspace backed by
@@ -93,21 +106,7 @@ import { RemoteAgentSqlStorage } from "./storage";
  *   real binaries); syncs changes back over capnweb.
  */
 
-export const AGENT_COMPUTER_BINDING = "AGENT_COMPUTER";
-export const AGENT_COMPUTER_SHELL_BACKEND_ID = "worker-shell";
-export const AGENT_COMPUTER_CONTAINER_BACKEND_ID = "container";
 const COMPUTER_PREVIEW_PATH = /^\/__preview\/(\d+)(\/.*)?$/u;
-
-/** Root layout of the computer. Prompt conventions reference these. */
-export const AGENT_COMPUTER_ROOT = "/computer";
-export const AGENT_COMPUTER_LAYOUT_DIRECTORIES = [
-  `${AGENT_COMPUTER_ROOT}/org`,
-  `${AGENT_COMPUTER_ROOT}/projects`,
-  `${AGENT_COMPUTER_ROOT}/spaces`,
-  `${AGENT_COMPUTER_ROOT}/routines`,
-  `${AGENT_COMPUTER_ROOT}/home`,
-  `${AGENT_COMPUTER_ROOT}/tasks`,
-] as const;
 
 type AgentComputerEnv = {
   LOADER: WorkerLoader;
@@ -218,7 +217,22 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
       await eraseAccountStorage(this.ctx);
     });
   }
-  readonly #commands = new RemoteAgentSqlStorage(this.ctx.storage.sql);
+  readonly #commands = new ComputerCommandSqlStorage(this.ctx.storage.sql);
+  #maintenanceRevision = 0;
+  #maintenanceAlarm: Promise<void> | undefined;
+
+  private requestWorkspaceMaintenance() {
+    this.#maintenanceRevision++;
+    if (this.#maintenanceAlarm) {
+      return;
+    }
+    this.#maintenanceAlarm = this.scheduleAlarm(Date.now() + 250).finally(
+      () => {
+        this.#maintenanceAlarm = undefined;
+      }
+    );
+    this.ctx.waitUntil(this.#maintenanceAlarm);
+  }
 
   private async scheduleAlarm(at: number) {
     const current = await this.ctx.storage.getAlarm();
@@ -303,16 +317,7 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
         }
       },
       scheduleCollection: () => this.scheduleAlarm(Date.now() + 15_000),
-      assertCanStart: async () => {
-        await requireRetainedAccountStorage(this.ctx.storage);
-        if (
-          await this.#commands.get(
-            `computer-invocation-stopped:${request.invocationId}`
-          )
-        ) {
-          throw new Error("computer.invocation_stopped");
-        }
-      },
+      assertCanStart: () => this.assertComputerCanStart(request.invocationId),
       workspaceAccess: {
         withWorkspace: async (operation) => {
           using workspace = await getWorkspace(this);
@@ -330,6 +335,19 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
     });
   }
 
+  private async assertComputerCanStart(invocationId: string): Promise<void> {
+    await requireRetainedAccountStorage(this.ctx.storage);
+    if (
+      await this.#commands.get(`computer-invocation-stopped:${invocationId}`)
+    ) {
+      await requestStoredComputerCleanup({
+        context: { submissionId: invocationId },
+        storage: this.#commands,
+      });
+      throw new Error("computer.invocation_stopped");
+    }
+  }
+
   async pendingComputerCommands(invocationId: string) {
     await requireRetainedAccountStorage(this.ctx.storage);
     return await listPendingRemoteAgentComputerCommands({
@@ -342,11 +360,11 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
     await requireRetainedAccountStorage(this.ctx.storage);
     // Fence delayed/in-flight starts before enumerating receipts. Each launched
     // command also checks its Stop receipt after native dispatch completes.
-    await this.#commands.putExpiring(
+    await this.#commands.put(
       `computer-invocation-stopped:${invocationId}`,
-      true,
-      Date.now() + 7 * 24 * 60 * 60 * 1000
+      true
     );
+    await this.scheduleAlarm(Date.now());
     return await stopStoredComputerCommands({
       reportConfirmedLoss: true,
       context: { submissionId: invocationId },
@@ -358,6 +376,42 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
         },
       }),
     });
+  }
+
+  async readComputerInvocation(invocationId: string) {
+    await requireRetainedAccountStorage(this.ctx.storage);
+    return await readStoredComputerInvocation({
+      context: { submissionId: invocationId },
+      storage: this.#commands,
+    });
+  }
+
+  async registerComputerInvocation(value: unknown) {
+    await requireRetainedAccountStorage(this.ctx.storage);
+    await registerComputerInvocation(this.#commands, value);
+  }
+
+  async readComputerRecovery(value: unknown) {
+    await requireRetainedAccountStorage(this.ctx.storage);
+    return await readComputerRecovery(this.#commands, value);
+  }
+
+  async requestComputerCleanup(invocationId: string, resume = false) {
+    await requireRetainedAccountStorage(this.ctx.storage);
+    // Keep this fence with the receipts. A late launch acknowledgement must
+    // still observe Stop after a Worker replacement or a lost RPC response.
+    await this.#commands.put(
+      `computer-invocation-stopped:${invocationId}`,
+      true
+    );
+    await this.scheduleAlarm(Date.now());
+    const state = await requestStoredComputerCleanup({
+      context: { submissionId: invocationId },
+      storage: this.#commands,
+      resume,
+    });
+    await this.scheduleAlarm(Date.now());
+    return state;
   }
 
   async registerGitTransferGrant(value: unknown): Promise<void> {
@@ -524,6 +578,8 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
     await this.scheduleAlarm(Date.now() + 15_000);
     await collectComputerCommands({
       storage: this.#commands,
+      assertCanStart: (invocationId) =>
+        this.assertComputerCanStart(invocationId),
       workspaceAccess: {
         withWorkspace: async (operation) => {
           using workspace = await getWorkspace(this);
@@ -534,19 +590,32 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
     // Pack downloads can take minutes. Keep them out of the alarm handler so
     // they cannot block command receipts past the native retention window.
     this.ctx.waitUntil(this.collectGitPack());
+    using workspace = await getWorkspace(this);
+    const maintenanceRevision = this.#maintenanceRevision;
+    const hasSyncMaintenance = await workspace.maintainSync();
     await this.ctx.blockConcurrencyWhile(async () => {
       const jobs = await this.ctx.storage.list<GitPackJob>({
         prefix: GIT_PACK_JOB_PREFIX,
       });
-      if (
-        !(
-          (await hasCollectableComputerCommands(this.#commands)) ||
-          [...jobs.values()].some(
-            (job) => job.status === "pending" || job.status === "running"
-          )
-        )
-      ) {
+      const nextCommandAt = await this.#commands.nextCollectionAt();
+      const hasGitWork = [...jobs.values()].some(
+        (job) => job.status === "pending" || job.status === "running"
+      );
+      const hasMaintenance =
+        hasSyncMaintenance || maintenanceRevision !== this.#maintenanceRevision;
+      if (nextCommandAt === null && !hasGitWork && !hasMaintenance) {
         await this.ctx.storage.deleteAlarm();
+      } else {
+        await this.ctx.storage.setAlarm(
+          Math.max(
+            Date.now() + 100,
+            Math.min(
+              nextCommandAt ?? Number.POSITIVE_INFINITY,
+              hasMaintenance ? Date.now() + 250 : Number.POSITIVE_INFINITY,
+              hasGitWork ? Date.now() + 15_000 : Number.POSITIVE_INFINITY
+            )
+          )
+        );
       }
     });
   }
@@ -790,7 +859,7 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
     // The backend defaults MOUNT_POINT to /workspace; our tree lives
     // under /computer, so pin the FUSE mount there for same-path
     // fidelity between the isolate and the container.
-    containerEnv: { MOUNT_POINT: AGENT_COMPUTER_ROOT },
+    containerEnv: AGENT_COMPUTER_CONTAINER_ENV,
     id: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
     workspace: workspaceRef(this.ctx),
   });
@@ -821,15 +890,19 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
         loader: this.env.LOADER as never,
         root: "/computer",
         egress: { mode: "direct" },
-        allowGitNetwork: true,
+        modules: {
+          "ws:git": createGitModule({ allowNetwork: true }),
+          "ws:artifacts": createArtifactsModule(),
+        },
         defaultTimeoutMs: 300_000,
         maxTimeoutMs: 3_600_000,
-        maxConcurrentExecutions: 4,
       }),
       this.#containerBackend,
     ],
     sessionId: this.ctx.id.toString(),
-    storage: this.ctx.storage as unknown as DurableObjectStorageLike,
+    onMaintenanceNeeded: () => this.requestWorkspaceMaintenance(),
+    storageCapacityBytes: AGENT_COMPUTER_STORAGE_CAPACITY_BYTES,
+    storage: this.ctx.storage,
   });
   readonly #files = new ComputerFiles(this.workspace.fs);
   readonly #nativeFiles = createComputerFileTools(this.workspace);
@@ -875,58 +948,4 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
     await this.workspace.ready();
     return this.workspace.stub();
   }
-}
-
-export function buildAgentComputerSpaceDirectory(spaceId: string): string {
-  return `${AGENT_COMPUTER_ROOT}/spaces/${spaceId}`;
-}
-
-export function buildAgentComputerRoutineDirectory(routineId: string): string {
-  return `${AGENT_COMPUTER_ROOT}/routines/${encodePathIdentity(routineId)}`;
-}
-
-export function resolveAgentComputerWorkingDirectory(input: {
-  taskId?: string;
-  conversationId?: string | null;
-  routineId?: string | null;
-  spaceId: string | null;
-}): string {
-  if (input.taskId) {
-    return `${AGENT_COMPUTER_ROOT}/tasks/${encodePathIdentity(input.taskId)}`;
-  }
-  if (input.routineId) {
-    return buildAgentComputerRoutineDirectory(input.routineId);
-  }
-  return input.spaceId
-    ? buildAgentComputerSpaceDirectory(input.spaceId)
-    : `${AGENT_COMPUTER_ROOT}/home`;
-}
-
-/**
- * Idempotently create the computer's base layout plus the working
- * directory for the current conversation.
- */
-export async function ensureAgentComputerLayout(
-  workspace: Pick<WorkspaceClient, "fs">,
-  input: {
-    taskId?: string;
-    conversationId?: string | null;
-    routineId?: string | null;
-    spaceId: string | null;
-  }
-): Promise<{ workingDirectory: string }> {
-  for (const directory of AGENT_COMPUTER_LAYOUT_DIRECTORIES) {
-    await workspace.fs.mkdir(directory, { recursive: true });
-  }
-  const workingDirectory = resolveAgentComputerWorkingDirectory(input);
-  await workspace.fs.mkdir(workingDirectory, { recursive: true });
-  return { workingDirectory };
-}
-
-function encodePathIdentity(value: string): string {
-  const normalized = value.trim();
-  if (!normalized) {
-    throw new Error("Agent Computer directory identity cannot be empty.");
-  }
-  return encodeURIComponent(normalized);
 }

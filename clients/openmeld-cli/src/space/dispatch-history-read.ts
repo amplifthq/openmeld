@@ -1,5 +1,6 @@
 import {
   dispatchSpaceHistoryResultSchema,
+  signalEnvelopeSchema,
   signalTextEnvelopeSchema,
   spaceMessageEvidenceRequestSchema,
   spaceThreadEvidenceRequestSchema,
@@ -51,12 +52,15 @@ export async function readDispatchSpaceEvidence(
     aroundSignalId: request.sourceSignalId,
     beforeCount: 0,
     afterCount: 0,
-    kinds: ["text"],
+    kinds: ["text", "system_notice"],
   }));
   const signal = result.signals.find(
     (candidate) => candidate.id === request.sourceSignalId
   );
-  if (!signal || signal.type !== "signal.text") {
+  if (
+    !signal ||
+    (signal.type !== "signal.text" && signal.type !== "signal.system_notice")
+  ) {
     throw new Error(
       "space.evidence_unavailable: The requested message is unavailable."
     );
@@ -64,7 +68,7 @@ export async function readDispatchSpaceEvidence(
   return await buildSpaceMessageEvidence({
     ...request,
     spaceId: context.spaceId,
-    signal: signalTextEnvelopeSchema.parse(signal),
+    signal,
   });
 }
 
@@ -83,7 +87,7 @@ async function readDispatchSignals(
         query: query(context.sourceEventId),
       });
       const signals = result.signals.map((signal) =>
-        signalTextEnvelopeSchema.parse(signal)
+        signalEnvelopeSchema.parse(signal)
       );
       if (signals.some((signal) => signal.spaceId !== context.spaceId)) {
         throw new Error(

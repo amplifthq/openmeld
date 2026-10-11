@@ -32,6 +32,7 @@ type SpaceMetaRow = {
   password_proof_json: string | null;
   created_at: number;
   updated_at: number;
+  deleted_at: number | null;
 };
 
 function createMetaRow(input: {
@@ -57,6 +58,7 @@ function createMetaRow(input: {
       : null,
     created_at: NOW_MS,
     updated_at: NOW_MS,
+    deleted_at: null,
   };
 }
 

@@ -1,4 +1,5 @@
 import type { PluginDefinition } from "@openmeld/product-catalog/plugins";
+import { connectorConnectionScopeAllowed } from "@openmeld/schemas";
 import { AppLogo } from "@openmeld/ui/components/app-logo";
 import { buttonVariants } from "@openmeld/ui/components/button";
 import { cn } from "@openmeld/ui/lib/utils";
@@ -24,6 +25,18 @@ export function OrganizationPluginDetailPage(input: {
 		input.isPersonalWorkspace || selectedScope === "personal"
 			? "member"
 			: "shared";
+	const scopeAllowed = connectorConnectionScopeAllowed(
+		input.plugin.service,
+		scope
+	);
+	let accountHeading = input.organizationName;
+	let accountDescription =
+		"Connect an organization account, then choose Agent access below.";
+	if (scope === "member") {
+		accountHeading = "Your account";
+		accountDescription =
+			"Connect your account, then choose which Agents may use it.";
+	}
 	return (
 		<>
 			<Link
@@ -71,24 +84,30 @@ export function OrganizationPluginDetailPage(input: {
 				organizationName={input.organizationName}
 			/>
 			{input.permissionNotice}
+			{scopeAllowed ? null : (
+				<p className="py-3 text-muted-foreground text-sm">
+					{input.plugin.name} is personal-only. Select Personal to connect your
+					account.
+				</p>
+			)}
 
 			{input.plugin.availability === "available" ? (
 				<section className="overflow-hidden" data-testid="plugin-detail-access">
-					<div className="border-border/70 border-b pb-4">
-						<h2 className="font-medium text-foreground text-sm">
-							{scope === "member" ? "Your account" : input.organizationName}
-						</h2>
-						<p className="mt-1 max-w-2xl text-muted-foreground text-xs leading-5">
-							{scope === "member"
-								? "Connect your account, then choose which Agents may use it."
-								: "Connect an organization account, then choose Agent access below."}
-						</p>
-						{scope === "shared" && !input.canManageSharedPlugins ? (
-							<p className="mt-1 text-muted-foreground text-xs">
-								Only owners and admins can change these settings.
+					{scopeAllowed ? (
+						<div className="border-border/70 border-b pb-4">
+							<h2 className="font-medium text-foreground text-sm">
+								{accountHeading}
+							</h2>
+							<p className="mt-1 max-w-2xl text-muted-foreground text-xs leading-5">
+								{accountDescription}
 							</p>
-						) : null}
-					</div>
+							{scope === "shared" && !input.canManageSharedPlugins ? (
+								<p className="mt-1 text-muted-foreground text-xs">
+									Only owners and admins can change these settings.
+								</p>
+							) : null}
+						</div>
+					) : null}
 					<PluginConnectionSurface
 						canManage={input.canManageSharedPlugins}
 						isPersonalWorkspace={input.isPersonalWorkspace}

@@ -245,6 +245,19 @@ export const coreReceiverReconciliationSchema = z.strictObject({
   }),
 });
 
+export const postgresqlRollbackReconciliationSchema = z.strictObject({
+  kind: z.literal("reconciled-postgresql-rollback"),
+  verifiedAt: z.iso.datetime(),
+  supersededReceipt: z.strictObject({
+    evidenceSha: z.string().regex(/^[0-9a-f]{40}$/u),
+    sourceSha: z.string().regex(/^[0-9a-f]{40}$/u),
+  }),
+  baselineReceipt: z.strictObject({
+    evidenceSha: z.string().regex(/^[0-9a-f]{40}$/u),
+    sourceSha: z.string().regex(/^[0-9a-f]{40}$/u),
+  }),
+});
+
 export const productionReleaseEvidenceSchema = z
   .discriminatedUnion("schemaVersion", [
     z.strictObject({ ...commonEvidenceFields, schemaVersion: z.literal(1) }),
@@ -269,8 +282,31 @@ export const productionReleaseEvidenceSchema = z
       receipt: correlatedComponentReceiptSchema,
       reconciliation: coreReceiverReconciliationSchema,
     }),
+    z.strictObject({
+      ...commonEvidenceFields,
+      schemaVersion: z.literal(6),
+      receipt: correlatedComponentReceiptSchema,
+      reconciliation: postgresqlRollbackReconciliationSchema,
+    }),
   ])
   .superRefine((evidence, context) => {
+    if (
+      evidence.schemaVersion === 6 &&
+      (evidence.scope !== "db" ||
+        evidence.receipt.status !== "started" ||
+        evidence.receipt.application !== "unknown" ||
+        evidence.receipt.identity ||
+        Date.parse(evidence.reconciliation.verifiedAt) >
+          Date.parse(evidence.receipt.startedAt) ||
+        evidence.sourceSha ===
+          evidence.reconciliation.supersededReceipt.sourceSha)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "PostgreSQL rollback proof requires a new-source database start event.",
+      });
+    }
     if (
       evidence.schemaVersion === 5 &&
       (evidence.scope !== "core" ||

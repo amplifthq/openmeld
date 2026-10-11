@@ -129,6 +129,19 @@ repository becomes a fallback. Current-folder writers retain the Service's
 single exclusive local workspace boundary across Project labels. Isolated
 tasks use separate worktrees.
 
+A code handoff may also freeze a complete published commit ID. The receiving
+computer must already have that commit in its matching connection; preparation
+does not clone a repository, transfer credentials, substitute its current HEAD,
+or switch the owner's checkout. An isolated copy starts at the requested commit.
+Starting a current-folder Context requires that exact HEAD and a clean working
+tree. Continuation retains its existing work and progress, while current source
+identity and file policy are rechecked.
+For a continuation or fork, selecting the same Project/repository without a
+commit inherits the retained commit. An explicit different commit still requires
+a new Context; a fork never drops the source's pin.
+An unavailable revision has a visible failure with guidance to fetch the
+published commit into the receiving connection before submitting new work.
+
 ### Default Local Project Connection
 
 The Default Local Project Connection is the folder used by default to start new
@@ -783,7 +796,15 @@ call the same Core Project service after a verified member explicitly opts in;
 it must not simulate a model turn or create a parallel permission path.
 
 Current-computer discovery and Local Project Connection mutations are not
-Center Agent tools. Slack and hosted Remote Agent turns have no trustworthy
+Center Agent tools. Private owner readiness can opt into a path-free Default
+Project connection read on the Agent's exact Binding device and lane. It reads
+the existing Service connection owner with `includeCandidates: false` and
+requires `readConnections`; it never scans folders or falls back to another
+Computer. The result retains the Project, target, checked time, default
+connection generation, and a safe reason code. Unknown or unsupported evidence
+is unavailable, not a missing connection or execution result. Older callers
+omit this optional projection and keep their previous response.
+Slack and hosted Remote Agent turns have no trustworthy
 "current computer," and absolute paths are private owner-self device facts.
 After cloud configuration, the Center Agent returns the trusted Project detail
 Navigation Action. Core rebuilds the canonical Organization URL from the

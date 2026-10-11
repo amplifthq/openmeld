@@ -1,7 +1,6 @@
 import type {
 	CenterAgentInboxSummaryResponse,
 	SpaceInboxSummaryResponse,
-	SpaceInboxUnreadTarget,
 	SpaceInboxUnreadTargetsResponse,
 } from "@openmeld/schemas/types";
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
@@ -38,7 +37,18 @@ export function optimisticallyMarkSpaceInboxItemsRead(input: {
 				item.occurredAtMs === target.occurredAtMs
 		)
 	);
-	if (removedTargets.length === 0) {
+	const removedJoinedItems = (currentTargets.joinedItems ?? []).filter(
+		(target) =>
+			input.items.some(
+				(item) =>
+					item.itemId === target.itemId &&
+					item.occurredAtMs === target.occurredAtMs
+			)
+	);
+	const remainingJoinedItems = (currentTargets.joinedItems ?? []).filter(
+		(target) => !removedJoinedItems.includes(target)
+	);
+	if (removedTargets.length + removedJoinedItems.length === 0) {
 		return { rollback: () => undefined };
 	}
 
@@ -53,6 +63,9 @@ export function optimisticallyMarkSpaceInboxItemsRead(input: {
 	);
 	const nextTargets: SpaceInboxUnreadTargetsResponse = {
 		...currentTargets,
+		...(currentTargets.joinedItems
+			? { joinedItems: remainingJoinedItems }
+			: {}),
 		targets: remainingTargets,
 		...(currentTargets.scopes
 			? {
@@ -84,8 +97,9 @@ export function optimisticallyMarkSpaceInboxItemsRead(input: {
 
 	updateSpaceSummary({
 		...input,
-		remainingTargets,
-		removedCount: removedTargets.length,
+		remainingTargets: [...remainingTargets, ...remainingJoinedItems],
+		removedMessageCount: removedTargets.length,
+		removedCount: removedTargets.length + removedJoinedItems.length,
 		rollbacks,
 		targetsAreComplete: !currentTargets.hasMoreTargets,
 	});
@@ -111,7 +125,8 @@ function updateSpaceSummary(input: {
 	destination: SpaceInboxUnreadDestination;
 	organizationId: string;
 	queryClient: QueryClient;
-	remainingTargets: readonly SpaceInboxUnreadTarget[];
+	remainingTargets: readonly { occurredAtMs: number }[];
+	removedMessageCount: number;
 	removedCount: number;
 	rollbacks: Rollback[];
 	spaceId: string;
@@ -153,6 +168,14 @@ function updateSpaceSummary(input: {
 					latestUnreadOccurredAtMs:
 						latestRemainingOccurredAtMs || space.latestUnreadOccurredAtMs,
 					unreadCount,
+					...(space.messageUnreadCount === undefined
+						? {}
+						: {
+								messageUnreadCount: Math.max(
+									0,
+									space.messageUnreadCount - input.removedMessageCount
+								),
+							}),
 				},
 			];
 		})

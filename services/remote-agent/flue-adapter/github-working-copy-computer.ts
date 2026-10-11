@@ -5,7 +5,7 @@ import {
   remoteAgentGitNativeRequestSchema,
   remoteAgentGitNativeResultSchema,
 } from "@openmeld/schemas";
-import { AGENT_COMPUTER_CONTAINER_BACKEND_ID } from "./computer-workspace";
+import { AGENT_COMPUTER_CONTAINER_BACKEND_ID } from "./computer-workspace-config";
 
 export type GitWorkingCopyLocation = {
   directory: string;
@@ -32,6 +32,7 @@ export type GitWorkingCopyComputerApi = {
       cwd?: string;
       signal?: AbortSignal;
       timeoutMs?: number;
+      receiptScope?: string;
     }
   ): Promise<ShellResult>;
 };
@@ -125,6 +126,7 @@ export class GitWorkingCopyComputer {
         backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
         signal,
         timeoutMs,
+        receiptScope: `github:${location.directory}:${action}`,
       }
     );
     signal.throwIfAborted();

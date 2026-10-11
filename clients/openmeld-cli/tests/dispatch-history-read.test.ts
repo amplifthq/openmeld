@@ -7,6 +7,7 @@ import type { SpaceApi } from "@openmeld/api-client";
 import {
   dispatchSpaceReadResultPageSchema,
   dispatchSpaceReadResultSchema,
+  signalEnvelopeSchema,
   signalTextEnvelopeSchema,
 } from "@openmeld/schemas";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -417,10 +418,13 @@ describe("dispatch Space history reader", () => {
     }
   });
 
-  it("reads a selected message in fixed-version pages and never substitutes changed or neighboring text", async () => {
+  it.each([
+    "text",
+    "system notice",
+  ])("reads selected %s in fixed-version pages without substituting changed or neighboring text", async (kind) => {
     setup();
     const text = "😀".repeat(4500);
-    const selected = {
+    const selectedText = {
       ...signal,
       data: {
         ...signal.data,
@@ -428,6 +432,33 @@ describe("dispatch Space history reader", () => {
         messageEnvelope: { ...signal.data.messageEnvelope, text },
       },
     };
+    // Terminal notice envelope captured by normal CLI history on 2026-10-09;
+    // identity and content are anonymized.
+    const selected =
+      kind === "text"
+        ? selectedText
+        : signalEnvelopeSchema.parse({
+            v: 1,
+            id: signal.id,
+            spaceId: signal.spaceId,
+            ts: signal.ts,
+            profile: {
+              kind: "system",
+              profileId: "openmeld-system",
+              profileName: "OpenMeld System",
+            },
+            type: "signal.system_notice",
+            data: {
+              noticeType: "terminal_failure",
+              actorProfileId: "agt_11111111-1111-4111-8111-111111111111",
+              actorName: "Runner",
+              dispatchId: "dispatch-refused",
+              reasonCode: "usage_exhausted",
+              failureStage: "execution",
+              text,
+              generatedBy: "openmeld",
+            },
+          });
     listSignals.mockResolvedValue({ signals: [selected], nextCursor: null });
     const first = await readDispatchSpaceEvidence({
       sourceSignalId: signal.id,
@@ -445,7 +476,7 @@ describe("dispatch Space history reader", () => {
           aroundSignalId: signal.id,
           beforeCount: 0,
           afterCount: 0,
-          kinds: ["text"],
+          kinds: ["text", "system_notice"],
         },
       })
     );

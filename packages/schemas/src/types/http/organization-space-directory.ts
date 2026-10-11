@@ -1,5 +1,9 @@
 import type { z } from "zod/v4";
 
+export type OrganizationSpaceDirectoryQuery = z.infer<
+  typeof import("../../schemas/http/organization-space-directory")["organizationSpaceDirectoryQuerySchema"]
+>;
+
 type OrganizationSpaceDirectoryItemSchema =
   typeof import("../../schemas/http/organization-space-directory")["organizationSpaceDirectoryItemSchema"];
 type OrganizationSpaceDirectoryResponseSchema =

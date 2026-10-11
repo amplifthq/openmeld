@@ -380,8 +380,26 @@ Agent delegation. Requester ownership informs disclosure judgment, not native
 tool availability. Core requires the Service's
 `executionContextPermissionInheritance` capability.
 The Service reuses ordinary Computer policy admission for inherited permissions.
+The workspace choice is independent: `workspace: isolated` with omitted access
+prepares a managed copy while preserving `permissionSource: agent_settings`.
+Fork defaults retain their source's working-copy mode; native permission
+inheritance must not move an isolated source back into the user's current folder.
 Context identity, history-loss failure, writer admission, and process ownership
 remain enforced even when no extra filesystem boundary is required.
+
+Task-context diagnostics read the exact retained Wake-to-Context association
+through its RuntimeCoordinator owner, including after the transient Head has
+retired. The projection reports the assigned access, permission source and
+workspace; Service-reported conversation resume and directory observations
+remain separate facts. Missing or unreadable evidence never falls back to the
+Profile's current settings. Shared viewers may see the task restriction and
+continuation summary; Context identifiers, native conversation identifiers and
+private local paths retain the existing owner-only presentation boundary.
+
+Starting a new task from a Space-only limitation is an explicit new authored
+Wake using current admission and Agent settings. It does not mutate the old
+Context or reinterpret its permissions. The reviewed source, chosen target and
+reply placement are preserved, and retries use the same message identity.
 
 Core retains each accepted Wake's context association and completed native
 history checkpoint independently of the in-flight Head lifecycle. Head retirement
@@ -628,6 +646,13 @@ Important execution rules:
   message, execution identity, token and owned-reconnection checks still apply.
   Tool/reasoning publication additionally requires the current session socket
   and connection generation. Missing durable command state remains an explicit rejection.
+- A token-valid lifecycle report from the current socket may advance the same
+  Service process's control connection generation. Core verifies the unchanged
+  owner, Service session, device, lane, Profile lease, dispatch, attempt, and run
+  before updating the existing durable run command. A historical command with
+  unknown device or lane cannot adopt a new generation. This transport update
+  does not start or redeliver work. An occupied keepalive can update control
+  provenance but cannot refresh progress or reset the watchdog baseline.
 - Watchdog scheduling is a bounded Durable Object projection of command and token
   authority. Command writes and terminal transitions update it transactionally.
   Existing history is repaired in pages with a durable cursor, without deleting
@@ -1230,7 +1255,7 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   (Default Project or Profile workspace) is missing or invalid. Current
   Wakeability still reports that fact as blocked
   for ordinary Wakes. For one dispatch whose Space-frozen new-Context selection
-  includes `projectWork`, or whose explicit resume/fork selection names an
+  includes `projectWork` or explicitly selects `space_context`, or whose resume/fork selection names an
   existing Context source, Core may pass this specific default-folder blocker
   only when the current Binding, Service, route, controller, and other readiness
   facts permit execution. Resume/fork admission at this stage is provisional:
@@ -1238,7 +1263,9 @@ GET /v1/local-runtime/expected-routes?deviceId=<deviceId>&lane=<lane>
   execution. This does not change the public Wakeability projection. Once the
   Context is resolved, Core checks that its Project/repository association is
   still current; the Service verifies the exact owner-local connection before
-  local execution. An absent, missing, or ambiguous selected connection fails
+  local execution. Space-only Contexts instead use their Service-owned scratch
+  workspace after verifying the accepted route/Binding identity; they do not
+  resolve or inherit a Default Project folder. An absent, missing, or ambiguous selected connection fails
   closed without running the Agent.
   Space member/status and Organization directory readiness use the same Core
   decision. Profiles in one request share existing Runtime registry and
@@ -1412,7 +1439,14 @@ drift.
 
 Core may project `Unavailable` before a new Wake when the exact current Agent
 Controller report contains a reliable, fresh Usage Limit that explicitly says
-Usage is exhausted. Missing, stale, expired, unavailable, or otherwise
+Usage is exhausted. For Codex, this requires one fresh account-level
+`usageAdmission.blocksNewWork: true` in that same report. Included windows
+remain exhausted at 100% when credits permit new work; an unrelated metered
+bucket cannot impose an account-wide block. A fresh false account verdict
+proves recovery, including when window measurements are unavailable. Null,
+missing, or stale admission cannot prove recovery. The Local Service must bind
+this account verdict to the same native account as its current ACI auth evidence;
+an email match alone cannot prove Codex workspace identity. Missing, stale, expired, unavailable, or otherwise
 unconfirmed Usage does not add an admission block to an otherwise ready Agent.
 The provider owns actual capacity enforcement; its auxiliary quota endpoint is
 not an execution prerequisite. Core and the Local Service consume the same
@@ -1439,12 +1473,14 @@ legacy report remains parseable, but cannot trigger automatic continuation
 under a newer Core capability matrix. Missing Usage must never release work
 already held after a proven exhausted execution.
 
-After a Wake is accepted, a provider failure changes later Wakeability only
-when the result carries fresh structured hard-blocker evidence for the exact
+After a Wake is accepted, a provider failure retains structured diagnostic
+evidence for the exact
 Agent Profile, Binding, device, runtime lane, OpenMeld Service Runtime, Agent
 Controller, and provider. Organization access disabled, subscription access
-unavailable, and exhausted hard quota/credit capacity may project
-`Unavailable`. A later accepted success for the same exact execution identity
+unavailable, and exhausted hard quota/credit capacity remain visible failure
+facts for that Wake. Historical failures do not decide current Wakeability;
+the current ACI and Core-owned authorization facts do. A later accepted success
+for the same exact execution identity
 may clear only evidence no newer than that success. Core durably retains the
 latest accepted-result watermark even when no failure row existed, so a delayed
 older failure cannot reopen cleared evidence. Accepted-result time is the

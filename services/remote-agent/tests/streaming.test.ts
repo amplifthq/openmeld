@@ -27,6 +27,69 @@ const ACK = {
 } as const;
 
 describe("Remote Agent streaming", () => {
+  it.each([
+    false,
+    true,
+  ])("delivers long text in ordered Unicode-safe chunks (coalesced=%s)", async (coalesced) => {
+    const context = createRemoteAgentCallbackContext({
+      ack: ACK,
+      nowMs: TEST_NOW_MS,
+      request: createSubmitTurnRequest(),
+    });
+    const storage = new InMemoryDurableObjectStorage();
+    const received: { delta: string; snapshot: string; sequence: number }[] =
+      [];
+    const submitRemoteAgentStreamDelta = vi.fn((body) => {
+      received.push(body);
+      return Promise.resolve({
+        status: "accepted" as const,
+        lastSequence: body.sequence,
+      });
+    });
+    const publisher = createRemoteAgentStreamPublisher();
+    const input = {
+      context,
+      storage,
+      coreWorker: { submitRemoteAgentStreamDelta },
+      kind: "text" as const,
+    };
+    const text = `${"a".repeat(1023)}🚀${"结果".repeat(1500)}`;
+    if (coalesced) {
+      await publisher.push({
+        ...input,
+        observedAtMs: TEST_NOW_MS,
+        delta: "Saved: ",
+      });
+      for (let offset = 0; offset < text.length; offset += 100) {
+        await publisher.push({
+          ...input,
+          observedAtMs: TEST_NOW_MS + 1,
+          delta: text.slice(offset, offset + 100),
+        });
+      }
+    } else {
+      await publisher.push({
+        ...input,
+        observedAtMs: TEST_NOW_MS,
+        delta: text,
+      });
+    }
+    await publisher.flush({ ...input, observedAtMs: TEST_NOW_MS + 100 });
+    const expected = `${coalesced ? "Saved: " : ""}${text}`;
+    expect(received.map((body) => body.delta).join("")).toBe(expected);
+    expect(received.at(-1)?.snapshot).toBe(expected);
+    let prefix = "";
+    for (const [index, body] of received.entries()) {
+      prefix += body.delta;
+      expect(body.sequence).toBe(index + 1);
+      expect(body.delta.length).toBeLessThanOrEqual(
+        REMOTE_AGENT_STREAM_DELTA_MAX_CHARS
+      );
+      expect(body.delta.isWellFormed()).toBe(true);
+      expect(body.snapshot).toBe(prefix);
+    }
+  });
+
   it("builds stable stream identity and sequence from the native delivery context", () => {
     const context = createRemoteAgentCallbackContext({
       ack: ACK,

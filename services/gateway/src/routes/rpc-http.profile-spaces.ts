@@ -79,6 +79,8 @@ export function registerProfileSpaceHistoryRoutes(
   app.get(ACCOUNT_SPACES_ROUTE, (c) => {
     const url = new URL(c.req.url);
     const parsedQuery = accountSpaceIndexQuerySchema.safeParse({
+      includeDeletedSpaces:
+        url.searchParams.get("includeDeletedSpaces") === "true",
       gatewayHost: url.searchParams.get("gatewayHost"),
       ...(url.searchParams.has("includeDirectMessageProfileIds")
         ? {
@@ -149,6 +151,7 @@ export function registerProfileSpaceHistoryRoutes(
       method: "GET",
       execute: async () => {
         return await c.var.coreRpc.listAccountSpaces({
+          includeDeletedSpaces: parsedQuery.data.includeDeletedSpaces === true,
           gatewayHost: parsedQuery.data.gatewayHost,
           ownerUserId: c.var.resolvedProfile.ownerUserId,
           scope: parsedQuery.data.scope,

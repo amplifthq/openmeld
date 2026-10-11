@@ -24,9 +24,14 @@ vi.mock("#/lib/observability/application-error-client", () => ({
 afterEach(() => {
 	cleanup();
 	vi.restoreAllMocks();
+	localStorage.removeItem("openmeld.space.message-send-shortcut");
 });
 
-it("keeps the conversation and a plain-text draft usable when the rich editor fails", () => {
+it.each([
+	"enter",
+	"modifier-enter",
+])("keeps the draft and send shortcut usable when the rich editor fails: %s", (shortcut) => {
+	localStorage.setItem("openmeld.space.message-send-shortcut", shortcut);
 	vi.spyOn(console, "error").mockImplementation(() => undefined);
 	const onEditorChange = vi.fn();
 	const onSubmit = vi.fn();
@@ -80,4 +85,13 @@ it("keeps the conversation and a plain-text draft usable when the rich editor fa
 	});
 	fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 	expect(onSubmit).toHaveBeenCalledOnce();
+	if (shortcut === "modifier-enter") {
+		fireEvent.keyDown(fallback, { key: "Enter" });
+		expect(onSubmit).toHaveBeenCalledOnce();
+	}
+	fireEvent.keyDown(fallback, {
+		key: "Enter",
+		ctrlKey: shortcut === "modifier-enter",
+	});
+	expect(onSubmit).toHaveBeenCalledTimes(2);
 });

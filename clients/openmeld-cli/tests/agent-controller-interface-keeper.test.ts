@@ -866,6 +866,10 @@ describe("agent controller interface re-probe orchestration", () => {
           status: "authenticated",
         },
         usageLimits: [accountALimit],
+        usageAdmission: {
+          blocksNewWork: false,
+          observedAt: accountALimit.observedAt,
+        },
       },
     });
 
@@ -886,6 +890,10 @@ describe("agent controller interface re-probe orchestration", () => {
       authSnapshot: accountBAuth,
       commandFingerprint: COMMAND_FINGERPRINT,
       keeperKey,
+      usageAdmission: {
+        blocksNewWork: true,
+        observedAt: accountBLimit.observedAt,
+      },
       usageLimits: [accountBLimit],
     });
 
@@ -895,6 +903,13 @@ describe("agent controller interface re-probe orchestration", () => {
         keeperKey,
       })
     ).toEqual([accountALimit]);
+    expect(
+      readReusableAgentControllerInterfaceSnapshot({
+        commandFingerprint: COMMAND_FINGERPRINT,
+        keeperKey,
+        nowMs: 1001,
+      })?.usageAdmission?.blocksNewWork
+    ).toBe(false);
 
     recordAgentControllerInterfaceProbeSuccess({
       commandFingerprint: COMMAND_FINGERPRINT,
@@ -911,6 +926,13 @@ describe("agent controller interface re-probe orchestration", () => {
         keeperKey,
       })
     ).toEqual([accountBLimit]);
+    expect(
+      readReusableAgentControllerInterfaceSnapshot({
+        commandFingerprint: COMMAND_FINGERPRINT,
+        keeperKey,
+        nowMs: 2001,
+      })?.usageAdmission?.blocksNewWork
+    ).toBe(true);
   });
 
   it("rejects passive usage evidence without stable account identity", () => {
@@ -1009,12 +1031,20 @@ describe("agent controller interface re-probe orchestration", () => {
       authSnapshot: AUTH_SNAPSHOT,
       commandFingerprint: COMMAND_FINGERPRINT,
       keeperKey,
+      usageAdmission: {
+        blocksNewWork: false,
+        observedAt: newerLimit.observedAt,
+      },
       usageLimits: [newerLimit],
     });
     recordAgentControllerUsageLimitsObservation({
       authSnapshot: AUTH_SNAPSHOT,
       commandFingerprint: COMMAND_FINGERPRINT,
       keeperKey,
+      usageAdmission: {
+        blocksNewWork: true,
+        observedAt: "2026-07-03T10:01:00.000Z",
+      },
       usageLimits: [
         {
           ...newerLimit,
@@ -1036,6 +1066,42 @@ describe("agent controller interface re-probe orchestration", () => {
         keeperKey,
       })
     ).toEqual([newerLimit]);
+    const snapshotInput = {
+      commandFingerprint: COMMAND_FINGERPRINT,
+      keeperKey,
+      nowMs: 1001,
+    };
+    expect(
+      readReusableAgentControllerInterfaceSnapshot(snapshotInput)
+        ?.usageAdmission
+    ).toEqual({ blocksNewWork: false, observedAt: newerLimit.observedAt });
+    recordAgentControllerUsageLimitsObservation({
+      authSnapshot: AUTH_SNAPSHOT,
+      commandFingerprint: COMMAND_FINGERPRINT,
+      keeperKey,
+      usageLimits: [{ ...newerLimit, observedAt: "2026-07-03T10:03:00.000Z" }],
+    });
+    // A sparse native update cannot refresh the earlier account capacity.
+    expect(
+      readReusableAgentControllerInterfaceSnapshot(snapshotInput)
+        ?.usageAdmission?.observedAt
+    ).toBe(newerLimit.observedAt);
+    const unknownAdmission = {
+      blocksNewWork: null,
+      observedAt: "2026-07-03T10:04:00.000Z",
+    };
+    recordAgentControllerInterfaceProbeSuccess({
+      commandFingerprint: COMMAND_FINGERPRINT,
+      keeperKey,
+      nowMs: 2000,
+      snapshot: { ...completedSnapshot(), usageAdmission: unknownAdmission },
+    });
+    expect(
+      readReusableAgentControllerInterfaceSnapshot({
+        ...snapshotInput,
+        nowMs: 2001,
+      })?.usageAdmission
+    ).toEqual(unknownAdmission);
   });
 
   it("keeps authenticated historical evidence without reusing it after a failed probe", () => {

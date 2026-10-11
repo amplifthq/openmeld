@@ -65,6 +65,10 @@ export function sortSidebarSpaces<
 		return [...items].sort(
 			(a, b) =>
 				rank(b.spaceId) - rank(a.spaceId) ||
+				(rank(a.spaceId) === 2
+					? (latestActivity?.get(b.spaceId) ?? 0) -
+						(latestActivity?.get(a.spaceId) ?? 0)
+					: 0) ||
 				(conversationActivity
 					? (conversationActivity.get(b.spaceId) ?? 0) -
 						(conversationActivity.get(a.spaceId) ?? 0)

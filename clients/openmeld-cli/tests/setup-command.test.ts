@@ -1014,7 +1014,10 @@ describe("setup command", () => {
     });
   });
 
-  it("emits setup.complete from profile connection facts instead of guessing from CLI flags", async () => {
+  it.each([
+    "enrolled",
+    "refused",
+  ])("completes profile setup only after Computer identity is %s", async (enrollment) => {
     runSetupLocalAgentConnectionMock.mockResolvedValue({
       status: "completed",
       setupSessionSnapshot: null,
@@ -1044,6 +1047,27 @@ describe("setup command", () => {
     });
     const { runSetup } = await import("../src/commands/setup");
 
+    if (enrollment === "refused") {
+      const failure = new Error("Computer identity could not be saved.");
+      syncLocalSetupCurrentDeviceTargetFromServiceContractMock.mockRejectedValueOnce(
+        failure
+      );
+      await expect(
+        runSetup({ profile: "agt_profile_codex", view: "agent" })
+      ).rejects.toBe(failure);
+      expect(
+        presenter.data.mock.calls.some(
+          ([event]) => (event as { code?: string }).code === "setup.complete"
+        )
+      ).toBe(false);
+      return;
+    }
+    syncLocalSetupCurrentDeviceTargetFromServiceContractMock.mockResolvedValueOnce(
+      {
+        deviceId: "device-profile",
+        runtimeLane: "dev-local",
+      }
+    );
     await runSetup({
       profile: "agt_profile_codex",
       view: "agent",

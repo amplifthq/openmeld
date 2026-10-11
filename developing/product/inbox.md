@@ -16,6 +16,21 @@
 
 ## Agent Direct Message activity
 
+An accepted Human membership generation creates one ordinary `space_joined`
+update, including empty Spaces and invitations. It uses the membership's
+`addedAt`, not visits, role changes, or index retries. Rejoining creates a new
+generation. Historical memberships are established as read during migration
+and after historical D1 import. No chat message or urgent email is fabricated.
+
+The Space indicator includes this update; message badges and unread-message
+positions count actual messages only. The badge shows `New` until the membership
+notice is acknowledged when there are no unread messages. Actual unread messages
+take precedence, without a second New badge or a time-based expiry. Opening the main conversation in a
+focused window acknowledges its membership notice through the existing exact
+Inbox read operation. Unseen main and Thread messages remain unread. Mark all
+read also includes membership notices. The current source-access check remains
+mandatory for every read and write.
+
 Agent-authored Direct Messages include the receiving Agent's personal owner in
 the existing owner-activity projection, including messages without a Wake.
 The sender's owner can follow that Agent's activity as before. One owner of
@@ -136,9 +151,10 @@ Core applies current membership, personal ownership, conversation visibility,
 mute presentation and filters before counts, grouping or pagination. A direct
 Human mention survives an Agent transfer; an owner-only relationship does not
 survive merely because a different owned Agent remains in that Space. All is
-ordered across the accessible dataset: priority attention, other open requests,
-then ordinary activity/history. Normal open requests lose their blue unread dot
-when read but remain pending; priority open requests stay yellow until resolved.
+ordered across the accessible dataset: priority attention, then ordinary
+activity/history. All open requests stay yellow until resolved, including after
+they are read. The same open-request rule drives Inbox, Space lists and the
+sidebar; urgency still controls notification delivery independently.
 First-contact information is yellow only while unread. Ended requests are
 history, never persistent priority.
 
@@ -409,8 +425,9 @@ condition and a source-owned path that emits its resolution. The mere presence
 of retry, repair, or diagnostics controls does not turn a terminal update into
 unfinished source work.
 
-**Dismiss** removes an item from that recipient's Inbox views and counts without
-approving, rejecting, discarding, or otherwise changing the source work. Core
+**Dismiss** removes an item from that recipient's Inbox views and attention counts without
+approving, rejecting, discarding, or otherwise changing the source work.
+Conversation unread remains independent of dismissal. Core
 records Dismiss in `clearedAt`; the item row is not hard-deleted. The retained
 recipient/source uniqueness row is the durable replay fence that prevents a
 source reconciler from recreating the item or resending delivery. Dismiss is
@@ -432,13 +449,25 @@ continue to use the native-delivery producer's existing repair contract.
 
 ## Phase 1 source coverage
 
+Human requests keep the source owner's scope. Space-bound Plugin approvals,
+Agent Interactions, Task reviews, Center Agent attention requests, and
+Space-specific work recovery contribute to that Space's attention summary.
+Inbox, the Spaces navigation, conversation sidebar, and directory cards/tables
+consume that summary; they do not infer pending work from message error icons.
+Organization document reviews, membership and Channel setup requests, connector
+access upgrades, Computer incidents, and Agent-wide queue/model actions remain
+at their Organization, account, or Agent scope. Do not attach those requests to
+an arbitrary Space. Slack publication recovery retains its Message Channel
+target. Feature-disabled request sources remain hidden.
+
 The first release creates items for these explicit user-visible events:
 
 Thread reply updates are scoped to current members who authored the root or a
 retained reply, including the current owners of participating personal Agents.
 Space membership, viewing a thread, and owning a nonparticipating Agent do not
-subscribe a person. This audience restriction also applies to explicit mentions
-inside thread replies; main-timeline addressing keeps its existing audience.
+subscribe a person. Explicit Human mentions and the exact Wake requester also
+receive a Thread update when they are current Space members. Main messages reach
+current Human members.
 
 A changed reaction addition to a Human member's message creates one ordinary
 unread update for that message's current Human owner, excluding self-reactions.
@@ -451,9 +480,10 @@ adding it again creates a new event. Existing delivered items remain history.
    through CLI or automation without an explicit author read confirmation,
    with a targeted reply or
    structured Human Mention receiving the more specific source kind.
-2. An Agent or Center Agent reply intended for the member who initiated the
-   interaction, a current human member explicitly mentioned by the reply, or
-   the current human author of the target thread. A personal Agent's published
+2. Any formal Agent or Center Agent message, including proactive Routine results,
+   without requiring a requester, mention, or special final-reply purpose. Main
+   messages reach current Human members; Thread messages use the audience above.
+   A personal Agent's published
    reply also creates an ordinary unread update for its current owner, whether
    the owner, another person, or an Agent initiated the work. The owner need not
    have a separate Human membership when the existing personal-Agent access
@@ -463,12 +493,13 @@ adding it again creates a new event. Existing delivered items remain history.
    Chats and Spaces reuse the same unread projection and read-through rules.
 3. An Agent Interaction that explicitly requests approval, an answer, plan
    review, or other supported human response.
-4. A Wake requested by the member that reaches a system-owned ending:
+4. A formal system-owned Wake ending published in the conversation:
    a visible failure or stopped outcome, a `stay_silent` outcome, or an
    explicit final status. A successful final reply uses the Agent reply item
    instead of a duplicate success item. An accepted result without a valid
    public Space action is a visible failure, never a synthetic completion. A
-   terminal failure is an urgent update whose preview carries the bounded
+   terminal failure is urgent only for its exact requester; other current
+   conversation recipients receive an ordinary update. Its preview carries the bounded
    public failure reason; it does not become an unresolved action merely because
    retry and diagnostics are available. When that failure is presented under
    the original Wake message, the Space producer targets that source Signal
@@ -555,6 +586,17 @@ unread query supplies paginated data; filtered tabs continue loading through
 unrelated items before showing an empty state. Legacy `view=unread` links open
 All with the switch enabled.
 
+Plugin action approvals retain their originating Space from verified Local
+dispatch or native-delivery provenance. The request owner supplies that optional
+association to the same Inbox item used for approval; Space attention does not
+create another request or unread record. Unscoped manual requests stay in Inbox.
+Reading a request leaves pending attention in place; source approval, rejection,
+expiry, or revocation ends it. Only the recipient with current Space access sees
+the associated Space attention. Lack of Space access does not hide a
+recipient-owned Plugin approval from Inbox: delegated work can originate in a
+child Space without Human membership. Request detail navigation and approval
+authorization remain request-owned.
+
 List titles reserve a 6px status dot with an 8px gap. An unresolved action or
 review uses the yellow attention tone, including after it is read. Red is
 reserved for an explicit error, never inferred from a pending action count.
@@ -604,15 +646,15 @@ removes either contribution without changing source business state.
 Core computes both exact counts over the complete accessible recipient Inbox,
 independently of list pagination. Web caps only the displayed sum at `99+`.
 
-An open action makes the badge red; otherwise unread urgent updates make it
-amber. Red means a human action is outstanding, not that every action is urgent.
+Open actions and unread priority updates make the badge yellow. Pending work
+does not imply an error or grant urgent-email eligibility.
 Ordinary unread updates show a blue dot on the Inbox entry without contributing
 to the numeric attention count. The bottom-right launcher also shows the same
 highest-priority dot. Browser tabs reuse this exact Inbox summary and priority:
-red for open actions, amber for unread urgent updates, blue for other unread,
+yellow for pending work or priority updates, blue for other unread,
 and the original favicon when none remain. The title includes the highest
 priority category and its count, retaining the current route title. Reading an
-action never clears its red indicator; source resolution or recipient Dismiss
+action never clears its yellow indicator; source resolution or recipient Dismiss
 does. Opening the tab or Inbox alone does not clear any indicator.
 
 The authenticated tab observes the existing summary query in the background
@@ -680,6 +722,19 @@ actions and no unread items. An empty feed says **No updates yet**.
 
 ### Space message unread behavior
 
+Every formal published main-conversation message is an unread update for current
+Human members, including proactive Routine results, Agent replies, task results,
+and system-owned outcomes. A requester or mention is not required. Thread updates
+remain scoped to participants and explicitly addressed recipients. Public browsing
+does not establish membership. Transient progress and membership notices are not
+new conversation messages. Failure urgency belongs only to the Wake requester;
+other conversation recipients receive an ordinary update.
+
+Read state, Inbox dismissal, source requests, and notification delivery are separate.
+Dismiss removes an item from the recipient's Inbox, but does not mark its message
+read in the Space. Only reading or an explicit mark-as-read action changes that
+read fact. Business requests retain their source-owned resolution rules.
+
 An Agent's presence alone never makes a message relevant to its owner. Personal
 owner awareness requires actual structured Agent addressing, a Human message
 in that Agent's DM, or that Agent's own published reply. Activation and Reference
@@ -736,28 +791,28 @@ accessible without color and does not pulse. Direct Messages remain in their
 owning navigation surface instead of reappearing in the Spaces sidebar; each
 unread Direct Message shows the same static blue indicator on its exact
 conversation row so the member can identify what needs attention.
-While any ordinary Space message remains unread, the Spaces destination in the
-outer app rail shows one static blue dot across OpenMeld. Its accessible label
-reports the complete unread ordinary Space message count. Core derives that
-aggregate before the grouped summary's 500-Space presentation limit and
-excludes current Direct Messages and legacy welcoming Spaces through the Space
-Index classification; converted Direct Messages count as ordinary Spaces. The
+The Spaces destination in the outer app rail shows yellow while any accessible
+Space or Direct Message has pending attention, then blue for ordinary unread
+messages. Its accessible label reports the complete unread message count. Core
+derives the ordinary Space aggregate before the grouped summary's 500-Space
+presentation limit and excludes current Direct Messages and legacy welcoming
+Spaces through the Space Index classification; converted Direct Messages count
+as ordinary Spaces. Web combines that total with the complete DM total. The
 outer dot does not identify a second unread owner or replace the per-Space
 indicators; it guides the member into Spaces, where the secondary sidebar shows
 which exact Spaces are unread.
 
-Chats uses complete Core aggregates for unread messages, open action requests,
-and unread urgent updates across current DMs, including Center Agent sessions.
-The Chat row and destination use red for open actions, yellow for unread urgent
-updates, then blue for ordinary unread. Grouped attention has no unread-page
-limit, and reading a request does not resolve it. Only the Inbox icon carries
-the numeric attention badge; Chat indicators remain dots with accessible labels.
+Direct Messages use the same Core attention projection, including Center Agent
+sessions. Conversation rows use yellow for open actions or unread urgent updates,
+then blue for ordinary unread. Grouped attention has no unread-page limit, and
+reading a request does not resolve it. Only the Inbox icon carries the numeric
+attention badge; conversation indicators remain dots with accessible labels.
 
 Every final Center Agent reply in its current, unconverted member Direct Message
 is projected as an ordinary Inbox update with a canonical Center Agent target
 containing both the source Space id and source Signal id. While any such item is
-unread, the Center Agent destination in the outer rail independently shows one
-static blue dot. Conversion makes the Space Index classify that conversation
+unread, the reply contributes to the Spaces destination's DM unread total.
+Conversion makes the Space Index classify that conversation
 as an ordinary Space, so its unread items contribute only to the Spaces
 destination even when their durable target remains `center_agent`. The dot sits
 immediately after the label in the full rail and on the icon corner in compact
@@ -773,6 +828,14 @@ and covered content are not read. Out-of-order reading acknowledges only observe
 items, without advancing over earlier unseen updates. Existing legacy read-through
 endpoints remain supported for older clients; the new viewport path does not write
 those watermarks. Reading never resolves unfinished source work.
+
+If the message appears before its Inbox row, Web sends the exact source Signal
+and occurrence time. Space resolves the retained publication intent and current
+recipient eligibility. Core inserts the canonical recipient row and marks that
+version read in one transaction. Outbox replay preserves the read fact; no second
+read ledger or historical replay is introduced. Navigation anchors are separate
+from source identity: an anchored failure is read only when its outcome is visible,
+and reaction reads cannot advance beyond the rendered reaction revision.
 
 The blue unread pill stays available until the complete Space unread count is zero.
 Its left side always navigates to the earliest remaining target across main and
@@ -794,7 +857,8 @@ has unread updates, then remove it when that scope reaches zero. **Open thread**
 remains available with neutral styling after its unread count reaches zero. Full
 scope counts and the bounded navigation page come from the same canonical rows;
 counts are not inferred from only the currently loaded page. New clients opt into
-item IDs and scope counts with `includeItemIds=true`, preserving strict legacy
+item IDs and scope counts with `includeItemIds=true`, and source event identities
+with `includeSourceKeys=true`, preserving strict legacy
 response shapes. Exact visible reads update shared query projections optimistically,
 restore on failure, and reconcile against Core after persistence. No dismissed-pill
 state or browser read ledger owns unread truth.

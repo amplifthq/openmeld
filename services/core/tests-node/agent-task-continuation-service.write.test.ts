@@ -137,6 +137,7 @@ describe("Agent Task continuation service", () => {
     "automatic_unpublished",
     "automatic_identity_mismatch",
     "automatic_recursive",
+    "automatic_already_explained",
   ] as const)("summary recovery uses exact native evidence and retained Space results: %s", async (scenario) => {
     const harness = await createHarness();
     try {
@@ -484,7 +485,7 @@ describe("Agent Task continuation service", () => {
         await harness.db.query({
           text: `UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger"
             SET failure_code = $1, published_signal_id = $2,
-              execution_recovery_submit_request_json = $3
+              execution_recovery_submit_request_json = $3, final_publication_payload_json = $4
             WHERE delivery_id = 'delivery-continuation-race'`,
           values: [
             scenario === "automatic_budget"
@@ -494,6 +495,18 @@ describe("Agent Task continuation service", () => {
               ? null
               : "signal-coordinator-failure",
             JSON.stringify(request),
+            scenario === "automatic_already_explained"
+              ? JSON.stringify({
+                  storageVersion: 3,
+                  resumeStatus: "accepted",
+                  failureCode: "remote_agent.computer.command_cleanup_failed",
+                  failureDetail: null,
+                  text: "The completed child results are retained. Publication remains unconfirmed.",
+                  files: [],
+                  attachments: [],
+                  reviewedFailureExplanation: true,
+                })
+              : null,
           ],
         });
         const delivery = await readRemoteAgentNativeDeliveryByDeliveryId({

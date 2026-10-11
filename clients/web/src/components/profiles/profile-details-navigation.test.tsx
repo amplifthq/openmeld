@@ -11,7 +11,10 @@ import {
 } from "@tanstack/react-router";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { AgentProfileDetailsContent } from "./profile-details-dialog";
+import {
+	AgentProfileDetailsContent,
+	AgentProfileDetailsPopover,
+} from "./profile-details-dialog";
 
 describe("profile details navigation", () => {
 	it("uses the real Router and preserves the selected profile id", async () => {
@@ -60,6 +63,58 @@ describe("profile details navigation", () => {
 		await waitFor(() =>
 			expect(router.state.location.pathname).toBe("/o/acme/spaces/space-1")
 		);
+	});
+
+	it("opens Center Agent App settings without losing the Thread or leaving its Organization", async () => {
+		const queryClient = new QueryClient();
+		const root = createRootRoute({ component: Outlet });
+		const organization = createRoute({
+			getParentRoute: () => root,
+			path: "/o/$orgSlug",
+			component: Outlet,
+			validateSearch: (search: Record<string, unknown>) => search,
+		});
+		const source = createRoute({
+			getParentRoute: () => organization,
+			path: "/spaces/$spaceId",
+			component: () => (
+				<QueryClientProvider client={queryClient}>
+					<AgentProfileDetailsPopover
+						details={details}
+						entry={{
+							...entry,
+							agentControllerRef: "hosted:center-agent",
+							availabilityCategory: "available",
+						}}
+						isCenterAgent
+						trigger={<button type="button">Open Center Agent Profile</button>}
+					/>
+				</QueryClientProvider>
+			),
+		});
+		const router = createRouter({
+			history: createMemoryHistory({
+				initialEntries: [
+					"/o/acme/spaces/space-1?focusThreadRootSignalId=root-1",
+				],
+			}),
+			routeTree: root.addChildren([organization.addChildren([source])]),
+		});
+		render(<RouterProvider router={router} />);
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Open Center Agent Profile" })
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Open Center Agent settings" })
+		);
+		await waitFor(() =>
+			expect(router.state.location.search).toEqual({
+				appSettings: "center-agent",
+				focusThreadRootSignalId: "root-1",
+			})
+		);
+		expect(router.state.location.pathname).toBe("/o/acme/spaces/space-1");
+		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 	});
 });
 

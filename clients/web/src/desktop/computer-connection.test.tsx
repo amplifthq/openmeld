@@ -1,3 +1,4 @@
+import type { PrepareSessionSnapshot } from "@openmeld/schemas/types";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
@@ -17,6 +18,9 @@ const state = vi.hoisted(() => ({
 		resetThisComputer: false,
 	} as ConnectRouteIntent,
 	connect: vi.fn(),
+	update: vi.fn(),
+	updateAvailable: false,
+	navigate: vi.fn().mockResolvedValue(undefined),
 	openWeb: vi.fn().mockResolvedValue(undefined),
 	localComputer: vi.fn().mockResolvedValue({
 		status: "unavailable",
@@ -32,9 +36,13 @@ const state = vi.hoisted(() => ({
 	operationHandler: null as ((event: unknown) => void) | null,
 	account: "account-a",
 }));
+vi.mock("@tanstack/react-router", () => ({
+	useNavigate: () => state.navigate,
+}));
 vi.mock("./platform", () => ({
 	getDesktopPlatform: () => ({
 		connectComputer: state.connect,
+		updateComputer: state.updateAvailable ? state.update : undefined,
 		disconnectComputer: state.disconnect,
 		disconnectComputerWithFeedback: state.feedbackAvailable
 			? state.disconnectWithFeedback
@@ -75,14 +83,20 @@ vi.mock("#/components/connect/bring-agents-setup-context", () => ({
 	useBringAgentsSetupContext: () => ({
 		routeIntent: state.routeIntent,
 		selectedHumanProfileId: "11111111-1111-4111-8111-111111111111",
-		targetSpaceId: null,
+		targetSpaceId:
+			state.routeIntent.kind === "space_recovery"
+				? state.routeIntent.spaceId
+				: null,
 		localRuntimesQuery: { refetch: state.localRuntimesRefetch },
+		refreshAll: state.localRuntimesRefetch,
 	}),
 }));
 afterEach(() => {
 	cleanup();
 	vi.clearAllMocks();
 	state.account = "account-a";
+	state.updateAvailable = false;
+	state.update.mockReset();
 	state.feedbackAvailable = false;
 	state.disconnect.mockReset().mockResolvedValue(false);
 	state.disconnectWithFeedback.mockReset();
@@ -345,56 +359,202 @@ it("does not let a delayed pending record reopen its settled operation", async (
 	);
 });
 
-it.each([
-	"update",
-	"space",
-	"source_action",
-] as const)("does not replace %s recovery with ordinary native connection", async (kind) => {
+it("keeps Service update distinct while the native update capability is unavailable", async () => {
 	state.routeIntent = {
 		kind: "account_computer_setup",
 		resetThisComputer: false,
+		serviceAction: "update_service",
 	};
-	if (kind === "update") {
-		state.routeIntent.serviceAction = "update_service";
-	}
-	if (kind === "space" || kind === "source_action") {
-		state.routeIntent = {
-			kind: "space_recovery",
-			resetThisComputer: true,
-			agentProfileIds: ["agent-b"],
-			spaceId: "space-b",
-		};
-	}
 	const onCompleted = vi.fn();
 	renderConnection(
-		<DesktopComputerConnection
-			onCompleted={onCompleted}
-			orgSlug="org-a"
-			sourceNavigationAction={
-				kind === "source_action"
-					? { spaceId: "space-b", signalId: "signal-b" }
-					: undefined
-			}
-		/>
+		<DesktopComputerConnection onCompleted={onCompleted} orgSlug="org-a" />
 	);
 	expect(screen.queryByRole("button", { name: "Connect this Mac" })).toBeNull();
-	fireEvent.click(
-		screen.getByRole("button", {
-			name:
-				kind === "source_action" ? "Open request in Web" : "Continue in Web",
-		})
-	);
+	fireEvent.click(screen.getByRole("button", { name: "Continue in Web" }));
 	await waitFor(() => expect(state.openWeb).toHaveBeenCalledOnce());
 	const path = state.openWeb.mock.calls[0]?.[0];
-	expect(path).toContain(
-		{
-			update: "serviceAction=update_service",
-			space: "agentProfileIds=agent-b",
-			source_action: "/spaces/space-b",
-		}[kind]
-	);
+	expect(path).toContain("serviceAction=update_service");
 	expect(state.connect).not.toHaveBeenCalled();
 	expect(onCompleted).not.toHaveBeenCalled();
+});
+
+it("runs an explicit Tools update in Desktop without ordinary connection reuse", async () => {
+	state.updateAvailable = true;
+	state.routeIntent = {
+		kind: "account_computer_setup",
+		resetThisComputer: false,
+		serviceAction: "update_service",
+		connectedComputerId: "computer-b",
+	};
+	state.update.mockResolvedValue({ status: "cancelled" });
+	renderConnection(<DesktopComputerConnection orgSlug="org-a" />);
+	const button = await screen.findByRole("button", {
+		name: "Update OpenMeld Tools",
+	});
+	await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
+	fireEvent.click(button);
+	await waitFor(() =>
+		expect(state.update).toHaveBeenCalledWith(
+			expect.objectContaining({
+				expectedAccount: "account-a",
+				serviceAction: "update_service",
+				connectedComputerId: "computer-b",
+			})
+		)
+	);
+	expect(state.connect).not.toHaveBeenCalled();
+	expect(state.openWeb).not.toHaveBeenCalled();
+});
+
+it("does not report a reused connection as a completed Tools update", async () => {
+	state.updateAvailable = true;
+	state.routeIntent = {
+		kind: "account_computer_setup",
+		resetThisComputer: false,
+		serviceAction: "update_service",
+	};
+	state.update.mockResolvedValue({
+		status: "reused",
+		connection: { deviceId: "device-a", runtimeLane: "dev-local" },
+	});
+	const onCompleted = vi.fn();
+	renderConnection(
+		<DesktopComputerConnection onCompleted={onCompleted} orgSlug="org-a" />
+	);
+	const button = await screen.findByRole("button", {
+		name: "Update OpenMeld Tools",
+	});
+	await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
+	fireEvent.click(button);
+	expect(await screen.findByRole("alert")).toHaveProperty(
+		"textContent",
+		"The update was not confirmed. Try again."
+	);
+	expect(onCompleted).not.toHaveBeenCalled();
+	expect(state.navigate).not.toHaveBeenCalled();
+});
+
+it("returns a verified native Tools update through the original completion target", async () => {
+	state.updateAvailable = true;
+	state.routeIntent = {
+		kind: "account_computer_setup",
+		resetThisComputer: false,
+		serviceAction: "update_service",
+	};
+	const date = "2026-09-14T00:00:00.000Z";
+	const snapshot = {
+		prepareSessionId: "prepare-a",
+		ownerUserId: "account-a",
+		humanProfileId: null,
+		deviceId: "device-a",
+		runtimeLane: "dev-local",
+		targetSpaceId: null,
+		sessionRevision: 0,
+		lifecycleStatus: "completed",
+		phase: "ready",
+		steps: [],
+		selectedLocalAgentIds: [],
+		localAgentCatalog: null,
+		localReadinessSnapshot: null,
+		blockers: [],
+		diagnosticCorrelationId: "diagnostic-a",
+		createdAt: date,
+		updatedAt: date,
+		expiresAt: date,
+		completedAt: date,
+		terminalConnection: {
+			status: "disconnected",
+			connectionId: "connection-a",
+			connectionEpoch: 1,
+			connectedAt: date,
+			lastSeenAt: date,
+			disconnectedAt: date,
+			disconnectReason: null,
+		},
+	} satisfies PrepareSessionSnapshot;
+	state.update.mockResolvedValue({ status: "completed", snapshot });
+	const onCompleted = vi.fn();
+	renderConnection(
+		<DesktopComputerConnection onCompleted={onCompleted} orgSlug="org-a" />
+	);
+	const button = await screen.findByRole("button", {
+		name: "Update OpenMeld Tools",
+	});
+	await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
+	fireEvent.click(button);
+	await waitFor(() => expect(onCompleted).toHaveBeenCalledWith(snapshot));
+	expect(state.localRuntimesRefetch).toHaveBeenCalled();
+	expect(state.navigate).toHaveBeenCalledWith({
+		to: "/o/org-a/computers?focus=service&refresh=setup-complete",
+	});
+	expect(state.connect).not.toHaveBeenCalled();
+	expect(screen.queryByRole("alert")).toBeNull();
+});
+
+it.each([
+	false,
+	true,
+])("connects the first Space in Desktop with source action %s", async (hasSourceAction) => {
+	state.routeIntent = {
+		kind: "space_recovery",
+		resetThisComputer: false,
+		agentProfileIds: ["agent-b"],
+		spaceId: "space-b",
+		connectedComputerId: "computer-b",
+	};
+	state.connect.mockResolvedValue({ status: "cancelled" });
+	const sourceNavigationAction = hasSourceAction
+		? { spaceId: "space-b", signalId: "signal-b" }
+		: undefined;
+	renderConnection(
+		<DesktopComputerConnection
+			orgSlug="org-a"
+			sourceNavigationAction={sourceNavigationAction}
+		/>
+	);
+	const button = await screen.findByRole("button", {
+		name: "Connect this Mac",
+	});
+	await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
+	fireEvent.click(button);
+	await waitFor(() =>
+		expect(state.connect).toHaveBeenCalledWith({
+			expectedAccount: "account-a",
+			humanProfileId: "11111111-1111-4111-8111-111111111111",
+			targetSpaceId: "space-b",
+			resetThisComputer: false,
+			sourceNavigationAction,
+			connectedComputerId: "computer-b",
+		})
+	);
+	expect(state.openWeb).not.toHaveBeenCalled();
+	expect(state.navigate).not.toHaveBeenCalled();
+});
+
+it("returns the completed native connection to its original Space", async () => {
+	state.routeIntent = {
+		kind: "space_recovery",
+		resetThisComputer: false,
+		agentProfileIds: [],
+		spaceId: "space-b",
+	};
+	state.connect.mockResolvedValue({
+		status: "reused",
+		connection: { deviceId: "device-a", runtimeLane: "dev-local" },
+	});
+	renderConnection(<DesktopComputerConnection orgSlug="org-a" />);
+	const button = await screen.findByRole("button", {
+		name: "Connect this Mac",
+	});
+	await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
+	fireEvent.click(button);
+	await waitFor(() =>
+		expect(state.navigate).toHaveBeenCalledWith({
+			to: "/o/org-a/spaces/space-b",
+		})
+	);
+	expect(state.localRuntimesRefetch).toHaveBeenCalled();
+	expect(state.openWeb).not.toHaveBeenCalled();
 });
 
 it.each([

@@ -1,0 +1,242 @@
+{
+  "oauth2": {
+    "success": true,
+    "message": "OK",
+    "data": [
+      {
+        "id": "github.list_my_repositories",
+        "service": "github",
+        "name": "list_my_repositories",
+        "description": "List repositories visible to this GitHub connection. GitHub App installations support only page and perPage; user connections also support visibility, sort, and direction. Request the action catalog with connectionName for the exact input schema.",
+        "operationType": "read",
+        "effect": "read",
+        "requiredScopes": ["repo"],
+        "providerPermissions": [],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "visibility": {
+              "type": "string",
+              "enum": ["all", "public", "private"]
+            },
+            "sort": {
+              "type": "string",
+              "enum": ["created", "updated", "pushed", "full_name"]
+            },
+            "direction": {
+              "type": "string",
+              "enum": ["asc", "desc"]
+            },
+            "perPage": {
+              "type": "integer"
+            },
+            "page": {
+              "type": "integer"
+            }
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "repositories": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "integer"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "full_name": {
+                    "type": "string"
+                  },
+                  "private": {
+                    "type": "boolean"
+                  },
+                  "html_url": {
+                    "type": "string"
+                  },
+                  "clone_url": {
+                    "type": "string"
+                  },
+                  "ssh_url": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "default_branch": {
+                    "type": "string"
+                  },
+                  "visibility": {
+                    "type": "string"
+                  },
+                  "fork": {
+                    "type": "boolean"
+                  },
+                  "owner": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "integer"
+                      },
+                      "login": {
+                        "type": "string"
+                      },
+                      "avatar_url": {
+                        "type": "string"
+                      },
+                      "html_url": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": true
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "followUpActions": [],
+        "asyncLifecycle": null,
+        "execution": {
+          "locallyExecutable": true,
+          "catalogOnly": false,
+          "requiredAuthTypes": ["oauth2", "custom_credential", "api_key"],
+          "noAuthRunnable": false,
+          "needsCredential": true
+        }
+      }
+    ],
+    "meta": {}
+  },
+  "custom_credential": {
+    "success": true,
+    "message": "OK",
+    "data": [
+      {
+        "id": "github.list_my_repositories",
+        "service": "github",
+        "name": "list_my_repositories",
+        "description": "List repositories visible to this GitHub connection. GitHub App installations support only page and perPage; user connections also support visibility, sort, and direction. Request the action catalog with connectionName for the exact input schema.",
+        "operationType": "read",
+        "effect": "read",
+        "requiredScopes": ["repo"],
+        "providerPermissions": [],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "perPage": {
+              "type": "integer"
+            },
+            "page": {
+              "type": "integer"
+            }
+          },
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "repositories": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "integer"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "full_name": {
+                    "type": "string"
+                  },
+                  "private": {
+                    "type": "boolean"
+                  },
+                  "html_url": {
+                    "type": "string"
+                  },
+                  "clone_url": {
+                    "type": "string"
+                  },
+                  "ssh_url": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "default_branch": {
+                    "type": "string"
+                  },
+                  "visibility": {
+                    "type": "string"
+                  },
+                  "fork": {
+                    "type": "boolean"
+                  },
+                  "owner": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "integer"
+                      },
+                      "login": {
+                        "type": "string"
+                      },
+                      "avatar_url": {
+                        "type": "string"
+                      },
+                      "html_url": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": true
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "followUpActions": [],
+        "asyncLifecycle": null,
+        "execution": {
+          "locallyExecutable": true,
+          "catalogOnly": false,
+          "requiredAuthTypes": ["oauth2", "custom_credential", "api_key"],
+          "noAuthRunnable": false,
+          "needsCredential": true
+        }
+      }
+    ],
+    "meta": {}
+  }
+}

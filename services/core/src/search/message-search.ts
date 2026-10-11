@@ -61,7 +61,7 @@ export async function rpcSearchMessages(
       JOIN "openmeld"."space_index_memberships" cm ON cm.profile_id = cad.agent_profile_id AND cm.space_id = s.space_id
       WHERE cad.organization_id = s.organization_id AND cm.status = 'active'
         AND s.direct_message_pair_key IS NOT NULL AND s.direct_message_converted_at_ms IS NULL) AS center_agent
-    FROM "openmeld"."space_index_spaces" s WHERE s.organization_id = $1 AND s.status = 'active'
+    FROM "openmeld"."space_index_spaces" s WHERE s.organization_id = $1 AND s.status IN ('active', 'deleted')
       AND ($2::text IS NOT NULL OR EXISTS (SELECT 1 FROM "openmeld"."space_index_memberships" m WHERE m.space_id = s.space_id AND m.status = 'active' AND m.owner_user_id_snapshot = $3))
       AND ($4::text IS NULL OR s.space_id = $5)
       AND ($6::text[] IS NULL OR s.space_id = ANY($6))

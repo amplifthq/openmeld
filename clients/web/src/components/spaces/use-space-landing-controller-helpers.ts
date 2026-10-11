@@ -1,3 +1,4 @@
+import { supportsLocalExecutionInput } from "@openmeld/agent-runtime";
 import type { StructuredApiClientFailure } from "@openmeld/api-client";
 import type {
 	CreateSpaceDiagnosticReportResponse,
@@ -23,7 +24,7 @@ import {
 	isWakeProgressSourceSignalRecoverable,
 	mergeWakeProgressItems,
 } from "@openmeld/space";
-import type { useQueryClient } from "@tanstack/react-query";
+import type { QueryKey, useQueryClient } from "@tanstack/react-query";
 import { isSessionExpiredError } from "#/lib/session-expired";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceConversationVisibleStreamProjection } from "#/lib/spaces/conversation-stream";
@@ -41,6 +42,85 @@ import {
 } from "./use-space-mention-authoring";
 
 const LAST_WAKE_DIAGNOSTIC_STORAGE_KEY = "openmeld.space.last-wake-diagnostic";
+export function resolveQueuedExecutionInput(input: {
+	threadId?: string | null;
+	automaticTargetProfileId?: string | null;
+	profileId: string;
+	timelineItems: readonly SpaceTimelineItem[];
+	centerAgentProfileId?: string | null;
+	members: SpaceMembersSnapshot | null;
+	activationTargets: readonly string[];
+	hasFiles: boolean;
+	replyToSignalId?: string;
+	items: readonly Pick<
+		WakeProgressItem,
+		| "terminal"
+		| "dispatchId"
+		| "clientMessageId"
+		| "targetProfileId"
+		| "sourceContext"
+		| "sourceSignalId"
+	>[];
+}) {
+	const localProfileIds =
+		input.members?.agents
+			.filter((agent) => supportsLocalExecutionInput(agent.agentControllerRef))
+			.map((agent) => agent.profileId) ?? [];
+	if (input.hasFiles) {
+		return undefined;
+	}
+	let targetProfileId: string | null | undefined;
+	if (input.activationTargets.length === 1) {
+		targetProfileId = input.activationTargets[0];
+	} else if (input.activationTargets.length === 0) {
+		targetProfileId =
+			input.automaticTargetProfileId ?? input.centerAgentProfileId;
+		if (
+			!targetProfileId &&
+			localProfileIds.length === 1 &&
+			(input.members?.humans.length === 1 || input.replyToSignalId)
+		) {
+			targetProfileId = localProfileIds[0];
+		}
+	}
+	if (
+		!targetProfileId ||
+		(targetProfileId !== input.centerAgentProfileId &&
+			!localProfileIds.includes(targetProfileId))
+	) {
+		return undefined;
+	}
+	const responses = input.items.filter(
+		(item) =>
+			!item.terminal &&
+			(item.dispatchId || item.clientMessageId) &&
+			item.targetProfileId === targetProfileId &&
+			(!input.replyToSignalId ||
+				item.sourceSignalId === input.replyToSignalId) &&
+			(item.sourceContext?.threadId ?? null) === (input.threadId ?? null) &&
+			(item.sourceContext?.profileId ??
+				input.timelineItems.find((source) => source.id === item.sourceSignalId)
+					?.actorProfileId) === input.profileId
+	);
+	if (responses.length > 1) {
+		return "ambiguous" as const;
+	}
+	const response = responses[0];
+	if (response?.dispatchId) {
+		return {
+			dispatchId: response.dispatchId,
+			targetProfileId: response.targetProfileId,
+		};
+	}
+	if (response?.clientMessageId) {
+		return {
+			clientMessageId: response.clientMessageId,
+			targetProfileId: response.targetProfileId,
+		};
+	}
+	return undefined;
+}
+
 const LAST_DIAGNOSTIC_REPORT_STORAGE_KEY =
 	"openmeld.space.last-diagnostic-report";
 
@@ -115,6 +195,7 @@ export function buildLocalWakeProgressItems(input: {
 }
 
 export function resolveComposerWakeProgressTargetProfileIds(input: {
+	automaticWakeEnabled?: boolean;
 	isThreadMessage?: boolean;
 	explicitActivationTargets: readonly string[];
 	explicitReferenceTargets?: readonly string[];
@@ -133,6 +214,7 @@ export function resolveComposerWakeProgressTargetProfileIds(input: {
 	}
 	if (
 		!isAutomaticWakeSpace({
+			automaticWakeEnabled: input.automaticWakeEnabled,
 			activeMemberCount: input.status.members.totalCount,
 			agentMemberCount: input.status.members.agentCount,
 			humanMemberCount: input.status.members.humanCount,
@@ -899,17 +981,18 @@ export function mergeLiveThreadSignalIntoCache(input: {
 		input.queryClient.getQueryData<ListSpaceThreadSignalsResponse>(
 			threadSignalsKey
 		);
+	const threadSignalsState = input.queryClient.getQueryState(threadSignalsKey);
+	const threadReadInFlight = threadSignalsState?.fetchStatus === "fetching";
 	const introducesAuthor =
 		input.signal.type === "signal.text" &&
 		!input.signal.data.meta?.transient &&
 		!previous?.signals.some(
 			(signal) => signal.profile.profileId === input.signal.profile.profileId
 		);
-	// Live events can populate an unopened Thread with only its newest messages.
-	// Keep that partial snapshot stale until a full server read completes.
+	// Only a history read may initialize this cache. A live event can extend a
+	// known snapshot, but cannot establish that older messages are absent.
 	const needsFullSnapshot =
-		!previous ||
-		input.queryClient.getQueryState(threadSignalsKey)?.isInvalidated;
+		!previous || threadSignalsState?.isInvalidated || threadReadInFlight;
 	const changesWakeSelection =
 		input.signal.type === "signal.text" &&
 		input.signal.profile.kind === "human" &&
@@ -917,14 +1000,16 @@ export function mergeLiveThreadSignalIntoCache(input: {
 		(input.signal.data.messageEnvelope?.activationTargets.length ?? 0) > 0;
 	input.queryClient.setQueryData<ListSpaceThreadSignalsResponse>(
 		threadSignalsKey,
-		(current) => mergeThreadSignalsCache(current, input)
+		(current) => (current ? mergeThreadSignalsCache(current, input) : undefined)
 	);
 	if (introducesAuthor || needsFullSnapshot || changesWakeSelection) {
-		input.queryClient
-			.invalidateQueries({ queryKey: threadSignalsKey })
-			.catch((error) => {
-				console.error("Could not refresh Thread participants.", error);
-			});
+		invalidateThreadSnapshotAfterLiveReply({
+			queryClient: input.queryClient,
+			queryKey: threadSignalsKey,
+			readInFlight: threadReadInFlight,
+		}).catch((error) => {
+			console.error("Could not refresh Thread participants.", error);
+		});
 	}
 
 	const threadsKey = spaceQueryKeys.threads(
@@ -936,24 +1021,61 @@ export function mergeLiveThreadSignalIntoCache(input: {
 		?.threads.some(
 			(thread) => thread.threadId === input.threadContext.threadId
 		);
+	const catalogState = input.queryClient.getQueryState(threadsKey);
+	const catalogReadInFlight = catalogState?.fetchStatus === "fetching";
+	const needsCatalogSnapshot =
+		catalogState?.isInvalidated || catalogReadInFlight;
 	input.queryClient.setQueryData<ListSpaceThreadsResponse>(
 		threadsKey,
 		(current) => mergeThreadPreviewCache(current, input)
 	);
-	if (!knownThread) {
-		input.queryClient
-			.fetchQuery({
-				...spaceThreadsQueryOptions({
-					spaceId: input.spaceId,
-					openMeldProfileId: input.openMeldProfileId,
-					enabled: true,
-				}),
-				staleTime: 0,
+	if (!knownThread || needsCatalogSnapshot) {
+		invalidateThreadSnapshotAfterLiveReply({
+			queryClient: input.queryClient,
+			queryKey: threadsKey,
+			readInFlight: catalogReadInFlight,
+		})
+			.then(async () => {
+				if (!knownThread) {
+					await input.queryClient.fetchQuery({
+						...spaceThreadsQueryOptions({
+							spaceId: input.spaceId,
+							openMeldProfileId: input.openMeldProfileId,
+							enabled: true,
+						}),
+						staleTime: 0,
+					});
+				}
 			})
 			.catch((error) => {
-				console.error("Could not refresh the new Thread.", error);
+				console.error("Could not refresh the Thread catalog.", error);
 			});
 	}
+}
+
+async function invalidateThreadSnapshotAfterLiveReply(input: {
+	queryClient: ReturnType<typeof useQueryClient>;
+	queryKey: QueryKey;
+	readInFlight: boolean;
+}): Promise<void> {
+	if (input.readInFlight) {
+		// Cancellation restores the pre-read state. Restore the live snapshot
+		// immediately so it stays current without exposing a cancellation error
+		// when this query has no active observer to refetch it.
+		const liveSnapshot = input.queryClient.getQueryData(input.queryKey);
+		const cancellation = input.queryClient.cancelQueries({
+			queryKey: input.queryKey,
+			exact: true,
+		});
+		input.queryClient.setQueryData(input.queryKey, liveSnapshot);
+		await cancellation;
+	}
+	// setQueryData clears invalidation. Restore it after merging so active
+	// observers read again and unopened snapshots wait for an authorized read.
+	await input.queryClient.invalidateQueries({
+		queryKey: input.queryKey,
+		exact: true,
+	});
 }
 
 export function mergeThreadSignalsCache(
@@ -1082,13 +1204,6 @@ export function resolveLeaveSpaceErrorMessage(
 export function resolveDeleteSpaceErrorMessage(
 	failure: StructuredApiClientFailure
 ): string {
-	if (failure.code === "space.forbidden") {
-		return "Only the space creator can delete this space.";
-	}
-	if (failure.code === "space.human_confirmation_required") {
-		return "Agent-created spaces must be deleted by their owner.";
-	}
-
 	return failure.message;
 }
 

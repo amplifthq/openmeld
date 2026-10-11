@@ -1,10 +1,14 @@
 import {
+  type CloudComputerCleanupReport,
+  cloudComputerCleanupReportSchema,
   ORGANIZATION_SKILL_RELEASE_UNAVAILABLE_REASON_CODE,
+  REMOTE_AGENT_COMPUTER_CLEANUP_FAILED_CODE,
   REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES,
   REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE,
   remoteAgentRuntimeEvidenceOutcomeReasonCodeSchema,
 } from "@openmeld/schemas";
 import type { RemoteAgentRuntimeEvidenceOutcomeReasonCode } from "@openmeld/schemas/types";
+import { normalizeRemoteAgentCompletedAnswer } from "./completed-answer";
 import {
   isOrganizationSkillReleaseUnavailable,
   isRemoteAgentContextWindowExceeded,
@@ -16,7 +20,21 @@ export type RemoteAgentTerminalFailureFact = {
   code: string;
   detail?: string;
   reasonCode: RemoteAgentRuntimeEvidenceOutcomeReasonCode;
+  explanationText?: string;
+  computerCleanup?: CloudComputerCleanupReport;
 };
+
+export function retainRemoteAgentCleanupFacts(
+  primary: RemoteAgentTerminalFailureFact | null,
+  cleanup: RemoteAgentTerminalFailureFact | null
+): RemoteAgentTerminalFailureFact | null {
+  if (!primary) {
+    return cleanup;
+  }
+  return cleanup?.computerCleanup
+    ? { ...primary, computerCleanup: cleanup.computerCleanup }
+    : primary;
+}
 
 export function createRemoteAgentTerminalFailureFact(input: {
   error?: unknown;
@@ -67,12 +85,37 @@ export function parseRemoteAgentTerminalFailureFact(
   }
   const record = value as Record<string, unknown>;
   const code = parseNormalizedRequiredText(record.code, "code");
+  if (
+    record.explanationText !== undefined &&
+    code !== REMOTE_AGENT_COMPUTER_CLEANUP_FAILED_CODE
+  ) {
+    throw new Error(
+      "Remote Agent failure explanation requires reviewed Computer recovery facts."
+    );
+  }
   const detail =
     record.detail === undefined
       ? undefined
       : parseNormalizedRequiredText(record.detail, "detail");
   return {
     code,
+    ...(record.explanationText === undefined
+      ? {}
+      : {
+          explanationText: normalizeRemoteAgentCompletedAnswer(
+            parseNormalizedRequiredText(
+              record.explanationText,
+              "explanationText"
+            )
+          ),
+        }),
+    ...(record.computerCleanup === undefined
+      ? {}
+      : {
+          computerCleanup: cloudComputerCleanupReportSchema.parse(
+            record.computerCleanup
+          ),
+        }),
     ...(detail ? { detail } : {}),
     reasonCode: remoteAgentRuntimeEvidenceOutcomeReasonCodeSchema.parse(
       record.reasonCode

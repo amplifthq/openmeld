@@ -71,7 +71,9 @@ const REMOTE_AGENT_EXECUTION_INSTRUMENTATION_KEY = Symbol.for(
 );
 const executionSubmissionStorage = new AsyncLocalStorage<string>();
 let instrumentationInstalled = false;
+export type RemoteAgentMessageReadBudget = { remainingBytes: number };
 type PreparedExecutionResources = {
+  messageReadBudget?: RemoteAgentMessageReadBudget;
   beforeModel?: () => Promise<void>;
   deferredToolCount?: number;
   [name: string]: unknown;
@@ -170,6 +172,39 @@ export function getRemoteAgentModelPurpose(): LlmTurnPurpose {
 
 export function getRemoteAgentDeferredToolCount(): number {
   return executionResources.getStore()?.deferredToolCount ?? 0;
+}
+
+/** A per-model-round allocation from the existing provider capacity measurement. */
+export function updateRemoteAgentMessageReadBudget(input: {
+  inputTokenBudget: number;
+  estimatedInputTokens: number;
+}): void {
+  const resources = executionResources.getStore();
+  if (!resources || getRemoteAgentModelPurpose() !== "agent") {
+    return;
+  }
+  // Leave room for the model's tool arguments and subsequent reasoning. The
+  // provider guard and Flue working-context maintenance remain authoritative.
+  resources.messageReadBudget ??= { remainingBytes: 8192 };
+  resources.messageReadBudget.remainingBytes = Math.max(
+    0,
+    Math.min(16_384, input.inputTokenBudget - input.estimatedInputTokens - 4096)
+  );
+}
+
+export function reserveRemoteAgentMessageReadBytes(
+  requested: number,
+  boundBudget?: RemoteAgentMessageReadBudget
+): number {
+  const resources = executionResources.getStore();
+  const budget = boundBudget ?? resources?.messageReadBudget;
+  if (!budget) {
+    return 0;
+  }
+  const granted = Math.min(requested, budget.remainingBytes);
+  // Reserve synchronously before I/O, so concurrent Code Mode calls share it.
+  budget.remainingBytes -= granted;
+  return granted;
 }
 
 export function runWithRemoteAgentSubmissionExecution<T>(

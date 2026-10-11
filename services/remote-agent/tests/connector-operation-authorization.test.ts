@@ -8,6 +8,7 @@ import { getRemoteAgentGitHubToolDefinitions } from "../agent-core/github-tools"
 import { createRemoteAgentCodeModeFlueTool } from "../flue-adapter/code-mode";
 import { executeRemoteAgentToolDefinition } from "../flue-adapter/tool-execution";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
+import capturedGitHubActions from "./fixtures/github-write-action-catalog.json";
 import capturedActions from "./fixtures/openconnector-runtime-actions.json";
 import { InMemoryDurableObjectStorage } from "./storage";
 
@@ -56,7 +57,11 @@ describe("connector replay live authorization", () => {
       if (init?.method === "POST") {
         throw new Error("Unauthorized provider write");
       }
-      return Promise.resolve(Response.json(capturedActions));
+      return Promise.resolve(
+        Response.json(
+          service === "github" ? capturedGitHubActions : capturedActions
+        )
+      );
     });
     const dependencies = {
       connectorExecution: {

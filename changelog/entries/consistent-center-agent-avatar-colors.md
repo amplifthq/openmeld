@@ -4,6 +4,9 @@ title: Consistent Agent avatars in Spaces
 kind: fixed
 areas: ["center-agent", "settings", "spaces"]
 audiences: ["users", "admins"]
+publishedAt: 2026-10-09
+release: v0.3.250
+evidence: ["pr:1610","commit:2de34997f690f3c6bc87c396a2a40e040a96051c","deployment:openmeld-web-prod/105bd493-2203-4b23-bafe-100ed7fd4e76"]
 ---
 
 The Center Agent avatar preview now matches its colors in Spaces. Avatars that

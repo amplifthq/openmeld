@@ -11,8 +11,8 @@ import { ensureSpaceReactionTables } from "./space-reaction-repo";
 import { SpaceTaskDeliveryRepository } from "./space-task-delivery-repo";
 import { ensureSpaceTaskTables } from "./space-task-repo";
 
-export const SPACE_SQL_SCHEMA_VERSION = 51;
-export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v51";
+export const SPACE_SQL_SCHEMA_VERSION = 52;
+export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v52";
 const DIRECT_MESSAGE_SPACE_PURPOSE = "openmeld_dm_space";
 const OPENMELD_DAEMON_OUTBOX_POISON_FAILURE_COUNT_COLUMN =
   "poison_failure_count";
@@ -75,6 +75,7 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
         CHECK (link_join_policy IN ('invite_only', 'access_mode')),
       password_proof_json TEXT NULL,
       archive_cursor_ts INTEGER NULL,
+      deleted_at INTEGER NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )
@@ -82,6 +83,9 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
   ensureSpaceMetaGuideColumn(sql);
   ensureSpaceMetaPurposeColumn(sql);
   ensureSpaceMetaDirectMessageColumn(sql);
+  if (!listTableColumnNames(sql, "space_meta").has("deleted_at")) {
+    sql.exec("ALTER TABLE space_meta ADD COLUMN deleted_at INTEGER NULL");
+  }
   ensureSpaceMetaPasswordProofColumn(sql);
   ensureSpaceMetaAccessModeColumn(sql);
   ensureSpaceMetaLinkJoinPolicyColumn(sql);
@@ -120,6 +124,15 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
     )
   `);
   ensureSpaceSignalsClientMessageIdColumn(sql);
+  sql.exec(
+    "CREATE TABLE IF NOT EXISTS space_signal_sequence (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), position INTEGER NOT NULL)"
+  );
+  sql.exec(
+    "INSERT OR IGNORE INTO space_signal_sequence SELECT 1, COALESCE(MAX(rowid), 0) FROM space_signals"
+  );
+  sql.exec(
+    "UPDATE space_signal_sequence SET position = MAX(position, (SELECT COALESCE(MAX(rowid), 0) FROM space_signals)) WHERE singleton = 1"
+  );
   sql.exec(`
     CREATE TABLE IF NOT EXISTS space_recalled_message_drafts (
       signal_id TEXT PRIMARY KEY,
