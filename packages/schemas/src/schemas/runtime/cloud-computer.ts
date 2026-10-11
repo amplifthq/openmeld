@@ -190,7 +190,10 @@ export const cloudComputerOperationResultSchema = z.union([
     after: z.number().optional(),
     outputPending: z.literal(true).optional(),
     syncPending: z.literal(true).optional(),
-    syncError: z.enum(["ENOENT", "EEXEC_LOST"]).optional(),
+    syncError: z.enum(["ENOENT", "EEXEC_LOST", "ESYNC_READ_ONLY"]).optional(),
+    syncSkipped: z
+      .object({ paths: z.array(z.string()).max(16), truncated: z.boolean() })
+      .optional(),
     outputTruncated: z.literal(true).optional(),
     result: z.json().optional(),
     nextAction: z.string().optional(),
@@ -205,4 +208,67 @@ export const cloudComputerResponseSchema = z.strictObject({
 export const cloudComputerCleanupResultSchema = z.strictObject({
   unfinished: z.number().int().nonnegative(),
   lostDuringCleanup: z.boolean(),
+});
+
+// Read projection of the original command receipts. Model completion and
+// process cleanup are separate facts; this projection cannot start work.
+export const cloudComputerInvocationStateSchema = z.strictObject({
+  invocationId: key,
+  total: z.number().int().nonnegative(),
+  unfinished: z.number().int().nonnegative(),
+  pendingResults: z.number().int().nonnegative(),
+  unavailable: z.number().int().nonnegative(),
+  commands: z
+    .array(
+      z.strictObject({
+        reference: cloudComputerCommandReferenceSchema,
+        phase: cloudComputerCommandPhaseSchema,
+        after: z.number().nonnegative(),
+        exitCode: z.number().nullable(),
+        outputRetained: z.boolean(),
+        filesSynced: z.boolean(),
+        stopRequested: z.boolean(),
+        terminationConfirmed: z.boolean(),
+        resultUnavailable: z.boolean(),
+        collection: cloudComputerCommandCollectionSchema.nullable(),
+      })
+    )
+    .max(32),
+});
+export type CloudComputerInvocationState = zod.infer<
+  typeof cloudComputerInvocationStateSchema
+>;
+export const cloudComputerCleanupReportSchema = z.strictObject({
+  stopAccepted: z.boolean(),
+  automaticRetryPaused: z.boolean(),
+  state: cloudComputerInvocationStateSchema.nullable(),
+});
+export type CloudComputerCleanupReport = zod.infer<
+  typeof cloudComputerCleanupReportSchema
+>;
+
+/** Immutable disclosure scope for receipts, independent of Flue generation. */
+export const cloudComputerRecoveryScopeSchema = z.strictObject({
+  organizationId: key,
+  spaceId: key,
+  agentProfileId: key,
+});
+export const cloudComputerInvocationOwnerSchema =
+  cloudComputerRecoveryScopeSchema.extend({
+    invocationId: key,
+  });
+export type CloudComputerInvocationOwner = zod.infer<
+  typeof cloudComputerInvocationOwnerSchema
+>;
+export const cloudComputerRecoveryQuerySchema =
+  cloudComputerRecoveryScopeSchema.extend({
+    invocationId: key.optional(),
+    cursor: key.optional(),
+  });
+export type CloudComputerRecoveryQuery = zod.infer<
+  typeof cloudComputerRecoveryQuerySchema
+>;
+export const cloudComputerRecoveryResultSchema = z.strictObject({
+  invocations: z.array(cloudComputerInvocationStateSchema).max(32),
+  nextCursor: key.nullable(),
 });

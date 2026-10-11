@@ -3,11 +3,14 @@ import type { WorkspaceClient } from "@cloudflare/computer";
 export const AGENT_COMPUTER_BINDING = "AGENT_COMPUTER";
 export const AGENT_COMPUTER_SHELL_BACKEND_ID = "worker-shell";
 export const AGENT_COMPUTER_CONTAINER_BACKEND_ID = "container";
+export const AGENT_COMPUTER_STORAGE_CAPACITY_BYTES = 4 * 1024 ** 3;
+export const AGENT_COMPUTER_STORAGE_RESERVE_BYTES = 64 * 1024 ** 2;
 
 /** Root layout of the computer. Prompt conventions reference these. */
 export const AGENT_COMPUTER_ROOT = "/computer";
 export const AGENT_COMPUTER_CONTAINER_ENV = {
   MOUNT_POINT: AGENT_COMPUTER_ROOT,
+  COMPUTERD_DB: "/var/lib/computerd/workspace.sqlite",
   // A completed sync must be visible to the next Linux command, including
   // equal-mtime/size changes. Keep per-open page caching and 512 KiB blocks.
   COMPUTERD_FUSE_ATTR_TIMEOUT: "0",

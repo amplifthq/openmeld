@@ -1402,7 +1402,7 @@ describe("remote agent OpenMeld tool catalog", () => {
         revision: 1,
         spaceId: SPACE_ID,
       })
-    ).rejects.toThrow("auxiliary unavailable");
+    ).rejects.toThrow("Image understanding request failed for x-ai/grok-4.6.");
     streamSpaceFileContent.mockResolvedValueOnce({
       bytes: new ReadableStream<Uint8Array>(),
       file,
@@ -7130,6 +7130,28 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       },
       input: { limit: 25, spaceId: SPACE_ID },
       response: readSpaceContextResponse(),
+      rpcName: "centerAgentReadSpaceContext",
+      toolName: "openmeld_read_space_context",
+    },
+    {
+      expectedPayload: {
+        beforeSignalId: "signal-first-on-previous-page",
+        limit: 100,
+        requestedAddressingModel: "wake_reference_mention",
+        scope: "history",
+        spaceId: SPACE_ID,
+      },
+      input: {
+        beforeSignalId: "signal-first-on-previous-page",
+        limit: 100,
+        scope: "history",
+        spaceId: SPACE_ID,
+      },
+      response: {
+        organizationId: "org_123",
+        spaceId: SPACE_ID,
+        context: { scope: "history", signals: [], truncated: false },
+      },
       rpcName: "centerAgentReadSpaceContext",
       toolName: "openmeld_read_space_context",
     },

@@ -15237,6 +15237,9 @@ export async function rpcCenterAgentReadSpaceContext(
     env,
   });
   const parsed = centerAgentReadSpaceContextBodySchema.safeParse({
+    ...(input.beforeSignalId === undefined
+      ? {}
+      : { beforeSignalId: input.beforeSignalId }),
     ...(input.version === undefined ? {} : { version: input.version }),
     ...(input.offset === undefined ? {} : { offset: input.offset }),
     ...(input.afterSignalId === undefined
@@ -15759,15 +15762,23 @@ async function readCenterAgentProgressiveSpaceContext(input: {
   }
   const page = await rpcListSignals(input.env, {
     context: input.context,
-    limit: limit + 1,
-    recent: true,
+    ...(input.input.beforeSignalId
+      ? {
+          aroundSignalId: input.input.beforeSignalId,
+          beforeCount: limit + 1,
+          afterCount: 0,
+        }
+      : { limit: limit + 1, recent: true }),
     signalTypes: ["signal.text", "signal.status", "signal.system_notice"],
     spaceId: input.input.spaceId,
   });
+  const signals = page.signals.filter(
+    (signal) => signal.id !== input.input.beforeSignalId
+  );
   return {
     scope: "history",
-    signals: page.signals.slice(-limit),
-    truncated: page.signals.length > limit,
+    signals: signals.slice(-limit),
+    truncated: signals.length > limit,
   };
 }
 function requireCenterAgentContextAnchor(

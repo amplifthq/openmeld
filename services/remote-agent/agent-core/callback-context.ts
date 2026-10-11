@@ -222,6 +222,8 @@ export function computeCallbackRetryDelayMs(attempts: number): number {
 export type RemoteAgentFailureFact = {
   code: string;
   detail?: string;
+  explanationText?: string;
+  computerCleanup?: import("@openmeld/schemas").CloudComputerCleanupReport;
   occurredAt: string;
   retryable: boolean;
 };
@@ -729,6 +731,8 @@ export type RemoteAgentAssistantCompletionResult = {
   error?: unknown;
   failureCode?: string;
   failureDetail?: string;
+  explanationText?: string;
+  computerCleanup?: import("@openmeld/schemas").CloudComputerCleanupReport;
   failureReasonCode?: RemoteAgentRuntimeEvidenceOutcomeReasonCode;
   message: {
     parts: Record<string, unknown>[];
@@ -1108,7 +1112,7 @@ export async function listRemoteAgentCallbackContexts(
 }
 
 export async function readRemoteAgentCallbackContext(
-  storage: RemoteAgentReadableStorage,
+  storage: Pick<RemoteAgentReadableStorage, "get">,
   submissionId: string
 ): Promise<RemoteAgentCallbackContext | null> {
   const context = await storage.get<RemoteAgentCallbackContext>(
@@ -1446,6 +1450,18 @@ export function buildRemoteAgentCoreFailureCallbackBody(input: {
     callbackAttempt: input.context.callbackAttempts + 1,
     dispatchId: input.context.dispatchId,
     failureCode: input.failure.code,
+    ...(input.failure.explanationText
+      ? { explanationText: input.failure.explanationText }
+      : {}),
+    ...(input.failure.computerCleanup
+      ? { computerCleanup: input.failure.computerCleanup }
+      : {}),
+    ...(input.context.outputFiles?.length
+      ? { files: input.context.outputFiles }
+      : {}),
+    ...(input.context.outputAttachments?.length
+      ? { attachments: input.context.outputAttachments }
+      : {}),
     ...(input.failure.detail ? { failureDetail: input.failure.detail } : {}),
     failureMessage: resolveRemoteAgentFailureMessage(input.failure.code),
     idempotencyKey: input.context.idempotencyKey,
@@ -1540,14 +1556,28 @@ export function recordTerminalTurnFailure(input: {
   code: string;
   context: RemoteAgentCallbackContext;
   detail?: string;
+  explanationText?: string;
+  computerCleanup?: import("@openmeld/schemas").CloudComputerCleanupReport;
   nowMs: number;
 }): RemoteAgentCallbackContext {
-  const failureFact = createRemoteAgentFailureFact({
-    code: input.code,
-    detail: input.detail,
-    nowMs: input.nowMs,
-    retryable: false,
-  });
+  const failureFact = {
+    ...createRemoteAgentFailureFact({
+      code: input.code,
+      detail: input.detail,
+      nowMs: input.nowMs,
+      retryable: false,
+    }),
+    ...(input.explanationText
+      ? {
+          explanationText: normalizeRemoteAgentCompletedAnswer(
+            input.explanationText
+          ),
+        }
+      : {}),
+    ...(input.computerCleanup
+      ? { computerCleanup: input.computerCleanup }
+      : {}),
+  };
   const {
     callbackCompletedAt: _callbackCompletedAt,
     callbackNextAttemptAt: _callbackNextAttemptAt,
@@ -1804,6 +1834,8 @@ async function recordAndDeliverRemoteAgentTerminalFailure(input: {
       }
       return recordTerminalTurnFailure({
         code: input.code,
+        explanationText: input.result.explanationText,
+        computerCleanup: input.result.computerCleanup,
         context: {
           ...current,
           lastUsage: input.result.usage ?? current.lastUsage,

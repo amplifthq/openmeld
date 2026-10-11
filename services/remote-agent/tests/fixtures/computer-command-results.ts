@@ -132,6 +132,23 @@ export async function verifyDurableCommandResults(
                   ),
               },
               sync: {
+                watermarks: () =>
+                  exited && pullFails
+                    ? Promise.reject(
+                        new Error("injected settled source failure")
+                      )
+                    : Promise.resolve({
+                        currentRev: 0,
+                        pushRev: 0,
+                        fetchCursor: { rev: 0, path: null },
+                      }),
+                prepareChanges: () => {
+                  if (pullFails) {
+                    return Promise.reject(new Error("injected pull failure"));
+                  }
+                  return Promise.resolve({ ready: true, reads: 0 });
+                },
+                discardChanges: async () => true,
                 fetchChanges: async () => {
                   await Promise.resolve();
                   if (pullFails) {
@@ -139,6 +156,8 @@ export async function verifyDurableCommandResults(
                   }
                   return Promise.resolve({
                     currentCursor: { rev: 0, path: null },
+                    blockCursor: { rev: 0, path: null },
+                    drained: true,
                     appliedPushCursor: { rev: 0, path: null },
                     stream: new ReadableStream({
                       start(controller) {
@@ -194,10 +213,13 @@ export async function verifyDurableCommandResults(
     pullFails = syncOutcome !== "complete";
     expired = syncOutcome !== "complete";
     // No model poll: collection must retain the terminal result itself.
-    await collectDueComputerCommands({
-      storage: new ComputerCommandSqlStorage(sql),
-      workspaceAccess,
-    });
+    // Each collection resumes one bounded page, including the cleanup page.
+    for (let step = 0; step < 4; step++) {
+      await collectDueComputerCommands({
+        storage: new ComputerCommandSqlStorage(sql),
+        workspaceAccess,
+      });
+    }
     expired = true;
     const recovered = await tool().execute({
       action: "poll",

@@ -39,15 +39,7 @@ minimumReleaseAgeExclude:
   - miniflare
 
 overrides:
-  # Force every @modelcontextprotocol/sdk instance onto the workspace's zod
-  # catalog version. Without this, pnpm can resolve a second, older zod for
-  # the SDK's own peer dependency (e.g. pulled in transitively through
-  # @anthropic-ai/claude-agent-sdk) while callers like the CLI's dispatch MCP
-  # server build tool schemas with the catalog zod. Two zod instances make
-  # every zod-schema `instanceof` check the SDK does at runtime fail, which
-  # surfaces as `McpError: MCP error -32603: Cannot read properties of
-  # undefined (reading 'push')` on the very first tool call.
-  '@modelcontextprotocol/sdk>zod': 'catalog:'
+  '@cloudflare/computer>capnweb': 0.12.0
   '@aws-sdk/core': 3.974.28
   '@aws-sdk/credential-provider-env': 3.972.54
   '@aws-sdk/credential-provider-http': 3.972.56
@@ -60,6 +52,7 @@ overrides:
   '@aws-sdk/middleware-websocket': 3.972.36
   '@aws-sdk/nested-clients': 3.997.28
   '@aws-sdk/token-providers': 3.1080.0
+  '@modelcontextprotocol/sdk>zod': 'catalog:'
   rolldown: 1.1.4
   wrangler: 'catalog:'
 
@@ -69,8 +62,9 @@ packageExtensions:
       es-toolkit: 1.46.0
 
 patchedDependencies:
+  capnweb@0.12.0: services/remote-agent/computerd/capnweb-0.12.0.patch
   '@better-auth/electron@1.6.30': patches/@better-auth__electron@1.6.30.patch
-  '@cloudflare/computer@0.4.1': patches/@cloudflare__computer@0.4.1.patch
+  '@cloudflare/computer@0.5.0': patches/@cloudflare__computer@0.5.0.patch
   '@flue/runtime@2.2.2': patches/@flue__runtime@2.2.2.patch
   '@tailwindcss/vite@4.2.1': patches/@tailwindcss__vite.patch
   '@tanstack/history@1.162.1': patches/@tanstack__history@1.162.1.patch

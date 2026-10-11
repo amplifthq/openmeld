@@ -76,13 +76,20 @@ these same operations and observations rather than add another status writer.
 
 Persistent capacity is a read projection sampled from that Computer's own
 `ctx.storage.sql.databaseSize`. It includes SDK files and internal records.
-The optional shared `capabilities.storage` contract reports the provider limit,
+The optional shared `capabilities.storage` contract reports the enforced application limit,
 conservative growth headroom and observation time; it is not a second quota
 ledger or a Linux filesystem measurement. Near-limit guidance is advisory and
 does not block reads, selected deletes, or command inspection. The Agent explains
 the warning when it checks capacity; there is no background notification promise.
 Do not read or mutate SDK-private blob tables to reclaim storage. Deleting a
 visible file is not evidence that the SDK has reclaimed retained content.
+The SDK owns admission and bounded content reclamation. Canonical and native
+storage use a 4 GiB budget with 64 MiB maintenance headroom; the projection reports
+the content admission ceiling. Native SQLite also enforces a hard page limit.
+The projection does not authorize collection: live references, active reads and
+durable transfer generations determine content retention. Namespace creation
+reserves deletion metadata before accepting new paths. Legacy preparation keeps
+reads available and refuses new mutations until its resumable pass completes.
 
 Worker-shell returns only after execution and provides no retained lookup. Its
 terminal output is kept with the Computer's existing command receipt. Atomic
@@ -2689,17 +2696,22 @@ unsettled and preserve retry or outcome-unknown evidence instead of claiming a
 terminal visible result.
 
 Inside the Remote Agent Durable Object, one private durable execution record
-atomically owns successful terminal state and its bounded final answer. The
-shared execution query remains a status projection and does not expose reply
-text. Callback context receives the same answer as a recoverable delivery
+atomically owns terminal state and its bounded final answer or reviewed failure
+explanation. The shared execution query includes a typed terminal result with
+its actual completed/failed/aborted status, optional explanation, cleanup facts
+and existing artifact references. It preserves exact execution and callback
+authority; a failed explanation is never a completed answer. Callback context
+receives the same result as a recoverable delivery
 projection; an instance restart may repopulate it from the execution record and
-retry the ordinary Core callback. Partial stream text, failed execution,
-cancellation, and observability records cannot become this answer authority.
+retry the ordinary Core callback. Partial stream text, failed drafts,
+cancellation, and observability records cannot become a successful answer.
 That same execution record retains a requested failure while runtime settlement
-or Computer cleanup is pending. This fences new work without claiming terminal
-execution; progress updates preserve it and Stop remains available. Both the
-observer and recovery reconciler require settled runtime and confirmed command
-cleanup before terminal publication. Cancellation takes precedence over the
+is pending. This fences new work without claiming terminal execution; progress
+updates preserve it and Stop remains available. Computer cleanup errors do not
+write that irreversible safety failure. Both the observer and recovery
+reconciler require settled runtime and a durable Stop delivery obligation before
+terminal publication. The original Computer remains the process/collection
+owner after the model result is delivered. Cancellation takes precedence over the
 requested failure, and successful-looking assistant text cannot erase it.
 Every observer and reconciliation path derives its callback from the terminal
 compare-and-set winner. A stale or conflicting callback-context answer is

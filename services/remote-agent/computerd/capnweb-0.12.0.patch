@@ -1,0 +1,180 @@
+--- a/dist/index-bun.cjs
++++ b/dist/index-bun.cjs
+@@ -2977,7 +2977,7 @@
+ 		this.deliveredTime = ackTime;
+ 		this.bytesInFlight -= token.size;
+ 		let rtt = ackTime - token.sentTime;
+-		this.minRtt = Math.min(this.minRtt, rtt);
++		if (rtt > 0 && Number.isFinite(rtt)) this.minRtt = Math.min(this.minRtt, rtt);
+ 		if (this.firstAckTime === 0) {
+ 			this.firstAckTime = ackTime;
+ 			this.firstAckDelivered = this.delivered;
+@@ -2992,6 +2992,11 @@
+ 				baseDelivered = token.deliveredAtSend;
+ 			}
+ 			let interval = ackTime - baseTime;
++			// A zero-duration clock sample cannot estimate bandwidth. ACK
++			// accounting still releases capacity under the existing finite window.
++			if (!(interval > 0) || !Number.isFinite(interval) || !Number.isFinite(this.minRtt)) {
++				return this.bytesInFlight < this.window;
++			}
+ 			let bandwidth = (this.delivered - baseDelivered) / interval;
+ 			let growthFactor = this.inStartupPhase ? STARTUP_GROWTH_FACTOR : STEADY_GROWTH_FACTOR;
+ 			let newWindow = bandwidth * this.minRtt * growthFactor;
+@@ -3321,4 +3326,4 @@
+ exports.newWorkersWebSocketRpcResponse = newWorkersWebSocketRpcResponse;
+ exports.nodeHttpBatchRpcResponse = nodeHttpBatchRpcResponse;
+ exports.serialize = serialize;
+-//# sourceMappingURL=index-bun.cjs.map
+\ No newline at end of file
++//# sourceMappingURL=index-bun.cjs.map
+--- a/dist/index-bun.js
++++ b/dist/index-bun.js
+@@ -2975,7 +2975,7 @@
+ 		this.deliveredTime = ackTime;
+ 		this.bytesInFlight -= token.size;
+ 		let rtt = ackTime - token.sentTime;
+-		this.minRtt = Math.min(this.minRtt, rtt);
++		if (rtt > 0 && Number.isFinite(rtt)) this.minRtt = Math.min(this.minRtt, rtt);
+ 		if (this.firstAckTime === 0) {
+ 			this.firstAckTime = ackTime;
+ 			this.firstAckDelivered = this.delivered;
+@@ -2990,6 +2990,11 @@
+ 				baseDelivered = token.deliveredAtSend;
+ 			}
+ 			let interval = ackTime - baseTime;
++			// A zero-duration clock sample cannot estimate bandwidth. ACK
++			// accounting still releases capacity under the existing finite window.
++			if (!(interval > 0) || !Number.isFinite(interval) || !Number.isFinite(this.minRtt)) {
++				return this.bytesInFlight < this.window;
++			}
+ 			let bandwidth = (this.delivered - baseDelivered) / interval;
+ 			let growthFactor = this.inStartupPhase ? STARTUP_GROWTH_FACTOR : STEADY_GROWTH_FACTOR;
+ 			let newWindow = bandwidth * this.minRtt * growthFactor;
+@@ -3301,4 +3306,4 @@
+ 
+ //#endregion
+ export { BunWebSocketTransport, DEFAULT_LIMITS, DEFAULT_MAX_DEPTH, RpcPromise, RpcSession, RpcStub, RpcTarget, WebSocketTransport, deserialize, newBunWebSocketRpcHandler, newBunWebSocketRpcSession, newHttpBatchRpcResponse, newHttpBatchRpcSession, newMessagePortRpcSession, newWebSocketRpcSession, newWorkersRpcResponse, newWorkersWebSocketRpcResponse, nodeHttpBatchRpcResponse, serialize };
+-//# sourceMappingURL=index-bun.js.map
+\ No newline at end of file
++//# sourceMappingURL=index-bun.js.map
+--- a/dist/index-workers.cjs
++++ b/dist/index-workers.cjs
+@@ -3010,7 +3010,7 @@
+ 		this.deliveredTime = ackTime;
+ 		this.bytesInFlight -= token.size;
+ 		let rtt = ackTime - token.sentTime;
+-		this.minRtt = Math.min(this.minRtt, rtt);
++		if (rtt > 0 && Number.isFinite(rtt)) this.minRtt = Math.min(this.minRtt, rtt);
+ 		if (this.firstAckTime === 0) {
+ 			this.firstAckTime = ackTime;
+ 			this.firstAckDelivered = this.delivered;
+@@ -3025,6 +3025,11 @@
+ 				baseDelivered = token.deliveredAtSend;
+ 			}
+ 			let interval = ackTime - baseTime;
++			// A zero-duration clock sample cannot estimate bandwidth. ACK
++			// accounting still releases capacity under the existing finite window.
++			if (!(interval > 0) || !Number.isFinite(interval) || !Number.isFinite(this.minRtt)) {
++				return this.bytesInFlight < this.window;
++			}
+ 			let bandwidth = (this.delivered - baseDelivered) / interval;
+ 			let growthFactor = this.inStartupPhase ? STARTUP_GROWTH_FACTOR : STEADY_GROWTH_FACTOR;
+ 			let newWindow = bandwidth * this.minRtt * growthFactor;
+@@ -3235,4 +3240,4 @@
+ exports.newWorkersWebSocketRpcResponse = newWorkersWebSocketRpcResponse;
+ exports.nodeHttpBatchRpcResponse = nodeHttpBatchRpcResponse;
+ exports.serialize = serialize;
+-//# sourceMappingURL=index-workers.cjs.map
+\ No newline at end of file
++//# sourceMappingURL=index-workers.cjs.map
+--- a/dist/index-workers.js
++++ b/dist/index-workers.js
+@@ -2981,7 +2981,7 @@
+ 		this.deliveredTime = ackTime;
+ 		this.bytesInFlight -= token.size;
+ 		let rtt = ackTime - token.sentTime;
+-		this.minRtt = Math.min(this.minRtt, rtt);
++		if (rtt > 0 && Number.isFinite(rtt)) this.minRtt = Math.min(this.minRtt, rtt);
+ 		if (this.firstAckTime === 0) {
+ 			this.firstAckTime = ackTime;
+ 			this.firstAckDelivered = this.delivered;
+@@ -2996,6 +2996,11 @@
+ 				baseDelivered = token.deliveredAtSend;
+ 			}
+ 			let interval = ackTime - baseTime;
++			// A zero-duration clock sample cannot estimate bandwidth. ACK
++			// accounting still releases capacity under the existing finite window.
++			if (!(interval > 0) || !Number.isFinite(interval) || !Number.isFinite(this.minRtt)) {
++				return this.bytesInFlight < this.window;
++			}
+ 			let bandwidth = (this.delivered - baseDelivered) / interval;
+ 			let growthFactor = this.inStartupPhase ? STARTUP_GROWTH_FACTOR : STEADY_GROWTH_FACTOR;
+ 			let newWindow = bandwidth * this.minRtt * growthFactor;
+@@ -3191,4 +3196,4 @@
+ 
+ //#endregion
+ export { DEFAULT_LIMITS, DEFAULT_MAX_DEPTH, RpcPromise, RpcSession, RpcStub, RpcTarget, WebSocketTransport, deserialize, newHttpBatchRpcResponse, newHttpBatchRpcSession, newMessagePortRpcSession, newWebSocketRpcSession, newWorkersRpcResponse, newWorkersWebSocketRpcResponse, nodeHttpBatchRpcResponse, serialize };
+-//# sourceMappingURL=index-workers.js.map
+\ No newline at end of file
++//# sourceMappingURL=index-workers.js.map
+--- a/dist/index.cjs
++++ b/dist/index.cjs
+@@ -2977,7 +2977,7 @@
+ 		this.deliveredTime = ackTime;
+ 		this.bytesInFlight -= token.size;
+ 		let rtt = ackTime - token.sentTime;
+-		this.minRtt = Math.min(this.minRtt, rtt);
++		if (rtt > 0 && Number.isFinite(rtt)) this.minRtt = Math.min(this.minRtt, rtt);
+ 		if (this.firstAckTime === 0) {
+ 			this.firstAckTime = ackTime;
+ 			this.firstAckDelivered = this.delivered;
+@@ -2992,6 +2992,11 @@
+ 				baseDelivered = token.deliveredAtSend;
+ 			}
+ 			let interval = ackTime - baseTime;
++			// A zero-duration clock sample cannot estimate bandwidth. ACK
++			// accounting still releases capacity under the existing finite window.
++			if (!(interval > 0) || !Number.isFinite(interval) || !Number.isFinite(this.minRtt)) {
++				return this.bytesInFlight < this.window;
++			}
+ 			let bandwidth = (this.delivered - baseDelivered) / interval;
+ 			let growthFactor = this.inStartupPhase ? STARTUP_GROWTH_FACTOR : STEADY_GROWTH_FACTOR;
+ 			let newWindow = bandwidth * this.minRtt * growthFactor;
+@@ -3202,4 +3207,4 @@
+ exports.newWorkersWebSocketRpcResponse = newWorkersWebSocketRpcResponse;
+ exports.nodeHttpBatchRpcResponse = nodeHttpBatchRpcResponse;
+ exports.serialize = serialize;
+-//# sourceMappingURL=index.cjs.map
+\ No newline at end of file
++//# sourceMappingURL=index.cjs.map
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -2975,7 +2975,7 @@
+ 		this.deliveredTime = ackTime;
+ 		this.bytesInFlight -= token.size;
+ 		let rtt = ackTime - token.sentTime;
+-		this.minRtt = Math.min(this.minRtt, rtt);
++		if (rtt > 0 && Number.isFinite(rtt)) this.minRtt = Math.min(this.minRtt, rtt);
+ 		if (this.firstAckTime === 0) {
+ 			this.firstAckTime = ackTime;
+ 			this.firstAckDelivered = this.delivered;
+@@ -2990,6 +2990,11 @@
+ 				baseDelivered = token.deliveredAtSend;
+ 			}
+ 			let interval = ackTime - baseTime;
++			// A zero-duration clock sample cannot estimate bandwidth. ACK
++			// accounting still releases capacity under the existing finite window.
++			if (!(interval > 0) || !Number.isFinite(interval) || !Number.isFinite(this.minRtt)) {
++				return this.bytesInFlight < this.window;
++			}
+ 			let bandwidth = (this.delivered - baseDelivered) / interval;
+ 			let growthFactor = this.inStartupPhase ? STARTUP_GROWTH_FACTOR : STEADY_GROWTH_FACTOR;
+ 			let newWindow = bandwidth * this.minRtt * growthFactor;
+@@ -3185,4 +3190,4 @@
+ 
+ //#endregion
+ export { DEFAULT_LIMITS, DEFAULT_MAX_DEPTH, RpcPromise, RpcSession, RpcStub, RpcTarget, WebSocketTransport, deserialize, newHttpBatchRpcResponse, newHttpBatchRpcSession, newMessagePortRpcSession, newWebSocketRpcSession, newWorkersRpcResponse, newWorkersWebSocketRpcResponse, nodeHttpBatchRpcResponse, serialize };
+-//# sourceMappingURL=index.js.map
+\ No newline at end of file
++//# sourceMappingURL=index.js.map

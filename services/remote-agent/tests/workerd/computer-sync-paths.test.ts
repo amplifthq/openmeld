@@ -43,6 +43,13 @@ it("commits ordered file metadata and source progress together under actual work
           disposeExec: unexpected,
         },
         sync: {
+          retentionHead: async () => ({
+            epoch: "paths-peer",
+            generation: null,
+          }),
+          beginRetention: () => Promise.resolve(),
+          prepareChanges: () => Promise.resolve({ ready: true, reads: 0 }),
+          discardChanges: () => Promise.resolve(true),
           watermarks: async () => ({
             currentRev: sourceRevision,
             pushRev: 0,
@@ -50,6 +57,8 @@ it("commits ordered file metadata and source progress together under actual work
           }),
           fetchChanges: async () => ({
             currentCursor: { rev: sourceRevision, path: null },
+            blockCursor: { rev: sourceRevision, path: null },
+            drained: true,
             appliedPushCursor: { rev: 0, path: null },
             stream: new ReadableStream({
               start(controller) {
@@ -82,7 +91,7 @@ it("commits ordered file metadata and source progress together under actual work
             type: "typed-sync-peer",
             connect: async () => ({
               rpc,
-              sync: "remote",
+              sync: "remote" as const,
               close: async () => undefined,
             }),
           },
@@ -166,6 +175,12 @@ it("preserves aliases, tombstones and same-revision paths across restart and lat
           disposeExec: unexpected,
         },
         sync: {
+          retentionHead: async () => ({
+            epoch: "paths-peer",
+            generation: null,
+          }),
+          beginRetention: () => Promise.resolve(),
+          discardChanges: () => Promise.resolve(true),
           watermarks: async () => ({
             currentRev: 0,
             pushRev: 0,
@@ -239,7 +254,7 @@ it("preserves aliases, tombstones and same-revision paths across restart and lat
               type: "typed-sync-probe",
               connect: async () => ({
                 rpc,
-                sync: "remote",
+                sync: "remote" as const,
                 close: async () => undefined,
               }),
             },

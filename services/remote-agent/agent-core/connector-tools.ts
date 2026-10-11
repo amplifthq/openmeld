@@ -1159,6 +1159,7 @@ function toModelVisibleAction(action: OpenConnectorRuntimeAction) {
 // Identity/permission resolution stays with the caller; every connector uses
 // the same executable runtime catalog, schemas, filtering, and pagination.
 export async function listConnectorActionCatalog(input: {
+  connectionName?: string;
   connectorExecution?: ConnectorExecutionConfig;
   limit?: number;
   offset?: number;

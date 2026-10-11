@@ -792,6 +792,7 @@ const centerAgentSpaceContextAnchorByScope = {
 export const centerAgentReadSpaceContextBodySchema = z
   .strictObject({
     afterSignalId: trimmedNonEmptyStringSchema.optional(),
+    beforeSignalId: trimmedNonEmptyStringSchema.optional(),
     limit: z.number().int().min(1).max(100).optional(),
     requestedAddressingModel: z.literal("wake_reference_mention").optional(),
     scope: centerAgentSpaceContextScopeSchema.optional(),
@@ -802,6 +803,13 @@ export const centerAgentReadSpaceContextBodySchema = z
     offset: z.int().nonnegative().max(1_000_000).optional(),
   })
   .superRefine((value, context) => {
+    if (value.beforeSignalId && value.scope !== "history") {
+      context.addIssue({
+        code: "custom",
+        message: "beforeSignalId is valid only for history context.",
+        path: ["beforeSignalId"],
+      });
+    }
     const exact =
       value.scope === "source_evidence" || value.scope === "thread_evidence";
     if (
