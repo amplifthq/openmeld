@@ -564,9 +564,11 @@ function buildContinuationText(
   approvedAction?: { requestId: string; intent: PluginActionRequestIntent }
 ) {
   return [
-    `Continue the remaining work from my request (${input.triggerMessageId}).`,
     approvedAction
-      ? `I approved Plugin request ${approvedAction.requestId}. Continue its exact action using operation ID ${approvedAction.intent.operationId} and the original unchanged input. Recheck the approval before execution.`
+      ? "Continue my original request."
+      : `Continue the remaining work from my request (${input.triggerMessageId}).`,
+    approvedAction
+      ? `I approved this action. Use the same account and unchanged input. Reuse operation ID ${approvedAction.intent.operationId} and recheck the approval before execution.`
       : `I have reviewed ${input.service} access using ${input.scope === "member" ? "my account" : "the organization connection"}. Recheck the permissions required by the task.`,
     "Use the existing conversation and previous results. Do not restart the task or repeat completed operations. Reuse the original operation ID for an exact retry; stop if its outcome is unknown.",
     ...(receipts.length

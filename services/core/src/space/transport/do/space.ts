@@ -9539,16 +9539,21 @@ export class Space extends DurableObject<CoreBindings> {
       );
       return;
     }
+    if (
+      delivery.kind === "handoff" &&
+      !delivery.actor &&
+      delivery.receipt.event.type === "result_submitted"
+    ) {
+      // A provider observation can request review, but cannot authorize a Wake.
+      await this.publishTaskHandoffAfterMutation(delivery);
+      return;
+    }
     const context = await this.resolveSpaceTaskDeliveryActor(delivery);
     if (delivery.kind === "stop") {
       await this.deliverSpaceTaskStop(delivery, context);
       return;
     }
-    await this.publishTaskHandoffAfterMutation(
-      delivery.receipt,
-      delivery.sourceDispatchChainContext,
-      delivery.id
-    );
+    await this.publishTaskHandoffAfterMutation(delivery);
   }
   private async deliverSpaceTaskStop(
     delivery: SpaceTaskDelivery,
@@ -9746,23 +9751,27 @@ export class Space extends DurableObject<CoreBindings> {
     return true;
   }
   private async publishTaskHandoffAfterMutation(
-    receipt: SpaceTaskMutationReceipt,
-    sourceDispatchChainContext?: SourceDispatchChainContext,
-    deliveryId?: string
+    delivery: SpaceTaskDelivery
   ): Promise<void> {
+    const {
+      receipt,
+      actor,
+      sourceDispatchChainContext,
+      id: deliveryId,
+    } = delivery;
     if (
       receipt.event.type === "result_submitted" &&
       receipt.task.phase === "in_review" &&
       receipt.task.reviewer
     ) {
       await this.publishSpaceTaskDirectedNotice({
-        actor: receipt.event.actor,
+        actor,
         eventId: receipt.event.eventId,
         sourceDispatchChainContext,
         deliveryId,
         task: receipt.task,
         target: receipt.task.reviewer,
-        text: `Task ready for review: ${receipt.task.title}\n\n${receipt.task.result?.summary ?? "A result was submitted."}`,
+        text: `Task ready for review: ${receipt.task.title}\n\n${receipt.task.result?.summary ?? "A result was submitted."}${!actor && receipt.task.reviewer.profileKind === "agent" ? `\n\nWake ${receipt.task.reviewer.profileName} to start the review.` : ""}`,
       });
       return;
     }
@@ -9774,7 +9783,7 @@ export class Space extends DurableObject<CoreBindings> {
     }
     if (receipt.task.phase === "in_progress" && receipt.task.assignee) {
       await this.publishSpaceTaskDirectedNotice({
-        actor: receipt.event.actor,
+        actor,
         eventId: receipt.event.eventId,
         sourceDispatchChainContext,
         deliveryId,
@@ -9785,7 +9794,7 @@ export class Space extends DurableObject<CoreBindings> {
       return;
     }
     await this.publishSpaceTaskDirectedNotice({
-      actor: receipt.event.actor,
+      actor,
       eventId: receipt.event.eventId,
       sourceDispatchChainContext,
       deliveryId,
@@ -9813,7 +9822,7 @@ export class Space extends DurableObject<CoreBindings> {
     );
   }
   private async publishSpaceTaskDirectedNotice(input: {
-    actor: SpaceTaskActor;
+    actor: SpaceTaskActor | null;
     eventId: string;
     deliveryId?: string;
     sourceDispatchChainContext?: SourceDispatchChainContext;
@@ -9834,7 +9843,10 @@ export class Space extends DurableObject<CoreBindings> {
           profileName: sourceSignal.profile.profileName,
         })
       : null;
-    const relation = input.target?.profileKind === "agent" ? "wake" : "mention";
+    const agentRelation = input.actor ? "wake" : "reference";
+    const relation =
+      input.target?.profileKind === "agent" ? agentRelation : "mention";
+    const targetIds = input.target ? [input.target.profileId] : [];
     const targetLiteral = input.target
       ? formatCanonicalMentionLiteral({
           name:
@@ -9850,24 +9862,24 @@ export class Space extends DurableObject<CoreBindings> {
       : null;
     const signal = {
       ...this.buildTextSignal(
-        {
-          kind: input.actor.profileKind,
-          profileId: input.actor.profileId,
-          profileName: input.actor.profileName,
-        },
+        input.actor
+          ? {
+              kind: input.actor.profileKind,
+              profileId: input.actor.profileId,
+              profileName: input.actor.profileName,
+            }
+          : {
+              kind: "system",
+              profileId: DISPATCH_HINT_SYSTEM_PROFILE_ID,
+              profileName: DISPATCH_HINT_SYSTEM_PROFILE_NAME,
+            },
         text,
         {
           ...(replyTo ? { replyTo } : {}),
           messageEnvelope: {
-            activationTargets:
-              input.target?.profileKind === "agent"
-                ? [input.target.profileId]
-                : [],
-            mentionTargets:
-              input.target?.profileKind === "human"
-                ? [input.target.profileId]
-                : [],
-            referenceTargets: [],
+            activationTargets: relation === "wake" ? targetIds : [],
+            mentionTargets: relation === "mention" ? targetIds : [],
+            referenceTargets: relation === "reference" ? targetIds : [],
             ...(input.task.sourceSignalId
               ? { replyToSignalId: input.task.sourceSignalId }
               : {}),
@@ -9884,27 +9896,17 @@ export class Space extends DurableObject<CoreBindings> {
       id: `space-task-handoff:${input.eventId}`,
     };
     const threadContext = thread ? toSpaceThreadContext(thread) : null;
-    try {
-      await this.publishTextSignal(signal, {
-        spaceTaskDeliveryId: input.deliveryId,
-        authoringPolicy: "system_emitted",
-        ...(input.sourceDispatchChainContext
-          ? { sourceDispatchChainContext: input.sourceDispatchChainContext }
-          : {}),
-        supportsCurrentSpaceAddressing: true,
-        ...(threadContext
-          ? { threadContext, threadPlacement: "thread" as const }
-          : {}),
-      });
-    } catch (error) {
-      console.warn("[core.space.task_handoff_notice_failed]", {
-        error: error instanceof Error ? error.message : String(error),
-        eventId: input.eventId,
-        spaceId: this.spaceId,
-        taskId: input.task.taskId,
-      });
-      throw error;
-    }
+    await this.publishTextSignal(signal, {
+      spaceTaskDeliveryId: input.deliveryId,
+      authoringPolicy: "system_emitted",
+      ...(input.sourceDispatchChainContext
+        ? { sourceDispatchChainContext: input.sourceDispatchChainContext }
+        : {}),
+      supportsCurrentSpaceAddressing: true,
+      ...(threadContext
+        ? { threadContext, threadPlacement: "thread" as const }
+        : {}),
+    });
   }
   private async handleSpaceTaskOperation<T>(
     context: CoreRpcContextInput,

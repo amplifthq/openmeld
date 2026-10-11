@@ -213,7 +213,11 @@ optional provider project, and URL. Failure to attach after creation is a
 partial outcome; recovery adds only the Task reference. Linear references do
 not claim status monitoring, close synchronization, or automatic follow-up.
 Webhook deliveries grant no new execution authority and do not start Agent
-work.
+work. When a completed issue needs review, Space publishes a system-authored
+notice at the original Task location, using the same stable handoff identity.
+It mentions a Human reviewer. For an Agent reviewer, it uses a Reference and
+asks a Space member to Wake that Agent to start the review. Member-authorized
+Task handoffs retain their normal permission checks and Wake behavior.
 
 Project Common Agents are selection suggestions in a Task assignment flow.
 When one is outside the Space, **Add and assign** discloses that the Agent and
