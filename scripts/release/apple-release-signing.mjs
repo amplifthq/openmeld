@@ -195,46 +195,14 @@ export function signAndNotarizeCliBinary(input) {
   }
 
   const env = input.env ?? process.env;
-  const credentials = resolveAppleReleaseCredentials(env);
-  const tempDirectory = mkdtempSync(
-    path.join(tmpdir(), "openmeld-apple-release-")
-  );
-  let ephemeralKeychainPath = null;
-  let restoreUserKeychainSearchListArgs = null;
-
+  const session = createAppleReleaseSigningSession(env);
+  const {
+    credentials,
+    identityHash,
+    keychainPath: ephemeralKeychainPath,
+    tempDirectory,
+  } = session;
   try {
-    let activeCredentials = credentials;
-    if (credentials.mode === "ci") {
-      ephemeralKeychainPath = path.join(tempDirectory, "release.keychain-db");
-      const currentSearchList = runCommand({
-        args: ["list-keychains", "-d", "user"],
-        command: "security",
-        env,
-        label: "Read the existing user Keychain search list",
-      });
-      const searchListPlan = buildCiKeychainSearchListPlan({
-        currentSearchList,
-        ephemeralKeychainPath,
-      });
-      restoreUserKeychainSearchListArgs = searchListPlan.restoreArgs;
-      const ciAssets = prepareCiSigningAssets({
-        credentials,
-        env,
-        keychainPath: ephemeralKeychainPath,
-        keychainSearchListArgs: searchListPlan.activateArgs,
-        tempDirectory,
-      });
-      activeCredentials = {
-        ...credentials,
-        keyPath: ciAssets.keyPath,
-      };
-    }
-
-    const identityHash = resolveDeveloperIdIdentity({
-      env,
-      keychainPath: ephemeralKeychainPath,
-      teamId: credentials.teamId,
-    });
     runCommand({
       args: buildCodeSignArgs({
         entitlementsPath: ENTITLEMENTS_PATH,
@@ -265,7 +233,7 @@ export function signAndNotarizeCliBinary(input) {
 
     const submissionOutput = runCommand({
       args: buildNotarytoolSubmitArgs({
-        credentials: activeCredentials,
+        credentials,
         zipPath,
       }),
       command: "xcrun",
@@ -275,7 +243,7 @@ export function signAndNotarizeCliBinary(input) {
     const submission = parseNotarytoolSubmission(submissionOutput);
     if (submission.status !== "Accepted") {
       const diagnostic = readNotarizationLog({
-        credentials: activeCredentials,
+        credentials,
         env,
         submissionId: submission.id,
       });
@@ -294,6 +262,26 @@ export function signAndNotarizeCliBinary(input) {
       teamId: credentials.teamId,
     };
   } finally {
+    session.close();
+  }
+}
+
+export function createAppleReleaseSigningSession(env = process.env) {
+  if (process.platform !== "darwin") {
+    throw new Error("Apple release signing requires macOS.");
+  }
+  const credentials = resolveAppleReleaseCredentials(env);
+  const tempDirectory = mkdtempSync(
+    path.join(tmpdir(), "openmeld-apple-release-")
+  );
+  let ephemeralKeychainPath = null;
+  let restoreUserKeychainSearchListArgs = null;
+  let closed = false;
+  const close = () => {
+    if (closed) {
+      return;
+    }
+    closed = true;
     if (restoreUserKeychainSearchListArgs) {
       runCleanupCommand({
         args: restoreUserKeychainSearchListArgs,
@@ -311,6 +299,86 @@ export function signAndNotarizeCliBinary(input) {
       });
     }
     rmSync(tempDirectory, { force: true, recursive: true });
+  };
+  try {
+    let activeCredentials = credentials;
+    if (credentials.mode === "ci") {
+      ephemeralKeychainPath = path.join(tempDirectory, "release.keychain-db");
+      const currentSearchList = runCommand({
+        args: ["list-keychains", "-d", "user"],
+        command: "security",
+        env,
+        label: "Read the existing user Keychain search list",
+      });
+      const plan = buildCiKeychainSearchListPlan({
+        currentSearchList,
+        ephemeralKeychainPath,
+      });
+      restoreUserKeychainSearchListArgs = plan.restoreArgs;
+      const assets = prepareCiSigningAssets({
+        credentials,
+        env,
+        keychainPath: ephemeralKeychainPath,
+        keychainSearchListArgs: plan.activateArgs,
+        tempDirectory,
+      });
+      activeCredentials = { ...credentials, keyPath: assets.keyPath };
+    }
+    const identityHash = resolveDeveloperIdIdentity({
+      env,
+      keychainPath: ephemeralKeychainPath,
+      teamId: credentials.teamId,
+    });
+    return {
+      credentials: activeCredentials,
+      identityHash,
+      keychainPath: ephemeralKeychainPath,
+      tempDirectory,
+      close,
+    };
+  } catch (error) {
+    close();
+    throw error;
+  }
+}
+
+export function prepareDesktopAppleSigning(env = process.env) {
+  const session = createAppleReleaseSigningSession(env);
+  try {
+    const childEnv = { ...env };
+    if (session.credentials.teamId !== DEFAULT_APPLE_TEAM_ID) {
+      throw new Error("Desktop signing requires the production Apple team.");
+    }
+    if (session.credentials.mode === "ci") {
+      runCommand({
+        command: "xcrun",
+        args: [
+          "notarytool",
+          "store-credentials",
+          DEFAULT_NOTARY_KEYCHAIN_PROFILE,
+          "--key",
+          session.credentials.keyPath,
+          "--key-id",
+          session.credentials.keyId,
+          "--issuer",
+          session.credentials.issuerId,
+          "--keychain",
+          session.keychainPath,
+        ],
+        env,
+        label: "Prepare Desktop notarization in the ephemeral Keychain",
+      });
+      childEnv.APPLE_KEYCHAIN = session.keychainPath;
+      childEnv.CSC_KEYCHAIN = session.keychainPath;
+      childEnv.APPLE_KEYCHAIN_PROFILE = DEFAULT_NOTARY_KEYCHAIN_PROFILE;
+    }
+    for (const name of CI_CREDENTIAL_TRIGGER_NAMES) {
+      delete childEnv[name];
+    }
+    return { env: childEnv, close: session.close };
+  } catch (error) {
+    session.close();
+    throw error;
   }
 }
 

@@ -66,8 +66,78 @@ const {
   resolveDesktopReleaseCommand,
   readDesktopReleaseStatus,
   uploadDesktopCandidate,
+  reuseDesktopCandidate,
   verifyDesktopPublicArtifact,
 } = await import("./desktop-preview.mjs");
+
+test("candidate upload retries verify complete immutable publication without overwriting it", async () => {
+  const manifest = buildDesktopCandidateMetadata({
+    version: "0.1.28",
+    releaseSha: "b".repeat(40),
+    sha256: "a".repeat(64),
+    sizeBytes: 123,
+    zip: {
+      sha256: "c".repeat(64),
+      sha512: Buffer.alloc(64).toString("base64"),
+      sizeBytes: 456,
+    },
+  }).manifest;
+  const verified = [];
+  const verifyArtifact = (artifact) => {
+    verified.push(artifact);
+  };
+  assert.equal(
+    await reuseDesktopCandidate({
+      manifest,
+      readObject: () => null,
+      verifyArtifact,
+    }),
+    false
+  );
+  assert.equal(verified.length, 0);
+  assert.equal(
+    await reuseDesktopCandidate({
+      manifest,
+      readObject: () => manifest,
+      verifyArtifact,
+    }),
+    true
+  );
+  assert.deepEqual(
+    verified.map(({ sha256, size }) => ({ sha256, size })),
+    [
+      { sha256: manifest.sha256, size: 123 },
+      { sha256: manifest.zip.sha256, size: 456 },
+    ]
+  );
+  verified.length = 0;
+  await assert.rejects(
+    reuseDesktopCandidate({
+      manifest,
+      readObject: () => ({ ...manifest, releaseSha: "d".repeat(40) }),
+      verifyArtifact,
+    })
+  );
+  assert.equal(verified.length, 0);
+  await assert.rejects(
+    reuseDesktopCandidate({
+      manifest,
+      readObject: () => manifest,
+      verifyArtifact: () => {
+        throw new Error("public download hash mismatch");
+      },
+    })
+  );
+  await assert.rejects(
+    reuseDesktopCandidate({
+      manifest,
+      readObject: () => {
+        throw new Error("R2 unavailable");
+      },
+      verifyArtifact,
+    })
+  );
+});
 
 test("Desktop status keeps absent and unreadable promoted pointers distinct", async () => {
   const candidateId = "a".repeat(64);

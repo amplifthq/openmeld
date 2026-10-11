@@ -14,13 +14,13 @@ import {
 } from "../../packages/schemas/src/schemas/http/cli-binary-manifest.ts";
 import { localComponentsReleaseManifestSchema } from "../../packages/schemas/src/schemas/local-components.ts";
 import { smokeSignedMacOsSecureStorage } from "../e2e/signed-cli-macos-secure-storage-smoke.mjs";
+import { signAndNotarizeCliBinary } from "./apple-release-signing.mjs";
 import {
   buildCliBinary,
   collectCliBinaryMetadata,
   DEFAULT_CLI_BINARY_PLATFORM,
 } from "./build-cli-binary.mjs";
 import { resolveCliBinaryDeltaForRelease } from "./cli-binary-delta.mjs";
-import { signAndNotarizeCliBinary } from "./macos-cli-signing.mjs";
 import { compareSemverCore } from "./release-semver.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));

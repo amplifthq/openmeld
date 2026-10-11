@@ -2,6 +2,10 @@ name: Setup Node.js and pnpm
 description: Install the repository-pinned Node.js and pnpm toolchain with the shared pnpm store cache.
 
 inputs:
+  dependency_mode:
+    description: workspace builds source; renderer-promotion installs only trusted release tools
+    required: false
+    default: workspace
   node_version:
     description: Node version; admission consumers use their parent's exact version
     required: false
@@ -36,14 +40,28 @@ runs:
       env:
         SETUP_CONTROL_DIRECTORY: ${{ inputs.control_directory }}
         SETUP_WORKING_DIRECTORY: ${{ inputs.working_directory }}
+        SETUP_DEPENDENCY_MODE: ${{ inputs.dependency_mode }}
       run: |
         set -euo pipefail
-        pnpm --dir "$SETUP_WORKING_DIRECTORY" install --frozen-lockfile
-        if [ -n "$SETUP_CONTROL_DIRECTORY" ]; then
+        if [ "$SETUP_DEPENDENCY_MODE" = renderer-promotion ]; then
+          test -n "$SETUP_CONTROL_DIRECTORY" || { echo 'Promotion requires a trusted control checkout.' >&2; exit 1; }
+          pnpm --dir "$SETUP_CONTROL_DIRECTORY" install \
+            --frozen-lockfile \
+            --filter @openmeld/release-tools... \
+            --prod \
+            --ignore-scripts
+          echo "$(cd "$SETUP_CONTROL_DIRECTORY/scripts/release" && pwd)/node_modules/.bin" >> "$GITHUB_PATH"
+        elif [ "$SETUP_DEPENDENCY_MODE" = workspace ]; then
+          pnpm --dir "$SETUP_WORKING_DIRECTORY" install --frozen-lockfile
+          if [ -n "$SETUP_CONTROL_DIRECTORY" ]; then
           pnpm --dir "$SETUP_CONTROL_DIRECTORY" install \
             --frozen-lockfile \
             --filter @openmeld/root \
             --filter @openmeld/schemas \
             --prod=false \
             --ignore-scripts
+          fi
+        else
+          echo "Unknown dependency mode: $SETUP_DEPENDENCY_MODE" >&2
+          exit 1
         fi

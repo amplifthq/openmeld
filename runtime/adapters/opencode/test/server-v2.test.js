@@ -94,6 +94,14 @@ for (const scenario of [
         );
       } else {
         assert.equal(result.status, "failed", JSON.stringify(result));
+        if (scenario === "wrong-receipt" || scenario === "busy") {
+          assert.equal(
+            runtimeEvents.some(
+              (event) => event.phase === "provider_turn_accepted"
+            ),
+            false
+          );
+        }
         assert.equal(
           result.errorCode,
           {

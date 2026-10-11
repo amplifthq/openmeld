@@ -978,7 +978,8 @@ consumption still waits for the predecessor's successful final Space reply.
 
 After an occupancy transition, the Service includes the current occupancy value
 on the first keepalive in its current lifecycle phase, the first keepalive after
-a connection-generation change, and a low-frequency recovery keepalive. Until
+a connection-generation change, and a low-frequency recovery keepalive while
+occupied. Available is a transition, not a timer-generated admission heartbeat. Until
 `turn/start` returns the accepted turn, the Service remains `accepted_local`;
 App Server process spawn, protocol stdout, and writer occupancy do not promote
 RuntimeCoordinator to `running`. Ordinary keepalives between those frames omit
@@ -1232,6 +1233,25 @@ written. OpenCode 2.0.24 reports MCP connection before its 100 ms debounced tool
 reload; startup allows 500 ms for that reload because the API has no public
 tool-registry-ready receipt. Real-binary smoke must verify tool execution, not
 only an MCP connection or a text answer.
+
+Execution admission is independent of conversation occupancy. Codex and
+OpenCode declare `executionAdmission: provider_turn_accepted`; the Service
+remains `accepted_local` until that event. It does not periodically repeat
+unoccupied `accepted_local` as if local ownership proved provider progress.
+Occupied-wait recovery and admitted-running keepalives retain their separate
+contracts. RuntimeCoordinator remains the only in-flight execution authority.
+
+OpenCode 1 uses a caller-selected, native-format message ID. HTTP 204 and a
+registered user message are not execution admission. The first root-session
+assistant message whose `parentID` matches that exact input emits the existing
+`provider_turn_accepted` event. Unrelated messages and historical idle events
+cannot admit this turn. Native completion does not wait for a lost HTTP
+acknowledgement. An uncertain submission is never automatically resent:
+OpenCode 1.18.34 appends parts when an input ID is reused, rather than providing
+idempotent execution. A broken non-replayable event stream fails visibly instead
+of reconnecting indefinitely while the Service keeps reporting running.
+OpenCode 2 admission requires the matching inbox delivery and execution-started
+event; its HTTP inbox receipt alone is insufficient.
 
 Antigravity ACP uses the official `agy_acp_server.par` or `agy_acp_server.exe`
 installation and its adjacent `localharness_external` executable. It remains

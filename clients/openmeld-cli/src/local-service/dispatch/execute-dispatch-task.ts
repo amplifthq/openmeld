@@ -1013,8 +1013,7 @@ export async function handleDispatchDeliverFrame(input: {
   const providerAdmissionOwnsRunningLifecycle =
     resolveBuiltinAgentControllerDefinition(
       runtimeControllerSupport.runtimeAdapterMatch.agentId
-    )?.conversationOccupancy.mode ===
-    "official_atomic_admission_and_release_signal";
+    )?.executionAdmission === "provider_turn_accepted";
   let runtimeLifecyclePhase: Extract<
     DispatchLifecyclePhase,
     "accepted_local" | "running"
@@ -1561,6 +1560,18 @@ export async function handleDispatchDeliverFrame(input: {
         runtimeCoordinatorExecutionId: parsedTask.runtimeCoordinatorExecutionId,
         taskId: parsedTask.taskId,
       });
+      // The Service socket already proves carrier liveness. Before a native
+      // turn is accepted, repeating accepted_local would falsely refresh the
+      // coordinator's execution-progress watchdog. Occupied waits retain their
+      // existing, explicitly non-progressing occupancy keepalive contract.
+      if (
+        runtimeLifecyclePhase === "accepted_local" &&
+        inputLifecycle.agentControllerConversationOccupancy?.state !==
+          "occupied"
+      ) {
+        lifecycleKeepalive.stop = null;
+        return;
+      }
       lifecycleKeepalive.stop = startDispatchLifecycleKeepalive({
         agentControllerConversationOccupancy:
           inputLifecycle.agentControllerConversationOccupancy ?? null,
