@@ -135,9 +135,10 @@ environment callback, or no coordination best fits the actual work.
   value; it is not a merge authority or a required relay.
 - Use [Agent Experience Feedback](agent-native-delivery.md#agent-experience-feedback)
   for confirmed current-origin product problems that need another owner.
-  Follow its evidence and ownership checks before posting. Keep problems you
-  plan to fix, existing repairs, uncertain symptoms, and internal development
-  or validation findings in the owning task, PR, or issue.
+  Follow its evidence, repair-status, and ownership checks before posting,
+  including its rules for fixed problems and new evidence. Keep problems you
+  plan to fix, repairs owned by others, uncertain symptoms, and internal
+  development or validation findings in the owning task, PR, or issue.
   For ordinary development coordination, an authorized native fallback may
   keep delivery moving. When Wake itself is the product behavior under smoke,
   only the visible product path proves success.
