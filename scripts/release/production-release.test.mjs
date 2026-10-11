@@ -38,7 +38,9 @@ import {
   parseProductionReleaseArgs,
   resolveAutomaticReleaseScopes,
   resolveLocalReleaseOwner,
+  resolveProductionCompatibilityDependencies,
 } from "./production-release.mjs";
+import { assertProductionStageAdmission } from "./production-stage-admission.mjs";
 
 // These tests exercise historical target expansion/retirement, before membership
 // opt-in. An unavailable caller is now correctly unknown, so name its captured
@@ -92,10 +94,12 @@ const FULL_BACKLOG_PATHS = [
   ...IMAGE_GEOMETRY_PATHS,
   "clients/web/src/components/spaces/space-reading-header.tsx",
 ];
-const EVIDENCE_ORDER_ERROR = /evidence tools require the Core RPC receiver/u;
 const SPACE_MESSAGE_SEARCH_SCOPE_ERROR =
   /Web callers require the Gateway and Core short-query receivers/u;
 const INCOMPATIBLE_DEPENDENCIES = /incompatible.*dependencies/iu;
+const PENDING_CORE_RECEIVER = /pending prerequisite core/u;
+const PENDING_TASK_RECEIVER = /pending prerequisite/u;
+const UNRESOLVED_RECEIVER = /evidence is unresolved/u;
 
 test("orders the October product backlog without treating a proxy export as a request change", () => {
   const base = "20425528edfe6aec5b11700e52cef34735e284aa";
@@ -333,16 +337,6 @@ test("recognizes Space message search direction only from every real boundary", 
   }
 });
 
-test("keeps Center Agent evidence callers behind the Core receiver", () => {
-  assert.throws(
-    () =>
-      buildProductionDeployStepSpecs(["remote-agent"], {
-        changedPaths: EVIDENCE_PATHS,
-      }),
-    EVIDENCE_ORDER_ERROR
-  );
-});
-
 test("evidence direction requires real schema, Core receiver, and Remote Agent caller changes", () => {
   const paths = EVIDENCE_PATHS;
   const plan = buildProductionReleasePlan({
@@ -374,7 +368,6 @@ const SPACE_TASK_PATHS = [
   "clients/openmeld-cli/src/space/dispatch-task.ts",
   "services/remote-agent/agent-core/tools.ts",
 ];
-const SPACE_TASK_SCOPE_ERROR = /Space Task .*require/u;
 const SPACE_TASK_CONFLICT_ERROR = /Space Task receivers.*conflict/u;
 const DESKTOP_SMOKE_NEWER_ERROR_RE = /must be newer/u;
 const DESKTOP_SMOKE_STABLE_ERROR_RE = /stable/u;
@@ -456,21 +449,105 @@ test("allows a Space Task receiver stage with the immutable published CLI projec
       )
     );
   }
-  for (const scopes of [
-    ["cli"],
-    ["web"],
-    ["gateway"],
-    ["remote-agent"],
-    ["core", "cli"],
-    ["core", "web"],
-  ]) {
+});
+
+test("plans only Remote after its Core receiver is verified, without weakening admission", () => {
+  for (const changedPaths of [EVIDENCE_PATHS, SPACE_TASK_PATHS]) {
+    const plan = buildProductionReleasePlan({
+      base: "previous-release",
+      sourceSha: REMOTE_SOURCE_SHA,
+      scope: "remote-agent",
+      changedPaths,
+    });
+    assert.deepEqual(plan.deployScopeOrder, ["remote-agent"]);
+    assert.deepEqual(
+      plan.deploySteps.map((step) => step.label),
+      [
+        "Deploy Remote Agent Worker",
+        "Verify Remote Agent deployment is visible",
+      ]
+    );
+    assert.equal(
+      plan.preflightSteps[0].controlPath,
+      "scripts/release/production-stage-admission.mjs"
+    );
+    const components = [
+      { scope: "core", state: "current" },
+      {
+        scope: "remote-agent",
+        state: "pending",
+        compatibilityDependencies:
+          resolveProductionCompatibilityDependencies(changedPaths),
+      },
+    ];
+    const input = {
+      components,
+      selectedScopes: plan.deployScopeOrder,
+      sourceSha: REMOTE_SOURCE_SHA,
+    };
+    assert.deepEqual(assertProductionStageAdmission(input).selectedScopes, [
+      "remote-agent",
+    ]);
+    components[0].state = "pending";
+    assert.throws(
+      () => assertProductionStageAdmission(input),
+      PENDING_CORE_RECEIVER
+    );
     assert.throws(
       () =>
-        buildProductionDeployStepSpecs(scopes, {
-          changedPaths: SPACE_TASK_PATHS,
+        assertProductionStageAdmission({
+          ...input,
+          selectedScopes: ["core", "remote-agent"],
         }),
-      SPACE_TASK_SCOPE_ERROR
+      PENDING_CORE_RECEIVER
     );
+    components[0].state = "unknown";
+    assert.throws(
+      () => assertProductionStageAdmission(input),
+      UNRESOLVED_RECEIVER
+    );
+  }
+});
+
+test("admits separate Task HTTP caller stages only after their receiver receipts", () => {
+  const changedPaths = [
+    ...SPACE_TASK_PATHS,
+    "packages/api-client/src/space/tasks.ts",
+  ];
+  const compatibilityDependencies =
+    resolveProductionCompatibilityDependencies(changedPaths);
+  for (const scope of ["gateway", "web", "cli"]) {
+    const plan = buildProductionReleasePlan({
+      base: "previous-release",
+      sourceSha: REMOTE_SOURCE_SHA,
+      scope,
+      changedPaths,
+    });
+    const components = ["core", "gateway", "web", "cli"].map((item) => ({
+      scope: item,
+      state: "pending",
+      compatibilityDependencies,
+    }));
+    const input = {
+      components,
+      selectedScopes: plan.deployScopeOrder,
+      sourceSha: REMOTE_SOURCE_SHA,
+    };
+    assert.throws(
+      () => assertProductionStageAdmission(input),
+      PENDING_TASK_RECEIVER
+    );
+    components[0].state = "current";
+    if (scope !== "gateway") {
+      assert.throws(
+        () => assertProductionStageAdmission(input),
+        PENDING_TASK_RECEIVER
+      );
+      components[1].state = "current";
+    }
+    assert.deepEqual(assertProductionStageAdmission(input).selectedScopes, [
+      scope,
+    ]);
   }
 });
 
