@@ -1,6 +1,4 @@
 import {
-  describeLinkedGitHubIssueClosePrompt,
-  mutateSpaceTaskBodySchema,
   SPACE_TASK_EXTERNAL_WORK_ITEM_LIMIT_ERROR_CODE,
   SPACE_TASK_LIST_MAX_ITEMS,
   spaceTaskMutationReceiptSchema,
@@ -204,81 +202,51 @@ describe("GitHub issue Space Task binding", () => {
     });
   });
 
-  it("cancels active linked Tasks with distinct operation identities for later issue closures", async () => {
+  it.each([
+    "done",
+    "canceled",
+    "in_review",
+    "in_progress",
+  ] as const)("reports only terminal Tasks as closed after provider synchronization: %s", async (phase) => {
     const linked = createTask({
       externalWorkItems: [ISSUE],
-      phase: "in_progress",
+      phase,
       revision: 2,
     });
-    const observed = createTask({
-      ...linked,
-      externalWorkItems: [{ ...ISSUE, lastObservedState: "closed" }],
-      revision: 3,
-    });
-    const canceled = createTask({
-      ...observed,
-      phase: "canceled",
-      revision: 4,
-    });
-    const observedActions: string[] = [];
-    const operationIds: string[] = [];
-    const mutateSpaceTask = vi.fn((input: unknown) => {
-      const body = mutateSpaceTaskBodySchema.parse(
-        input && typeof input === "object" && "body" in input
-          ? input.body
-          : null
-      );
-      observedActions.push(body.action);
-      operationIds.push(body.operationId);
-      return Promise.resolve(
-        receiptFor(body.action === "cancel" ? canceled : observed)
-      );
-    });
-
-    const input = {
+    const mutateSpaceTask = vi.fn();
+    const summary = await applyGitHubIssueSpaceTaskBinding({
       actionId: "github.update_issue",
-      eventIdentity: "write-close-1",
+      eventIdentity: "close-1",
       actionInput: {
-        issueNumber: 1143,
-        owner: "amplifthq",
-        repo: "openmeld",
+        owner: ISSUE.owner,
+        repo: ISSUE.repo,
+        issueNumber: ISSUE.number,
         state: "closed",
       },
-      data: { number: 1143, state: "closed" },
+      data: {
+        number: ISSUE.number,
+        state: "closed",
+        state_reason: "completed",
+      },
       ports: {
         createSpaceTask: vi.fn(),
-        getSpaceTask: vi.fn(async () => ({ events: [], task: observed })),
+        getSpaceTask: vi.fn(),
+        mutateSpaceTask,
         listSpaceTasks: vi.fn(async () => ({
           tasks: [linked],
           truncated: false,
         })),
-        mutateSpaceTask,
       },
       toolContext: {
         context: CONTEXT,
         turnEnvelope: { space: SHARED_SPACE } as RemoteAgentTurnEnvelope,
       },
-    };
-    const summary = await applyGitHubIssueSpaceTaskBinding({
-      ...input,
-      now: "2026-09-20T03:00:00.000Z",
     });
-
-    expect(observedActions).toEqual(["observe_external_work_item", "cancel"]);
-    expect(summary?.closedTaskIds).toEqual([canceled.taskId]);
-    expect(describeLinkedGitHubIssueClosePrompt(canceled)).toBeNull();
-    await applyGitHubIssueSpaceTaskBinding({
-      ...input,
-      eventIdentity: "write-close-2",
-      now: "2026-09-20T05:00:00.000Z",
-    });
-    expect(new Set(operationIds).size).toBe(4);
-    await applyGitHubIssueSpaceTaskBinding({
-      ...input,
-      eventIdentity: "write-close-2",
-      now: "2026-09-20T05:00:00.000Z",
-    });
-    expect(operationIds.slice(4)).toEqual(operationIds.slice(2, 4));
+    expect(mutateSpaceTask).not.toHaveBeenCalled();
+    expect(summary?.closedTaskIds).toEqual(
+      phase === "done" || phase === "canceled" ? [linked.taskId] : []
+    );
+    expect(summary?.task?.phase).toBe(phase);
   });
 
   it("refuses a linked issue close without a stable provider operation identity", async () => {

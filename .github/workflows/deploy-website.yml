@@ -116,6 +116,7 @@ jobs:
         uses: ./release-control/.github/actions/setup-node-pnpm
         with:
           node_version: ${{ inputs.parent_admission_evidence && fromJSON(inputs.parent_admission_evidence).buildInputs.node || '24' }}
+          dependency_mode: ${{ inputs.parent_admission_evidence != '' && 'renderer-promotion' || 'workspace' }}
           control_directory: release-control
           working_directory: release-source
 
@@ -170,7 +171,15 @@ jobs:
             --scope website
 
       - name: Deploy Website
-        run: pnpm -C clients/website run sync:config:prod
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          set -euo pipefail
+          if [ -n "$OPENMELD_PARENT_TRAIN_ADMISSION" ]; then
+            node ../release-control/scripts/release/promote-renderer-artifact.mjs --scope website --source-sha "$RELEASE_SHA"
+          else
+            pnpm -C clients/website run sync:config:prod
+          fi
 
       - name: Verify Website health
         env:

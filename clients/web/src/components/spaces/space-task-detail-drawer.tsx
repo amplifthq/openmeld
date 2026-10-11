@@ -211,6 +211,16 @@ type TaskControlInput = {
 	task: SpaceTask;
 };
 
+function formatEventAttribution(actor: SpaceTaskEvent["actor"]) {
+	return "provider" in actor ? "GitHub" : actor.profileName;
+}
+
+function formatResultAttribution(actor: SpaceTaskEvent["actor"]) {
+	return "provider" in actor
+		? "Recorded from GitHub"
+		: `Submitted by ${actor.profileName}`;
+}
+
 function SpaceTaskDetailBody(
 	input: TaskControlInput & {
 		events: readonly SpaceTaskEvent[];
@@ -301,7 +311,7 @@ function SpaceTaskDetailBody(
 						{task.result.summary}
 					</p>
 					<p className="mt-2 text-muted-foreground text-xs">
-						Submitted by {task.result.submittedBy.profileName}
+						{formatResultAttribution(task.result.submittedBy)}
 					</p>
 				</section>
 			) : null}
@@ -411,7 +421,8 @@ function SpaceTaskDetailBody(
 						{input.events.map((event) => (
 							<li className="text-xs" key={event.eventId}>
 								<p className="font-medium">
-									{formatTaskEvent(event.type)} · {event.actor.profileName}
+									{formatTaskEvent(event.type)} ·{" "}
+									{formatEventAttribution(event.actor)}
 								</p>
 								{event.detail ? (
 									<p className="mt-1 whitespace-pre-wrap break-words text-muted-foreground">

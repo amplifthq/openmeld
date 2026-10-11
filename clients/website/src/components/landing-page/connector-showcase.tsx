@@ -16,7 +16,6 @@ import { useEffect, useRef, useState } from "react";
 import "./connector-showcase.css";
 
 const plugins = PLUGINS.filter((plugin) => plugin.availability === "available");
-const roundedPluginCount = Math.floor(plugins.length / 10) * 10;
 const sharedBrandNames: Record<string, string> = {
 	"/app-logos/cloudflare.svg": "Cloudflare",
 	"/app-logos/alibaba-cloud.svg": "Alibaba Cloud",
@@ -82,7 +81,7 @@ export function ConnectorShowcase() {
 		>
 			<div className="meld-connectors-copy">
 				<h2 id="connectors-title">
-					{roundedPluginCount}+ plugins.
+					Your tools.
 					<br />
 					<span>One connected team.</span>
 				</h2>
@@ -92,7 +91,7 @@ export function ConnectorShowcase() {
 				</p>
 			</div>
 			<p className="sr-only">
-				Supported plugins: {plugins.map((app) => app.name).join(", ")}.
+				Plugin catalog: {plugins.map((app) => app.name).join(", ")}.
 			</p>
 			<div aria-hidden="true" className="meld-connectors-wall">
 				<div className="meld-connectors-track">
@@ -112,10 +111,10 @@ export function ConnectorShowcase() {
 					</SheetTrigger>
 					<SheetContent className="dark meld-connectors-sheet">
 						<SheetHeader>
-							<SheetTitle>Supported plugins</SheetTitle>
+							<SheetTitle>Plugin catalog</SheetTitle>
 							<SheetDescription>
-								Connect these apps from Plugins in OpenMeld. Personal accounts
-								stay private. Choose which agents can use each connection.
+								Open Plugins in OpenMeld to see which connections are currently
+								available. Choose which agents can use each connection.
 							</SheetDescription>
 						</SheetHeader>
 						<ul className="meld-connectors-list">

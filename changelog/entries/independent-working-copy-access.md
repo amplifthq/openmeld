@@ -4,6 +4,9 @@ title: Keep Agent capabilities when choosing a separate working copy
 kind: improved
 areas: ["spaces", "agents", "cli"]
 audiences: ["members", "operators"]
+publishedAt: 2026-10-10
+release: v0.3.251
+evidence: ["commit:8f3ceab1f053cafe6425631f78453e0828e9944a", "commit:03668cdc6506ea4ed93f4166387533e5bd30bd84", "pr:1638", "workflow:38078641800", "workflow:38077171997"]
 ---
 
 Choose a separate working copy without adding extra restrictions to your Agent's

@@ -304,7 +304,23 @@ async function lockEmptyTarget(client, catalog) {
 }
 
 function nativeColumns(table, targetColumns) {
-  const columns = [...table.columns];
+  const newNullableColumns = {
+    plugin_action_requests: ["continuation_json"],
+    center_agent_connector_action_operations: [
+      "linear_issue_receipt_json",
+      "github_issue_observation_json",
+    ],
+    space_index_spaces: ["recent_message_previews_json"],
+  };
+  const columns = [
+    ...table.columns,
+    ...(newNullableColumns[table.name] ?? []).map((name) => ({
+      name,
+      type: "TEXT",
+      hidden: 0,
+      source: "new_nullable",
+    })),
+  ];
   if (table.name === "openmeld_profiles") {
     // Historical avatars retain their style; appearance options remain unset.
     columns.push({
@@ -366,22 +382,6 @@ function nativeColumns(table, targetColumns) {
         source: "new_empty_array",
       }))
     );
-  }
-  if (table.name === "center_agent_connector_action_operations") {
-    columns.push({
-      name: "linear_issue_receipt_json",
-      type: "TEXT",
-      hidden: 0,
-      source: "new_nullable",
-    });
-  }
-  if (table.name === "space_index_spaces") {
-    columns.push({
-      name: "recent_message_previews_json",
-      type: "TEXT",
-      hidden: 0,
-      source: "new_nullable",
-    });
   }
   if (table.name === "openMeldDaemon_pre_head_failure_publication_outbox") {
     // Import keeps the historical publication state. Attribution is reviewed

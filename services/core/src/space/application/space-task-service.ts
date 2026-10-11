@@ -28,7 +28,7 @@ import {
 } from "./space-task-workflow";
 
 export type ApplyGitHubIssueObservationInput = {
-  cancelOperationId: string;
+  settleOperationId: string;
   identity: {
     number: number;
     owner: string;
@@ -37,6 +37,7 @@ export type ApplyGitHubIssueObservationInput = {
   observeOperationId: string;
   observedAt: string;
   observedState: "closed" | "open";
+  observedStateReason?: string | null;
   spaceId: string;
   taskId: string;
 };
@@ -264,6 +265,7 @@ export class SpaceTaskService {
         body: {
           lastObservedAt: input.observedAt,
           lastObservedState: input.observedState,
+          stateReason: input.observedStateReason ?? null,
           number: input.identity.number,
           owner: input.identity.owner,
           repo: input.identity.repo,
@@ -280,6 +282,7 @@ export class SpaceTaskService {
         now: new Date().toISOString(),
         observedAt: input.observedAt,
         observedState: input.observedState,
+        observedStateReason: input.observedStateReason,
         task: current,
       });
       if (planned.skipReason) {
@@ -293,7 +296,7 @@ export class SpaceTaskService {
       let observedTask = current;
       if (planned.observe && !previousObserve) {
         const event = this.buildEvent({
-          actor: current.createdBy,
+          actor: { provider: "github" },
           detail: planned.observe.detail,
           fromPhase: current.phase,
           operationId: input.observeOperationId,
@@ -319,7 +322,7 @@ export class SpaceTaskService {
         observedTask = planned.observe.task;
       }
 
-      if (!planned.cancel) {
+      if (!planned.settle) {
         return {
           canceled: false,
           observed: Boolean(planned.observe || previousObserve),
@@ -328,57 +331,57 @@ export class SpaceTaskService {
         };
       }
 
-      const cancelRequestJson = JSON.stringify({
+      const settleRequestJson = JSON.stringify({
         body: {
           number: input.identity.number,
           owner: input.identity.owner,
-          reason: planned.cancel.detail,
+          reason: planned.settle.detail,
           repo: input.identity.repo,
         },
-        kind: "github_issue_cancel",
+        kind: "github_issue_settle",
         taskId: input.taskId,
       });
-      const previousCancel = this.readIdempotentReceipt(
-        input.cancelOperationId,
-        cancelRequestJson
+      const previousSettlement = this.readIdempotentReceipt(
+        input.settleOperationId,
+        settleRequestJson
       );
-      if (previousCancel) {
+      if (previousSettlement) {
         return {
-          canceled: true,
+          canceled: previousSettlement.task.phase === "canceled",
           observed: true,
           skipReason: null,
-          task: previousCancel.task,
+          task: previousSettlement.task,
         };
       }
-      const cancelEvent = this.buildEvent({
-        actor: current.createdBy,
-        detail: planned.cancel.detail,
+      const settleEvent = this.buildEvent({
+        actor: { provider: "github" },
+        detail: planned.settle.detail,
         fromPhase: observedTask.phase,
-        operationId: input.cancelOperationId,
-        task: planned.cancel.task,
-        type: planned.cancel.eventType,
+        operationId: input.settleOperationId,
+        task: planned.settle.task,
+        type: planned.settle.eventType,
       });
-      const cancelReceipt = spaceTaskMutationReceiptSchema.parse({
+      const settleReceipt = spaceTaskMutationReceiptSchema.parse({
         applied: true,
-        event: cancelEvent,
-        task: planned.cancel.task,
+        event: settleEvent,
+        task: planned.settle.task,
       });
       this.input.repository.updateTask(
-        planned.cancel.task,
+        planned.settle.task,
         observedTask.revision
       );
-      this.input.repository.appendEvent(cancelEvent);
+      this.input.repository.appendEvent(settleEvent);
       this.input.repository.recordOperation({
-        operationId: input.cancelOperationId,
-        receipt: cancelReceipt,
-        requestJson: cancelRequestJson,
+        operationId: input.settleOperationId,
+        receipt: settleReceipt,
+        requestJson: settleRequestJson,
       });
-      this.input.onMutation?.(cancelReceipt, observedTask);
+      this.input.onMutation?.(settleReceipt, observedTask);
       return {
-        canceled: true,
+        canceled: planned.settle.task.phase === "canceled",
         observed: true,
         skipReason: null,
-        task: planned.cancel.task,
+        task: planned.settle.task,
       };
     });
   }
@@ -423,7 +426,7 @@ export class SpaceTaskService {
     task: SpaceTaskMutationReceipt["task"];
     operationId: string;
     type: SpaceTaskEvent["type"];
-    actor: SpaceTaskActor;
+    actor: SpaceTaskEvent["actor"];
     fromPhase: SpaceTaskPhase | null;
     detail: string | null;
   }): SpaceTaskEvent {

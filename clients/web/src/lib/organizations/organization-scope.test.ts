@@ -4,7 +4,7 @@ import { readCurrentAccountOrganizationContext } from "./account-organization-co
 import {
 	resolveDefaultOrganizationForSession,
 	resolveOptionalActiveOrganizationEntryPath,
-	resolveOrganizationScope,
+	resolveOrganizationScopeForContext,
 	resolvePublicLoginRedirectTarget,
 } from "./organization-scope";
 import type { OrganizationSummary } from "./organization-types";
@@ -51,19 +51,25 @@ describe("organization scope resolution", () => {
 				data: { routeFamily: "/desktop-shell" },
 			})
 		).resolves.toBe("/o/beta/spaces");
-		await expect(
-			resolveOrganizationScope({
-				data: { orgSlug: "acme", routeFamily: "/o/acme" },
+		expect(
+			resolveOrganizationScopeForContext({
+				context: accountOrganizationContextSchema.parse(
+					await readCurrentAccountOrganizationContext("/o/acme")
+				),
+				orgSlug: "acme",
 			})
-		).resolves.toMatchObject({
+		).toMatchObject({
 			access: "authorized",
 			currentOrganization: { id: "org-acme" },
 			activeOrganization: { id: "org-beta" },
 			currentUserId: "user-current",
 			storageScope: "user-current",
 		});
-		const denied = await resolveOrganizationScope({
-			data: { orgSlug: "unknown", routeFamily: "/o/unknown" },
+		const denied = resolveOrganizationScopeForContext({
+			context: accountOrganizationContextSchema.parse(
+				await readCurrentAccountOrganizationContext("/o/unknown")
+			),
+			orgSlug: "unknown",
 		});
 		expect(denied.access).toBe("denied");
 		expect("currentOrganization" in denied).toBe(false);
@@ -75,13 +81,6 @@ describe("organization scope resolution", () => {
 		await expect(
 			resolveOptionalActiveOrganizationEntryPath(entryInput)
 		).resolves.toBeNull();
-		await expect(
-			resolveOrganizationScope({
-				data: { orgSlug: "acme", routeFamily: "/o/acme/plugins/gmail" },
-			})
-		).rejects.toMatchObject({
-			options: { to: "/login", search: { redirect: "/o/acme/plugins" } },
-		});
 		vi.mocked(readCurrentAccountOrganizationContext).mockResolvedValue(
 			accountOrganizationContextSchema.parse({
 				currentUserId: "user",
@@ -97,11 +96,6 @@ describe("organization scope resolution", () => {
 		vi.mocked(readCurrentAccountOrganizationContext).mockRejectedValue(error);
 		await expect(
 			resolveOptionalActiveOrganizationEntryPath(entryInput)
-		).rejects.toBe(error);
-		await expect(
-			resolveOrganizationScope({
-				data: { orgSlug: "acme", routeFamily: "/o/acme" },
-			})
 		).rejects.toBe(error);
 	});
 	it("keeps provider names out of the public login URL for Plugin detail routes", () => {

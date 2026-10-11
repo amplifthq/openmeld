@@ -4,7 +4,9 @@ title: Consistent conversations and Thread replies
 kind: improved
 areas: ["spaces", "threads", "center-agent"]
 audiences: ["members", "admins"]
-evidence: ["pr:1625"]
+publishedAt: 2026-10-10
+release: v0.3.251
+evidence: ["pr:1625", "commit:681e1c98df73a1ba5e7fb82a820902e72364ea04", "commit:03668cdc6506ea4ed93f4166387533e5bd30bd84", "pr:1638", "workflow:38078641800"]
 ---
 
 Thread replies share Profile cards, message tools, quoted replies, queued
