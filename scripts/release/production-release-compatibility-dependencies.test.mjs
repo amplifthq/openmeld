@@ -1469,7 +1469,7 @@ test("attaches exact Remote receiver content witnesses and preserves reviewed co
   const executionReconciliation = [
     "packages/schemas/src/schemas/runtime/remote-agent-worker.ts",
     "services/core/src/remote-agent/application/native-delivery-service.ts",
-    "services/remote-agent/flue-adapter/execution-reconciliation.ts",
+    "services/remote-agent/flue-adapter/cloudflare-entrypoint.ts",
   ];
   assert.deepEqual(
     resolveProductionCompatibilityDependencies(executionReconciliation),
@@ -1484,7 +1484,7 @@ test("attaches exact Remote receiver content witnesses and preserves reviewed co
         contracts: ["remote-agent-request"],
         receiverPaths: [
           "packages/schemas/src/schemas/runtime/remote-agent-worker.ts",
-          "services/remote-agent/flue-adapter/execution-reconciliation.ts",
+          "services/remote-agent/flue-adapter/cloudflare-entrypoint.ts",
         ],
       },
     ]

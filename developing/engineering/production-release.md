@@ -758,6 +758,18 @@ remain extensible. This permits a Core receiver stage while the old Gateway
 still rejects new opt-in inputs. Recheck the actual caller chain on the final
 source: these source and parser facts are not mixed-version Worker smoke.
 
+Internal Computer storage and result changes do not reintroduce this request
+edge when the existing request prefix, its imported schema owners and locked
+parser resolution, and the complete Core/Gateway/API/CLI callers are unchanged.
+The bounded comparison rejects unknown history, imports, executable result
+suffixes and unrecognized schema construction. It proves only unchanged public
+requests; response readers and all other release obligations remain independent.
+Execution reconciliation produces terminal responses. It is not a request
+admission owner; request entrypoints retain their receiver-first classification.
+When the mixed native-delivery ambiguity check still applies, use separately
+admitted component stages and their verified receipts rather than a combined
+plan or a manufactured base ref.
+
 Each obligation is registered from its bounded changed owners and the explicit
 product source, including caller-only changes. Known historical sources without
 the feature stay independent; an unreadable source retains the obligation. The
