@@ -30,8 +30,6 @@ const WINDOWS_PREVIEW_PATHS = [
 ];
 const PENDING_RECEIVER = /pending prerequisite/u;
 const UNRESOLVED_TASK_RECEIVER = /evidence is unresolved/u;
-const INBOX_SOURCE_TARGET_SCOPE_REQUIRED =
-  /requires the Web, Gateway, and Core scopes/u;
 const inboxMembershipFixture = JSON.parse(
   readFileSync(
     new URL(
@@ -218,20 +216,71 @@ test("Inbox membership opt-in actual Gateway stage rejects pending Core and anot
   }
 });
 
-test("Inbox membership opt-in does not remove source-target scope protection", () => {
-  assert.throws(
-    () =>
-      buildProductionDeployStepSpecs(["core"], {
-        changedPaths: [
-          "packages/schemas/src/schemas/http/inbox.ts",
-          "services/core/src/remote-agent/application/native-delivery-service.ts",
-        ],
-        compatibilityContext: inboxMembershipContext(
-          inboxMembershipFixture.sourceSha
-        ),
-      }),
-    INBOX_SOURCE_TARGET_SCOPE_REQUIRED
+test("Inbox membership opt-in preserves source-target receiver admission", () => {
+  const changedPaths = [
+    "packages/schemas/src/schemas/http/inbox.ts",
+    "services/core/src/remote-agent/application/native-delivery-service.ts",
+  ];
+  const sourceSha = inboxMembershipFixture.sourceSha;
+  const context = inboxMembershipContext(sourceSha);
+  const obligations = resolveProductionCompatibilityObligations(
+    changedPaths,
+    false,
+    context
   );
+  assert.deepEqual(
+    obligations.filter(({ contract }) => contract === "inbox-source-target"),
+    [
+      { contract: "inbox-source-target", receiver: "web", producer: "core" },
+      {
+        contract: "inbox-source-target",
+        receiver: "gateway",
+        producer: "core",
+      },
+    ]
+  );
+  const steps = buildProductionDeployStepSpecs(["core"], {
+    changedPaths,
+    compatibilityContext: context,
+  });
+  assert.ok(steps.some((step) => step.releaseScope === "core"));
+  const receivers = ["web", "gateway"].map((scope) => ({
+    scope,
+    state: "current",
+    sha: sourceSha,
+  }));
+  const stage = {
+    sourceSha,
+    selectedScopes: ["core"],
+    components: [
+      ...receivers,
+      {
+        scope: "core",
+        state: "pending",
+        sha: inboxMembershipFixture.callers.legacy.sha,
+        compatibilityObligations: obligations,
+        compatibilityDependencies: resolveProductionCompatibilityDependencies(
+          changedPaths,
+          false,
+          context
+        ),
+      },
+    ],
+  };
+  for (const receiver of receivers) {
+    receiver.state = "pending";
+    assert.throws(
+      () => assertProductionStageAdmission(stage),
+      PENDING_RECEIVER
+    );
+    receiver.state = "unknown";
+    assert.throws(
+      () => assertProductionStageAdmission(stage),
+      UNRESOLVED_RECEIVER
+    );
+    receiver.state = "current";
+  }
+  assert.doesNotThrow(() => assertProductionStageAdmission(stage));
 });
 // The eight changed paths from the safe-workspace named receiver increment.
 const SAFE_WORKSPACE_INCREMENT = [
