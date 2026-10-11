@@ -956,6 +956,10 @@ import {
   type CurrentDesignatedCenterAgentAuthorization,
   requireCurrentDesignatedCenterAgentCaller,
 } from "../center-agent/current-designated-center-agent";
+import {
+  syncCompletedGitHubIssue,
+  verifyGitHubIssueCompletion,
+} from "../center-agent/github-issue-completion";
 import type { CenterAgentWakePublicationCommand } from "../center-agent/infrastructure/postgresql/center-agent-wake-publication-repo";
 import { startCenterAgentMemberResearch } from "../center-agent-member-research/member-research-service";
 import type { CenterAgentMemoryEpisodeOrigin } from "../center-agent-memory/contract";
@@ -16517,6 +16521,8 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     requestSignature: input.requestSignature,
     issueDestination: input.issueDestination,
     linearIssueReceipt: input.linearIssueReceipt,
+    githubIssueCompletion: input.githubIssueCompletion,
+    includeGitHubTaskSync: input.includeGitHubTaskSync,
     service: input.service,
     speakerMember: input.speakerMember,
   });
@@ -16652,6 +16658,7 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     connectionUpdatedAtMs,
     personalExecution: "personalExecution" in authorization,
   });
+  const githubIssueObservation = await verifyGitHubIssueCompletion(parsed.data);
   const result = await recordCenterAgentConnectorActionOperation({
     actionId: parsed.data.actionId,
     actorProfileId: authorization.actorProfileId,
@@ -16665,6 +16672,7 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     organizationId: authorization.activeOrganization.organizationId,
     outcome: parsed.data.outcome,
     linearIssueReceipt: parsed.data.linearIssueReceipt,
+    githubIssueObservation,
     providerExecutionId: parsed.data.providerExecutionId,
     requester,
     requestSignature: parsed.data.requestSignature,
@@ -16678,13 +16686,37 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     effect: parsed.data.effect,
     allowReplay: parsed.data.includeExecutionPermit === true,
   });
-  return await presentConnectorOperationResult({
-    actorProfileId: authorization.actorProfileId,
-    result,
-    db: authorization.db,
-    request: parsed.data,
-    verificationOf,
+  return await presentConnectorOperationWithGitHubSync(
+    env,
+    existing?.sourceSpaceId,
+    {
+      actorProfileId: authorization.actorProfileId,
+      result,
+      db: authorization.db,
+      request: parsed.data,
+      verificationOf,
+    }
+  );
+}
+
+async function presentConnectorOperationWithGitHubSync(
+  env: CoreBindings,
+  sourceSpaceId: string | null | undefined,
+  input: Parameters<typeof presentConnectorOperationResult>[0]
+) {
+  const githubTaskSync = await syncCompletedGitHubIssue({
+    env,
+    db: input.db,
+    operation: input.result.operation,
+    sourceSpaceId: sourceSpaceId ?? null,
   });
+  const response = await presentConnectorOperationResult(input);
+  return {
+    ...response,
+    ...(input.request.includeGitHubTaskSync && githubTaskSync
+      ? { githubTaskSync }
+      : {}),
+  };
 }
 
 function requireConnectorTaskProvenance(input: {

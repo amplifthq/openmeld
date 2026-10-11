@@ -1235,6 +1235,7 @@ export {
   ensureSlackWorkspaceMemberOrganizationMembershipRpcResponseSchema,
   getCenterAgentDesignationResponseSchema,
   getCenterAgentOperatingStateResponseSchema,
+  githubIssueObservationSchema,
   listCenterAgentAuditJournalQuerySchema,
   listCenterAgentAuditJournalResponseSchema,
   openCenterAgentDirectMessageSpaceResponseSchema,

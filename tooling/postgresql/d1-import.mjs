@@ -306,7 +306,10 @@ async function lockEmptyTarget(client, catalog) {
 function nativeColumns(table, targetColumns) {
   const newNullableColumns = {
     plugin_action_requests: ["continuation_json"],
-    center_agent_connector_action_operations: ["linear_issue_receipt_json"],
+    center_agent_connector_action_operations: [
+      "linear_issue_receipt_json",
+      "github_issue_observation_json",
+    ],
     space_index_spaces: ["recent_message_previews_json"],
   };
   const columns = [

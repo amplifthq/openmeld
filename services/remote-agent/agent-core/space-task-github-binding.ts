@@ -243,17 +243,10 @@ export async function applyGitHubIssueSpaceTaskBinding(input: {
           "OpenMeld cannot confirm this GitHub issue update's operation identity.",
       });
     }
-    return await closeSpaceTasksForGitHubIssue({
+    return await readClosedGitHubIssueTasks({
       identity,
-      stateReason:
-        readNonEmptyString(asRecord(input.data)?.state_reason) ??
-        readNonEmptyString(asRecord(asRecord(input.data)?.data)?.state_reason),
-      eventIdentity: input.eventIdentity,
-      now: await readObservationAt(),
       ports: {
-        getSpaceTask: input.ports.getSpaceTask,
         listSpaceTasks: input.ports.listSpaceTasks,
-        mutateSpaceTask: input.ports.mutateSpaceTask,
       },
       spaceId: space.id,
       toolContext: input.toolContext,
@@ -376,111 +369,25 @@ async function ensureGitHubIssueAttached(input: {
   return receipt.task;
 }
 
-async function closeSpaceTasksForGitHubIssue(input: {
-  stateReason: string | null;
-  eventIdentity: string;
+async function readClosedGitHubIssueTasks(input: {
   identity: GitHubIssueSpaceTaskIdentity;
-  now: string;
-  ports: Pick<
-    Required<SpaceTaskGitHubBindingPorts>,
-    "getSpaceTask" | "listSpaceTasks" | "mutateSpaceTask"
-  >;
+  ports: Pick<Required<SpaceTaskGitHubBindingPorts>, "listSpaceTasks">;
   spaceId: string;
-  toolContext: {
-    context: OpenMeldRequestContext;
-  };
+  toolContext: { context: OpenMeldRequestContext };
 }): Promise<SpaceTaskGitHubBindingSummary> {
+  // Core's connector completion owns provider settlement. This is only a read
+  // projection; an In review Task is not closed, and no member mutation runs.
   const matching = await listLinkedSpaceTasksForGitHubIssue({
     context: input.toolContext.context,
     identity: input.identity,
     listSpaceTasks: input.ports.listSpaceTasks,
     spaceId: input.spaceId,
   });
-  const closedTaskIds: string[] = [];
-  let latest: SpaceTask | null = matching[0] ?? null;
-  for (const task of matching) {
-    const observed = await mutateLinkedTask({
-      body: {
-        action: "observe_external_work_item",
-        expectedRevision: task.revision,
-        lastObservedAt: input.now,
-        lastObservedState: "closed",
-        number: input.identity.number,
-        operationId: spaceTaskGitHubIssueOperationId(
-          "observe-closed",
-          input.identity,
-          task.taskId,
-          input.eventIdentity
-        ),
-        owner: input.identity.owner,
-        provider: "github",
-        repo: input.identity.repo,
-      },
-      ports: input.ports,
-      spaceId: input.spaceId,
-      taskId: task.taskId,
-      toolContext: input.toolContext,
-    });
-    latest = observed.task;
-    if (observed.task.phase === "done" || observed.task.phase === "canceled") {
-      continue;
-    }
-    const completed = input.stateReason === "completed";
-    if (completed && observed.task.phase === "in_review") {
-      continue;
-    }
-    if (
-      !completed &&
-      input.stateReason !== "not_planned" &&
-      input.stateReason !== "duplicate"
-    ) {
-      continue;
-    }
-    const summary = `GitHub issue ${formatSpaceTaskGitHubIssueLabel(input.identity)} was closed as ${input.stateReason}.`;
-    const settlementTask =
-      completed && observed.task.phase === "to_do"
-        ? (
-            await mutateLinkedTask({
-              body: {
-                action: "mark_in_progress",
-                expectedRevision: observed.task.revision,
-                operationId: spaceTaskGitHubIssueOperationId(
-                  "start",
-                  input.identity,
-                  task.taskId,
-                  input.eventIdentity
-                ),
-              },
-              ports: input.ports,
-              spaceId: input.spaceId,
-              taskId: task.taskId,
-              toolContext: input.toolContext,
-            })
-          ).task
-        : observed.task;
-    const settled = await mutateLinkedTask({
-      body: {
-        ...(completed
-          ? { action: "submit_result" as const, summary }
-          : { action: "cancel" as const, reason: summary }),
-        expectedRevision: settlementTask.revision,
-        operationId: spaceTaskGitHubIssueOperationId(
-          "settle",
-          input.identity,
-          task.taskId,
-          input.eventIdentity
-        ),
-      },
-      ports: input.ports,
-      spaceId: input.spaceId,
-      taskId: task.taskId,
-      toolContext: input.toolContext,
-    });
-    closedTaskIds.push(settled.task.taskId);
-    latest = settled.task;
-  }
+  const latest = matching[0] ?? null;
   return {
-    closedTaskIds,
+    closedTaskIds: matching
+      .filter((task) => task.phase === "done" || task.phase === "canceled")
+      .map((task) => task.taskId),
     created: false,
     githubClosePrompt: latest
       ? describeLinkedGitHubIssueClosePrompt(latest)

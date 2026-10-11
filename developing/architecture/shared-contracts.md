@@ -79,6 +79,32 @@ conditional new-Task affordance. Missing or recalled messages do not hide a
 request that still needs a decision.
 The Plugin request owns its persisted continuation intent; Space and
 RuntimeCoordinator retain message admission and execution authority.
+Guest Space readers have no Organization context and do not query private
+approval endpoints. Approved continuations resolve the original Human Profile
+from the retained source and verify account ownership before applying existing
+Space and execution guards. A different selected profile in Inbox does not
+change the continuation author. Reconcilable operation receipts keep continuation
+pending; recovery pages past running requests rather than revisiting only the
+oldest 100 rows.
+
+The trusted connector completion protocol optionally accepts
+`githubIssueCompletion` for a completed `github.update_issue`. The adapter
+extracts it from the provider response, never from a model-supplied observation.
+Core verifies the exact input signature and issue identity and stores the narrow
+observation atomically with the completed operation. The original attempted
+operation's Space provenance owns Task synchronization through the existing
+provider reducer. Normal member Task mutation permissions do not change.
+If synchronization fails, provider status stays completed; retrying the same
+operation repairs Task state without admitting another provider execution.
+`includeGitHubTaskSync` opts in to the synchronization status and terminal Task
+IDs; Tasks waiting for review are excluded. Legacy completed operations without
+provider evidence cannot invent it from the requested input.
+Apply nullable `center_agent_connector_action_operations.github_issue_observation_json`
+before Core, and deploy Core before the updated Remote Agent caller. Historical
+D1 imports omit the native-only column. Older strict Core rejects the new request
+fields; old callers receive no new response field. Rollback must retain the
+column and compatible receipt readers. This adds no model tool or Gateway route
+and does not alter CLI, Service, Skills, setup, Wake, or diagnostic wire contracts.
 
 Apply the additive nullable `plugin_action_requests.continuation_json` migration
 before Core, then deploy Gateway before the new Web caller. Remove the Web caller

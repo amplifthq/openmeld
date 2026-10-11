@@ -245,13 +245,16 @@ test("historical D1 capture to native PG18 preserves business data and rolls bac
               },
             ]
           );
-          assert.equal(
+          assert.deepEqual(
             (
               await client.query(
-                "SELECT linear_issue_receipt_json FROM openmeld.center_agent_connector_action_operations WHERE id = 'migration-plugin-receipt'"
+                "SELECT linear_issue_receipt_json, github_issue_observation_json FROM openmeld.center_agent_connector_action_operations WHERE id = 'migration-plugin-receipt'"
               )
-            ).rows[0].linear_issue_receipt_json,
-            null
+            ).rows[0],
+            {
+              linear_issue_receipt_json: null,
+              github_issue_observation_json: null,
+            }
           );
           assert.deepEqual(
             (
