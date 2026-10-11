@@ -31,6 +31,10 @@ import {
 import { spaceMessageReactionsSchema } from "../space-mesh/message-reaction";
 import { centerAgentModelRouteSchema } from "./center-agent-model";
 import {
+  cloudComputerCleanupReportSchema,
+  REMOTE_AGENT_COMPUTER_CLEANUP_FAILED_CODE,
+} from "./cloud-computer";
+import {
   remoteAgentTurnEnvelopeSchema,
   remoteAgentWorkLoopCheckpointSchema,
 } from "./remote-agent-turn-envelope";
@@ -711,6 +715,16 @@ export const remoteAgentWorkerExecutionQueryResponseSchema = z.union([
   z.strictObject({
     status: z.literal("found"),
     execution: remoteAgentWorkerExecutionStateSchema,
+    result: z
+      .strictObject({
+        status: z.enum(["completed", "failed", "aborted"]),
+        text: z.string().max(MAX_TEXT_LENGTH).nullable(),
+        failureCode: z.string().nullable(),
+        computerCleanup: cloudComputerCleanupReportSchema.optional(),
+        files: spaceMessageFileReferencesSchema,
+        attachments: spaceMessageAttachmentsSchema,
+      })
+      .optional(),
   }),
   z.strictObject({ status: z.literal("not_found") }),
   z.strictObject({
@@ -1089,13 +1103,27 @@ export const remoteAgentCoreCallbackBodySchema = z.union([
     attachments: spaceMessageAttachmentsSchema.optional(),
     files: spaceMessageFileReferencesSchema.optional(),
   }),
-  z.strictObject({
-    ...remoteAgentCoreCallbackIdentitySchema,
-    status: z.literal("failed"),
-    failureCode: nonEmptyStringSchema,
-    failureDetail: optionalDispatchErrorSummarySchema,
-    failureMessage: nonEmptyStringSchema,
-  }),
+  z
+    .strictObject({
+      ...remoteAgentCoreCallbackIdentitySchema,
+      status: z.literal("failed"),
+      failureCode: nonEmptyStringSchema,
+      failureDetail: optionalDispatchErrorSummarySchema,
+      failureMessage: nonEmptyStringSchema,
+      explanationText: nonEmptyStringSchema.max(MAX_TEXT_LENGTH).optional(),
+      computerCleanup: cloudComputerCleanupReportSchema.optional(),
+      files: spaceMessageFileReferencesSchema.optional(),
+      attachments: spaceMessageAttachmentsSchema.optional(),
+    })
+    .refine(
+      (value) =>
+        !value.explanationText ||
+        value.failureCode === REMOTE_AGENT_COMPUTER_CLEANUP_FAILED_CODE,
+      {
+        message: "A model explanation requires the Computer recovery outcome.",
+        path: ["explanationText"],
+      }
+    ),
 ]);
 
 export const remoteAgentCoreWorkLoopContinuationCallbackBodySchema =

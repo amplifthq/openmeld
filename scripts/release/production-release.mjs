@@ -7,6 +7,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { readCutoverTarget } from "../../tooling/postgresql/remote-target.mjs";
+import { hasUnchangedCloudComputerRequests } from "./cloud-computer-request-compatibility.mjs";
 import {
   admitPostgresqlProductRelease,
   readPostgresqlCutoverPreparation,
@@ -278,9 +279,16 @@ export function resolveProductionCompatibilityObligations(
   context = {}
 ) {
   const spaceTask = isSpaceTaskReceiverFirstDiff(changedPaths);
+  const spaceTaskContractChanged = isSpaceTaskContractChanged(
+    changedPaths,
+    context
+  );
   const callerContext = isSpaceCallerContextDiff(changedPaths);
-  const spaceTaskCli = changedPaths.includes(
-    "clients/openmeld-cli/src/space/dispatch-task.ts"
+  const spaceTaskCli =
+    changedPaths.includes("clients/openmeld-cli/src/space/dispatch-task.ts") ||
+    changedPaths.includes("packages/api-client/src/space/tasks.ts");
+  const spaceTaskWeb = changedPaths.some((file) =>
+    SPACE_TASK_WEB_CALLER_PATHS.has(file)
   );
   const invitation = isSpaceInvitationReceiverFirstDiff(changedPaths);
   const remoteRequestReceiverFirst =
@@ -409,23 +417,31 @@ export function resolveProductionCompatibilityObligations(
     {
       contract: "space-task",
       enabled:
-        spaceTask &&
-        (spaceTaskCli ||
-          changedPaths.includes(
-            "services/gateway/src/routes/rpc-http.space-tasks.ts"
-          )),
+        spaceTaskContractChanged ||
+        (spaceTask &&
+          (spaceTaskCli ||
+            spaceTaskWeb ||
+            changedPaths.includes(
+              "services/gateway/src/routes/rpc-http.space-tasks.ts"
+            ))),
       edges: [["core", "gateway"]],
     },
     {
       contract: "space-task",
-      enabled: spaceTask && spaceTaskCli,
+      enabled: spaceTaskContractChanged || (spaceTask && spaceTaskWeb),
+      edges: [["gateway", "web"]],
+    },
+    {
+      contract: "space-task",
+      enabled: spaceTaskContractChanged || (spaceTask && spaceTaskCli),
       edges: [["gateway", "cli"]],
     },
     {
       contract: "space-task",
       enabled:
-        spaceTask &&
-        changedPaths.includes("services/remote-agent/agent-core/tools.ts"),
+        spaceTaskContractChanged ||
+        (spaceTask &&
+          changedPaths.includes("services/remote-agent/agent-core/tools.ts")),
       edges: [["core", "remote-agent"]],
     },
     {
@@ -801,10 +817,16 @@ const SPACE_HISTORY_QUERY_SCHEMA_PATH =
   "packages/schemas/src/schemas/http/list-signals-query.ts";
 const SPACE_TASK_SCHEMA_PATH =
   "packages/schemas/src/schemas/http/space-tasks.ts";
+const SPACE_TASK_WEB_CALLER_PATHS = new Set([
+  "packages/api-client/src/space/tasks.ts",
+  "clients/web/src/components/spaces/use-space-tasks-panel-controller.ts",
+  "clients/web/src/components/spaces/use-space-message-task-action.ts",
+]);
 const SPACE_TASK_CALLER_PATHS = [
   "clients/openmeld-cli/src/space/dispatch-task.ts",
   "services/gateway/src/routes/rpc-http.space-tasks.ts",
   "services/remote-agent/agent-core/tools.ts",
+  ...SPACE_TASK_WEB_CALLER_PATHS,
 ];
 const WAKE_PROGRESS_CLI_CALLER_PATH =
   "clients/openmeld-cli/src/space/wake-control-command.ts";
@@ -836,7 +858,6 @@ const CONNECT_COMPUTER_WEB_PRODUCER_PATH =
 const REMOTE_AGENT_RECEIVER_FIRST_CONTRACT_PATHS = new Set([
   "services/remote-agent/.flue/cloudflare.ts",
   "services/remote-agent/flue-adapter/cloudflare-entrypoint.ts",
-  "services/remote-agent/flue-adapter/execution-reconciliation.ts",
 ]);
 const REMOTE_AI_USAGE_PRODUCER_CONTRACT_PATHS = new Set([
   "packages/schemas/src/schemas/ai-usage.ts",
@@ -900,6 +921,7 @@ const REMOTE_AGENT_WORKER_REQUEST_SCHEMA_PATHS = new Set([
 ]);
 const REMOTE_AGENT_WORKER_RESPONSE_PRODUCER_PATHS = new Set([
   "services/remote-agent/.flue/agents/center-agent.ts",
+  "services/remote-agent/flue-adapter/execution-reconciliation.ts",
 ]);
 const REMOTE_AGENT_WORKER_REQUEST_PRODUCER_PATHS = new Set([
   "services/core/src/remote-agent/application/remote-agent-conversation-continuity.ts",
@@ -1437,42 +1459,13 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   const changedPaths = input.changedPaths ?? [];
   const compatibilityChangedPaths =
     input.compatibilityChangedPaths ?? changedPaths;
-  assertCenterAgentEvidenceReleaseScopes(scopes, changedPaths);
-  assertSpaceMessageSearchReleaseScopes(scopes, changedPaths);
-  assertConnectComputerReleaseScopes(scopes, changedPaths);
-  assertInboxSourceTargetReleaseScopes(
-    scopes,
-    changedPaths,
-    input.taskInboxRetired,
-    input.compatibilityContext
-  );
-  assertLocalServiceRuntimeReleaseScopes(scopes, changedPaths);
-  assertWakeProgressOptInContractReleaseScopes(scopes, changedPaths);
-  assertSpaceHistoryQueryReleaseScopes(scopes, changedPaths);
-  assertSpaceTaskReleaseScopes(scopes, changedPaths);
+  // Completed receivers need not be selected again. Live stage admission owns
+  // prerequisite evidence; the planner only orders the selected writes.
   const deployOrderProfile = resolveProductionDeployOrderProfile(
     compatibilityChangedPaths,
     input.taskInboxRetired,
     input.compatibilityContext
   );
-  if (
-    deployOrderProfile === "space-caller-context-receivers-first" &&
-    (selected.has("core") || selected.has("cli")) &&
-    !["cli", "auth", "remote-agent"].every((scope) => selected.has(scope))
-  ) {
-    throw new Error(
-      "Caller context requires Auth and Remote receivers, then the required CLI/Service publication with its Core projection."
-    );
-  }
-  if (
-    deployOrderProfile === "space-invitation-receivers-first" &&
-    (selected.has("auth") || selected.has("cli")) &&
-    !(selected.has("core") && selected.has("auth"))
-  ) {
-    throw new Error(
-      "Space invitation release requires Core and Auth receivers before publishing its CLI caller."
-    );
-  }
   const orderedScopes = resolveProductionDeployScopeOrder(
     scopes,
     compatibilityChangedPaths,
@@ -1735,15 +1728,6 @@ function resolveProductionDeployScopeOrder(
   );
   const order = DEPLOY_SCOPE_ORDER_BY_PROFILE[profile];
   const selected = new Set(scopes);
-  if (
-    profile === "personal-remote-tools-receivers-first" &&
-    selected.has("remote-agent") &&
-    !selected.has("core")
-  ) {
-    throw new Error(
-      "Personal Remote Agent tools require the Core receiver before Remote Agent deployment."
-    );
-  }
   const preferred = order.filter((scope) => selected.has(scope));
   // Public docs have no App receiver dependency and follow every selected profile.
   if (selected.has("docs") && !preferred.includes("docs")) {
@@ -2248,6 +2232,12 @@ function isCloudCommandReceiptOptInDiff(paths, context) {
   );
   return (
     owners.length > 0 &&
+    !hasUnchangedCloudComputerRequests({
+      ...context,
+      readGitFile:
+        context.readGitFile ??
+        ((ref, file) => runGit(["show", `${ref}:${file}`])),
+    }) &&
     (!owners.every((file) => file === entrypoint) ||
       targetProductSourceMentions(context, entrypoint, [
         "cloudComputerOperation",
@@ -2496,52 +2486,11 @@ function isSpaceMessageSearchReceiverFirstDiff(paths) {
   ].every((file) => paths.includes(file));
 }
 
-function assertCenterAgentEvidenceReleaseScopes(scopes, paths) {
-  const selected = new Set(scopes);
-  if (
-    isCenterAgentEvidenceDiff(paths) &&
-    selected.has("remote-agent") &&
-    !selected.has("core")
-  ) {
-    throw new Error(
-      "Center Agent evidence tools require the Core RPC receiver before Remote Agent; include Core in the ordered plan."
-    );
-  }
-}
-
-function assertSpaceMessageSearchReleaseScopes(scopes, paths) {
-  if (!isSpaceMessageSearchReceiverFirstDiff(paths)) {
-    return;
-  }
-  const selected = new Set(scopes);
-  if (
-    selected.has("web") &&
-    !(selected.has("gateway") && selected.has("core"))
-  ) {
-    throw new Error(
-      "Space message search Web callers require the Gateway and Core short-query receivers in the same guarded plan."
-    );
-  }
-}
-
 function isConnectComputerCliReceiverFirstDiff(changedPaths) {
   return (
     changedPaths.includes(CONNECT_COMPUTER_DEVICE_AUTH_SCHEMA_PATH) &&
     changedPaths.includes(CONNECT_COMPUTER_CLI_RECEIVER_PATH) &&
     changedPaths.includes(CONNECT_COMPUTER_WEB_PRODUCER_PATH)
-  );
-}
-
-function assertConnectComputerReleaseScopes(scopes, changedPaths) {
-  if (!isConnectComputerCliReceiverFirstDiff(changedPaths)) {
-    return;
-  }
-  const selected = new Set(scopes);
-  if (selected.has("cli") && selected.has("web")) {
-    return;
-  }
-  throw new Error(
-    "The Connect Computer command contract requires both the CLI and Web scopes so the CLI receiver and Core current-channel projection publish before Web emits --device-code."
   );
 }
 
@@ -2609,43 +2558,15 @@ function isSpaceTaskReceiverFirstDiff(changedPaths) {
   );
 }
 
-function assertSpaceTaskReleaseScopes(scopes, changedPaths) {
-  if (!isSpaceTaskReceiverFirstDiff(changedPaths)) {
-    return;
+function isSpaceTaskContractChanged(changedPaths, context) {
+  if (!changedPaths.includes(SPACE_TASK_SCHEMA_PATH)) {
+    return false;
   }
-  const selected = new Set(scopes);
-  if (
-    ["gateway", "web", "cli", "remote-agent"].some((scope) =>
-      selected.has(scope)
-    ) &&
-    !selected.has("core")
-  ) {
-    throw new Error("Space Task consumers require the Core receiver scope.");
-  }
-  // Web and CLI use Gateway HTTP; Remote Agent calls the Core binding directly.
-  if (
-    (selected.has("web") || selected.has("cli")) &&
-    !selected.has("gateway")
-  ) {
-    throw new Error(
-      "Space Task Web and CLI consumers require the Gateway receiver scope."
-    );
-  }
-}
-
-function assertSpaceHistoryQueryReleaseScopes(scopes, changedPaths) {
-  if (
-    !(isSpaceHistoryQueryContractDiff(changedPaths) && scopes.includes("cli"))
-  ) {
-    return;
-  }
-  const selected = new Set(scopes);
-  if (selected.has("gateway") && selected.has("core")) {
-    return;
-  }
-  throw new Error(
-    "The Space history query contract requires the Gateway and Core scopes before publishing its CLI caller."
-  );
+  // Existing callers import this schema and its wire version. Their runtime
+  // contract can change without edits to the callers themselves. Unknown
+  // source history must retain their receiver prerequisites.
+  const sources = readContractSources(context, SPACE_TASK_SCHEMA_PATH);
+  return !sources || sources[0] !== sources[1];
 }
 
 function assertSpaceHistoryQueryDeployOrder(scopes, changedPaths) {
@@ -2657,32 +2578,11 @@ function assertSpaceHistoryQueryDeployOrder(scopes, changedPaths) {
   const gatewayIndex = scopes.indexOf("gateway");
   const coreIndex = scopes.indexOf("core");
   const cliIndex = scopes.indexOf("cli");
-  if (
-    gatewayIndex < 0 ||
-    coreIndex < 0 ||
-    gatewayIndex > cliIndex ||
-    coreIndex > cliIndex
-  ) {
+  if (gatewayIndex > cliIndex || coreIndex > cliIndex) {
     throw new Error(
       "The Space history query contract must deploy Gateway and Core before CLI. Split conflicting receiver-first changes into independently releasable releases."
     );
   }
-}
-
-function assertWakeProgressOptInContractReleaseScopes(scopes, changedPaths) {
-  if (!isWakeProgressOptInContractDiff(changedPaths)) {
-    return;
-  }
-  const selected = new Set(scopes);
-  if (!(selected.has("core") || selected.has("cli"))) {
-    return;
-  }
-  if (selected.has("gateway") && selected.has("core")) {
-    return;
-  }
-  throw new Error(
-    "The Wake Progress opt-in contract requires the Gateway and Core scopes before publishing its Core producer or CLI caller."
-  );
 }
 
 function assertWakeProgressOptInDeployOrder(scopes, changedPaths) {
@@ -2693,39 +2593,13 @@ function assertWakeProgressOptInDeployOrder(scopes, changedPaths) {
   const coreIndex = scopes.indexOf("core");
   const cliIndex = scopes.indexOf("cli");
   if (
-    gatewayIndex < 0 ||
-    coreIndex < 0 ||
-    gatewayIndex > coreIndex ||
+    (coreIndex >= 0 && gatewayIndex > coreIndex) ||
     (cliIndex >= 0 && coreIndex > cliIndex)
   ) {
     throw new Error(
       "The Wake Progress opt-in contract must deploy Gateway before Core and Core before CLI. Split conflicting receiver-first changes into independently releasable releases."
     );
   }
-}
-
-function assertLocalServiceRuntimeReleaseScopes(scopes, changedPaths) {
-  if (
-    isIndependentSkillBridgeDiff(changedPaths) &&
-    scopes.includes("cli") &&
-    !["core", "gateway", "web"].every((scope) => scopes.includes(scope))
-  ) {
-    throw new Error(
-      "The independent Skill bridge requires Core, Gateway, and Web before CLI/Service publication."
-    );
-  }
-  if (
-    !(
-      isLocalServiceRuntimeReceiverFirstDiff(changedPaths) &&
-      scopes.includes("cli")
-    ) ||
-    scopes.includes("core")
-  ) {
-    return;
-  }
-  throw new Error(
-    "A strict Local Service runtime release requires the Core scope before publishing CLI/Service."
-  );
 }
 
 function isInboxSourceTargetReceiverFirstDiff(changedPaths, context = {}) {
@@ -2778,46 +2652,6 @@ function isVisibleSourceReadDiff(changedPaths, context) {
         ])
     )
   );
-}
-
-function assertInboxSourceTargetReleaseScopes(
-  scopes,
-  changedPaths,
-  taskInboxRetired = false,
-  context = {}
-) {
-  if (
-    !(
-      taskInboxRetired ||
-      isInboxSourceTargetReceiverFirstDiff(changedPaths, context)
-    )
-  ) {
-    return;
-  }
-  const selected = new Set(scopes);
-  const missing = INBOX_CLOUD_SCOPES.filter((scope) => !selected.has(scope));
-  if (missing.length > 0) {
-    throw new Error(
-      `Inbox source-target receiver-first release requires the Web, Gateway, and Core scopes before Core can write durable targets. Missing: ${missing.join(", ")}.`
-    );
-  }
-  if (
-    [
-      "remote-agent-and-inbox-receivers-first",
-      "remote-agent-and-inbox-task-retirement-first",
-    ].includes(
-      resolveProductionDeployOrderProfile(
-        changedPaths,
-        taskInboxRetired,
-        context
-      )
-    ) &&
-    !selected.has("remote-agent")
-  ) {
-    throw new Error(
-      "Combined Remote Agent and Inbox receiver-first release requires the Remote Agent scope before Core can write either contract."
-    );
-  }
 }
 
 function isRemoteAgentWorkerRequestReceiverFirstDiff(
@@ -3764,11 +3598,172 @@ function printPlan(plan, json) {
   process.stdout.write(`${lines.join("\n")}\n`);
 }
 
+function assertContinuationScope(status, input, scopes) {
+  if (
+    status.sourceSha !== input.sourceSha ||
+    status.currentChange?.baseSha !== input.baseSha ||
+    status.currentChange.error ||
+    status.currentChange.orderingError
+  ) {
+    throw new Error(
+      "Release continuation requires the unchanged source and change base with a valid scope plan."
+    );
+  }
+  const blockers = status.sourceValidationBlockers ?? status.blockers;
+  if (blockers.length > 0) {
+    throw new Error(
+      `Release continuation is blocked: ${blockers.map((item) => item.detail).join(" | ")}`
+    );
+  }
+  if (
+    scopes &&
+    JSON.stringify(scopes) !== JSON.stringify(status.currentChange.scopes)
+  ) {
+    throw new Error("Release scope changed while continuing the same source.");
+  }
+}
+
+function selectContinuationStage(
+  status,
+  remaining,
+  sourceSha,
+  assertAdmission
+) {
+  const waiting = [];
+  for (const scope of remaining) {
+    try {
+      assertAdmission({
+        components: status.components,
+        selectedScopes: [scope],
+        sourceSha,
+      });
+      return scope;
+    } catch (error) {
+      waiting.push(error.message);
+    }
+  }
+  throw new Error(
+    `No remaining release stage can proceed: ${waiting.join(" | ")}`
+  );
+}
+
+export async function resumeProductionRelease(input) {
+  const { collectProductionReleaseStatus } = await import(
+    "./production-release-status.mjs"
+  );
+  const { assertProductionStageAdmission, isProductionRecoveryCandidate } =
+    await import("./production-stage-admission.mjs");
+  const collect = input.collectStatus ?? collectProductionReleaseStatus;
+  const write = input.write ?? ((line) => process.stdout.write(`${line}\n`));
+  const attempted = new Set();
+  let scopes;
+  for (;;) {
+    const status = await collect({
+      argv: ["--ref", input.sourceSha, "--change-base", input.baseSha],
+    });
+    assertContinuationScope(status, input, scopes);
+    scopes ??= [...status.currentChange.scopes];
+    const remaining = scopes.filter(
+      (scope) =>
+        !status.components.some(
+          (component) =>
+            component.scope === scope && component.state === "current"
+        )
+    );
+    if (remaining.length === 0) {
+      write(
+        "Deployment complete for this change. Complete the changed-path product smoke and any required Desktop acceptance separately."
+      );
+      return;
+    }
+    for (const scope of remaining) {
+      if (attempted.has(scope)) {
+        throw new Error(
+          `${scope} returned without a verified completion record. Stop and inspect its retained attempt; no component will be repeated.`
+        );
+      }
+      const component = status.components.find((item) => item.scope === scope);
+      if (
+        !component ||
+        (component.state === "unknown" &&
+          !isProductionRecoveryCandidate(component, input.sourceSha))
+      ) {
+        throw new Error(
+          `Deployment evidence is missing for ${scope}. No continuation is safe.`
+        );
+      }
+    }
+    const next = selectContinuationStage(
+      status,
+      remaining,
+      input.sourceSha,
+      assertProductionStageAdmission
+    );
+    write(
+      `Continue ${next}; already current: ${scopes.filter((scope) => !remaining.includes(scope)).join(", ") || "none"}.`
+    );
+    attempted.add(next);
+    // The existing explicit-scope path owns preflight, leases, mutation and
+    // recovery. A process exit alone never advances deployment truth.
+    await input.deployScope(next, status);
+  }
+}
+
+export function assertLocalContinuationScope(scope, sourceSha, trainScopes) {
+  if (scope === "cli") {
+    throw new Error(
+      `CLI publication requires the existing GitHub Trusted Publishing workflow. Run: gh workflow run cli-release.yml --ref main -f release_sha=${sourceSha} -f production_train_scopes=${trainScopes.join(",")}. After it succeeds, rerun the original local continuation command; verified components will be skipped.`
+    );
+  }
+}
+
+function assertContinuationOptions(options) {
+  if (options.redeploy) {
+    throw new Error(
+      "An intentional redeploy requires an explicit component scope."
+    );
+  }
+}
+
+function isAutomaticContinuation(options) {
+  return (
+    options.command === "deploy" &&
+    options.scope === "auto" &&
+    !options.domainEvidence &&
+    !options.domainPhase &&
+    !options.databaseCutoverSnapshot &&
+    !options.databaseCutoverRestoreCrons
+  );
+}
+
 async function main(argv) {
   const options = {
     ...parseProductionReleaseArgs(argv),
     databaseBackend: "postgresql",
   };
+  if (isAutomaticContinuation(options)) {
+    assertContinuationOptions(options);
+    assertCleanWorktree();
+    refreshCurrentMain();
+    const sourceSha = readHeadSha();
+    const baseSha = runGit(["rev-parse", `${options.base}^{commit}`]).trim();
+    assertProductionReleaseSource({ sourceSha });
+    await resumeProductionRelease({
+      sourceSha,
+      baseSha,
+      deployScope: async (scope, status) => {
+        assertLocalContinuationScope(
+          scope,
+          sourceSha,
+          status.currentChange.scopes
+        );
+        assertSourceStillMatches(sourceSha);
+        await main(["deploy", "--base", baseSha, "--scope", scope]);
+        assertSourceStillMatches(sourceSha);
+      },
+    });
+    return;
+  }
   if (options.databaseCutover) {
     if (options.scope !== "auto") {
       throw new Error(

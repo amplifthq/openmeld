@@ -510,7 +510,10 @@ function PublicSpaceResolvedPage(input: {
 			threadPreviews={threadPreviews}
 			threadSignals={threadSignals}
 			threadSignalsError={threadSignalsQuery.error}
-			threadSignalsIsPending={threadSignalsQuery.isPending}
+			threadSignalsIsPending={
+				threadSignalsQuery.isPending ||
+				threadSignalsQuery.fetchStatus !== "idle"
+			}
 			threads={threads}
 			threadTextareaRef={threadTextareaRef}
 			timelineItems={timelineItems}

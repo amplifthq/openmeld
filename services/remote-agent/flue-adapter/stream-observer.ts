@@ -30,6 +30,7 @@ import {
 import {
   createRemoteAgentTerminalFailureFact,
   type RemoteAgentTerminalFailureFact,
+  retainRemoteAgentCleanupFacts,
 } from "../agent-core/terminal-failure";
 import { recordRemoteAgentTurnObservabilityBestEffort } from "../agent-core/turn-observability";
 import { normalizeFluePromptUsage } from "../agent-core/usage";
@@ -524,12 +525,16 @@ async function handleCenterAgentPromptCompletion(input: {
     event: input.event,
     hasAssistantText: hasAssistantText || !!callbackContext?.workLoopCheckpoint,
   });
-  await finishRemoteAgentComputerCommands({
+  const cleanupFailure = await finishRemoteAgentComputerCommands({
     context: callbackContext,
     env,
     storage,
+    assistantText: observedFailure ? undefined : assistantText,
   });
-  const terminalFailure = observedFailure;
+  const terminalFailure = retainRemoteAgentCleanupFacts(
+    observedFailure,
+    cleanupFailure
+  );
   const settledExecution =
     callbackContext?.workLoopCheckpoint && !terminalFailure && executionIdentity
       ? await completeRemoteAgentExecutionState({

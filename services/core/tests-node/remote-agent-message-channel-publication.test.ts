@@ -1481,6 +1481,68 @@ describe("Remote Agent Message Channel publication", () => {
       await harness.close();
     }
   });
+  it("publishes reviewed Computer failure facts while retaining files that the channel cannot deliver", async () => {
+    const harness = await createPostgresHarness();
+    await applyMessageChannelPublicationMigrations(harness);
+    await seedConnection(harness, "connected");
+    const adapter = createAdapter("lark", {
+      publishFailure: vi.fn(async () => ({
+        resultId: "blocked-result",
+        status: "published" as const,
+      })),
+    });
+    try {
+      await createAcceptedMessageChannelDelivery(harness.db);
+      const file = {
+        fileId: "saved-report",
+        name: "report.md",
+        mimeType: "text/markdown",
+        revision: 1,
+        sizeBytes: 10,
+      };
+      const explanationText =
+        "The report is saved. Publication is unconfirmed and was not repeated.";
+      await expect(
+        completeRemoteAgentNativeDelivery(
+          buildEnv(harness.db),
+          {
+            ...createFailedCallback(),
+            failureCode: "remote_agent.computer.command_cleanup_failed",
+            explanationText,
+            files: [file],
+            attachments: [createImageAttachment()],
+          },
+          {
+            messageChannelNowMs: () => 2000,
+            messageChannelProviderRegistry:
+              createMessageChannelProviderRegistry([adapter]),
+          }
+        )
+      ).resolves.toMatchObject({ status: "accepted" });
+      expect(adapter.publishFailure).toHaveBeenCalledWith(
+        expect.objectContaining({
+          text: `${explanationText}\n\n_Saved files are retained in OpenMeld; this channel cannot deliver them yet._`,
+        })
+      );
+      await expect(
+        readRemoteAgentNativeDeliveryByIdempotencyKey({
+          db: harness.db,
+          idempotencyKey: IDEMPOTENCY_KEY,
+        })
+      ).resolves.toMatchObject({
+        status: "failed",
+        finalPublicationPayload: {
+          failureCode: "remote_agent.computer.command_cleanup_failed",
+          reviewedFailureExplanation: true,
+          files: [file],
+          attachments: [createImageAttachment()],
+        },
+      });
+    } finally {
+      await harness.close();
+    }
+  });
+
   it("publishes a failed callback without changing its frozen destination", async () => {
     const harness = await createPostgresHarness();
     await applyMessageChannelPublicationMigrations(harness);
@@ -1766,7 +1828,10 @@ describe("Remote Agent Message Channel publication", () => {
         finalPublicationAmbiguityDeadlineAtMs:
           2000 + REMOTE_AGENT_LARK_PLATFORM_REPLY_DEDUPLICATION_WINDOW_MS,
         finalPublicationAttemptCount: 2,
-        finalPublicationPayload: null,
+        finalPublicationPayload: expect.objectContaining({
+          text: "The launch plan is ready.",
+          failureCode: null,
+        }),
         finalPublicationState: "published",
         providerPublicationResultId: "message_result_after_ambiguous_retry",
       });
@@ -1937,7 +2002,10 @@ describe("Remote Agent Message Channel publication", () => {
       ).resolves.toMatchObject({
         finalPublicationAmbiguityDeadlineAtMs: ambiguityDeadlineAtMs,
         finalPublicationAttemptCount: 2,
-        finalPublicationPayload: null,
+        finalPublicationPayload: expect.objectContaining({
+          text: "The launch plan is ready.",
+          failureCode: null,
+        }),
         finalPublicationState: "outcome_unknown",
         providerPublicationResultId: null,
       });
@@ -2027,7 +2095,10 @@ describe("Remote Agent Message Channel publication", () => {
       ).resolves.toMatchObject({
         finalPublicationAmbiguityDeadlineAtMs: ambiguityDeadlineAtMs,
         finalPublicationAttemptCount: 2,
-        finalPublicationPayload: null,
+        finalPublicationPayload: expect.objectContaining({
+          text: "The launch plan is ready.",
+          failureCode: null,
+        }),
         finalPublicationState: "outcome_unknown",
         providerPublicationResultId: null,
         status: "failed",
