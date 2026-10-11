@@ -28,6 +28,7 @@ import { createCoreRpcHttpError, readCoreRpcHttpStatus } from "../rpc/errors";
 import {
   rpcGetSpaceDispatchTrace,
   rpcGetSpaceMemberDirectory,
+  rpcReadPluginActionRequestLocations,
 } from "../rpc/methods";
 import { readConnectorConnectionForExecution } from "./connector-connection-repository";
 import { pluginPermissionAllows, readPluginAccess } from "./plugin-access";
@@ -328,19 +329,49 @@ export async function listPluginActionRequests(
     text: `SELECT * FROM "openmeld"."plugin_action_requests"
       WHERE organization_id = $1 AND user_id = $2
         AND request_json::jsonb ->> 'sourceSpaceId' = $3
-        AND request_json::jsonb ->> 'sourceSignalId' = ANY($4::text[])
+        AND (CASE WHEN $4::text[] IS NULL THEN state = 'pending' AND expires_at_ms > $5
+          AND request_json::jsonb ->> 'sourceSignalId' IS NOT NULL
+          ELSE request_json::jsonb ->> 'sourceSignalId' = ANY($4::text[]) END)
       ORDER BY created_at_ms, id`,
     values: [
       member.organizationId,
       member.userId,
       input.spaceId,
-      input.sourceSignalIds,
+      input.sourceSignalIds ?? null,
+      Date.now(),
     ],
   });
-  return {
-    requests: await Promise.all(
-      rows.rows.map((row) => projectRequest(db, row))
+  const requests = await Promise.all(
+    rows.rows.map((row) => projectRequest(db, row))
+  );
+  if (input.sourceSignalIds) {
+    return { requests };
+  }
+  const pending = requests.filter((request) => request.state === "pending");
+  const threadIds = new Map<string, string | null>();
+  const sourceSignalIds = [
+    ...new Set(
+      pending
+        .map((request) => request.sourceSignalId)
+        .filter((id): id is string => Boolean(id))
     ),
+  ];
+  for (let offset = 0; offset < sourceSignalIds.length; offset += 1000) {
+    const locations = await rpcReadPluginActionRequestLocations(env, {
+      ...input,
+      sourceSignalIds: sourceSignalIds.slice(offset, offset + 1000),
+    });
+    for (const location of locations) {
+      threadIds.set(location.sourceSignalId, location.threadId);
+    }
+  }
+  return {
+    requests: pending.map((request) => ({
+      ...request,
+      sourceThreadId: request.sourceSignalId
+        ? threadIds.get(request.sourceSignalId)
+        : undefined,
+    })),
   };
 }
 

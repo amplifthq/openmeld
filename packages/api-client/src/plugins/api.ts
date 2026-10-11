@@ -17,7 +17,7 @@ export function createPluginsApi(client: OpenMeldApiClientFoundation) {
     listRequests: (input: {
       organizationId: string;
       spaceId: string;
-      sourceSignalIds: string[];
+      sourceSignalIds?: string[];
     }) =>
       client.requestJson({
         method: "POST",

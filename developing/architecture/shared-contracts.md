@@ -30,7 +30,12 @@
 Plugin approval message context is an opt-in HTTP projection
 (`includeMessageContext=true`). Older strict clients retain the previous request
 view. The new private batch reader uses shared schemas and filters by the
-authenticated Organization/member, accessible Space and loaded message IDs.
+authenticated Organization/member and accessible Space. A message-scoped read
+selects explicit message IDs; the composer tray omits that filter to read all
+pending requests, independently of scroll position. Space owns the batch
+message-location projection; it reads persisted Thread placement, not the
+conditional new-Task affordance. Missing or recalled messages do not hide a
+request that still needs a decision.
 The Plugin request owns its persisted continuation intent; Space and
 RuntimeCoordinator retain message admission and execution authority.
 
@@ -42,8 +47,9 @@ intent reader: an older strict reader rejects those new records. Use a compatibl
 Core rollback or a forward fix; do not strip stored provenance to downgrade.
 The historical import
 baseline includes this native-only column. Existing CLI/Service/Skills setup,
-Wake, trace and diagnostics retain their previous wire contracts and need no
-local component update. GitHub issue observations accept an optional closure
+Wake, trace and diagnostics retain their previous wire contracts. Task source
+attribution uses version 3 and requires compatible local Task readers as
+described below. GitHub issue observations accept an optional closure
 reason; older observations without a reason update external status without
 guessing Done or Canceled. Deploy that Core receiver before Remote Agent.
 
@@ -1123,7 +1129,9 @@ Creating an issue from a shared Space records a linked Task through the
 existing create/mutate RPCs when the Task list can confirm whether that issue
 is already linked; the GitHub issue remains GitHub-owned. Closing
 the issue through `github_update_issue` or a verified GitHub App webhook
-cancels still-active linked Tasks through the Space writer. Completing or
+settles still-active linked Tasks through the Space writer: `completed` becomes
+Done, or In review when a reviewer is assigned; `not_planned` and `duplicate`
+become Canceled. Unknown reasons preserve the current phase. Completing or
 canceling a Task does not PATCH GitHub from Core. Old Remote Agent builds
 simply omit the association.
 
@@ -1136,7 +1144,8 @@ GitHub close-prompt policy.
 
 New Task fields and the Linear variant are strict-reader changes. Deploy
 consumers that understand `projectIds` and both provider variants before Core
-begins returning them. Updated clients send `taskContractVersion=2` on Task
+begins returning them. Version 2 supports these fields. Updated clients send
+`taskContractVersion=3` on Task
 read/write routes. For an older client, Core omits the empty new field from a
 legacy Task and returns `space_task.contract_update_required` (HTTP 426) when
 current Project or Linear facts would otherwise be lost or rejected. Older
@@ -1144,6 +1153,21 @@ clients reject an unsupported Task rather than flatten it to one Project or
 recode a Linear issue as GitHub. The
 published CLI and OpenMeld Service compatibility audit covers the Task
 read/write path before this producer is enabled.
+
+Version 3 adds `{ provider: "github" }` attribution to Task results and events.
+This is not a member actor and grants no mutation, Wake, or Stop authority.
+Every GitHub observation event uses this attribution, including open-state
+observations. Versions 1 and 2 receive HTTP 426 for results or event history
+they cannot represent; mutation admission checks current state and replay
+receipts before side effects. Member-only Tasks remain compatible with version
+2. This requires a coordinated Core/Gateway and Web/Remote Agent/CLI/Service
+rollout: new clients send version 3, which old receivers reject with HTTP 400;
+old clients receive HTTP 426 once provider facts appear. There is no separate
+producer switch or zero-interruption mixed-version guarantee. Install the
+receivers and promptly update consumers before exposing the new workflow.
+Persisted Tasks, events, receipts, and delivery intents
+require the version 3 reader on rollback; do not roll back to a reader that
+rejects provider attribution. No historical attribution is inferred or rewritten.
 
 Gateway `POST /github/app/webhook` forwards the raw body and GitHub delivery
 headers to Core `verifyGitHubAppWebhook`. Core verifies
@@ -1153,8 +1177,8 @@ the existing daemon-dispatch queue. The Space Durable Object
 `rpcApplyGitHubIssueObservation` path has no member context and does not
 start a model turn. Verify the native schema originating in historical D1 migration 0180 before Core and Gateway
 consumers. A missing webhook secret fails closed. Old Gateway builds simply
-lack the route; old Core builds reject the new RPC. No local-component
-upgrade is required.
+lack the route; old Core builds reject the new RPC. The version 3 attribution
+change requires updated local-component Task readers as described above.
 
 The exact-result review change is not compatible with old review producers:
 new Core/Gateway reject review requests without `expectedResultRevision`.

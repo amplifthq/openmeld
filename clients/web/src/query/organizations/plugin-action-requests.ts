@@ -41,11 +41,52 @@ export function usePluginActionRequest(requestId: string) {
 		onSettled: async () => {
 			await Promise.all([
 				client.invalidateQueries({ queryKey }),
+				client.invalidateQueries({
+					queryKey: [
+						"pending-plugin-action-requests",
+						currentUserId,
+						organizationId,
+					],
+				}),
 				invalidateInboxFacts({ organizationId, queryClient: client }),
 			]);
 		},
 	});
 	return { query, mutation };
+}
+
+export function usePendingSpacePluginActionRequests(
+	spaceId: string,
+	activeThreadId: string | null
+) {
+	const { currentOrganization, currentUserId } = useAppOrganization();
+	const organizationId = currentOrganization.id;
+	const api = createPluginsApi(
+		createOrganizationScopedWebOpenMeldApiFoundation({ organizationId })
+	);
+	const query = useQuery({
+		queryKey: [
+			"pending-plugin-action-requests",
+			currentUserId,
+			organizationId,
+			spaceId,
+		],
+		queryFn: () => api.listRequests({ organizationId, spaceId }),
+		refetchInterval: 15_000,
+		staleTime: 15_000,
+		retry: false,
+	});
+	const requests = query.data?.requests ?? [];
+	return {
+		...query,
+		conversation: requests.filter(
+			(request) => !activeThreadId || request.sourceThreadId !== activeThreadId
+		),
+		thread: requests.filter(
+			(request) =>
+				Boolean(activeThreadId) && request.sourceThreadId === activeThreadId
+		),
+	};
 }
 
 export function useMessagePluginActionRequests(

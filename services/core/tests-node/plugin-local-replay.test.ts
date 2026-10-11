@@ -12,6 +12,7 @@ import { digestCanonicalJson } from "@openmeld/utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import capturedActions from "../../remote-agent/tests/fixtures/openconnector-runtime-actions.json";
 import {
+  listPluginActionRequests,
   retryApprovedPluginActionRequests,
   rpcPluginActionRequest,
 } from "../src/connectors/plugin-action-requests";
@@ -42,6 +43,8 @@ vi.mock("../src/organizations/organization-context", () => ({
   }),
 }));
 vi.mock("../src/rpc/methods", () => ({
+  rpcGetSpaceMemberDirectory: vi.fn(async () => undefined),
+  rpcReadPluginActionRequestLocations: vi.fn(async () => []),
   rpcReadPluginConnectionContinuationBinding: async () => null,
   rpcGetSpaceDispatchTrace: admission.trace,
 }));
@@ -239,6 +242,41 @@ async function approveRequest(input = request()) {
 }
 
 describe("Local plugin replay through real operation and connection storage", () => {
+  it("lists all pending requests in the current Space independently of loaded messages", async () => {
+    sourceSpaceId = "space-1";
+    const first = await rpcPluginAction(env, request("offscreen-request"));
+    if (first.kind !== "authorization_required") {
+      throw new Error("Expected approval");
+    }
+    sourceSpaceId = "space-2";
+    await rpcPluginAction(env, request("another-space"));
+    const scope = {
+      context: request().context,
+      expectedOrganizationId: "org-1",
+      spaceId: "space-1",
+    };
+    const listed = await listPluginActionRequests(env, scope);
+    expect(listed.requests.map((item) => item.requestId)).toEqual([
+      first.request.requestId,
+    ]);
+    expect(listed.requests[0]?.sourceSignalId).toBe("original-message");
+    expect(listed.requests[0]?.sourceThreadId).toBeUndefined();
+    const humanContext = {
+      ...scope.context,
+      actorContext: {
+        ...scope.context.actorContext,
+        openMeldProfileId: humanId,
+        profileKind: "human" as const,
+        callerPrincipalId: "user-1",
+      },
+    };
+    await rpcPluginActionRequest(env, {
+      expectedOrganizationId: scope.expectedOrganizationId,
+      context: humanContext,
+      command: { operation: "reject", requestId: first.request.requestId },
+    });
+    expect((await listPluginActionRequests(env, scope)).requests).toEqual([]);
+  });
   it("retains approved delivery while the visible reply is ahead of coordinator completion", async () => {
     sourceSpaceId = "space-1";
     admission.trace.mockResolvedValue({

@@ -7,10 +7,14 @@ audiences: ["members"]
 ---
 
 Plugin action requests now appear on their original Space or Thread message,
-using the same approval card as Local Agent requests. Approving a supported
+and in the expandable pending-action tray above the composer, alongside Local
+Agent requests. Pending actions remain available when the message scrolls out
+of view. Approving a supported
 message request automatically asks the Agent to continue with the approved
 account and action. Inbox shows the same decision.
 
 GitHub issues closed as completed now finish linked Tasks, or submit their
 result for the assigned reviewer. Issues closed as not planned or duplicates
 cancel the Task. An unknown closure reason does not guess a Task outcome.
+Results and Activity recorded by GitHub identify GitHub as their source instead
+of attributing the change to the Task creator.

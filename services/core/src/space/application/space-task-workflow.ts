@@ -787,7 +787,7 @@ export function applyGitHubIssueProviderObservation(input: {
                 resultRevision: observedTask.revision + 1,
                 summary: detail,
                 submittedAt: now,
-                submittedBy: observedTask.createdBy,
+                submittedBy: { provider: "github" },
               },
               review: null,
             }

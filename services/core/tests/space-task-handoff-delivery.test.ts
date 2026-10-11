@@ -1,6 +1,7 @@
 import { env, runInDurableObject } from "cloudflare:test";
 import type { SignalEnvelope } from "@openmeld/protocol";
 import type { SpaceTaskActor } from "@openmeld/schemas/types";
+import { createAuthenticatedSpaceAccessContext } from "@openmeld/space";
 import { describe, expect, it, vi } from "vitest";
 import type { SpaceTaskService } from "../src/space/application/space-task-service";
 import { upsertSpaceMemberRecord } from "../src/space/infrastructure/sql/space-member-repo";
@@ -131,6 +132,52 @@ describe("Space Task handoff delivery", () => {
             placement: "root",
             createdAt: now,
           });
+        }
+        const reply = { ...source, id: "thread-reply" };
+        if (threadId) {
+          insertSignalRecord(state.storage.sql, reply);
+          insertSpaceThreadSignalPlacement(state.storage.sql, {
+            signalId: reply.id,
+            threadId,
+            placement: "thread",
+            createdAt: now,
+          });
+        }
+        // A main message with replies stays in main; only replies belong to the Thread.
+        const context = {
+          actorContext: {
+            openMeldProfileId: requester.profileId,
+            ownerUserId: requester.ownerUserId ?? undefined,
+            profileKind: "human" as const,
+            requestId: "location-read",
+          },
+        };
+        const admission = vi
+          .spyOn(
+            instance as unknown as {
+              authorizeSpaceAccess: () => Promise<{ ok: true }>;
+            },
+            "authorizeSpaceAccess"
+          )
+          .mockResolvedValue({ ok: true });
+        try {
+          expect(
+            await instance.rpcReadPluginActionRequestLocations({
+              context,
+              expectedOrganizationId: "org-task-handoff",
+              spaceId,
+              sourceSignalIds: [source.id, reply.id, "missing-message"],
+              spaceAccess: createAuthenticatedSpaceAccessContext({
+                requestContext: context,
+                spaceId,
+              }),
+            })
+          ).toEqual([
+            { sourceSignalId: source.id, threadId: null },
+            ...(threadId ? [{ sourceSignalId: reply.id, threadId }] : []),
+          ]);
+        } finally {
+          admission.mockRestore();
         }
         const issue = {
           provider: "github" as const,

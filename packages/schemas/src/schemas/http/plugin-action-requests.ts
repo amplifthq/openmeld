@@ -43,17 +43,24 @@ export const pluginActionRequestViewSchema = z.strictObject({
   createdAtMs: z.number().int(),
   expiresAtMs: z.number().int(),
   sourceSignalId: z.string().nullish(),
+  sourceThreadId: z.string().nullish(),
   continuation: z.enum(["pending", "requested", "unavailable"]).nullish(),
 });
 export const listPluginActionRequestsInputSchema = z.strictObject({
   context: openMeldRequestContextSchema,
   expectedOrganizationId: z.string().min(1),
   spaceId: z.string().min(1),
-  sourceSignalIds: z.array(z.string().min(1)).min(1).max(1000),
+  sourceSignalIds: z.array(z.string().min(1)).min(1).max(1000).optional(),
 });
 export const listPluginActionRequestsResponseSchema = z.strictObject({
   requests: z.array(pluginActionRequestViewSchema),
 });
+export const pluginActionRequestLocationsSchema = z.array(
+  z.strictObject({
+    sourceSignalId: z.string().min(1),
+    threadId: z.string().min(1).nullable(),
+  })
+);
 export const pluginActionRequestContinuationSchema = z.strictObject({
   context: openMeldRequestContextSchema,
   state: z.enum(["pending", "requested", "unavailable"]),
@@ -104,6 +111,7 @@ export function projectPluginActionRequestView(
   }
   const {
     sourceSignalId: _source,
+    sourceThreadId: _thread,
     continuation: _continuation,
     ...legacy
   } = view;

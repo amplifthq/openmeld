@@ -91,6 +91,9 @@ describe("GitHub issue provider observation", () => {
     });
     expect((result.settle ?? result.observe)?.task.phase).toBe(phase);
     if (reason === "completed") {
+      expect(result.settle?.task.result?.submittedBy).toEqual({
+        provider: "github",
+      });
       expect(result.settle?.task.result?.summary).toContain("completed");
       expect(result.settle?.task.review).toBeNull();
     }
@@ -162,6 +165,11 @@ describe("GitHub issue provider observation", () => {
 
       expect(observe("closed", 1, "delivery-close-1").canceled).toBe(true);
       const firstClose = service.read(created.task.taskId);
+      expect(
+        firstClose.events
+          .filter((event) => event.type !== "created")
+          .map((event) => event.actor)
+      ).toEqual([{ provider: "github" }, { provider: "github" }]);
       observe("closed", 1, "delivery-close-1");
       expect(service.read(created.task.taskId)).toEqual(firstClose);
       expect(observe("open", 2, "delivery-open-1").task).toMatchObject({

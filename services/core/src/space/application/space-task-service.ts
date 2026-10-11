@@ -296,7 +296,7 @@ export class SpaceTaskService {
       let observedTask = current;
       if (planned.observe && !previousObserve) {
         const event = this.buildEvent({
-          actor: current.createdBy,
+          actor: { provider: "github" },
           detail: planned.observe.detail,
           fromPhase: current.phase,
           operationId: input.observeOperationId,
@@ -354,7 +354,7 @@ export class SpaceTaskService {
         };
       }
       const settleEvent = this.buildEvent({
-        actor: current.createdBy,
+        actor: { provider: "github" },
         detail: planned.settle.detail,
         fromPhase: observedTask.phase,
         operationId: input.settleOperationId,
@@ -426,7 +426,7 @@ export class SpaceTaskService {
     task: SpaceTaskMutationReceipt["task"];
     operationId: string;
     type: SpaceTaskEvent["type"];
-    actor: SpaceTaskActor;
+    actor: SpaceTaskEvent["actor"];
     fromPhase: SpaceTaskPhase | null;
     detail: string | null;
   }): SpaceTaskEvent {

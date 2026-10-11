@@ -9432,6 +9432,27 @@ export class Space extends DurableObject<CoreBindings> {
     taskContext: SpaceTaskMutationContext
   ): Promise<SpaceTaskMutationReceipt> {
     await this.armSpaceTaskRecovery();
+    const { assertSpaceTaskClientCanRead } = await import(
+      "../../application/space-task-client-compatibility"
+    );
+    // Check at the mutation owner after asynchronous admission, including a
+    // stored retry receipt. An old client must fail before any Task changes.
+    const current = this.spaceTaskService.read(input.taskId);
+    assertSpaceTaskClientCanRead(
+      current.task,
+      current.events,
+      input.taskContractVersion
+    );
+    const previous = new SpaceTaskRepository(
+      this.ctx.storage.sql
+    ).readOperation(input.body.operationId);
+    if (previous) {
+      assertSpaceTaskClientCanRead(
+        previous.receipt.task,
+        [previous.receipt.event],
+        input.taskContractVersion
+      );
+    }
     if (input.body.action === "cancel") {
       this.captureSpaceTaskWakeReferences(input.taskId);
     }
@@ -12064,6 +12085,49 @@ export class Space extends DurableObject<CoreBindings> {
       });
     }
     return signal;
+  }
+  async rpcReadPluginActionRequestLocations(
+    input: import("zod/v4").infer<
+      typeof import("@openmeld/schemas").listPluginActionRequestsInputSchema
+    > & {
+      spaceAccess: SpaceAccessContext;
+    }
+  ) {
+    return await withPostgresRequest(
+      this.bindings.OPENMELD_POSTGRESQL,
+      async () => {
+        this.applySpaceRef(input.spaceId);
+        await assertRpcSpaceAccessAuthorized(
+          await this.authorizeSpaceAccess(input.spaceAccess)
+        );
+        const {
+          listPluginActionRequestsInputSchema,
+          pluginActionRequestLocationsSchema,
+        } = await import("@openmeld/schemas");
+        const { spaceAccess: _, ...value } = input;
+        const parsed = listPluginActionRequestsInputSchema.parse(value);
+        return pluginActionRequestLocationsSchema.parse(
+          (parsed.sourceSignalIds ?? []).flatMap((sourceSignalId) => {
+            const signal = this.readSignalById(sourceSignalId);
+            if (
+              !signal ||
+              signal.type !== "signal.text" ||
+              signal.data.meta?.recalledAt !== undefined
+            ) {
+              return [];
+            }
+            return [
+              {
+                sourceSignalId,
+                threadId:
+                  this.resolveThreadContextForSignal(sourceSignalId)
+                    ?.threadId ?? null,
+              },
+            ];
+          })
+        );
+      }
+    );
   }
   async rpcGetMessageLinks(
     input: GetSpaceMessageDetailsInput & {

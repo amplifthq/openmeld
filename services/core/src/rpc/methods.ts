@@ -1299,7 +1299,6 @@ import {
   SPACE_MEMBER_NAME_READ_BUDGET_MS,
 } from "../space/application/space-members-service";
 import {
-  assertLegacySpaceTaskCanRead,
   projectSpaceTaskDetailForClient,
   projectSpaceTaskReceiptForClient,
   projectSpaceTasksForClient,
@@ -22645,6 +22644,19 @@ export async function rpcGetSpaceLinkPreviews(
     previews: current.revision === source.revision ? previews : [],
   };
 }
+export async function rpcReadPluginActionRequestLocations(
+  env: CoreBindings,
+  input: import("zod/v4").infer<
+    typeof import("@openmeld/schemas").listPluginActionRequestsInputSchema
+  >
+) {
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcReadPluginActionRequestLocations({
+    ...input,
+    spaceId,
+    spaceAccess: resolveRpcSpaceAccess(input),
+  });
+}
 export async function rpcGetSpaceMessageDetails(
   env: CoreBindings,
   input: GetSpaceMessageDetailsInput
@@ -26533,7 +26545,7 @@ export async function rpcSpaceInputQueue(
 
 export type ListSpaceTasksInput = GetSpaceMetaInput & {
   phase?: SpaceTaskPhase;
-  taskContractVersion?: typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
+  taskContractVersion?: 2 | typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
 };
 export type GetSpaceTaskInput = GetSpaceMetaInput &
   SpaceTaskDetailOptions & {
@@ -26541,12 +26553,12 @@ export type GetSpaceTaskInput = GetSpaceMetaInput &
   };
 export type CreateSpaceTaskInput = GetSpaceMetaInput & {
   body: CreateSpaceTaskBody;
-  taskContractVersion?: typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
+  taskContractVersion?: 2 | typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
 };
 export type MutateSpaceTaskInput = GetSpaceMetaInput & {
   taskId: string;
   body: MutateSpaceTaskBody;
-  taskContractVersion?: typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
+  taskContractVersion?: 2 | typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
 };
 export async function rpcSpaceFilePins(
   env: CoreBindings,
@@ -26628,13 +26640,13 @@ export async function rpcCreateSpaceTask(
   const parsedBody = createSpaceTaskBodySchema.parse(input.body);
   if (
     parsedBody.projectIds?.length &&
-    input.taskContractVersion !== SPACE_TASK_WORKFLOW_CONTRACT_VERSION
+    input.taskContractVersion === undefined
   ) {
     throw spaceTaskContractUpdateRequiredError();
   }
   if (
     parsedBody.externalWorkItems?.some((item) => item.provider === "linear") &&
-    input.taskContractVersion !== SPACE_TASK_WORKFLOW_CONTRACT_VERSION
+    input.taskContractVersion === undefined
   ) {
     throw spaceTaskContractUpdateRequiredError();
   }
@@ -26684,22 +26696,15 @@ export async function rpcMutateSpaceTask(
     spaceId,
     requireRpcContext(input.context)
   );
-  if (input.taskContractVersion !== SPACE_TASK_WORKFLOW_CONTRACT_VERSION) {
-    if (
-      input.body.action === "set_projects" ||
+  if (
+    input.taskContractVersion !== SPACE_TASK_WORKFLOW_CONTRACT_VERSION &&
+    input.taskContractVersion === undefined &&
+    (input.body.action === "set_projects" ||
       input.body.action === "detach_linear_external_work_item" ||
       (input.body.action === "attach_external_work_item" &&
-        input.body.item.provider === "linear")
-    ) {
-      throw spaceTaskContractUpdateRequiredError();
-    }
-    const current = await stub.rpcGetTask({
-      context,
-      password: input.password,
-      spaceId,
-      taskId: input.taskId,
-    });
-    assertLegacySpaceTaskCanRead(current.task, current.events);
+        input.body.item.provider === "linear"))
+  ) {
+    throw spaceTaskContractUpdateRequiredError();
   }
   if (input.body.action === "set_projects") {
     const command = mutateSpaceTaskBodySchema.parse(input.body);

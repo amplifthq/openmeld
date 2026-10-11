@@ -68,6 +68,7 @@ export {
   pluginActionRequestCommandSchema,
   pluginActionRequestContinuationSchema,
   pluginActionRequestIntentSchema,
+  pluginActionRequestLocationsSchema,
   pluginActionRequestViewSchema,
   projectPluginActionRequestView,
 } from "./http/plugin-action-requests";
