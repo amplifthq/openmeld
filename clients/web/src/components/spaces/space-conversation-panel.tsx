@@ -148,7 +148,6 @@ import {
 import type { SpaceMessageReferencesById } from "./space-message-reference";
 import {
 	buildThreadSignalIds,
-	isModifiedNavigationClick,
 	readMessageDetailsProgressEntries,
 	resolveCenterAgentComputerSetupContext,
 	resolveReplyItemsForMessage,
@@ -637,13 +636,17 @@ function SpaceConversationPanelContent(
 			)}
 			data-space-history-rail={showHistoryRail}
 		>
-			{input.historyActionErrorMessage || input.historyErrorMessage ? (
-				<div className="border-border border-b bg-destructive/10 px-4 py-3 text-destructive text-sm sm:px-5">
-					{input.historyActionErrorMessage ?? input.historyErrorMessage}
-				</div>
-			) : null}
+			<SpaceHistoryErrorBanner
+				message={input.historyActionErrorMessage ?? input.historyErrorMessage}
+				navigation={input.historyNavigation}
+			/>
 			{renderInitialSpaceFocusStatus({
-				mainMessage: mainFocusStatusMessage,
+				mainMessage:
+					input.historyNavigation?.error ||
+					input.historyNavigation?.pending ||
+					input.historyNavigation?.notice
+						? null
+						: mainFocusStatusMessage,
 				historyNotice: input.historyNavigation?.notice,
 			})}
 			{input.activeSpaceView === "messages" ? (
@@ -875,6 +878,37 @@ function SpaceConversationPanelContent(
 				/>
 			) : null}
 		</section>
+	);
+}
+
+function SpaceHistoryErrorBanner({
+	message,
+	navigation,
+}: {
+	message?: string | null;
+	navigation?: SpaceHistoryNavigationController;
+}) {
+	if (!message) {
+		return null;
+	}
+	return (
+		<div
+			className="flex items-center justify-between gap-3 border-border border-b bg-destructive/10 px-4 py-3 text-destructive text-sm sm:px-5"
+			role="alert"
+		>
+			<span>{message}</span>
+			{navigation?.error && navigation.retry && (
+				<Button
+					className="shrink-0"
+					disabled={navigation.pending}
+					onClick={() => navigation.retry?.()}
+					size="sm"
+					variant="outline"
+				>
+					{navigation.pending ? "Retrying…" : "Retry"}
+				</Button>
+			)}
+		</div>
 	);
 }
 
@@ -1489,12 +1523,20 @@ function useSpaceConversationNavigationController(input: {
 		}
 	}, [pendingPinJump, input.mainTimelineItems, jumpToMessage]);
 	const revealHistoryTarget = async (signalId: string) => {
-		const loaded = await input.onLoadHistoryAround?.(signalId);
-		if (loaded === "latest") {
-			followLatest();
-		} else if (loaded) {
-			setPendingPinJump(signalId);
-		}
+		setMainFocusStatusMessage(null);
+		setPendingPinJump(null);
+		const loaded = await input.onLoadHistoryAround?.(
+			signalId,
+			undefined,
+			(result) => {
+				setMainFocusStatusMessage(null);
+				if (result === "latest") {
+					followLatest();
+				} else {
+					setPendingPinJump(signalId);
+				}
+			}
+		);
 		return Boolean(loaded);
 	};
 	const onJumpToPinnedMessage = useLatestCallback(async (signalId: string) => {
@@ -1562,6 +1604,11 @@ function useSpaceConversationNavigationController(input: {
 				if (messageElementsBySignalIdRef.current.has(signalId)) {
 					jumpToMessage(signalId);
 				} else if (!(await revealHistoryTarget(signalId))) {
+					// The history owner keeps the failed target and its single Retry
+					// banner. Its completion callback also handles later recovery.
+					if (input.onLoadHistoryAround) {
+						return false;
+					}
 					throw new Error(
 						"Couldn’t find this unread message. Refresh this Space and try again."
 					);
@@ -1585,11 +1632,12 @@ function useSpaceConversationNavigationController(input: {
 		: null;
 	const loadFocusHistory = useLatestCallback(
 		async (signalId: string, signal: AbortSignal) => {
-			const loaded = await input.onLoadHistoryAround?.(signalId, signal);
-			if (!signal.aborted && loaded === "latest") {
-				appliedInitialFocusRef.current = targetKey;
-				followLatest();
-			}
+			await input.onLoadHistoryAround?.(signalId, signal, (loaded) => {
+				if (!signal.aborted && loaded === "latest") {
+					appliedInitialFocusRef.current = targetKey;
+					followLatest();
+				}
+			});
 		}
 	);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: A different route target owns a new request lifetime, including a switch to a loaded message or Thread.
@@ -2392,8 +2440,7 @@ function LoadNewerMessagesControl(input: {
 	const hasAfter = input.history?.activeWindow?.hasAfter;
 	const pending = input.history?.pending;
 	const pendingDirection = input.history?.pendingDirection;
-	const error =
-		input.history?.errorDirection === "after" ? input.history.error : null;
+	const error = input.history?.error;
 	useEffect(() => {
 		const scrollElement = input.scrollElement;
 		if (!hasAfter) {
@@ -2436,45 +2483,11 @@ function LoadNewerMessagesControl(input: {
 		pending,
 		error,
 	]);
-	if (!hasAfter) {
-		return null;
-	}
-	if (!error) {
-		return pending && pendingDirection === "after" ? (
-			<output className="mx-auto mt-4 mb-16 text-muted-foreground text-sm">
-				Loading newer messages…
-			</output>
-		) : null;
-	}
-	const history = input.history;
-	if (!history) {
-		return null;
-	}
-	const href = history.newerHref;
-	return (
-		<Button
-			className="mx-auto mt-4 mb-16"
-			disabled={history.pending}
-			nativeButton={!href}
-			onClick={(event) => {
-				if (href && isModifiedNavigationClick(event)) {
-					return;
-				}
-				event.preventDefault();
-				history.loadAfter();
-			}}
-			render={
-				href ? (
-					<a href={href}>
-						<span className="sr-only">Retry loading newer messages</span>
-					</a>
-				) : undefined
-			}
-			variant="ghost"
-		>
-			Retry loading newer messages
-		</Button>
-	);
+	return hasAfter && !error && pending && pendingDirection === "after" ? (
+		<output className="mx-auto mt-4 mb-16 text-muted-foreground text-sm">
+			Loading newer messages…
+		</output>
+	) : null;
 }
 
 function buildThreadPreviewByThreadId(
