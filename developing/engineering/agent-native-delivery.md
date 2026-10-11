@@ -511,7 +511,7 @@ existing repair owner. Use the non-interactive Space:
 
 ```text
 [Agent Experience] OpenMeld CLI, Service & Workflow Feedback
-https://openmeld.ai/o/amplift/spaces/5020df25e3a4a1ae0e292b664ca0f3726eaa0ec1cc1ceacc5cd18d7eaa6cb378
+https://app.openmeld.ai/spaces/5020df25e3a4a1ae0e292b664ca0f3726eaa0ec1cc1ceacc5cd18d7eaa6cb378
 ```
 
 ### Check eligibility before posting
@@ -525,16 +525,19 @@ All three conditions must hold:
    impact. A failure notice alone does not establish a product defect. If the
    evidence is insufficient, keep investigating in the task instead of posting.
 2. **You will not take on the repair.** If you intend to investigate and fix it,
-   keep the evidence and progress in your task and PR. This applies before you
+   keep the evidence and progress in your task and PR. Do not first post a
+   temporary occurrence record to the feedback Space. This applies before you
    create a branch or PR, during implementation, and while awaiting review or
    release. If you later leave a confirmed problem unresolved without an owner,
    check eligibility again and report it as a handoff.
-3. **No existing repair or duplicate report.** Check relevant open PRs, known
-   active tasks, and a bounded recent Space history. Inspect actual scope;
-   a similar PR title or Activity status does not prove coverage or ownership.
-   An existing repair owner counts even without a PR. Keep additional evidence
-   with that task or PR. For an existing unowned Space report, add material new
-   evidence in its thread instead of creating another top-level report.
+3. **No existing repair or duplicate report.** Check relevant open and merged
+   PRs, known active tasks, and a bounded recent Space history. Inspect actual
+   scope and repair evidence. A similar PR title or Activity status does not
+   prove coverage or ownership. Another Agent or developer who explicitly owns
+   the repair counts even without a PR. Keep additional evidence with that task
+   or PR. Do not post duplicate reports or repair progress to the feedback
+   Space. For an existing unowned Space report, add material new evidence in its
+   thread instead of creating another top-level report.
 
 Cloud, Web, Desktop, CLI, and Service product behavior can qualify. Problems
 confined to a development branch, staging, fixtures, internal build, CI/CD,
@@ -546,9 +549,25 @@ reproduce a dangerous fault in production just to qualify for this Space.
 Expected permission, input, quota, and upstream failures are not product bugs
 when OpenMeld handles them correctly. Concrete mishandling, such as lost
 results or a false success state, can qualify. Exclude speculative causes,
-abstract feature wishes, already-fixed problems, and repair or acceptance
-progress updates. A missing deployment of an existing fix belongs with that
-release, not in a new feedback report.
+abstract feature wishes, and repair or acceptance progress updates.
+
+### Fixed problems and new evidence
+
+Do not treat an already-fixed problem as pending feedback. This includes a fix
+in an owning task or PR and a fix merged into `origin/main`, whether deployed
+or not. Deployment lag does not create a new unresolved report. Keep release
+status and observations from older installations with the owning task or PR.
+
+A claim that a problem was fixed does not override new evidence. If the problem
+still reproduces on fresh `origin/main`, record the checked commit, reproduction,
+and claimed fix in the owning task first. Distinguish an incomplete fix, a
+regression after the fix, and a separate new problem. A repeated symptom from
+an older branch or undeployed version does not establish a recurrence.
+Apply all eligibility checks again before posting. If a repair owner remains,
+keep the new evidence with that owner. Otherwise, use the existing report's
+thread for the same unresolved problem. Create a new report only for a distinct
+problem or a confirmed recurrence after resolution, and link the prior report
+or fix when available.
 
 ### One report per unresolved problem
 
