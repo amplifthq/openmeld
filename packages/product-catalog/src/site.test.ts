@@ -23,14 +23,14 @@ describe("site metadata", () => {
     expect(readMetaProperty(head, "og:url")).toBe(siteConfig.url);
     expect(readMetaProperty(head, "og:description")).toBe(description);
     expect(readMetaProperty(head, "og:image")).toBe(
-      "https://openmeld.ai/brand/openmeld-letter-o-glow-black-1024.jpg"
+      "https://openmeld.ai/brand/openmeld-social-1200x630.png"
     );
     expect(readMetaProperty(head, "og:image:alt")).toBe("OpenMeld");
-    expect(readMetaName(head, "twitter:card")).toBe("summary");
+    expect(readMetaName(head, "twitter:card")).toBe("summary_large_image");
     expect(readMetaName(head, "twitter:title")).toBe(title);
     expect(readMetaName(head, "twitter:description")).toBe(description);
     expect(readMetaName(head, "twitter:image")).toBe(
-      "https://openmeld.ai/brand/openmeld-letter-o-glow-black-1024.jpg"
+      "https://openmeld.ai/brand/openmeld-social-1200x630.png"
     );
     expect(readMetaName(head, "twitter:image:alt")).toBe("OpenMeld");
   });

@@ -1,3 +1,4 @@
+import type { AccountOrganizationContext } from "@openmeld/schemas";
 import {
 	cleanup,
 	fireEvent,
@@ -12,8 +13,8 @@ import type {
 	OrganizationScopeAuthorized,
 	OrganizationSummary,
 } from "#/lib/organizations/organization-types";
+import { accountOrganizationContextQueryKey } from "#/query/organizations/account-organization-context";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
-import { organizationScopeQueryKeys } from "#/query/organizations/organization-scope";
 import {
 	createTestQueryClient,
 	TestQueryClientProvider,
@@ -48,6 +49,20 @@ const updateOrganizationMock = vi.hoisted(() => vi.fn());
 
 let currentOrganization: OrganizationSummary;
 let organizations: OrganizationSummary[];
+
+function makeAccountContext(): AccountOrganizationContext {
+	const scope = makeOrganizationScope();
+	return {
+		account: {
+			email: scope.account.email ?? null,
+			name: scope.account.name ?? null,
+			image: scope.account.image ?? null,
+		},
+		currentUserId: scope.currentUserId,
+		organizations: scope.organizations,
+		defaultOrganizationId: scope.activeOrganization?.id ?? null,
+	};
+}
 
 function makeOrganizationScope(): OrganizationScopeAuthorized {
 	return {
@@ -327,11 +342,8 @@ describe("OrganizationSettingsPage", () => {
 	it("lets only the owner crop and upload an Organization logo", async () => {
 		getActiveOrganizationMemberRoleMock.mockResolvedValue("owner");
 		const queryClient = createTestQueryClient();
-		const organizationScopeQueryKey = organizationScopeQueryKeys.bySlug("acme");
-		queryClient.setQueryData(
-			organizationScopeQueryKey,
-			makeOrganizationScope()
-		);
+		const organizationScopeQueryKey = accountOrganizationContextQueryKey;
+		queryClient.setQueryData(organizationScopeQueryKey, makeAccountContext());
 		render(
 			<TestQueryClientProvider queryClient={queryClient}>
 				<OrganizationSettingsPage />
@@ -369,18 +381,10 @@ describe("OrganizationSettingsPage", () => {
 			});
 			expect(routerInvalidateMock).toHaveBeenCalledWith({ sync: true });
 			expect(
-				queryClient.getQueryData<OrganizationScopeAuthorized>(
+				queryClient.getQueryData<AccountOrganizationContext>(
 					organizationScopeQueryKey
 				)
 			).toMatchObject({
-				activeOrganization: {
-					id: "org-acme",
-					logo: "https://gateway.example/v1/organization-logos/org-acme/logo.webp",
-				},
-				currentOrganization: {
-					id: "org-acme",
-					logo: "https://gateway.example/v1/organization-logos/org-acme/logo.webp",
-				},
 				organizations: [
 					{ id: "org-personal" },
 					{
@@ -712,11 +716,8 @@ describe("OrganizationSettingsPage", () => {
 			currentOrganization,
 		];
 		const queryClient = createTestQueryClient();
-		const organizationScopeQueryKey = organizationScopeQueryKeys.bySlug("acme");
-		queryClient.setQueryData(
-			organizationScopeQueryKey,
-			makeOrganizationScope()
-		);
+		const organizationScopeQueryKey = accountOrganizationContextQueryKey;
+		queryClient.setQueryData(organizationScopeQueryKey, makeAccountContext());
 		render(
 			<TestQueryClientProvider queryClient={queryClient}>
 				<OrganizationSettingsPage />
@@ -730,12 +731,10 @@ describe("OrganizationSettingsPage", () => {
 			});
 			expect(routerInvalidateMock).toHaveBeenCalledWith({ sync: true });
 			expect(
-				queryClient.getQueryData<OrganizationScopeAuthorized>(
+				queryClient.getQueryData<AccountOrganizationContext>(
 					organizationScopeQueryKey
 				)
 			).toMatchObject({
-				activeOrganization: { id: "org-acme", logo: null },
-				currentOrganization: { id: "org-acme", logo: null },
 				organizations: [{ id: "org-personal" }, { id: "org-acme", logo: null }],
 			});
 		});
@@ -853,34 +852,12 @@ describe("OrganizationSettingsPage", () => {
 		getActiveOrganizationMemberRoleMock.mockResolvedValue("owner");
 		const queryClient = createTestQueryClient();
 		const personalOrganization = organizations[0] as OrganizationSummary;
-		const personalScopeQueryKey = organizationScopeQueryKeys.bySlug(
-			personalOrganization.slug
-		);
-		const deletedScopeQueryKey = organizationScopeQueryKeys.bySlug(
-			currentOrganization.slug
-		);
 		const deletedJoinLinkQueryKey = organizationQueryKeys.joinLink(
 			currentOrganization.id
 		);
-		queryClient.setQueryData<OrganizationScopeAuthorized>(
-			personalScopeQueryKey,
-			{
-				access: "authorized",
-				account: {
-					email: "owner@example.com",
-					image: null,
-					name: "Owner",
-				},
-				activeOrganization: currentOrganization,
-				currentOrganization: personalOrganization,
-				currentUserId: "user-owner",
-				organizations,
-				storageScope: "org-personal",
-			}
-		);
-		queryClient.setQueryData<OrganizationScopeAuthorized>(
-			deletedScopeQueryKey,
-			makeOrganizationScope()
+		queryClient.setQueryData(
+			accountOrganizationContextQueryKey,
+			makeAccountContext()
 		);
 		queryClient.setQueryData(deletedJoinLinkQueryKey, null);
 
@@ -930,15 +907,13 @@ describe("OrganizationSettingsPage", () => {
 				to: "/o/owner/spaces",
 			});
 			expect(
-				queryClient.getQueryData<OrganizationScopeAuthorized>(
-					personalScopeQueryKey
+				queryClient.getQueryData<AccountOrganizationContext>(
+					accountOrganizationContextQueryKey
 				)
 			).toMatchObject({
-				activeOrganization: personalOrganization,
-				currentOrganization: personalOrganization,
+				defaultOrganizationId: personalOrganization.id,
 				organizations: [personalOrganization],
 			});
-			expect(queryClient.getQueryData(deletedScopeQueryKey)).toBeUndefined();
 			expect(queryClient.getQueryData(deletedJoinLinkQueryKey)).toBeUndefined();
 		});
 	});

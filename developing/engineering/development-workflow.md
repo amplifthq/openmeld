@@ -135,9 +135,10 @@ environment callback, or no coordination best fits the actual work.
   value; it is not a merge authority or a required relay.
 - Use [Agent Experience Feedback](agent-native-delivery.md#agent-experience-feedback)
   for confirmed current-origin product problems that need another owner.
-  Follow its evidence and ownership checks before posting. Keep problems you
-  plan to fix, existing repairs, uncertain symptoms, and internal development
-  or validation findings in the owning task, PR, or issue.
+  Follow its evidence, repair-status, and ownership checks before posting,
+  including its rules for fixed problems and new evidence. Keep problems you
+  plan to fix, repairs owned by others, uncertain symptoms, and internal
+  development or validation findings in the owning task, PR, or issue.
   For ordinary development coordination, an authorized native fallback may
   keep delivery moving. When Wake itself is the product behavior under smoke,
   only the visible product path proves success.
@@ -2201,6 +2202,49 @@ promote it to `required`. Do not bump versions or stamp the manifest on a
 feature/docs branch that will not publish.
 
 ## Desktop Preview Release Workflow
+
+### Optional GitHub macOS release
+
+`.github/workflows/desktop-release.yml` provides a manual `macos-15` lane for
+the same production package, immutable upload, and guarded promotion commands
+used locally. Dispatch it from `main` with an exact merged `release_sha` (or
+leave the SHA empty to select the dispatched main commit).
+
+- `operation=candidate` builds, signs, notarizes, verifies, and uploads a
+  macOS arm64 candidate. It does not change the stable channel. The run summary
+  records the version, source SHA, candidate hash, and public candidate page.
+  Build and publication are separate jobs. Retry a failed publication with
+  **Re-run failed jobs** to reuse the signed bundle. If the prior attempt already
+  published the complete candidate, the uploader verifies the same authoritative
+  metadata and both public artifacts without overwriting them.
+- Complete the public-download and installed acceptance below. Then explicitly
+  dispatch `operation=promote` with the same `release_sha`, successful
+  `candidate_run_id`, reviewed `candidate_hash`, and `expected_version` (or
+  `none` for an empty channel). This restores the signed files from that run,
+  rechecks them against R2 and the public downloads, and uses the existing
+  shared `web` lease and sole promoted pointer. It does not rebuild or resign.
+- GitHub retains the signed promotion bundle for 30 days. Preserve the bundle
+  locally if promotion will happen later; the immutable R2 candidate remains
+  available. Do not rebuild an already reviewed candidate for promotion.
+
+Both lanes use the existing company Developer ID and notarization account.
+The GitHub `production` environment supplies the same six `APPLE_*` credentials
+as the CLI release: the P12 certificate and password, P8 key, key ID, issuer ID,
+and team ID. The shared Apple signing owner imports them into an ephemeral
+Keychain, gives Electron Builder its Keychain path and notary profile, and
+removes the temporary credentials after packaging. Local releases continue to
+use the installed Keychain identity and `openmeld-notary` profile. No second
+certificate, updater feed, or publication implementation is introduced.
+GitHub's existing `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` environment
+secrets supply the named Desktop publisher contract.
+Validate a replacement P12 with native `security import` before synchronizing
+it. OpenSSL accepting a P12 password does not prove native Keychain support.
+
+The workflow supports macOS arm64 only. A successful candidate run proves
+packaging and upload, not installed launch, login, or A-to-B update acceptance.
+Windows signing and release remain on their existing native lane.
+
+### Shared candidate and promotion procedure
 
 For the current promoted source and version on each platform, use the read-only
 [Desktop release status](production-release.md#desktop-release-coverage) before

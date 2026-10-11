@@ -622,6 +622,9 @@ export type RemoteAgentCoreWorkerBinding = {
   }): Promise<CenterAgentSpaceAuthoringContractResponse>;
   centerAgentReadDispatchHistory?(input: unknown): Promise<unknown>;
   centerAgentReadSpaceContext?(input: unknown): Promise<unknown>;
+  remoteAgentReadMessages?(
+    input: import("@openmeld/schemas").MessageReadRpcInput
+  ): Promise<import("@openmeld/schemas").MessageReadPage>;
   centerAgentReadSpaceWakeProgress?(input: unknown): Promise<unknown>;
   centerAgentStopSpaceWake?(input: unknown): Promise<unknown>;
   centerAgentSpaceInputQueue?(input: unknown): Promise<unknown>;

@@ -147,10 +147,11 @@ export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
 							inbox.data?.ordinarySpaceUnreadCount ?? 0
 						),
 						chatUnreadCount: inbox.data?.chatUnreadCount,
-						chatAttentionTone: resolveInboxAttentionTone({
-							unresolvedActionCount: inbox.data?.chatUnresolvedActionCount,
-							unreadUrgentUpdateCount: inbox.data?.chatUnreadUrgentUpdateCount,
-						}),
+						spacesAttentionTone: inbox.data?.attention?.some((entry) =>
+							resolveInboxAttentionTone(entry)
+						)
+							? "warning"
+							: null,
 						prefetchCenterAgentConversation,
 					}).map((group, index) => (
 						<AppRailNavigationGroup

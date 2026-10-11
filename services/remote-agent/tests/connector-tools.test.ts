@@ -24,6 +24,8 @@ import {
   createSubmitTurnRequest,
   TEST_NOW_MS,
 } from "./fixtures";
+// Selected fields captured from GitHub GET /repos/amplifthq/openmeld/issues/1649 on 2026-10-11.
+import capturedGitHubIssue from "./fixtures/github-issue-observation.json";
 import { linearIssueCreateInputSchema } from "./fixtures/linear-issue-action";
 import openConnectorRuntimeActions from "./fixtures/openconnector-runtime-actions.json";
 import { InMemoryDurableObjectStorage } from "./storage";
@@ -50,6 +52,91 @@ const CONNECTOR_OPERATION_ATTRIBUTION = {
   },
 } as const;
 describe("Remote Agent generic App tools", () => {
+  it("retains provider completion while Task synchronization is pending", async () => {
+    const storage = await createStorage(createSubmitTurnRequest());
+    const issue = {
+      ...capturedGitHubIssue,
+      state: "closed",
+      state_reason: "completed",
+    };
+    const actionInput = {
+      owner: "amplifthq",
+      repo: "openmeld",
+      issueNumber: issue.number,
+      state: "closed",
+    };
+    const record = vi.fn(async () => ({
+      attribution: CONNECTOR_OPERATION_ATTRIBUTION,
+      operationId: "close-issue",
+      providerExecutionId: "github-result",
+      recorded: true,
+      replayed: false,
+      status: "completed" as const,
+      githubTaskSync: { status: "pending", closedTaskIds: [] },
+    }));
+    const toolContext = await buildRemoteAgentToolContext({
+      storage,
+      submissionId: ACK.submissionId,
+      toolName: "github_update_issue",
+    });
+    const result = await runAndFinalizeConnectorAction({
+      githubActor: "requester",
+      connectionName: "github-personal",
+      requestSignature: "c".repeat(64),
+      toolContext,
+      request: {
+        actionId: "github.update_issue",
+        service: "github",
+        operationId: "close-issue",
+        input: actionInput,
+      },
+      dependencies: {
+        storage,
+        submissionId: ACK.submissionId,
+        coreWorker: {
+          centerAgentRecordConnectorActionOperation: record as never,
+        },
+        connectorExecution: {
+          baseUrl: "https://connectors.example.test",
+          runtimeToken: "test-runtime-token",
+          fetch: vi.fn<typeof fetch>(async () =>
+            Response.json({
+              data: issue,
+              message: "OK",
+              meta: {
+                actionId: "github.update_issue",
+                auditPersisted: true,
+                executionId: "github-result",
+              },
+              success: true,
+            })
+          ),
+        },
+      },
+    });
+    expect(result.data).toEqual(issue);
+    expect(result.githubTaskSync).toEqual({
+      status: "pending",
+      closedTaskIds: [],
+    });
+    expect(record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: "completed",
+        githubIssueCompletion: {
+          githubActor: "requester",
+          actionInput,
+          observation: {
+            owner: "amplifthq",
+            repo: "openmeld",
+            number: issue.number,
+            state: issue.state,
+            stateReason: issue.state_reason,
+            updatedAt: issue.updated_at,
+          },
+        },
+      })
+    );
+  });
   it.each([
     ["completed", "direct"],
     ["failed", "direct"],

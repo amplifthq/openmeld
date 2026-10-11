@@ -8,6 +8,7 @@ import {
   artifactInputIdentity,
   artifactOutputIdentity,
   assertArtifactCheckout,
+  checkProductionArtifact,
   reusableArtifact,
   saveArtifactSnapshot,
 } from "./production-artifact-check.mjs";
@@ -16,6 +17,7 @@ import {
   waitForProductionWeb,
 } from "./production-web-health.mjs";
 
+const PROMOTION_REBUILD_ERROR = /promotion cannot rebuild/;
 const SSR_ERROR = /SSR/u;
 const SOURCE_ERROR = /source/u;
 const DIRTY_ERROR = /dirty/u;
@@ -86,6 +88,16 @@ test("artifact evidence rejects a moved HEAD or newly dirty checkout", async () 
       "fixture"
     );
     const sha = git("rev-parse", "HEAD");
+    await mkdir(path.join(root, "clients/docs"), { recursive: true });
+    await assert.rejects(
+      checkProductionArtifact({
+        root,
+        sourceSha: sha,
+        scope: "docs",
+        requireExisting: true,
+      }),
+      PROMOTION_REBUILD_ERROR
+    );
     assertArtifactCheckout(root, sha);
     await writeFile(path.join(root, "unexpected.txt"), "changed");
     assert.throws(() => assertArtifactCheckout(root, sha), CHECKOUT_ERROR);

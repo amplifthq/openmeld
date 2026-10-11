@@ -212,9 +212,14 @@ change must leave those signals cleaner and less ambiguous.
 - Use [Agent Experience Feedback](developing/engineering/agent-native-delivery.md#agent-experience-feedback)
   only for firsthand product bugs or experience gaps confirmed in current
   `origin/main` that you will not take on and that have no existing repair owner.
-  Apply the owner's evidence, duplicate-check, and authorized Profile rules.
-  Keep self-owned repairs, uncertain symptoms, and development or validation
-  findings in the owning task or PR, even before a repair PR exists.
+  Apply the owner's evidence, repair-status, duplicate-check, and authorized
+  Profile rules. Keep repairs owned by you or another Agent or developer in
+  the owning task or PR, even before a repair PR exists. Do not post temporary
+  records, duplicate reports, or repair progress to the feedback Space.
+  Fixed or merged problems do not qualify because deployment is pending.
+  Follow the owner's current-origin evidence rule for a recurrence or new bug.
+  Keep uncertain symptoms and development or validation findings in the owning
+  task or PR.
 - Use focused checks while implementation or blocker-capable review can still
   change the code. Treat broad affected, integration, release-ready, and Final
   Candidate runs as closeout evidence after the practical scope is stable, not

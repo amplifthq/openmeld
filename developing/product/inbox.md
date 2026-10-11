@@ -151,9 +151,10 @@ Core applies current membership, personal ownership, conversation visibility,
 mute presentation and filters before counts, grouping or pagination. A direct
 Human mention survives an Agent transfer; an owner-only relationship does not
 survive merely because a different owned Agent remains in that Space. All is
-ordered across the accessible dataset: priority attention, other open requests,
-then ordinary activity/history. Normal open requests lose their blue unread dot
-when read but remain pending; priority open requests stay yellow until resolved.
+ordered across the accessible dataset: priority attention, then ordinary
+activity/history. All open requests stay yellow until resolved, including after
+they are read. The same open-request rule drives Inbox, Space lists and the
+sidebar; urgency still controls notification delivery independently.
 First-contact information is yellow only while unread. Ended requests are
 history, never persistent priority.
 
@@ -448,6 +449,17 @@ continue to use the native-delivery producer's existing repair contract.
 
 ## Phase 1 source coverage
 
+Human requests keep the source owner's scope. Space-bound Plugin approvals,
+Agent Interactions, Task reviews, Center Agent attention requests, and
+Space-specific work recovery contribute to that Space's attention summary.
+Inbox, the Spaces navigation, conversation sidebar, and directory cards/tables
+consume that summary; they do not infer pending work from message error icons.
+Organization document reviews, membership and Channel setup requests, connector
+access upgrades, Computer incidents, and Agent-wide queue/model actions remain
+at their Organization, account, or Agent scope. Do not attach those requests to
+an arbitrary Space. Slack publication recovery retains its Message Channel
+target. Feature-disabled request sources remain hidden.
+
 The first release creates items for these explicit user-visible events:
 
 Thread reply updates are scoped to current members who authored the root or a
@@ -574,6 +586,17 @@ unread query supplies paginated data; filtered tabs continue loading through
 unrelated items before showing an empty state. Legacy `view=unread` links open
 All with the switch enabled.
 
+Plugin action approvals retain their originating Space from verified Local
+dispatch or native-delivery provenance. The request owner supplies that optional
+association to the same Inbox item used for approval; Space attention does not
+create another request or unread record. Unscoped manual requests stay in Inbox.
+Reading a request leaves pending attention in place; source approval, rejection,
+expiry, or revocation ends it. Only the recipient with current Space access sees
+the associated Space attention. Lack of Space access does not hide a
+recipient-owned Plugin approval from Inbox: delegated work can originate in a
+child Space without Human membership. Request detail navigation and approval
+authorization remain request-owned.
+
 List titles reserve a 6px status dot with an 8px gap. An unresolved action or
 review uses the yellow attention tone, including after it is read. Red is
 reserved for an explicit error, never inferred from a pending action count.
@@ -623,15 +646,15 @@ removes either contribution without changing source business state.
 Core computes both exact counts over the complete accessible recipient Inbox,
 independently of list pagination. Web caps only the displayed sum at `99+`.
 
-An open action makes the badge red; otherwise unread urgent updates make it
-amber. Red means a human action is outstanding, not that every action is urgent.
+Open actions and unread priority updates make the badge yellow. Pending work
+does not imply an error or grant urgent-email eligibility.
 Ordinary unread updates show a blue dot on the Inbox entry without contributing
 to the numeric attention count. The bottom-right launcher also shows the same
 highest-priority dot. Browser tabs reuse this exact Inbox summary and priority:
-red for open actions, amber for unread urgent updates, blue for other unread,
+yellow for pending work or priority updates, blue for other unread,
 and the original favicon when none remain. The title includes the highest
 priority category and its count, retaining the current route title. Reading an
-action never clears its red indicator; source resolution or recipient Dismiss
+action never clears its yellow indicator; source resolution or recipient Dismiss
 does. Opening the tab or Inbox alone does not clear any indicator.
 
 The authenticated tab observes the existing summary query in the background
@@ -768,28 +791,28 @@ accessible without color and does not pulse. Direct Messages remain in their
 owning navigation surface instead of reappearing in the Spaces sidebar; each
 unread Direct Message shows the same static blue indicator on its exact
 conversation row so the member can identify what needs attention.
-While any ordinary Space message remains unread, the Spaces destination in the
-outer app rail shows one static blue dot across OpenMeld. Its accessible label
-reports the complete unread ordinary Space message count. Core derives that
-aggregate before the grouped summary's 500-Space presentation limit and
-excludes current Direct Messages and legacy welcoming Spaces through the Space
-Index classification; converted Direct Messages count as ordinary Spaces. The
+The Spaces destination in the outer app rail shows yellow while any accessible
+Space or Direct Message has pending attention, then blue for ordinary unread
+messages. Its accessible label reports the complete unread message count. Core
+derives the ordinary Space aggregate before the grouped summary's 500-Space
+presentation limit and excludes current Direct Messages and legacy welcoming
+Spaces through the Space Index classification; converted Direct Messages count
+as ordinary Spaces. Web combines that total with the complete DM total. The
 outer dot does not identify a second unread owner or replace the per-Space
 indicators; it guides the member into Spaces, where the secondary sidebar shows
 which exact Spaces are unread.
 
-Chats uses complete Core aggregates for unread messages, open action requests,
-and unread urgent updates across current DMs, including Center Agent sessions.
-The Chat row and destination use red for open actions, yellow for unread urgent
-updates, then blue for ordinary unread. Grouped attention has no unread-page
-limit, and reading a request does not resolve it. Only the Inbox icon carries
-the numeric attention badge; Chat indicators remain dots with accessible labels.
+Direct Messages use the same Core attention projection, including Center Agent
+sessions. Conversation rows use yellow for open actions or unread urgent updates,
+then blue for ordinary unread. Grouped attention has no unread-page limit, and
+reading a request does not resolve it. Only the Inbox icon carries the numeric
+attention badge; conversation indicators remain dots with accessible labels.
 
 Every final Center Agent reply in its current, unconverted member Direct Message
 is projected as an ordinary Inbox update with a canonical Center Agent target
 containing both the source Space id and source Signal id. While any such item is
-unread, the Center Agent destination in the outer rail independently shows one
-static blue dot. Conversion makes the Space Index classify that conversation
+unread, the reply contributes to the Spaces destination's DM unread total.
+Conversion makes the Space Index classify that conversation
 as an ordinary Space, so its unread items contribute only to the Spaces
 destination even when their durable target remains `center_agent`. The dot sits
 immediately after the label in the full rail and on the icon corner in compact

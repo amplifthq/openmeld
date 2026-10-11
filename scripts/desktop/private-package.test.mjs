@@ -66,6 +66,36 @@ test("production signing rejects test targets, mixed modes, and credential overr
   }
 });
 
+test("Desktop accepts complete CI credentials and refuses partial or wrong-team credentials", () => {
+  const env = {
+    OPENMELD_DESKTOP_PRODUCTION_PREVIEW: "1",
+    OPENMELD_DESKTOP_TARGET: "production",
+    APPLE_DEVELOPER_ID_P12_BASE64: "encoded-p12",
+    APPLE_DEVELOPER_ID_P12_PASSWORD: "p12-password",
+    APPLE_NOTARY_ISSUER_ID: "issuer-id",
+    APPLE_NOTARY_KEY_ID: "key-id",
+    APPLE_NOTARY_KEY_P8_BASE64: "encoded-p8",
+    APPLE_TEAM_ID: "38FFHDPA3B",
+  };
+  assert.equal(
+    readDesktopSignedPackageMode(env, "darwin"),
+    "production-preview"
+  );
+  for (const name of Object.keys(env).filter((key) =>
+    key.startsWith("APPLE_")
+  )) {
+    assert.throws(() =>
+      readDesktopSignedPackageMode({ ...env, [name]: "" }, "darwin")
+    );
+  }
+  assert.throws(() =>
+    readDesktopSignedPackageMode(
+      { ...env, APPLE_TEAM_ID: "OTHERTEAM" },
+      "darwin"
+    )
+  );
+});
+
 test("acceptance packaging rejects a missing Computer lane before staging or signing", () => {
   const env = {
     ...process.env,

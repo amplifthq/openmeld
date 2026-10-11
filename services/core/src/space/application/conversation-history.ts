@@ -45,7 +45,8 @@ export async function deleteConversationHistoryForUser(
       through_position = GREATEST(conversation_history_deletions.through_position, EXCLUDED.through_position),
       deleted_at_ms = GREATEST(conversation_history_deletions.deleted_at_ms, EXCLUDED.deleted_at_ms) RETURNING space_id)
       UPDATE "openmeld"."inbox_items" SET cleared_at_ms = COALESCE(cleared_at_ms, $4), read_at_ms = COALESCE(read_at_ms, $4)
-      WHERE recipient_user_id = $2 AND ((source_target_json)::jsonb #>> '{spaceId}') = $1 AND occurred_at_ms <= $4`,
+      WHERE recipient_user_id = $2 AND ((source_target_json)::jsonb #>> '{spaceId}') = $1 AND occurred_at_ms <= $4
+        AND source_target_json::jsonb ->> 'kind' != 'plugin_action_request'`,
     values: [
       input.spaceId,
       input.userId,

@@ -1,12 +1,12 @@
 import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { readCurrentAccountOrganizationContext } from "#/lib/organizations/account-organization-context";
 import {
 	openCurrentCenterAgentDirectMessageSpace,
 	readCurrentCenterAgentDirectMessageSpaceProjection,
 } from "#/lib/organizations/center-agent";
-import { resolveOrganizationScope } from "#/lib/organizations/organization-scope";
 import { listStartProfiles } from "#/lib/profiles/existing-profiles";
-import { organizationScopeQueryKeys } from "#/query/organizations/organization-scope";
+import { accountOrganizationContextQueryKey } from "#/query/organizations/account-organization-context";
 import { Route } from "../../routes/o/$orgSlug/_center-agent/chats.center-agent";
 import {
 	loadCenterAgentDirectMessageRouteData,
@@ -14,8 +14,8 @@ import {
 	readCachedCenterAgentDirectMessageRouteData,
 } from "./center-agent-route-loader";
 
-vi.mock("#/lib/organizations/organization-scope", () => ({
-	resolveOrganizationScope: vi.fn(),
+vi.mock("#/lib/organizations/account-organization-context", () => ({
+	readCurrentAccountOrganizationContext: vi.fn(),
 }));
 
 vi.mock("#/lib/profiles/existing-profiles", () => ({
@@ -34,22 +34,12 @@ vi.mock("#/lib/organizations/center-agent", async () => {
 });
 
 const authorizedScope = {
-	access: "authorized" as const,
 	account: {
 		email: "felix@example.com",
 		image: null,
 		name: "Felix",
 	},
-	activeOrganization: {
-		id: "org-acme",
-		name: "Acme",
-		slug: "acme",
-	},
-	currentOrganization: {
-		id: "org-acme",
-		name: "Acme",
-		slug: "acme",
-	},
+	defaultOrganizationId: "org-acme",
 	organizations: [
 		{
 			id: "org-acme",
@@ -58,7 +48,6 @@ const authorizedScope = {
 		},
 	],
 	currentUserId: "user-1",
-	storageScope: "user-1",
 };
 
 const directMessage = {
@@ -71,7 +60,7 @@ const directMessage = {
 
 describe("loadCenterAgentRouteData", () => {
 	beforeEach(() => {
-		vi.mocked(resolveOrganizationScope)
+		vi.mocked(readCurrentAccountOrganizationContext)
 			.mockReset()
 			.mockResolvedValue(authorizedScope);
 		vi.mocked(openCurrentCenterAgentDirectMessageSpace)
@@ -260,19 +249,15 @@ describe("loadCenterAgentRouteData", () => {
 		});
 
 		expect(result).toBeNull();
-		expect(resolveOrganizationScope).not.toHaveBeenCalled();
+		expect(readCurrentAccountOrganizationContext).not.toHaveBeenCalled();
 		expect(openCurrentCenterAgentDirectMessageSpace).not.toHaveBeenCalled();
 	});
 
 	it("opens the URL organization's DM when the Session default differs", async () => {
 		const queryClient = createQueryClient();
-		vi.mocked(resolveOrganizationScope).mockResolvedValueOnce({
+		vi.mocked(readCurrentAccountOrganizationContext).mockResolvedValueOnce({
 			...authorizedScope,
-			activeOrganization: {
-				id: "org-beta",
-				name: "Beta",
-				slug: "beta",
-			},
+			defaultOrganizationId: "org-beta",
 		});
 
 		const result = await loadCenterAgentRouteData({
@@ -290,13 +275,9 @@ describe("loadCenterAgentRouteData", () => {
 
 	it("reuses the route-verified URL scope without a Session mutation", async () => {
 		const queryClient = createQueryClient();
-		queryClient.setQueryData(organizationScopeQueryKeys.bySlug("acme"), {
+		queryClient.setQueryData(accountOrganizationContextQueryKey, {
 			...authorizedScope,
-			activeOrganization: {
-				id: "org-beta",
-				name: "Beta",
-				slug: "beta",
-			},
+			defaultOrganizationId: "org-beta",
 		});
 
 		const result = await loadCenterAgentRouteData({
@@ -306,7 +287,7 @@ describe("loadCenterAgentRouteData", () => {
 			shouldOpenDirectMessage: true,
 		});
 
-		expect(resolveOrganizationScope).not.toHaveBeenCalled();
+		expect(readCurrentAccountOrganizationContext).not.toHaveBeenCalled();
 		expect(result).toEqual({ directMessage, status: "ready" });
 	});
 

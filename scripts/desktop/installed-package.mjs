@@ -1,6 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { runOwnedCommand } from "../dev/owned-command.mjs";
+import { prepareDesktopAppleSigning } from "../release/apple-release-signing.mjs";
 import { checkProductionArtifact } from "../release/production-artifact-check.mjs";
 import { buildInstalledPlatformPlan } from "./installed-platform.ts";
 import { readInstalledDesktopTarget } from "./installed-target.ts";
@@ -73,18 +74,27 @@ for (const args of [
       "Desktop source changed during packaging. Rebuild renderer assets first."
     );
   }
-  const code = await runOwnedCommand("pnpm", args, {
-    cwd: root,
-    windowsJob: Boolean(plan.windows),
-    env: {
-      ...process.env,
-      ...(plan.generateMacIcons ||
-      !signedMode ||
-      signedMode === "internal-preview"
-        ? { CSC_IDENTITY_AUTO_DISCOVERY: "false" }
-        : {}),
-    },
-  });
+  const signing =
+    signedMode && plan.generateMacIcons && args.includes("electron-builder")
+      ? prepareDesktopAppleSigning(process.env)
+      : null;
+  let code;
+  try {
+    code = await runOwnedCommand("pnpm", args, {
+      cwd: root,
+      windowsJob: Boolean(plan.windows),
+      env: {
+        ...(signing?.env ?? process.env),
+        ...(plan.generateMacIcons ||
+        !signedMode ||
+        signedMode === "internal-preview"
+          ? { CSC_IDENTITY_AUTO_DISCOVERY: "false" }
+          : {}),
+      },
+    });
+  } finally {
+    signing?.close();
+  }
   if (code !== 0) {
     process.exitCode = code;
     break;

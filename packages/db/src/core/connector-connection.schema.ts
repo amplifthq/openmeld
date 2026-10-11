@@ -298,6 +298,7 @@ export const pluginActionRequests = applicationTable(
     sourceRequestKey: text("source_request_key"),
     requestDigest: text("request_digest").notNull(),
     requestJson: text("request_json").notNull(),
+    continuationJson: text("continuation_json"),
     state: text("state", { enum: ["pending", "approved", "rejected"] })
       .notNull()
       .default("pending"),
