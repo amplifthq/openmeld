@@ -46,7 +46,7 @@ import {
 } from "#/lib/organizations/organization-routes";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
 import { prepareOrganizationDestination } from "#/lib/organizations/prepare-organization-destination";
-import { organizationScopeQueryKeys } from "#/query/organizations/organization-scope";
+import { accountOrganizationContextQueryKey } from "#/query/organizations/account-organization-context";
 
 type OrganizationSetupStep = "creating_organization" | "opening_organization";
 
@@ -88,7 +88,7 @@ function OrganizationEntryPageContent(input: {
 			createOrganization(organizationInput),
 		onSuccess: async () => {
 			await queryClient.invalidateQueries({
-				queryKey: organizationScopeQueryKeys.all,
+				queryKey: accountOrganizationContextQueryKey,
 			});
 		},
 	});

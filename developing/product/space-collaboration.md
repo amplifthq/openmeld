@@ -197,8 +197,11 @@ associated with a Space Task when the Task list can confirm whether that issue
 is already linked. The issue body receives an OpenMeld Task
 reference, and the Task stores the repository and issue number. Closing that
 issue through those same GitHub tools, or through a verified GitHub App
-webhook after the issue is already linked, cancels still-active linked Tasks
-and refreshes the Task-owned last observed issue state. Reopening the issue
+webhook after the issue is already linked, uses the provider's confirmed closure
+reason. Completed issues submit a Task result: Done without a reviewer, In review
+with a reviewer. Not planned and duplicate issues cancel still-active linked
+Tasks. Missing or unknown reasons only refresh the observed issue state; they
+never infer success or cancellation. Reopening the issue
 refreshes that observation and does not reopen a completed or canceled Task.
 Closing or completing a Task does not silently patch GitHub; the Task result
 prompts the Agent or person to close the linked issue when it is still open.
@@ -210,7 +213,11 @@ optional provider project, and URL. Failure to attach after creation is a
 partial outcome; recovery adds only the Task reference. Linear references do
 not claim status monitoring, close synchronization, or automatic follow-up.
 Webhook deliveries grant no new execution authority and do not start Agent
-work.
+work. When a completed issue needs review, Space publishes a system-authored
+notice at the original Task location, using the same stable handoff identity.
+It mentions a Human reviewer. For an Agent reviewer, it uses a Reference and
+asks a Space member to Wake that Agent to start the review. Member-authorized
+Task handoffs retain their normal permission checks and Wake behavior.
 
 Project Common Agents are selection suggestions in a Task assignment flow.
 When one is outside the Space, **Add and assign** discloses that the Agent and

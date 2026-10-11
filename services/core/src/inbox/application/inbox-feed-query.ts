@@ -2,9 +2,11 @@ import type {
   InboxFeedCategory,
   InboxFeedQuery,
 } from "@openmeld/schemas/types";
-import { inboxMentionSql } from "./inbox-attention-predicates";
 import {
-  currentInboxAgentFactExistsSql,
+  inboxMentionSql,
+  inboxPrioritySql,
+} from "./inbox-attention-predicates";
+import {
   currentInboxSourceFactsSql,
   INBOX_FEED_PERSONAL_AGENTS_CTE,
 } from "./inbox-current-source-facts";
@@ -60,10 +62,7 @@ export function inboxFeedCte(
           CASE WHEN ((source_facts_json)::jsonb #>> '{requestCategory}') = 'review'
             OR (((source_facts_json)::jsonb #>> '{requestCategory}') IS NULL AND kind IN ('document_review', 'organization_request'))
           THEN 'review' ELSE 'action' END ELSE NULL END AS request_category,
-        CASE WHEN attention = 'action_required' AND resolution_status = 'open' AND importance = 'urgent' THEN 0
-          WHEN attention = 'update' AND read_at_ms IS NULL AND (importance = 'urgent'
-            OR ${currentInboxAgentFactExistsSql("inbox_items", "firstContactAgentProfileIds", true)}) THEN 0
-          WHEN attention = 'action_required' AND resolution_status = 'open' THEN 1 ELSE 2 END AS priority_rank,
+        CASE WHEN ${inboxPrioritySql(true)} THEN 0 ELSE 2 END AS priority_rank,
         CASE WHEN source_kind = 'space_signal' AND attention = 'update'
           AND kind IN ('space_message', 'space_mention', 'space_reference', 'agent_reply')
           AND ((source_target_json)::jsonb #>> '{kind}') IN ('space', 'center_agent')

@@ -7,11 +7,12 @@ import type {
 	OpenCenterAgentDirectMessageSpaceResponse,
 } from "@openmeld/schemas/types";
 import type { QueryClient } from "@tanstack/react-query";
+import { accountOrganizationContextQueryOptions } from "#/query/organizations/account-organization-context";
 import {
 	centerAgentDirectMessageOpenQueryOptions,
 	centerAgentDirectMessageSpaceProjectionQueryOptions,
 } from "#/query/organizations/center-agent";
-import { organizationScopeQueryOptions } from "#/query/organizations/organization-scope";
+import { resolveOrganizationScopeForContext } from "./organization-scope";
 
 export type CenterAgentDirectMessageRouteData =
 	| {
@@ -37,11 +38,16 @@ export async function loadCenterAgentRouteData(input: {
 		return null;
 	}
 
-	const scopeOptions = organizationScopeQueryOptions({
-		organizationSlug: input.organizationSlug,
-		routeFamily: input.routeFamily,
+	const context = await input.queryClient.ensureQueryData(
+		accountOrganizationContextQueryOptions(input.routeFamily)
+	);
+	if (!context) {
+		return null;
+	}
+	const scope = resolveOrganizationScopeForContext({
+		context,
+		orgSlug: input.organizationSlug,
 	});
-	const scope = await input.queryClient.ensureQueryData(scopeOptions);
 
 	if (scope.access !== "authorized") {
 		return null;

@@ -1,0 +1,262 @@
+name: Desktop Release
+run-name: Desktop ${{ inputs.operation }} @ ${{ inputs.release_sha || github.sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Build an immutable candidate, or promote a candidate after installed acceptance
+        type: choice
+        required: true
+        default: candidate
+        options: [candidate, promote]
+      release_sha:
+        description: Exact merged source SHA; defaults to dispatched main SHA
+        type: string
+        default: ""
+      candidate_run_id:
+        description: Successful Desktop candidate run to promote (required for promote)
+        type: string
+        default: ""
+      candidate_hash:
+        description: Reviewed candidate SHA-256 (required for promote)
+        type: string
+        default: ""
+      expected_version:
+        description: Expected current promoted version, or none (required for promote)
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: desktop-production-release
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  build_candidate:
+    if: inputs.operation == 'candidate'
+    runs-on: macos-15
+    timeout-minutes: 60
+    environment: production
+    env:
+      RELEASE_SHA: ${{ inputs.release_sha || github.sha }}
+      OPENMELD_DESKTOP_RELEASE_SHA: ${{ inputs.release_sha || github.sha }}
+      OPERATION: ${{ inputs.operation }}
+      CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+      CANDIDATE_HASH: ${{ inputs.candidate_hash }}
+      EXPECTED_VERSION: ${{ inputs.expected_version }}
+    steps:
+      - name: Validate release inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          case "$OPERATION" in
+            candidate)
+              test -z "$CANDIDATE_RUN_ID$CANDIDATE_HASH$EXPECTED_VERSION"
+              ;;
+            promote)
+              [[ "$CANDIDATE_RUN_ID" =~ ^[0-9]+$ ]] || exit 1
+              [[ "$CANDIDATE_HASH" =~ ^[0-9a-f]{64}$ ]] || exit 1
+              [[ "$EXPECTED_VERSION" =~ ^(none|[0-9]+\.[0-9]+\.[0-9]+)$ ]] || exit 1
+              ;;
+            *) exit 1 ;;
+          esac
+
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          path: release-control
+          persist-credentials: false
+
+      - uses: ./release-control/.github/actions/trusted-git-network
+        with:
+          github_token: ${{ github.token }}
+          operation: fetch-main
+          repository: ${{ github.repository }}
+          working_directory: release-control
+
+      - name: Require merged mainline source
+        working-directory: release-control
+        run: node scripts/release/require-mainline-release-sha.mjs "$RELEASE_SHA"
+
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.RELEASE_SHA }}
+          fetch-depth: 0
+          path: release-source
+          persist-credentials: false
+
+      - uses: ./release-control/.github/actions/setup-node-pnpm
+        with:
+          working_directory: release-source
+
+      - name: Build, sign, and notarize the production candidate
+        if: inputs.operation == 'candidate'
+        working-directory: release-source
+        env:
+          APPLE_DEVELOPER_ID_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
+          APPLE_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_KEY_P8_BASE64: ${{ secrets.APPLE_NOTARY_KEY_P8_BASE64 }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          OPENMELD_RENDERER_NODE_HEAP_MB: "5120"
+          OPENMELD_LOCAL_HEAVY_GIB: "6"
+        run: |
+          node --input-type=module <<'NODE'
+          import { resolveAppleReleaseCredentials } from './scripts/release/apple-release-signing.mjs';
+          if (resolveAppleReleaseCredentials().mode !== 'ci') {
+            throw new Error('GitHub Desktop packaging requires the complete production Apple credential set.');
+          }
+          NODE
+          pnpm desktop:package:production-preview
+
+      - name: Preserve the signed candidate for promotion without rebuilding
+        if: inputs.operation == 'candidate'
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-signed-${{ env.RELEASE_SHA }}
+          path: |
+            release-source/clients/desktop/dist/production-preview/*.dmg
+            release-source/clients/desktop/dist/production-preview/*.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+  publish:
+    needs: build_candidate
+    if: >-
+      !cancelled() &&
+      (inputs.operation == 'promote' || needs.build_candidate.result == 'success')
+    runs-on: macos-15
+    timeout-minutes: 60
+    environment: production
+    env:
+      RELEASE_SHA: ${{ inputs.release_sha || github.sha }}
+      OPENMELD_DESKTOP_RELEASE_SHA: ${{ inputs.release_sha || github.sha }}
+      OPERATION: ${{ inputs.operation }}
+      CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+      CANDIDATE_HASH: ${{ inputs.candidate_hash }}
+      EXPECTED_VERSION: ${{ inputs.expected_version }}
+    steps:
+      - name: Validate release inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          case "$OPERATION" in
+            candidate)
+              test -z "$CANDIDATE_RUN_ID$CANDIDATE_HASH$EXPECTED_VERSION"
+              ;;
+            promote)
+              [[ "$CANDIDATE_RUN_ID" =~ ^[0-9]+$ ]] || exit 1
+              [[ "$CANDIDATE_HASH" =~ ^[0-9a-f]{64}$ ]] || exit 1
+              [[ "$EXPECTED_VERSION" =~ ^(none|[0-9]+\.[0-9]+\.[0-9]+)$ ]] || exit 1
+              ;;
+            *) exit 1 ;;
+          esac
+
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          path: release-control
+          persist-credentials: false
+
+      - uses: ./release-control/.github/actions/trusted-git-network
+        with:
+          github_token: ${{ github.token }}
+          operation: fetch-main
+          repository: ${{ github.repository }}
+          working_directory: release-control
+
+      - name: Require merged mainline source
+        working-directory: release-control
+        run: node scripts/release/require-mainline-release-sha.mjs "$RELEASE_SHA"
+
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.RELEASE_SHA }}
+          fetch-depth: 0
+          path: release-source
+          persist-credentials: false
+
+      - uses: ./release-control/.github/actions/setup-node-pnpm
+        with:
+          working_directory: release-source
+
+      - name: Build schemas for shared release commands
+        working-directory: release-source
+        run: pnpm --filter @openmeld/schemas build
+
+      - name: Verify candidate run provenance
+        if: inputs.operation == 'promote'
+        working-directory: release-control
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release/desktop-candidate-run.mjs
+
+      - name: Restore the reviewed signed bytes
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.operation == 'candidate' && github.run_id || inputs.candidate_run_id }}
+          name: desktop-signed-${{ env.RELEASE_SHA }}
+          path: release-source/clients/desktop/dist/production-preview
+
+      - name: Verify and upload immutable candidate
+        if: inputs.operation == 'candidate'
+        working-directory: release-source
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node scripts/release/desktop-preview.mjs upload-candidate
+
+      - name: Preserve immutable candidate metadata
+        if: inputs.operation == 'candidate'
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-candidate-${{ env.RELEASE_SHA }}
+          path: release-source/clients/desktop/dist/production-preview/candidate.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Restore reviewed candidate metadata
+        if: inputs.operation == 'promote'
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.candidate_run_id }}
+          name: desktop-candidate-${{ env.RELEASE_SHA }}
+          path: release-source/clients/desktop/dist/production-preview
+
+      - name: Promote the reviewed candidate under the shared release lease
+        if: inputs.operation == 'promote'
+        working-directory: release-source
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          OPENMELD_PRODUCTION_LEASE_GITHUB_TOKEN: ${{ github.token }}
+          OPENMELD_PRODUCTION_LEASE_GITHUB_SERVER_URL: ${{ github.server_url }}
+          OPENMELD_PRODUCTION_LEASE_GITHUB_REPOSITORY: ${{ github.repository }}
+        run: node scripts/release/desktop-preview.mjs promote "$CANDIDATE_HASH" "$EXPECTED_VERSION"
+
+      - name: Summarize exact candidate identity
+        working-directory: release-source
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, appendFileSync } from 'node:fs';
+          const candidate = JSON.parse(readFileSync('clients/desktop/dist/production-preview/candidate.json', 'utf8'));
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+            `Desktop ${process.env.OPERATION}: ${candidate.version}\n\nSource: \`${candidate.releaseSha}\`\n\nCandidate: \`${candidate.sha256}\`\n\n[Public candidate](https://openmeld.ai/desktop?candidate=${candidate.sha256})\n\nA candidate run does not change the stable channel or prove installed acceptance.\n`);
+          NODE

@@ -110,6 +110,7 @@ import {
 	centerAgentDesignationQueryOptions,
 	centerAgentDirectMessageSpaceProjectionQueryOptions,
 } from "#/query/organizations/center-agent";
+import { usePendingSpacePluginActionRequests } from "#/query/organizations/plugin-action-requests";
 import { isQueryCancellationError } from "#/query/query-cancellation";
 import {
 	accountSpaceItemsQueryOptions,
@@ -1570,6 +1571,32 @@ function useThreadRootMainFocus(input: SpaceLandingInput) {
 	};
 }
 
+function pendingActionThreadHandlers(
+	isCompact: boolean,
+	select: (identity: string) => void,
+	open: (threadId: string) => void
+) {
+	if (isCompact) {
+		return {};
+	}
+	const show = (threadId: string | null | undefined, identity: string) => {
+		if (threadId) {
+			select(identity);
+			open(threadId);
+		}
+	};
+	return {
+		onOpenRequestThread: (item: WakeProgressItem) =>
+			show(
+				item.sourceContext?.threadId,
+				resolveSpacePendingAgentActionIdentity(item)
+			),
+		onOpenPluginRequestThread: (
+			request: import("@openmeld/schemas/types").PluginActionRequestView
+		) => show(request.sourceThreadId, `plugin:${request.requestId}`),
+	};
+}
+
 function SpaceLandingConversationShell({
 	controller,
 	input,
@@ -1710,24 +1737,25 @@ function SpaceLandingConversationShell({
 		pendingAgentActions.surfaceProps.items,
 		activeActionThreadId
 	);
+	const pendingPluginActions = usePendingSpacePluginActionRequests(
+		controller.spaceId,
+		activeActionThreadId
+	);
 	const pendingActionSurface = (
 		<SpacePendingAgentActions
 			{...pendingAgentActions.surfaceProps}
+			{...pendingActionThreadHandlers(
+				isCompactPresentation,
+				setRequestedInteraction,
+				controller.onOpenThread
+			)}
 			items={pendingActionsByPanel.conversation}
-			onOpenRequestThread={
-				isCompactPresentation
-					? undefined
-					: (item) => {
-							const threadId = item.sourceContext?.threadId;
-							if (!threadId) {
-								return;
-							}
-							setRequestedInteraction(
-								resolveSpacePendingAgentActionIdentity(item)
-							);
-							controller.onOpenThread(threadId);
-						}
+			onReloadRequests={
+				pendingPluginActions.isError
+					? () => pendingPluginActions.refetch()
+					: undefined
 			}
+			pluginRequests={pendingPluginActions.conversation}
 			returnFocusRef={controller.textareaRef}
 		/>
 	);
@@ -1737,6 +1765,7 @@ function SpaceLandingConversationShell({
 			initialInteractionIdentity={requestedInteraction}
 			items={pendingActionsByPanel.thread}
 			key={`${activeActionThreadId}:${requestedInteraction ?? ""}`}
+			pluginRequests={pendingPluginActions.thread}
 			returnFocusRef={controller.threadTextareaRef}
 		/>
 	);

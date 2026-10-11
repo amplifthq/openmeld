@@ -348,6 +348,18 @@ export {
   type WalkthroughStep,
 } from "./schemas/http/first-work";
 export {
+  type MessageReadItem,
+  type MessageReadPage,
+  type MessageReadQuery,
+  type MessageReadRpcInput,
+  messageReadItemSchema,
+  messageReadPageSchema,
+  messageReadQuerySchema,
+  messageReadRpcInputSchema,
+  spaceMessageReadCursorSchema,
+  workspaceMessageReadCursorSchema,
+} from "./schemas/http/message-read";
+export {
   type PluginChannelContinueResponse,
   type PluginChannelDeliveryMetadata,
   type PluginChannelRequestPreview,

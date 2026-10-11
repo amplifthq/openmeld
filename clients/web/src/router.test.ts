@@ -25,7 +25,7 @@ describe("router query integration", () => {
 		expect(router.options.defaultPendingMs).toBe(APP_ROUTE_PENDING_DELAY_MS);
 		expect(router.options.defaultPreloadStaleTime).toBe(0);
 		expect(router.options.defaultPreloadDelay).toBe(APP_ROUTE_PRELOAD_DELAY_MS);
-		expect(router.options.defaultPendingComponent).toBeUndefined();
+		expect(router.options.defaultPendingComponent).toBeTypeOf("function");
 		expect(router.options.Wrap).toBeTypeOf("function");
 	});
 

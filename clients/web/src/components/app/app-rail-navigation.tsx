@@ -79,7 +79,7 @@ type AppRailGroup = {
 export function buildAppRailGroups(input: {
 	inboxAttention?: ReturnType<typeof useInboxAttention>;
 	chatUnreadCount?: number;
-	chatAttentionTone?: "danger" | "warning" | null;
+	spacesAttentionTone?: "danger" | "warning" | null;
 	orgSlug: string;
 	centerAgentUnreadCount: number;
 	prefetchCenterAgentConversation: () => void;
@@ -102,7 +102,7 @@ export function buildAppRailGroups(input: {
 					id: "directMessages",
 					label: "Spaces",
 					unreadCount: input.spacesUnreadCount + (input.chatUnreadCount ?? 0),
-					attentionTone: input.chatAttentionTone,
+					attentionTone: input.spacesAttentionTone,
 					to: buildOrganizationSpacesPath(input.orgSlug),
 					icon: <ChatCircleTextIcon aria-hidden="true" className="size-5" />,
 				},

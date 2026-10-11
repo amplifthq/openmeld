@@ -95,6 +95,7 @@ import {
 	SpaceMessageFooter,
 } from "./space-message-footer";
 import { SpaceMessageInteractionSource } from "./space-message-interaction-source";
+import { SpaceMessagePluginRequests } from "./space-message-plugin-requests";
 import { SpaceMessageProfileAvatar } from "./space-message-profile-avatar";
 import {
 	buildSpaceMessageProfileMentionProfiles,
@@ -652,6 +653,16 @@ function ConversationBubbleContent(input: {
 			<SpaceMessageInteractionSource
 				source={input.item.centerAgentInteractionSource}
 			/>
+			{!parent.spaceId || parent.readOnly || input.item.recalledAt ? null : (
+				<SpaceMessagePluginRequests
+					sourceSignalId={input.item.id}
+					spaceId={parent.spaceId}
+					visibleSignalIds={parent.timelineItems
+						.filter((item) => !item.recalledAt)
+						.map((item) => item.id)
+						.sort()}
+				/>
+			)}
 			{input.agentInteractionItems.map((interactionItem) =>
 				parent.actionableAgentInteractionPlacement === "pending-surface" &&
 				interactionItem.pendingInteraction?.canRespond ? null : (

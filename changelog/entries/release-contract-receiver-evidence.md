@@ -4,6 +4,9 @@ title: Check each receiver contract before a production release
 kind: fixed
 areas: ["releases"]
 audiences: ["operators", "contributors"]
+publishedAt: 2026-10-10
+release: v0.3.251
+evidence: ["commit:62e4c1a0d9e7d4cfc36741712ac9052f44494d26", "commit:03668cdc6506ea4ed93f4166387533e5bd30bd84", "pr:1638", "workflow:38078641800", "pr:1641", "pr:1642", "pr:1645", "workflow:38075530735", "workflow:38077171997"]
 ---
 
 Production release checks require evidence for every changed receiver contract.

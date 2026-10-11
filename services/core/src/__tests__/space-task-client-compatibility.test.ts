@@ -36,6 +36,52 @@ const task = spaceTaskSchema.parse({
 });
 
 describe("Space Task client compatibility", () => {
+  it.each([
+    undefined,
+    2,
+  ] as const)("rejects provider attribution for client %s without inventing a member", (version) => {
+    const result = {
+      resultRevision: 2,
+      summary: "GitHub issue closed as completed.",
+      submittedAt: task.updatedAt,
+      submittedBy: { provider: "github" as const },
+    };
+    expect(() =>
+      projectSpaceTasksForClient(
+        { tasks: [{ ...task, result }], truncated: false },
+        version
+      )
+    ).toThrow("Update this OpenMeld client");
+    const detail = {
+      task,
+      events: [
+        {
+          eventId: "tse_55555555-5555-4555-8555-555555555555",
+          taskId: task.taskId,
+          operationId: "provider-close",
+          type: "result_submitted" as const,
+          actor: { provider: "github" as const },
+          fromPhase: "in_progress" as const,
+          toPhase: "done" as const,
+          taskRevision: 2,
+          detail: null,
+          createdAt: task.updatedAt,
+        },
+      ],
+    };
+    expect(() => projectSpaceTaskDetailForClient(detail, version)).toThrow(
+      "Update this OpenMeld client"
+    );
+    expect(projectSpaceTaskDetailForClient(detail, 3)).toEqual(detail);
+  });
+
+  it("retains Project support for v2 while v3 records provider results", () => {
+    const listed = {
+      tasks: [{ ...task, projectIds: ["project-payments"] }],
+      truncated: false,
+    };
+    expect(projectSpaceTasksForClient(listed, 2)).toEqual(listed);
+  });
   it("keeps legacy Tasks readable without emitting a new field to strict old clients", () => {
     const legacy = projectSpaceTasksForClient(
       { tasks: [task], truncated: false },

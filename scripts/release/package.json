@@ -1,0 +1,12 @@
+{
+  "name": "@openmeld/release-tools",
+  "private": true,
+  "type": "module",
+  "description": "Trusted release admission and artifact promotion tools",
+  "dependencies": {
+    "@openmeld/schemas": "workspace:*",
+    "typescript": "^5.9.3",
+    "wrangler": "catalog:",
+    "yaml": "2.8.2"
+  }
+}

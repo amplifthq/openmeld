@@ -1664,6 +1664,21 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  scripts/release:
+    dependencies:
+      '@openmeld/schemas':
+        specifier: workspace:*
+        version: link:../../packages/schemas
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      wrangler:
+        specifier: 4.147.0
+        version: 4.147.0(@cloudflare/workers-types@5.20261001.1)(@types/node@24.10.13)
+      yaml:
+        specifier: 2.8.2
+        version: 2.8.2
+
   services/auth:
     dependencies:
       '@better-auth/core':

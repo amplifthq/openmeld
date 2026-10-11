@@ -200,11 +200,12 @@ describe("Space Task service brief updates", () => {
       }
     );
     const closed = service.applyGitHubIssueObservation({
-      cancelOperationId: "github-issue-cancel:amplifthq:openmeld:1143",
+      settleOperationId: "github-issue-cancel:amplifthq:openmeld:1143",
       identity: { number: 1143, owner: "amplifthq", repo: "openmeld" },
       observeOperationId: "github-issue-observe-closed:amplifthq:openmeld:1143",
       observedAt: "2026-09-20T12:00:00.000Z",
       observedState: "closed",
+      observedStateReason: "not_planned",
       taskId: created.task.taskId,
     });
     expect(closed).toMatchObject({
@@ -221,18 +222,19 @@ describe("Space Task service brief updates", () => {
     ]);
 
     const replay = service.applyGitHubIssueObservation({
-      cancelOperationId: "github-issue-cancel:amplifthq:openmeld:1143",
+      settleOperationId: "github-issue-cancel:amplifthq:openmeld:1143",
       identity: { number: 1143, owner: "amplifthq", repo: "openmeld" },
       observeOperationId: "github-issue-observe-closed:amplifthq:openmeld:1143",
       observedAt: "2026-09-20T12:00:00.000Z",
       observedState: "closed",
+      observedStateReason: "not_planned",
       taskId: created.task.taskId,
     });
     expect(replay.task?.phase).toBe("canceled");
     expect(events).toHaveLength(3);
 
     const reopened = service.applyGitHubIssueObservation({
-      cancelOperationId: "github-issue-cancel:amplifthq:openmeld:1143:reopen",
+      settleOperationId: "github-issue-cancel:amplifthq:openmeld:1143:reopen",
       identity: { number: 1143, owner: "amplifthq", repo: "openmeld" },
       observeOperationId: "github-issue-observe-open:amplifthq:openmeld:1143",
       observedAt: "2026-09-20T13:00:00.000Z",
@@ -245,11 +247,12 @@ describe("Space Task service brief updates", () => {
     expect(reopened.task?.externalWorkItems[0]?.lastObservedState).toBe("open");
     expect(
       service.applyGitHubIssueObservation({
-        cancelOperationId: "github-issue-cancel:missing",
+        settleOperationId: "github-issue-cancel:missing",
         identity: { number: 1143, owner: "amplifthq", repo: "openmeld" },
         observeOperationId: "github-issue-observe-closed:missing",
         observedAt: "2026-09-20T12:00:00.000Z",
         observedState: "closed",
+        observedStateReason: "not_planned",
         taskId: "tsk_99999999-9999-4999-8999-999999999999",
       })
     ).toMatchObject({

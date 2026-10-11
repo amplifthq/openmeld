@@ -33,12 +33,16 @@ import {
   INBOX_OPEN_REVIEW,
   INBOX_UNREAD_PRIORITY_UPDATE,
   inboxMentionSql,
+  inboxPrioritySql,
 } from "./inbox-attention-predicates";
 import {
   currentInboxAgentFactExistsSql,
   currentInboxSourceFactsSql,
 } from "./inbox-current-source-facts";
-import { buildCurrentInboxSourceAccessSql } from "./inbox-source-access";
+import {
+  buildCurrentInboxSourceAccessSql,
+  inboxSpaceAccessSql,
+} from "./inbox-source-access";
 
 const INBOX_ITEM_NOT_FOUND_CODE = "inbox.item_not_found";
 const INBOX_INVALID_CURSOR_CODE = "inbox.cursor_invalid";
@@ -329,6 +333,7 @@ export function createInboxService(input: {
         WHERE organization_id = $1 AND recipient_user_id = $2
           AND cleared_at_ms IS NULL AND ${CURRENT_SOURCE_ACCESS_FILTER}
           AND ((source_target_json)::jsonb #>> '{spaceId}') IS NOT NULL
+          AND ${inboxSpaceAccessSql("inbox_items")}
           AND ((attention = 'action_required' AND resolution_status = 'open')
             OR (${UNREAD_URGENT_UPDATE_FILTER}))
         GROUP BY ((source_target_json)::jsonb #>> '{spaceId}')
@@ -351,6 +356,7 @@ export function createInboxService(input: {
           WHERE organization_id = $1 AND recipient_user_id = $2
             AND (${INBOX_SUMMARY_CANDIDATE_FILTER})
             AND ${CURRENT_SOURCE_ACCESS_FILTER}
+            AND ${inboxSpaceAccessSql("inbox_items")}
         )
         SELECT
           sum(CASE WHEN read_at_ms IS NULL AND ${INBOX_SPACE_UNREAD_FILTER} THEN 1 ELSE 0 END) AS unread,
@@ -908,7 +914,7 @@ export function createInboxService(input: {
             WITH classified AS MATERIALIZED (
               SELECT read_at_ms IS NULL AS unread,
                 attention = 'action_required' AND resolution_status = 'open' AS open_action,
-                importance = 'urgent' AS urgent,
+                (${inboxPrioritySql()}) AS priority,
                 (${INBOX_OPEN_REVIEW}) AS open_review,
                 (${INBOX_UNREAD_PRIORITY_UPDATE}) AS priority_update,
                 (${UNREAD_URGENT_UPDATE_FILTER}) AS urgent_update,
@@ -923,7 +929,7 @@ export function createInboxService(input: {
             )
             SELECT
               count(*) FILTER (WHERE unread) AS unread_count,
-              count(*) FILTER (WHERE (open_action AND urgent) OR priority_update) AS priority_count,
+              count(*) FILTER (WHERE priority) AS priority_count,
               count(*) FILTER (WHERE open_review) AS review_count,
               count(*) FILTER (WHERE priority_update) AS priority_update_count,
               count(*) FILTER (WHERE open_action) AS action_count,
@@ -1314,6 +1320,11 @@ export function mapInboxItemRow(row: InboxItemRow): InboxItem {
     ? JSON.parse(row.source_facts_json)
     : undefined;
   let target = sourceTarget.data;
+  // Space association feeds the shared attention summary. Keep the existing
+  // request detail wire shape compatible with strict older clients/Gateways.
+  if (target.kind === "plugin_action_request") {
+    target = { kind: "plugin_action_request", requestId: target.requestId };
+  }
   // The retired continuation producer put a child result id in its parent's
   // Space. Old rows may never be replayed by that producer. Correct only their
   // reader presentation, after source authorization; preserve stored evidence,

@@ -17,7 +17,7 @@ import {
   parseNotarytoolSubmission,
   REQUIRED_BUN_ENTITLEMENTS,
   resolveAppleReleaseCredentials,
-} from "./macos-cli-signing.mjs";
+} from "./apple-release-signing.mjs";
 
 const INCOMPLETE_CI_CREDENTIALS_RE =
   /APPLE_DEVELOPER_ID_P12_PASSWORD, APPLE_NOTARY_KEY_P8_BASE64, APPLE_NOTARY_KEY_ID, APPLE_NOTARY_ISSUER_ID/u;

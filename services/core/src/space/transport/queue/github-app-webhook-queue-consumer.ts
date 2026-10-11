@@ -116,8 +116,8 @@ export async function processGitHubAppWebhookQueueMessage(input: {
         continue;
       }
       await stub.rpcApplyGitHubIssueObservation({
-        cancelOperationId: spaceTaskGitHubIssueOperationId(
-          "cancel",
+        settleOperationId: spaceTaskGitHubIssueOperationId(
+          "settle",
           input.message.issue,
           link.taskId,
           input.message.deliveryId
@@ -137,6 +137,7 @@ export async function processGitHubAppWebhookQueueMessage(input: {
         ),
         observedAt: input.message.issue.updatedAt,
         observedState: input.message.issue.state,
+        observedStateReason: input.message.issue.stateReason,
         spaceId: link.spaceId,
         taskId: link.taskId,
       });
