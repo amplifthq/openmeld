@@ -101,8 +101,10 @@ IDs; Tasks waiting for review are excluded. Legacy completed operations without
 provider evidence cannot invent it from the requested input.
 Apply nullable `center_agent_connector_action_operations.github_issue_observation_json`
 before Core, and deploy Core before the updated Remote Agent caller. Historical
-D1 imports omit the native-only column. Older strict Core rejects the new request
-fields; old callers receive no new response field. Rollback must retain the
+D1 imports omit the native-only column. Older Core RPC receivers ignore the new
+request fields and can record provider completion without Task synchronization
+evidence; the rollout cannot rely on rejection of a new caller. Old callers
+receive no new response field. Rollback must retain the
 column and compatible receipt readers. This adds no model tool or Gateway route
 and does not alter CLI, Service, Skills, setup, Wake, or diagnostic wire contracts.
 
