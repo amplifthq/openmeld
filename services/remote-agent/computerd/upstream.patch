@@ -486,9 +486,10 @@ diff --git a/packages/computer/src/execution-runtime-tracker.ts b/packages/compu
  
    delete(key: string, expectedRuntimeId?: string): void {
 diff --git a/packages/computer/src/execution-sync.test.ts b/packages/computer/src/execution-sync.test.ts
+new file mode 100644
 --- /dev/null
 +++ b/packages/computer/src/execution-sync.test.ts
-@@ -0,0 +1,274 @@
+@@ -0,0 +1,277 @@
 +import { createSyncServer, createWorkspaceServer } from "@cloudflare/computer-rpc/server";
 +import { Database, initializeSchema, SQLiteWorkspaceProvider } from "@cloudflare/dofs";
 +import { SQLiteTestStorage } from "@cloudflare/dofs/testing";
@@ -596,6 +597,9 @@ diff --git a/packages/computer/src/execution-sync.test.ts b/packages/computer/sr
 +  const start = async (id: string) => {
 +    for (let step = 0; ; step++) {
 +      expect(step).toBeLessThan(30);
++      // Command admission ensures its working directory on every resumable
++      // attempt. An existing directory must not keep moving the sync target.
++      await owner.fs.mkdir(`/tasks/${id}`, { recursive: true });
 +      try {
 +        return await (
 +          await owner.runtime.exec(id, { id, backend: "peer", sync: "defer" })
@@ -772,6 +776,7 @@ diff --git a/packages/computer/src/index.ts b/packages/computer/src/index.ts
  } from "./workspace.js";
 +export { WorkspaceSyncPendingError } from "./sync-pending.js";
 diff --git a/packages/computer/src/runtime/decode-command-events.ts b/packages/computer/src/runtime/decode-command-events.ts
+new file mode 100644
 --- /dev/null
 +++ b/packages/computer/src/runtime/decode-command-events.ts
 @@ -0,0 +1,40 @@
@@ -1108,6 +1113,7 @@ diff --git a/packages/computer/src/stub.ts b/packages/computer/src/stub.ts
      this.#runtime = new WorkspaceRuntimeStub(ws);
      this.#git = new WorkspaceGitStub(ws);
 diff --git a/packages/computer/src/sync-pending.ts b/packages/computer/src/sync-pending.ts
+new file mode 100644
 --- /dev/null
 +++ b/packages/computer/src/sync-pending.ts
 @@ -0,0 +1,13 @@
@@ -1642,6 +1648,7 @@ diff --git a/packages/computerd/src/cli/computerd.ts b/packages/computerd/src/cl
  
  async function main(): Promise<void> {
 diff --git a/packages/computerd/src/cli/health.test.ts b/packages/computerd/src/cli/health.test.ts
+new file mode 100644
 --- /dev/null
 +++ b/packages/computerd/src/cli/health.test.ts
 @@ -0,0 +1,17 @@
@@ -1663,6 +1670,7 @@ diff --git a/packages/computerd/src/cli/health.test.ts b/packages/computerd/src/
 +  expect(cancelled).toBe(true);
 +});
 diff --git a/packages/computerd/src/cli/health.ts b/packages/computerd/src/cli/health.ts
+new file mode 100644
 --- /dev/null
 +++ b/packages/computerd/src/cli/health.ts
 @@ -0,0 +1,18 @@
@@ -1996,6 +2004,37 @@ diff --git a/packages/dofs/src/fs/link.ts b/packages/dofs/src/fs/link.ts
      const rev = incrementRev(db);
      db.run("UPDATE vfs_nodes SET rev = ? WHERE inode = ?", rev, source.inode);
      // A new hardlink name for an existing file: a leaf with no
+diff --git a/packages/dofs/src/fs/mkdir.test.ts b/packages/dofs/src/fs/mkdir.test.ts
+--- a/packages/dofs/src/fs/mkdir.test.ts
++++ b/packages/dofs/src/fs/mkdir.test.ts
+@@ -1,6 +1,7 @@
+ import { describe, expect, it } from "vitest";
+ 
+ import { ROOT_INODE } from "../schema/index.js";
++import { currentRev } from "../sync/watermarks.js";
+ import { mkdir } from "./mkdir.js";
+ import { resolveInode } from "./resolve.js";
+ import { symlink } from "./symlink.js";
+@@ -94,13 +95,18 @@
+       expect(resolveInode(db, "/x")?.type).toBe("dir");
+       expect(resolveInode(db, "/x/y")?.type).toBe("dir");
+       expect(resolveInode(db, "/x/y/z")?.type).toBe("dir");
++      expect(new Set(["/x", "/x/y", "/x/y/z"].map(path => db.scalar<number>("SELECT rev FROM vfs_nodes WHERE inode = ?", resolveInode(db, path)!.inode)))).toEqual(new Set([currentRev(db)]));
+     });
+   });
+ 
+   it("recursive: is idempotent when the target already exists as a dir", async () => {
+     await withDB((db) => {
+       mkdir(db, "/a/b", { recursive: true }, () => 0);
+-      expect(() => mkdir(db, "/a/b", { recursive: true }, () => 0)).not.toThrow();
++      const before = currentRev(db);
++      const node = resolveInode(db, "/a/b");
++      expect(() => mkdir(db, "/a/b", { recursive: true }, () => 999)).not.toThrow();
++      expect(currentRev(db)).toBe(before);
++      expect(resolveInode(db, "/a/b")).toEqual(node);
+     });
+   });
+ 
 diff --git a/packages/dofs/src/fs/mkdir.ts b/packages/dofs/src/fs/mkdir.ts
 --- a/packages/dofs/src/fs/mkdir.ts
 +++ b/packages/dofs/src/fs/mkdir.ts
@@ -2029,6 +2068,50 @@ diff --git a/packages/dofs/src/fs/mkdir.ts b/packages/dofs/src/fs/mkdir.ts
    return inode;
  }
  
+@@ -108,7 +105,7 @@
+   canonical: string,
+   recursive: boolean,
+   mtime: number,
+-  rev: number,
++  revision: () => number,
+ ): ResolvedParent {
+   // Segments still to walk. A segment that came from a link target
+   // carries `fromLink` so a dangling link reports ENOENT rather than
+@@ -139,7 +136,7 @@
+       if (!recursive || fromLink) {
+         throw createWorkspaceError("ENOENT", `parent directory missing: ${canonical}`, canonical);
+       }
+-      const created = createDir(db, parentInode, name, 0o755, mtime, rev);
++      const created = createDir(db, parentInode, name, 0o755, mtime, revision());
+       inodeStack.push(created);
+       realParts.push(name);
+       // A newly created directory is empty, so a cached negative for
+@@ -213,11 +210,14 @@
+   guard(db, canonical);
+ 
+   db.transactionSync(() => {
+-    const rev = incrementRev(db);
++    // Existing recursive directories do not change the filesystem. Allocate
++    // one revision only when this transaction actually creates a directory.
++    let rev: number | undefined;
++    const revision = () => (rev ??= incrementRev(db));
+     const mtime = now();
+ 
+     // Walk all but the final segment, following intermediate links.
+-    const parent = resolveMkdirParent(db, parts, canonical, recursive, mtime, rev);
++    const parent = resolveMkdirParent(db, parts, canonical, recursive, mtime, revision);
+     const leafName = parts[parts.length - 1];
+     const realPath = parent.realPath === "/" ? `/${leafName}` : `${parent.realPath}/${leafName}`;
+     // A path that traversed a link can land somewhere the caller's own
+@@ -235,7 +235,7 @@
+       throw createWorkspaceError("EEXIST", `path exists: ${canonical}`, canonical);
+     }
+ 
+-    createDir(db, parent.inode, leafName, mode, mtime, rev);
++    createDir(db, parent.inode, leafName, mode, mtime, revision());
+     invalidateResolveExact(db, realPath);
+     if (realPath !== canonical) invalidateResolveExact(db, canonical);
+   });
 diff --git a/packages/dofs/src/fs/readFile.ts b/packages/dofs/src/fs/readFile.ts
 --- a/packages/dofs/src/fs/readFile.ts
 +++ b/packages/dofs/src/fs/readFile.ts
@@ -3662,6 +3745,7 @@ diff --git a/packages/dofs/src/sync/paths.ts b/packages/dofs/src/sync/paths.ts
 -  flush();
  }
 diff --git a/packages/dofs/src/sync/planning.test.ts b/packages/dofs/src/sync/planning.test.ts
+new file mode 100644
 --- /dev/null
 +++ b/packages/dofs/src/sync/planning.test.ts
 @@ -0,0 +1,61 @@
@@ -3727,6 +3811,7 @@ diff --git a/packages/dofs/src/sync/planning.test.ts b/packages/dofs/src/sync/pl
 +  });
 +});
 diff --git a/packages/dofs/src/sync/planning.ts b/packages/dofs/src/sync/planning.ts
+new file mode 100644
 --- /dev/null
 +++ b/packages/dofs/src/sync/planning.ts
 @@ -0,0 +1,305 @@
@@ -4036,6 +4121,7 @@ diff --git a/packages/dofs/src/sync/planning.ts b/packages/dofs/src/sync/plannin
 +  );
 +}
 diff --git a/packages/dofs/src/sync/refusals.ts b/packages/dofs/src/sync/refusals.ts
+new file mode 100644
 --- /dev/null
 +++ b/packages/dofs/src/sync/refusals.ts
 @@ -0,0 +1,126 @@
@@ -4166,6 +4252,7 @@ diff --git a/packages/dofs/src/sync/refusals.ts b/packages/dofs/src/sync/refusal
 +  );
 +}
 diff --git a/packages/dofs/src/sync/removals.test.ts b/packages/dofs/src/sync/removals.test.ts
+new file mode 100644
 --- /dev/null
 +++ b/packages/dofs/src/sync/removals.test.ts
 @@ -0,0 +1,72 @@
@@ -4242,6 +4329,7 @@ diff --git a/packages/dofs/src/sync/removals.test.ts b/packages/dofs/src/sync/re
 +  },
 +);
 diff --git a/packages/dofs/src/sync/removals.ts b/packages/dofs/src/sync/removals.ts
+new file mode 100644
 --- /dev/null
 +++ b/packages/dofs/src/sync/removals.ts
 @@ -0,0 +1,80 @@
@@ -4326,6 +4414,7 @@ diff --git a/packages/dofs/src/sync/removals.ts b/packages/dofs/src/sync/removal
 +  });
 +}
 diff --git a/packages/dofs/src/sync/retention.ts b/packages/dofs/src/sync/retention.ts
+new file mode 100644
 --- /dev/null
 +++ b/packages/dofs/src/sync/retention.ts
 @@ -0,0 +1,135 @@
@@ -4496,6 +4585,7 @@ diff --git a/packages/rpc/package.json b/packages/rpc/package.json
    "peerDependencies": {
      "@cloudflare/workers-types": "^4.20260616.1 || ^5.20260921.1"
 diff --git a/packages/rpc/src/bounded-sync.test.ts b/packages/rpc/src/bounded-sync.test.ts
+new file mode 100644
 --- /dev/null
 +++ b/packages/rpc/src/bounded-sync.test.ts
 @@ -0,0 +1,206 @@
@@ -4706,6 +4796,7 @@ diff --git a/packages/rpc/src/bounded-sync.test.ts b/packages/rpc/src/bounded-sy
 +  }
 +});
 diff --git a/packages/rpc/src/dispatch-fence.test.ts b/packages/rpc/src/dispatch-fence.test.ts
+new file mode 100644
 --- /dev/null
 +++ b/packages/rpc/src/dispatch-fence.test.ts
 @@ -0,0 +1,37 @@
@@ -4838,6 +4929,7 @@ diff --git a/packages/rpc/src/interface.ts b/packages/rpc/src/interface.ts
      cwd?: string;
      id?: string;
 diff --git a/packages/rpc/src/retention.test.ts b/packages/rpc/src/retention.test.ts
+new file mode 100644
 --- /dev/null
 +++ b/packages/rpc/src/retention.test.ts
 @@ -0,0 +1,128 @@

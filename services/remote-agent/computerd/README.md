@@ -40,6 +40,22 @@ that maintenance finishes. Pending executions retain their necessary journal.
 `MOUNT_IGNORE` is not enabled. Dependencies and user files retain their existing
 storage semantics. Excluding a directory from FUSE is not an equivalent fix.
 
+## Deployment boundary
+
+Deploy compatible Core callback and frozen-result readers before Remote Agent.
+The SDK and native image require the same retention protocol. Do not enable a
+legacy synchronization fallback: missing retention support must fail before
+advancing a cursor or starting a new command. The Center Agent must preserve
+confirmed results and explain Computer unavailability during that window.
+
+Cloudflare activates Worker code before replacing container images. A successful
+deploy starts the rollout; it does not prove that the fleet uses the new image.
+Follow the guarded production release, then verify the target image digest,
+rollout completion and instance convergence before the user-path smoke. Existing
+commands remain subject to container replacement: only confirmed canonical
+synchronization proves that their files survive. Do not replay uncertain work.
+See the official [container rollout contract](https://developers.cloudflare.com/containers/configuration/rollouts/).
+
 ## Storage and transport ownership
 
 The native filesystem uses file-backed SQLite at

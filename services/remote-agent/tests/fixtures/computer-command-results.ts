@@ -1,4 +1,5 @@
 import {
+  type BackendHandle,
   getWorkspace,
   Workspace,
   type WorkspaceRuntimeEvent,
@@ -59,6 +60,16 @@ export async function verifyDurableCommandResults(
   let pullFails = true;
   let expired = false;
   let starts = 0;
+  const retention: Pick<
+    NonNullable<BackendHandle["rpc"]["sync"]>,
+    "retentionHead" | "beginRetention"
+  > = {
+    retentionHead: async () => ({
+      epoch: "durable-result-peer",
+      generation: null,
+    }),
+    beginRetention: async () => undefined,
+  };
   const attach = (id: string, after: number | "tail" = 0) => {
     if (expired) {
       throw Object.assign(new Error("no exec record"), {
@@ -132,6 +143,7 @@ export async function verifyDurableCommandResults(
                   ),
               },
               sync: {
+                ...retention,
                 watermarks: () =>
                   exited && pullFails
                     ? Promise.reject(
