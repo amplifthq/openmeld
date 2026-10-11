@@ -4,6 +4,7 @@ import type {
 	AuthProfileView,
 	OrganizationSpaceDirectoryWithMemberCountsItem,
 } from "@openmeld/schemas/types";
+import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	DropdownMenu,
@@ -43,6 +44,11 @@ import {
 	useRef,
 	useState,
 } from "react";
+import {
+	resolveInboxAttentionLabel,
+	resolveInboxAttentionTone,
+	resolveInboxIndicatorClassName,
+} from "#/lib/inbox/attention";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
 import { buildProfilePath } from "#/lib/profile-routes";
@@ -50,6 +56,7 @@ import {
 	type AccountSpaceItem,
 	resolveAccountSpaceRecency,
 } from "#/lib/spaces/account-spaces";
+import { spaceInboxSummaryQueryOptions } from "#/query/organizations/inbox";
 import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 import { AppSidebarGroup } from "../app/app-sidebar-group";
 import { DirectoryRowActions } from "../app/directory-row-actions";
@@ -107,6 +114,15 @@ export function SpaceDirectory(input: {
 		currentOrganization.id
 	);
 	const sidebar = useSidebarPreferences(currentOrganization.id);
+	const inbox = useQuery(
+		spaceInboxSummaryQueryOptions({ organizationId: currentOrganization.id })
+	);
+	const attentionById = new Map(
+		(inbox.data?.attention ?? []).map((item) => [
+			item.spaceId,
+			resolveInboxAttentionTone(item),
+		])
+	);
 	const { showMessagePreviews } = useMessagePreviews(
 		input.profileId,
 		currentOrganization.id
@@ -423,6 +439,9 @@ export function SpaceDirectory(input: {
 											{group.items.map((item, index) => (
 												<JoinedRow
 													appearances={appearances}
+													attentionTone={
+														attentionById.get(item.spaceId) ?? null
+													}
 													disabled={sidebar.disabled}
 													index={index}
 													input={input}
@@ -644,6 +663,7 @@ function UnindexedJoinedRow(input: {
 
 type DirectoryInput = React.ComponentProps<typeof SpaceDirectory>;
 function JoinedRow(input: {
+	attentionTone: ReturnType<typeof resolveInboxAttentionTone>;
 	showMessagePreviews: boolean;
 	layout: DirectoryLayout;
 	item: AccountSpaceItem;
@@ -717,14 +737,15 @@ function JoinedRow(input: {
 										unread={input.unread > 0}
 									/>
 								</Link>
-								{input.unread > 0 && (
+								{(input.unread > 0 || input.attentionTone) && (
 									<span className="relative z-10 flex shrink-0 items-center">
-										<SpaceUnreadLink
+										<DirectoryAttention
+											attentionTone={input.attentionTone}
+											compact
 											count={input.unread}
 											messageUnreadCount={input.messageUnreadCount}
 											spaceId={item.spaceId}
 											url={`${route.to}?${new URLSearchParams(route.search)}`}
-											variant="badge"
 										/>
 									</span>
 								)}
@@ -785,6 +806,7 @@ function JoinedRow(input: {
 				</Link>
 				<div className="mt-1 pl-6 lg:hidden">
 					<RowStatus
+						attentionTone={input.attentionTone}
 						messageUnreadCount={input.messageUnreadCount}
 						route={route}
 						spaceId={item.spaceId}
@@ -795,6 +817,7 @@ function JoinedRow(input: {
 			</TableCell>
 			<TableCell className="hidden lg:table-cell">
 				<RowStatus
+					attentionTone={input.attentionTone}
 					messageUnreadCount={input.messageUnreadCount}
 					route={route}
 					spaceId={item.spaceId}
@@ -866,7 +889,47 @@ function JoinedSpaceActions(input: React.ComponentProps<typeof JoinedRow>) {
 	);
 }
 
+function DirectoryAttention(input: {
+	attentionTone?: ReturnType<typeof resolveInboxAttentionTone>;
+	compact?: boolean;
+	count: number;
+	messageUnreadCount?: number;
+	spaceId: string;
+	url: string;
+}) {
+	if (input.attentionTone && input.compact) {
+		const label = resolveInboxAttentionLabel(input.attentionTone);
+		return (
+			<TooltipHint content={label}>
+				<span
+					aria-label={label ?? undefined}
+					className={`status-dot ${resolveInboxIndicatorClassName(input.attentionTone)}`}
+					role="img"
+				/>
+			</TooltipHint>
+		);
+	}
+	return input.attentionTone ? (
+		<Badge className="gap-1.5 px-1.5" variant="secondary">
+			<span
+				aria-hidden="true"
+				className={`status-dot ${resolveInboxIndicatorClassName(input.attentionTone)}`}
+			/>
+			{resolveInboxAttentionLabel(input.attentionTone)}
+		</Badge>
+	) : (
+		<SpaceUnreadLink
+			count={input.count}
+			messageUnreadCount={input.messageUnreadCount}
+			spaceId={input.spaceId}
+			url={input.url}
+			variant="badge"
+		/>
+	);
+}
+
 function RowStatus(input: {
+	attentionTone?: ReturnType<typeof resolveInboxAttentionTone>;
 	messageUnreadCount?: number;
 	spaceId: string;
 	status: ReturnType<typeof resolveSpaceActiveWakePresentation> | null;
@@ -885,14 +948,14 @@ function RowStatus(input: {
 					</Link>
 				</TooltipHint>
 			)}
-			{input.unread > 0 && (
+			{(input.unread > 0 || input.attentionTone) && (
 				<span className="flex items-center gap-2 text-muted-foreground">
-					<SpaceUnreadLink
+					<DirectoryAttention
+						attentionTone={input.attentionTone}
 						count={input.unread}
 						messageUnreadCount={input.messageUnreadCount}
 						spaceId={input.spaceId}
 						url={`${input.route.to}?${new URLSearchParams(input.route.search)}`}
-						variant="badge"
 					/>
 				</span>
 			)}

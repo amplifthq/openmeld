@@ -200,6 +200,8 @@ export const inboxSourceTargetSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("plugin_action_request"),
     requestId: identifierSchema,
+    // Stored provenance for Space attention; the request remains the action target.
+    spaceId: identifierSchema.optional(),
   }),
   computerInboxSourceTargetSchema,
   desktopUpdateInboxSourceTargetSchema,
