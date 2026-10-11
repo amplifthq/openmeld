@@ -112,6 +112,13 @@ vi.mock("../src/provider-hosts/prepare-provider-runtime", () => ({
 
 const tempDirs: string[] = [];
 
+// Inventory observation runs independently of dispatch settlement and has its
+// own persistence tests. Do not leave its background writer racing this
+// suite's disposable-home teardown.
+vi.mock("../src/agent-activity/session-inventory-origin-store", () => ({
+  recordOpenMeldCreatedLocalAgentSession: () => Promise.resolve(),
+}));
+
 afterEach(() => {
   vi.restoreAllMocks();
   for (const dir of tempDirs.splice(0)) {
@@ -125,15 +132,19 @@ beforeEach(() => {
   fetchSpaceUpdatesMock.mockResolvedValue({ signals: [] });
 });
 
-function createPresenter(): Presenter & { events: Array<{ code?: string }> } {
+function createPresenter(
+  onLine?: (line: { code?: string }) => void
+): Presenter & { events: Array<{ code?: string }> } {
   const events: Array<{ code?: string }> = [];
   return {
     data: (line) => {
       events.push(line as { code?: string });
+      onLine?.(line as { code?: string });
     },
     event: () => undefined,
     line: (line) => {
       events.push(line as { code?: string });
+      onLine?.(line as { code?: string });
     },
     events,
     view: "agent",
@@ -1567,7 +1578,15 @@ describe("dispatch result outbox around preview teardown", () => {
   it("retains a legacy CLI proposal and carrier ownership until the native turn completes", async () => {
     await withTempHome(async () => {
       const ledgerPaths = createLedgerPaths();
-      const presenter = createPresenter();
+      let proposalObserved: () => void = () => undefined;
+      const proposal = new Promise<void>((resolve) => {
+        proposalObserved = resolve;
+      });
+      const presenter = createPresenter((line) => {
+        if (line.code === "daemon.run.cli_space_action_finalized") {
+          proposalObserved();
+        }
+      });
       let nativeTurnCompleted = false;
       const settlementSocket = createAcceptedSettlementSocket({
         ledgerPaths,
@@ -1648,15 +1667,7 @@ describe("dispatch result outbox around preview teardown", () => {
         return result;
       });
       try {
-        await vi.waitFor(() => {
-          expect(presenter.events).toEqual(
-            expect.arrayContaining([
-              expect.objectContaining({
-                code: "daemon.run.cli_space_action_finalized",
-              }),
-            ])
-          );
-        });
+        await proposal;
         expect(carrierReleased).toBe(false);
         expect(currentSocketRef.reasoningPreferenceListeners?.size).toBe(1);
       } finally {
