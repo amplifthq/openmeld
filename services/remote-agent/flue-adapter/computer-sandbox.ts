@@ -55,16 +55,22 @@ import {
   createComputerCommandTool,
 } from "./computer-command";
 import type { createAgentComputerFileHandoff } from "./computer-file-handoff";
+import {
+  type ComputerHelperExecutionOptions,
+  executeComputerHelper,
+} from "./computer-helper-execution";
 import { personalComputerProviderName } from "./computer-identity";
 import { createNativeComputerTool } from "./computer-native";
 import { createComputerPluginConnectionTool } from "./computer-plugin-connection";
+import {
+  assertComputerMutationCanContinue,
+  createComputerRecoveryTool,
+  requireComputerRecoveryContext,
+} from "./computer-recovery";
 import { getComputerSpaceFileTools } from "./computer-space-files";
 import { getComputerVideoInspectionTool } from "./computer-video-inspection";
 import type { AgentComputer } from "./computer-workspace";
-import {
-  AGENT_COMPUTER_SHELL_BACKEND_ID,
-  resolveAgentComputerWorkingDirectory,
-} from "./computer-workspace-config";
+import { resolveAgentComputerWorkingDirectory } from "./computer-workspace-config";
 import { getGitHubWorkingCopyTools } from "./github-working-copy-tools";
 import type { createMemberProfileReportComputerFileStore } from "./member-profile-report-computer-files";
 import { prepareOrganizationDocumentsComputerSnapshot } from "./organization-document-computer-snapshot";
@@ -73,7 +79,6 @@ import { disabledNoNetworkSandbox } from "./sandbox";
 import { materializeSpaceWork } from "./space-work-materialization";
 import { emitRemoteAgentToolUsage } from "./tool-usage-observability";
 
-const DEFAULT_EXEC_TIMEOUT_MS = 120_000;
 const TRAILING_SLASHES_PATTERN = /\/+$/u;
 
 type ComputerObservabilityEnv = {
@@ -143,13 +148,6 @@ export async function createRemoteAgentComputerCapability(input: {
   const namespace = input.env.AGENT_COMPUTER as AgentComputerNamespace;
   const computerName = personalComputerProviderName(computer.id);
   const computerId = namespace.idFromName(computerName);
-  if (input.storage) {
-    await bindComputerCommandTarget({
-      storage: input.storage,
-      submissionId: input.context.submissionId,
-      computerName,
-    });
-  }
   const authorize = async () => await requireRemoteAgentExecutionAccess(input);
   await authorize();
   // Keep the frozen identity and authorization boundary at admission. Opening
@@ -165,10 +163,20 @@ export async function createRemoteAgentComputerCapability(input: {
   });
   let preparation: Promise<void> | undefined;
   const prepareWorkspace = async () => {
-    preparation ??= materializeAgentComputerWorkspace({
-      context: input.context,
-      workspaceAccess: unpreparedWorkspaceAccess,
-    })
+    preparation ??= (async () => {
+      await (
+        namespace.get(computerId) as DurableObjectStub<AgentComputer>
+      ).registerComputerInvocation({
+        invocationId: input.context.submissionId,
+        organizationId: input.context.organizationId,
+        spaceId: input.context.spaceId,
+        agentProfileId: input.context.agentProfileId,
+      });
+      return await materializeAgentComputerWorkspace({
+        context: input.context,
+        workspaceAccess: unpreparedWorkspaceAccess,
+      });
+    })()
       .then(() => undefined)
       .catch((error: unknown) => {
         // Successful setup is shared by concurrent tools; a failed setup can be
@@ -178,7 +186,7 @@ export async function createRemoteAgentComputerCapability(input: {
       });
     await preparation;
   };
-  const workspaceAccess = createAgentComputerWorkspaceAccess({
+  const preparedWorkspaceAccess = createAgentComputerWorkspaceAccess({
     computerId,
     namespace,
     authorize: async () => {
@@ -186,6 +194,65 @@ export async function createRemoteAgentComputerCapability(input: {
       await prepareWorkspace();
     },
   });
+  const workspaceAccess: AgentComputerWorkspaceAccess = {
+    ...preparedWorkspaceAccess,
+    computerOperation: async (requestedOperation) => {
+      let operation = requestedOperation;
+      await authorize();
+      if (
+        operation.action === "command" &&
+        operation.command.action !== "start" &&
+        operation.command.action !== "list" &&
+        operation.command.reference?.invocationId !== undefined &&
+        operation.command.reference.invocationId !== input.context.submissionId
+      ) {
+        if (!input.storage) {
+          throw new Error("computer.recovery_storage_unavailable");
+        }
+        const original = await requireComputerRecoveryContext({
+          ...input,
+          computerName,
+          storage: input.storage,
+          invocationId: operation.command.reference.invocationId,
+        });
+        operation = { ...operation, invocationId: original.submissionId };
+      }
+      const observes =
+        operation.action === "describe" ||
+        (operation.action === "command" &&
+          operation.command.action !== "start") ||
+        (operation.action === "files" &&
+          ["read", "ls", "find", "grep"].includes(operation.tool)) ||
+        ["read", "list", "storage", "preview"].includes(operation.action);
+      if (!observes && input.storage) {
+        await assertComputerMutationCanContinue({
+          ...input,
+          storage: input.storage,
+        });
+      }
+      const access = observes
+        ? unpreparedWorkspaceAccess
+        : preparedWorkspaceAccess;
+      if (
+        operation.action === "command" &&
+        operation.command.action === "start" &&
+        input.storage
+      ) {
+        await prepareWorkspace();
+        // Routing becomes a cleanup obligation only when a command may be
+        // dispatched. Merely offering tools must not couple a reply to Computer.
+        await bindComputerCommandTarget({
+          storage: input.storage,
+          submissionId: input.context.submissionId,
+          computerName,
+        });
+      }
+      if (!access.computerOperation) {
+        throw new Error("computer.operations_unavailable");
+      }
+      return await access.computerOperation(operation);
+    },
+  };
   if (input.context.workHandoff && !input.storage) {
     throw new Error("Durable storage is required to prepare handoff files.");
   }
@@ -198,7 +265,10 @@ export async function createRemoteAgentComputerCapability(input: {
         workingDirectory: baseWorkingDirectory,
       })
     : baseWorkingDirectory;
-  const nativeApi = new AgentComputerSandboxApi(workspaceAccess);
+  const nativeApi = new AgentComputerSandboxApi(
+    workspaceAccess,
+    input.context.submissionId
+  );
   const api = instrumentRemoteAgentComputerSandboxApi({
     api: nativeApi,
     context: input.context,
@@ -293,6 +363,16 @@ export async function createRemoteAgentComputerCapability(input: {
   const transcriptionAi = input.env.AI;
   return {
     definitions: [
+      ...(input.storage
+        ? [
+            createComputerRecoveryTool({
+              ...input,
+              computerName,
+              storage: input.storage,
+              authorize,
+            }),
+          ]
+        : []),
       createNativeComputerTool({
         workspaceAccess,
         invocationId: input.context.submissionId,
@@ -391,6 +471,23 @@ export async function createRemoteAgentComputerCapability(input: {
       ...definition,
       description: `${definition.description}\nComputer ${computer.id} belongs to human account ${computer.ownerUserId}. Other Agents and tasks for this account share its files. Current task directory: ${workingDirectory}. Use separate files or Git worktrees for concurrent changes. Decide what to use and share from the original requester, delegation, task and destination audience; filesystem access is not an instruction to disclose personal files.`,
       execute: async (value, options) => {
+        if (
+          input.storage &&
+          [
+            "github_checkout_repository",
+            "github_publish_checkout",
+            "github_publish_computer_file",
+            "openmeld_checkout_org_document",
+            "openmeld_submit_org_document_working_copy",
+            "openmeld_download_space_file",
+            "computer_plugin_connection",
+          ].includes(definition.name)
+        ) {
+          await assertComputerMutationCanContinue({
+            ...input,
+            storage: input.storage,
+          });
+        }
         const result = await definition.execute(value, options);
         const sources = readRemoteAgentResultSources(result);
         await requireRemoteAgentExecutionAccess({ ...input, sources });
@@ -417,11 +514,14 @@ export async function createRemoteAgentComputerCapability(input: {
 
 /** Adapt the computer workspace onto Flue's SandboxApi contract. */
 export class AgentComputerSandboxApi implements SandboxApi {
+  private readonly invocationId?: string;
   private readonly workspaceAccess: AgentComputerWorkspaceAccess;
 
   constructor(
-    workspaceOrAccess: WorkspaceClient | AgentComputerWorkspaceAccess
+    workspaceOrAccess: WorkspaceClient | AgentComputerWorkspaceAccess,
+    invocationId?: string
   ) {
+    this.invocationId = invocationId;
     this.workspaceAccess =
       "withWorkspace" in workspaceOrAccess
         ? workspaceOrAccess
@@ -544,66 +644,16 @@ export class AgentComputerSandboxApi implements SandboxApi {
 
   async exec(
     command: string,
-    options?: {
-      backend?: string;
-      cwd?: string;
-      env?: Record<string, string>;
-      signal?: AbortSignal;
-      timeoutMs?: number;
-    }
+    options?: ComputerHelperExecutionOptions
   ): Promise<ShellResult> {
-    options?.signal?.throwIfAborted();
-    return await this.workspaceAccess.withWorkspace(async (workspace) => {
-      const handle = await workspace.runtime.exec(command, {
-        backend: options?.backend ?? AGENT_COMPUTER_SHELL_BACKEND_ID,
-        cwd: options?.cwd,
-        encoding: "utf8",
-        env: options?.env,
-        timeoutMs: options?.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS,
-      });
-      const signal = options?.signal;
-      let onAbort: (() => void) | undefined;
-      try {
-        const resultPromise = handle.result();
-        const abortPromise = signal
-          ? new Promise<never>((_resolve, reject) => {
-              onAbort = () => {
-                const stopReason = signal.reason;
-                handle.kill("SIGTERM").then(
-                  () => reject(stopReason),
-                  (killError: unknown) =>
-                    reject(
-                      new AggregateError(
-                        [stopReason, killError],
-                        "Computer command could not be stopped."
-                      )
-                    )
-                );
-              };
-              if (signal.aborted) {
-                onAbort();
-              } else {
-                signal.addEventListener("abort", onAbort, { once: true });
-              }
-            })
-          : null;
-        const result = abortPromise
-          ? await Promise.race([resultPromise, abortPromise])
-          : await resultPromise;
-        if (signal?.aborted && abortPromise) {
-          await abortPromise;
-        }
-        return {
-          exitCode: result.exitCode,
-          stderr: asUtf8Text(result.stderr),
-          stdout: asUtf8Text(result.stdout),
-        };
-      } finally {
-        if (onAbort) {
-          signal?.removeEventListener("abort", onAbort);
-        }
-        handle[Symbol.dispose]();
-      }
+    if (!this.invocationId) {
+      throw new Error("computer.execution_identity_unavailable");
+    }
+    return await executeComputerHelper({
+      workspaceAccess: this.workspaceAccess,
+      invocationId: this.invocationId,
+      command,
+      options,
     });
   }
 }
@@ -693,10 +743,6 @@ function parentDirectory(path: string): string | null {
     return null;
   }
   return normalized.slice(0, index);
-}
-
-function asUtf8Text(value: Uint8Array | string): string {
-  return typeof value === "string" ? value : new TextDecoder().decode(value);
 }
 
 function estimateSerializedBytes(value: unknown): number {

@@ -1119,6 +1119,11 @@ The visible destinations resolve in this order: **Inbox**, **Spaces**, and
    Each Inbox row or notification activation carries a new in-memory focus request,
    so selecting the same target again reopens its Thread and refocuses the message
    without remounting the conversation or discarding its draft and read cache.
+   Only a full Thread history read initializes the reply-history cache. Live
+   replies may extend an existing snapshot and update the separate preview, but
+   cannot turn an unread history into a successful query. A missing linked reply
+   is reported only after the current history read finishes; refreshing or paused
+   reads are not evidence that a reply was removed or access was lost.
 5. **Agents** — the first-level home for ordinary Agent Profiles that members
    manage. User-facing management copy calls them **Agents**; `Agent Profile`
    remains the internal identity-model term. Its Main Sidebar contextual list groups

@@ -592,8 +592,7 @@ describe("Center Agent HTTP schemas", () => {
         workspace: {
           agentProfileId: response.agentProfileId,
           status: "updated",
-          workspaceMode: "custom",
-          workspacePath: "/Users/felix/work/openmeld",
+          configurationVersion: null,
         },
       }).success
     ).toBe(true);

@@ -91,6 +91,7 @@ export type RemoteAgentFinalPublicationPayload =
       failureCode: string | null;
       failureDetail: string | null;
       files: SpaceMessageFileReference[];
+      reviewedFailureExplanation?: true;
       resumeStatus: "accepted" | "retry_observed";
       storageVersion: 3;
       text: string;
@@ -4324,6 +4325,7 @@ export async function claimRemoteAgentFinalPublication(input: {
   idempotencyKey: string;
   terminalFailureCode?: string | null;
   terminalFailureDetail?: string | null;
+  recoverSpaceFailure?: boolean;
 }): Promise<RemoteAgentNativeDeliveryRecord | null> {
   if (input.terminalFailureDetail && !input.terminalFailureCode) {
     throw new Error(
@@ -4353,8 +4355,15 @@ export async function claimRemoteAgentFinalPublication(input: {
           updated_at_ms = $11
         WHERE submission_id = $12
           AND idempotency_key = $13
-          AND status IN ('accepted', 'retry_observed')
-          AND final_publication_state IS NULL
+          AND (
+            (status IN ('accepted', 'retry_observed') AND final_publication_state IS NULL)
+            OR ($15::boolean AND conversation_kind = 'space' AND status = 'failed'
+              AND published_signal_id IS NULL
+              AND final_publication_payload_json IS NOT NULL
+              AND ((final_publication_payload_json)::jsonb #>> '{failureCode}') IS NOT NULL
+              AND (final_publication_state = 'outcome_unknown'
+                OR (final_publication_state = 'claimed' AND final_publication_claim_expires_at_ms <= $16)))
+          )
           AND (
             final_publication_payload_json IS NULL
             OR final_publication_payload_json = $14
@@ -4375,6 +4384,8 @@ export async function claimRemoteAgentFinalPublication(input: {
       input.submissionId,
       input.idempotencyKey,
       payloadJson,
+      input.recoverSpaceFailure === true,
+      input.nowMs,
     ],
   });
   if (!didPostgresWrite(result)) {
@@ -5106,7 +5117,6 @@ export async function markRemoteAgentMessageChannelFinalPublicationPublished(inp
           final_publication_claim_id = NULL,
           final_publication_claimed_at_ms = NULL,
           final_publication_claim_expires_at_ms = NULL,
-          final_publication_payload_json = NULL,
           final_publication_next_attempt_at_ms = NULL,
           provider_progress_card_history_json = ((provider_progress_card_history_json)::jsonb #- '{pendingSnapshot}')::text,
           failure_code = CASE
@@ -5199,7 +5209,6 @@ export async function markRemoteAgentMessageChannelFinalPublicationOutcomeUnknow
           final_publication_claim_id = NULL,
           final_publication_claimed_at_ms = NULL,
           final_publication_claim_expires_at_ms = NULL,
-          final_publication_payload_json = NULL,
           final_publication_next_attempt_at_ms = NULL,
           failure_code = CASE
             WHEN status = 'failed' THEN failure_code
@@ -5485,7 +5494,6 @@ export async function expireRemoteAgentMessageChannelFinalPublicationAmbiguity(i
           final_publication_claim_id = NULL,
           final_publication_claimed_at_ms = NULL,
           final_publication_claim_expires_at_ms = NULL,
-          final_publication_payload_json = NULL,
           final_publication_next_attempt_at_ms = NULL,
           failure_code = CASE
             WHEN status = 'failed' THEN failure_code
@@ -6330,11 +6338,17 @@ function parseFinalPublicationPayload(
   );
   if (record.storageVersion === 3) {
     const files = spaceMessageFileReferencesSchema.safeParse(record.files);
+    const reviewedFailureExplanation = record.reviewedFailureExplanation;
+    const reviewedFailureExplanationValid =
+      reviewedFailureExplanation === undefined ||
+      reviewedFailureExplanation === true;
     if (
       !(
         attachments.success &&
         files.success &&
-        Object.keys(record).length === 7
+        reviewedFailureExplanationValid &&
+        Object.keys(record).length ===
+          7 + Number(reviewedFailureExplanation === true)
       )
     ) {
       throw new Error(
@@ -6346,6 +6360,9 @@ function parseFinalPublicationPayload(
       failureCode,
       failureDetail,
       files: files.data,
+      ...(reviewedFailureExplanation === true
+        ? { reviewedFailureExplanation }
+        : {}),
       resumeStatus,
       storageVersion: 3,
       text,

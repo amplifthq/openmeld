@@ -989,8 +989,8 @@ export function mergeLiveThreadSignalIntoCache(input: {
 		!previous?.signals.some(
 			(signal) => signal.profile.profileId === input.signal.profile.profileId
 		);
-	// Live events can populate an unopened Thread with only its newest messages.
-	// Keep that partial snapshot stale until a full server read completes.
+	// Only a history read may initialize this cache. A live event can extend a
+	// known snapshot, but cannot establish that older messages are absent.
 	const needsFullSnapshot =
 		!previous || threadSignalsState?.isInvalidated || threadReadInFlight;
 	const changesWakeSelection =
@@ -1000,7 +1000,7 @@ export function mergeLiveThreadSignalIntoCache(input: {
 		(input.signal.data.messageEnvelope?.activationTargets.length ?? 0) > 0;
 	input.queryClient.setQueryData<ListSpaceThreadSignalsResponse>(
 		threadSignalsKey,
-		(current) => mergeThreadSignalsCache(current, input)
+		(current) => (current ? mergeThreadSignalsCache(current, input) : undefined)
 	);
 	if (introducesAuthor || needsFullSnapshot || changesWakeSelection) {
 		invalidateThreadSnapshotAfterLiveReply({

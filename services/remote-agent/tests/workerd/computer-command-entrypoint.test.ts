@@ -213,12 +213,14 @@ it.each([
         );
         await vi.advanceTimersByTimeAsync(5001);
         expect(await Promise.race([stopping, stopDeadline])).toMatchObject({
-          status: "stop_requested",
+          status: "completed",
+          exitCode: null,
         });
         release.resolve();
         await vi.advanceTimersByTimeAsync(1100);
         expect(await launch).toMatchObject({
-          message: expect.stringContaining("stopped"),
+          status: "completed",
+          exitCode: null,
         });
       } else {
         const deadline = new Promise((resolve) =>

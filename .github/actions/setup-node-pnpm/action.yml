@@ -3,7 +3,7 @@ description: Install the repository-pinned Node.js and pnpm toolchain with the s
 
 inputs:
   dependency_mode:
-    description: workspace builds source; renderer-promotion installs only trusted release tools
+    description: workspace builds apps; renderer-promotion installs trusted tools; release-tools builds publication schemas without app dependencies
     required: false
     default: workspace
   node_version:
@@ -51,6 +51,13 @@ runs:
             --prod \
             --ignore-scripts
           echo "$(cd "$SETUP_CONTROL_DIRECTORY/scripts/release" && pwd)/node_modules/.bin" >> "$GITHUB_PATH"
+        elif [ "$SETUP_DEPENDENCY_MODE" = release-tools ]; then
+          pnpm --dir "$SETUP_WORKING_DIRECTORY" install \
+            --frozen-lockfile \
+            --filter @openmeld/release-tools... \
+            --prod=false \
+            --ignore-scripts
+          echo "$(cd "$SETUP_WORKING_DIRECTORY/scripts/release" && pwd)/node_modules/.bin" >> "$GITHUB_PATH"
         elif [ "$SETUP_DEPENDENCY_MODE" = workspace ]; then
           pnpm --dir "$SETUP_WORKING_DIRECTORY" install --frozen-lockfile
           if [ -n "$SETUP_CONTROL_DIRECTORY" ]; then
