@@ -298,7 +298,12 @@ function PendingActionContent({
 				/>
 			);
 		}
-		return <PluginActionRequest requestId={action.request.requestId} />;
+		return (
+			<PluginActionRequest
+				presentation="surface"
+				requestId={action.request.requestId}
+			/>
+		);
 	}
 	if (action.item.sourceContext?.threadId && input.onOpenRequestThread) {
 		return (

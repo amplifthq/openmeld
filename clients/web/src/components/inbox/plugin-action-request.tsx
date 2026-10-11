@@ -1,5 +1,6 @@
 import {
 	ApprovalCard,
+	ApprovalCardBody,
 	ApprovalCardFooter,
 	ApprovalCardHeader,
 } from "@openmeld/ui/components/approval-card";
@@ -25,7 +26,13 @@ const EFFECT_COPY = {
 	unspecified: "May change data",
 } as const;
 
-export function PluginActionRequest({ requestId }: { requestId: string }) {
+export function PluginActionRequest({
+	requestId,
+	presentation,
+}: {
+	requestId: string;
+	presentation?: "surface";
+}) {
 	const { query, mutation } = usePluginActionRequest(requestId);
 	const [error, setError] = useState<string | null>(null);
 	const request = query.data;
@@ -60,47 +67,51 @@ export function PluginActionRequest({ requestId }: { requestId: string }) {
 		);
 	}
 	return (
-		<ApprovalCard className="mt-3">
+		<ApprovalCard
+			className={
+				presentation === "surface" ? "border-0 bg-transparent p-0" : "mt-3"
+			}
+		>
 			<ApprovalCardHeader
 				description="Review the account and action before continuing."
 				icon={<ShieldCheckIcon />}
 				title="Confirm a Plugin action"
 			/>
-			<dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
-				<div>
-					<dt className="text-muted-foreground">Plugin</dt>
-					<dd className="break-words">{request.service}</dd>
-				</div>
-				<div>
-					<dt className="text-muted-foreground">Account</dt>
-					<dd className="break-words">
-						{request.accountName} ·{" "}
-						{request.accountScope === "shared" ? "Shared" : "Personal"}
-					</dd>
-				</div>
-				<div>
-					<dt className="text-muted-foreground">Action</dt>
-					<dd className="break-all">{request.actionId}</dd>
-				</div>
-				<div>
-					<dt className="text-muted-foreground">Effect</dt>
-					<dd>{EFFECT_COPY[request.effect]}</dd>
-				</div>
-				{request.targets.map((target) => (
-					<div key={target.label}>
-						<dt className="text-muted-foreground">{target.label}</dt>
-						<dd className="break-all">{target.value}</dd>
+			<ApprovalCardBody>
+				<dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
+					<div>
+						<dt className="text-muted-foreground">Plugin</dt>
+						<dd className="break-words">{request.service}</dd>
 					</div>
-				))}
-			</dl>
-			<p className="text-muted-foreground text-xs">
-				This approval applies to the exact account and submitted input.
-				{request.inputFieldCount > request.targets.length
-					? " Some input is not shown. This summary does not verify omitted content."
-					: " Review the details before approving."}
-			</p>
-			{request.state === "pending" ? (
-				<div className="space-y-3 border-border/70 border-t pt-4">
+					<div>
+						<dt className="text-muted-foreground">Account</dt>
+						<dd className="break-words">
+							{request.accountName} ·{" "}
+							{request.accountScope === "shared" ? "Shared" : "Personal"}
+						</dd>
+					</div>
+					<div>
+						<dt className="text-muted-foreground">Action</dt>
+						<dd className="break-all">{request.actionId}</dd>
+					</div>
+					<div>
+						<dt className="text-muted-foreground">Effect</dt>
+						<dd>{EFFECT_COPY[request.effect]}</dd>
+					</div>
+					{request.targets.map((target) => (
+						<div key={target.label}>
+							<dt className="text-muted-foreground">{target.label}</dt>
+							<dd className="break-all">{target.value}</dd>
+						</div>
+					))}
+				</dl>
+				<p className="text-muted-foreground text-xs">
+					This approval applies to the exact account and submitted input.
+					{request.inputFieldCount > request.targets.length
+						? " Some input is not shown. This summary does not verify omitted content."
+						: " Review the details before approving."}
+				</p>
+				{request.state === "pending" ? (
 					<p className="text-muted-foreground text-sm">
 						Only your signed-in account can approve this request. It expires at{" "}
 						{new Date(request.expiresAtMs).toLocaleTimeString([], {
@@ -109,26 +120,26 @@ export function PluginActionRequest({ requestId }: { requestId: string }) {
 						})}
 						.
 					</p>
-					<ApprovalCardFooter>
-						<Button
-							disabled={disabled}
-							onClick={() => respond("approve")}
-							size="sm"
-						>
-							{request.sourceSignalId
-								? "Approve and continue"
-								: "Approve action"}
-						</Button>
-						<Button
-							disabled={disabled}
-							onClick={() => respond("reject")}
-							size="sm"
-							variant="outline"
-						>
-							Decline request
-						</Button>
-					</ApprovalCardFooter>
-				</div>
+				) : null}
+			</ApprovalCardBody>
+			{request.state === "pending" ? (
+				<ApprovalCardFooter>
+					<Button
+						disabled={disabled}
+						onClick={() => respond("approve")}
+						size="sm"
+					>
+						{request.sourceSignalId ? "Approve and continue" : "Approve action"}
+					</Button>
+					<Button
+						disabled={disabled}
+						onClick={() => respond("reject")}
+						size="sm"
+						variant="outline"
+					>
+						Decline request
+					</Button>
+				</ApprovalCardFooter>
 			) : (
 				<output className="block border-border/70 border-t pt-3 text-sm">
 					{request.state === "approved" && request.continuation
