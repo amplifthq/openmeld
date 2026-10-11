@@ -79,3 +79,9 @@ Each client still requires its own build and release. Merely merging this change
 does not update installed apps, deployed sites, or third-party image caches.
 Native installed-app acceptance belongs to the Desktop release. Static review
 sheets do not claim to reproduce AppKit or browser chrome exactly.
+
+All Desktop icon sizes are downsampled from `openmeld-desktop-1024.png`.
+Do not redraw small Dock layers: this changes the artwork's placement and scale
+as macOS selects a different layer. The monochrome menu-bar mark remains separate.
+Public link previews use the existing `openmeld-social-1200x630.png` wordmark
+with the large-image card layout, rather than the square app-avatar export.
