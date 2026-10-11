@@ -264,6 +264,7 @@ export function SpaceHistoryRail(input: {
 	};
 	const reserveLatest = (): SpaceHistoryLatestReservation => {
 		const sequence = ++jumpSequence.current;
+		setTarget(null);
 		const isCurrent = () => sequence === jumpSequence.current;
 		const previousPosition = readPosition(input.scrollElement);
 		return {

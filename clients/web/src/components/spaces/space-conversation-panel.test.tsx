@@ -35,6 +35,7 @@ import {
 } from "./space-composer-copy";
 import { SpaceConversationPanel } from "./space-conversation-panel";
 import type { SpaceExecutionRecoveryHandler } from "./space-execution-recovery-actions";
+import { SpaceHistoryRail } from "./space-history-rail";
 import type { SpaceView } from "./space-view";
 import { SpaceViewTabs } from "./space-view-tabs";
 
@@ -229,6 +230,89 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			screen.queryByRole("toolbar", { name: "Browse Space history" }) !== null
 		).toBe(visible);
+	});
+
+	it.each([
+		true,
+		false,
+	])("shows one history recovery action when retryable is %s", (retryable) => {
+		const error = retryable
+			? "Couldn’t load this part of the conversation."
+			: "This message is no longer available. Open the latest messages to continue.";
+		const historyNavigation = createTestHistoryNavigation({
+			error,
+			errorDirection: "after",
+			retry: retryable ? vi.fn() : undefined,
+			activeWindow: {
+				identity: "test",
+				envelopes: [createThreadPreviewSignal()],
+				hasBefore: true,
+				hasAfter: true,
+				confirmedAtLiveTail: false,
+			},
+		});
+		renderSpaceConversationPanel({
+			historyActionErrorMessage: error,
+			historyNavigation,
+		});
+		expect(screen.getAllByRole("alert")).toHaveLength(1);
+		expect(screen.queryAllByRole("button", { name: "Retry" })).toHaveLength(
+			retryable ? 1 : 0
+		);
+		expect(screen.queryByText("Retry loading newer messages")).toBeNull();
+	});
+
+	it("does not resume a failed history-rail jump after returning to latest", async () => {
+		const history = createTestHistoryNavigation({
+			directory: {
+				total: 200,
+				entries: [
+					{
+						signalId: "old-target",
+						endSignalId: "old-target",
+						startAt: 0,
+						endAt: 1,
+						count: 1,
+						author: "Mira",
+						preview: "Old target",
+					},
+				],
+			},
+		});
+		const onJump = vi.fn();
+		const props: ComponentProps<typeof SpaceHistoryRail> = {
+			controller: history,
+			visible: true,
+			items: [],
+			scrollElement: null,
+			onJumpToMessage: onJump,
+			onFollowLatest: vi.fn(),
+			onNavigateStart: vi.fn(),
+			renderNavigation: (actions) => (
+				<button
+					onClick={() => actions.reserveLatest().navigate()}
+					type="button"
+				>
+					Latest
+				</button>
+			),
+		};
+		const view = render(<SpaceHistoryRail {...props} />);
+		const tick = document.querySelector(".space-history-tick");
+		if (!tick) {
+			throw new Error("Expected history target");
+		}
+		fireEvent.click(tick);
+		await waitFor(() => expect(history.open).toHaveBeenCalled());
+		fireEvent.click(screen.getByText("Latest"));
+		view.rerender(
+			<SpaceHistoryRail
+				{...props}
+				items={[createTimelineItem({ id: "old-target", text: "Old target" })]}
+			/>
+		);
+		expect(history.latest).toHaveBeenCalledOnce();
+		expect(onJump).not.toHaveBeenCalled();
 	});
 
 	it("keeps the conversation interactive when a saved anchor is not cached", () => {
@@ -5840,6 +5924,38 @@ function createSpaceConversationPanelProps(
 			unreadStateReady,
 			...viewState,
 		},
+	};
+}
+
+function createTestHistoryNavigation(
+	overrides: Partial<
+		NonNullable<SpaceConversationPanelInput["historyNavigation"]>
+	> = {}
+): NonNullable<SpaceConversationPanelInput["historyNavigation"]> {
+	return {
+		activeWindow: null,
+		directory: undefined,
+		directoryError: false,
+		directoryPending: false,
+		error: null,
+		notice: null,
+		errorDirection: undefined,
+		hasHiddenLiveHistory: false,
+		latest: vi.fn(),
+		loadAfter: vi.fn(async () => false),
+		loadBefore: vi.fn(async () => false),
+		open: vi.fn(async () => false),
+		hrefForSignalId: undefined,
+		earlierHref: undefined,
+		latestHref: undefined,
+		newerHref: undefined,
+		pending: false,
+		pendingDirection: undefined,
+		retry: vi.fn(),
+		retryDirectory: vi.fn(),
+		revealCachedBefore: vi.fn(),
+		visibleLiveEnvelopes: [],
+		...overrides,
 	};
 }
 

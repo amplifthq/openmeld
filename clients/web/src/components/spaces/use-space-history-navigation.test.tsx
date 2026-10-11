@@ -120,7 +120,7 @@ describe("returning to the live Space history", () => {
 				focusManager.setFocused(false);
 				focusManager.setFocused(true);
 			} else {
-				result.current.retry();
+				result.current.retry?.();
 			}
 		});
 		await waitFor(() =>
@@ -262,6 +262,7 @@ describe("returning to the live Space history", () => {
 		});
 		expect(result.current.error).toBeTruthy();
 		expect(historyApi.listSignalEnvelopes).toHaveBeenCalledOnce();
+		expect(result.current.retry).toBeUndefined();
 	});
 
 	it.each([

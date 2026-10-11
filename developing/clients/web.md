@@ -1489,7 +1489,11 @@ retry policy still controls transient failures. New navigation cancels the old
 request. Route focus, history-rail, pinned-message, and unread-message jumps all
 complete their original navigation when the selected window recovers. One top
 banner owns the history error and its right-aligned **Retry** action. A missing
-message's fallback notice survives the automatic return to latest and clears
+pagination anchor or permanent access failure does not offer Retry; the message
+directs the reader to latest messages or Inbox. Newer-history loading does not
+repeat the banner's recovery control. Returning to latest cancels any retained
+history-rail scroll target. Public pinned-Thread jumps also finish after recovery.
+A missing message's fallback notice survives the automatic return to latest and clears
 when another history target is selected.
 Inside a Thread, the root message's details offer **Show message in Messages**.
 This in-page action closes the details drawer and focuses the root in the main

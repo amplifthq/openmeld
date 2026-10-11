@@ -173,7 +173,7 @@ export function useSpaceHistoryNavigation(input: {
 		visibleSignals,
 		visibleLiveEnvelopes,
 	]);
-	const { selectedRequest, historyWindow, pending, error, notice } =
+	const { selectedRequest, historyWindow, pending, error, notice, retry } =
 		useHistoryWindowQuery({
 			missingMessageIdentity,
 			request,
@@ -317,7 +317,7 @@ export function useSpaceHistoryNavigation(input: {
 		error,
 		notice,
 		errorDirection: error ? selectedRequest?.direction : undefined,
-		retry: () => historyWindow.refetch(),
+		retry,
 		open: (
 			signalId: string,
 			signal?: AbortSignal,
@@ -376,6 +376,9 @@ function useHistoryWindowQuery(input: {
 	);
 	return {
 		selectedRequest,
+		retry: shouldRetrySpaceHistoryQuery(0, historyWindow.error)
+			? () => historyWindow.refetch()
+			: undefined,
 		notice:
 			input.missingMessageIdentity === input.identity && !input.accessRejected
 				? "This message is no longer available in this conversation. Showing the latest messages."

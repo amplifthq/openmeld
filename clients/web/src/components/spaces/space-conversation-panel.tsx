@@ -148,7 +148,6 @@ import {
 import type { SpaceMessageReferencesById } from "./space-message-reference";
 import {
 	buildThreadSignalIds,
-	isModifiedNavigationClick,
 	readMessageDetailsProgressEntries,
 	resolveCenterAgentComputerSetupContext,
 	resolveReplyItemsForMessage,
@@ -642,7 +641,12 @@ function SpaceConversationPanelContent(
 				navigation={input.historyNavigation}
 			/>
 			{renderInitialSpaceFocusStatus({
-				mainMessage: mainFocusStatusMessage,
+				mainMessage:
+					input.historyNavigation?.error ||
+					input.historyNavigation?.pending ||
+					input.historyNavigation?.notice
+						? null
+						: mainFocusStatusMessage,
 				historyNotice: input.historyNavigation?.notice,
 			})}
 			{input.activeSpaceView === "messages" ? (
@@ -893,11 +897,11 @@ function SpaceHistoryErrorBanner({
 			role="alert"
 		>
 			<span>{message}</span>
-			{navigation?.error && (
+			{navigation?.error && navigation.retry && (
 				<Button
 					className="shrink-0"
 					disabled={navigation.pending}
-					onClick={() => navigation.retry()}
+					onClick={() => navigation.retry?.()}
 					size="sm"
 					variant="outline"
 				>
@@ -2436,8 +2440,7 @@ function LoadNewerMessagesControl(input: {
 	const hasAfter = input.history?.activeWindow?.hasAfter;
 	const pending = input.history?.pending;
 	const pendingDirection = input.history?.pendingDirection;
-	const error =
-		input.history?.errorDirection === "after" ? input.history.error : null;
+	const error = input.history?.error;
 	useEffect(() => {
 		const scrollElement = input.scrollElement;
 		if (!hasAfter) {
@@ -2480,45 +2483,11 @@ function LoadNewerMessagesControl(input: {
 		pending,
 		error,
 	]);
-	if (!hasAfter) {
-		return null;
-	}
-	if (!error) {
-		return pending && pendingDirection === "after" ? (
-			<output className="mx-auto mt-4 mb-16 text-muted-foreground text-sm">
-				Loading newer messages…
-			</output>
-		) : null;
-	}
-	const history = input.history;
-	if (!history) {
-		return null;
-	}
-	const href = history.newerHref;
-	return (
-		<Button
-			className="mx-auto mt-4 mb-16"
-			disabled={history.pending}
-			nativeButton={!href}
-			onClick={(event) => {
-				if (href && isModifiedNavigationClick(event)) {
-					return;
-				}
-				event.preventDefault();
-				history.loadAfter();
-			}}
-			render={
-				href ? (
-					<a href={href}>
-						<span className="sr-only">Retry loading newer messages</span>
-					</a>
-				) : undefined
-			}
-			variant="ghost"
-		>
-			Retry loading newer messages
-		</Button>
-	);
+	return hasAfter && !error && pending && pendingDirection === "after" ? (
+		<output className="mx-auto mt-4 mb-16 text-muted-foreground text-sm">
+			Loading newer messages…
+		</output>
+	) : null;
 }
 
 function buildThreadPreviewByThreadId(
