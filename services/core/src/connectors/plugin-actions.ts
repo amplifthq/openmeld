@@ -398,6 +398,7 @@ async function executeSelectedAction(
           operationId: action.operationId,
           sourceRequestKey: caller.sourceRequestKey ?? null,
           sourceSpaceId: caller.sourceSpaceId,
+          sourceSignalId: caller.sourceSignalId,
           connection: executionConnection,
           connectionUpdatedAtMs: current.updatedAtMs,
           accessRevision: access.revision,

@@ -6,6 +6,7 @@ import {
   connectorActionOutcomeUnknownSchema,
   connectorActionTerminalReceiptSchema,
   connectorServicesResponseSchema,
+  githubIssueObservationSchema,
   isLinearIssueCreateAction,
   readLinearIssueReference,
 } from "@openmeld/schemas";
@@ -980,6 +981,7 @@ export function resolveConnectorActionOutputSchema(
 }
 
 export async function runAndFinalizeConnectorAction(input: {
+  githubActor?: "organization" | "requester";
   connectionName: string;
   dependencies: ConnectorToolDependencies;
   effect?: OpenConnectorRuntimeAction["effect"] | "unspecified";
@@ -988,7 +990,13 @@ export async function runAndFinalizeConnectorAction(input: {
   request: ConnectorActionOperationRequest;
   requestSignature: string;
   toolContext: ConnectorToolContext;
-}): Promise<OpenConnectorActionRun> {
+}): Promise<
+  OpenConnectorActionRun & {
+    githubTaskSync?: ReturnType<
+      typeof centerAgentRecordConnectorActionOperationResponseSchema.parse
+    >["githubTaskSync"];
+  }
+> {
   if (
     input.effect !== "read" &&
     input.operationReplayed &&
@@ -1044,18 +1052,25 @@ export async function runAndFinalizeConnectorAction(input: {
             data: run.data,
           })
         : null;
-    await recordConnectorActionOperation({
+    const completion = await recordConnectorActionOperation({
       actionId: input.request.actionId,
       connectionName: input.connectionName,
       coreWorker: input.dependencies.coreWorker,
       operationId: input.request.operationId,
       outcome: "completed",
       ...(linearIssueReceipt ? { linearIssueReceipt } : {}),
+      githubIssueCompletion: readGitHubIssueCompletion(input, run.data),
       providerExecutionId: run.providerExecutionId,
       requestSignature: input.requestSignature,
       service: input.request.service,
       toolContext: input.toolContext,
     });
+    return {
+      ...run,
+      ...(completion.githubTaskSync
+        ? { githubTaskSync: completion.githubTaskSync }
+        : {}),
+    };
   } catch (finalizationError) {
     throw await buildUnknownConnectorReceipt(
       input,
@@ -1063,7 +1078,41 @@ export async function runAndFinalizeConnectorAction(input: {
       run.providerExecutionId
     );
   }
-  return run;
+}
+
+function readGitHubIssueCompletion(
+  input: Parameters<typeof runAndFinalizeConnectorAction>[0],
+  data: unknown
+): CenterAgentRecordConnectorActionOperationBody["githubIssueCompletion"] {
+  if (
+    !input.githubActor ||
+    input.request.actionId !== "github.update_issue" ||
+    input.request.service !== "github" ||
+    !data ||
+    typeof data !== "object"
+  ) {
+    return undefined;
+  }
+  const record = data as Record<string, unknown>;
+  const issue =
+    record.data && typeof record.data === "object"
+      ? (record.data as Record<string, unknown>)
+      : record;
+  const observation = githubIssueObservationSchema.safeParse({
+    owner: input.request.input.owner,
+    repo: input.request.input.repo,
+    number: issue.number,
+    state: issue.state,
+    stateReason: issue.state_reason ?? null,
+    updatedAt: issue.updated_at,
+  });
+  return observation.success
+    ? {
+        githubActor: input.githubActor,
+        actionInput: input.request.input,
+        observation: observation.data,
+      }
+    : undefined;
 }
 
 async function buildUnknownConnectorReceipt(
@@ -1391,6 +1440,7 @@ export async function readConnectorActionOperation(input: {
 }
 
 export async function recordConnectorActionOperation(input: {
+  githubIssueCompletion?: CenterAgentRecordConnectorActionOperationBody["githubIssueCompletion"];
   verificationOf?: { operationId: string; actionId: string };
   actionId: string;
   effect?: "read" | "write" | "destructive" | "unspecified";
@@ -1417,6 +1467,10 @@ export async function recordConnectorActionOperation(input: {
           verificationOf: input.verificationOf,
           includeRecoveryWindow: true,
           includeExecutionPermit: true as const,
+          includeGitHubTaskSync: true as const,
+          ...(input.githubIssueCompletion
+            ? { githubIssueCompletion: input.githubIssueCompletion }
+            : {}),
           effect: input.effect,
           connectionName: input.connectionName,
           context: input.toolContext.context,

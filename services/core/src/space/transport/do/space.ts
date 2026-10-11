@@ -9437,6 +9437,27 @@ export class Space extends DurableObject<CoreBindings> {
     taskContext: SpaceTaskMutationContext
   ): Promise<SpaceTaskMutationReceipt> {
     await this.armSpaceTaskRecovery();
+    const { assertSpaceTaskClientCanRead } = await import(
+      "../../application/space-task-client-compatibility"
+    );
+    // Check at the mutation owner after asynchronous admission, including a
+    // stored retry receipt. An old client must fail before any Task changes.
+    const current = this.spaceTaskService.read(input.taskId);
+    assertSpaceTaskClientCanRead(
+      current.task,
+      current.events,
+      input.taskContractVersion
+    );
+    const previous = new SpaceTaskRepository(
+      this.ctx.storage.sql
+    ).readOperation(input.body.operationId);
+    if (previous) {
+      assertSpaceTaskClientCanRead(
+        previous.receipt.task,
+        [previous.receipt.event],
+        input.taskContractVersion
+      );
+    }
     if (input.body.action === "cancel") {
       this.captureSpaceTaskWakeReferences(input.taskId);
     }
@@ -9544,16 +9565,21 @@ export class Space extends DurableObject<CoreBindings> {
       );
       return;
     }
+    if (
+      delivery.kind === "handoff" &&
+      !delivery.actor &&
+      delivery.receipt.event.type === "result_submitted"
+    ) {
+      // A provider observation can request review, but cannot authorize a Wake.
+      await this.publishTaskHandoffAfterMutation(delivery);
+      return;
+    }
     const context = await this.resolveSpaceTaskDeliveryActor(delivery);
     if (delivery.kind === "stop") {
       await this.deliverSpaceTaskStop(delivery, context);
       return;
     }
-    await this.publishTaskHandoffAfterMutation(
-      delivery.receipt,
-      delivery.sourceDispatchChainContext,
-      delivery.id
-    );
+    await this.publishTaskHandoffAfterMutation(delivery);
   }
   private async deliverSpaceTaskStop(
     delivery: SpaceTaskDelivery,
@@ -9751,23 +9777,27 @@ export class Space extends DurableObject<CoreBindings> {
     return true;
   }
   private async publishTaskHandoffAfterMutation(
-    receipt: SpaceTaskMutationReceipt,
-    sourceDispatchChainContext?: SourceDispatchChainContext,
-    deliveryId?: string
+    delivery: SpaceTaskDelivery
   ): Promise<void> {
+    const {
+      receipt,
+      actor,
+      sourceDispatchChainContext,
+      id: deliveryId,
+    } = delivery;
     if (
       receipt.event.type === "result_submitted" &&
       receipt.task.phase === "in_review" &&
       receipt.task.reviewer
     ) {
       await this.publishSpaceTaskDirectedNotice({
-        actor: receipt.event.actor,
+        actor,
         eventId: receipt.event.eventId,
         sourceDispatchChainContext,
         deliveryId,
         task: receipt.task,
         target: receipt.task.reviewer,
-        text: `Task ready for review: ${receipt.task.title}\n\n${receipt.task.result?.summary ?? "A result was submitted."}`,
+        text: `Task ready for review: ${receipt.task.title}\n\n${receipt.task.result?.summary ?? "A result was submitted."}${!actor && receipt.task.reviewer.profileKind === "agent" ? `\n\nWake ${receipt.task.reviewer.profileName} to start the review.` : ""}`,
       });
       return;
     }
@@ -9779,7 +9809,7 @@ export class Space extends DurableObject<CoreBindings> {
     }
     if (receipt.task.phase === "in_progress" && receipt.task.assignee) {
       await this.publishSpaceTaskDirectedNotice({
-        actor: receipt.event.actor,
+        actor,
         eventId: receipt.event.eventId,
         sourceDispatchChainContext,
         deliveryId,
@@ -9790,7 +9820,7 @@ export class Space extends DurableObject<CoreBindings> {
       return;
     }
     await this.publishSpaceTaskDirectedNotice({
-      actor: receipt.event.actor,
+      actor,
       eventId: receipt.event.eventId,
       sourceDispatchChainContext,
       deliveryId,
@@ -9818,7 +9848,7 @@ export class Space extends DurableObject<CoreBindings> {
     );
   }
   private async publishSpaceTaskDirectedNotice(input: {
-    actor: SpaceTaskActor;
+    actor: SpaceTaskActor | null;
     eventId: string;
     deliveryId?: string;
     sourceDispatchChainContext?: SourceDispatchChainContext;
@@ -9839,7 +9869,10 @@ export class Space extends DurableObject<CoreBindings> {
           profileName: sourceSignal.profile.profileName,
         })
       : null;
-    const relation = input.target?.profileKind === "agent" ? "wake" : "mention";
+    const agentRelation = input.actor ? "wake" : "reference";
+    const relation =
+      input.target?.profileKind === "agent" ? agentRelation : "mention";
+    const targetIds = input.target ? [input.target.profileId] : [];
     const targetLiteral = input.target
       ? formatCanonicalMentionLiteral({
           name:
@@ -9855,24 +9888,24 @@ export class Space extends DurableObject<CoreBindings> {
       : null;
     const signal = {
       ...this.buildTextSignal(
-        {
-          kind: input.actor.profileKind,
-          profileId: input.actor.profileId,
-          profileName: input.actor.profileName,
-        },
+        input.actor
+          ? {
+              kind: input.actor.profileKind,
+              profileId: input.actor.profileId,
+              profileName: input.actor.profileName,
+            }
+          : {
+              kind: "system",
+              profileId: DISPATCH_HINT_SYSTEM_PROFILE_ID,
+              profileName: DISPATCH_HINT_SYSTEM_PROFILE_NAME,
+            },
         text,
         {
           ...(replyTo ? { replyTo } : {}),
           messageEnvelope: {
-            activationTargets:
-              input.target?.profileKind === "agent"
-                ? [input.target.profileId]
-                : [],
-            mentionTargets:
-              input.target?.profileKind === "human"
-                ? [input.target.profileId]
-                : [],
-            referenceTargets: [],
+            activationTargets: relation === "wake" ? targetIds : [],
+            mentionTargets: relation === "mention" ? targetIds : [],
+            referenceTargets: relation === "reference" ? targetIds : [],
             ...(input.task.sourceSignalId
               ? { replyToSignalId: input.task.sourceSignalId }
               : {}),
@@ -9889,27 +9922,17 @@ export class Space extends DurableObject<CoreBindings> {
       id: `space-task-handoff:${input.eventId}`,
     };
     const threadContext = thread ? toSpaceThreadContext(thread) : null;
-    try {
-      await this.publishTextSignal(signal, {
-        spaceTaskDeliveryId: input.deliveryId,
-        authoringPolicy: "system_emitted",
-        ...(input.sourceDispatchChainContext
-          ? { sourceDispatchChainContext: input.sourceDispatchChainContext }
-          : {}),
-        supportsCurrentSpaceAddressing: true,
-        ...(threadContext
-          ? { threadContext, threadPlacement: "thread" as const }
-          : {}),
-      });
-    } catch (error) {
-      console.warn("[core.space.task_handoff_notice_failed]", {
-        error: error instanceof Error ? error.message : String(error),
-        eventId: input.eventId,
-        spaceId: this.spaceId,
-        taskId: input.task.taskId,
-      });
-      throw error;
-    }
+    await this.publishTextSignal(signal, {
+      spaceTaskDeliveryId: input.deliveryId,
+      authoringPolicy: "system_emitted",
+      ...(input.sourceDispatchChainContext
+        ? { sourceDispatchChainContext: input.sourceDispatchChainContext }
+        : {}),
+      supportsCurrentSpaceAddressing: true,
+      ...(threadContext
+        ? { threadContext, threadPlacement: "thread" as const }
+        : {}),
+    });
   }
   private async handleSpaceTaskOperation<T>(
     context: CoreRpcContextInput,
@@ -12067,6 +12090,49 @@ export class Space extends DurableObject<CoreBindings> {
       });
     }
     return signal;
+  }
+  async rpcReadPluginActionRequestLocations(
+    input: import("zod/v4").infer<
+      typeof import("@openmeld/schemas").listPluginActionRequestsInputSchema
+    > & {
+      spaceAccess: SpaceAccessContext;
+    }
+  ) {
+    return await withPostgresRequest(
+      this.bindings.OPENMELD_POSTGRESQL,
+      async () => {
+        this.applySpaceRef(input.spaceId);
+        await assertRpcSpaceAccessAuthorized(
+          await this.authorizeSpaceAccess(input.spaceAccess)
+        );
+        const {
+          listPluginActionRequestsInputSchema,
+          pluginActionRequestLocationsSchema,
+        } = await import("@openmeld/schemas");
+        const { spaceAccess: _, ...value } = input;
+        const parsed = listPluginActionRequestsInputSchema.parse(value);
+        return pluginActionRequestLocationsSchema.parse(
+          (parsed.sourceSignalIds ?? []).flatMap((sourceSignalId) => {
+            const signal = this.readSignalById(sourceSignalId);
+            if (
+              !signal ||
+              signal.type !== "signal.text" ||
+              signal.data.meta?.recalledAt !== undefined
+            ) {
+              return [];
+            }
+            return [
+              {
+                sourceSignalId,
+                threadId:
+                  this.resolveThreadContextForSignal(sourceSignalId)
+                    ?.threadId ?? null,
+              },
+            ];
+          })
+        );
+      }
+    );
   }
   async rpcGetMessageLinks(
     input: GetSpaceMessageDetailsInput & {

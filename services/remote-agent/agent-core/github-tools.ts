@@ -1013,7 +1013,7 @@ export function getRemoteAgentGitHubToolDefinitions(input: {
     githubToolDefinition({
       actionId: "github.update_issue",
       description: githubWriteToolDescription(
-        "Update an issue's title, body, state, assignees, labels, or milestone. Closing an issue in a shared OpenMeld Space also closes still-active Space Tasks linked to that issue when the association lookup succeeds. Read spaceTask in the result before claiming Tasks were closed."
+        "Update an issue's title, body, state, assignees, labels, or milestone. A confirmed closure can complete linked Space Tasks, submit them for review, or cancel them according to GitHub's closure reason. Read githubTaskSync and spaceTask before claiming a Task is closed. Pending synchronization does not mean the GitHub write failed."
       ),
       input: object({
         assignees: optional(array(string())),
@@ -2381,6 +2381,7 @@ async function executeIdempotentGitHubAction(input: {
   let run: Awaited<ReturnType<typeof runAndFinalizeConnectorAction>>;
   try {
     run = await runAndFinalizeConnectorAction({
+      githubActor: input.githubActor,
       connectionName,
       operationReplayExpiresAtMs: claim.operationReplayExpiresAtMs,
       operationReplayed: claim.replayed,
@@ -2437,6 +2438,7 @@ async function executeIdempotentGitHubAction(input: {
   const result = {
     attribution,
     data: run.data,
+    githubTaskSync: run.githubTaskSync,
     outputSchema: resolveConnectorActionOutputSchema(
       run.outputSchema,
       action?.action?.outputSchema
