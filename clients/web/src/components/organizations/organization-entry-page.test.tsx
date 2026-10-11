@@ -363,7 +363,7 @@ describe("OrganizationEntryPage", () => {
 				name: "Acme Labs",
 			});
 			expect(invalidateQueries).toHaveBeenCalledWith({
-				queryKey: ["organization-scope"],
+				queryKey: ["account-organization-context"],
 			});
 			expect(prepareOrganizationDestinationMock).toHaveBeenCalledWith({
 				organizationId: "org-acme",

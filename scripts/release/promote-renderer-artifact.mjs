@@ -36,7 +36,11 @@ export async function promoteRendererArtifact(input, dependencies = {}) {
   (dependencies.assertCheckout ?? assertArtifactCheckout)(root, sourceSha);
   const require = createRequire(import.meta.url);
   const wrangler =
-    dependencies.wrangler ?? require.resolve("wrangler/bin/wrangler.js");
+    dependencies.wrangler ??
+    path.resolve(
+      path.dirname(require.resolve("wrangler/package.json")),
+      require("wrangler/package.json").bin.wrangler
+    );
   const result = (dependencies.run ?? spawnSync)(
     process.execPath,
     [wrangler, "deploy", ...(input.dryRun ? ["--dry-run"] : [])],

@@ -3,6 +3,8 @@ const DIGEST_MISMATCH = /Artifact digest mismatch/;
 const PROMOTION_FAILED = /promotion failed/;
 
 import assert from "node:assert/strict";
+import { statSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
 import { promoteRendererArtifact } from "./promote-renderer-artifact.mjs";
 
@@ -53,10 +55,11 @@ test("promotion uses trusted Wrangler against the verified source output and pro
     admit: () => Promise.resolve(),
     check: () => Promise.resolve({ artifactSha256: "verified" }),
     assertCheckout: () => undefined,
-    wrangler: "/control/wrangler.js",
     run: (command, args, options) => {
       assert.equal(command, process.execPath);
-      assert.deepEqual(args, ["/control/wrangler.js", "deploy", "--dry-run"]);
+      assert.equal(path.basename(args[0]), "wrangler.js");
+      assert.equal(statSync(args[0]).isFile(), true);
+      assert.deepEqual(args.slice(1), ["deploy", "--dry-run"]);
       assert.equal(options.cwd, "/source/clients/web");
       return { status: 1 };
     },
