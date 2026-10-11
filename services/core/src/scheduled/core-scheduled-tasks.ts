@@ -16,6 +16,7 @@ import { retryPendingCenterAgentWakePublications } from "../center-agent/applica
 import { shouldWriteDestinationNeutralTaskContinuations } from "../center-agent/application/task-continuation-rollout";
 import { runCenterAgentMemberResearchTick } from "../center-agent-member-research/member-research-service";
 import { deleteExpiredServiceConnectionIncidents } from "../computers/service-connection-evidence-repo";
+import { retryApprovedPluginActionRequests } from "../connectors/plugin-action-requests";
 import { retryPendingPreHeadFailurePublications } from "../dispatch/application/dispatch-queue-service";
 import { runWakeEvidenceRetention } from "../dispatch/infrastructure/postgresql/wake-evidence-retention";
 import {
@@ -105,6 +106,9 @@ export async function runCoreScheduledTasks(input: {
     return;
   }
   if (input.cron === ROUTINE_TICK_CRON) {
+    await retryApprovedPluginActionRequests(input.env).catch((error) =>
+      console.error("[plugin.request.continuation_tick_failed]", error)
+    );
     await runAgentProfileCreationRequestRecovery(input);
     await runAgentProfileCreationRequestInboxProjectionRedrive(input);
     await runAgentActivitySessionInventoryMemberCleanup(input);

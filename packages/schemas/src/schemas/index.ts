@@ -62,10 +62,14 @@ export {
   organizationMemberPresenceWriteResponseSchema,
 } from "./http/organization-member-presence";
 export {
+  listPluginActionRequestsInputSchema,
+  listPluginActionRequestsResponseSchema,
   pluginActionRequestCommandRpcSchema,
   pluginActionRequestCommandSchema,
+  pluginActionRequestContinuationSchema,
   pluginActionRequestIntentSchema,
   pluginActionRequestViewSchema,
+  projectPluginActionRequestView,
 } from "./http/plugin-action-requests";
 export {
   resolveSpaceFileStreamMetadata,

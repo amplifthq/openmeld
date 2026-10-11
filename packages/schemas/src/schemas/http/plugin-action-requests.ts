@@ -11,6 +11,8 @@ export const pluginActionRequestIntentSchema = z.strictObject({
   operationId: z.string().min(1).max(256),
   sourceRequestKey: z.string().nullable(),
   sourceSpaceId: z.string().min(1).nullish(),
+  sourceSignalId: z.string().min(1).nullish(),
+  sourceNativeDeliveryId: z.string().min(1).nullish(),
   purpose: z.literal("issue_destination").optional(),
   consumer: z.enum(["center_agent", "remote_agent", "local_agent"]).optional(),
   connection: centerAgentConnectorActionExecutionConnectionSchema,
@@ -40,6 +42,22 @@ export const pluginActionRequestViewSchema = z.strictObject({
     .max(12),
   createdAtMs: z.number().int(),
   expiresAtMs: z.number().int(),
+  sourceSignalId: z.string().nullish(),
+  continuation: z.enum(["pending", "requested", "unavailable"]).nullish(),
+});
+export const listPluginActionRequestsInputSchema = z.strictObject({
+  context: openMeldRequestContextSchema,
+  expectedOrganizationId: z.string().min(1),
+  spaceId: z.string().min(1),
+  sourceSignalIds: z.array(z.string().min(1)).min(1).max(1000),
+});
+export const listPluginActionRequestsResponseSchema = z.strictObject({
+  requests: z.array(pluginActionRequestViewSchema),
+});
+export const pluginActionRequestContinuationSchema = z.strictObject({
+  context: openMeldRequestContextSchema,
+  state: z.enum(["pending", "requested", "unavailable"]),
+  signalId: z.string().nullable(),
 });
 export const pluginActionRequestCommandSchema = z.discriminatedUnion(
   "operation",
@@ -75,3 +93,19 @@ export type PluginActionRequestCommand = Zod.infer<
 export type PluginActionRequestCommandRpc = Zod.infer<
   typeof pluginActionRequestCommandRpcSchema
 >;
+
+/** Older CLI and Web readers use a strict view without message continuation. */
+export function projectPluginActionRequestView(
+  view: PluginActionRequestView,
+  includeMessageContext = false
+): PluginActionRequestView {
+  if (includeMessageContext) {
+    return view;
+  }
+  const {
+    sourceSignalId: _source,
+    continuation: _continuation,
+    ...legacy
+  } = view;
+  return legacy;
+}

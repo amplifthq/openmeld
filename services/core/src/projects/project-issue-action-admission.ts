@@ -24,6 +24,7 @@ export async function prepareProjectIssueActionAdmission(input: {
   context: OpenMeldRequestContext;
   sourceRequestKey?: string;
   sourceSpaceId?: string | null;
+  sourceNativeDeliveryId?: string | null;
   connection?: CenterAgentConnectorActionExecutionConnection;
   connectionUpdatedAtMs?: number | null;
   personalExecution: boolean;
@@ -99,6 +100,7 @@ export async function prepareProjectIssueActionAdmission(input: {
       operationId: operation.operationId,
       sourceRequestKey: input.sourceRequestKey ?? null,
       sourceSpaceId: input.sourceSpaceId,
+      sourceNativeDeliveryId: input.sourceNativeDeliveryId,
       connection,
       connectionUpdatedAtMs,
       accessRevision: access.revision,

@@ -10,7 +10,10 @@ import type {
 import { digestCanonicalJson } from "@openmeld/utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import capturedActions from "../../remote-agent/tests/fixtures/openconnector-runtime-actions.json";
-import { rpcPluginActionRequest } from "../src/connectors/plugin-action-requests";
+import {
+  retryApprovedPluginActionRequests,
+  rpcPluginActionRequest,
+} from "../src/connectors/plugin-action-requests";
 import { rpcPluginAction } from "../src/connectors/plugin-actions";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
@@ -34,6 +37,7 @@ vi.mock("../src/organizations/organization-context", () => ({
 }));
 vi.mock("../src/rpc/methods", () => ({
   rpcReadPluginConnectionContinuationBinding: async () => null,
+  rpcGetSpaceDispatchTrace: async () => ({ trace: null }),
 }));
 
 const profileId = "agt_00000000-0000-4000-8000-000000000001";
@@ -55,6 +59,7 @@ let effects: Set<string>;
 let submission: string;
 let authorizedRequestRoot: string | undefined;
 let actorProfileId: string;
+let sourceSpaceId: string | null;
 let providerResult: "outcome_unknown" | "completed";
 let env: CoreBindings;
 let grants:
@@ -124,14 +129,15 @@ beforeEach(async () => {
   authorizedRequestRoot = undefined;
   actorProfileId = profileId;
   grants = undefined;
+  sourceSpaceId = null;
   admission.caller.mockImplementation(async () => ({
     db: harness.db,
     organizationId: "org-1",
     actorProfileId,
     ownerUserId: "user-1",
     representedUserId: "user-1",
-    sourceSpaceId: null,
-    sourceSignalId: null,
+    sourceSpaceId,
+    sourceSignalId: sourceSpaceId ? "original-message" : null,
     sourceRequestKey: submission,
     authorizedRequestRoot,
     personalAllowed: true,
@@ -213,6 +219,60 @@ async function approveRequest(input = request()) {
 }
 
 describe("Local plugin replay through real operation and connection storage", () => {
+  it.each([
+    "approve",
+    "reject",
+  ] as const)("retains %s across restart without executing the provider from approval", async (operation) => {
+    sourceSpaceId = "space-1";
+    const pending = await rpcPluginAction(env, request());
+    if (pending.kind !== "authorization_required") {
+      throw new Error("Expected pending request");
+    }
+    const command = {
+      context: {
+        activeOrganizationId: "org-1",
+        actorContext: {
+          requestId: "human-decision",
+          openMeldProfileId: humanId,
+          profileKind: "human" as const,
+          callerPrincipalId: "user-1",
+        },
+      },
+      expectedOrganizationId: "org-1",
+      command: { operation, requestId: pending.request.requestId },
+    };
+    const decision = await rpcPluginActionRequest(env, command);
+    expect(decision.state).toBe(
+      operation === "approve" ? "approved" : "rejected"
+    );
+    expect(decision.continuation).toBe(
+      operation === "approve" ? "pending" : null
+    );
+    await rpcPluginActionRequest(env, command);
+    await retryApprovedPluginActionRequests({ ...env });
+    const stored = await harness.query<{ continuation_json: string | null }>({
+      text: 'SELECT continuation_json FROM "openmeld"."plugin_action_requests" WHERE id = $1',
+      values: [pending.request.requestId],
+    });
+    expect(stored.rows[0]?.continuation_json !== null).toBe(
+      operation === "approve"
+    );
+    expect(providerCalls).toHaveLength(0);
+    await harness.query({
+      text: 'UPDATE "openmeld"."plugin_action_requests" SET expires_at_ms = 0 WHERE id = $1',
+      values: [pending.request.requestId],
+    });
+    await retryApprovedPluginActionRequests(env);
+    const expired = await rpcPluginActionRequest(env, {
+      ...command,
+      command: { operation: "read", requestId: pending.request.requestId },
+    });
+    expect(expired.continuation).toBe(
+      operation === "approve" ? "unavailable" : null
+    );
+    expect(providerCalls).toHaveLength(0);
+  });
+
   it("reuses a verified task across cold continuations and selected executors without another approval or write", async () => {
     authorizedRequestRoot = "verified-parent-delivery";
     expect(await rpcPluginAction(env, request())).toMatchObject({

@@ -1,4 +1,5 @@
 import {
+  listPluginActionRequestsResponseSchema,
   pluginActionRequestCommandSchema,
   pluginActionRequestSchema,
   pluginActionRequestViewSchema,
@@ -13,6 +14,23 @@ import type { OpenMeldApiClientFoundation } from "../client";
 
 export function createPluginsApi(client: OpenMeldApiClientFoundation) {
   return {
+    listRequests: (input: {
+      organizationId: string;
+      spaceId: string;
+      sourceSignalIds: string[];
+    }) =>
+      client.requestJson({
+        method: "POST",
+        operation: "plugins.listRequests",
+        url: `/v1/organizations/current/plugins/action-requests/list?expectedOrganizationId=${encodeURIComponent(input.organizationId)}`,
+        body: JSON.stringify({
+          spaceId: input.spaceId,
+          sourceSignalIds: input.sourceSignalIds,
+        }),
+        headers: { "content-type": "application/json" },
+        schema: listPluginActionRequestsResponseSchema,
+        invalidMessage: "Invalid Plugin requests response.",
+      }),
     requestAuthorization: (input: {
       organizationId: string;
       command: PluginActionRequestCommand;
@@ -22,7 +40,7 @@ export function createPluginsApi(client: OpenMeldApiClientFoundation) {
         method: "POST",
         operation: "plugins.requestAuthorization",
         requestContext: input.requestContext,
-        url: `/v1/organizations/current/plugins/action-requests?expectedOrganizationId=${encodeURIComponent(input.organizationId)}`,
+        url: `/v1/organizations/current/plugins/action-requests?expectedOrganizationId=${encodeURIComponent(input.organizationId)}&includeMessageContext=true`,
         body: JSON.stringify(
           pluginActionRequestCommandSchema.parse(input.command)
         ),

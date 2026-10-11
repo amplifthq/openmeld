@@ -27,7 +27,10 @@ export function usePluginActionRequest(requestId: string) {
 			}),
 		retry: false,
 		refetchInterval: (current) =>
-			current.state.data?.state === "pending" ? 15_000 : false,
+			current.state.data?.state === "pending" ||
+			current.state.data?.continuation === "pending"
+				? 15_000
+				: false,
 	});
 	const mutation = useMutation({
 		mutationFn: (command: PluginActionRequestCommand) =>
@@ -43,4 +46,29 @@ export function usePluginActionRequest(requestId: string) {
 		},
 	});
 	return { query, mutation };
+}
+
+export function useMessagePluginActionRequests(
+	spaceId: string,
+	sourceSignalIds: string[]
+) {
+	const { currentOrganization, currentUserId } = useAppOrganization();
+	const organizationId = currentOrganization.id;
+	const api = createPluginsApi(
+		createOrganizationScopedWebOpenMeldApiFoundation({ organizationId })
+	);
+	return useQuery({
+		queryKey: [
+			"message-plugin-action-requests",
+			currentUserId,
+			organizationId,
+			spaceId,
+			sourceSignalIds,
+		],
+		queryFn: () =>
+			api.listRequests({ organizationId, spaceId, sourceSignalIds }),
+		retry: false,
+		staleTime: 15_000,
+		refetchInterval: 15_000,
+	});
 }

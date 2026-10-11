@@ -10,6 +10,7 @@ import {
   readPluginConnectionReplyLink,
 } from "@openmeld/schemas";
 import type {
+  PluginActionRequestIntent,
   SignalEnvelope,
   SpaceThreadContext,
 } from "@openmeld/schemas/types";
@@ -43,7 +44,8 @@ import { requirePluginProfile } from "./plugin-local-caller";
  * retain scheduling, permission checks, receipts, and idempotency. */
 export async function continuePluginConnection(
   env: CoreBindings,
-  payload: unknown
+  payload: unknown,
+  approvedAction?: { requestId: string; intent: PluginActionRequestIntent }
 ) {
   const parsed = pluginConnectionContinuationRpcInputSchema.safeParse(payload);
   if (!parsed.success) {
@@ -85,12 +87,20 @@ export async function continuePluginConnection(
     input,
     member
   );
-  await requireConnectionIntent(
-    env,
-    member.organizationId,
-    reply.data.text,
-    input
-  );
+  if (approvedAction) {
+    requireApprovedRequestSource(approvedAction.intent, {
+      ...member,
+      ...task,
+      spaceId: input.spaceId,
+    });
+  } else {
+    await requireConnectionIntent(
+      env,
+      member.organizationId,
+      reply.data.text,
+      input
+    );
+  }
   const directory = await rpcGetSpaceMemberDirectory(env, access);
   const agent = directory.members.find(
     (entry) => entry.profileId === task.profileId
@@ -120,6 +130,7 @@ export async function continuePluginConnection(
       409
     );
   }
+  requireApprovedConnection(selected.connection, approvedAction?.intent);
   await authorizeContinuationConnection({
     db,
     organizationId: member.organizationId,
@@ -140,18 +151,12 @@ export async function continuePluginConnection(
   // Deliberately independent of chosen scope and browser instance: changing a
   // setup selection, retrying a timed-out POST, or double-clicking cannot create
   // another continuation of the same published reply.
-  const clientMessageId = `plugin-continue:${await digestCanonicalJson([member.organizationId, task.deliveryId, reply.id, member.userId])}`;
-  const text = [
-    `Continue the remaining work from my request (${task.triggerMessageId}).`,
-    `I have reviewed ${input.service} access using ${input.scope === "member" ? "my account" : "the organization connection"}. Recheck the permissions required by the task.`,
-    "Use the existing conversation and previous results. Do not restart the task or repeat completed operations. Reuse the original operation ID for an exact retry; stop if its outcome is unknown.",
-    ...(receipts.length
-      ? [
-          "Operation receipts for this Agent and requester in this Space during the request:",
-          ...receipts.map((receipt) => JSON.stringify(receipt)),
-        ]
-      : []),
-  ].join("\n");
+  const clientMessageId = `plugin-continue:${await digestCanonicalJson([member.organizationId, task.deliveryId, reply.id, member.userId, ...(approvedAction ? [approvedAction.requestId] : [])])}`;
+  const text = buildContinuationText(
+    { ...input, triggerMessageId: task.triggerMessageId },
+    receipts,
+    approvedAction
+  );
   const sourceGuard = await readOriginalRequestGuard(env, {
     ...access,
     signalId: task.triggerMessageId,
@@ -209,6 +214,45 @@ export async function continuePluginConnection(
     targetProfileId: task.profileId,
     threadId: task.threadContext?.threadId ?? null,
   });
+}
+function requireApprovedRequestSource(
+  intent: PluginActionRequestIntent,
+  source: {
+    userId: string;
+    organizationId: string;
+    profileId: string;
+    triggerMessageId: string;
+    spaceId: string;
+  }
+) {
+  if (
+    intent.userId !== source.userId ||
+    intent.organizationId !== source.organizationId ||
+    intent.actorProfileId !== source.profileId ||
+    intent.sourceSignalId !== source.triggerMessageId ||
+    intent.sourceSpaceId !== source.spaceId
+  ) {
+    throw denied(
+      "plugin.continue.request_mismatch",
+      "This approval does not belong to the original request."
+    );
+  }
+}
+function requireApprovedConnection(
+  connection: { connectionName: string; updatedAtMs: number },
+  intent?: PluginActionRequestIntent
+) {
+  if (
+    intent &&
+    (connection.connectionName !== intent.connection.connectionName ||
+      connection.updatedAtMs !== intent.connectionUpdatedAtMs)
+  ) {
+    throw denied(
+      "plugin.continue.connection_changed",
+      "The approved account changed. Request a new approval.",
+      409
+    );
+  }
 }
 function requireSettledContinuationReceipts(
   receipts: Awaited<
@@ -511,4 +555,25 @@ async function authorizeContinuationConnection(input: {
 }
 function denied(code: string, reason: string, status = 403) {
   return createCoreRpcHttpError({ code, reason, status });
+}
+function buildContinuationText(
+  input: { triggerMessageId: string; service: string; scope: string },
+  receipts: Awaited<
+    ReturnType<typeof listConnectorOperationReceiptsForContinuation>
+  >,
+  approvedAction?: { requestId: string; intent: PluginActionRequestIntent }
+) {
+  return [
+    `Continue the remaining work from my request (${input.triggerMessageId}).`,
+    approvedAction
+      ? `I approved Plugin request ${approvedAction.requestId}. Continue its exact action using operation ID ${approvedAction.intent.operationId} and the original unchanged input. Recheck the approval before execution.`
+      : `I have reviewed ${input.service} access using ${input.scope === "member" ? "my account" : "the organization connection"}. Recheck the permissions required by the task.`,
+    "Use the existing conversation and previous results. Do not restart the task or repeat completed operations. Reuse the original operation ID for an exact retry; stop if its outcome is unknown.",
+    ...(receipts.length
+      ? [
+          "Operation receipts for this Agent and requester in this Space during the request:",
+          ...receipts.map((receipt) => JSON.stringify(receipt)),
+        ]
+      : []),
+  ].join("\n");
 }

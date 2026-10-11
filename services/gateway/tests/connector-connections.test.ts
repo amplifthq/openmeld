@@ -111,12 +111,18 @@ describe("Gateway connector connection routes", () => {
       targets: [{ label: "project", value: "synthetic" }],
       createdAtMs: 1,
       expiresAtMs: 2,
+      sourceSignalId: "source-message",
+      continuation: null,
     }));
     const environment = makeEnv({ pluginActionRequest });
-    const invoke = (body: unknown, contentType = "application/json") =>
+    const invoke = (
+      body: unknown,
+      contentType = "application/json",
+      includeMessageContext = false
+    ) =>
       app.fetch(
         new Request(
-          "http://local/v1/organizations/current/plugins/action-requests?expectedOrganizationId=org-1",
+          `http://local/v1/organizations/current/plugins/action-requests?expectedOrganizationId=org-1${includeMessageContext ? "&includeMessageContext=true" : ""}`,
           {
             method: "POST",
             headers: { "content-type": contentType },
@@ -127,6 +133,18 @@ describe("Gateway connector connection routes", () => {
         TEST_EXECUTION_CONTEXT
       );
     expect((await invoke({ operation: "read", requestId })).status).toBe(200);
+    const legacy = await invoke({ operation: "read", requestId });
+    expect(await legacy.json()).not.toHaveProperty("sourceSignalId");
+    const contextual = await invoke(
+      { operation: "read", requestId },
+      "application/json",
+      true
+    );
+    expect(contextual.status).toBe(200);
+    expect(await contextual.json()).toHaveProperty(
+      "sourceSignalId",
+      "source-message"
+    );
     expect(pluginActionRequest).toHaveBeenCalledWith(
       expect.objectContaining({
         expectedOrganizationId: "org-1",

@@ -27,6 +27,22 @@
 
 ## Storage and migration references
 
+Plugin approval message context is an opt-in HTTP projection
+(`includeMessageContext=true`). Older strict clients retain the previous request
+view. The new private batch reader uses shared schemas and filters by the
+authenticated Organization/member, accessible Space and loaded message IDs.
+The Plugin request owns its persisted continuation intent; Space and
+RuntimeCoordinator retain message admission and execution authority.
+
+Apply the additive nullable `plugin_action_requests.continuation_json` migration
+before Core, then deploy Gateway before the new Web caller. Retain that nullable
+column on rollback and remove the Web caller first. The historical import
+baseline includes this native-only column. Existing CLI/Service/Skills setup,
+Wake, trace and diagnostics retain their previous wire contracts and need no
+local component update. GitHub issue observations accept an optional closure
+reason; older observations without a reason update external status without
+guessing Done or Canceled. Deploy that Core receiver before Remote Agent.
+
 Space membership notifications add `space_joined` to Inbox kinds. Space summary
 adds optional `messageUnreadCount`; exact unread-target receivers also get
 optional `joinedItems` when they request item IDs. Existing message targets,

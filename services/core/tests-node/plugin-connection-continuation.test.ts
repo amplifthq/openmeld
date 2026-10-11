@@ -1,6 +1,7 @@
 import {
   appendPluginConnectionReplyLink,
   buildOpenMeldNavigationAction,
+  pluginActionRequestIntentSchema,
   pluginConnectionLocalSourceRequestSchema,
 } from "@openmeld/schemas";
 import { normalizeListSignalsReadQuerySemantics } from "@openmeld/schemas/schemas";
@@ -194,6 +195,60 @@ describe("Plugin continuation keeps existing identity and Wake owners", () => {
       },
     ]);
     owner.post.mockResolvedValue({ id: "continued-1" });
+  });
+
+  it.each([
+    ["approved", true],
+    ["changed-source", false],
+    ["changed-account", false],
+  ] as const)("continues only the exact %s Plugin operation", async (scenario, allowed) => {
+    const approval = {
+      requestId: "11111111-1111-4111-8111-111111111111",
+      intent: pluginActionRequestIntentSchema.parse({
+        organizationId: request.organizationId,
+        userId: "user_1",
+        actorProfileId: request.agentProfileId,
+        operationId: "original-issue-write",
+        sourceRequestKey: "delivery-1",
+        sourceSpaceId: request.spaceId,
+        sourceSignalId:
+          scenario === "changed-source"
+            ? "another-message"
+            : request.triggerMessageId,
+        connection: {
+          connectionName:
+            scenario === "changed-account" ? "other-account" : "github-member",
+          scope: "member",
+          ownerUserId: "user_1",
+          ownerDisplayName: "Avery",
+          service: "github",
+        },
+        connectionUpdatedAtMs: 42,
+        accessRevision: 1,
+        service: "github",
+        actionId: "github.create_issue",
+        effect: "write",
+        input: { owner: "northstar", repo: "review" },
+      }),
+    };
+    if (!allowed) {
+      await expect(
+        continuePluginConnection(env, input, approval)
+      ).rejects.toThrow("plugin.continue.");
+      expect(owner.post).not.toHaveBeenCalled();
+      return;
+    }
+    await continuePluginConnection(env, input, approval);
+    const first = owner.post.mock.calls[0]?.[1];
+    expect(first.text).toContain("original-issue-write");
+    expect(first.messageEnvelope.replyToSignalId).toBe(
+      request.triggerMessageId
+    );
+    expect(first.threadContext).toEqual(delivery().threadContext);
+    await continuePluginConnection(env, input, approval);
+    expect(owner.post.mock.calls[1]?.[1].clientMessageId).toBe(
+      first.clientMessageId
+    );
   });
 
   it.each([

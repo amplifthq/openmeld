@@ -52,6 +52,28 @@ const task = (overrides: Partial<SpaceTask> = {}): SpaceTask => ({
 });
 
 describe("GitHub issue provider observation", () => {
+  it("preserves the result under review when GitHub repeats a completed closure", () => {
+    const first = applyGitHubIssueProviderObservation({
+      identity: githubIssue,
+      observedAt: "2026-09-20T03:00:00.000Z",
+      observedState: "closed",
+      observedStateReason: "completed",
+      task: task({ reviewer: requester }),
+    }).settle;
+    if (!first) {
+      throw new Error("Completed issue must submit a result for review");
+    }
+    const repeated = applyGitHubIssueProviderObservation({
+      identity: githubIssue,
+      observedAt: "2026-09-20T04:00:00.000Z",
+      observedState: "closed",
+      observedStateReason: "completed",
+      task: first.task,
+    });
+    expect(repeated.settle).toBeNull();
+    expect(repeated.observe?.task.result).toEqual(first.task.result);
+    expect(repeated.observe?.task.phase).toBe("in_review");
+  });
   it.each([
     ["completed", null, "done"],
     ["completed", requester, "in_review"],

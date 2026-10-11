@@ -1,5 +1,11 @@
+import {
+	ApprovalCard,
+	ApprovalCardFooter,
+	ApprovalCardHeader,
+} from "@openmeld/ui/components/approval-card";
 import { Button } from "@openmeld/ui/components/button";
 import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
+import { ShieldCheckIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { usePluginActionRequest } from "#/query/organizations/plugin-action-requests";
 
@@ -54,13 +60,12 @@ export function PluginActionRequest({ requestId }: { requestId: string }) {
 		);
 	}
 	return (
-		<div className="mt-3 space-y-4 rounded-md border border-border/70 p-4 sm:p-5">
-			<div className="space-y-1">
-				<h3 className="font-medium text-sm">Confirm a Plugin action</h3>
-				<p className="text-muted-foreground text-sm">
-					Review this new operation. Earlier unknown results stay unresolved.
-				</p>
-			</div>
+		<ApprovalCard className="mt-3">
+			<ApprovalCardHeader
+				description="Review the account and action before continuing."
+				icon={<ShieldCheckIcon />}
+				title="Confirm a Plugin action"
+			/>
 			<dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
 				<div>
 					<dt className="text-muted-foreground">Plugin</dt>
@@ -104,13 +109,15 @@ export function PluginActionRequest({ requestId }: { requestId: string }) {
 						})}
 						.
 					</p>
-					<div className="flex flex-wrap gap-2">
+					<ApprovalCardFooter>
 						<Button
 							disabled={disabled}
 							onClick={() => respond("approve")}
 							size="sm"
 						>
-							Approve action
+							{request.sourceSignalId
+								? "Approve and continue"
+								: "Approve action"}
 						</Button>
 						<Button
 							disabled={disabled}
@@ -120,11 +127,20 @@ export function PluginActionRequest({ requestId }: { requestId: string }) {
 						>
 							Decline request
 						</Button>
-					</div>
+					</ApprovalCardFooter>
 				</div>
 			) : (
 				<output className="block border-border/70 border-t pt-3 text-sm">
-					{STATE_COPY[request.state]}
+					{request.state === "approved" && request.continuation
+						? {
+								pending:
+									"Approved. The Agent will continue when its current reply is ready.",
+								requested:
+									"Approved. The Agent has been asked to continue the original request.",
+								unavailable:
+									"Approved, but the original request can no longer continue. Send a new message to the Agent.",
+							}[request.continuation]
+						: STATE_COPY[request.state]}
 				</output>
 			)}
 			{error ? (
@@ -143,6 +159,6 @@ export function PluginActionRequest({ requestId }: { requestId: string }) {
 					</Button>
 				</div>
 			) : null}
-		</div>
+		</ApprovalCard>
 	);
 }

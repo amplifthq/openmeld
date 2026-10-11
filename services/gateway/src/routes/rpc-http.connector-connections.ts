@@ -10,6 +10,8 @@ import {
   connectorOrganizationContextQuerySchema,
   connectorServiceSchema,
   createConnectorAppRequestBodySchema,
+  listPluginActionRequestsInputSchema,
+  listPluginActionRequestsResponseSchema,
   pluginAccessListResponseSchema,
   pluginAccessSchema,
   pluginAccessUpdateBodySchema,
@@ -23,6 +25,7 @@ import {
   pluginChannelRequestPreviewSchema,
   pluginConnectionContinuationBodySchema,
   pluginConnectionContinuationResponseSchema,
+  projectPluginActionRequestView,
 } from "@openmeld/schemas";
 import type {
   ConnectorConnection,
@@ -225,11 +228,49 @@ export function registerConnectorConnectionRoutes(
       method: "POST",
       retryMode: "none",
       responseSchema: pluginActionRequestViewSchema,
+      execute: async () =>
+        projectPluginActionRequestView(
+          await c.var.coreRpc.pluginActionRequest({
+            context: buildCoreRpcContext(c),
+            expectedOrganizationId: organization.expectedOrganizationId,
+            command: command.data,
+          }),
+          c.req.query("includeMessageContext") === "true"
+        ),
+    });
+  });
+  app.post(`${requestRoute}/list`, async (c) => {
+    const organization = parseConnectorOrganizationRequest(
+      c,
+      requestRoute,
+      "POST"
+    );
+    if (!organization.ok) {
+      return organization.response;
+    }
+    const parsed = listPluginActionRequestsInputSchema
+      .omit({ context: true, expectedOrganizationId: true })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      return respondBadRequest({
+        c,
+        route: requestRoute,
+        method: "POST",
+        reason: "Invalid messages",
+        message: "Choose valid messages.",
+      });
+    }
+    return executeRpcRoute({
+      c,
+      route: requestRoute,
+      method: "POST",
+      retryMode: "none",
+      responseSchema: listPluginActionRequestsResponseSchema,
       execute: () =>
-        c.var.coreRpc.pluginActionRequest({
+        c.var.coreRpc.listPluginActionRequests({
           context: buildCoreRpcContext(c),
           expectedOrganizationId: organization.expectedOrganizationId,
-          command: command.data,
+          ...parsed.data,
         }),
     });
   });

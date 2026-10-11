@@ -761,6 +761,10 @@ export function applyGitHubIssueProviderObservation(input: {
     return { settle: null, observe, skipReason: null };
   }
   const completed = input.observedStateReason === "completed";
+  // Provider synchronization must not replace a result already under review.
+  if (completed && observedTask.phase === "in_review") {
+    return { settle: null, observe, skipReason: null };
+  }
   if (
     !completed &&
     input.observedStateReason !== "not_planned" &&
