@@ -1,0 +1,1 @@
+ALTER TABLE "openmeld"."plugin_action_requests" ADD COLUMN "continuation_json" text;

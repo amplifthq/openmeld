@@ -62,10 +62,15 @@ export {
   organizationMemberPresenceWriteResponseSchema,
 } from "./http/organization-member-presence";
 export {
+  listPluginActionRequestsInputSchema,
+  listPluginActionRequestsResponseSchema,
   pluginActionRequestCommandRpcSchema,
   pluginActionRequestCommandSchema,
+  pluginActionRequestContinuationSchema,
   pluginActionRequestIntentSchema,
+  pluginActionRequestLocationsSchema,
   pluginActionRequestViewSchema,
+  projectPluginActionRequestView,
 } from "./http/plugin-action-requests";
 export {
   resolveSpaceFileStreamMetadata,
@@ -1230,6 +1235,7 @@ export {
   ensureSlackWorkspaceMemberOrganizationMembershipRpcResponseSchema,
   getCenterAgentDesignationResponseSchema,
   getCenterAgentOperatingStateResponseSchema,
+  githubIssueObservationSchema,
   listCenterAgentAuditJournalQuerySchema,
   listCenterAgentAuditJournalResponseSchema,
   openCenterAgentDirectMessageSpaceResponseSchema,

@@ -10,6 +10,7 @@ import {
   readPluginConnectionReplyLink,
 } from "@openmeld/schemas";
 import type {
+  PluginActionRequestIntent,
   SignalEnvelope,
   SpaceThreadContext,
 } from "@openmeld/schemas/types";
@@ -43,7 +44,8 @@ import { requirePluginProfile } from "./plugin-local-caller";
  * retain scheduling, permission checks, receipts, and idempotency. */
 export async function continuePluginConnection(
   env: CoreBindings,
-  payload: unknown
+  payload: unknown,
+  approvedAction?: { requestId: string; intent: PluginActionRequestIntent }
 ) {
   const parsed = pluginConnectionContinuationRpcInputSchema.safeParse(payload);
   if (!parsed.success) {
@@ -54,7 +56,7 @@ export async function continuePluginConnection(
     );
   }
   const input = parsed.data;
-  const { context } = input;
+  let { context } = input;
   if (context.actorContext.profileKind !== "human") {
     throw denied(
       "plugin.continue.human_required",
@@ -74,23 +76,51 @@ export async function continuePluginConnection(
       503
     );
   }
-  const access = {
-    context,
-    spaceId: input.spaceId,
-    ...(input.password === undefined ? {} : { password: input.password }),
-  };
+  if (approvedAction) {
+    const profileId = await readApprovedRequesterProfile(
+      env,
+      input,
+      approvedAction.intent,
+      member.userId
+    );
+    // Inbox and CLI may select a different Human Profile in the same account.
+    // Resolve from the retained source; all subsequent guards use that identity.
+    context = {
+      ...context,
+      actorContext: {
+        requestId: context.actorContext.requestId,
+        callerPrincipalId: member.userId,
+        openMeldProfileId: profileId,
+        profileKind: "human",
+      },
+    };
+    input.context = context;
+  }
   const { reply, task, sender, consumer } = await readContinuationSource(
     env,
     evidence,
     input,
     member
   );
-  await requireConnectionIntent(
-    env,
-    member.organizationId,
-    reply.data.text,
-    input
-  );
+  if (approvedAction) {
+    requireApprovedRequestSource(approvedAction.intent, {
+      ...member,
+      ...task,
+      spaceId: input.spaceId,
+    });
+  } else {
+    await requireConnectionIntent(
+      env,
+      member.organizationId,
+      reply.data.text,
+      input
+    );
+  }
+  const access = {
+    context,
+    spaceId: input.spaceId,
+    ...(input.password === undefined ? {} : { password: input.password }),
+  };
   const directory = await rpcGetSpaceMemberDirectory(env, access);
   const agent = directory.members.find(
     (entry) => entry.profileId === task.profileId
@@ -120,6 +150,7 @@ export async function continuePluginConnection(
       409
     );
   }
+  requireApprovedConnection(selected.connection, approvedAction?.intent);
   await authorizeContinuationConnection({
     db,
     organizationId: member.organizationId,
@@ -140,18 +171,12 @@ export async function continuePluginConnection(
   // Deliberately independent of chosen scope and browser instance: changing a
   // setup selection, retrying a timed-out POST, or double-clicking cannot create
   // another continuation of the same published reply.
-  const clientMessageId = `plugin-continue:${await digestCanonicalJson([member.organizationId, task.deliveryId, reply.id, member.userId])}`;
-  const text = [
-    `Continue the remaining work from my request (${task.triggerMessageId}).`,
-    `I have reviewed ${input.service} access using ${input.scope === "member" ? "my account" : "the organization connection"}. Recheck the permissions required by the task.`,
-    "Use the existing conversation and previous results. Do not restart the task or repeat completed operations. Reuse the original operation ID for an exact retry; stop if its outcome is unknown.",
-    ...(receipts.length
-      ? [
-          "Operation receipts for this Agent and requester in this Space during the request:",
-          ...receipts.map((receipt) => JSON.stringify(receipt)),
-        ]
-      : []),
-  ].join("\n");
+  const clientMessageId = `plugin-continue:${await digestCanonicalJson([member.organizationId, task.deliveryId, reply.id, member.userId, ...(approvedAction ? [approvedAction.requestId] : [])])}`;
+  const text = buildContinuationText(
+    { ...input, triggerMessageId: task.triggerMessageId },
+    receipts,
+    approvedAction
+  );
   const sourceGuard = await readOriginalRequestGuard(env, {
     ...access,
     signalId: task.triggerMessageId,
@@ -209,6 +234,85 @@ export async function continuePluginConnection(
     targetProfileId: task.profileId,
     threadId: task.threadContext?.threadId ?? null,
   });
+}
+async function readApprovedRequesterProfile(
+  env: CoreBindings,
+  input: ReturnType<typeof pluginConnectionContinuationRpcInputSchema.parse>,
+  intent: PluginActionRequestIntent,
+  userId: string
+) {
+  if (!intent.sourceSignalId || intent.sourceSpaceId !== input.spaceId) {
+    throw denied(
+      "plugin.continue.original_requester_required",
+      "The original requester is no longer available."
+    );
+  }
+  const original = (
+    await rpcListSignals(env, {
+      context: input.context,
+      spaceId: input.spaceId,
+      aroundSignalId: intent.sourceSignalId,
+      beforeCount: 0,
+      afterCount: 0,
+    })
+  ).signals.find((signal) => signal.id === intent.sourceSignalId);
+  if (
+    original?.type !== "signal.text" ||
+    original.profile.kind !== "human" ||
+    original.data.meta?.recalledAt
+  ) {
+    throw denied(
+      "plugin.continue.original_requester_required",
+      "The original requester is no longer available."
+    );
+  }
+  const profile = await requirePluginProfile(env, original.profile.profileId);
+  if (profile.profileKind !== "human" || profile.ownerUserId !== userId) {
+    throw denied(
+      "plugin.continue.original_requester_required",
+      "Only the account that made this request can continue it."
+    );
+  }
+  return original.profile.profileId;
+}
+function requireApprovedRequestSource(
+  intent: PluginActionRequestIntent,
+  source: {
+    userId: string;
+    organizationId: string;
+    profileId: string;
+    triggerMessageId: string;
+    spaceId: string;
+  }
+) {
+  if (
+    intent.userId !== source.userId ||
+    intent.organizationId !== source.organizationId ||
+    intent.actorProfileId !== source.profileId ||
+    intent.sourceSignalId !== source.triggerMessageId ||
+    intent.sourceSpaceId !== source.spaceId
+  ) {
+    throw denied(
+      "plugin.continue.request_mismatch",
+      "This approval does not belong to the original request."
+    );
+  }
+}
+function requireApprovedConnection(
+  connection: { connectionName: string; updatedAtMs: number },
+  intent?: PluginActionRequestIntent
+) {
+  if (
+    intent &&
+    (connection.connectionName !== intent.connection.connectionName ||
+      connection.updatedAtMs !== intent.connectionUpdatedAtMs)
+  ) {
+    throw denied(
+      "plugin.continue.connection_changed",
+      "The approved account changed. Request a new approval.",
+      409
+    );
+  }
 }
 function requireSettledContinuationReceipts(
   receipts: Awaited<
@@ -511,4 +615,27 @@ async function authorizeContinuationConnection(input: {
 }
 function denied(code: string, reason: string, status = 403) {
   return createCoreRpcHttpError({ code, reason, status });
+}
+function buildContinuationText(
+  input: { triggerMessageId: string; service: string; scope: string },
+  receipts: Awaited<
+    ReturnType<typeof listConnectorOperationReceiptsForContinuation>
+  >,
+  approvedAction?: { requestId: string; intent: PluginActionRequestIntent }
+) {
+  return [
+    approvedAction
+      ? "Continue my original request."
+      : `Continue the remaining work from my request (${input.triggerMessageId}).`,
+    approvedAction
+      ? `I approved this action. Use the same account and unchanged input. Reuse operation ID ${approvedAction.intent.operationId} and recheck the approval before execution.`
+      : `I have reviewed ${input.service} access using ${input.scope === "member" ? "my account" : "the organization connection"}. Recheck the permissions required by the task.`,
+    "Use the existing conversation and previous results. Do not restart the task or repeat completed operations. Reuse the original operation ID for an exact retry; stop if its outcome is unknown.",
+    ...(receipts.length
+      ? [
+          "Operation receipts for this Agent and requester in this Space during the request:",
+          ...receipts.map((receipt) => JSON.stringify(receipt)),
+        ]
+      : []),
+  ].join("\n");
 }

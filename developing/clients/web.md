@@ -528,6 +528,13 @@ the success message explains where to recover it. In a DM header, Archive lives
 inside the three-dot menu and opens a confirmation dialog before saving. Cancel
 leaves the conversation unchanged. No shared-history deletion is involved.
 
+Conversation message search uses the same bounded message-query owner as Agent
+history reads. Its initial state also offers **Browse recent messages** within
+one Space. Search previews include the matching portion of long messages; result
+links keep the existing message/thread navigation. Inbox activity search retains
+its existing endpoint and semantics. Empty partial or indexing pages continue
+loading instead of showing a false no-results state.
+
 The conversation header exposes message search as the same compact icon action
 used by its neighboring tools, with an accessible label and tooltip. Its dialog
 accepts a single character when scoped to the current Space, presents centered
@@ -6048,6 +6055,15 @@ approval center, duplicate pending state, batch approval, or an automatic
 popover. The originating message or thread remains context, not the location
 the owner must rediscover to respond. Other members continue to see only the
 safe inline waiting indication.
+
+Recipient-owned Plugin action approvals use the same Composer tray and its
+selection, disclosure, focus, and Thread routing. Their stable identity is the
+Plugin request ID, not a fabricated Wake interaction. The pending Space query
+does not depend on loaded messages; scrolling away from the source cannot
+remove an unresolved request. The original message and Inbox retain the same
+request-backed card for context and decision history. Approving or declining
+invalidates the pending projection. Main messages that have a reply Thread stay
+in the main tray; only actual Thread replies belong to that Thread's tray.
 
 Permission cards show the native choices; question cards collect every answer
 in bounded steps; plan cards show the bounded plan and support approval or

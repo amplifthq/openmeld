@@ -3,10 +3,14 @@ import {
   type PostgresDatabase,
 } from "@openmeld/db/postgresql";
 import {
+  listPluginActionRequestsInputSchema,
   pluginActionRequestCommandRpcSchema,
+  pluginActionRequestContinuationSchema,
   pluginActionRequestIntentSchema,
+  projectPluginActionRequestView,
 } from "@openmeld/schemas";
 import type {
+  OpenMeldRequestContext,
   PluginActionRequestCommandRpc,
   PluginActionRequestIntent,
   PluginActionRequestView,
@@ -19,9 +23,17 @@ import {
 import type { CoreBindings } from "../lib/bindings";
 import { requireExpectedOrganizationContext } from "../organizations/expected-organization-context";
 import { resolveActiveOrganizationMembership } from "../organizations/organization-context";
-import { createCoreRpcHttpError } from "../rpc/errors";
+import { readRemoteAgentNativeDeliveryByDeliveryId } from "../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
+import { createCoreRpcHttpError, readCoreRpcHttpStatus } from "../rpc/errors";
+import {
+  rpcGetSpaceDispatchTrace,
+  rpcGetSpaceMemberDirectory,
+  rpcReadPluginActionRequestLocations,
+} from "../rpc/methods";
+import { readSafeRpcFailureReasonCode } from "../shared/rpc/rpc-json";
 import { readConnectorConnectionForExecution } from "./connector-connection-repository";
 import { pluginPermissionAllows, readPluginAccess } from "./plugin-access";
+import { continuePluginConnection } from "./plugin-connection-continuation";
 
 const REQUEST_LIFETIME_MS = 60 * 60 * 1000;
 const TARGET_FIELD =
@@ -41,6 +53,7 @@ type RequestRow = {
   created_at_ms: number;
   expires_at_ms: number;
   decided_at_ms: number | null;
+  continuation_json: string | null;
 };
 const sourceKey = (id: string) => `plugin-action-request:${id}`;
 
@@ -55,11 +68,31 @@ export async function preparePluginActionRequest(input: {
   executionGuard: PluginRequestExecutionGuard;
 }> {
   const intent = pluginActionRequestIntentSchema.parse(input.intent);
+  if (intent.sourceNativeDeliveryId && intent.sourceSpaceId) {
+    const delivery = await readRemoteAgentNativeDeliveryByDeliveryId({
+      db: input.db,
+      deliveryId: intent.sourceNativeDeliveryId,
+    });
+    if (
+      !delivery ||
+      delivery.organizationId !== intent.organizationId ||
+      delivery.spaceId !== intent.sourceSpaceId ||
+      delivery.profileId !== intent.actorProfileId
+    ) {
+      throw denied(
+        "source_unavailable",
+        "The original request could not be verified."
+      );
+    }
+    intent.sourceSignalId = delivery.triggerMessageId;
+  }
   // Presentation provenance is frozen on creation, not part of authorization.
   // Keep pre-existing approvals valid when an upgraded caller supplies it.
   const {
     sourceRequestKey: _source,
     sourceSpaceId: _space,
+    sourceSignalId: _signal,
+    sourceNativeDeliveryId: _delivery,
     ...boundIntent
   } = intent;
   const digest = await digestCanonicalJson(boundIntent);
@@ -103,7 +136,7 @@ export async function preparePluginActionRequest(input: {
   }
   const request = await projectRequest(input.db, row);
   return {
-    request,
+    request: projectPluginActionRequestView(request),
     root: request.state === "approved" ? `plugin-request:${row.id}` : null,
     executionGuard: requestExecutionGuard(row),
   };
@@ -255,7 +288,266 @@ export async function rpcPluginActionRequest(
       "This request has expired, changed, or already been handled. Refresh to see its status."
     );
   }
-  return await decideRequest(db, row, command);
+  await decideRequest(db, row, command, context);
+  const updated = await readRequest(db, row.id);
+  if (!updated) {
+    throw denied("request_not_found", "This request is no longer available.");
+  }
+  await continueApprovedRequest(env, db, updated);
+  return projectRequest(db, (await readRequest(db, row.id)) ?? updated);
+}
+
+export async function listPluginActionRequests(
+  env: CoreBindings,
+  value: unknown
+) {
+  const input = listPluginActionRequestsInputSchema.parse(value);
+  const member = await resolveActiveOrganizationMembership({
+    env,
+    context: input.context,
+  });
+  if (!member.ok) {
+    throw createCoreRpcHttpError({
+      code: member.code,
+      reason: member.message,
+      status: member.status,
+    });
+  }
+  requireExpectedOrganizationContext({
+    actualOrganizationId: member.organizationId,
+    expectedOrganizationId: input.expectedOrganizationId,
+    errorCode: "plugin.request_organization_changed",
+  });
+  await rpcGetSpaceMemberDirectory(env, {
+    context: input.context,
+    spaceId: input.spaceId,
+  });
+  const db = getPostgresDatabase(env);
+  if (!db) {
+    throw denied("state_unavailable", "Requests could not be loaded.");
+  }
+  const rows = await db.query<RequestRow>({
+    text: `SELECT * FROM "openmeld"."plugin_action_requests"
+      WHERE organization_id = $1 AND user_id = $2
+        AND request_json::jsonb ->> 'sourceSpaceId' = $3
+        AND (CASE WHEN $4::text[] IS NULL THEN state = 'pending' AND expires_at_ms > $5
+          AND request_json::jsonb ->> 'sourceSignalId' IS NOT NULL
+          ELSE request_json::jsonb ->> 'sourceSignalId' = ANY($4::text[]) END)
+      ORDER BY created_at_ms, id`,
+    values: [
+      member.organizationId,
+      member.userId,
+      input.spaceId,
+      input.sourceSignalIds ?? null,
+      Date.now(),
+    ],
+  });
+  const requests = await Promise.all(
+    rows.rows.map((row) => projectRequest(db, row))
+  );
+  if (input.sourceSignalIds) {
+    return { requests };
+  }
+  const pending = requests.filter((request) => request.state === "pending");
+  const threadIds = new Map<string, string | null>();
+  const sourceSignalIds = [
+    ...new Set(
+      pending
+        .map((request) => request.sourceSignalId)
+        .filter((id): id is string => Boolean(id))
+    ),
+  ];
+  for (let offset = 0; offset < sourceSignalIds.length; offset += 1000) {
+    const locations = await rpcReadPluginActionRequestLocations(env, {
+      ...input,
+      sourceSignalIds: sourceSignalIds.slice(offset, offset + 1000),
+    });
+    for (const location of locations) {
+      threadIds.set(location.sourceSignalId, location.threadId);
+    }
+  }
+  return {
+    requests: pending.map((request) => ({
+      ...request,
+      sourceThreadId: request.sourceSignalId
+        ? threadIds.get(request.sourceSignalId)
+        : undefined,
+    })),
+  };
+}
+
+/** The approved request retains delivery intent. A browser response is not its scheduler. */
+export async function retryApprovedPluginActionRequests(env: CoreBindings) {
+  const db = getPostgresDatabase(env);
+  if (!db) {
+    return;
+  }
+  const through = Date.now();
+  let cursor: { decidedAt: number; id: string } | null = null;
+  // Page past still-running requests so they cannot starve later approvals.
+  // Bound this scan to decisions already present when the job started.
+  for (;;) {
+    const pending: { rows: (RequestRow & { decided_at_ms: number })[] } =
+      await db.query<RequestRow & { decided_at_ms: number }>({
+        text: `SELECT * FROM "openmeld"."plugin_action_requests"
+        WHERE state = 'approved' AND continuation_json::jsonb ->> 'state' = 'pending'
+          AND decided_at_ms <= $1
+          AND ($2::bigint IS NULL OR (decided_at_ms, id) > ($2, $3))
+        ORDER BY decided_at_ms, id LIMIT 100`,
+        values: [through, cursor?.decidedAt ?? null, cursor?.id ?? null],
+      });
+    for (const row of pending.rows) {
+      await continueApprovedRequest(env, db, row);
+    }
+    const last = pending.rows.at(-1);
+    if (!last || pending.rows.length < 100) {
+      return;
+    }
+    cursor = { decidedAt: last.decided_at_ms, id: last.id };
+  }
+}
+
+async function continueApprovedRequest(
+  env: CoreBindings,
+  db: PostgresDatabase,
+  row: RequestRow
+) {
+  if (!row.continuation_json || row.state !== "approved") {
+    return;
+  }
+  const continuation = pluginActionRequestContinuationSchema.parse(
+    JSON.parse(row.continuation_json)
+  );
+  if (continuation.state !== "pending") {
+    return;
+  }
+  const intent = pluginActionRequestIntentSchema.parse(
+    JSON.parse(row.request_json)
+  );
+  const save = async (
+    state: "requested" | "unavailable",
+    signalId: string | null = null
+  ) => {
+    await db.query({
+      text: `UPDATE "openmeld"."plugin_action_requests" SET continuation_json = $1
+      WHERE id = $2 AND continuation_json = $3 AND state = 'approved'`,
+      values: [
+        JSON.stringify({ ...continuation, state, signalId }),
+        row.id,
+        row.continuation_json,
+      ],
+    });
+  };
+  try {
+    if (
+      !(intent.sourceSpaceId && intent.sourceSignalId) ||
+      (await currentState(db, row, intent)) !== "approved"
+    ) {
+      await save("unavailable");
+      return;
+    }
+    let replySignalId: string | null = null;
+    if (intent.sourceNativeDeliveryId) {
+      replySignalId = await readApprovedNativeReply(db, row, intent);
+    } else if (row.source_request_key?.startsWith("dispatch:")) {
+      replySignalId = await readApprovedLocalReply(env, {
+        context: continuation.context,
+        spaceId: intent.sourceSpaceId,
+        dispatchId: row.source_request_key.slice("dispatch:".length),
+      });
+    } else {
+      await save("unavailable");
+      return;
+    }
+    if (!replySignalId) {
+      return;
+    }
+    const result = await continuePluginConnection(
+      env,
+      {
+        context: continuation.context,
+        spaceId: intent.sourceSpaceId,
+        sourceSignalId: replySignalId,
+        service: intent.service,
+        scope: intent.connection.scope,
+      },
+      { requestId: row.id, intent }
+    );
+    await save("requested", result.signalId);
+  } catch (error) {
+    const status = readCoreRpcHttpStatus(error);
+    if (
+      status !== null &&
+      status >= 400 &&
+      status < 500 &&
+      readSafeRpcFailureReasonCode(error) !== "plugin.continue.outcome_unknown"
+    ) {
+      await save("unavailable");
+    }
+    console.error("[plugin.request.continuation_failed]", {
+      requestId: row.id,
+      status,
+    });
+  }
+}
+
+async function readApprovedLocalReply(
+  env: CoreBindings,
+  input: Parameters<typeof rpcGetSpaceDispatchTrace>[1]
+): Promise<string | null> {
+  const { trace } = await rpcGetSpaceDispatchTrace(env, input);
+  const execution = trace?.runtimeCoordinatorExecution;
+  if (execution?.status !== "reply_published") {
+    if (execution?.terminalOutcome) {
+      throw denied(
+        "continuation_source_stopped",
+        "The original execution stopped before it could continue."
+      );
+    }
+    return null;
+  }
+  const replySignalId = trace?.finalVisibleMessage?.signalId ?? null;
+  // Space publication can become visible before the coordinator receipt.
+  // Keep delivery pending until both owners agree the reply is settled.
+  return execution.terminalOutcome?.kind === "reply_published" &&
+    trace?.result?.publishedSignalId === replySignalId
+    ? replySignalId
+    : null;
+}
+
+async function readApprovedNativeReply(
+  db: PostgresDatabase,
+  row: RequestRow,
+  intent: PluginActionRequestIntent
+): Promise<string | null> {
+  const delivery = intent.sourceNativeDeliveryId
+    ? await readRemoteAgentNativeDeliveryByDeliveryId({
+        db,
+        deliveryId: intent.sourceNativeDeliveryId,
+      })
+    : null;
+  if (
+    !delivery ||
+    delivery.organizationId !== row.organization_id ||
+    delivery.profileId !== row.actor_profile_id ||
+    delivery.spaceId !== intent.sourceSpaceId ||
+    delivery.triggerMessageId !== intent.sourceSignalId
+  ) {
+    throw denied(
+      "continuation_source_changed",
+      "The original request is no longer available."
+    );
+  }
+  if (delivery.status === "completed") {
+    return delivery.publishedSignalId;
+  }
+  if (["submitted", "accepted", "retry_observed"].includes(delivery.status)) {
+    return null;
+  }
+  throw denied(
+    "continuation_source_stopped",
+    "The original execution stopped before it could continue."
+  );
 }
 
 async function decideRequest(
@@ -264,7 +556,8 @@ async function decideRequest(
   command: Extract<
     PluginActionRequestCommandRpc["command"],
     { operation: "approve" | "reject" }
-  >
+  >,
+  context: OpenMeldRequestContext
 ) {
   const wanted = command.operation === "approve" ? "approved" : "rejected";
   const intent = pluginActionRequestIntentSchema.parse(
@@ -275,7 +568,7 @@ async function decideRequest(
   await db.transaction(async (client) => {
     for (const query of [
       {
-        text: 'UPDATE "openmeld"."plugin_action_requests" SET state = $1, decided_at_ms = $2\n      WHERE id = $3 AND state = \'pending\' AND expires_at_ms > $4\n        AND EXISTS (SELECT 1 FROM "openmeld"."members" WHERE organization_id = $5 AND user_id = $6)\n        AND EXISTS (SELECT 1 FROM "openmeld"."connector_connections" WHERE organization_id = $7 AND connection_name = $8 AND status = \'active\' AND updated_at_ms = $9 AND access_revision = $10)',
+        text: 'UPDATE "openmeld"."plugin_action_requests" SET state = $1, decided_at_ms = $2, continuation_json = $11\n      WHERE id = $3 AND state = \'pending\' AND expires_at_ms > $4\n        AND EXISTS (SELECT 1 FROM "openmeld"."members" WHERE organization_id = $5 AND user_id = $6)\n        AND EXISTS (SELECT 1 FROM "openmeld"."connector_connections" WHERE organization_id = $7 AND connection_name = $8 AND status = \'active\' AND updated_at_ms = $9 AND access_revision = $10)',
         values: [
           wanted,
           Date.now(),
@@ -287,6 +580,9 @@ async function decideRequest(
           intent.connection.connectionName,
           intent.connectionUpdatedAtMs,
           intent.accessRevision,
+          wanted === "approved" && intent.sourceSignalId && intent.sourceSpaceId
+            ? JSON.stringify({ context, state: "pending", signalId: null })
+            : null,
         ],
       },
       ...prepareResolveInboxItemsBySourceStatements({
@@ -412,6 +708,12 @@ async function projectRequest(
     targets,
     createdAtMs: row.created_at_ms,
     expiresAtMs: row.expires_at_ms,
+    sourceSignalId: intent.sourceSignalId ?? null,
+    continuation: row.continuation_json
+      ? pluginActionRequestContinuationSchema.parse(
+          JSON.parse(row.continuation_json)
+        ).state
+      : null,
   };
 }
 

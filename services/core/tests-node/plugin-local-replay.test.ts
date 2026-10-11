@@ -1,6 +1,7 @@
 import {
   openConnectorRuntimeActionSchema,
   pluginActionRpcInputSchema,
+  pluginConnectionContinuationResponseSchema,
   pluginDelegationAuthorizationSchema,
 } from "@openmeld/schemas";
 import type {
@@ -10,15 +11,25 @@ import type {
 import { digestCanonicalJson } from "@openmeld/utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import capturedActions from "../../remote-agent/tests/fixtures/openconnector-runtime-actions.json";
-import { rpcPluginActionRequest } from "../src/connectors/plugin-action-requests";
+import {
+  listPluginActionRequests,
+  retryApprovedPluginActionRequests,
+  rpcPluginActionRequest,
+} from "../src/connectors/plugin-action-requests";
 import { rpcPluginAction } from "../src/connectors/plugin-actions";
 import type { CoreBindings } from "../src/lib/bindings";
+import { createCoreRpcHttpError } from "../src/rpc/errors";
 import {
   createPostgresHarness,
   postgresTestBinding,
 } from "./helpers/postgresql-harness.test-support";
 
-const admission = vi.hoisted(() => ({ caller: vi.fn(), identity: vi.fn() }));
+const admission = vi.hoisted(() => ({
+  caller: vi.fn(),
+  identity: vi.fn(),
+  trace: vi.fn(),
+  continue: vi.fn(),
+}));
 // This seam starts after identity admission. Connection policy, operation
 // storage, replay claims and provider execution all run their real owners.
 vi.mock("../src/connectors/plugin-local-caller", () => ({
@@ -33,7 +44,13 @@ vi.mock("../src/organizations/organization-context", () => ({
   }),
 }));
 vi.mock("../src/rpc/methods", () => ({
+  rpcGetSpaceMemberDirectory: vi.fn(async () => undefined),
+  rpcReadPluginActionRequestLocations: vi.fn(async () => []),
   rpcReadPluginConnectionContinuationBinding: async () => null,
+  rpcGetSpaceDispatchTrace: admission.trace,
+}));
+vi.mock("../src/connectors/plugin-connection-continuation", () => ({
+  continuePluginConnection: admission.continue,
 }));
 
 const profileId = "agt_00000000-0000-4000-8000-000000000001";
@@ -55,6 +72,7 @@ let effects: Set<string>;
 let submission: string;
 let authorizedRequestRoot: string | undefined;
 let actorProfileId: string;
+let sourceSpaceId: string | null;
 let providerResult: "outcome_unknown" | "completed";
 let env: CoreBindings;
 let grants:
@@ -90,6 +108,17 @@ function request(operationId = "original-operation", replay = false) {
 }
 
 beforeEach(async () => {
+  admission.trace.mockReset().mockResolvedValue({ trace: null });
+  admission.continue.mockReset().mockResolvedValue(
+    pluginConnectionContinuationResponseSchema.parse({
+      status: "requested",
+      sourceSignalId: "final-reply",
+      signalId: "continued-message",
+      spaceId: "space-1",
+      targetProfileId: profileId,
+      threadId: null,
+    })
+  );
   harness = await createPostgresHarness();
 
   await harness.query({
@@ -124,14 +153,15 @@ beforeEach(async () => {
   authorizedRequestRoot = undefined;
   actorProfileId = profileId;
   grants = undefined;
+  sourceSpaceId = null;
   admission.caller.mockImplementation(async () => ({
     db: harness.db,
     organizationId: "org-1",
     actorProfileId,
     ownerUserId: "user-1",
     representedUserId: "user-1",
-    sourceSpaceId: null,
-    sourceSignalId: null,
+    sourceSpaceId,
+    sourceSignalId: sourceSpaceId ? "original-message" : null,
     sourceRequestKey: submission,
     authorizedRequestRoot,
     personalAllowed: true,
@@ -213,6 +243,206 @@ async function approveRequest(input = request()) {
 }
 
 describe("Local plugin replay through real operation and connection storage", () => {
+  it("retries a reconcilable receipt conflict after restart", async () => {
+    sourceSpaceId = "space-1";
+    admission.trace.mockResolvedValue({
+      trace: {
+        finalVisibleMessage: { signalId: "final-reply" },
+        runtimeCoordinatorExecution: {
+          status: "reply_published",
+          terminalOutcome: { kind: "reply_published" },
+        },
+        result: { publishedSignalId: "final-reply", statusType: null },
+      },
+    });
+    admission.continue.mockRejectedValueOnce(
+      createCoreRpcHttpError({
+        status: 409,
+        code: "plugin.continue.outcome_unknown",
+        reason: "Reconciliation pending",
+      })
+    );
+    await approveRequest();
+    await retryApprovedPluginActionRequests({ ...env });
+    await retryApprovedPluginActionRequests({ ...env });
+    expect(admission.continue).toHaveBeenCalledTimes(2);
+    const stored = await harness.query<{ state: string }>({
+      text: `SELECT continuation_json::jsonb ->> 'state' AS state FROM "openmeld"."plugin_action_requests"`,
+      values: [],
+    });
+    expect(stored.rows.map((row) => row.state)).toEqual(["requested"]);
+  });
+
+  it("reaches a settled request behind 100 still-running approvals", async () => {
+    sourceSpaceId = "space-1";
+    await approveRequest();
+    const through = Date.now();
+    await harness.query({
+      text: `INSERT INTO "openmeld"."plugin_action_requests"
+        (id, organization_id, user_id, actor_profile_id, operation_id, source_request_key, request_digest, request_json, state, created_at_ms, expires_at_ms, decided_at_ms, continuation_json)
+        SELECT gen_random_uuid()::text, organization_id, user_id, actor_profile_id, 'queued-' || n, 'dispatch:queued-' || n, request_digest, request_json, state, created_at_ms, expires_at_ms, $1::bigint - 101 + n, continuation_json
+        FROM "openmeld"."plugin_action_requests" CROSS JOIN generate_series(1, 100) AS n
+        WHERE operation_id = 'original-operation'`,
+      values: [through],
+    });
+    await harness.query({
+      text: `UPDATE "openmeld"."plugin_action_requests" SET decided_at_ms = $1 WHERE operation_id = 'original-operation'`,
+      values: [through],
+    });
+    admission.trace.mockImplementation(async (_env, input) =>
+      input.dispatchId === "original-request"
+        ? {
+            trace: {
+              finalVisibleMessage: { signalId: "final-reply" },
+              runtimeCoordinatorExecution: {
+                status: "reply_published",
+                terminalOutcome: { kind: "reply_published" },
+              },
+              result: { publishedSignalId: "final-reply", statusType: null },
+            },
+          }
+        : { trace: null }
+    );
+    await retryApprovedPluginActionRequests({ ...env });
+    expect(admission.continue).toHaveBeenCalledTimes(1);
+  });
+  it("lists all pending requests in the current Space independently of loaded messages", async () => {
+    sourceSpaceId = "space-1";
+    const first = await rpcPluginAction(env, request("offscreen-request"));
+    if (first.kind !== "authorization_required") {
+      throw new Error("Expected approval");
+    }
+    sourceSpaceId = "space-2";
+    await rpcPluginAction(env, request("another-space"));
+    const scope = {
+      context: request().context,
+      expectedOrganizationId: "org-1",
+      spaceId: "space-1",
+    };
+    const listed = await listPluginActionRequests(env, scope);
+    expect(listed.requests.map((item) => item.requestId)).toEqual([
+      first.request.requestId,
+    ]);
+    expect(listed.requests[0]?.sourceSignalId).toBe("original-message");
+    expect(listed.requests[0]?.sourceThreadId).toBeUndefined();
+    const humanContext = {
+      ...scope.context,
+      actorContext: {
+        ...scope.context.actorContext,
+        openMeldProfileId: humanId,
+        profileKind: "human" as const,
+        callerPrincipalId: "user-1",
+      },
+    };
+    await rpcPluginActionRequest(env, {
+      expectedOrganizationId: scope.expectedOrganizationId,
+      context: humanContext,
+      command: { operation: "reject", requestId: first.request.requestId },
+    });
+    expect((await listPluginActionRequests(env, scope)).requests).toEqual([]);
+  });
+  it("retains approved delivery while the visible reply is ahead of coordinator completion", async () => {
+    sourceSpaceId = "space-1";
+    admission.trace.mockResolvedValue({
+      trace: {
+        finalVisibleMessage: { signalId: "final-reply" },
+        runtimeCoordinatorExecution: {
+          status: "running",
+          terminalOutcome: null,
+        },
+        result: null,
+      },
+    });
+    await approveRequest();
+    expect(admission.continue).not.toHaveBeenCalled();
+    admission.trace.mockResolvedValue({
+      trace: {
+        finalVisibleMessage: { signalId: "final-reply" },
+        runtimeCoordinatorExecution: {
+          status: "reply_published",
+          terminalOutcome: { kind: "reply_published" },
+        },
+        result: null,
+      },
+    });
+    await retryApprovedPluginActionRequests({ ...env });
+    expect(admission.continue).not.toHaveBeenCalled();
+    admission.trace.mockResolvedValue({
+      trace: {
+        finalVisibleMessage: { signalId: "final-reply" },
+        runtimeCoordinatorExecution: {
+          status: "reply_published",
+          terminalOutcome: { kind: "reply_published" },
+        },
+        result: { publishedSignalId: "final-reply", statusType: null },
+      },
+    });
+    await retryApprovedPluginActionRequests({ ...env });
+    await retryApprovedPluginActionRequests({ ...env });
+    expect(admission.continue).toHaveBeenCalledTimes(1);
+    expect(admission.continue).toHaveBeenCalledWith(
+      env,
+      expect.objectContaining({ sourceSignalId: "final-reply" }),
+      expect.objectContaining({
+        intent: expect.objectContaining({ operationId: "original-operation" }),
+      })
+    );
+    expect(providerCalls).toHaveLength(0);
+  });
+  it.each([
+    "approve",
+    "reject",
+  ] as const)("retains %s across restart without executing the provider from approval", async (operation) => {
+    sourceSpaceId = "space-1";
+    const pending = await rpcPluginAction(env, request());
+    if (pending.kind !== "authorization_required") {
+      throw new Error("Expected pending request");
+    }
+    const command = {
+      context: {
+        activeOrganizationId: "org-1",
+        actorContext: {
+          requestId: "human-decision",
+          openMeldProfileId: humanId,
+          profileKind: "human" as const,
+          callerPrincipalId: "user-1",
+        },
+      },
+      expectedOrganizationId: "org-1",
+      command: { operation, requestId: pending.request.requestId },
+    };
+    const decision = await rpcPluginActionRequest(env, command);
+    expect(decision.state).toBe(
+      operation === "approve" ? "approved" : "rejected"
+    );
+    expect(decision.continuation).toBe(
+      operation === "approve" ? "pending" : null
+    );
+    await rpcPluginActionRequest(env, command);
+    await retryApprovedPluginActionRequests({ ...env });
+    const stored = await harness.query<{ continuation_json: string | null }>({
+      text: 'SELECT continuation_json FROM "openmeld"."plugin_action_requests" WHERE id = $1',
+      values: [pending.request.requestId],
+    });
+    expect(stored.rows[0]?.continuation_json !== null).toBe(
+      operation === "approve"
+    );
+    expect(providerCalls).toHaveLength(0);
+    await harness.query({
+      text: 'UPDATE "openmeld"."plugin_action_requests" SET expires_at_ms = 0 WHERE id = $1',
+      values: [pending.request.requestId],
+    });
+    await retryApprovedPluginActionRequests(env);
+    const expired = await rpcPluginActionRequest(env, {
+      ...command,
+      command: { operation: "read", requestId: pending.request.requestId },
+    });
+    expect(expired.continuation).toBe(
+      operation === "approve" ? "unavailable" : null
+    );
+    expect(providerCalls).toHaveLength(0);
+  });
+
   it("reuses a verified task across cold continuations and selected executors without another approval or write", async () => {
     authorizedRequestRoot = "verified-parent-delivery";
     expect(await rpcPluginAction(env, request())).toMatchObject({

@@ -14,6 +14,7 @@ export const githubAppWebhookIssueObservationSchema = z.strictObject({
   owner: githubLoginSchema,
   repo: githubRepoNameSchema,
   state: githubAppWebhookIssueStateSchema,
+  stateReason: z.string().max(100).nullish(),
   updatedAt: z.string().datetime(),
   url: z.url().max(2048),
 });
@@ -52,6 +53,7 @@ const githubIssuesWebhookPayloadSchema = z
         html_url: z.url(),
         number: z.number().int().positive(),
         state: githubAppWebhookIssueStateSchema,
+        state_reason: z.string().max(100).nullish(),
         updated_at: z.string().min(1),
       })
       .catchall(z.unknown()),
@@ -95,6 +97,7 @@ export function readGitHubAppWebhookIssueObservation(input: {
     owner: parsed.data.repository.owner.login,
     repo: parsed.data.repository.name,
     state: parsed.data.issue.state,
+    stateReason: parsed.data.issue.state_reason ?? null,
     updatedAt: updatedAt.toISOString(),
     url: parsed.data.issue.html_url,
   });

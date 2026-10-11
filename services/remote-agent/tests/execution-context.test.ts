@@ -13,8 +13,10 @@ import {
   REMOTE_AGENT_EXECUTION_INSTRUMENTATION,
   registerRemoteAgentExecutionPreparation,
   requireRemoteAgentExecutionResources,
+  reserveRemoteAgentMessageReadBytes,
   resolveRemoteAgentExecutionCallbackContext,
   runWithRemoteAgentSubmissionExecution,
+  updateRemoteAgentMessageReadBudget,
 } from "../flue-adapter/execution-context";
 import { getTestCapabilityCatalog } from "./capability-catalog.test-support";
 import {
@@ -29,6 +31,65 @@ import {
 import { InMemoryDurableObjectStorage } from "./storage";
 
 describe("Remote Agent submission execution context", () => {
+  it("binds RPC callbacks to the measured allocation without an async execution context", async () => {
+    const messageReadBudget = { remainingBytes: 8192 };
+    const dispose = registerRemoteAgentExecutionPreparation(async () => ({
+      messageReadBudget,
+    }));
+    try {
+      await REMOTE_AGENT_EXECUTION_INSTRUMENTATION.interceptor(
+        { operationId: "rpc-budget", operationKind: "prompt", type: "agent" },
+        { submissionId: "rpc-budget" },
+        () => {
+          updateRemoteAgentMessageReadBudget({
+            inputTokenBudget: 20_000,
+            estimatedInputTokens: 12_000,
+          });
+          return Promise.resolve();
+        }
+      );
+      // Invoke outside the execution scope, as Code Mode's RPC bridge does.
+      expect(() => requireRemoteAgentExecutionResources()).toThrow();
+      expect(reserveRemoteAgentMessageReadBytes(4096, messageReadBudget)).toBe(
+        3904
+      );
+      expect(reserveRemoteAgentMessageReadBytes(4096, messageReadBudget)).toBe(
+        0
+      );
+      expect(reserveRemoteAgentMessageReadBytes(4096)).toBe(0);
+    } finally {
+      dispose();
+    }
+  });
+  it("shares one measured context budget across parallel reads and refreshes it on the next model round", async () => {
+    const allocated = await REMOTE_AGENT_EXECUTION_INSTRUMENTATION.interceptor(
+      { operationId: "read-budget", operationKind: "prompt", type: "agent" },
+      { submissionId: "read-budget" },
+      async () => {
+        updateRemoteAgentMessageReadBudget({
+          inputTokenBudget: 20_000,
+          estimatedInputTokens: 12_000,
+        });
+        const firstRound = await Promise.all(
+          [8192, 8192, 8192].map(async (requested) =>
+            reserveRemoteAgentMessageReadBytes(requested)
+          )
+        );
+        expect(firstRound.reduce((total, count) => total + count, 0)).toBe(
+          3904
+        );
+        updateRemoteAgentMessageReadBudget({
+          inputTokenBudget: 30_000,
+          estimatedInputTokens: 3000,
+        });
+        return [
+          reserveRemoteAgentMessageReadBytes(16_384),
+          reserveRemoteAgentMessageReadBytes(4096),
+        ];
+      }
+    );
+    expect(allocated).toEqual([16_384, 0]);
+  });
   it("keeps queued Routine and ordinary turns bound to their exact Flue submissions", async () => {
     const storage = new InMemoryDurableObjectStorage();
     const routineRequest = createRoutineRequest("routine_run_queued");

@@ -53,7 +53,7 @@ import {
   runAndFinalizeConnectorAction,
 } from "./connector-tools";
 import { CONNECTOR_WRITE_RECOVERY_GUIDANCE } from "./connector-write-recovery";
-import { callCoreRpc, requireCoreRpc } from "./core-rpc";
+import { callCoreRpc, readCoreRpcErrorCode, requireCoreRpc } from "./core-rpc";
 import {
   resolveRemoteAgentDestructiveAuthorization,
   resolveRemoteAgentRoutineDestructiveActionBlock,
@@ -1013,7 +1013,7 @@ export function getRemoteAgentGitHubToolDefinitions(input: {
     githubToolDefinition({
       actionId: "github.update_issue",
       description: githubWriteToolDescription(
-        "Update an issue's title, body, state, assignees, labels, or milestone. Closing an issue in a shared OpenMeld Space also closes still-active Space Tasks linked to that issue when the association lookup succeeds. Read spaceTask in the result before claiming Tasks were closed."
+        "Update an issue's title, body, state, assignees, labels, or milestone. A confirmed closure can complete linked Space Tasks, submit them for review, or cancel them according to GitHub's closure reason. Read githubTaskSync and spaceTask before claiming a Task is closed. Pending synchronization does not mean the GitHub write failed."
       ),
       input: object({
         assignees: optional(array(string())),
@@ -1287,7 +1287,7 @@ async function executeGitHubIssueBatch(input: {
   // A retained immutable manifest owns batch progress. Each unfinished item
   // obtains its own current provider execution permit when it runs.
   if (!existingManifest) {
-    await recordConnectorActionOperation({
+    const admission = await claimGitHubAction({
       actionId: GITHUB_ISSUE_BATCH_ACTION_ID,
       connectionName: selection.connection.connectionName,
       coreWorker: input.coreWorker,
@@ -1300,6 +1300,9 @@ async function executeGitHubIssueBatch(input: {
       service: "github",
       toolContext,
     });
+    if ("blockedResult" in admission) {
+      return admission.blockedResult;
+    }
   }
   const proposedManifest: GitHubIssueBatchManifest = {
     connectionName: selection.connection.connectionName,
@@ -2292,6 +2295,12 @@ async function executeIdempotentGitHubAction(input: {
         ...input,
       })
     : undefined;
+  // Named tools reach this path only for their declared writes. Catalog tools
+  // retain the catalog's effect, including an unknown effect's stricter policy.
+  const namedEffect = GITHUB_DESTRUCTIVE_WRITE_ACTION_IDS.has(input.actionId)
+    ? "destructive"
+    : "write";
+  const effect = input.useRuntimeCatalog ? action?.action?.effect : namedEffect;
   if (action?.blockedResult) {
     return action.blockedResult;
   }
@@ -2318,9 +2327,9 @@ async function executeIdempotentGitHubAction(input: {
     input: input.actionInput,
     service: "github",
   });
-  const claim = await recordConnectorActionOperation({
+  const admission = await claimGitHubAction({
     actionId: input.actionId,
-    effect: action?.action?.effect,
+    effect,
     connectionName,
     coreWorker: input.coreWorker,
     operationId: input.operationId,
@@ -2331,6 +2340,10 @@ async function executeIdempotentGitHubAction(input: {
     service: "github",
     toolContext: input.toolContext,
   });
+  if ("blockedResult" in admission) {
+    return admission.blockedResult;
+  }
+  const claim = admission.claim;
   const replayExecutionConnection =
     existingOperation?.executionConnection ?? claim.executionConnection;
   const replayAttribution = replayExecutionConnection
@@ -2368,10 +2381,11 @@ async function executeIdempotentGitHubAction(input: {
   let run: Awaited<ReturnType<typeof runAndFinalizeConnectorAction>>;
   try {
     run = await runAndFinalizeConnectorAction({
+      githubActor: input.githubActor,
       connectionName,
       operationReplayExpiresAtMs: claim.operationReplayExpiresAtMs,
       operationReplayed: claim.replayed,
-      effect: action?.action?.effect,
+      effect,
       dependencies: {
         connectorExecution: input.connectorExecution,
         coreWorker: input.coreWorker,
@@ -2424,6 +2438,7 @@ async function executeIdempotentGitHubAction(input: {
   const result = {
     attribution,
     data: run.data,
+    githubTaskSync: run.githubTaskSync,
     outputSchema: resolveConnectorActionOutputSchema(
       run.outputSchema,
       action?.action?.outputSchema
@@ -3836,4 +3851,28 @@ function requireConnectorConfiguration(
     throw new Error(`${label} is not configured.`);
   }
   return normalized;
+}
+
+async function claimGitHubAction(
+  input: Parameters<typeof recordConnectorActionOperation>[0]
+) {
+  try {
+    return { claim: await recordConnectorActionOperation(input) };
+  } catch (error) {
+    if (readCoreRpcErrorCode(error) !== "project.issue_confirmation_required") {
+      throw error;
+    }
+    return {
+      blockedResult: {
+        status: "awaiting_confirmation" as const,
+        operationId: input.operationId,
+        actionId: input.actionId,
+        issueDestination: input.issueDestination,
+        providerSubmitted: false,
+        message:
+          "Confirm this exact operation in your OpenMeld Inbox. After approval, retry the same operationId, account, target, and input. Do not create another request or ask for Task result review.",
+        detail: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
 }

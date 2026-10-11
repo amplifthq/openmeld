@@ -55,6 +55,20 @@ can be read or the same response safely retried.
 | Computer connection | Durable connection incident; Computer owner | Runtime Transport resolves restored or deactivated incidents |
 | Failed automatic continuation | No human request | Normal update linking to the continuation's own failure publication |
 
+Plugin confirmations with verified Space provenance also appear on the original
+message, including Thread messages. Inbox and message cards use the same request
+and the shared Local Agent approval-card components. Only the requesting member
+can read or decide the private request. Reading the message never approves it.
+
+An approval stores continuation intent in the same transaction as the decision.
+The existing Core scheduled recovery retries delivery after the original reply
+settles. It submits one idempotent continuation through the existing Space Wake
+owner, with the exact account and original operation identity; it never executes
+the provider action itself. Expired authorization, changed source, lost access,
+or a stopped source prevents continuation. Unsupported or historical requests
+without verified message provenance retain their Inbox decision path and do not
+claim automatic resumability. A requested continuation is not a completed action.
+
 ## References and repair
 
 A message destination belongs to the publication owner. Keep Space, Thread,

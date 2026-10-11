@@ -337,6 +337,15 @@ export const centerAgentReadConnectorActionOperationResponseSchema =
     operation: centerAgentConnectorActionOperationSchema.nullable(),
   });
 
+export const githubIssueObservationSchema = z.strictObject({
+  owner: trimmedNonEmptyStringSchema,
+  repo: trimmedNonEmptyStringSchema,
+  number: z.int().positive(),
+  state: z.enum(["open", "closed"]),
+  stateReason: z.string().nullable(),
+  updatedAt: z.iso.datetime(),
+});
+
 export const centerAgentRecordConnectorActionOperationBodySchema = z
   .strictObject({
     verificationOf: connectorActionVerificationReferenceSchema.optional(),
@@ -349,12 +358,33 @@ export const centerAgentRecordConnectorActionOperationBodySchema = z
     outcome: centerAgentConnectorActionAuditOutcomeSchema,
     providerExecutionId: nullableTrimmedStringSchema,
     linearIssueReceipt: linearExternalWorkItemSchema.optional(),
+    includeGitHubTaskSync: z.literal(true).optional(),
+    githubIssueCompletion: z
+      .strictObject({
+        githubActor: z.enum(["organization", "requester"]),
+        actionInput: z.record(z.string(), z.unknown()),
+        observation: githubIssueObservationSchema,
+      })
+      .optional(),
     requestSignature: z.string().regex(/^[0-9a-f]{64}$/),
     issueDestination: projectIssueDestinationSchema.optional(),
     service: connectorServiceSchema,
     speakerMember: centerAgentToolSpeakerSchema,
   })
   .superRefine((value, context) => {
+    if (
+      value.githubIssueCompletion &&
+      (value.outcome !== "completed" ||
+        value.service !== "github" ||
+        value.actionId !== "github.update_issue")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "GitHub issue evidence requires a completed GitHub issue update.",
+        path: ["githubIssueCompletion"],
+      });
+    }
     if (value.outcome === "attempted" && value.providerExecutionId !== null) {
       context.addIssue({
         code: "custom",
@@ -387,6 +417,12 @@ export const centerAgentRecordConnectorActionOperationBodySchema = z
 
 export const centerAgentRecordConnectorActionOperationResponseSchema =
   z.strictObject({
+    githubTaskSync: z
+      .strictObject({
+        status: z.enum(["settled", "pending"]),
+        closedTaskIds: z.array(z.string()),
+      })
+      .optional(),
     verificationOf: connectorActionVerificationEvidenceSchema.optional(),
     executionAllowed: z.boolean().optional(),
     replay: connectorActionReplayPermissionSchema.optional(),

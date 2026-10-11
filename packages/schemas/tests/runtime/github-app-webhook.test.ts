@@ -7,6 +7,7 @@ const closedPayload = {
     html_url: "https://github.com/amplifthq/openmeld/issues/1143",
     number: 1143,
     state: "closed",
+    state_reason: "completed",
     updated_at: "2026-09-20T12:00:00Z",
   },
   repository: {
@@ -27,6 +28,7 @@ describe("GitHub App webhook issue observation", () => {
       owner: "amplifthq",
       repo: "openmeld",
       state: "closed",
+      stateReason: "completed",
       updatedAt: "2026-09-20T12:00:00.000Z",
       url: "https://github.com/amplifthq/openmeld/issues/1143",
     });

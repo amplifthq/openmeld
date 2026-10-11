@@ -33,6 +33,10 @@ import {
   type RemoteAgentCodeModeRuntime,
 } from "./code-mode";
 import {
+  type RemoteAgentMessageReadBudget,
+  reserveRemoteAgentMessageReadBytes,
+} from "./execution-context";
+import {
   createOrganizationSkillCatalogTool,
   createOrganizationSkillResourceTool,
 } from "./organization-skills";
@@ -45,6 +49,7 @@ import { executeRemoteAgentToolDefinition } from "./tool-execution";
 import { isRemoteAgentNativeCapability } from "./tool-presentation";
 
 export async function getRemoteAgentFlueTools(input: {
+  messageReadBudget?: RemoteAgentMessageReadBudget;
   callLimit?: number;
   replyRecovery?: boolean;
   personalAgent?: boolean;
@@ -78,6 +83,10 @@ export async function getRemoteAgentFlueTools(input: {
   const summaryOnly =
     input.turnEnvelope?.trigger.source === "task_continuation" &&
     input.turnEnvelope.trigger.summaryOnly;
+  // Code Mode callbacks cross an RPC boundary and do not inherit AsyncLocalStorage.
+  const messageReadBudget = input.messageReadBudget ?? { remainingBytes: 8192 };
+  const reserveMessageReadBytes = (requested: number) =>
+    reserveRemoteAgentMessageReadBytes(requested, messageReadBudget);
   const availableDefinitions = [
     createHostedPublicProgressTool(input),
     ...(unverifiedMember
@@ -99,11 +108,17 @@ export async function getRemoteAgentFlueTools(input: {
     ...(input.personalAgent
       ? [
           ...getPersonalRemoteAgentTools(input),
-          ...getRemoteAgentOpenMeldToolDefinitions(input).filter((definition) =>
+          ...getRemoteAgentOpenMeldToolDefinitions({
+            ...input,
+            reserveMessageReadBytes,
+          }).filter((definition) =>
             isPersonalRemoteAgentProductTool(definition.name)
           ),
         ]
-      : getRemoteAgentOpenMeldToolDefinitions(input)),
+      : getRemoteAgentOpenMeldToolDefinitions({
+          ...input,
+          reserveMessageReadBytes,
+        })),
     ...(unverifiedMember ? [] : (input.sandboxDefinitions ?? [])),
   ].filter(
     (definition) => !summaryOnly || SUMMARY_ONLY_TOOL_NAMES.has(definition.name)
