@@ -340,6 +340,87 @@ describe("Remote Agent GitHub tools", () => {
       data: { repositories: [] },
     });
   });
+  it("keeps one operation pending until Inbox approval and creates the issue only once", async () => {
+    const storage = await createStorage(createSubmitTurnRequest());
+    const ledger = withTestConnectorOperationLedger({
+      centerAgentResolveConnectorConnection: vi.fn(async () =>
+        connectionSelection({ ownerDisplayName: "Mira", userId: "user_mira" })
+      ),
+    });
+    let approved = false;
+    const record = vi.fn(
+      async (
+        input: Parameters<
+          NonNullable<
+            RemoteAgentCoreWorkerBinding["centerAgentRecordConnectorActionOperation"]
+          >
+        >[0]
+      ) => {
+        if (input.outcome === "attempted" && !approved) {
+          throw new Error(
+            'HTTP 409: {"error":{"code":"project.issue_confirmation_required","message":"Confirm this issue destination."}}'
+          );
+        }
+        return await ledger.centerAgentRecordConnectorActionOperation?.(input);
+      }
+    );
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      testOpenConnectorSuccessResponse({
+        actionId: "github.create_issue",
+        data: { number: 7, title: "Track connector bug" },
+        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+      })
+    );
+    const tools = getRemoteAgentGitHubToolDefinitions({
+      storage,
+      coreWorker: {
+        ...ledger,
+        centerAgentRecordConnectorActionOperation: record as NonNullable<
+          RemoteAgentCoreWorkerBinding["centerAgentRecordConnectorActionOperation"]
+        >,
+      },
+      connectorExecution: {
+        runtimeToken: "test-runtime-token",
+        baseUrl: "https://connectors.example.test",
+        fetch: fetchMock,
+      },
+    });
+    const issue = {
+      operationId: "one-approved-issue",
+      owner: "openmeld",
+      repo: "app",
+      title: "Track connector bug",
+    };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      expect(
+        await executeTool(tools, "github_create_issue", issue)
+      ).toMatchObject({
+        status: "awaiting_confirmation",
+        operationId: issue.operationId,
+        providerSubmitted: false,
+      });
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+    approved = true;
+    expect(
+      await executeTool(tools, "github_create_issue", issue)
+    ).toMatchObject({ status: "completed" });
+    await expect(
+      executeTool(tools, "github_create_issue", issue)
+    ).rejects.toThrow("already completed");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(
+      record.mock.calls
+        .filter(([input]) => input.outcome === "attempted")
+        .map(([input]) => [input.operationId, input.effect])
+    ).toEqual([
+      [issue.operationId, "write"],
+      [issue.operationId, "write"],
+      [issue.operationId, "write"],
+      [issue.operationId, "write"],
+    ]);
+  });
+
   it("checks the Project destination before accepting a new issue write", async () => {
     const resolveProjectIssueAction = vi.fn(() =>
       Promise.reject(new Error("New issues for Payments go to Linear."))
@@ -5290,8 +5371,26 @@ function withTestConnectorOperationLedger(
     centerAgentRecordConnectorActionOperation:
       coreWorker.centerAgentRecordConnectorActionOperation ??
       ((input) => {
+        if (
+          input.actionId === "github.create_issue" &&
+          input.outcome === "attempted" &&
+          input.effect !== "write"
+        ) {
+          // Core's issue admission requires both the target and explicit write effect.
+          throw new Error("Core issue admission requires effect=write.");
+        }
         const key = `${input.service}:${input.operationId}`;
         const existing = operationLedger.get(key);
+        if (
+          !existing &&
+          input.actionId === "github.create_issue" &&
+          input.outcome === "attempted" &&
+          input.issueDestination?.provider !== "github"
+        ) {
+          throw new Error(
+            "Core issue admission requires a GitHub destination."
+          );
+        }
         if (
           existing &&
           (existing.actionId !== input.actionId ||

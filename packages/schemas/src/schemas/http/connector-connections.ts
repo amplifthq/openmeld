@@ -319,6 +319,7 @@ export const connectorCredentialConnectResponseSchema = z.strictObject({
 });
 
 export const connectorOrganizationContextQuerySchema = z.strictObject({
+  includeMessageContext: z.enum(["true", "false"]).optional(),
   includeConnectionHealth: z.literal("true").optional(),
   expectedOrganizationId: trimmedNonEmptyStringSchema,
   includeAuthorizationExpiry: z.literal("true").optional(),

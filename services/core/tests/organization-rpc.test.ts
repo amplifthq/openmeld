@@ -8273,28 +8273,6 @@ describe("organization Core RPC", () => {
         truncated: true,
       },
     });
-    await expect(
-      rpcCenterAgentReadSpaceContext(env, {
-        beforeSignalId: latestReply.id,
-        context,
-        limit: 2,
-        scope: "history",
-        spaceId: JOINED_PRIVATE_SPACE_ID,
-      })
-    ).resolves.toMatchObject({
-      context: {
-        scope: "history",
-        signals: [rootSignal, firstReply],
-        truncated: false,
-      },
-    });
-    expect(spaceStub.rpcListSignalsResult).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        aroundSignalId: latestReply.id,
-        beforeCount: 3,
-        afterCount: 0,
-      })
-    );
     expect(spaceStub.rpcGetBootstrapWithTiming).not.toHaveBeenCalled();
   });
 
@@ -13475,36 +13453,21 @@ function createSpaceStub(
     }
   );
   const listSignals = (request: {
-    aroundSignalId?: string;
-    beforeCount?: number;
-    afterCount?: number;
     fromProfileIds?: readonly string[];
     signalTypes?: readonly string[];
     spaceId: string;
-  }) => {
-    const filtered = signals.filter(
-      (signal) =>
-        signal.spaceId === request.spaceId &&
-        (!request.signalTypes?.length ||
-          request.signalTypes.includes(signal.type)) &&
-        (!request.fromProfileIds?.length ||
-          request.fromProfileIds.includes(signal.profile.profileId))
-    );
-    // The Space owner includes the anchor and bounds neighbors by storage order.
-    const anchor = request.aroundSignalId
-      ? filtered.findIndex((signal) => signal.id === request.aroundSignalId)
-      : -1;
-    return Promise.resolve({
+  }) =>
+    Promise.resolve({
       nextCursor: null,
-      signals:
-        anchor >= 0
-          ? filtered.slice(
-              Math.max(0, anchor - (request.beforeCount ?? 0)),
-              anchor + 1 + (request.afterCount ?? 0)
-            )
-          : filtered,
+      signals: signals.filter(
+        (signal) =>
+          signal.spaceId === request.spaceId &&
+          (!request.signalTypes?.length ||
+            request.signalTypes.includes(signal.type)) &&
+          (!request.fromProfileIds?.length ||
+            request.fromProfileIds.includes(signal.profile.profileId))
+      ),
     });
-  };
   type SignalPostRequest = {
     authoringPolicy?: "system_emitted" | "user_authored";
     messageEnvelope?: {

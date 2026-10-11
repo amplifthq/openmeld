@@ -348,22 +348,6 @@ describe("Center Agent HTTP schemas", () => {
   it("requires exact anchors for progressive Space context reads", () => {
     expect(
       centerAgentReadSpaceContextBodySchema.parse({
-        beforeSignalId: "signal-older-page",
-        scope: "history",
-        spaceId: "space-1",
-      })
-    ).toMatchObject({ beforeSignalId: "signal-older-page" });
-    for (const scope of [undefined, "delta", "source", "thread_evidence"]) {
-      expect(
-        centerAgentReadSpaceContextBodySchema.safeParse({
-          beforeSignalId: "signal-older-page",
-          scope,
-          spaceId: "space-1",
-        }).success
-      ).toBe(false);
-    }
-    expect(
-      centerAgentReadSpaceContextBodySchema.parse({
         requestedAddressingModel: "wake_reference_mention",
         scope: "source",
         sourceSignalId: "signal-1",

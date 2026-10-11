@@ -1,6 +1,7 @@
 import type {
 	AgentInteractionPendingSummary,
 	AgentInteractionRequest,
+	PluginActionRequestView,
 	WakeProgressItem,
 } from "@openmeld/schemas/types";
 import {
@@ -22,6 +23,51 @@ const APPROVE_ALL_PATTERN = /approve all/i;
 const ACTION_NEEDS_YOU_PATTERN = /action needs you/i;
 
 describe("SpacePendingAgentActions", () => {
+	it("keeps Plugin Thread requests in the same tray as Local Agent actions", () => {
+		const onOpen = vi.fn();
+		const plugin: PluginActionRequestView = {
+			requestId: "11111111-1111-4111-8111-111111111111",
+			inboxItemId: "approval",
+			state: "pending",
+			service: "github",
+			actionId: "create_issue",
+			effect: "write",
+			accountName: "Team GitHub",
+			accountScope: "shared",
+			actorProfileId: "agent",
+			inputFieldCount: 1,
+			targets: [],
+			createdAtMs: 0,
+			expiresAtMs: Date.now() + 60_000,
+			sourceSignalId: "offscreen",
+			sourceThreadId: "thread-one",
+		};
+		const { rerender } = render(
+			<SpacePendingAgentActions
+				items={[createPermissionItem({ interactionId: "local" })]}
+				onOpenPluginRequestThread={onOpen}
+				onRespond={vi.fn().mockResolvedValue(undefined)}
+				pluginRequests={[plugin]}
+			/>
+		);
+		fireEvent.click(screen.getByRole("button", { name: "2 actions need you" }));
+		fireEvent.click(screen.getByRole("button", { name: "Open thread" }));
+		expect(onOpen).toHaveBeenCalledWith(plugin);
+		fireEvent.click(screen.getByRole("button", { name: "Next action" }));
+		expect(screen.getByText("Allow this command?")).toBeTruthy();
+		rerender(
+			<SpacePendingAgentActions
+				items={[createPermissionItem({ interactionId: "local" })]}
+				onOpenPluginRequestThread={onOpen}
+				onRespond={vi.fn().mockResolvedValue(undefined)}
+				pluginRequests={[]}
+			/>
+		);
+		expect(
+			screen.getByRole("button", { name: "1 action needs you" })
+		).toBeTruthy();
+		expect(screen.getByText("Allow this command?")).toBeTruthy();
+	});
 	afterEach(() => {
 		cleanup();
 	});

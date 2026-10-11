@@ -7135,28 +7135,6 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
     },
     {
       expectedPayload: {
-        beforeSignalId: "signal-first-on-previous-page",
-        limit: 100,
-        requestedAddressingModel: "wake_reference_mention",
-        scope: "history",
-        spaceId: SPACE_ID,
-      },
-      input: {
-        beforeSignalId: "signal-first-on-previous-page",
-        limit: 100,
-        scope: "history",
-        spaceId: SPACE_ID,
-      },
-      response: {
-        organizationId: "org_123",
-        spaceId: SPACE_ID,
-        context: { scope: "history", signals: [], truncated: false },
-      },
-      rpcName: "centerAgentReadSpaceContext",
-      toolName: "openmeld_read_space_context",
-    },
-    {
-      expectedPayload: {
         limit: 25,
         requestedAddressingModel: "wake_reference_mention",
         scope: "source",

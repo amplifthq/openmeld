@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-10T18:06:14.422Z",
+  "updatedAt": "2026-10-11T10:53:56.454Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-project-work-v1",
-      "packageVersion": "0.3.251",
-      "updatePolicy": "required",
-      "reason": "New native setup, account-journal locking and targeted Computer update checks are required before new main-path commands; update and self-rescue remain available."
+      "packageVersion": "0.3.252",
+      "updatePolicy": "available",
+      "reason": "Deploy Task v3 and approval-list cloud receivers before this CLI. After receiver deployment, old and new clients remain supported; optional account-context cancellation and OpenCode admission do not change existing setup, Wake or diagnostics contracts."
     },
     "service": {
-      "bundleHash": "aa3c88c4d05c566b120ab9b3dd00a7823ea01a6cc5244ad8743572a56d7aa15f",
-      "portableBundleHash": "9fadcf1f72f298877f262585363306a9ba4a34c2f0fe6f1e2e29df3455442a00",
-      "bundleVersion": "0.3.251",
+      "bundleHash": "3522172a593d717a999dd95005fe929622c9a832d38b1537e7c465c2f2aa561b",
+      "portableBundleHash": "8c7abe6a7b6e0dc4ff8c9bc16e23045f423899f6c35c262f334673b43c4bb6b9",
+      "bundleVersion": "0.3.252",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
       "serviceContractVersion": "openmeld-service-contract-2026-09-project-work-v1",
-      "updatePolicy": "required",
-      "reason": "New work handoff requires execution Context 5 and the saved-workspace read contract; Core receivers must deploy first, and older Services must not receive new unsafe work."
+      "updatePolicy": "available",
+      "reason": "Deploy the new cloud receivers first. Old Services remain supported by compatibility projections; the OpenCode evidence correction preserves admission and lifecycle payloads, setup, Wake and diagnostics contracts."
     },
     "skills": {
       "bundleHash": "0507d367ef298936053223f81441697545949fbf4d39b1b306872f7c254a4871",

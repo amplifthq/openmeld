@@ -144,6 +144,7 @@ function createRemoteAgentImagePreparer(
 }
 
 async function prepareCenterAgentRender() {
+  const messageReadBudget = { remainingBytes: 8192 };
   const context = getCloudflareContext();
   const env = context.env as unknown as CloudflareBindings;
   const prepareImageForContext = createRemoteAgentImagePreparer(
@@ -248,6 +249,7 @@ async function prepareCenterAgentRender() {
     createTools: async (sandboxCapability) =>
       executionContext
         ? await getRemoteAgentFlueTools({
+            messageReadBudget,
             replyRecovery: Boolean(executionContext.replyRecovery),
             personalAgent,
             sharedSpaceContextEnabled:
@@ -379,6 +381,7 @@ async function prepareCenterAgentRender() {
   });
 
   return {
+    messageReadBudget,
     beforeModel: executionContext
       ? () =>
           assertRemoteAgentExecutionCanContinue({

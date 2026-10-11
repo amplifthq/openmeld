@@ -30,6 +30,46 @@
   pinned Flue package before changing worker interfaces; method names are not
   strategic contract.
 
+## Bounded conversation reads
+
+`openmeld_query_messages` searches permitted conversations or reads a selected
+Space, thread or message. `openmeld_read_space_context(scope=history)` uses the
+same bounded reader and includes visible system signals. Narrow source and
+fixed-version evidence scopes keep their existing contracts. Read projections
+do not grant approval and do not replace exact evidence references.
+
+The runtime allocates message bytes from its existing provider-input capacity
+measurement. Parallel reads share that allocation before they perform I/O.
+The existing provider guard and Flue compactor still own context maintenance.
+When capacity is insufficient, reads return an explicit budget status without
+advancing their checkpoint; the Agent preserves processed IDs/counts and returns
+control for context maintenance.
+
+The Agent chooses the total reading goal; each response remains bounded.
+Checkpoint continuation requests only the remaining count. `requestedCountReached`
+means the requested total was delivered; it does not mean the selection is exhausted.
+Pass a larger total `limit` with the checkpoint's `resumeId` and `nextCursor` to
+read more. Preview delivery counts matches; full delivery counts complete messages.
+Long messages carry offsets and a source version. The Agent must not report a
+complete review while coverage is partial or indexing. Delivered counts are
+not processed counts. Save classifications before reading the next batch.
+
+Execution-scoped read checkpoints expire after 24 hours through existing retained
+result cleanup. They retain filters, page positions and versions, not another
+transcript. After compaction, `openmeld_list_message_reads` recovers them.
+`resumeId` alone replays the saved page; `resumeId` with its `nextCursor`
+advances. Replays require the original page budget and current access.
+Concurrent checkpoint updates use conditional storage writes.
+
+Named GitHub writes carry their declared effect into operation admission.
+An issue destination that requires Inbox confirmation returns
+`awaiting_confirmation` with the existing operation ID. It has not reached
+GitHub. Only a pending request has this status; rejected, expired or unavailable
+requests return their failure instead of directing the user to approve them again.
+Approval and retries keep that ID, account, target and input. No extra
+Task result review is introduced; existing Task reviewers and authorization
+rules are unchanged.
+
 ## Storage and migration references
 
 Production shared relational storage is PostgreSQL. Numeric migration references
@@ -891,13 +931,6 @@ revision through the Files owner for every page. Each call rechecks the active e
 current Space membership, then reads through the ordinary Space owner. These
 tools do not authorize another Space, confer delegated Plugin permission, or
 publish private excerpts.
-
-Ordinary Space history reads return each page in ascending signal order. When
-`truncated` is true, pass the first returned signal ID as `beforeSignalId` with
-`scope=history` to read the next older page. The anchor is excluded. Space owns
-stable ordering and access checks; each page resolves its anchor under current
-access. A missing or inaccessible anchor is an error, not evidence that history
-is complete.
 
 Wake `evidenceRefs` name message/thread versions and Files revisions. The existing
 Signal metadata and dispatch outbox retain this selection. The shared source-text
@@ -4045,8 +4078,7 @@ Computer failure continuity has its own deployment and rollback contract:
   first and retain compatible Core readers until these records are drained or
   explicitly migrated. Reverting Core to its old strict parser is unsafe even
   after Remote has rolled back. Prefer a forward correction.
-- `beforeSignalId` also requires the Core receiver before the Remote history
-  caller. Connection-specific action schemas require the upstream Connector
+- Connection-specific action schemas require the upstream Connector
   implementation to be committed and published before adopting its verified
   integration pin; a local upstream candidate alone is not production support.
 - These changes affect hosted Core/Remote RPC, Computer Durable Object receipts,

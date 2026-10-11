@@ -91,6 +91,13 @@ still require separate stages. Do not narrow the release base to hide a conflict
 
 ### Desktop release coverage
 
+macOS arm64 candidates can use the local lane or the optional GitHub
+`desktop-release.yml` workflow. Both use the same packaging, candidate upload,
+and guarded promotion commands. See the
+[Desktop release procedure](development-workflow.md#optional-github-macos-release).
+Candidate creation and stable promotion are separate operations; neither
+replaces installed acceptance.
+
 The scoped planner and `release:status` cover Database, cloud services, and
 CLI; neither `cloud` nor `full` publishes Desktop. For the same exact merged
 range, assess Desktop separately against its last promoted source on each
@@ -455,6 +462,23 @@ when it belongs to a current-change scope; the same missing fact remains visible
 under the global backlog without changing the scoped command's exit result.
 
 ## Public Docs releases
+
+Hosted Web, Website, and Docs children with parent admission are artifact
+consumers. Their setup installs only the trusted `@openmeld/release-tools`
+production dependency closure (TypeScript, YAML, Wrangler, and Schemas/Zod),
+with install scripts disabled. The candidate checkout receives no application
+dependency installation. Standalone admission and the parent builder retain
+the full source build toolchain.
+
+After same-run artifact restoration, the scope lease and live preflight, the
+trusted `promote-renderer-artifact.mjs` revalidates parent evidence and the
+source/input/output identity and invokes its own pinned Wrangler against the
+restored output. Missing or mismatched evidence fails closed; a consumer cannot
+enter the builder. Cloudflare's generated deployment configuration already
+contains the production environment selected at build time. Health verification
+still compares the served source and build identity after deployment. This
+separates build dependencies from promotion dependencies without adding a
+second release planner or removing compatibility, database, or lease guards.
 
 Docs-only releases use `--scope docs`, an independent artifact receipt and
 snapshot, and the `openmeld-docs-prod` Worker at `docs.openmeld.ai`. The hosted
@@ -942,8 +966,18 @@ Core RPC and Space receiver, and a Task caller together. Core deploys with the
 immutable current published CLI projection first, followed by Gateway, Web,
 Remote Agent, and CLI when selected. CLI and Web call Gateway's Task HTTP
 routes; Remote Agent calls Core directly and does not require Gateway.
-Every selected consumer requires Core in the plan, and CLI/Web also require
-Gateway. Core-only and Core/Gateway receiver stages remain supported without
+The compatibility graph records the changed callers' receiver obligations:
+Core before Remote, and Core before Gateway before changed Web/CLI callers.
+A shared Task API-client change covers both Web and CLI. A changed shared Task
+schema also covers its transitive consumers, including unchanged API-client and
+Remote binding files that import its wire-version constant. Unavailable schema
+history retains those prerequisites. Unrelated client edits do not add Task
+dependencies. Receipt-based stage admission accepts an already
+verified receiver; it does not require selecting or deploying that receiver
+again. Remote remains blocked while its required Core receiver is pending or
+unknown, even when Core is selected in the same command. Center Agent evidence
+tools use the same receipt-based Core-before-Remote admission.
+Core-only and Core/Gateway receiver stages remain supported without
 requiring the future Service fingerprint to match the published channel;
 the existing receiver executor verifies the real channel and immutable tag.
 Opposing receiver constraints fail closed rather than overriding their order.
@@ -951,9 +985,10 @@ Opposing receiver constraints fail closed rather than overriding their order.
 Keep the same pre-feature base (for example the previously published CLI tag)
 through every stage, including after a version-only PR. A narrow version-PR
 diff cannot establish the Task dependency. Use the guarded ordered local
-Core/Gateway/Web/CLI plan for the first publication; CLI-only with that base is
-rejected. The static hosted fleet admission also rejects a selected order it
-cannot execute. No direct receiver script invocation or hash-check bypass is
+Core/Gateway/Web/CLI plan for the first publication, or complete its receiver
+stages first and publish the caller after receipt-based admission succeeds.
+Missing prerequisites remain blocked. The static hosted fleet admission also
+rejects a selected order it cannot execute. No direct receiver script invocation or hash-check bypass is
 part of this rollout. The final normal CLI stage publishes artifacts and
 updates Core to the new CLI projection after the receivers are healthy.
 
@@ -2014,6 +2049,38 @@ continue to require the checked-in manifest and stable channel to match.
 
 ## Resumable Execution
 
+For a multi-component release from a clean, approved checkout, use the existing
+local entrypoint with the exact pre-merge base:
+
+```sh
+pnpm release:deploy:local -- --base <pre-merge-sha> --scope auto
+```
+
+It fixes the checkout SHA and base, reads the affected component receipts, skips
+components that are current, and selects the next component through the existing
+production stage admission rules. Each component still runs its own guarded
+preflight, lease, deployment, health, and receipt path. After each component,
+the command reads the receipts again before continuing. It stops on a failure,
+unknown evidence without an admitted recovery, or a missing completion record;
+it never treats a subprocess exit as deployment evidence. Rerun the same command
+from the same source to continue after an interruption. Dependencies outside the
+selected change require an explicit scope decision; the command does not add
+historical backlog to the release. Database cutover and domain transitions keep
+their existing dedicated commands. An intentional redeploy requires an explicit
+component scope and `--redeploy`.
+
+CLI publication stays with the official GitHub Trusted Publishing workflow.
+When a pending CLI stage becomes eligible, local continuation stops before CLI
+mutation and prints that workflow command with the original source and train.
+After it succeeds, rerun the same local command; the receipt skips the completed
+CLI stage. This does not introduce a second npm publisher or dispatch tracker.
+
+Use `release:status -- --ref <product-sha> --change-base <pre-merge-sha>
+--check-complete` for the deployment closeout check. It requires real receipts,
+rejects `--deployed` planning overrides, and exits nonzero for missing or pending
+components. Human output labels deployable work as incomplete. This check does
+not certify product smoke, Desktop installation, or Desktop update acceptance.
+
 The guarded local executor is safe to rerun after interruption. Completion
 probes are read-only. A completed stage prints `SKIP (already done)` with its
 criterion; an incomplete stage prints `RUN` and executes the existing command
@@ -2043,8 +2110,9 @@ Workers. After every selected Worker deploy and health check, the production
 executor reruns the same resumable CLI command as the terminal three-way
 alignment check; when the release is complete, that rerun is read-only and all
 stages skip. Before each Worker deploy, the executor prints the current
-production version ID for comparison. Repeated Worker deploys remain allowed
-because they are safe, even though they create another Worker version.
+production version ID for comparison. Current components are skipped from their
+receipts; deliberately creating another Worker version requires the explicit
+redeploy path.
 
 | Stage | `SKIP` criterion | Criterion level |
 | --- | --- | --- |

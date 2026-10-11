@@ -528,6 +528,13 @@ the success message explains where to recover it. In a DM header, Archive lives
 inside the three-dot menu and opens a confirmation dialog before saving. Cancel
 leaves the conversation unchanged. No shared-history deletion is involved.
 
+Conversation message search uses the same bounded message-query owner as Agent
+history reads. Its initial state also offers **Browse recent messages** within
+one Space. Search previews include the matching portion of long messages; result
+links keep the existing message/thread navigation. Inbox activity search retains
+its existing endpoint and semantics. Empty partial or indexing pages continue
+loading instead of showing a false no-results state.
+
 The conversation header exposes message search as the same compact icon action
 used by its neighboring tools, with an accessible label and tooltip. Its dialog
 accepts a single character when scoped to the current Space, presents centered
@@ -883,14 +890,32 @@ Shared Organization scope and optional account entry reads use Auth's
 `GET /v1/account/organization-context` through the existing API client. SSR
 forwards the current request cookie directly to Auth; browser and Desktop use
 the same Web HTTP route. Both use the same strict projection without a new
-cache, preference writer, or account store. Existing query keys and account
-reset/invalidation policy remain unchanged. Optional anonymous entry returns
+preference writer or account store. Browser navigation uses one account-context
+Query key, not one membership-list copy per Organization slug. The existing
+account reset cancels and removes that query; it is not persisted. Logo and
+confirmed membership mutations update or invalidate that same snapshot.
+Invitation acceptance must not optimistically invent a membership.
+Optional anonymous entry returns
 null, authenticated entry without Organizations remains an explicit error,
 and an unknown Organization URL remains a denied scope. Required anonymous
 scope retains its sanitized login redirect. This read opts into preserving Auth
 401 responses through the Web proxy; existing Auth form status normalization
 is unchanged. Infrastructure errors are not
 converted to anonymous or denied state.
+
+The private `/o/{orgSlug}` boundary is client-loaded (`ssr: false`); public
+entry, login, and public content retain SSR. Router default and private-route
+pending content use the same visible loading surface so server HTML and client
+hydration do not leave a blank screen. The account query has a five-second
+transport deadline, forwards cancellation through body consumption, does not
+retry automatically, and attempts offline reads rather than pausing the parent
+loader indefinitely. The existing root error surface owns retry and asset
+version recovery. A successful fresh read projects the URL Organization; only
+then may the loader activate its persisted display scope. The component does
+not repeat that activation in a hydration effect. The loader checks cancellation
+before entering persistence activation and before returning its scope; the
+persistence owner serializes scope changes. An anonymous result clears account-private state
+before the sanitized login redirect.
 
 The
 Auth-owned account `lastSelectedOrganizationId` is the default entry preference
@@ -1094,6 +1119,11 @@ The visible destinations resolve in this order: **Inbox**, **Spaces**, and
    Each Inbox row or notification activation carries a new in-memory focus request,
    so selecting the same target again reopens its Thread and refocuses the message
    without remounting the conversation or discarding its draft and read cache.
+   Only a full Thread history read initializes the reply-history cache. Live
+   replies may extend an existing snapshot and update the separate preview, but
+   cannot turn an unread history into a successful query. A missing linked reply
+   is reported only after the current history read finishes; refreshing or paused
+   reads are not evidence that a reply was removed or access was lost.
 5. **Agents** — the first-level home for ordinary Agent Profiles that members
    manage. User-facing management copy calls them **Agents**; `Agent Profile`
    remains the internal identity-model term. Its Main Sidebar contextual list groups
@@ -1480,6 +1510,21 @@ the latest messages from that Space through the authorized API and explains the
 fallback in plain language. It never searches another Space for the message.
 Access and transport failures do not become successful fallback navigation, and
 server diagnostic text is not rendered as the navigation error.
+Selected history windows use the existing Query retry, reconnect, and focus
+mechanisms. A successful live-tail reconciliation also refetches idle, failed
+active windows for the same Space and acting Profile, so proxy recovery does not
+depend on a browser online event. Missing pagination anchors and permanent
+access/client errors are excluded from automatic recovery; the existing bounded
+retry policy still controls transient failures. New navigation cancels the old
+request. Route focus, history-rail, pinned-message, and unread-message jumps all
+complete their original navigation when the selected window recovers. One top
+banner owns the history error and its right-aligned **Retry** action. A missing
+pagination anchor or permanent access failure does not offer Retry; the message
+directs the reader to latest messages or Inbox. Newer-history loading does not
+repeat the banner's recovery control. Returning to latest cancels any retained
+history-rail scroll target. Public pinned-Thread jumps also finish after recovery.
+A missing message's fallback notice survives the automatic return to latest and clears
+when another history target is selected.
 Inside a Thread, the root message's details offer **Show message in Messages**.
 This in-page action closes the details drawer and focuses the root in the main
 conversation while retaining the open Thread. It reuses the same bounded
@@ -6015,6 +6060,15 @@ approval center, duplicate pending state, batch approval, or an automatic
 popover. The originating message or thread remains context, not the location
 the owner must rediscover to respond. Other members continue to see only the
 safe inline waiting indication.
+
+Recipient-owned Plugin action approvals use the same Composer tray and its
+selection, disclosure, focus, and Thread routing. Their stable identity is the
+Plugin request ID, not a fabricated Wake interaction. The pending Space query
+does not depend on loaded messages; scrolling away from the source cannot
+remove an unresolved request. The original message and Inbox retain the same
+request-backed card for context and decision history. Approving or declining
+invalidates the pending projection. Main messages that have a reply Thread stay
+in the main tray; only actual Thread replies belong to that Thread's tray.
 
 Permission cards show the native choices; question cards collect every answer
 in bounded steps; plan cards show the bounded plan and support approval or

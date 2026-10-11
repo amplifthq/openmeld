@@ -956,6 +956,10 @@ import {
   type CurrentDesignatedCenterAgentAuthorization,
   requireCurrentDesignatedCenterAgentCaller,
 } from "../center-agent/current-designated-center-agent";
+import {
+  syncCompletedGitHubIssue,
+  verifyGitHubIssueCompletion,
+} from "../center-agent/github-issue-completion";
 import type { CenterAgentWakePublicationCommand } from "../center-agent/infrastructure/postgresql/center-agent-wake-publication-repo";
 import { startCenterAgentMemberResearch } from "../center-agent-member-research/member-research-service";
 import type { CenterAgentMemoryEpisodeOrigin } from "../center-agent-memory/contract";
@@ -1299,7 +1303,6 @@ import {
   SPACE_MEMBER_NAME_READ_BUDGET_MS,
 } from "../space/application/space-members-service";
 import {
-  assertLegacySpaceTaskCanRead,
   projectSpaceTaskDetailForClient,
   projectSpaceTaskReceiptForClient,
   projectSpaceTasksForClient,
@@ -2410,6 +2413,7 @@ export type CreateSpaceResult = {
   meta?: SpaceMeta;
 };
 export type ListSignalsInput = {
+  messageRead?: import("@openmeld/schemas").MessageReadQuery;
   includePersonalHistoryBoundary?: boolean;
   q?: string;
   spaceId: string;
@@ -2432,6 +2436,7 @@ export type ListSignalsInput = {
   spaceAccess?: SpaceAccessContext;
 };
 export type ListSignalsResult = {
+  messagePage?: import("@openmeld/schemas").MessageReadPage;
   personalHistoryDeletedAt?: number;
   searchIndexing?: boolean;
   signals: SignalEnvelope[];
@@ -15237,9 +15242,6 @@ export async function rpcCenterAgentReadSpaceContext(
     env,
   });
   const parsed = centerAgentReadSpaceContextBodySchema.safeParse({
-    ...(input.beforeSignalId === undefined
-      ? {}
-      : { beforeSignalId: input.beforeSignalId }),
     ...(input.version === undefined ? {} : { version: input.version }),
     ...(input.offset === undefined ? {} : { offset: input.offset }),
     ...(input.afterSignalId === undefined
@@ -15762,23 +15764,15 @@ async function readCenterAgentProgressiveSpaceContext(input: {
   }
   const page = await rpcListSignals(input.env, {
     context: input.context,
-    ...(input.input.beforeSignalId
-      ? {
-          aroundSignalId: input.input.beforeSignalId,
-          beforeCount: limit + 1,
-          afterCount: 0,
-        }
-      : { limit: limit + 1, recent: true }),
+    limit: limit + 1,
+    recent: true,
     signalTypes: ["signal.text", "signal.status", "signal.system_notice"],
     spaceId: input.input.spaceId,
   });
-  const signals = page.signals.filter(
-    (signal) => signal.id !== input.input.beforeSignalId
-  );
   return {
     scope: "history",
-    signals: signals.slice(-limit),
-    truncated: signals.length > limit,
+    signals: page.signals.slice(-limit),
+    truncated: page.signals.length > limit,
   };
 }
 function requireCenterAgentContextAnchor(
@@ -16527,6 +16521,8 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     requestSignature: input.requestSignature,
     issueDestination: input.issueDestination,
     linearIssueReceipt: input.linearIssueReceipt,
+    githubIssueCompletion: input.githubIssueCompletion,
+    includeGitHubTaskSync: input.includeGitHubTaskSync,
     service: input.service,
     speakerMember: input.speakerMember,
   });
@@ -16657,10 +16653,12 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     existingOperation: Boolean(existing),
     sourceRequestKey,
     sourceSpaceId: member.sourceSpaceId,
+    sourceNativeDeliveryId: member.sourceNativeDeliveryId,
     connection: executionConnection,
     connectionUpdatedAtMs,
     personalExecution: "personalExecution" in authorization,
   });
+  const githubIssueObservation = await verifyGitHubIssueCompletion(parsed.data);
   const result = await recordCenterAgentConnectorActionOperation({
     actionId: parsed.data.actionId,
     actorProfileId: authorization.actorProfileId,
@@ -16674,6 +16672,7 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     organizationId: authorization.activeOrganization.organizationId,
     outcome: parsed.data.outcome,
     linearIssueReceipt: parsed.data.linearIssueReceipt,
+    githubIssueObservation,
     providerExecutionId: parsed.data.providerExecutionId,
     requester,
     requestSignature: parsed.data.requestSignature,
@@ -16687,13 +16686,37 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     effect: parsed.data.effect,
     allowReplay: parsed.data.includeExecutionPermit === true,
   });
-  return await presentConnectorOperationResult({
-    actorProfileId: authorization.actorProfileId,
-    result,
-    db: authorization.db,
-    request: parsed.data,
-    verificationOf,
+  return await presentConnectorOperationWithGitHubSync(
+    env,
+    existing?.sourceSpaceId,
+    {
+      actorProfileId: authorization.actorProfileId,
+      result,
+      db: authorization.db,
+      request: parsed.data,
+      verificationOf,
+    }
+  );
+}
+
+async function presentConnectorOperationWithGitHubSync(
+  env: CoreBindings,
+  sourceSpaceId: string | null | undefined,
+  input: Parameters<typeof presentConnectorOperationResult>[0]
+) {
+  const githubTaskSync = await syncCompletedGitHubIssue({
+    env,
+    db: input.db,
+    operation: input.result.operation,
+    sourceSpaceId: sourceSpaceId ?? null,
   });
+  const response = await presentConnectorOperationResult(input);
+  return {
+    ...response,
+    ...(input.request.includeGitHubTaskSync && githubTaskSync
+      ? { githubTaskSync }
+      : {}),
+  };
 }
 
 function requireConnectorTaskProvenance(input: {
@@ -19935,6 +19958,7 @@ export async function rpcListSignals(
   return unwrapSpaceRpcJsonResult(
     await stub.rpcListSignalsResult({
       spaceId,
+      ...(input.messageRead ? { messageRead: input.messageRead } : {}),
       ...(input.q ? { q: input.q } : {}),
       ...buildListSignalsNumberFilters(input),
       ...(cursor ? { cursor } : {}),
@@ -22654,6 +22678,19 @@ export async function rpcGetSpaceLinkPreviews(
     revision: current.revision,
     previews: current.revision === source.revision ? previews : [],
   };
+}
+export async function rpcReadPluginActionRequestLocations(
+  env: CoreBindings,
+  input: import("zod/v4").infer<
+    typeof import("@openmeld/schemas").listPluginActionRequestsInputSchema
+  >
+) {
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcReadPluginActionRequestLocations({
+    ...input,
+    spaceId,
+    spaceAccess: resolveRpcSpaceAccess(input),
+  });
 }
 export async function rpcGetSpaceMessageDetails(
   env: CoreBindings,
@@ -26543,7 +26580,7 @@ export async function rpcSpaceInputQueue(
 
 export type ListSpaceTasksInput = GetSpaceMetaInput & {
   phase?: SpaceTaskPhase;
-  taskContractVersion?: typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
+  taskContractVersion?: 2 | typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
 };
 export type GetSpaceTaskInput = GetSpaceMetaInput &
   SpaceTaskDetailOptions & {
@@ -26551,12 +26588,12 @@ export type GetSpaceTaskInput = GetSpaceMetaInput &
   };
 export type CreateSpaceTaskInput = GetSpaceMetaInput & {
   body: CreateSpaceTaskBody;
-  taskContractVersion?: typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
+  taskContractVersion?: 2 | typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
 };
 export type MutateSpaceTaskInput = GetSpaceMetaInput & {
   taskId: string;
   body: MutateSpaceTaskBody;
-  taskContractVersion?: typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
+  taskContractVersion?: 2 | typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
 };
 export async function rpcSpaceFilePins(
   env: CoreBindings,
@@ -26638,13 +26675,13 @@ export async function rpcCreateSpaceTask(
   const parsedBody = createSpaceTaskBodySchema.parse(input.body);
   if (
     parsedBody.projectIds?.length &&
-    input.taskContractVersion !== SPACE_TASK_WORKFLOW_CONTRACT_VERSION
+    input.taskContractVersion === undefined
   ) {
     throw spaceTaskContractUpdateRequiredError();
   }
   if (
     parsedBody.externalWorkItems?.some((item) => item.provider === "linear") &&
-    input.taskContractVersion !== SPACE_TASK_WORKFLOW_CONTRACT_VERSION
+    input.taskContractVersion === undefined
   ) {
     throw spaceTaskContractUpdateRequiredError();
   }
@@ -26694,22 +26731,15 @@ export async function rpcMutateSpaceTask(
     spaceId,
     requireRpcContext(input.context)
   );
-  if (input.taskContractVersion !== SPACE_TASK_WORKFLOW_CONTRACT_VERSION) {
-    if (
-      input.body.action === "set_projects" ||
+  if (
+    input.taskContractVersion !== SPACE_TASK_WORKFLOW_CONTRACT_VERSION &&
+    input.taskContractVersion === undefined &&
+    (input.body.action === "set_projects" ||
       input.body.action === "detach_linear_external_work_item" ||
       (input.body.action === "attach_external_work_item" &&
-        input.body.item.provider === "linear")
-    ) {
-      throw spaceTaskContractUpdateRequiredError();
-    }
-    const current = await stub.rpcGetTask({
-      context,
-      password: input.password,
-      spaceId,
-      taskId: input.taskId,
-    });
-    assertLegacySpaceTaskCanRead(current.task, current.events);
+        input.body.item.provider === "linear"))
+  ) {
+    throw spaceTaskContractUpdateRequiredError();
   }
   if (input.body.action === "set_projects") {
     const command = mutateSpaceTaskBodySchema.parse(input.body);

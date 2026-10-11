@@ -355,6 +355,7 @@ export async function checkProductionArtifact({
   scope,
   sourceSha,
   allowDirty = false,
+  requireExisting = false,
 }) {
   if (!["web", "website", "docs", "desktop"].includes(scope)) {
     throw new Error("Choose --scope web, website, docs, or desktop.");
@@ -403,6 +404,11 @@ export async function checkProductionArtifact({
   });
   if (reusable) {
     return reusable;
+  }
+  if (requireExisting) {
+    throw new Error(
+      `The admitted ${scope} artifact is missing or invalid; promotion cannot rebuild it.`
+    );
   }
   const env = productionBuildEnvironment(scope, buildInputs);
   // Anonymous local SSR needs the cookie module to initialize, not a real

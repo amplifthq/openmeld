@@ -1,4 +1,7 @@
-import type { WakeProgressItem } from "@openmeld/schemas/types";
+import type {
+	PluginActionRequestView,
+	WakeProgressItem,
+} from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
@@ -14,6 +17,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { PluginActionRequest } from "#/components/inbox/plugin-action-request";
 import {
 	SpaceAgentInteractionCard,
 	type SpaceAgentInteractionResponseHandler,
@@ -27,8 +31,11 @@ import {
 	resolveSpacePendingAgentActionIdentity,
 } from "./space-pending-agent-action-model";
 
-export function SpacePendingAgentActions(input: {
+type PendingAgentActionsProps = {
 	items: readonly WakeProgressItem[];
+	pluginRequests?: readonly PluginActionRequestView[];
+	onOpenPluginRequestThread?: (request: PluginActionRequestView) => void;
+	onReloadRequests?: () => void;
 	initialInteractionIdentity?: string;
 	onOpenRequestThread?: (item: WakeProgressItem) => void;
 	onPermissionModeUpdate?: SpaceAgentPermissionModeUpdateHandler;
@@ -38,10 +45,50 @@ export function SpacePendingAgentActions(input: {
 		readonly SpaceAgentPermissionModeOption[]
 	>;
 	returnFocusRef?: RefObject<{ focus: () => void } | null>;
-}) {
+};
+
+type PendingAction = {
+	identity: string;
+	targetLabel: string;
+	requestedAt: number;
+} & (
+	| { kind: "local"; item: WakeProgressItem }
+	| { kind: "plugin"; request: PluginActionRequestView }
+);
+
+function listPendingActions(input: PendingAgentActionsProps): PendingAction[] {
+	return [
+		...listActionablePendingAgentInteractions(input.items).map(
+			(item): PendingAction => ({
+				identity: resolveSpacePendingAgentActionIdentity(item),
+				targetLabel: item.targetLabel,
+				requestedAt: item.pendingInteraction?.requestedAtMs ?? item.updatedAtMs,
+				kind: "local",
+				item,
+			})
+		),
+		...(input.pluginRequests ?? [])
+			.filter((request) => request.state === "pending")
+			.map(
+				(request): PendingAction => ({
+					identity: `plugin:${request.requestId}`,
+					targetLabel: `${request.service} · ${request.accountName}`,
+					requestedAt: request.createdAtMs,
+					kind: "plugin",
+					request,
+				})
+			),
+	].sort((left, right) => left.requestedAt - right.requestedAt);
+}
+
+export function SpacePendingAgentActions(input: PendingAgentActionsProps) {
 	const actionableItems = useMemo(
-		() => listActionablePendingAgentInteractions(input.items),
-		[input.items]
+		() =>
+			listPendingActions({
+				items: input.items,
+				pluginRequests: input.pluginRequests,
+			}),
+		[input.items, input.pluginRequests]
 	);
 	const [isOpen, setIsOpen] = useState(
 		Boolean(input.initialInteractionIdentity)
@@ -57,22 +104,13 @@ export function SpacePendingAgentActions(input: {
 	const selectedIndex = Math.max(
 		0,
 		actionableItems.findIndex(
-			(item) =>
-				resolveSpacePendingAgentActionIdentity(item) ===
-				selectedInteractionIdentity
+			(item) => item.identity === selectedInteractionIdentity
 		)
 	);
 	const selectedItem = actionableItems[selectedIndex] ?? null;
-	const selectedItemIdentity = selectedItem
-		? resolveSpacePendingAgentActionIdentity(selectedItem)
-		: null;
+	const selectedItemIdentity = selectedItem ? selectedItem.identity : null;
 	const actionableInteractionIdentities = useMemo(
-		() =>
-			new Set(
-				actionableItems.map((item) =>
-					resolveSpacePendingAgentActionIdentity(item)
-				)
-			),
+		() => new Set(actionableItems.map((item) => item.identity)),
 		[actionableItems]
 	);
 	const selectedInteractionIsActionable =
@@ -126,7 +164,17 @@ export function SpacePendingAgentActions(input: {
 	}, [isSurfaceOpen, surfaceElement]);
 
 	if (!selectedItem) {
-		return null;
+		return input.onReloadRequests ? (
+			<SpaceComposerTray>
+				<Button
+					className="w-full"
+					onClick={input.onReloadRequests}
+					variant="ghost"
+				>
+					Reload pending actions
+				</Button>
+			</SpaceComposerTray>
+		) : null;
 	}
 
 	const count = actionableItems.length;
@@ -134,9 +182,7 @@ export function SpacePendingAgentActions(input: {
 		count === 1 ? "1 action needs you" : `${count} actions need you`;
 	const selectIndex = (nextIndex: number) => {
 		const nextItem = actionableItems[nextIndex];
-		const nextIdentity = nextItem
-			? resolveSpacePendingAgentActionIdentity(nextItem)
-			: null;
+		const nextIdentity = nextItem ? nextItem.identity : null;
 		if (nextIdentity) {
 			setSelectedInteractionIdentity(nextIdentity);
 		}
@@ -157,6 +203,15 @@ export function SpacePendingAgentActions(input: {
 			data-slot="space-pending-agent-actions"
 			ref={setSurfaceElement}
 		>
+			{input.onReloadRequests ? (
+				<Button
+					className="w-full"
+					onClick={input.onReloadRequests}
+					variant="ghost"
+				>
+					Reload pending actions
+				</Button>
+			) : null}
 			<Button
 				aria-controls={panelId}
 				aria-expanded={isSurfaceOpen}
@@ -216,33 +271,74 @@ export function SpacePendingAgentActions(input: {
 							</div>
 						</div>
 					) : null}
-					{selectedItem.sourceContext?.threadId && input.onOpenRequestThread ? (
-						<div className="grid gap-2">
-							<p className="text-sm">
-								{selectedItem.targetLabel} needs your response in a thread.
-							</p>
-							<Button
-								onClick={() => input.onOpenRequestThread?.(selectedItem)}
-								type="button"
-								variant="outline"
-							>
-								Open thread
-							</Button>
-						</div>
-					) : (
-						<SpaceAgentInteractionCard
-							item={selectedItem}
-							key={selectedItemIdentity}
-							onPermissionModeUpdate={input.onPermissionModeUpdate}
-							onRespond={input.onRespond}
-							permissionModeOptions={input.permissionModeOptionsByProfileId?.get(
-								selectedItem.targetProfileId
-							)}
-							presentation="surface"
-						/>
-					)}
+					<PendingActionContent
+						action={selectedItem}
+						input={input}
+						key={selectedItemIdentity}
+					/>
 				</fieldset>
 			) : null}
 		</SpaceComposerTray>
+	);
+}
+
+function PendingActionContent({
+	action,
+	input,
+}: {
+	action: PendingAction;
+	input: PendingAgentActionsProps;
+}) {
+	if (action.kind === "plugin") {
+		if (action.request.sourceThreadId && input.onOpenPluginRequestThread) {
+			return (
+				<RequestThreadLink
+					label="This Plugin action"
+					onOpen={() => input.onOpenPluginRequestThread?.(action.request)}
+				/>
+			);
+		}
+		return (
+			<PluginActionRequest
+				presentation="surface"
+				requestId={action.request.requestId}
+			/>
+		);
+	}
+	if (action.item.sourceContext?.threadId && input.onOpenRequestThread) {
+		return (
+			<RequestThreadLink
+				label={action.targetLabel}
+				onOpen={() => input.onOpenRequestThread?.(action.item)}
+			/>
+		);
+	}
+	return (
+		<SpaceAgentInteractionCard
+			item={action.item}
+			onPermissionModeUpdate={input.onPermissionModeUpdate}
+			onRespond={input.onRespond}
+			permissionModeOptions={input.permissionModeOptionsByProfileId?.get(
+				action.item.targetProfileId
+			)}
+			presentation="surface"
+		/>
+	);
+}
+
+function RequestThreadLink({
+	label,
+	onOpen,
+}: {
+	label: string;
+	onOpen: () => void;
+}) {
+	return (
+		<div className="grid gap-2">
+			<p className="text-sm">{label} needs your response in a thread.</p>
+			<Button onClick={onOpen} type="button" variant="outline">
+				Open thread
+			</Button>
+		</div>
 	);
 }

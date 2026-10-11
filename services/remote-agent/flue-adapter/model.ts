@@ -33,6 +33,7 @@ import { emitRemoteAgentExecutionStageEvidence } from "./cloudflare-runtime-evid
 import {
   getRemoteAgentDeferredToolCount,
   getRemoteAgentExecutionSubmissionId,
+  updateRemoteAgentMessageReadBudget,
 } from "./execution-context";
 import { resolveReviewedPromptPriceTierBoundary } from "./model-context-policy";
 import {
@@ -999,6 +1000,12 @@ export function withRemoteAgentProviderObservabilityAndSessionAffinity(
         modelId: model?.id ?? null,
         submissionId,
       });
+      if (contextCapacity) {
+        updateRemoteAgentMessageReadBudget({
+          ...contextCapacity,
+          estimatedInputTokens: measurement.estimatedInputTokens,
+        });
+      }
       console.info("[remote_agent.provider.request_prepared]", {
         durationMs,
         inputBytes: measurement.inputBytes,
