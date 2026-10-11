@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-11T07:50:01.871Z",
+  "updatedAt": "2026-10-11T10:51:40.951Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-project-work-v1",
@@ -9,8 +9,8 @@
       "reason": "The optional account-context cancellation options preserve existing CLI commands, setup, Space actions and diagnostics with both cloud versions."
     },
     "service": {
-      "bundleHash": "72985243d650dda61c41b7dfb7ef47c6fb1067115bf067924f7870504027ba8e",
-      "portableBundleHash": "ec12d7f7d0aa1f3782aa0b32169ed3f80f93e16dc3d746a905fea2957e4f164b",
+      "bundleHash": "3522172a593d717a999dd95005fe929622c9a832d38b1537e7c465c2f2aa561b",
+      "portableBundleHash": "8c7abe6a7b6e0dc4ff8c9bc16e23045f423899f6c35c262f334673b43c4bb6b9",
       "bundleVersion": "0.3.252",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
       "serviceContractVersion": "openmeld-service-contract-2026-09-project-work-v1",
