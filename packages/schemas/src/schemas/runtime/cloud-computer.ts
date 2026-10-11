@@ -190,7 +190,7 @@ export const cloudComputerOperationResultSchema = z.union([
     after: z.number().optional(),
     outputPending: z.literal(true).optional(),
     syncPending: z.literal(true).optional(),
-    syncError: z.enum(["ENOENT", "EEXEC_LOST", "ESYNC_READ_ONLY"]).optional(),
+    syncError: z.enum(["ENOENT", "EEXEC_LOST"]).optional(),
     syncSkipped: z
       .object({ paths: z.array(z.string()).max(16), truncated: z.boolean() })
       .optional(),

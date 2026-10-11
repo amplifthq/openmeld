@@ -34,7 +34,7 @@ async function collectHelperResult(input: {
     stdout = (stdout + (result.stdout ?? "")).slice(-50_000);
     stderr = (stderr + (result.stderr ?? "")).slice(-50_000);
     after = result.after ?? after;
-    if (result.syncError) {
+    if (result.syncError || result.nextAction === "inspect") {
       throw new Error(
         `computer.helper_sync_unconfirmed: ${JSON.stringify({ reference: result.reference, code: result.syncError, skipped: result.syncSkipped })}`
       );

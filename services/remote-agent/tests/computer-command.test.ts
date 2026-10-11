@@ -361,10 +361,21 @@ describe("retained Computer commands", () => {
     expect(result).toMatchObject({
       exitCode: 0,
       stdout: "DONE",
-      syncError: "ESYNC_READ_ONLY",
+      syncPending: true,
       nextAction: "inspect",
       syncSkipped: { paths: ["/protected/result.txt"], truncated: false },
     });
+    expect(result).not.toHaveProperty("syncError");
+    const observations = f.getExec.mock.calls.length;
+    await expect(
+      f.tool().execute({ action: "poll", key: "readonly", waitSeconds: 1 })
+    ).resolves.toMatchObject({
+      exitCode: 0,
+      syncPending: true,
+      nextAction: "inspect",
+      collection: { nextAttemptAtMs: null },
+    });
+    expect(f.getExec).toHaveBeenCalledTimes(observations);
     await expect(
       readStoredComputerInvocation({
         context: { submissionId: "execution-a" },

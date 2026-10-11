@@ -648,8 +648,11 @@ preserving reads. An already-full legacy store is an explicit migration limit,
 not authorization to discard content. Connection deadlines apply to setup and
 health probes, not to the lifetime of running commands. See the native storage
 contract in `services/remote-agent/computerd/README.md`.
-The command result preserves known exit/output and exposes `ESYNC_READ_ONLY`
-with `syncSkipped` instead of claiming every file was saved. Local measurements
+The durable command receipt records `ESYNC_READ_ONLY` as a terminal refusal.
+Its public result preserves known exit/output and exposes `syncPending: true`,
+`nextAction: inspect`, and additive `syncSkipped` paths. This keeps the existing
+public error enum compatible with installed clients without claiming every file
+was saved. Local measurements
 do not certify production CPU limits or historical OOM attribution.
 
 Ordered sync receivers use their existing source fetch cursor to reject a
@@ -685,7 +688,8 @@ No test touches installed Service state.
 
 This is an additive Computer response and local Skill guidance change. Existing
 CLI command-result parsers use a non-strict object, ignore the optional
-`syncError`/`syncSkipped`, and retain exit, `syncPending` and `nextAction`. No status
+`syncSkipped`, and retain the existing `syncError` enum, exit, `syncPending` and
+`nextAction`. No status
 enum, command input, setup, Wake, Space action or local Service contract changes.
 Cloud Worker SDK and native Computer must upgrade together: bounded planning,
 source epochs and pre-dispatch fencing change their private protocol. Old and

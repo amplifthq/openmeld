@@ -189,6 +189,21 @@ type CommandSync = Awaited<
   ReturnType<WorkspaceRuntimeExecHandle<"utf8">["result"]>
 >["sync"];
 
+function publicCommandResult(result: unknown) {
+  // Keep the durable refusal terminal. Installed clients understand pending
+  // sync with an inspect action; newer readers also receive refused paths.
+  if (
+    result &&
+    typeof result === "object" &&
+    "syncError" in result &&
+    result.syncError === "ESYNC_READ_ONLY"
+  ) {
+    const { syncError: _, ...retained } = result;
+    return { ...retained, syncPending: true, nextAction: "inspect" };
+  }
+  return result;
+}
+
 function synchronizedObservation(
   receipt: CommandResult,
   sync: Extract<CommandSync, { status: "complete" }>
@@ -1330,7 +1345,7 @@ export function createComputerCommandTool(input: {
   const definition: RemoteAgentToolDefinition = {
     name: "computer_command",
     description:
-      "Run commands on your personal Computer. start accepts key, command, backend (container by default, worker-shell or worker-javascript), env, stdin, structured input, and timeoutSeconds. JavaScript source exports a default function; its returned JSON is in result. worker-shell completes before returning and cannot be interrupted or reattached. Use container or worker-javascript for long or cancellable execution. Replies keep bounded recent output and flag outputTruncated. Redirect large output to a persistent file. Start once with a stable key, then poll using the returned after cursor until completed. syncPending means the process exited but file synchronization is not confirmed. Continue polling unless syncError or nextAction inspect is present. syncError preserves the known exit and output. ESYNC_READ_ONLY means the paths in syncSkipped were refused by read-only storage; other files may be saved. Other sync errors mean file synchronization could not be confirmed. Stop polling and inspect persistent files. Process exit does not prove file synchronization succeeded. The Computer saves results independently of model polling. list recovers this invocation's keys. stop sends signal (SIGTERM by default); stop_requested is not confirmed exit. A repeated start never launches twice. After a transport error or missing execution record, inspect existing results before deciding what can safely be repeated. Report any unresolved work in your final answer. Cancellation cleans up only this task's commands. Do not add shell backgrounding to evade command lifecycle. Use computer for files, capability details or a different cwd.",
+      "Run commands on your personal Computer. start accepts key, command, backend (container by default, worker-shell or worker-javascript), env, stdin, structured input, and timeoutSeconds. JavaScript source exports a default function; its returned JSON is in result. worker-shell completes before returning and cannot be interrupted or reattached. Use container or worker-javascript for long or cancellable execution. Replies keep bounded recent output and flag outputTruncated. Redirect large output to a persistent file. Start once with a stable key, then poll using the returned after cursor until completed. syncPending means the process exited but file synchronization is not confirmed. Continue polling unless syncError or nextAction inspect is present. syncError preserves the known exit and output. syncSkipped lists paths refused by read-only storage; other files may be saved. syncPending with nextAction inspect is a terminal synchronization refusal, not a reason to keep polling. Sync errors mean file synchronization could not be confirmed. Stop polling and inspect persistent files. Process exit does not prove file synchronization succeeded. The Computer saves results independently of model polling. list recovers this invocation's keys. stop sends signal (SIGTERM by default); stop_requested is not confirmed exit. A repeated start never launches twice. After a transport error or missing execution record, inspect existing results before deciding what can safely be repeated. Report any unresolved work in your final answer. Cancellation cleans up only this task's commands. Do not add shell backgrounding to evade command lifecycle. Use computer for files, capability details or a different cwd.",
     input: commandToolSchema,
     async execute(rawInput, options) {
       options?.signal?.throwIfAborted();
@@ -1512,15 +1527,16 @@ export function createComputerCommandTool(input: {
         }
         await logResult(rawInput, result);
         const command = await readDiagnosticCommand(rawInput.key);
+        const publicResult = publicCommandResult(result);
         return command &&
-          result &&
-          typeof result === "object" &&
-          !Array.isArray(result)
+          publicResult &&
+          typeof publicResult === "object" &&
+          !Array.isArray(publicResult)
           ? {
-              ...result,
+              ...publicResult,
               ...commandReceiptAddress(command, input.context.submissionId),
             }
-          : result;
+          : publicResult;
       } catch (error) {
         await recordFailure(rawInput, error);
         if (source === "tool" && isCommandLoss(error)) {
@@ -2201,13 +2217,13 @@ async function inspectComputerCommandForCleanup(input: {
       { action: "poll", key: input.command.key, waitSeconds: 1 },
       { signal: input.signal }
     )) as CommandResult;
-    if (result.syncError && result.exitCode !== null) {
+    if ((result.syncError || result.syncSkipped) && result.exitCode !== null) {
       throw new ConfirmedLostComputerCommandsError([
         Object.assign(
           new Error(
             "The command exited, but its file synchronization could not be confirmed."
           ),
-          { code: result.syncError }
+          { code: result.syncError ?? "ESYNC_READ_ONLY" }
         ),
       ]);
     }
