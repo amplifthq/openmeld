@@ -31,8 +31,14 @@ For one PR or a compatible batch:
 4. Release the pinned source in dependency order. Parallelize independent
    stages. Follow workflow results and component receipts; inspect logs on a
    failure or meaningful state change. Resume an interrupted release through
-   its original guarded command.
-5. Run health checks and real-user smoke for the changed paths. Report what
+   its original guarded command. The local `deploy --scope auto` entrypoint
+   continues only the remaining scopes for the pinned source and base, using
+   the existing component receipts and admission rules.
+5. Before declaring the batch deployed, run
+   `pnpm release:status -- --ref <product-sha> --change-base <pre-merge-sha> --check-complete`.
+   This fails when an affected component is pending or its evidence is unknown;
+   a successful component workflow alone does not complete the batch.
+6. Run health checks and real-user smoke for the changed paths. Report what
    shipped, what was actually tested, and any remaining failure or uncertainty.
 
 Include Desktop or OpenConnector when the requested scope or changed behavior

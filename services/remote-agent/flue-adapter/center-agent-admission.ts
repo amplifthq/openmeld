@@ -18,6 +18,7 @@ import {
   type RemoteAgentConversationFootprint,
   resolveRemoteAgentConversationFootprintAdmission,
 } from "./conversation-footprint";
+import { retryComputerCleanupHandoffs } from "./execution-cleanup";
 import {
   type FlueSubmissionLifecycle,
   reconcileSettledRemoteAgentExecutions,
@@ -291,26 +292,39 @@ export async function reconcileAndRedeliverRemoteAgentCallbacks(input: {
   const nowMs = input.nowMs?.() ?? Date.now();
   // Fence the exact retryable set through the execution owner before this
   // alarm can redeliver any callback projection captured before a restart.
-  const retryableContexts = (
-    await listDueRetryableCallbackContexts(input.storage, nowMs)
-  ).filter((context) => context.callbackStatus === "retryable");
-  const reconciliation = await reconcileSettledRemoteAgentExecutions({
-    env: input.env,
-    coreWorker: input.coreWorker,
-    nowMs: () => nowMs,
-    readSubmission: input.readSubmission,
-    retryableContexts,
-    storage: input.storage,
-  });
-  const redelivery = await redeliverRemoteAgentCallbacksAndScheduleNextRetry({
-    env: input.env,
-    coreWorker: input.coreWorker,
-    excludeSubmissionIds: new Set(
-      retryableContexts.map((context) => context.submissionId)
-    ),
-    nowMs: () => nowMs,
-    schedule: input.schedule,
-    storage: input.storage,
-  });
-  return { ...redelivery, reconciled: reconciliation.reconciled };
+  try {
+    const retryableContexts = (
+      await listDueRetryableCallbackContexts(input.storage, nowMs)
+    ).filter((context) => context.callbackStatus === "retryable");
+    const reconciliation = await reconcileSettledRemoteAgentExecutions({
+      env: input.env,
+      coreWorker: input.coreWorker,
+      nowMs: () => nowMs,
+      readSubmission: input.readSubmission,
+      retryableContexts,
+      storage: input.storage,
+    });
+    const redelivery = await redeliverRemoteAgentCallbacksAndScheduleNextRetry({
+      env: input.env,
+      coreWorker: input.coreWorker,
+      excludeSubmissionIds: new Set(
+        retryableContexts.map((context) => context.submissionId)
+      ),
+      nowMs: () => nowMs,
+      schedule: input.schedule,
+      storage: input.storage,
+    });
+    return { ...redelivery, reconciled: reconciliation.reconciled };
+  } finally {
+    // Stop delivery remains owned even when callback recovery or scheduling
+    // fails. Both duties use the existing alarm, but neither gates the other.
+    const cleanupDueAtMs = await retryComputerCleanupHandoffs(input);
+    if (cleanupDueAtMs !== null) {
+      await scheduleRemoteAgentCallbackRetry({
+        dueAtIso: new Date(cleanupDueAtMs).toISOString(),
+        nowMs: input.nowMs,
+        schedule: input.schedule,
+      });
+    }
+  }
 }

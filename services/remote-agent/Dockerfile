@@ -8,22 +8,23 @@ FROM node:22.22.3-bookworm-slim@sha256:16d364eebf6b62da439dc993d9b80940c78b0ca38
 # The Worker package and native daemon apply the same ordered-source patch.
 # Keep the official release source and dependency lock; build its native SEA
 # rather than changing a precompiled executable or adding a second filesystem.
-ADD --checksum=sha256:5e6edfdc33a15326a7aaa60382ff52931b09fe10080205b12ed5f0decaf04341 \
-    https://codeload.github.com/cloudflare/computer/tar.gz/070359ff2db12442845bfce84512ec9beae35cdf \
+ADD --checksum=sha256:f01ac86d7716bca575517f29786ace8c8e5be6d3908914ca7894656b7b81c74d \
+    https://codeload.github.com/cloudflare/computer/tar.gz/ec39cb693a5be73a735d375e228b4e2adb754abb \
     /tmp/computer-source.tar.gz
 WORKDIR /computer-source
 RUN tar -xzf /tmp/computer-source.tar.gz --strip-components=1
+COPY computerd/upstream.patch ./openmeld-source.patch
+COPY computerd/capnweb-0.12.0.patch ./openmeld-capnweb.patch
+COPY computerd/build.mjs ./openmeld-build.mjs
 RUN apt-get update \
  && apt-get install -y --no-install-recommends patch \
+ && patch -p1 < openmeld-source.patch \
  && npm ci --ignore-scripts \
       --workspace @cloudflare/dofs \
       --workspace @cloudflare/computer-rpc \
       --workspace @cloudflare/computerd \
       --include-workspace-root=true
-COPY computerd/upstream.patch ./openmeld-source.patch
-COPY computerd/build.mjs ./openmeld-build.mjs
-RUN patch -p1 < openmeld-source.patch \
- && npm run build --workspace @cloudflare/computer-rpc \
+RUN npm run build --workspace @cloudflare/computer-rpc \
  && npm run build --workspace @cloudflare/computerd \
  && node openmeld-build.mjs
 
@@ -45,6 +46,7 @@ COPY --from=computerd /computer-source/artifacts/computerd/source.json /usr/loca
 
 ENV PORT=8080
 ENV MOUNT_POINT=/computer
+ENV COMPUTERD_DB=/var/lib/computerd/workspace.sqlite
 ENV FUSE_MOUNT=auto
 EXPOSE 8080
 

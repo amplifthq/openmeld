@@ -19,6 +19,8 @@ import {
 } from "../agent-core/callback-context";
 
 const STREAM_STATE_PREFIX = "openmeld:remote-agent:stream:";
+const HIGH_SURROGATE = /[\uD800-\uDBFF]/u;
+const LOW_SURROGATE = /[\uDC00-\uDFFF]/u;
 const STREAM_FLUSH_INTERVAL_MS = 100;
 // CardKit is an external publication path, unlike the Web live projection.
 // Coalesce full snapshots below its per-card limit and avoid per-token D1 writes.
@@ -269,11 +271,22 @@ export function createRemoteAgentStreamPublisher(
     transientState: RemoteAgentTransientStreamState,
     kind: RemoteAgentStreamDeltaKind
   ): Promise<RemoteAgentStreamPublishResult> => {
-    const pendingDelta = readPendingRemoteAgentStreamDelta({
+    const pending = readPendingRemoteAgentStreamDelta({
       kind,
       state,
       transientState,
     });
+    // The wire limit applies to a frame, not a model delta or a coalesced batch.
+    // Keep the tail until its turn and never split a UTF-16 surrogate pair.
+    let end = Math.min(pending.length, REMOTE_AGENT_STREAM_DELTA_MAX_CHARS);
+    if (
+      end < pending.length &&
+      HIGH_SURROGATE.test(pending[end - 1] ?? "") &&
+      LOW_SURROGATE.test(pending[end] ?? "")
+    ) {
+      end -= 1;
+    }
+    const pendingDelta = pending.slice(0, end);
     const earlyResult = resolveRemoteAgentStreamEarlyResult({
       kind,
       pendingDelta,
@@ -295,10 +308,7 @@ export function createRemoteAgentStreamPublisher(
             -AGENT_STREAM_SNAPSHOT_MAX_CHARS
           )
         : currentSnapshot + pendingDelta;
-    if (
-      pendingDelta.length > REMOTE_AGENT_STREAM_DELTA_MAX_CHARS ||
-      snapshot.length > AGENT_STREAM_SNAPSHOT_MAX_CHARS
-    ) {
+    if (snapshot.length > AGENT_STREAM_SNAPSHOT_MAX_CHARS) {
       return handleRemoteAgentStreamLimitExceeded({
         kind,
         state,
@@ -308,15 +318,17 @@ export function createRemoteAgentStreamPublisher(
     }
 
     if (kind !== "text") {
-      transientState.content[kind].pending = "";
+      transientState.content[kind].pending = pending.slice(end);
       transientState.content[kind].snapshot = snapshot;
     } else {
-      state.pendingText = "";
+      state.pendingText = pending.slice(end);
       state.textSnapshot = snapshot;
     }
-    transientState.pendingKindOrder = transientState.pendingKindOrder.filter(
-      (pendingKind) => pendingKind !== kind
-    );
+    if (end === pending.length) {
+      transientState.pendingKindOrder = transientState.pendingKindOrder.filter(
+        (pendingKind) => pendingKind !== kind
+      );
+    }
     const previousSequence = state.sequence;
     state.sequence += 1;
     state.lastFlushedAtMs = input.observedAtMs;
@@ -369,6 +381,12 @@ export function createRemoteAgentStreamPublisher(
     state.sequence = Math.max(state.sequence, response.lastSequence);
     if (response.status === "rejected") {
       state.disabled = true;
+      console.warn("[remote_agent.stream.rejected]", {
+        submissionId: state.submissionId,
+        kind,
+        sequence: state.sequence,
+        reasonCode: response.reasonCode,
+      });
     }
     await persistRemoteAgentStreamState(input.storage, state);
     return {
