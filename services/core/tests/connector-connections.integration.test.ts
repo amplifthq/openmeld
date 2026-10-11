@@ -374,9 +374,83 @@ async function seedHumanPluginRequestFixture(
   };
 }
 
+async function seedApprovalSpace(
+  f: Awaited<ReturnType<typeof seedConnectorFixture>>
+) {
+  const db = getPostgresDatabase(env);
+  const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+  const stub = namespace.get(namespace.newUniqueId());
+  const spaceId = stub.id.toString();
+  const now = Date.now();
+  await runInDurableObject(stub, (_instance, state) => {
+    upsertSpaceMetaRecord(state.storage.sql, {
+      v: 1,
+      spaceId,
+      organizationId: f.organizationA,
+      visibility: "private",
+      accessMode: "members_only",
+      createdAt: new Date(now).toISOString(),
+      updatedAt: new Date(now).toISOString(),
+    });
+  });
+  await db.query({
+    text: `INSERT INTO "openmeld"."space_index_spaces" (space_id, organization_id, organization_visibility, status, source_updated_at_ms, projected_at_ms, projection_event_id)
+      VALUES ($1, $2, 'private', 'active', $3, $3, $4)`,
+    values: [spaceId, f.organizationA, now, crypto.randomUUID()],
+  });
+  await db.query({
+    text: `INSERT INTO "openmeld"."space_index_memberships" (space_id, profile_id, profile_kind_snapshot, profile_name_snapshot, owner_user_id_snapshot, status, member_source, added_at_ms, source_updated_at_ms, projected_at_ms, projection_event_id)
+      VALUES ($1, $2, 'human', 'Requester', $3, 'active', 'joined_directly', $4, $4, $4, $5)`,
+    values: [spaceId, f.ownerProfileId, f.ownerA, now, crypto.randomUUID()],
+  });
+  return spaceId;
+}
+
 describe("Project issue destination confirmation", () => {
-  it("uses the existing human approval flow for a Local issue without a Task or raw target text", async () => {
+  it.each([
+    false,
+    true,
+  ])("uses the human approval flow for a Local issue (Space source: %s)", async (scoped) => {
     const f = await seedHumanPluginRequestFixture();
+    const db = getPostgresDatabase(env);
+    const sourceSpaceId = scoped ? await seedApprovalSpace(f) : null;
+    if (sourceSpaceId) {
+      const dispatchId = crypto.randomUUID();
+      const sourceSignalId = crypto.randomUUID();
+      const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+      f.core.OPENMELD_SPACES = namespace;
+      await runInDurableObject(
+        namespace.get(namespace.idFromString(sourceSpaceId)),
+        (_instance, state) => {
+          insertSignalRecord(state.storage.sql, {
+            v: 1,
+            id: sourceSignalId,
+            spaceId: sourceSpaceId,
+            ts: Date.now(),
+            type: "signal.text",
+            profile: {
+              kind: "human",
+              profileId: f.ownerProfileId,
+              profileName: "Requester",
+            },
+            data: { text: "Create an issue for this request" },
+          });
+        }
+      );
+      await db.query({
+        text: `INSERT INTO "openmeld"."openMeldDaemon_dispatch_ledger" (idempotency_key, dispatch_id, space_id, source_event_id, source_profile_id, target_profile_id, status, first_seen_at_ms, last_attempt_at_ms, attempt_count)
+          VALUES ($1,$1,$2,$3,$4,$5,'accepted',$6,$6,1)`,
+        values: [
+          dispatchId,
+          sourceSpaceId,
+          sourceSignalId,
+          f.ownerProfileId,
+          f.actor,
+          Date.now(),
+        ],
+      });
+      f.input.request.dispatchId = dispatchId;
+    }
     const connectionName = await seedSharedConnectorConnection(f, "github");
     await getPostgresDatabase(env).query({
       text: 'UPDATE "openmeld"."connector_connections" SET access_policy = $1 WHERE connection_name = $2',
@@ -399,6 +473,22 @@ describe("Project issue destination confirmation", () => {
     };
     f.input.request.action = action;
     const pending = await f.pending();
+    const inbox = createInboxService({ db });
+    const scope = {
+      organizationId: f.organizationA,
+      recipientUserId: f.ownerA,
+    };
+    expect((await inbox.spaceSummary(scope)).attention).toEqual(
+      sourceSpaceId
+        ? [
+            {
+              spaceId: sourceSpaceId,
+              unresolvedActionCount: 1,
+              unreadUrgentUpdateCount: 0,
+            },
+          ]
+        : []
+    );
     expect(f.executions()).toHaveLength(0);
     expect(pending.targets).toEqual(
       expect.arrayContaining([
@@ -407,6 +497,7 @@ describe("Project issue destination confirmation", () => {
       ])
     );
     await f.decide(pending.requestId, "approve");
+    expect((await inbox.spaceSummary(scope)).attention).toEqual([]);
     f.input.request.action = {
       ...action,
       input: { ...action.input, repo: "other" },
@@ -450,26 +541,10 @@ describe("Project issue destination confirmation", () => {
     if (!member) {
       throw new Error("Missing requester member");
     }
-    const sourceSpaceId = `space-${crypto.randomUUID()}`;
+    const sourceSpaceId = await seedApprovalSpace(f);
     const submissionId = crypto.randomUUID();
     const idempotencyKey = crypto.randomUUID();
     const nowMs = Date.now();
-    await db.query({
-      text: `INSERT INTO "openmeld"."space_index_spaces" (space_id, organization_id, organization_visibility, status, source_updated_at_ms, projected_at_ms, projection_event_id)
-        VALUES ($1, $2, 'private', 'active', $3, $3, $4)`,
-      values: [sourceSpaceId, f.organizationA, nowMs, crypto.randomUUID()],
-    });
-    await db.query({
-      text: `INSERT INTO "openmeld"."space_index_memberships" (space_id, profile_id, profile_kind_snapshot, profile_name_snapshot, owner_user_id_snapshot, status, member_source, added_at_ms, source_updated_at_ms, projected_at_ms, projection_event_id)
-        VALUES ($1, $2, 'human', 'Requester', $3, 'active', 'joined_directly', $4, $4, $4, $5)`,
-      values: [
-        sourceSpaceId,
-        f.ownerProfileId,
-        f.ownerA,
-        nowMs,
-        crypto.randomUUID(),
-      ],
-    });
     await upsertRemoteAgentNativeDeliveryRecord({
       db,
       attemptId: null,
@@ -580,6 +655,18 @@ describe("Project issue destination confirmation", () => {
       requestId,
     });
     await inbox.markRead({ ...scope, itemId: requestItem.id, read: true });
+    expect((await inbox.spaceSummary(scope)).attention).toEqual(
+      expectedAttention
+    );
+    await db.query({
+      text: 'UPDATE "openmeld"."space_index_memberships" SET status = \'removed\' WHERE space_id = $1 AND profile_id = $2',
+      values: [sourceSpaceId, f.ownerProfileId],
+    });
+    expect((await inbox.spaceSummary(scope)).attention).toEqual([]);
+    await db.query({
+      text: 'UPDATE "openmeld"."space_index_memberships" SET status = \'active\' WHERE space_id = $1 AND profile_id = $2',
+      values: [sourceSpaceId, f.ownerProfileId],
+    });
     expect((await inbox.spaceSummary(scope)).attention).toEqual(
       expectedAttention
     );

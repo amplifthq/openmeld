@@ -151,9 +151,10 @@ Core applies current membership, personal ownership, conversation visibility,
 mute presentation and filters before counts, grouping or pagination. A direct
 Human mention survives an Agent transfer; an owner-only relationship does not
 survive merely because a different owned Agent remains in that Space. All is
-ordered across the accessible dataset: priority attention, other open requests,
-then ordinary activity/history. Normal open requests lose their blue unread dot
-when read but remain pending; priority open requests stay yellow until resolved.
+ordered across the accessible dataset: priority attention, then ordinary
+activity/history. All open requests stay yellow until resolved, including after
+they are read. The same open-request rule drives Inbox, Space lists and the
+sidebar; urgency still controls notification delivery independently.
 First-contact information is yellow only while unread. Ended requests are
 history, never persistent priority.
 
@@ -447,6 +448,17 @@ its counts without resolving or restarting the failed task. New source replays
 continue to use the native-delivery producer's existing repair contract.
 
 ## Phase 1 source coverage
+
+Human requests keep the source owner's scope. Space-bound Plugin approvals,
+Agent Interactions, Task reviews, Center Agent attention requests, and
+Space-specific work recovery contribute to that Space's attention summary.
+Inbox, the Spaces navigation, conversation sidebar, and directory cards/tables
+consume that summary; they do not infer pending work from message error icons.
+Organization document reviews, membership and Channel setup requests, connector
+access upgrades, Computer incidents, and Agent-wide queue/model actions remain
+at their Organization, account, or Agent scope. Do not attach those requests to
+an arbitrary Space. Slack publication recovery retains its Message Channel
+target. Feature-disabled request sources remain hidden.
 
 The first release creates items for these explicit user-visible events:
 

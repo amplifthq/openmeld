@@ -33,6 +33,7 @@ import {
   INBOX_OPEN_REVIEW,
   INBOX_UNREAD_PRIORITY_UPDATE,
   inboxMentionSql,
+  inboxPrioritySql,
 } from "./inbox-attention-predicates";
 import {
   currentInboxAgentFactExistsSql,
@@ -908,7 +909,7 @@ export function createInboxService(input: {
             WITH classified AS MATERIALIZED (
               SELECT read_at_ms IS NULL AS unread,
                 attention = 'action_required' AND resolution_status = 'open' AS open_action,
-                importance = 'urgent' AS urgent,
+                (${inboxPrioritySql()}) AS priority,
                 (${INBOX_OPEN_REVIEW}) AS open_review,
                 (${INBOX_UNREAD_PRIORITY_UPDATE}) AS priority_update,
                 (${UNREAD_URGENT_UPDATE_FILTER}) AS urgent_update,
@@ -923,7 +924,7 @@ export function createInboxService(input: {
             )
             SELECT
               count(*) FILTER (WHERE unread) AS unread_count,
-              count(*) FILTER (WHERE (open_action AND urgent) OR priority_update) AS priority_count,
+              count(*) FILTER (WHERE priority) AS priority_count,
               count(*) FILTER (WHERE open_review) AS review_count,
               count(*) FILTER (WHERE priority_update) AS priority_update_count,
               count(*) FILTER (WHERE open_action) AS action_count,
