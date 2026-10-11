@@ -2410,6 +2410,7 @@ export type CreateSpaceResult = {
   meta?: SpaceMeta;
 };
 export type ListSignalsInput = {
+  messageRead?: import("@openmeld/schemas").MessageReadQuery;
   includePersonalHistoryBoundary?: boolean;
   q?: string;
   spaceId: string;
@@ -2432,6 +2433,7 @@ export type ListSignalsInput = {
   spaceAccess?: SpaceAccessContext;
 };
 export type ListSignalsResult = {
+  messagePage?: import("@openmeld/schemas").MessageReadPage;
   personalHistoryDeletedAt?: number;
   searchIndexing?: boolean;
   signals: SignalEnvelope[];
@@ -19924,6 +19926,7 @@ export async function rpcListSignals(
   return unwrapSpaceRpcJsonResult(
     await stub.rpcListSignalsResult({
       spaceId,
+      ...(input.messageRead ? { messageRead: input.messageRead } : {}),
       ...(input.q ? { q: input.q } : {}),
       ...buildListSignalsNumberFilters(input),
       ...(cursor ? { cursor } : {}),

@@ -25,6 +25,47 @@
 - Source of truth: This file owns the durable boundary for shared OpenMeld contracts
   and reusable policy.
 
+## Bounded message reads
+
+`messageReadQuerySchema` and `messageReadPageSchema` own the new
+`GET /v1/messages/query`, Core `readMessages`, and hosted
+`remoteAgentReadMessages` contracts. Search and chronological reads reuse the
+Space SQL query owner. Space authorization, viewer redaction, personal deletion
+boundaries and recalled-message exclusion run for every page. Workspace discovery
+does not grant access. Hosted callers additionally require the current designated
+Center or their admitted personal Remote Agent execution. The active execution
+owner derives the requester from its admitted turn, never from tool arguments.
+Personal Agents and Agent-requested turns are restricted to that execution's
+Space. Center member/routine reads require both the Agent's current Space access
+and the requester's current Human membership and history visibility on every page.
+
+A server `limit` bounds each page. The Agent checkpoint owns the total reading
+goal, subtracts delivered items before each page and retains the continuation
+when that goal is reached. Increasing the total resumes from that position.
+The server emits at most 100 items and
+24 KiB per page; the default request budget is 16 KiB. Preview reads locate
+matching text. Full reads segment long text at Unicode-safe UTF-16 offsets.
+Items are bounded message projections, not complete publishable envelopes.
+System history retains the original signal type and public notice/status text.
+Attachments and exact handoff evidence use the existing source readers.
+Text search selects text messages; `includeSystem` extends chronological reads.
+
+Every response reports partial, complete or indexing coverage, a replay
+`pageCursor`, and a `nextCursor`. An empty partial/indexing page is not proof
+that no message exists. Workspace order is Space ID, then newest source row;
+it does not claim global relevance. Cursors bind the query, actor, Organization
+and personal history boundary, and freeze the upper time/row boundary. They
+are read positions, never authority or a preserved historical copy. A changed
+or unavailable in-progress message fails instead of joining different versions.
+
+Compatibility audit: these are additive cloud endpoints. The existing search,
+Inbox, Space signal and exact-evidence response contracts remain available.
+Core receivers must precede the new Gateway, Web and Remote Agent callers;
+remove callers before rolling receivers back. Existing CLI, Service, Skills,
+setup, Wake and diagnostics payloads are unchanged; no local contract floor
+or release stamp is needed. There is no database migration. The existing Space
+FTS index and retained Remote Agent storage remain their respective owners.
+
 ## Storage and migration references
 
 Space membership notifications add `space_joined` to Inbox kinds. Space summary

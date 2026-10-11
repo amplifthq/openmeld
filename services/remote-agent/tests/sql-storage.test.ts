@@ -1,9 +1,11 @@
 import { DatabaseSync, type StatementSync } from "node:sqlite";
+import type { MessageReadPage } from "@openmeld/schemas";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   createRemoteAgentCallbackContext,
   putRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
+import { executeMessageRead } from "../agent-core/message-read-tools";
 import {
   cleanupExpiredRemoteAgentSubmissionReceipts,
   REMOTE_AGENT_SUBMISSION_RECEIPT_CLEANUP_BATCH_SIZE,
@@ -27,6 +29,62 @@ describe("Remote Agent SQLite adapter storage", () => {
     for (const database of databases.splice(0)) {
       database.close();
     }
+  });
+
+  it("creates and resumes a message-read checkpoint in real SQLite storage", async () => {
+    const database = new DatabaseSync(":memory:");
+    databases.push(database);
+    const storage = createRemoteAgentSqlStorage(
+      createCloudflareSqlHarness(database)
+    );
+    const request = createSubmitTurnRequest();
+    const submissionId = "sqlite-message-read";
+    const context = createRemoteAgentCallbackContext({
+      request,
+      nowMs: TEST_NOW_MS,
+      ack: {
+        accepted: true,
+        createdAt: TEST_NOW_MS,
+        idempotencyKey: request.idempotencyKey,
+        requestId: submissionId,
+        status: "pending",
+        submissionId,
+      },
+    });
+    await putRemoteAgentCallbackContext(storage, context);
+    const input = {
+      storage,
+      submissionId,
+      coreWorker: {
+        authorizeRemoteAgentExecutionAccess: executionAccessFixture(context),
+        remoteAgentReadMessages: async (): Promise<MessageReadPage> => ({
+          matches: [],
+          nextCursor: null,
+          pageCursor: "saved-position",
+          indexing: false,
+          requestedCount: 200,
+          returnedCount: 0,
+          completeCount: 0,
+          limitBytes: 4096,
+          order: "space_then_newest",
+          coverage: "complete",
+        }),
+      },
+    };
+    const first = await executeMessageRead(input, {
+      spaceId: "space-1",
+      limit: 200,
+      maxBytes: 4096,
+    });
+    expect(first).toMatchObject({ replayed: false, coverage: "complete" });
+    const resumed = await executeMessageRead(input, {
+      resumeId: first.resumeId,
+    });
+    expect(resumed).toMatchObject({
+      resumeId: first.resumeId,
+      replayed: true,
+      deliveredCount: 0,
+    });
   });
 
   it("retains and searches the first large result in real SQLite storage", async () => {

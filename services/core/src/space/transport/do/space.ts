@@ -79,6 +79,7 @@ import {
   localExecutionInputBindingSchema,
   localExecutionInputResponseSchema,
   MENTION_DISPATCH_ERROR_CODES,
+  messageReadQuerySchema,
   nativeReplyPlacementSchema,
   normalizeMessageEnvelope,
   normalizeSpaceCursorPatch,
@@ -538,6 +539,7 @@ import {
   DISPATCH_OUTBOX_REDRIVE_BATCH_SIZE,
   processDispatchOutboxCandidates,
 } from "../../application/dispatch-outbox-batch-service";
+import { readSpaceMessagePage } from "../../application/message-read";
 import {
   allowsExternalSpaceLinkJoin,
   resolveHumanSpaceSelfJoinUserId,
@@ -1052,6 +1054,9 @@ const buildThreadSignalsReadPath = (input: {
 const buildRpcListSignalsQuery = (
   input: ListSignalsInput
 ): Record<string, string | readonly string[]> => ({
+  ...(input.messageRead
+    ? { messageRead: JSON.stringify(input.messageRead) }
+    : {}),
   ...buildRpcListSignalsBaseQuery(input),
   ...buildRpcListSignalsAnchorQuery(input),
   ...buildRpcListSignalsFilterQuery(input),
@@ -17531,6 +17536,33 @@ export class Space extends DurableObject<CoreBindings> {
       ? { personalHistoryDeletedAt: boundary?.deletedAt ?? 0 }
       : {};
   }
+  private async handleMessageRead(input: {
+    raw: string;
+    viewerKey: string;
+    afterPosition?: number;
+    project: (signal: SignalEnvelope) => SignalEnvelope | undefined;
+  }): Promise<Response> {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(input.raw);
+    } catch {
+      return new Response("Invalid message read query", { status: 400 });
+    }
+    const query = messageReadQuerySchema.safeParse(raw);
+    if (!query.success) {
+      return new Response("Invalid message read query", { status: 400 });
+    }
+    const messagePage = await readSpaceMessagePage({
+      sql: this.ctx.storage.sql,
+      query: query.data,
+      spaceName: this.readSpaceMetaRecord()?.name ?? null,
+      viewerKey: input.viewerKey,
+      afterPosition: input.afterPosition,
+      project: input.project,
+    });
+    return Response.json({ signals: [], nextCursor: null, messagePage });
+  }
+
   private async handleListSignals(input: {
     bootstrapTiming?: SpaceBootstrapBranchTiming;
     lineageLoader?: SpaceBootstrapLineageLoader;
@@ -17605,6 +17637,18 @@ export class Space extends DurableObject<CoreBindings> {
         creatorProfileIdByProfileId: viewerCreatorProfileIdsByProfileId,
         deletedThroughPosition: filters.afterPosition,
       });
+    const messageRead = url.searchParams.get("messageRead");
+    if (messageRead !== null) {
+      return this.handleMessageRead({
+        raw: messageRead,
+        viewerKey: JSON.stringify([
+          input.viewerOwnerUserId,
+          input.viewerProfileId,
+        ]),
+        afterPosition: filters.afterPosition,
+        project: (signal) => projectSignals([signal])[0],
+      });
+    }
     if (parsedQuery.data.q) {
       return this.handleMessageSearch({
         query: parsedQuery.data.q,

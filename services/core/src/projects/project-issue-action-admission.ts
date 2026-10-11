@@ -76,7 +76,7 @@ export async function prepareProjectIssueActionAdmission(input: {
   }
   if (!input.userId) {
     throw createCoreRpcHttpError({
-      code: "project.issue_confirmation_required",
+      code: "project.issue_confirmation_unavailable",
       status: 409,
       reason:
         "This issue needs an interactive requester to confirm its exact destination in OpenMeld.",
@@ -112,6 +112,13 @@ export async function prepareProjectIssueActionAdmission(input: {
     },
   });
   if (!authorization.root) {
+    if (authorization.request.state !== "pending") {
+      throw createCoreRpcHttpError({
+        code: "project.issue_confirmation_unavailable",
+        status: 409,
+        reason: `This issue destination request is ${authorization.request.state}. It cannot be approved or retried. No issue was created.`,
+      });
+    }
     throw createCoreRpcHttpError({
       code: "project.issue_confirmation_required",
       status: 409,
