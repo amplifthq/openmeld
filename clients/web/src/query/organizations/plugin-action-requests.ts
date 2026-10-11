@@ -1,8 +1,16 @@
 import { createPluginsApi } from "@openmeld/api-client";
 import type { PluginActionRequestCommand } from "@openmeld/schemas/types";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	skipToken,
+	useMutation,
+	useQuery,
+	useQueryClient,
+} from "@tanstack/react-query";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
-import { useAppOrganization } from "#/lib/organizations/organization-context";
+import {
+	useAppOrganization,
+	useOptionalAppOrganization,
+} from "#/lib/organizations/organization-context";
 import { invalidateInboxFacts } from "./inbox";
 
 export function usePluginActionRequest(requestId: string) {
@@ -59,11 +67,9 @@ export function usePendingSpacePluginActionRequests(
 	spaceId: string,
 	activeThreadId: string | null
 ) {
-	const { currentOrganization, currentUserId } = useAppOrganization();
-	const organizationId = currentOrganization.id;
-	const api = createPluginsApi(
-		createOrganizationScopedWebOpenMeldApiFoundation({ organizationId })
-	);
+	const organization = useOptionalAppOrganization();
+	const organizationId = organization?.currentOrganization.id;
+	const currentUserId = organization?.currentUserId;
 	const query = useQuery({
 		queryKey: [
 			"pending-plugin-action-requests",
@@ -71,7 +77,12 @@ export function usePendingSpacePluginActionRequests(
 			organizationId,
 			spaceId,
 		],
-		queryFn: () => api.listRequests({ organizationId, spaceId }),
+		queryFn: organizationId
+			? () =>
+					createPluginsApi(
+						createOrganizationScopedWebOpenMeldApiFoundation({ organizationId })
+					).listRequests({ organizationId, spaceId })
+			: skipToken,
 		refetchInterval: 15_000,
 		staleTime: 15_000,
 		retry: false,
@@ -93,11 +104,9 @@ export function useMessagePluginActionRequests(
 	spaceId: string,
 	sourceSignalIds: string[]
 ) {
-	const { currentOrganization, currentUserId } = useAppOrganization();
-	const organizationId = currentOrganization.id;
-	const api = createPluginsApi(
-		createOrganizationScopedWebOpenMeldApiFoundation({ organizationId })
-	);
+	const organization = useOptionalAppOrganization();
+	const organizationId = organization?.currentOrganization.id;
+	const currentUserId = organization?.currentUserId;
 	return useQuery({
 		queryKey: [
 			"message-plugin-action-requests",
@@ -106,23 +115,31 @@ export function useMessagePluginActionRequests(
 			spaceId,
 			sourceSignalIds,
 		],
-		queryFn: async () => {
-			const batches = await Promise.all(
-				Array.from(
-					{ length: Math.ceil(sourceSignalIds.length / 1000) },
-					(_, index) =>
-						api.listRequests({
-							organizationId,
-							spaceId,
-							sourceSignalIds: sourceSignalIds.slice(
-								index * 1000,
-								(index + 1) * 1000
-							),
-						})
-				)
-			);
-			return { requests: batches.flatMap((batch) => batch.requests) };
-		},
+		queryFn:
+			organizationId && sourceSignalIds.length > 0
+				? async () => {
+						const api = createPluginsApi(
+							createOrganizationScopedWebOpenMeldApiFoundation({
+								organizationId,
+							})
+						);
+						const batches = await Promise.all(
+							Array.from(
+								{ length: Math.ceil(sourceSignalIds.length / 1000) },
+								(_, index) =>
+									api.listRequests({
+										organizationId,
+										spaceId,
+										sourceSignalIds: sourceSignalIds.slice(
+											index * 1000,
+											(index + 1) * 1000
+										),
+									})
+							)
+						);
+						return { requests: batches.flatMap((batch) => batch.requests) };
+					}
+				: skipToken,
 		retry: false,
 		staleTime: 15_000,
 		refetchInterval: 15_000,

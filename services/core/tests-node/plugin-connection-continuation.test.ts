@@ -90,6 +90,30 @@ const input = {
   },
 };
 
+function mockLocalSource() {
+  owner.delivery.mockResolvedValue(null);
+  owner.localBinding.mockResolvedValue({
+    bindingId: request.bindingId,
+    bindingState: "enabled_primary",
+    runtimeKind: "openmeld_service",
+  });
+  owner.localSource.mockImplementation((_env, sourceInput) => {
+    pluginConnectionLocalSourceRequestSchema.parse(sourceInput);
+    return {
+      executionId: "rc-execution",
+      bindingId: request.bindingId,
+      dispatchId: request.dispatchId,
+      targetProfileId: request.agentProfileId,
+      sourceSignalId: request.triggerMessageId,
+      requesterProfileId: humanId,
+      requesterDisplayName: "Maya",
+      createdAtMs: 100,
+      completedAtMs: 200,
+      threadContext: null,
+    };
+  });
+}
+
 function delivery(overrides: Partial<RemoteAgentNativeDeliveryRecord> = {}) {
   return {
     deliveryId: "delivery-1",
@@ -121,6 +145,11 @@ describe("Plugin continuation keeps existing identity and Wake owners", () => {
     for (const mock of Object.values(owner)) {
       mock.mockReset();
     }
+    owner.localProfile.mockImplementation((_env, id) => ({
+      profileKind: id === humanId ? "human" : "agent",
+      ownerUserId: "user_1",
+      organizationId: request.organizationId,
+    }));
     owner.membership.mockResolvedValue({
       ok: true,
       userId: "user_1",
@@ -141,6 +170,12 @@ describe("Plugin continuation keeps existing identity and Wake owners", () => {
       });
       return {
         signals: [
+          {
+            id: request.triggerMessageId,
+            type: "signal.text",
+            profile: { kind: "human", profileId: humanId },
+            data: { text: "Original request" },
+          },
           {
             id: "reply-1",
             type: "signal.text",
@@ -199,9 +234,21 @@ describe("Plugin continuation keeps existing identity and Wake owners", () => {
 
   it.each([
     ["approved", true],
+    ["approved-from-another-profile", true],
+    ["approved-local-from-another-profile", true],
+    ["approved-other-account", false],
     ["changed-source", false],
     ["changed-account", false],
   ] as const)("continues only the exact %s Plugin operation", async (scenario, allowed) => {
+    if (scenario === "approved-other-account") {
+      owner.localProfile.mockResolvedValue({
+        profileKind: "human",
+        ownerUserId: "another-account",
+      });
+    }
+    if (scenario === "approved-local-from-another-profile") {
+      mockLocalSource();
+    }
     const approval = {
       requestId: "11111111-1111-4111-8111-111111111111",
       intent: pluginActionRequestIntentSchema.parse({
@@ -238,14 +285,38 @@ describe("Plugin continuation keeps existing identity and Wake owners", () => {
       expect(owner.post).not.toHaveBeenCalled();
       return;
     }
-    await continuePluginConnection(env, input, approval);
+    const approvalInput = scenario.includes("from-another-profile")
+      ? {
+          ...input,
+          context: {
+            ...input.context,
+            actorContext: {
+              ...input.context.actorContext,
+              openMeldProfileId: "33333333-3333-4333-8333-333333333333",
+            },
+          },
+        }
+      : input;
+    await continuePluginConnection(env, approvalInput, approval);
     const first = owner.post.mock.calls[0]?.[1];
+    expect(first.context.actorContext.openMeldProfileId).toBe(humanId);
+    expect(first.profile.profileId).toBe(humanId);
+    if (scenario === "approved-local-from-another-profile") {
+      expect(
+        owner.localSource.mock.calls[0]?.[1].context.actorContext
+          .openMeldProfileId
+      ).toBe(humanId);
+    }
     expect(first.text).toContain("original-issue-write");
     expect(first.messageEnvelope.replyToSignalId).toBe(
       request.triggerMessageId
     );
-    expect(first.threadContext).toEqual(delivery().threadContext);
-    await continuePluginConnection(env, input, approval);
+    expect(first.threadContext ?? null).toEqual(
+      scenario === "approved-local-from-another-profile"
+        ? null
+        : delivery().threadContext
+    );
+    await continuePluginConnection(env, approvalInput, approval);
     expect(owner.post.mock.calls[1]?.[1].clientMessageId).toBe(
       first.clientMessageId
     );
@@ -341,32 +412,7 @@ describe("Plugin continuation keeps existing identity and Wake owners", () => {
   });
 
   it("continues a completed Local Agent reply through the same Message/Wake owner and checks Local rather than Hosted permissions", async () => {
-    owner.delivery.mockResolvedValue(null);
-    owner.localBinding.mockResolvedValue({
-      bindingId: request.bindingId,
-      bindingState: "enabled_primary",
-      runtimeKind: "openmeld_service",
-    });
-    owner.localProfile.mockResolvedValue({
-      profileKind: "agent",
-      organizationId: request.organizationId,
-      ownerUserId: "user_1",
-    });
-    owner.localSource.mockImplementation((_env, sourceInput) => {
-      pluginConnectionLocalSourceRequestSchema.parse(sourceInput);
-      return {
-        executionId: "rc-execution",
-        bindingId: request.bindingId,
-        dispatchId: request.dispatchId,
-        targetProfileId: request.agentProfileId,
-        sourceSignalId: request.triggerMessageId,
-        requesterProfileId: humanId,
-        requesterDisplayName: "Maya",
-        createdAtMs: 100,
-        completedAtMs: 200,
-        threadContext: null,
-      };
-    });
+    mockLocalSource();
     await continuePluginConnection(env, input);
     expect(owner.localPermission).toHaveBeenCalledWith(
       expect.objectContaining({

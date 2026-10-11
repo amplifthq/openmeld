@@ -30,6 +30,7 @@ import {
   rpcGetSpaceMemberDirectory,
   rpcReadPluginActionRequestLocations,
 } from "../rpc/methods";
+import { readSafeRpcFailureReasonCode } from "../shared/rpc/rpc-json";
 import { readConnectorConnectionForExecution } from "./connector-connection-repository";
 import { pluginPermissionAllows, readPluginAccess } from "./plugin-access";
 import { continuePluginConnection } from "./plugin-connection-continuation";
@@ -381,14 +382,28 @@ export async function retryApprovedPluginActionRequests(env: CoreBindings) {
   if (!db) {
     return;
   }
-  const pending = await db.query<RequestRow>({
-    text: `SELECT * FROM "openmeld"."plugin_action_requests"
-      WHERE state = 'approved' AND continuation_json::jsonb ->> 'state' = 'pending'
-      ORDER BY decided_at_ms, id LIMIT 100`,
-    values: [],
-  });
-  for (const row of pending.rows) {
-    await continueApprovedRequest(env, db, row);
+  const through = Date.now();
+  let cursor: { decidedAt: number; id: string } | null = null;
+  // Page past still-running requests so they cannot starve later approvals.
+  // Bound this scan to decisions already present when the job started.
+  for (;;) {
+    const pending: { rows: (RequestRow & { decided_at_ms: number })[] } =
+      await db.query<RequestRow & { decided_at_ms: number }>({
+        text: `SELECT * FROM "openmeld"."plugin_action_requests"
+        WHERE state = 'approved' AND continuation_json::jsonb ->> 'state' = 'pending'
+          AND decided_at_ms <= $1
+          AND ($2::bigint IS NULL OR (decided_at_ms, id) > ($2, $3))
+        ORDER BY decided_at_ms, id LIMIT 100`,
+        values: [through, cursor?.decidedAt ?? null, cursor?.id ?? null],
+      });
+    for (const row of pending.rows) {
+      await continueApprovedRequest(env, db, row);
+    }
+    const last = pending.rows.at(-1);
+    if (!last || pending.rows.length < 100) {
+      return;
+    }
+    cursor = { decidedAt: last.decided_at_ms, id: last.id };
   }
 }
 
@@ -461,7 +476,12 @@ async function continueApprovedRequest(
     await save("requested", result.signalId);
   } catch (error) {
     const status = readCoreRpcHttpStatus(error);
-    if (status !== null && status >= 400 && status < 500) {
+    if (
+      status !== null &&
+      status >= 400 &&
+      status < 500 &&
+      readSafeRpcFailureReasonCode(error) !== "plugin.continue.outcome_unknown"
+    ) {
       await save("unavailable");
     }
     console.error("[plugin.request.continuation_failed]", {

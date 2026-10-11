@@ -18,6 +18,7 @@ import {
 } from "../src/connectors/plugin-action-requests";
 import { rpcPluginAction } from "../src/connectors/plugin-actions";
 import type { CoreBindings } from "../src/lib/bindings";
+import { createCoreRpcHttpError } from "../src/rpc/errors";
 import {
   createPostgresHarness,
   postgresTestBinding,
@@ -242,6 +243,69 @@ async function approveRequest(input = request()) {
 }
 
 describe("Local plugin replay through real operation and connection storage", () => {
+  it("retries a reconcilable receipt conflict after restart", async () => {
+    sourceSpaceId = "space-1";
+    admission.trace.mockResolvedValue({
+      trace: {
+        finalVisibleMessage: { signalId: "final-reply" },
+        runtimeCoordinatorExecution: {
+          status: "reply_published",
+          terminalOutcome: { kind: "reply_published" },
+        },
+        result: { publishedSignalId: "final-reply", statusType: null },
+      },
+    });
+    admission.continue.mockRejectedValueOnce(
+      createCoreRpcHttpError({
+        status: 409,
+        code: "plugin.continue.outcome_unknown",
+        reason: "Reconciliation pending",
+      })
+    );
+    await approveRequest();
+    await retryApprovedPluginActionRequests({ ...env });
+    await retryApprovedPluginActionRequests({ ...env });
+    expect(admission.continue).toHaveBeenCalledTimes(2);
+    const stored = await harness.query<{ state: string }>({
+      text: `SELECT continuation_json::jsonb ->> 'state' AS state FROM "openmeld"."plugin_action_requests"`,
+      values: [],
+    });
+    expect(stored.rows.map((row) => row.state)).toEqual(["requested"]);
+  });
+
+  it("reaches a settled request behind 100 still-running approvals", async () => {
+    sourceSpaceId = "space-1";
+    await approveRequest();
+    const through = Date.now();
+    await harness.query({
+      text: `INSERT INTO "openmeld"."plugin_action_requests"
+        (id, organization_id, user_id, actor_profile_id, operation_id, source_request_key, request_digest, request_json, state, created_at_ms, expires_at_ms, decided_at_ms, continuation_json)
+        SELECT gen_random_uuid()::text, organization_id, user_id, actor_profile_id, 'queued-' || n, 'dispatch:queued-' || n, request_digest, request_json, state, created_at_ms, expires_at_ms, $1::bigint - 101 + n, continuation_json
+        FROM "openmeld"."plugin_action_requests" CROSS JOIN generate_series(1, 100) AS n
+        WHERE operation_id = 'original-operation'`,
+      values: [through],
+    });
+    await harness.query({
+      text: `UPDATE "openmeld"."plugin_action_requests" SET decided_at_ms = $1 WHERE operation_id = 'original-operation'`,
+      values: [through],
+    });
+    admission.trace.mockImplementation(async (_env, input) =>
+      input.dispatchId === "original-request"
+        ? {
+            trace: {
+              finalVisibleMessage: { signalId: "final-reply" },
+              runtimeCoordinatorExecution: {
+                status: "reply_published",
+                terminalOutcome: { kind: "reply_published" },
+              },
+              result: { publishedSignalId: "final-reply", statusType: null },
+            },
+          }
+        : { trace: null }
+    );
+    await retryApprovedPluginActionRequests({ ...env });
+    expect(admission.continue).toHaveBeenCalledTimes(1);
+  });
   it("lists all pending requests in the current Space independently of loaded messages", async () => {
     sourceSpaceId = "space-1";
     const first = await rpcPluginAction(env, request("offscreen-request"));

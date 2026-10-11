@@ -56,7 +56,7 @@ export async function continuePluginConnection(
     );
   }
   const input = parsed.data;
-  const { context } = input;
+  let { context } = input;
   if (context.actorContext.profileKind !== "human") {
     throw denied(
       "plugin.continue.human_required",
@@ -76,11 +76,26 @@ export async function continuePluginConnection(
       503
     );
   }
-  const access = {
-    context,
-    spaceId: input.spaceId,
-    ...(input.password === undefined ? {} : { password: input.password }),
-  };
+  if (approvedAction) {
+    const profileId = await readApprovedRequesterProfile(
+      env,
+      input,
+      approvedAction.intent,
+      member.userId
+    );
+    // Inbox and CLI may select a different Human Profile in the same account.
+    // Resolve from the retained source; all subsequent guards use that identity.
+    context = {
+      ...context,
+      actorContext: {
+        requestId: context.actorContext.requestId,
+        callerPrincipalId: member.userId,
+        openMeldProfileId: profileId,
+        profileKind: "human",
+      },
+    };
+    input.context = context;
+  }
   const { reply, task, sender, consumer } = await readContinuationSource(
     env,
     evidence,
@@ -101,6 +116,11 @@ export async function continuePluginConnection(
       input
     );
   }
+  const access = {
+    context,
+    spaceId: input.spaceId,
+    ...(input.password === undefined ? {} : { password: input.password }),
+  };
   const directory = await rpcGetSpaceMemberDirectory(env, access);
   const agent = directory.members.find(
     (entry) => entry.profileId === task.profileId
@@ -214,6 +234,46 @@ export async function continuePluginConnection(
     targetProfileId: task.profileId,
     threadId: task.threadContext?.threadId ?? null,
   });
+}
+async function readApprovedRequesterProfile(
+  env: CoreBindings,
+  input: ReturnType<typeof pluginConnectionContinuationRpcInputSchema.parse>,
+  intent: PluginActionRequestIntent,
+  userId: string
+) {
+  if (!intent.sourceSignalId || intent.sourceSpaceId !== input.spaceId) {
+    throw denied(
+      "plugin.continue.original_requester_required",
+      "The original requester is no longer available."
+    );
+  }
+  const original = (
+    await rpcListSignals(env, {
+      context: input.context,
+      spaceId: input.spaceId,
+      aroundSignalId: intent.sourceSignalId,
+      beforeCount: 0,
+      afterCount: 0,
+    })
+  ).signals.find((signal) => signal.id === intent.sourceSignalId);
+  if (
+    original?.type !== "signal.text" ||
+    original.profile.kind !== "human" ||
+    original.data.meta?.recalledAt
+  ) {
+    throw denied(
+      "plugin.continue.original_requester_required",
+      "The original requester is no longer available."
+    );
+  }
+  const profile = await requirePluginProfile(env, original.profile.profileId);
+  if (profile.profileKind !== "human" || profile.ownerUserId !== userId) {
+    throw denied(
+      "plugin.continue.original_requester_required",
+      "Only the account that made this request can continue it."
+    );
+  }
+  return original.profile.profileId;
 }
 function requireApprovedRequestSource(
   intent: PluginActionRequestIntent,
