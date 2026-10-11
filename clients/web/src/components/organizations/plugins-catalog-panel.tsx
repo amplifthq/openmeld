@@ -5,7 +5,7 @@ import {
 	PLUGINS,
 	type PluginCategory,
 	type PluginDefinition,
-	pluginFromProvider,
+	pluginsForCatalog,
 } from "@openmeld/product-catalog/plugins";
 import { connectorConnectionScopeAllowed } from "@openmeld/schemas";
 import { AppLogo } from "@openmeld/ui/components/app-logo";
@@ -81,8 +81,9 @@ export function PluginsCatalogPanel(input: {
 					),
 				]
 			: [];
-	const visiblePlugins = (
-		providersQuery.data?.providers.map(pluginFromProvider) ?? PLUGINS
+	const visiblePlugins = pluginsForCatalog(
+		providersQuery.data?.providers ?? [],
+		connectedServices
 	).filter((plugin) => {
 		const matchesScope = connectorConnectionScopeAllowed(
 			plugin.service,
@@ -152,6 +153,18 @@ export function PluginsCatalogPanel(input: {
 				</Button>
 			) : null}
 
+			{providersQuery.isError ? (
+				<div className="flex items-center justify-between gap-2" role="alert">
+					<p className="text-destructive text-sm">Unable to load Plugins.</p>
+					<Button
+						onClick={() => providersQuery.refetch()}
+						size="sm"
+						variant="outline"
+					>
+						Retry
+					</Button>
+				</div>
+			) : null}
 			{connectionsQuery.isError ? (
 				<div
 					className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2"
@@ -243,7 +256,13 @@ export function PluginsCatalogPanel(input: {
 						</section>
 					))}
 				</FluidCardGroup>
-			) : (
+			) : null}
+			{visiblePlugins.length === 0 && providersQuery.isPending ? (
+				<output className="block py-12 text-center text-muted-foreground text-sm">
+					Loading Plugins…
+				</output>
+			) : null}
+			{visiblePlugins.length === 0 && providersQuery.isSuccess ? (
 				<div className="px-5 py-12 text-center">
 					<p className="font-medium text-foreground text-sm">
 						No Plugins found
@@ -252,7 +271,7 @@ export function PluginsCatalogPanel(input: {
 						Try another search or category.
 					</p>
 				</div>
-			)}
+			) : null}
 		</section>
 	);
 }
