@@ -426,6 +426,9 @@ async function closeSpaceTasksForGitHubIssue(input: {
       continue;
     }
     const completed = input.stateReason === "completed";
+    if (completed && observed.task.phase === "in_review") {
+      continue;
+    }
     if (
       !completed &&
       input.stateReason !== "not_planned" &&
@@ -434,12 +437,33 @@ async function closeSpaceTasksForGitHubIssue(input: {
       continue;
     }
     const summary = `GitHub issue ${formatSpaceTaskGitHubIssueLabel(input.identity)} was closed as ${input.stateReason}.`;
+    const settlementTask =
+      completed && observed.task.phase === "to_do"
+        ? (
+            await mutateLinkedTask({
+              body: {
+                action: "mark_in_progress",
+                expectedRevision: observed.task.revision,
+                operationId: spaceTaskGitHubIssueOperationId(
+                  "start",
+                  input.identity,
+                  task.taskId,
+                  input.eventIdentity
+                ),
+              },
+              ports: input.ports,
+              spaceId: input.spaceId,
+              taskId: task.taskId,
+              toolContext: input.toolContext,
+            })
+          ).task
+        : observed.task;
     const settled = await mutateLinkedTask({
       body: {
         ...(completed
           ? { action: "submit_result" as const, summary }
           : { action: "cancel" as const, reason: summary }),
-        expectedRevision: observed.task.revision,
+        expectedRevision: settlementTask.revision,
         operationId: spaceTaskGitHubIssueOperationId(
           "settle",
           input.identity,

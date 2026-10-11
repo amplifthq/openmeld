@@ -205,13 +205,45 @@ describe("GitHub issue Space Task binding", () => {
   });
 
   it.each([
-    ["completed", "submit_result", "done"],
-    ["not_planned", "cancel", "canceled"],
-    ["duplicate", "cancel", "canceled"],
-  ] as const)("settles %s issues with distinct operation identities", async (stateReason, action, phase) => {
+    [
+      "completed",
+      "submit_result",
+      "done",
+      "in_progress",
+      ["observe_external_work_item", "submit_result"],
+    ],
+    [
+      "completed",
+      "submit_result",
+      "done",
+      "to_do",
+      ["observe_external_work_item", "mark_in_progress", "submit_result"],
+    ],
+    [
+      "completed",
+      "submit_result",
+      "in_review",
+      "in_review",
+      ["observe_external_work_item"],
+    ],
+    [
+      "not_planned",
+      "cancel",
+      "canceled",
+      "in_progress",
+      ["observe_external_work_item", "cancel"],
+    ],
+    [
+      "duplicate",
+      "cancel",
+      "canceled",
+      "in_progress",
+      ["observe_external_work_item", "cancel"],
+    ],
+  ] as const)("settles %s issues from %s with distinct operation identities", async (stateReason, action, phase, initialPhase, expectedActions) => {
     const linked = createTask({
       externalWorkItems: [ISSUE],
-      phase: "in_progress",
+      phase: initialPhase,
       revision: 2,
     });
     const observed = createTask({
@@ -234,6 +266,13 @@ describe("GitHub issue Space Task binding", () => {
       );
       observedActions.push(body.action);
       operationIds.push(body.operationId);
+      if (body.action === "mark_in_progress") {
+        return Promise.resolve(
+          receiptFor(
+            createTask({ ...observed, phase: "in_progress", revision: 4 })
+          )
+        );
+      }
       return Promise.resolve(
         receiptFor(body.action === action ? canceled : observed)
       );
@@ -268,21 +307,25 @@ describe("GitHub issue Space Task binding", () => {
       now: "2026-09-20T03:00:00.000Z",
     });
 
-    expect(observedActions).toEqual(["observe_external_work_item", action]);
-    expect(summary?.closedTaskIds).toEqual([canceled.taskId]);
+    expect(observedActions).toEqual(expectedActions);
+    expect(summary?.closedTaskIds).toEqual(
+      initialPhase === "in_review" ? [] : [canceled.taskId]
+    );
     expect(describeLinkedGitHubIssueClosePrompt(canceled)).toBeNull();
     await applyGitHubIssueSpaceTaskBinding({
       ...input,
       eventIdentity: "write-close-2",
       now: "2026-09-20T05:00:00.000Z",
     });
-    expect(new Set(operationIds).size).toBe(4);
+    expect(new Set(operationIds).size).toBe(expectedActions.length * 2);
     await applyGitHubIssueSpaceTaskBinding({
       ...input,
       eventIdentity: "write-close-2",
       now: "2026-09-20T05:00:00.000Z",
     });
-    expect(operationIds.slice(4)).toEqual(operationIds.slice(2, 4));
+    expect(operationIds.slice(expectedActions.length * 2)).toEqual(
+      operationIds.slice(expectedActions.length, expectedActions.length * 2)
+    );
   });
 
   it("refuses a linked issue close without a stable provider operation identity", async () => {

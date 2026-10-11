@@ -155,6 +155,7 @@ export function spaceTaskGitHubIssueOperationId(
     | "attach"
     | "cancel"
     | "settle"
+    | "start"
     | "create"
     | "observe-closed"
     | "observe-open",
