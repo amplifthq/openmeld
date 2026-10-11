@@ -788,28 +788,28 @@ accessible without color and does not pulse. Direct Messages remain in their
 owning navigation surface instead of reappearing in the Spaces sidebar; each
 unread Direct Message shows the same static blue indicator on its exact
 conversation row so the member can identify what needs attention.
-While any ordinary Space message remains unread, the Spaces destination in the
-outer app rail shows one static blue dot across OpenMeld. Its accessible label
-reports the complete unread ordinary Space message count. Core derives that
-aggregate before the grouped summary's 500-Space presentation limit and
-excludes current Direct Messages and legacy welcoming Spaces through the Space
-Index classification; converted Direct Messages count as ordinary Spaces. The
+The Spaces destination in the outer app rail shows yellow while any accessible
+Space or Direct Message has pending attention, then blue for ordinary unread
+messages. Its accessible label reports the complete unread message count. Core
+derives the ordinary Space aggregate before the grouped summary's 500-Space
+presentation limit and excludes current Direct Messages and legacy welcoming
+Spaces through the Space Index classification; converted Direct Messages count
+as ordinary Spaces. Web combines that total with the complete DM total. The
 outer dot does not identify a second unread owner or replace the per-Space
 indicators; it guides the member into Spaces, where the secondary sidebar shows
 which exact Spaces are unread.
 
-Chats uses complete Core aggregates for unread messages, open action requests,
-and unread urgent updates across current DMs, including Center Agent sessions.
-The Chat row and destination use red for open actions, yellow for unread urgent
-updates, then blue for ordinary unread. Grouped attention has no unread-page
-limit, and reading a request does not resolve it. Only the Inbox icon carries
-the numeric attention badge; Chat indicators remain dots with accessible labels.
+Direct Messages use the same Core attention projection, including Center Agent
+sessions. Conversation rows use yellow for open actions or unread urgent updates,
+then blue for ordinary unread. Grouped attention has no unread-page limit, and
+reading a request does not resolve it. Only the Inbox icon carries the numeric
+attention badge; conversation indicators remain dots with accessible labels.
 
 Every final Center Agent reply in its current, unconverted member Direct Message
 is projected as an ordinary Inbox update with a canonical Center Agent target
 containing both the source Space id and source Signal id. While any such item is
-unread, the Center Agent destination in the outer rail independently shows one
-static blue dot. Conversion makes the Space Index classify that conversation
+unread, the reply contributes to the Spaces destination's DM unread total.
+Conversion makes the Space Index classify that conversation
 as an ordinary Space, so its unread items contribute only to the Spaces
 destination even when their durable target remains `center_agent`. The dot sits
 immediately after the label in the full rail and on the icon corner in compact
