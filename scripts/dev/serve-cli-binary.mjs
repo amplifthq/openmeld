@@ -8,8 +8,8 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { gzipSync } from "node:zlib";
+import { buildCodeSignArgs } from "../release/apple-release-signing.mjs";
 import { buildCliBinary } from "../release/build-cli-binary.mjs";
-import { buildCodeSignArgs } from "../release/macos-cli-signing.mjs";
 import { readCurrentIsolatedDevLane } from "./dev-isolated-lane.mjs";
 import { acquireLocalResources } from "./local-resources.mjs";
 

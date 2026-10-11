@@ -91,6 +91,13 @@ still require separate stages. Do not narrow the release base to hide a conflict
 
 ### Desktop release coverage
 
+macOS arm64 candidates can use the local lane or the optional GitHub
+`desktop-release.yml` workflow. Both use the same packaging, candidate upload,
+and guarded promotion commands. See the
+[Desktop release procedure](development-workflow.md#optional-github-macos-release).
+Candidate creation and stable promotion are separate operations; neither
+replaces installed acceptance.
+
 The scoped planner and `release:status` cover Database, cloud services, and
 CLI; neither `cloud` nor `full` publishes Desktop. For the same exact merged
 range, assess Desktop separately against its last promoted source on each
