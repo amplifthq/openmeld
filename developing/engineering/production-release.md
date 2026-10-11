@@ -2049,6 +2049,38 @@ continue to require the checked-in manifest and stable channel to match.
 
 ## Resumable Execution
 
+For a multi-component release from a clean, approved checkout, use the existing
+local entrypoint with the exact pre-merge base:
+
+```sh
+pnpm release:deploy:local -- --base <pre-merge-sha> --scope auto
+```
+
+It fixes the checkout SHA and base, reads the affected component receipts, skips
+components that are current, and selects the next component through the existing
+production stage admission rules. Each component still runs its own guarded
+preflight, lease, deployment, health, and receipt path. After each component,
+the command reads the receipts again before continuing. It stops on a failure,
+unknown evidence without an admitted recovery, or a missing completion record;
+it never treats a subprocess exit as deployment evidence. Rerun the same command
+from the same source to continue after an interruption. Dependencies outside the
+selected change require an explicit scope decision; the command does not add
+historical backlog to the release. Database cutover and domain transitions keep
+their existing dedicated commands. An intentional redeploy requires an explicit
+component scope and `--redeploy`.
+
+CLI publication stays with the official GitHub Trusted Publishing workflow.
+When a pending CLI stage becomes eligible, local continuation stops before CLI
+mutation and prints that workflow command with the original source and train.
+After it succeeds, rerun the same local command; the receipt skips the completed
+CLI stage. This does not introduce a second npm publisher or dispatch tracker.
+
+Use `release:status -- --ref <product-sha> --change-base <pre-merge-sha>
+--check-complete` for the deployment closeout check. It requires real receipts,
+rejects `--deployed` planning overrides, and exits nonzero for missing or pending
+components. Human output labels deployable work as incomplete. This check does
+not certify product smoke, Desktop installation, or Desktop update acceptance.
+
 The guarded local executor is safe to rerun after interruption. Completion
 probes are read-only. A completed stage prints `SKIP (already done)` with its
 criterion; an incomplete stage prints `RUN` and executes the existing command
@@ -2078,8 +2110,9 @@ Workers. After every selected Worker deploy and health check, the production
 executor reruns the same resumable CLI command as the terminal three-way
 alignment check; when the release is complete, that rerun is read-only and all
 stages skip. Before each Worker deploy, the executor prints the current
-production version ID for comparison. Repeated Worker deploys remain allowed
-because they are safe, even though they create another Worker version.
+production version ID for comparison. Current components are skipped from their
+receipts; deliberately creating another Worker version requires the explicit
+redeploy path.
 
 | Stage | `SKIP` criterion | Criterion level |
 | --- | --- | --- |

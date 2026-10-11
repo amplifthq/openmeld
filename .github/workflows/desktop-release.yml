@@ -194,6 +194,7 @@ jobs:
       - uses: ./release-control/.github/actions/setup-node-pnpm
         with:
           working_directory: release-source
+          dependency_mode: release-tools
 
       - name: Build schemas for shared release commands
         working-directory: release-source
