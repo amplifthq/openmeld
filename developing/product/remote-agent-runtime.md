@@ -46,6 +46,10 @@ advancing their checkpoint; the Agent preserves processed IDs/counts and returns
 control for context maintenance.
 
 The Agent chooses the total reading goal; each response remains bounded.
+Checkpoint continuation requests only the remaining count. `requestedCountReached`
+means the requested total was delivered; it does not mean the selection is exhausted.
+Pass a larger total `limit` with the checkpoint's `resumeId` and `nextCursor` to
+read more. Preview delivery counts matches; full delivery counts complete messages.
 Long messages carry offsets and a source version. The Agent must not report a
 complete review while coverage is partial or indexing. Delivered counts are
 not processed counts. Save classifications before reading the next batch.
@@ -60,7 +64,9 @@ Concurrent checkpoint updates use conditional storage writes.
 Named GitHub writes carry their declared effect into operation admission.
 An issue destination that requires Inbox confirmation returns
 `awaiting_confirmation` with the existing operation ID. It has not reached
-GitHub. Approval and retries keep that ID, account, target and input. No extra
+GitHub. Only a pending request has this status; rejected, expired or unavailable
+requests return their failure instead of directing the user to approve them again.
+Approval and retries keep that ID, account, target and input. No extra
 Task result review is introduced; existing Task reviewers and authorization
 rules are unchanged.
 

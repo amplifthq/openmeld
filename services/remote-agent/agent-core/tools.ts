@@ -4212,6 +4212,11 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             maxBytes: payload.maxBytes,
           });
         }
+        if (typeof payload.limit === "number" && payload.limit > 100) {
+          throw new Error(
+            "Use scope=history for more than 100 messages. Other context scopes accept a limit of 1 to 100."
+          );
+        }
         if (
           [payload.cursor, payload.maxBytes, payload.resumeId].some(
             (value) => value !== undefined

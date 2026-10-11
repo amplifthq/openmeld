@@ -815,6 +815,41 @@ describe("Project issue destination confirmation", () => {
       executionAllowed: false,
       providerExecutionId: "confirmed-provider-effect",
     });
+    for (const state of ["rejected", "expired"] as const) {
+      const terminalProposal = {
+        ...proposal,
+        issueDestination,
+        operationId: crypto.randomUUID(),
+      };
+      await expect(
+        rpcCenterAgentRecordConnectorActionOperation(core, terminalProposal)
+      ).rejects.toMatchObject({ code: "project.issue_confirmation_required" });
+      const terminalId = (
+        await db.query<{ id: string }>({
+          text: 'SELECT id FROM "openmeld"."plugin_action_requests" WHERE operation_id = $1',
+          values: [terminalProposal.operationId],
+        })
+      ).rows[0]?.id;
+      if (!terminalId) {
+        throw new Error("Missing terminal confirmation fixture");
+      }
+      if (state === "rejected") {
+        await rpcPluginActionRequest(core, {
+          ...confirmation,
+          command: { operation: "reject", requestId: terminalId },
+        });
+      } else {
+        await db.query({
+          text: 'UPDATE "openmeld"."plugin_action_requests" SET expires_at_ms = $1 WHERE id = $2',
+          values: [Date.now() - 1, terminalId],
+        });
+      }
+      await expect(
+        rpcCenterAgentRecordConnectorActionOperation(core, terminalProposal)
+      ).rejects.toMatchObject({
+        code: "project.issue_confirmation_unavailable",
+      });
+    }
   });
 });
 

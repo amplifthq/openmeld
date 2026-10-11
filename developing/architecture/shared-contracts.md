@@ -33,9 +33,16 @@
 Space SQL query owner. Space authorization, viewer redaction, personal deletion
 boundaries and recalled-message exclusion run for every page. Workspace discovery
 does not grant access. Hosted callers additionally require the current designated
-Center or their admitted personal Remote Agent execution.
+Center or their admitted personal Remote Agent execution. The active execution
+owner derives the requester from its admitted turn, never from tool arguments.
+Personal Agents and Agent-requested turns are restricted to that execution's
+Space. Center member/routine reads require both the Agent's current Space access
+and the requester's current Human membership and history visibility on every page.
 
-A requested count is a reading goal. The server emits at most 100 items and
+A server `limit` bounds each page. The Agent checkpoint owns the total reading
+goal, subtracts delivered items before each page and retains the continuation
+when that goal is reached. Increasing the total resumes from that position.
+The server emits at most 100 items and
 24 KiB per page; the default request budget is 16 KiB. Preview reads locate
 matching text. Full reads segment long text at Unicode-safe UTF-16 offsets.
 Items are bounded message projections, not complete publishable envelopes.

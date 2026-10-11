@@ -8,9 +8,10 @@ import {
 } from "@openmeld/schemas";
 import type { CoreBindings } from "../lib/bindings";
 import { resolveActiveOrganizationMembership } from "../organizations/organization-context";
+import { authorizeRemoteAgentExecutionAccess } from "../remote-agent/application/remote-agent-execution-access";
 import { requireRemoteAgentToolCaller } from "../remote-agent/application/remote-agent-tool-caller";
 import { createCoreRpcHttpError, readCoreRpcHttpStatus } from "../rpc/errors";
-import { rpcListSignals } from "../rpc/methods";
+import { rpcGetSpaceMemberDirectory, rpcListSignals } from "../rpc/methods";
 import {
   emptyMessageReadPage,
   messageReadDigest,
@@ -26,14 +27,24 @@ export async function rpcRemoteAgentReadMessages(
     context: raw.context,
   });
   const input = parseReadRequest({ ...raw, context: caller.context });
-  if (caller.context.actorContext.ownerUserId) {
-    return rpcReadMessages(env, input);
+  const { scope } = await authorizeRemoteAgentExecutionAccess(env, {
+    context: caller.context,
+    submissionId: caller.context.agentControllerConversationId,
+    effect: "read",
+  });
+  if (
+    ("personalExecution" in caller || scope.principal.kind === "agent") &&
+    input.spaceId !== scope.spaceId
+  ) {
+    throw createCoreRpcHttpError({
+      status: 403,
+      code: "space.read.execution_scope_required",
+      reason: "This execution can read only its admitted conversation.",
+    });
   }
-  // Center is an Organization-owned Profile, not a Human account member.
-  // Its designation was verified above; Space still authorizes every page.
   return readAuthorizedMessages(env, input, {
     organizationId: caller.activeOrganization.organizationId,
-    userId: null,
+    userId: scope.principal.kind === "agent" ? null : scope.principal.userId,
   });
 }
 
@@ -101,6 +112,7 @@ async function readOneSpacePage(
       FROM "openmeld"."space_index_spaces" s WHERE s.organization_id = $1 AND s.status IN ('active', 'deleted')
       AND ($2::text IS NOT NULL OR EXISTS (SELECT 1 FROM "openmeld"."space_index_memberships" m WHERE m.space_id = s.space_id AND m.status = 'active' AND ${agent ? "m.profile_id" : "m.owner_user_id_snapshot"} = $3))
       AND ($2::text IS NULL OR s.space_id = $2)
+      AND ($6::text IS NULL OR EXISTS (SELECT 1 FROM "openmeld"."space_index_memberships" r WHERE r.space_id = s.space_id AND r.status = 'active' AND r.owner_user_id_snapshot = $6))
       AND (($4::text IS NOT NULL AND s.space_id >= $4) OR ($4::text IS NULL AND s.space_id > $5))
       ORDER BY s.space_id LIMIT 2`,
     values: [
@@ -109,6 +121,7 @@ async function readOneSpacePage(
       agent ? input.context.actorContext.openMeldProfileId : membership.userId,
       cursor.pendingSpaceId,
       cursor.afterSpaceId,
+      agent ? membership.userId : null,
     ],
   });
   const space = candidates.rows[0];
@@ -124,9 +137,15 @@ async function readOneSpacePage(
   }
   let page: MessageReadPage;
   try {
+    const context = await resolveMessageViewer(
+      env,
+      input.context,
+      space.space_id,
+      membership.userId
+    );
     const result = await rpcListSignals(env, {
       spaceId: space.space_id,
-      context: input.context,
+      context,
       messageRead: {
         ...messageReadSelection(input),
         spaceId: space.space_id,
@@ -174,9 +193,12 @@ async function readOneSpacePage(
     }),
     coverage: page.indexing ? "indexing" : coverage,
   };
-  if (
-    new TextEncoder().encode(JSON.stringify(response)).length > input.maxBytes
-  ) {
+  assertReadResponseBudget(response, input.maxBytes);
+  return response;
+}
+
+function assertReadResponseBudget(response: MessageReadPage, maxBytes: number) {
+  if (new TextEncoder().encode(JSON.stringify(response)).length > maxBytes) {
     throw createCoreRpcHttpError({
       status: 400,
       code: "space.read.budget_too_small",
@@ -184,7 +206,40 @@ async function readOneSpacePage(
         "The response metadata does not fit this budget. Increase maxBytes or narrow this read. No checkpoint advanced.",
     });
   }
-  return response;
+}
+
+async function resolveMessageViewer(
+  env: CoreBindings,
+  context: MessageReadRpcInput["context"],
+  spaceId: string,
+  userId: string | null
+): Promise<MessageReadRpcInput["context"]> {
+  if (context.actorContext.profileKind !== "agent" || !userId) {
+    return context;
+  }
+  // Space authorizes the Agent first, then reads with the requester's current
+  // Human Profile and history boundary. Discovery alone cannot grant access.
+  const directory = await rpcGetSpaceMemberDirectory(env, { spaceId, context });
+  const requester = directory.members.find(
+    (member) => member.profileKind === "human" && member.ownerUserId === userId
+  );
+  if (!requester) {
+    throw createCoreRpcHttpError({
+      status: 403,
+      code: "space.read.requester_access_required",
+      reason: "The requester no longer has access to this conversation.",
+    });
+  }
+  return {
+    activeOrganizationId: context.activeOrganizationId,
+    actorContext: {
+      requestId: context.actorContext.requestId,
+      callerPrincipalId: userId,
+      ownerUserId: userId,
+      openMeldProfileId: requester.profileId,
+      profileKind: "human",
+    },
+  };
 }
 
 async function resolveWorkspaceCursor(

@@ -87,6 +87,84 @@ function page(overrides: Record<string, unknown> = {}) {
 }
 
 describe("durable message reads", () => {
+  it.each([
+    "preview",
+    "full",
+  ] as const)("stops at the requested total and can extend it after recovery (%s)", async (mode) => {
+    const input = await setup();
+    const item = page().matches[0];
+    if (!item) {
+      throw new Error("Missing message fixture");
+    }
+    const source = Array.from({ length: 200 }, (_, index) => ({
+      ...item,
+      signal: { ...item.signal, id: `message-${index}` },
+    }));
+    const rpc = vi.fn((query: MessageReadRpcInput) => {
+      const offset = Number(query.cursor ?? 0);
+      const matches = source.slice(offset, offset + Math.min(query.limit, 100));
+      return Promise.resolve(
+        page({
+          matches,
+          returnedCount: matches.length,
+          completeCount: mode === "full" ? matches.length : 0,
+          pageCursor: String(offset),
+          nextCursor: String(offset + matches.length),
+        })
+      );
+    });
+    const dependencies = {
+      ...input,
+      coreWorker: { remoteAgentReadMessages: rpc },
+    };
+    const first = await executeMessageRead(dependencies, {
+      spaceId: "space-1",
+      mode,
+      limit: 105,
+      threadId: "thread-a",
+      afterTs: 10,
+    });
+    expect(first).toMatchObject({
+      deliveredCount: 100,
+      requestedCountReached: false,
+    });
+    const last = await executeMessageRead(dependencies, {
+      resumeId: first.resumeId,
+      cursor: "100",
+    });
+    expect(last).toMatchObject({
+      deliveredCount: 105,
+      requestedCountReached: true,
+    });
+    expect(rpc.mock.calls.at(-1)?.[0].limit).toBe(5);
+    const recovered = await getMessageReadTools(dependencies)[1]?.execute({});
+    expect(recovered).toMatchObject({
+      reads: [
+        {
+          requestedCount: 105,
+          deliveredCount: 105,
+          query: { mode, threadId: "thread-a", afterTs: 10 },
+        },
+      ],
+    });
+    expect(
+      await executeMessageRead(dependencies, { resumeId: first.resumeId })
+    ).toMatchObject({ replayed: true, deliveredCount: 105 });
+    expect(
+      await executeMessageRead(dependencies, {
+        resumeId: first.resumeId,
+        cursor: "105",
+      })
+    ).toMatchObject({ status: "requested_count_reached" });
+    expect(rpc).toHaveBeenCalledTimes(3);
+    expect(
+      await executeMessageRead(dependencies, {
+        resumeId: first.resumeId,
+        cursor: "105",
+        limit: 110,
+      })
+    ).toMatchObject({ deliveredCount: 110, requestedCountReached: true });
+  });
   it("uses the actual Flue compactor and recovers a read even when its summary omits the cursor", async () => {
     const input = await setup();
     const dependencies = {

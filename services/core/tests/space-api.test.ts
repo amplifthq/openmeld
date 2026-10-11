@@ -18,7 +18,11 @@ import {
   MAX_TEXT_LENGTH,
   parseEnvelope,
 } from "@openmeld/protocol";
-import { messageReadQuerySchema } from "@openmeld/schemas";
+import {
+  HOSTED_CENTER_AGENT_CONTROLLER_REF,
+  HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
+  messageReadQuerySchema,
+} from "@openmeld/schemas";
 import {
   AGENT_REPLY_FINAL_PURPOSE,
   listSignalsQuerySchema,
@@ -37,6 +41,8 @@ import {
   createDispatchContinuationSpaceAccessContext,
 } from "@openmeld/space";
 import { describe, expect, it, vi } from "vitest";
+import { createSubmitTurnRequest } from "../../remote-agent/tests/fixtures";
+import { ensurePrimaryAgentProfileBindingRecord } from "../src/agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import {
   cancelAgentTaskCompletionSubscription,
   recordAgentTaskTerminalOutcome,
@@ -48,6 +54,7 @@ import {
   markRemoteAgentNativeDeliveryAck,
   markRemoteAgentNativeDeliveryCompleted,
   markRemoteAgentPreAdmissionFailurePublished,
+  persistRemoteAgentWorkerSubmitRequest,
   readRemoteAgentNativeDeliveryBySubmissionId,
   upsertRemoteAgentNativeDeliveryRecord,
 } from "../src/remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
@@ -92,7 +99,10 @@ import { SpaceFileRepository } from "../src/space/infrastructure/sql/space-file-
 import { readSpaceMemberRecord } from "../src/space/infrastructure/sql/space-member-repo";
 import { insertSignalRecord } from "../src/space/infrastructure/sql/space-signal-repo";
 import { Space } from "../src/space/transport/do/space";
-import { listAccountSpacesFromSpaceIndex } from "../src/space-index/space-index-repository";
+import {
+  listAccountSpacesFromSpaceIndex,
+  upsertSpaceIndexMembership,
+} from "../src/space-index/space-index-repository";
 import { readUserTimeContext } from "../src/user-time-context/user-time-context-repository";
 import { postgresFixtureOperator } from "./postgresql.test-support";
 import { waitForJsonMessage } from "./test-support/ws-stream";
@@ -8008,10 +8018,88 @@ describe("OpenMeld Core", () => {
         },
       });
     });
+    const readSubmissionId = `read-${randomUUID()}`;
     const agentContext = createRpcContext({
       requestId: "agent-bounded-reader",
       profileId: agentProfileId,
       profileKind: "agent",
+      agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+      agentControllerConversationId: readSubmissionId,
+    });
+    const db = getPostgresDatabase(env);
+    const bindingId = `read-binding-${randomUUID()}`;
+    await ensurePrimaryAgentProfileBindingRecord({
+      db,
+      record: {
+        agentProfileId,
+        bindingId,
+        agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+        owner: { kind: "organization", id: DEFAULT_TEST_ORGANIZATION_ID },
+        openMeldServiceRuntimeId: "context-reader-test",
+        runtimeKind: "hosted_center_agent",
+        hostedRuntimeIdentityJson: JSON.stringify(
+          HOSTED_CENTER_AGENT_RUNTIME_IDENTITY
+        ),
+        createdAtMs: Date.now(),
+        updatedAtMs: Date.now(),
+      },
+    });
+    const fixture = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      agentProfileId,
+      bindingId,
+      organizationId: DEFAULT_TEST_ORGANIZATION_ID,
+      spaceId,
+      dispatchId: `read-dispatch-${randomUUID()}`,
+      idempotencyKey: `read-key-${randomUUID()}`,
+      author: {
+        displayName: "Requester",
+        profileId: DEFAULT_HUMAN_PROFILE_ID,
+        profileKind: "human",
+      },
+      turnEnvelope: {
+        ...fixture.turnEnvelope,
+        organization: {
+          ...fixture.turnEnvelope.organization,
+          id: DEFAULT_TEST_ORGANIZATION_ID,
+        },
+        space: { ...fixture.turnEnvelope.space, id: spaceId },
+        sender: {
+          kind: "member",
+          id: "requester",
+          displayName: "Requester",
+          ownerUserId: "owner-test-default",
+          profileId: DEFAULT_HUMAN_PROFILE_ID,
+          role: "owner",
+          verified: true,
+        },
+      },
+    });
+    await upsertRemoteAgentNativeDeliveryRecord({
+      db,
+      bindingId,
+      attemptId: null,
+      dispatchId: request.dispatchId,
+      idempotencyKey: request.idempotencyKey,
+      nowMs: Date.now(),
+      organizationId: DEFAULT_TEST_ORGANIZATION_ID,
+      profileId: agentProfileId,
+      spaceId,
+      status: "submitted",
+      triggerMessageId: request.triggerMessageId,
+    });
+    await persistRemoteAgentWorkerSubmitRequest({
+      db,
+      idempotencyKey: request.idempotencyKey,
+      nowMs: Date.now(),
+      workerSubmitRequest: request,
+    });
+    await markRemoteAgentNativeDeliveryAck({
+      db,
+      idempotencyKey: request.idempotencyKey,
+      nowMs: Date.now(),
+      accepted: true,
+      submissionId: readSubmissionId,
     });
     const agentPage = await rpcRemoteAgentReadMessages(env as CoreBindings, {
       ...query,
@@ -8020,6 +8108,82 @@ describe("OpenMeld Core", () => {
     expect(agentPage.matches.map((match) => match.signal.id)).toEqual(
       first.matches.map((match) => match.signal.id)
     );
+    const other = { ownerUserId: randomUUID(), profileId: randomUUID() };
+    const privateSpaceId = await createSpace(
+      { accessMode: "members_only" },
+      other
+    );
+    const privateMessage = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${privateSpaceId}/signals`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          type: "signal.text",
+          data: { text: "Read fixture 0 private decision" },
+        }),
+      },
+      other
+    );
+    expect(privateMessage.status).toBe(200);
+    const privateStub = namespace.get(namespace.idFromString(privateSpaceId));
+    await runInDurableObject(privateStub, (_instance, state) => {
+      upsertJoinedSpaceMember({
+        sql: state.storage.sql,
+        spaceId: privateSpaceId,
+        profile: {
+          kind: "agent",
+          profileId: agentProfileId,
+          profileName: "Context Reader",
+        },
+      });
+    });
+    await expect(
+      rpcRemoteAgentReadMessages(env as CoreBindings, {
+        ...query,
+        spaceId: privateSpaceId,
+        context: agentContext,
+      })
+    ).rejects.toMatchObject({ status: 404 });
+    for (const targetSpaceId of [spaceId, privateSpaceId]) {
+      await upsertSpaceIndexMembership({
+        db,
+        membership: {
+          spaceId: targetSpaceId,
+          profileId: agentProfileId,
+          profileKindSnapshot: "agent",
+          profileNameSnapshot: "Context Reader",
+          status: "active",
+          memberSource: "test",
+          addedAt: new Date().toISOString(),
+          sourceUpdatedAt: new Date().toISOString(),
+          projectionEventId: randomUUID(),
+        },
+      });
+    }
+    const global = await rpcRemoteAgentReadMessages(env as CoreBindings, {
+      ...query,
+      spaceId: undefined,
+      mode: "preview",
+      q: "Read fixture 0",
+      context: agentContext,
+    });
+    expect(global.matches.map((match) => match.signal.spaceId)).toEqual([
+      spaceId,
+    ]);
+    // An old checkpoint cannot outlive the admitted execution's authority.
+    await markRemoteAgentNativeDeliveryCompleted({
+      db,
+      submissionId: readSubmissionId,
+      nowMs: Date.now(),
+      publishedSignalId: null,
+    });
+    await expect(
+      rpcRemoteAgentReadMessages(env as CoreBindings, {
+        ...query,
+        cursor: agentPage.nextCursor ?? undefined,
+        context: agentContext,
+      })
+    ).rejects.toThrow();
     await expect(
       rpcRemoteAgentReadMessages(env as CoreBindings, { ...query, context })
     ).rejects.toThrow("designated Center Agent");
