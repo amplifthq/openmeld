@@ -18,6 +18,7 @@ import {
   MAX_TEXT_LENGTH,
   parseEnvelope,
 } from "@openmeld/protocol";
+import { messageReadQuerySchema } from "@openmeld/schemas";
 import {
   AGENT_REPLY_FINAL_PURPOSE,
   listSignalsQuerySchema,
@@ -72,6 +73,10 @@ import {
   rpcPostStatusSignal,
   rpcPostSystemNoticeSignal,
 } from "../src/rpc/methods";
+import {
+  rpcReadMessages,
+  rpcRemoteAgentReadMessages,
+} from "../src/search/message-read";
 import { rpcSearchMessages } from "../src/search/message-search";
 import { upsertJoinedSpaceMember } from "../src/space/application/space-members-service";
 import type { SignalPublishContext } from "../src/space/application/types";
@@ -7902,6 +7907,123 @@ describe("OpenMeld Core", () => {
       ).size
     ).toBe(31);
   });
+  it("pages more than 100 messages through the shared reader and checks access on continuation", async () => {
+    const spaceId = await createSpace({ accessMode: "members_only" });
+    const context = createRpcContext({
+      requestId: "bounded-reader",
+      profileId: DEFAULT_HUMAN_PROFILE_ID,
+      profileKind: "human",
+      ownerUserId: "owner-test-default",
+    });
+    const original = Array.from(
+      { length: 105 },
+      (_, index) => `Read fixture ${index}`
+    );
+    original[104] = `${"消息🙂".repeat(1000)} target-tail`;
+    for (const text of original) {
+      await postTextSignal(spaceId, text);
+    }
+    const query = messageReadQuerySchema.parse({
+      spaceId,
+      mode: "full",
+      limit: 105,
+      maxBytes: 4096,
+    });
+    const first = await rpcReadMessages(env as unknown as CoreBindings, {
+      ...query,
+      context,
+    });
+    expect(first.nextCursor).not.toBeNull();
+    expect(first.matches.length).toBeLessThan(100);
+    const messages = [...first.matches];
+    let cursor = first.nextCursor;
+    let pages = 1;
+    while (cursor) {
+      const page = await rpcReadMessages(env as unknown as CoreBindings, {
+        ...query,
+        cursor,
+        context,
+      });
+      expect(
+        new TextEncoder().encode(JSON.stringify(page)).length
+      ).toBeLessThanOrEqual(query.maxBytes);
+      messages.push(...page.matches);
+      cursor = page.nextCursor;
+      expect(++pages).toBeLessThan(40);
+    }
+    expect(new Set(messages.map((match) => match.signal.id)).size).toBe(105);
+    const assembled = new Map<string, string>();
+    for (const match of messages) {
+      const prior = assembled.get(match.signal.id) ?? "";
+      expect(match.content.offset).toBe(prior.length);
+      assembled.set(match.signal.id, prior + match.signal.data.text);
+    }
+    expect([...assembled.values()]).toEqual([...original].reverse());
+    await expect(
+      rpcReadMessages(env as unknown as CoreBindings, {
+        ...query,
+        cursor: first.nextCursor ?? undefined,
+        context: createRpcContext({
+          requestId: "other-reader",
+          profileId: SECOND_HUMAN_PROFILE_ID,
+          profileKind: "human",
+          ownerUserId: "search-other-owner",
+        }),
+      })
+    ).rejects.toThrow();
+    const search = await rpcReadMessages(env as unknown as CoreBindings, {
+      ...query,
+      q: "Read fixture 0",
+      mode: "preview",
+      context,
+    });
+    expect(search.matches.map((match) => match.signal.id)).toEqual([
+      messages.at(-1)?.signal.id,
+    ]);
+    const tail = await rpcReadMessages(env as unknown as CoreBindings, {
+      ...query,
+      q: "target-tail",
+      mode: "preview",
+      context,
+    });
+    expect(tail.matches[0]?.signal.data.text).toContain("target-tail");
+    expect(tail.matches[0]?.content.complete).toBe(false);
+    const agentProfileId = `agt_${randomUUID()}`;
+    await ensureTestCenterAgentDesignation({
+      agentProfileId,
+      agentProfileName: "Context Reader",
+      organizationId: DEFAULT_TEST_ORGANIZATION_ID,
+      ownerUserId: "owner-test-default",
+    });
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    await runInDurableObject(stub, (_instance, state) => {
+      upsertJoinedSpaceMember({
+        sql: state.storage.sql,
+        spaceId,
+        profile: {
+          kind: "agent",
+          profileId: agentProfileId,
+          profileName: "Context Reader",
+        },
+      });
+    });
+    const agentContext = createRpcContext({
+      requestId: "agent-bounded-reader",
+      profileId: agentProfileId,
+      profileKind: "agent",
+    });
+    const agentPage = await rpcRemoteAgentReadMessages(env as CoreBindings, {
+      ...query,
+      context: agentContext,
+    });
+    expect(agentPage.matches.map((match) => match.signal.id)).toEqual(
+      first.matches.map((match) => match.signal.id)
+    );
+    await expect(
+      rpcRemoteAgentReadMessages(env as CoreBindings, { ...query, context })
+    ).rejects.toThrow("designated Center Agent");
+  }, 30_000);
   it("returns an empty anchored page when after-signal uses limit=0", async () => {
     const spaceId = await createSpace();
     const response = await fetchWithOpenMeldAuth(

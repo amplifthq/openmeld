@@ -615,6 +615,21 @@ describe("Project issue destination confirmation", () => {
         issueDestination,
       })
     ).rejects.toMatchObject({ code: "project.issue_confirmation_required" });
+    // A retry before approval must recover the same recipient-owned request.
+    await expect(
+      rpcCenterAgentRecordConnectorActionOperation(core, {
+        ...proposal,
+        issueDestination,
+      })
+    ).rejects.toMatchObject({ code: "project.issue_confirmation_required" });
+    expect(
+      (
+        await db.query({
+          text: 'SELECT id FROM "openmeld"."plugin_action_requests" WHERE operation_id = $1',
+          values: [proposal.operationId],
+        })
+      ).rows
+    ).toHaveLength(1);
     expect(
       (
         await db.query({
