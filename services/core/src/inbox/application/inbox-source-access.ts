@@ -18,10 +18,6 @@ export function buildCurrentInboxSourceAccessSql(
     (
       ${itemAlias}.kind IN (${inboxItemKindSchema.options.map((kind) => `'${kind}'`).join(", ")})
       AND ${currentInboxRecipientRelationshipSql(itemAlias, useFeedAgentScope)}
-      AND NOT EXISTS (SELECT 1 FROM "openmeld"."conversation_history_deletions" AS history_deletion
-        WHERE history_deletion.user_id = ${itemAlias}.recipient_user_id
-          AND history_deletion.space_id = ((${itemAlias}.source_target_json)::jsonb #>> '{spaceId}')
-          AND ${itemAlias}.occurred_at_ms <= history_deletion.deleted_at_ms)
       AND (${itemAlias}.kind != 'computer_connection' OR EXISTS (
         SELECT 1 FROM "openmeld"."openMeldDaemon_owned_devices" AS inbox_device
         WHERE inbox_device.owner_user_id = ${itemAlias}.recipient_user_id
@@ -44,27 +40,31 @@ export function buildCurrentInboxSourceAccessSql(
                 'center_agent'
               AND ((${itemAlias}.source_target_json)::jsonb #>> '{spaceId}') IS NOT NULL
             )
-            OR (
-              ((${itemAlias}.source_target_json)::jsonb #>> '{kind}') = 'plugin_action_request'
-              AND ((${itemAlias}.source_target_json)::jsonb #>> '{spaceId}') IS NOT NULL
-            )
           )
-          OR EXISTS (
-            SELECT 1
-            FROM "openmeld"."space_index_memberships" AS inbox_space_membership
-            INNER JOIN "openmeld"."space_index_spaces" AS inbox_space
-              ON inbox_space.space_id = inbox_space_membership.space_id
-            WHERE inbox_space_membership.space_id =
-                ((${itemAlias}.source_target_json)::jsonb #>> '{spaceId}')
-              AND inbox_space.organization_id = ${itemAlias}.organization_id
-              AND inbox_space.status = 'active'
-              AND inbox_space_membership.owner_user_id_snapshot =
-                ${itemAlias}.recipient_user_id
-              AND (inbox_space_membership.profile_kind_snapshot = 'human'
-                OR (${itemAlias}.source_target_json::jsonb -> 'agentOwnerActivity' = 'true'::jsonb AND ${personalAgentOwnerAccessSql(`${itemAlias}.source_target_json::jsonb ->> 'spaceId'`, `${itemAlias}.recipient_user_id`, `${itemAlias}.source_facts_json::jsonb -> 'personalAgentProfileIds'`)}))
-              AND inbox_space_membership.status = 'active'
-          )
+          OR ${inboxSpaceAccessSql(itemAlias)}
       )
     )
   `;
+}
+
+/** Presentation association does not replace the request owner's authorization. */
+export function inboxSpaceAccessSql(itemAlias: InboxItemSqlAlias): string {
+  return `EXISTS (
+    SELECT 1
+    FROM "openmeld"."space_index_memberships" AS inbox_space_membership
+    INNER JOIN "openmeld"."space_index_spaces" AS inbox_space
+      ON inbox_space.space_id = inbox_space_membership.space_id
+    WHERE inbox_space_membership.space_id =
+        ((${itemAlias}.source_target_json)::jsonb #>> '{spaceId}')
+      AND inbox_space.organization_id = ${itemAlias}.organization_id
+      AND inbox_space.status = 'active'
+      AND inbox_space_membership.owner_user_id_snapshot = ${itemAlias}.recipient_user_id
+      AND (inbox_space_membership.profile_kind_snapshot = 'human'
+        OR (${itemAlias}.source_target_json::jsonb -> 'agentOwnerActivity' = 'true'::jsonb AND ${personalAgentOwnerAccessSql(`${itemAlias}.source_target_json::jsonb ->> 'spaceId'`, `${itemAlias}.recipient_user_id`, `${itemAlias}.source_facts_json::jsonb -> 'personalAgentProfileIds'`)}))
+      AND inbox_space_membership.status = 'active'
+      AND NOT EXISTS (SELECT 1 FROM "openmeld"."conversation_history_deletions" AS history_deletion
+        WHERE history_deletion.user_id = ${itemAlias}.recipient_user_id
+          AND history_deletion.space_id = inbox_space.space_id
+          AND ${itemAlias}.occurred_at_ms <= history_deletion.deleted_at_ms)
+  )`;
 }

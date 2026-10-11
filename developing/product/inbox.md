@@ -592,7 +592,10 @@ association to the same Inbox item used for approval; Space attention does not
 create another request or unread record. Unscoped manual requests stay in Inbox.
 Reading a request leaves pending attention in place; source approval, rejection,
 expiry, or revocation ends it. Only the recipient with current Space access sees
-the associated Space attention. Request detail navigation remains request-owned.
+the associated Space attention. Lack of Space access does not hide a
+recipient-owned Plugin approval from Inbox: delegated work can originate in a
+child Space without Human membership. Request detail navigation and approval
+authorization remain request-owned.
 
 List titles reserve a 6px status dot with an 8px gap. An unresolved action or
 review uses the yellow attention tone, including after it is read. Red is
@@ -643,15 +646,15 @@ removes either contribution without changing source business state.
 Core computes both exact counts over the complete accessible recipient Inbox,
 independently of list pagination. Web caps only the displayed sum at `99+`.
 
-An open action makes the badge red; otherwise unread urgent updates make it
-amber. Red means a human action is outstanding, not that every action is urgent.
+Open actions and unread priority updates make the badge yellow. Pending work
+does not imply an error or grant urgent-email eligibility.
 Ordinary unread updates show a blue dot on the Inbox entry without contributing
 to the numeric attention count. The bottom-right launcher also shows the same
 highest-priority dot. Browser tabs reuse this exact Inbox summary and priority:
-red for open actions, amber for unread urgent updates, blue for other unread,
+yellow for pending work or priority updates, blue for other unread,
 and the original favicon when none remain. The title includes the highest
 priority category and its count, retaining the current route title. Reading an
-action never clears its red indicator; source resolution or recipient Dismiss
+action never clears its yellow indicator; source resolution or recipient Dismiss
 does. Opening the tab or Inbox alone does not clear any indicator.
 
 The authenticated tab observes the existing summary query in the background

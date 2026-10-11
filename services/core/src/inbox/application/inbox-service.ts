@@ -39,7 +39,10 @@ import {
   currentInboxAgentFactExistsSql,
   currentInboxSourceFactsSql,
 } from "./inbox-current-source-facts";
-import { buildCurrentInboxSourceAccessSql } from "./inbox-source-access";
+import {
+  buildCurrentInboxSourceAccessSql,
+  inboxSpaceAccessSql,
+} from "./inbox-source-access";
 
 const INBOX_ITEM_NOT_FOUND_CODE = "inbox.item_not_found";
 const INBOX_INVALID_CURSOR_CODE = "inbox.cursor_invalid";
@@ -330,6 +333,7 @@ export function createInboxService(input: {
         WHERE organization_id = $1 AND recipient_user_id = $2
           AND cleared_at_ms IS NULL AND ${CURRENT_SOURCE_ACCESS_FILTER}
           AND ((source_target_json)::jsonb #>> '{spaceId}') IS NOT NULL
+          AND ${inboxSpaceAccessSql("inbox_items")}
           AND ((attention = 'action_required' AND resolution_status = 'open')
             OR (${UNREAD_URGENT_UPDATE_FILTER}))
         GROUP BY ((source_target_json)::jsonb #>> '{spaceId}')
@@ -352,6 +356,7 @@ export function createInboxService(input: {
           WHERE organization_id = $1 AND recipient_user_id = $2
             AND (${INBOX_SUMMARY_CANDIDATE_FILTER})
             AND ${CURRENT_SOURCE_ACCESS_FILTER}
+            AND ${inboxSpaceAccessSql("inbox_items")}
         )
         SELECT
           sum(CASE WHEN read_at_ms IS NULL AND ${INBOX_SPACE_UNREAD_FILTER} THEN 1 ELSE 0 END) AS unread,

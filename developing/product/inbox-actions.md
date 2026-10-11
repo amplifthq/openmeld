@@ -49,7 +49,7 @@ can be read or the same response safely retried.
 | Agent creation request | Creation request; authorized reviewer | Agent creation request owner accepts or rejects the request |
 | Work recovery | Interrupted work and recovery stage; Agent owner | Recovery owner approves queued work, skips interrupted work, or ends the gate |
 | Authorization update | Connector requirement revision; owner/admin | Authorization owner verifies updated grants and resolves recipients together |
-| Plugin action confirmation | Exact pending action; original requesting member only | Plugin request owner records approval or rejection after request-bound Auth email verification; expiry and permission changes resolve attention. Approval is not provider execution or cancellation of an older operation. |
+| Plugin action confirmation | Exact pending action; original requesting member only | Plugin request owner records approval or rejection from the signed-in requesting account; expiry and permission changes resolve attention. Approval is not provider execution or cancellation of an older operation. |
 | Agent model correction | Confirmed model issue; Agent owner | Model owner reconciles the selected model and current evidence |
 | Channel setup | Setup request; authorized organization member | Channel setup owner completes or ends setup |
 | Computer connection | Durable connection incident; Computer owner | Runtime Transport resolves restored or deactivated incidents |

@@ -12,6 +12,7 @@ import type {
   PluginRuntimeRequest,
   PluginRuntimeResponse,
 } from "@openmeld/schemas/types";
+import { OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE } from "@openmeld/space";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { createSubmitTurnRequestV2 } from "../../remote-agent/tests/fixtures";
 import capturedActions from "../../remote-agent/tests/fixtures/openconnector-runtime-actions.json";
@@ -68,6 +69,7 @@ import {
 import { issueRuntimeCoordinatorExecutionToken } from "../src/runtime-transport/application/runtime-coordinator-execution-token";
 import { writeRuntimeCoordinatorTokenAuthorityToStorage } from "../src/runtime-transport/application/runtime-coordinator-storage";
 import type { RuntimeTransportHub } from "../src/runtime-transport/transport/do/runtime-transport-hub";
+import { deleteConversationHistoryForUser } from "../src/space/application/conversation-history";
 
 import { upsertSpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
 import { insertSignalRecord } from "../src/space/infrastructure/sql/space-signal-repo";
@@ -542,6 +544,13 @@ describe("Project issue destination confirmation", () => {
       throw new Error("Missing requester member");
     }
     const sourceSpaceId = await seedApprovalSpace(f);
+    const directMessage = service === "linear";
+    if (directMessage) {
+      await db.query({
+        text: 'UPDATE "openmeld"."space_index_spaces" SET space_purpose = $2 WHERE space_id = $1',
+        values: [sourceSpaceId, OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE],
+      });
+    }
     const submissionId = crypto.randomUUID();
     const idempotencyKey = crypto.randomUUID();
     const nowMs = Date.now();
@@ -638,6 +647,9 @@ describe("Project issue destination confirmation", () => {
     expect((await inbox.spaceSummary(scope)).attention).toEqual(
       expectedAttention
     );
+    expect((await inbox.spaceSummary(scope)).chatUnresolvedActionCount).toBe(
+      directMessage ? 1 : 0
+    );
     expect(
       (await inbox.spaceSummary({ ...scope, recipientUserId: f.memberA }))
         .attention
@@ -663,6 +675,14 @@ describe("Project issue destination confirmation", () => {
       values: [sourceSpaceId, f.ownerProfileId],
     });
     expect((await inbox.spaceSummary(scope)).attention).toEqual([]);
+    expect((await inbox.spaceSummary(scope)).chatUnresolvedActionCount).toBe(0);
+    // Losing access to the conversation must not remove a recipient-owned
+    // approval from Inbox. Delegated child Spaces need not contain the Human.
+    expect(
+      (await inbox.list({ ...scope, view: "needs_action" })).items.map(
+        (item) => item.id
+      )
+    ).toContain(requestItem.id);
     await db.query({
       text: 'UPDATE "openmeld"."space_index_memberships" SET status = \'active\' WHERE space_id = $1 AND profile_id = $2',
       values: [sourceSpaceId, f.ownerProfileId],
@@ -670,6 +690,19 @@ describe("Project issue destination confirmation", () => {
     expect((await inbox.spaceSummary(scope)).attention).toEqual(
       expectedAttention
     );
+    await deleteConversationHistoryForUser(db, {
+      spaceId: sourceSpaceId,
+      userId: f.ownerA,
+      throughPosition: 0,
+      deletedAt: Date.now(),
+    });
+    expect((await inbox.spaceSummary(scope)).attention).toEqual([]);
+    expect((await inbox.spaceSummary(scope)).chatUnresolvedActionCount).toBe(0);
+    expect(
+      (await inbox.list({ ...scope, view: "needs_action" })).items.map(
+        (item) => item.id
+      )
+    ).toContain(requestItem.id);
     const confirmation = {
       expectedOrganizationId: f.organizationA,
       context: connectorRequestContext({
