@@ -1,3 +1,5 @@
+const NATIVE_MESSAGE_ID = /^msg_[a-f0-9]{12}[0-9A-Za-z]{14}$/;
+
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import {
@@ -145,7 +147,13 @@ test(
       },
       openCodeTimeoutMs: 45_000,
     });
+    const admissions = [];
     const request = {
+      onRuntimeEvent: (event) => {
+        if (event.phase === "provider_turn_accepted") {
+          admissions.push(event);
+        }
+      },
       agentId: "agt-fixture",
       taskId: "task-source",
       sourceEventId: "evt-fixture",
@@ -159,6 +167,9 @@ test(
     assert.equal(source.status, "success", JSON.stringify(source));
     const sourceId = source.contextDelta?.agentControllerConversationId;
     assert.ok(sourceId);
+    assert.equal(admissions.length, 1);
+    assert.equal(admissions[0].agentControllerConversationId, sourceId);
+    assert.match(admissions[0].turnId, NATIVE_MESSAGE_ID);
     phase = "correction";
     const corrected = await adapter.dispatch({
       ...request,
@@ -177,6 +188,8 @@ test(
         "Only use the supplied reply tool to deliver the known limitation. Do not redo the task.",
     });
     assert.equal(corrected.status, "success", JSON.stringify(corrected));
+    assert.equal(admissions.length, 2);
+    assert.notEqual(admissions[0].turnId, admissions[1].turnId);
     assert.equal(
       corrected.contextDelta?.agentControllerConversationId,
       sourceId

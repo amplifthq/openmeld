@@ -2143,6 +2143,13 @@ The runtime provider catalog owns service identity and available authentication
 methods. OpenMeld accepts provider service keys through one shared contract,
 renders every supported credential method, and preserves multiline field types.
 Featured catalog entries are presentation metadata, not an execution allowlist.
+The Plugins browser shows featured entries only when the current runtime reports
+a configured OAuth client or a supported credential path. Loading and failed
+catalog reads must not fall back to advertising static entries as connectable.
+Existing connections remain discoverable for management even when their provider
+is no longer featured or ready for new connections. The full upstream directory
+remains available to explicit provider lookup; it is not the default product
+catalog and does not establish a public support count.
 Catalog-only providers without an executable connection method cannot be
 connected. Agent discovery lists only active shared connections and the verified
 requester's personal connections, then applies the existing execution policy.

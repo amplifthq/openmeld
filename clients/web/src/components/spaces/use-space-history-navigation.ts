@@ -1,7 +1,14 @@
 import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import type { SignalEnvelope } from "@openmeld/schemas/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useId,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { readSpaceConversationPosition } from "#/lib/space-conversation-position";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import {
@@ -13,6 +20,10 @@ import {
 	SPACE_HISTORY_SIGNAL_KINDS,
 	writeSpaceHistoryEnvelopesToCache,
 } from "#/query/spaces/history";
+import {
+	MissingHistoryAnchorError,
+	shouldRetrySpaceHistoryQuery,
+} from "#/query/spaces/retry";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import { buildSpaceConversationScrollRestorationId } from "./space-conversation-scroll-restoration";
 
@@ -83,27 +94,19 @@ export function useSpaceHistoryNavigation(input: {
 		() => visibleSignals.slice(liveStartIndex),
 		[visibleSignals, liveStartIndex]
 	);
-	const [pending, setPending] = useState(false);
-	const [pendingDirection, setPendingDirection] = useState<
-		"before" | "after" | undefined
-	>();
-	const [error, setError] = useState<string | null>(null);
-	const [notice, setNotice] = useState<string | null>(null);
-	const [errorDirection, setErrorDirection] = useState<
-		"before" | "after" | undefined
-	>();
+	const [request, setRequest] = useState<HistoryRequest | null>(null);
+	const [missingMessageIdentity, setMissingMessageIdentity] = useState<
+		string | null
+	>(null);
+	const requestSequence = useRef(0);
 	const flight = useRef<AbortController | null>(null);
-	const currentIdentity = useRef(identity);
-	currentIdentity.current = identity;
 	useEffect(() => {
-		currentIdentity.current = identity;
-		setPending(false);
-		setPendingDirection(undefined);
-		setError(null);
-		setNotice(null);
-		setErrorDirection(undefined);
+		setMissingMessageIdentity(null);
+		setRequest((current) =>
+			current?.identity === identity && !input.accessRejected ? current : null
+		);
 		return () => flight.current?.abort();
-	}, [identity]);
+	}, [identity, input.accessRejected]);
 	const api = useCallback(
 		() =>
 			createUnscopedWebSpaceApi(
@@ -170,147 +173,114 @@ export function useSpaceHistoryNavigation(input: {
 		visibleSignals,
 		visibleLiveEnvelopes,
 	]);
-	const showLatestForMissingAnchor = async (
-		signal: AbortSignal,
-		isCurrentRequest: () => boolean,
-		direction?: "before" | "after"
-	) => {
-		if (direction) {
-			setError(
-				"This message is no longer available. Open the latest messages to continue."
-			);
-			setErrorDirection(direction);
-			return false;
-		}
-		// Reauthorize the same conversation. Never search other Spaces for
-		// a historical notification's misplaced or removed message id.
-		const latest = await api().listSignalEnvelopes({
+	const { selectedRequest, historyWindow, pending, error, notice, retry } =
+		useHistoryWindowQuery({
+			missingMessageIdentity,
+			request,
+			identity,
+			accessRejected: input.accessRejected,
 			spaceId: input.spaceId,
-			signal,
-			query: { recent: true, limit: 60, kinds: SPACE_HISTORY_SIGNAL_KINDS },
+			profileId: input.profileId,
+			api,
 		});
-		if (!isCurrentRequest()) {
-			return false;
+	const appliedResult = useRef<unknown>(null);
+	useEffect(() => {
+		if (!selectedRequest || selectedRequest.controller.signal.aborted) {
+			return;
 		}
+		if (historyWindow.isError && !historyWindow.isFetching) {
+			selectedRequest.resolve(false);
+			return;
+		}
+		const result = historyWindow.data;
+		if (!result || result === appliedResult.current) {
+			return;
+		}
+		appliedResult.current = result;
+		setMissingMessageIdentity(result.latest ? identity : null);
 		writeSpaceHistoryEnvelopesToCache({
-			envelopes: latest.envelopes,
+			envelopes: result.envelopes,
 			queryClient,
 			spaceId: input.spaceId,
 			openMeldProfileId: input.profileId,
 		});
-		setWindow({
-			identity,
-			envelopes: latest.envelopes,
-			confirmedAtLiveTail: true,
-			hasBefore: latest.envelopes.length >= 60,
-			hasAfter: false,
-		});
-		setNotice(
-			"This message is no longer available in this conversation. Showing the latest messages."
+		setWindow((current) =>
+			result.latest
+				? {
+						identity,
+						envelopes: result.envelopes,
+						confirmedAtLiveTail: true,
+						hasBefore: result.envelopes.length >= 60,
+						hasAfter: false,
+					}
+				: mergeHistoryWindow(
+						current?.identity === identity
+							? current
+							: selectedRequest.baseWindow,
+						identity,
+						result.envelopes,
+						result.anchorIndex,
+						selectedRequest.direction
+					)
 		);
-		return "latest" as const;
-	};
-	const readWindow = async (
+		selectedRequest.resolve(result.latest ? "latest" : true);
+		selectedRequest.onLoaded?.(result.latest ? "latest" : true);
+	}, [
+		selectedRequest,
+		historyWindow.data,
+		historyWindow.isError,
+		historyWindow.isFetching,
+		queryClient,
+		input.spaceId,
+		input.profileId,
+		identity,
+	]);
+	const readWindow = (
 		signalId: string,
 		direction?: "before" | "after",
-		signal?: AbortSignal
-	) => {
-		if (
-			input.accessRejected ||
-			signal?.aborted ||
-			(direction && flight.current)
-		) {
-			return false;
+		signal?: AbortSignal,
+		onLoaded?: HistoryRequest["onLoaded"]
+	): Promise<boolean | "latest"> => {
+		if (input.accessRejected || signal?.aborted || (direction && pending)) {
+			return Promise.resolve(false);
 		}
 		flight.current?.abort();
+		setMissingMessageIdentity(null);
 		const controller = new AbortController();
+		flight.current = controller;
 		const abort = () => controller.abort();
 		signal?.addEventListener("abort", abort, { once: true });
-		flight.current = controller;
-		const isCurrentRequest = () =>
-			!controller.signal.aborted && currentIdentity.current === identity;
-		setPending(true);
-		setPendingDirection(direction);
-		setError(null);
-		setNotice(null);
-		setErrorDirection(undefined);
-		try {
-			const result = await api()
-				.listSignalEnvelopes({
-					spaceId: input.spaceId,
-					signal: controller.signal,
-					query: {
-						aroundSignalId: signalId,
-						beforeCount: direction === "after" ? 0 : 30,
-						afterCount: direction === "before" ? 0 : 30,
-						kinds: SPACE_HISTORY_SIGNAL_KINDS,
-					},
-				})
-				.catch((failure: unknown) => {
-					const structured = toStructuredApiClientFailure(failure);
-					if (structured.upstreamCode !== "space.signals.anchor_not_found") {
-						throw failure;
-					}
-					return { envelopes: [] };
-				});
-			if (!isCurrentRequest()) {
-				return false;
-			}
-			if (!result.envelopes.some((item) => item.id === signalId)) {
-				return await showLatestForMissingAnchor(
-					controller.signal,
-					isCurrentRequest,
-					direction
-				);
-			}
-			writeSpaceHistoryEnvelopesToCache({
-				envelopes: result.envelopes,
-				queryClient,
-				spaceId: input.spaceId,
-				openMeldProfileId: input.profileId,
-			});
-			// The around SQL applies signal-kind and main-timeline filters before
-			// LIMIT. A full side may have more; a short side is an actual boundary.
-			const anchorIndex = result.envelopes.findIndex(
-				(item) => item.id === signalId
+		return new Promise((resolve) => {
+			controller.signal.addEventListener(
+				"abort",
+				() => {
+					signal?.removeEventListener("abort", abort);
+					setRequest((current) =>
+						current?.controller === controller ? null : current
+					);
+					resolve(false);
+				},
+				{ once: true }
 			);
-			setWindow((current) => {
-				const currentWindow =
-					current?.identity === identity ? current : activeWindow;
-				return mergeHistoryWindow(
-					currentWindow,
-					identity,
-					result.envelopes,
-					anchorIndex,
-					direction
-				);
+			setRequest({
+				identity,
+				sequence: ++requestSequence.current,
+				signalId,
+				direction,
+				controller,
+				resolve,
+				baseWindow: activeWindow,
+				onLoaded,
 			});
-			return true;
-		} catch (failure) {
-			if (isCurrentRequest()) {
-				setError(navigationErrorMessage(failure));
-				setErrorDirection(direction);
-			}
-			return false;
-		} finally {
-			signal?.removeEventListener("abort", abort);
-			if (flight.current === controller) {
-				flight.current = null;
-				setPending(false);
-				setPendingDirection(undefined);
-			}
-		}
+		});
 	};
 	const latest = () => {
 		const first = visibleSignals.at(-60);
 		setLiveBoundary(first ? { identity, signalId: first.id } : null);
 		flight.current?.abort();
 		flight.current = null;
+		setRequest(null);
 		setWindow(null);
-		setPending(false);
-		setPendingDirection(undefined);
-		setError(null);
-		setErrorDirection(undefined);
 	};
 	const { earlierSignal, newerSignal } = continuationSignals({
 		activeWindow,
@@ -343,12 +313,16 @@ export function useSpaceHistoryNavigation(input: {
 		retryDirectory: () => directory.refetch(),
 		activeWindow,
 		pending,
-		pendingDirection,
+		pendingDirection: pending ? selectedRequest?.direction : undefined,
 		error,
 		notice,
-		errorDirection,
-		open: (signalId: string, signal?: AbortSignal) =>
-			readWindow(signalId, undefined, signal),
+		errorDirection: error ? selectedRequest?.direction : undefined,
+		retry,
+		open: (
+			signalId: string,
+			signal?: AbortSignal,
+			onLoaded?: HistoryRequest["onLoaded"]
+		) => readWindow(signalId, undefined, signal, onLoaded),
 		latest,
 		loadBefore: () =>
 			activeWindow?.hasBefore && activeWindow.envelopes[0]
@@ -366,6 +340,105 @@ export function useSpaceHistoryNavigation(input: {
 export type SpaceHistoryNavigationController = ReturnType<
 	typeof useSpaceHistoryNavigation
 >;
+
+function useHistoryWindowQuery(input: {
+	missingMessageIdentity: string | null;
+	request: HistoryRequest | null;
+	identity: string;
+	accessRejected: boolean;
+	spaceId: string;
+	profileId: string;
+	api: () => ReturnType<typeof createUnscopedWebSpaceApi>;
+}) {
+	const requestOwner = useId();
+	const selectedRequest =
+		input.request?.identity === input.identity && !input.accessRejected
+			? input.request
+			: null;
+	const historyWindow = useQuery<Awaited<ReturnType<typeof readHistoryWindow>>>(
+		{
+			queryKey: [
+				...spaceQueryKeys.historyWindow(input.spaceId, input.profileId),
+				requestOwner,
+				selectedRequest?.sequence ?? null,
+			],
+			enabled: selectedRequest !== null,
+			gcTime: 0,
+			staleTime: Number.POSITIVE_INFINITY,
+			retry: shouldRetrySpaceHistoryQuery,
+			refetchOnWindowFocus: (query) =>
+				shouldRetrySpaceHistoryQuery(0, query.state.error),
+			refetchOnReconnect: (query) =>
+				shouldRetrySpaceHistoryQuery(0, query.state.error),
+			queryFn: ({ signal }) =>
+				readHistoryWindow(input.api(), input.spaceId, selectedRequest, signal),
+		}
+	);
+	return {
+		selectedRequest,
+		retry: shouldRetrySpaceHistoryQuery(0, historyWindow.error)
+			? () => historyWindow.refetch()
+			: undefined,
+		notice:
+			input.missingMessageIdentity === input.identity && !input.accessRejected
+				? "This message is no longer available in this conversation. Showing the latest messages."
+				: null,
+		historyWindow,
+		pending: selectedRequest !== null && historyWindow.fetchStatus !== "idle",
+		error:
+			selectedRequest && historyWindow.isError
+				? navigationErrorMessage(historyWindow.error)
+				: null,
+	};
+}
+
+async function readHistoryWindow(
+	api: ReturnType<typeof createUnscopedWebSpaceApi>,
+	spaceId: string,
+	request: HistoryRequest | null,
+	signal: AbortSignal
+) {
+	if (!request) {
+		throw new Error("No history position selected.");
+	}
+	const { signalId, direction } = request;
+	const result = await api
+		.listSignalEnvelopes({
+			spaceId,
+			signal,
+			query: {
+				aroundSignalId: signalId,
+				beforeCount: direction === "after" ? 0 : 30,
+				afterCount: direction === "before" ? 0 : 30,
+				kinds: SPACE_HISTORY_SIGNAL_KINDS,
+			},
+		})
+		.catch((failure: unknown) => {
+			if (
+				toStructuredApiClientFailure(failure).upstreamCode !==
+				"space.signals.anchor_not_found"
+			) {
+				throw failure;
+			}
+			return { envelopes: [] };
+		});
+	const anchorIndex = result.envelopes.findIndex(
+		(item) => item.id === signalId
+	);
+	if (anchorIndex >= 0) {
+		return { envelopes: result.envelopes, anchorIndex, latest: false };
+	}
+	if (direction) {
+		throw new MissingHistoryAnchorError();
+	}
+	// Reauthorize in the same Space; a missing anchor never permits a cross-Space search.
+	const latest = await api.listSignalEnvelopes({
+		spaceId,
+		signal,
+		query: { recent: true, limit: 60, kinds: SPACE_HISTORY_SIGNAL_KINDS },
+	});
+	return { envelopes: latest.envelopes, anchorIndex: -1, latest: true };
+}
 
 function mergeHistoryWindow(
 	current: HistoryWindow | null,
@@ -398,6 +471,18 @@ function mergeHistoryWindow(
 				: envelopes.length - anchorIndex - 1 >= 30,
 	};
 }
+
+type HistoryRequest = {
+	identity: string;
+	sequence: number;
+	signalId: string;
+	direction?: "before" | "after";
+	controller: AbortController;
+	resolve: (result: boolean | "latest") => void;
+	baseWindow: HistoryWindow | null;
+	// Navigation completion also applies when the first attempt failed and Query later recovered.
+	onLoaded?: (result: true | "latest") => void;
+};
 
 type HistoryWindow = {
 	identity: string;
@@ -457,9 +542,12 @@ function initialHistoryWindow(input: {
 }
 
 function navigationErrorMessage(failure: unknown) {
+	if (failure instanceof MissingHistoryAnchorError) {
+		return "This message is no longer available. Open the latest messages to continue.";
+	}
 	const { status } = toStructuredApiClientFailure(failure);
 	if (status === 401 || status === 403) {
 		return "You don’t have access to this conversation. Return to Inbox to view your other updates.";
 	}
-	return "Couldn’t load this part of the conversation. Try again.";
+	return "Couldn’t load this part of the conversation.";
 }

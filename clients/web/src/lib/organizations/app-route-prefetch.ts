@@ -9,6 +9,7 @@ import {
 } from "#/lib/spaces/thread-navigation";
 import { readSpaceThreadPanelSelection } from "#/lib/spaces/thread-panel-storage";
 import { accountSidebarQueryOptions } from "#/query/account/sidebar-preferences";
+import { accountOrganizationContextQueryOptions } from "#/query/organizations/account-organization-context";
 import { centerAgentDirectMessageSpaceProjectionQueryOptions } from "#/query/organizations/center-agent";
 import {
 	type InboxFeedFilters,
@@ -18,10 +19,6 @@ import {
 	organizationProfileDirectoryQueryOptions,
 	organizationSpacesQueryOptions,
 } from "#/query/organizations/organization-directory";
-import {
-	organizationScopeQueryKeys,
-	organizationScopeQueryOptions,
-} from "#/query/organizations/organization-scope";
 import type { BrowserQueryPersistenceController } from "#/query/persistence/browser-query-persistence";
 import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
 import { spaceBootstrapQueryOptions } from "#/query/spaces/bootstrap";
@@ -33,10 +30,8 @@ import {
 	spaceThreadSignalsQueryOptions,
 	spaceThreadsQueryOptions,
 } from "#/query/spaces/threads";
-import type {
-	OrganizationScopeAuthorized,
-	OrganizationScopeResolution,
-} from "./organization-types";
+import { resolveOrganizationScopeForContext } from "./organization-scope";
+import type { OrganizationScopeAuthorized } from "./organization-types";
 
 type OrganizationRoutePrefetchInput = {
 	organizationSlug: string;
@@ -365,16 +360,16 @@ async function prefetchTargetThread(
 async function resolveAuthorizedPrefetchScope(
 	input: OrganizationRoutePrefetchInput
 ): Promise<OrganizationScopeAuthorized | null> {
-	const queryOptions = organizationScopeQueryOptions({
-		organizationSlug: input.organizationSlug,
-		routeFamily: input.routeFamily,
+	const context = await input.queryClient.ensureQueryData(
+		accountOrganizationContextQueryOptions(input.routeFamily)
+	);
+	if (!context) {
+		return null;
+	}
+	const scope = resolveOrganizationScopeForContext({
+		context,
+		orgSlug: input.organizationSlug,
 	});
-	const cachedScope =
-		input.queryClient.getQueryData<OrganizationScopeResolution>(
-			organizationScopeQueryKeys.bySlug(input.organizationSlug)
-		);
-	const scope =
-		cachedScope ?? (await input.queryClient.ensureQueryData(queryOptions));
 	if (scope.access !== "authorized") {
 		return null;
 	}

@@ -24,6 +24,11 @@ export const INBOX_OPEN_REQUEST =
 export const INBOX_OPEN_REVIEW = `(${INBOX_OPEN_REQUEST}) AND
   (((source_facts_json)::jsonb #>> '{requestCategory}') = 'review' OR
     (((source_facts_json)::jsonb #>> '{requestCategory}') IS NULL AND kind IN ('document_review', 'organization_request')))`;
-export const INBOX_UNREAD_PRIORITY_UPDATE = `attention = 'update' AND read_at_ms IS NULL AND
-  (importance = 'urgent' OR ${currentInboxAgentFactExistsSql("inbox_items", "firstContactAgentProfileIds")})`;
-export const INBOX_PRIORITY = `((${INBOX_OPEN_REQUEST}) AND importance = 'urgent') OR (${INBOX_UNREAD_PRIORITY_UPDATE})`;
+function inboxUnreadPriorityUpdateSql(useFeedAgentScope = false): string {
+  return `attention = 'update' AND read_at_ms IS NULL AND
+    (importance = 'urgent' OR ${currentInboxAgentFactExistsSql("inbox_items", "firstContactAgentProfileIds", useFeedAgentScope)})`;
+}
+export const INBOX_UNREAD_PRIORITY_UPDATE = inboxUnreadPriorityUpdateSql();
+export function inboxPrioritySql(useFeedAgentScope = false): string {
+  return `(${INBOX_OPEN_REQUEST}) OR (${inboxUnreadPriorityUpdateSql(useFeedAgentScope)})`;
+}

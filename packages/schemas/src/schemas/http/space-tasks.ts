@@ -10,7 +10,7 @@ export const SPACE_TASK_RESULT_SUMMARY_MAX_CHARS = 8000;
 export const SPACE_TASK_REVIEW_FEEDBACK_MAX_CHARS = 8000;
 export const SPACE_TASK_OPERATION_ID_MAX_CHARS = 512;
 export const SPACE_TASK_LIST_MAX_ITEMS = 500;
-export const SPACE_TASK_WORKFLOW_CONTRACT_VERSION = 2;
+export const SPACE_TASK_WORKFLOW_CONTRACT_VERSION = 3;
 export const SPACE_TASK_PROJECT_MAX_ITEMS = 12;
 
 const spaceTaskProjectIdsSchema = z
@@ -60,11 +60,16 @@ export const spaceTaskActorSchema = z.strictObject({
   ownerUserId: z.string().min(1).max(512).nullable(),
 });
 
+const spaceTaskAttributionSchema = z.union([
+  spaceTaskActorSchema,
+  z.strictObject({ provider: z.literal("github") }),
+]);
+
 export const spaceTaskResultSchema = z.strictObject({
   resultRevision: z.number().int().min(1),
   summary: z.string().trim().min(1).max(SPACE_TASK_RESULT_SUMMARY_MAX_CHARS),
   submittedAt: z.string().datetime(),
-  submittedBy: spaceTaskActorSchema,
+  submittedBy: spaceTaskAttributionSchema,
 });
 
 export const spaceTaskReviewSchema = z.strictObject({
@@ -151,7 +156,14 @@ export function formatSpaceTaskGitHubIssueLabel(item: {
 }
 
 export function spaceTaskGitHubIssueOperationId(
-  kind: "attach" | "cancel" | "create" | "observe-closed" | "observe-open",
+  kind:
+    | "attach"
+    | "cancel"
+    | "settle"
+    | "start"
+    | "create"
+    | "observe-closed"
+    | "observe-open",
   identity: {
     number: number;
     owner: string;
@@ -200,7 +212,7 @@ export const spaceTaskEventSchema = z.strictObject({
   taskId: spaceTaskIdSchema,
   operationId: z.string().trim().min(1).max(SPACE_TASK_OPERATION_ID_MAX_CHARS),
   type: spaceTaskEventTypeSchema,
-  actor: spaceTaskActorSchema,
+  actor: spaceTaskAttributionSchema,
   fromPhase: z.union([spaceTaskPhaseSchema, z.null()]),
   toPhase: spaceTaskPhaseSchema,
   taskRevision: z.number().int().min(1),
@@ -400,14 +412,14 @@ export const spaceTaskResponseSchema = z.strictObject({
 export const listSpaceTasksQuerySchema = z.strictObject({
   phase: spaceTaskPhaseSchema.optional(),
   taskContractVersion: z
-    .literal(SPACE_TASK_WORKFLOW_CONTRACT_VERSION)
+    .union([z.literal(2), z.literal(SPACE_TASK_WORKFLOW_CONTRACT_VERSION)])
     .optional(),
 });
 
 export const spaceTaskDetailOptionsSchema = z.strictObject({
   includeAffordances: z.boolean().optional(),
   taskContractVersion: z
-    .literal(SPACE_TASK_WORKFLOW_CONTRACT_VERSION)
+    .union([z.literal(2), z.literal(SPACE_TASK_WORKFLOW_CONTRACT_VERSION)])
     .optional(),
 });
 

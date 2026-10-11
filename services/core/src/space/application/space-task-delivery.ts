@@ -49,7 +49,10 @@ export function enqueueSpaceTaskDeliveries(input: {
         id: `${event.eventId}:${kind}`,
         kind,
         receipt: input.receipt,
-        actor: input.authorizedActor ? event.actor : null,
+        actor:
+          input.authorizedActor && !("provider" in event.actor)
+            ? event.actor
+            : null,
         ...(kind === "stop"
           ? { wakeTargets: input.repository.wakeRefs(task.taskId) }
           : {}),
@@ -177,6 +180,7 @@ export function isAuthorizedSpaceTaskStop(input: {
     event?.eventId === delivery.receipt.event.eventId &&
     event.type === "canceled" &&
     event.taskId === delivery.receipt.task.taskId &&
+    !("provider" in event.actor) &&
     event.actor.profileId === input.actorProfileId &&
     event.actor.ownerUserId === input.actorOwnerUserId &&
     input.deliveryRepository.hasWake(

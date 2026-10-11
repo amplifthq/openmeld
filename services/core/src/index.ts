@@ -1198,6 +1198,10 @@ import {
   ROUTINE_TICK_CRON,
   runCoreScheduledTasks,
 } from "./scheduled/core-scheduled-tasks";
+import {
+  rpcReadMessages,
+  rpcRemoteAgentReadMessages,
+} from "./search/message-read";
 import { rpcSearchMessages } from "./search/message-search";
 import { emitCoreCloudflareRuntimeEvidence } from "./shared/observability/cloudflare-runtime-evidence";
 import { handleCoreQueueBatch } from "./shared/queue/core-queue-router";
@@ -1754,6 +1758,18 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return withSpaceImageGeometryRpcOutput(
       rpcSearchMessages(this.env, input),
       spaceImageGeometryVersion
+    );
+  }
+  readMessages(input: import("@openmeld/schemas").MessageReadRpcInput) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadMessages(this.env, input)
+    );
+  }
+  remoteAgentReadMessages(
+    input: import("@openmeld/schemas").MessageReadRpcInput
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcRemoteAgentReadMessages(this.env, input)
     );
   }
   mutateInboxFeed(
@@ -3333,6 +3349,11 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   ) {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       rpcPluginActionRequest(this.env, input)
+    );
+  }
+  listPluginActionRequests(input: unknown) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      listPluginActionRequests(this.env, input)
     );
   }
 
@@ -6727,7 +6748,10 @@ import type {
   CenterAgentReadChannelFileResponse,
   CenterAgentSetReplyPlacementInput,
 } from "@openmeld/schemas/types";
-import { rpcPluginActionRequest } from "./connectors/plugin-action-requests";
+import {
+  listPluginActionRequests,
+  rpcPluginActionRequest,
+} from "./connectors/plugin-action-requests";
 import {
   authorizeLocalPluginConnection,
   rpcPluginAction,

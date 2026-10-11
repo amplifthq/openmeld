@@ -4,6 +4,9 @@ title: Read conversations and threads in the homepage demo
 kind: improved
 areas: ["website", "spaces"]
 audiences: ["users"]
+publishedAt: 2026-10-10
+release: v0.3.251
+evidence: ["commit:88888852bd7265c0b437ddefc5011c6175f0e4c1", "commit:03668cdc6506ea4ed93f4166387533e5bd30bd84", "pr:1638", "workflow:38078641800", "workflow:38079531426"]
 ---
 
 The homepage demo opens billing review in a readable Thread panel alongside the

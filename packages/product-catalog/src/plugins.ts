@@ -1365,6 +1365,33 @@ export function findPluginDefinition(service: string): PluginDefinition | null {
   return PLUGINS.find((plugin) => plugin.service === service) ?? null;
 }
 
+/** Browse only selected Plugins with a runtime connection path; retain accounts
+ * already connected so their owners can still manage or disconnect them. */
+export function pluginsForCatalog(
+  providers: readonly ConnectorAppCatalogProvider[],
+  connectedServices: ReadonlySet<string> = new Set()
+): PluginDefinition[] {
+  const byService = new Map(
+    providers.map((provider) => [provider.service, provider])
+  );
+  const services = new Set<string>([
+    ...PLUGINS.map((plugin) => plugin.service),
+    ...connectedServices,
+  ]);
+  return [...services].flatMap((service) => {
+    const provider = byService.get(service);
+    if (!provider) {
+      const existing = findPluginDefinition(service);
+      return connectedServices.has(service) && existing ? [existing] : [];
+    }
+    const plugin = pluginFromProvider(provider);
+    const canConnect =
+      provider.connectionAuth?.oauth === true ||
+      (provider.connectionAuth?.credentials.length ?? 0) > 0;
+    return canConnect || connectedServices.has(service) ? [plugin] : [];
+  });
+}
+
 /** Static entries supply editorial presentation, never provider admission. */
 export function pluginFromProvider(
   provider: ConnectorAppCatalogProvider

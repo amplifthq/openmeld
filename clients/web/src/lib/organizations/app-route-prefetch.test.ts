@@ -17,7 +17,7 @@ import {
 	restoreSpaceConversationRouteData,
 } from "./app-route-prefetch";
 
-const resolveOrganizationScopeMock = vi.hoisted(() => vi.fn());
+const readAccountContextMock = vi.hoisted(() => vi.fn());
 const listStartProfilesMock = vi.hoisted(() => vi.fn());
 const readOrganizationProfileDirectoryMock = vi.hoisted(() => vi.fn());
 const readOrganizationAgentRuntimeOverviewMock = vi.hoisted(() => vi.fn());
@@ -38,8 +38,8 @@ const readCurrentCenterAgentDirectMessageSpaceProjectionMock = vi.hoisted(() =>
 );
 let queryPersistence: BrowserQueryPersistenceController;
 
-vi.mock("#/lib/organizations/organization-scope", () => ({
-	resolveOrganizationScope: resolveOrganizationScopeMock,
+vi.mock("#/lib/organizations/account-organization-context", () => ({
+	readCurrentAccountOrganizationContext: readAccountContextMock,
 }));
 
 vi.mock("#/lib/profiles/existing-profiles", () => ({
@@ -147,7 +147,12 @@ describe("organization app route prefetch", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		readThreadSelectionMock.mockReturnValue(null);
-		resolveOrganizationScopeMock.mockResolvedValue(authorizedScope);
+		readAccountContextMock.mockResolvedValue({
+			account: authorizedScope.account,
+			currentUserId: authorizedScope.currentUserId,
+			organizations: authorizedScope.organizations,
+			defaultOrganizationId: authorizedScope.activeOrganization.id,
+		});
 		listStartProfilesMock.mockResolvedValue([humanProfile]);
 		readOrganizationProfileDirectoryMock.mockResolvedValue(
 			organizationProfileDirectory
@@ -342,7 +347,12 @@ describe("organization app route prefetch", () => {
 		expect(listSignalEnvelopesMock).not.toHaveBeenCalled();
 		expect(
 			queryClient.getQueryData(spaceQueryKeys.history("space-1", "human-1"))
-		).toEqual({ envelopes: [], nextCursor: null });
+		).toEqual({
+			envelopes: [],
+			nextCursor: null,
+			confirmedCursor: null,
+			personalHistoryDeletedAt: 0,
+		});
 		expect(queryPersistence.restoreSpaceConversation).toHaveBeenCalledWith({
 			organizationId: "org-acme",
 			organizationSlug: "acme",
@@ -567,7 +577,7 @@ describe("organization app route prefetch", () => {
 			openMeldProfileId: "human-1",
 		});
 
-		expect(resolveOrganizationScopeMock).not.toHaveBeenCalled();
+		expect(readAccountContextMock).not.toHaveBeenCalled();
 		expect(listStartProfilesMock).not.toHaveBeenCalled();
 		expect(queryPersistence.restoreSpaceConversation).toHaveBeenCalledTimes(1);
 		expect(getBootstrapMock).toHaveBeenCalledTimes(1);

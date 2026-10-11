@@ -5,7 +5,9 @@ import {
 	OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION,
 } from "@openmeld/gateway-contract";
 import {
+	type MessageReadItem,
 	type MessageSearchResponse,
+	messageReadPageSchema,
 	messageSearchResponseSchema,
 	sanitizeSignalTextPreview,
 } from "@openmeld/schemas";
@@ -33,6 +35,7 @@ import {
 	presentInboxItem,
 	useConversationNames,
 } from "#/components/spaces/conversation-names";
+import { requestInboxSourceFocus } from "#/lib/inbox/source-focus-request";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 import {
 	useAppOrganization,
@@ -118,6 +121,7 @@ export function MessageSearchDialog(input: {
 }
 
 export function useMessageSearch(input: {
+	browseHistory?: boolean;
 	draft: string;
 	isComposing: boolean;
 	spaceId?: string;
@@ -129,6 +133,9 @@ export function useMessageSearch(input: {
 	const profileId = input.profileId ?? defaultHumanProfile?.openMeldProfileId;
 	const { isComposing } = input;
 	const searchText = input.draft.trim();
+	const browsing = Boolean(
+		input.browseHistory && input.spaceId && !searchText && !isComposing
+	);
 	const minimumQueryLength = input.spaceId ? 1 : 3;
 	const [settledQuery, setSettledQuery] = useState("");
 	const query = !isComposing && settledQuery === searchText ? settledQuery : "";
@@ -149,10 +156,13 @@ export function useMessageSearch(input: {
 			input.spaceId,
 			input.scope,
 			query,
+			browsing,
 		],
-		enabled: Boolean([...query].length >= minimumQueryLength && profileId),
+		enabled: Boolean(
+			(browsing || [...query].length >= minimumQueryLength) && profileId
+		),
 		initialPageParam: undefined as string | undefined,
-		queryFn: ({ pageParam, signal }) => {
+		queryFn: async ({ pageParam, signal }) => {
 			const params = new URLSearchParams({
 				q: query,
 				scope: input.scope ?? "messages",
@@ -163,10 +173,25 @@ export function useMessageSearch(input: {
 			if (pageParam) {
 				params.set("cursor", pageParam);
 			}
-			return createOrganizationScopedWebOpenMeldApiFoundation({
+			const client = createOrganizationScopedWebOpenMeldApiFoundation({
 				organizationId: currentOrganization.id,
 				openMeldProfileId: profileId,
-			}).requestJson({
+			});
+			if (input.scope !== "inbox") {
+				params.delete("scope");
+				if (browsing) {
+					params.delete("q");
+				}
+				const page = await client.requestJson({
+					url: `/v1/messages/query?${params}`,
+					operation: "messages.query",
+					signal,
+					schema: messageReadPageSchema,
+					invalidMessage: "Messages are unavailable. Refresh and try again.",
+				});
+				return { ...page, activities: [] };
+			}
+			return client.requestJson({
 				url: `/v1/messages/search?${params}`,
 				operation: "messages.search",
 				headers: {
@@ -187,7 +212,9 @@ export function useMessageSearch(input: {
 	const matches = [
 		...new Map(
 			results.data?.pages
-				.flatMap((page) => page.matches)
+				.flatMap<MessageReadItem | MessageSearchResponse["matches"][number]>(
+					(page) => page.matches
+				)
 				.map((match) => [
 					`${match.signal.spaceId}:${match.signal.id}`,
 					match,
@@ -217,9 +244,12 @@ export function useMessageSearch(input: {
 	// One search spans several requests; gaps between pages are not completion.
 	const searching = Boolean(
 		!isComposing &&
-			[...searchText].length >= minimumQueryLength &&
+			(browsing || [...searchText].length >= minimumQueryLength) &&
 			!isError &&
-			(!query || results.isPending || isFetching || continueAutomatically)
+			(!(browsing || query) ||
+				results.isPending ||
+				isFetching ||
+				continueAutomatically)
 	);
 	useEffect(() => {
 		if (continueAutomatically && !isFetching && !isError) {
@@ -250,6 +280,7 @@ function MessageSearchContents(input: {
 }) {
 	const [draft, setDraft] = useState(input.initialQuery ?? "");
 	const [isComposing, setIsComposing] = useState(false);
+	const [browseHistory, setBrowseHistory] = useState(false);
 	const {
 		results,
 		matches,
@@ -262,15 +293,17 @@ function MessageSearchContents(input: {
 		minimumQueryLength,
 		profileId,
 		currentOrganization,
-	} = useMessageSearch({ ...input, draft, isComposing });
-	const showInitialState = Boolean(input.spaceId && !searchText);
-	const showNoResults = Boolean(
-		query &&
-			!searching &&
-			!results.isError &&
-			!results.hasNextPage &&
-			resultCount === 0
+	} = useMessageSearch({ ...input, draft, isComposing, browseHistory });
+	const showInitialState = Boolean(
+		input.spaceId && !searchText && !browseHistory
 	);
+	const showNoResults = isEmptySearch({
+		active: Boolean(query || browseHistory),
+		searching,
+		error: results.isError,
+		hasMore: Boolean(results.hasNextPage),
+		count: resultCount,
+	});
 	const showFullErrorState = results.isError && resultCount === 0;
 	const showCenteredState =
 		showInitialState || showNoResults || showFullErrorState;
@@ -309,12 +342,20 @@ function MessageSearchContents(input: {
 					)}
 				>
 					{showInitialState && (
-						<AppEmptyState
-							className="h-full min-h-0 border-0 bg-transparent"
-							description="Results will appear here."
-							icon={<MagnifyingGlassIcon />}
-							title="Start typing to search"
-						/>
+						<div className="flex flex-col items-center gap-3">
+							<AppEmptyState
+								className="h-full min-h-0 border-0 bg-transparent"
+								description="Results will appear here."
+								icon={<MagnifyingGlassIcon />}
+								title="Start typing to search"
+							/>
+							<Button
+								onClick={() => setBrowseHistory(true)}
+								variant="secondary"
+							>
+								Browse recent messages
+							</Button>
+						</div>
 					)}
 					{resultCount > 0 && (
 						<FluidActionList
@@ -348,6 +389,7 @@ function MessageSearchContents(input: {
 									onClick={() => input.onOpenChange(false)}
 									render={
 										<Link
+											state={requestInboxSourceFocus}
 											to={messageSearchHref(
 												match,
 												currentOrganization.slug,
@@ -380,6 +422,7 @@ function MessageSearchContents(input: {
 					>
 						{!(input.spaceId || isComposing) &&
 							[...searchText].length < minimumQueryLength &&
+							!browseHistory &&
 							"Use at least 3 characters."}
 						{searching && "Searching…"}
 					</div>
@@ -388,7 +431,7 @@ function MessageSearchContents(input: {
 							className="h-full min-h-0 border-0 bg-transparent"
 							description="Try another search."
 							icon={<MagnifyingGlassIcon />}
-							title={`No messages found for “${query}”`}
+							title={emptySearchTitle(query)}
 						/>
 					)}
 					{results.isError && (
@@ -435,16 +478,36 @@ function MessageSearchContents(input: {
 	);
 }
 
+function emptySearchTitle(query: string) {
+	return query ? `No messages found for “${query}”` : "No messages to browse";
+}
+
+function isEmptySearch(input: {
+	active: boolean;
+	searching: boolean;
+	error: boolean;
+	hasMore: boolean;
+	count: number;
+}) {
+	return (
+		input.active &&
+		!input.searching &&
+		!input.error &&
+		!input.hasMore &&
+		input.count === 0
+	);
+}
+
 function inboxSearchHref(orgSlug: string, itemId: string): string {
 	return `${buildOrganizationInboxPath(orgSlug)}?item=${encodeURIComponent(itemId)}`;
 }
 
 export function messageSearchHref(
-	match: MessageSearchResponse["matches"][number],
+	match: MessageSearchResponse["matches"][number] | MessageReadItem,
 	orgSlug: string,
 	profileId?: string
 ) {
-	if (match.inboxItemId) {
+	if ("inboxItemId" in match && match.inboxItemId) {
 		return inboxSearchHref(orgSlug, match.inboxItemId);
 	}
 	const search = {

@@ -1,5 +1,5 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { connect, createServer } from "node:net";
 import { loadavg } from "node:os";
@@ -655,13 +655,23 @@ async function runOpenCodeServerTurn(input: {
   const eventReady = createDeferred<void>();
   const eventFailure = createDeferred<never>();
   const turnCompletion = createDeferred<void>();
+  // A caller-owned ID correlates this input before any native event can arrive.
+  // OpenCode's HTTP 204 acknowledges the handler, not execution admission.
+  const promptMessageId = createOpenCodeMessageId();
   const turnState: OpenCodeTurnState = {
+    onAccepted: async () => {
+      await input.onRuntimeEvent?.({
+        phase: "provider_turn_accepted",
+        agentControllerConversationId: sessionId,
+        turnId: promptMessageId,
+        tsMs: Date.now(),
+      });
+    },
     observeUsage: (message) => input.server.observeUsage(message),
     acceptedSessionIds: new Set([sessionId]),
     assistantMessageIds: new Set(),
-    promptAccepted: false,
     promptDispatchStarted: false,
-    promptMessageId: null,
+    promptMessageId,
     promptMessageObserved: false,
     rootIdleObserved: false,
     rootSessionId: sessionId,
@@ -669,36 +679,44 @@ async function runOpenCodeServerTurn(input: {
   };
   const textByPartId = new Map<string, string>();
   let previewEmitted = false;
-  const subscription = await input.client.event.subscribe(
-    { directory },
-    {
-      signal: eventAbortController.signal,
-    }
-  );
-  const eventLoop = consumeOpenCodeEvents({
-    onRuntimeEvent: input.onRuntimeEvent,
-    reasoningPartIds: new Set<string>(),
-    eventReady,
-    eventFailure,
-    interactionHandler,
-    onPreview:
-      input.streamingMode === "stream" && input.onPreview
-        ? async (preview) => {
-            previewEmitted = true;
-            await input.onPreview?.(preview);
-          }
-        : undefined,
-    sessionId,
-    stream: subscription.stream,
-    textByPartId,
-    turnState,
-  }).catch((error: unknown) => {
-    if (!eventAbortController.signal.aborted) {
-      eventFailure.reject(error);
-    }
-  });
-
+  let eventLoop: Promise<void> | null = null;
   try {
+    const subscription = await Promise.race([
+      input.client.event.subscribe(
+        { directory },
+        // Native v1 events are not a replayable log. Reconnecting cannot prove
+        // which events were missed, so surface a broken stream instead of
+        // keeping a stale running projection alive indefinitely.
+        { signal: eventAbortController.signal, sseMaxRetryAttempts: 1 }
+      ),
+      input.server.waitForFailure(),
+      timeoutAfter(
+        input.server.readStartupTimeoutMs(),
+        "Timed out opening the OpenCode event stream."
+      ),
+    ]);
+    eventLoop = consumeOpenCodeEvents({
+      onRuntimeEvent: input.onRuntimeEvent,
+      reasoningPartIds: new Set<string>(),
+      eventReady,
+      eventFailure,
+      interactionHandler,
+      onPreview:
+        input.streamingMode === "stream" && input.onPreview
+          ? async (preview) => {
+              previewEmitted = true;
+              await input.onPreview?.(preview);
+            }
+          : undefined,
+      sessionId,
+      stream: subscription.stream,
+      textByPartId,
+      turnState,
+    }).catch((error: unknown) => {
+      if (!eventAbortController.signal.aborted) {
+        eventFailure.reject(error);
+      }
+    });
     await Promise.race([
       eventReady.promise,
       eventFailure.promise,
@@ -714,10 +732,13 @@ async function runOpenCodeServerTurn(input: {
     const model = parseOpenCodeModel(input.conversationPolicy?.model);
     try {
       turnState.promptDispatchStarted = true;
-      await Promise.race([
-        input.client.session.promptAsync(
+      // Native events own completion. A delayed/lost HTTP acknowledgement must
+      // not hold a turn that the native controller has already completed.
+      input.client.session
+        .promptAsync(
           {
             directory,
+            messageID: promptMessageId,
             ...(model ? { model } : {}),
             parts: [
               {
@@ -739,45 +760,47 @@ async function runOpenCodeServerTurn(input: {
           },
           {
             responseStyle: "data",
+            signal: eventAbortController.signal,
             throwOnError: true,
           }
-        ),
-        eventFailure.promise,
-        input.server.waitForFailure(),
-      ]);
-      markOpenCodePromptAccepted(turnState);
+        )
+        .catch((error: unknown) => {
+          if (
+            !eventAbortController.signal.aborted &&
+            turnState.assistantMessageIds.size === 0
+          ) {
+            eventFailure.reject(error);
+          }
+        });
       await Promise.race([
         turnCompletion.promise,
         eventFailure.promise,
         input.server.waitForFailure(),
       ]);
     } catch (error) {
-      await input.client.session
-        .abort(
-          {
-            directory,
-            sessionID: sessionId,
-          },
-          {
-            responseStyle: "data",
-            throwOnError: true,
-          }
-        )
-        .catch(() => undefined);
+      if (
+        turnState.assistantMessageIds.size > 0 &&
+        !turnState.rootIdleObserved
+      ) {
+        await input.client.session
+          .abort(
+            {
+              directory,
+              sessionID: sessionId,
+            },
+            {
+              responseStyle: "data",
+              signal: AbortSignal.timeout(SERVER_HEALTH_TIMEOUT_MS),
+              throwOnError: true,
+            }
+          )
+          .catch(() => undefined);
+      }
       throw error;
     }
     const interactionFailure = interactionHandler.readFailure();
     if (interactionFailure) {
       throwInteractionFailure(interactionFailure);
-    }
-    const promptMessageId = turnState.promptMessageId;
-    if (!promptMessageId) {
-      throw new OpenCodeServerTransportError({
-        code: "protocol.invalid",
-        errorType: "adapter",
-        message:
-          "protocol.invalid: OpenCode completed without identifying the accepted prompt message",
-      });
     }
     const output = await readOpenCodeTurnOutput({
       client: input.client,
@@ -804,7 +827,9 @@ async function runOpenCodeServerTurn(input: {
     };
   } finally {
     eventAbortController.abort();
-    await waitForOpenCodeEventLoopCleanup(eventLoop);
+    if (eventLoop) {
+      await waitForOpenCodeEventLoopCleanup(eventLoop);
+    }
   }
 }
 
@@ -901,17 +926,38 @@ async function readOpenCodeSessionForWorkingDirectory(input: {
 }
 
 type OpenCodeTurnState = {
+  onAccepted: () => Promise<void>;
   observeUsage: (message: Record<string, unknown>) => void;
   acceptedSessionIds: Set<string>;
   assistantMessageIds: Set<string>;
-  promptAccepted: boolean;
   promptDispatchStarted: boolean;
-  promptMessageId: string | null;
+  promptMessageId: string;
   promptMessageObserved: boolean;
   rootIdleObserved: boolean;
   rootSessionId: string;
   turnCompletion: Deferred<void>;
 };
+
+let lastMessageTimestamp = 0;
+let messageCounter = 0;
+
+function createOpenCodeMessageId(): string {
+  // Match the 1.18.34 native ascending identifier format. Random UUID ordering
+  // would put a new input before older messages in native history readers.
+  const timestamp = Date.now();
+  messageCounter = timestamp === lastMessageTimestamp ? messageCounter + 1 : 1;
+  lastMessageTimestamp = timestamp;
+  const time = BigInt.asUintN(
+    48,
+    BigInt(timestamp) * 0x1000n + BigInt(messageCounter)
+  );
+  const alphabet =
+    "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+  const random = [...randomBytes(14)]
+    .map((byte) => alphabet[byte % 62])
+    .join("");
+  return `msg_${time.toString(16).padStart(12, "0")}${random}`;
+}
 
 async function consumeOpenCodeEvents(input: {
   onRuntimeEvent?: AdapterRuntimeEventCallback;
@@ -933,7 +979,7 @@ async function consumeOpenCodeEvents(input: {
     }
     const event = unwrapOpenCodeEvent(rawEvent);
     if (event) {
-      dispatchOpenCodeEvent(input, event);
+      await dispatchOpenCodeEvent(input, event);
     }
   }
   if (!ready) {
@@ -941,6 +987,12 @@ async function consumeOpenCodeEvents(input: {
       new Error("OpenCode event stream closed before becoming ready.")
     );
   }
+  throw new OpenCodeServerTransportError({
+    code: "protocol.stream_closed",
+    errorType: "network",
+    message:
+      "OpenCode closed its event stream before this invocation finished.",
+  });
 }
 
 function observeOpenCodeReasoning(
@@ -999,7 +1051,7 @@ function observeOpenCodeReasoning(
   }
 }
 
-function dispatchOpenCodeEvent(
+async function dispatchOpenCodeEvent(
   input: {
     onRuntimeEvent?: AdapterRuntimeEventCallback;
     reasoningPartIds: Set<string>;
@@ -1011,7 +1063,7 @@ function dispatchOpenCodeEvent(
     turnState: OpenCodeTurnState;
   },
   event: { properties: unknown; type: string }
-): void {
+): Promise<void> {
   const properties = toRecord(event.properties);
   if (!properties) {
     return;
@@ -1020,7 +1072,7 @@ function dispatchOpenCodeEvent(
   if (!eventBelongsToTurn(properties, input.turnState)) {
     return;
   }
-  observeOpenCodeTurnLifecycle(input.turnState, event.type, properties);
+  await observeOpenCodeTurnLifecycle(input.turnState, event.type, properties);
   observeOpenCodeReasoning(input, event, properties);
   const eventFailure = readOpenCodeTurnEventFailure(
     input.turnState,
@@ -1112,11 +1164,11 @@ function observeOpenCodeSessionTree(
   }
 }
 
-function observeOpenCodeTurnLifecycle(
+async function observeOpenCodeTurnLifecycle(
   turnState: OpenCodeTurnState,
   eventType: string,
   properties: Record<string, unknown>
-): void {
+): Promise<void> {
   if (eventType === "message.updated") {
     const message = toRecord(properties.info);
     const messageId = normalizeOptionalText(message?.id);
@@ -1125,22 +1177,24 @@ function observeOpenCodeTurnLifecycle(
       normalizeOptionalText(properties.sessionID);
     if (
       turnState.promptDispatchStarted &&
-      turnState.promptMessageId === null &&
       message?.role === "user" &&
       messageSessionId === turnState.rootSessionId &&
-      messageId
+      messageId === turnState.promptMessageId
     ) {
-      turnState.promptMessageId = messageId;
-    }
-    if (messageId === turnState.promptMessageId) {
       turnState.promptMessageObserved = true;
     }
     if (
       message?.role === "assistant" &&
+      turnState.promptDispatchStarted &&
+      messageSessionId === turnState.rootSessionId &&
       normalizeOptionalText(message.parentID) === turnState.promptMessageId &&
       messageId
     ) {
+      const first = turnState.assistantMessageIds.size === 0;
       turnState.assistantMessageIds.add(messageId);
+      if (first) {
+        await turnState.onAccepted();
+      }
     }
     if (
       message?.role === "assistant" &&
@@ -1170,14 +1224,8 @@ function observeOpenCodeTurnLifecycle(
   }
 }
 
-function markOpenCodePromptAccepted(turnState: OpenCodeTurnState): void {
-  turnState.promptAccepted = true;
-  maybeResolveOpenCodeTurn(turnState);
-}
-
 function maybeResolveOpenCodeTurn(turnState: OpenCodeTurnState): void {
   if (
-    turnState.promptAccepted &&
     turnState.promptMessageObserved &&
     turnState.assistantMessageIds.size > 0 &&
     turnState.rootIdleObserved
