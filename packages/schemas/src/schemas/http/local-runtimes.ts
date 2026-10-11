@@ -13,12 +13,15 @@ import {
 } from "../local-components";
 import {
   agentProfileIdSchema,
-  profileWorkingDirectorySchema,
   profileWorkspaceModeSchema,
+  profileWorkspaceReadResultSchema,
+  profileWorkspaceWriteSchema,
 } from "../protocol/profile";
 import { agentControllerInterfaceSnapshotSchema } from "../runtime/agent-controller-interface";
 import { localAgentCatalogWithLifecycleSchema } from "../runtime/local-agent-catalog";
 import { START_BOUNDED_ID_SCHEMA } from "../start/shared";
+import { agentProfileBindingTargetSchema } from "./agent-profile-binding";
+import { peopleComputerTargetSchema } from "./people-computers";
 import { prepareReadinessRuntimeIdSchema } from "./prepare-readiness";
 
 const ISO_DATE_TIME_SCHEMA = z.iso.datetime({ offset: true });
@@ -220,27 +223,9 @@ export const setCurrentAgentProfileWorkspaceRouteParamsSchema = z.strictObject({
   agentProfileId: agentProfileIdSchema,
 });
 
-export const setCurrentAgentProfileWorkspaceBodySchema = z
-  .strictObject({
-    workspaceMode: profileWorkspaceModeSchema,
-    workspacePath: profileWorkingDirectorySchema.optional(),
-  })
-  .superRefine((value, context) => {
-    if (value.workspaceMode === "custom" && !value.workspacePath) {
-      context.addIssue({
-        code: "custom",
-        message: "workspacePath is required for a custom profile workspace",
-        path: ["workspacePath"],
-      });
-    }
-    if (value.workspaceMode === "openmeld_managed" && value.workspacePath) {
-      context.addIssue({
-        code: "custom",
-        message:
-          "workspacePath must be omitted for an OpenMeld-managed profile workspace",
-        path: ["workspacePath"],
-      });
-    }
+export const setCurrentAgentProfileWorkspaceBodySchema =
+  profileWorkspaceWriteSchema.safeExtend({
+    expectedBindingTarget: agentProfileBindingTargetSchema.optional(),
   });
 
 export const setCurrentLocalAgentEnabledResponseSchema = z.strictObject({
@@ -265,6 +250,27 @@ export const setCurrentAgentProfileWorkspaceResponseSchema = z.strictObject({
   status: z.literal("updated"),
   workspaceMode: profileWorkspaceModeSchema,
   workspacePath: z.string().min(1),
+});
+
+export const getCurrentAgentProfileWorkspaceQuerySchema = z.strictObject({
+  expectedBindingTarget: z
+    .preprocess((value) => {
+      if (typeof value !== "string" || value.length > 2048) {
+        return value;
+      }
+      try {
+        return JSON.parse(value);
+      } catch {
+        return value;
+      }
+    }, agentProfileBindingTargetSchema)
+    .optional(),
+});
+
+export const getCurrentAgentProfileWorkspaceResponseSchema = z.strictObject({
+  agentProfileId: agentProfileIdSchema,
+  target: z.lazySchema(() => peopleComputerTargetSchema),
+  workspace: profileWorkspaceReadResultSchema,
 });
 
 export const refreshCurrentLocalAgentCatalogResponseSchema = z.strictObject({

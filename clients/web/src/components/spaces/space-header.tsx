@@ -26,6 +26,7 @@ import { MessageSearchButton } from "#/components/search/message-search";
 import { ChatHeaderMenu } from "./chat-header-menu";
 import { useConversationNames } from "./conversation-names";
 import { PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP } from "./space-access-editor";
+import { SpaceDeletedLabel } from "./space-deleted-label";
 import { SpaceHeaderNavigationMenu } from "./space-header-navigation-menu";
 import { SpacePinsRecallAction } from "./space-pins";
 import { useSpaceReadingHeader } from "./space-reading-header";
@@ -58,7 +59,7 @@ export function SpaceWindowHeader(input: {
 	const content = (
 		<div
 			className={cn(
-				"group/space-header relative grid h-full w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] gap-x-1 px-[var(--app-page-inline-padding)] data-[compact=true]:grid-cols-[auto_auto_minmax(0,1fr)_auto] data-[compact=true]:grid-rows-[var(--space-conversation-title-height)]",
+				"group/space-header relative grid h-full w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] gap-x-1 px-[var(--app-page-inline-padding)] pr-4 data-[compact=true]:grid-cols-[auto_auto_minmax(0,1fr)_auto] data-[compact=true]:grid-rows-[var(--space-conversation-title-height)]",
 				hasSecondaryRow
 					? "grid-rows-[minmax(0,var(--space-conversation-title-height))_minmax(0,var(--space-conversation-navigation-height))]"
 					: "grid-rows-1",
@@ -247,7 +248,6 @@ export function SpaceHeader(input: {
 		visibility: input.status.organizationVisibility,
 	});
 	const isDirectMessage = isDirectMessageSpace({
-		activeMemberCount: input.status.members.totalCount,
 		directMessageConvertedAt: input.status.directMessageConvertedAt,
 		purpose: input.status.spacePurpose,
 	});
@@ -286,7 +286,7 @@ export function SpaceHeader(input: {
 					>
 						{input.setupRecallAction ? (
 							<div
-								className="max-lg:absolute max-lg:right-[var(--app-page-inline-padding)] max-lg:bottom-0 max-lg:flex max-lg:h-[var(--space-conversation-navigation-height)] max-lg:items-center"
+								className="max-lg:absolute max-lg:right-4 max-lg:bottom-0 max-lg:flex max-lg:h-[var(--space-conversation-navigation-height)] max-lg:items-center"
 								data-slot="space-header-setup-recall-action"
 							>
 								{input.setupRecallAction}
@@ -355,6 +355,7 @@ export function SpaceHeader(input: {
 								isVisible: input.showDeleteSpaceAction,
 								onDelete: input.onDeleteSpace,
 							}}
+							deleted={Boolean(input.status.deletedAt)}
 							draftController={sharingDraft}
 							initialSection={settingsInitialSection}
 							isCenterAgentDirectMessage={input.isCenterAgentDirectMessage}
@@ -376,14 +377,24 @@ export function SpaceHeader(input: {
 								value: spaceName,
 							}}
 							onOpenChange={(open) => handleDialogOpenChange("settings", open)}
-							onOpenInvitations={() => {
-								setShareInitialView(sharingDraft.isDirty ? "main" : "invite");
-								setActiveDialog("share");
-							}}
-							onOpenShare={() => {
-								setShareInitialView("main");
-								setActiveDialog("share");
-							}}
+							onOpenInvitations={
+								input.status.deletedAt
+									? undefined
+									: () => {
+											setShareInitialView(
+												sharingDraft.isDirty ? "main" : "invite"
+											);
+											setActiveDialog("share");
+										}
+							}
+							onOpenShare={
+								input.status.deletedAt
+									? undefined
+									: () => {
+											setShareInitialView("main");
+											setActiveDialog("share");
+										}
+							}
 							open={activeDialog === "settings"}
 							openMeldProfileId={input.currentProfileId}
 							showTrigger={!showChatMenu}
@@ -438,6 +449,7 @@ export function SpaceHeader(input: {
 			title={spaceName}
 			titleAdornment={
 				<span className="flex shrink-0 items-center gap-2 text-muted-foreground text-xs">
+					{input.status.deletedAt && <SpaceDeletedLabel />}
 					{!input.conversationTitleControl &&
 						input.conversationTitleAction?.(spaceName)}
 					{input.isCenterAgentDirectMessage || isDirectMessage

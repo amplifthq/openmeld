@@ -11,6 +11,7 @@ import {
   readRemoteAgentCallbackContext,
   updateRemoteAgentCallbackContext,
 } from "./callback-context";
+import type { RemoteAgentDiagnosticsEnv } from "./diagnostics-content-policy";
 import type { RemoteAgentTerminalExecutionOutcome } from "./execution-state";
 import type { RemoteAgentTurnUsage } from "./usage";
 
@@ -71,6 +72,8 @@ export function buildRemoteAgentTerminalCallbackResult(input: {
     continuation: false,
     failureCode: input.outcome.failure.code,
     failureDetail: input.outcome.failure.detail,
+    explanationText: input.outcome.failure.explanationText,
+    computerCleanup: input.outcome.failure.computerCleanup,
     failureReasonCode: input.outcome.failure.reasonCode,
     message: { parts: [] },
     modelId,
@@ -81,6 +84,7 @@ export function buildRemoteAgentTerminalCallbackResult(input: {
 }
 
 export async function projectRemoteAgentTerminalOutcomeToCallback(input: {
+  env?: RemoteAgentDiagnosticsEnv;
   coreWorker?: RemoteAgentCoreWorkerBinding;
   nowMs: number;
   outcome: RemoteAgentTerminalExecutionOutcome;
@@ -123,6 +127,7 @@ export async function projectRemoteAgentTerminalOutcomeToCallback(input: {
     return {
       context: await attemptRemoteAgentCallbackDelivery({
         context,
+        env: input.env,
         storage: input.storage,
         coreWorker: input.coreWorker,
         nowMs: input.nowMs,
@@ -154,6 +159,7 @@ export async function projectRemoteAgentTerminalOutcomeToCallback(input: {
     });
     return {
       context: await attemptRemoteAgentCallbackDelivery({
+        env: input.env,
         context: projected,
         coreWorker: input.coreWorker,
         nowMs: input.nowMs,
@@ -166,6 +172,7 @@ export async function projectRemoteAgentTerminalOutcomeToCallback(input: {
   // Preserve it before delivery using the same retry-stable owner timestamp.
   await persistProjectedUsage({ ...input, context: existing });
   const projected = await handleRemoteAgentChatResponse({
+    env: input.env,
     coreWorker: input.coreWorker,
     nowMs: () => input.nowMs,
     result,

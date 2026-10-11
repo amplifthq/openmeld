@@ -10,6 +10,8 @@ import {
   connectorOrganizationContextQuerySchema,
   connectorServiceSchema,
   createConnectorAppRequestBodySchema,
+  listPluginActionRequestsInputSchema,
+  listPluginActionRequestsResponseSchema,
   pluginAccessListResponseSchema,
   pluginAccessSchema,
   pluginAccessUpdateBodySchema,
@@ -23,6 +25,7 @@ import {
   pluginChannelRequestPreviewSchema,
   pluginConnectionContinuationBodySchema,
   pluginConnectionContinuationResponseSchema,
+  projectPluginActionRequestView,
 } from "@openmeld/schemas";
 import type {
   ConnectorConnection,
@@ -76,6 +79,7 @@ class ConnectorConnectionRouteError extends Error {
 
 type OpenConnectorBindings = {
   OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN?: string;
+  OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN?: string;
   OPENMELD_CONNECTORS_BASE_URL?: string;
   GITHUB_OPENMELD_APP_SLUG?: string;
 };
@@ -224,11 +228,49 @@ export function registerConnectorConnectionRoutes(
       method: "POST",
       retryMode: "none",
       responseSchema: pluginActionRequestViewSchema,
+      execute: async () =>
+        projectPluginActionRequestView(
+          await c.var.coreRpc.pluginActionRequest({
+            context: buildCoreRpcContext(c),
+            expectedOrganizationId: organization.expectedOrganizationId,
+            command: command.data,
+          }),
+          c.req.query("includeMessageContext") === "true"
+        ),
+    });
+  });
+  app.post(`${requestRoute}/list`, async (c) => {
+    const organization = parseConnectorOrganizationRequest(
+      c,
+      requestRoute,
+      "POST"
+    );
+    if (!organization.ok) {
+      return organization.response;
+    }
+    const parsed = listPluginActionRequestsInputSchema
+      .omit({ context: true, expectedOrganizationId: true })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      return respondBadRequest({
+        c,
+        route: requestRoute,
+        method: "POST",
+        reason: "Invalid messages",
+        message: "Choose valid messages.",
+      });
+    }
+    return executeRpcRoute({
+      c,
+      route: requestRoute,
+      method: "POST",
+      retryMode: "none",
+      responseSchema: listPluginActionRequestsResponseSchema,
       execute: () =>
-        c.var.coreRpc.pluginActionRequest({
+        c.var.coreRpc.listPluginActionRequests({
           context: buildCoreRpcContext(c),
           expectedOrganizationId: organization.expectedOrganizationId,
-          command: command.data,
+          ...parsed.data,
         }),
     });
   });
@@ -1130,6 +1172,7 @@ function createOpenConnectorClient(
   const bindings = env as CloudflareBindings & OpenConnectorBindings;
   return new OpenConnectorClient({
     adminToken: bindings.OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN ?? "",
+    runtimeToken: bindings.OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN,
     baseUrl: bindings.OPENMELD_CONNECTORS_BASE_URL ?? "",
   });
 }

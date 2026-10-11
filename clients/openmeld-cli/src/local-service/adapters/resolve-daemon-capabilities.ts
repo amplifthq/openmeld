@@ -44,6 +44,8 @@ export function resolveDaemonCapabilitiesFromAdapterIds(input: {
       resumeControllerConversation: true,
       setEnabled: true,
       setProfileWorkspace: true,
+      readProfileWorkspace: true,
+      initializeProfileWorkspace: true,
     },
     localProjectControl: {
       connectCandidate: true,

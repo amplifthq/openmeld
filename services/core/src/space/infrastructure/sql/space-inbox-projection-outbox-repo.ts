@@ -150,6 +150,19 @@ export function listDueSpaceInboxProjectionOutboxRecords(
     .map(toRecord);
 }
 
+export function readSpaceInboxProjectionOutboxRecord(
+  sql: SqlStorage,
+  projectionId: string
+): SpaceInboxProjectionOutboxRecord | null {
+  const row = sql
+    .exec<SpaceInboxProjectionOutboxRow>(
+      `SELECT ${RECORD_COLUMNS} FROM space_inbox_projection_outbox WHERE projection_id = ?`,
+      projectionId
+    )
+    .toArray()[0];
+  return row ? toRecord(row) : null;
+}
+
 export function readNextSpaceInboxProjectionOutboxAlarmAtMs(
   sql: SqlStorage,
   input: { nowMs: number }

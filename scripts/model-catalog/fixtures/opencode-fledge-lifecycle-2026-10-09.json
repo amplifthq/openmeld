@@ -1,0 +1,64 @@
+{
+  "sourceUrl": "https://models.dev/api.json",
+  "before": {
+    "id": "fledge-alpha-free",
+    "name": "Fledge Alpha Free",
+    "description": "Free-tier preview reasoning model with text and image input and tool use",
+    "attachment": true,
+    "reasoning": true,
+    "reasoning_options": [
+      {
+        "type": "effort",
+        "values": ["low", "high", "max"]
+      }
+    ],
+    "tool_call": true,
+    "temperature": true,
+    "release_date": "2026-10-01",
+    "last_updated": "2026-10-01",
+    "modalities": {
+      "input": ["text", "image"],
+      "output": ["text"]
+    },
+    "open_weights": false,
+    "limit": {
+      "context": 1048576,
+      "output": 131072
+    },
+    "cost": {
+      "input": 0,
+      "output": 0
+    }
+  },
+  "after": {
+    "id": "fledge-alpha-free",
+    "name": "Fledge Alpha Free",
+    "description": "Free-tier preview reasoning model with text and image input and tool use",
+    "attachment": true,
+    "reasoning": true,
+    "reasoning_options": [
+      {
+        "type": "effort",
+        "values": ["low", "high", "max"]
+      }
+    ],
+    "tool_call": true,
+    "temperature": true,
+    "release_date": "2026-10-01",
+    "last_updated": "2026-10-01",
+    "modalities": {
+      "input": ["text", "image"],
+      "output": ["text"]
+    },
+    "open_weights": false,
+    "limit": {
+      "context": 1048576,
+      "output": 131072
+    },
+    "status": "deprecated",
+    "cost": {
+      "input": 0,
+      "output": 0
+    }
+  }
+}

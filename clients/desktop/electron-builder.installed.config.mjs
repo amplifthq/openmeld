@@ -12,7 +12,7 @@ import { desktopWebBuildIdentity } from "../../scripts/desktop/web-build-identit
 import {
   DEFAULT_APPLE_TEAM_ID,
   DEFAULT_NOTARY_KEYCHAIN_PROFILE,
-} from "../../scripts/release/macos-cli-signing.mjs";
+} from "../../scripts/release/apple-release-signing.mjs";
 import { assertMacProductionBundleIdentity } from "./src/main/update/mac-bundle-path.ts";
 
 const target = readInstalledDesktopTarget(process.env);

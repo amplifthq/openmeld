@@ -17,7 +17,9 @@ import {
   AGENT_COMPUTER_LAYOUT_DIRECTORIES,
   ensureAgentComputerLayout,
   resolveAgentComputerWorkingDirectory,
-} from "../flue-adapter/computer-workspace";
+} from "../flue-adapter/computer-workspace-config";
+import { finishRemoteAgentComputerCommands } from "../flue-adapter/execution-cleanup";
+import { checkRemoteAgentExecutionFinish } from "../flue-adapter/execution-finish";
 import {
   ORGANIZATION_DOCUMENTS_COMPUTER_MANIFEST,
   ORGANIZATION_DOCUMENTS_COMPUTER_ROOT,
@@ -25,6 +27,7 @@ import {
 import { ORGANIZATION_DOCUMENT_COMPUTER_TOOL_NAMES } from "../flue-adapter/organization-document-computer-tools";
 import { executionAccessFixture } from "./execution-access-fixture";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
+import { InMemoryDurableObjectStorage } from "./storage";
 
 const cloudflareComputerMock = vi.hoisted(() => ({
   getWorkspace: vi.fn(),
@@ -240,7 +243,9 @@ function createOrganizationDocumentsComputerFixture() {
     coreWorker,
     env: {
       AGENT_COMPUTER: {
-        get: vi.fn(() => ({})),
+        get: vi.fn(() => ({
+          registerComputerInvocation: async () => undefined,
+        })),
         idFromName: vi.fn(() => ({})),
       },
     },
@@ -320,40 +325,6 @@ describe("Agent computer Workspace RPC lifecycle", () => {
     expect(cancelledWorkspace.dispose).toHaveBeenCalledOnce();
     expect(continuationWorkspace.dispose).toHaveBeenCalledOnce();
   });
-
-  it("disposes both the exec handle and workspace client when command results reject", async () => {
-    const failedWorkspace = createWorkspaceFake();
-    const commandFailure = new Error("Computer command failed");
-    const runtimeExec = (
-      failedWorkspace.workspace.runtime as unknown as {
-        exec: ReturnType<typeof vi.fn>;
-      }
-    ).exec;
-    runtimeExec.mockResolvedValueOnce({
-      [Symbol.dispose]: failedWorkspace.execHandleDispose,
-      result: () => Promise.reject(commandFailure),
-    });
-    cloudflareComputerMock.getWorkspace.mockResolvedValueOnce(
-      failedWorkspace.workspace
-    );
-    const durableComputerId = { name: "agent-computer:agt_test" };
-    const workspaceAccess = createAgentComputerWorkspaceAccess({
-      computerId: durableComputerId as unknown as DurableObjectId,
-      namespace: {
-        get: vi.fn(() => ({})),
-        idFromName: vi.fn(() => durableComputerId),
-      } as unknown as Parameters<
-        typeof createAgentComputerWorkspaceAccess
-      >[0]["namespace"],
-    });
-
-    await expect(
-      new AgentComputerSandboxApi(workspaceAccess).exec("exit 1")
-    ).rejects.toBe(commandFailure);
-
-    expect(failedWorkspace.execHandleDispose).toHaveBeenCalledOnce();
-    expect(failedWorkspace.dispose).toHaveBeenCalledOnce();
-  });
 });
 
 describe("Agent computer layout", () => {
@@ -406,12 +377,22 @@ describe("Organization Documents computer scope", () => {
     const snapshot = vi.fn(() => {
       throw new Error("Document snapshot offline");
     });
+    const context = {
+      ...createComputerContext(),
+      computerIsolationVersion: 3 as const,
+    };
+    const storage = new InMemoryDurableObjectStorage();
+    const env = {
+      AGENT_COMPUTER: { get, idFromName: () => ({}) },
+      BROWSER: {},
+    };
     const capability = await createRemoteAgentComputerCapability({
-      context: createComputerContext(),
+      context,
+      storage,
       coreWorker: {
         centerAgentOrganizationDocumentsComputerSnapshot: snapshot,
       },
-      env: { AGENT_COMPUTER: { get, idFromName: () => ({}) }, BROWSER: {} },
+      env,
       includeOrganizationDocuments: true,
     });
     expect(capability.definitions.map((tool) => tool.name)).toEqual(
@@ -424,6 +405,23 @@ describe("Organization Documents computer scope", () => {
     expect(get).not.toHaveBeenCalled();
     expect(snapshot).not.toHaveBeenCalled();
     expect(cloudflareComputerMock.getWorkspace).not.toHaveBeenCalled();
+    const append = vi.fn();
+    await checkRemoteAgentExecutionFinish({
+      context,
+      storage,
+      env,
+      finish: { append },
+    });
+    await expect(
+      finishRemoteAgentComputerCommands({
+        context,
+        storage,
+        env,
+        assistantText: "Here is the answer.",
+      })
+    ).resolves.toBeNull();
+    expect(append).not.toHaveBeenCalled();
+    expect(get).not.toHaveBeenCalled();
     const computer = capability.definitions.find(
       (tool) => tool.name === "computer"
     );
@@ -446,7 +444,10 @@ describe("Organization Documents computer scope", () => {
     const id = { name: "original-computer" };
     const namespace = {
       idFromName: vi.fn(() => id),
-      get: vi.fn((_target: unknown) => ({ computerOperation })),
+      get: vi.fn((_target: unknown) => ({
+        computerOperation,
+        registerComputerInvocation: async () => undefined,
+      })),
     };
     const capability = await createRemoteAgentComputerCapability({
       context: createComputerContext(),
@@ -460,14 +461,14 @@ describe("Organization Documents computer scope", () => {
     if (!computer) {
       throw new Error("Missing Computer tool");
     }
-    await expect(computer.execute({ action: "describe" })).rejects.toThrow(
-      "Connection closed"
-    );
+    const write = {
+      action: "files",
+      tool: "write",
+      input: { path: "/computer/report.md", content: "Saved report" },
+    };
+    await expect(computer.execute(write)).rejects.toThrow("Connection closed");
     expect(computerOperation).not.toHaveBeenCalled();
-    await Promise.all([
-      computer.execute({ action: "describe" }),
-      computer.execute({ action: "describe" }),
-    ]);
+    await Promise.all([computer.execute(write), computer.execute(write)]);
     expect(computerOperation).toHaveBeenCalledTimes(2);
     expect(cloudflareComputerMock.getWorkspace).toHaveBeenCalledTimes(3);
     expect(namespace.idFromName).toHaveBeenCalledOnce();
@@ -578,6 +579,7 @@ describe("Organization Documents computer scope", () => {
     const namespace = {
       get: vi.fn(() => ({
         computerOperation: vi.fn(async () => ({ kind: "capabilities" })),
+        registerComputerInvocation: async () => undefined,
       })),
       idFromName: vi.fn(() => durableComputerId),
     };
@@ -604,9 +606,13 @@ describe("Organization Documents computer scope", () => {
     if (!computer) {
       throw new Error("Missing Computer tool");
     }
-    await computer.execute({ action: "describe" });
+    await computer.execute({
+      action: "files",
+      tool: "write",
+      input: { path: "/computer/report.md", content: "Saved report" },
+    });
     expect(namespace.idFromName).toHaveBeenCalledOnce();
-    expect(namespace.get).toHaveBeenCalledTimes(3);
+    expect(namespace.get).toHaveBeenCalledTimes(4);
     expect(namespace.get).toHaveBeenNthCalledWith(1, durableComputerId);
     expect(namespace.get).toHaveBeenNthCalledWith(2, durableComputerId);
     expect(cloudflareComputerMock.getWorkspace).toHaveBeenCalledTimes(2);
@@ -669,8 +675,8 @@ describe("Organization Documents computer scope", () => {
       tool: "grep",
       input: { path: "/computer", query: "launch" },
     });
-    expect(cloudflareComputerMock.getWorkspace).toHaveBeenCalledOnce();
-    expect(materializationWorkspace.dispose).toHaveBeenCalledOnce();
+    expect(cloudflareComputerMock.getWorkspace).not.toHaveBeenCalled();
+    expect(materializationWorkspace.dispose).not.toHaveBeenCalled();
   });
 
   it("keeps document contents off shared disk and preserves an explicit checkout across a restricted turn", async () => {
@@ -819,99 +825,47 @@ describe("AgentComputerSandboxApi", () => {
     ]);
   });
 
-  it("runs bash on the worker-shell backend with a bounded timeout", async () => {
-    const { execHandleDispose, workspace } = createWorkspaceFake();
-    const api = new AgentComputerSandboxApi(workspace);
-
-    const result = await api.exec("echo hello", {
-      cwd: "/computer/spaces/space-1",
-    });
-
-    expect(result).toEqual({ exitCode: 0, stderr: "", stdout: "hello\n" });
-    expect(
-      (workspace.runtime as unknown as { exec: ReturnType<typeof vi.fn> }).exec
-    ).toHaveBeenCalledWith("echo hello", {
-      backend: "worker-shell",
-      cwd: "/computer/spaces/space-1",
-      encoding: "utf8",
-      env: undefined,
-      timeoutMs: 120_000,
-    });
-    expect(execHandleDispose).toHaveBeenCalledOnce();
-  });
-
-  it("routes exec to the container backend when the caller selects it", async () => {
+  it.each([
+    "worker-shell",
+    "container",
+  ])("routes helper commands through retained Computer receipts (%s)", async (backend) => {
     const { workspace } = createWorkspaceFake();
-    const api = new AgentComputerSandboxApi(workspace);
-
-    await api.exec("python3 -V", { backend: "container" });
-
-    expect(
-      (workspace.runtime as unknown as { exec: ReturnType<typeof vi.fn> }).exec
-    ).toHaveBeenCalledWith("python3 -V", {
-      backend: "container",
-      cwd: undefined,
-      encoding: "utf8",
-      env: undefined,
-      timeoutMs: 120_000,
-    });
-  });
-
-  it("kills an in-flight command when the execution is stopped", async () => {
-    const { workspace } = createWorkspaceFake();
-    const runtimeExec = (
-      workspace.runtime as unknown as { exec: ReturnType<typeof vi.fn> }
-    ).exec;
-    let resolveResult!: (result: {
-      exitCode: number;
-      pulled: number;
-      pushed: number;
-      skipped: never[];
-      status: "completed";
-      stderr: string;
-      stdout: string;
-    }) => void;
-    const resultPromise = new Promise<{
-      exitCode: number;
-      pulled: number;
-      pushed: number;
-      skipped: never[];
-      status: "completed";
-      stderr: string;
-      stdout: string;
-    }>((resolve) => {
-      resolveResult = resolve;
-    });
-    const kill = vi.fn(() => Promise.resolve());
-    const dispose = vi.fn();
-    runtimeExec.mockResolvedValueOnce({
-      [Symbol.dispose]: dispose,
-      kill,
-      result: () => resultPromise,
-    });
-    const api = new AgentComputerSandboxApi(workspace);
-    const controller = new AbortController();
-    const stopReason = new Error("Stop requested");
-
-    const execution = api.exec("while true; do work; done", {
-      signal: controller.signal,
-    });
-    const stopped = expect(execution).rejects.toBe(stopReason);
-    await vi.waitFor(() => expect(runtimeExec).toHaveBeenCalledOnce());
-    controller.abort(stopReason);
-    resolveResult({
+    const computerOperation = vi.fn(async (operation) =>
+      operation.command.action === "list"
+        ? []
+        : {
+            id: "retained-command",
+            key: operation.command.key,
+            status: "completed",
+            exitCode: 0,
+            stdout: "hello\\n",
+            stderr: "",
+            after: 1,
+          }
+    );
+    const api = new AgentComputerSandboxApi(
+      { withWorkspace: async (run) => await run(workspace), computerOperation },
+      "submission_computer"
+    );
+    await expect(api.exec("echo hello", { backend })).resolves.toEqual({
       exitCode: 0,
-      pulled: 0,
-      pushed: 0,
-      skipped: [],
-      status: "completed",
+      stdout: "hello\\n",
       stderr: "",
-      stdout: "too late",
     });
-
-    await stopped;
-    expect(kill).toHaveBeenCalledWith("SIGTERM");
-    expect(dispose).toHaveBeenCalledOnce();
+    expect(computerOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        invocationId: "submission_computer",
+        command: expect.objectContaining({
+          action: "start",
+          command: "echo hello",
+          backend,
+          timeoutSeconds: 120,
+        }),
+      })
+    );
+    expect(
+      (workspace.runtime as unknown as { exec: ReturnType<typeof vi.fn> }).exec
+    ).not.toHaveBeenCalled();
   });
 });
 
@@ -920,7 +874,25 @@ describe("computer observability", () => {
     const { workspace } = createWorkspaceFake();
     const writeDataPoint = vi.fn();
     const instrumented = instrumentRemoteAgentComputerSandboxApi({
-      api: new AgentComputerSandboxApi(workspace),
+      api: new AgentComputerSandboxApi(
+        {
+          withWorkspace: async (run) => await run(workspace),
+          computerOperation: async (operation) =>
+            operation.action === "command" &&
+            operation.command.action === "list"
+              ? []
+              : {
+                  id: "command",
+                  key: "helper",
+                  status: "completed",
+                  exitCode: 0,
+                  stdout: "hello",
+                  stderr: "",
+                  after: 1,
+                },
+        },
+        "submission_computer"
+      ),
       context: createComputerContext(),
       env: {
         OPENMELD_OBSERVABILITY: {

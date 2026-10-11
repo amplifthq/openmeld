@@ -1,5 +1,8 @@
 import type { PostgresDatabase, QueryConfig } from "@openmeld/db/postgresql";
-import { spaceTaskExternalWorkItemSchema } from "@openmeld/schemas";
+import {
+  githubIssueObservationSchema,
+  spaceTaskExternalWorkItemSchema,
+} from "@openmeld/schemas";
 import type {
   CenterAgentAction,
   CenterAgentAttribution,
@@ -15,6 +18,9 @@ import { prepareCenterAgentAuditJournalEntryIfMissingStatement } from "./center-
 type LinearIssueReceipt = Extract<
   SpaceTaskExternalWorkItem,
   { provider: "linear" }
+>;
+type GitHubIssueObservation = ReturnType<
+  typeof githubIssueObservationSchema.parse
 >;
 
 /** The pinned OpenConnector reserves an action before execution for 24 hours. */
@@ -59,6 +65,7 @@ export type CenterAgentConnectorActionOperationRecord =
     connectionUpdatedAtMs: number | null;
     id: string;
     linearIssueReceipt: LinearIssueReceipt | null;
+    githubIssueObservation: GitHubIssueObservation | null;
     providerExecutionId: string | null;
     requestSignature: string;
     service: string;
@@ -82,6 +89,7 @@ type CenterAgentConnectorActionOperationRow = {
   created_at_ms: number;
   id: string;
   linear_issue_receipt_json: string | null;
+  github_issue_observation_json: string | null;
   operation_id: string;
   organization_id: string;
   provider_execution_id: string | null;
@@ -200,6 +208,7 @@ export async function readCenterAgentConnectorActionOperationForRequest(input: {
 }): Promise<{
   attribution: CenterAgentAttribution;
   operation: CenterAgentConnectorActionOperationRecord;
+  sourceSpaceId: string | null;
 } | null> {
   const operation = await readOperation({
     db: input.db,
@@ -216,6 +225,7 @@ export async function readCenterAgentConnectorActionOperationForRequest(input: {
   return {
     attribution: provenance.attribution,
     operation,
+    sourceSpaceId: provenance.sourceSpaceId,
   };
 }
 export async function recordCenterAgentConnectorActionOperation(input: {
@@ -231,6 +241,7 @@ export async function recordCenterAgentConnectorActionOperation(input: {
   organizationId: string;
   outcome: "attempted" | "completed" | "failed" | "outcome_unknown";
   linearIssueReceipt?: LinearIssueReceipt;
+  githubIssueObservation?: GitHubIssueObservation;
   providerExecutionId: string | null;
   requester: CenterAgentConnectorActionRequester;
   requestSignature: string;
@@ -364,12 +375,7 @@ export async function recordCenterAgentConnectorActionOperation(input: {
       "This connector action operation has not been claimed."
     );
   }
-  if (
-    existing.status === input.outcome &&
-    existing.providerExecutionId === input.providerExecutionId &&
-    JSON.stringify(existing.linearIssueReceipt) ===
-      JSON.stringify(input.linearIssueReceipt ?? null)
-  ) {
+  if (matchesFinalOutcome(existing, input)) {
     return {
       attribution: requireExistingAttribution(existingAttribution),
       operation: existing,
@@ -399,6 +405,7 @@ export async function recordCenterAgentConnectorActionOperation(input: {
         nowMs: input.nowMs,
         outcome,
         linearIssueReceipt: input.linearIssueReceipt ?? null,
+        githubIssueObservation: input.githubIssueObservation ?? null,
         providerExecutionId: input.providerExecutionId,
       })
     );
@@ -427,12 +434,7 @@ export async function recordCenterAgentConnectorActionOperation(input: {
   });
   const operation = await requireOperation({ db: input.db, scope });
   assertSameRequest(operation, input);
-  if (
-    operation.status !== input.outcome ||
-    operation.providerExecutionId !== input.providerExecutionId ||
-    JSON.stringify(operation.linearIssueReceipt) !==
-      JSON.stringify(input.linearIssueReceipt ?? null)
-  ) {
+  if (!matchesFinalOutcome(operation, input)) {
     throw operationConflict(
       "This connector action operation was finalized concurrently with a different outcome."
     );
@@ -443,6 +445,20 @@ export async function recordCenterAgentConnectorActionOperation(input: {
     replayed: Number(updateResult.rowCount ?? 0) !== 1,
     executionAllowed: false,
   };
+}
+
+function matchesFinalOutcome(
+  operation: CenterAgentConnectorActionOperationRecord,
+  input: Parameters<typeof recordCenterAgentConnectorActionOperation>[0]
+) {
+  return (
+    operation.status === input.outcome &&
+    operation.providerExecutionId === input.providerExecutionId &&
+    JSON.stringify(operation.linearIssueReceipt) ===
+      JSON.stringify(input.linearIssueReceipt ?? null) &&
+    JSON.stringify(operation.githubIssueObservation) ===
+      JSON.stringify(input.githubIssueObservation ?? null)
+  );
 }
 
 async function readClaimedOperation(
@@ -740,12 +756,13 @@ function prepareFinalizeOperationStatement(input: {
   nowMs: number;
   outcome: Exclude<CenterAgentConnectorActionOperationStatus, "pending">;
   linearIssueReceipt: LinearIssueReceipt | null;
+  githubIssueObservation: GitHubIssueObservation | null;
   providerExecutionId: string | null;
 }): QueryConfig {
   return {
     text: `
         UPDATE "openmeld"."center_agent_connector_action_operations"
-        SET status = $1, provider_execution_id = $2, updated_at_ms = $3, linear_issue_receipt_json = $5
+        SET status = $1, provider_execution_id = $2, updated_at_ms = $3, linear_issue_receipt_json = $5, github_issue_observation_json = $6
         WHERE id = $4
           AND status IN ('pending', 'outcome_unknown')
       `,
@@ -756,6 +773,9 @@ function prepareFinalizeOperationStatement(input: {
       input.id,
       input.linearIssueReceipt
         ? JSON.stringify(input.linearIssueReceipt)
+        : null,
+      input.githubIssueObservation
+        ? JSON.stringify(input.githubIssueObservation)
         : null,
     ],
   };
@@ -911,6 +931,11 @@ function mapOperation(
     connectionUpdatedAtMs: row.connection_updated_at_ms,
     id: row.id,
     linearIssueReceipt: parseLinearIssueReceipt(row.linear_issue_receipt_json),
+    githubIssueObservation: row.github_issue_observation_json
+      ? githubIssueObservationSchema.parse(
+          JSON.parse(row.github_issue_observation_json)
+        )
+      : null,
     operationId: row.operation_id,
     organizationId: row.organization_id,
     providerExecutionId: row.provider_execution_id,

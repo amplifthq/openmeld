@@ -6,6 +6,10 @@ import {
 	type ReactNode,
 } from "react";
 import { reportCaughtComponentError } from "#/lib/observability/application-error-client";
+import {
+	readMessageSendShortcutPreference,
+	resolveMessageEnterAction,
+} from "#/lib/spaces/message-send-shortcut";
 import type { SpaceComposerEditorChange } from "./space-composer-editor";
 
 type Props = {
@@ -65,9 +69,10 @@ export class SpaceComposerEditorBoundary extends Component<
 					onFocus={this.props.onFocus}
 					onKeyDown={(event: KeyboardEvent<HTMLTextAreaElement>) => {
 						if (
-							event.key === "Enter" &&
-							!event.shiftKey &&
-							!event.nativeEvent.isComposing
+							resolveMessageEnterAction(
+								event.nativeEvent,
+								readMessageSendShortcutPreference()
+							) === "send"
 						) {
 							event.preventDefault();
 							this.props.onSend();

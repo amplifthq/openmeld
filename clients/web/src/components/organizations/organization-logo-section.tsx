@@ -24,7 +24,7 @@ import {
 	releaseOrganizationLogoCropDraft,
 } from "#/lib/organizations/organization-logo-crop";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
-import { setOrganizationLogoInScopeCache } from "#/query/organizations/organization-scope";
+import { setOrganizationLogoInAccountContext } from "#/query/organizations/account-organization-context";
 
 export function OrganizationLogoSection(input: {
 	canManage: boolean | null;
@@ -44,10 +44,9 @@ export function OrganizationLogoSection(input: {
 	const [selectionError, setSelectionError] = useState<string | null>(null);
 	const [savedMessage, setSavedMessage] = useState<string | null>(null);
 	const applyOrganizationLogo = async (logo: string | null) => {
-		setOrganizationLogoInScopeCache({
+		setOrganizationLogoInAccountContext({
 			logo,
 			organizationId: input.organization.id,
-			organizationSlug: input.organization.slug,
 			queryClient,
 		});
 		await router.invalidate({ sync: true });

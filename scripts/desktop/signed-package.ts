@@ -1,5 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import {
+  DEFAULT_APPLE_TEAM_ID,
+  resolveAppleReleaseCredentials,
+} from "../release/apple-release-signing.mjs";
 import { readInstalledComputerEnvironment } from "./installed-computer-environment.ts";
 import { readInstalledDesktopTarget } from "./installed-target.ts";
 
@@ -54,19 +58,8 @@ export function readDesktopSignedPackageMode(
       }
     }
   }
-  for (const name of [
-    "APPLE_ID",
-    "APPLE_APP_SPECIFIC_PASSWORD",
-    "APPLE_API_KEY",
-    "APPLE_API_KEY_ID",
-    "APPLE_API_ISSUER",
-    "CSC_LINK",
-  ]) {
-    if (platform === "darwin" && env[name]) {
-      throw new Error(
-        `Unset ${name} to use the local Desktop Keychain profile.`
-      );
-    }
+  if (platform === "darwin") {
+    assertDesktopAppleCredentials(env);
   }
   if (production) {
     return "production-preview";
@@ -75,6 +68,27 @@ export function readDesktopSignedPackageMode(
     return "internal-preview";
   }
   return "acceptance";
+}
+
+function assertDesktopAppleCredentials(env: NodeJS.ProcessEnv) {
+  for (const name of [
+    "APPLE_ID",
+    "APPLE_APP_SPECIFIC_PASSWORD",
+    "APPLE_API_KEY",
+    "APPLE_API_KEY_ID",
+    "APPLE_API_ISSUER",
+    "CSC_LINK",
+  ]) {
+    if (env[name]) {
+      throw new Error(
+        `Unset ${name} to use the shared Apple release credentials.`
+      );
+    }
+  }
+  const credentials = resolveAppleReleaseCredentials(env);
+  if (credentials.teamId !== DEFAULT_APPLE_TEAM_ID) {
+    throw new Error("Desktop signing requires the production Apple team.");
+  }
 }
 
 export function desktopProductionSource(env: NodeJS.ProcessEnv) {

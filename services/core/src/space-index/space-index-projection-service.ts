@@ -8,6 +8,7 @@ import {
   upsertSpaceIndexSpace,
   writeSpaceIndexProjectionEvent,
 } from "./space-index-repository";
+import { projectSpaceMembershipInbox } from "./space-membership-inbox";
 export type ProjectSpaceIndexSnapshotInput = {
   db: PostgresDatabase;
   eventType:
@@ -70,6 +71,16 @@ export async function projectActiveSpaceIndexSnapshot(
       spaceId: input.metaRecord.spaceId,
     },
   });
+  if (
+    input.eventType === "space.created" ||
+    input.eventType === "space.members_updated"
+  ) {
+    await projectSpaceMembershipInbox({
+      db: input.db,
+      meta: input.metaRecord,
+      members: input.memberRecords,
+    });
+  }
   return {
     memberCount: input.memberRecords.length,
     projectionEventId,
@@ -171,7 +182,8 @@ function toActiveSpaceProjection(input: {
     directMessageConvertedAt:
       input.metaRecord.directMessage?.convertedAt ?? null,
     spaceUpdatedAt: input.metaRecord.updatedAt,
-    status: "active",
+    deletedAt: input.metaRecord.deletedAt ?? null,
+    status: input.metaRecord.deletedAt ? "deleted" : "active",
   };
 }
 function toDeletedSpaceProjection(input: {

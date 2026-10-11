@@ -1,7 +1,7 @@
 import { normalizeContext } from "@earendil-works/pi-ai";
 import { stream as streamOpenAICompletions } from "@earendil-works/pi-ai/api/openai-completions";
 import { transformMessages } from "@earendil-works/pi-ai/api/transform-messages";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   REMOTE_AGENT_EXECUTION_INSTRUMENTATION,
   registerRemoteAgentExecutionPreparation,
@@ -67,6 +67,16 @@ describe("Remote Agent model image input", () => {
 });
 
 describe("Remote Agent model reasoning", () => {
+  const runtimeClock = {
+    content:
+      "[OpenMeld runtime clock]\nAuthoritative current UTC time: 1970-01-01T00:01:40.000Z",
+    role: "user",
+  };
+  beforeEach(() => {
+    vi.spyOn(Date, "now").mockReturnValue(100_000);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
   it("sends explicit high reasoning through pi-ai OpenRouter request construction", async () => {
     let capturedPayload: unknown;
     const model = declareRemoteAgentModelReasoning(
@@ -130,7 +140,7 @@ describe("Remote Agent model reasoning", () => {
     );
 
     expect(payload).toEqual({
-      messages: [],
+      messages: [runtimeClock],
       provider: { allow_fallbacks: true },
       session_id: "flue-conversation-affinity",
     });
@@ -138,7 +148,7 @@ describe("Remote Agent model reasoning", () => {
       expect.objectContaining({
         durationMs: expect.any(Number),
         inputBytes: expect.any(Number),
-        messageCount: 0,
+        messageCount: 1,
         stage: "request_prepared",
         status: "succeeded",
         toolCount: 0,
@@ -202,14 +212,14 @@ describe("Remote Agent model reasoning", () => {
           );
 
           expect(payload).toEqual({
-            messages: [{ content: "hello", role: "user" }],
+            messages: [{ content: "hello", role: "user" }, runtimeClock],
             provider: { allow_fallbacks: true },
             tools,
           });
           expect(reportStage).toHaveBeenCalledWith(
             expect.objectContaining({
               inputBytes: expect.any(Number),
-              messageCount: 1,
+              messageCount: 2,
               stage: "request_prepared",
               toolCount: names.length,
               availableToolCount: expectedTotal,
@@ -226,7 +236,7 @@ describe("Remote Agent model reasoning", () => {
     const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
       {},
       undefined,
-      { inputTokenBudget: 100 }
+      { inputTokenBudget: 160 }
     );
 
     await expect(
@@ -242,7 +252,7 @@ describe("Remote Agent model reasoning", () => {
         TEXT_ONLY_MODEL
       )
     ).rejects.toThrow(
-      "context_length_exceeded: estimated provider input is 145 tokens, above this model route's 100-token input budget"
+      "context_length_exceeded: estimated provider input is 173 tokens, above this model route's 160-token input budget"
     );
   });
 
@@ -270,7 +280,9 @@ describe("Remote Agent model reasoning", () => {
     ).rejects.toThrow("context_length_exceeded");
     await expect(
       largerRoute.onPayload?.(payload, TEXT_ONLY_MODEL)
-    ).resolves.toMatchObject(payload);
+    ).resolves.toMatchObject({
+      messages: [...payload.messages, runtimeClock],
+    });
   });
 
   it.each([
@@ -293,7 +305,10 @@ describe("Remote Agent model reasoning", () => {
       { tools, messages },
       { ...TEXT_ONLY_MODEL, id: modelId }
     );
-    expect(payload).toMatchObject({ tools, messages });
+    expect(payload).toMatchObject({
+      tools,
+      messages: [...messages, runtimeClock],
+    });
     expect(payload).not.toHaveProperty("tool_choice");
   });
 
@@ -360,7 +375,7 @@ describe("Remote Agent model reasoning", () => {
     );
 
     expect(payload).toMatchObject({
-      messages,
+      messages: [...messages, runtimeClock],
       reasoning: { effort: "high" },
       tools: [codemode],
     });

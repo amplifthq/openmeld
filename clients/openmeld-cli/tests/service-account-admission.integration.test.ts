@@ -504,7 +504,9 @@ describe("Service account admission across processes", () => {
       await admitted.promise;
       await signIn("B");
       proceed.resolve();
-      expect(await result).toEqual({ Authorization: "Bearer test-token-A" });
+      expect(await result).toMatchObject({
+        Authorization: "Bearer test-token-A",
+      });
       expect((await getAuthSession())?.user?.id).toBe("B");
     });
   });

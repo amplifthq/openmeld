@@ -62,13 +62,13 @@ import {
 	buildOrganizationSpacesPath,
 } from "#/lib/organizations/organization-routes";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
+import { applyOrganizationDeletionToAccountContext } from "#/query/organizations/account-organization-context";
 import {
 	organizationDirectoryQueryFilters,
 	organizationDirectoryQueryOptions,
 	organizationMemberRoleQueryOptions,
 	organizationQueryKeys,
 } from "#/query/organizations/organization-directory";
-import { applyOrganizationDeletionToScopeCache } from "#/query/organizations/organization-scope";
 import { resolveAppQueryPersistenceController } from "#/query/persistence/app-query-persistence";
 import { OrganizationInvitationRecords } from "./organization-invitation-records";
 import { OrganizationInviteControls } from "./organization-invite-controls";
@@ -349,9 +349,8 @@ function DeleteOrganizationSection(input: {
 					error
 				);
 			}
-			applyOrganizationDeletionToScopeCache({
+			applyOrganizationDeletionToAccountContext({
 				deletedOrganizationId: input.organization.id,
-				deletedOrganizationSlug: input.organization.slug,
 				nextActiveOrganization: input.personalOrganization,
 				queryClient,
 			});

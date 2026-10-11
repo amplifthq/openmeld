@@ -102,6 +102,9 @@ describe("Space dispatch trace response contract versions", () => {
 
   it("parses the current and previous response version headers", () => {
     expect(
+      spaceDispatchTraceResponseContractVersionHeaderSchema.parse("7")
+    ).toBe(7);
+    expect(
       spaceDispatchTraceResponseContractVersionHeaderSchema.parse("6")
     ).toBe(6);
     expect(
@@ -121,7 +124,7 @@ describe("Space dispatch trace response contract versions", () => {
         .success
     ).toBe(false);
     expect(
-      spaceDispatchTraceResponseContractVersionHeaderSchema.safeParse("7")
+      spaceDispatchTraceResponseContractVersionHeaderSchema.safeParse("8")
         .success
     ).toBe(false);
   });

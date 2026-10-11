@@ -699,6 +699,7 @@ export function applyGitHubIssueProviderObservation(input: {
   now?: string;
   observedAt: string;
   observedState: SpaceTaskExternalWorkItem["lastObservedState"];
+  observedStateReason?: string | null;
   identity: {
     number: number;
     owner: string;
@@ -706,7 +707,7 @@ export function applyGitHubIssueProviderObservation(input: {
   };
   task: SpaceTask;
 }): {
-  cancel: SpaceTaskMutationResult | null;
+  settle: SpaceTaskMutationResult | null;
   observe: SpaceTaskMutationResult | null;
   skipReason: "not_linked" | "stale" | null;
 } {
@@ -718,14 +719,14 @@ export function applyGitHubIssueProviderObservation(input: {
     }
   );
   if (existingIndex < 0) {
-    return { cancel: null, observe: null, skipReason: "not_linked" };
+    return { settle: null, observe: null, skipReason: "not_linked" };
   }
   const current = input.task.externalWorkItems[existingIndex];
   if (!current || current.provider !== "github") {
-    return { cancel: null, observe: null, skipReason: "not_linked" };
+    return { settle: null, observe: null, skipReason: "not_linked" };
   }
   if (current.lastObservedAt && current.lastObservedAt > input.observedAt) {
-    return { cancel: null, observe: null, skipReason: "stale" };
+    return { settle: null, observe: null, skipReason: "stale" };
   }
   const now = input.now ?? input.observedAt;
   const needsObserve =
@@ -757,18 +758,43 @@ export function applyGitHubIssueProviderObservation(input: {
     observedTask.phase === "done" ||
     observedTask.phase === "canceled"
   ) {
-    return { cancel: null, observe, skipReason: null };
+    return { settle: null, observe, skipReason: null };
   }
+  const completed = input.observedStateReason === "completed";
+  // Provider synchronization must not replace a result already under review.
+  if (completed && observedTask.phase === "in_review") {
+    return { settle: null, observe, skipReason: null };
+  }
+  if (
+    !completed &&
+    input.observedStateReason !== "not_planned" &&
+    input.observedStateReason !== "duplicate"
+  ) {
+    return { settle: null, observe, skipReason: null };
+  }
+  const detail = `GitHub issue ${formatSpaceTaskGitHubIssueLabel(current)} was closed as ${input.observedStateReason}.`;
+  const completionPhase = observedTask.reviewer ? "in_review" : "done";
   return {
-    cancel: finishMutation({
+    settle: finishMutation({
       current: observedTask,
       next: {
         ...observedTask,
         needsHumanDecision: false,
-        phase: "canceled",
+        phase: completed ? completionPhase : "canceled",
+        ...(completed
+          ? {
+              result: {
+                resultRevision: observedTask.revision + 1,
+                summary: detail,
+                submittedAt: now,
+                submittedBy: { provider: "github" },
+              },
+              review: null,
+            }
+          : {}),
       },
-      eventType: "canceled",
-      detail: `GitHub issue ${formatSpaceTaskGitHubIssueLabel(current)} was closed.`,
+      eventType: completed ? "result_submitted" : "canceled",
+      detail,
       now,
     }),
     observe,

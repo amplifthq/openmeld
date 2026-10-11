@@ -1,7 +1,6 @@
 export const OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE = "openmeld_dm_space";
 
 export type DirectMessageSpaceStateInput = {
-  activeMemberCount: number | null | undefined;
   directMessageConvertedAt?: string | null | undefined;
   purpose: string | null | undefined;
 };
@@ -11,8 +10,7 @@ export function isDirectMessageSpace(
 ): boolean {
   return (
     input.purpose === OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE &&
-    !input.directMessageConvertedAt &&
-    input.activeMemberCount === 2
+    !input.directMessageConvertedAt
   );
 }
 

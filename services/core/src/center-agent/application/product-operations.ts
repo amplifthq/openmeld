@@ -1,4 +1,9 @@
-import { buildLocalAgentConnectionCandidateId } from "@openmeld/agent-runtime";
+import {
+  buildLocalAgentConnectionCandidateId,
+  getAgentControllerModelCatalogId,
+  parseAgentControllerRef,
+} from "@openmeld/agent-runtime";
+import { resolvePublicAgentFailureRecovery } from "@openmeld/schemas";
 import type {
   AgentProfileCreationPreferenceSelection,
   CenterAgentCheckAgentProfileReadinessResponse,
@@ -12,9 +17,11 @@ import type {
   CenterAgentUpdateAgentProfileRuntimeSettingsBody,
   CenterAgentUpdateAgentProfileRuntimeSettingsResponse,
   EnsureAgentProfilePrimaryBindingResponse,
+  ModelCatalog,
   PeopleComputersResponse,
   SetCurrentAgentProfileWorkspaceResponse,
 } from "@openmeld/schemas/types";
+import { readSafeRpcFailureReasonCode } from "../../shared/rpc/rpc-json";
 
 type OperationStep =
   CenterAgentConnectAgentProfileToLocalAgentResponse["steps"][number];
@@ -57,7 +64,8 @@ export type CenterAgentProductOperationDeps = {
   }): Promise<void>;
   setAgentProfileDefaultProject?(input: {
     agentProfileId: string;
-    defaultProjectId: string;
+    defaultProjectId: string | null;
+    expectedBindingTarget?: import("../../agent-profile-binding/application/agent-profile-binding-target").AgentProfileBindingTarget;
   }): Promise<void>;
   setAgentProfileWorkspace?(input: {
     agentProfileId: string;
@@ -65,7 +73,12 @@ export type CenterAgentProductOperationDeps = {
       CenterAgentUpdateAgentProfileRuntimeSettingsBody["workspaceMode"]
     >;
     workspacePath?: CenterAgentUpdateAgentProfileRuntimeSettingsBody["workspacePath"];
-  }): Promise<SetCurrentAgentProfileWorkspaceResponse>;
+  }): Promise<
+    SetCurrentAgentProfileWorkspaceResponse & {
+      target?: import("@openmeld/schemas/types").PeopleComputerTarget;
+      bindingTarget?: import("../../agent-profile-binding/application/agent-profile-binding-target").AgentProfileBindingTarget;
+    }
+  >;
   updateAgentControllerCollaborationMode(input: {
     agentControllerCollaborationMode: NonNullable<
       CenterAgentUpdateAgentProfileRuntimeSettingsBody["agentControllerCollaborationMode"]
@@ -94,6 +107,7 @@ export type CenterAgentProductOperationDeps = {
 };
 
 export function projectCenterAgentLocalAgentConnectionCandidates(input: {
+  modelCatalog?: ModelCatalog;
   peopleComputers: PeopleComputersResponse;
   organizationId: string;
 }): CenterAgentListLocalAgentConnectionCandidatesResponse {
@@ -135,6 +149,10 @@ export function projectCenterAgentLocalAgentConnectionCandidates(input: {
           deviceId: target.deviceId,
           freshness,
           lastObservedAtMs: target.lastObservedAtMs,
+          ...readCandidateModelOptions(
+            capability.agentControllerRef,
+            input.modelCatalog
+          ),
           reasonCodes: [
             ...new Set([
               ...computer.connection.reasonCodes,
@@ -161,6 +179,18 @@ export function projectCenterAgentLocalAgentConnectionCandidates(input: {
     ),
     organizationId: input.organizationId,
   };
+}
+
+function readCandidateModelOptions(
+  agentControllerRef: string,
+  catalog: ModelCatalog | undefined
+) {
+  const ref = parseAgentControllerRef(agentControllerRef);
+  const modelOptions =
+    ref && catalog
+      ? catalog.agentControllers[getAgentControllerModelCatalogId(ref)]
+      : undefined;
+  return modelOptions ? { modelOptions } : {};
 }
 
 export function projectCenterAgentComputerSetupOptions(
@@ -409,6 +439,7 @@ export async function updateAgentProfileRuntimeSettingsOperation(input: {
   deps: Pick<
     CenterAgentProductOperationDeps,
     | "checkAgentProfileReadiness"
+    | "setAgentProfileDefaultProject"
     | "setAgentProfileWorkspace"
     | "updateAgentControllerCollaborationMode"
     | "updateAgentControllerPermissionMode"
@@ -493,6 +524,7 @@ export async function updateAgentProfileRuntimeSettingsOperation(input: {
   if (input.request.workspaceMode !== undefined) {
     const result = await updateAgentProfileWorkspaceMutation({
       agentProfileId: input.request.agentProfileId,
+      setAgentProfileDefaultProject: input.deps.setAgentProfileDefaultProject,
       setAgentProfileWorkspace: input.deps.setAgentProfileWorkspace,
       steps,
       workspaceMode: input.request.workspaceMode,
@@ -506,6 +538,7 @@ export async function updateAgentProfileRuntimeSettingsOperation(input: {
         binding,
         organizationId: input.organizationId,
         steps,
+        workspace: result.workspace,
       });
     }
     workspace = result.workspace;
@@ -523,6 +556,7 @@ export async function updateAgentProfileRuntimeSettingsOperation(input: {
       binding,
       organizationId: input.organizationId,
       steps,
+      workspace,
     });
   }
   steps.push({
@@ -539,12 +573,15 @@ export async function updateAgentProfileRuntimeSettingsOperation(input: {
     readiness,
     status: readiness.canReply ? "completed" : "blocked",
     steps,
-    ...(workspace === undefined ? {} : { workspace }),
+    ...(workspace === undefined
+      ? {}
+      : { workspace: projectWorkspaceMutation(workspace) }),
   };
 }
 
 async function updateAgentProfileWorkspaceMutation(input: {
   agentProfileId: string;
+  setAgentProfileDefaultProject?: CenterAgentProductOperationDeps["setAgentProfileDefaultProject"];
   setAgentProfileWorkspace?: CenterAgentProductOperationDeps["setAgentProfileWorkspace"];
   steps: OperationStep[];
   workspaceMode: NonNullable<
@@ -553,8 +590,17 @@ async function updateAgentProfileWorkspaceMutation(input: {
   workspacePath?: CenterAgentUpdateAgentProfileRuntimeSettingsBody["workspacePath"];
 }): Promise<
   | { status: "completed"; workspace: SetCurrentAgentProfileWorkspaceResponse }
-  | { status: "failed" }
+  | { status: "failed"; workspace?: SetCurrentAgentProfileWorkspaceResponse }
 > {
+  if (!input.setAgentProfileDefaultProject) {
+    input.steps.push({
+      name: "update_agent_profile_default_project",
+      status: "failed",
+      message: "Working folder settings require the Agent's owner.",
+      nextAction: "Open Agent settings in the owner's private conversation.",
+    });
+    return { status: "failed" };
+  }
   if (!input.setAgentProfileWorkspace) {
     input.steps.push({
       name: "update_agent_profile_workspace",
@@ -565,7 +611,11 @@ async function updateAgentProfileWorkspaceMutation(input: {
     });
     return { status: "failed" };
   }
-  let workspace: SetCurrentAgentProfileWorkspaceResponse;
+  let workspace: Awaited<
+    ReturnType<
+      NonNullable<CenterAgentProductOperationDeps["setAgentProfileWorkspace"]>
+    >
+  >;
   try {
     workspace = await input.setAgentProfileWorkspace({
       agentProfileId: input.agentProfileId,
@@ -575,13 +625,35 @@ async function updateAgentProfileWorkspaceMutation(input: {
         : { workspacePath: input.workspacePath }),
     });
   } catch (error) {
-    input.steps.push(failedStep("update_agent_profile_workspace", error));
+    input.steps.push(
+      failedWorkingFolderStep("update_agent_profile_workspace", error)
+    );
     return { status: "failed" };
   }
   input.steps.push({
     name: "update_agent_profile_workspace",
     status: "completed",
-    message: "Project folder was updated through the local OpenMeld Service.",
+    message: "Working folder was saved on the local Computer.",
+  });
+  try {
+    await input.setAgentProfileDefaultProject({
+      agentProfileId: input.agentProfileId,
+      defaultProjectId: null,
+      ...(workspace.bindingTarget
+        ? { expectedBindingTarget: workspace.bindingTarget }
+        : {}),
+    });
+  } catch (error) {
+    input.steps.push(
+      failedWorkingFolderStep("update_agent_profile_default_project", error)
+    );
+    return { status: "failed", workspace };
+  }
+  input.steps.push({
+    name: "update_agent_profile_default_project",
+    status: "completed",
+    message:
+      "Default Project was cleared. New tasks use the selected working folder.",
   });
   return { status: "completed", workspace };
 }
@@ -720,6 +792,7 @@ function blockedSettingsResponse(input: {
   binding?: EnsureAgentProfilePrimaryBindingResponse;
   organizationId: string;
   steps: OperationStep[];
+  workspace?: SetCurrentAgentProfileWorkspaceResponse;
 }): CenterAgentUpdateAgentProfileRuntimeSettingsResponse {
   return {
     agentProfileId: input.agentProfileId,
@@ -728,9 +801,50 @@ function blockedSettingsResponse(input: {
     organizationId: input.organizationId,
     status: "blocked",
     steps: input.steps,
+    ...(input.workspace === undefined
+      ? {}
+      : { workspace: projectWorkspaceMutation(input.workspace) }),
   };
 }
 
+function projectWorkspaceMutation(
+  workspace: Awaited<
+    ReturnType<
+      NonNullable<CenterAgentProductOperationDeps["setAgentProfileWorkspace"]>
+    >
+  >
+) {
+  return {
+    agentProfileId: workspace.agentProfileId,
+    status: workspace.status,
+    ...(workspace.target ? { target: workspace.target } : {}),
+    // The existing Service write receipt does not report a configuration
+    // version. Keep that uncertainty instead of using a Binding revision.
+    configurationVersion: null,
+  };
+}
+
+function failedWorkingFolderStep(
+  name: OperationStep["name"],
+  error: unknown
+): OperationStep {
+  const reasonCode = readSafeRpcFailureReasonCode(error);
+  const recovery = resolvePublicAgentFailureRecovery({
+    errorCode: reasonCode,
+    includeUnknown: false,
+  });
+  return {
+    name,
+    status: "failed",
+    ...(reasonCode ? { reasonCode } : {}),
+    message:
+      recovery?.body ??
+      (name === "update_agent_profile_default_project"
+        ? "The folder was saved, but Default Project could not be cleared. New tasks may still use the Project."
+        : "The working folder could not be saved on the target Computer."),
+    nextAction: "Review Working folder in Agent settings, then retry setup.",
+  };
+}
 function toBindingStep(
   binding: EnsureAgentProfilePrimaryBindingResponse,
   name: OperationStep["name"]

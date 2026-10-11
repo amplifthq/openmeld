@@ -104,6 +104,13 @@ export const agentControllerUsageLimitsSchema = z
     }
   });
 
+// One account-level observation from the controller. Window percentages remain
+// usage facts; they do not establish whether credits permit another turn.
+export const agentControllerUsageAdmissionSchema = z.strictObject({
+  blocksNewWork: z.boolean().nullable(),
+  observedAt: ACI_ISO_DATE_TIME_SCHEMA,
+});
+
 export const agentControllerInterfaceStatusSchema = z.enum([
   "disabled",
   "error",
@@ -120,6 +127,8 @@ export const agentControllerInterfaceAuthStatusSchema = z.enum([
 ]);
 
 export const agentControllerInterfaceAuthSnapshotSchema = z.strictObject({
+  // Owner-only opaque native account subject. Cloud projection omits it.
+  accountKey: ACI_BOUNDED_ID_SCHEMA.optional(),
   email: z.string().trim().email().max(320).optional(),
   label: ACI_BOUNDED_LABEL_SCHEMA.optional(),
   status: agentControllerInterfaceAuthStatusSchema,
@@ -219,6 +228,7 @@ export const agentControllerInterfaceSnapshotSchema = z.strictObject({
   schemaVersion: z.literal(1),
   skills: z.array(agentControllerInterfaceSkillSchema).max(512),
   status: agentControllerInterfaceStatusSchema,
+  usageAdmission: agentControllerUsageAdmissionSchema.optional(),
   usageLimits: agentControllerUsageLimitsSchema.optional(),
   usageLimitsSupportMatrixVersion: z.int().positive().optional(),
   version: ACI_BOUNDED_ID_SCHEMA.nullable(),

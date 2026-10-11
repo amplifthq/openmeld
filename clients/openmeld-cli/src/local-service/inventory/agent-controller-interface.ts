@@ -7,7 +7,8 @@ import {
 import { probeClaudeCodeUsageLimits } from "@openmeld/adapter-claude-code";
 import {
   probeCodexAppServerAccount,
-  projectCodexUsageLimits,
+  projectCodexUsageObservation,
+  readCodexAccountUsageObservation,
 } from "@openmeld/adapter-codex";
 import {
   buildCliLaunchInvocation,
@@ -188,6 +189,7 @@ export async function probeAgentControllerUsageObservationAuth(input: {
       });
       return {
         status: account.authStatus,
+        ...(account.accountKey ? { accountKey: account.accountKey } : {}),
         ...(account.email ? { email: account.email } : {}),
       };
     } catch {
@@ -677,6 +679,7 @@ async function resolveCodexInterfaceSnapshot(
         models: appServerProbe.models,
         skills: appServerProbe.skills,
         status: appServerProbe.status,
+        usageAdmission: appServerProbe.usageAdmission,
         usageLimits: appServerProbe.usageLimits,
         version,
         versionAdvisory: await resolveControllerVersionAdvisory({
@@ -1148,6 +1151,7 @@ type CodexAppServerProbeResult =
       ok: true;
       skills: AgentControllerInterfaceSkill[];
       status: AgentControllerInterfaceStatus;
+      usageAdmission?: AgentControllerInterfaceSnapshot["usageAdmission"];
       usageLimits: NonNullable<AgentControllerInterfaceSnapshot["usageLimits"]>;
       version: string | null;
     }
@@ -1185,6 +1189,7 @@ function probeCodexAppServer(
     let lineBuffer = "";
     let stderr = "";
     let settled = false;
+    let accountEpoch = 0;
     const finish = (result: CodexAppServerProbeResult) => {
       if (settled) {
         return;
@@ -1231,12 +1236,19 @@ function probeCodexAppServer(
       lineBuffer = consumeJsonRpcMessagesFromChunk({
         chunk,
         lineBuffer,
-        onMessage: (message) =>
+        onMessage: (message) => {
+          if (
+            message.method === "account/updated" ||
+            message.method === "account/login/completed"
+          ) {
+            accountEpoch += 1;
+          }
           handleCodexProbeMessage({
             message,
             pending,
             stdin: child.stdin,
-          }),
+          });
+        },
       });
     });
     child.stderr.on("data", (chunk) => {
@@ -1269,6 +1281,7 @@ function probeCodexAppServer(
     });
 
     runCodexAppServerProbeRequests({
+      readAccountEpoch: () => accountEpoch,
       workingDirectory,
       clearProbeTimeout: () => {
         clearTimeout(timeout);
@@ -1287,6 +1300,7 @@ function probeCodexAppServer(
 }
 
 async function runCodexAppServerProbeRequests(input: {
+  readAccountEpoch: () => number;
   workingDirectory: string;
   clearProbeTimeout: () => void;
   finish: (result: CodexAppServerProbeResult) => void;
@@ -1306,32 +1320,34 @@ async function runCodexAppServerProbeRequests(input: {
     .request("skills/list", { cwds: [input.workingDirectory] })
     .catch(() => null);
   const modelsPromise = requestAllCodexModels(input.request).catch(() => []);
-  const usageLimitsPromise = input
-    .request("account/rateLimits/read", null)
-    .then((response) =>
-      projectCodexUsageLimits({
-        observedAt: new Date().toISOString(),
-        response,
-      })
-    )
-    .catch(() =>
-      createUnavailableProviderUsageLimits(new Date().toISOString())
-    );
   const account = await input.request("account/read", {});
   // The account verdict is the core probe fact. Once it arrives the probe can
   // no longer time out; auxiliary model/skill inventory only gets a bounded
   // grace so a slow listing cannot turn a healthy controller into a timeout.
   input.clearProbeTimeout();
-  const [skills, models, usageLimits] = await Promise.all([
+  const usageObservationPromise = readCodexAccountUsageObservation(input).catch(
+    () => null
+  );
+  const [skills, models, accountUsage] = await Promise.all([
     resolveWithinGrace(skillsPromise, CODEX_AUX_INVENTORY_GRACE_MS, null),
     resolveWithinGrace(modelsPromise, CODEX_AUX_INVENTORY_GRACE_MS, []),
     resolveWithinGrace(
-      usageLimitsPromise,
+      usageObservationPromise,
       CODEX_AUX_INVENTORY_GRACE_MS,
-      createUnavailableProviderUsageLimits(new Date().toISOString())
+      null
     ),
   ]);
-  const auth = resolveCodexAuthSnapshot(account);
+  const accountKey =
+    accountUsage?.accountEpoch === input.readAccountEpoch()
+      ? accountUsage.accountKey
+      : null;
+  const auth =
+    accountKey && accountUsage
+      ? {
+          ...resolveCodexAuthSnapshot(accountUsage.accountResponse),
+          accountKey,
+        }
+      : resolveCodexAuthSnapshot(account);
   input.finish({
     auth,
     message:
@@ -1342,7 +1358,13 @@ async function runCodexAppServerProbeRequests(input: {
     ok: true,
     skills: parseCodexSkills(skills),
     status: auth.status === "unauthenticated" ? "unavailable" : "ready",
-    usageLimits,
+    ...(accountKey && accountUsage
+      ? accountUsage.usageObservation
+      : projectCodexUsageObservation({
+          observedAt: new Date().toISOString(),
+          response: null,
+          source: "account_read",
+        })),
     version: parseCodexUserAgentVersion(initialized),
   });
 }

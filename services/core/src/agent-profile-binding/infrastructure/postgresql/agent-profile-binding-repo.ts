@@ -125,6 +125,7 @@ export function createPostgresAgentProfileBindingCommandStore(input: {
         owner,
       }),
     ensurePrimaryBinding: ({
+      initializeOnly,
       agentControllerCollaborationModePatch,
       agentControllerPermissionModePatch,
       modelSelectionPatch,
@@ -132,6 +133,7 @@ export function createPostgresAgentProfileBindingCommandStore(input: {
       record,
     }) =>
       ensurePrimaryAgentProfileBindingRecord({
+        initializeOnly,
         ...(agentControllerCollaborationModePatch
           ? { agentControllerCollaborationModePatch }
           : {}),
@@ -246,6 +248,7 @@ function isSameEnabledPrimaryBindingTarget(input: {
   );
 }
 type AgentProfileBindingWriteRequest = {
+  initializeOnly?: boolean;
   agentControllerCollaborationModePatch?: AgentProfileBindingAgentControllerCollaborationModePatch;
   agentControllerPermissionModePatch?: AgentProfileBindingAgentControllerPermissionModePatch;
   db: PostgresDatabase;
@@ -301,6 +304,9 @@ export async function ensurePrimaryAgentProfileBindingRecord(
   ) {
     if (!(await isSessionInventoryEligibilityCurrent(input))) {
       return sessionResumeUnavailableResult();
+    }
+    if (input.initializeOnly) {
+      return { binding: current, outcome: "reused", status: "accepted" };
     }
     const updated = await maybeUpdatePrimaryAgentProfileBindingMetadata({
       agentControllerCollaborationModePatch:
@@ -739,6 +745,9 @@ async function resolveEnsuredPrimaryAgentProfileBinding(context: {
   }
   if (!(await isSessionInventoryEligibilityCurrent(context.request))) {
     return sessionResumeUnavailableResult();
+  }
+  if (context.request.initializeOnly) {
+    return { binding, outcome: "reused", status: "accepted" };
   }
   const updated = await maybeUpdatePrimaryAgentProfileBindingMetadata({
     agentControllerCollaborationModePatch:

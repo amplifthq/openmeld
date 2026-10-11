@@ -6,15 +6,84 @@ import { readFile, stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 import process from "node:process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { gzipSync } from "node:zlib";
+import { buildCodeSignArgs } from "../release/apple-release-signing.mjs";
 import { buildCliBinary } from "../release/build-cli-binary.mjs";
-import { buildCodeSignArgs } from "../release/macos-cli-signing.mjs";
 import { readCurrentIsolatedDevLane } from "./dev-isolated-lane.mjs";
+import { acquireLocalResources } from "./local-resources.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
 const DEFAULT_PORT = 3197;
+
+// The build owns the heavy reservation. The HTTP server keeps only its artifact.
+export async function buildServedCliArtifact({
+  acquire = acquireLocalResources,
+  build = buildCliBinary,
+  env = process.env,
+} = {}) {
+  const controller = new AbortController();
+  const cancel = () =>
+    controller.abort(new Error("CLI binary build cancelled before launch."));
+  process.once("SIGINT", cancel);
+  process.once("SIGTERM", cancel);
+  let reservation;
+  try {
+    reservation = await acquire({
+      kind: "heavy",
+      repoRoot: REPO_ROOT,
+      signal: controller.signal,
+    });
+    process.off("SIGINT", cancel);
+    process.off("SIGTERM", cancel);
+    const built = build({
+      outDir: path.join(REPO_ROOT, "clients", "openmeld-cli", "dist", "binary"),
+      platform: "darwin-arm64",
+    });
+    // Keychain recovery smoke must exercise the same signing identity across
+    // managed CLI and stable Service copies. Ad-hoc builds remain the default.
+    const signingIdentity = env.OPENMELD_CLI_BINARY_DEV_SIGNING_IDENTITY;
+    if (signingIdentity) {
+      execFileSync(
+        "codesign",
+        buildCodeSignArgs({
+          entitlementsPath: path.join(
+            REPO_ROOT,
+            "scripts/release/macos-cli.entitlements.plist"
+          ),
+          identityHash: signingIdentity,
+          outFile: built.outFile,
+        }),
+        { stdio: "inherit" }
+      );
+      execFileSync("codesign", ["--verify", "--strict", built.outFile], {
+        stdio: "inherit",
+      });
+    } else {
+      console.warn(
+        "[cli:binary:serve] Ad-hoc macOS build: a rebuilt binary may not read a previous build's Keychain sign-in. If access is denied, sign in again through this build in the isolated lane. Retries do not grant access."
+      );
+    }
+    const artifact = await readFile(built.outFile);
+    const actualSha256 = createHash("sha256").update(artifact).digest("hex");
+    if (!signingIdentity && actualSha256 !== built.sha256) {
+      throw new Error(
+        `built artifact sha256 mismatch: ${actualSha256} != ${built.sha256}`
+      );
+    }
+    built.sha256 = actualSha256;
+    const artifactStats = await stat(built.outFile);
+    const archive = gzipSync(artifact, { level: 9 });
+    const archiveSha256 = createHash("sha256").update(archive).digest("hex");
+
+    return { built, artifact, artifactStats, archive, archiveSha256 };
+  } finally {
+    process.off("SIGINT", cancel);
+    process.off("SIGTERM", cancel);
+    await reservation?.release();
+  }
+}
 
 async function main() {
   // Start with an absolute argv path so dev:stop can prove worktree ownership.
@@ -39,45 +108,8 @@ async function main() {
     return;
   }
   const port = readPort();
-  const built = buildCliBinary({
-    outDir: path.join(REPO_ROOT, "clients", "openmeld-cli", "dist", "binary"),
-    platform: "darwin-arm64",
-  });
-  // Keychain recovery smoke must exercise the same signing identity across
-  // managed CLI and stable Service copies. Ad-hoc builds remain the default.
-  const signingIdentity = process.env.OPENMELD_CLI_BINARY_DEV_SIGNING_IDENTITY;
-  if (signingIdentity) {
-    execFileSync(
-      "codesign",
-      buildCodeSignArgs({
-        entitlementsPath: path.join(
-          REPO_ROOT,
-          "scripts/release/macos-cli.entitlements.plist"
-        ),
-        identityHash: signingIdentity,
-        outFile: built.outFile,
-      }),
-      { stdio: "inherit" }
-    );
-    execFileSync("codesign", ["--verify", "--strict", built.outFile], {
-      stdio: "inherit",
-    });
-  } else {
-    console.warn(
-      "[cli:binary:serve] Ad-hoc macOS build: a rebuilt binary may not read a previous build's Keychain sign-in. If access is denied, sign in again through this build in the isolated lane. Retries do not grant access."
-    );
-  }
-  const artifact = await readFile(built.outFile);
-  const actualSha256 = createHash("sha256").update(artifact).digest("hex");
-  if (!signingIdentity && actualSha256 !== built.sha256) {
-    throw new Error(
-      `built artifact sha256 mismatch: ${actualSha256} != ${built.sha256}`
-    );
-  }
-  built.sha256 = actualSha256;
-  const artifactStats = await stat(built.outFile);
-  const archive = gzipSync(artifact, { level: 9 });
-  const archiveSha256 = createHash("sha256").update(archive).digest("hex");
+  const { built, artifact, artifactStats, archive, archiveSha256 } =
+    await buildServedCliArtifact();
 
   let origin = "";
   const server = createServer((request, response) => {
@@ -198,9 +230,14 @@ function readPort() {
   return parsed;
 }
 
-main().catch((error) => {
-  process.stderr.write(
-    `${error instanceof Error ? error.message : String(error)}\n`
-  );
-  process.exitCode = 1;
-});
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
+) {
+  main().catch((error) => {
+    process.stderr.write(
+      `${error instanceof Error ? error.message : String(error)}\n`
+    );
+    process.exitCode = 1;
+  });
+}

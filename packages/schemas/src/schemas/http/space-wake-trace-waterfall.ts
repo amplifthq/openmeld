@@ -1,5 +1,7 @@
 import * as z from "zod/v4";
+import { agentControllerConversationResumeSchema } from "../daemon/conversation-lifecycle";
 import { clientMessageIdSchema } from "../protocol/client-message-id";
+import { executionContextDiagnosticsSchema } from "../protocol/execution-context";
 import { nonEmptyTrimmedStringFromUnknown } from "../protocol/shared";
 import { observabilityWakeCorrelationSchema } from "./observability-correlation";
 
@@ -108,6 +110,12 @@ export const wakeTraceWaterfallStepSchema = z.strictObject({
 });
 
 export const wakeTargetExecutionContextSchema = z.strictObject({
+  taskContext: z
+    .strictObject({
+      assignment: executionContextDiagnosticsSchema,
+      conversationResume: agentControllerConversationResumeSchema.nullable(),
+    })
+    .optional(),
   resolutionStatus: wakeTargetExecutionContextResolutionStatusSchema,
   factSource: wakeTargetExecutionContextFactSourceSchema,
   reasonCode: nullableReasonCodeSchema,

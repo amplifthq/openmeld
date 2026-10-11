@@ -39,12 +39,14 @@ export async function summarizeAgentActivityDigest(input: {
   const model = requireDigestModel(input.env);
   const headers = buildRemoteAgentAiGatewayHeaders({
     env: input.env,
+    organizationId: request.organizationId,
     metadata: buildRemoteAgentGatewayMetadata({
       modelId: model,
       organizationId: request.organizationId,
     }),
   });
   const response = await createMeteredRemoteFetch({
+    env: input.env,
     ...input.usageDurability,
     coreWorker: input.env.OPENMELD_CORE_WORKER,
     fetch: input.fetch,

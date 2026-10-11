@@ -113,6 +113,12 @@ export type OpenMeldDaemonSetProfileWorkspacePayload =
   z.infer<OpenMeldDaemonSetProfileWorkspacePayloadSchema>;
 export type OpenMeldDaemonSetProfileWorkspaceRequestPayload =
   z.infer<OpenMeldDaemonSetProfileWorkspaceRequestPayloadSchema>;
+export type OpenMeldDaemonReadProfileWorkspaceRequestPayload = z.infer<
+  typeof import("../../schemas/daemon/control-plane")["openMeldDaemonReadProfileWorkspaceRequestPayloadSchema"]
+>;
+export type OpenMeldDaemonReadProfileWorkspacePayload = z.infer<
+  typeof import("../../schemas/daemon/control-plane")["openMeldDaemonReadProfileWorkspacePayloadSchema"]
+>;
 export type OpenMeldDaemonConversationExecutionStatusPayload =
   z.infer<OpenMeldDaemonConversationExecutionStatusPayloadSchema>;
 export type OpenMeldDaemonConversationExecutionStatusRequestPayload =

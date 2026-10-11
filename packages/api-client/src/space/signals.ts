@@ -59,6 +59,7 @@ export async function listSpaceSignalEnvelopes(
 ): Promise<{
   envelopes: readonly SignalEnvelope[];
   nextCursor: string | null;
+  personalHistoryDeletedAt?: number;
 }> {
   const result = await listSpaceSignals(client, input);
   return {
@@ -67,6 +68,9 @@ export async function listSpaceSignalEnvelopes(
       return envelope ? [envelope] : [];
     }),
     nextCursor: result.nextCursor,
+    ...(result.personalHistoryDeletedAt === undefined
+      ? {}
+      : { personalHistoryDeletedAt: result.personalHistoryDeletedAt }),
   };
 }
 
@@ -86,6 +90,9 @@ export function buildSpaceSignalsReadSearchParams(
   query?: SpaceSignalsReadQuery
 ): URLSearchParams {
   const searchParams = new URLSearchParams();
+  if (query?.includePersonalHistoryBoundary) {
+    searchParams.set("includePersonalHistoryBoundary", "true");
+  }
   const normalizedQuery = normalizeSpaceSignalsReadQuery(query);
 
   if (normalizedQuery.afterTs !== null) {

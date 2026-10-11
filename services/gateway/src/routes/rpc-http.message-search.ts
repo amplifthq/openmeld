@@ -1,5 +1,7 @@
 import { OPENMELD_SPACE_IMAGE_GEOMETRY_VERSION } from "@openmeld/gateway-contract";
 import {
+  messageReadPageSchema,
+  messageReadQuerySchema,
   messageSearchQuerySchema,
   messageSearchResponseSchema,
 } from "@openmeld/schemas";
@@ -12,6 +14,28 @@ import {
 } from "./rpc-http.helpers";
 
 export function registerMessageSearchRoutes(app: Hono<HonoBindings>): void {
+  app.get("/v1/messages/query", (c) => {
+    const query = messageReadQuerySchema.safeParse(c.req.query());
+    if (!query.success) {
+      return respondBadRequest({
+        c,
+        route: "/v1/messages/query",
+        method: "GET",
+        message: "Use a valid message query and continuation cursor.",
+      });
+    }
+    return executeRpcRoute({
+      c,
+      route: "/v1/messages/query",
+      method: "GET",
+      responseSchema: messageReadPageSchema,
+      execute: () =>
+        c.var.coreRpc.readMessages({
+          ...query.data,
+          context: buildCoreRpcContext(c),
+        }),
+    });
+  });
   const route = "/v1/messages/search";
   app.get(route, (c) => {
     const query = messageSearchQuerySchema.safeParse(c.req.query());

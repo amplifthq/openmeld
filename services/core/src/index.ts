@@ -13,6 +13,7 @@ import type {
   SpaceCursor,
   SpaceMeta,
 } from "@openmeld/protocol";
+import type { SpacePreferencesRpc } from "@openmeld/schemas";
 import {
   type ListCenterAgentSessionsResponse,
   type ModelCatalogReadOptions,
@@ -734,6 +735,7 @@ import {
   type GetCenterAgentModelInput,
   type GetCenterAgentOperatingStateInput,
   type GetCurrentAgentProfileSessionInput,
+  type GetCurrentAgentProfileWorkspaceInput,
   type GetCurrentDeviceTargetInput,
   type GetCurrentLocalAgentInstallationsInput,
   type GetCurrentLocalRuntimeReplyReadinessInput,
@@ -910,6 +912,7 @@ import {
   rpcCenterAgentStartSelfMemberResearch,
   rpcCenterAgentStopSpaceWake,
   rpcCenterAgentUpdateAgentProfileRuntimeSettings,
+  rpcCenterAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace,
   rpcCenterAgentUpdateSpaceSettings,
   rpcCenterAgentWakeAgentProfilesInSpace,
   rpcCenterAgentWakeAgentProfilesInSpaces,
@@ -937,6 +940,7 @@ import {
   rpcCreateSpaceDiagnosticReport,
   rpcCreateSpaceFolder,
   rpcCreateSpaceTask,
+  rpcDeleteConversationForMe,
   rpcDeleteRoutine,
   rpcDeleteSpace,
   rpcDeleteSpaceAttachmentRecord,
@@ -966,6 +970,7 @@ import {
   rpcGetCenterAgentModel,
   rpcGetCenterAgentOperatingState,
   rpcGetCurrentAgentProfileSession,
+  rpcGetCurrentAgentProfileWorkspace,
   rpcGetCurrentDeviceTarget,
   rpcGetCurrentLocalAgentInstallations,
   rpcGetCurrentLocalRuntimeReplyReadiness,
@@ -1091,6 +1096,7 @@ import {
   rpcSelectPeopleComputerFolders,
   rpcSelectPeopleComputerLocalAgentInstallation,
   rpcSetAgentProfileCreationDefaults,
+  rpcSetBoundPeopleComputerAgentProfileWorkspace,
   rpcSetCenterAgentOrganizationMemoryPolicy,
   rpcSetCurrentAgentProfileWorkspace,
   rpcSetCurrentLocalAgentEnabled,
@@ -1123,6 +1129,7 @@ import {
   rpcUpdateAgentProfilePrimaryBindingAgentControllerPermissionMode,
   rpcUpdateAgentProfilePrimaryBindingModelSelection,
   rpcUpdateAgentProfilePrimaryBindingOpenCodePermission,
+  rpcUpdateBoundAgentProfileDefaultProject,
   rpcUpdateCenterAgentModel,
   rpcUpdateCenterAgentOperatingState,
   rpcUpdateCenterAgentProfile,
@@ -1191,11 +1198,16 @@ import {
   ROUTINE_TICK_CRON,
   runCoreScheduledTasks,
 } from "./scheduled/core-scheduled-tasks";
+import {
+  rpcReadMessages,
+  rpcRemoteAgentReadMessages,
+} from "./search/message-read";
 import { rpcSearchMessages } from "./search/message-search";
 import { emitCoreCloudflareRuntimeEvidence } from "./shared/observability/cloudflare-runtime-evidence";
 import { handleCoreQueueBatch } from "./shared/queue/core-queue-router";
 import { verifyGitHubAppWebhook } from "./space/application/github-app-webhook-service";
 import type { SpaceBootstrapWithTiming } from "./space/application/space-bootstrap-timing";
+import { spacePreferences } from "./space/application/space-preferences";
 import { Space } from "./space/transport/do/space";
 import {
   type ProjectSpaceIndexMembershipOverlayRpcInput,
@@ -1514,6 +1526,13 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       rpcUpdateAgentProfileDefaultProject(this.env, input)
     );
   }
+  updateBoundAgentProfileDefaultProject(
+    input: UpdateAgentProfileDefaultProjectInput
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdateBoundAgentProfileDefaultProject(this.env, input)
+    );
+  }
   archiveProject(input: ArchiveProjectInput) {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       rpcArchiveProject(this.env, input)
@@ -1536,6 +1555,18 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       rpcConnectPeopleComputerProjectCandidate(this.env, input)
     );
   }
+  getPeopleComputerAgentProfileWorkspace(
+    input: GetCurrentAgentProfileWorkspaceInput &
+      import("@openmeld/schemas/types").PeopleComputerTarget
+  ) {
+    const { deviceId, runtimeLane, ...request } = input;
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCurrentAgentProfileWorkspace(this.env, request, {
+        deviceId,
+        runtimeLane,
+      })
+    );
+  }
   setPeopleComputerAgentProfileWorkspace(
     input: SetCurrentAgentProfileWorkspaceInput &
       import("@openmeld/schemas/types").PeopleComputerTarget
@@ -1546,6 +1577,14 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
         deviceId,
         runtimeLane,
       })
+    );
+  }
+  setBoundPeopleComputerAgentProfileWorkspace(
+    input: SetCurrentAgentProfileWorkspaceInput &
+      import("@openmeld/schemas/types").PeopleComputerTarget
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcSetBoundPeopleComputerAgentProfileWorkspace(this.env, input)
     );
   }
   connectPeopleComputerProjectPath(
@@ -1721,6 +1760,18 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       spaceImageGeometryVersion
     );
   }
+  readMessages(input: import("@openmeld/schemas").MessageReadRpcInput) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadMessages(this.env, input)
+    );
+  }
+  remoteAgentReadMessages(
+    input: import("@openmeld/schemas").MessageReadRpcInput
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcRemoteAgentReadMessages(this.env, input)
+    );
+  }
   mutateInboxFeed(
     input: MutateInboxFeedRpcInput
   ): Promise<MutateInboxFeedResponse> {
@@ -1841,6 +1892,11 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   localAgentReasoningPreferences(input: LocalAgentReasoningPreferencesRpc) {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       reasoningPreferences(this.env, input)
+    );
+  }
+  accountSpacePreferences(input: SpacePreferencesRpc) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      spacePreferences(this.env, input)
     );
   }
   updateInboxNotificationPreferences(
@@ -2798,6 +2854,13 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       rpcDeleteSpace(this.env, input)
     );
   }
+  deleteConversationForMe(
+    input: import("@openmeld/schemas").DeleteConversationForMeInput
+  ): Promise<import("@openmeld/schemas").DeleteConversationForMeResponse> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcDeleteConversationForMe(this.env, input)
+    );
+  }
   updateSpaceMeta(input: UpdateSpaceMetaInput): Promise<SpaceMeta> {
     return rpcUpdateSpaceMeta(this.env, input);
   }
@@ -3288,6 +3351,11 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       rpcPluginActionRequest(this.env, input)
     );
   }
+  listPluginActionRequests(input: unknown) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      listPluginActionRequests(this.env, input)
+    );
+  }
 
   previewPluginChannelConnection(input: unknown) {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
@@ -3765,6 +3833,16 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   ): Promise<CenterAgentUpdateAgentProfileRuntimeSettingsResponse> {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       rpcCenterAgentUpdateAgentProfileRuntimeSettings(this.env, input)
+    );
+  }
+  centerAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace(
+    input: CenterAgentUpdateAgentProfileRuntimeSettingsInput
+  ): Promise<CenterAgentUpdateAgentProfileRuntimeSettingsResponse> {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcCenterAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace(
+        this.env,
+        input
+      )
     );
   }
   centerAgentCheckAgentProfileReadiness(
@@ -4397,6 +4475,11 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       rpcSetCurrentOpenMeldToolsMaintenance(this.env, input)
     );
   }
+  getCurrentAgentProfileWorkspace(input: GetCurrentAgentProfileWorkspaceInput) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcGetCurrentAgentProfileWorkspace(this.env, input)
+    );
+  }
   setCurrentAgentProfileWorkspace(
     input: SetCurrentAgentProfileWorkspaceInput
   ): Promise<SetCurrentAgentProfileWorkspaceResponse> {
@@ -4546,6 +4629,11 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   ) {
     return super.updateAgentProfileDefaultProject(input);
   }
+  updateBoundAgentProfileDefaultProject(
+    input: UpdateAgentProfileDefaultProjectInput
+  ) {
+    return super.updateBoundAgentProfileDefaultProject(input);
+  }
   archiveProject(input: ArchiveProjectInput) {
     return super.archiveProject(input);
   }
@@ -4562,11 +4650,23 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   ) {
     return super.connectPeopleComputerProjectCandidate(input);
   }
+  getPeopleComputerAgentProfileWorkspace(
+    input: GetCurrentAgentProfileWorkspaceInput &
+      import("@openmeld/schemas/types").PeopleComputerTarget
+  ) {
+    return super.getPeopleComputerAgentProfileWorkspace(input);
+  }
   setPeopleComputerAgentProfileWorkspace(
     input: SetCurrentAgentProfileWorkspaceInput &
       import("@openmeld/schemas/types").PeopleComputerTarget
   ) {
     return super.setPeopleComputerAgentProfileWorkspace(input);
+  }
+  setBoundPeopleComputerAgentProfileWorkspace(
+    input: SetCurrentAgentProfileWorkspaceInput &
+      import("@openmeld/schemas/types").PeopleComputerTarget
+  ) {
+    return super.setBoundPeopleComputerAgentProfileWorkspace(input);
   }
   connectPeopleComputerProjectPath(
     input: Parameters<typeof rpcConnectPeopleComputerProjectPath>[1]
@@ -5359,6 +5459,11 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
   deleteSpace(input: DeleteSpaceInput): Promise<DeleteSpaceResult> {
     return super.deleteSpace(input);
   }
+  deleteConversationForMe(
+    input: import("@openmeld/schemas").DeleteConversationForMeInput
+  ): Promise<import("@openmeld/schemas").DeleteConversationForMeResponse> {
+    return super.deleteConversationForMe(input);
+  }
   updateSpaceMeta(input: UpdateSpaceMetaInput): Promise<SpaceMeta> {
     return super.updateSpaceMeta(input);
   }
@@ -5481,6 +5586,9 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: SetCurrentOpenMeldToolsMaintenanceInput
   ): Promise<SetCurrentOpenMeldToolsMaintenanceResponse> {
     return super.setCurrentOpenMeldToolsMaintenance(input);
+  }
+  getCurrentAgentProfileWorkspace(input: GetCurrentAgentProfileWorkspaceInput) {
+    return super.getCurrentAgentProfileWorkspace(input);
   }
   setCurrentAgentProfileWorkspace(
     input: SetCurrentAgentProfileWorkspaceInput
@@ -6640,7 +6748,10 @@ import type {
   CenterAgentReadChannelFileResponse,
   CenterAgentSetReplyPlacementInput,
 } from "@openmeld/schemas/types";
-import { rpcPluginActionRequest } from "./connectors/plugin-action-requests";
+import {
+  listPluginActionRequests,
+  rpcPluginActionRequest,
+} from "./connectors/plugin-action-requests";
 import {
   authorizeLocalPluginConnection,
   rpcPluginAction,

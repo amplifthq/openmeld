@@ -22,6 +22,7 @@ import {
   releaseWorkflowScopes,
 } from "./production-release-history.mjs";
 import { describeGuardedReceiptRecoveryCandidate } from "./production-release-receipts.mjs";
+import { compareRemoteAiUsageReceiver } from "./remote-ai-usage-compatibility.mjs";
 
 const DEFAULT_REF = "origin/main";
 const execFileAsync = promisify(execFile);
@@ -98,6 +99,10 @@ export function parseProductionReleaseStatusArgs(argv) {
       options.json = true;
       continue;
     }
+    if (arg === "--check-complete") {
+      options.checkComplete = true;
+      continue;
+    }
     throw new Error(`Unknown production release status option: ${arg}`);
   }
   return options;
@@ -119,6 +124,14 @@ export function resolveLatestSuccessfulReleaseSources(input) {
 
 export async function runProductionReleaseStatus(input = {}) {
   const options = parseProductionReleaseStatusArgs(input.argv ?? []);
+  if (
+    options.checkComplete &&
+    (!options.changeBase || options.deployed.size > 0)
+  ) {
+    throw new Error(
+      "--check-complete requires --change-base and real deployment evidence; --deployed overrides cannot certify completion."
+    );
+  }
   if (options.json && options.planStage) {
     throw new Error("--plan-stage uses human output; omit --json.");
   }
@@ -145,7 +158,18 @@ export async function runProductionReleaseStatus(input = {}) {
       "Planning snapshot only. The guarded release entrypoint rechecks current state and its lease before any Production mutation.\n"
     );
   }
-  return result.blockers.length > 0 ? 1 : 0;
+  if (result.blockers.length > 0) {
+    return 1;
+  }
+  if (
+    options.checkComplete &&
+    (result.state !== "current" ||
+      !result.currentChange ||
+      result.currentChange.error)
+  ) {
+    return 1;
+  }
+  return 0;
 }
 
 export async function collectProductionReleaseStatus(input = {}) {
@@ -231,6 +255,7 @@ export async function collectProductionReleaseStatus(input = {}) {
         baseRef: options.changeBase,
         baseSha: changeBaseSha,
         buildPlan: adapters.buildPlan,
+        buildImpact: adapters.buildImpact,
         globalPendingScopes: pendingScopes,
         sourceSha,
       })
@@ -354,9 +379,12 @@ function resolveChangeBaseSha(input) {
 }
 
 function buildCurrentChangeFacts(input) {
-  let plan;
+  let impact;
   try {
-    plan = input.buildPlan({ base: input.baseSha, sourceSha: input.sourceSha });
+    impact = input.buildImpact({
+      base: input.baseSha,
+      sourceSha: input.sourceSha,
+    });
   } catch (error) {
     return {
       baseRef: input.baseRef,
@@ -367,14 +395,23 @@ function buildCurrentChangeFacts(input) {
       error: error.message,
     };
   }
+  // Completion describes deployed facts. Ordering remains a separate admission
+  // requirement for automatic continuation, including after manual stages.
+  let orderingError;
+  try {
+    input.buildPlan({ base: input.baseSha, sourceSha: input.sourceSha });
+  } catch (error) {
+    orderingError = error.message;
+  }
   return {
     baseRef: input.baseRef,
     baseSha: input.baseSha,
-    changedPaths: plan.changedPaths,
-    pendingScopes: plan.scopes.filter((scope) =>
+    changedPaths: impact.changedPaths,
+    ...(orderingError ? { orderingError } : {}),
+    pendingScopes: impact.scopes.filter((scope) =>
       input.globalPendingScopes.includes(scope)
     ),
-    scopes: plan.scopes,
+    scopes: impact.scopes,
   };
 }
 
@@ -504,7 +541,12 @@ function describeReleaseComponent(input) {
     const receipt = releaseSource.receipt;
     const recovery = describeGuardedReceiptRecoveryCandidate(
       releaseSource,
-      scope
+      scope,
+      {
+        sourceSha,
+        sourceIsAncestor: adapters.sourceIsAncestor,
+        compareGitPathContents: adapters.compareGitPathContents,
+      }
     );
     if (recovery) {
       return unknown(
@@ -547,6 +589,7 @@ function describeReleaseComponent(input) {
     ...releaseSource,
     changedPaths: entry.plan.changedPaths,
     compatibilityDependencies: entry.plan.compatibilityDependencies ?? [],
+    compatibilityObligations: entry.plan.compatibilityObligations,
     compatibilityBridges: entry.plan.compatibilityBridges ?? [],
     compatibilityReceiverWitnesses: (
       entry.plan.compatibilityReceiverWitnesses ?? []
@@ -595,11 +638,21 @@ function resolveCompatibilityReceiverWitnessEvidence(input) {
           ...witness,
           evidence: {
             ...evidence,
-            result: input.adapters.compareGitPathContents({
-              fromSha: receiver.sha,
-              paths: witness.receiverPaths,
-              toSha: input.sourceSha,
-            })
+            result: (
+              witness.kind === "remote-ai-usage-receiver"
+                ? compareRemoteAiUsageReceiver({
+                    fromSha: receiver.sha,
+                    toSha: input.sourceSha,
+                    readGitFile: input.adapters.readGitFile,
+                    compareGitPathContents:
+                      input.adapters.compareGitPathContents,
+                  })
+                : input.adapters.compareGitPathContents({
+                    fromSha: receiver.sha,
+                    paths: witness.receiverPaths,
+                    toSha: input.sourceSha,
+                  })
+            )
               ? "match"
               : "mismatch",
           },
@@ -1127,6 +1180,7 @@ function defaultAdapters() {
         sourceSha,
       }),
     compareGitPathContents,
+    readGitFile: (sha, path) => runGit(["show", `${sha}:${path}`]),
     readPushChecks: async (repo, sourceSha) =>
       (
         await runGhJsonAsync([
@@ -1346,8 +1400,8 @@ function formatReleaseStatus(result) {
     "Production release status",
     `Source: ${result.sourceSha}`,
     `Repository: ${result.repo}`,
-    `Deployment state (${result.scopeBasis}): ${result.state}`,
-    `Global deployment backlog state: ${result.globalState}`,
+    `Deployment state (${result.scopeBasis}): ${result.state === "ready" ? "incomplete — ready to deploy remaining components" : result.state}`,
+    `Global deployment backlog state: ${result.globalState === "ready" ? "incomplete — pending components remain" : result.globalState}`,
     `Source validation: ${result.sourceValidation}`,
     `Scope basis: ${result.scopeBasis}`,
     `History coverage: ${result.history.complete ? "complete available history" : "incomplete; see evidence issues"}`,
@@ -1362,6 +1416,19 @@ function formatReleaseStatus(result) {
         ]),
     `Global pending scopes: ${result.globalPendingScopes.length > 0 ? result.globalPendingScopes.join(", ") : "none"}`,
     `Workflow mapping (facts only): ${result.workflowMapping}`,
+    ...(result.currentChange?.orderingError
+      ? [
+          `Automatic ordering unavailable: ${result.currentChange.orderingError}`,
+        ]
+      : []),
+    ...(result.currentChange?.pendingScopes.length > 0 &&
+    !result.currentChange.orderingError
+      ? [
+          `Local continuation from the clean approved source checkout: pnpm release:deploy:local -- --base ${result.currentChange.baseSha} --scope auto`,
+          "Continuation uses the existing local component commands and credentials. It skips current components and stops on unresolved evidence or unsupported prerequisites.",
+        ]
+      : []),
+    "Deployment status does not certify product smoke or Desktop installed acceptance.",
     "",
     "Components:",
   ];
@@ -1433,6 +1500,7 @@ async function runGhJsonAsync(args) {
 function runGit(args) {
   return execFileSync(resolveCommandBinary("git"), args, {
     encoding: "utf8",
+    maxBuffer: 1024 * 1024 * 10,
   });
 }
 

@@ -26,6 +26,12 @@ Verify navigation against the current product and its owning source. Explain
 availability differences explicitly; a supported source path does not prove
 that a downloadable binary or a production UI is already available.
 
+Desktop download links and release labels follow the
+[Desktop Download Entry](web.md#desktop-download-entry) contract. Keep macOS and
+Windows instructions separate. Refer readers to the canonical download page for
+current versions, build availability, and release notices instead of copying
+temporary rollout details into the guides.
+
 ## Content and rendering
 
 `content/docs` is the MDX source. `src/lib/content.ts` declares the official

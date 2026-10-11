@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { readMigrationFiles } from "drizzle-orm/migrator";
@@ -9,6 +11,8 @@ export const migrationDirectory = fileURLToPath(
   new URL("../../packages/db/postgresql/migrations/", import.meta.url)
 );
 export const migrationLock = 640_021_017;
+const EXACT_SOURCE_SHA = /^[0-9a-f]{40}$/u;
+const MIGRATION_TAG = /^\d{4}_[a-z0-9_-]+$/u;
 
 export function connectionOptions(connectionString, local = false) {
   const url = new URL(connectionString);
@@ -102,6 +106,38 @@ export async function readMigrations(directory = migrationDirectory) {
   }));
 }
 
+// Read the immutable journal from the exact previously verified release. No
+// checkout, migration, or credential changes are required by this proof.
+export function readMigrationsAtSource(sourceSha, cwd) {
+  if (!EXACT_SOURCE_SHA.test(sourceSha)) {
+    throw new Error("PostgreSQL retry baseline requires an exact source SHA");
+  }
+  const read = (path) =>
+    execFileSync(
+      "git",
+      ["show", `${sourceSha}:packages/db/postgresql/migrations/${path}`],
+      { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
+    );
+  const journal = JSON.parse(read("meta/_journal.json"));
+  if (
+    !(Array.isArray(journal.entries) && journal.entries.length) ||
+    journal.entries.some(
+      (entry, index) =>
+        entry.idx !== index ||
+        !MIGRATION_TAG.test(entry.tag) ||
+        !Number.isSafeInteger(entry.when) ||
+        (index > 0 && entry.when <= journal.entries[index - 1].when)
+    )
+  ) {
+    throw new Error("PostgreSQL retry baseline journal is invalid");
+  }
+  return journal.entries.map((entry) => {
+    const name = `${entry.tag}.sql`;
+    const hash = createHash("sha256").update(read(name)).digest("hex");
+    return { name, hash, checksum: hash, folderMillis: entry.when };
+  });
+}
+
 export async function migrate(client, directory = migrationDirectory) {
   const migrations = await readMigrations(directory);
   // Session lock is deliberately on a direct connection, never Hyperdrive/PgBouncer.
@@ -143,7 +179,21 @@ export async function migrate(client, directory = migrationDirectory) {
         throw new Error(`Applied migration drift at position ${index}`);
       }
     }
-    await migrateDrizzle(drizzle(client), { migrationsFolder: directory });
+    // 0033 is already immutable on shared Staging. Its historical backfill
+    // predates orphaned Space-index snapshots. Filter only these derived Inbox
+    // inserts while executing that migration; retain all historical source rows.
+    const needsMembershipGuard =
+      applied.length > 0 &&
+      migrations
+        .slice(applied.length)
+        .some((entry) => entry.name === "0033_space_joined_inbox.sql");
+    const applyMigrations = () =>
+      migrateDrizzle(drizzle(client), { migrationsFolder: directory });
+    if (needsMembershipGuard) {
+      await withSpaceMembershipBackfillScope(client, applyMigrations);
+    } else {
+      await applyMigrations();
+    }
     await client.query("REVOKE ALL ON SCHEMA drizzle FROM PUBLIC");
     const added = migrations
       .slice(applied.length)
@@ -152,6 +202,45 @@ export async function migrate(client, directory = migrationDirectory) {
   } finally {
     await client.query("SELECT pg_advisory_unlock($1)", [migrationLock]);
   }
+}
+
+// Both pending 0033 upgrades and frozen D1 imports execute the same immutable
+// baseline SQL. Only new derived notices for unavailable organizations are skipped.
+export async function withSpaceMembershipBackfillScope(client, operation) {
+  await client.query(`CREATE FUNCTION pg_temp.openmeld_membership_backfill_scope()
+    RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM openmeld.organizations WHERE id = NEW.organization_id) THEN
+        RETURN NULL;
+      END IF;
+      RETURN NEW;
+    END; $$`);
+  await client.query(`CREATE TRIGGER openmeld_membership_backfill_scope
+    BEFORE INSERT ON openmeld.inbox_items FOR EACH ROW
+    WHEN (NEW.kind = 'space_joined' AND NEW.source_kind = 'system_attention_event')
+    EXECUTE FUNCTION pg_temp.openmeld_membership_backfill_scope()`);
+  const removeGuard = async () => {
+    await client.query(
+      "DROP TRIGGER openmeld_membership_backfill_scope ON openmeld.inbox_items"
+    );
+    await client.query(
+      "DROP FUNCTION pg_temp.openmeld_membership_backfill_scope()"
+    );
+  };
+  let result;
+  try {
+    result = await operation();
+  } catch (error) {
+    try {
+      await removeGuard();
+    } catch {
+      // A failed import transaction must roll back before its guard can be
+      // removed. Preserve that original failure; its outer owner rolls back.
+    }
+    throw error;
+  }
+  await removeGuard();
+  return result;
 }
 
 export function quoteIdentifier(value) {

@@ -12,9 +12,13 @@ import {
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
+import { createAcceptedAccountSpaceItem } from "#/lib/spaces/account-spaces";
 import { createSpaceInOrganization } from "#/lib/spaces/create-space-in-organization";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
-import { accountSpaceQueryKeys } from "./account-spaces";
+import {
+	accountSpaceQueryKeys,
+	updateAccountSpaceAcceptedMembership,
+} from "./account-spaces";
 import { spaceBootstrapQueryOptions } from "./bootstrap";
 import {
 	addSpaceDirectoryMembers,
@@ -93,6 +97,26 @@ export function useCreateSpace(input: {
 			});
 		},
 		onSuccess: (response, request) => {
+			if (response.meta?.createdAt && input.actingProfile) {
+				updateAccountSpaceAcceptedMembership(
+					client,
+					profileId,
+					createAcceptedAccountSpaceItem({
+						spaceId: response.spaceId,
+						name: response.meta.name ?? request.name,
+						organizationId: input.organizationId,
+						visibility: response.meta.visibility,
+						profileId,
+						profileName: input.actingProfile.profileName,
+						joinedAt: response.meta.createdAt,
+						createdAt: response.meta.createdAt,
+						purpose: response.meta.purpose,
+						activeHumanCount: 1,
+						activeAgentCount: 0,
+						activeMemberCount: 1,
+					})
+				);
+			}
 			// Start the access-checked snapshot immediately, in parallel with member admission.
 			client.prefetchQuery(
 				spaceBootstrapQueryOptions({

@@ -4,6 +4,29 @@ import { createOpenMeldApiClient } from "../src/client";
 import { createFetchTransport } from "../src/transport";
 
 describe("account Organization context read", () => {
+  it("cancels a pending account read at the shared transport boundary", async () => {
+    const abort = new AbortController();
+    const client = createOpenMeldApiClient({
+      baseUrl: "https://openmeld.test",
+      transport: createFetchTransport({
+        fetch: async (_url, init) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.throwIfAborted();
+            init?.signal?.addEventListener(
+              "abort",
+              () => reject(init.signal?.reason),
+              { once: true }
+            );
+          }),
+      }),
+    });
+    const pending = readAccountOrganizationContext(client, {
+      signal: abort.signal,
+      timeoutMs: 5000,
+    });
+    abort.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  });
   it.each([401, 500, 503])("preserves HTTP %s semantics", async (status) => {
     const client = createOpenMeldApiClient({
       baseUrl: "https://openmeld.test",

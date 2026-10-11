@@ -9,6 +9,7 @@ import type {
 } from "@openmeld/schemas/types";
 import type { AuthProfileFacts } from "../../auth/application/profile-facts-reader";
 import { readCenterAgentDesignationRecord } from "../../center-agent/center-agent-repository";
+import { resolveRuntimeTransportOwnerShard } from "../../dispatch/infrastructure/runtime-transport/runtime-transport-shard";
 import type { CoreBindings } from "../../lib/bindings";
 import {
   resolveSpaceMetaLinkJoinPolicy,
@@ -100,6 +101,10 @@ export async function readSpaceStatusSummaryUseCase(input: {
   );
 
   return buildSpaceStatusSummaryResponse({
+    automaticWakeEnabled: await readViewerAutomaticWakePreference(
+      input.env,
+      input.viewerOwnerUserId
+    ),
     accessMode: input.metaRecord.accessMode,
     linkJoinPolicy: resolveSpaceMetaLinkJoinPolicy(input.metaRecord),
     ownerUserIds: input.metaRecord.ownerUserIds ?? [],
@@ -114,10 +119,12 @@ export async function readSpaceStatusSummaryUseCase(input: {
     directMessageConvertedAt: input.metaRecord.directMessage?.convertedAt,
     spacePurpose: input.metaRecord.purpose,
     spaceId: input.spaceId,
+    deletedAt: input.metaRecord.deletedAt,
   });
 }
 
 export async function readSpaceStatusSummaryFromMembersSnapshotUseCase(input: {
+  viewerOwnerUserId?: string;
   sql: SqlStorage;
   env: CoreBindings;
   spaceId: string;
@@ -158,6 +165,10 @@ export async function readSpaceStatusSummaryFromMembersSnapshotUseCase(input: {
   );
 
   return buildSpaceStatusSummaryResponse({
+    automaticWakeEnabled: await readViewerAutomaticWakePreference(
+      input.env,
+      input.viewerOwnerUserId
+    ),
     accessMode: input.metaRecord.accessMode,
     linkJoinPolicy: resolveSpaceMetaLinkJoinPolicy(input.metaRecord),
     ownerUserIds: input.metaRecord.ownerUserIds ?? [],
@@ -172,10 +183,13 @@ export async function readSpaceStatusSummaryFromMembersSnapshotUseCase(input: {
     directMessageConvertedAt: input.metaRecord.directMessage?.convertedAt,
     spacePurpose: input.metaRecord.purpose,
     spaceId: input.spaceId,
+    deletedAt: input.metaRecord.deletedAt,
   });
 }
 
 function buildSpaceStatusSummaryResponse(input: {
+  deletedAt?: string;
+  automaticWakeEnabled?: boolean;
   ownerUserIds: string[];
   allowGuests: boolean;
   accessMode: SpaceMetaRecord["accessMode"];
@@ -192,6 +206,8 @@ function buildSpaceStatusSummaryResponse(input: {
   spaceId: string;
 }): GetSpaceStatusResponse {
   const parsed = getSpaceStatusResponseSchema.safeParse({
+    deletedAt: input.deletedAt,
+    automaticWakeEnabled: input.automaticWakeEnabled,
     spaceId: input.spaceId,
     generatedAt: input.generatedAt,
     ...(input.centerAgentProfileId
@@ -210,7 +226,7 @@ function buildSpaceStatusSummaryResponse(input: {
     passwordProtected: input.accessMode === "protected",
     dispatchPolicy: input.contract.dispatchPolicy,
     publicationMode: input.contract.publicationMode,
-    allowedActions: input.contract.allowedActions,
+    allowedActions: input.deletedAt ? [] : input.contract.allowedActions,
     resultArchivePolicy: input.contract.resultArchivePolicy,
     entryBrief: input.contract.entryBrief,
     dispatchBrief: input.contract.dispatchBrief,
@@ -223,6 +239,21 @@ function buildSpaceStatusSummaryResponse(input: {
     throw new Error("space status summary is invalid");
   }
   return parsed.data;
+}
+
+async function readViewerAutomaticWakePreference(
+  env: CoreBindings,
+  ownerUserId?: string
+): Promise<boolean | undefined> {
+  if (!ownerUserId) {
+    return undefined;
+  }
+  return (
+    await resolveRuntimeTransportOwnerShard(
+      env,
+      ownerUserId
+    ).rpcSpacePreferences({})
+  ).automaticWakeEnabled;
 }
 
 async function readCenterAgentProfileId(input: {

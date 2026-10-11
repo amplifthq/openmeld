@@ -109,7 +109,9 @@ it.each([
       };
       skillStep += 1;
     } else if (skillStep === 1) {
-      const description = textContent(payload.messages.at(-1)?.content);
+      const description = textContent(
+        payload.messages.findLast((message) => message.role === "tool")?.content
+      );
       const path = SKILL_PATH.exec(description)?.[1];
       expect(path).toBeDefined();
       invocation = {

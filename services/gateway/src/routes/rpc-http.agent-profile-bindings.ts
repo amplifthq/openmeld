@@ -241,12 +241,16 @@ export function registerAgentProfileBindingRoutes(
       route: AGENT_PROFILE_DEFAULT_PROJECT_ROUTE,
       method: "PATCH",
       responseSchema: updateAgentProfileDefaultProjectResponseSchema,
-      execute: async () =>
-        await c.var.coreRpc.updateAgentProfileDefaultProject({
+      execute: () => {
+        const request = {
           ...parsedBody.data,
           agentProfileId: routeParams.data.agentProfileId,
           context: buildCoreRpcContext(c),
-        }),
+        };
+        return parsedBody.data.expectedBindingTarget
+          ? c.var.coreRpc.updateBoundAgentProfileDefaultProject(request)
+          : c.var.coreRpc.updateAgentProfileDefaultProject(request);
+      },
     });
   });
 

@@ -76,34 +76,10 @@ export function searchSpaceMessages(
     query: string;
     before: number | null;
     limit: number;
+    afterPosition?: number;
   }
 ) {
-  // Literal substring search works inside words and unsegmented CJK text.
-  const query = input.query.trim();
-  const shortQuery = [...query].length < 3;
-  const searchClause = shortQuery
-    ? "instr(lower(f.text), lower(?)) > 0"
-    : "space_message_search MATCH ?";
-  const searchValue = shortQuery ? query : `"${query.replaceAll('"', '""')}"`;
-  const rows = sql
-    .exec<{
-      id: string;
-      position: number;
-      payload_json: string;
-      root_signal_id: string | null;
-    }>(
-      `SELECT s.id, s.rowid AS position, s.payload_json, t.root_signal_id FROM space_message_search f
-      JOIN space_signals s ON s.rowid = f.rowid
-      LEFT JOIN space_thread_signal_placements p ON p.signal_id = s.id AND p.placement = 'thread'
-      LEFT JOIN space_threads t ON t.thread_id = p.thread_id
-      WHERE ${searchClause} AND (? IS NULL OR s.rowid < ?)
-      ORDER BY s.rowid DESC LIMIT ?`,
-      searchValue,
-      input.before,
-      input.before,
-      input.limit + 1
-    )
-    .toArray();
+  const rows = querySpaceMessageRows(sql, input);
   const page = rows.slice(0, input.limit);
   return {
     threadRoots: Object.fromEntries(
@@ -116,5 +92,83 @@ export function searchSpaceMessages(
     ),
     nextCursor:
       rows.length > input.limit ? String(page.at(-1)?.position) : null,
+  };
+}
+
+/** Search and chronological reads use the same source rows and visibility boundary. */
+export function querySpaceMessageRows(
+  sql: SqlStorage,
+  input: {
+    query?: string;
+    before: number | null;
+    includeBefore?: boolean;
+    through?: number;
+    limit: number;
+    afterPosition?: number;
+    fromProfileId?: string;
+    afterTs?: number;
+    beforeTs?: number;
+    threadId?: string;
+    signalId?: string;
+    includeSystem?: boolean;
+  }
+) {
+  // Literal substring search works inside words and unsegmented CJK text.
+  const query = input.query?.trim();
+  const { searchClause, searchValue } = literalSearch(query);
+  const rows = sql
+    .exec<{
+      id: string;
+      position: number;
+      payload_json: string;
+      root_signal_id: string | null;
+    }>(
+      `SELECT s.id, s.rowid AS position, s.payload_json, t.root_signal_id FROM space_signals s
+      ${query ? "JOIN space_message_search f ON s.rowid = f.rowid" : ""}
+      LEFT JOIN space_thread_signal_placements p ON p.signal_id = s.id AND p.placement = 'thread'
+      LEFT JOIN space_threads t ON t.thread_id = p.thread_id
+      WHERE ${query ? searchClause : "1 = 1"}
+      AND s.type IN (${input.includeSystem ? "'signal.text', 'signal.status', 'signal.system_notice'" : "'signal.text'"}) AND json_extract(s.payload_json, '$.data.meta.recalledAt') IS NULL
+      AND s.rowid > ? AND (? IS NULL OR s.rowid ${input.includeBefore ? "<=" : "<"} ?)
+      AND (? IS NULL OR s.rowid <= ?)
+      AND (? IS NULL OR json_extract(s.payload_json, '$.profile.profileId') = ?)
+      AND (? IS NULL OR json_extract(s.payload_json, '$.ts') >= ?)
+      AND (? IS NULL OR json_extract(s.payload_json, '$.ts') <= ?)
+      AND (? IS NULL OR p.thread_id = ? OR s.id = (SELECT root_signal_id FROM space_threads WHERE thread_id = ?))
+      AND (? IS NULL OR s.id = ?)
+      ORDER BY s.rowid DESC LIMIT ?`,
+      ...(query ? [searchValue ?? ""] : []),
+      input.afterPosition ?? 0,
+      input.before,
+      input.before,
+      input.through ?? null,
+      input.through ?? null,
+      input.fromProfileId ?? null,
+      input.fromProfileId ?? null,
+      input.afterTs ?? null,
+      input.afterTs ?? null,
+      input.beforeTs ?? null,
+      input.beforeTs ?? null,
+      input.threadId ?? null,
+      input.threadId ?? null,
+      input.threadId ?? null,
+      input.signalId ?? null,
+      input.signalId ?? null,
+      input.limit + 1
+    )
+    .toArray();
+  return rows;
+}
+
+function literalSearch(query?: string) {
+  if (query && [...query].length < 3) {
+    return {
+      searchClause: "instr(lower(f.text), lower(?)) > 0",
+      searchValue: query,
+    };
+  }
+  return {
+    searchClause: "space_message_search MATCH ?",
+    searchValue: `"${query?.replaceAll('"', '""')}"`,
   };
 }

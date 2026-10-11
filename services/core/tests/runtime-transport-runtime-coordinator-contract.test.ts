@@ -2114,7 +2114,7 @@ const registerCompatibleRoute = (input: {
 
 const createContextHarness = async (
   input?: Parameters<typeof createHarness>[0] & {
-    contextVersion?: 1 | 2 | 3 | 4 | null;
+    contextVersion?: 1 | 2 | 3 | 4 | 5 | null;
   }
 ) => {
   const harness = await createHarness(input);
@@ -3929,6 +3929,45 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).json()) as { status: string; executionContext?: { access: string } };
     expect(spaceOnlyResponse.status).toBe("accepted");
     expect(spaceOnlyResponse.executionContext?.access).toBe("space_context");
+    const traceRequest = {
+      v: spaceOnlyRequest.v,
+      targetWakeLifecycleIdentity: spaceOnlyRequest.targetWakeLifecycleIdentity,
+    };
+    const readTrace = async (path: string) =>
+      (await (
+        await fetchRuntimeTransportJson(
+          explicitSpaceOnly.hub,
+          path,
+          traceRequest
+        )
+      ).json()) as {
+        readStatus: string;
+        executionContext?: unknown;
+      };
+    expect(
+      (await readTrace("/runtime-coordinator/head/trace")).executionContext
+    ).toBeUndefined();
+    const beforeRetirement = await readTrace(
+      "/runtime-coordinator/head/trace?executionContext=1"
+    );
+    expect(beforeRetirement.executionContext).toMatchObject({
+      readStatus: "found",
+      access: "space_context",
+      workspace: "isolated",
+      permissionSource: "context_restriction",
+    });
+    explicitSpaceOnly.storageRecords.delete(
+      buildRuntimeCoordinatorHeadLifecycleStorageKey(
+        traceRequest.targetWakeLifecycleIdentity.targetWakeLifecycleId
+      )
+    );
+    const afterRetirement = await readTrace(
+      "/runtime-coordinator/head/trace?executionContext=1"
+    );
+    expect(afterRetirement.readStatus).toBe("missing");
+    expect(afterRetirement.executionContext).toEqual(
+      beforeRetirement.executionContext
+    );
   });
 
   it.each([
@@ -4047,7 +4086,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
               ...firstSnapshot,
               contextRequest: {
                 ...contextRequest,
-                selection: { mode: "new", ...(access ? { access } : {}) },
+                selection: {
+                  mode: "new",
+                  ...(access ? { access } : { workspace: "isolated" }),
+                },
               },
               payloadFingerprint: `sha256:${"c".repeat(64)}`,
             },
@@ -4057,6 +4099,15 @@ describe("runtime transport runtime coordinator transport contract", () => {
       expect(
         next.record.acceptedDispatchSnapshot?.executionContext?.permissionSource
       ).toBe(access ? undefined : "agent_settings");
+      if (!access) {
+        expect(
+          next.record.acceptedDispatchSnapshot?.executionContext
+        ).toMatchObject({
+          access: "workspace",
+          workspace: "isolated",
+          permissionSource: "agent_settings",
+        });
+      }
       if (access) {
         expect(
           next.record.acceptedDispatchSnapshot?.executionContext?.access
@@ -4173,14 +4224,21 @@ describe("runtime transport runtime coordinator transport contract", () => {
     }
   });
 
-  it("requires a v4 Service and freezes exact Project repository work on admission", async () => {
+  it.each([
+    "project",
+    "pinned",
+    "brief",
+  ])("requires a compatible Service and freezes exact work (%s)", async (materials) => {
+    const pinned = materials === "pinned";
     const projectWork = {
       projectId: "project-payments",
       repositoryFingerprint: `sha256:${"a".repeat(64)}`,
+      ...(pinned ? { commit: "b".repeat(40) } : {}),
     };
     const request = buildRuntimeCoordinatorHeadAcceptRequest({
       acceptedDispatchSnapshot: {
         ...buildAcceptedDispatchSnapshot({ fingerprint: "7" }),
+        ...(materials === "brief" ? { workHandoffVersion: 2 as const } : {}),
         contextRequest: {
           required: true,
           scope: {
@@ -4192,14 +4250,16 @@ describe("runtime transport runtime coordinator transport contract", () => {
           },
           selection: {
             mode: "new",
-            access: "workspace",
+            access: materials === "brief" ? "space_context" : "workspace",
             workspace: "isolated",
-            projectWork,
+            ...(materials === "brief" ? {} : { projectWork }),
           },
         },
       },
     });
-    for (const contextVersion of [2, 3] as const) {
+    const olderVersions =
+      materials !== "project" ? ([2, 3, 4] as const) : ([2, 3] as const);
+    for (const contextVersion of olderVersions) {
       const olderService = await createContextHarness({ contextVersion });
       expect(
         await (
@@ -4211,28 +4271,46 @@ describe("runtime transport runtime coordinator transport contract", () => {
         ).json()
       ).toMatchObject({ ok: false, reasonCode: "service.update_required" });
     }
-    const currentService = await createContextHarness({ contextVersion: 4 });
-    expect(
-      await (
-        await fetchRuntimeTransportJson(
-          currentService.hub,
-          "/runtime-coordinator/head/accept",
-          request
-        )
-      ).json()
-    ).toMatchObject({
-      status: "accepted",
-      executionContext: { projectWork },
+    const currentService = await createContextHarness({
+      contextVersion: materials !== "project" ? 5 : 4,
     });
+    const accepted = (await (
+      await fetchRuntimeTransportJson(
+        currentService.hub,
+        "/runtime-coordinator/head/accept",
+        request
+      )
+    ).json()) as { executionContext: Record<string, unknown> };
+    expect(accepted).toMatchObject({
+      status: "accepted",
+      executionContext:
+        materials === "brief"
+          ? { access: "space_context", workspace: "isolated" }
+          : { projectWork },
+    });
+    if (materials === "brief") {
+      expect(accepted.executionContext).not.toHaveProperty("projectWork");
+    }
   });
 
-  it("keeps the accepted context through linking and retains its fork checkpoint after Head retirement", async () => {
+  it.each([
+    { restricted: false, workspace: "current", pinned: false },
+    { restricted: false, workspace: "isolated", pinned: false },
+    { restricted: true, workspace: "current", pinned: false },
+    { restricted: true, workspace: "isolated", pinned: false },
+    { restricted: true, workspace: "isolated", pinned: true },
+  ] as const)("keeps the accepted context and fork working copy after Head retirement ($restricted / $workspace / pinned=$pinned)", async ({
+    restricted,
+    workspace,
+    pinned,
+  }) => {
     const { hub, storageRecords } = await createContextHarness({
-      contextVersion: 4,
+      contextVersion: pinned ? 5 : 4,
     });
     const projectWork = {
       projectId: "project-payments",
       repositoryFingerprint: `sha256:${"a".repeat(64)}`,
+      ...(pinned ? { commit: "b".repeat(40) } : {}),
     };
     const request = buildRuntimeCoordinatorHeadAcceptRequest({
       acceptedDispatchSnapshot: {
@@ -4248,8 +4326,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
           },
           selection: {
             mode: "new",
-            access: "workspace",
-            workspace: "isolated",
+            ...(restricted ? { access: "workspace" as const } : {}),
+            workspace,
             projectWork,
           },
         },
@@ -4352,10 +4430,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
           },
         })
       );
-    const fork = await planFork("human");
+    const fork = await planFork("human", {
+      projectId: projectWork.projectId,
+      repositoryFingerprint: projectWork.repositoryFingerprint,
+    });
     expect(
       fork.record.acceptedDispatchSnapshot?.executionContext
     ).toMatchObject({
+      workspace,
       projectWork,
       forkSource: {
         contextId: response.executionContext.id,
@@ -4372,6 +4454,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
         repositoryFingerprint: `sha256:${"b".repeat(64)}`,
       })
     ).rejects.toThrow("project_work_changed_requires_new_task");
+    if (pinned) {
+      await expect(
+        planFork("human", { ...projectWork, commit: "c".repeat(40) })
+      ).rejects.toThrow("project_work_changed_requires_new_task");
+    }
     await expect(
       recordExecutionContextCompletion({
         storage,
@@ -4408,7 +4495,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
                 ...sourceRequest,
                 selection:
                   mode === "auto"
-                    ? { mode }
+                    ? {
+                        mode,
+                        projectWork: {
+                          projectId: projectWork.projectId,
+                          repositoryFingerprint:
+                            projectWork.repositoryFingerprint,
+                        },
+                      }
                     : { mode, sourceWakeId: original.targetWakeLifecycleId },
               },
             },
@@ -4427,10 +4521,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
         replacementContextId: replacement.id,
       })
     );
-    expect(
-      (await selectNextContext()).record.acceptedDispatchSnapshot
-        ?.executionContext?.id
-    ).toBe(replacement.id);
+    const continued = (await selectNextContext()).record
+      .acceptedDispatchSnapshot?.executionContext;
+    expect(continued?.id).toBe(replacement.id);
+    expect(continued?.projectWork).toEqual(projectWork);
     // Recovery changes only the automatic route; explicit source history survives.
     expect(
       (await selectNextContext("resume")).record.acceptedDispatchSnapshot
@@ -12389,11 +12483,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       ).resolveNextRuntimeCoordinatorHeadWaitingAlarmAtMs()
     ).toBe(request.acceptedDispatchSnapshot.deviceWait.deadlineAtMs);
     const restarted = await createContextHarness({ storageRecords });
-    await (
-      restarted.hub as unknown as {
-        processAgentProfileWorkPromotionAlarm(nowMs: number): Promise<void>;
-      }
-    ).processAgentProfileWorkPromotionAlarm(Date.now());
+    await (restarted.hub as unknown as RuntimeTransportHub).alarm();
     expect(
       await (
         restarted.hub as unknown as RuntimeTransportHub
@@ -12756,11 +12846,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       storageRecords,
       bindingConversationId: "legacy-mixed-spaces",
     });
-    await (
-      restarted.hub as unknown as {
-        processAgentProfileWorkPromotionAlarm(nowMs: number): Promise<void>;
-      }
-    ).processAgentProfileWorkPromotionAlarm(Date.now());
+    await (restarted.hub as unknown as RuntimeTransportHub).alarm();
     expect(
       await (
         restarted.hub as unknown as RuntimeTransportHub
@@ -14218,7 +14304,11 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
   });
 
-  it("records Wake Stop as cancellation_requested for an eligible active RuntimeCoordinator execution", async () => {
+  it.each([
+    "connected",
+    "same_service_reconnect",
+    "same_service_reconnect_after_hibernation",
+  ] as const)("records Wake Stop as cancellation_requested for an eligible active RuntimeCoordinator execution (%s)", async (connection) => {
     const {
       hub,
       recordingPostgres,
@@ -14255,6 +14345,39 @@ describe("runtime transport runtime coordinator transport contract", () => {
       socket,
       buildInteractionRequest(executionToken)
     );
+
+    if (connection !== "connected") {
+      const lifecycleHub = hub as unknown as {
+        handleDispatchLifecycleFrame: (
+          webSocket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+      };
+      await lifecycleHub.handleDispatchLifecycleFrame(
+        socket,
+        buildLifecycleRequest({
+          executionTokenEcho: buildExecutionTokenEcho(executionToken),
+          runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        })
+      );
+      session.connectionGeneration += 1;
+      if (connection === "same_service_reconnect_after_hibernation") {
+        state.pendingDispatches.clear();
+      }
+      await lifecycleHub.handleDispatchLifecycleFrame(
+        socket,
+        buildLifecycleRequest({
+          acknowledgementId: "09ea9be9-3a69-4c95-81ed-0236f56efddd",
+          connectionGeneration: session.connectionGeneration,
+          executionTokenEcho: buildExecutionTokenEcho(executionToken),
+          runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        })
+      );
+      expect(sentFrames.at(-1)).toMatchObject({
+        code: "daemon.dispatch.lifecycle_acknowledged",
+        payload: { accepted: true },
+      });
+    }
 
     const response = await requestRuntimeCoordinatorWakeStop(hub);
 
@@ -14350,6 +14473,99 @@ describe("runtime transport runtime coordinator transport contract", () => {
         (call) => call.params[2] === "cancellation_requested"
       )
     ).toHaveLength(1);
+  });
+
+  it.each([
+    ["replaced_socket", "daemon.session.not_found"],
+    ["stale_generation", "daemon.session.connection_replaced"],
+    ["different_owner", "daemon.session.not_found"],
+    ["stale_lease", "daemon.session.stale_lease"],
+    ["different_device", "daemon.session.connection_replaced"],
+    ["different_lane", "daemon.session.connection_replaced"],
+    ["missing_profile", "daemon.session.not_found"],
+  ] as const)("does not move Wake Stop control to an unowned reconnect (%s)", async (mismatch, reasonCode) => {
+    const harness = await createHarness({
+      agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
+    });
+    const { hub, sentFrames, socket, state, storageRecords } = harness;
+    const token = await issueDeliveryToken(harness);
+    const session = state.sessionsById.get("daemon-session-1");
+    const lease = state.profileLeasesByProfileId.get(TARGET_AGENT_PROFILE_ID);
+    if (!(session && lease)) {
+      throw new Error("Expected owned Service route.");
+    }
+    session.capabilities.localAgentControl = { cancel: true };
+    const lifecycleHub = hub as unknown as {
+      handleDispatchLifecycleFrame: (
+        webSocket: WebSocket,
+        payload: unknown
+      ) => Promise<void>;
+    };
+    await lifecycleHub.handleDispatchLifecycleFrame(
+      socket,
+      buildLifecycleRequest({
+        executionTokenEcho: buildExecutionTokenEcho(token),
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+      })
+    );
+    const before = findRuntimeCoordinatorRunCommandState(storageRecords);
+    session.connectionGeneration += 1;
+    state.pendingDispatches.clear();
+    switch (mismatch) {
+      case "replaced_socket":
+        // biome-ignore lint/correctness/noUndeclaredVariables: Cloudflare Workers provides this native constructor.
+        session.socket = new WebSocketPair()[0];
+        break;
+      case "different_owner":
+        session.ownerUserId = "different-owner";
+        break;
+      case "stale_lease":
+        lease.leaseEpoch += 1;
+        break;
+      case "different_device":
+        session.deviceId = "different-device";
+        break;
+      case "different_lane":
+        session.lane = "canary";
+        break;
+      case "missing_profile":
+        session.profileIds.delete(TARGET_AGENT_PROFILE_ID);
+        break;
+      default:
+        break;
+    }
+    sentFrames.length = 0;
+
+    await lifecycleHub.handleDispatchLifecycleFrame(
+      socket,
+      buildLifecycleRequest({
+        acknowledgementId: "09ea9be9-3a69-4c95-81ed-0236f56efddd",
+        connectionGeneration:
+          mismatch === "stale_generation" ? 1 : session.connectionGeneration,
+        executionTokenEcho: buildExecutionTokenEcho(token),
+        lifecycleAtMs: 1_700_000_000_200,
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+      })
+    );
+
+    expect(sentFrames).toContainEqual(
+      expect.objectContaining({
+        code: "daemon.dispatch.lifecycle_acknowledged",
+        payload: expect.objectContaining({ accepted: false, reasonCode }),
+      })
+    );
+    expect(findRuntimeCoordinatorRunCommandState(storageRecords)).toEqual(
+      before
+    );
+    const stop = await requestRuntimeCoordinatorWakeStop(hub);
+    await expect(stop.json()).resolves.toMatchObject({ ok: false });
+    expect(
+      sentFrames.some(
+        (frame) =>
+          (frame as { code?: string }).code ===
+          "daemon.local_agent_control.cancel"
+      )
+    ).toBe(false);
   });
 
   it("keeps the Wake Stop fence when a repeated delivery would otherwise fail to send", async () => {

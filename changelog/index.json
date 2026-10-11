@@ -2,6 +2,635 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "release-contract-receiver-evidence",
+      "title": "Check each receiver contract before a production release",
+      "kind": "fixed",
+      "areas": [
+        "releases"
+      ],
+      "audiences": [
+        "operators",
+        "contributors"
+      ],
+      "publishedAt": "2026-10-10",
+      "release": "v0.3.251",
+      "evidence": [
+        "commit:62e4c1a0d9e7d4cfc36741712ac9052f44494d26",
+        "commit:03668cdc6506ea4ed93f4166387533e5bd30bd84",
+        "pr:1638",
+        "workflow:38078641800",
+        "pr:1641",
+        "pr:1642",
+        "pr:1645",
+        "workflow:38075530735",
+        "workflow:38077171997"
+      ],
+      "body": "Production release checks require evidence for every changed receiver contract.\nAn unchanged AI usage receiver can be verified from its recorded deployment\nsource, while other pending contracts still require their own evidence or a\nreceiver deployment. This prevents one compatible contract from admitting\nunverified changes between the same services.\n\nCenter Agent working-folder updates require the new Core receiver to deploy\nbefore their Remote caller. Unrelated AI usage evidence cannot admit these\nupdates while that receiver is still pending.\n\nAgent setup and folder recovery also wait for their Database, Auth, Core and\nGateway receivers. Cloud command references and detailed lists require Core\nand Remote Agent before Gateway exposes them, then Gateway before the CLI.\nThe checks apply to caller-only changes and reject unavailable source evidence.\n\nSaved working-folder reads require Core before the new Service registration,\nCore's read methods before Gateway, and Gateway's GET routes before Web.\nOther folder or runtime evidence cannot substitute for this read contract.\nWorkspace initialization also requires Core before the Service advertises its\nstrict initialization capability, including a Service-only source change.\nInitialization and read proofs must each cover their own contract."
+    },
+    {
+      "id": "plugin-access-in-conversations",
+      "title": "Connect Plugins and review Agent access in a conversation",
+      "kind": "improved",
+      "areas": [
+        "plugins",
+        "agents"
+      ],
+      "audiences": [
+        "members",
+        "admins"
+      ],
+      "publishedAt": "2026-10-10",
+      "release": "v0.3.251",
+      "evidence": [
+        "commit:493801bd981f9ecdd1d945e3c18dca009ad962ee",
+        "commit:03668cdc6506ea4ed93f4166387533e5bd30bd84",
+        "pr:1638",
+        "workflow:38078641800"
+      ],
+      "body": "When an Agent needs a Plugin account or permission, you can open the existing\nconnection and access controls from its message. Save the access you choose,\nthen continue the original task there. New connections grant no Agent access\nuntil you approve it.\n\nSlack joins the featured Plugin catalog. Slack, Lark, and Feishu use the live\nOpenConnector configuration for sign-in readiness. A missing OAuth client now\nshows a clear setup message instead of offering a connection that cannot start."
+    },
+    {
+      "id": "thread-conversation-parity",
+      "title": "Consistent conversations and Thread replies",
+      "kind": "improved",
+      "areas": [
+        "spaces",
+        "threads",
+        "center-agent"
+      ],
+      "audiences": [
+        "members",
+        "admins"
+      ],
+      "publishedAt": "2026-10-10",
+      "release": "v0.3.251",
+      "evidence": [
+        "pr:1625",
+        "commit:681e1c98df73a1ba5e7fb82a820902e72364ea04",
+        "commit:03668cdc6506ea4ed93f4166387533e5bd30bd84",
+        "pr:1638",
+        "workflow:38078641800"
+      ],
+      "body": "Thread replies share Profile cards, message tools, quoted replies, queued\nfollow-ups, unread navigation, and Jump to latest with the main conversation.\nQueued replies stay in their original conversation. The composer work shortcut\nalso finds queued replies in closed Threads and opens\nthe right Thread, alongside other work outside your view. Full-width messages\nreserve room for avatars on both sides, so long messages have matching content\nedges.\nMembers can open an existing Team Brief, while creation stays with owners and\nadmins.\n\nCenter Agent Profile cards show the model and a cloud icon, with a direct\nsettings action. Routine availability and default reasoning labels are omitted.\nApp Settings also omits the routine Available label.\nBot avatars in Profile cards look around, follow the mouse, and play a full\nspin when clicked. Conversation avatars retain their small click hop."
+    },
+    {
+      "id": "independent-working-copy-access",
+      "title": "Keep Agent capabilities when choosing a separate working copy",
+      "kind": "improved",
+      "areas": [
+        "spaces",
+        "agents",
+        "cli"
+      ],
+      "audiences": [
+        "members",
+        "operators"
+      ],
+      "publishedAt": "2026-10-10",
+      "release": "v0.3.251",
+      "evidence": [
+        "commit:8f3ceab1f053cafe6425631f78453e0828e9944a",
+        "commit:03668cdc6506ea4ed93f4166387533e5bd30bd84",
+        "pr:1638",
+        "workflow:38078641800",
+        "workflow:38077171997"
+      ],
+      "body": "Choose a separate working copy without adding extra restrictions to your Agent's\ntools or permitted network access. Working copy and Access are separate choices\nin the Agent menu, and CLI Project selection keeps Agent settings by default.\nChoose Session → Automatic to clear those task choices and return to automatic\ncontinuation. An existing session keeps its own restrictions.\n\nOpenMeld manages the copy and retains unfinished changes. Computer file policies,\nnative approvals, and explicitly restricted tasks continue to apply. Forking an\nindependent task keeps its separate-copy mode."
+    },
+    {
+      "id": "customer-content-diagnostics-privacy",
+      "title": "Keep customer conversations out of routine diagnostics",
+      "kind": "security",
+      "areas": [
+        "privacy",
+        "center-agent",
+        "diagnostics"
+      ],
+      "audiences": [
+        "members",
+        "admins",
+        "operators"
+      ],
+      "publishedAt": "2026-10-10",
+      "release": "v0.3.251",
+      "evidence": [
+        "commit:afc9cb1bbb1b862534c1492b8da32c5e1687b2be",
+        "commit:03668cdc6506ea4ed93f4166387533e5bd30bd84",
+        "pr:1638",
+        "workflow:38078641800"
+      ],
+      "body": "For customer organizations in production, model logs keep usage and status\ninformation without a copy of the conversation. Automatic agent feedback sends\nproblem categories and diagnostic IDs instead of generated summaries or details.\nUser-submitted feedback still includes the information you choose to share.\n\nDiagnostic Report IDs resolve through the current database to compact execution\ntraces. Authorized infrastructure operators can still investigate stored content\nwith your consent. Task execution and conversation history remain available."
+    },
+    {
+      "id": "existing-space-schema-upgrade",
+      "title": "Keep existing Spaces readable after an update",
+      "kind": "fixed",
+      "areas": [
+        "spaces",
+        "releases"
+      ],
+      "audiences": [
+        "members",
+        "operators"
+      ],
+      "publishedAt": "2026-10-10",
+      "release": "v0.3.251",
+      "evidence": [
+        "pr:1646",
+        "commit:fc6eb00082a13f7199b419f233f04059014d545e",
+        "workflow:38077852859",
+        "commit:490573c59101b1844b54c136ebaf9bcd4a61175c"
+      ],
+      "body": "Existing Spaces apply the database upgrade for deleted Space history when they\nnext open. Their members, settings, and messages remain available. Repeated\nstarts preserve the saved history and deletion state."
+    },
+    {
+      "id": "proactive-space-unread-and-task-review",
+      "title": "Keep proactive reports and Task reviews visible",
+      "kind": "fixed",
+      "areas": [
+        "spaces",
+        "inbox",
+        "tasks"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-10-10",
+      "release": "v0.3.251",
+      "evidence": [
+        "commit:ed3187da98d1ca78d715c23afafddf0cb21dbec6",
+        "commit:03668cdc6506ea4ed93f4166387533e5bd30bd84",
+        "pr:1638",
+        "workflow:38078641800"
+      ],
+      "body": "Proactive Agent reports, Routine results, and formal system outcomes now create\nunread updates for the conversation's recipients. Reading a message before Inbox\nfinishes syncing keeps it read after synchronization.\n\nSpace Tasks awaiting a Human review or rework decision now remain in Inbox until\nthe Task's own workflow ends the request. Reading messages or dismissing an Inbox\nitem does not approve the result."
+    },
+    {
+      "id": "readable-module-sidebar-collapse",
+      "title": "Keep sidebar lists readable while resizing",
+      "kind": "fixed",
+      "areas": [
+        "navigation",
+        "spaces"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-10",
+      "release": "v0.3.251",
+      "evidence": [
+        "commit:0a3b9d9227385fb070912224fe314c1e4f73099f",
+        "commit:03668cdc6506ea4ed93f4166387533e5bd30bd84",
+        "pr:1638",
+        "workflow:38078641800"
+      ],
+      "body": "Contextual sidebar lists stay at their minimum readable width while you drag\ninward. The minimum width is more compact. Collapse requires another third of\nthat width plus a small buffer, which prevents small drag movements from hiding\nthe list. A shorter outward drag reopens it. Dragging and keyboard resizing no\nlonger leave a squeezed icon-only state. Longer names stay on one line with an\nellipsis, and edge hover still reveals a temporary preview."
+    },
+    {
+      "id": "space-activity-permission-errors",
+      "title": "Keep Space permission errors clear",
+      "kind": "fixed",
+      "areas": [
+        "web",
+        "spaces"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-10-10",
+      "release": "v0.3.251",
+      "evidence": [
+        "commit:5586c1ba9e455e3986f0ec954a3d596c895de906",
+        "commit:03668cdc6506ea4ed93f4166387533e5bd30bd84",
+        "pr:1638",
+        "workflow:38078641800"
+      ],
+      "body": "When a Space denies a visit activity update, OpenMeld now reports a permission\nerror instead of a service connection failure."
+    },
+    {
+      "id": "delegated-request-time",
+      "title": "Keep the original time for delegated requests",
+      "kind": "fixed",
+      "areas": [
+        "center-agent"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-10-10",
+      "release": "v0.3.251",
+      "evidence": [
+        "commit:02ae082c1b6fa063467d7c74841a015a5f538537",
+        "commit:03668cdc6506ea4ed93f4166387533e5bd30bd84",
+        "pr:1638",
+        "workflow:38078641800",
+        "workflow:38077171997"
+      ],
+      "body": "Delegated tasks and follow-up work keep the original request's time and timezone.\nRelative instructions such as \"in ten minutes\" use the same starting time after\na task completes or its follow-up request retries.\nLocal Agents also receive this time reference when their work starts later."
+    },
+    {
+      "id": "development-worker-web-lifecycle",
+      "title": "Keep worktree Workers running when Web restarts",
+      "kind": "fixed",
+      "areas": [
+        "desktop",
+        "developer-tools"
+      ],
+      "audiences": [
+        "contributors"
+      ],
+      "publishedAt": "2026-10-10",
+      "release": "v0.3.251",
+      "evidence": [
+        "commit:00c8b31d0962e8eb8d170aee8178e40236efc861",
+        "commit:03668cdc6506ea4ed93f4166387533e5bd30bd84",
+        "pr:1638",
+        "workflow:38078641800"
+      ],
+      "body": "Worktree development starts the Worker stack separately from Web. Restarting\nWeb or switching to the compiled Desktop pilot preserves the running Workers\nand local database. Use `pnpm desktop:web` after starting the worktree stack\nto run the matching compiled pages for Desktop."
+    },
+    {
+      "id": "space-lifecycle-and-interactions",
+      "title": "Manage Spaces and Direct Messages with consistent controls",
+      "kind": "improved",
+      "areas": [
+        "spaces",
+        "direct-messages",
+        "inbox"
+      ],
+      "audiences": [
+        "members",
+        "admins"
+      ],
+      "publishedAt": "2026-10-10",
+      "release": "v0.3.251",
+      "evidence": [
+        "commit:a922d46155baa638c96fb611b83f0b4147449111",
+        "commit:03668cdc6506ea4ed93f4166387533e5bd30bd84",
+        "pr:1638",
+        "workflow:38078641800"
+      ],
+      "body": "Newly joined Spaces appear immediately with a New indicator until opened, even\nwhen they have no messages. Message badges count actual unread messages.\nPinning and dragging respond immediately. Discover shows member\navatars and a read-only preview; joining opens the full Space.\n\nAdding a third participant turns a Direct Message into a Space permanently.\nPersonal Spaces settings let you choose whether messages automatically Wake the\nAgent when you are the only Human with one Agent.\nConversation layout, message placement, and the history slider are now under\nPersonal Spaces settings, with visual choices. Message previews share the same\nsetting as the conversation sidebar.\nYou can also choose Enter or Cmd/Ctrl+Enter to send messages, including in\nDirect Messages and threads.\n\nWhen an Owner deletes a Space, its members can still read and search its history.\nThe Space shows a small Deleted label and accepts no new messages or Agent work.\nMembers can remove it from their own lists. Archived Direct Messages also offer\nDelete for me, which clears the person's history without affecting other people."
+    },
+    {
+      "id": "opencode-model-sdk-alignment",
+      "title": "More models for OpenCode agents",
+      "kind": "improved",
+      "areas": [
+        "agents"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-10",
+      "release": "v0.3.251",
+      "evidence": [
+        "commit:3cd643fbbedf391254ef4d63a4a7bbe021ca6d20",
+        "commit:03668cdc6506ea4ed93f4166387533e5bd30bd84",
+        "pr:1638",
+        "workflow:38078641800",
+        "workflow:38077171997"
+      ],
+      "body": "OpenCode agents can select Step 5 Preview Free through Zen or Go, plus additional\nZen models from Anthropic, OpenAI, Google, DeepSeek, xAI, and Meta. Each model uses\nits native reasoning options. Provider access is still required where applicable.\n\nGPT-5.3 Codex Spark now shows its confirmed retirement for ChatGPT sign-in. API-key\naccess and existing model selections retain their identity."
+    },
+    {
+      "id": "more-plugins-with-personal-account-boundaries",
+      "title": "More tools in Plugins, with personal accounts kept private",
+      "kind": "improved",
+      "areas": [
+        "plugins"
+      ],
+      "audiences": [
+        "users",
+        "admins"
+      ],
+      "publishedAt": "2026-10-10",
+      "release": "v0.3.251",
+      "evidence": [
+        "commit:d5c3978d0aabe75bf8ecaa6448ed07f6bce2eb98",
+        "commit:03668cdc6506ea4ed93f4166387533e5bd30bd84",
+        "pr:1638",
+        "workflow:38078641800",
+        "workflow:38079531426"
+      ],
+      "body": "Plugins adds Google Sheets, Docs, Slides, Forms, Analytics, Search Console,\nMeet, and Ads, plus Vercel, HubSpot, Airtable, Supabase, Outlook, Resend,\nMeta, Mailchimp, and Canva. Sign-in availability depends on the OAuth setup\nfor each environment. Providers that support credentials can also use your\nown token, API key, or service account.\n\nThe catalog also includes Neon, GitLab, Docker Hub, Sentry, Dropbox, ClickUp,\nmonday.com, Asana, Miro, Intercom, Zendesk, Shopify Admin, Confluence, Trello,\nJira, and Stripe. Shopify Admin uses the current Admin GraphQL API for\nproducts, inventory, fulfillment, orders, and customers. Stripe actions cover\ncustomers, products, and prices.\n\nCloud services add AWS S3, Alibaba Cloud OSS, SLS, and ACK, plus Cloudflare\nDocs, Email Routing, and MCP. Microsoft adds Excel, Teams, OneDrive, Outlook\nCalendar, and Clarity. Zoom, Box, and Datadog are also listed. Cloudflare Docs\nconnects without account credentials; you still choose which Agents can use it.\n\nDiscord Bot uses your own Bot Token to read channel messages, send messages,\nand manage servers where the bot is installed. It is available under Personal\nand organization accounts. This Plugin does not add Discord to Channels.\n\nThe website lists all supported Plugins and distributes their distinct logos\nevenly across two scrolling rows. Reduced motion shows every logo in a static\ngrid. The headline connects Plugins to team workflows, and long names stay\ncentered when they wrap.\n\nBrowse Plugins by category, open a category to see all its tools, and search\nbeside the Personal and organization tabs. Cards show what each tool does,\nwith connection status kept on one line.\n\nSwitch between Personal and organization accounts within Plugin details.\nReconnecting an expired account keeps the sign-in window open until the\nconnection is renewed, instead of reporting success from the old connection.\n\nGmail, Outlook mail and calendar, Google Calendar, Google Meet, and Zoom connect under\nPersonal. You choose which Agents can use your account. Older organization\nconnections for these services are disabled and remain available to disconnect."
+    },
+    {
+      "id": "agent-creation-and-working-folder-recovery",
+      "title": "Open newly created Agents without waiting for background refreshes",
+      "kind": "fixed",
+      "areas": [
+        "agents",
+        "web"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-10",
+      "release": "v0.3.251",
+      "evidence": [
+        "commit:89d5bffd99fb8833674902c891ab3e3cc351d49f",
+        "commit:03668cdc6506ea4ed93f4166387533e5bd30bd84",
+        "pr:1638",
+        "workflow:38078641800"
+      ],
+      "body": "After an Agent is created, its details open without waiting for background\ndirectory and availability refreshes. Those refreshes still run so the Agent\nappears in selection lists.\n\nWorking folder settings can save the displayed choice even when it has not\nchanged, allowing you to apply the configuration again when the local folder\nhas not been initialized. Changes remain unavailable while the Agent is working.\n\nReopening Working folder loads the saved folder choice from the Agent's\nComputer. Changing that Computer while settings are open keeps your draft and\nasks you to reopen settings before saving. Folder paths retain meaningful\nspaces and Unicode characters.\n\nFolder errors now open Working folder settings from both Profile and Space\nrecovery. Missing or stale local-agent reports lead to Computer status rather\nthan another connection flow.\n\nUpdate Local Agent opens the affected Profile so its bound Computer and Agent\nremain available. Computer status actions still open Computer settings.\n\nNewly imported local conversations keep the folder observed during import.\nIf that folder disappears, settings explain how to restore the original worktree\nor choose a folder for new work. OpenMeld does not replace the saved folder\nautomatically, and a later manual choice survives import retries."
+    },
+    {
+      "id": "homepage-demo-reading-layout",
+      "title": "Read conversations and threads in the homepage demo",
+      "kind": "improved",
+      "areas": [
+        "website",
+        "spaces"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-10",
+      "release": "v0.3.251",
+      "evidence": [
+        "commit:88888852bd7265c0b437ddefc5011c6175f0e4c1",
+        "commit:03668cdc6506ea4ed93f4166387533e5bd30bd84",
+        "pr:1638",
+        "workflow:38078641800",
+        "workflow:38079531426"
+      ],
+      "body": "The homepage demo opens billing review in a readable Thread panel alongside the\nmain conversation and Members. Compact navigation shows complete Space names,\npanel headers align, and Product navigation centers the demo in the window.\nConversation and Thread histories use the product's scroll area with gentle\nedge fades as messages move out of view.\n\nSpace settings and panel close buttons also align in the app. Thread and Members\nheaders use the same height, including while a thread loads.\n\nA final section explains privacy protections and links to the project's source\nrepository, issues, and pull requests.\n\nThe five hero bots move gently, follow a nearby pointer, and play their complete\njump when clicked. The Codex preview removes inactive controls and extra labels\nto keep the example clear.\n\nA gentle border light draws attention to the demo's ready-to-send draft. It\ncircles slowly while the draft is ready, fades out during editing or sending,\nand respects reduced motion. It remains available when you return to Product."
+    },
+    {
+      "id": "cli-space-watch-recovery",
+      "title": "Recover Space watches after a connection drops",
+      "kind": "fixed",
+      "areas": [
+        "cli",
+        "spaces"
+      ],
+      "audiences": [
+        "users",
+        "agents"
+      ],
+      "publishedAt": "2026-10-10",
+      "release": "v0.3.251",
+      "evidence": [
+        "commit:d06e01c8cfca75152777a6e653b298f24a742d5c",
+        "commit:03668cdc6506ea4ed93f4166387533e5bd30bd84",
+        "pr:1638",
+        "workflow:38078641800",
+        "workflow:38077171997"
+      ],
+      "body": "Space watches reconnect after a temporary connection failure and load missed\nmessages without displaying duplicates. The existing view stays open during\nrecovery. Recovery never resends a message or starts another Agent task.\n\nA watch reports failure when recovery cannot finish, so scripts can detect an\ninterrupted stream. Leaving the watch yourself remains a normal exit."
+    },
+    {
+      "id": "delegated-wake-failure-result",
+      "title": "Report failures before delegated work starts",
+      "kind": "fixed",
+      "areas": [
+        "agents",
+        "center-agent"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-10-10",
+      "release": "v0.3.251",
+      "evidence": [
+        "commit:815a13beff8e9b09a6d020924c1838e791ea6283",
+        "commit:03668cdc6506ea4ed93f4166387533e5bd30bd84",
+        "pr:1638",
+        "workflow:38078641800"
+      ],
+      "body": "When a delegated Wake fails before execution starts, its task now receives the\nsaved Space result. Center Agent can continue with that failure instead of\nwaiting for an execution that never started. Recovery keeps existing successful\nor stopped results."
+    },
+    {
+      "id": "wake-task-context",
+      "title": "Understand a Wake's task access and start fresh",
+      "kind": "improved",
+      "areas": [
+        "spaces",
+        "agents",
+        "cli"
+      ],
+      "audiences": [
+        "members",
+        "operators"
+      ],
+      "publishedAt": "2026-10-10",
+      "release": "v0.3.251",
+      "evidence": [
+        "commit:13ae481f54d2bf8ef14779e2931849912a3167b3",
+        "commit:03668cdc6506ea4ed93f4166387533e5bd30bd84",
+        "pr:1638",
+        "workflow:38078641800"
+      ],
+      "body": "Message details explains a Wake's task access, working-folder selection, and\nwhether its Agent conversation started fresh or continued. A Space-only task\nlets members with message permission review and send the visible request as a\nnew task under their own profile, using their permissions and the Agent's\ncurrent permitted settings. Reopening or retrying the same recovery\ndoes not create another task.\n\nThe Agent's Session options clarify that automatic continuation keeps earlier\nrestrictions.\nCLI diagnostics can read retained task settings after the transient execution\nrecord has retired, while older trace clients keep their existing response.\nWhen task settings cannot be read, Message details shows that they are\nunavailable. A recovery cannot use another sender's publication receipt."
+    },
+    {
+      "id": "claude-haiku-55-model-choices",
+      "title": "Choose Claude Haiku 5.5 for your Agents",
+      "kind": "new",
+      "areas": [
+        "agents",
+        "center-agent"
+      ],
+      "audiences": [
+        "members",
+        "admins"
+      ],
+      "publishedAt": "2026-10-09",
+      "release": "v0.3.250",
+      "evidence": [
+        "pr:1587",
+        "pr:1610",
+        "commit:2de34997f690f3c6bc87c396a2a40e040a96051c",
+        "deployment:openmeld-core-prod/5f8bc475-54c4-45fd-ae16-c3396ba97ab7"
+      ],
+      "body": "Choose Claude Haiku 5.5 for Claude Code, Cursor, OpenCode Zen and Go, the Center\nAgent, or a personal Remote Agent. Claude Code requires version 2.1.293 or later.\nYour provider account must have access to the selected model.\n\nClaude Code, OpenCode, and hosted Agents offer five reasoning levels. Cursor\nuses its provider-defined model configuration. Existing default models and\nsaved selections stay the same."
+    },
+    {
+      "id": "official-logo-assets",
+      "title": "Cleaner OpenMeld icons and reusable brand assets",
+      "kind": "fixed",
+      "areas": [
+        "desktop",
+        "web",
+        "branding"
+      ],
+      "audiences": [
+        "members",
+        "integrators"
+      ],
+      "publishedAt": "2026-10-09",
+      "release": "v0.3.250",
+      "evidence": [
+        "commit:2de34997f690f3c6bc87c396a2a40e040a96051c",
+        "desktop-candidate:01d11dfbce315c66a6fb27a87bad03d87ce6dd2a5305c90403ef96bfe20b5797",
+        "pr:1606",
+        "deployment:openmeld-web-prod/105bd493-2203-4b23-bafe-100ed7fd4e76",
+        "deployment:openmeld-website-prod/4e62c5ad-c804-4efb-8c07-e89c2c9c562d",
+        "deployment:openmeld-docs-prod/e8f55a1f-04d2-433c-96af-383a67b455ec"
+      ],
+      "body": "OpenMeld's macOS app icon and browser icons have cleaner edges and adjusted\nvisual alignment. The macOS app, Web, Website, and Docs use assets from the same\ngenerated brand set. Transparent and solid-background wordmarks are available\nfor light and dark backgrounds.\n\nThe documentation header uses the official wordmark. Select the logo to open\nthe main website, or select Docs to return to the documentation home page."
+    },
+    {
+      "id": "current-product-legal-policies",
+      "title": "Clearer privacy and service terms",
+      "kind": "improved",
+      "areas": [
+        "website",
+        "privacy"
+      ],
+      "audiences": [
+        "users",
+        "admins"
+      ],
+      "publishedAt": "2026-10-09",
+      "release": "v0.3.250",
+      "evidence": [
+        "pr:1609",
+        "commit:2de34997f690f3c6bc87c396a2a40e040a96051c",
+        "deployment:openmeld-website-prod/4e62c5ad-c804-4efb-8c07-e89c2c9c562d"
+      ],
+      "body": "OpenMeld's Privacy Policy and Terms explain local and hosted agent processing,\nAgent Activity metadata, Center Agent memory, connected Apps and Channels, and\nwhat account deletion removes or retains. The pages identify the service\nprovider and give direct links to both policies and the contact email."
+    },
+    {
+      "id": "consistent-center-agent-avatar-colors",
+      "title": "Consistent Agent avatars in Spaces",
+      "kind": "fixed",
+      "areas": [
+        "center-agent",
+        "settings",
+        "spaces"
+      ],
+      "audiences": [
+        "users",
+        "admins"
+      ],
+      "publishedAt": "2026-10-09",
+      "release": "v0.3.250",
+      "evidence": [
+        "pr:1610",
+        "commit:2de34997f690f3c6bc87c396a2a40e040a96051c",
+        "deployment:openmeld-web-prod/105bd493-2203-4b23-bafe-100ed7fd4e76"
+      ],
+      "body": "The Center Agent avatar preview now matches its colors in Spaces. Avatars that\nuse Appearance colors no longer show Original as a saved choice. Selecting\nOriginal saves that color choice for the Agent. Appearance also retains its\nOriginal and Balanced color selections.\n\nNew Agent Direct Messages now show the current Agent avatar in the sidebar as\nsoon as the conversation opens. Remote Agents use the selected model provider's\nlogo without waiting for a later directory refresh."
+    },
+    {
+      "id": "direct-desktop-downloads",
+      "title": "Download OpenMeld directly from the website",
+      "kind": "improved",
+      "areas": [
+        "website",
+        "desktop",
+        "web"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-09",
+      "release": "v0.3.250",
+      "evidence": [
+        "pr:1613",
+        "commit:2de34997f690f3c6bc87c396a2a40e040a96051c",
+        "deployment:openmeld-web-prod/105bd493-2203-4b23-bafe-100ed7fd4e76",
+        "deployment:openmeld-website-prod/4e62c5ad-c804-4efb-8c07-e89c2c9c562d"
+      ],
+      "body": "Choose macOS or Windows in the website's Download menu to start downloading the\nlatest available build. All downloads opens a public overview on openmeld.ai.\nThe website's single download page includes version numbers, file sizes, and\ninstallation instructions. Existing App download links redirect there and\npreserve the selected build. Windows builds are labeled Preview; macOS is not."
+    },
+    {
+      "id": "consistent-avatar-colors",
+      "title": "Keep your selected avatar colors",
+      "kind": "fixed",
+      "areas": [
+        "appearance",
+        "website"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-09",
+      "release": "v0.3.250",
+      "evidence": [
+        "pr:1610",
+        "pr:1613",
+        "commit:2de34997f690f3c6bc87c396a2a40e040a96051c",
+        "deployment:openmeld-web-prod/105bd493-2203-4b23-bafe-100ed7fd4e76",
+        "deployment:openmeld-website-prod/4e62c5ad-c804-4efb-8c07-e89c2c9c562d"
+      ],
+      "body": "Original and Balanced avatar palettes stay selected when you reopen Appearance.\nThe landing page demo uses Original colors to match its introduction. Cloud\navatars use a lighter neutral white while keeping their textured finish."
+    },
+    {
+      "id": "thread-reply-user-time-context",
+      "title": "Keep your time zone when replying in a thread",
+      "kind": "fixed",
+      "areas": [
+        "spaces",
+        "center-agent"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-09",
+      "release": "v0.3.250",
+      "evidence": [
+        "pr:1619",
+        "commit:96cb28b5a32f3757c6fd2b78ede81044a45a5a6b",
+        "deployment:openmeld-core-prod/3086fdb3-fbad-42f9-8a7e-a3fb5b8a026c",
+        "commit:07158c4b07e9c63fbccdb5f3f9d1c09711f1a5d9"
+      ],
+      "body": "Thread replies now use your observed time zone and the time OpenMeld received\nyour message. Relative dates and delays keep that original time when delivery\nwaits or retries."
+    },
+    {
+      "id": "agent-task-recovery-and-local-time",
+      "title": "More reliable task follow-up and local time",
+      "kind": "fixed",
+      "areas": [
+        "center-agent",
+        "agents",
+        "computer"
+      ],
+      "audiences": [
+        "users",
+        "developers"
+      ],
+      "publishedAt": "2026-10-09",
+      "release": "v0.3.250",
+      "evidence": [
+        "pr:1616",
+        "commit:96cb28b5a32f3757c6fd2b78ede81044a45a5a6b",
+        "workflow:37842505316",
+        "desktop-candidate:01d11dfbce315c66a6fb27a87bad03d87ce6dd2a5305c90403ef96bfe20b5797",
+        "deployment:openmeld-auth-prod/e46d7fea-320e-4e87-855a-b280d8758984",
+        "deployment:openmeld-remote-agent-prod/c2699293-462c-45a7-b842-29120d947388",
+        "deployment:openmeld-gateway-prod/186ac65f-de37-48d5-9586-b440e38a045a",
+        "deployment:openmeld-web-prod/105bd493-2203-4b23-bafe-100ed7fd4e76",
+        "deployment:openmeld-core-prod/3086fdb3-fbad-42f9-8a7e-a3fb5b8a026c",
+        "commit:07158c4b07e9c63fbccdb5f3f9d1c09711f1a5d9"
+      ],
+      "body": "Cloud Computer commands keep their recorded exit results when file synchronization\nloses its connection. Slow command checks have a time limit, and one stuck check\nno longer holds up the other commands. Agents can inspect the retained result\nbefore deciding what to do next.\n\nWhen a Space coordinator cannot finish because a retained Computer command was\nlost, the Center Agent can make one restricted attempt to summarize the completed\nAgents' published results. This does not restart their work or override Stop.\n\nWeb, macOS Desktop, and Local Service share the same user time-zone record. Remote\nAgents receive that time zone, the original request time, and a fresh current\ntime for each model request. Queued messages retain their original time context.\nLocal Agents are guided to use the user's local environment\nunless the task calls for Cloud Computer."
+    },
+    {
+      "id": "background-alarm-failure-backoff",
+      "title": "Slow repeated background retries during service failures",
+      "kind": "fixed",
+      "areas": [
+        "reliability",
+        "files",
+        "agents"
+      ],
+      "audiences": [
+        "operators"
+      ],
+      "publishedAt": "2026-10-09",
+      "release": "v0.3.250",
+      "evidence": [
+        "pr:1608",
+        "commit:2de34997f690f3c6bc87c396a2a40e040a96051c",
+        "deployment:openmeld-core-prod/5f8bc475-54c4-45fd-ae16-c3396ba97ab7"
+      ],
+      "body": "Failed background cleanup and execution-recovery steps now wait progressively\nlonger before retrying, reducing unnecessary cloud activity during persistent\nfailures. Healthy work can continue, pending work is retained, and normal retry\ntiming resumes after recovery."
+    },
+    {
       "id": "connector-gateway-upgrade",
       "title": "Updated connector management and provider actions",
       "kind": "improved",
@@ -42,6 +671,25 @@
         "workflow:37668077567"
       ],
       "body": "Web first-run and Desktop startup now show the same centered OpenMeld Logo.\nThe Logo responds to the pointer, with a static appearance when reduced motion\nis enabled. Loading text and the line below the Logo are removed."
+    },
+    {
+      "id": "staging-postgresql-alignment",
+      "title": "Align staging with PostgreSQL production storage",
+      "kind": "improved",
+      "areas": [
+        "platform"
+      ],
+      "audiences": [
+        "contributors"
+      ],
+      "publishedAt": "2026-10-08",
+      "evidence": [
+        "pr:1604",
+        "commit:dde6988f39922ca1d4528b212eb390926a2123db",
+        "deployment:openmeld-auth-stg/c1e25da0-0e8c-45bd-9ad1-99b0472765ef",
+        "deployment:openmeld-core-stg/db4612d7-932f-49ca-8c18-75b591832698"
+      ],
+      "body": "The staging deployment uses its existing PostgreSQL database and isolated\nHyperdrive connection. It applies the same migration history as production\nbefore deploying Auth and Core. The old staging D1 database remains available\nfor historical test-data inspection and is not a runtime fallback."
     },
     {
       "id": "recover-stalled-desktop-downloads",

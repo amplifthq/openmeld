@@ -3,11 +3,7 @@ import {
   renderWorkingLanguagePrompt,
   TASK_KNOWLEDGE_GUIDANCE,
 } from "@openmeld/agent-runtime";
-import { resolveUserTimeContext } from "@openmeld/schemas";
-import type {
-  RemoteAgentTurnEnvelope,
-  UserRequestTimeContext,
-} from "@openmeld/schemas/types";
+import type { RemoteAgentTurnEnvelope } from "@openmeld/schemas/types";
 import { SPACE_COLLABORATION_CONTEXT_RULE } from "@openmeld/space-mesh";
 import { formatMessageChannelProviderName } from "../message-channel";
 import { REMOTE_AGENT_MODEL_DISPLAY_NAME } from "../model";
@@ -163,28 +159,6 @@ export function buildRemoteAgentTurnTimeContext(
   const currentTimeUtcIso = new Date(currentTimeIso).toISOString();
   return `[OpenMeld runtime clock]
 Authoritative current UTC time: ${currentTimeUtcIso}`;
-}
-
-export function buildRemoteAgentRequestTimeContext(
-  context: UserRequestTimeContext
-): string {
-  const userTime = resolveUserTimeContext(context.userTime);
-  const submittedAtIso = new Date(context.submittedAtMs).toISOString();
-  const localReceivedTime = new Intl.DateTimeFormat("en-US", {
-    timeZone: userTime.timeZone,
-    dateStyle: "full",
-    timeStyle: "long",
-    hourCycle: "h23",
-  }).format(context.submittedAtMs);
-  const source =
-    userTime.source === "utc"
-      ? "UTC fallback: no valid user timezone"
-      : `authenticated ${userTime.source} observation`;
-  return `[OpenMeld request time context]
-Request received at UTC: ${submittedAtIso}
-Request timezone: ${userTime.timeZone} (${source})
-Request received in that timezone: ${localReceivedTime}
-Relative dates and delays in this request use the received timestamp and request timezone. This anchor stays fixed during Queue delays and retries.`;
 }
 
 // Append one user runtime-data message to this outgoing payload only. User text

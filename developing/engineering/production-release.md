@@ -35,6 +35,12 @@ PostgreSQL bindings. A database migration alone does not require redeploying
 both services. CLI admission checks these facts before publication and Core
 activation.
 
+For local release, pass `CLOUDFLARE_ACCOUNT_ID` and
+`CLOUDFLARE_OPENMELD_RELEASE_API_TOKEN` from `openmeld-release/prd`. In that
+scoped child environment, also map the same release token to
+`CLOUDFLARE_API_TOKEN` for Wrangler and Website domain admission; retain the
+scoped variable for Hyperdrive inspection. Do not write either token to disk.
+
 The CLI workflow records Core activation through the existing component receipt
 owner. If a prior attempt applied this exact source but failed its remaining
 health checks, database admission checks that recorded identity against the live
@@ -84,6 +90,13 @@ publication activates its matching Core projection. Opposing receiver contracts
 still require separate stages. Do not narrow the release base to hide a conflict.
 
 ### Desktop release coverage
+
+macOS arm64 candidates can use the local lane or the optional GitHub
+`desktop-release.yml` workflow. Both use the same packaging, candidate upload,
+and guarded promotion commands. See the
+[Desktop release procedure](development-workflow.md#optional-github-macos-release).
+Candidate creation and stable promotion are separate operations; neither
+replaces installed acceptance.
 
 The scoped planner and `release:status` cover Database, cloud services, and
 CLI; neither `cloud` nor `full` publishes Desktop. For the same exact merged
@@ -239,6 +252,16 @@ admission checks that active baseline's bindings; it does not mark the failed
 attempt successful. An intervening deployment, including a rollback to the same
 version, blocks this retry.
 
+Native PostgreSQL can start a new-source attempt after a failed first migration
+step only when the previous verified database receipt is retained. Current control
+requires the same three-step operation, ancestor sources, unchanged migration SQL
+and registered target. Under the shared Database lease, a read-only owner verifies
+the exact historical journal and runtime grants before any new component effect.
+The new start links an immutable schema 6 rollback proof to both historical receipts;
+the failed event is preserved. An already committed migration, changed target,
+unproved baseline, or changed recipe remains blocked. This path does not replay
+applied SQL or admit a redeploy override.
+
 Other unknown application, missing output, unreadable receipts, mismatched targets and
 unresolved legacy records block before a new attempt or deployment. They require
 separate evidence-backed reconciliation, not a new UUID or a status override.
@@ -370,6 +393,19 @@ including a verified compatible Core receiver before Remote. The database stage
 still checks live pending migrations and the committed schema before applying
 anything. Missing, conflicting, or unverified receipts remain unknown.
 
+Receiver witnesses cover named contracts, not a whole receiver/producer pair.
+The dependency owner retains every triggered contract before projecting the
+deployment graph. A pending receiver needs matching, source-bound evidence for
+each contract, including contracts without an available witness. AI usage can
+reuse a verified Core deployment only when its complete receiver owners,
+entrypoint registration, production binding and dependency resolutions remain
+unchanged. Its Core, DB and schemas TypeScript configurations must retain the
+existing shared parent, without further inheritance, and their complete
+configuration contents must match. This conservative proof rejects unrelated
+schema or entrypoint edits too; it does not certify a combined feature rollout
+or remove receiver-first dependencies. Missing contract metadata cannot admit
+a pending receiver.
+
 The baseline is component-specific. Each scope starts from its latest verified
 deployment receipt or legacy hosted deployment evidence, so Database, CLI,
 Workers, and Web may legitimately be at different release sources such as R,
@@ -426,6 +462,23 @@ when it belongs to a current-change scope; the same missing fact remains visible
 under the global backlog without changing the scoped command's exit result.
 
 ## Public Docs releases
+
+Hosted Web, Website, and Docs children with parent admission are artifact
+consumers. Their setup installs only the trusted `@openmeld/release-tools`
+production dependency closure (TypeScript, YAML, Wrangler, and Schemas/Zod),
+with install scripts disabled. The candidate checkout receives no application
+dependency installation. Standalone admission and the parent builder retain
+the full source build toolchain.
+
+After same-run artifact restoration, the scope lease and live preflight, the
+trusted `promote-renderer-artifact.mjs` revalidates parent evidence and the
+source/input/output identity and invokes its own pinned Wrangler against the
+restored output. Missing or mismatched evidence fails closed; a consumer cannot
+enter the builder. Cloudflare's generated deployment configuration already
+contains the production environment selected at build time. Health verification
+still compares the served source and build identity after deployment. This
+separates build dependencies from promotion dependencies without adding a
+second release planner or removing compatibility, database, or lease guards.
 
 Docs-only releases use `--scope docs`, an independent artifact receipt and
 snapshot, and the `openmeld-docs-prod` Worker at `docs.openmeld.ai`. The hosted
@@ -610,6 +663,13 @@ comes from the Core deployment in CLI publication, not from optional headers.
 Other shared schemas and Core's native-delivery service are not directional
 path signals because they carry contracts in both directions.
 
+This profile also preserves that projection when CLI is excluded from the
+cloud stage. Preflight and verification leave published-channel checks to the
+same current-projection owner, instead of requiring the candidate CLI to exist
+first. With PostgreSQL, use the guarded local cloud stage, then the official
+GitHub CLI workflow after its receiver receipts are verified. Keep the same
+release source, pre-feature base and complete train declaration across stages.
+
 Personal cloud Computer has the opposite capability direction: its Remote
 Agent requires Core's account Computer identity response. The planner selects
 `personal-cloud-computer-receivers-first` only after comparing the actual
@@ -639,6 +699,82 @@ private persistence repository. `compatibilityPathSignals` explains these two
 classifications, including matched paths and relevant non-trigger paths. These
 source signals do not certify a deployed receiver or authorize a breaking
 receiver-only change.
+
+Center Agent working-folder writes have their own `center-agent-safe-workspace`
+Core-to-Remote obligation. Direct RPC registration, implementation or caller
+owner edits inspect the explicit product source's Remote tools for the required
+`centerAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace` receiver.
+An unreadable or unspecified product source conservatively retains the
+obligation; a known legacy caller without that receiver does not trigger it.
+This bounded name check only registers an obligation. It supplies no receiver
+witness, and an AI usage witness cannot satisfy it. Core must have a verified
+current receipt before the new Remote caller deploys. The release-control
+checkout's caller source is never used as product evidence. The legacy Core
+receiver rejects folder writes before any settings mutation during this
+transition; model-only calls continue to use the legacy receiver.
+
+Agent Profile setup and folder recovery retain separate obligations:
+`agent-profile-default-project-revision` requires Database before Auth's new
+revision-column reads and writes; an older verified PostgreSQL binding does not
+prove that column exists. `agent-profile-default-project-initializer` requires
+Auth's named initializer before Core calls it. `agent-profile-binding-precondition`
+requires Core's named bound-write receivers before Gateway and Gateway's strict
+`expectedBindingTarget` input before Web. A missing method or unsupported input
+must not be downgraded to an unguarded setter.
+
+`profile-workspace-initialize` requires Core before a Service publishes the
+strict `initializeProfileWorkspace` registration or heartbeat key. It applies
+to a caller-only change as well as the original combined schema/receiver change.
+It is separate from `local-service-runtime`, `profile-workspace-read` and the
+Auth-to-Core `agent-profile-default-project-initializer`; one witness cannot
+substitute for another contract on the same service pair. Core checks Service
+support before sending `onlyIfUnconfigured`, so an older Service gets an
+update-required refusal before that input is sent. This adds no reverse edge.
+
+`profile-workspace-read` requires Core before a Service publishes the
+`readProfileWorkspace` capability in registration or heartbeat, Core's named
+`getCurrentAgentProfileWorkspace` and `getPeopleComputerAgentProfileWorkspace`
+receivers before Gateway, then Gateway's GET routes before Web calls them.
+The optional capability is inside a strict object: older Core receivers reject
+the new key. An unchanged folder-write or runtime witness cannot prove this
+read contract. Names in the explicit target source only register obligations;
+unreadable source retains them and supplies no compatibility witness.
+The earlier `initializeProfileWorkspace` capability remains a separate strict
+input. Read evidence cannot replace its runtime obligation, or vice versa.
+
+Core negotiates this read against the connected Service capability before
+sending `daemon.local_agent_control.read_profile_workspace`. An older Service
+therefore returns the update-required refusal without receiving the new frame;
+it does not require a Service-before-Core edge. Publish the new Service before
+the new Web settings flow when practical so its update action has an available
+artifact. Older installed Services still need their normal account-checked
+upgrade. This ordering does not establish their upgrade or native acceptance.
+
+`cloud-command-receipt-opt-in` requires Core and Remote Agent before Gateway
+accepts command references or detailed lists, then Gateway before the CLI caller.
+Core relays these fields only after a Gateway request; it does not introduce
+them itself. Ordinary lists retain the legacy shape and single-command replies
+remain extensible. This permits a Core receiver stage while the old Gateway
+still rejects new opt-in inputs. Recheck the actual caller chain on the final
+source: these source and parser facts are not mixed-version Worker smoke.
+
+Internal Computer storage and result changes do not reintroduce this request
+edge when the existing request prefix, its imported schema owners and locked
+parser resolution, and the complete Core/Gateway/API/CLI callers are unchanged.
+The bounded comparison rejects unknown history, imports, executable result
+suffixes and unrecognized schema construction. It proves only unchanged public
+requests; response readers and all other release obligations remain independent.
+Execution reconciliation produces terminal responses. It is not a request
+admission owner; request entrypoints retain their receiver-first classification.
+When the mixed native-delivery ambiguity check still applies, use separately
+admitted component stages and their verified receipts rather than a combined
+plan or a manufactured base ref.
+
+Each obligation is registered from its bounded changed owners and the explicit
+product source, including caller-only changes. Known historical sources without
+the feature stay independent; an unreadable source retains the obligation. The
+name checks supply no compatibility witness. Pending or unresolved receivers
+cannot be satisfied by an older contract's witness on the same service pair.
 
 The planner composes the metering edge with the
 request dependencies and rejects an unresolved cycle, including a single-stage
@@ -842,8 +978,18 @@ Core RPC and Space receiver, and a Task caller together. Core deploys with the
 immutable current published CLI projection first, followed by Gateway, Web,
 Remote Agent, and CLI when selected. CLI and Web call Gateway's Task HTTP
 routes; Remote Agent calls Core directly and does not require Gateway.
-Every selected consumer requires Core in the plan, and CLI/Web also require
-Gateway. Core-only and Core/Gateway receiver stages remain supported without
+The compatibility graph records the changed callers' receiver obligations:
+Core before Remote, and Core before Gateway before changed Web/CLI callers.
+A shared Task API-client change covers both Web and CLI. A changed shared Task
+schema also covers its transitive consumers, including unchanged API-client and
+Remote binding files that import its wire-version constant. Unavailable schema
+history retains those prerequisites. Unrelated client edits do not add Task
+dependencies. Receipt-based stage admission accepts an already
+verified receiver; it does not require selecting or deploying that receiver
+again. Remote remains blocked while its required Core receiver is pending or
+unknown, even when Core is selected in the same command. Center Agent evidence
+tools use the same receipt-based Core-before-Remote admission.
+Core-only and Core/Gateway receiver stages remain supported without
 requiring the future Service fingerprint to match the published channel;
 the existing receiver executor verifies the real channel and immutable tag.
 Opposing receiver constraints fail closed rather than overriding their order.
@@ -851,9 +997,10 @@ Opposing receiver constraints fail closed rather than overriding their order.
 Keep the same pre-feature base (for example the previously published CLI tag)
 through every stage, including after a version-only PR. A narrow version-PR
 diff cannot establish the Task dependency. Use the guarded ordered local
-Core/Gateway/Web/CLI plan for the first publication; CLI-only with that base is
-rejected. The static hosted fleet admission also rejects a selected order it
-cannot execute. No direct receiver script invocation or hash-check bypass is
+Core/Gateway/Web/CLI plan for the first publication, or complete its receiver
+stages first and publish the caller after receipt-based admission succeeds.
+Missing prerequisites remain blocked. The static hosted fleet admission also
+rejects a selected order it cannot execute. No direct receiver script invocation or hash-check bypass is
 part of this rollout. The final normal CLI stage publishes artifacts and
 updates Core to the new CLI projection after the receivers are healthy.
 
@@ -981,7 +1128,40 @@ artifacts and updates Core's release projection through the normal guarded path.
 
 The planner selects `inbox-source-target-receiver-first` when a diff changes the
 strict Inbox source-target schema together with a Core writer for those targets.
-Its cloud stage, including the combined Remote receiver profile, deploys Core
+The path signal remains conservative. The existing classifier omits this
+obligation only when the explicit baseline and candidate sources prove the
+same complete target union, direct schema dependencies, actual writers and
+storage delegate, its directly called legacy repairs, the actual row mapper
+and timestamp helper, target-bearing RPC/HTTP projections, Web interpreter, and
+their import/export, production binding and resolver configuration. It supports
+only the reviewed pure membership-kind projections, source-guard forwarding,
+four retained request-time edits, the unique unread-target query construction,
+exact source-read delegation with exclusively bound imports and an otherwise
+unchanged complete RPC function, and the early code-handoff rejection that
+forwards the original message to the unchanged failure and terminal target-effect
+delegates. The API still compares as a
+complete module after the explicit query change; Native delivery still compares
+as a complete module after these listed changes. The rejection predicate is
+not a receiver compatibility witness, and its parsed output cannot construct
+a target. Every other target owner change, unreadable
+source, ambiguous declaration or unknown structure retains the original gate.
+The item-returning service methods and their factory bindings remain equal;
+unrelated membership SQL is outside this target proof. Gateway registrations
+must keep their exact route bindings and contain no extra local statements.
+This proof does not emit a compatibility witness. In particular, the separate
+`inbox-membership-opt-in` Core-before-Gateway obligation still requires its own
+receiver admission; another witness for that service pair cannot satisfy it.
+The independent `visible-source-read` obligation deploys Core before Gateway,
+then Gateway before Web. New callers can send `read_sources` and request
+`includeSourceKeys`; the old strict receivers reject these requests. The
+classifier reads the explicit product caller from the selected source SHA,
+including caller-only increments. A known older caller has no new obligation;
+missing or unreadable source retains it. Naming these requests registers the
+obligation only. It creates no receiver witness, does not prove the durable
+source-target contract, and cannot replace membership opt-in evidence on the
+same service pair.
+
+The source-target cloud stage, including the combined Remote receiver profile, deploys Core
 through the existing current-published-CLI projection owner. That owner verifies
 the immutable published npm/R2 identity and required floor before activation,
 then verifies Core alignment before completing its receipt. The candidate's
@@ -1601,6 +1781,10 @@ verification uses its explicit `production` profile in this lane, so a staging
 contract introduced after the approved cutoff cannot retroactively invalidate
 that immutable production source. Normal repository verification keeps using
 the full environment profile and continues to enforce staging requirements.
+Gateway runtime-token declarations follow the connector reader and client in
+the exact product source. Historical readers that use only the admin token do not require
+the later runtime token. Current readers still require its examples, secrets
+declarations, and generated binding. An unreadable reader fails closed.
 
 ```sh
 release_sha="$(git rev-parse origin/main)"
@@ -1877,6 +2061,43 @@ continue to require the checked-in manifest and stable channel to match.
 
 ## Resumable Execution
 
+For a multi-component release from a clean, approved checkout, use the existing
+local entrypoint with the exact pre-merge base:
+
+```sh
+pnpm release:deploy:local -- --base <pre-merge-sha> --scope auto
+```
+
+It fixes the checkout SHA and base, reads the affected component receipts, skips
+components that are current, and selects the next component through the existing
+production stage admission rules. Each component still runs its own guarded
+preflight, lease, deployment, health, and receipt path. After each component,
+the command reads the receipts again before continuing. It stops on a failure,
+unknown evidence without an admitted recovery, or a missing completion record;
+it never treats a subprocess exit as deployment evidence. Rerun the same command
+from the same source to continue after an interruption. Dependencies outside the
+selected change require an explicit scope decision; the command does not add
+historical backlog to the release. Database cutover and domain transitions keep
+their existing dedicated commands. An intentional redeploy requires an explicit
+component scope and `--redeploy`.
+
+CLI publication stays with the official GitHub Trusted Publishing workflow.
+When a pending CLI stage becomes eligible, local continuation stops before CLI
+mutation and prints that workflow command with the original source and train.
+After it succeeds, rerun the same local command; the receipt skips the completed
+CLI stage. This does not introduce a second npm publisher or dispatch tracker.
+
+Use `release:status -- --ref <product-sha> --change-base <pre-merge-sha>
+--check-complete` for the deployment closeout check. It requires real receipts,
+rejects `--deployed` planning overrides, and exits nonzero for missing or pending
+components. Scope impact and deployed completion are independent of whether the
+changes admit one combined deployment order. Ambiguous ordering remains visible
+and blocks automatic continuation; explicitly reviewed single-component stages
+still use receipt-based admission. Once all affected components have current
+receipts, the completion check can succeed without inventing a combined order.
+Human output labels deployable work as incomplete. This check does
+not certify product smoke, Desktop installation, or Desktop update acceptance.
+
 The guarded local executor is safe to rerun after interruption. Completion
 probes are read-only. A completed stage prints `SKIP (already done)` with its
 criterion; an incomplete stage prints `RUN` and executes the existing command
@@ -1906,8 +2127,9 @@ Workers. After every selected Worker deploy and health check, the production
 executor reruns the same resumable CLI command as the terminal three-way
 alignment check; when the release is complete, that rerun is read-only and all
 stages skip. Before each Worker deploy, the executor prints the current
-production version ID for comparison. Repeated Worker deploys remain allowed
-because they are safe, even though they create another Worker version.
+production version ID for comparison. Current components are skipped from their
+receipts; deliberately creating another Worker version requires the explicit
+redeploy path.
 
 | Stage | `SKIP` criterion | Criterion level |
 | --- | --- | --- |
@@ -1969,6 +2191,14 @@ an upstream patch merges, synchronize fork `main`, remove the superseded
 downstream patch from the next OpenMeld release branch, and validate that exact
 remote SHA before deployment. Synchronizing the fork alone never requires a
 production redeploy.
+
+After deploying the runtime-catalog cache correction, verify that runtime
+catalog responses use `Cache-Control: no-store`, have no CDN cache header,
+and reflect the current OAuth configuration. Earlier versions cached
+`/v1/providers` and `/v1/actions` for a year. If stale CDN entries still survive
+the deployment, purge them on that environment's OpenConnector hostname and
+repeat the checks. Keep staging purges confined to
+`connectors.staging.openmeld.ai`; never purge the shared zone for a staging test.
 
 The reviewed runtime supports managed authorization requests and event subscription
 maintenance. Keep the once-per-minute `triggers.crons` in both tracked deployment

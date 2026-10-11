@@ -13,6 +13,7 @@ import { createCoreRpcHttpError } from "../../rpc/errors";
 
 type TaskContractVersion =
   | typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION
+  | 2
   | undefined;
 
 export function projectSpaceTasksForClient(
@@ -25,8 +26,8 @@ export function projectSpaceTasksForClient(
   return {
     ...listed,
     tasks: listed.tasks.map((task) => {
-      assertLegacySpaceTaskCanRead(task);
-      return omitSpaceTaskProjectIds(task);
+      assertSpaceTaskClientCanRead(task, [], taskContractVersion);
+      return taskContractVersion === 2 ? task : omitSpaceTaskProjectIds(task);
     }),
   };
 }
@@ -38,8 +39,10 @@ export function projectSpaceTaskDetailForClient(
   if (taskContractVersion === SPACE_TASK_WORKFLOW_CONTRACT_VERSION) {
     return detail;
   }
-  assertLegacySpaceTaskCanRead(detail.task, detail.events);
-  return { ...detail, task: omitSpaceTaskProjectIds(detail.task) };
+  assertSpaceTaskClientCanRead(detail.task, detail.events, taskContractVersion);
+  return taskContractVersion === 2
+    ? detail
+    : { ...detail, task: omitSpaceTaskProjectIds(detail.task) };
 }
 
 export function projectSpaceTaskReceiptForClient(
@@ -49,8 +52,33 @@ export function projectSpaceTaskReceiptForClient(
   if (taskContractVersion === SPACE_TASK_WORKFLOW_CONTRACT_VERSION) {
     return receipt;
   }
-  assertLegacySpaceTaskCanRead(receipt.task, [receipt.event]);
-  return { ...receipt, task: omitSpaceTaskProjectIds(receipt.task) };
+  assertSpaceTaskClientCanRead(
+    receipt.task,
+    [receipt.event],
+    taskContractVersion
+  );
+  return taskContractVersion === 2
+    ? receipt
+    : { ...receipt, task: omitSpaceTaskProjectIds(receipt.task) };
+}
+
+export function assertSpaceTaskClientCanRead(
+  task: SpaceTask,
+  events: readonly SpaceTaskEvent[] = [],
+  version?: TaskContractVersion
+): void {
+  if (version === SPACE_TASK_WORKFLOW_CONTRACT_VERSION) {
+    return;
+  }
+  if (
+    (task.result && "provider" in task.result.submittedBy) ||
+    events.some((event) => "provider" in event.actor)
+  ) {
+    throw spaceTaskContractUpdateRequiredError();
+  }
+  if (version === undefined) {
+    assertLegacySpaceTaskCanRead(task, events);
+  }
 }
 
 export function assertLegacySpaceTaskCanRead(
@@ -77,7 +105,7 @@ export function spaceTaskContractUpdateRequiredError(): Error {
   return createCoreRpcHttpError({
     code: SPACE_TASK_CONTRACT_UPDATE_REQUIRED_ERROR_CODE,
     reason:
-      "Update this OpenMeld client to work with Project-scoped Tasks and Linear references.",
+      "Update this OpenMeld client to read the current Task workflow and its recorded sources.",
     status: 426,
   });
 }

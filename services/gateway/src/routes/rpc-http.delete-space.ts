@@ -15,6 +15,19 @@ import {
 const DELETE_SPACE_ROUTE = "/v1/spaces/:spaceId";
 
 export function registerDeleteSpaceRoute(app: Hono<HonoBindings>): void {
+  app.delete("/v1/spaces/:spaceId/personal-history", (c) =>
+    executeRpcRoute({
+      c,
+      route: "/v1/spaces/:spaceId/personal-history",
+      method: "DELETE",
+      spaceId: c.req.param("spaceId"),
+      execute: () =>
+        c.var.coreRpc.deleteConversationForMe({
+          spaceId: c.req.param("spaceId"),
+          context: buildCoreRpcContext(c),
+        }),
+    })
+  );
   app.delete(DELETE_SPACE_ROUTE, (c) => {
     const spaceId = c.req.param("spaceId");
     const password = readSpacePasswordHeader(c.req.raw.headers);

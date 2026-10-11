@@ -489,7 +489,10 @@ describe("remote agent callback context", () => {
     });
   });
 
-  it("logs a bounded error summary when a Core callback delivery fails", async () => {
+  it.each([
+    "local",
+    "prod",
+  ])("keeps Core callback failure actionable in %s", async (environment) => {
     const storage = new InMemoryDurableObjectStorage();
     const context = await persistReadyCallbackContext(storage, "Done.");
     const error = vi
@@ -498,6 +501,7 @@ describe("remote agent callback context", () => {
 
     try {
       const updated = await attemptRemoteAgentCallbackDelivery({
+        env: { OPENMELD_WORKER_ENVIRONMENT: environment },
         context,
         coreWorker: {
           completeRemoteAgentSubmission: vi.fn(() =>
@@ -511,17 +515,28 @@ describe("remote agent callback context", () => {
       expect(updated).toMatchObject({
         callbackAttempts: 1,
         callbackStatus: "retryable",
+        lastFailureFact: {
+          code: "remote_agent.core_callback_failed",
+          detail: "Core callback unavailable",
+        },
       });
       expect(error).toHaveBeenCalledWith(
         "[remote_agent.admission.callback_send_failed]",
         expect.objectContaining({
           callbackAttempt: 1,
           dispatchId: context.dispatchId,
-          error: "Core callback unavailable",
+          ...(environment === "local"
+            ? { error: "Core callback unavailable" }
+            : { errorName: "Error" }),
           idempotencyKey: context.idempotencyKey,
           submissionId: context.submissionId,
         })
       );
+      if (environment === "prod") {
+        expect(JSON.stringify(error.mock.calls)).not.toContain(
+          "Core callback unavailable"
+        );
+      }
     } finally {
       error.mockRestore();
     }

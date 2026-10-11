@@ -1,4 +1,12 @@
-import { access, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import process from "node:process";
 import { MAX_PROFILE_WORKING_DIRECTORY_LENGTH } from "@openmeld/schemas";
@@ -21,6 +29,7 @@ import {
   ensureOpenMeldManagedProfileWorkspace,
   migrateLegacyProfileWorkspaceConfigIfNeeded,
   readProfileWorkspaceConfigForAccount,
+  readSavedProfileWorkspaceForAccount,
   setCustomProfileWorkspace,
 } from "../src/profile-workspace/service";
 import { withTempHome } from "./helpers/fs";
@@ -49,6 +58,120 @@ async function readLocalMetaFile(openMeldProfileId: string): Promise<unknown> {
 }
 
 describe("profile workspace service", () => {
+  it("keeps a native import observation separate from later explicit folder choices", async () => {
+    await withTempHome(async (home) => {
+      const profileId = "agt-imported-workspace";
+      const original = join(home, "original-worktree");
+      const retained = join(home, "retained-worktree");
+      await mkdir(original);
+      const importedSession = {
+        agentControllerRef: "builtin:codex" as const,
+        agentControllerConversationId: "thread-imported",
+      };
+      await setCustomProfileWorkspace({
+        account: FALLBACK_ACCOUNT,
+        openMeldProfileId: profileId,
+        customWorkspacePath: original,
+        importedSession,
+        onlyIfUnconfigured: true,
+      });
+      expect(
+        await readProfileWorkspaceConfigForAccount({
+          account: FALLBACK_ACCOUNT,
+          openMeldProfileId: profileId,
+        })
+      ).toMatchObject({
+        origin: { kind: "imported_native_session", ...importedSession },
+      });
+      await rename(original, retained);
+      expect(
+        await resolveProfileWorkspaceRuntimeForAccount({
+          account: FALLBACK_ACCOUNT,
+          openMeldProfileId: profileId,
+          mode: "inspect",
+        })
+      ).toMatchObject({ status: "invalid", reasonCode: "workspace.invalid" });
+      await expect(access(original)).rejects.toThrow();
+      expect(
+        await readSavedProfileWorkspaceForAccount({
+          account: FALLBACK_ACCOUNT,
+          openMeldProfileId: profileId,
+        })
+      ).toMatchObject({
+        status: "configured",
+        configurationOrigin: "imported_native_session",
+        workspacePath: original,
+      });
+      const importRetry = await setCustomProfileWorkspace({
+        account: FALLBACK_ACCOUNT,
+        openMeldProfileId: profileId,
+        customWorkspacePath: retained,
+        importedSession,
+        onlyIfUnconfigured: true,
+      });
+      expect(importRetry).toMatchObject({
+        changed: false,
+        workspacePath: original,
+      });
+      await setCustomProfileWorkspace({
+        account: FALLBACK_ACCOUNT,
+        openMeldProfileId: profileId,
+        customWorkspacePath: retained,
+      });
+      const explicit = await readProfileWorkspaceConfigForAccount({
+        account: FALLBACK_ACCOUNT,
+        openMeldProfileId: profileId,
+      });
+      expect(explicit).toMatchObject({
+        origin: { kind: "explicit" },
+        value: { mode: "custom", customWorkspacePath: retained },
+      });
+      expect(
+        explicit.status === "valid" &&
+          explicit.origin &&
+          "agentControllerConversationId" in explicit.origin
+      ).toBe(false);
+      const laterImport = await setCustomProfileWorkspace({
+        account: FALLBACK_ACCOUNT,
+        openMeldProfileId: profileId,
+        customWorkspacePath: retained,
+        importedSession: {
+          ...importedSession,
+          agentControllerConversationId: "thread-second",
+        },
+        onlyIfUnconfigured: true,
+      });
+      expect(laterImport.changed).toBe(false);
+      expect(
+        await readSavedProfileWorkspaceForAccount({
+          account: FALLBACK_ACCOUNT,
+          openMeldProfileId: profileId,
+        })
+      ).toMatchObject({ configurationOrigin: "explicit" });
+      const oldWriterEnvelope = (await readLocalMetaFile(profileId)) as Record<
+        string,
+        unknown
+      >;
+      await writeLocalMetaFile({
+        openMeldProfileId: profileId,
+        payload: {
+          ...oldWriterEnvelope,
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+      });
+      const historical = await readProfileWorkspaceConfigForAccount({
+        account: FALLBACK_ACCOUNT,
+        openMeldProfileId: profileId,
+      });
+      expect(historical).toMatchObject({
+        status: "valid",
+        value: { mode: "custom", customWorkspacePath: retained },
+      });
+      expect(
+        historical.status === "valid" && historical.origin
+      ).toBeUndefined();
+    });
+  });
   it("reads a valid v2 openmeld-managed workspace config", async () => {
     await withTempHome(async () => {
       const path = await writeLocalMetaFile({
@@ -77,6 +200,25 @@ describe("profile workspace service", () => {
           mode: "openmeld_managed",
         },
       });
+      await expect(
+        readSavedProfileWorkspaceForAccount({
+          account: FALLBACK_ACCOUNT,
+          openMeldProfileId: "agt-workspace-managed",
+        })
+      ).resolves.toMatchObject({
+        status: "configured",
+        workspaceMode: "openmeld_managed",
+        workspacePath: accountProfileWorkspacePath(
+          FALLBACK_ACCOUNT,
+          "agt-workspace-managed"
+        ),
+        configurationVersion: 2,
+      });
+      await expect(
+        access(
+          accountProfileWorkspacePath(FALLBACK_ACCOUNT, "agt-workspace-managed")
+        )
+      ).rejects.toThrow();
     });
   });
 
@@ -110,6 +252,17 @@ describe("profile workspace service", () => {
           mode: "custom",
         },
       });
+      await expect(
+        readSavedProfileWorkspaceForAccount({
+          account: FALLBACK_ACCOUNT,
+          openMeldProfileId: "agt-workspace-custom",
+        })
+      ).resolves.toMatchObject({
+        status: "configured",
+        workspaceMode: "custom",
+        workspacePath: "/tmp/profile-custom",
+        configurationVersion: 2,
+      });
     });
   });
 
@@ -136,6 +289,12 @@ describe("profile workspace service", () => {
         path,
         status: "missing",
       });
+      await expect(
+        readSavedProfileWorkspaceForAccount({
+          account: FALLBACK_ACCOUNT,
+          openMeldProfileId: "agt-workspace-envelope-only",
+        })
+      ).resolves.toEqual({ status: "missing" });
     });
   });
 
@@ -191,6 +350,15 @@ describe("profile workspace service", () => {
         reason: "invalid_schema",
         status: "invalid",
       });
+      await expect(
+        readSavedProfileWorkspaceForAccount({
+          account: FALLBACK_ACCOUNT,
+          openMeldProfileId: "agt-workspace-invalid-custom",
+        })
+      ).resolves.toEqual({
+        status: "invalid",
+        reasonCode: "profile.workspace.invalid_schema",
+      });
     });
   });
 
@@ -209,6 +377,22 @@ describe("profile workspace service", () => {
           updatedAt: "2026-04-13T00:00:00.000Z",
         },
       });
+
+      const original = await readFile(path, "utf8");
+      await expect(
+        readSavedProfileWorkspaceForAccount({
+          account: FALLBACK_ACCOUNT,
+          openMeldProfileId,
+        })
+      ).resolves.toMatchObject({
+        status: "configured",
+        workspaceMode: "openmeld_managed",
+        configurationVersion: 1,
+      });
+      expect(await readFile(path, "utf8")).toBe(original);
+      await expect(
+        access(accountProfileWorkspacePath(FALLBACK_ACCOUNT, openMeldProfileId))
+      ).rejects.toThrow();
 
       await expect(
         readProfileWorkspaceConfigForAccount({
@@ -340,9 +524,12 @@ describe("profile workspace service", () => {
     });
   });
 
-  it("accepts existing readable custom workspace directories", async () => {
+  it.each([
+    "valid-workspace",
+    "Design 中文 ",
+  ])("saves and reads the exact readable custom folder (%s)", async (name) => {
     await withTempHome(async (home) => {
-      const dirPath = join(home, "valid-workspace");
+      const dirPath = join(home, name);
       await mkdir(dirPath, { recursive: true });
 
       await expect(
@@ -350,6 +537,34 @@ describe("profile workspace service", () => {
       ).resolves.toEqual({
         status: "valid",
         value: dirPath,
+      });
+      const profileId = "agt-exact-custom-path";
+      await expect(
+        setCustomProfileWorkspace({
+          openMeldProfileId: profileId,
+          customWorkspacePath: dirPath,
+        })
+      ).resolves.toMatchObject({ workspacePath: dirPath });
+      await expect(
+        readSavedProfileWorkspaceForAccount({
+          account: FALLBACK_ACCOUNT,
+          openMeldProfileId: profileId,
+        })
+      ).resolves.toMatchObject({
+        status: "configured",
+        workspaceMode: "custom",
+        workspacePath: dirPath,
+      });
+      await expect(
+        resolveProfileWorkspaceRuntimeForAccount({
+          account: FALLBACK_ACCOUNT,
+          openMeldProfileId: profileId,
+          mode: "inspect",
+        })
+      ).resolves.toMatchObject({
+        status: "ready",
+        configuredWorkspacePath: dirPath,
+        effectiveRuntimeWorkingDirectory: dirPath,
       });
     });
   });
@@ -393,6 +608,53 @@ describe("profile workspace service", () => {
     });
   });
 
+  it("initializes setup once and preserves a later custom choice even when its folder is missing", async () => {
+    await withTempHome(async (home) => {
+      const openMeldProfileId = "agt-workspace-initialize";
+      expect(
+        await ensureOpenMeldManagedProfileWorkspace({
+          openMeldProfileId,
+          onlyIfUnconfigured: true,
+        })
+      ).toMatchObject({ changed: true, value: { mode: "openmeld_managed" } });
+      const customWorkspacePath = join(home, "chosen-repo");
+      await mkdir(customWorkspacePath);
+      const chosen = await setCustomProfileWorkspace({
+        customWorkspacePath,
+        openMeldProfileId,
+      });
+      await rm(customWorkspacePath, { recursive: true });
+      const before = await readLocalMetaFile(openMeldProfileId);
+      expect(
+        await ensureOpenMeldManagedProfileWorkspace({
+          openMeldProfileId,
+          onlyIfUnconfigured: true,
+        })
+      ).toEqual({ ...chosen, changed: false });
+      expect(await readLocalMetaFile(openMeldProfileId)).toEqual(before);
+    });
+  });
+
+  it("rejects setup initialization without replacing invalid saved folder settings", async () => {
+    await withTempHome(async () => {
+      const openMeldProfileId = "agt-workspace-initialize-invalid";
+      const payload = {
+        openMeldProfileId,
+        updatedAt: "2026-10-09T04:00:00.000Z",
+        v: 2,
+        workspace: { mode: "unknown" },
+      };
+      await writeLocalMetaFile({ openMeldProfileId, payload });
+      await expect(
+        ensureOpenMeldManagedProfileWorkspace({
+          openMeldProfileId,
+          onlyIfUnconfigured: true,
+        })
+      ).rejects.toThrow("The working folder settings are invalid");
+      expect(await readLocalMetaFile(openMeldProfileId)).toEqual(payload);
+    });
+  });
+
   it("preserves unrelated top-level envelope sections when workspace config changes", async () => {
     await withTempHome(async (home) => {
       const openMeldProfileId = "agt-workspace-envelope-preserve";
@@ -428,6 +690,10 @@ describe("profile workspace service", () => {
         workspace: {
           customWorkspacePath,
           mode: "custom",
+        },
+        workspaceOrigin: {
+          kind: "explicit",
+          configurationUpdatedAt: expect.any(String),
         },
       });
     });

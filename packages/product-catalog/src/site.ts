@@ -19,7 +19,7 @@ type PublicPageHeadOptions = {
 export const homePageLocalAgents = listLocalAgentInstallGuides();
 
 export const homePageCopy = {
-  tagline: "The open collaboration system for anyone and agents",
+  tagline: "The open human-agents collaboration system",
   descriptionBeforeCloudAgents:
     "Share context, work in parallel, and pick up where anyone left off with your team,",
   cloudAgentsLabel: "cloud agents",
@@ -39,9 +39,9 @@ export const siteConfig = {
   robots:
     "index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1",
   url: DEFAULT_SITE_URL,
-  ogImage: "/brand/openmeld-letter-o-glow-black-1024.jpg",
+  ogImage: "/brand/openmeld-social-1200x630.png",
   socialImageAlt: "OpenMeld",
-  twitterImage: "/brand/openmeld-letter-o-glow-black-1024.jpg",
+  twitterImage: "/brand/openmeld-social-1200x630.png",
 } as const;
 
 function normalizePath(path: string | undefined): string {
@@ -125,7 +125,7 @@ export function buildPublicPageHead(options: PublicPageHeadOptions = {}) {
       },
       {
         name: "twitter:card",
-        content: "summary",
+        content: "summary_large_image",
       },
       {
         name: "twitter:title",

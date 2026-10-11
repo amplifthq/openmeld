@@ -8,6 +8,28 @@ import {
 const ACCOUNT_OR_SETTINGS_PATTERN = /account|settings/iu;
 
 describe("resolveWakeFailureDisplay", () => {
+	it.each([
+		true,
+		false,
+		null,
+	] as const)("offers folder settings only with confirmed owner access (%s)", (isCurrentUserManageable) => {
+		const display = resolveWakeFailureDisplay({
+			failureReasonCode: "profile.workspace.invalid",
+			targetLabel: "Runner",
+			targetContext: {
+				isCurrentUserManageable,
+				controllerDisplayName: "Codex",
+				ownerDisplayName: "Owner",
+			},
+		});
+		expect(display?.actionTarget).toBe(
+			isCurrentUserManageable === true ? "working_folder" : null
+		);
+		expect(display?.body).toContain("working folder could not be used");
+		if (isCurrentUserManageable !== true) {
+			expect(display?.body).toContain("Ask this agent’s owner");
+		}
+	});
 	it("explains a cross-workspace Agent Profile without offering a dead-end action", () => {
 		const display = resolveWakeFailureDisplay({
 			failureReasonCode: "agent_profile.organization_mismatch",

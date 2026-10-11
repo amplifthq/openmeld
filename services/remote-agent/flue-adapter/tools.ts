@@ -10,6 +10,7 @@ import type {
   RemoteAgentCoreWorkerBinding,
   RemoteAgentStorage,
 } from "../agent-core/callback-context";
+import type { RemoteAgentDiagnosticsEnv } from "../agent-core/diagnostics-content-policy";
 import type { RemoteAgentExternalToolEnv } from "../agent-core/external-tools";
 import type { RemoteAgentImagePreparer } from "../agent-core/image-understanding";
 import {
@@ -32,6 +33,10 @@ import {
   type RemoteAgentCodeModeRuntime,
 } from "./code-mode";
 import {
+  type RemoteAgentMessageReadBudget,
+  reserveRemoteAgentMessageReadBytes,
+} from "./execution-context";
+import {
   createOrganizationSkillCatalogTool,
   createOrganizationSkillResourceTool,
 } from "./organization-skills";
@@ -44,6 +49,7 @@ import { executeRemoteAgentToolDefinition } from "./tool-execution";
 import { isRemoteAgentNativeCapability } from "./tool-presentation";
 
 export async function getRemoteAgentFlueTools(input: {
+  messageReadBudget?: RemoteAgentMessageReadBudget;
   callLimit?: number;
   replyRecovery?: boolean;
   personalAgent?: boolean;
@@ -77,6 +83,10 @@ export async function getRemoteAgentFlueTools(input: {
   const summaryOnly =
     input.turnEnvelope?.trigger.source === "task_continuation" &&
     input.turnEnvelope.trigger.summaryOnly;
+  // Code Mode callbacks cross an RPC boundary and do not inherit AsyncLocalStorage.
+  const messageReadBudget = input.messageReadBudget ?? { remainingBytes: 8192 };
+  const reserveMessageReadBytes = (requested: number) =>
+    reserveRemoteAgentMessageReadBytes(requested, messageReadBudget);
   const availableDefinitions = [
     createHostedPublicProgressTool(input),
     ...(unverifiedMember
@@ -98,11 +108,17 @@ export async function getRemoteAgentFlueTools(input: {
     ...(input.personalAgent
       ? [
           ...getPersonalRemoteAgentTools(input),
-          ...getRemoteAgentOpenMeldToolDefinitions(input).filter((definition) =>
+          ...getRemoteAgentOpenMeldToolDefinitions({
+            ...input,
+            reserveMessageReadBytes,
+          }).filter((definition) =>
             isPersonalRemoteAgentProductTool(definition.name)
           ),
         ]
-      : getRemoteAgentOpenMeldToolDefinitions(input)),
+      : getRemoteAgentOpenMeldToolDefinitions({
+          ...input,
+          reserveMessageReadBytes,
+        })),
     ...(unverifiedMember ? [] : (input.sandboxDefinitions ?? [])),
   ].filter(
     (definition) => !summaryOnly || SUMMARY_ONLY_TOOL_NAMES.has(definition.name)
@@ -156,6 +172,7 @@ export async function getRemoteAgentFlueTools(input: {
     ...capabilityDiscoveryDefinitions,
   ].map((definition) =>
     toFlueTool({
+      env: input.env,
       callLimit,
       coreWorker: input.coreWorker,
       definition,
@@ -193,6 +210,7 @@ const SUMMARY_ONLY_TOOL_NAMES = new Set([
 ]);
 
 function toFlueTool(input: {
+  env?: RemoteAgentDiagnosticsEnv;
   callLimit?: number;
   coreWorker: RemoteAgentCoreWorkerBinding;
   definition: RemoteAgentToolDefinition;
@@ -212,6 +230,7 @@ function toFlueTool(input: {
           submissionId: input.submissionId,
           toolName: definition.name,
           value: await executeRemoteAgentToolDefinition({
+            env: input.env,
             callLimit: input.callLimit,
             definition,
             signal,

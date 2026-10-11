@@ -15,6 +15,7 @@ import type {
   SpaceOrganizationVisibility,
 } from "@openmeld/schemas/types";
 import { OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE } from "@openmeld/space";
+import { readConversationDeletionDates } from "../space/application/conversation-history";
 import { normalizeSpaceMemberNameSnapshot } from "../space/rules/member-name";
 
 const LEGACY_WELCOMING_SPACE_PURPOSE = "openmeld_welcoming_space";
@@ -74,6 +75,7 @@ export type SpaceIndexProjectionEvent = {
   payload: unknown;
 };
 export type SpaceIndexOrganizationJoinTarget = {
+  deletedAt?: string;
   creatorProfileId: string | null;
   creatorProfileName: string | null;
   organizationId: string;
@@ -82,6 +84,7 @@ export type SpaceIndexOrganizationJoinTarget = {
   visibility: SpaceOrganizationVisibility;
 };
 export type ListAccountSpacesFromSpaceIndexInput = {
+  includeDeletedSpaces?: boolean;
   db: PostgresDatabase;
   gatewayHost: string;
   ownerUserId: string;
@@ -113,6 +116,7 @@ export type SpaceIndexProjectionDriftDiagnostic = {
   spaceId: string;
 };
 type SpaceIndexJoinedRow = {
+  deleted_at_ms: number | null;
   center_agent_profile_id: string | null;
   message_preview_revision: number | null;
   message_preview_json: string | null;
@@ -220,6 +224,7 @@ type SpaceIndexCenterAgentDirectMessageProjectionCandidateRow = {
   space_purpose: string | null;
 };
 type SpaceIndexOrganizationJoinTargetRow = {
+  deleted_at_ms: number | null;
   creator_profile_id: string | null;
   creator_profile_name: string | null;
   organization_id: string;
@@ -578,7 +583,9 @@ export async function listMembershipSpaceIdsForProfilesFromSpaceIndex(input: {
   });
   return (rows.rows ?? []).map((row) => row.space_id);
 }
-const ACCOUNT_SCOPED_CANDIDATE_SPACES_CTE = `
+const accountScopedCandidateSpacesCte = (
+  includeDeletedSpaces = false
+): string => `
   candidate_spaces AS (
     SELECT
       s.space_id,
@@ -590,7 +597,7 @@ const ACCOUNT_SCOPED_CANDIDATE_SPACES_CTE = `
     INNER JOIN "openmeld"."space_index_spaces" s ON s.space_id = m.space_id
     WHERE m.owner_user_id_snapshot = $2
       AND m.status = 'active'
-      AND s.status = 'active'
+      AND ${includeDeletedSpaces ? "s.status IN ('active', 'deleted')" : "s.status = 'active'"}
     GROUP BY s.space_id
     ORDER BY
       latest_pinned_at_ms DESC NULLS LAST,
@@ -614,7 +621,7 @@ export async function listAccountSpaceIdsFromSpaceIndex(input: {
   }>({
     text: `
         WITH host_scope AS (SELECT $1 AS gateway_host),
-        ${ACCOUNT_SCOPED_CANDIDATE_SPACES_CTE}
+        ${accountScopedCandidateSpacesCte()}
         SELECT space_id
         FROM candidate_spaces
         ORDER BY
@@ -718,8 +725,29 @@ export async function listAccountSpacesFromSpaceIndex(
       ? listRecentlyDeletedSpacesForAccount(input)
       : Promise.resolve(undefined),
   ]);
+  const deletionDates = await readConversationDeletionDates(
+    input.db,
+    input.ownerUserId,
+    [
+      ...new Set(
+        rows
+          .filter((row) => row.direct_message_pair_key !== null)
+          .map((row) => row.space_id)
+      ),
+    ]
+  );
   const sections = partitionAccountSpaceIndexItems(
-    buildAccountSpaceItems(input, rows)
+    buildAccountSpaceItems(
+      input,
+      rows.filter((row) => {
+        const deletedAt = deletionDates.get(row.space_id);
+        return (
+          deletedAt === undefined ||
+          (row.message_preview_json !== null &&
+            Number(JSON.parse(row.message_preview_json).timestamp) > deletedAt)
+        );
+      })
+    )
   );
   if (
     input.includeMemberPreviews === true ||
@@ -732,6 +760,14 @@ export async function listAccountSpacesFromSpaceIndex(
     );
   }
   // Opt-in only: omit recentlyDeletedItems for callers that did not request it, so a
+  for (const item of [...sections.pinnedItems, ...sections.spaceItems]) {
+    const deletedAt = deletionDates.get(item.spaceId);
+    if (deletedAt !== undefined && item.recentMessagePreviews) {
+      item.recentMessagePreviews = item.recentMessagePreviews.filter(
+        (preview) => preview.timestamp > deletedAt
+      );
+    }
+  }
   // strict legacy client (CLI) receives the legacy {pinnedItems, spaceItems} shape
   // its own strictObject parse accepts. See the schema note. The query is skipped
   // entirely when not requested.
@@ -744,7 +780,10 @@ export async function listAccountSpacesFromSpaceIndex(
 // members per Space, in stable membership order; never fan out to Space DOs.
 async function attachSpaceMemberPreviews(
   db: PostgresDatabase,
-  items: AccountSpaceIndexResponse["spaceItems"],
+  items: Pick<
+    AccountSpaceIndexResponse["spaceItems"][number],
+    "spaceId" | "memberPreviews" | "recentMessagePreviews"
+  >[],
   directoryPreviews: boolean
 ): Promise<void> {
   for (let offset = 0; offset < items.length; offset += 90) {
@@ -811,6 +850,7 @@ async function attachSpaceMemberPreviews(
 export async function listOrganizationSpacesFromSpaceIndex(input: {
   db: PostgresDatabase;
   generatedAt: string;
+  includeMemberPreviews?: boolean;
   limit: number;
   organizationId: string;
   ownerUserId: string | null;
@@ -875,7 +915,7 @@ export async function listOrganizationSpacesFromSpaceIndex(input: {
       ],
     }
   );
-  return {
+  const response: OrganizationSpaceDirectoryWithMemberCountsResponse = {
     organizationId: input.organizationId,
     generatedAt: input.generatedAt,
     spaces: (results ?? [])
@@ -893,6 +933,10 @@ export async function listOrganizationSpacesFromSpaceIndex(input: {
         updatedAt: timestampMsToIso(row.source_updated_at_ms),
       })),
   };
+  if (input.includeMemberPreviews) {
+    await attachSpaceMemberPreviews(input.db, response.spaces, false);
+  }
+  return response;
 }
 export async function readSpaceIndexNamesByIds(input: {
   db: PostgresDatabase;
@@ -1292,6 +1336,7 @@ export async function listCenterAgentSessionIndexRows(input: {
 export async function readSpaceIndexOrganizationJoinTarget(input: {
   db: PostgresDatabase;
   spaceId: string;
+  includeDeletedSpaces?: boolean;
 }): Promise<SpaceIndexOrganizationJoinTarget | null> {
   const row = await input.db
     .query<SpaceIndexOrganizationJoinTargetRow>({
@@ -1302,10 +1347,11 @@ export async function readSpaceIndexOrganizationJoinTarget(input: {
           space_id,
           organization_id,
           organization_visibility,
-          space_name
+          space_name,
+          deleted_at_ms
         FROM "openmeld"."space_index_spaces"
         WHERE space_id = $1
-          AND status = 'active'
+          AND ${input.includeDeletedSpaces ? "status IN ('active', 'deleted')" : "status = 'active'"}
         LIMIT 1
       `,
       values: [input.spaceId],
@@ -1315,6 +1361,9 @@ export async function readSpaceIndexOrganizationJoinTarget(input: {
     return null;
   }
   return {
+    ...(row.deleted_at_ms == null
+      ? {}
+      : { deletedAt: timestampMsToIso(row.deleted_at_ms) }),
     creatorProfileId: row.creator_profile_id,
     creatorProfileName: row.creator_profile_name,
     organizationId: row.organization_id,
@@ -1690,9 +1739,10 @@ async function listAccountScopedRows(
   const { rows: results } = await input.db.query<SpaceIndexJoinedRow>({
     text: `
         WITH host_scope AS (SELECT $1 AS gateway_host),
-        ${ACCOUNT_SCOPED_CANDIDATE_SPACES_CTE}
+        ${accountScopedCandidateSpacesCte(input.includeDeletedSpaces)}
         SELECT
           cad.agent_profile_id AS center_agent_profile_id,
+          s.deleted_at_ms,
           s.message_preview_revision,
           s.message_preview_json,
           s.space_id,
@@ -1731,7 +1781,7 @@ async function listAccountScopedRows(
         INNER JOIN "openmeld"."space_index_memberships" m ON m.space_id = c.space_id
         WHERE m.owner_user_id_snapshot = $4
           AND m.status = 'active'
-          AND s.status = 'active'
+          AND ${input.includeDeletedSpaces ? "s.status IN ('active', 'deleted')" : "s.status = 'active'"}
         ORDER BY
           c.latest_pinned_at_ms DESC NULLS LAST,
           c.latest_joined_at_ms DESC NULLS LAST,
@@ -1767,7 +1817,7 @@ async function listProfileScopedRows(
           INNER JOIN "openmeld"."space_index_spaces" s ON s.space_id = m.space_id
           WHERE m.profile_id = $2
             AND m.status = 'active'
-            AND s.status = 'active'
+            AND ${input.includeDeletedSpaces ? "s.status IN ('active', 'deleted')" : "s.status = 'active'"}
           GROUP BY s.space_id
           ORDER BY
             latest_pinned_at_ms DESC NULLS LAST,
@@ -1778,6 +1828,7 @@ async function listProfileScopedRows(
         )
         SELECT
           cad.agent_profile_id AS center_agent_profile_id,
+          s.deleted_at_ms,
           s.message_preview_revision,
           s.message_preview_json,
           s.space_id,
@@ -1816,7 +1867,7 @@ async function listProfileScopedRows(
         INNER JOIN "openmeld"."space_index_memberships" m ON m.space_id = c.space_id
         WHERE m.profile_id = $4
           AND m.status = 'active'
-          AND s.status = 'active'
+          AND ${input.includeDeletedSpaces ? "s.status IN ('active', 'deleted')" : "s.status = 'active'"}
         ORDER BY
           c.latest_pinned_at_ms DESC NULLS LAST,
           c.latest_joined_at_ms DESC NULLS LAST,
@@ -1910,6 +1961,9 @@ function createAccountSpaceItemDraft(input: {
 }): AccountSpaceIndexItemDraft {
   return {
     creatorKind: input.row.creator_kind ?? null,
+    ...(input.row.deleted_at_ms == null
+      ? {}
+      : { deletedAt: timestampMsToIso(input.row.deleted_at_ms) }),
     creatorOwnerUserId: input.row.creator_owner_user_id ?? null,
     creatorProfileId: input.row.creator_profile_id ?? null,
     creatorProfileName: input.row.creator_profile_name ?? null,

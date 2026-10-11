@@ -1,4 +1,6 @@
 import * as z from "zod/v4";
+import { openMeldRequestContextSchema } from "../daemon/profile-identity";
+import { accountSpaceIndexItemSchema } from "./account-space-index";
 import { spaceOrganizationVisibilitySchema } from "./space-meta";
 
 const ISO_DATE_TIME_SCHEMA = z.iso.datetime({ offset: true });
@@ -26,6 +28,21 @@ export const organizationSpaceDirectoryResponseSchema = z.strictObject({
 export const organizationSpaceDirectoryWithMemberCountsItemSchema =
   organizationSpaceDirectoryItemSchema.extend({
     activeMemberCount: z.number().int().nonnegative().nullable(),
+    memberPreviews: accountSpaceIndexItemSchema.shape.memberPreviews,
+  });
+
+export const organizationSpaceDirectoryQuerySchema = z.strictObject({
+  includeMemberPreviews: z
+    .union([
+      z.boolean(),
+      z.enum(["true", "false"]).transform((value) => value === "true"),
+    ])
+    .optional(),
+});
+export const getCurrentOrganizationSpaceDirectoryRpcInputSchema =
+  z.strictObject({
+    context: openMeldRequestContextSchema.optional(),
+    includeMemberPreviews: z.boolean().optional(),
   });
 
 export const organizationSpaceDirectoryWithMemberCountsResponseSchema =

@@ -1,4 +1,5 @@
 import type {
+  AgentProfileBindingTarget,
   OpenMeldRequestContext,
   UpdateAgentProfileDefaultProjectResponse,
   UpdateProfileResponse,
@@ -18,6 +19,7 @@ export type UpdateAgentAvatarInput = {
 };
 
 export type UpdateAgentProfileDefaultProjectInput = {
+  expectedBindingTarget?: AgentProfileBindingTarget;
   defaultProjectId: string | null;
   expectedOrganizationId: string;
   profileId: string;

@@ -73,6 +73,8 @@ export const openMeldDaemonDispatchControllerSnapshotSchema = z.strictObject({
 });
 
 export const openMeldDaemonAcceptedDispatchSnapshotSchema = z.strictObject({
+  // Frozen material contract for admission and route-reconnect capability checks.
+  workHandoffVersion: z.literal(2).optional(),
   contextRequest: executionContextRequestSchema.optional(),
   executionContext: executionContextAssignmentSchema.optional(),
   deviceWait: wakeDeviceWaitSchema.optional(),

@@ -26,6 +26,7 @@ export const SPACE_FINAL_OUTCOME_STOPPED_ERROR_CODE =
   "space.final_outcome_stopped" as const;
 export class SpaceSignalAuthoringError extends Error {
   readonly code:
+    | "space.deleted"
     | "space_task.invalid_author"
     | "space_task.invalid_draft"
     | "space.execution_input.invalid"
@@ -40,6 +41,7 @@ export class SpaceSignalAuthoringError extends Error {
 
   constructor(input: {
     code:
+      | "space.deleted"
       | "space_task.invalid_author"
       | "space_task.invalid_draft"
       | "space.execution_input.invalid"

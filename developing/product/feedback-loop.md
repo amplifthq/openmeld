@@ -110,6 +110,21 @@ attachments, arbitrary records, contact data, or client blobs. Center Agent
 reports use the same public submission endpoint and the same server-side rate
 limits as other submitters. They do not receive a privileged ingestion path.
 
+Before an OpenMeld-controlled automatic submission leaves Remote Agent, the
+server applies its diagnostics content policy using the Worker environment
+and verified turn Organization, separately from public request fields. For
+external production Organizations (and unknown environments), the outbound
+summary is fixed by category and details contain only a content-omission notice
+and the existing submission ID. Model-authored summary/details cannot leave
+through this automatic path. Known local/dev/stg environments and the exact
+configured internal production Organization retain symptom reporting.
+
+Public ingestion still accepts material voluntarily submitted by a person.
+Its caller-supplied source Organization ID never grants the internal exception.
+No conversation history, file, authentication header, or secret environment
+value is automatically attached. The opt-out and policy-read failure behavior
+above still apply before submission.
+
 ## Data Ownership
 
 - `openMeldFeedback_inboxes` stores organization-owned Feedback Inbox identity,

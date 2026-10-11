@@ -22,3 +22,14 @@ export function formatAgentRecoveryActionLabel(
 ): string {
   return agentRecoveryActionLabels[actionId];
 }
+
+export function isAgentRecoveryConnectionAction(
+  actionId: AgentRecoveryActionId
+): boolean {
+  return (
+    actionId === "connect_openmeld_service" ||
+    actionId === "reconnect_openmeld_service" ||
+    actionId === "connect_local_agent" ||
+    actionId === "reconnect_local_agent"
+  );
+}
