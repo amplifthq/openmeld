@@ -1480,6 +1480,21 @@ the latest messages from that Space through the authorized API and explains the
 fallback in plain language. It never searches another Space for the message.
 Access and transport failures do not become successful fallback navigation, and
 server diagnostic text is not rendered as the navigation error.
+Selected history windows use the existing Query retry, reconnect, and focus
+mechanisms. A successful live-tail reconciliation also refetches idle, failed
+active windows for the same Space and acting Profile, so proxy recovery does not
+depend on a browser online event. Missing pagination anchors and permanent
+access/client errors are excluded from automatic recovery; the existing bounded
+retry policy still controls transient failures. New navigation cancels the old
+request. Route focus, history-rail, pinned-message, and unread-message jumps all
+complete their original navigation when the selected window recovers. One top
+banner owns the history error and its right-aligned **Retry** action. A missing
+pagination anchor or permanent access failure does not offer Retry; the message
+directs the reader to latest messages or Inbox. Newer-history loading does not
+repeat the banner's recovery control. Returning to latest cancels any retained
+history-rail scroll target. Public pinned-Thread jumps also finish after recovery.
+A missing message's fallback notice survives the automatic return to latest and clears
+when another history target is selected.
 Inside a Thread, the root message's details offer **Show message in Messages**.
 This in-page action closes the details drawer and focuses the root in the main
 conversation while retaining the open Thread. It reuses the same bounded

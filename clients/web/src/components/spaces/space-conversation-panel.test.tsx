@@ -35,6 +35,7 @@ import {
 } from "./space-composer-copy";
 import { SpaceConversationPanel } from "./space-conversation-panel";
 import type { SpaceExecutionRecoveryHandler } from "./space-execution-recovery-actions";
+import { SpaceHistoryRail } from "./space-history-rail";
 import type { SpaceView } from "./space-view";
 import { SpaceViewTabs } from "./space-view-tabs";
 
@@ -216,6 +217,7 @@ describe("SpaceConversationPanel", () => {
 				newerHref: undefined,
 				pending: false,
 				pendingDirection: undefined,
+				retry: vi.fn(),
 				retryDirectory: vi.fn(),
 				revealCachedBefore: vi.fn(),
 				visibleLiveEnvelopes: [],
@@ -228,6 +230,89 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			screen.queryByRole("toolbar", { name: "Browse Space history" }) !== null
 		).toBe(visible);
+	});
+
+	it.each([
+		true,
+		false,
+	])("shows one history recovery action when retryable is %s", (retryable) => {
+		const error = retryable
+			? "Couldn’t load this part of the conversation."
+			: "This message is no longer available. Open the latest messages to continue.";
+		const historyNavigation = createTestHistoryNavigation({
+			error,
+			errorDirection: "after",
+			retry: retryable ? vi.fn() : undefined,
+			activeWindow: {
+				identity: "test",
+				envelopes: [createThreadPreviewSignal()],
+				hasBefore: true,
+				hasAfter: true,
+				confirmedAtLiveTail: false,
+			},
+		});
+		renderSpaceConversationPanel({
+			historyActionErrorMessage: error,
+			historyNavigation,
+		});
+		expect(screen.getAllByRole("alert")).toHaveLength(1);
+		expect(screen.queryAllByRole("button", { name: "Retry" })).toHaveLength(
+			retryable ? 1 : 0
+		);
+		expect(screen.queryByText("Retry loading newer messages")).toBeNull();
+	});
+
+	it("does not resume a failed history-rail jump after returning to latest", async () => {
+		const history = createTestHistoryNavigation({
+			directory: {
+				total: 200,
+				entries: [
+					{
+						signalId: "old-target",
+						endSignalId: "old-target",
+						startAt: 0,
+						endAt: 1,
+						count: 1,
+						author: "Mira",
+						preview: "Old target",
+					},
+				],
+			},
+		});
+		const onJump = vi.fn();
+		const props: ComponentProps<typeof SpaceHistoryRail> = {
+			controller: history,
+			visible: true,
+			items: [],
+			scrollElement: null,
+			onJumpToMessage: onJump,
+			onFollowLatest: vi.fn(),
+			onNavigateStart: vi.fn(),
+			renderNavigation: (actions) => (
+				<button
+					onClick={() => actions.reserveLatest().navigate()}
+					type="button"
+				>
+					Latest
+				</button>
+			),
+		};
+		const view = render(<SpaceHistoryRail {...props} />);
+		const tick = document.querySelector(".space-history-tick");
+		if (!tick) {
+			throw new Error("Expected history target");
+		}
+		fireEvent.click(tick);
+		await waitFor(() => expect(history.open).toHaveBeenCalled());
+		fireEvent.click(screen.getByText("Latest"));
+		view.rerender(
+			<SpaceHistoryRail
+				{...props}
+				items={[createTimelineItem({ id: "old-target", text: "Old target" })]}
+			/>
+		);
+		expect(history.latest).toHaveBeenCalledOnce();
+		expect(onJump).not.toHaveBeenCalled();
 	});
 
 	it("keeps the conversation interactive when a saved anchor is not cached", () => {
@@ -258,6 +343,7 @@ describe("SpaceConversationPanel", () => {
 			newerHref: undefined,
 			pending: false,
 			pendingDirection: undefined,
+			retry: vi.fn(),
 			retryDirectory: vi.fn(),
 			revealCachedBefore: vi.fn(),
 			visibleLiveEnvelopes: [],
@@ -1162,6 +1248,87 @@ describe("SpaceConversationPanel", () => {
 		rectSpy.mockRestore();
 	});
 
+	it("finishes an unread jump when its failed history load later recovers", async () => {
+		let recovered: ((result: true | "latest") => void) | undefined;
+		const historyNavigation: NonNullable<
+			SpaceConversationPanelInput["historyNavigation"]
+		> = {
+			activeWindow: null,
+			directory: undefined,
+			directoryError: false,
+			directoryPending: false,
+			error: null,
+			notice: null,
+			errorDirection: undefined,
+			hasHiddenLiveHistory: false,
+			latest: vi.fn(),
+			loadAfter: vi.fn(async () => false),
+			loadBefore: vi.fn(async () => false),
+			open: vi.fn((_id, _signal, onLoaded) => {
+				recovered = onLoaded;
+				return Promise.resolve(false);
+			}),
+			hrefForSignalId: undefined,
+			earlierHref: undefined,
+			latestHref: undefined,
+			newerHref: undefined,
+			pending: false,
+			pendingDirection: undefined,
+			retry: vi.fn(),
+			retryDirectory: vi.fn(),
+			revealCachedBefore: vi.fn(),
+			visibleLiveEnvelopes: [],
+		};
+		const overrides: SpaceConversationPanelOverrides = {
+			historyNavigation,
+			timelineItems: [
+				createTimelineItem({ id: "readable", text: "Readable message" }),
+			],
+			unreadTargets: [
+				{
+					occurredAtMs: 1,
+					signalId: "unread-target",
+					threadRootSignalId: null,
+				},
+			],
+			unreadCount: 1,
+			unreadStateReady: true,
+		};
+		const view = renderSpaceConversationPanel(overrides);
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: "1 unread update. Jump to first unread",
+			})
+		);
+		await waitFor(() => expect(recovered).toBeTypeOf("function"));
+		expect(
+			screen.queryByText(
+				"Couldn’t find this unread message. Refresh this Space and try again."
+			)
+		).toBeNull();
+		await act(() => {
+			recovered?.(true);
+			view.rerender(
+				<SpaceConversationPanel
+					{...createSpaceConversationPanelProps({
+						...overrides,
+						timelineItems: [
+							createTimelineItem({
+								id: "unread-target",
+								text: "Recovered unread message",
+							}),
+						],
+					})}
+				/>
+			);
+		});
+		await waitFor(() =>
+			expect(document.activeElement).toBe(
+				screen.getByText("Recovered unread message").closest("[data-signal-id]")
+			)
+		);
+	});
+
 	it.each([
 		0.5, 0.8, 1,
 	])("keeps a lower unread target inside the conversation viewport at %s scale", async (scale) => {
@@ -1847,9 +2014,16 @@ describe("SpaceConversationPanel", () => {
 	it("moves an unavailable linked message to the latest viewport without a failure notice", async () => {
 		let finish!: (value: "latest") => void;
 		const open = vi.fn(
-			() =>
+			(
+				_signalId: string,
+				_signal?: AbortSignal,
+				onLoaded?: (result: true | "latest") => void
+			) =>
 				new Promise<"latest">((resolve) => {
-					finish = resolve;
+					finish = (value) => {
+						onLoaded?.(value);
+						resolve(value);
+					};
 				})
 		);
 		const historyNavigation: NonNullable<
@@ -1873,6 +2047,7 @@ describe("SpaceConversationPanel", () => {
 			newerHref: undefined,
 			pending: false,
 			pendingDirection: undefined,
+			retry: vi.fn(),
 			retryDirectory: vi.fn(),
 			revealCachedBefore: vi.fn(),
 			visibleLiveEnvelopes: [],
@@ -3406,6 +3581,7 @@ describe("SpaceConversationPanel", () => {
 			newerHref: "/spaces/space-123?signalId=sig-old",
 			pending: false,
 			pendingDirection: undefined,
+			retry: vi.fn(),
 			retryDirectory: vi.fn(),
 			revealCachedBefore: vi.fn(),
 			visibleLiveEnvelopes: [signal],
@@ -4066,6 +4242,7 @@ describe("SpaceConversationPanel", () => {
 					newerHref: undefined,
 					pending: true,
 					pendingDirection: "before",
+					retry: vi.fn(),
 					retryDirectory: vi.fn(),
 					revealCachedBefore: vi.fn(),
 					visibleLiveEnvelopes: [],
@@ -5747,6 +5924,38 @@ function createSpaceConversationPanelProps(
 			unreadStateReady,
 			...viewState,
 		},
+	};
+}
+
+function createTestHistoryNavigation(
+	overrides: Partial<
+		NonNullable<SpaceConversationPanelInput["historyNavigation"]>
+	> = {}
+): NonNullable<SpaceConversationPanelInput["historyNavigation"]> {
+	return {
+		activeWindow: null,
+		directory: undefined,
+		directoryError: false,
+		directoryPending: false,
+		error: null,
+		notice: null,
+		errorDirection: undefined,
+		hasHiddenLiveHistory: false,
+		latest: vi.fn(),
+		loadAfter: vi.fn(async () => false),
+		loadBefore: vi.fn(async () => false),
+		open: vi.fn(async () => false),
+		hrefForSignalId: undefined,
+		earlierHref: undefined,
+		latestHref: undefined,
+		newerHref: undefined,
+		pending: false,
+		pendingDirection: undefined,
+		retry: vi.fn(),
+		retryDirectory: vi.fn(),
+		revealCachedBefore: vi.fn(),
+		visibleLiveEnvelopes: [],
+		...overrides,
 	};
 }
 
