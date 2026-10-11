@@ -6031,6 +6031,15 @@ popover. The originating message or thread remains context, not the location
 the owner must rediscover to respond. Other members continue to see only the
 safe inline waiting indication.
 
+Recipient-owned Plugin action approvals use the same Composer tray and its
+selection, disclosure, focus, and Thread routing. Their stable identity is the
+Plugin request ID, not a fabricated Wake interaction. The pending Space query
+does not depend on loaded messages; scrolling away from the source cannot
+remove an unresolved request. The original message and Inbox retain the same
+request-backed card for context and decision history. Approving or declining
+invalidates the pending projection. Main messages that have a reply Thread stay
+in the main tray; only actual Thread replies belong to that Thread's tray.
+
 Permission cards show the native choices; question cards collect every answer
 in bounded steps; plan cards show the bounded plan and support approval or
 change feedback. Web posts the shared response to the Space interaction
