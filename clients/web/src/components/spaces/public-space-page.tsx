@@ -427,15 +427,25 @@ function PublicSpaceResolvedPage(input: {
 				(item) => item.rootSignalId === target.rootSignalId
 			);
 		}
-		if (!(thread && (await historyNavigation.open(target.rootSignalId)))) {
+		if (!thread) {
 			return false;
 		}
-		setSelectedThreadId(thread.threadId);
-		setPinFocus({
-			signalId: target.signalId ?? target.rootSignalId,
-			threadRootSignalId: target.rootSignalId,
-		});
-		return true;
+		const threadId = thread.threadId;
+		const loaded = await historyNavigation.open(
+			target.rootSignalId,
+			undefined,
+			(result) => {
+				if (result !== true) {
+					return;
+				}
+				setSelectedThreadId(threadId);
+				setPinFocus({
+					signalId: target.signalId ?? target.rootSignalId,
+					threadRootSignalId: target.rootSignalId,
+				});
+			}
+		);
+		return loaded === true;
 	};
 
 	if (protectedFailure) {
@@ -871,6 +881,7 @@ function PublicSpacePanels({ input }: { input: PublicSpaceOpenViewProps }) {
 				historyErrorMessage={null}
 				historyNavigation={input.historyNavigation}
 				initialFocusSignalId={input.initialFocusSignalId}
+				initialFocusThreadRootSignalId={input.initialFocusThreadRootSignalId}
 				isAgentRecoveryPending={() => false}
 				isDiagnosticReportPending={() => false}
 				isDiagnosticReportSent={() => false}

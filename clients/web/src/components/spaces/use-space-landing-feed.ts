@@ -50,6 +50,7 @@ import {
 	fetchSpaceUpdatesAfterSubscription,
 	spaceUpdatesQueryOptions,
 } from "#/query/spaces/history-sync";
+import { shouldRetrySpaceHistoryQuery } from "#/query/spaces/retry";
 import { spaceFileQueryKeys } from "#/query/spaces/space-files";
 import { spaceTaskQueryKeys } from "#/query/spaces/space-tasks";
 import { spaceQueryKeys } from "#/query/spaces/status";
@@ -404,6 +405,22 @@ export function useSpaceLandingFeed(input: {
 				if (!isCurrentReconcile()) {
 					return;
 				}
+				// Proxy recovery may not emit a browser online event. Reuse this
+				// confirmed Space read to resume failed, currently selected windows.
+				queryClient.refetchQueries(
+					{
+						queryKey: spaceQueryKeys.historyWindow(
+							input.spaceId,
+							input.openMeldProfileId
+						),
+						type: "active",
+						predicate: (query) =>
+							query.state.status === "error" &&
+							query.state.fetchStatus === "idle" &&
+							shouldRetrySpaceHistoryQuery(0, query.state.error),
+					},
+					{ cancelRefetch: false }
+				);
 				if (
 					subscribedAtStart !== null &&
 					subscribedAtStart === readySocketAttemptKeyRef.current &&
