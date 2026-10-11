@@ -260,28 +260,6 @@ export function renderBrandAssets({ letter, word }) {
         save(`openmeld-letter-o-mono-${ink}-${size}.png`, mark.canvas);
       }
     }
-    for (const size of [16, 32, 64, 128]) {
-      const tile = makeCanvas(size, size);
-      const context = tile.getContext("2d");
-      context.fillStyle = "#080808";
-      context.beginPath();
-      context.roundRect(
-        size / 16,
-        size / 16,
-        (size * 7) / 8,
-        (size * 7) / 8,
-        size * 0.195
-      );
-      context.fill();
-      const mark = render({
-        lines: letter,
-        width: size,
-        height: size,
-        content: size <= 32 ? 0.65 : (0.58 * 7) / 8,
-      });
-      context.drawImage(mark.canvas, 0, 0);
-      save(`openmeld-desktop-${size}.png`, tile);
-    }
   };
   const generateFavicons = () => {
     for (const size of [16, 32, 48]) {

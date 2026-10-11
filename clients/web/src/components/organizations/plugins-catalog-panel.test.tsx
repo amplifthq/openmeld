@@ -1,4 +1,5 @@
 import { PLUGINS } from "@openmeld/product-catalog/plugins";
+import { connectorAppCatalogProviderSchema } from "@openmeld/schemas";
 import {
 	cleanup,
 	fireEvent,
@@ -13,6 +14,8 @@ import {
 	createTestQueryClient,
 	TestQueryClientProvider,
 } from "#/test-support/query-client";
+import capturedExpansionProviders from "../../../../../packages/product-catalog/test-support/openconnector-expansion-providers.json";
+import capturedProviders from "../../../../../packages/product-catalog/test-support/openconnector-providers.json";
 import { PluginsCatalogPanel } from "./plugins-catalog-panel";
 
 const GITHUB_LINK_NAME = /GitHub/;
@@ -68,7 +71,7 @@ describe("PluginsCatalogPanel", () => {
 
 	afterEach(cleanup);
 
-	it("links every Plugin to its own detail route", () => {
+	it("links selected Plugins to their detail routes without exposing the upstream directory", () => {
 		renderCatalog();
 
 		expect(screen.getAllByRole("link")).toHaveLength(PLUGINS.length);
@@ -85,6 +88,7 @@ describe("PluginsCatalogPanel", () => {
 			screen.getByRole("link", { name: TEAMS_LINK_NAME }).getAttribute("href")
 		).toBe("/o/acme/plugins/microsoft_teams?scope=personal");
 		expect(screen.queryByText("Details")).toBeNull();
+		expect(screen.queryByText("17TRACK")).toBeNull();
 	});
 
 	it("keeps personal mail, calendars, and meetings out of the organization catalog and retains a cleanup link for older shared connections", async () => {
@@ -284,6 +288,40 @@ describe("PluginsCatalogPanel", () => {
 });
 
 function renderCatalog(queryClient = createTestQueryClient()) {
+	// Captured vendor contract; these layout cases model configured OAuth clients.
+	if (
+		!queryClient.getQueryData(
+			organizationPluginConnectionQueryKeys.providers("org-acme")
+		)
+	) {
+		queryClient.setQueryData(
+			organizationPluginConnectionQueryKeys.providers("org-acme"),
+			{
+				providers: [
+					...capturedProviders.data,
+					...capturedExpansionProviders.data,
+					{
+						...capturedExpansionProviders.data[0],
+						service: "17track",
+						displayName: "17TRACK",
+						iconUrl: null,
+					},
+				].map((item) => {
+					const provider = connectorAppCatalogProviderSchema
+						.strip()
+						.parse(item);
+					return {
+						...provider,
+						connectionAuth: {
+							...provider.connectionAuth,
+							oauth: true,
+							credentials: provider.connectionAuth?.credentials ?? [],
+						},
+					};
+				}),
+			}
+		);
+	}
 	return render(
 		<TestQueryClientProvider queryClient={queryClient}>
 			<PluginsCatalogPanel
