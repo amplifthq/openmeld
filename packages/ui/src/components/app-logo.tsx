@@ -1,5 +1,7 @@
 import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { cn } from "@openmeld/ui/lib/utils";
+import { PlugIcon } from "@phosphor-icons/react";
+import { useState } from "react";
 
 const SIZE_CLASS_NAMES = {
   lg: "size-12",
@@ -27,6 +29,7 @@ export function AppLogo(input: {
   surfaceLevel?: number;
 }) {
   const size = input.size ?? "md";
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const isMessageChannel =
     input.app.service === "slack" ||
     input.app.service === "lark" ||
@@ -49,25 +52,31 @@ export function AppLogo(input: {
         input.className
       )}
     >
-      {/* biome-ignore lint/performance/noImgElement: Shared React primitive; this package does not depend on Next.js. */}
-      <img
-        alt=""
-        className={cn(
-          "max-h-full max-w-full object-contain",
-          input.surfaceLevel !== undefined &&
-            ["github", "linear", "vercel", "resend", "mailchimp"].includes(
-              input.app.service
-            )
-            ? "dark:invert"
-            : null,
-          input.muted ? "opacity-50 grayscale" : null
-        )}
-        data-testid={`app-logo-${input.app.service}`}
-        draggable={false}
-        height={48}
-        src={input.app.logoPath}
-        width={48}
-      />
+      {!input.app.logoPath || failedSrc === input.app.logoPath ? (
+        <PlugIcon className="size-full text-muted-foreground" />
+      ) : (
+        /* biome-ignore lint/performance/noImgElement: Shared React primitive; this package does not depend on Next.js. */
+        /* biome-ignore lint/a11y/noNoninteractiveElementInteractions: onError handles image loading, not user interaction. */
+        <img
+          alt=""
+          className={cn(
+            "max-h-full max-w-full object-contain",
+            input.surfaceLevel !== undefined &&
+              ["github", "linear", "vercel", "resend", "mailchimp"].includes(
+                input.app.service
+              )
+              ? "dark:invert"
+              : null,
+            input.muted ? "opacity-50 grayscale" : null
+          )}
+          data-testid={`app-logo-${input.app.service}`}
+          draggable={false}
+          height={48}
+          onError={() => setFailedSrc(input.app.logoPath)}
+          src={input.app.logoPath}
+          width={48}
+        />
+      )}
     </span>
   );
 }
