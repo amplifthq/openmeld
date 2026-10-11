@@ -1,6 +1,7 @@
 import { createRouter as createTanStackRouter } from "@tanstack/react-router";
 import { setupRouterSsrQueryIntegration } from "@tanstack/react-router-ssr-query";
 import { resetClientVersionRecovery } from "./client-version-recovery";
+import { AppRoutePending } from "./components/app/app-route-pending";
 import { resolveAppQueryClient } from "./integrations/tanstack-query/query-client";
 import {
 	APP_ROUTE_PENDING_DELAY_MS,
@@ -41,6 +42,7 @@ export function getRouter(options?: { isServer?: boolean }) {
 		// skipping the exact Query checks owned by each route.
 		defaultPreloadStaleTime: 0,
 		defaultPendingMinMs: APP_ROUTE_PENDING_MIN_DURATION_MS,
+		defaultPendingComponent: AppRoutePending,
 		defaultPendingMs: APP_ROUTE_PENDING_DELAY_MS,
 		defaultOnCatch: (error) => reportClientApplicationError(error, "route"),
 	});

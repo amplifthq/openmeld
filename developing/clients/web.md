@@ -883,14 +883,32 @@ Shared Organization scope and optional account entry reads use Auth's
 `GET /v1/account/organization-context` through the existing API client. SSR
 forwards the current request cookie directly to Auth; browser and Desktop use
 the same Web HTTP route. Both use the same strict projection without a new
-cache, preference writer, or account store. Existing query keys and account
-reset/invalidation policy remain unchanged. Optional anonymous entry returns
+preference writer or account store. Browser navigation uses one account-context
+Query key, not one membership-list copy per Organization slug. The existing
+account reset cancels and removes that query; it is not persisted. Logo and
+confirmed membership mutations update or invalidate that same snapshot.
+Invitation acceptance must not optimistically invent a membership.
+Optional anonymous entry returns
 null, authenticated entry without Organizations remains an explicit error,
 and an unknown Organization URL remains a denied scope. Required anonymous
 scope retains its sanitized login redirect. This read opts into preserving Auth
 401 responses through the Web proxy; existing Auth form status normalization
 is unchanged. Infrastructure errors are not
 converted to anonymous or denied state.
+
+The private `/o/{orgSlug}` boundary is client-loaded (`ssr: false`); public
+entry, login, and public content retain SSR. Router default and private-route
+pending content use the same visible loading surface so server HTML and client
+hydration do not leave a blank screen. The account query has a five-second
+transport deadline, forwards cancellation through body consumption, does not
+retry automatically, and attempts offline reads rather than pausing the parent
+loader indefinitely. The existing root error surface owns retry and asset
+version recovery. A successful fresh read projects the URL Organization; only
+then may the loader activate its persisted display scope. The component does
+not repeat that activation in a hydration effect. The loader checks cancellation
+before entering persistence activation and before returning its scope; the
+persistence owner serializes scope changes. An anonymous result clears account-private state
+before the sanitized login redirect.
 
 The
 Auth-owned account `lastSelectedOrganizationId` is the default entry preference

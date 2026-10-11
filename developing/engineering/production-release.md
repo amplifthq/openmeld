@@ -456,6 +456,23 @@ under the global backlog without changing the scoped command's exit result.
 
 ## Public Docs releases
 
+Hosted Web, Website, and Docs children with parent admission are artifact
+consumers. Their setup installs only the trusted `@openmeld/release-tools`
+production dependency closure (TypeScript, YAML, Wrangler, and Schemas/Zod),
+with install scripts disabled. The candidate checkout receives no application
+dependency installation. Standalone admission and the parent builder retain
+the full source build toolchain.
+
+After same-run artifact restoration, the scope lease and live preflight, the
+trusted `promote-renderer-artifact.mjs` revalidates parent evidence and the
+source/input/output identity and invokes its own pinned Wrangler against the
+restored output. Missing or mismatched evidence fails closed; a consumer cannot
+enter the builder. Cloudflare's generated deployment configuration already
+contains the production environment selected at build time. Health verification
+still compares the served source and build identity after deployment. This
+separates build dependencies from promotion dependencies without adding a
+second release planner or removing compatibility, database, or lease guards.
+
 Docs-only releases use `--scope docs`, an independent artifact receipt and
 snapshot, and the `openmeld-docs-prod` Worker at `docs.openmeld.ai`. The hosted
 job restores only its immutable same-run Docs snapshot. Root and `/docs` HTML

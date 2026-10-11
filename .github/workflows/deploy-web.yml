@@ -116,6 +116,7 @@ jobs:
         uses: ./release-control/.github/actions/setup-node-pnpm
         with:
           node_version: ${{ inputs.parent_admission_evidence && fromJSON(inputs.parent_admission_evidence).buildInputs.node || '24' }}
+          dependency_mode: ${{ inputs.parent_admission_evidence != '' && 'renderer-promotion' || 'workspace' }}
           control_directory: release-control
           working_directory: release-source
 
@@ -181,8 +182,13 @@ jobs:
           secrets_file="clients/web/.dev.vars.prod"
           trap 'rm -f "$secrets_file"' EXIT
           printf "WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET=%s\n" "${WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET}" > "$secrets_file"
-          pnpm -C clients/web run sync:config:prod
+          if [ -n "$OPENMELD_PARENT_TRAIN_ADMISSION" ]; then
+            node ../release-control/scripts/release/promote-renderer-artifact.mjs --scope web --source-sha "$RELEASE_SHA"
+          else
+            pnpm -C clients/web run sync:config:prod
+          fi
         env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
           WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET: ${{ secrets.WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET }}
 
       - name: Verify Web health

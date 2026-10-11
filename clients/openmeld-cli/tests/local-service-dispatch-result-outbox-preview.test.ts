@@ -222,7 +222,9 @@ function createLedgerPaths(): LedgerPaths {
   };
 }
 
-function createDeliveryExecutionIdentity() {
+function createDeliveryExecutionIdentity(
+  agentControllerRef: "builtin:codex" | "builtin:opencode" = "builtin:codex"
+) {
   return {
     authority: "core_runtime_registry_binding_route" as const,
     core: {
@@ -235,19 +237,20 @@ function createDeliveryExecutionIdentity() {
         value: "runtime-1",
       },
       bindingId: "binding-1",
-      agentControllerRef: "builtin:codex",
+      agentControllerRef,
     },
   };
 }
 
 function createCurrentRouteByProfileId(
-  workspacePath = process.cwd()
+  workspacePath = process.cwd(),
+  agentControllerRef: "builtin:codex" | "builtin:opencode" = "builtin:codex"
 ): Map<string, DaemonProfileRouteConfig> {
   return new Map([
     [
       "agent-profile-1",
       {
-        agentControllerRef: "builtin:codex",
+        agentControllerRef,
         bindingId: "binding-1",
         configurationRevision: 7,
         contextIdMappingSpec: {
@@ -351,7 +354,9 @@ function readOutboxFile(ledgerPaths: LedgerPaths): {
   };
 }
 
-function createDeliverRequest(): RuntimeTransportDeliverDispatchRequest {
+function createDeliverRequest(
+  agentControllerRef: "builtin:codex" | "builtin:opencode" = "builtin:codex"
+): RuntimeTransportDeliverDispatchRequest {
   return {
     v: 1,
     dispatchId: "dispatch-1",
@@ -368,13 +373,14 @@ function createDeliverRequest(): RuntimeTransportDeliverDispatchRequest {
       runtimeCoordinatorExecutionId: "rce_space-1_dispatch-1_agent-profile-1",
       dispatchPolicy: "mention_only",
       controllerSnapshot: {
-        agentControllerRef: "builtin:codex",
+        agentControllerRef,
         bindingId: "binding-1",
         configurationRevision: 7,
         targetBindingEnabled: true,
         targetBindingState: "bound",
       },
-      agentControllerConversationId: "ctx-1",
+      agentControllerConversationId:
+        agentControllerRef === "builtin:opencode" ? undefined : "ctx-1",
       contextIdMappingSpec: null,
       dispatchRulesSnapshot: {
         dispatchPolicy: "mention_only",
@@ -383,11 +389,11 @@ function createDeliverRequest(): RuntimeTransportDeliverDispatchRequest {
         ruleSource: "registry",
       },
       enqueuedAtMs: 1_700_000_000_000,
-      executionIdentity: createDeliveryExecutionIdentity(),
+      executionIdentity: createDeliveryExecutionIdentity(agentControllerRef),
       executionToken: {
         authorityScope: {
           bindingId: "binding-1",
-          agentControllerRef: "builtin:codex",
+          agentControllerRef,
           openMeldServiceRuntimeId: "runtime-1",
         },
         deliveryIdempotencyKey: "rce_space-1_dispatch-1_agent-profile-1:run-1",
@@ -1286,7 +1292,10 @@ describe("dispatch result outbox around preview teardown", () => {
     });
   });
 
-  it("keeps provider conversation occupancy accepted until the provider accepts the turn", async () => {
+  it.each([
+    "builtin:codex",
+    "builtin:opencode",
+  ] as const)("keeps %s accepted until its native turn starts, independently of occupancy", async (agentControllerRef) => {
     await withTempHome(async () => {
       vi.spyOn(globalThis, "setInterval").mockImplementation((handler) => {
         if (typeof handler === "function") {
@@ -1316,12 +1325,14 @@ describe("dispatch result outbox around preview teardown", () => {
         runtimeContext,
       });
       runRuntimeTaskMock.mockImplementationOnce((input) => {
-        input.onRuntimeEvent?.({
-          agentControllerConversationId: "thread-occupied",
-          contractVersion: 1,
-          phase: "agent_controller_conversation_occupied",
-          tsMs: 1_700_000_000_100,
-        });
+        if (agentControllerRef === "builtin:codex") {
+          input.onRuntimeEvent?.({
+            agentControllerConversationId: "thread-occupied",
+            contractVersion: 1,
+            phase: "agent_controller_conversation_occupied",
+            tsMs: 1_700_000_000_100,
+          });
+        }
         const lifecycleBeforeProviderAdmission =
           settlementSocket.send.mock.calls
             .map(([rawFrame]) => JSON.parse(String(rawFrame)))
@@ -1329,12 +1340,14 @@ describe("dispatch result outbox around preview teardown", () => {
         expect(
           lifecycleBeforeProviderAdmission.map((frame) => frame.payload.phase)
         ).toEqual(lifecycleBeforeProviderAdmission.map(() => "accepted_local"));
-        input.onRuntimeEvent?.({
-          agentControllerConversationId: "thread-occupied",
-          contractVersion: 1,
-          phase: "agent_controller_conversation_available",
-          tsMs: 1_700_000_000_200,
-        });
+        if (agentControllerRef === "builtin:codex") {
+          input.onRuntimeEvent?.({
+            agentControllerConversationId: "thread-occupied",
+            contractVersion: 1,
+            phase: "agent_controller_conversation_available",
+            tsMs: 1_700_000_000_200,
+          });
+        }
         input.onRuntimeEvent?.({
           agentControllerConversationId: "thread-occupied",
           phase: "provider_turn_accepted",
@@ -1350,7 +1363,7 @@ describe("dispatch result outbox around preview teardown", () => {
         contextStore: new Map(),
         currentSocketRef: { connectionGeneration: 1, socket },
         daemonSessionId: "daemon-session-1",
-        deliverRequest: createDeliverRequest(),
+        deliverRequest: createDeliverRequest(agentControllerRef),
         inflightDispatchMetaByTaskId: new Map(),
         inflightTaskControlRegistry: createInflightTaskControlRegistry(),
         pendingAgentInteractionRegistry:
@@ -1363,7 +1376,10 @@ describe("dispatch result outbox around preview teardown", () => {
         profileOwnerName: "Owner",
         profileOwnerUserId: "user-1",
         presenter,
-        routeByProfileId: createCurrentRouteByProfileId(),
+        routeByProfileId: createCurrentRouteByProfileId(
+          process.cwd(),
+          agentControllerRef
+        ),
         socket,
       });
 
@@ -1388,38 +1404,32 @@ describe("dispatch result outbox around preview teardown", () => {
         occupancyFrames.map(
           (frame) => frame.payload.agentControllerConversationOccupancy
         )
-      ).toEqual([
-        {
-          agentControllerConversationId: "thread-occupied",
-          contractVersion: 1,
-          state: "occupied",
-        },
-        {
-          agentControllerConversationId: "thread-occupied",
-          contractVersion: 1,
-          state: "occupied",
-        },
-        {
-          agentControllerConversationId: "thread-occupied",
-          contractVersion: 1,
-          state: "occupied",
-        },
-        {
-          agentControllerConversationId: "thread-occupied",
-          contractVersion: 1,
-          state: "available",
-        },
-        {
-          agentControllerConversationId: "thread-occupied",
-          contractVersion: 1,
-          state: "available",
-        },
-        {
-          agentControllerConversationId: "thread-occupied",
-          contractVersion: 1,
-          state: "available",
-        },
-      ]);
+      ).toEqual(
+        agentControllerRef === "builtin:opencode"
+          ? []
+          : [
+              {
+                agentControllerConversationId: "thread-occupied",
+                contractVersion: 1,
+                state: "occupied",
+              },
+              {
+                agentControllerConversationId: "thread-occupied",
+                contractVersion: 1,
+                state: "occupied",
+              },
+              {
+                agentControllerConversationId: "thread-occupied",
+                contractVersion: 1,
+                state: "occupied",
+              },
+              {
+                agentControllerConversationId: "thread-occupied",
+                contractVersion: 1,
+                state: "available",
+              },
+            ]
+      );
       expect(
         settlementSocket.send.mock.calls
           .map(([rawFrame]) => JSON.parse(String(rawFrame)))

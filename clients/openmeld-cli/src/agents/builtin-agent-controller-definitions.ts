@@ -95,6 +95,9 @@ export type BuiltinAgentControllerDefinition = {
   agentId: string;
   capabilities: AgentControllerInterfaceCapabilities;
   conversationOccupancy: BuiltinAgentControllerConversationOccupancySupport;
+  // Admission is independent of exclusive conversation occupancy. A native
+  // controller can prove that it accepted this turn without offering a lock.
+  executionAdmission?: "provider_turn_accepted";
   installResolver: BuiltinControllerInstallResolver;
   nativeInterface: AgentControllerInterfaceNativeInterface;
   usageLimitSupport: BuiltinAgentControllerUsageLimitSupport;
@@ -179,6 +182,7 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
   },
   {
     adapterId: "codex",
+    executionAdmission: "provider_turn_accepted",
     agentId: "codex",
     capabilities: {
       approvals: true,
@@ -288,6 +292,7 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
   },
   {
     adapterId: "opencode",
+    executionAdmission: "provider_turn_accepted",
     agentId: "opencode",
     capabilities: {
       approvals: true,
