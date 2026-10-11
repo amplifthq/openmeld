@@ -404,6 +404,21 @@ export function useSpaceLandingFeed(input: {
 				if (!isCurrentReconcile()) {
 					return;
 				}
+				// Proxy recovery may not emit a browser online event. Reuse this
+				// confirmed Space read to resume failed, currently selected windows.
+				queryClient.refetchQueries(
+					{
+						queryKey: spaceQueryKeys.historyWindow(
+							input.spaceId,
+							input.openMeldProfileId
+						),
+						type: "active",
+						predicate: (query) =>
+							query.state.status === "error" &&
+							query.state.fetchStatus === "idle",
+					},
+					{ cancelRefetch: false }
+				);
 				if (
 					subscribedAtStart !== null &&
 					subscribedAtStart === readySocketAttemptKeyRef.current &&

@@ -1286,6 +1286,74 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 		).toEqual(["sig-1", "sig-2"]);
 	});
 
+	it("recovers only the failed active history window after the Space reconnects", async () => {
+		const { queryClient } = renderFeed();
+		await openLatestSocket();
+		let reachable = false;
+		const read = vi.fn(() => {
+			if (!reachable) {
+				return Promise.reject(new TypeError("Failed to fetch"));
+			}
+			return Promise.resolve("restored");
+		});
+		const readyRead = vi.fn(async () => "already readable");
+		const windows = renderHook(
+			() => ({
+				current: useQuery({
+					queryKey: [
+						...spaceQueryKeys.historyWindow(
+							"space-123",
+							"11111111-1111-1111-1111-111111111111"
+						),
+						"failed",
+					],
+					queryFn: read,
+					retry: false,
+				}),
+				other: useQuery({
+					queryKey: spaceQueryKeys.historyWindow(
+						"space-123",
+						"22222222-2222-2222-2222-222222222222"
+					),
+					queryFn: read,
+					retry: false,
+				}),
+				ready: useQuery({
+					queryKey: [
+						...spaceQueryKeys.historyWindow(
+							"space-123",
+							"11111111-1111-1111-1111-111111111111"
+						),
+						"ready",
+					],
+					queryFn: readyRead,
+					staleTime: Number.POSITIVE_INFINITY,
+				}),
+			}),
+			{
+				wrapper: ({ children }: { children: ReactNode }) => (
+					<QueryClientProvider client={queryClient}>
+						{children}
+					</QueryClientProvider>
+				),
+			}
+		);
+		await flushMicrotasks();
+		await act(async () => vi.advanceTimersByTimeAsync(0));
+		expect(windows.result.current.current.isError).toBe(true);
+		reachable = true;
+		await act(async () => {
+			FakeWebSocket.latest.close();
+			await vi.advanceTimersByTimeAsync(2000);
+		});
+		await openLatestSocket();
+		await flushMicrotasks();
+		await act(async () => vi.advanceTimersByTimeAsync(0));
+		expect(windows.result.current.current.data).toBe("restored");
+		expect(windows.result.current.other.isError).toBe(true);
+		expect(readyRead).toHaveBeenCalledOnce();
+	});
+
 	it.each([
 		"reconnect",
 		"refocus",

@@ -637,11 +637,10 @@ function SpaceConversationPanelContent(
 			)}
 			data-space-history-rail={showHistoryRail}
 		>
-			{input.historyActionErrorMessage || input.historyErrorMessage ? (
-				<div className="border-border border-b bg-destructive/10 px-4 py-3 text-destructive text-sm sm:px-5">
-					{input.historyActionErrorMessage ?? input.historyErrorMessage}
-				</div>
-			) : null}
+			<SpaceHistoryErrorBanner
+				message={input.historyActionErrorMessage ?? input.historyErrorMessage}
+				navigation={input.historyNavigation}
+			/>
 			{renderInitialSpaceFocusStatus({
 				mainMessage: mainFocusStatusMessage,
 				historyNotice: input.historyNavigation?.notice,
@@ -875,6 +874,37 @@ function SpaceConversationPanelContent(
 				/>
 			) : null}
 		</section>
+	);
+}
+
+function SpaceHistoryErrorBanner({
+	message,
+	navigation,
+}: {
+	message?: string | null;
+	navigation?: SpaceHistoryNavigationController;
+}) {
+	if (!message) {
+		return null;
+	}
+	return (
+		<div
+			className="flex items-center justify-between gap-3 border-border border-b bg-destructive/10 px-4 py-3 text-destructive text-sm sm:px-5"
+			role="alert"
+		>
+			<span>{message}</span>
+			{navigation?.error && (
+				<Button
+					className="shrink-0"
+					disabled={navigation.pending}
+					onClick={() => navigation.retry()}
+					size="sm"
+					variant="outline"
+				>
+					{navigation.pending ? "Retrying…" : "Retry"}
+				</Button>
+			)}
+		</div>
 	);
 }
 
@@ -1585,11 +1615,12 @@ function useSpaceConversationNavigationController(input: {
 		: null;
 	const loadFocusHistory = useLatestCallback(
 		async (signalId: string, signal: AbortSignal) => {
-			const loaded = await input.onLoadHistoryAround?.(signalId, signal);
-			if (!signal.aborted && loaded === "latest") {
-				appliedInitialFocusRef.current = targetKey;
-				followLatest();
-			}
+			await input.onLoadHistoryAround?.(signalId, signal, (loaded) => {
+				if (!signal.aborted && loaded === "latest") {
+					appliedInitialFocusRef.current = targetKey;
+					followLatest();
+				}
+			});
 		}
 	);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: A different route target owns a new request lifetime, including a switch to a loaded message or Thread.

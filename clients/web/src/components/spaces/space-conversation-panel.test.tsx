@@ -216,6 +216,7 @@ describe("SpaceConversationPanel", () => {
 				newerHref: undefined,
 				pending: false,
 				pendingDirection: undefined,
+				retry: vi.fn(),
 				retryDirectory: vi.fn(),
 				revealCachedBefore: vi.fn(),
 				visibleLiveEnvelopes: [],
@@ -258,6 +259,7 @@ describe("SpaceConversationPanel", () => {
 			newerHref: undefined,
 			pending: false,
 			pendingDirection: undefined,
+			retry: vi.fn(),
 			retryDirectory: vi.fn(),
 			revealCachedBefore: vi.fn(),
 			visibleLiveEnvelopes: [],
@@ -1847,9 +1849,16 @@ describe("SpaceConversationPanel", () => {
 	it("moves an unavailable linked message to the latest viewport without a failure notice", async () => {
 		let finish!: (value: "latest") => void;
 		const open = vi.fn(
-			() =>
+			(
+				_signalId: string,
+				_signal?: AbortSignal,
+				onLoaded?: (result: true | "latest") => void
+			) =>
 				new Promise<"latest">((resolve) => {
-					finish = resolve;
+					finish = (value) => {
+						onLoaded?.(value);
+						resolve(value);
+					};
 				})
 		);
 		const historyNavigation: NonNullable<
@@ -1873,6 +1882,7 @@ describe("SpaceConversationPanel", () => {
 			newerHref: undefined,
 			pending: false,
 			pendingDirection: undefined,
+			retry: vi.fn(),
 			retryDirectory: vi.fn(),
 			revealCachedBefore: vi.fn(),
 			visibleLiveEnvelopes: [],
@@ -3406,6 +3416,7 @@ describe("SpaceConversationPanel", () => {
 			newerHref: "/spaces/space-123?signalId=sig-old",
 			pending: false,
 			pendingDirection: undefined,
+			retry: vi.fn(),
 			retryDirectory: vi.fn(),
 			revealCachedBefore: vi.fn(),
 			visibleLiveEnvelopes: [signal],
@@ -4066,6 +4077,7 @@ describe("SpaceConversationPanel", () => {
 					newerHref: undefined,
 					pending: true,
 					pendingDirection: "before",
+					retry: vi.fn(),
 					retryDirectory: vi.fn(),
 					revealCachedBefore: vi.fn(),
 					visibleLiveEnvelopes: [],
