@@ -210,6 +210,16 @@ test("resumes only unfinished components and waits for their verified receipts",
   for (const [unchanged, expectedAttempts] of [
     [initial, 1],
     [unresolved, 0],
+    [
+      {
+        ...initial,
+        currentChange: {
+          ...initial.currentChange,
+          orderingError: "Ambiguous request owner",
+        },
+      },
+      0,
+    ],
   ]) {
     const attempted = [];
     await assert.rejects(
@@ -1401,7 +1411,7 @@ test("rejects a generic Remote Agent receiver combined with its worker response 
           "packages/schemas/src/schemas/http/space-wake-progress.ts",
           "packages/schemas/src/schemas/runtime/remote-agent-worker.ts",
           "services/core/src/space/transport/do/space.ts",
-          "services/remote-agent/flue-adapter/execution-reconciliation.ts",
+          "services/remote-agent/flue-adapter/cloudflare-entrypoint.ts",
           "services/remote-agent/.flue/agents/center-agent.ts",
         ],
         scope: "remote-agent,gateway,core,cli",
@@ -2425,7 +2435,7 @@ test("rejects a strict Local Service runtime release without its Core receiver",
   assertReceiptGatedStage(plan.scopes, plan.changedPaths);
 });
 
-test("deploys the execution reconciliation receiver before its Core caller", () => {
+test("deploys Core response readers before execution reconciliation", () => {
   const plan = buildProductionReleasePlan({
     affectedPackages: [],
     base: "previous-release",
@@ -2438,14 +2448,14 @@ test("deploys the execution reconciliation receiver before its Core caller", () 
     sourceSha: REMOTE_SOURCE_SHA,
   });
 
-  assert.equal(plan.deployOrderProfile, "remote-agent-receiver-first");
+  assert.equal(plan.deployOrderProfile, "core-worker-response-reader-first");
   assert.deepEqual(
     plan.deploySteps.map((step) => step.label),
     [
-      "Deploy Remote Agent Worker",
-      "Verify Remote Agent deployment is visible",
       "Deploy Core with the current published CLI projection",
       "Verify Core receiver stable identity alignment",
+      "Deploy Remote Agent Worker",
+      "Verify Remote Agent deployment is visible",
     ]
   );
 });

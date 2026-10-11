@@ -72,6 +72,8 @@ export function buildRemoteAgentTerminalCallbackResult(input: {
     continuation: false,
     failureCode: input.outcome.failure.code,
     failureDetail: input.outcome.failure.detail,
+    explanationText: input.outcome.failure.explanationText,
+    computerCleanup: input.outcome.failure.computerCleanup,
     failureReasonCode: input.outcome.failure.reasonCode,
     message: { parts: [] },
     modelId,

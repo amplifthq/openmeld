@@ -88,6 +88,8 @@ export async function recoverFailedTaskContinuationSummary(input: {
   if (
     delivery.status !== "failed" ||
     delivery.failureCode !== REMOTE_AGENT_COMPUTER_CLEANUP_FAILED_CODE ||
+    (delivery.finalPublicationPayload?.storageVersion === 3 &&
+      delivery.finalPublicationPayload.reviewedFailureExplanation === true) ||
     delivery.conversationKind !== "space" ||
     delivery.routineRunId ||
     !delivery.publishedSignalId ||

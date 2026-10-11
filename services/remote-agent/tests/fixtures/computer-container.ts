@@ -18,9 +18,24 @@ import { AGENT_COMPUTER_CONTAINER_ENV } from "../../flue-adapter/computer-worksp
 // biome-ignore lint/performance/noBarrelFile: The SDK requires this named Worker RPC entrypoint.
 export { WorkspaceProxy } from "@cloudflare/computer";
 
-type ProbeEnv = { PROBE: DurableObjectNamespace; FUSE_PROFILE?: string };
+type ProbeEnv = {
+  PROBE: DurableObjectNamespace;
+  FUSE_PROFILE?: string;
+  STRESS?: string;
+};
 class ProbeBase extends DurableObject<ProbeEnv> {}
 const ROOT = "/computer/openmeld-container-check";
+type BoundedState = {
+  phase: string;
+  offset: number;
+  steps: number;
+  phases: Record<string, number>;
+  maxStepMs: number;
+  maxSyncStepMs: number;
+  writes?: number;
+  restarts?: number;
+  nativeUnacknowledgedSurvived?: boolean;
+};
 const LEAVES = 20_200;
 
 function containerEnvironment(
@@ -79,6 +94,20 @@ export class ComputerContainerProbe extends withLegacyWorkspaceContainer(
   entriesAcknowledgement: unknown;
   receiverPackWrites: unknown;
   sourceTime: number | undefined;
+  private async traceSync<T>(
+    name: string,
+    operation: () => Promise<T>
+  ): Promise<T> {
+    if (this.env.STRESS !== "true") {
+      return operation();
+    }
+    console.info("stress_rpc_start", name);
+    try {
+      return await operation();
+    } finally {
+      console.info("stress_rpc_end", name);
+    }
+  }
 
   readonly transport: WorkspaceBackend = {
     id: "container",
@@ -87,7 +116,9 @@ export class ComputerContainerProbe extends withLegacyWorkspaceContainer(
       if (this.interruptedOwner) {
         throw new Error("PROBE_OWNER_DISCARDED_AFTER_LOST_ACK");
       }
-      const handle = await this.native.connect();
+      const handle = await this.traceSync("connect", () =>
+        this.native.connect()
+      );
       this.nativeHandle = handle;
       const sync = handle.rpc.sync;
       return {
@@ -105,10 +136,52 @@ export class ComputerContainerProbe extends withLegacyWorkspaceContainer(
             disposeExec: (input) => handle.rpc.shell.disposeExec(input),
           },
           sync: {
-            watermarks: (input) => sync.watermarks(input),
+            retentionHead: (slot) => {
+              check(
+                sync.retentionHead,
+                "Native retention protocol is required"
+              );
+              return sync.retentionHead(slot);
+            },
+            beginRetention: (scope, expected) => {
+              check(
+                sync.beginRetention,
+                "Native retention protocol is required"
+              );
+              return sync.beginRetention(scope, expected);
+            },
+            prepareChanges: (input) => {
+              return this.traceSync("prepareChanges", () => {
+                check(
+                  sync.prepareChanges,
+                  "Native bounded planner is required"
+                );
+                return sync.prepareChanges(input);
+              });
+            },
+            discardChanges: (generation, scope) => {
+              return this.traceSync("discardChanges", () => {
+                check(
+                  sync.discardChanges,
+                  "Native bounded cleanup is required"
+                );
+                return sync.discardChanges(generation, scope);
+              });
+            },
+            watermarks: (input) =>
+              this.traceSync("watermarks", () => sync.watermarks(input)),
             push: async (input) => {
               if (!this.captureReplacement) {
-                const ack = await sync.push(input);
+                const ack = await this.traceSync("push", () =>
+                  sync.push(input)
+                );
+                const injection =
+                  await this.ctx.storage.get<string>("bounded-inject");
+                if (injection && input.senderCursor?.path) {
+                  await this.ctx.storage.delete("bounded-inject");
+                  await this.ctx.storage.put(`bounded-lost:${injection}`, true);
+                  throw new Error("BOUNDED_ACK_LOST_AFTER_APPLY");
+                }
                 if (this.loseEntriesAcknowledgement) {
                   this.loseEntriesAcknowledgement = false;
                   this.entriesAcknowledgement = ack;
@@ -154,11 +227,18 @@ export class ComputerContainerProbe extends withLegacyWorkspaceContainer(
               });
               return ack;
             },
-            fetchChanges: (input) => sync.fetchChanges(input),
+            fetchChanges: (input) =>
+              this.traceSync("fetchChanges", () => sync.fetchChanges(input)),
             readEntry: (path) => sync.readEntry(path),
-            hasObjects: (hashes) => sync.hasObjects(hashes),
-            fetchObjects: (hashes) => sync.fetchObjects(hashes),
-            pushObjects: (objects) => sync.pushObjects(objects),
+            hasObjects: (hashes, scope) =>
+              this.traceSync("hasObjects", () =>
+                sync.hasObjects(hashes, scope)
+              ),
+            fetchObjects: (hashes, scope) => sync.fetchObjects(hashes, scope),
+            pushObjects: (objects, scope) =>
+              this.traceSync("pushObjects", () =>
+                sync.pushObjects(objects, scope)
+              ),
             fetchChangePack: (input) => {
               check(
                 sync.fetchChangePack,
@@ -220,12 +300,12 @@ export class ComputerContainerProbe extends withLegacyWorkspaceContainer(
     };
   }
 
-  async execNative(source: string) {
+  async execNative(source: string, timeoutMs = 30_000) {
     check(this.nativeHandle, "Native transport must be connected");
     const handle = await this.nativeHandle.rpc.shell.exec({
       source,
       cwd: "/computer",
-      timeoutMs: 30_000,
+      timeoutMs,
     });
     const reader = handle.events.getReader();
     let stdout = "";
@@ -259,10 +339,23 @@ export class ComputerContainerProbe extends withLegacyWorkspaceContainer(
 
   async readNativeDatabase(path: string) {
     check(this.nativeHandle, "Native peer must be connected");
+    const sync = this.nativeHandle.rpc.sync;
+    check(
+      sync.retentionHead && sync.beginRetention && sync.discardChanges,
+      "Native retention is required"
+    );
+    const head = await sync.retentionHead("test-read");
+    const scope = {
+      epoch: head.epoch,
+      slot: "test-read",
+      generation: crypto.randomUUID(),
+    };
+    await sync.beginRetention(scope, head.generation);
     const entry = await this.nativeHandle.rpc.sync.readEntry(path);
     check(entry?.kind === "file", "Native metadata must contain this file");
     const stream = await this.nativeHandle.rpc.sync.fetchObjects(
-      entry.chunks.map((chunk) => chunk.hash)
+      entry.chunks.map((chunk) => chunk.hash),
+      scope
     );
     const reader = stream.getReader();
     const objects = new Map<string, Uint8Array>();
@@ -276,6 +369,10 @@ export class ComputerContainerProbe extends withLegacyWorkspaceContainer(
       }
     } finally {
       reader.releaseLock();
+      check(
+        await sync.discardChanges(scope.generation, scope),
+        "Small read pins must retire in one page"
+      );
     }
     return {
       rev: entry.rev,
@@ -318,7 +415,309 @@ export class ComputerContainerProbe extends withLegacyWorkspaceContainer(
     return mounted;
   }
 
-  async fetch(request: Request) {
+  async runBoundedStep() {
+    const state = (await this.ctx.storage.get<BoundedState>(
+      "bounded-state"
+    )) ?? {
+      phase: "seed",
+      offset: 0,
+      steps: 0,
+      phases: {},
+      maxStepMs: 0,
+      maxSyncStepMs: 0,
+    };
+    const isSyncStep = [
+      "push",
+      "restore",
+      "restore-persisted",
+      "delete-push",
+      "pull",
+      "churn-drain",
+    ].includes(state.phase);
+    const started = Date.now();
+    if (this.env.STRESS === "true") {
+      console.info("stress_step_start", state.steps, state.phase);
+    }
+    const owner = this.makeWorkspace();
+    const tree = `${ROOT}/dependencies`;
+    try {
+      if (state.phase === "seed") {
+        await owner.fs.mkdir(tree, { recursive: true });
+        for (
+          let i = state.offset;
+          i < Math.min(state.offset + 128, LEAVES);
+          i++
+        ) {
+          await owner.fs.writeFile(`${tree}/file-${i}`, "");
+        }
+        state.offset = Math.min(state.offset + 128, LEAVES);
+        if (state.offset === LEAVES) {
+          await owner.fs.writeFile(`${ROOT}/answer.txt`, "retained answer");
+          await this.ctx.storage.put("bounded-inject", "initial");
+          state.phase = "push";
+        }
+      } else {
+        await owner.ready("container");
+        if (isSyncStep) {
+          await this.writeStressStep(owner, state);
+          await this.transferBoundedStep(owner, state);
+        } else {
+          await this.advanceBoundedScenario(owner, state);
+        }
+      }
+      state.steps++;
+      if (isSyncStep) {
+        state.maxSyncStepMs = Math.max(
+          state.maxSyncStepMs,
+          Date.now() - started
+        );
+      }
+      state.maxStepMs = Math.max(state.maxStepMs, Date.now() - started);
+      await this.ctx.storage.put("bounded-state", state);
+      return Response.json({
+        ...state,
+        done: state.phase === "done",
+        ...(state.phase === "done"
+          ? await this.ctx.storage.get<Record<string, unknown>>(
+              "bounded-report"
+            )
+          : {}),
+      });
+    } finally {
+      if (this.env.STRESS === "true") {
+        console.info("stress_step_close", state.steps, state.phase);
+      }
+      await owner.close();
+      if (this.env.STRESS === "true") {
+        console.info("stress_step_end", state.steps, state.phase);
+      }
+    }
+  }
+
+  private async writeStressStep(owner: Workspace, state: BoundedState) {
+    if (
+      this.env.STRESS !== "true" ||
+      state.phase === "churn-drain" ||
+      (state.writes ?? 0) >= 1024
+    ) {
+      return;
+    }
+    const i = state.writes ?? 0;
+    const dir = `${ROOT}/churn`;
+    await owner.fs.mkdir(dir, { recursive: true });
+    await owner.fs.writeFile(`${dir}/${i}`, `${i}:`.padEnd(65_536, "x"));
+    if (i > 0 && i % 3 === 0) {
+      await owner.fs.rm(`${dir}/${i - 1}`);
+    }
+    state.writes = i + 1;
+  }
+
+  private async transferBoundedStep(owner: Workspace, state: BoundedState) {
+    try {
+      // Exactly one sync step per HTTP request. Closing this Workspace
+      // discards all iterators, caches and handles before the next call.
+      const step = await (state.phase === "pull"
+        ? owner.pull("container")
+        : owner.push("container"))
+        [Symbol.asyncIterator]()
+        .next();
+      if (!step.done) {
+        const phase = `${state.phase}:${step.value.phase ?? "transfer"}`;
+        state.phases[phase] = (state.phases[phase] ?? 0) + 1;
+      }
+      if (step.done || step.value.complete) {
+        const next: Record<string, string> = {
+          push: "reset",
+          restore: "native-write",
+          "restore-persisted": "delete",
+          pull: "delete",
+          "delete-push": "verify",
+          "churn-drain": "verify",
+        };
+        const nextPhase = next[state.phase];
+        check(nextPhase, `Unexpected transfer phase: ${state.phase}`);
+        const previousPhase = state.phase;
+        state.phase = nextPhase;
+        if (this.env.STRESS === "true") {
+          if (state.phase === "native-write" && (state.restarts ?? 0) < 3) {
+            state.phase = "reset";
+          }
+          if (nextPhase === "verify" && previousPhase !== "churn-drain") {
+            state.phase = "churn-drain";
+          }
+        }
+      }
+    } catch (error) {
+      if (!String(error).includes("BOUNDED_ACK_LOST_AFTER_APPLY")) {
+        throw error;
+      }
+    }
+  }
+
+  private async observeUnsynchronizedFile(
+    state: BoundedState,
+    exists: unknown
+  ) {
+    if (this.env.STRESS !== "true") {
+      return;
+    }
+    if (!state.restarts) {
+      await this.execNative(
+        `python3 -c 'import pathlib,json; pathlib.Path("${ROOT}/native-unacknowledged.txt").write_text("not yet synchronized"); print(json.dumps({"written":True}))'`
+      );
+    } else if (state.restarts === 1) {
+      state.nativeUnacknowledgedSurvived = exists === true;
+    }
+  }
+
+  private async advanceBoundedScenario(owner: Workspace, state: BoundedState) {
+    const tree = `${ROOT}/dependencies`;
+    if (state.phase === "reset") {
+      const before = await this.execNative(
+        `python3 -c 'import pathlib,json; p=pathlib.Path("${ROOT}"); files=list((p/"dependencies").iterdir()); assert {f.name for f in files}=={f"file-{i}" for i in range(${LEAVES})}; assert all(f.stat().st_size==0 for f in files); print(json.dumps({"files":len(files),"answer":(p/"answer.txt").read_text(),"unacknowledgedExists":(p/"native-unacknowledged.txt").exists()}))'`
+      );
+      check(
+        before.files === LEAVES && before.answer === "retained answer",
+        "Initial native files differ"
+      );
+      await owner.fs.writeFile(`${ROOT}/new.txt`, "new window");
+      await owner.push("container")[Symbol.asyncIterator]().next();
+      await this.observeUnsynchronizedFile(state, before.unacknowledgedExists);
+      state.phase = "destroy";
+    } else if (
+      state.phase === "destroy" ||
+      state.phase === "destroy-persisted"
+    ) {
+      check(this.ctx.container, "Native container required");
+      await this.ctx.container.destroy();
+      state.restarts = (state.restarts ?? 0) + 1;
+      state.phase = state.phase === "destroy" ? "restore" : "restore-persisted";
+    } else if (state.phase === "native-write") {
+      const restored = await this.execNative(
+        `python3 -c 'import pathlib,json; p=pathlib.Path("${ROOT}"); files=list((p/"dependencies").iterdir()); assert {f.name for f in files}=={f"file-{i}" for i in range(${LEAVES})}; assert all(f.stat().st_size==0 for f in files); print(json.dumps({"files":len(files),"answer":(p/"answer.txt").read_text(),"new":(p/"new.txt").read_text()}))'`
+      );
+      check(
+        restored.files === LEAVES &&
+          restored.answer === "retained answer" &&
+          restored.new === "new window",
+        "Reset failed to restore unchanged files"
+      );
+      await this.execNative(
+        `python3 -c 'import pathlib,json; p=pathlib.Path("${ROOT}/native-output/deep"); p.mkdir(parents=True,exist_ok=True); [(p/str(i)).touch() for i in range(${LEAVES})]; (p/"answer.txt").write_text("native result"); print(json.dumps({"written":${LEAVES}}))'`,
+        300_000
+      );
+      state.phase = "pull";
+    } else if (state.phase === "delete") {
+      const nativeNames = new Set(
+        (await owner.fs.readdir(`${ROOT}/native-output/deep`)).map(
+          (entry) => entry.name
+        )
+      );
+      check(
+        nativeNames.size === LEAVES + 1 && nativeNames.has("answer.txt"),
+        "Native directory set differs"
+      );
+      for (let i = 0; i < LEAVES; i++) {
+        check(nativeNames.has(String(i)), `Missing native file ${i}`);
+      }
+      check(
+        (await owner.fs.readdir(`${ROOT}/native-output/deep`)).length ===
+          LEAVES + 1,
+        "Native producer lost directory entries"
+      );
+      check(
+        (await owner.fs.readFile(
+          `${ROOT}/native-output/deep/answer.txt`,
+          "utf8"
+        )) === "native result",
+        "Native output bytes were not retained"
+      );
+      if (await this.checkNativeOutputRecovery(state)) {
+        return;
+      }
+      await owner.fs.rm(tree, { recursive: true });
+      await owner.fs.mkdir(tree, { recursive: true });
+      await owner.fs.writeFile(`${tree}/answer.txt`, "recreated directory");
+      await this.ctx.storage.put("bounded-inject", "delete");
+      state.phase = "delete-push";
+    } else if (state.phase === "verify") {
+      if (this.env.STRESS === "true") {
+        const count = state.writes ?? 0;
+        check(count === 1024, "All 1024 writes must execute");
+        const verified = await this.execNative(
+          `python3 -c 'import pathlib,json; p=pathlib.Path("${ROOT}/churn"); n=${count}; expected={str(i) for i in range(n) if not (i+1<n and (i+1)%3==0)}; actual={x.name for x in p.iterdir()}; assert actual==expected,(len(actual),len(expected)); assert all((p/str(i)).read_text()==(str(i)+":").ljust(65536,"x") for i in range(n) if str(i) in expected); print(json.dumps({"verified":len(expected)}))'`
+        );
+        check(Number(verified.verified) > 0, "Churn verification missing");
+        check(state.restarts === 4, "Four restarts required");
+      }
+      const files = await this.execNative(
+        `python3 -c 'import pathlib,json; p=pathlib.Path("${ROOT}"); print(json.dumps({"files":[x.name for x in (p/"dependencies").iterdir()],"answer":(p/"answer.txt").read_text(),"recreated":(p/"dependencies"/"answer.txt").read_text()}))'`
+      );
+      check(
+        JSON.stringify(files.files) === JSON.stringify(["answer.txt"]) &&
+          files.answer === "retained answer" &&
+          files.recreated === "recreated directory",
+        "Delete/recreate lost files or retained stale files"
+      );
+      const mount = await this.execNative(
+        'python3 -c \'import pathlib,json,hashlib; s=json.loads(pathlib.Path("/usr/local/share/openmeld/computerd-source.json").read_text()); print(json.dumps({"source":s,"binarySha256":hashlib.sha256(pathlib.Path("/usr/local/bin/computerd").read_bytes()).hexdigest(),"mount":[x for x in pathlib.Path("/proc/mounts").read_text().splitlines() if " /computer " in x]}))\''
+      );
+      check(
+        (mount.mount as string[]).some((row) =>
+          row.includes(" /computer fuse ")
+        ),
+        "Real FUSE required"
+      );
+      state.phase = "done";
+      await this.ctx.storage.put("bounded-report", {
+        files,
+        mount,
+        leaves: LEAVES,
+        lostInitial: await this.ctx.storage.get("bounded-lost:initial"),
+        lostDelete: await this.ctx.storage.get("bounded-lost:delete"),
+      });
+    }
+  }
+
+  private async checkNativeOutputRecovery(state: BoundedState) {
+    if (this.env.STRESS !== "true") {
+      return false;
+    }
+    if (state.restarts === 3) {
+      state.phase = "destroy-persisted";
+      return true;
+    }
+    const recovered = await this.execNative(
+      `python3 -c 'import pathlib,json; p=pathlib.Path("${ROOT}/native-output/deep"); expected={str(i) for i in range(${LEAVES})}|{"answer.txt"}; assert {x.name for x in p.iterdir()}==expected; assert all((p/str(i)).stat().st_size==0 for i in range(${LEAVES})); assert (p/"answer.txt").read_text()=="native result"; print(json.dumps({"verified":len(expected)}))'`
+    );
+    check(
+      recovered.verified === LEAVES + 1,
+      "Synchronized native output must survive container replacement"
+    );
+    return false;
+  }
+
+  private async warmContainer() {
+    const owner = this.makeWorkspace();
+    try {
+      await owner.ready("container");
+      return Response.json(
+        await this.execNative(
+          "python3 -c 'import json; print(json.dumps({\"warm\":True}))'"
+        )
+      );
+    } finally {
+      await owner.close();
+    }
+  }
+
+  fetch(request: Request) {
+    if (new URL(request.url).pathname === "/warm") {
+      return this.warmContainer();
+    }
+    if (new URL(request.url).pathname === "/bounded") {
+      return this.runBoundedStep();
+    }
     if (new URL(request.url).pathname === "/api") {
       return this.native.handleFetch(request);
     }
@@ -328,6 +727,10 @@ export class ComputerContainerProbe extends withLegacyWorkspaceContainer(
     if (new URL(request.url).pathname === "/adoption") {
       return this.runAdoption();
     }
+    return this.runPack();
+  }
+
+  private async runPack() {
     const workspace = this.makeWorkspace();
     let owner = workspace;
     try {

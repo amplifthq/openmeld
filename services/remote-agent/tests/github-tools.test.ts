@@ -34,6 +34,8 @@ import {
 } from "./fixtures";
 import capturedPostedComment from "./fixtures/github-posted-comment.json";
 import capturedPrivateFile from "./fixtures/github-private-file-redacted.json";
+import capturedRepositoryCatalog from "./fixtures/github-repository-list-catalog.json";
+import capturedWriteCatalog from "./fixtures/github-write-action-catalog.json";
 import { InMemoryDurableObjectStorage } from "./storage";
 
 const ACK = {
@@ -213,7 +215,7 @@ function getRemoteAgentGitHubToolDefinitions(
   const coreWorker = withTestConnectorOperationLedger(input.coreWorker);
   return buildRemoteAgentGitHubToolDefinitions({
     ...input,
-    connectorExecution: input.connectorExecution,
+    connectorExecution: withCapturedWriteCatalog(input.connectorExecution),
     coreWorker: {
       centerAgentRecordConnectorActionAudit: vi.fn(async () => ({
         attribution: null,
@@ -235,7 +237,109 @@ function getRemoteAgentGitHubToolDefinitions(
   });
 }
 
+// Captured from the real b0721fc8 GitHub definition, executors, catalog store,
+// and public runtime serializer. Provider execution still uses each test's port.
+function withCapturedWriteCatalog(
+  config: Parameters<
+    typeof buildRemoteAgentGitHubToolDefinitions
+  >[0]["connectorExecution"]
+) {
+  if (!config) {
+    return config;
+  }
+  return {
+    ...config,
+    fetch: async (...args: Parameters<typeof fetch>) => {
+      const [url, init] = args;
+      const actionId = new URL(String(url)).searchParams.get("actionId");
+      const action = capturedWriteCatalog.data.find(
+        (item) => item.id === actionId
+      );
+      if (init?.method === "GET" && action) {
+        return Response.json({ ...capturedWriteCatalog, data: [action] });
+      }
+      return await (config.fetch ?? fetch)(...args);
+    },
+  };
+}
+
 describe("Remote Agent GitHub tools", () => {
+  it.each([
+    "requester",
+    "organization",
+  ] as const)("exposes repository-list inputs for the verified %s connection", async (githubActor) => {
+    const installation = githubActor === "organization";
+    const connection = connectionSelection({
+      ownerDisplayName: "Mira",
+      userId: "user_mira",
+      scope: installation ? "shared" : "member",
+    });
+    // Produced by the candidate Connector's real catalog + runtime serializer.
+    const catalog =
+      capturedRepositoryCatalog[installation ? "custom_credential" : "oauth2"];
+    const catalogAction = catalog.data[0];
+    if (!catalogAction) {
+      throw new Error("Captured repository action unavailable");
+    }
+    const fetchMock = vi.fn<typeof fetch>(async (_url, init) =>
+      init?.method === "GET"
+        ? Response.json(catalog)
+        : testOpenConnectorSuccessResponse({
+            actionId: "github.list_my_repositories",
+            data: { repositories: [] },
+            outputSchema: catalogAction.outputSchema,
+          })
+    );
+    const tools = getRemoteAgentGitHubToolDefinitions({
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        runtimeToken: "test-runtime-token",
+        fetch: fetchMock,
+      },
+      coreWorker: {
+        centerAgentResolveConnectorConnection: vi.fn(async () => connection),
+      },
+      storage: await createStorage(createSubmitTurnRequest()),
+    });
+    const tool = tools.find(
+      (candidate) => candidate.name === "github_list_my_repositories"
+    );
+    if (!tool) {
+      throw new Error("Repository list tool unavailable");
+    }
+    for (const filters of [
+      { sort: "full_name" },
+      { visibility: "private" },
+      { direction: "asc" },
+    ]) {
+      expect(safeParse(tool.input, { githubActor, ...filters }).success).toBe(
+        !installation
+      );
+      if (installation) {
+        await expect(
+          tool.execute({ githubActor, ...filters })
+        ).rejects.toThrow();
+      }
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+    const discovered = await executeTool(tools, "github_list_actions", {
+      githubActor,
+    });
+    expect(discovered).toMatchObject({
+      actions: [{ inputSchema: catalogAction.inputSchema }],
+    });
+    expect(
+      new URL(String(fetchMock.mock.calls[0]?.[0])).searchParams.get(
+        "connectionName"
+      )
+    ).toBe(connection.connection?.connectionName);
+    await expect(
+      tool.execute({ githubActor, page: 1, perPage: 25 })
+    ).resolves.toMatchObject({
+      status: "completed",
+      data: { repositories: [] },
+    });
+  });
   it("keeps one operation pending until Inbox approval and creates the issue only once", async () => {
     const storage = await createStorage(createSubmitTurnRequest());
     const ledger = withTestConnectorOperationLedger({
@@ -3566,7 +3670,10 @@ describe("Remote Agent GitHub tools", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("creates an explicitly requested issue without asking again", async () => {
+  it.each([
+    "github_create_issue",
+    "github_execute_action",
+  ] as const)("claims a trusted write effect for an explicitly requested issue through %s", async (toolName) => {
     const storage = await createStorage(createSubmitTurnRequest());
     const centerAgentResolveConnectorConnection = vi.fn(async () =>
       connectionSelection({ ownerDisplayName: "Mira", userId: "user_mira" })
@@ -3583,12 +3690,20 @@ describe("Remote Agent GitHub tools", () => {
       baseUrl: "https://connectors.example.test",
       fetch: fetchMock,
     };
-    const coreWorker = {
+    const baseCoreWorker = {
       centerAgentRecordConnectorActionAudit: vi.fn(async () => ({
         attribution: null,
         recorded: true as const,
       })) as never,
       centerAgentResolveConnectorConnection,
+    };
+    const ledger = withTestConnectorOperationLedger(baseCoreWorker);
+    const recordOperation = vi.fn(
+      ledger.centerAgentRecordConnectorActionOperation
+    );
+    const coreWorker = {
+      ...ledger,
+      centerAgentRecordConnectorActionOperation: recordOperation,
     };
     const tools = getRemoteAgentGitHubToolDefinitions({
       connectorExecution,
@@ -3602,13 +3717,26 @@ describe("Remote Agent GitHub tools", () => {
     };
 
     await expect(
-      executeTool(tools, "github_create_issue", issue)
+      executeTool(
+        tools,
+        toolName,
+        toolName === "github_execute_action"
+          ? { actionId: "github.create_issue", input: issue }
+          : issue
+      )
     ).resolves.toMatchObject({
       attribution: {
         connectionOwner: { displayName: "Mira", userId: "user_mira" },
       },
       status: "completed",
     });
+    expect(recordOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionId: "github.create_issue",
+        effect: "write",
+        outcome: "attempted",
+      })
+    );
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
       body: JSON.stringify({
@@ -3749,13 +3877,19 @@ describe("Remote Agent GitHub tools", () => {
         title: "Track connector bug",
       })
     ).resolves.toMatchObject({
-      spaceTask: { created: true, task: { taskId: createdTask.taskId } },
+      spaceTask: {
+        created: true,
+        task: { taskId: createdTask.taskId },
+        githubLink: {
+          status: "not_updated",
+          result: { status: "destructive_action_preview" },
+        },
+      },
       status: "completed",
     });
     expect(createSpaceTask).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual([
       "https://connectors.example.test/v1/actions/github.create_issue",
-      "https://connectors.example.test/v1/actions/github.update_issue",
     ]);
     expect(
       (await storage.list({ prefix: "github-space-task-observation:" })).size
@@ -4114,7 +4248,8 @@ describe("Remote Agent GitHub tools", () => {
 
     const firstResult = await executeTool(tools, name, input);
     const destructive =
-      name === "github_delete_file" || name === "github_merge_pull_request";
+      capturedWriteCatalog.data.find((action) => action.id === actionId)
+        ?.effect === "destructive";
     if (!destructive) {
       expect(firstResult).toMatchObject({ status: "completed" });
       expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -4127,7 +4262,10 @@ describe("Remote Agent GitHub tools", () => {
     expect(firstResult).toMatchObject({
       confirmation: {
         connectionOwnerUserId: "user_mira",
-        requiredMessage,
+        ...(name === "github_delete_file" ||
+        name === "github_merge_pull_request"
+          ? { requiredMessage }
+          : {}),
         writeConfirmationToken: expect.any(String),
       },
       status: "destructive_action_preview",
@@ -5064,7 +5202,7 @@ async function createNextTurnGitHubTools(input: {
     })
   );
   return buildRemoteAgentGitHubToolDefinitions({
-    connectorExecution: input.connectorExecution,
+    connectorExecution: withCapturedWriteCatalog(input.connectorExecution),
     coreWorker: withTestConnectorOperationLedger(input.coreWorker),
     storage: input.storage,
     submissionId,

@@ -167,7 +167,7 @@ export async function reconcileRemoteAgentExecution(input: {
 
   const nowMs = input.nowMs?.() ?? Date.now();
 
-  await finishRemoteAgentComputerCommands({
+  const cleanupFailure = await finishRemoteAgentComputerCommands({
     context: await readRemoteAgentCallbackContext(
       input.storage,
       input.identity.submissionId
@@ -188,15 +188,19 @@ export async function reconcileRemoteAgentExecution(input: {
     nowMs,
     status: cancelled ? "aborted" : "failed",
     storage: input.storage,
-    terminalFailure:
-      requestedFailure ??
-      createRemoteAgentTerminalFailureFact({
-        error: cancelled
-          ? (current.execution.cancellationReason ??
-            "Remote Agent execution was cancelled.")
-          : submission.error,
-        status: cancelled ? "aborted" : "failed",
-      }),
+    terminalFailure: {
+      ...(requestedFailure ??
+        createRemoteAgentTerminalFailureFact({
+          error: cancelled
+            ? (current.execution.cancellationReason ??
+              "Remote Agent execution was cancelled.")
+            : submission.error,
+          status: cancelled ? "aborted" : "failed",
+        })),
+      ...(cleanupFailure?.computerCleanup
+        ? { computerCleanup: cleanupFailure.computerCleanup }
+        : {}),
+    },
   });
   await projectRemoteAgentTerminalExecution({
     env: input.env,
@@ -242,7 +246,11 @@ async function reconcileCompletedRemoteAgentExecution(input: {
       "Remote Agent canonical result has mismatched callback authority."
     );
   }
-  await finishRemoteAgentComputerCommands({ ...input, context });
+  const cleanupFailure = await finishRemoteAgentComputerCommands({
+    ...input,
+    context,
+    assistantText: input.output.text,
+  });
   const nowMs = input.nowMs?.() ?? Date.now();
   const completionMetadata = normalizeTerminalMetadata(input.output);
   const common = {
@@ -252,7 +260,13 @@ async function reconcileCompletedRemoteAgentExecution(input: {
     completionMetadata,
   };
   let execution: Awaited<ReturnType<typeof completeRemoteAgentExecutionState>>;
-  if (context.workLoopCheckpoint) {
+  if (cleanupFailure) {
+    execution = await completeRemoteAgentExecutionState({
+      ...common,
+      status: "failed",
+      terminalFailure: cleanupFailure,
+    });
+  } else if (context.workLoopCheckpoint) {
     execution = await completeRemoteAgentExecutionState({
       ...common,
       status: "checkpoint",

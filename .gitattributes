@@ -1,4 +1,6 @@
 patches/*.patch -whitespace
+# Patch context preserves the upstream source's exact indentation and blank lines.
+services/remote-agent/computerd/*.patch -whitespace
 release/openmeld-cli-skill/** text eol=lf
 clients/web/public/skills/openmeld-cli/** text eol=lf
 clients/web/src/routeTree.gen.ts text eol=lf

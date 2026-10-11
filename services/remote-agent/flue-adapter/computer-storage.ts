@@ -1,8 +1,13 @@
 import type { CloudComputerStorage } from "@openmeld/schemas";
+import {
+  AGENT_COMPUTER_STORAGE_CAPACITY_BYTES,
+  AGENT_COMPUTER_STORAGE_RESERVE_BYTES,
+} from "./computer-workspace-config";
 
-// This deployment uses paid SQLite-backed Durable Objects. This is the
-// provider's per-object limit, not a user file quota or Linux disk size.
-const PERSISTENT_LIMIT_BYTES = 10_000_000_000;
+// Application admission leaves room for receipts and bounded cleanup below
+// the platform hard ceiling. This is not Linux temporary disk capacity.
+const PERSISTENT_LIMIT_BYTES =
+  AGENT_COMPUTER_STORAGE_CAPACITY_BYTES - AGENT_COMPUTER_STORAGE_RESERVE_BYTES;
 const SQLITE_FULL = /SQLITE_FULL|database or disk is full/iu;
 const DISK_FULL = /\bENOSPC\b|no space left on device/iu;
 
@@ -28,11 +33,18 @@ export function describeComputerStorage(
     growthHeadroomBytes: Math.max(0, PERSISTENT_LIMIT_BYTES - databaseBytes),
     status,
     observedAtMs,
-    guidance: `${status === "available" ? "" : "Tell the user that persistent Computer storage is nearly full before starting more downloads or builds. "}Database size includes files and internal records. Growth headroom excludes reusable database pages and is not guaranteed free space. Check Linux temporary disk and inodes separately with df -h /tmp and df -i /tmp. Reuse project repositories. Inspect selected files before cleanup; preserve uncommitted and unpushed work. No files are deleted automatically.`,
+    guidance: `${status === "available" ? "" : "Tell the user that persistent Computer storage is nearly full before starting more downloads or builds. "}Database size includes files and internal records, but excludes reusable database pages. Growth headroom is not guaranteed free space. Check Linux temporary disk and inodes separately with df -h /tmp and df -i /tmp. Reuse project repositories. Inspect selected files before cleanup; preserve uncommitted and unpushed work. No files are deleted automatically.`,
   };
 }
 
 export function computerCapacityMessage(message: string): string | undefined {
+  if (
+    message.includes(
+      "Computer storage is full; remove files before writing more"
+    )
+  ) {
+    return "computer.storage_full: Computer storage has reached its write limit. Existing files remain available. Inspect storage, preserve needed work, and delete only selected disposable files. Background cleanup can take time. Verify a small write before resuming and check the existing command receipt before retrying a command.";
+  }
   if (SQLITE_FULL.test(message)) {
     return "computer.storage_full: Persistent Computer storage could not accept a write. Stop large writes. Use computer describe to inspect storage, then file tools to read or export needed files and delete only explicitly selected disposable files. Deletion may not reclaim retained provider data; verify a small write before resuming. If capacity is still exhausted, preserve files and report that provider storage recovery is required. Do not reset repositories or blindly retry commands. Inspect any existing command receipt before retrying; a failed receipt write does not prove that the command did not run.";
   }

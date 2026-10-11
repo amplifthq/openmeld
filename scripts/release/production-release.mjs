@@ -7,6 +7,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { readCutoverTarget } from "../../tooling/postgresql/remote-target.mjs";
+import { hasUnchangedCloudComputerRequests } from "./cloud-computer-request-compatibility.mjs";
 import {
   admitPostgresqlProductRelease,
   readPostgresqlCutoverPreparation,
@@ -857,7 +858,6 @@ const CONNECT_COMPUTER_WEB_PRODUCER_PATH =
 const REMOTE_AGENT_RECEIVER_FIRST_CONTRACT_PATHS = new Set([
   "services/remote-agent/.flue/cloudflare.ts",
   "services/remote-agent/flue-adapter/cloudflare-entrypoint.ts",
-  "services/remote-agent/flue-adapter/execution-reconciliation.ts",
 ]);
 const REMOTE_AI_USAGE_PRODUCER_CONTRACT_PATHS = new Set([
   "packages/schemas/src/schemas/ai-usage.ts",
@@ -921,6 +921,7 @@ const REMOTE_AGENT_WORKER_REQUEST_SCHEMA_PATHS = new Set([
 ]);
 const REMOTE_AGENT_WORKER_RESPONSE_PRODUCER_PATHS = new Set([
   "services/remote-agent/.flue/agents/center-agent.ts",
+  "services/remote-agent/flue-adapter/execution-reconciliation.ts",
 ]);
 const REMOTE_AGENT_WORKER_REQUEST_PRODUCER_PATHS = new Set([
   "services/core/src/remote-agent/application/remote-agent-conversation-continuity.ts",
@@ -2231,6 +2232,12 @@ function isCloudCommandReceiptOptInDiff(paths, context) {
   );
   return (
     owners.length > 0 &&
+    !hasUnchangedCloudComputerRequests({
+      ...context,
+      readGitFile:
+        context.readGitFile ??
+        ((ref, file) => runGit(["show", `${ref}:${file}`])),
+    }) &&
     (!owners.every((file) => file === entrypoint) ||
       targetProductSourceMentions(context, entrypoint, [
         "cloudComputerOperation",
@@ -3595,7 +3602,8 @@ function assertContinuationScope(status, input, scopes) {
   if (
     status.sourceSha !== input.sourceSha ||
     status.currentChange?.baseSha !== input.baseSha ||
-    status.currentChange.error
+    status.currentChange.error ||
+    status.currentChange.orderingError
   ) {
     throw new Error(
       "Release continuation requires the unchanged source and change base with a valid scope plan."

@@ -758,6 +758,18 @@ remain extensible. This permits a Core receiver stage while the old Gateway
 still rejects new opt-in inputs. Recheck the actual caller chain on the final
 source: these source and parser facts are not mixed-version Worker smoke.
 
+Internal Computer storage and result changes do not reintroduce this request
+edge when the existing request prefix, its imported schema owners and locked
+parser resolution, and the complete Core/Gateway/API/CLI callers are unchanged.
+The bounded comparison rejects unknown history, imports, executable result
+suffixes and unrecognized schema construction. It proves only unchanged public
+requests; response readers and all other release obligations remain independent.
+Execution reconciliation produces terminal responses. It is not a request
+admission owner; request entrypoints retain their receiver-first classification.
+When the mixed native-delivery ambiguity check still applies, use separately
+admitted component stages and their verified receipts rather than a combined
+plan or a manufactured base ref.
+
 Each obligation is registered from its bounded changed owners and the explicit
 product source, including caller-only changes. Known historical sources without
 the feature stay independent; an unreadable source retains the obligation. The
@@ -2078,7 +2090,12 @@ CLI stage. This does not introduce a second npm publisher or dispatch tracker.
 Use `release:status -- --ref <product-sha> --change-base <pre-merge-sha>
 --check-complete` for the deployment closeout check. It requires real receipts,
 rejects `--deployed` planning overrides, and exits nonzero for missing or pending
-components. Human output labels deployable work as incomplete. This check does
+components. Scope impact and deployed completion are independent of whether the
+changes admit one combined deployment order. Ambiguous ordering remains visible
+and blocks automatic continuation; explicitly reviewed single-component stages
+still use receipt-based admission. Once all affected components have current
+receipts, the completion check can succeed without inventing a combined order.
+Human output labels deployable work as incomplete. This check does
 not certify product smoke, Desktop installation, or Desktop update acceptance.
 
 The guarded local executor is safe to rerun after interruption. Completion
