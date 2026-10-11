@@ -25,7 +25,6 @@ import {
 } from "../e2e/desktop-macos-production-update-smoke.mjs";
 
 import {
-  assertLocalContinuationScope,
   assertProductionReleaseSource,
   buildCoreCurrentCliProjectionPreflightStepSpecs,
   buildProductionDeployStepSpecs,
@@ -41,6 +40,7 @@ import {
   resolveLocalReleaseOwner,
   resolveProductionCompatibilityDependencies,
   resumeProductionRelease,
+  runHostedRelease,
 } from "./production-release.mjs";
 import { assertProductionStageAdmission } from "./production-stage-admission.mjs";
 
@@ -95,20 +95,63 @@ function assertReceiptGatedStage(
   );
 }
 
-test("local continuation sends CLI publication to its existing GitHub owner", () => {
+test("hosted publication waits for the exact run and reuses an active run after interruption", () => {
   const sourceSha = "a".repeat(40);
+  for (const active of [false, true]) {
+    const dispatched = [];
+    let watched;
+    runHostedRelease("cli", sourceSha, ["cli", "core", "web"], {
+      capture(args) {
+        if (args[0] === "run") {
+          return JSON.stringify(
+            active
+              ? [
+                  {
+                    databaseId: 38_141_004_288,
+                    displayTitle: `CLI Release @ ${sourceSha}`,
+                    status: "in_progress",
+                  },
+                ]
+              : []
+          );
+        }
+        dispatched.push(args);
+        return "https://github.com/amplifthq/openmeld/actions/runs/38141004288";
+      },
+      watch(args) {
+        watched = args;
+      },
+    });
+    assert.equal(dispatched.length, active ? 0 : 1);
+    if (!active) {
+      assert.ok(dispatched[0].includes(`release_sha=${sourceSha}`));
+      assert.ok(dispatched[0].includes("production_train_scopes=cli,core,web"));
+      assert.ok(dispatched[0].includes("cli-release.yml"));
+    }
+    assert.ok(watched.includes("38141004288"));
+    assert.ok(watched.includes("--exit-status"));
+  }
   assert.throws(
     () =>
-      assertLocalContinuationScope("cli", sourceSha, ["cli", "core", "web"]),
-    (error) => {
-      assert.ok(error.message.includes(`release_sha=${sourceSha}`));
-      assert.ok(error.message.includes("production_train_scopes=cli,core,web"));
-      assert.ok(error.message.includes("cli-release.yml --ref main"));
-      return true;
-    }
+      runHostedRelease("web", sourceSha, ["web"], {
+        capture: (args) => (args[0] === "run" ? "[]" : ""),
+        watch: () =>
+          assert.fail("must not guess a run after ambiguous dispatch"),
+      }),
+    (error) => error.message.includes("without a run URL")
   );
-  assert.doesNotThrow(() =>
-    assertLocalContinuationScope("web", sourceSha, ["cli", "core", "web"])
+  assert.throws(
+    () =>
+      runHostedRelease("web", sourceSha, ["web"], {
+        capture: (args) =>
+          args[0] === "run"
+            ? "[]"
+            : "https://github.com/amplifthq/openmeld/actions/runs/38155840353",
+        watch: () => {
+          throw new Error("release failed");
+        },
+      }),
+    { message: "release failed" }
   );
 });
 
@@ -202,6 +245,28 @@ test("resumes only unfinished components and waits for their verified receipts",
     write: () => undefined,
   });
   assert.deepEqual(calls, ["remote-agent", "web"]);
+  let waiting = true;
+  const selectedOutput = [];
+  await resumeProductionRelease({
+    sourceSha,
+    baseSha,
+    scopes: ["web"],
+    collectStatus: async () =>
+      snapshot([
+        component("core", "pending"),
+        component("remote-agent", "current"),
+        component("web", waiting ? "unknown" : "current"),
+      ]),
+    waitForActiveRelease: () => {
+      waiting = false;
+      return true;
+    },
+    deployScope: () => assert.fail("an existing run owns the deployment"),
+    write: (line) => selectedOutput.push(line),
+  });
+  assert.ok(
+    selectedOutput.at(-1).startsWith("Selected components complete: web.")
+  );
   const unresolved = snapshot([
     component("core", "current"),
     component("remote-agent", "pending"),
@@ -961,6 +1026,7 @@ test("parses the local production release command", () => {
     {
       base: "origin/main",
       command: "deploy",
+      lane: "local",
       json: false,
       scope: "web,core",
     }
@@ -994,6 +1060,7 @@ test("parses an explicit deployment preflight", () => {
     {
       base: "origin/main",
       command: "preflight",
+      lane: "local",
       json: false,
       scope: "core",
     }
