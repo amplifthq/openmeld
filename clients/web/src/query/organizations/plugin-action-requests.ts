@@ -65,8 +65,23 @@ export function useMessagePluginActionRequests(
 			spaceId,
 			sourceSignalIds,
 		],
-		queryFn: () =>
-			api.listRequests({ organizationId, spaceId, sourceSignalIds }),
+		queryFn: async () => {
+			const batches = await Promise.all(
+				Array.from(
+					{ length: Math.ceil(sourceSignalIds.length / 1000) },
+					(_, index) =>
+						api.listRequests({
+							organizationId,
+							spaceId,
+							sourceSignalIds: sourceSignalIds.slice(
+								index * 1000,
+								(index + 1) * 1000
+							),
+						})
+				)
+			);
+			return { requests: batches.flatMap((batch) => batch.requests) };
+		},
 		retry: false,
 		staleTime: 15_000,
 		refetchInterval: 15_000,

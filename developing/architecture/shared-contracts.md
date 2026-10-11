@@ -35,8 +35,12 @@ The Plugin request owns its persisted continuation intent; Space and
 RuntimeCoordinator retain message admission and execution authority.
 
 Apply the additive nullable `plugin_action_requests.continuation_json` migration
-before Core, then deploy Gateway before the new Web caller. Retain that nullable
-column on rollback and remove the Web caller first. The historical import
+before Core, then deploy Gateway before the new Web caller. Remove the Web caller
+first on rollback and retain the nullable column. Once new requests contain
+message provenance in `request_json`, Core rollback must retain the extended
+intent reader: an older strict reader rejects those new records. Use a compatible
+Core rollback or a forward fix; do not strip stored provenance to downgrade.
+The historical import
 baseline includes this native-only column. Existing CLI/Service/Skills setup,
 Wake, trace and diagnostics retain their previous wire contracts and need no
 local component update. GitHub issue observations accept an optional closure

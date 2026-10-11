@@ -1,6 +1,7 @@
 import {
   openConnectorRuntimeActionSchema,
   pluginActionRpcInputSchema,
+  pluginConnectionContinuationResponseSchema,
   pluginDelegationAuthorizationSchema,
 } from "@openmeld/schemas";
 import type {
@@ -21,7 +22,12 @@ import {
   postgresTestBinding,
 } from "./helpers/postgresql-harness.test-support";
 
-const admission = vi.hoisted(() => ({ caller: vi.fn(), identity: vi.fn() }));
+const admission = vi.hoisted(() => ({
+  caller: vi.fn(),
+  identity: vi.fn(),
+  trace: vi.fn(),
+  continue: vi.fn(),
+}));
 // This seam starts after identity admission. Connection policy, operation
 // storage, replay claims and provider execution all run their real owners.
 vi.mock("../src/connectors/plugin-local-caller", () => ({
@@ -37,7 +43,10 @@ vi.mock("../src/organizations/organization-context", () => ({
 }));
 vi.mock("../src/rpc/methods", () => ({
   rpcReadPluginConnectionContinuationBinding: async () => null,
-  rpcGetSpaceDispatchTrace: async () => ({ trace: null }),
+  rpcGetSpaceDispatchTrace: admission.trace,
+}));
+vi.mock("../src/connectors/plugin-connection-continuation", () => ({
+  continuePluginConnection: admission.continue,
 }));
 
 const profileId = "agt_00000000-0000-4000-8000-000000000001";
@@ -95,6 +104,17 @@ function request(operationId = "original-operation", replay = false) {
 }
 
 beforeEach(async () => {
+  admission.trace.mockReset().mockResolvedValue({ trace: null });
+  admission.continue.mockReset().mockResolvedValue(
+    pluginConnectionContinuationResponseSchema.parse({
+      status: "requested",
+      sourceSignalId: "final-reply",
+      signalId: "continued-message",
+      spaceId: "space-1",
+      targetProfileId: profileId,
+      threadId: null,
+    })
+  );
   harness = await createPostgresHarness();
 
   await harness.query({
@@ -219,6 +239,54 @@ async function approveRequest(input = request()) {
 }
 
 describe("Local plugin replay through real operation and connection storage", () => {
+  it("retains approved delivery while the visible reply is ahead of coordinator completion", async () => {
+    sourceSpaceId = "space-1";
+    admission.trace.mockResolvedValue({
+      trace: {
+        finalVisibleMessage: { signalId: "final-reply" },
+        runtimeCoordinatorExecution: {
+          status: "running",
+          terminalOutcome: null,
+        },
+        result: null,
+      },
+    });
+    await approveRequest();
+    expect(admission.continue).not.toHaveBeenCalled();
+    admission.trace.mockResolvedValue({
+      trace: {
+        finalVisibleMessage: { signalId: "final-reply" },
+        runtimeCoordinatorExecution: {
+          status: "reply_published",
+          terminalOutcome: { kind: "reply_published" },
+        },
+        result: null,
+      },
+    });
+    await retryApprovedPluginActionRequests({ ...env });
+    expect(admission.continue).not.toHaveBeenCalled();
+    admission.trace.mockResolvedValue({
+      trace: {
+        finalVisibleMessage: { signalId: "final-reply" },
+        runtimeCoordinatorExecution: {
+          status: "reply_published",
+          terminalOutcome: { kind: "reply_published" },
+        },
+        result: { publishedSignalId: "final-reply", statusType: null },
+      },
+    });
+    await retryApprovedPluginActionRequests({ ...env });
+    await retryApprovedPluginActionRequests({ ...env });
+    expect(admission.continue).toHaveBeenCalledTimes(1);
+    expect(admission.continue).toHaveBeenCalledWith(
+      env,
+      expect.objectContaining({ sourceSignalId: "final-reply" }),
+      expect.objectContaining({
+        intent: expect.objectContaining({ operationId: "original-operation" }),
+      })
+    );
+    expect(providerCalls).toHaveLength(0);
+  });
   it.each([
     "approve",
     "reject",

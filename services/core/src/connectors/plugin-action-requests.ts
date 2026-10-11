@@ -404,12 +404,11 @@ async function continueApprovedRequest(
     if (intent.sourceNativeDeliveryId) {
       replySignalId = await readApprovedNativeReply(db, row, intent);
     } else if (row.source_request_key?.startsWith("dispatch:")) {
-      const trace = await rpcGetSpaceDispatchTrace(env, {
+      replySignalId = await readApprovedLocalReply(env, {
         context: continuation.context,
         spaceId: intent.sourceSpaceId,
         dispatchId: row.source_request_key.slice("dispatch:".length),
       });
-      replySignalId = trace.trace?.finalVisibleMessage?.signalId ?? null;
     } else {
       await save("unavailable");
       return;
@@ -439,6 +438,30 @@ async function continueApprovedRequest(
       status,
     });
   }
+}
+
+async function readApprovedLocalReply(
+  env: CoreBindings,
+  input: Parameters<typeof rpcGetSpaceDispatchTrace>[1]
+): Promise<string | null> {
+  const { trace } = await rpcGetSpaceDispatchTrace(env, input);
+  const execution = trace?.runtimeCoordinatorExecution;
+  if (execution?.status !== "reply_published") {
+    if (execution?.terminalOutcome) {
+      throw denied(
+        "continuation_source_stopped",
+        "The original execution stopped before it could continue."
+      );
+    }
+    return null;
+  }
+  const replySignalId = trace?.finalVisibleMessage?.signalId ?? null;
+  // Space publication can become visible before the coordinator receipt.
+  // Keep delivery pending until both owners agree the reply is settled.
+  return execution.terminalOutcome?.kind === "reply_published" &&
+    trace?.result?.publishedSignalId === replySignalId
+    ? replySignalId
+    : null;
 }
 
 async function readApprovedNativeReply(
