@@ -278,9 +278,16 @@ export function resolveProductionCompatibilityObligations(
   context = {}
 ) {
   const spaceTask = isSpaceTaskReceiverFirstDiff(changedPaths);
+  const spaceTaskContractChanged = isSpaceTaskContractChanged(
+    changedPaths,
+    context
+  );
   const callerContext = isSpaceCallerContextDiff(changedPaths);
-  const spaceTaskCli = changedPaths.includes(
-    "clients/openmeld-cli/src/space/dispatch-task.ts"
+  const spaceTaskCli =
+    changedPaths.includes("clients/openmeld-cli/src/space/dispatch-task.ts") ||
+    changedPaths.includes("packages/api-client/src/space/tasks.ts");
+  const spaceTaskWeb = changedPaths.some((file) =>
+    SPACE_TASK_WEB_CALLER_PATHS.has(file)
   );
   const invitation = isSpaceInvitationReceiverFirstDiff(changedPaths);
   const remoteRequestReceiverFirst =
@@ -409,23 +416,31 @@ export function resolveProductionCompatibilityObligations(
     {
       contract: "space-task",
       enabled:
-        spaceTask &&
-        (spaceTaskCli ||
-          changedPaths.includes(
-            "services/gateway/src/routes/rpc-http.space-tasks.ts"
-          )),
+        spaceTaskContractChanged ||
+        (spaceTask &&
+          (spaceTaskCli ||
+            spaceTaskWeb ||
+            changedPaths.includes(
+              "services/gateway/src/routes/rpc-http.space-tasks.ts"
+            ))),
       edges: [["core", "gateway"]],
     },
     {
       contract: "space-task",
-      enabled: spaceTask && spaceTaskCli,
+      enabled: spaceTaskContractChanged || (spaceTask && spaceTaskWeb),
+      edges: [["gateway", "web"]],
+    },
+    {
+      contract: "space-task",
+      enabled: spaceTaskContractChanged || (spaceTask && spaceTaskCli),
       edges: [["gateway", "cli"]],
     },
     {
       contract: "space-task",
       enabled:
-        spaceTask &&
-        changedPaths.includes("services/remote-agent/agent-core/tools.ts"),
+        spaceTaskContractChanged ||
+        (spaceTask &&
+          changedPaths.includes("services/remote-agent/agent-core/tools.ts")),
       edges: [["core", "remote-agent"]],
     },
     {
@@ -801,10 +816,16 @@ const SPACE_HISTORY_QUERY_SCHEMA_PATH =
   "packages/schemas/src/schemas/http/list-signals-query.ts";
 const SPACE_TASK_SCHEMA_PATH =
   "packages/schemas/src/schemas/http/space-tasks.ts";
+const SPACE_TASK_WEB_CALLER_PATHS = new Set([
+  "packages/api-client/src/space/tasks.ts",
+  "clients/web/src/components/spaces/use-space-tasks-panel-controller.ts",
+  "clients/web/src/components/spaces/use-space-message-task-action.ts",
+]);
 const SPACE_TASK_CALLER_PATHS = [
   "clients/openmeld-cli/src/space/dispatch-task.ts",
   "services/gateway/src/routes/rpc-http.space-tasks.ts",
   "services/remote-agent/agent-core/tools.ts",
+  ...SPACE_TASK_WEB_CALLER_PATHS,
 ];
 const WAKE_PROGRESS_CLI_CALLER_PATH =
   "clients/openmeld-cli/src/space/wake-control-command.ts";
@@ -1437,7 +1458,6 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   const changedPaths = input.changedPaths ?? [];
   const compatibilityChangedPaths =
     input.compatibilityChangedPaths ?? changedPaths;
-  assertCenterAgentEvidenceReleaseScopes(scopes, changedPaths);
   assertSpaceMessageSearchReleaseScopes(scopes, changedPaths);
   assertConnectComputerReleaseScopes(scopes, changedPaths);
   assertInboxSourceTargetReleaseScopes(
@@ -1449,7 +1469,6 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   assertLocalServiceRuntimeReleaseScopes(scopes, changedPaths);
   assertWakeProgressOptInContractReleaseScopes(scopes, changedPaths);
   assertSpaceHistoryQueryReleaseScopes(scopes, changedPaths);
-  assertSpaceTaskReleaseScopes(scopes, changedPaths);
   const deployOrderProfile = resolveProductionDeployOrderProfile(
     compatibilityChangedPaths,
     input.taskInboxRetired,
@@ -2496,19 +2515,6 @@ function isSpaceMessageSearchReceiverFirstDiff(paths) {
   ].every((file) => paths.includes(file));
 }
 
-function assertCenterAgentEvidenceReleaseScopes(scopes, paths) {
-  const selected = new Set(scopes);
-  if (
-    isCenterAgentEvidenceDiff(paths) &&
-    selected.has("remote-agent") &&
-    !selected.has("core")
-  ) {
-    throw new Error(
-      "Center Agent evidence tools require the Core RPC receiver before Remote Agent; include Core in the ordered plan."
-    );
-  }
-}
-
 function assertSpaceMessageSearchReleaseScopes(scopes, paths) {
   if (!isSpaceMessageSearchReceiverFirstDiff(paths)) {
     return;
@@ -2609,28 +2615,15 @@ function isSpaceTaskReceiverFirstDiff(changedPaths) {
   );
 }
 
-function assertSpaceTaskReleaseScopes(scopes, changedPaths) {
-  if (!isSpaceTaskReceiverFirstDiff(changedPaths)) {
-    return;
+function isSpaceTaskContractChanged(changedPaths, context) {
+  if (!changedPaths.includes(SPACE_TASK_SCHEMA_PATH)) {
+    return false;
   }
-  const selected = new Set(scopes);
-  if (
-    ["gateway", "web", "cli", "remote-agent"].some((scope) =>
-      selected.has(scope)
-    ) &&
-    !selected.has("core")
-  ) {
-    throw new Error("Space Task consumers require the Core receiver scope.");
-  }
-  // Web and CLI use Gateway HTTP; Remote Agent calls the Core binding directly.
-  if (
-    (selected.has("web") || selected.has("cli")) &&
-    !selected.has("gateway")
-  ) {
-    throw new Error(
-      "Space Task Web and CLI consumers require the Gateway receiver scope."
-    );
-  }
+  // Existing callers import this schema and its wire version. Their runtime
+  // contract can change without edits to the callers themselves. Unknown
+  // source history must retain their receiver prerequisites.
+  const sources = readContractSources(context, SPACE_TASK_SCHEMA_PATH);
+  return !sources || sources[0] !== sources[1];
 }
 
 function assertSpaceHistoryQueryReleaseScopes(scopes, changedPaths) {

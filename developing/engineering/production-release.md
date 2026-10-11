@@ -966,8 +966,18 @@ Core RPC and Space receiver, and a Task caller together. Core deploys with the
 immutable current published CLI projection first, followed by Gateway, Web,
 Remote Agent, and CLI when selected. CLI and Web call Gateway's Task HTTP
 routes; Remote Agent calls Core directly and does not require Gateway.
-Every selected consumer requires Core in the plan, and CLI/Web also require
-Gateway. Core-only and Core/Gateway receiver stages remain supported without
+The compatibility graph records the changed callers' receiver obligations:
+Core before Remote, and Core before Gateway before changed Web/CLI callers.
+A shared Task API-client change covers both Web and CLI. A changed shared Task
+schema also covers its transitive consumers, including unchanged API-client and
+Remote binding files that import its wire-version constant. Unavailable schema
+history retains those prerequisites. Unrelated client edits do not add Task
+dependencies. Receipt-based stage admission accepts an already
+verified receiver; it does not require selecting or deploying that receiver
+again. Remote remains blocked while its required Core receiver is pending or
+unknown, even when Core is selected in the same command. Center Agent evidence
+tools use the same receipt-based Core-before-Remote admission.
+Core-only and Core/Gateway receiver stages remain supported without
 requiring the future Service fingerprint to match the published channel;
 the existing receiver executor verifies the real channel and immutable tag.
 Opposing receiver constraints fail closed rather than overriding their order.
@@ -975,9 +985,10 @@ Opposing receiver constraints fail closed rather than overriding their order.
 Keep the same pre-feature base (for example the previously published CLI tag)
 through every stage, including after a version-only PR. A narrow version-PR
 diff cannot establish the Task dependency. Use the guarded ordered local
-Core/Gateway/Web/CLI plan for the first publication; CLI-only with that base is
-rejected. The static hosted fleet admission also rejects a selected order it
-cannot execute. No direct receiver script invocation or hash-check bypass is
+Core/Gateway/Web/CLI plan for the first publication, or complete its receiver
+stages first and publish the caller after receipt-based admission succeeds.
+Missing prerequisites remain blocked. The static hosted fleet admission also
+rejects a selected order it cannot execute. No direct receiver script invocation or hash-check bypass is
 part of this rollout. The final normal CLI stage publishes artifacts and
 updates Core to the new CLI projection after the receivers are healthy.
 
