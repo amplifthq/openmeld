@@ -173,6 +173,13 @@ describe("returning to the live Space history", () => {
 		expect(
 			historyApi.listSignalEnvelopes.mock.calls.at(-1)?.[0].query
 		).toMatchObject({ recent: true, limit: 60 });
+		act(() => result.current.latest());
+		expect(result.current.notice).toContain("Showing the latest messages");
+		historyApi.listSignalEnvelopes.mockResolvedValue({
+			envelopes: [message("other")],
+		});
+		await navigate(() => result.current.open("other"));
+		expect(result.current.notice).toBeNull();
 	});
 
 	it.each([
@@ -206,11 +213,55 @@ describe("returning to the live Space history", () => {
 		);
 		expect(await navigate(() => result.current.open("missing"))).toBe(false);
 		expect(historyApi.listSignalEnvelopes).toHaveBeenCalledTimes(
-			(latest ? 1 : 0) + 3
+			(latest ? 1 : 0) + (status === 403 ? 1 : 3)
 		);
 		expect(result.current.notice).toBeNull();
 		expect(result.current.error).not.toContain("internal details");
 		expect(result.current.error).not.toContain("Showing the latest");
+	});
+
+	it.each([
+		"access",
+		"missing anchor",
+	])("does not automatically retry a permanent %s failure", async (failure) => {
+		const initialWindow = Array.from({ length: 61 }, (_, index) =>
+			message(String(index))
+		);
+		historyApi.listSignalEnvelopes.mockResolvedValue({
+			envelopes: initialWindow,
+		});
+		const { result } = renderHook(() =>
+			useSpaceHistoryNavigation({
+				accessRejected: false,
+				enabled: true,
+				liveEnvelopes: [],
+				profileId: "viewer",
+				spaceId: "permanent-space",
+			})
+		);
+		await navigate(() => result.current.open("30"));
+		historyApi.listSignalEnvelopes.mockClear();
+		historyApi.listSignalEnvelopes.mockRejectedValue(
+			new OpenMeldApiClientHttpError({
+				code: "upstream_error",
+				status: failure === "access" ? 403 : 404,
+				rawBody: "",
+				upstreamCode:
+					failure === "access"
+						? "space.forbidden"
+						: "space.signals.anchor_not_found",
+				message: "Unavailable",
+			})
+		);
+		expect(await navigate(() => result.current.loadBefore())).toBe(false);
+		await act(() => {
+			onlineManager.setOnline(false);
+			onlineManager.setOnline(true);
+			focusManager.setFocused(false);
+			focusManager.setFocused(true);
+		});
+		expect(result.current.error).toBeTruthy();
+		expect(historyApi.listSignalEnvelopes).toHaveBeenCalledOnce();
 	});
 
 	it.each([

@@ -1164,6 +1164,87 @@ describe("SpaceConversationPanel", () => {
 		rectSpy.mockRestore();
 	});
 
+	it("finishes an unread jump when its failed history load later recovers", async () => {
+		let recovered: ((result: true | "latest") => void) | undefined;
+		const historyNavigation: NonNullable<
+			SpaceConversationPanelInput["historyNavigation"]
+		> = {
+			activeWindow: null,
+			directory: undefined,
+			directoryError: false,
+			directoryPending: false,
+			error: null,
+			notice: null,
+			errorDirection: undefined,
+			hasHiddenLiveHistory: false,
+			latest: vi.fn(),
+			loadAfter: vi.fn(async () => false),
+			loadBefore: vi.fn(async () => false),
+			open: vi.fn((_id, _signal, onLoaded) => {
+				recovered = onLoaded;
+				return Promise.resolve(false);
+			}),
+			hrefForSignalId: undefined,
+			earlierHref: undefined,
+			latestHref: undefined,
+			newerHref: undefined,
+			pending: false,
+			pendingDirection: undefined,
+			retry: vi.fn(),
+			retryDirectory: vi.fn(),
+			revealCachedBefore: vi.fn(),
+			visibleLiveEnvelopes: [],
+		};
+		const overrides: SpaceConversationPanelOverrides = {
+			historyNavigation,
+			timelineItems: [
+				createTimelineItem({ id: "readable", text: "Readable message" }),
+			],
+			unreadTargets: [
+				{
+					occurredAtMs: 1,
+					signalId: "unread-target",
+					threadRootSignalId: null,
+				},
+			],
+			unreadCount: 1,
+			unreadStateReady: true,
+		};
+		const view = renderSpaceConversationPanel(overrides);
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: "1 unread update. Jump to first unread",
+			})
+		);
+		await waitFor(() => expect(recovered).toBeTypeOf("function"));
+		expect(
+			screen.queryByText(
+				"Couldn’t find this unread message. Refresh this Space and try again."
+			)
+		).toBeNull();
+		await act(() => {
+			recovered?.(true);
+			view.rerender(
+				<SpaceConversationPanel
+					{...createSpaceConversationPanelProps({
+						...overrides,
+						timelineItems: [
+							createTimelineItem({
+								id: "unread-target",
+								text: "Recovered unread message",
+							}),
+						],
+					})}
+				/>
+			);
+		});
+		await waitFor(() =>
+			expect(document.activeElement).toBe(
+				screen.getByText("Recovered unread message").closest("[data-signal-id]")
+			)
+		);
+	});
+
 	it.each([
 		0.5, 0.8, 1,
 	])("keeps a lower unread target inside the conversation viewport at %s scale", async (scale) => {

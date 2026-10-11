@@ -50,6 +50,7 @@ import {
 	fetchSpaceUpdatesAfterSubscription,
 	spaceUpdatesQueryOptions,
 } from "#/query/spaces/history-sync";
+import { shouldRetrySpaceHistoryQuery } from "#/query/spaces/retry";
 import { spaceFileQueryKeys } from "#/query/spaces/space-files";
 import { spaceTaskQueryKeys } from "#/query/spaces/space-tasks";
 import { spaceQueryKeys } from "#/query/spaces/status";
@@ -415,7 +416,8 @@ export function useSpaceLandingFeed(input: {
 						type: "active",
 						predicate: (query) =>
 							query.state.status === "error" &&
-							query.state.fetchStatus === "idle",
+							query.state.fetchStatus === "idle" &&
+							shouldRetrySpaceHistoryQuery(0, query.state.error),
 					},
 					{ cancelRefetch: false }
 				);

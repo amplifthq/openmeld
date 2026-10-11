@@ -20,7 +20,10 @@ import {
 	SPACE_HISTORY_SIGNAL_KINDS,
 	writeSpaceHistoryEnvelopesToCache,
 } from "#/query/spaces/history";
-import { shouldRetrySpaceQuery } from "#/query/spaces/retry";
+import {
+	MissingHistoryAnchorError,
+	shouldRetrySpaceHistoryQuery,
+} from "#/query/spaces/retry";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import { buildSpaceConversationScrollRestorationId } from "./space-conversation-scroll-restoration";
 
@@ -92,9 +95,13 @@ export function useSpaceHistoryNavigation(input: {
 		[visibleSignals, liveStartIndex]
 	);
 	const [request, setRequest] = useState<HistoryRequest | null>(null);
+	const [missingMessageIdentity, setMissingMessageIdentity] = useState<
+		string | null
+	>(null);
 	const requestSequence = useRef(0);
 	const flight = useRef<AbortController | null>(null);
 	useEffect(() => {
+		setMissingMessageIdentity(null);
 		setRequest((current) =>
 			current?.identity === identity && !input.accessRejected ? current : null
 		);
@@ -168,6 +175,7 @@ export function useSpaceHistoryNavigation(input: {
 	]);
 	const { selectedRequest, historyWindow, pending, error, notice } =
 		useHistoryWindowQuery({
+			missingMessageIdentity,
 			request,
 			identity,
 			accessRejected: input.accessRejected,
@@ -189,6 +197,7 @@ export function useSpaceHistoryNavigation(input: {
 			return;
 		}
 		appliedResult.current = result;
+		setMissingMessageIdentity(result.latest ? identity : null);
 		writeSpaceHistoryEnvelopesToCache({
 			envelopes: result.envelopes,
 			queryClient,
@@ -236,6 +245,7 @@ export function useSpaceHistoryNavigation(input: {
 			return Promise.resolve(false);
 		}
 		flight.current?.abort();
+		setMissingMessageIdentity(null);
 		const controller = new AbortController();
 		flight.current = controller;
 		const abort = () => controller.abort();
@@ -332,6 +342,7 @@ export type SpaceHistoryNavigationController = ReturnType<
 >;
 
 function useHistoryWindowQuery(input: {
+	missingMessageIdentity: string | null;
 	request: HistoryRequest | null;
 	identity: string;
 	accessRejected: boolean;
@@ -344,30 +355,36 @@ function useHistoryWindowQuery(input: {
 		input.request?.identity === input.identity && !input.accessRejected
 			? input.request
 			: null;
-	const historyWindow = useQuery({
-		queryKey: [
-			...spaceQueryKeys.historyWindow(input.spaceId, input.profileId),
-			requestOwner,
-			selectedRequest?.sequence ?? null,
-		],
-		enabled: selectedRequest !== null,
-		gcTime: 0,
-		staleTime: Number.POSITIVE_INFINITY,
-		retry: shouldRetrySpaceQuery,
-		queryFn: ({ signal }) =>
-			readHistoryWindow(input.api(), input.spaceId, selectedRequest, signal),
-	});
+	const historyWindow = useQuery<Awaited<ReturnType<typeof readHistoryWindow>>>(
+		{
+			queryKey: [
+				...spaceQueryKeys.historyWindow(input.spaceId, input.profileId),
+				requestOwner,
+				selectedRequest?.sequence ?? null,
+			],
+			enabled: selectedRequest !== null,
+			gcTime: 0,
+			staleTime: Number.POSITIVE_INFINITY,
+			retry: shouldRetrySpaceHistoryQuery,
+			refetchOnWindowFocus: (query) =>
+				shouldRetrySpaceHistoryQuery(0, query.state.error),
+			refetchOnReconnect: (query) =>
+				shouldRetrySpaceHistoryQuery(0, query.state.error),
+			queryFn: ({ signal }) =>
+				readHistoryWindow(input.api(), input.spaceId, selectedRequest, signal),
+		}
+	);
 	return {
 		selectedRequest,
+		notice:
+			input.missingMessageIdentity === input.identity && !input.accessRejected
+				? "This message is no longer available in this conversation. Showing the latest messages."
+				: null,
 		historyWindow,
 		pending: selectedRequest !== null && historyWindow.fetchStatus !== "idle",
 		error:
 			selectedRequest && historyWindow.isError
 				? navigationErrorMessage(historyWindow.error)
-				: null,
-		notice:
-			selectedRequest && historyWindow.data?.latest
-				? "This message is no longer available in this conversation. Showing the latest messages."
 				: null,
 	};
 }
@@ -520,8 +537,6 @@ function initialHistoryWindow(input: {
 		hasAfter: input.envelopes.length - anchorIndex - 1 >= 30,
 	};
 }
-
-class MissingHistoryAnchorError extends Error {}
 
 function navigationErrorMessage(failure: unknown) {
 	if (failure instanceof MissingHistoryAnchorError) {

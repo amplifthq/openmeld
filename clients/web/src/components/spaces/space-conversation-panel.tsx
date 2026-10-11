@@ -1519,12 +1519,20 @@ function useSpaceConversationNavigationController(input: {
 		}
 	}, [pendingPinJump, input.mainTimelineItems, jumpToMessage]);
 	const revealHistoryTarget = async (signalId: string) => {
-		const loaded = await input.onLoadHistoryAround?.(signalId);
-		if (loaded === "latest") {
-			followLatest();
-		} else if (loaded) {
-			setPendingPinJump(signalId);
-		}
+		setMainFocusStatusMessage(null);
+		setPendingPinJump(null);
+		const loaded = await input.onLoadHistoryAround?.(
+			signalId,
+			undefined,
+			(result) => {
+				setMainFocusStatusMessage(null);
+				if (result === "latest") {
+					followLatest();
+				} else {
+					setPendingPinJump(signalId);
+				}
+			}
+		);
 		return Boolean(loaded);
 	};
 	const onJumpToPinnedMessage = useLatestCallback(async (signalId: string) => {
@@ -1592,6 +1600,11 @@ function useSpaceConversationNavigationController(input: {
 				if (messageElementsBySignalIdRef.current.has(signalId)) {
 					jumpToMessage(signalId);
 				} else if (!(await revealHistoryTarget(signalId))) {
+					// The history owner keeps the failed target and its single Retry
+					// banner. Its completion callback also handles later recovery.
+					if (input.onLoadHistoryAround) {
+						return false;
+					}
 					throw new Error(
 						"Couldn’t find this unread message. Refresh this Space and try again."
 					);

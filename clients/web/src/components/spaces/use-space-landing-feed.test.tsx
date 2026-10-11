@@ -1,3 +1,4 @@
+import { OpenMeldApiClientHttpError } from "@openmeld/api-client";
 import {
 	SPACE_STREAM_KEEPALIVE_PING,
 	SPACE_STREAM_KEEPALIVE_PONG,
@@ -35,6 +36,7 @@ import {
 	type SpaceHistorySnapshot,
 	spaceHistoryQueryOptions,
 } from "#/query/spaces/history";
+import { MissingHistoryAnchorError } from "#/query/spaces/retry";
 import { spaceFileQueryKeys } from "#/query/spaces/space-files";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import { spaceThreadSignalsQueryOptions } from "#/query/spaces/threads";
@@ -1286,7 +1288,15 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 		).toEqual(["sig-1", "sig-2"]);
 	});
 
-	it("recovers only the failed active history window after the Space reconnects", async () => {
+	it.each([
+		new MissingHistoryAnchorError(),
+		new OpenMeldApiClientHttpError({
+			code: "upstream_error",
+			status: 403,
+			rawBody: "",
+			message: "Forbidden",
+		}),
+	])("recovers only transient failed active history windows after the Space reconnects (%s)", async (permanentError) => {
 		const { queryClient } = renderFeed();
 		await openLatestSocket();
 		let reachable = false;
@@ -1297,8 +1307,20 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 			return Promise.resolve("restored");
 		});
 		const readyRead = vi.fn(async () => "already readable");
+		const permanentRead = vi.fn(() => Promise.reject(permanentError));
 		const windows = renderHook(
 			() => ({
+				permanent: useQuery({
+					queryKey: [
+						...spaceQueryKeys.historyWindow(
+							"space-123",
+							"11111111-1111-1111-1111-111111111111"
+						),
+						"permanent",
+					],
+					queryFn: permanentRead,
+					retry: false,
+				}),
 				current: useQuery({
 					queryKey: [
 						...spaceQueryKeys.historyWindow(
@@ -1352,6 +1374,7 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 		expect(windows.result.current.current.data).toBe("restored");
 		expect(windows.result.current.other.isError).toBe(true);
 		expect(readyRead).toHaveBeenCalledOnce();
+		expect(permanentRead).toHaveBeenCalledOnce();
 	});
 
 	it.each([
