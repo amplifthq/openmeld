@@ -31,6 +31,7 @@ import {
 	CaretDownIcon,
 	ChatCircleTextIcon,
 	CopyIcon,
+	GearIcon,
 	PencilSimpleIcon,
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
@@ -58,6 +59,7 @@ import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { ProfileDetailsCurrentSession } from "#/components/profiles/profile-details-current-session";
 import { ProfileDetailsRecoveryActionButton } from "#/components/profiles/profile-details-recovery-action-button";
+import { useAppSettings } from "#/components/settings/use-app-settings";
 import { resolveSpaceMemberInlineStatusTextClassName } from "#/components/spaces/space-member-status-tone";
 import { SpaceProfileIcon } from "#/components/spaces/space-profile-icon";
 import { copyTextToClipboard } from "#/lib/clipboard";
@@ -122,7 +124,10 @@ export function AgentProfileDetailsContent(input: {
 	onNavigate?: () => void;
 }) {
 	const canEdit = input.details.viewerScope === "owner_self";
+	const showAvailability =
+		!input.isCenterAgent || input.entry.availabilityCategory !== "available";
 	const availabilitySummary =
+		showAvailability &&
 		input.entry.availabilitySummary !== resolveAgentPresenceSummary(input.entry)
 			? input.entry.availabilitySummary
 			: null;
@@ -140,6 +145,7 @@ export function AgentProfileDetailsContent(input: {
 				isCenterAgent={input.isCenterAgent === true}
 				moreDetailsHref={input.moreDetailsHref}
 				onNavigate={input.onNavigate}
+				showAvailability={showAvailability}
 			/>
 			<AgentProfileDirectMessageAction
 				href={input.chatHref}
@@ -173,21 +179,28 @@ function AgentProfileDetailsHeader(input: {
 	isCenterAgent: boolean;
 	moreDetailsHref?: string;
 	onNavigate?: () => void;
+	showAvailability: boolean;
 }) {
 	const modelSummary =
 		selectDetailsRows(input.details, ["model"])[0]?.value ??
 		input.entry.controllerDisplayName ??
 		"Agent";
-	const presenceSummary = resolveAgentPresenceSummary(input.entry);
+	const presenceSummary = input.showAvailability
+		? resolveAgentPresenceSummary(input.entry)
+		: null;
 	return (
 		<ProfileCardHeader
 			action={
-				<AgentProfileDetailsAction
-					canEdit={input.canEdit}
-					href={input.moreDetailsHref}
-					onNavigate={input.onNavigate}
-					profileName={input.entry.profileName}
-				/>
+				input.isCenterAgent ? (
+					<CenterAgentSettingsAction onNavigate={input.onNavigate} />
+				) : (
+					<AgentProfileDetailsAction
+						canEdit={input.canEdit}
+						href={input.moreDetailsHref}
+						onNavigate={input.onNavigate}
+						profileName={input.entry.profileName}
+					/>
+				)
 			}
 			avatar={
 				input.isCenterAgent ? (
@@ -195,6 +208,7 @@ function AgentProfileDetailsHeader(input: {
 						agentControllerRef={input.entry.agentControllerRef}
 						avatarModelId={input.entry.avatarModelId}
 						avatarStyle={input.entry.avatarStyle}
+						botInteraction="playful"
 						clickable
 						isCenterAgent
 						profileId={input.entry.profileId}
@@ -206,6 +220,8 @@ function AgentProfileDetailsHeader(input: {
 					<AgentProfileControllerAvatar
 						agentControllerRef={input.entry.agentControllerRef}
 						avatarStyle={input.entry.avatarStyle}
+						botInteraction="playful"
+						clickable
 						modelId={input.entry.avatarModelId}
 						profileId={input.entry.profileId}
 						profileName={input.entry.profileName}
@@ -216,9 +232,11 @@ function AgentProfileDetailsHeader(input: {
 			badge={
 				<>
 					{" "}
-					<RemoteAgentIndicator
-						agentControllerRef={input.entry.agentControllerRef}
-					/>
+					{!input.isCenterAgent && (
+						<RemoteAgentIndicator
+							agentControllerRef={input.entry.agentControllerRef}
+						/>
+					)}
 					{presenceSummary ? (
 						<span
 							className={cn(
@@ -233,11 +251,39 @@ function AgentProfileDetailsHeader(input: {
 			}
 			name={input.entry.profileName}
 		>
-			<p className="mt-1 truncate text-muted-foreground text-sm">
-				{modelSummary}
+			<p className="mt-1 flex min-w-0 items-center gap-1.5 text-muted-foreground text-sm">
+				{input.isCenterAgent && (
+					<RemoteAgentIndicator
+						agentControllerRef={input.entry.agentControllerRef}
+					/>
+				)}
+				<span className="truncate">{modelSummary}</span>
 			</p>
 			{!input.isCenterAgent && <AgentProfileOwner entry={input.entry} />}
 		</ProfileCardHeader>
+	);
+}
+
+function CenterAgentSettingsAction(input: { onNavigate?: () => void }) {
+	const openSettings = useAppSettings();
+	return (
+		<TooltipHint content="Center Agent settings">
+			<Button
+				aria-label="Open Center Agent settings"
+				className="shrink-0"
+				onClick={() => {
+					input.onNavigate?.();
+					openSettings("center-agent").catch((error: Error) =>
+						toast.error(error.message)
+					);
+				}}
+				size="icon-sm"
+				type="button"
+				variant="ghost"
+			>
+				<GearIcon aria-hidden="true" />
+			</Button>
+		</TooltipHint>
 	);
 }
 
@@ -509,7 +555,8 @@ export function HistoricalProfilePopover(input: {
 						<div className="flex min-w-0 items-start gap-3">
 							<SpaceProfileIcon
 								agentControllerRef={input.entry.agentControllerRef}
-								clickable={input.isCenterAgent}
+								botInteraction="playful"
+								clickable
 								isCenterAgent={input.isCenterAgent}
 								profileId={input.entry.profileId}
 								profileKind={input.entry.profileKind}
@@ -527,6 +574,9 @@ export function HistoricalProfilePopover(input: {
 									) : null}
 								</h2>
 							</div>
+							{input.isCenterAgent && (
+								<CenterAgentSettingsAction onNavigate={() => setOpen(false)} />
+							)}
 						</div>
 						{input.chatHref ? (
 							<AgentProfileDirectMessageAction

@@ -81,6 +81,7 @@ export const spaceMetaSchema = z.strictObject({
   passwordProtected: z.boolean().optional(),
   createdAt: isoDateTimeSchema.optional(),
   updatedAt: isoDateTimeSchema.optional(),
+  deletedAt: isoDateTimeSchema.optional(),
   storageUsage: spaceStorageUsageSchema.optional(),
 });
 

@@ -29,18 +29,14 @@ import {
 	type UserOrganizationInvitation,
 } from "#/lib/organizations/auth-organizations";
 import { requestOrganizationJoinRequests } from "#/lib/organizations/organization-join-requests";
-import type {
-	OrganizationScopeResolution,
-	OrganizationSummary,
-} from "#/lib/organizations/organization-types";
-import { organizationScopeQueryKeys } from "#/query/organizations/organization-scope";
+import type { OrganizationSummary } from "#/lib/organizations/organization-types";
+import {
+	accountOrganizationContextQueryKey,
+	organizationUserInvitationsQueryKey,
+} from "#/query/organizations/account-organization-context";
 
 type OrganizationChoiceMode = "choose" | "create" | "join";
-type OrganizationMutationContext = {
-	optimisticOrganization: OrganizationSummary;
-	snapshots: OrganizationScopeSnapshot[];
-};
-type PendingInvitationMutationContext = OrganizationMutationContext & {
+type PendingInvitationMutationContext = {
 	previousInvitations: UserOrganizationInvitation[] | undefined;
 };
 
@@ -63,7 +59,7 @@ export function LegacyOrganizationOnboardingStep(input: {
 	const teamOrganizations = input.organizations.filter(
 		(organization) => organization.isPersonal !== true
 	);
-	const userInvitationsQueryKey = organizationScopeQueryKeys.userInvitations(
+	const userInvitationsQueryKey = organizationUserInvitationsQueryKey(
 		input.currentUserId
 	);
 	const userInvitationsQuery = useQuery({
@@ -91,7 +87,7 @@ export function LegacyOrganizationOnboardingStep(input: {
 		mutationKey: ["onboarding", "organization", "create"],
 		onSettled: async () => {
 			await queryClient.invalidateQueries({
-				queryKey: organizationScopeQueryKeys.all,
+				queryKey: accountOrganizationContextQueryKey,
 			});
 		},
 	});
@@ -111,7 +107,7 @@ export function LegacyOrganizationOnboardingStep(input: {
 			) {
 				const joined = await acceptOrganizationJoinLink({ token });
 				await queryClient.invalidateQueries({
-					queryKey: organizationScopeQueryKeys.all,
+					queryKey: accountOrganizationContextQueryKey,
 				});
 				const organization = (await listOrganizations()).find(
 					(item) => item.id === joined.organizationId
@@ -151,7 +147,6 @@ export function LegacyOrganizationOnboardingStep(input: {
 		},
 		mutationKey: ["onboarding", "organization", "pending-invitation", "accept"],
 		onError: (_error, _invitation, context) => {
-			restoreOrganizationScopeSnapshots(queryClient, context?.snapshots);
 			queryClient.setQueryData(
 				userInvitationsQueryKey,
 				context?.previousInvitations
@@ -167,21 +162,7 @@ export function LegacyOrganizationOnboardingStep(input: {
 				(current = []) =>
 					current.filter((candidate) => candidate.id !== invitation.id)
 			);
-			const optimisticOrganization: OrganizationSummary = {
-				id: invitation.organizationId,
-				isPersonal: false,
-				name: invitation.organizationName,
-				slug: deriveOptimisticInvitationSlug(invitation.organizationName),
-			};
-			const snapshots = await addOptimisticOrganization({
-				organization: optimisticOrganization,
-				queryClient,
-			});
-			return {
-				optimisticOrganization,
-				previousInvitations,
-				snapshots,
-			};
+			return { previousInvitations };
 		},
 		onSettled: async () => {
 			await Promise.all([
@@ -189,16 +170,9 @@ export function LegacyOrganizationOnboardingStep(input: {
 					queryKey: userInvitationsQueryKey,
 				}),
 				queryClient.invalidateQueries({
-					queryKey: organizationScopeQueryKeys.all,
+					queryKey: accountOrganizationContextQueryKey,
 				}),
 			]);
-		},
-		onSuccess: (organization, _invitation, context) => {
-			replaceOptimisticOrganization({
-				organization,
-				optimisticId: context.optimisticOrganization.id,
-				queryClient,
-			});
 		},
 	});
 
@@ -722,72 +696,6 @@ function MutationError(input: { error: Error | null }) {
 	) : null;
 }
 
-type OrganizationScopeSnapshot = [
-	readonly unknown[],
-	OrganizationScopeResolution | undefined,
-];
-
-async function addOptimisticOrganization(input: {
-	organization: OrganizationSummary;
-	queryClient: ReturnType<typeof useQueryClient>;
-}): Promise<OrganizationScopeSnapshot[]> {
-	await input.queryClient.cancelQueries({
-		queryKey: organizationScopeQueryKeys.all,
-	});
-	const snapshots =
-		input.queryClient.getQueriesData<OrganizationScopeResolution>({
-			queryKey: organizationScopeQueryKeys.all,
-		});
-	input.queryClient.setQueriesData<OrganizationScopeResolution>(
-		{ queryKey: organizationScopeQueryKeys.all },
-		(scope) => {
-			if (
-				!scope ||
-				scope.organizations.some(
-					(organization) => organization.slug === input.organization.slug
-				)
-			) {
-				return scope;
-			}
-			return {
-				...scope,
-				organizations: [...scope.organizations, input.organization],
-			};
-		}
-	);
-	return snapshots;
-}
-
-function replaceOptimisticOrganization(input: {
-	optimisticId: string;
-	organization: OrganizationSummary;
-	queryClient: ReturnType<typeof useQueryClient>;
-}) {
-	input.queryClient.setQueriesData<OrganizationScopeResolution>(
-		{ queryKey: organizationScopeQueryKeys.all },
-		(scope) =>
-			scope
-				? {
-						...scope,
-						organizations: scope.organizations.map((organization) =>
-							organization.id === input.optimisticId
-								? input.organization
-								: organization
-						),
-					}
-				: scope
-	);
-}
-
-function restoreOrganizationScopeSnapshots(
-	queryClient: ReturnType<typeof useQueryClient>,
-	snapshots: OrganizationScopeSnapshot[] | undefined
-) {
-	for (const [queryKey, value] of snapshots ?? []) {
-		queryClient.setQueryData(queryKey, value);
-	}
-}
-
 function extractJoinLinkToken(value: string): string {
 	const normalized = value.trim();
 	if (normalized.startsWith("joinlink_")) {
@@ -803,12 +711,4 @@ function extractJoinLinkToken(value: string): string {
 		// The server-owned schema returns the exact invalid-input message.
 	}
 	return normalized;
-}
-
-function deriveOptimisticInvitationSlug(value: string): string {
-	return value
-		.trim()
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/gu, "-")
-		.replace(/^-+|-+$/gu, "");
 }

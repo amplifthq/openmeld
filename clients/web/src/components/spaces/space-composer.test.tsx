@@ -20,7 +20,10 @@ import { projectQueryKeys } from "#/query/organizations/projects";
 import { SpaceComposer } from "./space-composer";
 import type { SpaceComposerSendOptions } from "./space-composer-device-wait";
 import type { SpaceComposerEditorHandle } from "./space-composer-editor";
-import { SpaceComposerAgentOptions } from "./space-composer-task-menu";
+import {
+	SpaceComposerAgentOptions,
+	type SpaceComposerTaskChoice,
+} from "./space-composer-task-menu";
 import {
 	SpaceWakeRecommendationScope,
 	useSpaceWakeRecommendation,
@@ -34,7 +37,7 @@ vi.mock("./space-composer-agent-options", () => ({
 		props: Parameters<typeof SpaceComposerAgentOptions>[0]
 	) => <SpaceComposerAgentOptions {...props} projectName="OpenMeld" />,
 }));
-const ACCESS_WORKSPACE_MENU = /^Files/;
+const TASK_ACCESS_MENU = /^Access/;
 
 it.each([
 	false,
@@ -118,8 +121,10 @@ it.each([
 		</DropdownMenu>
 	);
 	fireEvent.click(screen.getByRole("button", { name: "Options" }));
-	const files = (await screen.findByText("Files")).closest("[role=menuitem]");
-	expect(files?.getAttribute("aria-disabled")).toBe("true");
+	for (const label of ["Working copy", "Access"]) {
+		const option = (await screen.findByText(label)).closest("[role=menuitem]");
+		expect(option?.getAttribute("aria-disabled")).toBe("true");
+	}
 });
 
 it.each([
@@ -131,7 +136,7 @@ it.each([
 	{
 		projectName: "OpenMeld",
 		supportsCurrentFolder: false,
-		labels: ["Use agent settings", "No project files", "Edit a separate copy"],
+		labels: ["Use agent settings", "No project files", "Project files only"],
 	},
 ])("only offers file modes supported by the project and agent: $projectName / $supportsCurrentFolder", async ({
 	labels,
@@ -152,7 +157,7 @@ it.each([
 	);
 	fireEvent.click(screen.getByRole("button", { name: "Options" }));
 	fireEvent.click(
-		await screen.findByRole("menuitem", { name: ACCESS_WORKSPACE_MENU })
+		await screen.findByRole("menuitem", { name: TASK_ACCESS_MENU })
 	);
 	expect(
 		(await screen.findAllByRole("menuitemradio")).map(
@@ -174,7 +179,7 @@ it("keeps two agents' session choices independent and sends without a task by de
 		screen.getByRole("button", { name: "Change relation for QA" })
 	);
 	fireEvent.click(
-		await screen.findByRole("menuitem", { name: ACCESS_WORKSPACE_MENU })
+		await screen.findByRole("menuitem", { name: TASK_ACCESS_MENU })
 	);
 	fireEvent.click(await screen.findByText("Read files only"));
 	fireEvent.click(screen.getByRole("button", { name: "Send message" }));
@@ -189,6 +194,142 @@ it("keeps two agents' session choices independent and sends without a task by de
 		},
 	});
 	expect(onSubmit.mock.calls[0]?.[0]?.taskDraft).toBeUndefined();
+});
+
+it.each([
+	{
+		setting: "access",
+		choices: [
+			["Access", "No project files"],
+			["Access", "Use agent settings"],
+		],
+	},
+	{
+		setting: "working copy",
+		choices: [
+			["Working copy", "Separate copy"],
+			["Working copy", "Current folder"],
+		],
+	},
+] as const)("returns to Automatic after changing $setting", async ({
+	choices,
+}) => {
+	const onSubmit = vi.fn<(options?: SpaceComposerSendOptions) => void>();
+	render(<MultiAgentHarness onSubmit={onSubmit} />);
+	for (const [menu, choice] of choices) {
+		fireEvent.click(
+			screen.getByRole("button", { name: "Change relation for Engineer" })
+		);
+		fireEvent.click(await screen.findByText(menu));
+		fireEvent.click(await screen.findByText(choice));
+	}
+	fireEvent.click(
+		screen.getByRole("button", { name: "Change relation for Engineer" })
+	);
+	fireEvent.click(await screen.findByText("Session"));
+	const automatic = await screen.findByRole("menuitemradio", {
+		name: "Automatic",
+	});
+	expect(automatic.getAttribute("aria-disabled")).not.toBe("true");
+	fireEvent.click(automatic);
+	fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+	expect(onSubmit.mock.calls[0]?.[0]?.contextSelections).toEqual({
+		[agentTargets[0].profileId]: { mode: "auto" },
+	});
+});
+
+it.each([
+	true,
+	false,
+])("selects a copy independently from access restrictions (%s)", async (supportsCurrentFolder) => {
+	const onChange = vi.fn();
+	const projectWork = {
+		projectId: "project-a",
+		repositoryFingerprint: `sha256:${"a".repeat(64)}`,
+	};
+	function OptionsHarness() {
+		const [choice, setChoice] = useState<SpaceComposerTaskChoice>({
+			targetProfileId: "agent",
+			label: "Start new",
+			selection: { mode: "new", workspace: "current", projectWork },
+		});
+		return (
+			<DropdownMenu>
+				<DropdownMenuTrigger>Options</DropdownMenuTrigger>
+				<FluidDropdownMenuContent>
+					<SpaceComposerAgentOptions
+						choice={choice}
+						onChange={(next) => {
+							if (next) {
+								setChoice(next);
+							}
+							onChange(next);
+						}}
+						projectName="Project A"
+						sources={[]}
+						supportsCurrentFolder={supportsCurrentFolder}
+						targetProfileId="agent"
+					/>
+				</FluidDropdownMenuContent>
+			</DropdownMenu>
+		);
+	}
+	render(<OptionsHarness />);
+	fireEvent.click(screen.getByRole("button", { name: "Options" }));
+	fireEvent.click(await screen.findByText("Working copy"));
+	fireEvent.click(await screen.findByText("Separate copy"));
+	expect(onChange.mock.lastCall?.[0].selection).toMatchObject({
+		mode: "new",
+		workspace: "isolated",
+		projectWork,
+	});
+	expect(onChange.mock.lastCall?.[0].selection.access).toBeUndefined();
+
+	fireEvent.click(screen.getByRole("button", { name: "Options" }));
+	fireEvent.click(
+		await screen.findByRole("menuitem", { name: TASK_ACCESS_MENU })
+	);
+	fireEvent.click(await screen.findByText("Project files only"));
+	expect(onChange.mock.lastCall?.[0].selection).toMatchObject({
+		access: "workspace",
+		workspace: "isolated",
+		projectWork,
+	});
+
+	fireEvent.click(screen.getByRole("button", { name: "Options" }));
+	fireEvent.click(
+		await screen.findByRole("menuitem", { name: TASK_ACCESS_MENU })
+	);
+	fireEvent.click(await screen.findByText("Use agent settings"));
+	expect(onChange.mock.lastCall?.[0].selection).toMatchObject({
+		mode: "new",
+		workspace: "isolated",
+		projectWork,
+	});
+	expect(onChange.mock.lastCall?.[0].selection.access).toBeUndefined();
+	fireEvent.click(screen.getByRole("button", { name: "Options" }));
+	fireEvent.click(await screen.findByText("Session"));
+	fireEvent.click(
+		await screen.findByRole("menuitemradio", { name: "Automatic" })
+	);
+	expect(onChange.mock.lastCall?.[0].selection).toEqual({ mode: "auto" });
+	for (const { label, access, workspace } of [
+		{
+			label: "No project files",
+			access: "space_context",
+			workspace: "isolated",
+		},
+		{ label: "Use agent settings", access: undefined, workspace: "current" },
+	]) {
+		fireEvent.click(screen.getByRole("button", { name: "Options" }));
+		fireEvent.click(
+			await screen.findByRole("menuitem", { name: TASK_ACCESS_MENU })
+		);
+		fireEvent.click(await screen.findByText(label));
+		expect(onChange.mock.lastCall?.[0].selection.access).toBe(access);
+		expect(onChange.mock.lastCall?.[0].selection.workspace).toBe(workspace);
+		expect(onChange.mock.lastCall?.[0].selection.projectWork).toBeUndefined();
+	}
 });
 
 const agentTargets: SpaceComposerAddressingTarget[] = [
@@ -329,7 +470,7 @@ it("sends the chosen Project and repository fingerprint with a new task", async 
 		</QueryClientProvider>
 	);
 	fireEvent.click(screen.getByRole("button", { name: "Agent options" }));
-	fireEvent.click(await screen.findByText("Files"));
+	fireEvent.click(await screen.findByText("Working copy"));
 	fireEvent.click(await screen.findByText("Choose Project…"));
 	fireEvent.change(await screen.findByRole("combobox", { name: "Project" }), {
 		target: { value: projectId },
@@ -341,7 +482,6 @@ it("sends the chosen Project and repository fingerprint with a new task", async 
 		label: "Payments · amplifthq/payments",
 		selection: {
 			mode: "new",
-			access: "workspace",
 			workspace: "isolated",
 			projectWork: { projectId, repositoryFingerprint },
 		},

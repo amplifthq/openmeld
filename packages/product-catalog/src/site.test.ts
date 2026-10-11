@@ -15,9 +15,7 @@ describe("site metadata", () => {
     const description =
       "Share context, work in parallel, and pick up where anyone left off with your team, cloud agents, and everyone's agents (Codex, Claude Code, Grok Build, OpenCode, Antigravity, and Cursor CLI).";
 
-    expect(title).toBe(
-      "OpenMeld | The open collaboration system for anyone and agents"
-    );
+    expect(title).toBe("OpenMeld | The open human-agents collaboration system");
     expect(title).not.toBe("OpenMeld - OpenMeld");
     expect(readMetaName(head, "description")).toBe(description);
     expect(readCanonical(head)).toBe(siteConfig.url);
@@ -25,14 +23,14 @@ describe("site metadata", () => {
     expect(readMetaProperty(head, "og:url")).toBe(siteConfig.url);
     expect(readMetaProperty(head, "og:description")).toBe(description);
     expect(readMetaProperty(head, "og:image")).toBe(
-      "https://openmeld.ai/brand/openmeld-letter-o-glow-black-1024.jpg"
+      "https://openmeld.ai/brand/openmeld-social-1200x630.png"
     );
     expect(readMetaProperty(head, "og:image:alt")).toBe("OpenMeld");
-    expect(readMetaName(head, "twitter:card")).toBe("summary");
+    expect(readMetaName(head, "twitter:card")).toBe("summary_large_image");
     expect(readMetaName(head, "twitter:title")).toBe(title);
     expect(readMetaName(head, "twitter:description")).toBe(description);
     expect(readMetaName(head, "twitter:image")).toBe(
-      "https://openmeld.ai/brand/openmeld-letter-o-glow-black-1024.jpg"
+      "https://openmeld.ai/brand/openmeld-social-1200x630.png"
     );
     expect(readMetaName(head, "twitter:image:alt")).toBe("OpenMeld");
   });

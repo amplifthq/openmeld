@@ -136,10 +136,18 @@ test("accepts a pending Remote receiver only with a matching content witness", (
     {
       ...component("core", "pending", "1".repeat(40), []),
       compatibilityDependencies: [["remote-agent", "core"]],
+      compatibilityObligations: [
+        {
+          receiver: "remote-agent",
+          producer: "core",
+          contract: "remote-agent-request",
+        },
+      ],
       compatibilityReceiverWitnesses: [
         {
           producer: "core",
           receiver: "remote-agent",
+          contracts: ["remote-agent-request"],
           receiverPaths: [
             "services/remote-agent/flue-adapter/execution-reconciliation.ts",
           ],
@@ -165,6 +173,64 @@ test("accepts a pending Remote receiver only with a matching content witness", (
   components[1].compatibilityReceiverWitnesses[0].evidence.targetSha =
     "4".repeat(40);
   assert.throws(() => assertProductionStageAdmission(input));
+});
+
+test("requires every triggered contract, including contracts without witnesses", () => {
+  const baselineSha = "1".repeat(40);
+  const usage = {
+    receiver: "core",
+    producer: "remote-agent",
+    contract: "remote-ai-usage",
+  };
+  const witness = {
+    receiver: "core",
+    producer: "remote-agent",
+    contracts: ["remote-ai-usage"],
+    evidence: { result: "match", baselineSha, targetSha: SOURCE },
+  };
+  const producer = {
+    ...component("remote-agent", "pending", baselineSha, []),
+    compatibilityDependencies: [["core", "remote-agent"]],
+    compatibilityObligations: [usage],
+    compatibilityReceiverWitnesses: [witness],
+  };
+  const input = {
+    components: [component("core", "pending", baselineSha, []), producer],
+    selectedScopes: ["remote-agent"],
+    sourceSha: SOURCE,
+  };
+  assert.doesNotThrow(() => assertProductionStageAdmission(input));
+  for (const scenario of [
+    "missing metadata",
+    "no witness",
+    "mismatch",
+    "unknown",
+    "wrong source",
+  ]) {
+    producer.compatibilityObligations =
+      scenario === "missing metadata"
+        ? []
+        : [usage, { ...usage, contract: "personal-remote-tools" }];
+    producer.compatibilityReceiverWitnesses = [witness];
+    if (!["missing metadata", "no witness"].includes(scenario)) {
+      producer.compatibilityReceiverWitnesses.push({
+        ...witness,
+        contracts: ["personal-remote-tools"],
+        evidence: {
+          ...witness.evidence,
+          result: scenario === "wrong source" ? "match" : scenario,
+          targetSha: scenario === "wrong source" ? baselineSha : SOURCE,
+        },
+      });
+    }
+    assert.throws(
+      () => assertProductionStageAdmission(input),
+      CORE_PREREQUISITE,
+      scenario
+    );
+  }
+  producer.compatibilityReceiverWitnesses[1].evidence = { ...witness.evidence };
+  assert.doesNotThrow(() => assertProductionStageAdmission(input));
 });
 
 test("fails closed with the retained receipt recovery guidance", () => {
@@ -277,6 +343,35 @@ test("admits only exact-source health recovery while preserving source validatio
     detail: "Missing exact source proof",
   });
   await assert.rejects(runProductionStageAdmission(input), SOURCE_PROOF);
+});
+
+test("admits a PostgreSQL rollback candidate only for its validated target database source", async () => {
+  const recovery = {
+    kind: "guarded-postgresql-forward-retry",
+    admission: "candidate",
+    sourceSha: SOURCE,
+    retainedSourceSha: "4".repeat(40),
+  };
+  const status = {
+    blockers: [],
+    sourceValidationBlockers: [],
+    components: [{ scope: "db", state: "unknown", recovery }],
+  };
+  const input = {
+    collectStatus: async () => status,
+    scope: "db",
+    sourceSha: SOURCE,
+    write: () => undefined,
+  };
+  await runProductionStageAdmission(input);
+  recovery.sourceSha = "4".repeat(40);
+  await assert.rejects(runProductionStageAdmission(input), UNRESOLVED);
+  recovery.sourceSha = SOURCE;
+  status.components[0].scope = "core";
+  await assert.rejects(
+    runProductionStageAdmission({ ...input, scope: "core" }),
+    UNRESOLVED
+  );
 });
 
 function component(scope, state, sourceSha, changedPaths) {

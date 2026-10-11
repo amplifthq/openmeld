@@ -37,6 +37,7 @@ export async function readAccountSpaceIndex(input: {
 			// The Web surfaces the one-time "this space was deleted" notice, so it
 			// opts in to the recently-deleted payload (strict legacy clients do not).
 			includeRecentlyDeletedItems: true,
+			includeDeletedSpaces: true,
 			includeMemberPreviews: true,
 			includeMessagePreviews: true,
 			includeDirectoryPreviews: true,

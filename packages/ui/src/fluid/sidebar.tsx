@@ -16,6 +16,7 @@ import {
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
   type SidebarGeometry,
+  type SidebarResizeOptions,
   useSidebar,
 } from "#fluid/sidebar-state";
 /** Adapted from Fluid Functionalism's Base UI Sidebar (2026-09-05).
@@ -299,6 +300,9 @@ function SidebarRail({ hiddenEdge }: { hiddenEdge: boolean }) {
     static: staticPresentation,
     setIsPeeking,
     cancelPeekTimer,
+    allowIconMode,
+    minWidth,
+    maxWidth,
   } = useSidebar();
   const railRef = useRef<HTMLButtonElement>(null);
   const dragRef = useRef<{
@@ -335,12 +339,15 @@ function SidebarRail({ hiddenEdge }: { hiddenEdge: boolean }) {
     drag.moved = true;
     setIsPeeking(false);
     const raw = drag.startWidth + dx;
-    const mode = resolveSidebarDrag(raw, drag.geometry.mode);
+    const mode = resolveSidebarDrag(raw, drag.geometry.mode, {
+      allowIconMode,
+      minWidth,
+    });
     drag.geometry = {
       mode,
       width:
         mode === "expanded"
-          ? Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, raw))
+          ? Math.max(minWidth, Math.min(maxWidth, raw))
           : drag.geometry.width,
     };
     setGeometry(drag.geometry, false);
@@ -385,7 +392,7 @@ function SidebarRail({ hiddenEdge }: { hiddenEdge: boolean }) {
           <button
             aria-label="Resize app sidebar"
             aria-orientation="vertical"
-            aria-valuemax={SIDEBAR_MAX_WIDTH}
+            aria-valuemax={maxWidth}
             aria-valuemin={0}
             aria-valuenow={appliedWidth}
             aria-valuetext={
@@ -399,10 +406,14 @@ function SidebarRail({ hiddenEdge }: { hiddenEdge: boolean }) {
             )}
             data-sidebar="rail"
             onKeyDown={(event) => {
-              const next = resolveSidebarKey(event.key, {
-                mode: state,
-                width: widthPx,
-              });
+              const next = resolveSidebarKey(
+                event.key,
+                {
+                  mode: state,
+                  width: widthPx,
+                },
+                { allowIconMode, minWidth, maxWidth }
+              );
               if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
                 toggleSidebar();
@@ -459,24 +470,31 @@ function getSidebarLayoutWidth(state: SidebarGeometry["mode"], width: number) {
 
 export function resolveSidebarKey(
   key: string,
-  geometry: SidebarGeometry
+  geometry: SidebarGeometry,
+  {
+    allowIconMode = true,
+    minWidth = SIDEBAR_MIN_WIDTH,
+    maxWidth = SIDEBAR_MAX_WIDTH,
+  }: SidebarResizeOptions = {}
 ): SidebarGeometry | undefined {
   const { mode, width } = geometry;
   switch (key) {
     case "Home":
       return { mode: "hidden", width };
     case "End":
-      return { mode: "expanded", width: SIDEBAR_MAX_WIDTH };
+      return { mode: "expanded", width: maxWidth };
     case "ArrowLeft":
-      if (mode === "expanded" && width > SIDEBAR_MIN_WIDTH) {
-        return { mode, width: Math.max(SIDEBAR_MIN_WIDTH, width - 16) };
+      if (mode === "expanded" && width > minWidth) {
+        return { mode, width: Math.max(minWidth, width - 16) };
       }
-      return { mode: mode === "expanded" ? "icon" : "hidden", width };
+      return {
+        mode: mode === "expanded" && allowIconMode ? "icon" : "hidden",
+        width,
+      };
     case "ArrowRight":
       return {
-        mode: mode === "hidden" ? "icon" : "expanded",
-        width:
-          mode === "expanded" ? Math.min(SIDEBAR_MAX_WIDTH, width + 16) : width,
+        mode: mode === "hidden" && allowIconMode ? "icon" : "expanded",
+        width: mode === "expanded" ? Math.min(maxWidth, width + 16) : width,
       };
     default:
       return undefined;

@@ -1,28 +1,28 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-08T18:37:25.420Z",
+  "updatedAt": "2026-10-11T10:53:56.454Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-project-work-v1",
-      "packageVersion": "0.3.250",
+      "packageVersion": "0.3.252",
       "updatePolicy": "available",
-      "reason": "New timezone request headers are optional and older cloud receivers ignore them; no CLI command or authentication contract changes."
+      "reason": "Deploy Task v3 and approval-list cloud receivers before this CLI. After receiver deployment, old and new clients remain supported; optional account-context cancellation and OpenCode admission do not change existing setup, Wake or diagnostics contracts."
     },
     "service": {
-      "bundleHash": "915eba436d1e788b43622a7e5dcc41b0620f8bc95e7aee110aef80ac157e6997",
-      "portableBundleHash": "9fb8f4f620bacca06e36d8f4c40cffb16a4216b612ad2006cc36874c608404f7",
-      "bundleVersion": "0.3.250",
+      "bundleHash": "3522172a593d717a999dd95005fe929622c9a832d38b1537e7c465c2f2aa561b",
+      "portableBundleHash": "8c7abe6a7b6e0dc4ff8c9bc16e23045f423899f6c35c262f334673b43c4bb6b9",
+      "bundleVersion": "0.3.252",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
       "serviceContractVersion": "openmeld-service-contract-2026-09-project-work-v1",
       "updatePolicy": "available",
-      "reason": "Timezone observations are optional and cloud input metadata is projected away before existing local Service delivery; existing dispatch, execution, and publication contracts remain valid."
+      "reason": "Deploy the new cloud receivers first. Old Services remain supported by compatibility projections; the OpenCode evidence correction preserves admission and lifecycle payloads, setup, Wake and diagnostics contracts."
     },
     "skills": {
-      "bundleHash": "b13d1bdc2c5871161859831b398c847fb0df321983f11559a8de1b16f7125ae9",
+      "bundleHash": "0507d367ef298936053223f81441697545949fbf4d39b1b306872f7c254a4871",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "The guidance clarifies local-first execution and renewal of existing Plugin connection grants; it introduces no new required tool or CLI command."
+      "reason": "The changed Computer playbook documents existing idempotent commands and optional returned references; it adds no required tool or new runtime authority."
     }
   }
 }

@@ -222,6 +222,7 @@ import {
   prepareExecutionContextConversation,
 } from "./execution-context-session";
 import {
+  deriveExecutionContextComputerFileAccessPolicy,
   type ExecutionContextWorkspace,
   type ExecutionContextWorkspaceUse,
   markExecutionContextWorkspaceInUse,
@@ -1012,8 +1013,7 @@ export async function handleDispatchDeliverFrame(input: {
   const providerAdmissionOwnsRunningLifecycle =
     resolveBuiltinAgentControllerDefinition(
       runtimeControllerSupport.runtimeAdapterMatch.agentId
-    )?.conversationOccupancy.mode ===
-    "official_atomic_admission_and_release_signal";
+    )?.executionAdmission === "provider_turn_accepted";
   let runtimeLifecyclePhase: Extract<
     DispatchLifecyclePhase,
     "accepted_local" | "running"
@@ -1185,6 +1185,7 @@ export async function handleDispatchDeliverFrame(input: {
   try {
     await currentSocketRef.confirmExecutionAdmission?.(input.deliverRequest);
     dispatchRuntimeContext = await resolveDispatchWorkingFolderRuntimeContext({
+      ledgerRootPath: input.ledgerPaths.rootDirPath,
       controllerSnapshot: input.deliverRequest.payload.controllerSnapshot,
       defaultProjectId: parsedTask.defaultProjectId,
       defaultProjectIdWasProvided: Object.hasOwn(
@@ -1559,6 +1560,18 @@ export async function handleDispatchDeliverFrame(input: {
         runtimeCoordinatorExecutionId: parsedTask.runtimeCoordinatorExecutionId,
         taskId: parsedTask.taskId,
       });
+      // The Service socket already proves carrier liveness. Before a native
+      // turn is accepted, repeating accepted_local would falsely refresh the
+      // coordinator's execution-progress watchdog. Occupied waits retain their
+      // existing, explicitly non-progressing occupancy keepalive contract.
+      if (
+        runtimeLifecyclePhase === "accepted_local" &&
+        inputLifecycle.agentControllerConversationOccupancy?.state !==
+          "occupied"
+      ) {
+        lifecycleKeepalive.stop = null;
+        return;
+      }
       lifecycleKeepalive.stop = startDispatchLifecycleKeepalive({
         agentControllerConversationOccupancy:
           inputLifecycle.agentControllerConversationOccupancy ?? null,
@@ -1788,6 +1801,8 @@ export async function handleDispatchDeliverFrame(input: {
               agentId,
               authSnapshot,
               launchContract,
+              usageAdmission: event.usageAdmission,
+              usageAccountKey: event.usageAccountKey,
               usageLimits: event.usageLimits,
             })
         );
@@ -3102,9 +3117,13 @@ async function resolveDispatchComputerFileAccess(input: {
   runtimePreparation: DispatchRuntimePreparation;
   taskWorkspace?: ExecutionContextWorkspace;
 }): Promise<AdapterComputerFileAccessBoundary | null> {
-  const policy = await readComputerFileAccessPolicy(
-    input.computerFileAccessStorePath
-  );
+  const policy = deriveExecutionContextComputerFileAccessPolicy({
+    context: input.parsedTask.executionContext,
+    workspace: input.taskWorkspace,
+    policy: await readComputerFileAccessPolicy(
+      input.computerFileAccessStorePath
+    ),
+  });
   const verifier =
     input.runtimeControllerSupport.localAdapterEntry.adapter
       .verifyComputerFileAccessBoundary;
@@ -3117,6 +3136,8 @@ async function resolveDispatchComputerFileAccess(input: {
       input.parsedTask.agentControllerRef === "builtin:claude-code" &&
       context.access === "space_context"
     ) {
+      // Claude enforces this with tools: [] and strict dispatch-only MCP in
+      // buildClaudeSpaceToolOptions, rather than a filesystem verifier.
       return null;
     }
     if (

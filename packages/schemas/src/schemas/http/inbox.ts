@@ -1,3 +1,4 @@
+import type * as zod from "zod/v4";
 import * as z from "../../lazy-zod";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
 import { daemonServiceLaneSchema } from "../daemon/service-contract";
@@ -98,6 +99,7 @@ export const inboxResolutionStatusSchema = z.enum([
   "resolved",
 ]);
 export const inboxItemKindSchema = z.enum([
+  "space_joined",
   "space_message",
   "space_mention",
   "agent_reply",
@@ -198,6 +200,8 @@ export const inboxSourceTargetSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("plugin_action_request"),
     requestId: identifierSchema,
+    // Stored provenance for Space attention; the request remains the action target.
+    spaceId: identifierSchema.optional(),
   }),
   computerInboxSourceTargetSchema,
   desktopUpdateInboxSourceTargetSchema,
@@ -321,6 +325,7 @@ export const inboxNotificationObservationsResponseSchema = z.strictObject({
 export const observeInboxNotificationsRpcInputSchema =
   inboxNotificationObservationsQuerySchema.extend({
     context: openMeldRequestContextSchema,
+    includeMembershipNotices: z.boolean().optional(),
   });
 
 export const listInboxItemsQuerySchema = z.strictObject({
@@ -370,6 +375,7 @@ export const centerAgentInboxSummaryResponseSchema = z.strictObject({
 });
 
 export const spaceInboxSummaryItemSchema = z.strictObject({
+  messageUnreadCount: z.number().int().nonnegative().optional(),
   latestUnreadOccurredAtMs: timestampMsSchema,
   spaceId: identifierSchema,
   unreadCount: z.number().int().positive(),
@@ -399,12 +405,22 @@ export const spaceInboxSummaryResponseSchema = z.strictObject({
 
 export const spaceInboxUnreadTargetSchema = z.strictObject({
   itemId: identifierSchema.optional(),
+  sourceKey: identifierSchema.optional(),
   occurredAtMs: timestampMsSchema,
   signalId: identifierSchema,
   threadRootSignalId: identifierSchema.nullable(),
 });
 
 export const spaceInboxUnreadTargetsResponseSchema = z.strictObject({
+  joinedItems: z
+    .array(
+      z.strictObject({
+        itemId: identifierSchema,
+        occurredAtMs: timestampMsSchema,
+      })
+    )
+    .max(INBOX_SPACE_UNREAD_TARGETS_MAX_ITEMS)
+    .optional(),
   scopes: z
     .array(
       z.strictObject({
@@ -431,6 +447,33 @@ export const markCenterAgentInboxReadThroughBodySchema = z.strictObject({
   throughOccurredAtMs: timestampMsSchema,
 });
 
+// Membership fields share the item-kind opt-in. Summary version 3 predates them.
+export function projectSpaceInboxSummaryForMembershipReceiver(
+  response: zod.infer<typeof spaceInboxSummaryResponseSchema>,
+  includeMembershipNotices?: boolean
+): zod.infer<typeof spaceInboxSummaryResponseSchema> {
+  if (includeMembershipNotices === true) {
+    return response;
+  }
+  return {
+    ...response,
+    spaces: response.spaces.map(
+      ({ messageUnreadCount: _messages, ...space }) => space
+    ),
+  };
+}
+
+export function projectSpaceInboxUnreadTargetsForMembershipReceiver(
+  response: zod.infer<typeof spaceInboxUnreadTargetsResponseSchema>,
+  includeMembershipNotices?: boolean
+): zod.infer<typeof spaceInboxUnreadTargetsResponseSchema> {
+  if (includeMembershipNotices === true) {
+    return response;
+  }
+  const { joinedItems: _joined, ...legacy } = response;
+  return legacy;
+}
+
 export const markCenterAgentInboxReadThroughResponseSchema = z.strictObject({
   markedReadCount: z.number().int().nonnegative(),
   readThroughAt: isoDateTimeSchema,
@@ -447,9 +490,25 @@ export const markSpaceInboxReadThroughResponseSchema = z.strictObject({
   readThroughAt: isoDateTimeSchema,
 });
 
+export const spaceInboxReadSourceSchema = z.strictObject({
+  signalId: identifierSchema,
+  occurredAtMs: timestampMsSchema,
+});
+export const getSpaceInboxReadCandidatesInputSchema = z.strictObject({
+  spaceId: identifierSchema,
+  organizationId: identifierSchema,
+  recipientUserId: identifierSchema,
+  sources: z.array(spaceInboxReadSourceSchema).min(1).max(500),
+});
+
 export const mutateSpaceInboxReadBodySchema = z.discriminatedUnion(
   "operation",
   [
+    z.strictObject({
+      spaceId: identifierSchema,
+      operation: z.literal("read_sources"),
+      sources: z.array(spaceInboxReadSourceSchema).min(1).max(500),
+    }),
     z.strictObject({
       spaceId: identifierSchema,
       operation: z.literal("prepare"),
@@ -611,6 +670,7 @@ function normalizeInboxItemWireKind(
 
 export const listInboxItemsRpcInputSchema = listInboxItemsQuerySchema.extend({
   context: openMeldRequestContextSchema,
+  includeMembershipNotices: z.boolean().optional(),
   includeReplyToRecipient: z.boolean().optional(),
   includeSourceFacts: z.boolean().optional(),
   includeAccountItems: z.boolean().optional(),
@@ -625,9 +685,12 @@ export const getCenterAgentInboxSummaryRpcInputSchema = z.strictObject({
 });
 export const getSpaceInboxSummaryRpcInputSchema = z.strictObject({
   context: openMeldRequestContextSchema,
+  includeMembershipNotices: z.boolean().optional(),
 });
 export const getSpaceInboxUnreadTargetsRpcInputSchema = z.strictObject({
+  includeMembershipNotices: z.boolean().optional(),
   includeItemIds: z.boolean().optional(),
+  includeSourceKeys: z.boolean().optional(),
   context: openMeldRequestContextSchema,
   spaceId: identifierSchema,
 });
@@ -641,6 +704,7 @@ export const markSpaceInboxReadThroughRpcInputSchema =
   });
 export const getInboxItemRpcInputSchema = inboxItemRouteParamsSchema.extend({
   context: openMeldRequestContextSchema,
+  includeMembershipNotices: z.boolean().optional(),
   includeReplyToRecipient: z.boolean().optional(),
   includeSourceFacts: z.boolean().optional(),
   includeAccountItems: z.boolean().optional(),
@@ -654,6 +718,7 @@ export const dismissInboxItemRpcInputSchema = inboxItemRouteParamsSchema.extend(
 export const markInboxItemReadRpcInputSchema =
   markInboxItemReadBodySchema.extend({
     context: openMeldRequestContextSchema,
+    includeMembershipNotices: z.boolean().optional(),
     includeReplyToRecipient: z.boolean().optional(),
     includeSourceFacts: z.boolean().optional(),
     includeAccountItems: z.boolean().optional(),

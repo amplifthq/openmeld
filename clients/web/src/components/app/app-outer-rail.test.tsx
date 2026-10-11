@@ -61,6 +61,7 @@ let appShellSection: AppShellSection = "space";
 let viewer = 0;
 let centerAgentUnreadCount = 0;
 let ordinarySpaceUnreadCount: number | undefined = 0;
+let ordinarySpaceActionCount = 0;
 let chatCounts = {
 	chatUnreadCount: 0,
 	chatUnresolvedActionCount: 0,
@@ -167,6 +168,18 @@ vi.mock("#/lib/organizations/inbox", () => ({
 	}),
 	getCurrentSpaceInboxSummary: async () => ({
 		...chatCounts,
+		attention: [
+			{
+				spaceId: "ordinary-space",
+				unresolvedActionCount: ordinarySpaceActionCount,
+				unreadUrgentUpdateCount: 0,
+			},
+			{
+				spaceId: "chat-space",
+				unresolvedActionCount: chatCounts.chatUnresolvedActionCount,
+				unreadUrgentUpdateCount: chatCounts.chatUnreadUrgentUpdateCount,
+			},
+		],
 		...(ordinarySpaceUnreadCount === undefined
 			? {}
 			: { ordinarySpaceUnreadCount }),
@@ -319,6 +332,7 @@ describe("AppOuterRail", () => {
 		appShellSection = "space";
 		centerAgentUnreadCount = 0;
 		ordinarySpaceUnreadCount = 0;
+		ordinarySpaceActionCount = 0;
 		chatCounts = {
 			chatUnreadCount: 0,
 			chatUnresolvedActionCount: 0,
@@ -653,8 +667,15 @@ describe("AppOuterRail", () => {
 		renderRail();
 		expect(
 			await screen.findByRole("link", {
-				name: "Spaces, Priority attention, 5 unread messages",
+				name: "Spaces, Priority attention, 5 unread updates",
 			})
+		).toBeTruthy();
+	});
+	it("keeps an ordinary Space approval visible when all messages are read", async () => {
+		ordinarySpaceActionCount = 1;
+		renderRail();
+		expect(
+			await screen.findByRole("link", { name: "Spaces, Priority attention" })
 		).toBeTruthy();
 	});
 
@@ -715,7 +736,7 @@ describe("AppOuterRail", () => {
 		renderRail({ tier });
 
 		const link = await screen.findByRole("link", {
-			name: "Spaces, 3 unread messages",
+			name: "Spaces, 3 unread updates",
 		});
 		const indicator = link.querySelector(
 			'[data-app-rail-status-indicator="chats-unread"]'

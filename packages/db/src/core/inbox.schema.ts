@@ -167,7 +167,7 @@ export const inboxItems = applicationTable(
     ),
     check(
       "inbox_items_kind_check",
-      sql`"kind" in ('space_message', 'space_reference', 'space_mention', 'agent_reply', 'agent_interaction', 'wake_outcome', 'center_agent_update', 'center_agent_task', 'document_review', 'organization_request', 'system_issue', 'computer_connection', 'desktop_update')`
+      sql`"kind" in ('space_joined', 'space_message', 'space_reference', 'space_mention', 'agent_reply', 'agent_interaction', 'wake_outcome', 'center_agent_update', 'center_agent_task', 'document_review', 'organization_request', 'system_issue', 'computer_connection', 'desktop_update')`
     ),
     check(
       "inbox_items_attention_check",

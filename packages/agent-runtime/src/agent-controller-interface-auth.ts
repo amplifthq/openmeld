@@ -13,6 +13,12 @@ export function areAgentControllerInterfaceAccountsSame(
     return false;
   }
 
+  if (current.accountKey || next.accountKey) {
+    return Boolean(
+      current.accountKey && current.accountKey === next.accountKey
+    );
+  }
+
   const currentEmail = normalizeProviderAccountEmail(current.email);
   const nextEmail = normalizeProviderAccountEmail(next.email);
   return currentEmail !== null && currentEmail === nextEmail;

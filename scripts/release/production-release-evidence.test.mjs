@@ -28,7 +28,11 @@ import {
   readGuardedLocalReleaseSources,
 } from "./production-release-evidence.mjs";
 import { RELEASE_SCOPES } from "./production-release-history.mjs";
-import { executeRecordedProductionDeploySteps } from "./production-release-receipts.mjs";
+import {
+  executeRecordedProductionDeploySteps,
+  groupReleaseSteps,
+  releaseComponentOperationKey,
+} from "./production-release-receipts.mjs";
 import { readLatestSuccessfulReleaseSources } from "./production-release-status.mjs";
 
 const PARTIAL_RECOVERY_ERROR = /failed partial|original|attempt/iu;
@@ -36,6 +40,8 @@ const INVALID_RECOVERY_RECEIPT = /receipt|verified|identity/iu;
 const TERMINAL_RECOVERY_ERROR = /backward|terminal|completed/iu;
 const FAILED_UNKNOWN_EVENT = /"status":"failed","application":"unknown"/u;
 const VERIFIED_APPLIED_EVENT = /"status":"verified","application":"applied"/u;
+const UNRESOLVED_DATABASE_ATTEMPT = /unresolved/u;
+const DATABASE_BASELINE_ERROR = /baseline/u;
 
 test("publishes exact guarded local release sources for later status checks", () => {
   const fixture = createGitFixture();
@@ -1197,6 +1203,153 @@ test("reconciled Core evidence preserves the superseded receipt and immutable ho
     );
     assert.equal(original.receipt.status, "failed");
     assert.equal(original.receipt.application, "unknown");
+  } finally {
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test("PostgreSQL rollback provenance preserves the failed receipt across the new attempt", () => {
+  const f = createGitFixture();
+  try {
+    const common = { cwd: f.repository, remote: f.remote, scopes: ["db"] };
+    const group = groupReleaseSteps(
+      buildProductionDeployStepSpecs(["db"], { databaseBackend: "postgresql" })
+    )[0];
+    const receipt = (
+      sourceSha,
+      attemptId,
+      startedAt,
+      status,
+      application = "unknown"
+    ) => ({
+      attemptId,
+      startedAt,
+      status,
+      application,
+      componentIndex: 0,
+      operationKey: releaseComponentOperationKey({
+        sourceSha,
+        group,
+        target: null,
+      }),
+      ...(application === "applied"
+        ? { identity: { kind: "release-source" } }
+        : {}),
+    });
+    const baseline = receipt(
+      f.sourceSha,
+      "00000000-0000-4000-8000-000000000001",
+      "2026-01-01T00:00:00.000Z",
+      "verified",
+      "applied"
+    );
+    publishGuardedLocalReleaseEvidence({
+      ...common,
+      sourceSha: f.sourceSha,
+      receipts: { db: baseline },
+      now: "2026-01-01T00:00:00.000Z",
+    });
+    const read = () => readGuardedLocalReleaseSources(common).get("db");
+    const prior = read();
+    const failedSource = f.commit("pending database migration\n");
+    const failed = receipt(
+      failedSource,
+      "00000000-0000-4000-8000-000000000002",
+      "2026-01-02T00:00:00.000Z",
+      "failed"
+    );
+    publishGuardedLocalReleaseEvidence({
+      ...common,
+      sourceSha: failedSource,
+      receipts: { db: failed },
+      now: "2026-01-02T00:01:00.000Z",
+    });
+    const retained = read();
+    const sourceSha = f.commit("fixed migration execution\n");
+    const started = receipt(
+      sourceSha,
+      "00000000-0000-4000-8000-000000000003",
+      "2026-01-03T00:01:00.000Z",
+      "started"
+    );
+    const reconciliation = {
+      kind: "reconciled-postgresql-rollback",
+      verifiedAt: "2026-01-03T00:00:00.000Z",
+      supersededReceipt: {
+        sourceSha: failedSource,
+        evidenceSha: retained.evidenceSha,
+      },
+      baselineReceipt: {
+        sourceSha: f.sourceSha,
+        evidenceSha: prior.evidenceSha,
+      },
+    };
+    assert.throws(
+      () =>
+        publishGuardedLocalReleaseEvidence({
+          ...common,
+          sourceSha,
+          receipts: { db: started },
+          now: started.startedAt,
+        }),
+      UNRESOLVED_DATABASE_ATTEMPT
+    );
+    assert.throws(
+      () =>
+        publishGuardedLocalReleaseEvidence({
+          ...common,
+          sourceSha,
+          receipts: { db: started },
+          reconciliation: {
+            db: {
+              ...reconciliation,
+              baselineReceipt: reconciliation.supersededReceipt,
+            },
+          },
+          now: started.startedAt,
+        }),
+      DATABASE_BASELINE_ERROR
+    );
+    publishGuardedLocalReleaseEvidence({
+      ...common,
+      sourceSha,
+      receipts: { db: started },
+      reconciliation: { db: reconciliation },
+      now: started.startedAt,
+    });
+    const proofSha = read().reconciliationEvidenceSha;
+    assert.deepEqual(read().reconciliation, reconciliation);
+    assert.equal(read().url, undefined);
+    for (const [status, now] of [
+      ["applied", "2026-01-03T00:02:00.000Z"],
+      ["verified", "2026-01-03T00:03:00.000Z"],
+    ]) {
+      publishGuardedLocalReleaseEvidence({
+        ...common,
+        sourceSha,
+        receipts: {
+          db: {
+            ...started,
+            status,
+            application: "applied",
+            identity: { kind: "release-source" },
+          },
+        },
+        now,
+      });
+      assert.equal(read().reconciliationEvidenceSha, proofSha);
+    }
+    assert.equal(read().receipt.status, "verified");
+    assert.deepEqual(
+      JSON.parse(
+        execFileSync(
+          "git",
+          ["show", "-s", "--format=%B", retained.evidenceSha],
+          { cwd: f.repository, encoding: "utf8" }
+        )
+      ).receipt,
+      failed
+    );
   } finally {
     rmSync(f.root, { recursive: true, force: true });
   }

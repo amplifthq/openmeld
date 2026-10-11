@@ -43,6 +43,77 @@ export const profileWorkingDirectorySchema = z
     message: "workingDirectory must not contain NUL bytes",
   });
 
+/** Import observation only; it does not authorize moving a native conversation. */
+export const profileWorkspaceOriginSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("explicit"),
+    configurationUpdatedAt: z.string().min(1),
+  }),
+  z.strictObject({
+    kind: z.literal("imported_native_session"),
+    configurationUpdatedAt: z.string().min(1),
+    agentControllerRef: z.enum(["builtin:codex", "builtin:claude-code"]),
+    agentControllerConversationId: z.string().trim().min(1).max(512),
+  }),
+]);
+
+/** Saved owner-local configuration, not effective Project resolution or readiness. */
+export const profileWorkspaceReadResultSchema = z.discriminatedUnion("status", [
+  z.strictObject({
+    status: z.literal("configured"),
+    workspaceMode: profileWorkspaceModeSchema,
+    workspacePath: profileWorkingDirectorySchema,
+    configurationVersion: z.union([z.literal(1), z.literal(2)]),
+    updatedAt: z.string().min(1),
+    configurationOrigin: z
+      .enum(["explicit", "imported_native_session"])
+      .optional(),
+  }),
+  z.strictObject({ status: z.literal("missing") }),
+  z.strictObject({
+    status: z.literal("invalid"),
+    reasonCode: z.enum([
+      "profile.workspace.invalid_json",
+      "profile.workspace.invalid_schema",
+      "profile.workspace.profile_id_mismatch",
+    ]),
+  }),
+]);
+
+export const profileWorkspaceWriteSchema = z
+  .strictObject({
+    workspaceMode: profileWorkspaceModeSchema,
+    workspacePath: profileWorkingDirectorySchema.optional(),
+    onlyIfUnconfigured: z.boolean().optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.workspaceMode === "custom" && !value.workspacePath) {
+      context.addIssue({
+        code: "custom",
+        message: "workspacePath is required for a custom profile workspace",
+        path: ["workspacePath"],
+      });
+    }
+    if (value.workspaceMode === "openmeld_managed" && value.workspacePath) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "workspacePath must be omitted for an OpenMeld-managed profile workspace",
+        path: ["workspacePath"],
+      });
+    }
+    if (
+      value.onlyIfUnconfigured &&
+      value.workspaceMode !== "openmeld_managed"
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Only an OpenMeld-managed working folder can be initialized.",
+        path: ["onlyIfUnconfigured"],
+      });
+    }
+  });
+
 export const normalizeOptionalWorkingDirectory = (
   value: unknown
 ): string | undefined => {

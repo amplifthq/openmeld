@@ -153,3 +153,162 @@ for (const scenario of [
     }
   });
 }
+
+const CONNECTOR_RUNTIME_LINE =
+  /^.*OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN.*\r?\n/gmu;
+const CONNECTOR_CONTRACT_ERROR =
+  /OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN|ENOENT/u;
+
+function prepareGatewayWithoutRuntimeDeclarations(product) {
+  for (const name of [
+    ".github",
+    "clients",
+    "config",
+    "packages",
+    "scripts",
+    "tooling",
+    "release",
+  ]) {
+    symlinkSync(path.join(root, name), path.join(product, name), "dir");
+  }
+  mkdirSync(path.join(product, "services"));
+  for (const name of readdirSync(path.join(root, "services"))) {
+    if (name !== "gateway") {
+      symlinkSync(
+        path.join(root, "services", name),
+        path.join(product, "services", name),
+        "dir"
+      );
+    }
+  }
+  const gateway = path.join(product, "services/gateway");
+  mkdirSync(gateway);
+  copyFileSync(
+    path.join(root, "services/gateway/package.json"),
+    path.join(gateway, "package.json")
+  );
+  for (const name of [
+    "worker-configuration.d.ts",
+    ".dev.vars.example",
+    ".dev.vars.prod.example",
+  ]) {
+    const source = readFileSync(
+      path.join(root, "services/gateway", name),
+      "utf8"
+    );
+    writeFileSync(
+      path.join(gateway, name),
+      source.replace(CONNECTOR_RUNTIME_LINE, "")
+    );
+  }
+  const config = parseJsoncObject(
+    readFileSync(path.join(root, "services/gateway/wrangler.jsonc"), "utf8")
+  );
+  for (const section of [config, ...Object.values(config.env)]) {
+    if (section.secrets?.required) {
+      section.secrets.required = section.secrets.required.filter(
+        (name) => name !== "OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN"
+      );
+    }
+  }
+  writeFileSync(path.join(gateway, "wrangler.jsonc"), JSON.stringify(config));
+  const route = path.join(
+    gateway,
+    "src/routes/rpc-http.connector-connections.ts"
+  );
+  mkdirSync(path.dirname(route), { recursive: true });
+  const client = path.join(gateway, "src/lib/openconnector-client.ts");
+  mkdirSync(path.dirname(client), { recursive: true });
+  copyFileSync(
+    path.join(root, "services/gateway/src/lib/openconnector-client.ts"),
+    client
+  );
+  return { route, client };
+}
+
+for (const scenario of [
+  "historical-reader",
+  "runtime-reader",
+  "runtime-client-with-legacy-reader",
+  "missing-reader",
+]) {
+  test(`current verifier binds connector credentials to the product reader: ${scenario}`, () => {
+    const product = mkdtempSync(
+      path.join(tmpdir(), "openmeld-gateway-env-source-")
+    );
+    try {
+      const { route, client } =
+        prepareGatewayWithoutRuntimeDeclarations(product);
+      if (
+        ["historical-reader", "runtime-client-with-legacy-reader"].includes(
+          scenario
+        )
+      ) {
+        // Captured legacy client construction: providers used the admin token.
+        writeFileSync(
+          route,
+          `function createOpenConnectorClient(env: CloudflareBindings): OpenConnectorClient {
+  const bindings = env as CloudflareBindings & OpenConnectorBindings;
+  return new OpenConnectorClient({
+    adminToken: bindings.OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN ?? "",
+    baseUrl: bindings.OPENMELD_CONNECTORS_BASE_URL ?? "",
+  });
+}
+`
+        );
+        if (scenario === "historical-reader") {
+          writeFileSync(
+            client,
+            `class OpenConnectorClient {
+  async listProviders(): Promise<ConnectorAppCatalogProvider[]> {
+    const payload = await this.#request(
+      "/v1/providers?includeConnectionAuth=true",
+      { method: "GET" }
+    );
+    return parseOpenConnectorPayload({
+      operation: "list providers",
+      payload,
+      schema: openConnectorProviderListSchema,
+    }).data;
+  }
+}
+`
+          );
+        }
+      } else if (scenario === "runtime-reader") {
+        copyFileSync(
+          path.join(
+            root,
+            "services/gateway/src/routes/rpc-http.connector-connections.ts"
+          ),
+          route
+        );
+      }
+      const result = spawnSync(
+        process.execPath,
+        [
+          path.join(root, "scripts/cloudflare/verify-worker-env-contract.mjs"),
+          "--profile",
+          "production",
+        ],
+        {
+          cwd: product,
+          env: { ...process.env, OPENMELD_VERIFICATION_ROOT: product },
+          encoding: "utf8",
+          timeout: 10_000,
+        }
+      );
+      assert.equal(result.error, undefined);
+      assert.equal(
+        result.status,
+        scenario === "historical-reader" ? 0 : 1,
+        result.stderr
+      );
+      if (scenario !== "historical-reader") {
+        assert.match(result.stderr, CONNECTOR_CONTRACT_ERROR);
+      }
+    } finally {
+      rmSync(product, { recursive: true, force: true });
+    }
+  });
+}

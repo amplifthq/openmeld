@@ -53,6 +53,7 @@ const PERSONAL_SETTINGS_SECTION_IDS = [
 	"account",
 	"appearance",
 	"notifications",
+	"spaces",
 	"service",
 	"privacy",
 	"updates",

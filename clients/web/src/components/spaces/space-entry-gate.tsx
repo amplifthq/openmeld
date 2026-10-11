@@ -27,6 +27,7 @@ import { joinOrganizationSpace } from "#/lib/organizations/organization-spaces";
 import { isSessionExpiredError } from "#/lib/session-expired";
 import { isCurrentSpaceAccessRejection } from "#/lib/spaces/errors";
 import { rememberProtectedSpaceAccess } from "#/lib/spaces/protected-space-access";
+import { acceptOrganizationSpaceMembership } from "#/query/spaces/account-spaces";
 import { spaceEntryResolutionQueryOptions } from "#/query/spaces/entry-resolution";
 import { DesktopProtectedSpaceHandoff } from "./desktop-protected-space-handoff";
 import { SpaceEntryConfirmationContext } from "./space-entry-confirmation";
@@ -232,10 +233,18 @@ export function SpaceEntryGate(input: {
 				setIsJoining(true);
 				setJoinError(null);
 				try {
-					await joinOrganizationSpace({
+					const response = await joinOrganizationSpace({
 						organizationId,
 						spaceId: input.spaceId,
 					});
+					if (input.openMeldProfileId) {
+						acceptOrganizationSpaceMembership(queryClient, {
+							organizationId,
+							spaceId: input.spaceId,
+							profileId: input.openMeldProfileId,
+							response,
+						});
+					}
 					await queryClient.invalidateQueries({ queryKey: ["spaces"] });
 					await resolutionQuery.refetch();
 				} catch (error) {

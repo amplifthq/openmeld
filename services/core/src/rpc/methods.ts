@@ -48,6 +48,7 @@ import {
   addOrganizationDirectoryProfilesToSpaceBodySchema,
   agentExecutionReadinessRouteParamsSchema,
   agentProfileBindingRouteParamsSchema,
+  agentProfileBindingTargetSchema,
   agentProfileExecutionModeResponseSchema,
   authRpcResolveUserDisplayNameResultSchema,
   buildAccountAvatarObjectKey,
@@ -184,7 +185,10 @@ import {
   currentLocalAgentInstallationsResponseSchema,
   currentLocalAgentInstallationsRouteParamsSchema,
   currentLocalRuntimeReplyReadinessResponseSchema,
+  type DeleteConversationForMeInput,
+  type DeleteConversationForMeResponse,
   daemonServiceLaneSchema,
+  deleteConversationForMeInputSchema,
   deleteSpaceAttachmentRecordInputSchema,
   deleteSpaceAttachmentRecordResultSchema,
   deriveCenterAgentDirectMessageSpaceProjection,
@@ -211,6 +215,9 @@ import {
   getCenterAgentDesignationResponseSchema,
   getCenterAgentDirectMessageSpaceProjectionResponseSchema,
   getCenterAgentOperatingStateResponseSchema,
+  getCurrentAgentProfileWorkspaceQuerySchema,
+  getCurrentAgentProfileWorkspaceResponseSchema,
+  type getCurrentOrganizationSpaceDirectoryRpcInputSchema,
   getLocalRuntimeExpectedRoutesQuerySchema,
   getPrepareReadinessQuerySchema,
   getPrepareReadinessResponseSchema,
@@ -773,6 +780,7 @@ import {
   OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
   type SpaceAccessContext,
 } from "@openmeld/space";
+import type { z } from "zod/v4";
 import {
   rpcCenterAgentListAgentActivitySessions as centerAgentListAgentActivitySessions,
   rpcCenterAgentReadAgentActivity as centerAgentReadAgentActivity,
@@ -817,6 +825,7 @@ import {
   type AgentProfileBindingLookupResult,
   lookupPrimaryAgentProfileBinding,
 } from "../agent-profile-binding/application/agent-profile-binding-lookup-service";
+import { requireSameAgentProfileBindingTarget } from "../agent-profile-binding/application/agent-profile-binding-target";
 import {
   rememberAgentProfileCreationDefaults,
   resolveFirstUseAgentProfileCreationDefaults,
@@ -947,6 +956,10 @@ import {
   type CurrentDesignatedCenterAgentAuthorization,
   requireCurrentDesignatedCenterAgentCaller,
 } from "../center-agent/current-designated-center-agent";
+import {
+  syncCompletedGitHubIssue,
+  verifyGitHubIssueCompletion,
+} from "../center-agent/github-issue-completion";
 import type { CenterAgentWakePublicationCommand } from "../center-agent/infrastructure/postgresql/center-agent-wake-publication-repo";
 import { startCenterAgentMemberResearch } from "../center-agent-member-research/member-research-service";
 import type { CenterAgentMemoryEpisodeOrigin } from "../center-agent-memory/contract";
@@ -1020,6 +1033,7 @@ import {
   readRuntimeTransportAgentProfileExecutionState,
   readRuntimeTransportAgentProfileOperationalContexts,
   readRuntimeTransportComputerFileAccessPolicy,
+  readRuntimeTransportProfileWorkspace,
   refreshRuntimeTransportLocalAgentCatalog,
   releaseRuntimeTransportAgentProfileExecutionTargetMutation,
   selectRuntimeTransportLocalFolders,
@@ -1257,7 +1271,10 @@ import {
 import { notifyAgentProfileWorkUsageRecoveryAvailable } from "../runtime-transport/application/agent-profile-work-usage-recovery";
 import { selectCurrentOwnerServiceSessionsByDeviceLane } from "../runtime-transport/application/current-owner-service-sessions";
 import { listActiveRuntimeCoordinatorExecutionTargetsBySpaceIds } from "../runtime-transport/infrastructure/postgresql/runtime-coordinator-execution-repo";
-import { parseRpcErrorPayload } from "../shared/rpc/rpc-json";
+import {
+  parseRpcErrorPayload,
+  readSafeRpcFailureReasonCode,
+} from "../shared/rpc/rpc-json";
 import {
   assertSpaceAccessMatchesSpace,
   requireWritableSpaceActor,
@@ -1286,7 +1303,6 @@ import {
   SPACE_MEMBER_NAME_READ_BUDGET_MS,
 } from "../space/application/space-members-service";
 import {
-  assertLegacySpaceTaskCanRead,
   projectSpaceTaskDetailForClient,
   projectSpaceTaskReceiptForClient,
   projectSpaceTasksForClient,
@@ -1460,7 +1476,8 @@ export function rpcArchiveProject(
 }
 export async function rpcUpdateAgentProfileDefaultProject(
   env: CoreBindings,
-  input: UpdateAgentProfileDefaultProjectInput
+  input: UpdateAgentProfileDefaultProjectInput,
+  expectedBindingTarget?: import("../agent-profile-binding/application/agent-profile-binding-target").AgentProfileBindingTarget
 ): Promise<UpdateAgentProfileDefaultProjectResponse> {
   const parsedRequest =
     updateAgentProfileDefaultProjectRpcInputSchema.safeParse(input);
@@ -1482,9 +1499,28 @@ export async function rpcUpdateAgentProfileDefaultProject(
     agentProfileId: request.agentProfileId,
     authority,
     defaultProjectId: request.defaultProjectId,
+    onlyIfUnmodified: request.onlyIfUnmodified,
+    expectedBindingTarget:
+      expectedBindingTarget ?? request.expectedBindingTarget,
     env,
     service,
   });
+}
+export async function rpcUpdateBoundAgentProfileDefaultProject(
+  env: CoreBindings,
+  input: UpdateAgentProfileDefaultProjectInput
+) {
+  const expected = agentProfileBindingTargetSchema.safeParse(
+    input.expectedBindingTarget
+  );
+  if (!expected.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "The current Binding is required to save this working folder.",
+    });
+  }
+  return await rpcUpdateAgentProfileDefaultProject(env, input, expected.data);
 }
 const localProjectControlRpc = createLocalProjectControlRpc({
   resolveCurrentTarget: resolveCurrentLocalProjectControlTarget,
@@ -2377,6 +2413,8 @@ export type CreateSpaceResult = {
   meta?: SpaceMeta;
 };
 export type ListSignalsInput = {
+  messageRead?: import("@openmeld/schemas").MessageReadQuery;
+  includePersonalHistoryBoundary?: boolean;
   q?: string;
   spaceId: string;
   afterTs?: number;
@@ -2398,6 +2436,8 @@ export type ListSignalsInput = {
   spaceAccess?: SpaceAccessContext;
 };
 export type ListSignalsResult = {
+  messagePage?: import("@openmeld/schemas").MessageReadPage;
+  personalHistoryDeletedAt?: number;
   searchIndexing?: boolean;
   signals: SignalEnvelope[];
   nextCursor: string | null;
@@ -2418,6 +2458,8 @@ export async function rpcMutateSpaceMessage(
   return await stub.rpcMutateSpaceMessage(input);
 }
 export type PostSignalInput = {
+  /** Internal Core→Space only. Public input cannot supply a time anchor. */
+  requestTimeContext?: import("@openmeld/schemas").UserRequestTimeContext;
   contextSelection?: import("@openmeld/schemas/types").ExecutionContextSelection;
   contextSelections?: Record<
     string,
@@ -2478,6 +2520,8 @@ export type PostSystemNoticeSignalInput = {
   context?: CoreRpcContextInput;
   spaceAccess?: SpaceAccessContext;
   threadContext?: SpaceThreadContext;
+  /** Internal Core→Space only; never accepted from a public HTTP body. */
+  preHeadFailurePublication?: import("@openmeld/schemas/types").PreHeadFailurePublicationIdentity;
 };
 export type ExecutionRecoveryNoticeSignalData = SignalSystemNoticeData & {
   noticeType: "execution_recovery_available" | "execution_recovery_completed";
@@ -2663,6 +2707,7 @@ export type DeleteSpaceResult = {
   deleted: true;
 };
 export type ListAccountSpacesInput = {
+  includeDeletedSpaces?: boolean;
   gatewayHost: string;
   ownerUserId: string;
   scope: AccountSpaceIndexQuery["scope"];
@@ -2812,6 +2857,7 @@ export type GetSpaceWakeTraceWaterfallInput = {
 export type GetSpaceMessageDetailsInput = {
   spaceId: string;
   signalId: string;
+  executionContextVersion?: 1;
   password?: string;
   context?: CoreRpcContextInput;
   spaceAccess?: SpaceAccessContext;
@@ -3114,6 +3160,11 @@ export type SetCurrentAgentProfileWorkspaceInput =
     agentProfileId: string;
     context?: CoreRpcContextInput;
   };
+export type GetCurrentAgentProfileWorkspaceInput = {
+  agentProfileId: string;
+  context?: CoreRpcContextInput;
+  expectedBindingTarget?: import("@openmeld/schemas/types").AgentProfileBindingTarget;
+};
 export type RefreshCurrentLocalAgentCatalogInput = {
   context?: CoreRpcContextInput;
 };
@@ -3228,9 +3279,9 @@ export type GetCurrentOrganizationComputersInput = {
 export type GetCurrentOrganizationMemberOpenMeldServiceStatusesInput = {
   context?: CoreRpcContextInput;
 };
-export type GetCurrentOrganizationSpaceDirectoryInput = {
-  context?: CoreRpcContextInput;
-};
+export type GetCurrentOrganizationSpaceDirectoryInput = z.infer<
+  typeof getCurrentOrganizationSpaceDirectoryRpcInputSchema
+>;
 export type JoinOrganizationPublicSpaceInput = {
   spaceId: string;
   password?: string;
@@ -3754,11 +3805,14 @@ function omitLocalRuntimeUsageLimits(
     executionTargets: computer.executionTargets.map((target) => ({
       ...target,
       capabilities: target.capabilities.map((capability) => {
-        if (!capability.agentControllerInterface?.usageLimits) {
+        if (!capability.agentControllerInterface) {
           return capability;
         }
-        const { usageLimits: _usageLimits, ...agentControllerInterface } =
-          capability.agentControllerInterface;
+        const {
+          usageLimits: _usageLimits,
+          usageAdmission: _usageAdmission,
+          ...agentControllerInterface
+        } = capability.agentControllerInterface;
         return { ...capability, agentControllerInterface };
       }),
     })),
@@ -4265,22 +4319,34 @@ export async function rpcSetCurrentOpenMeldToolsMaintenance(
 type CurrentLocalProjectControlTarget =
   LocalRuntimesResponse["localRuntimes"][number]["executionTargets"][number];
 async function resolveCurrentLocalProjectControlTarget(input: {
-  capability: keyof NonNullable<
-    CurrentLocalProjectControlTarget["localProjectControl"]
-  >;
+  capability:
+    | keyof NonNullable<CurrentLocalProjectControlTarget["localProjectControl"]>
+    | "readConnections";
   env: CoreBindings;
   userId: string;
 }): Promise<CurrentLocalProjectControlTarget> {
-  const { currentTarget } = await resolveCurrentLocalControlTarget({
-    env: input.env,
-    offlineError: {
-      code: "service_offline",
-      reason: "This computer isn't reachable for OpenMeld right now.",
-      status: 503,
-    },
-    userId: input.userId,
-  });
-  if (currentTarget.localProjectControl?.[input.capability] !== true) {
+  const { currentTarget, ownerService } =
+    await resolveCurrentLocalControlTarget({
+      env: input.env,
+      offlineError: {
+        code: "service_offline",
+        reason: "This computer isn't reachable for OpenMeld right now.",
+        status: 503,
+      },
+      userId: input.userId,
+    });
+  const available =
+    input.capability === "readConnections"
+      ? ownerService?.online === true &&
+        selectCurrentOwnerServiceSessionsByDeviceLane(ownerService).some(
+          (session) =>
+            session.deviceId === currentTarget.deviceId &&
+            session.lane === currentTarget.runtimeLane &&
+            session.executionCompatibility.status === "compatible" &&
+            session.capabilities.localProjectControl?.readConnections === true
+        )
+      : currentTarget.localProjectControl?.[input.capability] === true;
+  if (!available) {
     throw createCoreRpcHttpError({
       status: 409,
       reason:
@@ -4535,17 +4601,124 @@ function requireLocalAgentInstallationSelectionStatus(
     code: "local_agent_control.service_update_required",
   });
 }
+export async function rpcGetCurrentAgentProfileWorkspace(
+  env: CoreBindings,
+  input: GetCurrentAgentProfileWorkspaceInput,
+  target?: PeopleComputerTarget
+): Promise<
+  import("@openmeld/schemas/types").GetCurrentAgentProfileWorkspaceResponse
+> {
+  // Auth owns both the Profile's Organization and the private configuration's
+  // owner. Membership alone never authorizes a local path read.
+  const request = await requireAgentProfileWorkRecoveryScope(env, input);
+  const query = getCurrentAgentProfileWorkspaceQuerySchema.safeParse({
+    expectedBindingTarget: input.expectedBindingTarget,
+  });
+  if (!query.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "Invalid working-folder read precondition.",
+    });
+  }
+  const expectedBindingTarget = query.data.expectedBindingTarget;
+  const bound =
+    target && !expectedBindingTarget
+      ? null
+      : await resolveBoundAgentProfileComputerContext(env, input);
+  const currentTarget = target ?? bound?.target;
+  if (!currentTarget) {
+    throw createCoreRpcHttpError({
+      status: 409,
+      code: "agent_profile_binding.target_unavailable",
+      reason: "OpenMeld could not confirm the Computer that runs this Agent.",
+    });
+  }
+  if (expectedBindingTarget && bound) {
+    requireSameAgentProfileBindingTarget(
+      bound.bindingTarget,
+      expectedBindingTarget
+    );
+    if (
+      bound.target.deviceId !== currentTarget.deviceId ||
+      bound.target.runtimeLane !== currentTarget.runtimeLane
+    ) {
+      throw createCoreRpcHttpError({
+        status: 409,
+        code: "agent_profile_binding.target_changed",
+        reason:
+          "This Agent’s Computer changed. Reopen Working folder to review its current settings.",
+      });
+    }
+  }
+  const result = await readRuntimeTransportProfileWorkspace({
+    env,
+    ownerUserId: request.owner.id,
+    deviceId: currentTarget.deviceId,
+    runtimeLane: currentTarget.runtimeLane,
+    targetProfileId: request.agentProfileId,
+  });
+  if (result.status === "rejected") {
+    throw createCoreRpcHttpError({
+      status: 409,
+      code: result.reasonCode,
+      reason: result.message,
+    });
+  }
+  if (!result.payload.accepted) {
+    throw createCoreRpcHttpError({
+      status: 409,
+      code: result.payload.reasonCode,
+      reason: result.payload.message,
+    });
+  }
+  if (result.payload.targetProfileId !== request.agentProfileId) {
+    throw createCoreRpcHttpError({
+      status: 502,
+      code: "local_agent_control.invalid_response",
+      reason: "OpenMeld Service returned settings for a different Agent.",
+    });
+  }
+  await requireAgentProfileWorkRecoveryScope(env, input);
+  if (bound) {
+    const current = await resolveBoundAgentProfileComputerContext(env, input);
+    requireSameAgentProfileBindingTarget(
+      current.bindingTarget,
+      bound.bindingTarget
+    );
+    if (
+      current.target.deviceId !== currentTarget.deviceId ||
+      current.target.runtimeLane !== currentTarget.runtimeLane
+    ) {
+      throw createCoreRpcHttpError({
+        status: 409,
+        code: "agent_profile_binding.target_changed",
+        reason:
+          "This Agent’s Computer changed. Reopen Working folder to review its current settings.",
+      });
+    }
+  }
+  return getCurrentAgentProfileWorkspaceResponseSchema.parse({
+    agentProfileId: request.agentProfileId,
+    target: currentTarget,
+    workspace: result.payload.workspace,
+  });
+}
+
 export async function rpcSetCurrentAgentProfileWorkspace(
   env: CoreBindings,
   input: SetCurrentAgentProfileWorkspaceInput,
-  target?: PeopleComputerTarget
+  target?: PeopleComputerTarget,
+  expectedBindingTarget?: import("../agent-profile-binding/application/agent-profile-binding-target").AgentProfileBindingTarget
 ): Promise<SetCurrentAgentProfileWorkspaceResponse> {
+  const bindingTarget = expectedBindingTarget ?? input.expectedBindingTarget;
   const routeParams =
     setCurrentAgentProfileWorkspaceRouteParamsSchema.safeParse({
       agentProfileId: input.agentProfileId,
     });
   const parsed = setCurrentAgentProfileWorkspaceBodySchema.safeParse({
     workspaceMode: input.workspaceMode,
+    ...(input.onlyIfUnconfigured ? { onlyIfUnconfigured: true } : {}),
     ...(input.workspacePath === undefined
       ? {}
       : { workspacePath: input.workspacePath }),
@@ -4560,7 +4733,7 @@ export async function rpcSetCurrentAgentProfileWorkspace(
       code: "invalid_payload",
     });
   }
-  const { request } = await requireAgentProfileWorkspaceScope(env, {
+  const { db, request } = await requireAgentProfileWorkspaceScope(env, {
     agentProfileId: routeParams.data.agentProfileId,
     context: input.context,
   });
@@ -4587,6 +4760,18 @@ export async function rpcSetCurrentAgentProfileWorkspace(
   }
   let releaseExecutionTargetMutationAdmission = false;
   try {
+    if (bindingTarget) {
+      // This check is serialized with Binding changes by the existing owner
+      // admission. A known refusal must release it without calling Service.
+      releaseExecutionTargetMutationAdmission = true;
+      const currentBinding = await readPrimaryAgentProfileBindingRecord({
+        agentProfileId: routeParams.data.agentProfileId,
+        db,
+        owner: { id: userId, kind: "owner_account" },
+      });
+      requireSameAgentProfileBindingTarget(currentBinding, bindingTarget);
+    }
+    releaseExecutionTargetMutationAdmission = false;
     const transportResult = await setRuntimeTransportProfileWorkspace({
       deviceId: currentTarget.deviceId,
       env,
@@ -4594,6 +4779,7 @@ export async function rpcSetCurrentAgentProfileWorkspace(
       runtimeLane: currentTarget.runtimeLane,
       targetProfileId: routeParams.data.agentProfileId,
       workspaceMode: parsed.data.workspaceMode,
+      ...(parsed.data.onlyIfUnconfigured ? { onlyIfUnconfigured: true } : {}),
       ...(parsed.data.workspacePath === undefined
         ? {}
         : { workspacePath: parsed.data.workspacePath }),
@@ -4620,6 +4806,40 @@ export async function rpcSetCurrentAgentProfileWorkspace(
       );
     }
   }
+}
+export async function rpcSetBoundPeopleComputerAgentProfileWorkspace(
+  env: CoreBindings,
+  input: SetCurrentAgentProfileWorkspaceInput & PeopleComputerTarget
+) {
+  const expected = agentProfileBindingTargetSchema.safeParse(
+    input.expectedBindingTarget
+  );
+  if (!expected.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      code: "invalid_payload",
+      reason: "The current Binding is required to save this working folder.",
+    });
+  }
+  const bound = await resolveBoundAgentProfileComputerContext(env, input);
+  requireSameAgentProfileBindingTarget(bound.bindingTarget, expected.data);
+  if (
+    bound.target.deviceId !== input.deviceId ||
+    bound.target.runtimeLane !== input.runtimeLane
+  ) {
+    throw createCoreRpcHttpError({
+      status: 409,
+      code: "agent_profile_binding.target_changed",
+      reason:
+        "This working folder belongs to a different Computer. Reopen Working folder to review the Agent’s current settings.",
+    });
+  }
+  return await rpcSetCurrentAgentProfileWorkspace(
+    env,
+    input,
+    bound.target,
+    expected.data
+  );
 }
 function buildProfileWorkspaceMutationAdmissionError(
   status: "blocked" | "unavailable"
@@ -5353,6 +5573,56 @@ export async function rpcGetAgentProfilePrimaryBinding(
   return buildGetAgentProfilePrimaryBindingResponse(
     mapAgentProfileBindingLookupResultToProjection(lookupResult)
   );
+}
+async function resolveBoundAgentProfileComputerTarget(
+  env: CoreBindings,
+  input: GetAgentProfilePrimaryBindingInput
+): Promise<PeopleComputerTarget> {
+  return (await resolveBoundAgentProfileComputerContext(env, input)).target;
+}
+async function resolveBoundAgentProfileComputerContext(
+  env: CoreBindings,
+  input: GetAgentProfilePrimaryBindingInput
+) {
+  const response = await rpcGetAgentProfilePrimaryBinding(env, input);
+  const executionTarget = response.binding.executionTarget;
+  const unavailable = () =>
+    createCoreRpcHttpError({
+      code: "agent_profile_binding.target_unavailable",
+      reason: "OpenMeld could not confirm the Computer that runs this Agent.",
+      status: 409,
+    });
+  if (
+    response.status !== "found" ||
+    !executionTarget ||
+    !response.binding.bindingId
+  ) {
+    throw unavailable();
+  }
+  const runtime = await resolveAgentExecutionTargetRuntimeContext({
+    env,
+    owner: {
+      id: requireAuthenticatedOwnerUserId(input.context),
+      kind: "owner_account",
+    },
+    targetRuntime: {
+      kind: "openmeld_service_runtime_id",
+      openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId,
+    },
+  });
+  if (!runtime) {
+    throw unavailable();
+  }
+  return {
+    target: { deviceId: runtime.deviceId, runtimeLane: runtime.lane },
+    bindingTarget: {
+      bindingId: response.binding.bindingId,
+      agentControllerRef: executionTarget.agentControllerRef,
+      agentControllerConversationId:
+        executionTarget.agentControllerConversationId ?? null,
+      openMeldServiceRuntimeId: executionTarget.openMeldServiceRuntimeId.value,
+    },
+  };
 }
 export async function rpcGetCurrentAgentProfileSession(
   env: CoreBindings,
@@ -7545,7 +7815,11 @@ export async function rpcGetCurrentOrganizationSpaceDirectory(
     generatedAt: response.generatedAt,
     organizationId: response.organizationId,
     spaces: response.spaces.map(
-      ({ activeMemberCount: _activeMemberCount, ...space }) => space
+      ({
+        activeMemberCount: _activeMemberCount,
+        memberPreviews: _memberPreviews,
+        ...space
+      }) => space
     ),
   };
   const validated = organizationSpaceDirectoryResponseSchema.safeParse(
@@ -7596,6 +7870,7 @@ async function readCurrentOrganizationSpaceDirectoryWithMemberCounts(
   const response = await listOrganizationSpacesFromSpaceIndex({
     db: requireSpaceIndexDb(env),
     generatedAt: new Date().toISOString(),
+    includeMemberPreviews: input.includeMemberPreviews,
     limit: ORGANIZATION_SPACE_DIRECTORY_LIMIT,
     organizationId: directoryCaller.organizationId,
     ownerUserId: directoryCaller.userId,
@@ -9295,6 +9570,7 @@ export async function rpcListCenterAgentSessions(
     };
   }
   return await listAuthorizedCenterAgentSessions({
+    ownerUserId: activeOrganization.userId,
     ...parsed.data,
     db: requireSpaceIndexDb(env),
     organizationId: activeOrganization.organizationId,
@@ -11947,6 +12223,7 @@ export async function rpcCenterAgentListLocalAgentConnectionCandidates(
 ): Promise<CenterAgentListLocalAgentConnectionCandidatesResponse> {
   const parsed =
     centerAgentListLocalAgentConnectionCandidatesBodySchema.safeParse({
+      includeModelOptions: input.includeModelOptions,
       speakerMember: input.speakerMember,
       ...(input.memberUserId ? { memberUserId: input.memberUserId } : {}),
     });
@@ -11980,6 +12257,9 @@ export async function rpcCenterAgentListLocalAgentConnectionCandidates(
   const response = projectCenterAgentLocalAgentConnectionCandidates({
     peopleComputers: await listPeopleComputersForOwnerUser({ env, userId }),
     organizationId: authorization.activeOrganization.organizationId,
+    ...(parsed.data.includeModelOptions
+      ? { modelCatalog: readModelCatalog({ retirement: true }) }
+      : {}),
   });
   const validated =
     centerAgentListLocalAgentConnectionCandidatesResponseSchema.safeParse(
@@ -12358,9 +12638,22 @@ export async function rpcCenterAgentConnectAgentProfileToLocalAgent(
   }
   return validated.data;
 }
-export async function rpcCenterAgentUpdateAgentProfileRuntimeSettings(
+export function rpcCenterAgentUpdateAgentProfileRuntimeSettings(
   env: CoreBindings,
   input: CenterAgentUpdateAgentProfileRuntimeSettingsInput
+): Promise<CenterAgentUpdateAgentProfileRuntimeSettingsResponse> {
+  return updateCenterAgentProfileRuntimeSettings(env, input, false);
+}
+export function rpcCenterAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace(
+  env: CoreBindings,
+  input: CenterAgentUpdateAgentProfileRuntimeSettingsInput
+): Promise<CenterAgentUpdateAgentProfileRuntimeSettingsResponse> {
+  return updateCenterAgentProfileRuntimeSettings(env, input, true);
+}
+async function updateCenterAgentProfileRuntimeSettings(
+  env: CoreBindings,
+  input: CenterAgentUpdateAgentProfileRuntimeSettingsInput,
+  acceptsSafeWorkspaceResult: boolean
 ): Promise<CenterAgentUpdateAgentProfileRuntimeSettingsResponse> {
   const authorization = await requireCurrentDesignatedCenterAgentCaller({
     context: requireRpcContext(input.context),
@@ -12387,6 +12680,14 @@ export async function rpcCenterAgentUpdateAgentProfileRuntimeSettings(
         parsed.error.issues[0]?.message ??
         "invalid Center Agent Agent Profile runtime settings payload",
       code: "invalid_payload",
+    });
+  }
+  if (parsed.data.workspaceMode !== undefined && !acceptsSafeWorkspaceResult) {
+    throw createCoreRpcHttpError({
+      status: 409,
+      code: "center_agent.workspace_contract_update_required",
+      reason:
+        "Working folder changes are temporarily unavailable during an update. Try again after the update completes.",
     });
   }
   const response = await updateAgentProfileRuntimeSettingsOperation({
@@ -12422,6 +12723,7 @@ export async function rpcCenterAgentCheckAgentProfileReadiness(
   });
   const parsed = centerAgentCheckAgentProfileReadinessBodySchema.safeParse({
     agentProfileId: input.agentProfileId,
+    includeDefaultProjectConnection: input.includeDefaultProjectConnection,
     onBehalfOf: input.onBehalfOf,
   });
   if (!parsed.success) {
@@ -12441,7 +12743,11 @@ export async function rpcCenterAgentCheckAgentProfileReadiness(
       await resolveCenterAgentProductOperationOwner(
         authorization,
         parsed.data.onBehalfOf
-      )
+      ),
+      {
+        includeDefaultProjectConnection:
+          parsed.data.includeDefaultProjectConnection,
+      }
     ),
   });
   const validated =
@@ -12509,7 +12815,8 @@ function buildCenterAgentProductOperationDeps(
   preferenceOwner?: {
     representedContext: OpenMeldRequestContext | null;
     representedUserId: string | null;
-  }
+  },
+  options?: { includeDefaultProjectConnection?: boolean }
 ): CenterAgentProductOperationDeps {
   const context = authorization.context;
   const organizationId = authorization.activeOrganization.organizationId;
@@ -12530,10 +12837,24 @@ function buildCenterAgentProductOperationDeps(
         agentProfileId,
         context: ownerContext,
       });
-      return buildCenterAgentReadinessResponse({
+      const response = buildCenterAgentReadinessResponse({
         organizationId,
         readiness,
       });
+      if (!options?.includeDefaultProjectConnection) {
+        return response;
+      }
+      return {
+        ...response,
+        defaultProjectConnection: await readCenterAgentDefaultProjectConnection(
+          env,
+          {
+            agentProfileId,
+            context: ownerContext,
+            organizationId,
+          }
+        ),
+      };
     },
     createAgentProfile: async ({ onBehalfOf, profileName }) =>
       await rpcCenterAgentCreateAgentProfile(env, {
@@ -12614,13 +12935,18 @@ function buildCenterAgentProductOperationDeps(
           setAgentProfileDefaultProject: async ({
             agentProfileId,
             defaultProjectId,
+            expectedBindingTarget,
           }) => {
-            await rpcUpdateAgentProfileDefaultProject(env, {
-              agentProfileId,
-              context: representedContext,
-              defaultProjectId,
-              expectedOrganizationId: organizationId,
-            });
+            await rpcUpdateAgentProfileDefaultProject(
+              env,
+              {
+                agentProfileId,
+                context: representedContext,
+                defaultProjectId,
+                expectedOrganizationId: organizationId,
+              },
+              expectedBindingTarget
+            );
           },
         }
       : {}),
@@ -12628,13 +12954,25 @@ function buildCenterAgentProductOperationDeps(
       agentProfileId,
       workspaceMode,
       workspacePath,
-    }) =>
-      await rpcSetCurrentAgentProfileWorkspace(env, {
-        agentProfileId,
-        context: ownerContext,
-        workspaceMode,
-        ...(workspacePath === undefined ? {} : { workspacePath }),
-      }),
+    }) => {
+      const { target, bindingTarget } =
+        await resolveBoundAgentProfileComputerContext(env, {
+          agentProfileId,
+          context: ownerContext,
+        });
+      const workspace = await rpcSetCurrentAgentProfileWorkspace(
+        env,
+        {
+          agentProfileId,
+          context: ownerContext,
+          workspaceMode,
+          ...(workspacePath === undefined ? {} : { workspacePath }),
+        },
+        target,
+        bindingTarget
+      );
+      return { ...workspace, target, bindingTarget };
+    },
     updateAgentControllerPermissionMode: async ({
       agentControllerPermissionMode,
       agentProfileId,
@@ -12673,6 +13011,111 @@ function buildCenterAgentProductOperationDeps(
         openCodePermission,
       }),
   };
+}
+async function readCenterAgentDefaultProjectConnection(
+  env: CoreBindings,
+  input: {
+    agentProfileId: string;
+    context: OpenMeldRequestContext;
+    organizationId: string;
+  }
+): Promise<
+  NonNullable<
+    CenterAgentCheckAgentProfileReadinessResponse["defaultProjectConnection"]
+  >
+> {
+  const unknown = {
+    checkedAtMs: null,
+    configurationVersion: null,
+    projectId: null,
+    reasonCode: "profile.default_project.unavailable",
+    status: "unavailable" as const,
+    target: null,
+  };
+  const facts = await readAuthProfileFacts({
+    authWorker: env.OPENMELD_AUTH_WORKER,
+    profileIds: [input.agentProfileId],
+  });
+  const profile = facts?.get(input.agentProfileId);
+  if (
+    !profile ||
+    profile.ownerUserId !== requireAuthenticatedOwnerUserId(input.context) ||
+    profile.organizationId !== input.organizationId ||
+    profile.defaultProjectId === undefined
+  ) {
+    return unknown;
+  }
+  const projectId = profile.defaultProjectId;
+  if (!projectId) {
+    return { ...unknown, reasonCode: null, status: "not_selected" };
+  }
+  let target: PeopleComputerTarget;
+  try {
+    target = await resolveBoundAgentProfileComputerTarget(env, input);
+  } catch {
+    return {
+      ...unknown,
+      projectId,
+      reasonCode: "agent_profile_binding.target_unavailable",
+    };
+  }
+  try {
+    const discovery = await rpcDiscoverPeopleComputerProjects(env, {
+      ...target,
+      clientGeneration: 0,
+      context: input.context,
+      expectedOrganizationId: input.organizationId,
+      includeCandidates: false,
+      projectIds: [projectId],
+    });
+    const project = discovery.projects.find(
+      (item) => item.projectId === projectId
+    );
+    if (
+      discovery.deviceId !== target.deviceId ||
+      !project ||
+      project.status === "verification_unavailable"
+    ) {
+      return {
+        ...unknown,
+        projectId,
+        target,
+        reasonCode: "project.local_connection.verification_unavailable",
+      };
+    }
+    const confirmed = {
+      checkedAtMs: discovery.checkedAtMs,
+      configurationVersion:
+        project.connections.find((connection) => connection.isDefault)
+          ?.bindingGeneration ?? null,
+      projectId,
+      target,
+    };
+    if (project.status === "connected") {
+      return { ...confirmed, status: "connected", reasonCode: null };
+    }
+    if (project.status === "connected_folder_missing") {
+      return {
+        ...confirmed,
+        status: "folder_missing",
+        reasonCode: "project.local_connection.folder_missing",
+      };
+    }
+    return {
+      ...confirmed,
+      status: "not_connected",
+      reasonCode: "project.local_connection.missing",
+    };
+  } catch (error) {
+    return {
+      ...unknown,
+      projectId,
+      target,
+      reasonCode:
+        readSafeRpcFailureReasonCode(error) ??
+        "project.local_connection.unavailable",
+    };
+  }
 }
 export async function rpcCenterAgentCreateSpace(
   env: CoreBindings,
@@ -15164,10 +15607,13 @@ async function readCenterAgentProgressiveSpaceContext(input: {
       aroundSignalId: sourceSignalId,
       beforeCount: 0,
       afterCount: 0,
-      signalTypes: ["signal.text"],
+      signalTypes: ["signal.text", "signal.system_notice"],
     });
     const signal = page.signals.find((entry) => entry.id === sourceSignalId);
-    if (!signal || signal.type !== "signal.text") {
+    if (
+      !signal ||
+      (signal.type !== "signal.text" && signal.type !== "signal.system_notice")
+    ) {
       throw new Error(
         "space.evidence_unavailable: The requested message is unavailable."
       );
@@ -16075,6 +16521,8 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     requestSignature: input.requestSignature,
     issueDestination: input.issueDestination,
     linearIssueReceipt: input.linearIssueReceipt,
+    githubIssueCompletion: input.githubIssueCompletion,
+    includeGitHubTaskSync: input.includeGitHubTaskSync,
     service: input.service,
     speakerMember: input.speakerMember,
   });
@@ -16204,10 +16652,13 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     operation: parsed.data,
     existingOperation: Boolean(existing),
     sourceRequestKey,
+    sourceSpaceId: member.sourceSpaceId,
+    sourceNativeDeliveryId: member.sourceNativeDeliveryId,
     connection: executionConnection,
     connectionUpdatedAtMs,
     personalExecution: "personalExecution" in authorization,
   });
+  const githubIssueObservation = await verifyGitHubIssueCompletion(parsed.data);
   const result = await recordCenterAgentConnectorActionOperation({
     actionId: parsed.data.actionId,
     actorProfileId: authorization.actorProfileId,
@@ -16221,6 +16672,7 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     organizationId: authorization.activeOrganization.organizationId,
     outcome: parsed.data.outcome,
     linearIssueReceipt: parsed.data.linearIssueReceipt,
+    githubIssueObservation,
     providerExecutionId: parsed.data.providerExecutionId,
     requester,
     requestSignature: parsed.data.requestSignature,
@@ -16234,13 +16686,37 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     effect: parsed.data.effect,
     allowReplay: parsed.data.includeExecutionPermit === true,
   });
-  return await presentConnectorOperationResult({
-    actorProfileId: authorization.actorProfileId,
-    result,
-    db: authorization.db,
-    request: parsed.data,
-    verificationOf,
+  return await presentConnectorOperationWithGitHubSync(
+    env,
+    existing?.sourceSpaceId,
+    {
+      actorProfileId: authorization.actorProfileId,
+      result,
+      db: authorization.db,
+      request: parsed.data,
+      verificationOf,
+    }
+  );
+}
+
+async function presentConnectorOperationWithGitHubSync(
+  env: CoreBindings,
+  sourceSpaceId: string | null | undefined,
+  input: Parameters<typeof presentConnectorOperationResult>[0]
+) {
+  const githubTaskSync = await syncCompletedGitHubIssue({
+    env,
+    db: input.db,
+    operation: input.result.operation,
+    sourceSpaceId: sourceSpaceId ?? null,
   });
+  const response = await presentConnectorOperationResult(input);
+  return {
+    ...response,
+    ...(input.request.includeGitHubTaskSync && githubTaskSync
+      ? { githubTaskSync }
+      : {}),
+  };
 }
 
 function requireConnectorTaskProvenance(input: {
@@ -17501,7 +17977,25 @@ export async function rpcPostCenterAgentWakePublicationSignal(
   env: CoreBindings,
   command: CenterAgentWakePublicationCommand
 ): Promise<SignalEnvelope> {
+  const parent = await readRemoteAgentNativeDeliveryBySubmissionId({
+    db: requireCenterAgentDb(env),
+    submissionId: command.parentSubmissionId,
+  });
+  if (
+    !parent ||
+    parent.organizationId !== command.organizationId ||
+    parent.profileId !== command.attribution.actorProfileId
+  ) {
+    throw createCoreRpcHttpError({
+      code: "center_agent.delegation_parent_unavailable",
+      reason: "The original Center Agent request is unavailable.",
+      status: 409,
+    });
+  }
+  const originalRequest =
+    parent.workerSubmitRequest ?? parent.executionRecoverySubmitRequest;
   return await rpcPostSignalOnceByClientMessageId(env, {
+    requestTimeContext: originalRequest?.turnEnvelope.requestTimeContext,
     authoringPolicy: "user_authored",
     clientMessageId: command.clientMessageId,
     context: command.context,
@@ -19464,6 +19958,7 @@ export async function rpcListSignals(
   return unwrapSpaceRpcJsonResult(
     await stub.rpcListSignalsResult({
       spaceId,
+      ...(input.messageRead ? { messageRead: input.messageRead } : {}),
       ...(input.q ? { q: input.q } : {}),
       ...buildListSignalsNumberFilters(input),
       ...(cursor ? { cursor } : {}),
@@ -19594,6 +20089,9 @@ export async function rpcPostSignalOnceByClientMessageId(
     ...(input.spaceAccess ? { spaceAccess: input.spaceAccess } : {}),
   });
   const postInput = {
+    ...(input.requestTimeContext
+      ? { requestTimeContext: input.requestTimeContext }
+      : {}),
     ...(input.deviceWait ? { deviceWait: input.deviceWait } : {}),
     ...(input.contextSelection
       ? { contextSelection: input.contextSelection }
@@ -19699,6 +20197,9 @@ export async function rpcPostSystemNoticeSignal(
   const context = requireWritableRpcSpaceAccessContext(input);
   const password = resolveRpcSpaceAccessPassword(input);
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  if (input.preHeadFailurePublication && !input.spaceAccess) {
+    throw new Error("dispatch.pre_head_failure_publication_authority_required");
+  }
   if (!input.spaceAccess) {
     return await postFormalSignalWithFetch({
       stub,
@@ -19713,6 +20214,16 @@ export async function rpcPostSystemNoticeSignal(
           : {}),
         ...(input.threadContext ? { threadContext: input.threadContext } : {}),
       },
+    });
+  }
+  if (input.preHeadFailurePublication) {
+    // The named required receiver rejects an older Space before publication.
+    // An optional field on the ordinary RPC would be silently ignored there.
+    return await stub.rpcPostPreHeadFailureNoticeSignal({
+      ...input,
+      context,
+      spaceId,
+      preHeadFailurePublication: input.preHeadFailurePublication,
     });
   }
   return await stub.rpcPostSystemNoticeSignal({
@@ -19944,6 +20455,7 @@ export async function rpcGetSpaceEntryResolution(
   }
   const target = parsed.data;
   const indexed = await readSpaceIndexOrganizationJoinTarget({
+    includeDeletedSpaces: true,
     db: requireSpaceIndexDb(env),
     spaceId: target.spaceId,
   });
@@ -19988,6 +20500,7 @@ export async function rpcGetSpaceEntryResolution(
     access,
     authenticated: Boolean(context),
     indexed: {
+      deletedAt: indexed.deletedAt,
       organizationId: indexed.organizationId,
       ...(organizationSlug ? { organizationSlug } : {}),
       ...(indexed.creatorProfileId
@@ -20319,6 +20832,15 @@ export async function rpcDeleteSpace(
     context,
   });
 }
+export async function rpcDeleteConversationForMe(
+  env: CoreBindings,
+  raw: DeleteConversationForMeInput
+): Promise<DeleteConversationForMeResponse> {
+  const input = deleteConversationForMeInputSchema.parse(raw);
+  const context = requireRpcContext(input.context);
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcDeleteConversationForMe({ spaceId, context });
+}
 export async function rpcListAccountSpaces(
   env: CoreBindings,
   input: ListAccountSpacesInput
@@ -20335,6 +20857,7 @@ export async function rpcListAccountSpaces(
       ? Math.min(500, Math.max(1, Math.trunc(input.limit)))
       : 500;
   return await listAccountSpacesFromSpaceIndex({
+    includeDeletedSpaces: input.includeDeletedSpaces === true,
     db: requireSpaceIndexDb(env),
     gatewayHost,
     ownerUserId,
@@ -22156,6 +22679,19 @@ export async function rpcGetSpaceLinkPreviews(
     previews: current.revision === source.revision ? previews : [],
   };
 }
+export async function rpcReadPluginActionRequestLocations(
+  env: CoreBindings,
+  input: import("zod/v4").infer<
+    typeof import("@openmeld/schemas").listPluginActionRequestsInputSchema
+  >
+) {
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcReadPluginActionRequestLocations({
+    ...input,
+    spaceId,
+    spaceAccess: resolveRpcSpaceAccess(input),
+  });
+}
 export async function rpcGetSpaceMessageDetails(
   env: CoreBindings,
   input: GetSpaceMessageDetailsInput
@@ -22163,6 +22699,9 @@ export async function rpcGetSpaceMessageDetails(
   const parsed = getSpaceMessageDetailsInputSchema.safeParse({
     spaceId: input.spaceId,
     signalId: input.signalId,
+    ...(input.executionContextVersion
+      ? { executionContextVersion: input.executionContextVersion }
+      : {}),
   });
   if (!parsed.success) {
     throw createCoreRpcHttpError({
@@ -22181,6 +22720,9 @@ export async function rpcGetSpaceMessageDetails(
   return await stub.rpcGetMessageDetails({
     spaceId,
     signalId: parsed.data.signalId,
+    ...(parsed.data.executionContextVersion
+      ? { executionContextVersion: parsed.data.executionContextVersion }
+      : {}),
     ...access,
   });
 }
@@ -26038,7 +26580,7 @@ export async function rpcSpaceInputQueue(
 
 export type ListSpaceTasksInput = GetSpaceMetaInput & {
   phase?: SpaceTaskPhase;
-  taskContractVersion?: typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
+  taskContractVersion?: 2 | typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
 };
 export type GetSpaceTaskInput = GetSpaceMetaInput &
   SpaceTaskDetailOptions & {
@@ -26046,12 +26588,12 @@ export type GetSpaceTaskInput = GetSpaceMetaInput &
   };
 export type CreateSpaceTaskInput = GetSpaceMetaInput & {
   body: CreateSpaceTaskBody;
-  taskContractVersion?: typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
+  taskContractVersion?: 2 | typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
 };
 export type MutateSpaceTaskInput = GetSpaceMetaInput & {
   taskId: string;
   body: MutateSpaceTaskBody;
-  taskContractVersion?: typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
+  taskContractVersion?: 2 | typeof SPACE_TASK_WORKFLOW_CONTRACT_VERSION;
 };
 export async function rpcSpaceFilePins(
   env: CoreBindings,
@@ -26133,13 +26675,13 @@ export async function rpcCreateSpaceTask(
   const parsedBody = createSpaceTaskBodySchema.parse(input.body);
   if (
     parsedBody.projectIds?.length &&
-    input.taskContractVersion !== SPACE_TASK_WORKFLOW_CONTRACT_VERSION
+    input.taskContractVersion === undefined
   ) {
     throw spaceTaskContractUpdateRequiredError();
   }
   if (
     parsedBody.externalWorkItems?.some((item) => item.provider === "linear") &&
-    input.taskContractVersion !== SPACE_TASK_WORKFLOW_CONTRACT_VERSION
+    input.taskContractVersion === undefined
   ) {
     throw spaceTaskContractUpdateRequiredError();
   }
@@ -26189,22 +26731,15 @@ export async function rpcMutateSpaceTask(
     spaceId,
     requireRpcContext(input.context)
   );
-  if (input.taskContractVersion !== SPACE_TASK_WORKFLOW_CONTRACT_VERSION) {
-    if (
-      input.body.action === "set_projects" ||
+  if (
+    input.taskContractVersion !== SPACE_TASK_WORKFLOW_CONTRACT_VERSION &&
+    input.taskContractVersion === undefined &&
+    (input.body.action === "set_projects" ||
       input.body.action === "detach_linear_external_work_item" ||
       (input.body.action === "attach_external_work_item" &&
-        input.body.item.provider === "linear")
-    ) {
-      throw spaceTaskContractUpdateRequiredError();
-    }
-    const current = await stub.rpcGetTask({
-      context,
-      password: input.password,
-      spaceId,
-      taskId: input.taskId,
-    });
-    assertLegacySpaceTaskCanRead(current.task, current.events);
+        input.body.item.provider === "linear"))
+  ) {
+    throw spaceTaskContractUpdateRequiredError();
   }
   if (input.body.action === "set_projects") {
     const command = mutateSpaceTaskBodySchema.parse(input.body);

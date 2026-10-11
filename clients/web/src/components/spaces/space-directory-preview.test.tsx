@@ -23,8 +23,8 @@ vi.mock("#/query/spaces/entry-resolution", () => ({
 			retry: false,
 		}),
 }));
-vi.mock("./space-landing", () => ({
-	SpaceLanding: (input: {
+vi.mock("./public-space-page", () => ({
+	SpaceReadOnlyConversation: (input: {
 		spaceId: string;
 		profileId: string;
 		orgSlug: string;
@@ -61,9 +61,9 @@ function setup() {
 	render(
 		<QueryClientProvider client={client}>
 			<SpaceDirectoryPreview
-				accountProfiles={[]}
+				joinPending={false}
 				onClose={vi.fn()}
-				orgSlug="acme"
+				onJoinSpace={vi.fn()}
 				profileId="human-profile"
 				space={{ spaceId: "preview-space", name: "Support" }}
 			/>
@@ -85,12 +85,13 @@ it("waits for confirmed access before mounting the existing conversation with th
 	expect(landing).not.toHaveBeenCalled();
 	act(() => confirm(resolution({ state: "allowed", experience: "public" })));
 	expect(await screen.findByText("Existing Space conversation")).toBeTruthy();
-	expect(landing).toHaveBeenCalledWith({
-		accountProfiles: [],
-		spaceId: "preview-space",
-		profileId: "human-profile",
-		orgSlug: "acme",
-	});
+	expect(landing).toHaveBeenCalledWith(
+		expect.objectContaining({
+			spaceId: "preview-space",
+			joinPending: false,
+			entryResolution: resolution({ state: "allowed", experience: "public" }),
+		})
+	);
 });
 
 it("does not expose the conversation when a listed Space requires membership", async () => {

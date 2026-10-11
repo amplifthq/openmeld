@@ -490,6 +490,18 @@ describe("space index AccountSpaces read model", () => {
         "space-alpha",
       ]);
       expect(organizationSpaces.spaces[0]?.activeMemberCount).toBe(1);
+      expect(organizationSpaces.spaces[0]?.memberPreviews).toBeUndefined();
+      const directoryWithAvatars = await listOrganizationSpacesFromSpaceIndex({
+        db: harness.db,
+        generatedAt: "2026-04-12T00:00:00.000Z",
+        includeMemberPreviews: true,
+        limit: 10,
+        organizationId: "org-1",
+        ownerUserId: "owner-1",
+      });
+      expect(directoryWithAvatars.spaces[0]?.memberPreviews).toEqual([
+        expect.objectContaining({ profileId: "human-1", profileName: "Mira" }),
+      ]);
       await harness.db.query({
         ...{
           text: 'UPDATE "openmeld"."space_index_spaces" SET active_member_count = NULL WHERE space_id = $1',

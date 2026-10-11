@@ -566,6 +566,8 @@ function resolveSettingsSwitchPath(input: {
 			return buildOrganizationAccountSettingsPath(input.nextOrgSlug);
 		case "appearance":
 			return buildOrganizationAppearanceSettingsPath(input.nextOrgSlug);
+		case "spaces":
+			return `${buildOrganizationSettingsRootPath(input.nextOrgSlug)}/spaces`;
 		case "notifications":
 			return buildOrganizationNotificationsSettingsPath(input.nextOrgSlug);
 		case "connected-apps":

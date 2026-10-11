@@ -197,6 +197,20 @@ function SpaceMessageFooterContent(
 		<MessageFooterDetailsAction
 			details={input.details}
 			failureSummary={input.failureSummary}
+			readSources={
+				input.failureSummary
+					? JSON.stringify(
+							(input.deviceWaitOutcome?.notices ?? [])
+								.filter(
+									(notice) => notice.systemNoticeType === "terminal_failure"
+								)
+								.map((notice) => ({
+									signalId: notice.id,
+									occurredAtMs: notice.createdAtMs,
+								}))
+						)
+					: undefined
+			}
 		/>
 	);
 
@@ -619,6 +633,7 @@ function MessageFooterStandardActions({
 function MessageFooterDetailsAction(input: {
 	details?: SpaceMessageFooterDetailsAction;
 	failureSummary?: string | null;
+	readSources?: string;
 }) {
 	if (input.details) {
 		return (
@@ -633,6 +648,7 @@ function MessageFooterDetailsAction(input: {
 						: undefined
 				}
 				onClick={input.details.onSelect}
+				readSources={input.readSources}
 			/>
 		);
 	}
@@ -640,6 +656,7 @@ function MessageFooterDetailsAction(input: {
 		<WarningCircleIcon
 			aria-label={input.failureSummary}
 			className="mx-1.5 size-4 text-destructive"
+			data-message-read-sources={input.readSources}
 			role="img"
 		/>
 	) : null;

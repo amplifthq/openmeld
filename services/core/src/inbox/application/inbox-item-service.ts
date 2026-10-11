@@ -24,6 +24,7 @@ export class InboxSourceConflictError extends Error {
   }
 }
 export async function ensureInboxItem(input: {
+  sourceGuard?: InboxSourceWriteGuard;
   /** Source-owner migration opt-in; never accepted from HTTP/RPC candidates. */
   allowLegacySourceClassificationRepair?: boolean;
   candidate: InboxSourceCandidate;
@@ -86,6 +87,7 @@ export async function ensureInboxItem(input: {
     candidate,
     db: input.db,
     nowMs: input.nowMs,
+    sourceGuard: input.sourceGuard,
   });
   try {
     await input.db.transaction(async (client) => {

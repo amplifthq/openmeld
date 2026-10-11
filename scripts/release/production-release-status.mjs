@@ -22,6 +22,7 @@ import {
   releaseWorkflowScopes,
 } from "./production-release-history.mjs";
 import { describeGuardedReceiptRecoveryCandidate } from "./production-release-receipts.mjs";
+import { compareRemoteAiUsageReceiver } from "./remote-ai-usage-compatibility.mjs";
 
 const DEFAULT_REF = "origin/main";
 const execFileAsync = promisify(execFile);
@@ -504,7 +505,12 @@ function describeReleaseComponent(input) {
     const receipt = releaseSource.receipt;
     const recovery = describeGuardedReceiptRecoveryCandidate(
       releaseSource,
-      scope
+      scope,
+      {
+        sourceSha,
+        sourceIsAncestor: adapters.sourceIsAncestor,
+        compareGitPathContents: adapters.compareGitPathContents,
+      }
     );
     if (recovery) {
       return unknown(
@@ -547,6 +553,7 @@ function describeReleaseComponent(input) {
     ...releaseSource,
     changedPaths: entry.plan.changedPaths,
     compatibilityDependencies: entry.plan.compatibilityDependencies ?? [],
+    compatibilityObligations: entry.plan.compatibilityObligations,
     compatibilityBridges: entry.plan.compatibilityBridges ?? [],
     compatibilityReceiverWitnesses: (
       entry.plan.compatibilityReceiverWitnesses ?? []
@@ -595,11 +602,21 @@ function resolveCompatibilityReceiverWitnessEvidence(input) {
           ...witness,
           evidence: {
             ...evidence,
-            result: input.adapters.compareGitPathContents({
-              fromSha: receiver.sha,
-              paths: witness.receiverPaths,
-              toSha: input.sourceSha,
-            })
+            result: (
+              witness.kind === "remote-ai-usage-receiver"
+                ? compareRemoteAiUsageReceiver({
+                    fromSha: receiver.sha,
+                    toSha: input.sourceSha,
+                    readGitFile: input.adapters.readGitFile,
+                    compareGitPathContents:
+                      input.adapters.compareGitPathContents,
+                  })
+                : input.adapters.compareGitPathContents({
+                    fromSha: receiver.sha,
+                    paths: witness.receiverPaths,
+                    toSha: input.sourceSha,
+                  })
+            )
               ? "match"
               : "mismatch",
           },
@@ -1127,6 +1144,7 @@ function defaultAdapters() {
         sourceSha,
       }),
     compareGitPathContents,
+    readGitFile: (sha, path) => runGit(["show", `${sha}:${path}`]),
     readPushChecks: async (repo, sourceSha) =>
       (
         await runGhJsonAsync([
@@ -1433,6 +1451,7 @@ async function runGhJsonAsync(args) {
 function runGit(args) {
   return execFileSync(resolveCommandBinary("git"), args, {
     encoding: "utf8",
+    maxBuffer: 1024 * 1024 * 10,
   });
 }
 

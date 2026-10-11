@@ -1,23 +1,52 @@
 import { OpenMeldApiClientHttpError } from "@openmeld/api-client";
 import type { SignalEnvelope } from "@openmeld/schemas/types";
-import { act, renderHook } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	focusManager,
+	onlineManager,
+	QueryClient,
+} from "@tanstack/react-query";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	clearSpaceConversationPositions,
 	writeSpaceConversationPosition,
 } from "#/lib/space-conversation-position";
 import { useSpaceHistoryNavigation } from "./use-space-history-navigation";
 
-const queryClient = vi.hoisted(() => ({ setQueryData: vi.fn() }));
+let queryClient: QueryClient;
 const historyQuery = vi.hoisted(() => ({
 	data: undefined as { entries: []; total: number } | undefined,
 	isError: false,
 	isPending: false,
 }));
-vi.mock("@tanstack/react-query", () => ({
-	useQuery: () => historyQuery,
-	useQueryClient: () => queryClient,
-}));
+vi.mock("@tanstack/react-query", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@tanstack/react-query")>();
+	return {
+		...actual,
+		useQuery: (options: Parameters<typeof actual.useQuery>[0]) => {
+			const isDirectory = options.queryKey.at(-1) === "history-navigation";
+			const result = actual.useQuery(
+				{ ...options, enabled: isDirectory ? false : options.enabled },
+				queryClient
+			);
+			return isDirectory ? historyQuery : result;
+		},
+		useQueryClient: () => queryClient,
+	};
+});
+
+async function navigate<T>(action: () => Promise<T>): Promise<T> {
+	let settled = false;
+	let value!: T;
+	act(() => {
+		action().then((result) => {
+			value = result;
+			settled = true;
+		});
+	});
+	await waitFor(() => expect(settled).toBe(true));
+	return value;
+}
 
 const historyApi = vi.hoisted(() => ({ listSignalEnvelopes: vi.fn() }));
 vi.mock("#/lib/spaces/api", () => ({
@@ -36,9 +65,70 @@ const message = (id: string): SignalEnvelope => ({
 
 describe("returning to the live Space history", () => {
 	beforeEach(() => {
-		queryClient.setQueryData.mockClear();
+		queryClient = new QueryClient({
+			defaultOptions: { queries: { retryDelay: 0 } },
+		});
+		queryClient.mount();
+		vi.spyOn(queryClient, "setQueryData");
+		onlineManager.setOnline(true);
+		focusManager.setFocused(true);
 		historyQuery.data = undefined;
 		historyApi.listSignalEnvelopes.mockReset();
+	});
+
+	afterEach(() => {
+		queryClient.unmount();
+		queryClient.clear();
+		onlineManager.setOnline(true);
+		focusManager.setFocused(undefined);
+	});
+
+	it.each([
+		"reconnect",
+		"focus",
+		"retry",
+	] as const)("recovers the failed position through %s without losing readable messages", async (recovery) => {
+		historyApi.listSignalEnvelopes.mockRejectedValue(
+			new TypeError("Failed to fetch")
+		);
+		const { result } = renderHook(() =>
+			useSpaceHistoryNavigation({
+				accessRejected: false,
+				enabled: true,
+				liveEnvelopes: [message("readable")],
+				profileId: "viewer",
+				spaceId: "recover-space",
+			})
+		);
+		const onLoaded = vi.fn();
+		expect(
+			await navigate(() => result.current.open("target", undefined, onLoaded))
+		).toBe(false);
+		expect(onLoaded).not.toHaveBeenCalled();
+		expect(result.current.error).toBeTruthy();
+		expect(result.current.visibleLiveEnvelopes.map((item) => item.id)).toEqual([
+			"readable",
+		]);
+		historyApi.listSignalEnvelopes.mockResolvedValue({
+			envelopes: [message("target")],
+		});
+		act(() => {
+			if (recovery === "reconnect") {
+				onlineManager.setOnline(false);
+				onlineManager.setOnline(true);
+			} else if (recovery === "focus") {
+				focusManager.setFocused(false);
+				focusManager.setFocused(true);
+			} else {
+				result.current.retry?.();
+			}
+		});
+		await waitFor(() =>
+			expect(result.current.activeWindow?.envelopes[0]?.id).toBe("target")
+		);
+		expect(result.current.error).toBeNull();
+		expect(result.current.pending).toBe(false);
+		expect(onLoaded).toHaveBeenCalledWith(true);
 	});
 
 	it("opens the authorized latest messages when an old notification anchor is missing", async () => {
@@ -63,12 +153,10 @@ describe("returning to the live Space history", () => {
 				spaceId: "parent-space",
 			})
 		);
-		await act(async () => {
-			await result.current.open("old");
-		});
-		await act(async () => {
-			expect(await result.current.open("child-secret-id")).toBe("latest");
-		});
+		await navigate(() => result.current.open("old"));
+		expect(await navigate(() => result.current.open("child-secret-id"))).toBe(
+			"latest"
+		);
 		expect(
 			result.current.activeWindow?.envelopes.map((item) => item.id)
 		).toEqual(["latest"]);
@@ -85,6 +173,13 @@ describe("returning to the live Space history", () => {
 		expect(
 			historyApi.listSignalEnvelopes.mock.calls.at(-1)?.[0].query
 		).toMatchObject({ recent: true, limit: 60 });
+		act(() => result.current.latest());
+		expect(result.current.notice).toContain("Showing the latest messages");
+		historyApi.listSignalEnvelopes.mockResolvedValue({
+			envelopes: [message("other")],
+		});
+		await navigate(() => result.current.open("other"));
+		expect(result.current.notice).toBeNull();
 	});
 
 	it.each([
@@ -99,7 +194,7 @@ describe("returning to the live Space history", () => {
 		if (latest) {
 			historyApi.listSignalEnvelopes.mockResolvedValueOnce({ envelopes: [] });
 		}
-		historyApi.listSignalEnvelopes.mockRejectedValueOnce(
+		historyApi.listSignalEnvelopes.mockRejectedValue(
 			new OpenMeldApiClientHttpError({
 				code: "upstream_error",
 				status,
@@ -116,15 +211,58 @@ describe("returning to the live Space history", () => {
 				spaceId: "parent-space",
 			})
 		);
-		await act(async () => {
-			expect(await result.current.open("missing")).toBe(false);
-		});
+		expect(await navigate(() => result.current.open("missing"))).toBe(false);
 		expect(historyApi.listSignalEnvelopes).toHaveBeenCalledTimes(
-			latest ? 2 : 1
+			(latest ? 1 : 0) + (status === 403 ? 1 : 3)
 		);
 		expect(result.current.notice).toBeNull();
 		expect(result.current.error).not.toContain("internal details");
 		expect(result.current.error).not.toContain("Showing the latest");
+	});
+
+	it.each([
+		"access",
+		"missing anchor",
+	])("does not automatically retry a permanent %s failure", async (failure) => {
+		const initialWindow = Array.from({ length: 61 }, (_, index) =>
+			message(String(index))
+		);
+		historyApi.listSignalEnvelopes.mockResolvedValue({
+			envelopes: initialWindow,
+		});
+		const { result } = renderHook(() =>
+			useSpaceHistoryNavigation({
+				accessRejected: false,
+				enabled: true,
+				liveEnvelopes: [],
+				profileId: "viewer",
+				spaceId: "permanent-space",
+			})
+		);
+		await navigate(() => result.current.open("30"));
+		historyApi.listSignalEnvelopes.mockClear();
+		historyApi.listSignalEnvelopes.mockRejectedValue(
+			new OpenMeldApiClientHttpError({
+				code: "upstream_error",
+				status: failure === "access" ? 403 : 404,
+				rawBody: "",
+				upstreamCode:
+					failure === "access"
+						? "space.forbidden"
+						: "space.signals.anchor_not_found",
+				message: "Unavailable",
+			})
+		);
+		expect(await navigate(() => result.current.loadBefore())).toBe(false);
+		await act(() => {
+			onlineManager.setOnline(false);
+			onlineManager.setOnline(true);
+			focusManager.setFocused(false);
+			focusManager.setFocused(true);
+		});
+		expect(result.current.error).toBeTruthy();
+		expect(historyApi.listSignalEnvelopes).toHaveBeenCalledOnce();
+		expect(result.current.retry).toBeUndefined();
 	});
 
 	it.each([
@@ -160,13 +298,13 @@ describe("returning to the live Space history", () => {
 		);
 
 		expect(result.current.activeWindow?.envelopes).toHaveLength(61);
-		await act(async () => {
-			const loaded =
+		expect(
+			await navigate(() =>
 				direction === "before"
-					? await result.current.loadBefore()
-					: await result.current.loadAfter();
-			expect(loaded).toBe(true);
-		});
+					? result.current.loadBefore()
+					: result.current.loadAfter()
+			)
+		).toBe(true);
 
 		const ids = result.current.activeWindow?.envelopes.map((item) => item.id);
 		expect(ids).toContain("120");
@@ -266,6 +404,8 @@ describe("returning to the live Space history", () => {
 	it.each([
 		"target changed",
 		"return to latest",
+		"Space changed",
+		"access rejected",
 	])("ignores a late history response after %s", async (action) => {
 		let finish!: (value: { envelopes: SignalEnvelope[] }) => void;
 		historyApi.listSignalEnvelopes.mockReturnValueOnce(
@@ -273,14 +413,16 @@ describe("returning to the live Space history", () => {
 				finish = resolve;
 			})
 		);
-		const { result } = renderHook(() =>
-			useSpaceHistoryNavigation({
-				liveEnvelopes: [],
-				spaceId: "space-cancel",
-				profileId: "viewer",
-				enabled: false,
-				accessRejected: false,
-			})
+		const { result, rerender } = renderHook(
+			({ spaceId, accessRejected }) =>
+				useSpaceHistoryNavigation({
+					liveEnvelopes: [],
+					spaceId,
+					profileId: "viewer",
+					enabled: false,
+					accessRejected,
+				}),
+			{ initialProps: { spaceId: "space-cancel", accessRejected: false } }
 		);
 		const request = new AbortController();
 		let opening!: ReturnType<typeof result.current.open>;
@@ -290,6 +432,10 @@ describe("returning to the live Space history", () => {
 		act(() => {
 			if (action === "target changed") {
 				request.abort();
+			} else if (action === "Space changed") {
+				rerender({ spaceId: "other-space", accessRejected: false });
+			} else if (action === "access rejected") {
+				rerender({ spaceId: "space-cancel", accessRejected: true });
 			} else {
 				result.current.latest();
 			}
@@ -355,9 +501,7 @@ describe("returning to the live Space history", () => {
 				}),
 			{ initialProps: { liveEnvelopes: [] as SignalEnvelope[] } }
 		);
-		await act(async () => {
-			expect(await result.current.open(old.id)).toBe(true);
-		});
+		expect(await navigate(() => result.current.open(old.id))).toBe(true);
 		expect(queryClient.setQueryData).toHaveBeenCalledOnce();
 		const recalled = {
 			...old,
@@ -379,9 +523,7 @@ describe("returning to the live Space history", () => {
 		historyApi.listSignalEnvelopes.mockResolvedValueOnce({
 			envelopes: [old, { ...old, id: "bridge", ts: 250 }, later],
 		});
-		await act(async () => {
-			expect(await result.current.loadAfter()).toBe(true);
-		});
+		expect(await navigate(() => result.current.loadAfter())).toBe(true);
 		expect(
 			result.current.activeWindow?.envelopes.map((item) => item.id)
 		).toEqual(["old", "bridge", "later"]);

@@ -406,6 +406,7 @@ export {
   listSpaceTasks,
   mutateSpaceTask,
 } from "./space/tasks";
+export { createSpacePreferencesApi } from "./space-preferences";
 export type {
   OpenMeldApiClientStreamTransport,
   OpenMeldApiClientTransport,

@@ -9,7 +9,8 @@ import { createOrganizationScopeTimingCollector } from "./organization-scope-obs
 import { scheduleOrganizationScopeTimingEvidence } from "./organization-scope-observability.server";
 
 export async function readAccountOrganizationContextFromRequest(
-	routeFamily: string
+	routeFamily: string,
+	options: { signal?: AbortSignal; timeoutMs?: number } = {}
 ) {
 	const requestHeaders = getRequestHeaders();
 	const cookie = requestHeaders.get("cookie");
@@ -23,7 +24,8 @@ export async function readAccountOrganizationContextFromRequest(
 					transport: createFetchTransport({ fetch }),
 					getAuthHeaders: async (): Promise<Record<string, string>> =>
 						cookie ? { cookie } : {},
-				})
+				}),
+				options
 			)
 		);
 	} catch (error) {

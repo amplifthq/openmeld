@@ -1,8 +1,9 @@
 import * as z from "../../lazy-zod";
 import {
   agentProfileIdSchema,
-  profileWorkingDirectorySchema,
   profileWorkspaceModeSchema,
+  profileWorkspaceReadResultSchema,
+  profileWorkspaceWriteSchema,
 } from "../protocol/profile";
 import { nonEmptyTrimmedStringFromUnknown } from "../protocol/shared";
 import { runtimeTransportModeSchema } from "./controller-contract";
@@ -134,29 +135,30 @@ export const openMeldDaemonManageLocalAgentInstallationRequestPayloadSchema =
     }),
   ]);
 
-export const openMeldDaemonSetProfileWorkspaceRequestPayloadSchema = z
-  .strictObject({
+export const openMeldDaemonSetProfileWorkspaceRequestPayloadSchema =
+  profileWorkspaceWriteSchema.safeExtend({
     targetProfileId: agentProfileIdSchema,
-    workspaceMode: profileWorkspaceModeSchema,
-    workspacePath: profileWorkingDirectorySchema.optional(),
-  })
-  .superRefine((value, context) => {
-    if (value.workspaceMode === "custom" && !value.workspacePath) {
-      context.addIssue({
-        code: "custom",
-        message: "workspacePath is required for a custom profile workspace",
-        path: ["workspacePath"],
-      });
-    }
-    if (value.workspaceMode === "openmeld_managed" && value.workspacePath) {
-      context.addIssue({
-        code: "custom",
-        message:
-          "workspacePath must be omitted for an OpenMeld-managed profile workspace",
-        path: ["workspacePath"],
-      });
-    }
   });
+
+export const openMeldDaemonReadProfileWorkspaceRequestPayloadSchema =
+  z.strictObject({ targetProfileId: agentProfileIdSchema });
+
+export const openMeldDaemonReadProfileWorkspacePayloadSchema =
+  z.discriminatedUnion("accepted", [
+    z.strictObject({
+      accepted: z.literal(true),
+      targetProfileId: agentProfileIdSchema,
+      status: z.literal("read"),
+      workspace: profileWorkspaceReadResultSchema,
+    }),
+    z.strictObject({
+      accepted: z.literal(false),
+      targetProfileId: agentProfileIdSchema,
+      status: z.literal("rejected"),
+      reasonCode: z.string().min(1),
+      message: z.string().min(1),
+    }),
+  ]);
 
 export const openMeldDaemonConversationExecutionRuntimeWorkspaceReadySchema =
   z.strictObject({

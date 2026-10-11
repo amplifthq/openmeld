@@ -34,6 +34,9 @@ type SelectCurrentLocalAgentInstallationResponseSchema =
   typeof import("../../schemas/http/local-runtimes")["selectCurrentLocalAgentInstallationResponseSchema"];
 type SetCurrentAgentProfileWorkspaceBodySchema =
   typeof import("../../schemas/http/local-runtimes")["setCurrentAgentProfileWorkspaceBodySchema"];
+export type GetCurrentAgentProfileWorkspaceResponse = z.infer<
+  typeof import("../../schemas/http/local-runtimes")["getCurrentAgentProfileWorkspaceResponseSchema"]
+>;
 type SetCurrentAgentProfileWorkspaceResponseSchema =
   typeof import("../../schemas/http/local-runtimes")["setCurrentAgentProfileWorkspaceResponseSchema"];
 type SetCurrentAgentProfileWorkspaceRouteParamsSchema =

@@ -168,21 +168,22 @@ describe("planAgentProfileReplyRecovery", () => {
     });
 
     expect(plan).toMatchObject({
-      body: "Codex is connected, but OpenMeld needs a current local agent connection from this computer before it can reply.",
+      body: "Codex is connected, but OpenMeld has no current local agent report from its computer. Check the local agent’s status on that computer.",
       kind: "prepare_agent_profile",
-      primaryActionLabel: "Connect local agent",
+      primaryActionId: "check_status",
+      primaryActionLabel: "Check status",
       recoveryReasonCode:
         "agent_profile_binding.agent_controller_report_missing",
       secondaryLabel:
-        "Codex is connected, but OpenMeld needs a current local agent connection from this computer before it can reply.",
+        "Codex is connected, but OpenMeld has no current local agent report from its computer. Check the local agent’s status on that computer.",
       title:
-        "Codex is connected, but OpenMeld needs a current local agent connection from this computer before it can reply.",
+        "Codex is connected, but OpenMeld has no current local agent report from its computer. Check the local agent’s status on that computer.",
     });
   });
 
   it("uses shared local-readiness recovery copy for claim controller report evidence", () => {
     const copy =
-      "Codex is connected to an older computer setup. Update setup on this computer, then try again.";
+      "OpenMeld could not confirm Codex's current local agent setup. Check its status on the computer that runs it, then try again.";
     const plan = planAgentProfileReplyRecovery({
       autoRefreshExhausted: true,
       member: createSpaceMemberAgentSnapshot({
@@ -218,7 +219,8 @@ describe("planAgentProfileReplyRecovery", () => {
     expect(plan).toMatchObject({
       body: copy,
       kind: "prepare_agent_profile",
-      primaryActionLabel: "Connect local agent",
+      primaryActionId: "check_status",
+      primaryActionLabel: "Check status",
       recoveryReasonCode: "claim_eligibility.agent_controller_report_missing",
       secondaryLabel: copy,
       title: copy,
@@ -228,15 +230,15 @@ describe("planAgentProfileReplyRecovery", () => {
   it.each([
     [
       "runtime.projection_missing",
-      "Codex is connected, but OpenMeld needs a current local agent connection from this computer before it can reply.",
+      "Codex is connected, but OpenMeld has no current local agent report from its computer. Check the local agent’s status on that computer.",
     ],
     [
       "runtime.agent_controller_report_missing",
-      "Codex is connected, but OpenMeld needs a current local agent connection from this computer before it can reply.",
+      "Codex is connected, but OpenMeld has no current local agent report from its computer. Check the local agent’s status on that computer.",
     ],
     [
       "runtime.agent_controller_report_stale",
-      "Codex is connected, but this computer's local agent connection is out of date. Connect the local agent again.",
+      "Codex is connected, but its local agent report is out of date. Check the local agent’s status on that computer.",
     ],
   ] as const)("uses shared recovery copy for runtime reason %s", (reasonCode, copy) => {
     const plan = planAgentProfileReplyRecovery({
@@ -269,7 +271,8 @@ describe("planAgentProfileReplyRecovery", () => {
     expect(plan).toMatchObject({
       body: copy,
       kind: "prepare_agent_profile",
-      primaryActionLabel: "Connect local agent",
+      primaryActionId: "check_status",
+      primaryActionLabel: "Check status",
       recoveryReasonCode: reasonCode,
       secondaryLabel: copy,
       title: copy,
@@ -877,11 +880,23 @@ describe("planAgentProfileReplyRecovery", () => {
   it.each([
     [
       "workspace.missing",
-      "This agent is missing its local workspace on this device. Run `openmeld doctor --repair`, then `openmeld setup --profile <agent-profile-id>`, and try again.",
+      "Codex couldn’t start because its working folder is not configured on the computer that runs it. Choose a working folder, then try again.",
     ],
     [
       "workspace.invalid",
-      "This agent's local workspace is broken on this device. Run `openmeld doctor --repair`, then `openmeld setup --profile <agent-profile-id>`, and try again.",
+      "Codex couldn’t start because its working folder could not be used on the computer that runs it. Review that folder, then try again.",
+    ],
+    [
+      "profile.workspace.invalid",
+      "Codex couldn’t start because its working folder could not be used on the computer that runs it. Review that folder, then try again.",
+    ],
+    [
+      "project.local_connection.folder_missing",
+      "Codex couldn’t start because its Project folder is no longer available on the computer that runs it. Reconnect the folder in Projects, then try again.",
+    ],
+    [
+      "project.local_connection.invalid",
+      "Codex couldn’t start because its Project connection could not be used on the computer that runs it. Review that connection and its folder, then try again.",
     ],
   ] as const)("uses shared recovery copy for workspace reason %s", (reasonCode, copy) => {
     const plan = planAgentProfileReplyRecovery({
@@ -895,7 +910,10 @@ describe("planAgentProfileReplyRecovery", () => {
             },
             runtime: {
               ready: false,
-              reasonCodes: [reasonCode],
+              reasonCodes: [
+                reasonCode,
+                "runtime.agent_controller_report_missing",
+              ],
             },
           },
           primaryAction: "run_prepare",
@@ -912,7 +930,8 @@ describe("planAgentProfileReplyRecovery", () => {
     expect(plan).toMatchObject({
       body: copy,
       kind: "prepare_agent_profile",
-      primaryActionLabel: "Connect local agent",
+      primaryActionId: "review_agent_settings",
+      primaryActionLabel: "Review agent settings",
       recoveryReasonCode: reasonCode,
       secondaryLabel: copy,
       title: copy,

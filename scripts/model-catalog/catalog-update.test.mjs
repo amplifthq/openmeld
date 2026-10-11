@@ -209,6 +209,57 @@ test("discovery recommendations exclude media models and lead with only new revi
   assert.equal(scan(incomplete).changed, false);
 });
 
+test("discovery deprecation requests review without disabling selections or recommending deprecated candidates", async () => {
+  const capture = JSON.parse(
+    await readFile(
+      new URL(
+        "./fixtures/opencode-fledge-lifecycle-2026-10-09.json",
+        import.meta.url
+      ),
+      "utf8"
+    )
+  );
+  const current = structuredClone(catalog);
+  current.agentControllers.opencode = {
+    defaultModelId: "opencode/fledge-alpha-free",
+    models: [{ ...existing, id: "opencode/fledge-alpha-free" }],
+  };
+  const scan = (model, previous, models = current) =>
+    prepareUpdate({
+      ...input,
+      catalog: models,
+      controller: "opencode",
+      codexModels: [],
+      previous,
+      sources: [
+        {
+          kind: "discovery-only",
+          url: capture.sourceUrl,
+          data: { opencode: { [model.id]: model } },
+        },
+      ],
+    });
+  const before = scan(capture.before);
+  const after = scan(capture.after, before.evidence);
+  assert.equal(after.changed, true);
+  assert.deepEqual(after.catalog, current);
+  const summary = renderBatchReview(
+    [after.evidence],
+    { opencode: {} },
+    current,
+    [before.evidence]
+  ).split("## Reviewer decisions")[0];
+  assert.ok(summary.includes("Discovery lifecycle changed"));
+  assert.ok(summary.includes("active → deprecated"));
+  assert.equal(scan(capture.after, after.evidence).changed, false);
+  const uncataloged = structuredClone(current);
+  uncataloged.agentControllers.opencode = {
+    defaultModelId: existing.id,
+    models: [existing],
+  };
+  assert.equal(scan(capture.after, undefined, uncataloged).changed, false);
+});
+
 test("a real upstream addition becomes a reviewable catalog change without moving either default", () => {
   const result = prepareUpdate(input);
   const upstream = raw.models[0];

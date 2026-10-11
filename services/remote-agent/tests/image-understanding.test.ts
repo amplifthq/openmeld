@@ -551,7 +551,10 @@ describe("Remote Agent image understanding", () => {
   it("preserves a bounded provider error message when image understanding is rejected", async () => {
     await expect(
       understandRemoteAgentImages({
-        env: TEST_REMOTE_AGENT_AI_GATEWAY_ENV,
+        env: {
+          ...TEST_REMOTE_AGENT_AI_GATEWAY_ENV,
+          OPENMELD_WORKER_ENVIRONMENT: "local",
+        },
         fetch: async () =>
           Response.json(
             {
@@ -581,7 +584,10 @@ describe("Remote Agent image understanding", () => {
   it("preserves Cloudflare AI Gateway error-array details", async () => {
     await expect(
       understandRemoteAgentImages({
-        env: TEST_REMOTE_AGENT_AI_GATEWAY_ENV,
+        env: {
+          ...TEST_REMOTE_AGENT_AI_GATEWAY_ENV,
+          OPENMELD_WORKER_ENVIRONMENT: "local",
+        },
         fetch: async () =>
           Response.json(
             {
@@ -610,5 +616,47 @@ describe("Remote Agent image understanding", () => {
     ).rejects.toThrow(
       "Image understanding failed for openai/gpt-6-luna with HTTP 400. Provider: 2001: Please configure AI Gateway in the Cloudflare dashboard"
     );
+  });
+
+  it.each([
+    "response",
+    "throw",
+  ] as const)("omits private image data before a provider %s crosses RPC", async (mode) => {
+    const privateText = "Private OCR: acquisition budget for Project Cedar";
+    const error = await understandRemoteAgentImages({
+      env: {
+        ...TEST_REMOTE_AGENT_AI_GATEWAY_ENV,
+        OPENMELD_WORKER_ENVIRONMENT: "prod",
+      },
+      fetch: () => {
+        if (mode === "throw") {
+          return Promise.reject(
+            Object.assign(
+              new Error(privateText, { cause: new Error(privateText) }),
+              { code: "ECONNRESET" }
+            )
+          );
+        }
+        return Promise.resolve(
+          Response.json(
+            { error: { code: "invalid_request", message: privateText } },
+            { status: 400 }
+          )
+        );
+      },
+      images: [{ data: "cG5n", mimeType: "image/png", type: "image" }],
+      model: IMAGE_MODEL,
+      organizationId: "external",
+      prepareImage: prepareTestContextImage,
+    }).catch((failure: unknown) => failure);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).toMatchObject(
+      mode === "response" ? { status: 400 } : { errorCode: "ECONNRESET" }
+    );
+    expect(String(error)).toContain(
+      mode === "response" ? "HTTP 400" : "ECONNRESET"
+    );
+    expect(String(error)).not.toContain(privateText);
+    expect(error).not.toHaveProperty("cause");
   });
 });

@@ -1,6 +1,9 @@
 import type { z } from "zod/v4";
 
 type Schemas = typeof import("../../schemas/protocol/execution-context");
+export type ExecutionContextDiagnostics = z.infer<
+  Schemas["executionContextDiagnosticsSchema"]
+>;
 export type ExecutionContextSelection = z.infer<
   Schemas["executionContextSelectionSchema"]
 >;

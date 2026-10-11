@@ -432,7 +432,7 @@ existing Thread spacing, regardless of this page preference.
 
 ### History slider preference
 
-Appearance's **History slider** uses the existing Fluid radio cards with **Show**
+Personal Spaces settings' **History slider** uses the existing Fluid radio cards with **Show**
 and **Hide** previews. Both choices keep the browser-local
 `openmeld.space.history-slider` preference. A Space reserves the slider lane only
 when the slider is visible: Messages is selected, the viewport supports it, and
@@ -550,7 +550,9 @@ Square.
 
 The outer rail's Spaces and Team resource popovers open on hover or Arrow Down/Space.
 Clicking Spaces still opens Your Spaces; clicking Team opens People.
-Spaces offers Direct messages and Discover using the existing `view` search parameter.
+Each popover starts with that primary destination: Your Spaces or People, without
+a pin toggle. Spaces then offers Direct messages and Discover using the existing
+`view` search parameter.
 The pinned Direct messages label is DMs. Discover is hidden in personal workspaces,
 including saved pins, without deleting the browser preference.
 Agents, Plugins, Skills, Files, and Routines link to the existing

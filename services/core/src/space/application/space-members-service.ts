@@ -429,6 +429,7 @@ export const leaveSpaceUseCase = (input: {
 }): LeaveSpaceResponse => {
   const nowIso = input.nowIso ?? new Date().toISOString();
   if (
+    !input.metaRecord?.deletedAt &&
     input.actorOwnerUserId &&
     input.metaRecord?.ownerUserIds?.includes(input.actorOwnerUserId)
   ) {
@@ -2024,7 +2025,10 @@ function buildNextSpaceMemberRecord(input: {
         : null,
     status: "active",
     memberSource: input.existing?.memberSource ?? input.defaultSource,
-    addedAt: input.existing?.addedAt ?? input.defaultAddedAt,
+    addedAt:
+      input.existing?.status === "active"
+        ? input.existing.addedAt
+        : input.defaultAddedAt,
     removedAt: null,
     addedByProfileId:
       input.existing?.addedByProfileId ?? input.addedByProfileId ?? null,

@@ -103,6 +103,15 @@ export function generateBrandAssets() {
       const data = Buffer.from(dataUrl.split(",")[1], "base64");
       writeFileSync(join(brandDirectory, name), data);
     }
+    // Native icon layers must preserve the approved master artwork's placement.
+    // Do not redraw a second tile and mark at each Dock size.
+    for (const size of [16, 32, 64, 128]) {
+      resizeBrandAsset(
+        "openmeld-desktop-1024.png",
+        size,
+        join(brandDirectory, `openmeld-desktop-${size}.png`)
+      );
+    }
     console.log(
       `Generated ${Object.keys(assets).length} official brand assets.`
     );

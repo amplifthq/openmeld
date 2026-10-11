@@ -1,7 +1,22 @@
 import { env, runInDurableObject } from "cloudflare:test";
 import { expect, it } from "vitest";
+import { verifyIndexedCommandCollection } from "../fixtures/computer-command-collection";
 import { verifyDurableCommandResults } from "../fixtures/computer-command-results";
 import { verifyRetainedCommandPolling } from "../fixtures/computer-command-workspace";
+
+it("reads a bounded due batch after indexing historical command receipts under workerd", async () => {
+  const namespace = (env as { COMPUTER_PROBE: DurableObjectNamespace })
+    .COMPUTER_PROBE;
+  const stub = namespace.get(namespace.newUniqueId());
+  const result = await runInDurableObject(
+    stub,
+    async (_instance, state) =>
+      await verifyIndexedCommandCollection(state.storage.sql)
+  );
+  expect(result).toMatchObject({ first: 16, second: 2, next: 0 });
+  expect(result.firstRead).toBeLessThan(100);
+  expect(result.warmRowsRead).toBeLessThan(100);
+});
 
 it.each([
   "complete",

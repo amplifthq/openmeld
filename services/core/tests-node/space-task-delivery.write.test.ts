@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import type { SpaceTask, SpaceTaskActor } from "@openmeld/schemas/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createInboxService } from "../src/inbox/application/inbox-service";
 import {
   enqueueSpaceTaskDeliveries,
   flushSpaceTaskDeliveries,
@@ -9,6 +10,7 @@ import {
   isSpaceTaskStopSuperseded,
   resolveSpaceTaskHumanDecisionTarget,
 } from "../src/space/application/space-task-delivery";
+import { projectSpaceTaskInbox } from "../src/space/application/space-task-inbox-projection";
 import {
   createSpaceTaskForMessage,
   withSpaceTaskDispatchContext,
@@ -20,6 +22,7 @@ import {
   ensureSpaceTaskTables,
   SpaceTaskRepository,
 } from "../src/space/infrastructure/sql/space-task-repo";
+import { createInboxFeedFixture } from "./helpers/inbox-feed.test-support";
 
 const requester: SpaceTaskActor = {
   ownerUserId: "user-avery",
@@ -114,12 +117,239 @@ function createSqlHarness(previousOutboxSchema = false) {
     sql,
     tasks,
     runTransaction,
+    pendingActions: (nowMs: number) =>
+      deliveries
+        .pending(nowMs)
+        .filter((delivery) => delivery.kind !== "inbox_projection"),
   };
 }
 
 afterEach(() => vi.useRealTimers());
 
 describe("Space Task durable delivery", () => {
+  it("recovers Inbox projection after a prolonged outage without dropping its delivery intent", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-10T03:00:00.000Z"));
+    const harness = createSqlHarness();
+    try {
+      harness.service().create(
+        { operationId: "create-during-outage", title: "Review the report" },
+        {
+          actor: requester,
+          requestedBy: requester,
+          isSpaceOwner: true,
+          resolveMember: () => null,
+        }
+      );
+      for (let attempt = 0; attempt < 13; attempt++) {
+        await flushSpaceTaskDeliveries({
+          repository: harness.deliveries,
+          deliver: () =>
+            Promise.reject(new Error("Inbox database is unavailable")),
+          onFailure: () => undefined,
+        });
+        vi.advanceTimersByTime(3_600_000);
+      }
+      vi.advanceTimersByTime(31 * 24 * 60 * 60 * 1000);
+      harness.deliveries.cleanupTerminal(Date.now());
+      expect(harness.deliveries.pending(Date.now())).toMatchObject([
+        { kind: "inbox_projection" },
+      ]);
+      const recovered = vi.fn(() => Promise.resolve());
+      await flushSpaceTaskDeliveries({
+        repository: harness.deliveries,
+        deliver: recovered,
+        onFailure: () => undefined,
+      });
+      expect(recovered).toHaveBeenCalledOnce();
+      expect(harness.deliveries.nextAttempt()).toBeNull();
+    } finally {
+      harness.close();
+    }
+  });
+  it("keeps review attention source-owned across reads, reviewer changes, rework decisions, and acceptance", async () => {
+    const f = await createInboxFeedFixture();
+    const harness = createSqlHarness();
+    try {
+      await f.space("space-1");
+      await f.member("space-1", reviewer.profileId, "other", "human");
+      const human = { ...requester, ownerUserId: "owner" };
+      const otherHuman = {
+        ...reviewer,
+        profileKind: "human" as const,
+        ownerUserId: "other",
+      };
+      const agentReviewer = {
+        ...reviewer,
+        profileId: "44444444-4444-4444-8444-444444444444",
+      };
+      const activeMembers = [human, assignee, otherHuman, agentReviewer];
+      const context = (actor: SpaceTaskActor) => ({
+        actor,
+        isSpaceOwner: actor.profileId === human.profileId,
+        resolveMember: (profileId: string) =>
+          activeMembers.find((member) => member.profileId === profileId) ??
+          null,
+      });
+      let receipt = harness.service().create(
+        {
+          operationId: "review-task",
+          title: "Check the report",
+          assigneeProfileId: assignee.profileId,
+          reviewerProfileId: human.profileId,
+        },
+        { ...context(human), requestedBy: human }
+      );
+      const project = async () => {
+        await projectSpaceTaskInbox({
+          task: receipt.task,
+          events: harness.tasks.listEvents(receipt.task.taskId),
+          activeMembers,
+          ownerUserIds: ["owner"],
+          organizationId: "org",
+          spaceName: "Review",
+          db: f.db,
+          nowMs: Date.now(),
+        });
+      };
+      const pending = async () =>
+        (
+          await f.query<{ id: string; recipient_user_id: string }>(
+            "SELECT id, recipient_user_id FROM openmeld.inbox_items WHERE source_kind = 'system_attention_event' AND starts_with(source_key, 'space-task:') AND resolution_status = 'open'"
+          )
+        ).rows;
+      const mutate = (
+        body: Parameters<SpaceTaskService["mutate"]>[1],
+        actor: SpaceTaskActor = human
+      ) => {
+        receipt = harness
+          .service()
+          .mutate(receipt.task.taskId, body, context(actor));
+      };
+      mutate(
+        {
+          action: "mark_in_progress",
+          expectedRevision: receipt.task.revision,
+          operationId: "start-review",
+        },
+        assignee
+      );
+      mutate(
+        {
+          action: "submit_result",
+          expectedRevision: receipt.task.revision,
+          operationId: "submit-review",
+          summary: "Report ready.",
+        },
+        assignee
+      );
+      await project();
+      expect(await pending()).toEqual([
+        { id: expect.any(String), recipient_user_id: "owner" },
+      ]);
+      const itemId = (await pending())[0]?.id ?? "";
+      const inbox = createInboxService({ db: f.db });
+      await inbox.markRead({ ...f.identity, itemId, read: true });
+      await inbox.dismiss({ ...f.identity, itemId });
+      await project();
+      expect((await pending())[0]?.id).toBe(itemId);
+      expect(receipt.task.phase).toBe("in_review");
+
+      expect(() =>
+        mutate({
+          action: "set_reviewer",
+          expectedRevision: receipt.task.revision,
+          operationId: "transfer-review",
+          reviewerProfileId: otherHuman.profileId,
+        })
+      ).toThrow("Complete the current review");
+
+      for (let round = 0; round < 5; round++) {
+        const reviewActor = [human, otherHuman][round] ?? agentReviewer;
+        mutate(
+          {
+            action: "review",
+            expectedRevision: receipt.task.revision,
+            expectedResultRevision: receipt.task.result?.resultRevision ?? 0,
+            operationId: `request-changes-${round}`,
+            decision: "changes_requested",
+            feedback: "Check the totals.",
+          },
+          reviewActor
+        );
+        await project();
+        if (round < 4) {
+          expect(await pending()).toEqual([]);
+          if (round < 2) {
+            mutate({
+              action: "set_reviewer",
+              expectedRevision: receipt.task.revision,
+              operationId: `next-reviewer-${round}`,
+              reviewerProfileId:
+                round === 0 ? otherHuman.profileId : agentReviewer.profileId,
+            });
+          }
+          mutate(
+            {
+              action: "submit_result",
+              expectedRevision: receipt.task.revision,
+              operationId: `resubmit-${round}`,
+              summary: "Totals checked.",
+            },
+            assignee
+          );
+          await project();
+          expect((await pending()).map((row) => row.recipient_user_id)).toEqual(
+            round === 0 ? ["other"] : []
+          );
+        }
+      }
+      expect(receipt.task.needsHumanDecision).toBe(true);
+      expect((await pending())[0]?.recipient_user_id).toBe("owner");
+      mutate({
+        action: "continue_rework",
+        expectedRevision: receipt.task.revision,
+        operationId: "continue-review",
+        reason: "One more check.",
+      });
+      await project();
+      expect(await pending()).toEqual([]);
+      mutate({
+        action: "set_reviewer",
+        expectedRevision: receipt.task.revision,
+        operationId: "final-human-reviewer",
+        reviewerProfileId: human.profileId,
+      });
+      mutate(
+        {
+          action: "submit_result",
+          expectedRevision: receipt.task.revision,
+          operationId: "final-result",
+          summary: "All totals verified.",
+        },
+        assignee
+      );
+      await project();
+      mutate({
+        action: "review",
+        expectedRevision: receipt.task.revision,
+        expectedResultRevision: receipt.task.result?.resultRevision ?? 0,
+        operationId: "accept-review",
+        decision: "accepted",
+      });
+      await project();
+      expect(receipt.task.phase).toBe("done");
+      expect(await pending()).toEqual([]);
+      expect(
+        harness.deliveries
+          .pending(Date.now())
+          .some((delivery) => delivery.kind === "inbox_projection")
+      ).toBe(true);
+    } finally {
+      harness.close();
+      await f.close();
+    }
+  });
   it("retains Project link projection for creation and association removal", () => {
     const harness = createSqlHarness();
     try {
@@ -137,14 +367,14 @@ describe("Space Task durable delivery", () => {
         },
         context
       );
-      expect(harness.deliveries.pending(Date.now())).toMatchObject([
+      expect(harness.pendingActions(Date.now())).toMatchObject([
         {
           kind: "project_projection",
           receipt: { task: { projectIds: ["project-1"] } },
         },
       ]);
       harness.deliveries.complete(
-        harness.deliveries.pending(Date.now())[0]?.id ?? ""
+        harness.pendingActions(Date.now())[0]?.id ?? ""
       );
       harness.service().mutate(
         created.task.taskId,
@@ -156,7 +386,7 @@ describe("Space Task durable delivery", () => {
         },
         context
       );
-      expect(harness.deliveries.pending(Date.now())).toMatchObject([
+      expect(harness.pendingActions(Date.now())).toMatchObject([
         { kind: "project_projection", receipt: { task: { projectIds: [] } } },
       ]);
     } finally {
@@ -347,7 +577,7 @@ describe("Space Task durable delivery", () => {
         },
         context
       );
-      const delivery = harness.deliveries.pending(Date.now())[0];
+      const delivery = harness.pendingActions(Date.now())[0];
       expect(delivery?.kind).toBe("stop");
       if (!delivery) {
         throw new Error("Expected a retained Stop delivery");
@@ -475,7 +705,7 @@ describe("Space Task durable delivery", () => {
           resolveMember: () => null,
         }
       );
-      const valid = harness.deliveries.pending(nowMs)[0];
+      const valid = harness.pendingActions(nowMs)[0];
       expect(valid?.kind).toBe("github_projection");
       if (!valid) {
         throw new Error("Expected a valid projection delivery");
@@ -491,10 +721,13 @@ describe("Space Task durable delivery", () => {
         nowMs,
         nowMs
       );
-      const deliver = vi.fn(async () => undefined);
+      const deliver = vi.fn(async (_delivery: unknown) => undefined);
       await flushSpaceTaskDeliveries({
         repository: harness.deliveries,
-        deliver,
+        deliver: (delivery) =>
+          delivery.kind === "inbox_projection"
+            ? Promise.resolve()
+            : deliver(delivery),
         onFailure: () => undefined,
       });
       expect(deliver).toHaveBeenCalledExactlyOnceWith(valid);
@@ -517,7 +750,10 @@ describe("Space Task durable delivery", () => {
           resolveMember: () => null,
         }
       );
-      expect(harness.deliveries.pending(nowMs)).toEqual([]);
+      expect(harness.pendingActions(nowMs)).toEqual([]);
+      for (const delivery of harness.deliveries.pending(nowMs)) {
+        harness.deliveries.complete(delivery.id);
+      }
 
       harness.deliveries.enqueue({ ...valid, id: "retry-delivery" }, nowMs);
       for (let attempt = 0; attempt < 12; attempt++) {
@@ -527,9 +763,7 @@ describe("Space Task durable delivery", () => {
           "retryable"
         );
       }
-      expect(harness.deliveries.pending(nowMs + 24 * 60 * 60 * 1000)).toEqual(
-        []
-      );
+      expect(harness.pendingActions(nowMs + 24 * 60 * 60 * 1000)).toEqual([]);
       expect(harness.deliveries.status(created.task.taskId)).toMatchObject([
         {
           state: "failed",
@@ -592,20 +826,23 @@ describe("Space Task durable delivery", () => {
       expect(harness.tasks.readTask(created.task.taskId)?.revision).toBe(
         started.task.revision
       );
-      expect(harness.deliveries.pending(Date.now())).toEqual([]);
+      expect(harness.pendingActions(Date.now())).toEqual([]);
 
       const submitted = harness
         .service()
         .mutate(created.task.taskId, submission, context(assignee));
       expect(submitted.task.phase).toBe("in_review");
-      expect(harness.deliveries.pending(Date.now())).toHaveLength(1);
+      expect(harness.pendingActions(Date.now())).toHaveLength(1);
       const publish = vi
         .fn()
         .mockRejectedValueOnce(new Error("publish failed"))
         .mockResolvedValueOnce(undefined);
       await flushSpaceTaskDeliveries({
         repository: harness.deliveries,
-        deliver: publish,
+        deliver: (delivery) =>
+          delivery.kind === "inbox_projection"
+            ? Promise.resolve()
+            : publish(delivery),
         onFailure: () => undefined,
       });
       expect(harness.deliveries.status(created.task.taskId)).toMatchObject([
@@ -614,7 +851,10 @@ describe("Space Task durable delivery", () => {
       vi.advanceTimersByTime(60_000);
       await flushSpaceTaskDeliveries({
         repository: harness.deliveries,
-        deliver: publish,
+        deliver: (delivery) =>
+          delivery.kind === "inbox_projection"
+            ? Promise.resolve()
+            : publish(delivery),
         onFailure: () => undefined,
       });
       expect(publish).toHaveBeenCalledTimes(2);

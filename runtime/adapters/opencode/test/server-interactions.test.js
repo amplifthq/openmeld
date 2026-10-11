@@ -1,3 +1,6 @@
+const NATIVE_MESSAGE_ID = /^msg_[a-f0-9]{12}[0-9A-Za-z]{14}$/;
+const EVENT_STREAM_ERROR = /event stream/;
+
 import assert from "node:assert/strict";
 import {
   mkdir,
@@ -73,6 +76,56 @@ async function withServerFixture(callback) {
   } finally {
     await rm(fixtureDir, { force: true, recursive: true });
   }
+}
+
+// The v1.18.34 native probe established: HTTP 204 precedes the user row,
+// noReply creates a user row without execution, and the assistant parentID
+// identifies the admitted turn. Preserve those independent boundaries.
+for (const scenario of ["http-only", "foreign-turn", "lost-http-receipt"]) {
+  test(`OpenCode native admission: ${scenario}`, async () => {
+    const { invokeOpenCodeServerTransport } = await import("../dist/index.js");
+    await withServerFixture(async ({ fixtureDir, fixturePath, logPath }) => {
+      const events = [];
+      const task = invokeOpenCodeServerTransport({
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        openCodeTimeoutMs: 5000,
+        openCodeWorkdir: fixtureDir,
+        prompt: "Only this turn",
+        sessionId: null,
+        env: {
+          OPENMELD_FAKE_OPENCODE_ADMISSION_SCENARIO: scenario,
+          OPENMELD_FAKE_OPENCODE_SERVER_LOG: logPath,
+        },
+        onRuntimeEvent: (event) => {
+          events.push(event);
+        },
+      });
+      if (scenario === "lost-http-receipt") {
+        assert.equal((await task).output, "OpenCode server reply");
+        const prompt = (await readLog(logPath)).find((entry) =>
+          entry.path?.endsWith("/prompt_async")
+        );
+        assert.deepEqual(
+          events
+            .filter((event) => event.phase === "provider_turn_accepted")
+            .map((event) => event.turnId),
+          [prompt.body.messageID]
+        );
+      } else {
+        await assert.rejects(task, EVENT_STREAM_ERROR);
+        assert.equal(
+          events.some((event) => event.phase === "provider_turn_accepted"),
+          false
+        );
+      }
+      assert.equal(
+        (await readLog(logPath)).filter((entry) =>
+          entry.path?.endsWith("/prompt_async")
+        ).length,
+        1
+      );
+    });
+  });
 }
 
 test("OpenCode forks the native Session and applies the OpenMeld title", async () => {
@@ -249,7 +302,7 @@ test("OpenCode carries permission approval through its official server API", asy
       (entry) =>
         typeof entry.path === "string" && entry.path.endsWith("/prompt_async")
     );
-    assert.equal(promptRequest?.body.messageID, undefined);
+    assert.match(promptRequest?.body.messageID, NATIVE_MESSAGE_ID);
     assert.equal(promptRequest?.body.system, "stable OpenMeld contract");
     assert.deepEqual(promptRequest?.body.parts, [
       { text: "current Wake only", type: "text" },

@@ -183,6 +183,10 @@ import type {
 } from "@openmeld/schemas/types";
 import { normalizeRemoteAgentCompletedAnswer } from "./completed-answer";
 import {
+  type RemoteAgentDiagnosticsEnv,
+  remoteAgentDiagnosticErrorFields,
+} from "./diagnostics-content-policy";
+import {
   isOrganizationSkillReleaseUnavailable,
   isRemoteAgentContextWindowExceeded,
   isRemoteAgentToolResultTooLarge,
@@ -618,6 +622,9 @@ export type RemoteAgentCoreWorkerBinding = {
   }): Promise<CenterAgentSpaceAuthoringContractResponse>;
   centerAgentReadDispatchHistory?(input: unknown): Promise<unknown>;
   centerAgentReadSpaceContext?(input: unknown): Promise<unknown>;
+  remoteAgentReadMessages?(
+    input: import("@openmeld/schemas").MessageReadRpcInput
+  ): Promise<import("@openmeld/schemas").MessageReadPage>;
   centerAgentReadSpaceWakeProgress?(input: unknown): Promise<unknown>;
   centerAgentStopSpaceWake?(input: unknown): Promise<unknown>;
   centerAgentSpaceInputQueue?(input: unknown): Promise<unknown>;
@@ -641,6 +648,9 @@ export type RemoteAgentCoreWorkerBinding = {
   readFeedbackReportingPolicy?(input: unknown): Promise<unknown>;
   updateFeedbackIssueStatusForOrganization?(input: unknown): Promise<unknown>;
   centerAgentUpdateAgentProfileRuntimeSettings?(
+    input: unknown
+  ): Promise<unknown>;
+  centerAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace?(
     input: unknown
   ): Promise<unknown>;
   centerAgentUpdateSpaceSettings?(input: unknown): Promise<unknown>;
@@ -1624,6 +1634,7 @@ export async function projectRemoteAgentCompletedAnswer(input: {
  * so an evicted/restarted instance can still re-deliver.
  */
 export async function attemptRemoteAgentCallbackDelivery(input: {
+  env?: RemoteAgentDiagnosticsEnv;
   context: RemoteAgentCallbackContext;
   coreWorker?: RemoteAgentCoreWorkerBinding;
   nowMs: number;
@@ -1726,7 +1737,10 @@ export async function attemptRemoteAgentCallbackDelivery(input: {
     console.error("[remote_agent.admission.callback_send_failed]", {
       callbackAttempt: context.callbackAttempts + 1,
       dispatchId: context.dispatchId,
-      error: errorSummary,
+      ...remoteAgentDiagnosticErrorFields(error, {
+        env: input.env,
+        organizationId: context.organizationId,
+      }),
       idempotencyKey: context.idempotencyKey,
       organizationId: context.organizationId,
       spaceId: context.spaceId,
@@ -1772,6 +1786,7 @@ export function buildRemoteAgentUsageRecord(input: {
 }
 
 async function recordAndDeliverRemoteAgentTerminalFailure(input: {
+  env?: RemoteAgentDiagnosticsEnv;
   code: string;
   context: RemoteAgentCallbackContext;
   coreWorker?: RemoteAgentCoreWorkerBinding;
@@ -1810,6 +1825,7 @@ async function recordAndDeliverRemoteAgentTerminalFailure(input: {
   }
   return attemptRemoteAgentCallbackDelivery({
     context: updated,
+    env: input.env,
     coreWorker: input.coreWorker,
     nowMs: input.nowMs,
     storage: input.storage,
@@ -1817,6 +1833,7 @@ async function recordAndDeliverRemoteAgentTerminalFailure(input: {
 }
 
 export async function handleRemoteAgentChatResponse(input: {
+  env?: RemoteAgentDiagnosticsEnv;
   coreWorker?: RemoteAgentCoreWorkerBinding;
   nowMs?: () => number;
   result: RemoteAgentAssistantCompletionResult;
@@ -1866,6 +1883,7 @@ export async function handleRemoteAgentChatResponse(input: {
     }
     return attemptRemoteAgentCallbackDelivery({
       context: checkpointContext,
+      env: input.env,
       coreWorker: input.coreWorker,
       nowMs,
       storage: input.storage,
@@ -1874,6 +1892,7 @@ export async function handleRemoteAgentChatResponse(input: {
   const completedText = extractCompletedAssistantText(input.result);
   if (!completedText) {
     return recordAndDeliverRemoteAgentTerminalFailure({
+      env: input.env,
       code: resolveRemoteAgentResultFailureCode(input.result),
       context,
       coreWorker: input.coreWorker,
@@ -1925,6 +1944,7 @@ export async function handleRemoteAgentChatResponse(input: {
   }
   return attemptRemoteAgentCallbackDelivery({
     context: readyContext,
+    env: input.env,
     coreWorker: input.coreWorker,
     nowMs,
     storage: input.storage,
@@ -2022,6 +2042,7 @@ export async function listDueRetryableCallbackContexts(
  * observed but never delivered by this sweep.
  */
 export async function redeliverDueRemoteAgentCallbacks(input: {
+  env?: RemoteAgentDiagnosticsEnv;
   coreWorker?: RemoteAgentCoreWorkerBinding;
   excludeSubmissionIds?: ReadonlySet<string>;
   nowMs?: () => number;
@@ -2034,6 +2055,7 @@ export async function redeliverDueRemoteAgentCallbacks(input: {
   for (const context of due) {
     await attemptRemoteAgentCallbackDelivery({
       context,
+      env: input.env,
       coreWorker: input.coreWorker,
       nowMs,
       storage: input.storage,

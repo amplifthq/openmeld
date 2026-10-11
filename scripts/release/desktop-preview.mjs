@@ -30,12 +30,12 @@ import {
   readWindowsDesktopSigning,
 } from "../desktop/installed-platform.ts";
 import { desktopProductionSource } from "../desktop/signed-package.ts";
+import { DEFAULT_APPLE_TEAM_ID } from "./apple-release-signing.mjs";
 import {
   checkDesktopPublisher,
   DEFAULT_R2_BUCKET_NAME,
   desktopPublisherCredentials,
 } from "./desktop-publisher.mjs";
-import { DEFAULT_APPLE_TEAM_ID } from "./macos-cli-signing.mjs";
 import {
   acquireProductionScopeLease,
   releaseProductionScopeLease,
@@ -280,6 +280,22 @@ export async function uploadDesktopCandidate(input = {}) {
     repoRoot,
     "clients/desktop/dist/production-preview/candidate.json"
   );
+  writeFileSync(
+    manifestPath,
+    `${JSON.stringify(candidate.manifest, null, 2)}\n`
+  );
+  if (
+    await reuseDesktopCandidate({
+      repoRoot,
+      manifest: candidate.manifest,
+      env: publisherEnv,
+    })
+  ) {
+    process.stdout.write(
+      `Verified existing immutable Desktop candidate: ${candidate.manifest.sha256}\n`
+    );
+    return candidate;
+  }
   const existing = await fetch(
     new URL(candidate.downloadPath, DEFAULT_DOWNLOAD_PAGE_URL),
     { method: "HEAD", cache: "no-store", redirect: "error" }
@@ -289,10 +305,6 @@ export async function uploadDesktopCandidate(input = {}) {
       `Candidate already exists or cannot be checked (${existing.status}); immutable candidates cannot be overwritten.`
     );
   }
-  writeFileSync(
-    manifestPath,
-    `${JSON.stringify(candidate.manifest, null, 2)}\n`
-  );
   const uploadedKeys = [];
   for (const item of [
     {
@@ -341,6 +353,44 @@ export async function uploadDesktopCandidate(input = {}) {
     `${JSON.stringify({ ...candidate, url: new URL(candidate.downloadPath, "https://openmeld.ai").href }, null, 2)}\n`
   );
   return candidate;
+}
+
+// A retry after successful R2 publication must recover the same bytes, not
+// rebuild or overwrite a published candidate. R2 metadata is authoritative;
+// public downloads must also prove that the complete candidate is available.
+export async function reuseDesktopCandidate({
+  repoRoot,
+  manifest,
+  env,
+  readObject = (key) => readDesktopReleaseObject(repoRoot, key, env),
+  verifyArtifact = verifyDesktopPublicArtifact,
+}) {
+  const raw = await readObject(desktopCandidateManifestKey(manifest.sha256));
+  if (raw === null) {
+    return false;
+  }
+  const published = desktopCandidateManifestSchema.parse(raw);
+  if (JSON.stringify(published) !== JSON.stringify(manifest)) {
+    throw new Error(
+      "Published candidate metadata differs; immutable candidates cannot be overwritten."
+    );
+  }
+  const location = desktopCandidateLocation(manifest);
+  const update = desktopCandidateUpdateArtifact(manifest);
+  if (!update) {
+    throw new Error("Published candidate is missing its update artifact.");
+  }
+  await verifyArtifact({
+    pathname: location.downloadPath,
+    sha256: manifest.sha256,
+    size: manifest.sizeBytes,
+  });
+  await verifyArtifact({
+    pathname: update.path,
+    sha256: update.sha256,
+    size: update.sizeBytes,
+  });
+  return true;
 }
 
 export function assertDesktopPromotionVersion(next, current) {

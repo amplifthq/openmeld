@@ -54,6 +54,7 @@ export const SPACE_HISTORY_SIGNAL_KINDS = [
 ] as const;
 
 export type SpaceHistorySnapshot = {
+	personalHistoryDeletedAt?: number;
 	envelopes: readonly SignalEnvelope[];
 	nextCursor: string | null;
 	/** Last contiguous server read, independent of retained or live display rows. */
@@ -109,17 +110,22 @@ export function mergeSpaceHistorySnapshots(input: {
 	current: SpaceHistorySnapshot | undefined;
 	incoming: SpaceHistorySnapshot;
 }): SpaceHistorySnapshot {
+	const currentEpoch = input.current?.personalHistoryDeletedAt ?? 0;
+	const incomingEpoch = input.incoming.personalHistoryDeletedAt ?? 0;
+	if (incomingEpoch < currentEpoch && input.current) {
+		return input.current;
+	}
+	const current = incomingEpoch > currentEpoch ? undefined : input.current;
 	const mergedEnvelopes = mergeSpaceTimelineEnvelopes({
-		current: input.current?.envelopes ?? [],
+		current: current?.envelopes ?? [],
 		incoming: input.incoming.envelopes,
 	});
 	const envelopes = boundSavedSpaceHistory(mergedEnvelopes);
-	const threadDisplay =
-		input.incoming.threadDisplay ?? input.current?.threadDisplay;
+	const threadDisplay = input.incoming.threadDisplay ?? current?.threadDisplay;
 	const confirmedCursor =
 		input.incoming.confirmedCursor !== undefined
 			? input.incoming.confirmedCursor
-			: input.current?.confirmedCursor;
+			: current?.confirmedCursor;
 	const nextSnapshot = {
 		...input.incoming,
 		...(confirmedCursor !== undefined ? { confirmedCursor } : {}),
@@ -150,6 +156,9 @@ export function writeSpaceHistoryEnvelopesToCache(input: {
 			const merged = mergeSpaceHistorySnapshots({
 				current,
 				incoming: {
+					...(current?.personalHistoryDeletedAt === undefined
+						? {}
+						: { personalHistoryDeletedAt: current.personalHistoryDeletedAt }),
 					envelopes: input.envelopes,
 					nextCursor: current?.nextCursor ?? null,
 					...(input.confirmedCursor !== undefined
@@ -292,18 +301,22 @@ async function readAnchoredSpaceHistory(input: {
 	signal?: AbortSignal;
 }): Promise<SpaceHistorySnapshot> {
 	try {
-		return await createUnscopedWebSpaceApi({
+		const result = await createUnscopedWebSpaceApi({
 			...(input.openMeldProfileId === undefined
 				? {}
 				: { openMeldProfileId: input.openMeldProfileId }),
 		}).listSignalEnvelopes({
 			spaceId: input.spaceId,
-			query: input.query,
+			query: { ...input.query, includePersonalHistoryBoundary: true },
 			...(input.spacePassword === undefined
 				? {}
 				: { spacePassword: input.spacePassword }),
 			...(input.signal === undefined ? {} : { signal: input.signal }),
 		});
+		return {
+			...result,
+			personalHistoryDeletedAt: result.personalHistoryDeletedAt ?? 0,
+		};
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);
 	}

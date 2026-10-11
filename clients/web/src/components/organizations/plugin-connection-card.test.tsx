@@ -12,6 +12,7 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/react";
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { organizationPluginConnectionQueryKeys } from "#/query/organizations/plugin-connections";
 import {
@@ -22,6 +23,7 @@ import { PluginConnectionCard } from "./plugin-connection-card";
 
 const listConnectionsMock = vi.hoisted(() => vi.fn());
 const startMemberAuthorizationMock = vi.hoisted(() => vi.fn());
+const startSharedAuthorizationMock = vi.hoisted(() => vi.fn());
 const connectMemberCredentialMock = vi.hoisted(() => vi.fn());
 const disconnectOrganizationConnectorConnectionMock = vi.hoisted(() => vi.fn());
 const TRANSIENT_STATUS_COPY = /checking|updating/i;
@@ -52,7 +54,8 @@ vi.mock("#/lib/organizations/connector-connections", async (importOriginal) => {
 				? "OpenMeld couldn't confirm that this request belongs to this Organization. Refresh the page and try again."
 				: String(error),
 		startCurrentMemberConnectorAuthorization: startMemberAuthorizationMock,
-		startCurrentOrganizationSharedConnectorAuthorization: vi.fn(),
+		startCurrentOrganizationSharedConnectorAuthorization:
+			startSharedAuthorizationMock,
 	};
 });
 
@@ -75,6 +78,10 @@ const posthogApp = requireAvailableApp("posthog");
 
 describe("PluginConnectionCard", () => {
 	beforeEach(() => {
+		vi.mocked(toast.success).mockClear();
+		startSharedAuthorizationMock.mockReset().mockResolvedValue({
+			authorizationUrl: "https://linear.example/authorize",
+		});
 		listConnectionsMock.mockReset().mockResolvedValue({
 			connections: [],
 			currentUserId: "user-1",
@@ -530,6 +537,90 @@ describe("PluginConnectionCard", () => {
 		expect(startMemberAuthorizationMock).not.toHaveBeenCalled();
 		expect(connectButton.hasAttribute("disabled")).toBe(false);
 		openSpy.mockRestore();
+	});
+
+	it.each([
+		"member",
+		"shared",
+	] as const)("keeps an expired %s connection from completing a new authorization", async (scope) => {
+		const queryClient = createTestQueryClient();
+		const expiredConnection = {
+			...createLinearConnection({ scope }),
+			health: {
+				state: "reconnect_required",
+				reason: "oauth_token_expired",
+				observedAt: "2026-10-09T16:00:00.000Z",
+				expiresAt: "2026-10-08T16:00:00.000Z",
+			},
+		};
+		listConnectionsMock.mockResolvedValue({
+			connections: [expiredConnection],
+			currentUserId: "user-1",
+			organizationId: "org-acme",
+		});
+		const popup = {
+			closed: false,
+			close: vi.fn(),
+			focus: vi.fn(),
+			location: { href: "" },
+			opener: window,
+		};
+		vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
+		render(
+			<TestQueryClientProvider queryClient={queryClient}>
+				<PluginConnectionCard
+					canManage
+					mode={scope}
+					organizationId="org-acme"
+					plugin={linearApp}
+				/>
+			</TestQueryClientProvider>
+		);
+		const connectButton = await screen.findByRole("button", {
+			name: "Connect Linear",
+		});
+		await waitFor(() =>
+			expect(connectButton.hasAttribute("disabled")).toBe(false)
+		);
+		fireEvent.click(connectButton);
+		await waitFor(() =>
+			expect(popup.location.href).toBe("https://linear.example/authorize")
+		);
+		await queryClient.invalidateQueries({
+			queryKey: organizationPluginConnectionQueryKeys.service(
+				"org-acme",
+				"linear"
+			),
+			exact: true,
+		});
+		expect(screen.getByText("Waiting for authorization…")).toBeTruthy();
+		expect(popup.close).not.toHaveBeenCalled();
+		expect(toast.success).not.toHaveBeenCalled();
+		listConnectionsMock.mockResolvedValue({
+			connections: [
+				{
+					...expiredConnection,
+					health: {
+						...expiredConnection.health,
+						state: "unknown",
+						expiresAt: "2026-10-10T16:00:00.000Z",
+						reason: null,
+					},
+				},
+			],
+			currentUserId: "user-1",
+			organizationId: "org-acme",
+		});
+		await queryClient.invalidateQueries({
+			queryKey: organizationPluginConnectionQueryKeys.service(
+				"org-acme",
+				"linear"
+			),
+			exact: true,
+		});
+		await waitFor(() => expect(toast.success).toHaveBeenCalledOnce());
+		expect(popup.close).toHaveBeenCalledOnce();
+		expect(screen.queryByText("Waiting for authorization…")).toBeNull();
 	});
 
 	it("keeps the authorization state stable while connection status refreshes", async () => {

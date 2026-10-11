@@ -6,6 +6,7 @@ import {
 import type {
   ExecutionContextAssignment,
   ExecutionContextCompletion,
+  ExecutionContextDiagnostics,
   ExecutionContextScope,
   ExecutionContextTask,
 } from "@openmeld/schemas/types";
@@ -86,6 +87,43 @@ function createWakeContext(
     ownerUserId: record.ownerUserId,
     dispatchId: record.primaryDispatchId,
     runtimeCoordinatorExecutionId: record.runtimeCoordinatorExecutionId,
+  };
+}
+
+export async function readWakeExecutionContextDiagnostics(input: {
+  storage: Pick<Storage, "get">;
+  targetWakeLifecycleId: string;
+  spaceId: string;
+  targetProfileId: string;
+}): Promise<ExecutionContextDiagnostics> {
+  const wake = readWakeContext(
+    await input.storage.get(wakeContextKey(input.targetWakeLifecycleId))
+  );
+  if (!wake) {
+    return {
+      readStatus: "not_recorded",
+      reasonCode: "execution_context.assignment_not_recorded",
+    };
+  }
+  const context = requireContext(
+    await input.storage.get(CONTEXT_PREFIX + wake.contextId)
+  );
+  if (
+    context.assignment.id !== wake.contextId ||
+    context.assignment.scope.spaceId !== input.spaceId ||
+    context.assignment.scope.targetProfileId !== input.targetProfileId
+  ) {
+    throw new ExecutionContextSelectionError(
+      "execution_context.scope_mismatch"
+    );
+  }
+  return {
+    readStatus: "found",
+    contextId: context.assignment.id,
+    access: context.assignment.access,
+    permissionSource:
+      context.assignment.permissionSource ?? "context_restriction",
+    workspace: context.assignment.workspace,
   };
 }
 
@@ -670,6 +708,7 @@ function createContext(
   source: ContextSource | null
 ): ContextRecord {
   const selection = request.selection;
+  const forkSource = forkCheckpoint(request, source);
   const inheritsAgentSettings =
     (snapshot.controllerSnapshot.agentControllerRef === "builtin:codex" ||
       snapshot.controllerSnapshot.agentControllerRef ===
@@ -684,17 +723,19 @@ function createContext(
     (selection.mode === "auto" &&
       !source &&
       snapshot.controllerSnapshot.agentControllerRef === "builtin:codex")
-      ? ({ access: "workspace", workspace: "current" } as const)
+      ? ({
+          access: "workspace",
+          workspace: forkSource?.workspace ?? "current",
+        } as const)
       : {};
   const preferences: Partial<
     Pick<ExecutionContextAssignment, "access" | "projectWork" | "workspace">
   > =
     selection.mode === "resume" ? {} : { ...implicitPreferences, ...selection };
-  const forkSource = forkCheckpoint(request, source);
   if (
     selection.mode === "fork" &&
     preferences.projectWork &&
-    !sameProjectWork(
+    !matchesSelectedProjectWork(
       preferences.projectWork,
       source?.context.assignment.projectWork
     )
@@ -704,7 +745,9 @@ function createContext(
     );
   }
   const projectWork =
-    preferences.projectWork ?? source?.context.assignment.projectWork;
+    selection.mode === "fork"
+      ? source?.context.assignment.projectWork
+      : (preferences.projectWork ?? source?.context.assignment.projectWork);
   return {
     assignment: {
       version: 1,
@@ -718,7 +761,7 @@ function createContext(
         source?.context.assignment.access ??
         "space_context",
       ...(projectWork ? { projectWork } : {}),
-      workspace: preferences.workspace ?? "isolated",
+      workspace: preferences.workspace ?? forkSource?.workspace ?? "isolated",
       ...(forkSource ? { forkSource } : {}),
     },
     bindingId: snapshot.controllerSnapshot.bindingId,
@@ -741,13 +784,14 @@ function supportsContextAccess(
   );
 }
 
-function sameProjectWork(
-  left: ExecutionContextAssignment["projectWork"],
-  right: ExecutionContextAssignment["projectWork"]
+function matchesSelectedProjectWork(
+  selection: ExecutionContextAssignment["projectWork"],
+  retained: ExecutionContextAssignment["projectWork"]
 ): boolean {
   return (
-    left?.projectId === right?.projectId &&
-    left?.repositoryFingerprint === right?.repositoryFingerprint
+    selection?.projectId === retained?.projectId &&
+    selection?.repositoryFingerprint === retained?.repositoryFingerprint &&
+    (selection?.commit === undefined || selection.commit === retained?.commit)
   );
 }
 
@@ -801,7 +845,7 @@ function assertContextPreferences(
   }
   if (
     selection.projectWork &&
-    !sameProjectWork(selection.projectWork, assignment.projectWork)
+    !matchesSelectedProjectWork(selection.projectWork, assignment.projectWork)
   ) {
     throw new ExecutionContextSelectionError(
       "execution_context.project_work_changed_requires_new_task"

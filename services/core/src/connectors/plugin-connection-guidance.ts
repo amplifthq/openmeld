@@ -2,6 +2,7 @@ import {
   appendPluginConnectionReplyLink,
   buildOpenMeldNavigationAction,
   buildOpenMeldOrganizationWebUrl,
+  connectorConnectionScopeAllowed,
 } from "@openmeld/schemas";
 import type {
   PluginActionRequest,
@@ -44,6 +45,17 @@ export async function localPluginConnectionGuidance(
     scope = "member";
   } else if (action.account === "shared" || !caller.personalAllowed) {
     scope = "shared";
+  }
+  if (!connectorConnectionScopeAllowed(action.service, "shared")) {
+    if (scope === "shared") {
+      throw createCoreRpcHttpError({
+        status: 403,
+        code: "plugin.personal_request_required",
+        reason:
+          "This Plugin is personal-only. Ask its account owner to connect under Personal and authorize this Agent for their request.",
+      });
+    }
+    scope = "member";
   }
   const navigation = buildOpenMeldNavigationAction({
     organizationWebUrl: buildOpenMeldOrganizationWebUrl({

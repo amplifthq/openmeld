@@ -9,6 +9,7 @@ import { object } from "valibot";
 import { expect, it, vi } from "vitest";
 import { CENTER_AGENT_MODEL_RETRY } from "../flue-adapter/center-agent-durability";
 import { extractFlueModelRecovery } from "../flue-adapter/observation";
+import { guardRemoteAgentProviderStream } from "../flue-adapter/provider-failure";
 
 // Exercise the actual framework loop, canonical tool history and observation
 // contract. Fake timers avoid waiting through the production backoff schedule.
@@ -73,7 +74,25 @@ it.each([
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
   const runtime = await start({
     agents: [Center],
-    providers: [provider.provider],
+    providers: [
+      {
+        ...provider.provider,
+        stream: (...args: Parameters<typeof provider.provider.stream>) =>
+          guardRemoteAgentProviderStream({
+            createAttempt: () => provider.provider.stream(...args),
+            fetch,
+            model,
+          }),
+        streamSimple: (
+          ...args: Parameters<typeof provider.provider.streamSimple>
+        ) =>
+          guardRemoteAgentProviderStream({
+            createAttempt: () => provider.provider.streamSimple(...args),
+            fetch,
+            model,
+          }),
+      },
+    ],
   });
   try {
     const agent = init(Center, { id: `bounded-${outcome}` });

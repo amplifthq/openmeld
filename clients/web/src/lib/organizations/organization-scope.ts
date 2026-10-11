@@ -18,11 +18,6 @@ import type {
 	OrganizationSummary,
 } from "./organization-types";
 
-const organizationScopeInputSchema = z.strictObject({
-	orgSlug: z.string().trim().min(1),
-	routeFamily: z.string().trim().min(1),
-});
-
 type OrganizationSessionLike = {
 	session: Record<string, unknown>;
 	user: {
@@ -98,22 +93,6 @@ export function resolveDefaultOrganizationForSession(input: {
 		input.organizations[0] ??
 		null
 	);
-}
-
-export async function resolveOrganizationScope(input: {
-	data: { orgSlug: string; routeFamily: string };
-}): Promise<OrganizationScopeResolution> {
-	const data = organizationScopeInputSchema.parse(input.data);
-	const context = await readCurrentAccountOrganizationContext(data.routeFamily);
-	if (!context) {
-		throw redirect({
-			to: "/login",
-			search: {
-				redirect: resolvePublicLoginRedirectTarget(data.routeFamily),
-			},
-		});
-	}
-	return resolveOrganizationScopeForContext({ context, orgSlug: data.orgSlug });
 }
 
 export function resolveOrganizationScopeForContext(input: {

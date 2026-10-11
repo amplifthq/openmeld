@@ -17,7 +17,7 @@ import {
   AGENT_COMPUTER_LAYOUT_DIRECTORIES,
   ensureAgentComputerLayout,
   resolveAgentComputerWorkingDirectory,
-} from "../flue-adapter/computer-workspace";
+} from "../flue-adapter/computer-workspace-config";
 import {
   ORGANIZATION_DOCUMENTS_COMPUTER_MANIFEST,
   ORGANIZATION_DOCUMENTS_COMPUTER_ROOT,

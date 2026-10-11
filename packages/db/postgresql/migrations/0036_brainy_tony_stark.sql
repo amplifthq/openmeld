@@ -1,0 +1,1 @@
+ALTER TABLE "openmeld"."center_agent_connector_action_operations" ADD COLUMN "github_issue_observation_json" text;

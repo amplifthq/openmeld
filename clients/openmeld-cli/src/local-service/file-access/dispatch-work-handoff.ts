@@ -1,11 +1,15 @@
 import { createHash, randomUUID } from "node:crypto";
 import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { supportsSpaceWorkHandoff } from "@openmeld/agent-runtime";
 import {
   createOrganizationSkillsApi,
   createSpaceApi,
 } from "@openmeld/api-client";
-import { spaceWorkSelectionSchema } from "@openmeld/schemas";
+import {
+  type SpaceWorkHandoffV2,
+  spaceWorkSelectionSchema,
+} from "@openmeld/schemas";
 import { getAuthSessionState } from "../../config/auth-session";
 import { resolveBaseUrl } from "../../config/base-url";
 import { buildOpenMeldRequestContextFromProfileIdentity } from "../../config/openmeld-request-context";
@@ -15,6 +19,11 @@ import { createCliApiClientFoundation } from "../../space/api-client-foundation"
 import { downloadWorkingCopyFile } from "../../space/working-copy-download";
 import type { ParsedDispatchTask } from "../core/types";
 import { createSpaceWorkingCopies } from "./space-working-copy";
+
+function describeHandoffBrief(handoff: SpaceWorkHandoffV2): string {
+  const revision = handoff.code ? `, exact commit ${handoff.code.commit}` : "";
+  return `\n\nHandoff brief (public source ${handoff.sourceSignalId}${revision}):\n${JSON.stringify(handoff.work)}\nReturn your result and verification through the existing Space reply action. No sender-local paths or private conversation are available.`;
+}
 
 /** The admitted Service prepares inputs; no login state is copied into the workspace. */
 export async function prepareDispatchWorkHandoff(input: {
@@ -39,17 +48,14 @@ export async function prepareDispatchWorkHandoff(input: {
   if (!task.workHandoff) {
     return input.workingDirectory;
   }
-  if (
-    !task.executionContext ||
-    task.executionContext.access !== "space_context" ||
-    task.agentControllerRef !== "builtin:codex" ||
-    task.transportMode !== "codex-app-server"
-  ) {
-    throw new Error(
-      "Selected-file handoffs require a new Space-only context on Codex App Server. This controller cannot enforce that boundary."
-    );
+  const context = requireHandoffContext(task);
+  const sourceHandoff =
+    task.workHandoff.schemaVersion === 2 ? task.workHandoff : null;
+  const codeHandoff = sourceHandoff?.code;
+  if (sourceHandoff) {
+    task.prompt += describeHandoffBrief(sourceHandoff);
   }
-  const organizationId = task.executionContext.scope.organizationId;
+  const organizationId = context.scope.organizationId;
   const baseUrl = await resolveBaseUrl();
   const laneRoot = resolveOpenMeldRootDir();
   const assertCurrentIdentity = async () => {
@@ -64,6 +70,13 @@ export async function prepareDispatchWorkHandoff(input: {
     }
   };
   await assertCurrentIdentity();
+  // A brief-only handoff needs no file copy or repository preparation.
+  if (
+    task.workHandoff.files.length === 0 &&
+    task.workHandoff.skills.length === 0
+  ) {
+    return input.workingDirectory;
+  }
   const requestContext = buildOpenMeldRequestContextFromProfileIdentity({
     profileIdentity: {
       openMeldProfileId: task.targetProfileId,
@@ -76,6 +89,22 @@ export async function prepareDispatchWorkHandoff(input: {
     expectedOwnerUserId: input.ownerUserId,
     organizationId,
   });
+  const skillPreparation = {
+    assertCurrentIdentity,
+    foundation,
+    organizationId,
+    requestContext,
+    selections: task.workHandoff.skills,
+  };
+  if (task.workHandoff.files.length === 0) {
+    await prepareHandoffSkills({
+      ...skillPreparation,
+      root: input.workingDirectory,
+    });
+    task.prompt +=
+      "\n\nSelected Skills and their resources are prepared in .openmeld-skills/<selection index>/SKILL.md inside your working directory.";
+    return input.workingDirectory;
+  }
   const api = createSpaceApi(foundation);
   const common = {
     spaceId: task.spaceId,
@@ -157,15 +186,37 @@ export async function prepareDispatchWorkHandoff(input: {
       mode: 0o600,
     });
   }
-  const skillsRoot = join(root, ".openmeld-skills");
-  if (task.workHandoff.skills.length) {
+  await prepareHandoffSkills({ ...skillPreparation, root });
+  await assertCurrentIdentity();
+  await copies.status(copyId);
+  task.workingCopyId = copyId;
+  task.prompt += codeHandoff
+    ? `\n\nSelected shared files are prepared under ${root}. Keep code work in the repository working directory. Use working_copy for saving shared-file revisions and the ordinary reply action for the result.`
+    : "\n\nThe selected inputs are prepared in your working directory. Selected Skills (including resources) are in .openmeld-skills/<selection index>/SKILL.md. Use the working_copy tool to check, commit or reconcile your edits; it does not complete this Wake. Attach the exact saved file references with the reply tool when delivering results.";
+  return codeHandoff ? input.workingDirectory : root;
+}
+
+async function prepareHandoffSkills(input: {
+  assertCurrentIdentity(): Promise<void>;
+  foundation: ReturnType<typeof createCliApiClientFoundation>;
+  organizationId: string;
+  requestContext: ReturnType<
+    typeof buildOpenMeldRequestContextFromProfileIdentity
+  >;
+  root: string;
+  selections: NonNullable<ParsedDispatchTask["workHandoff"]>["skills"];
+}) {
+  const { assertCurrentIdentity, foundation, organizationId, requestContext } =
+    input;
+  const skillsRoot = join(input.root, ".openmeld-skills");
+  if (input.selections.length) {
     await mkdir(skillsRoot, { recursive: true, mode: 0o700 });
     if ((await lstat(skillsRoot)).isSymbolicLink()) {
       throw new Error("The Skill directory was replaced by a symbolic link.");
     }
   }
   const skills = createOrganizationSkillsApi(foundation);
-  for (const [index, selected] of task.workHandoff.skills.entries()) {
+  for (const [index, selected] of input.selections.entries()) {
     await assertCurrentIdentity();
     const result = await skills.get({ ...selected, requestContext });
     const release = result.selectedRelease;
@@ -189,9 +240,57 @@ export async function prepareDispatchWorkHandoff(input: {
     });
   }
   await assertCurrentIdentity();
-  await copies.status(copyId);
-  task.workingCopyId = copyId;
-  task.prompt +=
-    "\n\nThe selected inputs are prepared in your working directory. Selected Skills (including resources) are in .openmeld-skills/<selection index>/SKILL.md. Use the working_copy tool to check, commit or reconcile your edits; it does not complete this Wake. Attach the exact saved file references with the reply tool when delivering results.";
-  return root;
+}
+
+function requireHandoffContext(
+  task: Parameters<typeof prepareDispatchWorkHandoff>[0]["task"]
+) {
+  const context = task.executionContext;
+  const handoff = task.workHandoff;
+  if (!(context && handoff)) {
+    throw new Error("execution_context.handoff_context_required");
+  }
+  if (
+    handoff.schemaVersion === 2 &&
+    !supportsSpaceWorkHandoff({
+      agentControllerRef: task.agentControllerRef,
+      hasRepository: Boolean(handoff.code),
+      hasFiles: handoff.files.length > 0,
+    })
+  ) {
+    throw new Error("execution_context.handoff_receiver_unsupported");
+  }
+  if (handoff.schemaVersion === 2 && handoff.code) {
+    if (
+      context.projectWork?.projectId !== handoff.code.projectId ||
+      context.projectWork.repositoryFingerprint !==
+        handoff.code.repositoryFingerprint ||
+      context.projectWork.commit !== handoff.code.commit ||
+      context.workspace !== handoff.execution.workspace ||
+      (handoff.execution.access
+        ? context.access !== handoff.execution.access ||
+          context.permissionSource === "agent_settings"
+        : context.permissionSource !== "agent_settings")
+    ) {
+      throw new Error("execution_context.code_handoff_mismatch");
+    }
+  } else if (
+    context.access !== "space_context" ||
+    context.workspace !== "isolated" ||
+    context.projectWork !== undefined ||
+    context.permissionSource !== undefined
+  ) {
+    throw new Error("execution_context.handoff_context_required");
+  } else if (
+    !(
+      (task.agentControllerRef === "builtin:codex" &&
+        task.transportMode === "codex-app-server") ||
+      (handoff.schemaVersion === 2 &&
+        handoff.files.length === 0 &&
+        task.agentControllerRef === "builtin:claude-code")
+    )
+  ) {
+    throw new Error("execution_context.handoff_transport_unsupported");
+  }
+  return context;
 }

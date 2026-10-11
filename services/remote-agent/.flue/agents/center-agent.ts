@@ -29,6 +29,7 @@ import {
 } from "../../agent-core/callback-context";
 import { generateCenterAgentSessionTitle } from "../../agent-core/center-agent-session-title";
 import { callCoreRpc } from "../../agent-core/core-rpc";
+import { remoteAgentDiagnosticErrorFields } from "../../agent-core/diagnostics-content-policy";
 import {
   assertRemoteAgentExecutionCanContinue,
   buildRemoteAgentExecutionIdentity,
@@ -139,6 +140,7 @@ function createRemoteAgentImagePreparer(
 }
 
 async function prepareCenterAgentRender() {
+  const messageReadBudget = { remainingBytes: 8192 };
   const context = getCloudflareContext();
   const env = context.env as unknown as CloudflareBindings;
   const prepareImageForContext = createRemoteAgentImagePreparer(
@@ -243,6 +245,7 @@ async function prepareCenterAgentRender() {
     createTools: async (sandboxCapability) =>
       executionContext
         ? await getRemoteAgentFlueTools({
+            messageReadBudget,
             replyRecovery: Boolean(executionContext.replyRecovery),
             personalAgent,
             sharedSpaceContextEnabled:
@@ -374,6 +377,7 @@ async function prepareCenterAgentRender() {
   });
 
   return {
+    messageReadBudget,
     beforeModel: executionContext
       ? () =>
           assertRemoteAgentExecutionCanContinue({
@@ -657,6 +661,7 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
               ),
             cleanupFinalizedSubmissionReplay: async () =>
               await cleanupFinalizedRemoteAgentSubmissionAttachments({
+                env,
                 attachmentBucket: env.OPENMELD_SPACE_ATTACHMENTS,
                 request,
               }),
@@ -760,6 +765,7 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
               status: "started",
             });
             const result = await submitRemoteAgentConversationTurn({
+              env,
               agentName: this.name,
               attachmentBucket: env.OPENMELD_SPACE_ATTACHMENTS,
               host,
@@ -822,7 +828,10 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
             await this.armRemoteAgentCallbackRetry();
           }
         } catch (error) {
-          console.error("[remote_agent.ai_usage.retry_failed]", error);
+          console.error(
+            "[remote_agent.ai_usage.retry_failed]",
+            remoteAgentDiagnosticErrorFields(error, { env: this.env })
+          );
           await this.armRemoteAgentCallbackRetry();
         }
         const readSubmission = requireFlueSubmissionReader(this);

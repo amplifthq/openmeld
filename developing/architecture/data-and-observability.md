@@ -92,12 +92,29 @@ All backends retain bounded command output in this same receipt owner. New
 receipts use one monotonic observation, including exit and synchronization facts;
 older terminal receipts remain readable. A Computer alarm inspects saved command
 identities independently of model polling. It never repeats a launch.
-The alarm is armed before external dispatch and stays armed while dispatch is
-pending. It can recover a dispatch whose acknowledgement was lost, but an absent
+The alarm is armed before external dispatch. It follows the next due check in
+the existing command receipt, with at most 16 due identities per collection and
+four concurrent native observations. A partial SQLite index over these receipts
+keeps historical completed output out of the alarm scan. Before external I/O,
+the receipt atomically reserves its unconfirmed-attempt count and next due time.
+This survives a Worker termination before catch/finally. Bounded backoff pauses
+later automatic checks after eight unconfirmed attempts; a normal caught error
+does not count its already reserved attempt again;
+this is a scheduling budget, never process failure, loss or replay authority.
+Fresh accepted native evidence resets that count. Successful manual inspection
+or Stop resumes the same receipt. Paused receipts remain available under the
+existing retention policy, and an older failed read cannot overwrite a newer
+manual recovery. No separate command queue or execution ledger is introduced.
+The alarm can recover a dispatch whose acknowledgement was lost, but an absent
 record during pending dispatch is not evidence that the execution was lost.
+Native result absence returns a structured result-unavailable error rather than
+an unreachable-upstream error. This projection preserves the saved command
+identity and its existing launch or loss evidence; it does not authorize replay.
 Output cursors select retained slices; clipping is explicit. Native log expiry
-does not invalidate a saved terminal receipt. Command records retain the existing
-seven-day storage policy; this is not an indefinite output archive.
+does not invalidate a saved terminal receipt. Writes retain the existing
+seven-day retention marker, but command reads and lists do not filter it and
+there is no command-prefix cleanup owner. The marker does not prove deletion at
+that time or indefinite archival availability.
 
 An exit receipt is saved before waiting for file synchronization. Only the SDK's
 explicit synchronization result confirms that step. Stream closure is not proof:
@@ -214,7 +231,7 @@ Every mutation compares the expected Task revision inside the Space transaction.
 An operation id may replay only the exact same request and returns the retained
 receipt without appending another event.
 The same transaction writes `space_task_delivery_outbox` rows for necessary
-handoff, completion, GitHub issue and Project link projections, and authorized
+handoff, completion, Inbox, GitHub issue and Project link projections, and authorized
 Stop effects. The Project link PostgreSQL projection contains only Organization,
 Project, Space, and Task keys plus Task revision and update time. Its versioned
 write rejects an older Task revision; a Project read rechecks Space membership
@@ -227,10 +244,13 @@ a Task-authored Signal, Space rechecks the Task's phase, target, result, and
 brief so a cancellation or change cannot admit a stale handoff. The
 `space_task_wake_refs` table records exact Signal and Agent target pairs only
 for Task-associated Wakes; it is a Stop lookup, not an execution ledger.
-Only mutations that may create a delivery intent pre-arm recovery before their
-transaction; checking for due rows only after commit would leave a lost-alarm
-window. Each delivery has bounded backoff and becomes a visible terminal failure
-after twelve attempts. A malformed outbox row is quarantined without blocking
+Each Task mutation pre-arms recovery before its transaction; checking for due
+rows only after commit would leave a lost-alarm window. Public delivery effects
+have bounded backoff and become a visible terminal failure after twelve attempts.
+Internal Inbox projection keeps retrying with capped backoff until it can reconcile
+the latest source-owned review or rework decision. It is excluded from public Task
+actions and does not become an invisible terminal failure during a database outage.
+A malformed outbox row is quarantined without blocking
 other Task deliveries. Terminal rows remain available for diagnosis for thirty
 days, then the same bounded Space alarm lane reclaims them.
 
@@ -628,6 +648,15 @@ Deleting a personal group removes its presentation association only.
 | Space Truth                        | Space collaboration truth.                                                                                                                                                                          | Space Durable Object source of truth.                                                                                                                                                                                                                                                                                                                                  |
 
 Inbox message notification preferences have two Core-owned PostgreSQL records:
+Personal Direct Message deletion is an account read policy, separate from shared
+Space history. Core owns `conversation_history_deletions` in PostgreSQL. The Space
+command captures the monotonically accepted SQLite signal position and writes
+that boundary through Core. History, search, Inbox, links, and live Human reads
+respect it; other participants and Agent execution continuity remain unchanged.
+The boundary date is opt-in history metadata for Web cache reconciliation. Old
+strict readers retain their response shape. Rolling Core back after an accepted
+personal deletion must retain this policy; otherwise earlier history can reappear.
+
 `inbox_message_notification_defaults` stores one mode per account, and
 `inbox_conversation_notification_preferences` stores explicit overrides per
 account, Organization, and Space. Absence of an override means live inheritance.
@@ -2377,6 +2406,51 @@ own the publication claim, retry schedule, completion gate, or the only copy
 of the frozen command. A future observability-only split keeps this outbox on
 the authoritative Core database.
 
+For an exact user-authored Wake, this outbox completes only after the Space's
+saved final claim is projected into the existing Agent Task terminal outcome.
+The producer uses the saved claim's signal id, not the system-notice RPC's
+constructed return value. Its frozen internal command includes a signal id;
+only that exact saved failure allows it to create a pre-head-owned Task event.
+A competing success, stopped result, or failure remains with its original
+producer. If that producer has not written its Task outcome yet, recovery stays
+pending until the original command replays. Older frozen commands without this
+identity cannot claim ownership of a saved notice. Before any publication, a
+legacy intent with no saved claim freezes its identity under the same outbox
+claim and version check. Publication uses a named required Space RPC that
+reuses the existing system-notice implementation. An older receiver rejects
+the call before any visible write; there is no ordinary-RPC fallback.
+An already-published legacy claim can complete when a compatible Task outcome
+exists. Without that evidence, the original notice cannot identify its Task
+event owner. The outbox records `needs_attention` with
+`dispatch.pre_head_failure_legacy_claim_unattributed` only after the existing
+Agent Task owner durably records a nonterminal needs-attention observation.
+The event identity includes the dispatch and saved claim. Its occurrence time
+is when recovery first discovers this blocker, distinct from the old failure
+time. Replay reads and reuses the existing Task observation's time; it does not
+relax the immutable-event or stale-observation checks. Existing and later attention
+watches receive that same observation. A failed observation write or attention
+transition keeps the original outbox pending. Queue delivery uses the existing
+ready-subscription redrive, including after the outbox stops retrying.
+The outbox then releases its claim and stops automatic publication attempts.
+Ordinary delegation accepts only terminal outcomes, so this historical branch
+does not resume an ordinary delegated parent. It remains an unrepaired Task
+result, not success or completed recovery. Its original command, visible
+claim, and failure reason remain available for diagnosis. It never invents an
+event or silently rewrites historical results.
+An existing compatible task outcome retains its original event and timestamp;
+conflicting task evidence keeps recovery pending. A failed claim read, missing or
+unknown claim, or failed task projection also keeps the frozen publication
+recoverable. Task subscriptions and their continuation queue use the existing
+Agent Task Coordination owner. Legacy input without a client message id has no
+exact Space Wake task handle and retains its publication-only contract.
+
+Native migration `0032` adds the nullable recovery blocker and extends the
+existing outbox status/completion constraints. Apply it before Core. Pending
+and completed rows retain their previous meaning. Older Core does not enqueue
+the new attention status; rollback does not resume these rows or repair their
+Task outcomes. Core and Space must retain the required publication receiver
+while upgraded callers or frozen identities remain in use.
+
 When accepted-result publication exhausts its repair window, Space first owns
 the atomic visible-outcome choice. Its existing final claim wins, or Space
 persists and claims one explicit publication-failure notice. Only that claimed
@@ -4008,6 +4082,17 @@ commands derived from those Wake pointers. It must not use a Diagnostic Report
 ID as a Wake correlation field, and it must stay a resolver into the shared
 trace model, not a second Dispatch Ledger reader.
 
+The helper reads the current PostgreSQL report/pointer tables with bound
+parameters and a read-only transaction. Remote lookup uses the existing
+Doppler `openmeld-release` runtime URL for `prd`/`stg`, checked against the
+registered target in `tooling/postgresql/resources.json`. Local lookup requires
+an isolated loopback PostgreSQL lane. It does not query the retired D1 tables.
+Generated trace commands explicitly use `--view agent` and never print a Space
+password. The global operator trace default and explicit human/detail views
+remain available. Obtain customer consent before investigating content through
+these higher-privilege paths; a Send report action shares minimal diagnostics,
+not blanket consent to inspect conversation history.
+
 ## Setup Failure Diagnostics
 
 A prepare-session step failure may carry a bounded, whitelist-only diagnostics
@@ -4209,18 +4294,64 @@ correlation-friendly:
 
 Diagnostics must not leak sensitive data.
 
-Do not log, persist, or include in diagnostic payloads:
+Remote Agent ordinary content diagnostics use the server-owned Worker
+environment and the admitted Core Organization identity. Production requests
+from external Organizations use metadata-only AI Gateway logs. All native
+model paths, including compaction, titles, activity digests, image understanding,
+and web research, apply the same policy. Usage, costs, statuses, timings, and
+Organization attribution remain available; `cf-aig-collect-log` stays enabled
+while `cf-aig-collect-log-payload` controls the extra prompt/response copy.
+Flue tracing keeps `content: false` in every environment.
+
+Only a known `local`, `dev`, or `stg` environment, or production with an exact
+match to the optional internal Organization ID maintained in Doppler, permits
+richer content diagnostics. Missing or invalid environment or production
+Organization context is private by default. Attribution metadata and public
+feedback fields cannot grant this exception. It does not permit copying
+system credentials, authorization headers, cookies, or secret environment
+values. Raw model payload logging in the approved internal and non-production
+environments can contain private data or secrets a person puts in message
+text; this policy does not claim to detect arbitrary secrets in business text.
+
+These restrictions apply to ordinary diagnostic copies. Business services
+still read and retain authorized conversation content to execute tasks and
+serve history. Highest-privilege infrastructure operators can still access
+business storage and explicitly query detailed traces. Obtain the external
+user's consent before such content investigation. This is not end-to-end
+encryption, an access grant system, or a claim that operators cannot read data.
+
+Never deliberately copy system credentials into logs, diagnostic storage, or
+diagnostic payloads:
 
 - access tokens
 - one-time tokens
 - passwords
 - cookies
+
+Outside the specific Remote Agent content-diagnostics exception above, also
+omit these content copies from diagnostics:
+
 - full message text
 - prompt bodies
 - arbitrary request or response payload dumps
 
 Use non-sensitive identifiers, counts, status values, reason codes, and bounded
 sanitized pointers.
+
+Routine Remote Agent errors keep fixed events and operation names, safe error
+types, validated HTTP status or fixed native error codes, and execution IDs.
+For external production Organizations they omit raw message/body/stack text.
+The business failure state and the explanation returned to the authorized
+caller remain available. Rich error summaries use the existing credential
+redactor; arbitrary provider error codes are not treated as safe metadata.
+
+Provider failures must be reduced at the scoped model or image-request boundary
+before SDK logging or cross-service propagation. This includes initialization
+and stream-iteration throws, their causes, and compaction failures. Preserve
+normal content, usage, stop reasons, context-overflow detection, and the existing
+retry decisions. Retain only fixed recovery classifications and correlate through
+the existing request/submission observations; raw provider text is not required
+in the authorized caller's failure explanation.
 
 Runtime Agent Controller reporting follows the same minimization rule. Local
 command paths, launch arguments, provider account email/labels,

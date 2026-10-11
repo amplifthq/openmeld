@@ -224,17 +224,15 @@ export function SpaceHistoryRail(input: {
 		const prior = readPosition(input.scrollElement);
 		input.onNavigateStart();
 		closePreview();
-		const loaded = await input.controller.open(signalId);
-		if (!loaded || sequence !== jumpSequence.current) {
-			return;
-		}
+		// Retain the reading target while Query retries, including after a visible error.
 		setPrevious(restore ? null : prior);
-		if (loaded === "latest") {
-			setTarget(null);
-			input.onFollowLatest();
-			return;
-		}
 		setTarget(restore ?? { signalId, offset: 24 });
+		await input.controller.open(signalId, undefined, (loaded) => {
+			if (sequence === jumpSequence.current && loaded === "latest") {
+				setTarget(null);
+				input.onFollowLatest();
+			}
+		});
 	};
 	const keepOpen = () => {
 		if (closeTimer.current) {
@@ -266,6 +264,7 @@ export function SpaceHistoryRail(input: {
 	};
 	const reserveLatest = (): SpaceHistoryLatestReservation => {
 		const sequence = ++jumpSequence.current;
+		setTarget(null);
 		const isCurrent = () => sequence === jumpSequence.current;
 		const previousPosition = readPosition(input.scrollElement);
 		return {
@@ -490,14 +489,6 @@ export function SpaceHistoryRail(input: {
 			<div aria-live="polite" className="sr-only">
 				{input.controller.pending ? "Loading messages…" : ""}
 			</div>
-			{input.controller.error && (
-				<div
-					className="absolute inset-x-4 bottom-16 z-30 mx-auto w-fit rounded-lg bg-background px-3 py-2 text-destructive text-xs"
-					role="alert"
-				>
-					Couldn’t load these messages. Select a position to try again.
-				</div>
-			)}
 		</>
 	);
 }

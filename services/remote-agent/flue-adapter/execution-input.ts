@@ -1,5 +1,6 @@
 import type { AgentSteeringSource } from "@flue/runtime";
 import {
+  buildAgentRequestTimeContext,
   remoteAgentWorkerExecutionInputRequestSchema,
   resolveUserTimeContext,
 } from "@openmeld/schemas";
@@ -14,7 +15,6 @@ import {
   waitForRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
 import { readRemoteAgentExecutionState } from "../agent-core/execution-state";
-import { buildRemoteAgentRequestTimeContext } from "../agent-core/prompt";
 import { buildRemoteAgentName } from "../agent-core/submission";
 
 const PREFIX = "openmeld:remote-agent:execution-input:";
@@ -191,7 +191,7 @@ export function createRemoteAgentSteeringSource(input: {
       acceptedAt: new Date(record.receivedAtMs).toISOString(),
       message: {
         kind: "user" as const,
-        body: `${record.request.text}\n\n${buildRemoteAgentRequestTimeContext(
+        body: `${record.request.text}\n\n${buildAgentRequestTimeContext(
           record.request.requestTimeContext ?? {
             submittedAtMs: record.receivedAtMs,
             userTime: resolveUserTimeContext(

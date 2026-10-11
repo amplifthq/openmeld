@@ -38,7 +38,10 @@ const BOTH_OPTION_NAME = /Both/;
 const MENTION_ONLY_OPTION_NAME = /^Mention only\s*— Won’t wake the agent$/;
 
 describe("SpaceComposerEditor", () => {
-	afterEach(cleanup);
+	afterEach(() => {
+		cleanup();
+		localStorage.removeItem("openmeld.space.message-send-shortcut");
+	});
 
 	it("opens the shared mention picker at the start of an existing message", async () => {
 		const composerRef = createRef<SpaceComposerEditorHandle>();
@@ -1275,7 +1278,11 @@ describe("SpaceComposerEditor", () => {
 		});
 	});
 
-	it("keeps Shift+Enter in the draft and sends with Enter", () => {
+	it.each([
+		"enter",
+		"modifier-enter",
+	])("keeps draft lines and sends with the selected shortcut: %s", (shortcut) => {
+		localStorage.setItem("openmeld.space.message-send-shortcut", shortcut);
 		const composerRef = createRef<SpaceComposerEditorHandle>();
 		const onSend = vi.fn();
 		render(
@@ -1308,9 +1315,19 @@ describe("SpaceComposerEditor", () => {
 
 		expect(shiftEnterAccepted).toBe(false);
 		expect(onSend).not.toHaveBeenCalled();
+		fireEvent.keyDown(editor, { key: "Enter", isComposing: true });
+		expect(onSend).not.toHaveBeenCalled();
 
 		fireEvent.keyDown(editor, { key: "Enter" });
+		if (shortcut === "modifier-enter") {
+			expect(onSend).not.toHaveBeenCalled();
+			fireEvent.keyDown(editor, { key: "Enter", metaKey: true });
+		}
 		expect(onSend).toHaveBeenCalledOnce();
+		if (shortcut === "modifier-enter") {
+			fireEvent.keyDown(editor, { key: "Enter", ctrlKey: true });
+			expect(onSend).toHaveBeenCalledTimes(2);
+		}
 	});
 
 	it("clears stale tokens when the existing draft is cleared after send", async () => {

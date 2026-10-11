@@ -98,6 +98,7 @@ export {
   type AgentRecoveryActionId,
   agentRecoveryActionLabels,
   formatAgentRecoveryActionLabel,
+  isAgentRecoveryConnectionAction,
 } from "./agent-recovery-action";
 export {
   isAgentWorkActivityPresentable,
@@ -156,6 +157,12 @@ export {
   computerConnectionProgressObservationSchema,
   computerConnectionProgressPhaseSchema,
 } from "./computer-connection-progress";
+export {
+  type DeleteConversationForMeInput,
+  type DeleteConversationForMeResponse,
+  deleteConversationForMeInputSchema,
+  deleteConversationForMeResponseSchema,
+} from "./conversation-history";
 export {
   DESKTOP_AUTH_SCHEME,
   DESKTOP_INSTALLED_AUTH_SCHEME,
@@ -279,6 +286,7 @@ export {
   CENTER_AGENT_REQUEST_STOPPED_PUBLIC_COPY,
   CENTER_AGENT_SOURCE_MESSAGE_MISSING_PUBLIC_COPY,
   CENTER_AGENT_TEMPORARILY_UNAVAILABLE_PUBLIC_COPY,
+  CODE_HANDOFF_RECEIVER_UNSUPPORTED_PUBLIC_COPY,
   CODEX_UPGRADE_REQUIRED_REASON,
   DISPATCH_ERROR_SUMMARY_MAX_LENGTH,
   formatPublicAgentFailureFacts,
@@ -340,6 +348,18 @@ export {
   type WalkthroughStep,
 } from "./schemas/http/first-work";
 export {
+  type MessageReadItem,
+  type MessageReadPage,
+  type MessageReadQuery,
+  type MessageReadRpcInput,
+  messageReadItemSchema,
+  messageReadPageSchema,
+  messageReadQuerySchema,
+  messageReadRpcInputSchema,
+  spaceMessageReadCursorSchema,
+  workspaceMessageReadCursorSchema,
+} from "./schemas/http/message-read";
+export {
   type PluginChannelContinueResponse,
   type PluginChannelDeliveryMetadata,
   type PluginChannelRequestPreview,
@@ -359,11 +379,16 @@ export {
   type PluginConnectionContinuationBinding,
   type PluginConnectionContinuationBody,
   type PluginConnectionContinuationResponse,
+  type PluginConnectionExecutionSource,
+  type PluginConnectionExecutionSourceRequest,
   type PluginConnectionLocalSourceRequest,
   pluginConnectionContinuationBindingSchema,
   pluginConnectionContinuationBodySchema,
   pluginConnectionContinuationResponseSchema,
   pluginConnectionContinuationRpcInputSchema,
+  pluginConnectionExecutionSourceRequestSchema,
+  pluginConnectionExecutionSourceResponseSchema,
+  pluginConnectionExecutionSourceSchema,
   pluginConnectionLocalSourceRequestSchema,
   pluginConnectionLocalSourceResponseSchema,
   type ReadPluginConnectionContinuationBindingRequest,
@@ -403,9 +428,16 @@ export * from "./schemas/index";
 export { agentControllerSessionTitleSchema } from "./schemas/runtime/agent-controller-session";
 export {
   type CloudComputer,
+  type CloudComputerCommandCollection,
+  type CloudComputerCommandPhase,
+  type CloudComputerCommandReference,
   type CloudComputerOperation,
   type CloudComputerStorage,
   cloudComputerCleanupResultSchema,
+  cloudComputerCommandCollectionSchema,
+  cloudComputerCommandErrorSchema,
+  cloudComputerCommandPhaseSchema,
+  cloudComputerCommandReferenceSchema,
   cloudComputerCommandSchema,
   cloudComputerOperationResultSchema,
   cloudComputerOperationSchema,
@@ -551,12 +583,23 @@ export {
   spaceOwnerDepartureSpaceInputSchema,
 } from "./space-owner-departure";
 export {
+  type SpacePreferences,
+  type SpacePreferencesRpc,
+  spacePreferencesRpcSchema,
+  spacePreferencesSchema,
+} from "./space-preferences";
+export {
   SPACE_WORK_HANDOFF_CAPABILITY_HEADER,
   SPACE_WORK_MAX_BYTES,
+  type SpaceCodeWorkHandoff,
   type SpaceWorkHandoff,
+  type SpaceWorkHandoffV2,
   type SpaceWorkingCopyAccess,
   type SpaceWorkSelection,
+  spaceCodeWorkHandoffSchema,
+  spaceContextWorkHandoffSchema,
   spaceWorkHandoffSchema,
+  spaceWorkHandoffV2Schema,
   spaceWorkingCopyAccessSchema,
   spaceWorkingCopyResultSchema,
   spaceWorkRelativePathSchema,
@@ -564,6 +607,7 @@ export {
 } from "./space-work-handoff";
 export type * from "./types/index";
 export {
+  buildAgentRequestTimeContext,
   normalizeUserTimeZone,
   observeUserTimeZone,
   resolveUserTimeContext,
