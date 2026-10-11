@@ -528,6 +528,13 @@ the success message explains where to recover it. In a DM header, Archive lives
 inside the three-dot menu and opens a confirmation dialog before saving. Cancel
 leaves the conversation unchanged. No shared-history deletion is involved.
 
+Conversation message search uses the same bounded message-query owner as Agent
+history reads. Its initial state also offers **Browse recent messages** within
+one Space. Search previews include the matching portion of long messages; result
+links keep the existing message/thread navigation. Inbox activity search retains
+its existing endpoint and semantics. Empty partial or indexing pages continue
+loading instead of showing a false no-results state.
+
 The conversation header exposes message search as the same compact icon action
 used by its neighboring tools, with an accessible label and tooltip. Its dialog
 accepts a single character when scoped to the current Space, presents centered

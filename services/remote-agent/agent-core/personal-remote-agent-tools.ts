@@ -49,6 +49,8 @@ const PERSONAL_PRODUCT_TOOLS = new Set([
   "openmeld_save_space_file",
   "openmeld_manage_space_files",
   "openmeld_manage_space_tasks",
+  "openmeld_query_messages",
+  "openmeld_list_message_reads",
   "openmeld_list_connected_apps",
   "openmeld_list_app_actions",
   "openmeld_execute_app_action",

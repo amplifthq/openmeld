@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createSubmitTurnRequest } from "../../remote-agent/tests/fixtures";
 import type { CoreBindings } from "../src/lib/bindings";
 import { authorizeRemoteAgentExecutionAccess } from "../src/remote-agent/application/remote-agent-execution-access";
+import { rpcRemoteAgentReadMessages } from "../src/search/message-read";
 
 const owners = vi.hoisted(() => ({
   delivery: vi.fn(),
@@ -35,6 +36,7 @@ vi.mock("../src/organizations/organization-context", () => ({
 }));
 vi.mock("../src/rpc/methods", () => ({
   rpcGetSpaceMemberDirectory: owners.directory,
+  rpcListSignals: vi.fn(),
 }));
 vi.mock(
   "../src/remote-agent/application/personal-remote-agent-space-tools",
@@ -107,6 +109,46 @@ describe("current execution access is an owner projection, not a cached grant", 
           createdAtMs: 1,
         })
     );
+  });
+
+  it.each([
+    undefined,
+    "another-space",
+  ])("refuses personal message reads outside the admitted Space (%s)", async (spaceId) => {
+    const context = {
+      ...input.context,
+      actorContext: {
+        ...input.context.actorContext,
+        profileKind: "agent" as const,
+        callerPrincipalId: "remote-owner",
+        ownerUserId: "remote-owner",
+      },
+    };
+    owners.caller.mockResolvedValue({
+      db: {},
+      context,
+      activeOrganization: { organizationId: request.organizationId },
+      personalExecution: { directory },
+    });
+    await expect(
+      rpcRemoteAgentReadMessages(
+        {
+          OPENMELD_POSTGRESQL: {
+            connectionString:
+              "postgresql://projection_fixture@127.0.0.1:1/projection_fixture",
+          },
+        } as CoreBindings,
+        {
+          context,
+          spaceId,
+          q: "private decision",
+          mode: "preview",
+          limit: 30,
+          maxBytes: 4096,
+          includeSystem: false,
+        }
+      )
+    ).rejects.toMatchObject({ code: "space.read.execution_scope_required" });
   });
 
   it.each([
