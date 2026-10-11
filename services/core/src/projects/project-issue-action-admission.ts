@@ -23,6 +23,7 @@ export async function prepareProjectIssueActionAdmission(input: {
   env: CoreBindings;
   context: OpenMeldRequestContext;
   sourceRequestKey?: string;
+  sourceSpaceId?: string | null;
   connection?: CenterAgentConnectorActionExecutionConnection;
   connectionUpdatedAtMs?: number | null;
   personalExecution: boolean;
@@ -97,6 +98,7 @@ export async function prepareProjectIssueActionAdmission(input: {
       actorProfileId: input.actorProfileId,
       operationId: operation.operationId,
       sourceRequestKey: input.sourceRequestKey ?? null,
+      sourceSpaceId: input.sourceSpaceId,
       connection,
       connectionUpdatedAtMs,
       accessRevision: access.revision,

@@ -10,6 +10,7 @@ export const pluginActionRequestIntentSchema = z.strictObject({
   actorProfileId: z.string().min(1),
   operationId: z.string().min(1).max(256),
   sourceRequestKey: z.string().nullable(),
+  sourceSpaceId: z.string().min(1).nullish(),
   purpose: z.literal("issue_destination").optional(),
   consumer: z.enum(["center_agent", "remote_agent", "local_agent"]).optional(),
   connection: centerAgentConnectorActionExecutionConnectionSchema,

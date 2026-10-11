@@ -1314,6 +1314,11 @@ export function mapInboxItemRow(row: InboxItemRow): InboxItem {
     ? JSON.parse(row.source_facts_json)
     : undefined;
   let target = sourceTarget.data;
+  // Space association feeds the shared attention summary. Keep the existing
+  // request detail wire shape compatible with strict older clients/Gateways.
+  if (target.kind === "plugin_action_request") {
+    target = { kind: "plugin_action_request", requestId: target.requestId };
+  }
   // The retired continuation producer put a child result id in its parent's
   // Space. Old rows may never be replayed by that producer. Correct only their
   // reader presentation, after source authorization; preserve stored evidence,

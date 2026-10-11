@@ -55,7 +55,13 @@ export async function preparePluginActionRequest(input: {
   executionGuard: PluginRequestExecutionGuard;
 }> {
   const intent = pluginActionRequestIntentSchema.parse(input.intent);
-  const { sourceRequestKey: _source, ...boundIntent } = intent;
+  // Presentation provenance is frozen on creation, not part of authorization.
+  // Keep pre-existing approvals valid when an upgraded caller supplies it.
+  const {
+    sourceRequestKey: _source,
+    sourceSpaceId: _space,
+    ...boundIntent
+  } = intent;
   const digest = await digestCanonicalJson(boundIntent);
   let row: RequestRow | null;
   if (input.requestId) {
@@ -325,7 +331,11 @@ async function projectRequest(
       recipientUserId: row.user_id,
       sourceKind: "system_attention_event",
       sourceKey: sourceKey(row.id),
-      sourceTarget: { kind: "plugin_action_request", requestId: row.id },
+      sourceTarget: {
+        kind: "plugin_action_request",
+        requestId: row.id,
+        ...(intent.sourceSpaceId ? { spaceId: intent.sourceSpaceId } : {}),
+      },
       sourceFacts: {
         version: 1,
         recipientReasons: ["requester"],

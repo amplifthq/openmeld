@@ -39,6 +39,7 @@ import {
 } from "../src/connectors/plugin-access-rpc";
 import { rpcPluginActionRequest } from "../src/connectors/plugin-action-requests";
 import { rpcPluginAction } from "../src/connectors/plugin-actions";
+import { createInboxService } from "../src/inbox/application/inbox-service";
 import { rpcGetInboxItem } from "../src/inbox/transport/rpc/inbox-rpc";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
@@ -449,6 +450,50 @@ describe("Project issue destination confirmation", () => {
     if (!member) {
       throw new Error("Missing requester member");
     }
+    const sourceSpaceId = `space-${crypto.randomUUID()}`;
+    const submissionId = crypto.randomUUID();
+    const idempotencyKey = crypto.randomUUID();
+    const nowMs = Date.now();
+    await db.query({
+      text: `INSERT INTO "openmeld"."space_index_spaces" (space_id, organization_id, organization_visibility, status, source_updated_at_ms, projected_at_ms, projection_event_id)
+        VALUES ($1, $2, 'private', 'active', $3, $3, $4)`,
+      values: [sourceSpaceId, f.organizationA, nowMs, crypto.randomUUID()],
+    });
+    await db.query({
+      text: `INSERT INTO "openmeld"."space_index_memberships" (space_id, profile_id, profile_kind_snapshot, profile_name_snapshot, owner_user_id_snapshot, status, member_source, added_at_ms, source_updated_at_ms, projected_at_ms, projection_event_id)
+        VALUES ($1, $2, 'human', 'Requester', $3, 'active', 'joined_directly', $4, $4, $4, $5)`,
+      values: [
+        sourceSpaceId,
+        f.ownerProfileId,
+        f.ownerA,
+        nowMs,
+        crypto.randomUUID(),
+      ],
+    });
+    await upsertRemoteAgentNativeDeliveryRecord({
+      db,
+      attemptId: null,
+      bindingId: crypto.randomUUID(),
+      deliveryId: crypto.randomUUID(),
+      dispatchId: crypto.randomUUID(),
+      idempotencyKey,
+      nowMs,
+      onBehalfOfDisplayName: "Requester",
+      onBehalfOfProfileId: f.ownerProfileId,
+      onBehalfOfUserId: f.ownerA,
+      organizationId: f.organizationA,
+      profileId: center.profileId,
+      spaceId: sourceSpaceId,
+      status: "submitted",
+      triggerMessageId: crypto.randomUUID(),
+    });
+    await markRemoteAgentNativeDeliveryAck({
+      db,
+      idempotencyKey,
+      nowMs,
+      accepted: true,
+      submissionId,
+    });
     const issueDestination =
       service === "github"
         ? { provider: "github" as const, owner: "acme", repo: "payments" }
@@ -464,7 +509,10 @@ describe("Project issue destination confirmation", () => {
           : "linear.create_linear_issue",
       service,
       connectionName,
-      context: center.context,
+      context: {
+        ...center.context,
+        agentControllerConversationId: submissionId,
+      },
       effect: "write" as const,
       operationId: crypto.randomUUID(),
       includeExecutionPermit: true as const,
@@ -500,6 +548,41 @@ describe("Project issue destination confirmation", () => {
     if (!requestId) {
       throw new Error("Missing issue confirmation request");
     }
+    const inbox = createInboxService({ db });
+    const scope = {
+      organizationId: f.organizationA,
+      recipientUserId: f.ownerA,
+    };
+    const expectedAttention = [
+      {
+        spaceId: sourceSpaceId,
+        unresolvedActionCount: 1,
+        unreadUrgentUpdateCount: 0,
+      },
+    ];
+    expect((await inbox.spaceSummary(scope)).attention).toEqual(
+      expectedAttention
+    );
+    expect(
+      (await inbox.spaceSummary({ ...scope, recipientUserId: f.memberA }))
+        .attention
+    ).toEqual([]);
+    const requestItem = (
+      await inbox.list({ ...scope, view: "needs_action" })
+    ).items.find((item) => item.sourceTarget.kind === "plugin_action_request");
+    if (!requestItem) {
+      throw new Error("Missing Plugin request Inbox item");
+    }
+    // Older strict receivers still get the same request target. Space association
+    // is consumed by the shared summary, not a second navigation destination.
+    expect(requestItem.sourceTarget).toEqual({
+      kind: "plugin_action_request",
+      requestId,
+    });
+    await inbox.markRead({ ...scope, itemId: requestItem.id, read: true });
+    expect((await inbox.spaceSummary(scope)).attention).toEqual(
+      expectedAttention
+    );
     const confirmation = {
       expectedOrganizationId: f.organizationA,
       context: connectorRequestContext({
@@ -520,6 +603,7 @@ describe("Project issue destination confirmation", () => {
     ).rejects.toMatchObject({ code: "plugin.request_not_found" });
     const approved = await rpcPluginActionRequest(core, confirmation);
     expect(approved.state).toBe("approved");
+    expect((await inbox.spaceSummary(scope)).attention).toEqual([]);
     expect(approved.targets).toEqual(
       expect.arrayContaining(
         issueDestination.provider === "github"

@@ -16645,6 +16645,7 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     operation: parsed.data,
     existingOperation: Boolean(existing),
     sourceRequestKey,
+    sourceSpaceId: member.sourceSpaceId,
     connection: executionConnection,
     connectionUpdatedAtMs,
     personalExecution: "personalExecution" in authorization,

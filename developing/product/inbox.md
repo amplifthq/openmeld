@@ -574,6 +574,14 @@ unread query supplies paginated data; filtered tabs continue loading through
 unrelated items before showing an empty state. Legacy `view=unread` links open
 All with the switch enabled.
 
+Plugin action approvals retain their originating Space from verified Local
+dispatch or native-delivery provenance. The request owner supplies that optional
+association to the same Inbox item used for approval; Space attention does not
+create another request or unread record. Unscoped manual requests stay in Inbox.
+Reading a request leaves pending attention in place; source approval, rejection,
+expiry, or revocation ends it. Only the recipient with current Space access sees
+the associated Space attention. Request detail navigation remains request-owned.
+
 List titles reserve a 6px status dot with an 8px gap. An unresolved action or
 review uses the yellow attention tone, including after it is read. Red is
 reserved for an explicit error, never inferred from a pending action count.

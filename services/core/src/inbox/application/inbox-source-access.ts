@@ -44,6 +44,10 @@ export function buildCurrentInboxSourceAccessSql(
                 'center_agent'
               AND ((${itemAlias}.source_target_json)::jsonb #>> '{spaceId}') IS NOT NULL
             )
+            OR (
+              ((${itemAlias}.source_target_json)::jsonb #>> '{kind}') = 'plugin_action_request'
+              AND ((${itemAlias}.source_target_json)::jsonb #>> '{spaceId}') IS NOT NULL
+            )
           )
           OR EXISTS (
             SELECT 1
