@@ -151,7 +151,13 @@ export function formatSpaceTaskGitHubIssueLabel(item: {
 }
 
 export function spaceTaskGitHubIssueOperationId(
-  kind: "attach" | "cancel" | "create" | "observe-closed" | "observe-open",
+  kind:
+    | "attach"
+    | "cancel"
+    | "settle"
+    | "create"
+    | "observe-closed"
+    | "observe-open",
   identity: {
     number: number;
     owner: string;

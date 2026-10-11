@@ -197,8 +197,11 @@ associated with a Space Task when the Task list can confirm whether that issue
 is already linked. The issue body receives an OpenMeld Task
 reference, and the Task stores the repository and issue number. Closing that
 issue through those same GitHub tools, or through a verified GitHub App
-webhook after the issue is already linked, cancels still-active linked Tasks
-and refreshes the Task-owned last observed issue state. Reopening the issue
+webhook after the issue is already linked, uses the provider's confirmed closure
+reason. Completed issues submit a Task result: Done without a reviewer, In review
+with a reviewer. Not planned and duplicate issues cancel still-active linked
+Tasks. Missing or unknown reasons only refresh the observed issue state; they
+never infer success or cancellation. Reopening the issue
 refreshes that observation and does not reopen a completed or canceled Task.
 Closing or completing a Task does not silently patch GitHub; the Task result
 prompts the Agent or person to close the linked issue when it is still open.

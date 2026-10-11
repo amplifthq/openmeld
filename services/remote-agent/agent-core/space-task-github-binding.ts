@@ -245,6 +245,9 @@ export async function applyGitHubIssueSpaceTaskBinding(input: {
     }
     return await closeSpaceTasksForGitHubIssue({
       identity,
+      stateReason:
+        readNonEmptyString(asRecord(input.data)?.state_reason) ??
+        readNonEmptyString(asRecord(asRecord(input.data)?.data)?.state_reason),
       eventIdentity: input.eventIdentity,
       now: await readObservationAt(),
       ports: {
@@ -374,6 +377,7 @@ async function ensureGitHubIssueAttached(input: {
 }
 
 async function closeSpaceTasksForGitHubIssue(input: {
+  stateReason: string | null;
   eventIdentity: string;
   identity: GitHubIssueSpaceTaskIdentity;
   now: string;
@@ -421,25 +425,35 @@ async function closeSpaceTasksForGitHubIssue(input: {
     if (observed.task.phase === "done" || observed.task.phase === "canceled") {
       continue;
     }
-    const canceled = await mutateLinkedTask({
+    const completed = input.stateReason === "completed";
+    if (
+      !completed &&
+      input.stateReason !== "not_planned" &&
+      input.stateReason !== "duplicate"
+    ) {
+      continue;
+    }
+    const summary = `GitHub issue ${formatSpaceTaskGitHubIssueLabel(input.identity)} was closed as ${input.stateReason}.`;
+    const settled = await mutateLinkedTask({
       body: {
-        action: "cancel",
+        ...(completed
+          ? { action: "submit_result" as const, summary }
+          : { action: "cancel" as const, reason: summary }),
         expectedRevision: observed.task.revision,
         operationId: spaceTaskGitHubIssueOperationId(
-          "cancel",
+          "settle",
           input.identity,
           task.taskId,
           input.eventIdentity
         ),
-        reason: `GitHub issue ${formatSpaceTaskGitHubIssueLabel(input.identity)} was closed.`,
       },
       ports: input.ports,
       spaceId: input.spaceId,
       taskId: task.taskId,
       toolContext: input.toolContext,
     });
-    closedTaskIds.push(canceled.task.taskId);
-    latest = canceled.task;
+    closedTaskIds.push(settled.task.taskId);
+    latest = settled.task;
   }
   return {
     closedTaskIds,

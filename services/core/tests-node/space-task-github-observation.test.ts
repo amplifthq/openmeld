@@ -52,6 +52,28 @@ const task = (overrides: Partial<SpaceTask> = {}): SpaceTask => ({
 });
 
 describe("GitHub issue provider observation", () => {
+  it.each([
+    ["completed", null, "done"],
+    ["completed", requester, "in_review"],
+    ["not_planned", null, "canceled"],
+    ["duplicate", null, "canceled"],
+    [null, null, "in_progress"],
+    ["unknown_reason", null, "in_progress"],
+  ] as const)("maps closure reason %s without bypassing review", (reason, reviewer, phase) => {
+    const result = applyGitHubIssueProviderObservation({
+      identity: githubIssue,
+      observedAt: "2026-09-20T03:00:00.000Z",
+      observedState: "closed",
+      observedStateReason: reason,
+      task: task({ reviewer }),
+    });
+    expect((result.settle ?? result.observe)?.task.phase).toBe(phase);
+    if (reason === "completed") {
+      expect(result.settle?.task.result?.summary).toContain("completed");
+      expect(result.settle?.task.review).toBeNull();
+    }
+  });
+
   it("persists repeated close and reopen deliveries without reusing earlier operation receipts", () => {
     const database = new DatabaseSync(":memory:");
     const sql = {
@@ -97,8 +119,8 @@ describe("GitHub issue provider observation", () => {
         deliveryId: string
       ) =>
         service.applyGitHubIssueObservation({
-          cancelOperationId: spaceTaskGitHubIssueOperationId(
-            "cancel",
+          settleOperationId: spaceTaskGitHubIssueOperationId(
+            "settle",
             githubIssue,
             created.task.taskId,
             deliveryId
@@ -112,6 +134,7 @@ describe("GitHub issue provider observation", () => {
           ),
           observedAt: `2026-09-20T0${hour}:00:00.000Z`,
           observedState: state,
+          observedStateReason: state === "closed" ? "not_planned" : "reopened",
           taskId: created.task.taskId,
         });
 
@@ -161,6 +184,7 @@ describe("GitHub issue provider observation", () => {
       identity: githubIssue,
       observedAt: "2026-09-20T03:00:00.000Z",
       observedState: "closed",
+      observedStateReason: "not_planned",
       task: task(),
     });
     expect(closed.skipReason).toBeNull();
@@ -168,7 +192,7 @@ describe("GitHub issue provider observation", () => {
       lastObservedAt: "2026-09-20T03:00:00.000Z",
       lastObservedState: "closed",
     });
-    expect(closed.cancel?.task.phase).toBe("canceled");
+    expect(closed.settle?.task.phase).toBe("canceled");
 
     expect(
       applyGitHubIssueProviderObservation({
@@ -177,19 +201,20 @@ describe("GitHub issue provider observation", () => {
         observedState: "closed",
         task: closed.observe?.task ?? task(),
       })
-    ).toMatchObject({ cancel: null, skipReason: "stale" });
+    ).toMatchObject({ settle: null, skipReason: "stale" });
 
     const equalTimestampStillCancels = applyGitHubIssueProviderObservation({
       identity: githubIssue,
       observedAt: "2026-09-20T03:00:00.000Z",
       observedState: "closed",
+      observedStateReason: "not_planned",
       task: {
         ...(closed.observe?.task ?? task()),
         phase: "in_progress",
       },
     });
     expect(equalTimestampStillCancels.observe).toBeNull();
-    expect(equalTimestampStillCancels.cancel?.task.phase).toBe("canceled");
+    expect(equalTimestampStillCancels.settle?.task.phase).toBe("canceled");
 
     const reopenedDone = applyGitHubIssueProviderObservation({
       identity: githubIssue,
@@ -206,7 +231,7 @@ describe("GitHub issue provider observation", () => {
         phase: "done",
       }),
     });
-    expect(reopenedDone.cancel).toBeNull();
+    expect(reopenedDone.settle).toBeNull();
     expect(reopenedDone.observe?.task.phase).toBe("done");
     expect(
       reopenedDone.observe?.task.externalWorkItems[0]?.lastObservedState

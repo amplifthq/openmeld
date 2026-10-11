@@ -204,7 +204,11 @@ describe("GitHub issue Space Task binding", () => {
     });
   });
 
-  it("cancels active linked Tasks with distinct operation identities for later issue closures", async () => {
+  it.each([
+    ["completed", "submit_result", "done"],
+    ["not_planned", "cancel", "canceled"],
+    ["duplicate", "cancel", "canceled"],
+  ] as const)("settles %s issues with distinct operation identities", async (stateReason, action, phase) => {
     const linked = createTask({
       externalWorkItems: [ISSUE],
       phase: "in_progress",
@@ -217,7 +221,7 @@ describe("GitHub issue Space Task binding", () => {
     });
     const canceled = createTask({
       ...observed,
-      phase: "canceled",
+      phase,
       revision: 4,
     });
     const observedActions: string[] = [];
@@ -231,7 +235,7 @@ describe("GitHub issue Space Task binding", () => {
       observedActions.push(body.action);
       operationIds.push(body.operationId);
       return Promise.resolve(
-        receiptFor(body.action === "cancel" ? canceled : observed)
+        receiptFor(body.action === action ? canceled : observed)
       );
     });
 
@@ -244,7 +248,7 @@ describe("GitHub issue Space Task binding", () => {
         repo: "openmeld",
         state: "closed",
       },
-      data: { number: 1143, state: "closed" },
+      data: { number: 1143, state: "closed", state_reason: stateReason },
       ports: {
         createSpaceTask: vi.fn(),
         getSpaceTask: vi.fn(async () => ({ events: [], task: observed })),
@@ -264,7 +268,7 @@ describe("GitHub issue Space Task binding", () => {
       now: "2026-09-20T03:00:00.000Z",
     });
 
-    expect(observedActions).toEqual(["observe_external_work_item", "cancel"]);
+    expect(observedActions).toEqual(["observe_external_work_item", action]);
     expect(summary?.closedTaskIds).toEqual([canceled.taskId]);
     expect(describeLinkedGitHubIssueClosePrompt(canceled)).toBeNull();
     await applyGitHubIssueSpaceTaskBinding({

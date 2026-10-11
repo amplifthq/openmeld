@@ -303,8 +303,8 @@ describe("GitHub App webhook queue consumer", () => {
       expect(rpcApplyGitHubIssueObservation).toHaveBeenCalledTimes(2);
       expect(rpcApplyGitHubIssueObservation).toHaveBeenCalledWith(
         expect.objectContaining({
-          cancelOperationId: spaceTaskGitHubIssueOperationId(
-            "cancel",
+          settleOperationId: spaceTaskGitHubIssueOperationId(
+            "settle",
             issue,
             TASK_ID,
             "delivery-linked"
@@ -350,8 +350,8 @@ describe("GitHub App webhook queue consumer", () => {
       });
       expect(rpcApplyGitHubIssueObservation).toHaveBeenCalledWith(
         expect.objectContaining({
-          cancelOperationId: spaceTaskGitHubIssueOperationId(
-            "cancel",
+          settleOperationId: spaceTaskGitHubIssueOperationId(
+            "settle",
             issue,
             TASK_ID,
             "delivery-linked-again"
