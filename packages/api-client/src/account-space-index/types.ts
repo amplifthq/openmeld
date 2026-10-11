@@ -10,6 +10,7 @@ export type ListAccountSpaceIndexInput = {
   gatewayHost: string;
   includeDirectMessageProfileIds?: boolean;
   includePurposes?: boolean;
+  includeDeletedSpaces?: boolean;
   includeMemberPreviews?: boolean;
   includeMessagePreviews?: boolean;
   includeDirectoryPreviews?: boolean;

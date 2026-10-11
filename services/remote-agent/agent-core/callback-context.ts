@@ -183,6 +183,10 @@ import type {
 } from "@openmeld/schemas/types";
 import { normalizeRemoteAgentCompletedAnswer } from "./completed-answer";
 import {
+  type RemoteAgentDiagnosticsEnv,
+  remoteAgentDiagnosticErrorFields,
+} from "./diagnostics-content-policy";
+import {
   isOrganizationSkillReleaseUnavailable,
   isRemoteAgentContextWindowExceeded,
   isRemoteAgentToolResultTooLarge,
@@ -218,6 +222,8 @@ export function computeCallbackRetryDelayMs(attempts: number): number {
 export type RemoteAgentFailureFact = {
   code: string;
   detail?: string;
+  explanationText?: string;
+  computerCleanup?: import("@openmeld/schemas").CloudComputerCleanupReport;
   occurredAt: string;
   retryable: boolean;
 };
@@ -618,6 +624,9 @@ export type RemoteAgentCoreWorkerBinding = {
   }): Promise<CenterAgentSpaceAuthoringContractResponse>;
   centerAgentReadDispatchHistory?(input: unknown): Promise<unknown>;
   centerAgentReadSpaceContext?(input: unknown): Promise<unknown>;
+  remoteAgentReadMessages?(
+    input: import("@openmeld/schemas").MessageReadRpcInput
+  ): Promise<import("@openmeld/schemas").MessageReadPage>;
   centerAgentReadSpaceWakeProgress?(input: unknown): Promise<unknown>;
   centerAgentStopSpaceWake?(input: unknown): Promise<unknown>;
   centerAgentSpaceInputQueue?(input: unknown): Promise<unknown>;
@@ -641,6 +650,9 @@ export type RemoteAgentCoreWorkerBinding = {
   readFeedbackReportingPolicy?(input: unknown): Promise<unknown>;
   updateFeedbackIssueStatusForOrganization?(input: unknown): Promise<unknown>;
   centerAgentUpdateAgentProfileRuntimeSettings?(
+    input: unknown
+  ): Promise<unknown>;
+  centerAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace?(
     input: unknown
   ): Promise<unknown>;
   centerAgentUpdateSpaceSettings?(input: unknown): Promise<unknown>;
@@ -722,6 +734,8 @@ export type RemoteAgentAssistantCompletionResult = {
   error?: unknown;
   failureCode?: string;
   failureDetail?: string;
+  explanationText?: string;
+  computerCleanup?: import("@openmeld/schemas").CloudComputerCleanupReport;
   failureReasonCode?: RemoteAgentRuntimeEvidenceOutcomeReasonCode;
   message: {
     parts: Record<string, unknown>[];
@@ -1101,7 +1115,7 @@ export async function listRemoteAgentCallbackContexts(
 }
 
 export async function readRemoteAgentCallbackContext(
-  storage: RemoteAgentReadableStorage,
+  storage: Pick<RemoteAgentReadableStorage, "get">,
   submissionId: string
 ): Promise<RemoteAgentCallbackContext | null> {
   const context = await storage.get<RemoteAgentCallbackContext>(
@@ -1439,6 +1453,18 @@ export function buildRemoteAgentCoreFailureCallbackBody(input: {
     callbackAttempt: input.context.callbackAttempts + 1,
     dispatchId: input.context.dispatchId,
     failureCode: input.failure.code,
+    ...(input.failure.explanationText
+      ? { explanationText: input.failure.explanationText }
+      : {}),
+    ...(input.failure.computerCleanup
+      ? { computerCleanup: input.failure.computerCleanup }
+      : {}),
+    ...(input.context.outputFiles?.length
+      ? { files: input.context.outputFiles }
+      : {}),
+    ...(input.context.outputAttachments?.length
+      ? { attachments: input.context.outputAttachments }
+      : {}),
     ...(input.failure.detail ? { failureDetail: input.failure.detail } : {}),
     failureMessage: resolveRemoteAgentFailureMessage(input.failure.code),
     idempotencyKey: input.context.idempotencyKey,
@@ -1533,14 +1559,28 @@ export function recordTerminalTurnFailure(input: {
   code: string;
   context: RemoteAgentCallbackContext;
   detail?: string;
+  explanationText?: string;
+  computerCleanup?: import("@openmeld/schemas").CloudComputerCleanupReport;
   nowMs: number;
 }): RemoteAgentCallbackContext {
-  const failureFact = createRemoteAgentFailureFact({
-    code: input.code,
-    detail: input.detail,
-    nowMs: input.nowMs,
-    retryable: false,
-  });
+  const failureFact = {
+    ...createRemoteAgentFailureFact({
+      code: input.code,
+      detail: input.detail,
+      nowMs: input.nowMs,
+      retryable: false,
+    }),
+    ...(input.explanationText
+      ? {
+          explanationText: normalizeRemoteAgentCompletedAnswer(
+            input.explanationText
+          ),
+        }
+      : {}),
+    ...(input.computerCleanup
+      ? { computerCleanup: input.computerCleanup }
+      : {}),
+  };
   const {
     callbackCompletedAt: _callbackCompletedAt,
     callbackNextAttemptAt: _callbackNextAttemptAt,
@@ -1624,6 +1664,7 @@ export async function projectRemoteAgentCompletedAnswer(input: {
  * so an evicted/restarted instance can still re-deliver.
  */
 export async function attemptRemoteAgentCallbackDelivery(input: {
+  env?: RemoteAgentDiagnosticsEnv;
   context: RemoteAgentCallbackContext;
   coreWorker?: RemoteAgentCoreWorkerBinding;
   nowMs: number;
@@ -1726,7 +1767,10 @@ export async function attemptRemoteAgentCallbackDelivery(input: {
     console.error("[remote_agent.admission.callback_send_failed]", {
       callbackAttempt: context.callbackAttempts + 1,
       dispatchId: context.dispatchId,
-      error: errorSummary,
+      ...remoteAgentDiagnosticErrorFields(error, {
+        env: input.env,
+        organizationId: context.organizationId,
+      }),
       idempotencyKey: context.idempotencyKey,
       organizationId: context.organizationId,
       spaceId: context.spaceId,
@@ -1772,6 +1816,7 @@ export function buildRemoteAgentUsageRecord(input: {
 }
 
 async function recordAndDeliverRemoteAgentTerminalFailure(input: {
+  env?: RemoteAgentDiagnosticsEnv;
   code: string;
   context: RemoteAgentCallbackContext;
   coreWorker?: RemoteAgentCoreWorkerBinding;
@@ -1792,6 +1837,8 @@ async function recordAndDeliverRemoteAgentTerminalFailure(input: {
       }
       return recordTerminalTurnFailure({
         code: input.code,
+        explanationText: input.result.explanationText,
+        computerCleanup: input.result.computerCleanup,
         context: {
           ...current,
           lastUsage: input.result.usage ?? current.lastUsage,
@@ -1810,6 +1857,7 @@ async function recordAndDeliverRemoteAgentTerminalFailure(input: {
   }
   return attemptRemoteAgentCallbackDelivery({
     context: updated,
+    env: input.env,
     coreWorker: input.coreWorker,
     nowMs: input.nowMs,
     storage: input.storage,
@@ -1817,6 +1865,7 @@ async function recordAndDeliverRemoteAgentTerminalFailure(input: {
 }
 
 export async function handleRemoteAgentChatResponse(input: {
+  env?: RemoteAgentDiagnosticsEnv;
   coreWorker?: RemoteAgentCoreWorkerBinding;
   nowMs?: () => number;
   result: RemoteAgentAssistantCompletionResult;
@@ -1866,6 +1915,7 @@ export async function handleRemoteAgentChatResponse(input: {
     }
     return attemptRemoteAgentCallbackDelivery({
       context: checkpointContext,
+      env: input.env,
       coreWorker: input.coreWorker,
       nowMs,
       storage: input.storage,
@@ -1874,6 +1924,7 @@ export async function handleRemoteAgentChatResponse(input: {
   const completedText = extractCompletedAssistantText(input.result);
   if (!completedText) {
     return recordAndDeliverRemoteAgentTerminalFailure({
+      env: input.env,
       code: resolveRemoteAgentResultFailureCode(input.result),
       context,
       coreWorker: input.coreWorker,
@@ -1925,6 +1976,7 @@ export async function handleRemoteAgentChatResponse(input: {
   }
   return attemptRemoteAgentCallbackDelivery({
     context: readyContext,
+    env: input.env,
     coreWorker: input.coreWorker,
     nowMs,
     storage: input.storage,
@@ -2022,6 +2074,7 @@ export async function listDueRetryableCallbackContexts(
  * observed but never delivered by this sweep.
  */
 export async function redeliverDueRemoteAgentCallbacks(input: {
+  env?: RemoteAgentDiagnosticsEnv;
   coreWorker?: RemoteAgentCoreWorkerBinding;
   excludeSubmissionIds?: ReadonlySet<string>;
   nowMs?: () => number;
@@ -2034,6 +2087,7 @@ export async function redeliverDueRemoteAgentCallbacks(input: {
   for (const context of due) {
     await attemptRemoteAgentCallbackDelivery({
       context,
+      env: input.env,
       coreWorker: input.coreWorker,
       nowMs,
       storage: input.storage,

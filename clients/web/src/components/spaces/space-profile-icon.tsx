@@ -1,3 +1,4 @@
+import type { BotAvatarInteraction } from "@openmeld/ui/components/bot-avatar";
 import { cn } from "@openmeld/ui/lib/utils";
 import type { AgentAvatarStyle } from "#/components/agents/remote-agent-avatar";
 import { RemoteAgentAvatar } from "#/components/agents/remote-agent-avatar";
@@ -29,6 +30,7 @@ const SPACE_PROFILE_ICON_SIZE_PIXELS = {
 export function SpaceProfileIcon(input: {
 	className?: string;
 	clickable?: boolean;
+	botInteraction?: BotAvatarInteraction;
 	agentControllerRef: string | null;
 	avatarImageUrl?: string | null;
 	avatarStyle?: AgentAvatarStyle | null;
@@ -49,6 +51,7 @@ export function SpaceProfileIcon(input: {
 				agentControllerRef={input.agentControllerRef}
 				avatarImageUrl={input.avatarImageUrl}
 				avatarStyle={input.avatarStyle}
+				botInteraction={input.botInteraction}
 				className={cn(
 					SPACE_PROFILE_ICON_SIZE_CLASS_NAMES[size],
 					input.className
@@ -56,7 +59,6 @@ export function SpaceProfileIcon(input: {
 				clickable={input.clickable}
 				data-testid={`space-profile-icon-${input.profileId}`}
 				fallbackTestId={`space-agent-profile-fallback-icon-${input.profileId}`}
-				followPointer={false}
 				modelId={input.avatarModelId}
 				profileId={input.profileId}
 				profileName={input.profileName}

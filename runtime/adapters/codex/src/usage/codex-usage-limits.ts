@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import {
+  type AdapterProviderUsageAdmission,
   type AdapterProviderUsageLimit,
   createUnavailableProviderUsageLimits,
 } from "@openmeld/adapter-core";
@@ -13,7 +15,97 @@ type CodexRateLimitBucket = {
   snapshot: Record<string, unknown>;
 };
 
-export function projectCodexUsageLimits(input: {
+export async function readCodexAccountUsageObservation(input: {
+  readAccountEpoch: () => number;
+  request: (method: string, params: unknown) => Promise<unknown>;
+}) {
+  const epoch = input.readAccountEpoch();
+  const before = toRecord(await input.request("account/rateLimits/read", null));
+  const accountResponse = await input.request("account/read", {});
+  const after = toRecord(await input.request("account/rateLimits/read", null));
+  const observedAt = new Date().toISOString();
+  const accountId =
+    typeof before?.accountId === "string" ? before.accountId.trim() : null;
+  const account = toRecord(toRecord(accountResponse)?.account);
+  const sameAccount = Boolean(
+    accountId &&
+      after?.accountId === accountId &&
+      account?.type === "chatgpt" &&
+      input.readAccountEpoch() === epoch
+  );
+  return {
+    accountEpoch: epoch,
+    accountResponse,
+    accountKey:
+      sameAccount && accountId
+        ? `codex:${createHash("sha256").update(accountId).digest("hex")}`
+        : null,
+    usageObservation: projectCodexUsageObservation({
+      observedAt,
+      response: sameAccount ? after : null,
+      source: "account_read",
+    }),
+  };
+}
+
+export function projectCodexUsageObservation(input: {
+  observedAt: string;
+  response: unknown;
+  source: "account_read" | "rolling_update";
+}): {
+  usageAdmission?: AdapterProviderUsageAdmission;
+  usageLimits: AdapterProviderUsageLimit[];
+} {
+  const blocksNewWork = readAccountAdmission(input.response);
+  return {
+    // Native rolling notifications are sparse: omitted/null account metadata
+    // does not clear an earlier snapshot or refresh its observation time.
+    ...(input.source === "account_read" || blocksNewWork !== null
+      ? { usageAdmission: { blocksNewWork, observedAt: input.observedAt } }
+      : {}),
+    usageLimits: projectUsageLimits(input),
+  };
+}
+
+function readAccountAdmission(response: unknown): boolean | null {
+  const record = toRecord(response);
+  // The native response validates ordinaryUsageAllowed against the active
+  // account. Its backward-compatible snapshot carries account credits and
+  // spend control; unrelated metered buckets must not veto that account fact.
+  const snapshot = toRecord(record?.rateLimits);
+  if (snapshot?.spendControlReached === true) {
+    return true;
+  }
+  if (snapshot?.spendControlReached !== false) {
+    return null;
+  }
+  if (record?.ordinaryUsageAllowed === true) {
+    return false;
+  }
+  if (record?.ordinaryUsageAllowed !== false) {
+    return null;
+  }
+  const credits = toRecord(snapshot.credits);
+  if (credits?.unlimited === true) {
+    return false;
+  }
+  if (credits?.unlimited !== false || typeof credits.hasCredits !== "boolean") {
+    return null;
+  }
+  const balance =
+    typeof credits.balance === "string" && credits.balance.trim()
+      ? Number(credits.balance)
+      : null;
+  if (balance !== null && Number.isFinite(balance) && balance >= 0) {
+    if (balance > 0) {
+      return credits.hasCredits ? false : null;
+    }
+    return credits.hasCredits === false ? true : null;
+  }
+  return credits.hasCredits === false && credits.balance === null ? true : null;
+}
+
+function projectUsageLimits(input: {
   observedAt: string;
   response: unknown;
 }): AdapterProviderUsageLimit[] {

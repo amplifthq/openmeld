@@ -19,7 +19,10 @@ import {
 	buildHumanProfilePath,
 } from "#/lib/profile-routes";
 import { resolveWebAgentControllerPermissionModeDisplay } from "#/lib/profiles/agent-controller-permission-mode-display";
-import { resolveAgentProfileControllerModelDetail } from "#/lib/profiles/agent-profile-model-display";
+import {
+	resolveAgentProfileControllerModelDetail,
+	resolveAgentProfileModel,
+} from "#/lib/profiles/agent-profile-model-display";
 import { useOptionalSpaceAgentProfileEditContext } from "./space-agent-profile-edit-context";
 import { isSameOwnerUserId } from "./space-member-ownership";
 
@@ -41,12 +44,13 @@ export function useSpaceProfileDetailsPopover(input: {
 		entry: SpaceMemberDirectoryEntry,
 		trigger: ReactElement
 	) => {
+		const isCenterAgent = entry.profileId === input.centerAgentProfileId;
 		const details = buildSpaceProfileDetails({
 			currentOwnerUserId: input.currentOwnerUserId,
 			entry,
+			isCenterAgent,
 			modelCatalog: input.modelCatalog,
 		});
-		const isCenterAgent = entry.profileId === input.centerAgentProfileId;
 		const isOwner = details.viewerScope === "owner_self";
 		if (entry.profileKind === "human") {
 			return (
@@ -164,21 +168,32 @@ export function useSpaceProfileDetailsPopover(input: {
 function buildSpaceProfileDetails(input: {
 	currentOwnerUserId: string | null;
 	entry: SpaceMemberDirectoryEntry;
+	isCenterAgent: boolean;
 	modelCatalog: ModelCatalog | null;
 }) {
 	const viewerScope = resolveViewerScope({
 		currentOwnerUserId: input.currentOwnerUserId,
 		ownerUserId: input.entry.ownerUserId,
 	});
-	const modelDetail =
-		input.entry.profileKind === "agent"
-			? resolveAgentProfileControllerModelDetail({
-					agentControllerRef: input.entry.agentControllerRef,
-					controllerDisplayName: input.entry.controllerDisplayName,
-					modelCatalog: input.modelCatalog,
-					modelSelection: input.entry.modelSelection,
-				})
-			: null;
+	let modelDetail: string | null = null;
+	if (input.entry.profileKind === "agent") {
+		if (input.isCenterAgent) {
+			const effectiveModel = resolveAgentProfileModel({
+				agentControllerRef: input.entry.agentControllerRef,
+				modelCatalog: input.modelCatalog,
+				modelSelection: input.entry.modelSelection,
+			});
+			modelDetail =
+				effectiveModel.catalogModel?.displayName ?? effectiveModel.modelId;
+		} else {
+			modelDetail = resolveAgentProfileControllerModelDetail({
+				agentControllerRef: input.entry.agentControllerRef,
+				controllerDisplayName: input.entry.controllerDisplayName,
+				modelCatalog: input.modelCatalog,
+				modelSelection: input.entry.modelSelection,
+			});
+		}
+	}
 	const controllerPermissionModeDetail =
 		input.entry.profileKind === "agent"
 			? (resolveWebAgentControllerPermissionModeDisplay({

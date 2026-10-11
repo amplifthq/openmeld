@@ -1,0 +1,790 @@
+{
+  "capture": {
+    "harnessVersion": "1.18.34",
+    "observedAt": "2026-10-09T03:12:00Z",
+    "commands": [
+      "OPENCODE_API_KEY=catalog-inventory-only opencode models opencode --verbose --pure",
+      "opencode models opencode-go --verbose --pure"
+    ],
+    "providerRoutes": [
+      "Zen metadata enabled by a noncredential placeholder; paid access and inference are not verified",
+      "Go inventory uses the existing credential; subscription access is not verified"
+    ]
+  },
+  "nativeExecution": [
+    {
+      "modelId": "opencode/step-5-preview-free",
+      "variant": "medium",
+      "response": "STEP5_NATIVE_OK",
+      "tools": []
+    }
+  ],
+  "models": [
+    {
+      "id": "gpt-6.1-sol",
+      "providerID": "opencode",
+      "name": "GPT-6.1 Sol",
+      "api": {
+        "id": "gpt-6.1-sol",
+        "url": "https://opencode.ai/zen/v1",
+        "npm": "@ai-sdk/openai"
+      },
+      "status": "active",
+      "capabilities": {
+        "temperature": false,
+        "reasoning": true,
+        "attachment": true,
+        "toolcall": true,
+        "input": {
+          "text": true,
+          "audio": false,
+          "image": true,
+          "video": false,
+          "pdf": true
+        },
+        "output": {
+          "text": true,
+          "audio": false,
+          "image": false,
+          "video": false,
+          "pdf": false
+        },
+        "interleaved": false
+      },
+      "release_date": "2026-09-29",
+      "variants": {
+        "low": {
+          "reasoningEffort": "low",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "medium": {
+          "reasoningEffort": "medium",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "high": {
+          "reasoningEffort": "high",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "xhigh": {
+          "reasoningEffort": "xhigh",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "max": {
+          "reasoningEffort": "max",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        }
+      }
+    },
+    {
+      "id": "claude-sonnet-5-5",
+      "providerID": "opencode",
+      "name": "Claude Sonnet 5.5",
+      "api": {
+        "id": "claude-sonnet-5-5",
+        "url": "https://opencode.ai/zen/v1",
+        "npm": "@ai-sdk/anthropic"
+      },
+      "status": "active",
+      "capabilities": {
+        "temperature": false,
+        "reasoning": true,
+        "attachment": true,
+        "toolcall": true,
+        "input": {
+          "text": true,
+          "audio": false,
+          "image": true,
+          "video": false,
+          "pdf": true
+        },
+        "output": {
+          "text": true,
+          "audio": false,
+          "image": false,
+          "video": false,
+          "pdf": false
+        },
+        "interleaved": false
+      },
+      "release_date": "2026-09-28",
+      "variants": {
+        "low": {
+          "thinking": {
+            "type": "adaptive",
+            "display": "summarized"
+          },
+          "effort": "low"
+        },
+        "medium": {
+          "thinking": {
+            "type": "adaptive",
+            "display": "summarized"
+          },
+          "effort": "medium"
+        },
+        "high": {
+          "thinking": {
+            "type": "adaptive",
+            "display": "summarized"
+          },
+          "effort": "high"
+        },
+        "xhigh": {
+          "thinking": {
+            "type": "adaptive",
+            "display": "summarized"
+          },
+          "effort": "xhigh"
+        },
+        "max": {
+          "thinking": {
+            "type": "adaptive",
+            "display": "summarized"
+          },
+          "effort": "max"
+        }
+      }
+    },
+    {
+      "id": "claude-opus-5-5",
+      "providerID": "opencode",
+      "name": "Claude Opus 5.5",
+      "api": {
+        "id": "claude-opus-5-5",
+        "url": "https://opencode.ai/zen/v1",
+        "npm": "@ai-sdk/anthropic"
+      },
+      "status": "active",
+      "capabilities": {
+        "temperature": false,
+        "reasoning": true,
+        "attachment": true,
+        "toolcall": true,
+        "input": {
+          "text": true,
+          "audio": false,
+          "image": true,
+          "video": false,
+          "pdf": true
+        },
+        "output": {
+          "text": true,
+          "audio": false,
+          "image": false,
+          "video": false,
+          "pdf": false
+        },
+        "interleaved": false
+      },
+      "release_date": "2026-09-22",
+      "variants": {
+        "low": {
+          "thinking": {
+            "type": "adaptive",
+            "display": "summarized"
+          },
+          "effort": "low"
+        },
+        "medium": {
+          "thinking": {
+            "type": "adaptive",
+            "display": "summarized"
+          },
+          "effort": "medium"
+        },
+        "high": {
+          "thinking": {
+            "type": "adaptive",
+            "display": "summarized"
+          },
+          "effort": "high"
+        },
+        "xhigh": {
+          "thinking": {
+            "type": "adaptive",
+            "display": "summarized"
+          },
+          "effort": "xhigh"
+        },
+        "max": {
+          "thinking": {
+            "type": "adaptive",
+            "display": "summarized"
+          },
+          "effort": "max"
+        }
+      }
+    },
+    {
+      "id": "gpt-6-luna",
+      "providerID": "opencode",
+      "name": "GPT-6 Luna",
+      "api": {
+        "id": "gpt-6-luna",
+        "url": "https://opencode.ai/zen/v1",
+        "npm": "@ai-sdk/openai"
+      },
+      "status": "active",
+      "capabilities": {
+        "temperature": false,
+        "reasoning": true,
+        "attachment": true,
+        "toolcall": true,
+        "input": {
+          "text": true,
+          "audio": false,
+          "image": true,
+          "video": false,
+          "pdf": true
+        },
+        "output": {
+          "text": true,
+          "audio": false,
+          "image": false,
+          "video": false,
+          "pdf": false
+        },
+        "interleaved": false
+      },
+      "release_date": "2026-09-22",
+      "variants": {
+        "none": {
+          "reasoningEffort": "none",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "low": {
+          "reasoningEffort": "low",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "medium": {
+          "reasoningEffort": "medium",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "high": {
+          "reasoningEffort": "high",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "xhigh": {
+          "reasoningEffort": "xhigh",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "max": {
+          "reasoningEffort": "max",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        }
+      }
+    },
+    {
+      "id": "gpt-6-sol",
+      "providerID": "opencode",
+      "name": "GPT-6 Sol",
+      "api": {
+        "id": "gpt-6-sol",
+        "url": "https://opencode.ai/zen/v1",
+        "npm": "@ai-sdk/openai"
+      },
+      "status": "active",
+      "capabilities": {
+        "temperature": false,
+        "reasoning": true,
+        "attachment": true,
+        "toolcall": true,
+        "input": {
+          "text": true,
+          "audio": false,
+          "image": true,
+          "video": false,
+          "pdf": true
+        },
+        "output": {
+          "text": true,
+          "audio": false,
+          "image": false,
+          "video": false,
+          "pdf": false
+        },
+        "interleaved": false
+      },
+      "release_date": "2026-09-22",
+      "variants": {
+        "none": {
+          "reasoningEffort": "none",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "low": {
+          "reasoningEffort": "low",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "medium": {
+          "reasoningEffort": "medium",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "high": {
+          "reasoningEffort": "high",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "xhigh": {
+          "reasoningEffort": "xhigh",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "max": {
+          "reasoningEffort": "max",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        }
+      }
+    },
+    {
+      "id": "grok-4.7",
+      "providerID": "opencode",
+      "name": "Grok 4.7",
+      "api": {
+        "id": "grok-4.7",
+        "url": "https://opencode.ai/zen/v1",
+        "npm": "@ai-sdk/openai"
+      },
+      "status": "active",
+      "capabilities": {
+        "temperature": true,
+        "reasoning": true,
+        "attachment": true,
+        "toolcall": true,
+        "input": {
+          "text": true,
+          "audio": false,
+          "image": true,
+          "video": false,
+          "pdf": true
+        },
+        "output": {
+          "text": true,
+          "audio": false,
+          "image": false,
+          "video": false,
+          "pdf": false
+        },
+        "interleaved": false
+      },
+      "release_date": "2026-09-21",
+      "variants": {
+        "low": {
+          "reasoningEffort": "low",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "medium": {
+          "reasoningEffort": "medium",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "high": {
+          "reasoningEffort": "high",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "xhigh": {
+          "reasoningEffort": "xhigh",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        }
+      }
+    },
+    {
+      "id": "step-5-preview-free",
+      "providerID": "opencode",
+      "name": "Step 5 Preview Free",
+      "api": {
+        "id": "step-5-preview-free",
+        "url": "https://opencode.ai/zen/v1",
+        "npm": "@ai-sdk/openai-compatible"
+      },
+      "status": "active",
+      "capabilities": {
+        "temperature": false,
+        "reasoning": true,
+        "attachment": true,
+        "toolcall": true,
+        "input": {
+          "text": true,
+          "audio": false,
+          "image": true,
+          "video": true,
+          "pdf": false
+        },
+        "output": {
+          "text": true,
+          "audio": false,
+          "image": false,
+          "video": false,
+          "pdf": false
+        },
+        "interleaved": {
+          "field": "reasoning_content"
+        }
+      },
+      "release_date": "2026-09-16",
+      "variants": {
+        "low": {
+          "reasoningEffort": "low"
+        },
+        "medium": {
+          "reasoningEffort": "medium"
+        },
+        "high": {
+          "reasoningEffort": "high"
+        }
+      }
+    },
+    {
+      "id": "deepseek-v4.1-flash",
+      "providerID": "opencode",
+      "name": "DeepSeek V4.1 Flash",
+      "api": {
+        "id": "deepseek-v4.1-flash",
+        "url": "https://opencode.ai/zen/v1",
+        "npm": "@ai-sdk/openai-compatible"
+      },
+      "status": "active",
+      "capabilities": {
+        "temperature": true,
+        "reasoning": true,
+        "attachment": true,
+        "toolcall": true,
+        "input": {
+          "text": true,
+          "audio": false,
+          "image": true,
+          "video": false,
+          "pdf": false
+        },
+        "output": {
+          "text": true,
+          "audio": false,
+          "image": false,
+          "video": false,
+          "pdf": false
+        },
+        "interleaved": {
+          "field": "reasoning_content"
+        }
+      },
+      "release_date": "2026-09-10",
+      "variants": {
+        "low": {
+          "reasoningEffort": "low"
+        },
+        "high": {
+          "reasoningEffort": "high"
+        },
+        "max": {
+          "reasoningEffort": "max"
+        }
+      }
+    },
+    {
+      "id": "gpt-6-astra",
+      "providerID": "opencode",
+      "name": "GPT-6 Astra",
+      "api": {
+        "id": "gpt-6-astra",
+        "url": "https://opencode.ai/zen/v1",
+        "npm": "@ai-sdk/openai"
+      },
+      "status": "active",
+      "capabilities": {
+        "temperature": false,
+        "reasoning": true,
+        "attachment": true,
+        "toolcall": true,
+        "input": {
+          "text": true,
+          "audio": false,
+          "image": true,
+          "video": false,
+          "pdf": true
+        },
+        "output": {
+          "text": true,
+          "audio": false,
+          "image": false,
+          "video": false,
+          "pdf": false
+        },
+        "interleaved": false
+      },
+      "release_date": "2026-09-04",
+      "variants": {
+        "low": {
+          "reasoningEffort": "low",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "medium": {
+          "reasoningEffort": "medium",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "high": {
+          "reasoningEffort": "high",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "xhigh": {
+          "reasoningEffort": "xhigh",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "max": {
+          "reasoningEffort": "max",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        }
+      }
+    },
+    {
+      "id": "gemini-3.8-flash",
+      "providerID": "opencode",
+      "name": "Gemini 3.8 Flash",
+      "api": {
+        "id": "gemini-3.8-flash",
+        "url": "https://opencode.ai/zen/v1",
+        "npm": "@ai-sdk/google"
+      },
+      "status": "active",
+      "capabilities": {
+        "temperature": true,
+        "reasoning": true,
+        "attachment": true,
+        "toolcall": true,
+        "input": {
+          "text": true,
+          "audio": true,
+          "image": true,
+          "video": true,
+          "pdf": true
+        },
+        "output": {
+          "text": true,
+          "audio": false,
+          "image": false,
+          "video": false,
+          "pdf": false
+        },
+        "interleaved": false
+      },
+      "release_date": "2026-09-02",
+      "variants": {
+        "low": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "low"
+          }
+        },
+        "medium": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "medium"
+          }
+        },
+        "high": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "high"
+          }
+        }
+      }
+    },
+    {
+      "id": "muse-spark-1.3",
+      "providerID": "opencode",
+      "name": "Muse Spark 1.3",
+      "api": {
+        "id": "muse-spark-1.3",
+        "url": "https://opencode.ai/zen/v1",
+        "npm": "@ai-sdk/openai"
+      },
+      "status": "active",
+      "capabilities": {
+        "temperature": true,
+        "reasoning": true,
+        "attachment": true,
+        "toolcall": true,
+        "input": {
+          "text": true,
+          "audio": true,
+          "image": true,
+          "video": true,
+          "pdf": true
+        },
+        "output": {
+          "text": true,
+          "audio": false,
+          "image": false,
+          "video": false,
+          "pdf": false
+        },
+        "interleaved": false
+      },
+      "release_date": "2026-09-02",
+      "variants": {
+        "minimal": {
+          "reasoningEffort": "minimal",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "low": {
+          "reasoningEffort": "low",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "medium": {
+          "reasoningEffort": "medium",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "high": {
+          "reasoningEffort": "high",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        },
+        "xhigh": {
+          "reasoningEffort": "xhigh",
+          "reasoningSummary": "auto",
+          "include": ["reasoning.encrypted_content"]
+        }
+      }
+    },
+    {
+      "id": "claude-fable-5-1",
+      "providerID": "opencode",
+      "name": "Claude Fable 5.1",
+      "api": {
+        "id": "claude-fable-5-1",
+        "url": "https://opencode.ai/zen/v1",
+        "npm": "@ai-sdk/anthropic"
+      },
+      "status": "active",
+      "capabilities": {
+        "temperature": false,
+        "reasoning": true,
+        "attachment": true,
+        "toolcall": true,
+        "input": {
+          "text": true,
+          "audio": false,
+          "image": true,
+          "video": false,
+          "pdf": true
+        },
+        "output": {
+          "text": true,
+          "audio": false,
+          "image": false,
+          "video": false,
+          "pdf": false
+        },
+        "interleaved": false
+      },
+      "release_date": "2026-09-01",
+      "variants": {
+        "low": {
+          "thinking": {
+            "type": "adaptive",
+            "display": "summarized"
+          },
+          "effort": "low"
+        },
+        "medium": {
+          "thinking": {
+            "type": "adaptive",
+            "display": "summarized"
+          },
+          "effort": "medium"
+        },
+        "high": {
+          "thinking": {
+            "type": "adaptive",
+            "display": "summarized"
+          },
+          "effort": "high"
+        },
+        "xhigh": {
+          "thinking": {
+            "type": "adaptive",
+            "display": "summarized"
+          },
+          "effort": "xhigh"
+        },
+        "max": {
+          "thinking": {
+            "type": "adaptive",
+            "display": "summarized"
+          },
+          "effort": "max"
+        }
+      }
+    },
+    {
+      "id": "step-5-preview-free",
+      "providerID": "opencode-go",
+      "name": "Step 5 Preview Free",
+      "api": {
+        "id": "step-5-preview-free",
+        "url": "https://opencode.ai/zen/go/v1",
+        "npm": "@ai-sdk/openai-compatible"
+      },
+      "status": "active",
+      "capabilities": {
+        "temperature": false,
+        "reasoning": true,
+        "attachment": true,
+        "toolcall": true,
+        "input": {
+          "text": true,
+          "audio": false,
+          "image": true,
+          "video": true,
+          "pdf": false
+        },
+        "output": {
+          "text": true,
+          "audio": false,
+          "image": false,
+          "video": false,
+          "pdf": false
+        },
+        "interleaved": {
+          "field": "reasoning_content"
+        }
+      },
+      "release_date": "2026-09-16",
+      "variants": {
+        "low": {
+          "reasoningEffort": "low"
+        },
+        "medium": {
+          "reasoningEffort": "medium"
+        },
+        "high": {
+          "reasoningEffort": "high"
+        }
+      }
+    }
+  ]
+}

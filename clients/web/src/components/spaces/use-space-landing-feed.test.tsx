@@ -1,3 +1,4 @@
+import { OpenMeldApiClientHttpError } from "@openmeld/api-client";
 import {
 	SPACE_STREAM_KEEPALIVE_PING,
 	SPACE_STREAM_KEEPALIVE_PONG,
@@ -6,6 +7,7 @@ import type {
 	DesktopSpaceStreamBridge,
 	DesktopSpaceStreamEvent,
 } from "@openmeld/schemas";
+import { listSpaceThreadSignalsResponseSchema } from "@openmeld/schemas";
 import type {
 	SignalEnvelope,
 	SpaceAgentStreamDeltaFrame,
@@ -34,8 +36,11 @@ import {
 	type SpaceHistorySnapshot,
 	spaceHistoryQueryOptions,
 } from "#/query/spaces/history";
+import { MissingHistoryAnchorError } from "#/query/spaces/retry";
 import { spaceFileQueryKeys } from "#/query/spaces/space-files";
 import { spaceQueryKeys } from "#/query/spaces/status";
+import { spaceThreadSignalsQueryOptions } from "#/query/spaces/threads";
+import threadReconnectFixture from "./fixtures/thread-reconnect.json";
 import {
 	SpaceWakeProgressVisibleProjectionProvider,
 	usePublishSpaceWakeProgressVisibleProjection,
@@ -1281,6 +1286,174 @@ describe("useSpaceLandingFeed conversation reconcile", () => {
 				)
 				?.envelopes.map((signal) => signal.id)
 		).toEqual(["sig-1", "sig-2"]);
+	});
+
+	it.each([
+		new MissingHistoryAnchorError(),
+		new OpenMeldApiClientHttpError({
+			code: "upstream_error",
+			status: 403,
+			rawBody: "",
+			message: "Forbidden",
+		}),
+	])("recovers only transient failed active history windows after the Space reconnects (%s)", async (permanentError) => {
+		const { queryClient } = renderFeed();
+		await openLatestSocket();
+		let reachable = false;
+		const read = vi.fn(() => {
+			if (!reachable) {
+				return Promise.reject(new TypeError("Failed to fetch"));
+			}
+			return Promise.resolve("restored");
+		});
+		const readyRead = vi.fn(async () => "already readable");
+		const permanentRead = vi.fn(() => Promise.reject(permanentError));
+		const windows = renderHook(
+			() => ({
+				permanent: useQuery({
+					queryKey: [
+						...spaceQueryKeys.historyWindow(
+							"space-123",
+							"11111111-1111-1111-1111-111111111111"
+						),
+						"permanent",
+					],
+					queryFn: permanentRead,
+					retry: false,
+				}),
+				current: useQuery({
+					queryKey: [
+						...spaceQueryKeys.historyWindow(
+							"space-123",
+							"11111111-1111-1111-1111-111111111111"
+						),
+						"failed",
+					],
+					queryFn: read,
+					retry: false,
+				}),
+				other: useQuery({
+					queryKey: spaceQueryKeys.historyWindow(
+						"space-123",
+						"22222222-2222-2222-2222-222222222222"
+					),
+					queryFn: read,
+					retry: false,
+				}),
+				ready: useQuery({
+					queryKey: [
+						...spaceQueryKeys.historyWindow(
+							"space-123",
+							"11111111-1111-1111-1111-111111111111"
+						),
+						"ready",
+					],
+					queryFn: readyRead,
+					staleTime: Number.POSITIVE_INFINITY,
+				}),
+			}),
+			{
+				wrapper: ({ children }: { children: ReactNode }) => (
+					<QueryClientProvider client={queryClient}>
+						{children}
+					</QueryClientProvider>
+				),
+			}
+		);
+		await flushMicrotasks();
+		await act(async () => vi.advanceTimersByTimeAsync(0));
+		expect(windows.result.current.current.isError).toBe(true);
+		reachable = true;
+		await act(async () => {
+			FakeWebSocket.latest.close();
+			await vi.advanceTimersByTimeAsync(2000);
+		});
+		await openLatestSocket();
+		await flushMicrotasks();
+		await act(async () => vi.advanceTimersByTimeAsync(0));
+		expect(windows.result.current.current.data).toBe("restored");
+		expect(windows.result.current.other.isError).toBe(true);
+		expect(readyRead).toHaveBeenCalledOnce();
+		expect(permanentRead).toHaveBeenCalledOnce();
+	});
+
+	it.each([
+		"reconnect",
+		"refocus",
+		"periodic",
+	])("refreshes only requested Thread recovery (%s)", async (trigger) => {
+		// Captured from a real Web Thread read. Synthetic names and text are
+		// condensed; native continuation identity and response shape are retained.
+		const snapshot = listSpaceThreadSignalsResponseSchema.parse(
+			threadReconnectFixture
+		);
+		const before = {
+			...snapshot,
+			signals: snapshot.signals.slice(0, 1),
+			placements: snapshot.placements.slice(0, 1),
+		};
+		const { queryClient } = renderFeed();
+		await openLatestSocket();
+		const options = spaceThreadSignalsQueryOptions({
+			spaceId: "space-123",
+			threadId: snapshot.placements[0].threadId,
+			openMeldProfileId: "11111111-1111-1111-1111-111111111111",
+			enabled: true,
+		});
+		const otherOptions = spaceThreadSignalsQueryOptions({
+			spaceId: "space-123",
+			threadId: snapshot.placements[0].threadId,
+			openMeldProfileId: "22222222-2222-2222-2222-222222222222",
+			enabled: true,
+		});
+		queryClient.setQueryData(options.queryKey, before);
+		queryClient.setQueryData(otherOptions.queryKey, before);
+		const threads = renderHook(
+			() => ({
+				current: useQuery({
+					...options,
+					staleTime: Number.POSITIVE_INFINITY,
+					queryFn: async () => snapshot,
+				}),
+				other: useQuery({
+					...otherOptions,
+					staleTime: Number.POSITIVE_INFINITY,
+					queryFn: async () => snapshot,
+				}),
+			}),
+			{
+				wrapper: ({ children }: { children: ReactNode }) => (
+					<QueryClientProvider client={queryClient}>
+						{children}
+					</QueryClientProvider>
+				),
+			}
+		);
+		if (trigger === "reconnect") {
+			await act(async () => {
+				FakeWebSocket.latest.close();
+				await vi.advanceTimersByTimeAsync(2000);
+			});
+			await openLatestSocket();
+		} else if (trigger === "refocus") {
+			act(() => emitVisibilityChange("visible"));
+		} else {
+			// Keep the live stream healthy through the main-feed reconcile timer.
+			for (let step = 0; step < 5; step += 1) {
+				await act(async () => {
+					await FakeWebSocket.latest.emitMessage(SPACE_STREAM_KEEPALIVE_PONG);
+					await vi.advanceTimersByTimeAsync(18_000);
+				});
+			}
+		}
+		await flushMicrotasks();
+		await act(async () => vi.advanceTimersByTimeAsync(0));
+		const ids = (value: typeof snapshot | undefined) =>
+			value?.signals.map((signal) => signal.id);
+		expect(ids(threads.result.current.current.data)).toEqual(
+			ids(trigger === "periodic" ? before : snapshot)
+		);
+		expect(ids(threads.result.current.other.data)).toEqual(ids(before));
 	});
 
 	it("keeps newer persisted signals when an older history snapshot arrives later", () => {

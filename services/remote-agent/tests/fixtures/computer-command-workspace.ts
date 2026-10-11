@@ -97,6 +97,18 @@ export async function verifyRetainedCommandPolling(
                   Promise.reject(new Error("Polling must retain execution")),
               },
               sync: {
+                async watermarks() {
+                  pullStarted.resolve();
+                  await finishPull.promise;
+                  return {
+                    currentRev: 0,
+                    pushRev: 0,
+                    fetchCursor: { rev: 0, path: null },
+                  };
+                },
+                prepareChanges: () =>
+                  Promise.resolve({ ready: true, reads: 0 }),
+                discardChanges: () => Promise.resolve(true),
                 async fetchChanges() {
                   pullStarted.resolve();
                   await finishPull.promise;

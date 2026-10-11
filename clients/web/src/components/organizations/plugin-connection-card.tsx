@@ -6,6 +6,7 @@ import type {
 	PluginCredentialAuth,
 	PluginDefinition,
 } from "@openmeld/product-catalog/plugins";
+import { connectorConnectionScopeAllowed } from "@openmeld/schemas";
 import type {
 	ConnectorConnection,
 	ConnectorConnectionListResponse,
@@ -208,8 +209,12 @@ function PluginConnectionCardState(input: PluginConnectionCardProps) {
 			mode: input.mode,
 		});
 	const authorizationCompleted =
-		(waitingScope === "member" && Boolean(currentUserConnection)) ||
-		(waitingScope === "shared" && Boolean(sharedConnection));
+		waitingScope !== null &&
+		!connectionsQuery.isError &&
+		isAuthorizationScopeConnected({
+			response: connectionsQuery.data,
+			scope: waitingScope,
+		});
 	const sharedScopeName = input.isPersonalWorkspace
 		? "Workspace"
 		: "Organization";
@@ -786,6 +791,10 @@ function PluginConnectionCardContent(input: {
 	const sharedScopeName =
 		input.organizationName ??
 		(input.isPersonalWorkspace ? "Workspace" : "Organization");
+	const sharedScopeAllowed = connectorConnectionScopeAllowed(
+		input.plugin.service,
+		"shared"
+	);
 	return (
 		<section
 			aria-busy={
@@ -803,6 +812,10 @@ function PluginConnectionCardContent(input: {
 				<ConnectionSection
 					actionsDisabled={input.actionsDisabled}
 					appName={input.plugin.name}
+					canConnect={connectorConnectionScopeAllowed(
+						input.plugin.service,
+						"member"
+					)}
 					canManage
 					connection={input.currentUserConnection}
 					connectionConfig={input.plugin.connection}
@@ -855,6 +868,7 @@ function PluginConnectionCardContent(input: {
 				<ConnectionSection
 					actionsDisabled={input.actionsDisabled}
 					appName={input.plugin.name}
+					canConnect={sharedScopeAllowed}
 					canManage={input.canManage}
 					connectedScopeName={sharedScopeName}
 					connection={input.sharedConnection}
@@ -864,7 +878,11 @@ function PluginConnectionCardContent(input: {
 							? input.connectPending.authKind
 							: null
 					}
-					description="Use depends on this connection’s Agent access settings."
+					description={
+						sharedScopeAllowed
+							? "Use depends on this connection’s Agent access settings."
+							: "This connection is disabled. Disconnect it, then use Personal."
+					}
 					disconnectPending={disconnectingShared}
 					key={`shared-${input.credentialResetKey}`}
 					loading={input.loading}
@@ -913,6 +931,7 @@ type ConnectionSectionInput = {
 	actionsDisabled: boolean;
 	appName: string;
 	canManage: boolean;
+	canConnect: boolean;
 	connectPendingKind: PluginConnectionAuth["kind"] | null;
 	connection?: ConnectorConnection;
 	connectionConfig: PluginConnection;
@@ -930,6 +949,9 @@ type ConnectionSectionInput = {
 } & ({ scope: "member" } | { connectedScopeName: string; scope: "shared" });
 
 function ConnectionSection(input: ConnectionSectionInput) {
+	if (!(input.canConnect || input.loading || input.connection)) {
+		return null;
+	}
 	return (
 		<section aria-label={input.title} className="py-4">
 			<div className="flex flex-wrap items-start justify-between gap-3">
@@ -953,6 +975,21 @@ function ConnectionSection(input: ConnectionSectionInput) {
 function ConnectionControl(input: ConnectionSectionInput) {
 	if (!input.statusAvailable) {
 		return null;
+	}
+	if (!input.canConnect) {
+		return input.connection ? (
+			<ConnectionSummary
+				appName={input.appName}
+				canManage={input.canManage}
+				connection={input.connection}
+				disabled={input.actionsDisabled}
+				disconnectPending={input.disconnectPending}
+				label={input.connection.ownerDisplayName}
+				onDisconnect={input.onDisconnect}
+				statusChecking={input.statusChecking}
+				subtitle="Personal-only Plugin. This organization connection is disabled."
+			/>
+		) : null;
 	}
 	if (input.disconnectPending && !input.connection) {
 		return <PendingDisconnectAction appName={input.appName} />;
@@ -1074,6 +1111,22 @@ function CredentialField({
 	);
 }
 
+function PluginOAuthSetupNotice(input: {
+	appName: string;
+	configured?: boolean;
+}) {
+	if (input.configured !== false) {
+		return null;
+	}
+	return (
+		<output className="block max-w-lg text-muted-foreground text-xs">
+			{input.appName} sign-in is not set up for this environment yet. Contact
+			your OpenMeld operator. Reconnecting a Channel bot does not set up this
+			Plugin.
+		</output>
+	);
+}
+
 function DisconnectedConnectionControl(input: ConnectionSectionInput) {
 	const disabled = input.actionsDisabled || !input.canManage;
 	const [values, setValues] = useState<Record<string, string>>({});
@@ -1106,7 +1159,7 @@ function DisconnectedConnectionControl(input: ConnectionSectionInput) {
 							? "Checking connection status"
 							: `Connect ${input.appName}`
 					}
-					disabled={disabled}
+					disabled={disabled || auth.configured === false}
 					onClick={() => input.onConnect(auth, {})}
 					size="sm"
 					type="button"
@@ -1118,6 +1171,10 @@ function DisconnectedConnectionControl(input: ConnectionSectionInput) {
 					)}
 					{connectActionLabel}
 				</Button>
+				<PluginOAuthSetupNotice
+					appName={input.appName}
+					configured={auth.configured}
+				/>
 				{auth.credentialFallback ? (
 					<Button
 						className="h-auto px-0 py-0 text-xs"
@@ -1149,6 +1206,12 @@ function DisconnectedConnectionControl(input: ConnectionSectionInput) {
 				}}
 				selected={credentialIndex}
 			/>
+			{auth.fields.length === 0 ? (
+				<p className="text-muted-foreground text-xs">
+					No account credentials are needed. Connect to enable access for the
+					Agents you choose.
+				</p>
+			) : null}
 			{auth.fields.map((field) => (
 				<CredentialField
 					disabled={disabled}
@@ -1283,7 +1346,7 @@ function ConnectionSummary(input: {
 
 	return (
 		<>
-			<div className="mt-4 flex flex-wrap items-center justify-between gap-3 border border-border/70 bg-background/40 px-3 py-3">
+			<div className="mt-4 flex flex-wrap items-center justify-between gap-3">
 				<div>
 					<div className="flex flex-wrap items-center gap-2">
 						<p className="font-medium text-foreground text-sm">

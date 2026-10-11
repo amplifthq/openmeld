@@ -1,5 +1,8 @@
 import { AGENT_CONTROLLER_USAGE_LIMIT_STALE_AFTER_MS } from "@openmeld/schemas";
-import type { AgentControllerUsageLimit } from "@openmeld/schemas/types";
+import type {
+  AgentControllerUsageAdmission,
+  AgentControllerUsageLimit,
+} from "@openmeld/schemas/types";
 import {
   AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
   resolveAgentControllerProviderUsageLimitSupport,
@@ -12,6 +15,7 @@ export const AGENT_PROFILE_USAGE_EXHAUSTED_REASON_CODE =
 export type AgentProfileUsageWakeabilityReport = {
   expiresAtMs: number;
   status: RuntimeAgentControllerReportStatus;
+  usageAdmission?: AgentControllerUsageAdmission;
   usageLimits?: readonly AgentControllerUsageLimit[];
   usageLimitsSupportMatrixVersion?: number;
 };
@@ -68,6 +72,12 @@ export function resolveAgentProfileUsageWakeability(input: {
   ) {
     return ALLOWS_NEW_WORK;
   }
+  if (input.agentControllerRef === "builtin:codex") {
+    return report.usageAdmission?.blocksNewWork === true &&
+      isFreshUsageObservation(report.usageAdmission.observedAt, input.nowMs)
+      ? BLOCKS_NEW_WORK
+      : ALLOWS_NEW_WORK;
+  }
   const supportedUsageLimits = report.usageLimits?.filter(
     (usageLimit) =>
       usageLimit.status !== "unsupported" &&
@@ -81,11 +91,7 @@ export function resolveAgentProfileUsageWakeability(input: {
     })
   );
   if (usageExhausted) {
-    return {
-      blocksNewWork: true,
-      reasonCode: AGENT_PROFILE_USAGE_EXHAUSTED_REASON_CODE,
-      status: "unavailable",
-    };
+    return BLOCKS_NEW_WORK;
   }
   return ALLOWS_NEW_WORK;
 }
@@ -124,9 +130,18 @@ export function resolveAgentProfileUsageRecoveryAvailability(input: {
     report.usageLimitsSupportMatrixVersion !==
       AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION ||
     report.status !== "ready" ||
-    report.expiresAtMs <= input.nowMs ||
-    !supportedUsageLimits?.length
+    report.expiresAtMs <= input.nowMs
   ) {
+    return USAGE_RECOVERY_UNAVAILABLE;
+  }
+
+  if (input.agentControllerRef === "builtin:codex") {
+    return report.usageAdmission?.blocksNewWork === false &&
+      isFreshUsageObservation(report.usageAdmission.observedAt, input.nowMs)
+      ? USAGE_RECOVERY_AVAILABLE
+      : USAGE_RECOVERY_UNAVAILABLE;
+  }
+  if (!supportedUsageLimits?.length) {
     return USAGE_RECOVERY_UNAVAILABLE;
   }
 
@@ -141,6 +156,11 @@ const ALLOWS_NEW_WORK = {
   blocksNewWork: false,
   reasonCode: null,
   status: "available",
+} as const;
+const BLOCKS_NEW_WORK = {
+  blocksNewWork: true,
+  reasonCode: AGENT_PROFILE_USAGE_EXHAUSTED_REASON_CODE,
+  status: "unavailable",
 } as const;
 const USAGE_RECOVERY_AVAILABLE = { available: true } as const;
 const USAGE_RECOVERY_UNAVAILABLE = { available: false } as const;
@@ -169,11 +189,7 @@ function isFreshCurrentUsageLimit(input: {
   nowMs: number;
   usageLimit: AgentControllerUsageLimit;
 }): boolean {
-  const observedAtMs = Date.parse(input.usageLimit.observedAt);
-  if (
-    !Number.isFinite(observedAtMs) ||
-    observedAtMs + AGENT_CONTROLLER_USAGE_LIMIT_STALE_AFTER_MS <= input.nowMs
-  ) {
+  if (!isFreshUsageObservation(input.usageLimit.observedAt, input.nowMs)) {
     return false;
   }
 
@@ -183,5 +199,14 @@ function isFreshCurrentUsageLimit(input: {
   return (
     resetsAtMs === null ||
     (Number.isFinite(resetsAtMs) && resetsAtMs > input.nowMs)
+  );
+}
+
+function isFreshUsageObservation(observedAt: string, nowMs: number): boolean {
+  const observedAtMs = Date.parse(observedAt);
+  return (
+    Number.isFinite(observedAtMs) &&
+    observedAtMs <= nowMs &&
+    observedAtMs + AGENT_CONTROLLER_USAGE_LIMIT_STALE_AFTER_MS > nowMs
   );
 }

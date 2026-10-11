@@ -18,12 +18,29 @@ export type SidebarGeometry = { mode: SidebarMode; width: number };
 export const SIDEBAR_ICON_WIDTH = 52;
 export const SIDEBAR_MIN_WIDTH = 160;
 export const SIDEBAR_MAX_WIDTH = 384;
+export type SidebarResizeOptions = {
+  allowIconMode?: boolean;
+  minWidth?: number;
+  maxWidth?: number;
+};
 
-/** Three snap regions with hysteresis: reversing at a seam must not chatter. */
+/** Resolve allowed snap regions with hysteresis at their boundaries. */
 export function resolveSidebarDrag(
   raw: number,
-  previous: SidebarMode
+  previous: SidebarMode,
+  {
+    allowIconMode = true,
+    minWidth = SIDEBAR_MIN_WIDTH,
+  }: SidebarResizeOptions = {}
 ): SidebarMode {
+  if (!allowIconMode) {
+    // Clamp the visible list at its readable floor while the pointer travels
+    // another third of that width plus 16 px inward. Keep outward dragging
+    // responsive with a separate reopening boundary to avoid mode oscillation.
+    const boundary = (minWidth * 2) / 3;
+    const threshold = previous === "hidden" ? boundary + 8 : boundary - 16;
+    return raw < threshold ? "hidden" : "expanded";
+  }
   if (raw < (previous === "hidden" ? 38 : 26)) {
     return "hidden";
   }
@@ -49,6 +66,9 @@ type SidebarContextValue = {
   cancelPeekTimer: () => void;
   static: boolean;
   peekOnHover: boolean;
+  allowIconMode: boolean;
+  minWidth: number;
+  maxWidth: number;
 };
 
 const SidebarContext = createContext<SidebarContextValue | null>(null);
@@ -68,6 +88,9 @@ export function SidebarProvider({
   static: staticPresentation = false,
   peekOnHover = true,
   keyboardShortcuts = true,
+  allowIconMode = true,
+  minWidth = SIDEBAR_MIN_WIDTH,
+  maxWidth = SIDEBAR_MAX_WIDTH,
   ...props
 }: Omit<ComponentProps<"div">, "onChange"> & {
   children: ReactNode;
@@ -76,11 +99,21 @@ export function SidebarProvider({
   static?: boolean;
   peekOnHover?: boolean;
   keyboardShortcuts?: boolean;
-}) {
+} & SidebarResizeOptions) {
   const [dragGeometry, setDragGeometry] = useState<SidebarGeometry | null>(
     null
   );
-  const current = dragGeometry ?? geometry;
+  const normalizeGeometry = useCallback(
+    (next: SidebarGeometry): SidebarGeometry => ({
+      mode: !allowIconMode && next.mode === "icon" ? "hidden" : next.mode,
+      width: Math.max(minWidth, Math.min(maxWidth, next.width)),
+    }),
+    [allowIconMode, minWidth, maxWidth]
+  );
+  const current = useMemo(
+    () => normalizeGeometry(dragGeometry ?? geometry),
+    [dragGeometry, geometry, normalizeGeometry]
+  );
   const currentRef = useRef(current);
   useEffect(() => {
     currentRef.current = current;
@@ -124,15 +157,16 @@ export function SidebarProvider({
   useEffect(() => cancelPeekTimer, [cancelPeekTimer]);
   const setGeometry = useCallback(
     (next: SidebarGeometry, commit = true) => {
-      currentRef.current = next;
+      const normalized = normalizeGeometry(next);
+      currentRef.current = normalized;
       if (commit) {
         setDragGeometry(null);
-        onGeometryChange(next);
+        onGeometryChange(normalized);
       } else {
-        setDragGeometry(next);
+        setDragGeometry(normalized);
       }
     },
-    [onGeometryChange]
+    [onGeometryChange, normalizeGeometry]
   );
   const setOpen = useCallback(
     (open: boolean) => {
@@ -196,6 +230,9 @@ export function SidebarProvider({
       cancelPeekTimer,
       static: staticPresentation,
       peekOnHover,
+      allowIconMode,
+      minWidth,
+      maxWidth,
     }),
     [
       current,
@@ -210,6 +247,9 @@ export function SidebarProvider({
       cancelPeekTimer,
       staticPresentation,
       peekOnHover,
+      allowIconMode,
+      minWidth,
+      maxWidth,
     ]
   );
 

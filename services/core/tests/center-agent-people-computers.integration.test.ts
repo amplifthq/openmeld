@@ -10,16 +10,644 @@ import type {
   RuntimeTransportLookupOwnerServiceResponse,
 } from "@openmeld/schemas/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  ensurePrimaryAgentProfileBindingRecord,
+  readPrimaryAgentProfileBindingRecord,
+  reconnectPrimaryAgentProfileBindingRecord,
+} from "../src/agent-profile-binding/infrastructure/postgresql/agent-profile-binding-repo";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
   rpcCenterAgentCheckAgentProfileReadiness,
   rpcCenterAgentListLocalAgentConnectionCandidates,
   rpcCenterAgentReadPeopleComputers,
   rpcCenterAgentRequestOpenMeldToolsUpdate,
+  rpcCenterAgentUpdateAgentProfileRuntimeSettings,
+  rpcCenterAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace,
+  rpcGetCurrentAgentProfileWorkspace,
+  rpcSetBoundPeopleComputerAgentProfileWorkspace,
+  rpcUpdateBoundAgentProfileDefaultProject,
 } from "../src/rpc/methods";
 
 describe("Center Agent PeopleComputers authorization", () => {
   afterEach(() => vi.restoreAllMocks());
+  it.each([
+    "owner",
+    "owner_bound_lookup",
+    "foreign_owner",
+    "other_organization",
+    "binding_changed_before_read",
+    "binding_changed_during_read",
+  ] as const)("admits a saved working-folder read against the canonical Profile owner and Binding (%s)", async (state) => {
+    const f = await seedFixture();
+    const db = getPostgresDatabase(env);
+    const agentProfileId = `agt_${crypto.randomUUID()}`;
+    const organizationId = f.context.activeOrganizationId;
+    if (!organizationId) {
+      throw new Error("Missing Organization fixture");
+    }
+    const now = Date.now();
+    await db.query({
+      text: "INSERT INTO \"openmeld\".\"openmeld_profiles\" (profile_id, profile_name, profile_handle, profile_kind, is_default, status, organization_id, owner_user_id, created_by_user_id, source, created_at, updated_at) VALUES ($1, 'Reader Agent', $1, 'agent', 0, 'active', $2, $3, $3, 'cli_create', $4, $4)",
+      values: [agentProfileId, organizationId, f.member.userId, now],
+    });
+    const record = {
+      agentProfileId,
+      bindingId: `binding-${crypto.randomUUID()}`,
+      agentControllerRef: "builtin:codex",
+      createdAtMs: now,
+      updatedAtMs: now,
+      owner: { id: f.member.userId, kind: "owner_account" as const },
+      openMeldServiceRuntimeId: f.member.runtimeId,
+    };
+    await ensurePrimaryAgentProfileBindingRecord({ db, record });
+    const expectedBindingTarget = {
+      bindingId: record.bindingId,
+      agentControllerRef: record.agentControllerRef,
+      agentControllerConversationId: null,
+      openMeldServiceRuntimeId: record.openMeldServiceRuntimeId,
+    };
+    if (state.startsWith("binding_changed")) {
+      await db.query({
+        text: "INSERT INTO \"openmeld\".\"openMeldDaemon_runtime_registry_records\" (openmeld_service_runtime_id, owner_kind, owner_id, device_id, lane, created_at_ms, last_registered_at_ms, updated_at_ms) VALUES ($1, 'owner_account', $2, $3, 'prod', $4, $4, $4)",
+        values: [
+          `${f.member.runtimeId}-second`,
+          f.member.userId,
+          `${f.member.deviceId}-second`,
+          now,
+        ],
+      });
+    }
+    const changeBinding = async () => {
+      const result = await reconnectPrimaryAgentProfileBindingRecord({
+        db,
+        acquireExecutionTargetMutationAdmission: async () => undefined,
+        record: {
+          ...record,
+          bindingId: `binding-${crypto.randomUUID()}`,
+          openMeldServiceRuntimeId: `${f.member.runtimeId}-second`,
+        },
+      });
+      expect(result.status).toBe("accepted");
+    };
+    const profile = {
+      profileId: agentProfileId,
+      profileName: "Reader Agent",
+      profileHandle: "reader-agent",
+      profileKind: "agent" as const,
+      ownerUserId: f.member.userId,
+      organizationId,
+      defaultProjectId: null,
+      status: "active" as const,
+    };
+    const auth: NonNullable<CoreBindings["OPENMELD_AUTH_WORKER"]> = {
+      resolveProfileById: vi.fn(async () => ({ ok: true as const, profile })),
+    };
+    const transport = await import(
+      "../src/dispatch/infrastructure/runtime-transport/runtime-transport-client"
+    );
+    const read = vi
+      .spyOn(transport, "readRuntimeTransportProfileWorkspace")
+      .mockImplementation(async () => {
+        if (state === "binding_changed_during_read") {
+          await changeBinding();
+        }
+        // Same typed receipt captured from the account-checked native reader;
+        // the filesystem path is sanitized for this controlled owner scenario.
+        return {
+          status: "accepted",
+          payload: {
+            accepted: true,
+            status: "read",
+            targetProfileId: agentProfileId,
+            workspace: {
+              status: "configured",
+              workspaceMode: "openmeld_managed",
+              workspacePath: "/private/member/managed",
+              configurationVersion: 2,
+              updatedAt: "2026-10-09T22:24:57.270Z",
+            },
+          },
+        };
+      });
+    const caller = state === "foreign_owner" ? f.owner : f.member;
+    const context: OpenMeldRequestContext = {
+      activeOrganizationId:
+        state === "other_organization" ? crypto.randomUUID() : organizationId,
+      actorContext: {
+        callerPrincipalId: caller.userId,
+        ownerUserId: caller.userId,
+        openMeldProfileId: caller.profileId,
+        profileKind: "human",
+        profileName: "Member",
+        requestId: crypto.randomUUID(),
+      },
+    };
+    if (state === "binding_changed_before_read") {
+      await changeBinding();
+    }
+    const result = rpcGetCurrentAgentProfileWorkspace(
+      { ...f.coreEnv, OPENMELD_AUTH_WORKER: auth },
+      { agentProfileId, context, expectedBindingTarget },
+      state === "owner_bound_lookup"
+        ? undefined
+        : { deviceId: f.member.deviceId, runtimeLane: "prod" }
+    );
+    if (state === "owner" || state === "owner_bound_lookup") {
+      await expect(result).resolves.toMatchObject({
+        agentProfileId,
+        target: { deviceId: f.member.deviceId, runtimeLane: "prod" },
+        workspace: {
+          status: "configured",
+          workspacePath: "/private/member/managed",
+        },
+      });
+    } else {
+      await expect(result).rejects.toThrow();
+      expect(read).toHaveBeenCalledTimes(
+        state === "binding_changed_during_read" ? 1 : 0
+      );
+    }
+  });
+  it.each([
+    "available",
+    "old_remote",
+    "old_remote_combined",
+    "missing",
+    "old_service",
+    "wrong_device",
+    "binding_changed_before_admission",
+    "binding_changed_before_project_clear",
+    "web_binding_changed_before_admission",
+    "web_binding_changed_before_project_clear",
+  ] as const)("reads only the bound Computer's saved Project connection (%s) without exposing paths", async (stateName) => {
+    const legacyCaller = stateName.startsWith("old_remote");
+    const viaWeb = stateName.startsWith("web_");
+    const callerState = viaWeb ? stateName.slice(4) : stateName;
+    const state = legacyCaller ? "available" : callerState;
+    const fixture = await seedFixture();
+    const organizationId = fixture.context.activeOrganizationId;
+    if (!organizationId) {
+      throw new Error("Missing Organization fixture");
+    }
+    const agentProfileId = `agt_${crypto.randomUUID()}`;
+    const projectId = `project-${crypto.randomUUID()}`;
+    const db = getPostgresDatabase(env);
+    await db.query({
+      text: 'INSERT INTO "openmeld"."projects" (id, organization_id, name, slug, created_by_user_id, created_at_ms, updated_at_ms) VALUES ($1, $2, $3, $4, $5, $6, $6)',
+      values: [
+        projectId,
+        organizationId,
+        "Test Project",
+        projectId,
+        fixture.member.userId,
+        Date.now(),
+      ],
+    });
+    await db.query({
+      text: "INSERT INTO \"openmeld\".\"openmeld_profiles\" (profile_id, profile_name, profile_handle, profile_kind, is_default, status, organization_id, owner_user_id, created_by_user_id, source, created_at, updated_at, default_project_id) VALUES ($1, $2, $3, 'agent', 0, 'active', $4, $5, $5, 'cli_create', $6, $6, $7)",
+      values: [
+        agentProfileId,
+        "Member Agent",
+        agentProfileId,
+        organizationId,
+        fixture.member.userId,
+        Date.now(),
+        projectId,
+      ],
+    });
+    await ensurePrimaryAgentProfileBindingRecord({
+      db,
+      record: {
+        agentProfileId,
+        bindingId: `binding-${crypto.randomUUID()}`,
+        agentControllerRef: "builtin:codex",
+        createdAtMs: Date.now(),
+        updatedAtMs: Date.now(),
+        owner: { id: fixture.member.userId, kind: "owner_account" },
+        openMeldServiceRuntimeId: fixture.member.runtimeId,
+      },
+    });
+    const profile = {
+      profileId: agentProfileId,
+      profileKind: "agent" as const,
+      profileName: "Member Agent",
+      profileHandle: "member-agent",
+      ownerUserId: fixture.member.userId,
+      organizationId,
+      defaultProjectId: projectId,
+      status: "active" as const,
+    };
+    const auth: NonNullable<CoreBindings["OPENMELD_AUTH_WORKER"]> = {
+      resolveProfileById: vi.fn(async () => ({ ok: true as const, profile })),
+      resolveProfilesByIds: vi.fn(async () => ({
+        ok: true as const,
+        profiles: { [agentProfileId]: profile },
+      })),
+      updateAgentProfileDefaultProjectInOrganization: vi.fn(async () => ({
+        ok: true as const,
+        profile: {
+          openMeldProfileId: agentProfileId,
+          profileName: profile.profileName,
+          profileHandle: profile.profileHandle,
+          profileKind: "agent" as const,
+          isDefault: false,
+          status: "active" as const,
+          ownerUserId: fixture.member.userId,
+          organizationId,
+          defaultProjectId: null,
+          source: "cli_create",
+          managedRole: null,
+          createdByUserId: fixture.member.userId,
+          creatorProfileId: fixture.member.profileId,
+          lastUsedAt: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      })),
+    };
+    const transport = await import(
+      "../src/dispatch/infrastructure/runtime-transport/runtime-transport-client"
+    );
+    const service: RuntimeTransportLookupOwnerServiceResponse = {
+      online: true,
+      sessions: [
+        {
+          daemonSessionId: "member-service",
+          deviceId:
+            state === "wrong_device"
+              ? fixture.owner.deviceId
+              : fixture.member.deviceId,
+          lane: "prod",
+          connectionGeneration: 1,
+          lastHeartbeatMs: Date.now(),
+          serviceVersion: "0.3.250",
+          capabilities: {
+            localAgentControl: { setProfileWorkspace: true },
+            localProjectControl: {
+              discoverProjects: true,
+              ...(state === "old_service" ? {} : { readConnections: true }),
+            },
+          },
+          executionCompatibility: {
+            status: "compatible",
+            expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+            observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+            reasonCode: "daemon.runtime_contract.compatible",
+          },
+        },
+      ],
+    };
+    vi.spyOn(transport, "lookupRuntimeTransportOwnerService").mockResolvedValue(
+      service
+    );
+    const discover = vi
+      .spyOn(transport, "discoverRuntimeTransportProjects")
+      .mockResolvedValue({
+        requestId: "project-read",
+        clientGeneration: 0,
+        deviceId: fixture.member.deviceId,
+        checkedAtMs: 5000,
+        gitStatus: "not_checked",
+        projects: [
+          {
+            projectId,
+            status:
+              state === "missing" ? "connected_folder_missing" : "connected",
+            candidates: [],
+            connections: [
+              {
+                bindingGeneration: "connection-generation-1",
+                path: "/private/member/project",
+                isDefault: true,
+                status: state === "missing" ? "missing" : "available",
+              },
+            ],
+          },
+        ],
+      });
+    const response = await rpcCenterAgentCheckAgentProfileReadiness(
+      { ...fixture.coreEnv, OPENMELD_AUTH_WORKER: auth },
+      {
+        agentProfileId,
+        context: fixture.context,
+        includeDefaultProjectConnection: true,
+        onBehalfOf: { profileId: fixture.member.profileId },
+      }
+    );
+    expect(response.defaultProjectConnection).toMatchObject({
+      projectId,
+      target: { deviceId: fixture.member.deviceId, runtimeLane: "prod" },
+    });
+    expect(JSON.stringify(response)).not.toContain("/private/member/project");
+    expect(JSON.stringify(response)).not.toContain(fixture.owner.deviceId);
+    if (state === "old_service" || state === "wrong_device") {
+      expect(response.defaultProjectConnection).toMatchObject({
+        status: "unavailable",
+        reasonCode:
+          state === "old_service"
+            ? "service_update_required"
+            : "computer.target_disconnected",
+        configurationVersion: null,
+      });
+      expect(discover).not.toHaveBeenCalled();
+    } else {
+      expect(response.defaultProjectConnection).toMatchObject({
+        status: state === "missing" ? "folder_missing" : "connected",
+        configurationVersion: "connection-generation-1",
+        checkedAtMs: 5000,
+      });
+      expect(discover).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deviceId: fixture.member.deviceId,
+          runtimeLane: "prod",
+          ownerUserId: fixture.member.userId,
+          request: expect.objectContaining({
+            includeCandidates: false,
+            projects: [{ projectId, repositoryFingerprint: null }],
+          }),
+        })
+      );
+    }
+    const legacy = await rpcCenterAgentCheckAgentProfileReadiness(
+      { ...fixture.coreEnv, OPENMELD_AUTH_WORKER: auth },
+      {
+        agentProfileId,
+        context: fixture.context,
+        onBehalfOf: { profileId: fixture.member.profileId },
+      }
+    );
+    expect(legacy).not.toHaveProperty("defaultProjectConnection");
+    if (state === "missing" || state === "old_service") {
+      return;
+    }
+    const switchBinding = async () => {
+      const switched = await reconnectPrimaryAgentProfileBindingRecord({
+        db,
+        acquireExecutionTargetMutationAdmission: async () => undefined,
+        record: {
+          agentProfileId,
+          bindingId: `binding-${crypto.randomUUID()}`,
+          agentControllerRef: "builtin:codex",
+          createdAtMs: Date.now(),
+          updatedAtMs: Date.now(),
+          owner: { id: fixture.member.userId, kind: "owner_account" },
+          openMeldServiceRuntimeId: `${fixture.member.runtimeId}-second`,
+        },
+      });
+      expect(switched.status).toBe("accepted");
+    };
+    // Both interleavings use the actual canonical Binding writer. The second
+    // owned Computer is fixture data; no old/new target is synthesized by RPC.
+    if (state.startsWith("binding_changed")) {
+      await db.query({
+        text: "INSERT INTO \"openmeld\".\"openMeldDaemon_runtime_registry_records\" (openmeld_service_runtime_id, owner_kind, owner_id, device_id, lane, created_at_ms, last_registered_at_ms, updated_at_ms) VALUES ($1, 'owner_account', $2, $3, 'prod', $4, $4, $4)",
+        values: [
+          `${fixture.member.runtimeId}-second`,
+          fixture.member.userId,
+          `${fixture.member.deviceId}-second`,
+          Date.now(),
+        ],
+      });
+    }
+    vi.spyOn(
+      transport,
+      "acquireRuntimeTransportAgentProfileExecutionTargetMutation"
+    ).mockImplementation(async ({ operationId }) => {
+      if (state === "binding_changed_before_admission") {
+        await switchBinding();
+      }
+      return {
+        status: "acquired",
+        operationId,
+        expiresAtMs: Date.now() + 60_000,
+      };
+    });
+    vi.spyOn(
+      transport,
+      "acquireRuntimeTransportAgentProfileFutureWorkSettingsMutation"
+    ).mockImplementation(async ({ operationId }) => {
+      if (state === "binding_changed_before_project_clear") {
+        await switchBinding();
+      }
+      return {
+        status: "acquired",
+        operationId,
+        expiresAtMs: Date.now() + 60_000,
+      };
+    });
+    const release = vi
+      .spyOn(
+        transport,
+        "releaseRuntimeTransportAgentProfileExecutionTargetMutation"
+      )
+      .mockResolvedValue({ status: "released" });
+    const save = vi
+      .spyOn(transport, "setRuntimeTransportProfileWorkspace")
+      .mockResolvedValue({
+        status: "accepted",
+        payload: {
+          accepted: true,
+          status: "updated",
+          targetProfileId: agentProfileId,
+          workspaceMode: "openmeld_managed",
+          workspacePath: "/private/member/managed",
+        },
+      });
+    if (viaWeb) {
+      const expectedBindingTarget = await readPrimaryAgentProfileBindingRecord({
+        agentProfileId,
+        db,
+        owner: { id: fixture.member.userId, kind: "owner_account" },
+      });
+      if (!expectedBindingTarget) {
+        throw new Error("Missing canonical fixture Binding");
+      }
+      const expected = {
+        bindingId: expectedBindingTarget.bindingId,
+        agentControllerRef: expectedBindingTarget.agentControllerRef,
+        agentControllerConversationId:
+          expectedBindingTarget.agentControllerConversationId ?? null,
+        openMeldServiceRuntimeId:
+          expectedBindingTarget.openMeldServiceRuntimeId,
+      };
+      const context: OpenMeldRequestContext = {
+        activeOrganizationId: organizationId,
+        actorContext: {
+          callerPrincipalId: fixture.member.userId,
+          ownerUserId: fixture.member.userId,
+          openMeldProfileId: fixture.member.profileId,
+          profileKind: "human",
+          profileName: "Member",
+          requestId: crypto.randomUUID(),
+        },
+      };
+      const webEnv = { ...fixture.coreEnv, OPENMELD_AUTH_WORKER: auth };
+      const firstWrite = rpcSetBoundPeopleComputerAgentProfileWorkspace(
+        webEnv,
+        {
+          agentProfileId,
+          context,
+          deviceId: fixture.member.deviceId,
+          runtimeLane: "prod",
+          expectedBindingTarget: expected,
+          workspaceMode: "openmeld_managed",
+        }
+      );
+      if (state === "binding_changed_before_admission") {
+        await expect(firstWrite).rejects.toThrow(
+          "agent_profile_binding.target_changed"
+        );
+        expect(save).not.toHaveBeenCalled();
+      } else {
+        await expect(firstWrite).resolves.toMatchObject({
+          agentProfileId,
+          status: "updated",
+        });
+        expect(save).toHaveBeenCalledWith(
+          expect.objectContaining({
+            deviceId: fixture.member.deviceId,
+            targetProfileId: agentProfileId,
+          })
+        );
+        await expect(
+          rpcUpdateBoundAgentProfileDefaultProject(webEnv, {
+            agentProfileId,
+            context,
+            expectedOrganizationId: organizationId,
+            expectedBindingTarget: expected,
+            defaultProjectId: null,
+          })
+        ).rejects.toThrow("agent_profile_binding.target_changed");
+      }
+      expect(
+        auth.updateAgentProfileDefaultProjectInOrganization
+      ).not.toHaveBeenCalled();
+      expect(release).toHaveBeenCalledTimes(
+        state === "binding_changed_before_admission" ? 1 : 2
+      );
+      return;
+    }
+    if (legacyCaller) {
+      const bindingBefore = await readPrimaryAgentProfileBindingRecord({
+        agentProfileId,
+        db,
+        owner: { id: fixture.member.userId, kind: "owner_account" },
+      });
+      await expect(
+        rpcCenterAgentUpdateAgentProfileRuntimeSettings(
+          { ...fixture.coreEnv, OPENMELD_AUTH_WORKER: auth },
+          {
+            agentProfileId,
+            context: fixture.context,
+            onBehalfOf: { profileId: fixture.member.profileId },
+            workspaceMode: "openmeld_managed",
+            ...(stateName === "old_remote_combined"
+              ? {
+                  agentControllerCollaborationMode: "codex:plan" as const,
+                  agentControllerPermissionMode: "codex:approveForMe" as const,
+                  modelId: "gpt-6.1-sol",
+                  reasoningLevel: "high",
+                }
+              : {}),
+          }
+        )
+      ).rejects.toThrow("center_agent.workspace_contract_update_required");
+      expect(save).not.toHaveBeenCalled();
+      expect(
+        auth.updateAgentProfileDefaultProjectInOrganization
+      ).not.toHaveBeenCalled();
+      expect(
+        await readPrimaryAgentProfileBindingRecord({
+          agentProfileId,
+          db,
+          owner: { id: fixture.member.userId, kind: "owner_account" },
+        })
+      ).toEqual(bindingBefore);
+      return;
+    }
+    const update =
+      await rpcCenterAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace(
+        { ...fixture.coreEnv, OPENMELD_AUTH_WORKER: auth },
+        {
+          agentProfileId,
+          context: fixture.context,
+          onBehalfOf: { profileId: fixture.member.profileId },
+          workspaceMode: "openmeld_managed",
+        }
+      );
+    expect(JSON.stringify(update)).not.toContain("/private/member/managed");
+    if (
+      state === "wrong_device" ||
+      state === "binding_changed_before_admission"
+    ) {
+      expect(update.status).toBe("blocked");
+      expect(save).not.toHaveBeenCalled();
+      expect(
+        auth.updateAgentProfileDefaultProjectInOrganization
+      ).not.toHaveBeenCalled();
+      if (state === "binding_changed_before_admission") {
+        expect(update.steps).toContainEqual(
+          expect.objectContaining({
+            name: "update_agent_profile_workspace",
+            reasonCode: "agent_profile_binding.target_changed",
+            status: "failed",
+          })
+        );
+        expect(release).toHaveBeenCalled();
+      }
+    } else {
+      expect(update.workspace).toEqual({
+        agentProfileId,
+        status: "updated",
+        target: { deviceId: fixture.member.deviceId, runtimeLane: "prod" },
+        configurationVersion: null,
+      });
+      expect(save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deviceId: fixture.member.deviceId,
+          runtimeLane: "prod",
+          ownerUserId: fixture.member.userId,
+          targetProfileId: agentProfileId,
+          workspaceMode: "openmeld_managed",
+        })
+      );
+      if (state === "binding_changed_before_project_clear") {
+        expect(update.status).toBe("blocked");
+        expect(update.steps).toContainEqual(
+          expect.objectContaining({
+            name: "update_agent_profile_workspace",
+            status: "completed",
+          })
+        );
+        expect(update.steps).toContainEqual(
+          expect.objectContaining({
+            name: "update_agent_profile_default_project",
+            reasonCode: "agent_profile_binding.target_changed",
+            status: "failed",
+          })
+        );
+        expect(
+          auth.updateAgentProfileDefaultProjectInOrganization
+        ).not.toHaveBeenCalled();
+        expect(release).toHaveBeenCalledTimes(2);
+        return;
+      }
+      expect(
+        auth.updateAgentProfileDefaultProjectInOrganization
+      ).toHaveBeenCalledWith({
+        profileId: agentProfileId,
+        ownerUserId: fixture.member.userId,
+        organizationId,
+        defaultProjectId: null,
+      });
+      expect(update.steps).toContainEqual(
+        expect.objectContaining({
+          name: "update_agent_profile_default_project",
+          status: "completed",
+        })
+      );
+    }
+  });
   it("reads readiness as the represented owner and rejects missing, revoked or different owners", async () => {
     const fixture = await seedFixture();
     const agentProfileId = `agt_${crypto.randomUUID()}`;

@@ -1,5 +1,8 @@
 import type { PostgresDatabase } from "@openmeld/db/postgresql";
-import { pluginAccessPolicySchema } from "@openmeld/schemas";
+import {
+  connectorConnectionScopeAllowed,
+  pluginAccessPolicySchema,
+} from "@openmeld/schemas";
 import type {
   ConnectorConnectionPreference,
   ConnectorService,
@@ -12,6 +15,7 @@ import {
   requireConnectorConnectionForExecution,
   selectActiveConnectorConnection,
 } from "./connector-connection-repository";
+import { requirePluginConnectionScope } from "./connector-connection-scope";
 export async function requireRemotePluginConnection(input: {
   db: PostgresDatabase;
   organizationId: string;
@@ -48,6 +52,7 @@ type ConnectionAccessRow = {
   access_policy: string | null;
   access_revision: number;
   scope: "member" | "shared";
+  service: string;
 };
 // A legacy absent policy preserves shipped authority, including the shared-only
 // personal Remote Agent boundary. New registrations persist explicit all-none;
@@ -116,9 +121,18 @@ export async function readPluginAccess(input: {
   connectionName: string;
   activeOnly?: boolean;
 }) {
+  const { policy, revision } = await readConnectionAccess(input);
+  return { policy, revision };
+}
+async function readConnectionAccess(input: {
+  db: PostgresDatabase;
+  organizationId: string;
+  connectionName: string;
+  activeOnly?: boolean;
+}) {
   const row = await input.db
     .query<ConnectionAccessRow>({
-      text: 'SELECT access_policy, access_revision, scope FROM "openmeld"."connector_connections" WHERE organization_id = $1 AND connection_name = $2 AND ($3 = 0 OR status = \'active\')',
+      text: 'SELECT access_policy, access_revision, scope, service FROM "openmeld"."connector_connections" WHERE organization_id = $1 AND connection_name = $2 AND ($3 = 0 OR status = \'active\')',
       values: [
         input.organizationId,
         input.connectionName,
@@ -133,9 +147,19 @@ export async function readPluginAccess(input: {
       status: 404,
     });
   }
+  const storedPolicy = resolvePluginAccessPolicy(row.scope, row.access_policy);
   return {
-    policy: resolvePluginAccessPolicy(row.scope, row.access_policy),
+    policy: connectorConnectionScopeAllowed(row.service, row.scope)
+      ? storedPolicy
+      : ({
+          center_agent: "none",
+          local_agent: "none",
+          remote_agent: "none",
+        } as PluginAccessPolicy),
+    storedPolicy,
     revision: row.access_revision,
+    scope: row.scope,
+    service: row.service,
   };
 }
 export async function requirePluginPermission(input: {
@@ -166,7 +190,10 @@ export async function updatePluginAccess(input: {
   expectedRevision: number;
   policy: PluginAccessPolicy;
 }) {
-  const previous = await readPluginAccess({ ...input, activeOnly: true });
+  const previous = await readConnectionAccess({ ...input, activeOnly: true });
+  if (Object.values(input.policy).some((permission) => permission !== "none")) {
+    requirePluginConnectionScope(previous.service, previous.scope);
+  }
   if (previous.revision !== input.expectedRevision) {
     throw accessConflict();
   }
@@ -184,7 +211,7 @@ export async function updatePluginAccess(input: {
             id,
             input.actorProfileId,
             input.actorUserId,
-            JSON.stringify(previous.policy),
+            JSON.stringify(previous.storedPolicy),
             policy,
             Date.now(),
             input.organizationId,

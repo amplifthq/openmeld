@@ -1,1 +1,0 @@
-function s(e){const r=n(e.cause);return r===void 0?new Error(e.message):new Error(e.message,{cause:r})}function n(e){if(e instanceof Error)return e;if(e===void 0)return;const r=String(e).trim();if(r.length!==0)return new Error(r)}export{s as c};

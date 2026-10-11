@@ -17,9 +17,32 @@ export const executionContextAccessSchema = z.enum([
   "workspace",
 ]);
 const workspace = z.enum(["current", "isolated"]);
+// Read-only projection of the Core-owned assignment. It contains no native
+// conversation, filesystem path, credential, or authority to start work.
+export const executionContextDiagnosticsSchema = z.discriminatedUnion(
+  "readStatus",
+  [
+    z.strictObject({
+      readStatus: z.literal("found"),
+      contextId: z.string().uuid().nullable(),
+      access: executionContextAccessSchema,
+      permissionSource: z.enum(["agent_settings", "context_restriction"]),
+      workspace,
+    }),
+    z.strictObject({
+      readStatus: z.enum(["not_recorded", "authority_unavailable"]),
+      reasonCode: z.string().trim().min(1).max(160),
+    }),
+  ]
+);
 export const executionContextProjectWorkSchema = z.strictObject({
   projectId: reference,
   repositoryFingerprint: repositoryFingerprintSchema,
+  // A complete published object id, never a moving branch or a sender-local path.
+  commit: z
+    .string()
+    .regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u)
+    .optional(),
 });
 const preferences = {
   access: executionContextAccessSchema.optional(),

@@ -28,8 +28,10 @@ import {
   organizationMemberPresenceWriteResponseSchema,
   organizationMemberWebActivityResponseSchema,
   organizationProfileDirectoryResponseSchema,
+  organizationSpaceDirectoryQuerySchema,
   organizationSpaceDirectoryResponseSchema,
   organizationSpaceDirectoryWithMemberCountsResponseSchema,
+  retryAgentProfileCreationRequestBodySchema,
   setAgentProfileCreationApprovalPreferenceBodySchema,
   setAgentProfileCreationApprovalPreferenceResponseSchema,
   setAgentProfileCreationDefaultsBodySchema,
@@ -228,17 +230,40 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
     })
   );
 
-  app.post(AGENT_PROFILE_CREATION_REQUEST_RETRY_ROUTE, (c) =>
-    executeCreationRequestMutation({
+  app.post(AGENT_PROFILE_CREATION_REQUEST_RETRY_ROUTE, async (c) => {
+    const bodyResult = await readJsonRequestBody(c.req.raw);
+    if (!bodyResult.ok) {
+      return respondBadRequest({
+        c,
+        code: "invalid_json",
+        message: bodyResult.message,
+        method: "POST",
+        route: AGENT_PROFILE_CREATION_REQUEST_RETRY_ROUTE,
+      });
+    }
+    const body = retryAgentProfileCreationRequestBodySchema.safeParse(
+      bodyResult.value ?? {}
+    );
+    if (!body.success) {
+      return respondBadRequest({
+        c,
+        code: "invalid_payload",
+        message: body.error.issues[0]?.message ?? "Invalid setup correction.",
+        method: "POST",
+        route: AGENT_PROFILE_CREATION_REQUEST_RETRY_ROUTE,
+      });
+    }
+    return executeCreationRequestMutation({
       c,
       execute: async (identifiers) =>
         await c.var.coreRpc.retryAgentProfileCreationRequest({
           ...identifiers,
+          ...body.data,
           context: buildCoreRpcContext(c),
         }),
       route: AGENT_PROFILE_CREATION_REQUEST_RETRY_ROUTE,
-    })
-  );
+    });
+  });
 
   app.get(AGENT_PROFILE_CREATION_APPROVAL_PREFERENCE_ROUTE, (c) => {
     const organizationId = c.req.param("organizationId")?.trim();
@@ -562,6 +587,7 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
         await c.var.coreRpc.getCurrentOrganizationSpaceDirectoryWithMemberCounts(
           {
             context: buildCoreRpcContext(c),
+            ...organizationSpaceDirectoryQuerySchema.parse(c.req.query()),
           }
         ),
     })

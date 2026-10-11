@@ -38,7 +38,9 @@ const RELEASE_SCOPES_FOR_TEST = [
   "remote-agent",
 ];
 const BLOCKED_STATE_REGEX = /Deployment state \(global-backlog\): blocked/u;
-const READY_STATE_REGEX = /Deployment state \(global-backlog\): ready/u;
+const READY_STATE_REGEX =
+  /Deployment state \(global-backlog\): incomplete — ready to deploy remaining components/u;
+const OVERRIDE_COMPLETION_ERROR = /overrides cannot certify/u;
 const FULL_PENDING_SCOPES_REGEX =
   /Global pending scopes: db, web, gateway, auth, cli, core, remote-agent/u;
 const PUSH_GUARD_FAILURE_REGEX = /Historical Push Guard: failure/u;
@@ -396,6 +398,41 @@ test("separates the exact current-change scopes from the global deployment backl
   assert.deepEqual(result.globalPendingScopes, RELEASE_SCOPES_FOR_TEST);
   assert.equal(result.scopeBasis, "current-change");
   assert.match(result.workflowMapping, WEB_SCOPE_PATTERN);
+  assert.equal(
+    await runProductionReleaseStatus({
+      argv: ["--change-base", "change-base", "--check-complete", "--json"],
+      collectStatus: async () => result,
+      write: () => undefined,
+    }),
+    1,
+    "a deployable but unfinished Web release must not pass closeout"
+  );
+  assert.equal(
+    await runProductionReleaseStatus({
+      argv: ["--change-base", "change-base", "--check-complete", "--json"],
+      collectStatus: async () => ({
+        ...result,
+        state: "current",
+        currentChange: { ...result.currentChange, pendingScopes: [] },
+      }),
+      write: () => undefined,
+    }),
+    0,
+    "unrelated global backlog must not require a fleet release"
+  );
+  await assert.rejects(
+    runProductionReleaseStatus({
+      argv: [
+        "--change-base",
+        "change-base",
+        "--check-complete",
+        "--deployed",
+        `web=${SOURCE_SHA}`,
+      ],
+      write: () => undefined,
+    }),
+    OVERRIDE_COMPLETION_ERROR
+  );
 });
 
 test("does not block one current-change scope on unrelated missing deployment history", async () => {

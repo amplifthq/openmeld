@@ -17,6 +17,7 @@ import type {
   AuthRpcResolveUserDisplayNameResult,
   AuthRpcSendInboxUrgentEmailInput,
   AuthRpcSendInboxUrgentEmailResult,
+  AuthRpcUpdateAgentProfileDefaultProjectInput,
   EnsureMessageChannelMemberOrganizationMembershipRpcInput,
   EnsureMessageChannelMemberOrganizationMembershipRpcResponse,
   EnsureOrganizationJoinLinkOnBehalfOfRpcInput,
@@ -104,12 +105,12 @@ type CoreAuthDispatchBindingRpc = {
     avatarOptions?: import("@openmeld/schemas/types").AuthProfileView["avatarOptions"];
     expectedAvatarOptions?: import("@openmeld/schemas/types").AuthProfileView["avatarOptions"];
   }): Promise<AuthAgentProfileRpcResult>;
-  updateAgentProfileDefaultProjectInOrganization?(input: {
-    defaultProjectId: string | null;
-    organizationId?: string | null;
-    ownerUserId?: string | null;
-    profileId?: string | null;
-  }): Promise<AuthAgentProfileRpcResult>;
+  updateAgentProfileDefaultProjectInOrganization?(
+    input: AuthRpcUpdateAgentProfileDefaultProjectInput
+  ): Promise<AuthAgentProfileRpcResult>;
+  initializeAgentProfileDefaultProjectInOrganization?(
+    input: AuthRpcUpdateAgentProfileDefaultProjectInput
+  ): Promise<AuthAgentProfileRpcResult>;
   listProfileLineage?(input: { ownerUserId?: string | null }): Promise<
     | {
         ok: true;

@@ -30,6 +30,7 @@ export function resolveHumanSpaceSelfJoinUserId(input: {
 
 export function allowsExternalSpaceLinkJoin(meta: SpaceMetaRecord): boolean {
   return (
+    !meta.deletedAt &&
     meta.allowGuests === true &&
     meta.accessMode !== "members_only" &&
     resolveSpaceMetaLinkJoinPolicy(meta) !== "invite_only" &&
@@ -44,6 +45,7 @@ export function resolveOrganizationSpaceSelfJoinUserId(input: {
   meta: SpaceMetaRecord;
 }): string | null {
   if (
+    input.meta.deletedAt ||
     !resolveSpaceAccess({
       visibility: input.meta.visibility,
       accessMode: "members_only",

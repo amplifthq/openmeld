@@ -345,6 +345,8 @@ const serviceNotConnectedReasonCodes = [
 ] as const;
 
 const workspaceUnavailableReasonCodes = new Set([
+  "workspace.invalid",
+  "workspace.missing",
   "agent_profile.organization_context_missing",
   "agent_profile.organization_lookup_failed",
   "agent_profile.space_organization_unavailable",
@@ -962,25 +964,14 @@ function createUnavailableWakeAvailability(
       reasonCode.startsWith("project.local_connection.")
   );
   if (workspaceUnavailableReasonCode) {
-    const workingFolderMissing =
-      workspaceUnavailableReasonCode === "workspace.missing" ||
-      workspaceUnavailableReasonCode === "profile.workspace.missing" ||
-      workspaceUnavailableReasonCode === "project.local_connection.missing" ||
-      workspaceUnavailableReasonCode ===
-        "project.local_connection.folder_missing";
+    const copy = resolvePublicAgentAvailabilityCopy(
+      workspaceUnavailableReasonCode
+    );
     return createAvailability(readiness, {
-      ...(workingFolderMissing
-        ? {
-            badgeLabel: "Working folder missing",
-            summary: "Choose a working folder for this Agent.",
-            tooltip: "Working folder missing",
-          }
-        : unavailableWakeAvailabilityFallbackCopy),
+      ...unavailableWakeAvailabilityFallbackCopy,
       category: "unavailable",
       isRefreshing: false,
-      label: workingFolderMissing
-        ? "Working folder missing"
-        : "Workspace unavailable",
+      label: copy?.availabilityBadgeLabel ?? "Workspace unavailable",
       phase: "unavailable",
       reasonCode: workspaceUnavailableReasonCode,
       status: "unavailable_for_wake",

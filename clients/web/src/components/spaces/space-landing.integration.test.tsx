@@ -24,6 +24,7 @@ import type {
 	CreateAgentProfileCreationRequestResponse,
 	CreateSpaceThreadResponse,
 	GetSpaceStatusResponse,
+	ListSpaceTasksResponse,
 	OrganizationAgentRuntimeOverviewResponse,
 	OrganizationDirectoryResponse,
 	SignalEnvelope,
@@ -251,7 +252,6 @@ const {
 	createWebSpaceApiMock,
 	prepareSpaceImageAttachmentMock,
 	ensureWebAgentProfileRuntimeBindingMock,
-	removeDeletedSpaceFromAccountHistoryMock,
 	rememberProtectedSpaceAccessMock,
 	updateProfileSpaceHistoryStatusMock,
 	upsertProfileSpaceHistoryMock,
@@ -276,7 +276,6 @@ const {
 	createWebSpaceApiMock: vi.fn(),
 	prepareSpaceImageAttachmentMock: vi.fn(),
 	ensureWebAgentProfileRuntimeBindingMock: vi.fn(),
-	removeDeletedSpaceFromAccountHistoryMock: vi.fn(),
 	rememberProtectedSpaceAccessMock: vi.fn(),
 	updateProfileSpaceHistoryStatusMock: vi.fn(),
 	upsertProfileSpaceHistoryMock: vi.fn(),
@@ -490,11 +489,6 @@ vi.mock("#/lib/spaces/image-attachment", () => ({
 
 vi.mock("#/lib/spaces/protected-space-access", () => ({
 	rememberProtectedSpaceAccess: rememberProtectedSpaceAccessMock,
-}));
-
-vi.mock("#/lib/spaces/delete-space-history-cleanup", () => ({
-	removeDeletedSpaceFromAccountHistory:
-		removeDeletedSpaceFromAccountHistoryMock,
 }));
 
 vi.mock("#/lib/onboarding/update-profile-space-history-status", () => ({
@@ -974,9 +968,6 @@ describe("SpaceLanding", () => {
 			updatedAt: "2026-04-29T00:00:00.000Z",
 		});
 		upsertProfileSpaceHistoryMock.mockReset().mockResolvedValue([]);
-		removeDeletedSpaceFromAccountHistoryMock.mockReset().mockResolvedValue({
-			updatedProfileIds: [DEFAULT_SPACE_PROFILE_ID],
-		});
 		notifyAgentExecutionReadinessRefreshMock
 			.mockReset()
 			.mockResolvedValue(undefined);
@@ -3222,9 +3213,12 @@ describe("SpaceLanding", () => {
 			queryKey: ["space-files", "space-123"],
 		});
 		expect(invalidateQueriesMock).toHaveBeenCalledWith({
+			queryKey: ["spaces", "bootstrap", "space-123"],
+		});
+		expect(invalidateQueriesMock).not.toHaveBeenCalledWith({
 			queryKey: ["spaces", "status", "space-123", DEFAULT_SPACE_PROFILE_ID],
 		});
-		expect(invalidateQueriesMock).toHaveBeenCalledWith({
+		expect(invalidateQueriesMock).not.toHaveBeenCalledWith({
 			queryKey: ["spaces", "members", "space-123", DEFAULT_SPACE_PROFILE_ID],
 		});
 		expect(invalidateQueriesMock).toHaveBeenCalledWith({
@@ -3232,7 +3226,7 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("shows creator-forbidden leave errors without navigating away", async () => {
+	it("reports refused Leave after optimistically returning to the list", async () => {
 		const leaveSpaceMock = vi.fn().mockRejectedValue({
 			code: "space.leave_space.creator_forbidden",
 			message:
@@ -3270,15 +3264,21 @@ describe("SpaceLanding", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Leave space" }));
 		fireEvent.click(screen.getByRole("button", { name: "Confirm leave" }));
 
-		expect(
-			await screen.findByText(
-				"The space creator cannot leave this space. Delete the space instead when only you remain."
+		await waitFor(() =>
+			expect(toastMock.error).toHaveBeenCalledWith(
+				"Leave failed: The space creator cannot leave this space. Delete the space instead when only you remain."
 			)
-		).toBeTruthy();
-		expect(useNavigateMock).not.toHaveBeenCalled();
+		);
+		expect(useNavigateMock).toHaveBeenCalledWith({
+			to: "/o/acme/spaces",
+			replace: true,
+		});
+		expect(useNavigateMock.mock.invocationCallOrder[0]).toBeLessThan(
+			leaveSpaceMock.mock.invocationCallOrder[0]
+		);
 	});
 
-	it("navigates away before delete finishes, then cleans account space history", async () => {
+	it("navigates away before delete finishes and retains account space history", async () => {
 		let finishDelete!: (value: { deleted: true; spaceId: string }) => void;
 		const pendingDelete = new Promise<{ deleted: true; spaceId: string }>(
 			(resolve) => {
@@ -3336,7 +3336,7 @@ describe("SpaceLanding", () => {
 		fireEvent.change(screen.getByLabelText(DELETE_CONFIRMATION_LABEL_TEXT), {
 			target: { value: "DELETE" },
 		});
-		fireEvent.click(screen.getByRole("button", { name: "Delete permanently" }));
+		fireEvent.click(screen.getByRole("button", { name: "Delete Space" }));
 
 		await waitFor(() => {
 			expect(deleteSpaceMock).toHaveBeenCalledOnce();
@@ -3347,16 +3347,11 @@ describe("SpaceLanding", () => {
 				replace: true,
 			});
 		});
-		expect(removeDeletedSpaceFromAccountHistoryMock).not.toHaveBeenCalled();
+		expect(updateProfileSpaceHistoryStatusMock).not.toHaveBeenCalled();
 		expect(removeQueriesMock).not.toHaveBeenCalled();
 		finishDelete({ deleted: true, spaceId: "space-123" });
-		await waitFor(() => {
-			expect(removeDeletedSpaceFromAccountHistoryMock).toHaveBeenCalledWith({
-				currentProfileId: DEFAULT_SPACE_PROFILE_ID,
-				reason: "deleted_space",
-				spaceId: "space-123",
-			});
-		});
+		await waitFor(() => expect(invalidateQueriesMock).toHaveBeenCalled());
+		expect(updateProfileSpaceHistoryStatusMock).not.toHaveBeenCalled();
 		expect(cancelQueriesMock).toHaveBeenCalledWith(
 			{ queryKey: ["space-files", "space-123"] },
 			{ revert: false }
@@ -3378,7 +3373,7 @@ describe("SpaceLanding", () => {
 	it("restores a failed delete after optimistic navigation", async () => {
 		const deleteSpaceMock = vi.fn().mockRejectedValue({
 			code: "space.forbidden",
-			message: "only space creator can delete this space",
+			message: "Only a Space Owner can delete this Space.",
 		});
 		createWebSpaceApiMock.mockReturnValue({
 			deleteSpace: deleteSpaceMock,
@@ -3416,18 +3411,18 @@ describe("SpaceLanding", () => {
 		fireEvent.change(screen.getByLabelText(DELETE_CONFIRMATION_LABEL_TEXT), {
 			target: { value: "DELETE" },
 		});
-		fireEvent.click(screen.getByRole("button", { name: "Delete permanently" }));
+		fireEvent.click(screen.getByRole("button", { name: "Delete Space" }));
 
 		await waitFor(() => {
 			expect(toastMock.error).toHaveBeenCalledWith(
-				"Delete failed: Only the space creator can delete this space.",
+				"Delete failed: Only a Space Owner can delete this Space.",
 				expect.objectContaining({
 					duration: Number.POSITIVE_INFINITY,
 					action: { label: "Open Space", onClick: expect.any(Function) },
 				})
 			);
 		});
-		expect(removeDeletedSpaceFromAccountHistoryMock).not.toHaveBeenCalled();
+		expect(updateProfileSpaceHistoryStatusMock).not.toHaveBeenCalled();
 		expect(useNavigateMock).toHaveBeenCalledWith({
 			to: "/o/acme/spaces",
 			replace: true,
@@ -3860,6 +3855,117 @@ describe("SpaceLanding", () => {
 			});
 			await detailedWakeProgress;
 		});
+	});
+
+	it("queues a Thread follow-up from Core's active-task projection without a local progress cache", async () => {
+		const root = createTextSignal({
+			id: "thread-root",
+			text: "Review the release",
+		});
+		const source = createTextSignal({
+			id: "thread-source",
+			text: "Check the build",
+		});
+		const item = createWakeProgressItem({
+			clientMessageId: "thread-request",
+			dispatchId: "thread-dispatch",
+			phase: "running",
+			sourceSignalId: source.id,
+			targetLabel: "Center Agent",
+			targetProfileId: DEFAULT_AGENT_PROFILE_ID,
+			updatedAtMs: RECENT_ACTIVITY_TS + 10,
+			sourceContext: {
+				profileId: DEFAULT_SPACE_PROFILE_ID,
+				profileKind: "human",
+				profileName: "Mira",
+				messagePreview: "Check the build",
+				threadId: "thread-1",
+			},
+		});
+		const postThreadSignal = vi.fn();
+		vi.mocked(readOrUpdateSpaceInputQueue).mockResolvedValue({
+			items: [],
+			conversationContextIncluded: true,
+		});
+		createWebSpaceApiMock.mockReturnValue({
+			postThreadSignal,
+			getUpdates: vi.fn().mockResolvedValue({ signals: [] }),
+		});
+		mockSpaceQueries({
+			centerAgentProfileId: DEFAULT_AGENT_PROFILE_ID,
+			activeWakeProgressSummary: createQueryResult({
+				isSuccess: true,
+				isFetchedAfterMount: true,
+				data: {
+					items: [item],
+					get presentationEpoch() {
+						return wakeProgressFixture.presentationEpoch;
+					},
+					query: { spaceId: "space-123", targetProfileId: null },
+				},
+			}),
+			status: createQueryResult({ isSuccess: true, data: createSpaceStatus() }),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot({
+					defaultAgentControllerRef: "hosted:center-agent",
+				}),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [root], nextCursor: null },
+			}),
+			threadSignals: createQueryResult({
+				isSuccess: true,
+				data: { signals: [root, source] },
+			}),
+			threads: createQueryResult({
+				isSuccess: true,
+				data: {
+					threads: [
+						{
+							createdAt: "2026-04-11T00:00:00.000Z",
+							createdByProfileId: DEFAULT_SPACE_PROFILE_ID,
+							rootSignalId: root.id,
+							spaceId: "space-123",
+							threadId: "thread-1",
+							updatedAt: "2026-04-11T00:00:00.000Z",
+						},
+					],
+				},
+			}),
+		});
+		renderSpaceLanding({ isCenterAgentDirectMessage: true });
+		fireEvent.click(
+			screen.getAllByRole("button", { name: "Open thread" })[0] as HTMLElement
+		);
+		const panel = screen.getByLabelText("Thread");
+		await setComposerValue(
+			within(panel).getByRole("textbox"),
+			"Only North America."
+		);
+		fireEvent.click(within(panel).getByRole("button", { name: "Send reply" }));
+		await waitFor(() =>
+			expect(readOrUpdateSpaceInputQueue).toHaveBeenCalledWith(
+				expect.anything(),
+				expect.objectContaining({
+					mutation: expect.objectContaining({
+						action: "enqueue",
+						text: "Only North America.",
+						target: {
+							dispatchId: "thread-dispatch",
+							targetProfileId: DEFAULT_AGENT_PROFILE_ID,
+						},
+					}),
+				})
+			)
+		);
+		expect(postThreadSignal).not.toHaveBeenCalled();
+		await waitFor(() =>
+			expect(within(panel).getByRole("textbox").textContent).not.toContain(
+				"Only North America."
+			)
+		);
 	});
 
 	it.each([
@@ -19458,6 +19564,9 @@ function mockSpaceQueries(input: {
 			select?: unknown;
 		}) => {
 			const queryKey = JSON.stringify(options.queryKey);
+			if (options.queryKey[0] === "space-tasks") {
+				return createQueryResult({ isPending: true });
+			}
 			if (
 				options.enabled === false &&
 				options.queryKey[0] === "spaces" &&
@@ -19844,6 +19953,15 @@ function mockSpaceQueries(input: {
 							groups: [],
 						},
 					} satisfies AccountSidebarSnapshot,
+				});
+			}
+			if (options.queryKey[0] === "space-tasks") {
+				return createQueryResult({
+					isSuccess: true,
+					data: {
+						tasks: [],
+						truncated: false,
+					} satisfies ListSpaceTasksResponse,
 				});
 			}
 			throw new Error(`Unexpected query key: ${queryKey}`);

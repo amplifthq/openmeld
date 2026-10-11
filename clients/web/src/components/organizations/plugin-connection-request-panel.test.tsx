@@ -1,4 +1,10 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TestQueryClientProvider } from "#/test-support/query-client";
 import { PluginConnectionRequestPanel } from "./plugin-connection-request-panel";
@@ -43,7 +49,9 @@ beforeEach(() => {
 		.mockReset()
 		.mockImplementation(({ operation }) =>
 			Promise.resolve(
-				operation === "plugin.channel.preview" ? preview : { providers: [] }
+				operation === "plugin.channel.preview"
+					? preview
+					: { organizationId: "org", providers: [] }
 			)
 		);
 	mocks.foundation.mockReset().mockReturnValue({ requestJson: mocks.request });
@@ -51,6 +59,29 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 describe("private channel request page reuses setup without becoming an authority", () => {
+	it("recovers a failed provider catalog through the visible retry action", async () => {
+		let catalogUnavailable = true;
+		mocks.request.mockImplementation(({ operation }) => {
+			if (operation === "plugin.channel.preview") {
+				return Promise.resolve(preview);
+			}
+			return catalogUnavailable
+				? Promise.reject(new Error("Provider catalog unavailable"))
+				: Promise.resolve({ organizationId: "org", providers: [] });
+		});
+		render(
+			<TestQueryClientProvider>
+				<PluginConnectionRequestPanel requestId="request" service="github" />
+			</TestQueryClientProvider>
+		);
+		expect(await screen.findByRole("alert")).toBeTruthy();
+		expect(mocks.panel).not.toHaveBeenCalled();
+		catalogUnavailable = false;
+		fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+		expect(
+			await screen.findByText("Existing shared setup surface")
+		).toBeTruthy();
+	});
 	it("uses only server-verified service and account intent, and rendering never starts continuation", async () => {
 		render(
 			<TestQueryClientProvider>
@@ -103,11 +134,13 @@ describe("private channel request page reuses setup without becoming an authorit
 		"member",
 		"shared",
 	])("honors a previously pinned %s choice rather than rechoosing when both connections exist", async (selection) => {
-		mocks.request.mockResolvedValue({
-			...preview,
-			scope: "choose",
-			selection,
-		});
+		mocks.request.mockImplementation(({ operation }) =>
+			Promise.resolve(
+				operation === "plugin.channel.preview"
+					? { ...preview, scope: "choose", selection }
+					: { organizationId: "org", providers: [] }
+			)
+		);
 		render(
 			<TestQueryClientProvider>
 				<PluginConnectionRequestPanel requestId="request" service="github" />

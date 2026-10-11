@@ -1,6 +1,8 @@
 import type {
+  AgentProfileBindingTarget,
   CurrentDeviceTargetResponse,
   CurrentLocalAgentInstallationsResponse,
+  GetCurrentAgentProfileWorkspaceResponse,
   LocalRuntimesQuery,
   ObservedDeviceMetadata,
   PeopleComputersResponse,
@@ -116,6 +118,11 @@ export type CreateCurrentDeviceApi = (
   setCurrentOpenMeldToolsMaintenance: (
     input: SetCurrentOpenMeldToolsMaintenanceInput
   ) => Promise<SetCurrentOpenMeldToolsMaintenanceResponse>;
+  getCurrentAgentProfileWorkspace: (input: {
+    agentProfileId: string;
+    target?: PeopleComputerTarget;
+    expectedBindingTarget?: AgentProfileBindingTarget;
+  }) => Promise<GetCurrentAgentProfileWorkspaceResponse>;
   setCurrentAgentProfileWorkspace: (
     input: SetCurrentAgentProfileWorkspaceInput
   ) => Promise<SetCurrentAgentProfileWorkspaceResponse>;

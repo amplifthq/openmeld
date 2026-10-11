@@ -46,6 +46,7 @@ export function useAccountSpacePinMutation(input: {
 	const hasPendingMutation = pendingMutations.length > 0;
 	const pinMutation = useMutation({
 		mutationKey,
+		scope: { id: JSON.stringify(mutationKey) },
 		mutationFn: async (variables: SpacePinMutationInput) =>
 			await setAccountSpaceItemPinned({
 				pinnedAt: variables.pinnedAt,
@@ -73,7 +74,11 @@ export function useAccountSpacePinMutation(input: {
 			return { previousItem };
 		},
 		onError: (error, variables, context) => {
-			if (context) {
+			const latest = findAccountSpaceItem(
+				queryClient.getQueryData<AccountSpaceSections>(accountSpacesQueryKey),
+				variables.item.spaceId
+			);
+			if (context && latest?.pinnedAt === variables.pinnedAt) {
 				queryClient.setQueryData<AccountSpaceSections>(
 					accountSpacesQueryKey,
 					(current) =>
@@ -87,11 +92,15 @@ export function useAccountSpacePinMutation(input: {
 			console.error("Failed to update pinned space.", error);
 			toast.error("Could not update pinned spaces.");
 		},
-		onSuccess: async (result) => {
+		onSuccess: (result) => {
 			if (spaceIndexOverlayApplied(result)) {
-				await queryClient.invalidateQueries({
-					queryKey: accountSpaceQueryKeys.all,
-				});
+				queryClient
+					.invalidateQueries({
+						queryKey: accountSpaceQueryKeys.all,
+					})
+					.catch((error: unknown) =>
+						console.warn("Could not refresh pinned Spaces.", error)
+					);
 				return;
 			}
 
@@ -104,19 +113,21 @@ export function useAccountSpacePinMutation(input: {
 	});
 
 	const setPinned = async (item: AccountSpaceItem, pinned: boolean) => {
-		if (hasPendingAccountSpacePinMutation({ mutationKey, queryClient })) {
-			return false;
-		}
-		if ((item.pinnedAt !== null) === pinned) {
+		const latest =
+			findAccountSpaceItem(
+				queryClient.getQueryData<AccountSpaceSections>(accountSpacesQueryKey),
+				item.spaceId
+			) ?? item;
+		if ((latest.pinnedAt !== null) === pinned) {
 			return true;
 		}
 		try {
 			await pinMutation.mutateAsync({
-				item,
+				item: latest,
 				pinnedAt: pinned ? new Date().toISOString() : null,
 				profileIds: pinned
 					? [input.currentProfileId]
-					: resolvePinnedProfileIds(item),
+					: resolvePinnedProfileIds(latest),
 			});
 			return true;
 		} catch {
@@ -133,19 +144,6 @@ export function useAccountSpacePinMutation(input: {
 
 function accountSpacePinMutationKey(profileId: string) {
 	return ["spaces", "account-spaces", profileId, "pin"] as const;
-}
-
-function hasPendingAccountSpacePinMutation(input: {
-	mutationKey: ReturnType<typeof accountSpacePinMutationKey>;
-	queryClient: ReturnType<typeof useQueryClient>;
-}): boolean {
-	return (
-		input.queryClient.getMutationCache().findAll({
-			exact: true,
-			mutationKey: input.mutationKey,
-			status: "pending",
-		}).length > 0
-	);
 }
 
 function resolvePinnedProfileIds(item: AccountSpaceItem): readonly string[] {

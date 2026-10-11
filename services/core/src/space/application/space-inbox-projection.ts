@@ -1,6 +1,5 @@
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
-  AGENT_REPLY_FINAL_PURPOSE,
   INBOX_CONTEXT_LABEL_MAX_CHARS,
   INBOX_PREVIEW_MAX_CHARS,
   INBOX_TITLE_MAX_CHARS,
@@ -130,9 +129,7 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
     });
   const audience = resolveAudience({
     authorUserId,
-    explicitlyTargetedRecipientUserIds,
     signal,
-    wakeRequesterUserId: input.wakeRequesterUserId ?? null,
   });
   if (!audience) {
     return null;
@@ -146,10 +143,9 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
   const memberRecordsByUserId = groupRecipientMemberRecords({
     activeMemberRecords: input.activeMemberRecords,
     allowedRecipientUserIds: restrictThreadAudience(
-      signal.type,
       threadParticipantUserIds,
-      audience.allowedRecipientUserIds,
-      explicitlyTargetedRecipientUserIds
+      explicitlyTargetedRecipientUserIds,
+      input.wakeRequesterUserId ?? null
     ),
     authorUserId,
     authorHasRead:
@@ -172,7 +168,10 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
       inboxSourceCandidateSchema.parse({
         attention: "update",
         contextLabel: spaceLabel,
-        importance: isTerminalWakeFailure ? "urgent" : "normal",
+        importance:
+          isTerminalWakeFailure && recipientUserId === input.wakeRequesterUserId
+            ? "urgent"
+            : "normal",
         kind,
         occurredAtMs: Math.max(0, signal.ts),
         organizationId: requireText(input.organizationId, "organizationId"),
@@ -271,20 +270,17 @@ function resolveThreadParticipantUserIds(
 }
 
 function restrictThreadAudience(
-  signalType: string,
   participants: ReadonlySet<string> | null,
-  audience: ReadonlySet<string> | null,
-  explicitlyTargetedRecipientUserIds: ReadonlySet<string>
+  explicitlyTargetedRecipientUserIds: ReadonlySet<string>,
+  requesterUserId: string | null
 ): ReadonlySet<string> | null {
   if (!participants) {
-    return audience;
+    return null;
   }
   return new Set([
-    ...[...participants].filter(
-      (id) => signalType === "signal.text" || !audience || audience.has(id)
-    ),
-    ...(signalType === "signal.text" ? explicitlyTargetedRecipientUserIds : []),
-    ...(audience ?? []),
+    ...participants,
+    ...explicitlyTargetedRecipientUserIds,
+    ...(requesterUserId ? [requesterUserId] : []),
   ]);
 }
 
@@ -355,14 +351,11 @@ function resolveMentionedProfileIds(signal: SignalEnvelope): Set<string> {
 
 function resolveAudience(input: {
   authorUserId: string | null;
-  explicitlyTargetedRecipientUserIds: ReadonlySet<string>;
   signal: Extract<
     SignalEnvelope,
     { type: "signal.status" | "signal.system_notice" | "signal.text" }
   >;
-  wakeRequesterUserId: string | null;
 }): {
-  allowedRecipientUserIds: ReadonlySet<string> | null;
   kind: InboxSourceCandidate["kind"];
 } | null {
   if (
@@ -370,50 +363,21 @@ function resolveAudience(input: {
     input.signal.profile.kind === "human"
   ) {
     // Attribution must resolve to a current Human owner before projection.
-    return input.authorUserId
-      ? { allowedRecipientUserIds: null, kind: "space_message" }
-      : null;
+    return input.authorUserId ? { kind: "space_message" } : null;
   }
-  const wakeRequesterUserId = normalizeText(input.wakeRequesterUserId);
-  if (
-    input.signal.type === "signal.text" &&
-    (input.signal.profile.kind === "agent" ||
-      input.signal.data.meta?.purpose === AGENT_REPLY_FINAL_PURPOSE)
-  ) {
-    const recipientUserIds = new Set(input.explicitlyTargetedRecipientUserIds);
-    if (wakeRequesterUserId) {
-      recipientUserIds.add(wakeRequesterUserId);
-    }
+  if (input.signal.type === "signal.text") {
     return {
-      allowedRecipientUserIds: recipientUserIds,
-      kind: "agent_reply",
-    };
-  }
-  if (!wakeRequesterUserId) {
-    return null;
-  }
-  if (
-    input.signal.type === "signal.system_notice" &&
-    (input.signal.data.noticeType === "policy_blocked" ||
-      input.signal.data.noticeType === "terminal_failure" ||
-      input.signal.data.noticeType === "wake_stopped" ||
-      input.signal.data.noticeType === "stay_silent")
-  ) {
-    return {
-      allowedRecipientUserIds: new Set([wakeRequesterUserId]),
-      kind: "wake_outcome",
+      kind:
+        input.signal.profile.kind === "agent" ? "agent_reply" : "space_message",
     };
   }
   if (
     input.signal.type === "signal.status" &&
-    input.signal.data.status !== "working"
+    input.signal.data.status === "working"
   ) {
-    return {
-      allowedRecipientUserIds: new Set([wakeRequesterUserId]),
-      kind: "wake_outcome",
-    };
+    return null;
   }
-  return null;
+  return { kind: "wake_outcome" };
 }
 
 function resolveExplicitlyTargetedRecipientUserIds(input: {

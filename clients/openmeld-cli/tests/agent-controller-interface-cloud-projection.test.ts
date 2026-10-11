@@ -76,6 +76,39 @@ describe("Agent Controller Interface cloud projection", () => {
       usageLimitsSupportMatrixVersion:
         AGENT_CONTROLLER_USAGE_LIMIT_SUPPORT_MATRIX_VERSION,
     });
+    const admissionWithPrivateFields = {
+      blocksNewWork: false,
+      observedAt: snapshot.checkedAt,
+      balance: "private",
+      accountId: "private",
+    };
+    const codex = projectAgentControllerInterfaceForCloud({
+      ...snapshot,
+      agentControllerRef: "builtin:codex",
+      auth: { ...snapshot.auth, accountKey: "private" },
+      controllerId: "codex",
+      nativeInterface: "codex-app-server",
+      usageAdmission: admissionWithPrivateFields,
+      usageLimits: [
+        {
+          key: "codex:primary",
+          label: "Weekly usage",
+          observedAt: snapshot.checkedAt,
+          resetsAt: null,
+          status: "exhausted",
+          usedPercent: 100,
+        },
+      ],
+    });
+    expect(codex.usageAdmission).toEqual({
+      blocksNewWork: false,
+      observedAt: snapshot.checkedAt,
+    });
+    expect(codex.usageLimits?.[0]).toMatchObject({
+      status: "exhausted",
+      usedPercent: 100,
+    });
+    expect(JSON.stringify(codex)).not.toContain("private");
     const failed = projectAgentControllerInterfaceForCloud({
       ...snapshot,
       launch: {

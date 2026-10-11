@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { productionComponentReceiptSchema } from "../../packages/schemas/src/schemas/release/production-release-evidence.ts";
 import {
@@ -73,7 +74,7 @@ export async function executeRecordedProductionDeploySteps(input) {
   const attemptId = input.attemptId ?? randomUUID();
   for (const [componentIndex, context] of prepared.entries()) {
     if (context.previous) {
-      await resumeComponent(context);
+      await resumeComponent({ ...context, attemptId, componentIndex });
     } else {
       await executeComponent({ ...context, attemptId, componentIndex });
     }
@@ -97,8 +98,25 @@ export function releaseComponentOperationKey(input) {
     .digest("hex");
 }
 
-export function describeGuardedReceiptRecoveryCandidate(source, scope) {
+export function describeGuardedReceiptRecoveryCandidate(
+  source,
+  scope,
+  input = {}
+) {
   const receipt = productionComponentReceiptSchema.safeParse(source?.receipt);
+  const rollback =
+    scope === "db" && readPostgresqlRollbackBaseline(source, input);
+  if (rollback) {
+    return {
+      admission: "candidate",
+      attemptId: receipt.data.attemptId,
+      componentIndex: receipt.data.componentIndex,
+      kind: "guarded-postgresql-forward-retry",
+      operationKey: receipt.data.operationKey,
+      sourceSha: input.sourceSha,
+      retainedSourceSha: source.sha,
+    };
+  }
   const database = scope === "db" && isDatabaseRecoverySource(source);
   const retry =
     scope === "core" && readUnchangedCoreRetryBaseline(source, source?.sha);
@@ -125,6 +143,91 @@ export function describeGuardedReceiptRecoveryCandidate(source, scope) {
   };
 }
 
+const POSTGRESQL_RETRY_PATHS = [
+  "packages/db/postgresql/migrations",
+  "tooling/postgresql/resources.json",
+];
+
+export function readPostgresqlRollbackBaseline(source, input) {
+  const baseline = source?.verifiedHistoryBaseline;
+  const receipt = productionComponentReceiptSchema.safeParse(source?.receipt);
+  const prior = productionComponentReceiptSchema.safeParse(baseline?.receipt);
+  const group = {
+    scope: "db",
+    steps: ["migrate", "grant-runtime", "verify"].map((command) => ({
+      command: "node",
+      args: ["tooling/postgresql/cutover.mjs", command],
+    })),
+  };
+  if (
+    !(
+      EXACT_SOURCE_SHA.test(input.sourceSha ?? "") &&
+      EXACT_SOURCE_SHA.test(source?.sha ?? "") &&
+      EXACT_SOURCE_SHA.test(source?.evidenceSha ?? "") &&
+      EXACT_SOURCE_SHA.test(baseline?.sha ?? "") &&
+      EXACT_SOURCE_SHA.test(baseline?.evidenceSha ?? "")
+    ) ||
+    source.sha === input.sourceSha ||
+    !receipt.success ||
+    receipt.data.status !== "failed" ||
+    receipt.data.application !== "unknown" ||
+    receipt.data.identity ||
+    !prior.success ||
+    prior.data.status !== "verified" ||
+    prior.data.identity?.kind !== "release-source" ||
+    !(Date.parse(baseline.recordedAt) <= Date.parse(receipt.data.startedAt)) ||
+    receipt.data.operationKey !==
+      releaseComponentOperationKey({
+        sourceSha: source.sha,
+        group,
+        target: null,
+      }) ||
+    prior.data.operationKey !==
+      releaseComponentOperationKey({
+        sourceSha: baseline.sha,
+        group,
+        target: null,
+      })
+  ) {
+    return null;
+  }
+  const git = (args) => {
+    const result = spawnSync("git", args, { cwd: input.cwd, stdio: "ignore" });
+    if (result.error || ![0, 1].includes(result.status)) {
+      throw new Error(
+        "Cannot verify PostgreSQL retry source history; fetch and reconcile before retrying."
+      );
+    }
+    return result.status === 0;
+  };
+  const ancestor =
+    input.sourceIsAncestor ??
+    ((from, to) => git(["merge-base", "--is-ancestor", from, to]));
+  const unchanged =
+    input.compareGitPathContents ??
+    (({ fromSha, toSha, paths }) =>
+      git(["diff", "--quiet", fromSha, toSha, "--", ...paths]));
+  if (
+    !(
+      ancestor(baseline.sha, source.sha) &&
+      ancestor(source.sha, input.sourceSha) &&
+      unchanged({
+        fromSha: source.sha,
+        toSha: input.sourceSha,
+        paths: POSTGRESQL_RETRY_PATHS,
+      }) &&
+      unchanged({
+        fromSha: baseline.sha,
+        toSha: source.sha,
+        paths: ["tooling/postgresql/resources.json"],
+      })
+    )
+  ) {
+    return null;
+  }
+  return baseline;
+}
+
 function isDatabaseRecoverySource(source) {
   const receipt = productionComponentReceiptSchema.safeParse(source?.receipt);
   return (
@@ -143,6 +246,9 @@ function isNativeDatabaseOperation(group) {
       const step = group.steps[index];
       return (
         step.command === "node" &&
+        !step.internalOperation &&
+        !step.workerDeploymentArgs &&
+        !step.receiptWorkerDeploymentArgs &&
         JSON.stringify(step.args) ===
           JSON.stringify(["tooling/postgresql/cutover.mjs", command])
       );
@@ -219,6 +325,13 @@ export function selectGuardedReceiptRecovery(input, retained) {
     ),
   });
   if (pending.length) {
+    const databaseBaseline =
+      isNativeDatabaseOperation(input.group) &&
+      !input.redeploy &&
+      readPostgresqlRollbackBaseline(previous, input);
+    if (databaseBaseline) {
+      return { ...previous, databaseRetry: true, databaseBaseline };
+    }
     const baseline =
       input.group.scope === "core" &&
       readUnchangedCoreRetryBaseline(previous, input.sourceSha);
@@ -252,6 +365,46 @@ export function selectGuardedReceiptRecovery(input, retained) {
 }
 
 async function verifyRetainedComponent(input, previous) {
+  if (previous.databaseRetry) {
+    const result = await input.runCommand({
+      command: "node",
+      args: [
+        "tooling/postgresql/cutover.mjs",
+        "verify-retry-baseline",
+        previous.databaseBaseline.sha,
+      ],
+      cwd: input.cwd,
+      env: input.env,
+    });
+    let proof;
+    try {
+      proof = JSON.parse(result.stdout);
+    } catch {
+      /* Fail closed below. */
+    }
+    if (
+      result.status !== 0 ||
+      proof?.baselineSourceSha !== previous.databaseBaseline.sha ||
+      proof?.runtimeGrantsVerified !== true
+    ) {
+      throw new Error(
+        "PostgreSQL retry baseline is not unchanged; preserve the unresolved attempt and reconcile the live target."
+      );
+    }
+    previous.rollbackProof = {
+      kind: "reconciled-postgresql-rollback",
+      verifiedAt: new Date().toISOString(),
+      supersededReceipt: {
+        evidenceSha: previous.evidenceSha,
+        sourceSha: previous.sha,
+      },
+      baselineReceipt: {
+        evidenceSha: previous.databaseBaseline.evidenceSha,
+        sourceSha: previous.databaseBaseline.sha,
+      },
+    };
+    return;
+  }
   if (previous.databaseRecovery) {
     await input.executeSteps({
       cwd: input.cwd,
@@ -299,6 +452,14 @@ async function verifyRetainedComponent(input, previous) {
 
 async function resumeComponent(input) {
   const receipt = input.previous.receipt;
+  if (input.previous.databaseRetry) {
+    await executeComponent({
+      ...input,
+      attemptId: input.attemptId,
+      componentIndex: input.componentIndex,
+    });
+    return;
+  }
   if (input.previous.databaseRecovery) {
     await (input.publishEvidence ?? publishGuardedLocalReleaseEvidence)({
       cwd: input.cwd,
@@ -418,6 +579,9 @@ async function executeComponent(input) {
         sourceSha: input.sourceSha,
         scopes,
         receipts,
+        ...(status === "started" && input.previous?.rollbackProof
+          ? { reconciliation: { db: input.previous.rollbackProof } }
+          : {}),
         ...(input.now ? { now: input.now() } : {}),
       });
     } catch (error) {

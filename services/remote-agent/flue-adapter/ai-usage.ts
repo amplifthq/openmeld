@@ -1,6 +1,7 @@
 import { getCloudflareContext } from "@flue/runtime/cloudflare";
 import { createMeteredRemoteFetch } from "../agent-core/ai-usage";
 import { readRemoteAgentCallbackContext } from "../agent-core/callback-context";
+import type { RemoteAgentDiagnosticsEnv } from "../agent-core/diagnostics-content-policy";
 import {
   getRemoteAgentExecutionSubmissionId,
   getRemoteAgentModelPurpose,
@@ -9,6 +10,7 @@ import { createRemoteAgentSqlStorage } from "./storage";
 
 // Resolve attribution inside each invocation, never from a cached model registration.
 export function createFlueMeteredFetch(input: {
+  env?: RemoteAgentDiagnosticsEnv;
   coreWorker: unknown;
   model: string;
   fetch?: typeof globalThis.fetch;

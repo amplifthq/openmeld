@@ -5,7 +5,7 @@ import type {
 import type { RemoteAgentStorage } from "../agent-core/callback-context";
 import type { AgentComputerWorkspaceAccess } from "./agent-computer-workspace-access";
 import { readCommandSlice } from "./computer-command";
-import { AGENT_COMPUTER_CONTAINER_BACKEND_ID } from "./computer-workspace";
+import { AGENT_COMPUTER_CONTAINER_BACKEND_ID } from "./computer-workspace-config";
 import type { GitWorkingCopyLocation } from "./github-working-copy-computer";
 
 type Transfer = { id: string; operationId: string; attempt: number };

@@ -1,22 +1,27 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import type {
   WorkspaceClient,
   WorkspaceRuntimeEvent,
   WorkspaceRuntimeExecHandle,
 } from "@cloudflare/computer";
+import { WorkspaceSyncPendingError } from "@cloudflare/computer";
 import {
   fauxAssistantMessage,
   fauxProvider,
   fauxToolCall,
   getCurrentSystemPrompt,
 } from "@earendil-works/pi-ai";
-import { defineTool, init, useModel, useTool } from "@flue/runtime";
+import { defineTool, init, observe, useModel, useTool } from "@flue/runtime";
 import { sqlite, start } from "@flue/runtime/node";
-import { buildPersonalRemoteAgentConversationId } from "@openmeld/schemas";
+import {
+  buildPersonalRemoteAgentConversationId,
+  type CloudComputerCommandReference,
+} from "@openmeld/schemas";
 import { type GenericSchema, object, parse } from "valibot";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createRemoteAgentCallbackContext,
   putRemoteAgentCallbackContext,
@@ -27,17 +32,33 @@ import {
   readRemoteAgentExecutionState,
 } from "../agent-core/execution-state";
 import {
-  collectComputerCommands,
+  bindComputerCommandTarget,
   createComputerCommandTool,
   readCommandSlice,
+  readStoredComputerInvocation,
+  requestStoredComputerCleanup,
   stopRemoteAgentComputerCommands,
   stopStoredComputerCommands,
 } from "../flue-adapter/computer-command";
+import { ComputerCommandSqlStorage } from "../flue-adapter/computer-command-storage";
+import { executeComputerHelper } from "../flue-adapter/computer-helper-execution";
 import { resolveRemoteAgentComputerName } from "../flue-adapter/computer-identity";
+import {
+  readComputerRecovery,
+  registerComputerInvocation,
+} from "../flue-adapter/computer-invocations";
+import {
+  assertComputerMutationCanContinue,
+  createComputerRecoveryTool,
+} from "../flue-adapter/computer-recovery";
 import { cancelFlueRemoteAgentExecution } from "../flue-adapter/execution-cancellation";
 import { finishRemoteAgentComputerCommands } from "../flue-adapter/execution-cleanup";
-import { checkRemoteAgentExecutionFinish } from "../flue-adapter/execution-finish";
+import {
+  checkRemoteAgentExecutionFinish,
+  useRemoteAgentExecutionFinish,
+} from "../flue-adapter/execution-finish";
 import { reconcileRemoteAgentExecution } from "../flue-adapter/execution-reconciliation";
+import { extractAssistantText } from "../flue-adapter/observation";
 import {
   executeRemoteAgentToolDefinition,
   toFlueJsonValue,
@@ -47,6 +68,7 @@ import {
   createSubmitTurnRequestV2,
   TEST_NOW_MS,
 } from "./fixtures";
+import { collectDueComputerCommands as collectComputerCommands } from "./fixtures/computer-command-results";
 import { InMemoryDurableObjectStorage } from "./storage";
 
 const cleanupAccess = vi.hoisted(() => vi.fn());
@@ -134,8 +156,28 @@ function handle(
   }) as WorkspaceRuntimeExecHandle<"utf8">;
 }
 
+const commandDatabases: DatabaseSync[] = [];
+afterEach(() => {
+  for (const database of commandDatabases) {
+    database.close();
+  }
+  commandDatabases.length = 0;
+});
+
 function fixture() {
-  const storage = new InMemoryDurableObjectStorage();
+  const database = new DatabaseSync(":memory:");
+  commandDatabases.push(database);
+  const storage = new ComputerCommandSqlStorage({
+    exec(query, ...bindings) {
+      const rows = database.prepare(query).all(...(bindings as never[]));
+      return {
+        toArray: () => rows,
+        rowsWritten: Number(
+          database.prepare("SELECT changes() AS count").get()?.count ?? 0
+        ),
+      };
+    },
+  });
   const processes = new Set<string>();
   const exec = vi.fn((_source: string, options: { id: string }) => {
     processes.add(options.id);
@@ -149,6 +191,8 @@ function fixture() {
   });
   const killExec = vi.fn((_id: string) => Promise.resolve());
   const workspace = {
+    executionSync: vi.fn(async () => undefined),
+    maintainSync: vi.fn(async () => false),
     runtime: { exec, getExec, killExec },
   } as unknown as WorkspaceClient;
   const workspaceAccess = {
@@ -163,10 +207,738 @@ function fixture() {
       workspaceAccess,
       workingDirectory: "/computer/spaces/a",
     });
-  return { tool, exec, getExec, killExec, processes, storage, workspaceAccess };
+  return {
+    tool,
+    exec,
+    getExec,
+    killExec,
+    processes,
+    storage,
+    workspaceAccess,
+    workspace,
+  };
 }
 
 describe("retained Computer commands", () => {
+  it("resumes bounded preparation after reconstruction without treating it as an uncertain dispatch", async () => {
+    const f = fixture();
+    const progress = {
+      operationId: "plan",
+      generation: "plan",
+      backend: "container",
+      direction: "push" as const,
+      mode: "entries" as const,
+      phase: "preparing" as const,
+      cursor: { rev: 0, path: null },
+      targetCursor: { rev: 100, path: null },
+      entries: 0,
+      bytes: 0,
+      skipped: 0,
+      complete: false,
+    };
+    f.exec.mockRejectedValueOnce(new WorkspaceSyncPendingError(progress));
+    const start = await f
+      .tool()
+      .execute({ action: "start", key: "prepared", command: "echo retained" });
+    expect(start).toMatchObject({ phase: "accepted", nextAction: "poll" });
+    expect(f.processes.size).toBe(0);
+    expect(f.getExec).not.toHaveBeenCalled();
+    // Recreate the tool: only its persisted request authorizes the first spawn.
+    await f.tool().execute({ action: "poll", key: "prepared", waitSeconds: 0 });
+    expect(f.processes.size).toBe(1);
+    expect(f.exec.mock.calls[1]?.[1].id).toBe(f.exec.mock.calls[0]?.[1].id);
+  });
+
+  it("stops a prepared command before dispatch and cleanup never looks for a nonexistent native handle", async () => {
+    const f = fixture();
+    f.exec.mockRejectedValueOnce(
+      new WorkspaceSyncPendingError({
+        operationId: "plan",
+        generation: "plan",
+        backend: "container",
+        direction: "push",
+        mode: "entries",
+        phase: "preparing",
+        cursor: { rev: 0, path: null },
+        targetCursor: { rev: 100, path: null },
+        entries: 0,
+        bytes: 0,
+        skipped: 0,
+        complete: false,
+      })
+    );
+    await f.tool().execute({
+      action: "start",
+      key: "stop-prepared",
+      command: "echo must-not-run",
+    });
+    expect(
+      await f.tool().execute({ action: "stop", key: "stop-prepared" })
+    ).toMatchObject({ status: "completed", exitCode: null });
+    await f
+      .tool()
+      .execute({ action: "poll", key: "stop-prepared", waitSeconds: 0 });
+    expect(f.exec).toHaveBeenCalledTimes(1);
+    expect(f.getExec).not.toHaveBeenCalled();
+    expect(f.killExec).not.toHaveBeenCalled();
+    expect(f.processes.size).toBe(0);
+  });
+
+  it("durable cleanup finishes preparation before the background collector can dispatch", async () => {
+    const f = fixture();
+    f.exec.mockRejectedValueOnce(
+      new WorkspaceSyncPendingError({
+        operationId: "plan",
+        generation: "plan",
+        backend: "container",
+        direction: "push",
+        mode: "entries",
+        phase: "preparing",
+        cursor: { rev: 0, path: null },
+        targetCursor: { rev: 100, path: null },
+        entries: 0,
+        bytes: 0,
+        skipped: 0,
+        complete: false,
+      })
+    );
+    await f.tool().execute({
+      action: "start",
+      key: "cleanup-prepared",
+      command: "echo must-not-run",
+    });
+    expect(
+      await requestStoredComputerCleanup({
+        context: { submissionId: "execution-a" },
+        storage: f.storage,
+      })
+    ).toMatchObject({ unfinished: 0 });
+    await collectComputerCommands(f);
+    expect(f.exec).toHaveBeenCalledTimes(1);
+    expect(f.getExec).not.toHaveBeenCalled();
+    expect(f.killExec).not.toHaveBeenCalled();
+    expect(f.processes.size).toBe(0);
+  });
+
+  it("retains a read-only refusal without losing successful output or reporting every file saved", async () => {
+    const f = fixture();
+    f.getExec.mockImplementation(async (id) => {
+      const execution = handle(
+        id,
+        [
+          { id, seq: 1, name: "stdout", value: "DONE" },
+          { id, seq: 2, name: "exit", code: 0 },
+        ],
+        true
+      );
+      const result = await execution.result();
+      execution.result = vi.fn(async () => ({
+        ...result,
+        sync: {
+          status: "complete" as const,
+          applied: 1,
+          skipped: [
+            {
+              path: "/protected/result.txt",
+              mountRoot: "/protected",
+              op: "write" as const,
+              reason: "read-only" as const,
+            },
+          ],
+          skippedTruncated: false,
+        },
+      }));
+      return execution;
+    });
+    await f.tool().execute({
+      action: "start",
+      key: "readonly",
+      command: "produce results",
+    });
+    const result = await f
+      .tool()
+      .execute({ action: "poll", key: "readonly", waitSeconds: 1 });
+    expect(result).toMatchObject({
+      exitCode: 0,
+      stdout: "DONE",
+      syncPending: true,
+      nextAction: "inspect",
+      syncSkipped: { paths: ["/protected/result.txt"], truncated: false },
+    });
+    expect(result).not.toHaveProperty("syncError");
+    const observations = f.getExec.mock.calls.length;
+    await expect(
+      f.tool().execute({ action: "poll", key: "readonly", waitSeconds: 1 })
+    ).resolves.toMatchObject({
+      exitCode: 0,
+      syncPending: true,
+      nextAction: "inspect",
+      collection: { nextAttemptAtMs: null },
+    });
+    expect(f.getExec).toHaveBeenCalledTimes(observations);
+    await expect(
+      readStoredComputerInvocation({
+        context: { submissionId: "execution-a" },
+        storage: f.storage,
+      })
+    ).resolves.toMatchObject({ unfinished: 0, unavailable: 1 });
+    expect(f.killExec).not.toHaveBeenCalled();
+  });
+
+  it("does not let a rejected concurrent helper stop the accepted command", async () => {
+    const f = fixture();
+    const bothListed = Promise.withResolvers<void>();
+    const launched = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    let lists = 0;
+    f.getExec.mockImplementation(async (id) =>
+      handle(id, [{ id, name: "exit", seq: 1, code: 0 }], true)
+    );
+    f.exec.mockImplementationOnce(async (_command, options) => {
+      launched.resolve();
+      await release.promise;
+      return handle(
+        options.id,
+        [{ id: options.id, name: "exit", seq: 1, code: 0 }],
+        true
+      );
+    });
+    const workspaceAccess = {
+      ...f.workspaceAccess,
+      computerOperation: async (
+        operation: import("@openmeld/schemas").CloudComputerOperation
+      ) => {
+        if (operation.action !== "command") {
+          throw new Error("Unexpected operation");
+        }
+        if (operation.command.action === "list") {
+          if (++lists === 2) {
+            bothListed.resolve();
+          }
+          await bothListed.promise;
+          return [];
+        }
+        return await f.tool().execute(operation.command);
+      },
+    };
+    const requests = ["first output", "second output"].map((command) =>
+      executeComputerHelper({
+        workspaceAccess,
+        invocationId: "execution-a",
+        command,
+        options: {
+          backend: "container",
+          receiptScope: "github:/checkout:prepare",
+        },
+      }).then(
+        (result) => ({ result }),
+        (error: unknown) => ({ error })
+      )
+    );
+    await launched.promise;
+    const rejected = await Promise.race(requests);
+    expect(rejected).toHaveProperty("error");
+    expect(f.killExec).not.toHaveBeenCalled();
+    release.resolve();
+    const results = await Promise.all(requests);
+    expect(results.filter((result) => "result" in result)).toHaveLength(1);
+    expect(f.exec).toHaveBeenCalledOnce();
+    expect(f.killExec).not.toHaveBeenCalled();
+  });
+
+  it("keeps a stopped pre-launch command unconfirmed through two missing-record replies until the original launch settles", async () => {
+    const f = fixture();
+    const launched = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    let id = "";
+    f.exec.mockImplementationOnce(async (_command, options) => {
+      id = options.id;
+      launched.resolve();
+      await release.promise;
+      return handle(id, [{ id, name: "exit", seq: 1, code: 143 }], true);
+    });
+    const missing = Object.assign(new Error("pre-exec push has not spawned"), {
+      code: "ENOENT",
+    });
+    f.getExec.mockRejectedValue(missing);
+    f.killExec.mockRejectedValue(missing);
+    const launch = f
+      .tool()
+      .execute({ action: "start", key: "late", command: "prepare checkout" });
+    const rejected = expect(launch).rejects.toThrow("stopped during launch");
+    await launched.promise;
+    await requestStoredComputerCleanup({
+      context: { submissionId: "execution-a" },
+      storage: f.storage,
+    });
+    await collectComputerCommands(f);
+    await expect(
+      readStoredComputerInvocation({
+        context: { submissionId: "execution-a" },
+        storage: f.storage,
+      })
+    ).resolves.toMatchObject({
+      unfinished: 1,
+      commands: [
+        {
+          phase: "launch_unknown",
+          stopRequested: true,
+          terminationConfirmed: false,
+          collection: { nextAttemptAtMs: expect.any(Number) },
+        },
+      ],
+    });
+    f.killExec.mockResolvedValue();
+    release.resolve();
+    await rejected;
+    expect(f.exec).toHaveBeenCalledOnce();
+    expect(f.killExec).toHaveBeenLastCalledWith(id, {
+      backend: "container",
+      signal: "SIGTERM",
+    });
+  });
+
+  it.each([
+    "launch_reply_lost",
+    "cancel_ack_without_exit",
+  ])("retains internal Git helper execution and refuses replay after %s", async (fault) => {
+    const f = fixture();
+    const controller = new AbortController();
+    f.exec.mockImplementationOnce((_command, options) => {
+      f.processes.add(options.id);
+      if (fault === "launch_reply_lost") {
+        return Promise.reject(new Error("launch reply lost"));
+      }
+      controller.abort(new Error("helper cancelled"));
+      return Promise.resolve(handle(options.id));
+    });
+    const workspaceAccess = {
+      ...f.workspaceAccess,
+      computerOperation: async (
+        operation: import("@openmeld/schemas").CloudComputerOperation
+      ) => {
+        if (operation.action !== "command") {
+          throw new Error("Unexpected file operation");
+        }
+        return await f.tool().execute(operation.command);
+      },
+    };
+    const execute = (command: string, signal?: AbortSignal) =>
+      executeComputerHelper({
+        workspaceAccess,
+        invocationId: "execution-a",
+        command,
+        options: {
+          backend: "container",
+          receiptScope: "github:/checkout:prepare",
+          signal,
+        },
+      });
+    await expect(
+      execute("prepare checkout", controller.signal)
+    ).rejects.toThrow("helper_result_unconfirmed");
+    await expect(
+      readStoredComputerInvocation({
+        context: { submissionId: "execution-a" },
+        storage: f.storage,
+      })
+    ).resolves.toMatchObject({
+      total: 1,
+      unfinished: 1,
+      commands: [
+        {
+          stopRequested: fault !== "launch_reply_lost",
+          terminationConfirmed: false,
+        },
+      ],
+    });
+    await expect(
+      execute("prepare checkout with a new output path")
+    ).rejects.toThrow("helper_result_unconfirmed");
+    expect(f.exec).toHaveBeenCalledOnce();
+    f.getExec.mockImplementation(async (id) =>
+      handle(id, [{ id, name: "exit", seq: 1, code: 143 }], true)
+    );
+    await collectComputerCommands(f);
+    f.exec.mockImplementation(async (_command, options) =>
+      handle(
+        options.id,
+        [{ id: options.id, name: "exit", seq: 1, code: 0 }],
+        true
+      )
+    );
+    await expect(
+      execute("prepare checkout after confirmed exit")
+    ).resolves.toMatchObject({ exitCode: 0 });
+    expect(f.exec).toHaveBeenCalledTimes(2);
+  });
+  it("keeps a real Flue conversation usable after launch acknowledgement loss, with original cleanup and a durable explanation", async () => {
+    const f = fixture();
+    const storage = new InMemoryDurableObjectStorage();
+    const savedFile = {
+      fileId: "saved-report",
+      name: "report.md",
+      mimeType: "text/markdown",
+      revision: 1,
+      sizeBytes: 10,
+    };
+    const original = {
+      ...context("execution-a"),
+      computerIsolationVersion: 3 as const,
+      outputFiles: [savedFile],
+    };
+    await putRemoteAgentCallbackContext(storage, original);
+    await initializeRemoteAgentExecutionState({
+      identity: buildRemoteAgentExecutionIdentity(original),
+      storage,
+      acceptedAtMs: TEST_NOW_MS,
+    });
+    await bindComputerCommandTarget({
+      storage,
+      submissionId: original.submissionId,
+      computerName: "personal-computer:owner",
+    });
+    // The external process starts but its launch response is lost. Its native
+    // identity must survive even if a subsequent lookup has no retained result.
+    f.exec.mockRejectedValueOnce(new Error("dispatch acknowledgement lost"));
+    await expect(
+      f
+        .tool()
+        .execute({ action: "start", key: "publish", command: "publish-once" })
+    ).rejects.toThrow("acknowledgement lost");
+    f.getExec.mockRejectedValue(
+      Object.assign(new Error("result unavailable"), { code: "ENOENT" })
+    );
+    await expect(
+      f.tool().execute({ action: "poll", key: "publish", waitSeconds: 0 })
+    ).rejects.toMatchObject({ code: "computer.execution_result_unavailable" });
+    const computer = {
+      registerComputerInvocation: (owner: unknown) =>
+        registerComputerInvocation(f.storage, owner),
+      readComputerRecovery: (query: unknown) =>
+        readComputerRecovery(f.storage, query),
+      readComputerInvocation: (invocationId: string) =>
+        readStoredComputerInvocation({
+          context: { submissionId: invocationId },
+          storage: f.storage,
+        }),
+      requestComputerCleanup: (invocationId: string, resume?: boolean) =>
+        requestStoredComputerCleanup({
+          context: { submissionId: invocationId },
+          storage: f.storage,
+          resume,
+        }),
+    };
+    const env = {
+      AGENT_COMPUTER: {
+        idFromName: (name: string) => name,
+        get: () => computer,
+      },
+    };
+    const directory = await mkdtemp(
+      join(tmpdir(), "computer-failure-continuity-")
+    );
+    const provider = fauxProvider({
+      provider: "computer-failure-continuity",
+      tokensPerSecond: Number.POSITIVE_INFINITY,
+    });
+    const model = provider.getModel();
+    let current = original;
+    function CenterRecovery() {
+      useModel(`${model.provider}/${model.id}`);
+      useRemoteAgentExecutionFinish((finish, finishState, setFinishState) =>
+        checkRemoteAgentExecutionFinish({
+          context: current,
+          env,
+          storage,
+          finish,
+          finishState,
+          setFinishState,
+        })
+      );
+      return "Report confirmed results and unknown side effects. Do not replay writes.";
+    }
+    CenterRecovery.joinQueuedDeliveries = false;
+    const explanation =
+      "The saved report is retained. Publication is unconfirmed; I have not repeated it. Stop was requested, but termination is not confirmed.";
+    provider.setResponses([
+      fauxAssistantMessage("All publication work succeeded."),
+      (ctx) => {
+        expect(JSON.stringify(ctx.messages)).toContain(
+          "computer_result_incomplete"
+        );
+        expect(JSON.stringify(ctx.messages)).toContain("launch_unknown");
+        return fauxAssistantMessage(explanation);
+      },
+      fauxAssistantMessage("I can answer this independent follow-up."),
+    ]);
+    let finalText = "";
+    const unsubscribe = observe((event) => {
+      if (event.type === "operation" && event.operationKind === "prompt") {
+        const text = extractAssistantText(event);
+        if (text) {
+          finalText = text;
+        }
+      }
+    });
+    const runtime = await start({
+      agents: [CenterRecovery],
+      providers: [provider.provider],
+      db: sqlite(join(directory, "history.sqlite")),
+    });
+    try {
+      const agent = init(CenterRecovery, { id: "same-conversation" });
+      const reply = await agent.read(
+        await agent.dispatch("Finish this request.")
+      );
+      // History intentionally includes earlier model steps. Publication uses
+      // the terminal operation output, never concatenated history or previews.
+      expect(reply.text).toContain(explanation);
+      expect(finalText).toBe(explanation);
+      const send = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("callback transport lost"))
+        .mockResolvedValue({ status: "accepted" });
+      const reconcile = () =>
+        reconcileRemoteAgentExecution({
+          env,
+          storage,
+          identity: buildRemoteAgentExecutionIdentity(original),
+          coreWorker: { completeRemoteAgentSubmission: send },
+          readSubmission: async () => ({
+            status: "settled" as const,
+            completedOutput: {
+              submissionId: original.submissionId,
+              text: finalText,
+            },
+          }),
+        });
+      await reconcile();
+      await reconcile();
+      expect(send.mock.calls.at(-1)?.[0]).toMatchObject({
+        status: "failed",
+        failureCode: "remote_agent.computer.command_cleanup_failed",
+        explanationText: explanation,
+        files: [savedFile],
+        computerCleanup: { stopAccepted: true, state: { unfinished: 1 } },
+      });
+      await expect(
+        readRemoteAgentExecutionState({
+          identity: buildRemoteAgentExecutionIdentity(original),
+          storage,
+        })
+      ).resolves.toMatchObject({
+        result: {
+          status: "failed",
+          text: explanation,
+          files: [savedFile],
+          failureCode: "remote_agent.computer.command_cleanup_failed",
+        },
+      });
+      current = {
+        ...original,
+        submissionId: "execution-b",
+        idempotencyKey: "remote-agent:second",
+        outputFiles: [],
+      };
+      await putRemoteAgentCallbackContext(storage, current);
+      await bindComputerCommandTarget({
+        storage,
+        submissionId: current.submissionId,
+        computerName: "personal-computer:owner",
+      });
+      await expect(
+        assertComputerMutationCanContinue({ context: original, storage, env })
+      ).rejects.toThrow("invocation_stopped");
+      await expect(
+        assertComputerMutationCanContinue({ context: current, storage, env })
+      ).resolves.toBeUndefined();
+      const second = await agent.read(
+        await agent.dispatch("Answer an independent question.")
+      );
+      expect(second.text).toBe("I can answer this independent follow-up.");
+      const recovery = createComputerRecoveryTool({
+        context: current,
+        storage,
+        env,
+        authorize: async () => undefined,
+      });
+      await expect(
+        recovery.execute({
+          action: "inspect",
+          invocationId: original.submissionId,
+        })
+      ).resolves.toMatchObject({
+        state: {
+          unfinished: 1,
+          commands: [{ stopRequested: true, terminationConfirmed: false }],
+        },
+        savedFiles: [savedFile],
+      });
+      await expect(
+        recovery.execute({ action: "inspect", invocationId: "another-agent" })
+      ).rejects.toThrow("identity_mismatch");
+      const nextGeneration = new InMemoryDurableObjectStorage();
+      await bindComputerCommandTarget({
+        storage: nextGeneration,
+        submissionId: current.submissionId,
+        computerName: "personal-computer:owner",
+      });
+      const recoveryAfterRollover = createComputerRecoveryTool({
+        context: current,
+        storage: nextGeneration,
+        env,
+        authorize: async () => undefined,
+      });
+      await expect(
+        recoveryAfterRollover.execute({ action: "list" })
+      ).resolves.toMatchObject({
+        invocations: expect.arrayContaining([
+          {
+            invocationId: original.submissionId,
+            unfinished: 1,
+            pendingResults: 0,
+            unavailable: 1,
+            total: 1,
+            commands: expect.any(Array),
+          },
+        ]),
+      });
+      await expect(
+        recoveryAfterRollover.execute({
+          action: "inspect",
+          invocationId: original.submissionId,
+        })
+      ).resolves.toMatchObject({ state: { unfinished: 1 } });
+      f.getExec.mockImplementation(async (id) =>
+        handle(id, [{ id, name: "exit", seq: 1, code: 143 }], true)
+      );
+      await collectComputerCommands(f);
+      await expect(
+        assertComputerMutationCanContinue({ context: current, storage, env })
+      ).resolves.toBeUndefined();
+      expect(f.exec).toHaveBeenCalledOnce();
+    } finally {
+      unsubscribe();
+      await runtime.stop();
+      await rm(directory, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("pages original Computer receipts without disclosing another Space or Agent after conversation rollover", async () => {
+    const f = fixture();
+    const owner = {
+      organizationId: "organization",
+      spaceId: "space",
+      agentProfileId: "agent",
+    };
+    for (let index = 0; index < 35; index++) {
+      await registerComputerInvocation(f.storage, {
+        ...owner,
+        invocationId: `original-${String(index).padStart(2, "0")}`,
+      });
+    }
+    await registerComputerInvocation(f.storage, {
+      ...owner,
+      spaceId: "private-space",
+      invocationId: "private",
+    });
+    const first = await readComputerRecovery(f.storage, owner);
+    expect(first.invocations).toHaveLength(32);
+    const second = await readComputerRecovery(f.storage, {
+      ...owner,
+      cursor: first.nextCursor,
+    });
+    expect(second.invocations.map((item) => item.invocationId)).toEqual([
+      "original-32",
+      "original-33",
+      "original-34",
+    ]);
+    expect(second.nextCursor).toBeNull();
+    await expect(
+      readComputerRecovery(f.storage, { ...owner, invocationId: "private" })
+    ).rejects.toThrow("identity_mismatch");
+    await expect(
+      readComputerRecovery(f.storage, {
+        ...owner,
+        agentProfileId: "another-agent",
+        invocationId: "original-00",
+      })
+    ).rejects.toThrow("identity_mismatch");
+    await expect(
+      registerComputerInvocation(f.storage, {
+        ...owner,
+        spaceId: "another-space",
+        invocationId: "original-00",
+      })
+    ).rejects.toThrow("identity_mismatch");
+  });
+
+  it.each([
+    {
+      code: "ECONNRESET",
+      phase: "launch",
+      expectedCode: "ECONNRESET",
+      expectedPhase: "launch",
+    },
+    {
+      code: "private transport details",
+      phase: "private transport details",
+      expectedCode: undefined,
+      expectedPhase: "start",
+    },
+    {
+      code: "computer.observation_timeout",
+      phase: "workspace-acquisition",
+      expectedCode: "computer.observation_timeout",
+      expectedPhase: "workspace-acquisition",
+    },
+  ])("keeps Computer failure diagnostics bounded ($code)", async ({
+    code,
+    phase,
+    expectedCode,
+    expectedPhase,
+  }) => {
+    const privateText = "Private Project Cedar command output";
+    const f = fixture();
+    const error = Object.assign(new Error(privateText), {
+      name: privateText,
+      code,
+      phase,
+    });
+    f.exec.mockRejectedValueOnce(error);
+    const warning = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    try {
+      await expect(
+        f
+          .tool()
+          .execute({ action: "start", key: "privacy", command: "run task" })
+      ).rejects.toBe(error);
+      const fields = warning.mock.calls.find(
+        ([event]) => event === "[remote_agent.computer_command_failed]"
+      )?.[1];
+      expect(fields).toMatchObject({
+        submissionId: "execution-a",
+        action: "start",
+        phase: expectedPhase,
+        errorName: "Error",
+      });
+      expect(fields).toHaveProperty("commandId");
+      expect(fields).not.toHaveProperty("error");
+      expect(JSON.stringify(fields)).not.toContain(privateText);
+      expect(JSON.stringify(fields)).not.toContain("private transport details");
+      if (expectedCode) {
+        expect(fields).toMatchObject({ errorCode: expectedCode });
+      } else {
+        expect(fields).not.toHaveProperty("errorCode");
+      }
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
   it.each([
     { action: "start", recovery: "poll", inspection: "ready" },
     { action: "stop", recovery: "poll", inspection: "ready" },
@@ -274,8 +1046,10 @@ describe("retained Computer commands", () => {
         ).resolves.toMatchObject({ status: "completed", exitCode: 137 });
         expect(f.killExec).toHaveBeenCalledOnce();
       }
-      expect(await tool.execute({ action: "list" })).toMatchObject([
-        { key: "late" },
+      expect(
+        await tool.execute({ action: "list", includeReceiptDetails: true })
+      ).toMatchObject([
+        { key: "late", ...(action === "start" ? { phase: "accepted" } : {}) },
       ]);
     } finally {
       acquired.resolve();
@@ -376,6 +1150,9 @@ describe("retained Computer commands", () => {
       command: "printf recovered",
     });
     await expect(launch).rejects.toThrow("dispatch acknowledgement lost");
+    await expect(
+      f.tool().execute({ action: "list", includeReceiptDetails: true })
+    ).resolves.toMatchObject([{ key: "uncertain", phase: "launch_unknown" }]);
     f.getExec.mockRejectedValue(
       Object.assign(new Error("not dispatched yet"), { code: "ENOENT" })
     );
@@ -622,6 +1399,8 @@ describe("retained Computer commands", () => {
 
   it.each([
     "complete",
+    "proof",
+    "proof-lost",
     "ENOENT",
     "EEXEC_LOST",
   ] as const)("preserves exit and output after pending sync resolves as %s", async (outcome) => {
@@ -668,10 +1447,42 @@ describe("retained Computer commands", () => {
       stdout: "saved",
       after: 2,
     });
+    if (outcome === "proof") {
+      vi.mocked(f.workspace.executionSync).mockResolvedValue({
+        epoch: "retained",
+        rev: 8,
+        skipped: [],
+        skippedTruncated: false,
+      });
+      f.getExec.mockRejectedValue(
+        Object.assign(new Error("expired"), { code: "ENOENT" })
+      );
+      const calls = f.getExec.mock.calls.length;
+      await expect(
+        f.tool().execute({ action: "poll", key: "sync", after: 2 })
+      ).resolves.toMatchObject({
+        status: "completed",
+        exitCode: 0,
+        stdout: "",
+      });
+      expect(f.getExec).toHaveBeenCalledTimes(calls);
+      expect(f.exec).toHaveBeenCalledOnce();
+      return;
+    }
     if (outcome !== "complete") {
+      const lossCode = outcome === "proof-lost" ? "EEXEC_LOST" : outcome;
+      if (outcome === "proof-lost") {
+        vi.mocked(f.workspace.executionSync).mockResolvedValue({
+          epoch: "retired",
+          rev: 8,
+          skipped: [],
+          skippedTruncated: false,
+          error: "EEXEC_LOST",
+        });
+      }
       f.getExec.mockRejectedValue(
         Object.assign(new Error("native receipt unavailable"), {
-          code: outcome,
+          code: lossCode,
         })
       );
       await collectComputerCommands({
@@ -685,7 +1496,7 @@ describe("retained Computer commands", () => {
         status: "running",
         exitCode: 0,
         stdout: "saved",
-        syncError: outcome,
+        syncError: lossCode,
         nextAction: "inspect",
       });
       const calls = f.getExec.mock.calls.length;
@@ -695,7 +1506,7 @@ describe("retained Computer commands", () => {
         status: "running",
         exitCode: 0,
         stdout: "",
-        syncError: outcome,
+        syncError: lossCode,
       });
       expect(f.getExec).toHaveBeenCalledTimes(calls);
       await expect(
@@ -979,7 +1790,7 @@ describe("retained Computer commands", () => {
     { cancel: false, personal: false },
     { cancel: true, personal: false },
     { cancel: true, personal: true },
-  ])("keeps a safety-fenced command stoppable and recovers cleanup before publication ($personal, Stop=$cancel)", async ({
+  ])("publishes a fenced outcome while retaining unresolved cleanup ($personal, Stop=$cancel)", async ({
     cancel,
     personal,
   }) => {
@@ -1023,7 +1834,7 @@ describe("retained Computer commands", () => {
     ).resolves.toMatchObject({
       execution: { status: "pending", completedAtMs: null },
     });
-    const completeRemoteAgentSubmission = vi.fn(() =>
+    const completeRemoteAgentSubmission = vi.fn((_body: unknown) =>
       Promise.resolve({ status: "accepted" as const })
     );
     const readSubmission = vi.fn(() =>
@@ -1065,11 +1876,20 @@ describe("retained Computer commands", () => {
     }
     readSubmission.mockResolvedValue({ status: "settled" });
     // Reconstruct through the recovery entry point, without a prompt observer.
-    await expect(reconcile()).rejects.toThrow(
-      "termination is not yet confirmed"
-    );
+    await expect(reconcile()).resolves.toMatchObject({
+      execution: { status: cancel ? "aborted" : "failed" },
+    });
     expect(f.killExec).toHaveBeenCalled();
-    expect(completeRemoteAgentSubmission).not.toHaveBeenCalled();
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledOnce();
+    expect(completeRemoteAgentSubmission.mock.calls[0]?.[0]).toMatchObject({
+      computerCleanup: {
+        stopAccepted: true,
+        state: {
+          unfinished: 1,
+          commands: [{ stopRequested: true, terminationConfirmed: false }],
+        },
+      },
+    });
     f.getExec.mockImplementation((id) =>
       Promise.resolve(
         handle(id, [{ id, name: "exit", seq: 1, code: 143 }], true)
@@ -1089,7 +1909,7 @@ describe("retained Computer commands", () => {
       })
     );
     expect(f.exec).toHaveBeenCalledOnce();
-    expect(idFromName.mock.calls.length).toBeGreaterThan(1);
+    expect(idFromName).toHaveBeenCalled();
     expect(idFromName.mock.calls.every(([name]) => name === expectedName)).toBe(
       true
     );
@@ -1188,23 +2008,31 @@ describe("retained Computer commands", () => {
     expect(f.killExec.mock.calls[0]?.[0]).toBe(started.id);
   });
   it.each([
-    { code: "EEXEC_LOST", pendingStop: false },
-    { code: "ENOENT", pendingStop: false },
-    { code: "EEXEC_LOST", pendingStop: true },
-    { code: "ENOENT", pendingStop: true },
+    { code: "EEXEC_LOST", pendingStop: false, stopAcknowledged: false },
+    { code: "ENOENT", pendingStop: false, stopAcknowledged: false },
+    { code: "EEXEC_LOST", pendingStop: true, stopAcknowledged: false },
+    { code: "ENOENT", pendingStop: true, stopAcknowledged: false },
+    { code: "ENOENT", pendingStop: true, stopAcknowledged: true },
   ])("keeps reported $code commands from failing recovered work during cleanup (pending Stop=$pendingStop)", async ({
     code,
     pendingStop,
+    stopAcknowledged,
   }) => {
     const f = fixture();
     const started = await f
       .tool()
       .execute({ action: "start", key: "lost", command: "sleep 300" });
     if (pendingStop) {
-      f.killExec.mockRejectedValueOnce(new TypeError("Stop transport failed"));
-      await expect(
-        f.tool().execute({ action: "stop", key: "lost" })
-      ).rejects.toThrow("Stop transport failed");
+      if (stopAcknowledged) {
+        await f.tool().execute({ action: "stop", key: "lost" });
+      } else {
+        f.killExec.mockRejectedValueOnce(
+          new TypeError("Stop transport failed")
+        );
+        await expect(
+          f.tool().execute({ action: "stop", key: "lost" })
+        ).rejects.toThrow("Stop transport failed");
+      }
     }
     // The installed SDK reports a runtime identity mismatch with this code.
     const lost = Object.assign(new Error("Computer runtime replaced"), {
@@ -1217,7 +2045,10 @@ describe("retained Computer commands", () => {
     }
     await expect(
       f.tool().execute({ action: "poll", key: "lost" })
-    ).rejects.toMatchObject({ code });
+    ).rejects.toMatchObject({
+      code: "computer.execution_result_unavailable",
+      cause: { status: 404, code: "computer.execution_result_unavailable" },
+    });
     cleanupAccess.mockReturnValue(f.workspaceAccess);
     await expect(
       stopRemoteAgentComputerCommands({
@@ -1332,7 +2163,7 @@ describe("retained Computer commands", () => {
     expect(f.killExec).not.toHaveBeenCalled();
   });
 
-  it("waits for other owned work after one command is confirmed lost", async () => {
+  it("publishes a blocked outcome without abandoning other owned work after confirmed loss", async () => {
     const f = fixture();
     const executionContext = context("execution-a");
     const identity = buildRemoteAgentExecutionIdentity(executionContext);
@@ -1379,13 +2210,13 @@ describe("retained Computer commands", () => {
         }),
         storage: f.storage,
       });
-    await expect(reconcile()).rejects.toThrow(
-      "Computer command cleanup failed"
-    );
+    await expect(reconcile()).resolves.toMatchObject({
+      execution: { status: "failed" },
+    });
     await expect(
       readRemoteAgentExecutionState({ identity, storage: f.storage })
-    ).resolves.toMatchObject({ execution: { status: "pending" } });
-    expect(completeRemoteAgentSubmission).not.toHaveBeenCalled();
+    ).resolves.toMatchObject({ execution: { status: "failed" } });
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledOnce();
     expect(f.killExec.mock.calls.map(([id]) => id)).toEqual([liveCommand.id]);
     expect(f.killExec).not.toHaveBeenCalledWith(
       otherCommand.id,
@@ -1442,7 +2273,9 @@ describe("retained Computer commands", () => {
         env,
         storage: f.storage,
       })
-    ).rejects.toThrow("a retained execution was confirmed lost");
+    ).resolves.toMatchObject({
+      code: "remote_agent.computer.command_cleanup_failed",
+    });
     const completeRemoteAgentSubmission = vi.fn(async () => ({
       status: "accepted" as const,
     }));
@@ -1451,7 +2284,10 @@ describe("retained Computer commands", () => {
         coreWorker: { completeRemoteAgentSubmission },
         env,
         identity,
-        readSubmission: async () => ({ status: "settled" }),
+        readSubmission: async () => ({
+          status: "settled",
+          completedOutput: { submissionId: "execution-a", text: "Done" },
+        }),
         storage: f.storage,
       });
     await expect(reconcile()).resolves.toMatchObject({
@@ -1465,9 +2301,11 @@ describe("retained Computer commands", () => {
       expect.objectContaining({
         status: "failed",
         submissionId: "execution-a",
-        failureDetail: expect.stringContaining(
-          "a retained execution was confirmed lost"
-        ),
+        computerCleanup: {
+          stopAccepted: true,
+          automaticRetryPaused: false,
+          state: expect.objectContaining({ unavailable: commandCount }),
+        },
       })
     );
     expect(f.exec).toHaveBeenCalledTimes(commandCount);
@@ -1638,26 +2476,124 @@ describe("retained Computer commands", () => {
       key: "report",
       command: "python3 report.py",
     };
-    await f.tool().execute(request);
+    const receipt = (await f.tool().execute(request)) as {
+      id: string;
+      reference: CloudComputerCommandReference;
+    };
+    expect(receipt).toMatchObject({
+      phase: "running",
+      reference: {
+        invocationId: "execution-a",
+        key: "report",
+        id: receipt.id,
+        backend: "container",
+      },
+    });
     await f.tool().execute(request);
     expect(f.exec).toHaveBeenCalledTimes(1);
     expect(f.getExec).toHaveBeenCalledTimes(1);
     expect(f.killExec).not.toHaveBeenCalled();
-    expect(await f.tool().execute({ action: "list" })).toMatchObject([
-      { key: "report" },
+    expect(
+      await f.tool().execute({ action: "list", includeReceiptDetails: true })
+    ).toMatchObject([
+      { key: "report", reference: receipt.reference, phase: "running" },
     ]);
+    await expect(
+      f.tool().execute({
+        action: "poll",
+        key: "report",
+        reference: receipt.reference,
+        waitSeconds: 0,
+      })
+    ).resolves.toMatchObject({ reference: receipt.reference });
+    expect(f.exec).toHaveBeenCalledOnce();
+    await expect(f.tool().execute({ action: "list" })).resolves.toEqual([
+      { id: receipt.id, key: "report", createdAt: expect.any(Number) },
+    ]);
+  });
+
+  it.each([
+    { acknowledged: false, nativeCode: "ENOENT", phase: "launch_unknown" },
+    {
+      acknowledged: true,
+      nativeCode: "EEXEC_LOST",
+      phase: "result_unavailable",
+    },
+  ] as const)("reports unavailable native results without changing $phase identity", async ({
+    acknowledged,
+    nativeCode,
+    phase,
+  }) => {
+    const f = fixture();
+    if (!acknowledged) {
+      f.exec.mockRejectedValueOnce(new Error("dispatch acknowledgement lost"));
+    }
+    const start = f.tool().execute({
+      action: "start",
+      key: "retained",
+      command: "python3 report.py",
+    });
+    if (acknowledged) {
+      await start;
+    } else {
+      await expect(start).rejects.toThrow("dispatch acknowledgement lost");
+    }
+    const listed = (await f
+      .tool()
+      .execute({ action: "list", includeReceiptDetails: true })) as {
+      reference: CloudComputerCommandReference;
+    }[];
+    const reference = listed[0]?.reference;
+    expect(reference).toBeDefined();
+    // This native error contract was observed on the actual container and is
+    // already used by the installed SDK's retained-execution boundary.
+    f.getExec.mockRejectedValueOnce(
+      Object.assign(new Error("native result is unavailable"), {
+        code: nativeCode,
+      })
+    );
+    await expect(
+      f
+        .tool()
+        .execute({ action: "poll", key: "retained", reference, waitSeconds: 0 })
+    ).rejects.toMatchObject({
+      code: "computer.execution_result_unavailable",
+      cause: { status: 404, code: "computer.execution_result_unavailable" },
+    });
+    await expect(
+      f.tool().execute({ action: "list", includeReceiptDetails: true })
+    ).resolves.toMatchObject([{ reference, phase }]);
+    expect(f.exec).toHaveBeenCalledOnce();
+    expect(f.killExec).not.toHaveBeenCalled();
   });
 
   it("rejects another execution's control key and rejects changed commands", async () => {
     const f = fixture();
-    await f.tool().execute({
+    const receipt = (await f.tool().execute({
       action: "start",
       key: "report",
       command: "python3 report.py",
-    });
+    })) as { reference: CloudComputerCommandReference };
     await expect(
       f.tool("execution-b").execute({ action: "stop", key: "report" })
-    ).rejects.toThrow("Unknown Computer command");
+    ).rejects.toMatchObject({
+      code: "computer.command_not_found",
+      cause: { status: 404, code: "computer.command_not_found" },
+    });
+    for (const changed of [
+      { invocationId: "execution-b" },
+      { key: "another-key" },
+      { id: "another-native-id" },
+      { backend: "worker-javascript" as const },
+    ]) {
+      await expect(
+        f.tool().execute({
+          action: "stop",
+          key: "report",
+          reference: { ...receipt.reference, ...changed },
+        })
+      ).rejects.toMatchObject({ code: "computer.command_reference_mismatch" });
+    }
     await expect(
       f
         .tool()

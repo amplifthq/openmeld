@@ -15,7 +15,11 @@ import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { SurfaceProvider, useSurface } from "@openmeld/ui/lib/surface-context";
 import { cn } from "@openmeld/ui/lib/utils";
-import { CheckCircleIcon, PencilSimpleIcon } from "@phosphor-icons/react";
+import {
+	ArrowUpRightIcon,
+	CheckCircleIcon,
+	PencilSimpleIcon,
+} from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 
 const ATTENTION_TONE_CLASSES = {
@@ -85,6 +89,7 @@ export function AgentConfigurationEditorCard(input: {
 
 export function AgentConfigurationCard(input: {
 	actionLabel?: string;
+	actionKind?: "edit" | "open";
 	attention?: boolean;
 	attentionTone?: "danger" | "warning";
 	children?: ReactNode;
@@ -111,6 +116,9 @@ export function AgentConfigurationCard(input: {
 		: null;
 	const attentionTextClassName =
 		attentionClasses?.text ?? "text-muted-foreground";
+	const ActionIcon =
+		input.actionKind === "open" ? ArrowUpRightIcon : PencilSimpleIcon;
+	const defaultActionLabel = `${input.actionKind === "open" ? "Open" : "Edit"} ${input.label}`;
 	const card = (
 		<div
 			className={cn(
@@ -157,7 +165,7 @@ export function AgentConfigurationCard(input: {
 				</AgentConfigurationCardInlineContent>
 			</div>
 			{input.readOnly || input.disabled ? null : (
-				<PencilSimpleIcon
+				<ActionIcon
 					aria-hidden="true"
 					className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
 				/>
@@ -176,7 +184,7 @@ export function AgentConfigurationCard(input: {
 		return (
 			<AgentConfigurationSurface itemId={input.itemId}>
 				<button
-					aria-label={input.actionLabel ?? `Edit ${input.label}`}
+					aria-label={input.actionLabel ?? defaultActionLabel}
 					className="h-full w-full min-w-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
 					disabled={input.disabled}
 					onClick={input.onClick}
@@ -195,7 +203,7 @@ export function AgentConfigurationCard(input: {
 				itemId={input.itemId}
 			>
 				<MorphingDialogTrigger
-					aria-label={input.actionLabel ?? `Edit ${input.label}`}
+					aria-label={input.actionLabel ?? defaultActionLabel}
 					className="h-full w-full min-w-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
 					disabled={input.disabled}
 					type="button"

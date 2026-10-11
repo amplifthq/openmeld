@@ -4,6 +4,7 @@ import type {
 	AuthProfileView,
 	OrganizationSpaceDirectoryWithMemberCountsItem,
 } from "@openmeld/schemas/types";
+import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	DropdownMenu,
@@ -43,10 +44,19 @@ import {
 	useRef,
 	useState,
 } from "react";
+import {
+	resolveInboxAttentionLabel,
+	resolveInboxAttentionTone,
+	resolveInboxIndicatorClassName,
+} from "#/lib/inbox/attention";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
 import { buildProfilePath } from "#/lib/profile-routes";
-import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
+import {
+	type AccountSpaceItem,
+	resolveAccountSpaceRecency,
+} from "#/lib/spaces/account-spaces";
+import { spaceInboxSummaryQueryOptions } from "#/query/organizations/inbox";
 import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 import { AppSidebarGroup } from "../app/app-sidebar-group";
 import { DirectoryRowActions } from "../app/directory-row-actions";
@@ -104,6 +114,15 @@ export function SpaceDirectory(input: {
 		currentOrganization.id
 	);
 	const sidebar = useSidebarPreferences(currentOrganization.id);
+	const inbox = useQuery(
+		spaceInboxSummaryQueryOptions({ organizationId: currentOrganization.id })
+	);
+	const attentionById = new Map(
+		(inbox.data?.attention ?? []).map((item) => [
+			item.spaceId,
+			resolveInboxAttentionTone(item),
+		])
+	);
 	const { showMessagePreviews } = useMessagePreviews(
 		input.profileId,
 		currentOrganization.id
@@ -145,13 +164,7 @@ export function SpaceDirectory(input: {
 		items.map((item) => [item.spaceId, item.messagePreview])
 	);
 	const activity = new Map(
-		items.map((item) => [
-			item.spaceId,
-			resolveConversationTimestamp(
-				previews.get(item.spaceId)?.timestamp,
-				item.spaceCreatedAt
-			) ?? 0,
-		])
+		items.map((item) => [item.spaceId, resolveAccountSpaceRecency(item)])
 	);
 	const attention = new Set(
 		[...indicators.activeWakeSummaryBySpaceId]
@@ -216,7 +229,7 @@ export function SpaceDirectory(input: {
 	const discovering = input.tab === 1;
 	const discoverable = input.spaces.filter(
 		(space) =>
-			!space.joined &&
+			!(space.joined || input.accountSpaceItemsById.has(space.spaceId)) &&
 			space.visibility === "public" &&
 			space.name.toLowerCase().includes(searchTerm)
 	);
@@ -362,6 +375,7 @@ export function SpaceDirectory(input: {
 				)}
 				{discovering && (
 					<DiscoverList
+						appearances={appearances}
 						input={input}
 						layout={layout}
 						onPreview={setPreview}
@@ -425,12 +439,19 @@ export function SpaceDirectory(input: {
 											{group.items.map((item, index) => (
 												<JoinedRow
 													appearances={appearances}
+													attentionTone={
+														attentionById.get(item.spaceId) ?? null
+													}
 													disabled={sidebar.disabled}
 													index={index}
 													input={input}
 													item={item}
 													key={item.spaceId}
 													layout={layout}
+													messageUnreadCount={
+														indicators.unreadBySpaceId.get(item.spaceId)
+															?.messageUnreadCount
+													}
 													preferences={preferences}
 													preview={previews.get(item.spaceId)}
 													save={sidebar.save}
@@ -471,9 +492,13 @@ export function SpaceDirectory(input: {
 				)}
 			</ScrollArea>
 			<SpaceDirectoryPreview
-				accountProfiles={input.accountProfiles}
+				joinPending={input.pendingJoinSpaceId === preview?.spaceId}
 				onClose={() => setPreview(null)}
-				orgSlug={input.orgSlug}
+				onJoinSpace={() => {
+					if (preview) {
+						input.onJoinSpace(preview.spaceId);
+					}
+				}}
 				profileId={input.profileId}
 				space={preview}
 			/>
@@ -638,6 +663,7 @@ function UnindexedJoinedRow(input: {
 
 type DirectoryInput = React.ComponentProps<typeof SpaceDirectory>;
 function JoinedRow(input: {
+	attentionTone: ReturnType<typeof resolveInboxAttentionTone>;
 	showMessagePreviews: boolean;
 	layout: DirectoryLayout;
 	item: AccountSpaceItem;
@@ -645,6 +671,7 @@ function JoinedRow(input: {
 	preview: { text: string; timestamp: number } | null | undefined;
 	summary?: SpaceSidebarActiveWakeSummary;
 	unread: number;
+	messageUnreadCount?: number;
 	appearances: ReadonlyMap<string, SpaceMemberAppearance>;
 	input: DirectoryInput;
 	preferences?: AccountSidebarPreferences;
@@ -710,11 +737,13 @@ function JoinedRow(input: {
 										unread={input.unread > 0}
 									/>
 								</Link>
-								{input.unread > 0 && (
+								{(input.unread > 0 || input.attentionTone) && (
 									<span className="relative z-10 flex shrink-0 items-center">
-										<SpaceUnreadLink
+										<DirectoryAttention
+											attentionTone={input.attentionTone}
+											compact
 											count={input.unread}
-											showCount
+											messageUnreadCount={input.messageUnreadCount}
 											spaceId={item.spaceId}
 											url={`${route.to}?${new URLSearchParams(route.search)}`}
 										/>
@@ -777,6 +806,8 @@ function JoinedRow(input: {
 				</Link>
 				<div className="mt-1 pl-6 lg:hidden">
 					<RowStatus
+						attentionTone={input.attentionTone}
+						messageUnreadCount={input.messageUnreadCount}
 						route={route}
 						spaceId={item.spaceId}
 						status={status}
@@ -786,6 +817,8 @@ function JoinedRow(input: {
 			</TableCell>
 			<TableCell className="hidden lg:table-cell">
 				<RowStatus
+					attentionTone={input.attentionTone}
+					messageUnreadCount={input.messageUnreadCount}
 					route={route}
 					spaceId={item.spaceId}
 					status={status}
@@ -856,7 +889,48 @@ function JoinedSpaceActions(input: React.ComponentProps<typeof JoinedRow>) {
 	);
 }
 
+function DirectoryAttention(input: {
+	attentionTone?: ReturnType<typeof resolveInboxAttentionTone>;
+	compact?: boolean;
+	count: number;
+	messageUnreadCount?: number;
+	spaceId: string;
+	url: string;
+}) {
+	if (input.attentionTone && input.compact) {
+		const label = resolveInboxAttentionLabel(input.attentionTone);
+		return (
+			<TooltipHint content={label}>
+				<span
+					aria-label={label ?? undefined}
+					className={`status-dot ${resolveInboxIndicatorClassName(input.attentionTone)}`}
+					role="img"
+				/>
+			</TooltipHint>
+		);
+	}
+	return input.attentionTone ? (
+		<Badge className="gap-1.5 px-1.5" variant="secondary">
+			<span
+				aria-hidden="true"
+				className={`status-dot ${resolveInboxIndicatorClassName(input.attentionTone)}`}
+			/>
+			{resolveInboxAttentionLabel(input.attentionTone)}
+		</Badge>
+	) : (
+		<SpaceUnreadLink
+			count={input.count}
+			messageUnreadCount={input.messageUnreadCount}
+			spaceId={input.spaceId}
+			url={input.url}
+			variant="badge"
+		/>
+	);
+}
+
 function RowStatus(input: {
+	attentionTone?: ReturnType<typeof resolveInboxAttentionTone>;
+	messageUnreadCount?: number;
 	spaceId: string;
 	status: ReturnType<typeof resolveSpaceActiveWakePresentation> | null;
 	unread: number;
@@ -874,14 +948,15 @@ function RowStatus(input: {
 					</Link>
 				</TooltipHint>
 			)}
-			{input.unread > 0 && (
+			{(input.unread > 0 || input.attentionTone) && (
 				<span className="flex items-center gap-2 text-muted-foreground">
-					<SpaceUnreadLink
+					<DirectoryAttention
+						attentionTone={input.attentionTone}
 						count={input.unread}
+						messageUnreadCount={input.messageUnreadCount}
 						spaceId={input.spaceId}
 						url={`${input.route.to}?${new URLSearchParams(input.route.search)}`}
 					/>
-					{input.unread} unread
 				</span>
 			)}
 		</div>
@@ -1012,12 +1087,14 @@ function MemberPreview(input: {
 }
 
 function DiscoverList({
+	appearances,
 	spaces,
 	input,
 	layout,
 	onPreview,
 	searching,
 }: {
+	appearances: ReturnType<typeof resolveSpaceMemberAppearances>;
 	spaces: readonly DirectorySpace[];
 	input: DirectoryInput;
 	layout: DirectoryLayout;
@@ -1042,28 +1119,33 @@ function DiscoverList({
 						itemId={space.spaceId}
 						key={space.spaceId}
 					>
-						<div className="flex min-h-52 flex-col gap-3 p-4">
+						<div className="@container/space-card flex min-h-52 flex-col gap-3 p-4">
 							<button
 								aria-label={space.name}
-								className="flex flex-1 flex-col items-start gap-3 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+								className="flex flex-1 flex-col items-start gap-3 rounded-sm text-left outline-none after:absolute after:inset-0 after:rounded-md focus-visible:ring-2 focus-visible:ring-ring"
 								onClick={() => onPreview(space)}
 								type="button"
 							>
-								<ChatCircleTextIcon className="mb-auto size-10 text-muted-foreground" />
-								<span className="line-clamp-2 font-medium text-sm">
-									{space.name}
-								</span>
-								<span className="text-muted-foreground text-xs">
+								<SpaceMemberAvatars
+									appearances={appearances}
+									layout="grid"
+									memberCount={space.activeMemberCount}
+									members={space.memberPreviews ?? []}
+								/>
+								<TooltipHint content={space.name}>
+									<span className="relative z-10 line-clamp-2 font-medium text-sm">
+										{space.name}
+									</span>
+								</TooltipHint>
+							</button>
+							<div className="flex items-center justify-between gap-3">
+								<span className="min-w-0 text-muted-foreground text-xs">
 									{space.activeMemberCount === null
 										? "Member count unavailable"
 										: `${space.activeMemberCount} ${space.activeMemberCount === 1 ? "member" : "members"}`}
 								</span>
-							</button>
-							<DiscoverActions
-								input={input}
-								onPreview={onPreview}
-								space={space}
-							/>
+								<DiscoverActions input={input} space={space} />
+							</div>
 							{input.joinError?.spaceId === space.spaceId && (
 								<p className="text-destructive text-xs" role="alert">
 									{input.joinError.message}
@@ -1116,11 +1198,7 @@ function DiscoverList({
 							)}
 						</TableCell>
 						<TableCell>
-							<DiscoverActions
-								input={input}
-								onPreview={onPreview}
-								space={space}
-							/>
+							<DiscoverActions input={input} space={space} />
 						</TableCell>
 					</TableRow>
 				))}
@@ -1132,22 +1210,12 @@ function DiscoverList({
 function DiscoverActions({
 	input,
 	space,
-	onPreview,
 }: {
 	input: DirectoryInput;
 	space: DirectorySpace;
-	onPreview: (space: DirectorySpace) => void;
 }) {
 	return (
-		<div className="flex items-center gap-2">
-			<Button
-				aria-label={`Preview ${space.name}`}
-				onClick={() => onPreview(space)}
-				size="sm"
-				variant="ghost"
-			>
-				Preview
-			</Button>
+		<div className="relative z-20 flex shrink-0 items-center gap-2">
 			<Button
 				aria-label={`Join ${space.name}`}
 				disabled={
@@ -1155,7 +1223,7 @@ function DiscoverActions({
 				}
 				onClick={() => input.onJoinSpace(space.spaceId)}
 				size="sm"
-				variant="outline"
+				variant="default"
 			>
 				{input.pendingJoinSpaceId === space.spaceId ? "Joining…" : "Join"}
 			</Button>

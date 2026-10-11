@@ -5,7 +5,10 @@ import {
   spaceEvidenceReferenceSchema,
   spaceEvidenceReferencesSchema,
 } from "../../space-evidence";
-import { hostedModelReasoningLevelSchema } from "../config/model-catalog";
+import {
+  hostedModelReasoningLevelSchema,
+  modelCatalogAgentControllerSchema,
+} from "../config/model-catalog";
 import { agentControllerRefSchema } from "../daemon/agent-controller-ref";
 import { computerCareObservationSchema } from "../daemon/computer-care";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
@@ -62,7 +65,6 @@ import {
   currentLocalRuntimeReplyReadinessResponseSchema,
   requestCurrentOpenMeldToolsUpdateResponseSchema,
   selectCurrentLocalAgentInstallationResponseSchema,
-  setCurrentAgentProfileWorkspaceResponseSchema,
   setCurrentOpenMeldToolsMaintenanceResponseSchema,
 } from "./local-runtimes";
 import { organizationComputersResponseSchema } from "./organization-computers";
@@ -335,6 +337,15 @@ export const centerAgentReadConnectorActionOperationResponseSchema =
     operation: centerAgentConnectorActionOperationSchema.nullable(),
   });
 
+export const githubIssueObservationSchema = z.strictObject({
+  owner: trimmedNonEmptyStringSchema,
+  repo: trimmedNonEmptyStringSchema,
+  number: z.int().positive(),
+  state: z.enum(["open", "closed"]),
+  stateReason: z.string().nullable(),
+  updatedAt: z.iso.datetime(),
+});
+
 export const centerAgentRecordConnectorActionOperationBodySchema = z
   .strictObject({
     verificationOf: connectorActionVerificationReferenceSchema.optional(),
@@ -347,12 +358,33 @@ export const centerAgentRecordConnectorActionOperationBodySchema = z
     outcome: centerAgentConnectorActionAuditOutcomeSchema,
     providerExecutionId: nullableTrimmedStringSchema,
     linearIssueReceipt: linearExternalWorkItemSchema.optional(),
+    includeGitHubTaskSync: z.literal(true).optional(),
+    githubIssueCompletion: z
+      .strictObject({
+        githubActor: z.enum(["organization", "requester"]),
+        actionInput: z.record(z.string(), z.unknown()),
+        observation: githubIssueObservationSchema,
+      })
+      .optional(),
     requestSignature: z.string().regex(/^[0-9a-f]{64}$/),
     issueDestination: projectIssueDestinationSchema.optional(),
     service: connectorServiceSchema,
     speakerMember: centerAgentToolSpeakerSchema,
   })
   .superRefine((value, context) => {
+    if (
+      value.githubIssueCompletion &&
+      (value.outcome !== "completed" ||
+        value.service !== "github" ||
+        value.actionId !== "github.update_issue")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "GitHub issue evidence requires a completed GitHub issue update.",
+        path: ["githubIssueCompletion"],
+      });
+    }
     if (value.outcome === "attempted" && value.providerExecutionId !== null) {
       context.addIssue({
         code: "custom",
@@ -385,6 +417,12 @@ export const centerAgentRecordConnectorActionOperationBodySchema = z
 
 export const centerAgentRecordConnectorActionOperationResponseSchema =
   z.strictObject({
+    githubTaskSync: z
+      .strictObject({
+        status: z.enum(["settled", "pending"]),
+        closedTaskIds: z.array(z.string()),
+      })
+      .optional(),
     verificationOf: connectorActionVerificationEvidenceSchema.optional(),
     executionAllowed: z.boolean().optional(),
     replay: connectorActionReplayPermissionSchema.optional(),
@@ -1295,6 +1333,7 @@ export const centerAgentProductOperationStepNameSchema = z.enum([
   "authorize_agent_profile_for_organization",
   "update_agent_profile_runtime_settings",
   "update_agent_profile_workspace",
+  "update_agent_profile_default_project",
   "add_agent_profile_to_space",
   "check_agent_profile_readiness",
 ]);
@@ -1302,6 +1341,7 @@ export const centerAgentProductOperationStepNameSchema = z.enum([
 export const centerAgentProductOperationStepSchema = z.strictObject({
   name: centerAgentProductOperationStepNameSchema,
   status: z.enum(["completed", "failed", "skipped"]),
+  reasonCode: trimmedNonEmptyStringSchema.optional(),
   message: trimmedNonEmptyStringSchema.optional(),
   nextAction: trimmedNonEmptyStringSchema.optional(),
 });
@@ -1315,6 +1355,7 @@ export const centerAgentLocalAgentConnectionCandidateSchema = z.strictObject({
   deviceId: trimmedNonEmptyStringSchema,
   freshness: z.enum(["fresh", "stale", "unknown"]),
   lastObservedAtMs: z.number().int().nonnegative().nullable(),
+  modelOptions: modelCatalogAgentControllerSchema.optional(),
   reasonCodes: z.array(trimmedNonEmptyStringSchema),
   runtimeLane: trimmedNonEmptyStringSchema,
   status: z.enum(["ready", "not_ready", "stale", "unknown"]),
@@ -1354,6 +1395,7 @@ export const centerAgentComputerSetupOptionSchema = z
 
 export const centerAgentListLocalAgentConnectionCandidatesBodySchema =
   z.strictObject({
+    includeModelOptions: z.boolean().optional(),
     memberUserId: trimmedNonEmptyStringSchema.optional(),
     speakerMember: centerAgentToolSpeakerSchema,
   });
@@ -1545,6 +1587,7 @@ export const centerAgentUpdateAgentProfileRuntimeSettingsBodySchema = z
   });
 
 export const centerAgentCheckAgentProfileReadinessBodySchema = z.strictObject({
+  includeDefaultProjectConnection: z.boolean().optional(),
   agentProfileId: agentProfileIdSchema,
   onBehalfOf: centerAgentOnBehalfOfInputSchema.optional(),
 });
@@ -1606,6 +1649,22 @@ export const centerAgentCheckAgentProfileReadinessResponseSchema =
     canReply: z.boolean(),
     organizationId: trimmedNonEmptyStringSchema,
     readiness: getAgentExecutionReadinessResponseSchema,
+    defaultProjectConnection: z
+      .strictObject({
+        projectId: nullableTrimmedStringSchema,
+        target: peopleComputerTargetSchema.nullable(),
+        status: z.enum([
+          "not_selected",
+          "connected",
+          "folder_missing",
+          "not_connected",
+          "unavailable",
+        ]),
+        checkedAtMs: z.number().int().nonnegative().nullable(),
+        configurationVersion: nullableTrimmedStringSchema,
+        reasonCode: nullableTrimmedStringSchema,
+      })
+      .optional(),
     summary: trimmedNonEmptyStringSchema,
   });
 
@@ -1613,6 +1672,13 @@ const centerAgentProductOperationStatusSchema = z.enum([
   "completed",
   "blocked",
 ]);
+
+const centerAgentWorkspaceMutationResponseSchema = z.strictObject({
+  agentProfileId: agentProfileIdSchema,
+  status: z.literal("updated"),
+  target: peopleComputerTargetSchema.optional(),
+  configurationVersion: nullableTrimmedStringSchema.optional(),
+});
 
 export const centerAgentConnectAgentProfileToLocalAgentResponseSchema =
   z.strictObject({
@@ -1635,7 +1701,7 @@ export const centerAgentUpdateAgentProfileRuntimeSettingsResponseSchema =
     readiness: centerAgentCheckAgentProfileReadinessResponseSchema.optional(),
     status: centerAgentProductOperationStatusSchema,
     steps: z.array(centerAgentProductOperationStepSchema),
-    workspace: setCurrentAgentProfileWorkspaceResponseSchema.optional(),
+    workspace: centerAgentWorkspaceMutationResponseSchema.optional(),
   });
 
 export const centerAgentCreateConfiguredAgentProfileResponseSchema =
@@ -1650,7 +1716,7 @@ export const centerAgentCreateConfiguredAgentProfileResponseSchema =
     spaceId: trimmedNonEmptyStringSchema,
     status: centerAgentProductOperationStatusSchema,
     steps: z.array(centerAgentProductOperationStepSchema),
-    workspace: setCurrentAgentProfileWorkspaceResponseSchema.optional(),
+    workspace: centerAgentWorkspaceMutationResponseSchema.optional(),
   });
 
 export const centerAgentConciergeActionResponseSchema = z.strictObject({

@@ -22,6 +22,9 @@ function Harness(input: {
 	onRead?: (targets: readonly SpaceInboxUnreadTarget[]) => Promise<void> | void;
 	unreadTargets?: readonly SpaceInboxUnreadTarget[];
 	scope?: string;
+	sourceAt?: number;
+	reactionVersion?: number;
+	failureSources?: string;
 }) {
 	return (
 		<div data-testid="viewport">
@@ -30,8 +33,27 @@ function Harness(input: {
 				onViewedUpdates={input.onRead}
 				unreadTargets={input.unreadTargets ?? targets}
 			/>
-			<div data-message-row-id="long-reply">
+			<div
+				data-message-row-id="long-reply"
+				data-message-source-at={input.sourceAt}
+			>
 				A reply longer than the viewport
+				{input.failureSources ? (
+					<button
+						data-message-read-sources={input.failureSources}
+						type="button"
+					>
+						View error details
+					</button>
+				) : null}
+				{input.reactionVersion !== undefined ? (
+					<span
+						data-message-reactions-for="long-reply"
+						data-message-reactions-version={input.reactionVersion}
+					>
+						👍
+					</span>
+				) : null}
 			</div>
 			<div data-message-row-id="next-reply">A later reply below the fold</div>
 		</div>
@@ -71,12 +93,14 @@ describe("Space message read visibility", () => {
 					? document.body
 					: ([
 							...document.querySelectorAll<HTMLElement>(
-								"[data-message-row-id]"
+								"[data-message-row-id], [data-message-reactions-for], [data-message-read-sources]"
 							),
-						].find((element) => {
-							const rect = element.getBoundingClientRect();
-							return y >= rect.top && y < rect.bottom;
-						}) ?? null),
+						]
+							.reverse()
+							.find((element) => {
+								const rect = element.getBoundingClientRect();
+								return y >= rect.top && y < rect.bottom;
+							}) ?? null),
 		});
 		Object.defineProperty(document, "visibilityState", {
 			configurable: true,
@@ -89,7 +113,10 @@ describe("Space message read visibility", () => {
 				}
 				return new DOMRect(
 					0,
-					this.dataset.messageRowId === "long-reply" ? firstTop : secondTop,
+					this.closest('[data-message-row-id="long-reply"]') ||
+						this.dataset.messageReactionsFor === "long-reply"
+						? firstTop
+						: secondTop,
 					500,
 					1600
 				);
@@ -181,18 +208,73 @@ describe("Space message read visibility", () => {
 		expect(persist).toHaveBeenCalledExactlyOnceWith([targets[0]]);
 	});
 
-	it("acknowledges a visible reaction without acknowledging the unseen earlier update", async () => {
+	it("acknowledges only reaction versions represented by the visible chips", async () => {
 		const persist = vi.fn();
+		const reaction = {
+			...targets[0],
+			sourceKey: "reaction:long-reply:1",
+			occurredAtMs: 100,
+		};
 		render(
 			<Harness
 				onRead={persist}
-				unreadTargets={[{ ...targets[0], occurredAtMs: 100 }, targets[1]]}
+				reactionVersion={1}
+				unreadTargets={[
+					reaction,
+					{
+						...reaction,
+						sourceKey: "reaction:long-reply:2",
+						occurredAtMs: 200,
+					},
+					targets[1],
+				]}
 			/>
 		);
 		await act(() => vi.advanceTimersByTimeAsync(200));
+		expect(persist).toHaveBeenCalledExactlyOnceWith([reaction]);
+	});
+	it("records the rendered source when its Inbox projection has not arrived", async () => {
+		const persist = vi.fn();
+		render(<Harness onRead={persist} sourceAt={10} unreadTargets={[]} />);
+		await act(() => vi.advanceTimersByTimeAsync(200));
 		expect(persist).toHaveBeenCalledExactlyOnceWith([
-			{ ...targets[0], occurredAtMs: 100 },
+			{ signalId: "long-reply", occurredAtMs: 10, threadRootSignalId: null },
 		]);
+	});
+	it("does not read a later failure just because its navigation anchor is visible", async () => {
+		const persist = vi.fn();
+		const failure = {
+			...targets[0],
+			sourceKey: "next-reply",
+			occurredAtMs: 100,
+		};
+		const view = render(<Harness onRead={persist} unreadTargets={[failure]} />);
+		await act(() => vi.advanceTimersByTimeAsync(200));
+		expect(persist).not.toHaveBeenCalled();
+		firstTop = -1500;
+		secondTop = 150;
+		fireEvent.scroll(view.getByTestId("viewport"));
+		await act(() => vi.advanceTimersByTimeAsync(200));
+		expect(persist).toHaveBeenCalledExactlyOnceWith([failure]);
+	});
+	it("reads the current failure when its visible summary replaces the separate outcome row", async () => {
+		const persist = vi.fn();
+		const failure = {
+			...targets[0],
+			sourceKey: "failure-1",
+			occurredAtMs: 100,
+		};
+		render(
+			<Harness
+				failureSources={JSON.stringify([
+					{ signalId: "failure-1", occurredAtMs: 100 },
+				])}
+				onRead={persist}
+				unreadTargets={[failure]}
+			/>
+		);
+		await act(() => vi.advanceTimersByTimeAsync(200));
+		expect(persist).toHaveBeenCalledExactlyOnceWith([failure]);
 	});
 	it("acknowledges the deep-link target without clearing the skipped message", async () => {
 		firstTop = -1500;

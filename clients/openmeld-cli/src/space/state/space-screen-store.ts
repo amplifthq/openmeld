@@ -50,6 +50,11 @@ function reduceSpaceScreenState(
   action: SpaceScreenAction
 ): SpaceScreenState {
   switch (action.type) {
+    case "connection.reconnecting":
+      return {
+        ...state,
+        connection: { ...state.connection, status: "connecting" },
+      };
     case "connection.connected":
       if (state.connection.status === "connected") {
         return state;

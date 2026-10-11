@@ -17,7 +17,7 @@ import type { RemoteAgentAdmissionImage } from "../agent-core/submission";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 import type { AgentComputerWorkspaceAccess } from "./agent-computer-workspace-access";
 import { inspectComputerFileForTransfer } from "./computer-file-handoff";
-import { AGENT_COMPUTER_CONTAINER_BACKEND_ID } from "./computer-workspace";
+import { AGENT_COMPUTER_CONTAINER_BACKEND_ID } from "./computer-workspace-config";
 
 const MAX_VIDEO_WINDOW_SECONDS = 30;
 const MAX_VIDEO_FRAMES = 6;
@@ -37,7 +37,7 @@ const videoInput = strictObject({
 export function getComputerVideoInspectionTool(input: {
   computerExec: (
     command: string,
-    options?: { backend?: string; timeoutMs?: number }
+    options?: { backend?: string; timeoutMs?: number; receiptScope?: string }
   ) => Promise<{
     exitCode: number;
     stderr: string;
@@ -52,10 +52,11 @@ export function getComputerVideoInspectionTool(input: {
   workspaceAccess: AgentComputerWorkspaceAccess;
   workingDirectory: string;
 }): RemoteAgentToolDefinition {
-  const run = async (command: string) => {
+  const run = async (command: string, sourcePath: string) => {
     const result = await input.computerExec(command, {
       backend: AGENT_COMPUTER_CONTAINER_BACKEND_ID,
       timeoutMs: 120_000,
+      receiptScope: `video:${sourcePath}`,
     });
     if (result.exitCode !== 0) {
       throw new Error(
@@ -83,7 +84,8 @@ export function getComputerVideoInspectionTool(input: {
       await reserveVideoInspectionBudget(input.storage, input.submissionId);
       const filePath = shellQuote(selected.absolutePath);
       const durationText = await run(
-        `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 ${filePath}`
+        `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 ${filePath}`,
+        selected.absolutePath
       );
       const totalDurationSeconds = Number(durationText);
       if (
@@ -106,7 +108,8 @@ export function getComputerVideoInspectionTool(input: {
       try {
         const frameRate = Math.min(MAX_VIDEO_FRAMES / durationSeconds, 2);
         await run(
-          `ffmpeg -nostdin -hide_banner -loglevel error -threads 1 -ss ${startSeconds} -t ${durationSeconds} -i ${filePath} -vf ${shellQuote(`fps=${frameRate},scale=960:960:force_original_aspect_ratio=decrease`)} -frames:v ${MAX_VIDEO_FRAMES} -q:v 5 ${shellQuote(`${directory}/frame-%03d.jpg`)}`
+          `ffmpeg -nostdin -hide_banner -loglevel error -threads 1 -ss ${startSeconds} -t ${durationSeconds} -i ${filePath} -vf ${shellQuote(`fps=${frameRate},scale=960:960:force_original_aspect_ratio=decrease`)} -frames:v ${MAX_VIDEO_FRAMES} -q:v 5 ${shellQuote(`${directory}/frame-%03d.jpg`)}`,
+          selected.absolutePath
         );
         const frames = await input.workspaceAccess.withWorkspace(
           async (workspace) =>
@@ -125,13 +128,15 @@ export function getComputerVideoInspectionTool(input: {
         }
         const visualSummary = await input.understandFrames(frames);
         const audioStreams = await run(
-          `ffprobe -v error -select_streams a:0 -show_entries stream=index -of csv=p=0 ${filePath}`
+          `ffprobe -v error -select_streams a:0 -show_entries stream=index -of csv=p=0 ${filePath}`,
+          selected.absolutePath
         );
         let audioTranscript: string | null = null;
         if (audioStreams) {
           const audioPath = `${directory}/audio.mp3`;
           await run(
-            `ffmpeg -nostdin -hide_banner -loglevel error -threads 1 -ss ${startSeconds} -t ${durationSeconds} -i ${filePath} -map 0:a:0 -vn -ac 1 -ar 16000 -b:a 48k -f mp3 ${shellQuote(audioPath)}`
+            `ffmpeg -nostdin -hide_banner -loglevel error -threads 1 -ss ${startSeconds} -t ${durationSeconds} -i ${filePath} -map 0:a:0 -vn -ac 1 -ar 16000 -b:a 48k -f mp3 ${shellQuote(audioPath)}`,
+            selected.absolutePath
           );
           const audio = await input.workspaceAccess.withWorkspace(
             async (workspace) =>

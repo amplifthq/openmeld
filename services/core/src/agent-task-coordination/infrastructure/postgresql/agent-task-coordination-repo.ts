@@ -942,7 +942,7 @@ async function readLatestAgentTaskNeedsAttentionObservation(input: {
     .then((result) => result.rows[0] ?? null);
   return row ? parseAgentTaskNeedsAttentionObservationRow(row) : null;
 }
-async function readAgentTaskNeedsAttentionObservation(input: {
+export async function readAgentTaskNeedsAttentionObservation(input: {
   db: PostgresDatabase;
   eventId: string;
   taskKey: string;

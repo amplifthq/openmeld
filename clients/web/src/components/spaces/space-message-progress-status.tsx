@@ -21,8 +21,8 @@ import {
 	SpacePendingSendFeedback,
 	useSpaceSendFailure,
 } from "./space-pending-send";
-import { SpaceWakeBookmarkAnchor } from "./space-wake-bookmarks";
 import { useSpaceWakeStopRequestStatuses } from "./space-wake-stop-control";
+import { SpaceWakeBookmarkAnchor } from "./space-work-bookmarks";
 
 export function SpaceMessageProgressStatus(input: {
 	align?: "start" | "end";

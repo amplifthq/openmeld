@@ -96,7 +96,7 @@ describe("message search", () => {
 		rerender({ draft: "a", isComposing: false, spaceId: "space-1" });
 		await act(() => vi.advanceTimersByTimeAsync(300));
 		expect(request).toHaveBeenCalledTimes(3);
-		expect(request.mock.calls[2]?.[0].url).toContain("q=a&scope=messages");
+		expect(request.mock.calls[2]?.[0].url).toContain("/v1/messages/query?q=a");
 		expect(request.mock.calls[2]?.[0].url).toContain("spaceId=space-1");
 		rerender({ draft: "final", isComposing: false, spaceId: undefined });
 		await act(() => vi.advanceTimersByTimeAsync(300));

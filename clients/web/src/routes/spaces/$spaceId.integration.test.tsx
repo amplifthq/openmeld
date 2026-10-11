@@ -1,5 +1,12 @@
-import { OpenMeldApiClientHttpError } from "@openmeld/api-client";
-import type { SignalEnvelope } from "@openmeld/schemas/types";
+import {
+	OpenMeldApiClientHttpError,
+	readOrUpdateSpaceFilePins,
+	readOrUpdateSpaceMessagePins,
+} from "@openmeld/api-client";
+import type {
+	SignalEnvelope,
+	SpaceMessagePinsResponse,
+} from "@openmeld/schemas/types";
 import type { OpenMeldLogoStrongProps } from "@openmeld/ui/components/openmeld-logo-strong";
 import {
 	cleanup,
@@ -60,6 +67,12 @@ const {
 		}
 	),
 	useNavigateMock: vi.fn(),
+}));
+
+vi.mock("@openmeld/api-client", async (original) => ({
+	...(await original<typeof import("@openmeld/api-client")>()),
+	readOrUpdateSpaceFilePins: vi.fn(),
+	readOrUpdateSpaceMessagePins: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-router", async (importOriginal) => {
@@ -149,7 +162,7 @@ vi.mock("@openmeld/ui/components/openmeld-logo-strong", () => ({
 	OpenMeldLogoStrong: openMeldLogoStrongMock,
 }));
 
-import { PublicSpacePage } from "./$spaceId";
+import { PublicSpacePage } from "#/components/spaces/public-space-page";
 
 const MESSAGE_TEXTBOX_NAME = "Message this space";
 const SIGN_IN_LINK_NAME = "Sign in";
@@ -170,6 +183,8 @@ type PublicSpaceApiTestDouble = {
 
 describe("PublicSpacePage", () => {
 	beforeEach(() => {
+		vi.mocked(readOrUpdateSpaceFilePins).mockResolvedValue({ pins: [] });
+		vi.mocked(readOrUpdateSpaceMessagePins).mockResolvedValue({ pins: [] });
 		createWebSpaceApiMock.mockReset();
 		listStartProfilesMock.mockReset().mockResolvedValue([]);
 		recordProfileSpaceHistoryMock.mockReset().mockResolvedValue(undefined);
@@ -282,7 +297,6 @@ describe("PublicSpacePage", () => {
 			["spaces", "space-123", "__public_space_viewer__", "history-navigation"],
 			await api.getHistoryNavigation({ spaceId: "space-123" })
 		);
-		const apiCreationsBeforeRender = createWebSpaceApiMock.mock.calls.length;
 
 		const html = renderToString(
 			<TestQueryClientProvider queryClient={queryClient}>
@@ -294,9 +308,10 @@ describe("PublicSpacePage", () => {
 
 		expect(body.textContent).toContain("Hello public viewer.");
 		expect(body.textContent).not.toContain("Loading the latest messages");
-		expect(createWebSpaceApiMock).toHaveBeenCalledTimes(
-			apiCreationsBeforeRender
-		);
+		expect(api.getStatus).toHaveBeenCalledOnce();
+		expect(api.listSignalEnvelopes).toHaveBeenCalledOnce();
+		expect(api.listThreads).toHaveBeenCalledOnce();
+		expect(api.getHistoryNavigation).toHaveBeenCalledOnce();
 	});
 
 	it.each([
@@ -555,6 +570,97 @@ describe("PublicSpacePage", () => {
 		});
 	});
 
+	it("opens a pinned public Thread after its root history read recovers", async () => {
+		const root = createSignalEnvelope();
+		const reply = createPublicAgentWakeReplyEnvelope({
+			id: "pinned-reply",
+			replyToSignalId: root.id,
+			text: "Recovered pinned reply",
+			ts: root.ts + 1000,
+		});
+		const pins: SpaceMessagePinsResponse = {
+			pins: [
+				{
+					signalId: reply.id,
+					pinnedByProfileId: "human-1",
+					pinnedByName: "Mira",
+					pinnedAt: "2026-05-13T00:00:00Z",
+					authorName: "Mira",
+					preview: "Pinned thread reply",
+				},
+			],
+		};
+		vi.mocked(readOrUpdateSpaceMessagePins).mockResolvedValue(pins);
+		let reachable = false;
+		const api = createPublicSpaceApi({
+			listSignalEnvelopes: vi.fn((request) => {
+				if (request.query?.aroundSignalId && !reachable) {
+					return Promise.reject(new TypeError("Failed to fetch"));
+				}
+				return Promise.resolve({
+					envelopes: request.query?.aroundSignalId ? [root] : [],
+					nextCursor: null,
+				});
+			}),
+			listThreads: vi.fn(async () => ({
+				previews: [],
+				threads: [
+					{
+						threadId: "pinned-thread",
+						rootSignalId: root.id,
+						spaceId: "space-123",
+						createdByProfileId: "human-1",
+						createdAt: "2026-05-13T00:00:00Z",
+						updatedAt: "2026-05-13T00:00:00Z",
+					},
+				],
+			})),
+			listThreadSignals: vi.fn(async () => ({
+				signals: [reply],
+				placements: [],
+			})),
+			resolveEntry: vi.fn(async (target) => ({
+				target: {
+					spaceId: "space-123",
+					signalId: target.signalId,
+					threadRootSignalId:
+						target.signalId === reply.id ? root.id : undefined,
+				},
+				view: { state: "allowed", experience: "public" },
+				participation: { state: "self_join_available" },
+				recovery: null,
+				safeContext: { spaceName: "Shared Roadmap" },
+			})),
+		});
+		createWebSpaceApiMock.mockReturnValue(api);
+		renderPublicSpace({ isAuthenticated: false });
+		fireEvent.click(await screen.findByLabelText("Jump to message"));
+		const retry = await screen.findByRole("button", {
+			name: "Retry",
+		});
+		expect(screen.getByLabelText("Thread").getAttribute("data-state")).toBe(
+			"collapsed"
+		);
+		expect(
+			screen.queryByText("Couldn’t open this thread. Try again.")
+		).toBeNull();
+		reachable = true;
+		fireEvent.click(retry);
+		const recoveredReply = await screen.findByText("Recovered pinned reply");
+		expect(recoveredReply.closest('[aria-label="Thread"]')).not.toBeNull();
+		await waitFor(() =>
+			expect(document.activeElement).toBe(
+				recoveredReply.closest("[data-signal-id]")
+			)
+		);
+		expect(screen.queryByRole("alert")).toBeNull();
+		expect(
+			api.listSignalEnvelopes.mock.calls.some(
+				([request]) => request.query?.aroundSignalId === reply.id
+			)
+		).toBe(false);
+	});
+
 	it("keeps completed root Wakes terminal in public threads when the thread query omits the top-level reply", async () => {
 		const rootText = "Review the public release notes.";
 		const rootSignal = createPublicWakeSignalEnvelope({
@@ -773,10 +879,12 @@ describe("PublicSpacePage", () => {
 		renderPublicSpace({ isAuthenticated: true });
 
 		await waitFor(() => {
-			expect(useNavigateMock).toHaveBeenCalledWith({
-				replace: true,
-				to: "/o/acme/spaces/space-123",
-			});
+			expect(useNavigateMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					replace: true,
+					to: "/o/acme/spaces/space-123",
+				})
+			);
 		});
 		expect(resolveActiveOrganizationSpacePathMock).not.toHaveBeenCalled();
 	});
@@ -802,11 +910,16 @@ describe("PublicSpacePage", () => {
 		renderPublicSpace({ isAuthenticated: true });
 
 		await waitFor(() => {
-			expect(useNavigateMock).toHaveBeenCalledWith({
-				replace: true,
-				to: "/o/acme/spaces/space-123",
-			});
+			expect(useNavigateMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					replace: true,
+					to: "/o/acme/spaces/space-123",
+				})
+			);
 		});
+		expect(useNavigateMock.mock.calls[0]?.[0].search).not.toHaveProperty(
+			"profileId"
+		);
 		expect(spaceApi.addMembers).not.toHaveBeenCalled();
 	});
 
@@ -844,10 +957,12 @@ describe("PublicSpacePage", () => {
 		renderPublicSpace({ isAuthenticated: true });
 
 		await waitFor(() => {
-			expect(useNavigateMock).toHaveBeenCalledWith({
-				replace: true,
-				to: "/o/acme/spaces/space-123",
-			});
+			expect(useNavigateMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					replace: true,
+					to: "/o/acme/spaces/space-123",
+				})
+			);
 		});
 		expect(
 			screen.queryByRole("combobox", { name: "Join Space as" })

@@ -15,12 +15,16 @@ import {
 import {
   describeGuardedReceiptRecoveryCandidate,
   executeRecordedProductionDeploySteps,
+  groupReleaseSteps,
+  readPostgresqlRollbackBaseline,
+  releaseComponentOperationKey,
 } from "./production-release-receipts.mjs";
 import { runProductionStageAdmission } from "./production-stage-admission.mjs";
 
 const IDENTITY_ERROR = /output|correlat|identity|Worker|target/iu;
 const BASELINE_ERROR = /baseline/iu;
 const UNRESOLVED_ERROR = /unresolved|reconcil/iu;
+const POSTGRESQL_RETRY_ERROR = /unresolved|baseline|reconcile/iu;
 const SOURCE = "a".repeat(40);
 const ATTEMPT = "00000000-0000-4000-8000-000000000001";
 const WORKER_VERSION = "23863082-db0f-4cfe-a91b-69c570ee1578";
@@ -31,6 +35,7 @@ function fixture(options = {}) {
   const receipts = [],
     effects = [],
     latest = new Map(),
+    sources = new Map(),
     released = [];
   const workerResponse = workerDeploymentResponse(options);
   let workerVerificationRead = 0;
@@ -58,8 +63,10 @@ function fixture(options = {}) {
       },
       execute: () =>
         executeRecordedProductionDeploySteps({
-          sourceSha: SOURCE,
-          attemptId: ATTEMPT,
+          sourceSha: options.sourceSha ?? SOURCE,
+          attemptId: options.attemptId ?? ATTEMPT,
+          sourceIsAncestor: options.sourceIsAncestor,
+          compareGitPathContents: options.compareGitPathContents,
           resolveWorkerTarget: fixtureWorkerTarget,
           readCliCompletion: () => cliProjectionResult(SOURCE),
           readEvidence: () => {
@@ -70,7 +77,8 @@ function fixture(options = {}) {
               [...latest].map(([scope, receipt]) => [
                 scope,
                 {
-                  sha: SOURCE,
+                  sha: sources.get(scope) ?? SOURCE,
+                  evidenceSha: options.evidenceSha,
                   receipt,
                   verifiedHistoryBaseline: options.baseline,
                 },
@@ -79,12 +87,19 @@ function fixture(options = {}) {
           },
           steps: options.steps ?? steps,
           executeSteps: executeProductionDeploySteps,
-          runCommand: () =>
-            options.identityFailure
+          runCommand: (input) => {
+            if (input.args?.[1] === "verify-retry-baseline") {
+              return {
+                status: options.baselineProofFailure ? 1 : 0,
+                stdout: JSON.stringify(options.baselineProof),
+              };
+            }
+            return options.identityFailure
               ? { status: 1 }
               : (options.workerVerificationResponses?.[
                   workerVerificationRead++
-                ] ?? workerResponse),
+                ] ?? workerResponse);
+          },
           executionAdapters: {
             runCommand: () =>
               options.baselineFailure
@@ -132,6 +147,7 @@ function fixture(options = {}) {
             for (const [scope, receipt] of Object.entries(event.receipts)) {
               productionComponentReceiptSchema.parse(receipt);
               latest.set(scope, receipt);
+              sources.set(scope, event.sourceSha);
             }
             receipts.push(event);
           },
@@ -270,6 +286,157 @@ test("native database recovery rejects a different operation before verification
   options.failureAt = undefined;
   await assert.rejects(result.run, UNRESOLVED_ERROR);
   assert.deepEqual(result.effects, ["PostgreSQL database: migrate"]);
+});
+
+function postgresqlRetryOptions() {
+  const steps = buildProductionDeployStepSpecs(["db"], {
+    databaseBackend: "postgresql",
+  });
+  const group = groupReleaseSteps(steps)[0];
+  const baselineSha = "b".repeat(40);
+  return {
+    scopes: ["db"],
+    steps,
+    failureAt: "PostgreSQL database: migrate",
+    evidenceSha: "c".repeat(40),
+    sourceIsAncestor: () => true,
+    compareGitPathContents: () => true,
+    baselineProof: {
+      baselineSourceSha: baselineSha,
+      runtimeGrantsVerified: true,
+    },
+    baseline: {
+      sha: baselineSha,
+      evidenceSha: "d".repeat(40),
+      recordedAt: "2026-01-01T00:00:00.000Z",
+      receipt: {
+        attemptId: "00000000-0000-4000-8000-000000000002",
+        componentIndex: 0,
+        operationKey: releaseComponentOperationKey({
+          sourceSha: baselineSha,
+          group,
+          target: null,
+        }),
+        startedAt: "2026-01-01T00:00:00.000Z",
+        status: "verified",
+        application: "applied",
+        identity: { kind: "release-source" },
+      },
+    },
+  };
+}
+
+test("a proved PostgreSQL rollback starts a new-source attempt while retaining the old failure", async () => {
+  const options = postgresqlRetryOptions();
+  const result = fixture(options);
+  await assert.rejects(result.run, FAILURE);
+  const original = structuredClone(result.receipts.at(-1));
+  options.sourceSha = "e".repeat(40);
+  options.attemptId = "00000000-0000-4000-8000-000000000003";
+  options.failureAt = undefined;
+  await result.run();
+  assert.deepEqual(result.effects, [
+    "PostgreSQL database: migrate",
+    "PostgreSQL database: migrate",
+    "PostgreSQL database: grant-runtime",
+    "PostgreSQL database: verify",
+  ]);
+  assert.deepEqual(result.receipts[1], original);
+  const start = result.receipts[2];
+  assert.equal(start.sourceSha, options.sourceSha);
+  assert.equal(start.receipts.db.status, "started");
+  assert.equal(start.reconciliation.db.supersededReceipt.sourceSha, SOURCE);
+  assert.equal(
+    start.reconciliation.db.baselineReceipt.sourceSha,
+    options.baseline.sha
+  );
+  assert.equal(result.latest.get("db").status, "verified");
+  assert.notEqual(
+    result.latest.get("db").attemptId,
+    original.receipts.db.attemptId
+  );
+});
+
+test("PostgreSQL forward retry refuses missing, changed, or unproved baseline before any new effect", async () => {
+  for (const change of [
+    (options) => {
+      options.baseline = undefined;
+    },
+    (options) => {
+      options.baseline.receipt.status = "failed";
+    },
+    (options) => {
+      options.baseline.receipt.operationKey = "0".repeat(64);
+    },
+    (options) => {
+      options.compareGitPathContents = () => false;
+    },
+    (options) => {
+      options.sourceIsAncestor = () => false;
+    },
+    (options) => {
+      options.baselineProofFailure = true;
+    },
+    (options) => {
+      options.steps[0].internalOperation = "fixture-unexpected-operation";
+    },
+    (options) => {
+      options.baselineProof.baselineSourceSha = SOURCE;
+    },
+  ]) {
+    const options = postgresqlRetryOptions();
+    const result = fixture(options);
+    await assert.rejects(result.run, FAILURE);
+    const before = structuredClone(result.receipts);
+    options.sourceSha = "e".repeat(40);
+    options.failureAt = undefined;
+    change(options);
+    await assert.rejects(result.run, POSTGRESQL_RETRY_ERROR);
+    assert.deepEqual(result.effects, ["PostgreSQL database: migrate"]);
+    assert.deepEqual(result.receipts, before);
+  }
+});
+
+test("PostgreSQL retry admission stays narrow for applied or malformed retained attempts", () => {
+  const options = postgresqlRetryOptions();
+  const group = groupReleaseSteps(options.steps)[0];
+  const source = {
+    sha: SOURCE,
+    evidenceSha: options.evidenceSha,
+    verifiedHistoryBaseline: options.baseline,
+    receipt: {
+      ...options.baseline.receipt,
+      status: "failed",
+      application: "unknown",
+      identity: undefined,
+      operationKey: releaseComponentOperationKey({
+        sourceSha: SOURCE,
+        group,
+        target: null,
+      }),
+    },
+  };
+  const input = { ...options, sourceSha: "e".repeat(40) };
+  assert.equal(readPostgresqlRollbackBaseline(source, input), options.baseline);
+  assert.equal(
+    describeGuardedReceiptRecoveryCandidate(source, "db", input).sourceSha,
+    input.sourceSha
+  );
+  for (const receipt of [
+    {
+      ...source.receipt,
+      status: "applied",
+      application: "applied",
+      identity: { kind: "release-source" },
+    },
+    { ...source.receipt, operationKey: "0".repeat(64) },
+    { ...source.receipt, status: "started" },
+  ]) {
+    assert.equal(
+      readPostgresqlRollbackBaseline({ ...source, receipt }, input),
+      null
+    );
+  }
 });
 
 test("a failed applied receipt resumes health under the same lease without redeploying", async () => {

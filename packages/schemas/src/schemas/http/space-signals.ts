@@ -106,7 +106,7 @@ export const validateSpaceSignalClientMessageIdPolicy = (
 
 export const postNormalMessageBodySchema = z
   .strictObject({
-    workHandoffVersion: z.literal(1).optional(),
+    workHandoffVersion: z.union([z.literal(1), z.literal(2)]).optional(),
     evidenceRefsVersion: z.literal(1).optional(),
     text: signalTextRequestDataSchema.shape.text,
     deviceWait: signalTextRequestDataSchema.shape.deviceWait.optional(),
@@ -123,6 +123,17 @@ export const postNormalMessageBodySchema = z
     meta: signalTextRequestDataSchema.shape.meta.optional(),
   })
   .superRefine((value, ctx) => {
+    if (
+      value.workHandoffVersion &&
+      value.meta?.workHandoff &&
+      value.workHandoffVersion !== value.meta.workHandoff.schemaVersion
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message: "The handoff version must match its manifest.",
+        path: ["workHandoffVersion"],
+      });
+    }
     const {
       workHandoffVersion: _workHandoffVersion,
       evidenceRefsVersion: _evidenceRefsVersion,

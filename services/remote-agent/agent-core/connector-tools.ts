@@ -6,6 +6,7 @@ import {
   connectorActionOutcomeUnknownSchema,
   connectorActionTerminalReceiptSchema,
   connectorServicesResponseSchema,
+  githubIssueObservationSchema,
   isLinearIssueCreateAction,
   readLinearIssueReference,
 } from "@openmeld/schemas";
@@ -55,7 +56,7 @@ import {
   getConnectedAppDisplayName,
 } from "./connector-service-presentation";
 import { CONNECTOR_WRITE_RECOVERY_GUIDANCE } from "./connector-write-recovery";
-import { callCoreRpc, requireCoreRpc } from "./core-rpc";
+import { callCoreRpc, readCoreRpcErrorCode, requireCoreRpc } from "./core-rpc";
 import {
   resolveRemoteAgentDestructiveAuthorization,
   resolveRemoteAgentRoutineDestructiveActionBlock,
@@ -478,6 +479,18 @@ async function executeAppAction(input: {
       toolContext,
     });
   } catch (error) {
+    if (readCoreRpcErrorCode(error) === "plugin.action_forbidden") {
+      const requester = resolveConnectorTurnRequester(
+        toolContext,
+        input.request.connectionPreference
+      );
+      await recordConnectorAccessReview({
+        ...input.dependencies,
+        toolContext,
+        service: input.request.service,
+        connectionPreference: requester.connectionPreference,
+      });
+    }
     if (
       !(
         error instanceof ConnectorActionTerminalReceipt &&
@@ -968,6 +981,7 @@ export function resolveConnectorActionOutputSchema(
 }
 
 export async function runAndFinalizeConnectorAction(input: {
+  githubActor?: "organization" | "requester";
   connectionName: string;
   dependencies: ConnectorToolDependencies;
   effect?: OpenConnectorRuntimeAction["effect"] | "unspecified";
@@ -976,7 +990,13 @@ export async function runAndFinalizeConnectorAction(input: {
   request: ConnectorActionOperationRequest;
   requestSignature: string;
   toolContext: ConnectorToolContext;
-}): Promise<OpenConnectorActionRun> {
+}): Promise<
+  OpenConnectorActionRun & {
+    githubTaskSync?: ReturnType<
+      typeof centerAgentRecordConnectorActionOperationResponseSchema.parse
+    >["githubTaskSync"];
+  }
+> {
   if (
     input.effect !== "read" &&
     input.operationReplayed &&
@@ -1032,18 +1052,25 @@ export async function runAndFinalizeConnectorAction(input: {
             data: run.data,
           })
         : null;
-    await recordConnectorActionOperation({
+    const completion = await recordConnectorActionOperation({
       actionId: input.request.actionId,
       connectionName: input.connectionName,
       coreWorker: input.dependencies.coreWorker,
       operationId: input.request.operationId,
       outcome: "completed",
       ...(linearIssueReceipt ? { linearIssueReceipt } : {}),
+      githubIssueCompletion: readGitHubIssueCompletion(input, run.data),
       providerExecutionId: run.providerExecutionId,
       requestSignature: input.requestSignature,
       service: input.request.service,
       toolContext: input.toolContext,
     });
+    return {
+      ...run,
+      ...(completion.githubTaskSync
+        ? { githubTaskSync: completion.githubTaskSync }
+        : {}),
+    };
   } catch (finalizationError) {
     throw await buildUnknownConnectorReceipt(
       input,
@@ -1051,7 +1078,41 @@ export async function runAndFinalizeConnectorAction(input: {
       run.providerExecutionId
     );
   }
-  return run;
+}
+
+function readGitHubIssueCompletion(
+  input: Parameters<typeof runAndFinalizeConnectorAction>[0],
+  data: unknown
+): CenterAgentRecordConnectorActionOperationBody["githubIssueCompletion"] {
+  if (
+    !input.githubActor ||
+    input.request.actionId !== "github.update_issue" ||
+    input.request.service !== "github" ||
+    !data ||
+    typeof data !== "object"
+  ) {
+    return undefined;
+  }
+  const record = data as Record<string, unknown>;
+  const issue =
+    record.data && typeof record.data === "object"
+      ? (record.data as Record<string, unknown>)
+      : record;
+  const observation = githubIssueObservationSchema.safeParse({
+    owner: input.request.input.owner,
+    repo: input.request.input.repo,
+    number: issue.number,
+    state: issue.state,
+    stateReason: issue.state_reason ?? null,
+    updatedAt: issue.updated_at,
+  });
+  return observation.success
+    ? {
+        githubActor: input.githubActor,
+        actionInput: input.request.input,
+        observation: observation.data,
+      }
+    : undefined;
 }
 
 async function buildUnknownConnectorReceipt(
@@ -1147,6 +1208,7 @@ function toModelVisibleAction(action: OpenConnectorRuntimeAction) {
 // Identity/permission resolution stays with the caller; every connector uses
 // the same executable runtime catalog, schemas, filtering, and pagination.
 export async function listConnectorActionCatalog(input: {
+  connectionName?: string;
   connectorExecution?: ConnectorExecutionConfig;
   limit?: number;
   offset?: number;
@@ -1238,19 +1300,17 @@ export async function requireAvailableConnectorConnection(
   input: Parameters<typeof resolveConnectorConnection>[0] &
     Pick<ConnectorToolDependencies, "storage" | "submissionId">
 ) {
-  const selection = await resolveConnectorConnection(input);
-  if (!(selection.connection && selection.selection)) {
-    if (input.toolContext.turnEnvelope?.organization.webUrl) {
-      await recordRemoteAgentNavigationTarget({
-        storage: input.storage,
-        submissionId: input.submissionId,
-        target: {
-          kind: "plugin_connection",
-          service: input.service,
-          scope: input.connectionPreference === "shared" ? "shared" : "choose",
-        },
-      });
+  let selection: Awaited<ReturnType<typeof resolveConnectorConnection>>;
+  try {
+    selection = await resolveConnectorConnection(input);
+  } catch (error) {
+    if (readCoreRpcErrorCode(error) === "plugin.action_forbidden") {
+      await recordConnectorAccessReview(input);
     }
+    throw error;
+  }
+  if (!(selection.connection && selection.selection)) {
+    await recordConnectorAccessReview(input);
     throw new Error(
       `${getConnectedAppDisplayName(input.service as CenterAgentAppConnectorService)} is not available for this request. Review the account and Agent access using the Plugin connection action, or open Plugins. An unavailable selection does not prove the account is disconnected; reconnecting cannot override denied Agent or provider permissions.`
     );
@@ -1260,6 +1320,35 @@ export async function requireAvailableConnectorConnection(
     permission: selection.permission,
     selection: selection.selection,
   };
+}
+
+async function recordConnectorAccessReview(input: {
+  storage: RemoteAgentStorage;
+  submissionId: string;
+  service: ConnectorService;
+  toolContext: ConnectorToolContext;
+  connectionPreference: "automatic" | "requester" | "shared";
+}) {
+  if (
+    !input.toolContext.turnEnvelope?.organization.webUrl ||
+    input.toolContext.turnEnvelope.trigger.source === "routine"
+  ) {
+    return;
+  }
+  const scope = {
+    automatic: "choose",
+    requester: "member",
+    shared: "shared",
+  } as const;
+  await recordRemoteAgentNavigationTarget({
+    storage: input.storage,
+    submissionId: input.submissionId,
+    target: {
+      kind: "plugin_connection",
+      service: input.service,
+      scope: scope[input.connectionPreference],
+    },
+  });
 }
 
 export function resolveConnectorTurnRequester(
@@ -1352,6 +1441,7 @@ export async function readConnectorActionOperation(input: {
 }
 
 export async function recordConnectorActionOperation(input: {
+  githubIssueCompletion?: CenterAgentRecordConnectorActionOperationBody["githubIssueCompletion"];
   verificationOf?: { operationId: string; actionId: string };
   actionId: string;
   effect?: "read" | "write" | "destructive" | "unspecified";
@@ -1378,6 +1468,10 @@ export async function recordConnectorActionOperation(input: {
           verificationOf: input.verificationOf,
           includeRecoveryWindow: true,
           includeExecutionPermit: true as const,
+          includeGitHubTaskSync: true as const,
+          ...(input.githubIssueCompletion
+            ? { githubIssueCompletion: input.githubIssueCompletion }
+            : {}),
           effect: input.effect,
           connectionName: input.connectionName,
           context: input.toolContext.context,

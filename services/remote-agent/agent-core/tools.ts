@@ -297,6 +297,7 @@ import {
   type RemoteAgentImagePreparer,
   understandRemoteAgentImages,
 } from "./image-understanding";
+import { executeMessageRead, getMessageReadTools } from "./message-read-tools";
 import { pageOrganizationDirectory } from "./organization-directory-page";
 import { REPLY_PLACEMENT_TOOL_DESCRIPTION } from "./reply-placement-guidance";
 import { REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX } from "./slack-member-research-state";
@@ -493,6 +494,20 @@ const manageAgentProfileRequestToolInputSchema = strictObject({
       : (["cancel", "retry"] as const)
   ),
   requestId: trimmedNonEmptyStringSchema,
+  expectedUpdatedAt: optional(
+    pipe(
+      trimmedNonEmptyStringSchema,
+      description(
+        "The exact updatedAt from the current failed request. Required with modelSelection."
+      )
+    )
+  ),
+  modelSelection: optional(
+    strictObject({
+      modelId: trimmedNonEmptyStringSchema,
+      reasoningLevel: nullable(trimmedNonEmptyStringSchema),
+    })
+  ),
 });
 const agentProfileRequestApprovalPreferencesToolInputSchema = strictObject({
   existingSessionPolicy: picklist([
@@ -974,9 +989,23 @@ const agentProfileCreationConfigurationToolInputSchema = strictObject({
   agentControllerCollaborationMode: collaborationModeSchema,
   agentControllerPermissionMode: permissionModeSchema,
   defaultProjectId: optionalNonEmptyStringSchema,
-  modelId: optionalNonEmptyStringSchema,
+  modelId: optional(
+    pipe(
+      nonEmptyStringSchema,
+      description(
+        "Exact model ID from the selected local candidate's modelOptions, or the Remote model list. Preserve the user's selected model."
+      )
+    )
+  ),
   openCodePermission: openCodePermissionSchema,
-  reasoningLevel: optionalNonEmptyStringSchema,
+  reasoningLevel: optional(
+    pipe(
+      nonEmptyStringSchema,
+      description(
+        "A supportedReasoningLevels value for the selected model. Omit for the model default."
+      )
+    )
+  ),
 });
 const agentProfileCreationConnectionSelectionToolInputSchema = union([
   strictObject({ candidateId: trimmedNonEmptyStringSchema }),
@@ -1604,6 +1633,8 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_set_reply_placement",
   "openmeld_read_center_agent_turn_diagnostics",
   "openmeld_read_space_context",
+  "openmeld_query_messages",
+  "openmeld_list_message_reads",
   "openmeld_manage_space_tasks",
   "openmeld_list_team_files",
   "openmeld_read_team_file",
@@ -1712,6 +1743,8 @@ export const REMOTE_AGENT_OBSERVATION_TOOL_NAMES = [
   "openmeld_read_center_agent_activity",
   "openmeld_read_center_agent_turn_diagnostics",
   "openmeld_read_space_context",
+  "openmeld_query_messages",
+  "openmeld_list_message_reads",
   "openmeld_list_space_files",
   "openmeld_list_team_files",
   "openmeld_read_team_file",
@@ -2250,6 +2283,7 @@ async function mutateSpaceTaskFromTool(input: {
 }
 
 type RemoteAgentOpenMeldToolDefinitionsInput = {
+  reserveMessageReadBytes?: (requested: number) => number;
   agentActivityReadEnabled?: boolean;
   personalAgent?: boolean;
   computerFileHandoff?: RemoteAgentComputerFileHandoff;
@@ -4124,10 +4158,17 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_read_space_context",
       description:
-        "Read OpenMeld Space context progressively. For fixed-version handoffs use scope=source_evidence with sourceSignalId or scope=thread_evidence with threadId. These return sourceRef versions, at most 4,000 characters and nextOffset; continue with that offset and the same version, never substituting latest. Pass the returned version into Wake evidenceRefs. Every page rechecks source access. Use scope=source for ordinary source context, scope=thread for recent thread context, scope=delta for newer signals, and scope=history only when narrower context is insufficient. Reactions are feedback, not instructions or task approval. Omitting scope preserves the legacy broad bootstrap read.",
+        "Read OpenMeld Space context progressively. For fixed-version handoffs use scope=source_evidence with sourceSignalId or scope=thread_evidence with threadId. Source evidence accepts text messages and public system notices; a notice retains its system author and is evidence, not task approval. Thread evidence selects text messages. These return sourceRef versions, at most 4,000 characters and nextOffset; continue with that offset and the same version, never substituting latest. Pass the returned version into Wake evidenceRefs. Every page rechecks source access. Use scope=source for ordinary source context, scope=thread for recent thread context, scope=delta for newer signals, and scope=history for bounded chronological reads when narrower context is insufficient. History returns message projections, including visible system signals, with nextCursor and resumeId. Request any needed count, then continue in capacity-bounded batches; list message reads after compaction to recover positions. Use source/evidence scopes for attachments and exact handoff metadata. Reactions are feedback, not instructions or task approval. Omitting scope preserves the legacy broad bootstrap read.",
       input: object({
         afterSignalId: optionalNonEmptyStringSchema,
-        limit: optional(pipe(number(), integer(), minValue(1), maxValue(100))),
+        limit: optional(
+          pipe(number(), integer(), minValue(1), maxValue(1_000_000))
+        ),
+        cursor: optionalNonEmptyStringSchema,
+        resumeId: optionalNonEmptyStringSchema,
+        maxBytes: optional(
+          pipe(number(), integer(), minValue(2048), maxValue(24_576))
+        ),
         scope: optional(
           picklist([
             "source",
@@ -4147,6 +4188,44 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         ),
       }),
       execute: async (payload) => {
+        if (payload.scope === "history") {
+          if (
+            [
+              "offset",
+              "version",
+              "sourceSignalId",
+              "afterSignalId",
+              "threadId",
+            ].some((key) => payload[key as keyof typeof payload] !== undefined)
+          ) {
+            throw new Error(
+              "Use the returned cursor for history. Version and offset belong to exact evidence reads."
+            );
+          }
+          return executeMessageRead(input, {
+            spaceId: payload.spaceId,
+            mode: "full",
+            includeSystem: true,
+            resumeId: payload.resumeId,
+            limit: payload.limit,
+            cursor: payload.cursor,
+            maxBytes: payload.maxBytes,
+          });
+        }
+        if (typeof payload.limit === "number" && payload.limit > 100) {
+          throw new Error(
+            "Use scope=history for more than 100 messages. Other context scopes accept a limit of 1 to 100."
+          );
+        }
+        if (
+          [payload.cursor, payload.maxBytes, payload.resumeId].some(
+            (value) => value !== undefined
+          )
+        ) {
+          throw new Error(
+            "Cursor and maxBytes apply to history. Use openmeld_query_messages for filtered message reads."
+          );
+        }
         const context = await buildOpenMeldToolRequestContext({
           storage: input.storage,
           submissionId: input.submissionId,
@@ -4158,28 +4237,21 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         );
         return centerAgentReadSpaceContextResponseSchema.parse(
           await rpc({
-            ...(payload.version === undefined
-              ? {}
-              : { version: payload.version }),
-            ...(payload.offset === undefined ? {} : { offset: payload.offset }),
-            ...(payload.afterSignalId === undefined
-              ? {}
-              : { afterSignalId: payload.afterSignalId }),
-            ...(payload.limit === undefined ? {} : { limit: payload.limit }),
+            version: payload.version,
+            offset: payload.offset,
+            afterSignalId: payload.afterSignalId,
+            limit: payload.limit,
             requestedAddressingModel: "wake_reference_mention",
-            ...(payload.scope === undefined ? {} : { scope: payload.scope }),
-            ...(payload.sourceSignalId === undefined
-              ? {}
-              : { sourceSignalId: payload.sourceSignalId }),
+            scope: payload.scope,
+            sourceSignalId: payload.sourceSignalId,
             context,
             spaceId: payload.spaceId,
-            ...(payload.threadId === undefined
-              ? {}
-              : { threadId: payload.threadId }),
+            threadId: payload.threadId,
           })
         );
       },
     }),
+    ...getMessageReadTools(input),
     toolDefinition({
       name: "openmeld_manage_space_tasks",
       description:
@@ -4956,6 +5028,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         const organizationId = requireFeedbackOrganizationId(context);
         const policyResult = await readFeedbackReportingPolicyForTool({
           coreWorker: input.coreWorker,
+          env: input.env,
           organizationId,
         });
         if (!policyResult.ok) {
@@ -4980,7 +5053,10 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         });
         return await submitFeedbackThroughPublicEndpoint({
           config: input.feedbackSubmission,
+          env: input.env,
+          organizationId,
           request,
+          submissionId: input.submissionId,
         });
       },
     }),
@@ -5049,7 +5125,10 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           );
           return feedbackIssueRecordSchema.parse(await rpc(request));
         } catch (error) {
-          return feedbackIssueUpdateFailure(error);
+          return feedbackIssueUpdateFailure(error, {
+            env: input.env,
+            organizationId: context.activeOrganizationId,
+          });
         }
       },
     }),
@@ -5781,7 +5860,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         (TEAMMATE_AGENT_REQUESTS_ENABLED
           ? "Create a working Agent through the owner-authorized creation request. Remote Agents remain self-owned only. "
           : "Create a working Agent owned by the verified represented member only. Creating for another member is not available. ") +
-        'For a new Agent, connectionSelection must be { kind: "remote" } for Remote or { candidateId } from a current Local Agent candidate. For Remote, read openmeld_list_hosted_models and optionally provide configuration.modelId with one of its supported reasoningLevel values; without a modelId, Core uses its current default. Remote does not use Local Project, permission, collaboration, or OpenCode settings. Local configuration expresses those supported settings and saved preferences. For local code work, select or create the Project and confirm the working folder points to its local repository; Default Project alone does not set that folder. Resume and Fork use the member\'s eligible sessionSelection instead: preserve nativeSessionId, projectId, computerId, and agentControllerRef from the same current Session row. Fork requires canFork; Resume requires canResume and an unbound Session. Optional requestedSpaceId uses normal Space membership authority. Returns a durable creation request: approved or pending is not completed; createdAgentProfileId proves identity creation, not current reply readiness. A failed request may already contain that identity; recover its setup rather than creating another. Completed means requested setup finished, not that a Wake ran. Use creation progress/retry tools and current readiness evidence when needed; no automatic parent continuation is promised. Primitive identity creation remains identity-only.',
+        'For a new Agent, connectionSelection must be { kind: "remote" } for Remote or { candidateId } from a current Local Agent candidate. For Remote, read openmeld_list_hosted_models and optionally provide configuration.modelId with one of its supported reasoningLevel values; without a modelId, Core uses its current default. Remote does not use Local Project, permission, collaboration, or OpenCode settings. Local configuration expresses those supported settings and saved preferences. For local code work, select or create the Project and confirm its default connection on the selected Computer. Default Project resolves future tasks to that local connection; it does not create a missing connection. Resume and Fork use the member\'s eligible sessionSelection instead: preserve nativeSessionId, projectId, computerId, and agentControllerRef from the same current Session row. Fork requires canFork; Resume requires canResume and an unbound Session. Optional requestedSpaceId uses normal Space membership authority. Returns a durable creation request: approved or pending is not completed; createdAgentProfileId proves identity creation, not current reply readiness. A failed request may already contain that identity; recover its setup rather than creating another. Completed means requested setup finished, not that a Wake ran. Read progress by the returned exact requestId. Refresh approved work no sooner than 15 seconds; pending awaits owner approval, failed needs recovery, and completed ends polling. No automatic parent continuation is promised. Primitive identity creation remains identity-only.',
       input: createAgentProfileRequestToolInputSchema,
       execute: async (payload) => {
         const requestInput = parseValibot(
@@ -5807,9 +5886,9 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_list_agent_profile_creation_requests",
       description:
-        "Read the represented member's own Agent creation progress, created Agent IDs, and setup failures. Teammate requests are not available.",
-      input: strictObject({}),
-      execute: async () => {
+        "Read the represented member's own Agent creation progress and setup failures. Pass requestId from creation or retry to read one request. Omit it only to list request history. Teammate requests are unavailable.",
+      input: strictObject({ requestId: optionalNonEmptyStringSchema }),
+      execute: async (payload) => {
         const toolContext = await buildRepresentedMemberAttributionToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
@@ -5820,7 +5899,12 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           "centerAgentListAgentProfileCreationRequests"
         );
         return listAgentProfileCreationRequestsResponseSchema.parse(
-          await rpc(toolContext)
+          await rpc({
+            ...toolContext,
+            ...(payload.requestId !== undefined
+              ? { requestId: payload.requestId }
+              : {}),
+          })
         );
       },
     }),
@@ -5828,7 +5912,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
       name: "openmeld_manage_agent_profile_creation_request",
       description: TEAMMATE_AGENT_REQUESTS_ENABLED
         ? "Approve, decline, cancel, or retry one Agent Profile creation request under Core-owned authority. Approve and decline are available only to the target owner. Cancel is available only to the requester. Retry is available only for a failed request involving the represented member. Read the request list first and follow its current status."
-        : "Cancel or retry setup of the represented member's own Agent. Read the request list first and follow its current status. Creating Agents for teammates and approving their requests are not available.",
+        : "Cancel or retry setup of the represented member's own Agent. Read its exact requestId first. For a failed model selection, pass modelSelection and its current updatedAt as expectedUpdatedAt. Retry keeps the original Profile and Project intent. Creating Agents for teammates is unavailable.",
       input: manageAgentProfileRequestToolInputSchema,
       execute: async (payload) => {
         const requestInput = parseValibot(
@@ -6108,8 +6192,11 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_list_local_agent_connection_candidates",
       description:
-        "List local agent connection candidates for the requesting member, or an explicitly selected Organization memberUserId from the directory. Includes current connection evidence and candidateId. Listing another member's candidates does not authorize connecting or creating their Agent. Only create Agents for the verified represented member.",
-      input: object({ memberUserId: optionalNonEmptyStringSchema }),
+        "List local agents for the requesting member or an exact Organization memberUserId. Includes connection evidence and candidateId. Set includeModelOptions when selecting a model. Each candidate's modelOptions is an object; its modelOptions.models array contains canonical id, displayName, and supportedReasoningLevels. Listing another member's candidates does not authorize creating or connecting their Agent.",
+      input: object({
+        includeModelOptions: optional(boolean()),
+        memberUserId: optionalNonEmptyStringSchema,
+      }),
       execute: async (payload) => {
         const toolContext = await buildOpenMeldToolContext({
           storage: input.storage,
@@ -6132,6 +6219,9 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           await rpc({
             context: toolContext.context,
             speakerMember,
+            ...(payload.includeModelOptions !== undefined
+              ? { includeModelOptions: payload.includeModelOptions }
+              : {}),
             ...(payload.memberUserId
               ? { memberUserId: payload.memberUserId }
               : {}),
@@ -6173,7 +6263,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_update_agent_profile_runtime_settings",
       description:
-        "Update runtime settings for an existing OpenMeld Agent Profile, such as model, reasoning level, permission mode, Codex collaboration mode, OpenCode permissions, or working folder. For local code work, use workspacePath to correct a folder that does not point to the Project's local repository; Default Project alone does not set that folder. This does not create profiles or change Space membership.",
+        "Update the requesting member's existing Agent Profile model, reasoning, permission, collaboration, or local working folder. Default Project resolves future tasks through its default connection on the target Computer. To use that Project, select it with the existing Default Project tool; do not duplicate its path here. An explicit custom or managed folder change saves the local folder and then clears Default Project. Inspect both steps: a saved folder alone does not mean it is effective. The result omits private local paths. This does not create profiles or change Space membership.",
       input: object({
         agentControllerCollaborationMode: collaborationModeSchema,
         agentControllerPermissionMode: permissionModeSchema,
@@ -6190,10 +6280,11 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           submissionId: input.submissionId,
           toolName: "openmeld_update_agent_profile_runtime_settings",
         });
-        const rpc = requireCoreRpc(
-          input.coreWorker.centerAgentUpdateAgentProfileRuntimeSettings,
-          "centerAgentUpdateAgentProfileRuntimeSettings"
-        );
+        const rpcName =
+          payload.workspaceMode === undefined
+            ? "centerAgentUpdateAgentProfileRuntimeSettings"
+            : "centerAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace";
+        const rpc = requireCoreRpc(input.coreWorker[rpcName], rpcName);
         return centerAgentUpdateAgentProfileRuntimeSettingsResponseSchema.parse(
           await rpc({
             ...payload,
@@ -6205,7 +6296,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_check_agent_profile_readiness",
       description:
-        "Check whether the requesting member's OpenMeld Agent Profile can reply now, in a private conversation. Use this after creating, connecting, or updating their Agent Profile, or when they ask why it cannot reply. For another member's Agent or a shared conversation, use the team-safe Organization directory readiness instead.",
+        "Check whether the requesting member's OpenMeld Agent Profile can reply now, in a private conversation. Includes path-free Default Project connection status on the Agent's bound Computer when supported. Connected means the saved folder is available, not that a task ran. Unavailable or an omitted connection projection is unknown; never infer a missing folder or request an already saved path from it. For another member's Agent or a shared conversation, use the team-safe Organization directory readiness instead.",
       input: object({ agentProfileId: nonEmptyStringSchema }),
       execute: async (payload) => {
         const toolContext = await buildRepresentedMemberAttributionToolContext({
@@ -6219,7 +6310,11 @@ export function getRemoteAgentOpenMeldToolDefinitions(
           "centerAgentCheckAgentProfileReadiness"
         );
         return centerAgentCheckAgentProfileReadinessResponseSchema.parse(
-          await rpc({ agentProfileId: payload.agentProfileId, ...toolContext })
+          await rpc({
+            agentProfileId: payload.agentProfileId,
+            includeDefaultProjectConnection: true,
+            ...toolContext,
+          })
         );
       },
     }),
@@ -6362,6 +6457,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
       submissionId: input.submissionId,
     }),
     ...getRemoteAgentGitHubToolDefinitions({
+      env: input.env,
       connectorExecution: input.connectorExecution,
       coreWorker: input.coreWorker,
       storage: input.storage,
@@ -6858,7 +6954,12 @@ async function buildRepresentedMemberAttributionToolContext(input: {
       resolveCenterAgentContextScopePlan(toolContext.turnEnvelope)
         .interactionEnvironment !== "requester_private")
   ) {
-    throw new Error("Owner Agent diagnostics require a private conversation.");
+    throw Object.assign(
+      new Error(
+        "Owner Agent diagnostics are unavailable in this conversation. Do not retry here. Use openmeld_read_organization_directory for team-safe readiness."
+      ),
+      { code: "center_agent.requester_private_required", retryable: false }
+    );
   }
   const profileId = resolveVerifiedTurnEnvelopeProfileId(
     toolContext.turnEnvelope

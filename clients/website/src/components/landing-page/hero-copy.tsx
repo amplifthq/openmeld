@@ -26,6 +26,7 @@ export function HeroDescription() {
 				<span aria-hidden="true" className="meld-hero-copy-cloud-agents">
 					{cloudAgents.map((agent) => (
 						<BotAvatar
+							ambient
 							aria-hidden="true"
 							className="meld-hero-copy-bot"
 							key={agent}

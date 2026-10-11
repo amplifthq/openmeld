@@ -12,19 +12,19 @@ import {
 } from "../flue-adapter/computer-storage";
 
 it.each([
-  [8_999_999_999, "available"],
-  [9_000_000_000, "near_limit"],
-  [10_000_000_000, "at_limit"],
-  [10_000_000_001, "at_limit"],
+  [3_000_000_000, "available"],
+  [4_000_000_000, "near_limit"],
+  [4_227_858_432, "at_limit"],
+  [4_294_967_296, "at_limit"],
 ] as const)("reports provider capacity at %i bytes without inventing free file space", (bytes, status) => {
   const result = describeComputerStorage(bytes, 123);
   expect(result).toMatchObject({
     databaseBytes: bytes,
     status,
     observedAtMs: 123,
-    limitBytes: 10_000_000_000,
+    limitBytes: 4_227_858_432,
   });
-  expect(result.growthHeadroomBytes).toBe(Math.max(0, 10_000_000_000 - bytes));
+  expect(result.growthHeadroomBytes).toBe(Math.max(0, 4_227_858_432 - bytes));
 });
 
 it("preserves command outcomes and only annotates actual capacity failures", async () => {

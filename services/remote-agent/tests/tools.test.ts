@@ -1402,7 +1402,7 @@ describe("remote agent OpenMeld tool catalog", () => {
         revision: 1,
         spaceId: SPACE_ID,
       })
-    ).rejects.toThrow("auxiliary unavailable");
+    ).rejects.toThrow("Image understanding request failed for x-ai/grok-4.6.");
     streamSpaceFileContent.mockResolvedValueOnce({
       bytes: new ReadableStream<Uint8Array>(),
       file,
@@ -3123,7 +3123,11 @@ describe("remote agent OpenMeld tool catalog", () => {
       executeTool(tools, "openmeld_check_agent_profile_readiness", {
         agentProfileId: AGENT_PROFILE_ID,
       })
-    ).rejects.toThrow("private conversation");
+    ).rejects.toMatchObject({
+      code: "center_agent.requester_private_required",
+      retryable: false,
+      message: expect.stringContaining("openmeld_read_organization_directory"),
+    });
     expect(centerAgentCheckAgentProfileReadiness).not.toHaveBeenCalled();
   });
 
@@ -3705,11 +3709,11 @@ describe("remote agent OpenMeld tool catalog", () => {
       "verified represented member only"
     );
     expect(descriptions.get("openmeld_create_agent_profile_request")).toContain(
-      "Default Project alone does not set that folder"
+      "Default Project resolves future tasks to that local connection"
     );
     expect(
       descriptions.get("openmeld_update_agent_profile_runtime_settings")
-    ).toContain("use workspacePath to correct a folder");
+    ).toContain("saves the local folder and then clears Default Project");
     expect(
       [...descriptions.keys()].includes(
         "openmeld_create_configured_agent_profile"
@@ -5303,6 +5307,37 @@ describe("remote agent OpenMeld tool catalog", () => {
     );
   });
 
+  it("rejects working-folder changes before calling old Core, while retaining model-only compatibility", async () => {
+    const request = createSubmitTurnRequest();
+    const storage = await createStorageWithPendingContext(request);
+    const legacyWrite = vi.fn(async () => updateRuntimeSettingsResponse());
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: {
+        centerAgentUpdateAgentProfileRuntimeSettings: legacyWrite,
+      },
+      storage,
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_update_agent_profile_runtime_settings", {
+        agentProfileId: AGENT_PROFILE_ID,
+        workspaceMode: "openmeld_managed",
+      })
+    ).rejects.toThrow(
+      "OpenMeld Core RPC centerAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace is unavailable."
+    );
+    expect(legacyWrite).not.toHaveBeenCalled();
+
+    await expect(
+      executeTool(tools, "openmeld_update_agent_profile_runtime_settings", {
+        agentProfileId: AGENT_PROFILE_ID,
+        modelId: "gpt-6.1-sol",
+        reasoningLevel: "high",
+      })
+    ).resolves.toMatchObject({ agentProfileId: AGENT_PROFILE_ID });
+    expect(legacyWrite).toHaveBeenCalledOnce();
+  });
+
   for (const scenario of toolPayloadScenarios()) {
     it(`passes ${scenario.toolName} payloads to ${scenario.rpcName}`, async () => {
       const privateRequest = createSubmitTurnRequest();
@@ -6211,8 +6246,16 @@ describe("remote agent OpenMeld tool catalog", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("submits only the narrowed feedback payload through the public endpoint", async () => {
+  it.each([
+    ["prod", "22222222-2222-4222-8222-222222222222", false],
+    ["prod", "11111111-1111-4111-8111-111111111111", true],
+    ["dev", "org_123", true],
+    ["stg", "org_123", true],
+    ["local", "org_123", true],
+    [undefined, "11111111-1111-4111-8111-111111111111", false],
+  ])("submits trusted, content-controlled feedback in %s for %s", async (environment, organizationId, rich) => {
     const request = createSubmitTurnRequest();
+    request.organizationId = organizationId;
     const storage = await createStorageWithPendingContext(request);
     const readFeedbackReportingPolicy = vi.fn(async () => ({
       organizationId: request.organizationId,
@@ -6228,6 +6271,11 @@ describe("remote agent OpenMeld tool catalog", () => {
     );
     const tools = getRemoteAgentOpenMeldToolDefinitions({
       coreWorker: { readFeedbackReportingPolicy },
+      env: {
+        OPENMELD_WORKER_ENVIRONMENT: environment,
+        CLOUDFLARE_OPENMELD_INTERNAL_DIAGNOSTICS_ORGANIZATION_ID:
+          "11111111-1111-4111-8111-111111111111",
+      },
       feedbackSubmission: {
         baseUrl: "https://gateway.openmeld.invalid/",
         fetch,
@@ -6241,7 +6289,7 @@ describe("remote agent OpenMeld tool catalog", () => {
         category: "experience",
         contactEmail: "must-not-leak@example.com",
         details: "The next action remains unavailable after setup completes.",
-        organizationId: "org_attacker",
+        organizationId: "11111111-1111-4111-8111-111111111111",
         summary: "Setup remains blocked",
       })
     ).resolves.toEqual({ ok: true, issueId: "issue-1" });
@@ -6260,10 +6308,14 @@ describe("remote agent OpenMeld tool catalog", () => {
     expect(JSON.parse(String(init?.body))).toEqual({
       category: "experience",
       clientContext: { clientKind: "center_agent" },
-      details: "The next action remains unavailable after setup completes.",
+      details: rich
+        ? "The next action remains unavailable after setup completes."
+        : "Content omitted from automatic feedback. Remote Agent submission: flue_submission_123.",
       sourceOrganizationId: request.organizationId,
       submitterKind: "center_agent",
-      summary: "Setup remains blocked",
+      summary: rich
+        ? "Setup remains blocked"
+        : "Center Agent reported an experience issue.",
     });
   });
 
@@ -7516,12 +7568,13 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
         ...runtimeSettings,
       },
       response: updateRuntimeSettingsResponse(),
-      rpcName: "centerAgentUpdateAgentProfileRuntimeSettings",
+      rpcName: "centerAgentUpdateAgentProfileRuntimeSettingsWithSafeWorkspace",
       toolName: "openmeld_update_agent_profile_runtime_settings",
     },
     {
       expectedPayload: {
         agentProfileId: AGENT_PROFILE_ID,
+        includeDefaultProjectConnection: true,
         onBehalfOf,
       },
       input: {

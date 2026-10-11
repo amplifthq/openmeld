@@ -435,10 +435,10 @@ export function createPostgresAgentProfileCreationRequestRepository(
       const profileCreationAttemptCondition =
         input.expectedProfileCreationAttempt === undefined
           ? ""
-          : `AND profile_creation_attempt = $${input.inboxProjection ? 13 : 12}`;
+          : `AND profile_creation_attempt = $${input.inboxProjection ? 14 : 13}`;
       const inboxProjectionUpdate = input.inboxProjection
         ? `,
-              inbox_projection_operation = $12,
+              inbox_projection_operation = $13,
               inbox_projection_generation = inbox_projection_generation + 1,
               inbox_projection_status = 'pending',
               inbox_projection_attempt_count = 0,
@@ -457,7 +457,8 @@ export function createPostgresAgentProfileCreationRequestRepository(
               decided_at = $5,
               completed_at = $6,
               profile_creation_started_at = $7,
-              updated_at = $8
+              updated_at = $8,
+              configuration_json = $12
               ${inboxProjectionUpdate}
             WHERE id = $9
               AND status = ANY($10::text[])
@@ -476,6 +477,7 @@ export function createPostgresAgentProfileCreationRequestRepository(
           input.requestId,
           input.expectedStatuses,
           input.expectedUpdatedAtMs,
+          JSON.stringify(record.configuration),
           ...(input.inboxProjection ? [input.inboxProjection] : []),
           ...(input.expectedProfileCreationAttempt === undefined
             ? []

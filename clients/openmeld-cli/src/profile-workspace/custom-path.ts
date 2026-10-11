@@ -73,31 +73,30 @@ export function normalizeCustomProfileWorkspacePath(value: string): string {
     });
   }
 
-  const trimmed = parsed.trim();
-  if (trimmed.length === 0) {
+  if (parsed.trim().length === 0) {
     throw buildProfileWorkspacePathError({
       path: String(value),
       reason: "invalid_working_directory",
     });
   }
 
-  const expanded = expandTildePath(trimmed);
+  const expanded = expandTildePath(parsed);
   if (expanded === null) {
     throw buildProfileWorkspacePathError({
-      path: trimmed,
+      path: parsed,
       reason: "invalid_home_reference",
     });
   }
   if (!isAbsolute(expanded)) {
     throw buildProfileWorkspacePathError({
-      path: trimmed,
+      path: parsed,
       reason: "relative_path",
     });
   }
 
   const resolvedPath = resolve(expanded);
   const normalizedResolvedPath =
-    normalizeOptionalWorkingDirectory(resolvedPath)?.trim() ?? null;
+    normalizeOptionalWorkingDirectory(resolvedPath) ?? null;
   if (!normalizedResolvedPath) {
     throw buildProfileWorkspacePathError({
       path: resolvedPath,

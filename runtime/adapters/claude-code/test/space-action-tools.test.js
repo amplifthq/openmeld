@@ -205,8 +205,15 @@ test("project contexts keep restricted file tools and the in-process project she
   }
 });
 
-for (const mode of ["auto", "plan", "default", "bypassPermissions"]) {
-  test(`independent Claude tasks retain native tools and ${mode} permissions`, async () => {
+for (const { mode, spaceOnly } of [
+  ...["auto", "plan", "default", "bypassPermissions"].map((mode) => ({
+    mode,
+    spaceOnly: false,
+  })),
+  { mode: "default", spaceOnly: true },
+  { mode: "bypassPermissions", spaceOnly: true },
+]) {
+  test(`independent Claude tasks enforce ${mode} permissions (Space-only=${spaceOnly})`, async () => {
     const directory = await mkdtemp(join(tmpdir(), "claude-native-task-"));
     let options;
     try {
@@ -222,9 +229,9 @@ for (const mode of ["auto", "plan", "default", "bypassPermissions"]) {
             targetProfileId: "agent",
             threadId: null,
           },
-          permissionSource: "agent_settings",
-          access: "workspace",
-          workspace: "current",
+          ...(spaceOnly ? {} : { permissionSource: "agent_settings" }),
+          access: spaceOnly ? "space_context" : "workspace",
+          workspace: spaceOnly ? "isolated" : "current",
           nativeConversationId: null,
           runtimeWorkspaceFingerprint: null,
         },
@@ -261,6 +268,19 @@ for (const mode of ["auto", "plan", "default", "bypassPermissions"]) {
       assert.equal(options.permissionMode, mode);
       assert.equal(options.resume, "existing-native-session");
       assert.equal(options.allowDangerouslySkipPermissions, true);
+      if (spaceOnly) {
+        assert.deepEqual(options.tools, []);
+        assert.equal(options.strictMcpConfig, true);
+        assert.equal(options.settings.disableAllHooks, true);
+        assert.deepEqual(options.additionalDirectories, []);
+        assert.deepEqual(options.settingSources, ["user"]);
+        assert.deepEqual(Object.keys(options.mcpServers), [serverId]);
+        assert.deepEqual(
+          options.allowedTools,
+          fixtureTools().tools.map((tool) => `mcp__${serverId}__${tool.name}`)
+        );
+        return;
+      }
       assert.equal(options.tools, undefined);
       assert.equal(options.strictMcpConfig, undefined);
       assert.equal(options.extraArgs, undefined);

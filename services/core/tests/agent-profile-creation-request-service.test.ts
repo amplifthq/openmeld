@@ -599,19 +599,43 @@ describe("Agent Profile creation request service", () => {
     expect(createAgentProfile).toHaveBeenCalledTimes(3);
   });
 
-  it("keeps the committed Profile visible when its requested setup fails", async () => {
+  it.each([
+    {
+      failure: "Codex is no longer ready on Felix’s Mac.",
+      publicFailure:
+        "OpenMeld couldn't finish Agent setup. Review Agent settings and diagnostics, then retry setup.",
+    },
+    {
+      failure:
+        "EACCES: permission denied, mkdir '/private/test-account/profiles/agent'",
+      publicFailure:
+        "OpenMeld couldn't finish Agent setup because access was denied. Review permissions and diagnostics, then retry setup. Reason: EACCES.",
+    },
+    {
+      // Captured from the isolated Service's denied managed-folder write.
+      // The account path is replaced with a disposable fixture path.
+      failure:
+        'HTTP 409: {"ok":false,"error":{"code":"EACCES","message":"EACCES: permission denied, mkdir \'/private/test-account/profiles/agent\'"}}',
+      publicFailure:
+        "OpenMeld couldn't finish Agent setup because access was denied. Review permissions and diagnostics, then retry setup. Reason: EACCES.",
+    },
+  ])("keeps the committed Profile visible without copying private RPC diagnostics", async ({
+    failure,
+    publicFailure,
+  }) => {
     repository.preference = {
       existingSessionPolicy: "ask_every_time",
       newSessionPolicy: "automatically_allow",
     };
     createAgentProfile.mockRejectedValueOnce(
       new AgentProfileCreationRequestExecutionError({
-        cause: new Error("Codex is no longer ready on Felix’s Mac."),
+        cause: new Error(failure),
         createdAgentProfileId: "agt_11111111-1111-4111-8111-111111111111",
       })
     );
 
-    const result = await createService().create({
+    const service = createService();
+    const result = await service.create({
       actorProfileId: "human-requester",
       body: requestBody(),
       organizationId: "org-1",
@@ -620,10 +644,62 @@ describe("Agent Profile creation request service", () => {
 
     expect(result.request).toMatchObject({
       createdAgentProfileId: "agt_11111111-1111-4111-8111-111111111111",
-      failureMessage: "Codex is no longer ready on Felix’s Mac.",
+      failureMessage: publicFailure,
       status: "failed",
       statusReason: "profile_created",
     });
+    const stored = await repository.getById({
+      requestId: result.request.id,
+      organizationId: "org-1",
+    });
+    expect(stored?.failureMessage).toBe(publicFailure);
+    // Older persisted requests must use the same safe read projection.
+    await repository.transition({
+      expectedStatuses: ["failed"],
+      expectedUpdatedAtMs: Date.parse(result.request.updatedAt),
+      requestId: result.request.id,
+      update: {
+        failureMessage: failure,
+        updatedAtMs: Date.parse(result.request.updatedAt) + 1,
+      },
+    });
+    expect(
+      await service.list({
+        organizationId: "org-1",
+        userId: "user-requester",
+        requestId: result.request.id,
+      })
+    ).toMatchObject([{ failureMessage: publicFailure }]);
+    if (failure.startsWith("HTTP ")) {
+      // The old writer capped raw diagnostics, which could leave invalid JSON.
+      const truncatedFailure = failure
+        .replace(
+          "/private/test-account/profiles/agent",
+          `/private/test-account/profiles/${"nested-fixture/".repeat(90)}agent`
+        )
+        .slice(0, 1000);
+      await repository.transition({
+        expectedStatuses: ["failed"],
+        expectedUpdatedAtMs: Date.parse(result.request.updatedAt) + 1,
+        requestId: result.request.id,
+        update: {
+          failureMessage: truncatedFailure,
+          updatedAtMs: Date.parse(result.request.updatedAt) + 2,
+        },
+      });
+      expect(
+        await service.list({
+          organizationId: "org-1",
+          userId: "user-requester",
+          requestId: result.request.id,
+        })
+      ).toMatchObject([
+        {
+          failureMessage:
+            "OpenMeld couldn't finish Agent setup. Review Agent settings and diagnostics, then retry setup.",
+        },
+      ]);
+    }
   });
 
   it("keeps a committed Profile retryable after a transient identity checkpoint storage failure", async () => {
@@ -687,7 +763,7 @@ describe("Agent Profile creation request service", () => {
     errorLog.mockRestore();
   });
 
-  it("does not redact ordinary non-checkpoint execution errors based on their message", async () => {
+  it("projects unknown pre-identity diagnostics without changing the failed request state", async () => {
     repository.preference = {
       existingSessionPolicy: "ask_every_time",
       newSessionPolicy: "automatically_allow",
@@ -708,7 +784,8 @@ describe("Agent Profile creation request service", () => {
 
     expect(result.request).toMatchObject({
       createdAgentProfileId: null,
-      failureMessage: "OpenCode model constraint failed during provider setup.",
+      failureMessage:
+        "OpenMeld couldn't finish Agent setup. Review Agent settings and diagnostics, then retry setup.",
       status: "failed",
       statusReason: "profile_creation_failed",
     });

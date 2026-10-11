@@ -9,7 +9,9 @@ import {
 import {
 	canonicalizeAgentControllerRef,
 	compareAgentControllerRefsForDisplay,
+	formatAgentRecoveryActionLabel,
 	formatLocalSetupActionLabel,
+	resolvePublicAgentFailureRecovery,
 } from "@openmeld/schemas";
 import type {
 	AuthProfileView,
@@ -40,6 +42,7 @@ export type AgentProfileRepairAction = {
 export type AgentProfileSetupAction = {
 	href: string;
 	label: string;
+	recoveryTarget?: "working_folder";
 };
 export type AgentProfileVisualTone = StatusTone;
 export type AgentProfilesReadinessSummaryCounts = {
@@ -763,6 +766,8 @@ export function resolveAgentProfileSetupAction(input: {
 	readiness: GetAgentExecutionReadinessResponse | null;
 	serviceUpdatePath: string;
 	setupPath: string;
+	computerSettingsPath: string;
+	agentSettingsPath: string;
 }): AgentProfileSetupAction | null {
 	const readiness = input.readiness?.agentExecutionReadiness ?? null;
 	const primaryAction = input.readiness?.primaryActionPlan.action ?? "none";
@@ -795,10 +800,7 @@ export function resolveAgentProfileSetupAction(input: {
 		};
 	}
 	if (primaryAction === "run_prepare") {
-		return {
-			href: input.setupPath,
-			label: "Connect local agent",
-		};
+		return resolveAgentProfilePreparationAction(input);
 	}
 	if (input.readiness?.agentWakeAvailability.phase === "checking_route") {
 		return null;
@@ -817,6 +819,36 @@ export function formatAgentProfileExecutionComputerDetail(
 		default:
 			return `Runs on ${runtimeDeviceName}`;
 	}
+}
+
+function resolveAgentProfilePreparationAction(input: {
+	readiness: GetAgentExecutionReadinessResponse | null;
+	agentSettingsPath: string;
+	computerSettingsPath: string;
+	setupPath: string;
+}): AgentProfileSetupAction {
+	const recovery = resolvePublicAgentFailureRecovery({
+		errorCode: input.readiness?.agentWakeAvailability.reasonCode,
+	});
+	if (recovery?.recoveryTarget === "working_folder") {
+		return {
+			href: input.agentSettingsPath,
+			label: "Review working folder",
+			recoveryTarget: "working_folder",
+		};
+	}
+	let href = input.computerSettingsPath;
+	if (recovery?.recoveryTarget === "prepare_setup") {
+		href = input.setupPath;
+	} else if (recovery?.recoveryTarget === "agents") {
+		href = input.agentSettingsPath;
+	}
+	return {
+		href,
+		label: formatAgentRecoveryActionLabel(
+			recovery?.recoveryTarget ? recovery.primaryActionId : "check_status"
+		),
+	};
 }
 
 export function replaceSetIfChanged(

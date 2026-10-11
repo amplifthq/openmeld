@@ -27,8 +27,10 @@ import type {
   OrganizationLogoMimeType,
   OrganizationLogoResponse,
   OrganizationMemberOpenMeldServiceStatusesResponse,
+  OrganizationSpaceDirectoryQuery,
   OrganizationSpaceDirectoryResponse,
   OrganizationSpaceDirectoryWithMemberCountsResponse,
+  RetryAgentProfileCreationRequestBody,
   SetAgentProfileCreationApprovalPreferenceBody,
   SetAgentProfileCreationApprovalPreferenceResponse,
   SetAgentProfileCreationDefaultsBody,
@@ -126,7 +128,8 @@ export type OrganizationApi = {
     input: AgentProfileCreationRequestRouteInput
   ) => Promise<AgentProfileCreationRequestMutationResponse>;
   retryAgentProfileCreationRequest: (
-    input: AgentProfileCreationRequestRouteInput
+    input: AgentProfileCreationRequestRouteInput &
+      RetryAgentProfileCreationRequestBody
   ) => Promise<AgentProfileCreationRequestMutationResponse>;
   getAgentProfileCreationApprovalPreference: (
     input: OrganizationRouteInput
@@ -156,7 +159,7 @@ export type OrganizationApi = {
     input?: OrganizationRequestInput
   ) => Promise<OrganizationSpaceDirectoryResponse>;
   listCurrentSpacesWithMemberCounts: (
-    input?: OrganizationRequestInput
+    input?: OrganizationRequestInput & OrganizationSpaceDirectoryQuery
   ) => Promise<OrganizationSpaceDirectoryWithMemberCountsResponse>;
   listCurrentMessageChannels: (
     input?: OrganizationRequestInput

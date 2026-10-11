@@ -38,6 +38,8 @@ it.each([
     ready: () => Promise.resolve(),
     useThink: false,
     runtime: {
+      backends: () =>
+        [{ id: "container", protocol: "command", callable: false }] as const,
       exec: async (_command: string, options: { id: string }) =>
         attach(options.id),
       getExec: async (id: string) => attach(id),

@@ -341,7 +341,7 @@ test("maps each local runtime to only the Doppler projects it owns", () => {
     ),
     {
       auth: ["openmeld-auth", "openmeld-core"],
-      gateway: ["openmeld-gateway"],
+      gateway: ["openmeld-gateway", "openmeld-remote-agent"],
       "remote-agent": ["openmeld-remote-agent"],
       web: ["openmeld-web"],
     }
@@ -354,6 +354,7 @@ test("passes only one component's managed secrets into its runtime", () => {
       BETTER_AUTH_OPENMELD_SECRET: "must-not-reach-gateway",
       EXISTING_VALUE: "kept",
       OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN: "gateway-optional",
+      OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN: "catalog-runtime",
       CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "must-not-reach-gateway-either",
       SLACK_OPENMELD_OAUTH_CLIENT_ID: "gateway-client-id",
       SLACK_OPENMELD_OAUTH_CLIENT_SECRET: "gateway-client-secret",
@@ -362,6 +363,7 @@ test("passes only one component's managed secrets into its runtime", () => {
     {
       EXISTING_VALUE: "kept",
       OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN: "gateway-optional",
+      OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN: "catalog-runtime",
       OPENMELD_DEV_DOPPLER_COMPONENT: "gateway",
       OPENMELD_DEV_ENVIRONMENT_SOURCE: "doppler",
       SLACK_OPENMELD_OAUTH_CLIENT_ID: "gateway-client-id",

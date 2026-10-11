@@ -1,6 +1,8 @@
 import {
 	AGENT_REPLY_FINAL_PURPOSE,
 	AGENT_REPLYING_PURPOSE,
+	listSpaceThreadSignalsResponseSchema,
+	listSpaceThreadsResponseSchema,
 } from "@openmeld/schemas";
 import {
 	createSpaceMemberAgentSnapshot,
@@ -18,7 +20,11 @@ import {
 	OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
 	OPENMELD_WELCOMING_SPACE_PURPOSE,
 } from "@openmeld/space";
-import { QueryClient, QueryObserver } from "@tanstack/react-query";
+import {
+	isCancelledError,
+	QueryClient,
+	QueryObserver,
+} from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { spaceQueryKeys } from "#/query/spaces/status";
@@ -26,6 +32,7 @@ import {
 	spaceThreadSignalsQueryOptions,
 	spaceThreadsQueryOptions,
 } from "#/query/spaces/threads";
+import threadReconnectFixture from "./fixtures/thread-reconnect.json";
 import {
 	areWakeProgressItemsEqual,
 	createStatusAndMembersRefreshDedupe,
@@ -43,6 +50,7 @@ import {
 	reconcilePolledWakeProgressItems,
 	resolveComposerAddressingTargets,
 	resolveComposerWakeProgressTargetProfileIds,
+	resolveQueuedExecutionInput,
 } from "./use-space-landing-controller-helpers";
 
 vi.mock("#/lib/spaces/api", () => ({
@@ -126,9 +134,14 @@ describe("Thread conversation policy during live replies", () => {
 			signal("newer", 2),
 			signal("newest", 3),
 		];
-		const listThreadSignals = vi
-			.fn()
-			.mockResolvedValue({ signals, placements: [] });
+		let finishRead: () => void = () => undefined;
+		const historyRead = new Promise<{
+			signals: SignalEnvelope[];
+			placements: [];
+		}>((resolve) => {
+			finishRead = () => resolve({ signals, placements: [] });
+		});
+		const listThreadSignals = vi.fn(() => historyRead);
 		createWebSpaceApiMock.mockReturnValue({
 			listThreadSignals,
 		} as unknown as ReturnType<typeof createUnscopedWebSpaceApi>);
@@ -167,6 +180,13 @@ describe("Thread conversation policy during live replies", () => {
 			})
 		);
 		const unsubscribe = observer.subscribe(vi.fn());
+		if (!completeSnapshot) {
+			// Live replies do not prove that older replies are absent. Only the
+			// history response can turn the first read into a successful snapshot.
+			expect(observer.getCurrentResult().isPending).toBe(true);
+			expect(observer.getCurrentResult().data).toBeUndefined();
+		}
+		finishRead();
 		await vi.waitFor(() =>
 			expect(
 				observer.getCurrentResult().data?.signals.map((reply) => reply.id)
@@ -239,6 +259,123 @@ describe("Thread conversation policy during live replies", () => {
 		unsubscribe();
 		queryClient.clear();
 	});
+	it.each([
+		["catalog", "invalidate"],
+		["catalog", "refetch"],
+		["catalog", "fetch"],
+		["messages", "invalidate"],
+		["messages", "refetch"],
+		["messages", "fetch"],
+		["cold-messages", "refetch"],
+	] as const)("keeps live replies when an older %s read arrives after %s, then accepts withdrawal", async (cache, trigger) => {
+		const complete = listSpaceThreadSignalsResponseSchema.parse(
+			threadReconnectFixture
+		);
+		const before = {
+			...complete,
+			signals: complete.signals.slice(0, 1),
+			placements: complete.placements.slice(0, 1),
+		};
+		const threadId = complete.placements[0].threadId;
+		const threadContext = {
+			threadId,
+			rootSignalId: "adade1ab-9006-486d-9602-98f639236cd2",
+		};
+		const catalog = (snapshot: typeof complete) =>
+			listSpaceThreadsResponseSchema.parse({
+				threads: [
+					{
+						...threadContext,
+						spaceId: "space-123",
+						createdByProfileId: "34de8d49-2ea5-4db5-99d3-74931d2a4d81",
+						createdAt: complete.placements[0].createdAt,
+						updatedAt: snapshot.placements.at(-1)?.createdAt,
+					},
+				],
+				previews: [
+					{
+						threadId,
+						replyCount: snapshot.signals.length,
+						signals: snapshot.signals,
+						placements: snapshot.placements,
+					},
+				],
+			});
+		const queryClient = new QueryClient();
+		const threadsKey = spaceQueryKeys.threads("space-123", "viewer");
+		const signalsKey = spaceQueryKeys.threadSignals(
+			"space-123",
+			threadId,
+			"viewer"
+		);
+		queryClient.setQueryData(threadsKey, catalog(before));
+		if (cache !== "cold-messages") {
+			queryClient.setQueryData(signalsKey, before);
+		}
+		let releaseOldRead: () => void = () => undefined;
+		const key = cache === "catalog" ? threadsKey : signalsKey;
+		const previous = cache === "catalog" ? catalog(before) : before;
+		let retained = cache === "catalog" ? catalog(complete) : complete;
+		const oldRead = new Promise<typeof retained>((resolve) => {
+			releaseOldRead = () => resolve(previous);
+		});
+		let reads = 0;
+		const queryFn = async () => (++reads === 1 ? oldRead : retained);
+		const observer = new QueryObserver(queryClient, {
+			queryKey: key,
+			staleTime: Number.POSITIVE_INFINITY,
+			enabled: trigger !== "fetch",
+			queryFn,
+		});
+		const unsubscribe = observer.subscribe(vi.fn());
+		let recovery: Promise<unknown>;
+		if (trigger === "invalidate") {
+			recovery = queryClient.invalidateQueries({ queryKey: key });
+		} else if (trigger === "refetch") {
+			recovery = queryClient.refetchQueries({ queryKey: key });
+		} else {
+			recovery = queryClient.fetchQuery({
+				queryKey: key,
+				queryFn,
+				staleTime: 0,
+			});
+		}
+		await vi.waitFor(() => expect(reads).toBe(1));
+		mergeLiveThreadSignalIntoCache({
+			queryClient,
+			spaceId: "space-123",
+			openMeldProfileId: "viewer",
+			threadContext,
+			signal: complete.signals[1],
+			placement: complete.placements[1],
+		});
+		if (cache === "cold-messages") {
+			expect(observer.getCurrentResult().isPending).toBe(true);
+		}
+		releaseOldRead();
+		await recovery.catch((error) => {
+			if (!isCancelledError(error)) {
+				throw error;
+			}
+		});
+		await vi.waitFor(() => {
+			expect(reads).toBe(trigger === "fetch" ? 1 : 2);
+			expect(queryClient.getQueryState(key)?.fetchStatus).toBe("idle");
+			expect(observer.getCurrentResult().data).toEqual(retained);
+			expect(observer.getCurrentResult().status).toBe("success");
+			expect(observer.getCurrentResult().error).toBeNull();
+			if (trigger === "fetch") {
+				expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true);
+			}
+		});
+		// A later authoritative snapshot may remove a reply. Recovery must not
+		// preserve it forever by unioning HTTP snapshots with the live cache.
+		retained = previous;
+		await queryClient.fetchQuery({ queryKey: key, queryFn, staleTime: 0 });
+		expect(observer.getCurrentResult().data).toEqual(previous);
+		unsubscribe();
+		queryClient.clear();
+	});
 	it("retains the server's direct conversation policy when an Agent reply arrives", () => {
 		const signal: SignalEnvelope = {
 			v: 1,
@@ -273,6 +410,84 @@ describe("Thread conversation policy during live replies", () => {
 
 const AGENT_PROFILE_ID = "agent-profile-1";
 const HUMAN_PROFILE_ID = "human-profile-1";
+
+describe("queued follow-up conversation scope", () => {
+	const centerAgentProfileId = "agt_center";
+	const progress = (threadId: string | null, profileId = HUMAN_PROFILE_ID) =>
+		createWakeProgressItem({
+			clientMessageId: threadId ?? "main",
+			dispatchId: threadId ?? "main",
+			sourceSignalId: threadId ?? "main",
+			phase: "running",
+			targetLabel: "Center",
+			targetProfileId: centerAgentProfileId,
+			updatedAtMs: 1,
+			sourceContext: {
+				profileId,
+				profileKind: "human",
+				profileName: "Mira",
+				messagePreview: "Review",
+				threadId,
+			},
+		});
+	it("targets only the requester's active task in the current conversation", () => {
+		const items = [
+			progress(null),
+			progress("thread-a"),
+			progress("thread-b"),
+			progress("thread-a", "other-member"),
+		];
+		const input = {
+			profileId: HUMAN_PROFILE_ID,
+			timelineItems: [],
+			centerAgentProfileId,
+			members: null,
+			activationTargets: [],
+			hasFiles: false,
+			items,
+		};
+		expect(
+			resolveQueuedExecutionInput({ ...input, threadId: "thread-a" })
+		).toEqual({
+			dispatchId: "thread-a",
+			targetProfileId: centerAgentProfileId,
+		});
+		expect(resolveQueuedExecutionInput(input)).toEqual({
+			dispatchId: "main",
+			targetProfileId: centerAgentProfileId,
+		});
+		expect(
+			resolveQueuedExecutionInput({ ...input, threadId: "thread-c" })
+		).toBeUndefined();
+	});
+	it("requires a source selection when the same requester has multiple active tasks in one Thread", () => {
+		const items = [
+			progress("thread-a"),
+			{
+				...progress("thread-a"),
+				dispatchId: "second",
+				sourceSignalId: "source-second",
+			},
+		];
+		const input = {
+			profileId: HUMAN_PROFILE_ID,
+			timelineItems: [],
+			centerAgentProfileId,
+			members: null,
+			activationTargets: [],
+			hasFiles: false,
+			items,
+			threadId: "thread-a",
+		};
+		expect(resolveQueuedExecutionInput(input)).toBe("ambiguous");
+		expect(
+			resolveQueuedExecutionInput({
+				...input,
+				replyToSignalId: "source-second",
+			})
+		).toEqual({ dispatchId: "second", targetProfileId: centerAgentProfileId });
+	});
+});
 
 describe("unconfirmed Wake presentation diagnostics", () => {
 	const item = createWakeProgressItem({

@@ -1,6 +1,6 @@
 "use agent";
 
-import { useAgentFinish, useModel, useSkill, useTool } from "@flue/runtime";
+import { useModel, useSkill, useTool } from "@flue/runtime";
 import { extend, getCloudflareContext } from "@flue/runtime/cloudflare";
 import { renderTaskKnowledgeIndex } from "@openmeld/agent-runtime";
 import {
@@ -29,6 +29,7 @@ import {
 } from "../../agent-core/callback-context";
 import { generateCenterAgentSessionTitle } from "../../agent-core/center-agent-session-title";
 import { callCoreRpc } from "../../agent-core/core-rpc";
+import { remoteAgentDiagnosticErrorFields } from "../../agent-core/diagnostics-content-policy";
 import {
   assertRemoteAgentExecutionCanContinue,
   buildRemoteAgentExecutionIdentity,
@@ -102,7 +103,11 @@ import {
   requireRemoteAgentExecutionResources,
   resolveRemoteAgentExecutionCallbackContext,
 } from "../../flue-adapter/execution-context";
-import { checkRemoteAgentExecutionFinish } from "../../flue-adapter/execution-finish";
+import {
+  type ComputerFinishState,
+  checkRemoteAgentExecutionFinish,
+  useRemoteAgentExecutionFinish,
+} from "../../flue-adapter/execution-finish";
 import {
   createRemoteAgentSteeringSource,
   readRemoteAgentExecutionInput,
@@ -139,6 +144,7 @@ function createRemoteAgentImagePreparer(
 }
 
 async function prepareCenterAgentRender() {
+  const messageReadBudget = { remainingBytes: 8192 };
   const context = getCloudflareContext();
   const env = context.env as unknown as CloudflareBindings;
   const prepareImageForContext = createRemoteAgentImagePreparer(
@@ -243,6 +249,7 @@ async function prepareCenterAgentRender() {
     createTools: async (sandboxCapability) =>
       executionContext
         ? await getRemoteAgentFlueTools({
+            messageReadBudget,
             replyRecovery: Boolean(executionContext.replyRecovery),
             personalAgent,
             sharedSpaceContextEnabled:
@@ -374,6 +381,7 @@ async function prepareCenterAgentRender() {
   });
 
   return {
+    messageReadBudget,
     beforeModel: executionContext
       ? () =>
           assertRemoteAgentExecutionCanContinue({
@@ -385,13 +393,17 @@ async function prepareCenterAgentRender() {
       ? (
           finish: Parameters<
             typeof checkRemoteAgentExecutionFinish
-          >[0]["finish"]
+          >[0]["finish"],
+          finishState: ComputerFinishState,
+          setFinishState: (state: ComputerFinishState) => void
         ) =>
           checkRemoteAgentExecutionFinish({
             env,
             context: executionContext,
             storage,
             finish,
+            finishState,
+            setFinishState,
           })
       : undefined,
     steeringSource: executionContext
@@ -437,7 +449,7 @@ export function CenterAgentV2() {
       Awaited<ReturnType<typeof prepareCenterAgentRender>>
     >();
   if (resources.checkFinish) {
-    useAgentFinish(resources.checkFinish);
+    useRemoteAgentExecutionFinish(resources.checkFinish);
   }
   useModel(resources.model, {
     compaction: resources.compaction,
@@ -657,6 +669,7 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
               ),
             cleanupFinalizedSubmissionReplay: async () =>
               await cleanupFinalizedRemoteAgentSubmissionAttachments({
+                env,
                 attachmentBucket: env.OPENMELD_SPACE_ATTACHMENTS,
                 request,
               }),
@@ -760,6 +773,7 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
               status: "started",
             });
             const result = await submitRemoteAgentConversationTurn({
+              env,
               agentName: this.name,
               attachmentBucket: env.OPENMELD_SPACE_ATTACHMENTS,
               host,
@@ -813,27 +827,35 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
       async retryRemoteAgentCallbacks(): Promise<void> {
         const storage = createRemoteAgentSqlStorage(this.ctx.storage.sql);
         try {
-          const morePending = await flushRemoteAiUsage({
-            storage,
-            coreWorker: this.env
-              .OPENMELD_CORE_WORKER as unknown as RemoteAgentCoreWorkerBinding,
-          });
-          if (morePending) {
+          try {
+            const morePending = await flushRemoteAiUsage({
+              storage,
+              coreWorker: this.env
+                .OPENMELD_CORE_WORKER as unknown as RemoteAgentCoreWorkerBinding,
+            });
+            if (morePending) {
+              await this.armRemoteAgentCallbackRetry();
+            }
+          } catch (error) {
+            console.error(
+              "[remote_agent.ai_usage.retry_failed]",
+              remoteAgentDiagnosticErrorFields(error, { env: this.env })
+            );
             await this.armRemoteAgentCallbackRetry();
           }
-        } catch (error) {
-          console.error("[remote_agent.ai_usage.retry_failed]", error);
-          await this.armRemoteAgentCallbackRetry();
+        } finally {
+          // Callback reconciliation owns the final cleanup attempt, including
+          // when usage rearming or the Flue submission reader is unavailable.
+          await reconcileAndRedeliverRemoteAgentCallbacks({
+            env: this.env,
+            coreWorker: this.env
+              .OPENMELD_CORE_WORKER as unknown as RemoteAgentCoreWorkerBinding,
+            readSubmission: (submissionId) =>
+              requireFlueSubmissionReader(this)(submissionId),
+            schedule: this.schedule.bind(this),
+            storage,
+          });
         }
-        const readSubmission = requireFlueSubmissionReader(this);
-        await reconcileAndRedeliverRemoteAgentCallbacks({
-          env: this.env,
-          coreWorker: this.env
-            .OPENMELD_CORE_WORKER as unknown as RemoteAgentCoreWorkerBinding,
-          readSubmission,
-          schedule: this.schedule.bind(this),
-          storage,
-        });
       }
 
       async readExecutionState(input: RemoteAgentWorkerExecutionQuery) {
