@@ -56,9 +56,33 @@ export type CloudComputerCommandPhase = zod.infer<
 export const cloudComputerCommandCollectionSchema = z.strictObject({
   unconfirmedAttempts: z.number().int().nonnegative(),
   nextAttemptAtMs: z.number().int().nonnegative().nullable(),
+  // Internal invocation projection only. A bounded check is still in flight;
+  // this does not confirm progress or replenish the observation budget.
+  observationExpiresAtMs: z.number().int().nonnegative().optional(),
 });
 export type CloudComputerCommandCollection = zod.infer<
   typeof cloudComputerCommandCollectionSchema
+>;
+const preparationCount = z
+  .number()
+  .int()
+  .nonnegative()
+  .max(Number.MAX_SAFE_INTEGER);
+/** Last retained SDK preparation evidence, never launch authority.
+ * Counts describe one step, never cumulative totals.
+ * Cursors expose revisions only; file paths remain private to the SDK. */
+export const cloudComputerCommandPreparationSchema = z.strictObject({
+  phase: z.enum(["preparing", "transferring", "cleaning"]).optional(),
+  generation: z.string().max(256),
+  checkpoint: z.string().min(1).max(1024).optional(),
+  cursorRevision: preparationCount,
+  targetRevision: preparationCount,
+  entries: preparationCount,
+  bytes: preparationCount,
+  skipped: preparationCount,
+});
+export type CloudComputerCommandPreparation = zod.infer<
+  typeof cloudComputerCommandPreparationSchema
 >;
 export const cloudComputerCommandErrorSchema = z.strictObject({
   status: z.number().int().min(400).max(599),
@@ -174,6 +198,7 @@ export const cloudComputerOperationResultSchema = z.union([
       phase: cloudComputerCommandPhaseSchema.optional(),
       recordExpiresAtMs: z.number().int().nonnegative().optional(),
       collection: cloudComputerCommandCollectionSchema.optional(),
+      preparation: cloudComputerCommandPreparationSchema.optional(),
     })
   ),
   z.object({
@@ -183,6 +208,7 @@ export const cloudComputerOperationResultSchema = z.union([
     phase: cloudComputerCommandPhaseSchema.optional(),
     recordExpiresAtMs: z.number().int().nonnegative().optional(),
     collection: cloudComputerCommandCollectionSchema.optional(),
+    preparation: cloudComputerCommandPreparationSchema.optional(),
     status: z.enum(["running", "completed", "stop_requested"]),
     exitCode: z.number().nullable().optional(),
     stdout: z.string().optional(),
@@ -231,6 +257,7 @@ export const cloudComputerInvocationStateSchema = z.strictObject({
         terminationConfirmed: z.boolean(),
         resultUnavailable: z.boolean(),
         collection: cloudComputerCommandCollectionSchema.nullable(),
+        preparation: cloudComputerCommandPreparationSchema.optional(),
       })
     )
     .max(32),
