@@ -448,7 +448,12 @@ source checkout intact. Never publish a locally created receipt commit by hand.
 Verification-only recovery does not run deployment preflight: it proves an
 already applied deployment under the existing identity and lease guards and
 introduces no new artifact or receiver; recovery that deploys still requires
-deployment preflight.
+deployment preflight. Its source, artifact, and compatibility checks use the
+current-main owner against the pinned source. After exact receipt and live cloud
+assessment under the lease, train admission treats only that attempt as pending
+recovery and computes dependencies from its last verified deployment. Ordinary
+stage admission, other unresolved scopes, source proof, and receiver ordering
+remain enforced; an operator's `--base` cannot shorten the compatibility history.
 
 Recovery that deploys requires `--base <exact-original-release-base>` in
 addition to the eight selectors. It repeats the full guarded deployment at the
