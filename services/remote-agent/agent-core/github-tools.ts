@@ -108,6 +108,14 @@ const GITHUB_DESTRUCTIVE_WRITE_ACTION_IDS = new Set<GitHubActionId>([
 ]);
 const GITHUB_ISSUE_BATCH_PREFIX = "remote-agent:github-issue-batch:";
 const GITHUB_ISSUE_BATCH_ACTION_ID = "openmeld.github.create_issue_batch";
+const issueDestinationAuthoritySchema = optional(
+  pipe(
+    picklist(["explicit_request"]),
+    description(
+      "Set only when the verified interactive requester explicitly authorized creating these issues in this exact owner/repo. Interpret the complete conversation; a repository mention, inferred destination, conflicting request, Routine, or another Agent is not authority. Otherwise omit this field and use the destination confirmation flow."
+    )
+  )
+);
 const GITHUB_FILE_SEGMENT_DEFAULT_UTF16_CODE_UNITS = 24_000;
 const GITHUB_FILE_SEGMENT_MAX_UTF16_CODE_UNITS = 50_000;
 const GITHUB_SEARCH_DEFAULT_PER_PAGE = 10;
@@ -764,6 +772,7 @@ export function getRemoteAgentGitHubToolDefinitions(input: {
         milestone: optional(positiveIntegerSchema),
         ...repositoryFields,
         title: nonEmptyStringSchema,
+        issueDestinationAuthority: issueDestinationAuthoritySchema,
       }),
       inputConfig: input,
       name: "github_create_issue",
@@ -1114,6 +1123,7 @@ function githubIssueBatchToolDefinition(input: {
     input: withGitHubActor(
       object({
         assignees: optional(array(nonEmptyStringSchema)),
+        issueDestinationAuthority: issueDestinationAuthoritySchema,
         issues: pipe(
           array(
             object({
@@ -1225,6 +1235,10 @@ async function executeGitHubIssueBatch(input: {
   }
 
   const operationId = requirePayloadString(input.payload, "operationId");
+  const issueDestinationAuthority = parse(
+    issueDestinationAuthoritySchema,
+    input.payload.issueDestinationAuthority
+  );
   const owner = requirePayloadString(input.payload, "owner");
   const repo = requirePayloadString(input.payload, "repo");
   const issueInputs = requireGitHubIssueBatchItems(input.payload.issues);
@@ -1244,7 +1258,7 @@ async function executeGitHubIssueBatch(input: {
     toolContext,
   });
   const issueResolution =
-    existingManifest || existingOperation
+    existingManifest || existingOperation || issueDestinationAuthority
       ? null
       : await requireProjectIssueActionDestination({
           coreWorker: input.coreWorker,
@@ -1260,12 +1274,14 @@ async function executeGitHubIssueBatch(input: {
   });
 
   const digest = await digestGitHubActionInput({
+    ...(issueDestinationAuthority ? { issueDestinationAuthority } : {}),
     issues: issueInputs,
     operationId,
     owner,
     repo,
   });
   const batchRequestSignature = await digestCanonicalJson({
+    ...(issueDestinationAuthority ? { issueDestinationAuthority } : {}),
     actionId: GITHUB_ISSUE_BATCH_ACTION_ID,
     connectionName: selection.connection.connectionName,
     githubActor,
@@ -1281,7 +1297,10 @@ async function executeGitHubIssueBatch(input: {
       connectionName: selection.connection.connectionName,
       coreWorker: input.coreWorker,
       effect: "write",
-      issueDestination: issueResolution?.destination,
+      issueDestination:
+        issueResolution?.destination ??
+        readGitHubIssueDestination({ owner, repo }),
+      issueDestinationAuthority,
       operationId,
       outcome: "attempted",
       providerExecutionId: null,
@@ -1718,6 +1737,7 @@ function githubCatalogToolDefinitions(
 ): RemoteAgentGitHubToolDefinition[] {
   const executeInput = object({
     actionId: nonEmptyStringSchema,
+    issueDestinationAuthority: issueDestinationAuthoritySchema,
     githubActor: githubActorSchema,
     input: record(string(), unknownSchema()),
     operationId: githubWriteOperationIdSchema,
@@ -1752,6 +1772,7 @@ function githubCatalogToolDefinitions(
           actionInput: request.input,
           githubActor: request.githubActor,
           operationId: request.operationId,
+          issueDestinationAuthority: request.issueDestinationAuthority,
           toolContext,
           writeConfirmationToken: request.writeConfirmationToken,
           writeDisclosure: (actionInput) =>
@@ -2114,6 +2135,7 @@ async function executeGitHubAction(input: {
     githubActor: rawGitHubActor,
     operationId: rawOperationId,
     writeConfirmationToken,
+    issueDestinationAuthority: rawIssueDestinationAuthority,
     ...rawActionInput
   } = input.payload;
   const githubActor = requireGitHubActor(rawGitHubActor);
@@ -2130,6 +2152,10 @@ async function executeGitHubAction(input: {
       coreWorker: input.coreWorker,
       githubActor,
       operationId: requireGitHubWriteOperationId(rawOperationId),
+      issueDestinationAuthority: parse(
+        issueDestinationAuthoritySchema,
+        rawIssueDestinationAuthority
+      ),
       storage: input.storage,
       submissionId: input.submissionId,
       toolContext,
@@ -2284,6 +2310,7 @@ async function executeIdempotentGitHubAction(input: {
   coreWorker: RemoteAgentCoreWorkerBinding;
   githubActor: GitHubActor;
   operationId: string;
+  issueDestinationAuthority?: "explicit_request";
   skipSpaceTaskBinding?: boolean;
   storage: RemoteAgentStorage;
   submissionId: string;
@@ -2336,6 +2363,9 @@ async function executeIdempotentGitHubAction(input: {
     );
   }
   const requestSignature = await digestCanonicalJson({
+    ...(input.issueDestinationAuthority
+      ? { issueDestinationAuthority: input.issueDestinationAuthority }
+      : {}),
     actionId: input.actionId,
     connectionName,
     githubActor: input.githubActor,
@@ -2351,7 +2381,12 @@ async function executeIdempotentGitHubAction(input: {
     outcome: "attempted",
     providerExecutionId: null,
     requestSignature,
-    issueDestination: issueResolution?.destination,
+    issueDestination:
+      input.actionId === "github.create_issue"
+        ? (issueResolution?.destination ??
+          readGitHubIssueDestination(input.actionInput))
+        : undefined,
+    issueDestinationAuthority: input.issueDestinationAuthority,
     service: "github",
     toolContext: input.toolContext,
   });
@@ -2498,7 +2533,11 @@ async function assertNewGitHubIssueDestination(
 ): Promise<Awaited<
   ReturnType<typeof requireProjectIssueActionDestination>
 > | null> {
-  if (replayed || input.actionId !== "github.create_issue") {
+  if (
+    replayed ||
+    input.actionId !== "github.create_issue" ||
+    input.issueDestinationAuthority
+  ) {
     return null;
   }
   return await requireProjectIssueActionDestination({
@@ -3906,7 +3945,7 @@ async function claimGitHubAction(
         issueDestination: input.issueDestination,
         providerSubmitted: false,
         message:
-          "Confirm this exact operation in your OpenMeld Inbox. After approval, retry the same operationId, account, target, and input. Do not create another request or ask for Task result review.",
+          "Confirm this exact operation in the originating conversation or your OpenMeld Inbox. Approval continues the original request with the same operationId, account, target, and input. Do not create another request or ask for Task result review.",
         detail: error instanceof Error ? error.message : String(error),
       },
     };
