@@ -138,7 +138,7 @@ index 28b2ad3..1e138b9 100644
      expect(ws).not.toHaveProperty("readFile");
    });
 diff --git a/packages/computer/src/client.ts b/packages/computer/src/client.ts
-index db89f87..6a8eacb 100644
+index db89f87..2181d94 100644
 --- a/packages/computer/src/client.ts
 +++ b/packages/computer/src/client.ts
 @@ -76,6 +76,15 @@ async function rebuildExecHandle<E extends ExecEncoding>(
@@ -226,21 +226,35 @@ index db89f87..6a8eacb 100644
  ): WorkspaceRuntimeClient {
    async function exec(
      commandOrStrings: string | TemplateStringsArray,
-@@ -320,6 +334,10 @@ function makeRuntimeClient(
+@@ -320,6 +334,19 @@ function makeRuntimeClient(
    );
    return {
      exec,
-+    execWithAdmission: <E extends ExecEncoding>(source: string, options: RuntimeExecOptions & { encoding?: E }, beforeDispatch: () => Promise<void>) => {
-+      if (!localAdmission) throw new Error("Execution admission requires the local Workspace owner");
-+      return localAdmission(source, withExecutionId(options) as RuntimeExecOptions & { encoding?: E }, beforeDispatch);
++    execWithAdmission: <E extends ExecEncoding>(
++      source: string,
++      options: RuntimeExecOptions & { encoding?: E },
++      beforeDispatch: () => Promise<void>,
++    ) => {
++      if (!localAdmission)
++        throw new Error("Execution admission requires the local Workspace owner");
++      return localAdmission(
++        source,
++        withExecutionId(options) as RuntimeExecOptions & { encoding?: E },
++        beforeDispatch,
++      );
 +    },
      getExec,
      killExec,
      disposeExec,
-@@ -338,6 +356,11 @@ function withExecutionId(
+@@ -338,6 +365,16 @@ function withExecutionId(
  // members, passed through. The filesystem stub mirrors the local
  // filesystem, so it also serves as the common client type.
  export interface WorkspaceClient extends Partial<ThinkWorkspaceCompatibility> {
++  resumeExecutionSync(
++    id: string,
++    backend?: string,
++    options?: import("./execution-runtime-tracker.js").ExecutionSyncResumeOptions,
++  ): Promise<import("./execution-runtime-tracker.js").ExecutionSyncResumeResult>;
 +  executionSync(
 +    id: string,
 +    backend?: string,
@@ -249,7 +263,7 @@ index db89f87..6a8eacb 100644
    readonly fs: WorkspaceFilesystem;
    readonly runtime: WorkspaceRuntimeClient;
    // biome-ignore lint/suspicious/noExplicitAny: git type differs local vs remote
-@@ -357,13 +380,17 @@ function makeClient(
+@@ -357,13 +394,19 @@ function makeClient(
    useThink: boolean,
    backends: readonly WorkspaceBackendInfo[],
    hasAssets: boolean,
@@ -262,12 +276,14 @@ index db89f87..6a8eacb 100644
 +    localAdmission,
    );
    const client: WorkspaceClient = {
++    resumeExecutionSync: (id, backend, options) =>
++      surface.resumeExecutionSync(id, backend, options),
 +    executionSync: (id, backend) => surface.executionSync(id, backend),
 +    maintainSync: () => surface.maintainSync(),
      get fs() {
        return surface.fs;
      },
-@@ -388,10 +415,10 @@ function makeClient(
+@@ -388,10 +431,11 @@ function makeClient(
  // What `getWorkspace` accepts: a local host carrying the symbol stash
  // (the durable object `this`), or a remote stub exposing
  // `__getWorkspaceStub`.
@@ -276,36 +292,44 @@ index db89f87..6a8eacb 100644
  
  export async function getWorkspace(handle: WorkspaceHandle): Promise<WorkspaceClient> {
 -  const local = (handle as { [WORKSPACE]?: unknown })[WORKSPACE];
-+  const local = handle instanceof Workspace ? handle : (handle as { [WORKSPACE]?: unknown })[WORKSPACE];
++  const local =
++    handle instanceof Workspace ? handle : (handle as { [WORKSPACE]?: unknown })[WORKSPACE];
    if (local instanceof Workspace) {
      // Local path: delegate straight to the in-isolate Workspace.
      // Nothing to dispose — the durable object owns the Workspace
-@@ -399,6 +426,8 @@ export async function getWorkspace(handle: WorkspaceHandle): Promise<WorkspaceCl
+@@ -399,6 +443,13 @@ export async function getWorkspace(handle: WorkspaceHandle): Promise<WorkspaceCl
      await local.ready();
      return makeClient(
        {
++        resumeExecutionSync: (
++          id: string,
++          backend?: string,
++          options?: import("./execution-runtime-tracker.js").ExecutionSyncResumeOptions,
++        ) => local.resumeExecutionSync(id, backend, options),
 +        executionSync: (id: string, backend?: string) => local.executionSync(id, backend),
 +        maintainSync: () => local.maintainSync(),
          fs: local.fs,
          runtime: local.runtime,
          get git() {
-@@ -413,6 +442,7 @@ export async function getWorkspace(handle: WorkspaceHandle): Promise<WorkspaceCl
+@@ -413,6 +464,8 @@ export async function getWorkspace(handle: WorkspaceHandle): Promise<WorkspaceCl
        local.useThink,
        local.runtime.backends(),
        local.assets !== undefined,
-+      (source, options, beforeDispatch) => local.runtime.execWithAdmission(source, options, beforeDispatch),
++      (source, options, beforeDispatch) =>
++        local.runtime.execWithAdmission(source, options, beforeDispatch),
      );
    }
    // Remote path: fetch the stub over RPC and delegate to it. Handle
 diff --git a/packages/computer/src/execution-runtime-tracker.ts b/packages/computer/src/execution-runtime-tracker.ts
-index ee1c858..6fbc46e 100644
+index ee1c858..c399535 100644
 --- a/packages/computer/src/execution-runtime-tracker.ts
 +++ b/packages/computer/src/execution-runtime-tracker.ts
-@@ -3,7 +3,23 @@
+@@ -3,7 +3,34 @@
  // fallback keeps public by-id lifecycle methods fenced across Durable
  // Object incarnations and cache eviction.
  
 -import type { Database } from "@cloudflare/dofs";
++import type { SyncProgress } from "@cloudflare/computer-rpc/driver";
 +import type { Database, SkippedEntry } from "@cloudflare/dofs";
 +
 +export interface ExecutionSyncTarget {
@@ -323,10 +347,20 @@ index ee1c858..6fbc46e 100644
 +  skippedTruncated: boolean;
 +  error?: "EEXEC_LOST";
 +}
++
++export type ExecutionSyncResumeResult =
++  | { status: "pending"; progress: SyncProgress }
++  | { status: "complete"; outcome: ExecutionSyncOutcome };
++
++export interface ExecutionSyncResumeOptions {
++  // The caller has retained the original execution's exit. This permits
++  // first capture of a missing target, never creation of a missing window.
++  executionExited: true;
++}
  
  const DEFAULT_MAX_ENTRIES = 1_024;
  
-@@ -11,6 +27,17 @@ export interface ExecutionRuntimeStore {
+@@ -11,6 +38,17 @@ export interface ExecutionRuntimeStore {
    get(key: string): string | undefined;
    remember(key: string, runtimeId: string): void;
    delete(key: string, expectedRuntimeId?: string): void;
@@ -344,7 +378,7 @@ index ee1c858..6fbc46e 100644
  }
  
  export class SqlExecutionRuntimeStore implements ExecutionRuntimeStore {
-@@ -21,6 +48,146 @@ export class SqlExecutionRuntimeStore implements ExecutionRuntimeStore {
+@@ -21,6 +59,146 @@ export class SqlExecutionRuntimeStore implements ExecutionRuntimeStore {
          runtime_id TEXT NOT NULL
        )
      `);
@@ -491,7 +525,7 @@ index ee1c858..6fbc46e 100644
    }
  
    get(key: string): string | undefined {
-@@ -31,16 +198,29 @@ export class SqlExecutionRuntimeStore implements ExecutionRuntimeStore {
+@@ -31,16 +209,29 @@ export class SqlExecutionRuntimeStore implements ExecutionRuntimeStore {
    }
  
    remember(key: string, runtimeId: string): void {
@@ -522,7 +556,7 @@ index ee1c858..6fbc46e 100644
      if (expectedRuntimeId === undefined) {
        this.db.run("DELETE FROM computer_execution_runtime WHERE execution_key = ?", key);
        return;
-@@ -82,6 +262,33 @@ export class ExecutionRuntimeTracker {
+@@ -82,6 +273,33 @@ export class ExecutionRuntimeTracker {
      this.#touch(key, runtimeId);
    }
  
@@ -558,23 +592,29 @@ index ee1c858..6fbc46e 100644
      if (expectedRuntimeId !== undefined && this.#entries.get(key) !== expectedRuntimeId) return;
 diff --git a/packages/computer/src/execution-sync.test.ts b/packages/computer/src/execution-sync.test.ts
 new file mode 100644
-index 0000000..21dd3f1
+index 0000000..a62bcc1
 --- /dev/null
 +++ b/packages/computer/src/execution-sync.test.ts
-@@ -0,0 +1,277 @@
+@@ -0,0 +1,551 @@
++import type { ExecEvent, ShellRPC } from "@cloudflare/computer-rpc";
 +import { createSyncServer, createWorkspaceServer } from "@cloudflare/computer-rpc/server";
 +import { Database, initializeSchema, SQLiteWorkspaceProvider } from "@cloudflare/dofs";
 +import { SQLiteTestStorage } from "@cloudflare/dofs/testing";
-+import type { ShellRPC, ExecEvent } from "@cloudflare/computer-rpc";
-+import { expect, it } from "vitest";
-+import { Workspace } from "./workspace.js";
++import { expect, it, vi } from "vitest";
 +import type { WorkspaceBackend } from "./backend.js";
++import { getWorkspace } from "./client.js";
 +import { WorkspaceSyncPendingError } from "./sync-pending.js";
++import { Workspace } from "./workspace.js";
 +
 +it("requests maintenance for filesystem-only writes, deletion and stream release", async () => {
 +  const storage = new SQLiteTestStorage();
 +  let kicks = 0;
-+  const ws = new Workspace({ storage, onMaintenanceNeeded: () => { kicks++; } });
++  const ws = new Workspace({
++    storage,
++    onMaintenanceNeeded: () => {
++      kicks++;
++    },
++  });
 +  try {
 +    await ws.fs.mkdir("/tree");
 +    await ws.fs.writeFile("/tree/result", new Uint8Array(2 * 512 * 1024).fill(7));
@@ -590,7 +630,10 @@ index 0000000..21dd3f1
 +    while (await ws.maintainSync()) {}
 +    const db = new Database(storage);
 +    expect(db.scalar("SELECT count(*) FROM vfs_blob_bytes")).toBe(0);
-+  } finally { await ws.close(); storage.close(); }
++  } finally {
++    await ws.close();
++    storage.close();
++  }
 +});
 +
 +it("serializes delayed epoch admission with other commands and maintenance", async () => {
@@ -719,135 +762,415 @@ index 0000000..21dd3f1
 +  }
 +});
 +
-+it("keeps each execution horizon and refusal outcome across other commands, cleanup and Workspace reconstruction", async () => {
-+  const localStorage = new SQLiteTestStorage();
++it.each(["retained log", "expired log"])(
++  "keeps each execution horizon and refusal outcome across other commands, cleanup and Workspace reconstruction (%s)",
++  async (logState) => {
++    const localStorage = new SQLiteTestStorage();
++    const remoteStorage = new SQLiteTestStorage();
++    const remote = new Database(remoteStorage);
++    initializeSchema(remote, Date.now);
++    const files = new SQLiteWorkspaceProvider(remote);
++    const sync = createSyncServer(remote);
++    const starts: string[] = [];
++    let logsExpired = false;
++    let reads = 0;
++    const envelope = (id: string) => ({
++      id,
++      events: new ReadableStream<ExecEvent>({
++        start(controller) {
++          controller.enqueue({ id, name: "exit", seq: 1, code: 0 });
++          controller.close();
++        },
++      }),
++    });
++    const shell: ShellRPC = {
++      exec: async (input) => {
++        const id = input.id!;
++        starts.push(id);
++        if (id === "A") {
++          files.mkdirSync("/readonly", { recursive: true });
++          for (let i = 0; i < 600; i++)
++            files.writeFileSync(`/readonly/refused-${i}`, "remote change");
++        }
++        files.writeFileSync(`/${id}.txt`, `result ${id}`);
++        return envelope(id);
++      },
++      getExec: async (input) => {
++        reads++;
++        if (logsExpired) throw new Error("ENOENT");
++        return envelope(input.id);
++      },
++      killExec: async () => {},
++      disposeExec: async () => {},
++    };
++    const backend: WorkspaceBackend = {
++      id: "peer",
++      type: "typed-shell-real-sync",
++      connect: async () => ({
++        runtimeId: "peer-runtime",
++        sync: "remote",
++        rpc: { sync, shell },
++        close: async () => {},
++      }),
++    };
++    let owner = new Workspace({ storage: localStorage, backends: [backend] });
++    try {
++      await owner.fs.mkdir("/readonly", { recursive: true });
++      await owner.fs.writeFile("/readonly/keep.txt", "protected");
++      localStorage.sql.exec(
++        "INSERT INTO _vfs_mounts(root,kind,indexed,mode) VALUES('/readonly','r2',1,'read-only')",
++      );
++      const start = async (id: string) => {
++        for (let attempt = 0; ; attempt++) {
++          expect(attempt).toBeLessThan(30);
++          try {
++            return await (
++              await owner.runtime.exec(id, { id, backend: "peer", encoding: "utf8", sync: "defer" })
++            ).result();
++          } catch (error) {
++            if (!(error instanceof WorkspaceSyncPendingError)) throw error;
++          }
++        }
++      };
++      const a = await start("A");
++      const b = await start("B");
++      expect(a.sync.status).toBe("pending");
++      expect(b.sync.status).toBe("pending");
++      logsExpired = logState === "expired log";
++      const finish = async (id: string) => {
++        for (let attempt = 0; ; attempt++) {
++          expect(attempt).toBeLessThan(100);
++          await owner.close();
++          owner = new Workspace({ storage: localStorage, backends: [backend] });
++          if (logsExpired) {
++            // Exercise both the local client and the real Workspace stub surface.
++            using client = await getWorkspace(
++              attempt % 2 === 0 ? owner : { __getWorkspaceStub: async () => owner.stub() },
++            );
++            const result = await client.resumeExecutionSync(id, "peer");
++            if (result.status === "complete") return { sync: result.outcome };
++            if (result.progress.phase !== "cleaning")
++              expect(result.progress.checkpoint).toEqual(expect.any(String));
++            continue;
++          }
++          const result = await (
++            await owner.runtime.getExec(id, { backend: "peer", encoding: "utf8" })
++          ).result();
++          if (result.sync.status === "complete") return result;
++          expect(result.sync.error).toContain("ESYNC_PENDING:");
++        }
++      };
++      // B cannot use A's older shared operation as proof of B's file completion.
++      const bResult = await finish("B");
++      expect(await owner.fs.readFile("/B.txt", "utf8")).toBe("result B");
++      expect(bResult.sync.skipped.length).toBeGreaterThan(0);
++      // B's journal cleanup must respect paused A's still-live start cursor.
++      const aResult = await finish("A");
++      expect(aResult.sync.skipped).toHaveLength(16);
++      expect(aResult.sync).toMatchObject({ skippedTruncated: true });
++      expect(await owner.fs.readFile("/readonly/keep.txt", "utf8")).toBe("protected");
++      await expect(owner.fs.stat("/readonly/refused-0")).rejects.toMatchObject({ code: "ENOENT" });
++      expect(starts).toEqual(["A", "B"]);
++      if (logsExpired) expect(reads).toBe(0);
++      const replay = await finish("A");
++      expect(replay.sync.skipped).toEqual(aResult.sync.skipped);
++      logsExpired = true;
++      await expect(owner.runtime.getExec("A", { backend: "peer" })).rejects.toThrow("ENOENT");
++      expect(await owner.executionSync("A", "peer")).toMatchObject({
++        skipped: aResult.sync.skipped,
++        skippedTruncated: true,
++      });
++      for (let step = 0; ; step++) {
++        expect(step).toBeLessThan(10);
++        await owner.close();
++        owner = new Workspace({ storage: localStorage, backends: [backend] });
++        if (!(await owner.maintainSync())) break;
++      }
++      expect(
++        localStorage.sql.exec("SELECT count(*) AS count FROM _vfs_sync_refusals").toArray(),
++      ).toEqual([{ count: 0 }]);
++      expect(await owner.executionSync("A", "peer")).toMatchObject({
++        skipped: aResult.sync.skipped,
++        skippedTruncated: true,
++      });
++    } finally {
++      await owner.close();
++      localStorage.close();
++      remoteStorage.close();
++    }
++  },
++);
++
++async function pendingExecutionFixture(captureTarget = true) {
++  const local = new SQLiteTestStorage();
 +  const remoteStorage = new SQLiteTestStorage();
 +  const remote = new Database(remoteStorage);
 +  initializeSchema(remote, Date.now);
 +  const files = new SQLiteWorkspaceProvider(remote);
 +  const sync = createSyncServer(remote);
-+  const starts: string[] = [];
-+  let logsExpired = false;
-+  const envelope = (id: string) => ({
-+    id,
-+    events: new ReadableStream<ExecEvent>({
-+      start(controller) {
-+        controller.enqueue({ id, name: "exit", seq: 1, code: 0 });
-+        controller.close();
-+      },
-+    }),
++  let runtimeId = "original-runtime";
++  const exec = vi.fn<ShellRPC["exec"]>(async (input) => {
++    const id = input.id;
++    if (!id) throw new Error("test execution id is required");
++    files.writeFileSync("/result.txt", "original result");
++    return {
++      id,
++      events: new ReadableStream<ExecEvent>({
++        start(controller) {
++          controller.enqueue({ id, seq: 1, name: "exit", code: 17 });
++          controller.close();
++        },
++      }),
++    };
 +  });
-+  const shell: ShellRPC = {
-+    exec: async (input) => {
-+      const id = input.id!;
-+      starts.push(id);
-+      if (id === "A") {
-+        files.mkdirSync("/readonly", { recursive: true });
-+        for (let i = 0; i < 600; i++)
-+          files.writeFileSync(`/readonly/refused-${i}`, "remote change");
-+      }
-+      files.writeFileSync(`/${id}.txt`, `result ${id}`);
-+      return envelope(id);
++  const getExec = vi.fn<ShellRPC["getExec"]>(async () => {
++    throw new Error("ENOENT: execution log expired");
++  });
++  const connect = vi.fn<WorkspaceBackend["connect"]>(async () => ({
++    runtimeId,
++    sync: "remote",
++    rpc: {
++      sync,
++      shell: { exec, getExec, killExec: async () => {}, disposeExec: async () => {} },
 +    },
-+    getExec: async (input) => {
-+      if (logsExpired) throw new Error("ENOENT");
-+      return envelope(input.id);
-+    },
-+    killExec: async () => {},
-+    disposeExec: async () => {},
-+  };
++    close: async () => {},
++  }));
 +  const backend: WorkspaceBackend = {
 +    id: "peer",
-+    type: "typed-shell-real-sync",
-+    connect: async () => ({
-+      runtimeId: "peer-runtime",
-+      sync: "remote",
-+      rpc: { sync, shell },
-+      close: async () => {},
-+    }),
++    type: "retained-files-expired-log",
++    connect,
 +  };
-+  let owner = new Workspace({ storage: localStorage, backends: [backend] });
-+  try {
-+    await owner.fs.mkdir("/readonly", { recursive: true });
-+    await owner.fs.writeFile("/readonly/keep.txt", "protected");
-+    localStorage.sql.exec(
-+      "INSERT INTO _vfs_mounts(root,kind,indexed,mode) VALUES('/readonly','r2',1,'read-only')",
-+    );
-+    const start = async (id: string) => {
-+      for (let attempt = 0; ; attempt++) {
-+        expect(attempt).toBeLessThan(30);
-+        try {
-+          return await (
-+            await owner.runtime.exec(id, { id, backend: "peer", encoding: "utf8", sync: "defer" })
-+          ).result();
-+        } catch (error) {
-+          if (!(error instanceof WorkspaceSyncPendingError)) throw error;
-+        }
++  let owner = new Workspace({ storage: local, backends: [backend] });
++  for (let attempt = 0; ; attempt++) {
++    expect(attempt).toBeLessThan(30);
++    try {
++      const execution = await owner.runtime.exec("original", {
++        id: "original",
++        backend: "peer",
++        sync: "defer",
++        output: false,
++      });
++      if (captureTarget) {
++        expect(await execution.result()).toMatchObject({
++          exitCode: 17,
++          sync: { status: "pending" },
++        });
++      } else {
++        const reader = execution.getReader();
++        expect(await reader.read()).toMatchObject({
++          done: false,
++          value: { name: "exit", code: 17 },
++        });
++        // A Worker can end after saving this exit, before the next read or
++        // cancellation drains the stream and captures the file target.
++        reader.releaseLock();
++        expect(
++          local.sql.exec("SELECT target_rev FROM computer_execution_pending_sync").toArray(),
++        ).toEqual([{ target_rev: null }]);
 +      }
-+    };
-+    const a = await start("A");
-+    const b = await start("B");
-+    expect(a.sync.status).toBe("pending");
-+    expect(b.sync.status).toBe("pending");
-+    const finish = async (id: string) => {
-+      for (let attempt = 0; ; attempt++) {
-+        expect(attempt).toBeLessThan(100);
-+        await owner.close();
-+        owner = new Workspace({ storage: localStorage, backends: [backend] });
-+        const result = await (
-+          await owner.runtime.getExec(id, { backend: "peer", encoding: "utf8" })
-+        ).result();
-+        if (result.sync.status === "complete") return result;
-+        expect(result.sync.error).toContain("ESYNC_PENDING:");
-+      }
-+    };
-+    // B cannot use A's older shared operation as proof of B's file completion.
-+    const bResult = await finish("B");
-+    expect(await owner.fs.readFile("/B.txt", "utf8")).toBe("result B");
-+    expect(bResult.sync.skipped.length).toBeGreaterThan(0);
-+    // B's journal cleanup must respect paused A's still-live start cursor.
-+    const aResult = await finish("A");
-+    expect(aResult.sync.skipped).toHaveLength(16);
-+    expect(aResult.sync).toMatchObject({ skippedTruncated: true });
-+    expect(await owner.fs.readFile("/readonly/keep.txt", "utf8")).toBe("protected");
-+    await expect(owner.fs.stat("/readonly/refused-0")).rejects.toMatchObject({ code: "ENOENT" });
-+    expect(starts).toEqual(["A", "B"]);
-+    const replay = await finish("A");
-+    expect(replay.sync.skipped).toEqual(aResult.sync.skipped);
-+    logsExpired = true;
-+    await expect(owner.runtime.getExec("A", { backend: "peer" })).rejects.toThrow("ENOENT");
-+    expect(await owner.executionSync("A", "peer")).toMatchObject({
-+      skipped: aResult.sync.skipped,
-+      skippedTruncated: true,
-+    });
-+    for (let step = 0; ; step++) {
-+      expect(step).toBeLessThan(10);
-+      await owner.close();
-+      owner = new Workspace({ storage: localStorage, backends: [backend] });
-+      if (!(await owner.maintainSync())) break;
++      break;
++    } catch (error) {
++      if (!(error instanceof WorkspaceSyncPendingError)) throw error;
 +    }
++  }
++  return {
++    get owner() {
++      return owner;
++    },
++    local,
++    remote,
++    sync,
++    files,
++    exec,
++    getExec,
++    connect,
++    async restart(replaced = false) {
++      await owner.close();
++      if (replaced) runtimeId = "replacement-runtime";
++      owner = new Workspace({ storage: local, backends: [backend] });
++    },
++    async close() {
++      await owner.close();
++      local.close();
++      remoteStorage.close();
++    },
++  };
++}
++
++it.each(["available", "unavailable"])(
++  "freezes the original accepted file target without following later writes or reading expired logs (native %s)",
++  async (native) => {
++    const f = await pendingExecutionFixture();
++    try {
++      for await (const _ of f.owner.pull("peer")) {
++        /* Advance the shared file owner only. */
++      }
++      expect(await f.owner.executionSync("original", "peer")).toBeUndefined();
++      f.files.writeFileSync("/unrelated-later.txt", "unrelated output");
++      const planning = vi
++        .spyOn(f.sync, "prepareChanges")
++        .mockRejectedValue(new Error("later work blocked"));
++      const before = f.local.sql
++        .exec("SELECT target_rev FROM computer_execution_pending_sync")
++        .toArray();
++      await f.restart();
++      f.connect.mockClear();
++      if (native === "unavailable") f.connect.mockRejectedValue(new Error("Computer is offline"));
++      using client = await getWorkspace({ __getWorkspaceStub: async () => f.owner.stub() });
++      const outcome = await client.resumeExecutionSync("original", "peer");
++      expect(outcome).toMatchObject({
++        status: "complete",
++        outcome: { rev: before[0].target_rev, skipped: [] },
++      });
++      expect(await client.fs.readFile("/result.txt", "utf8")).toBe("original result");
++      await expect(client.fs.stat("/unrelated-later.txt")).rejects.toMatchObject({
++        code: "ENOENT",
++      });
++      expect(planning).not.toHaveBeenCalled();
++      expect(f.connect).not.toHaveBeenCalled();
++      expect(f.exec).toHaveBeenCalledTimes(1);
++      expect(f.getExec).not.toHaveBeenCalled();
++      await expect(client.resumeExecutionSync("original", "peer")).resolves.toEqual(outcome);
++    } finally {
++      await f.close();
++    }
++  },
++);
++
++it.each(["runtime", "epoch", "scope", "target", "identity"] as const)(
++  "rejects an unavailable original synchronization %s without recreating its scope",
++  async (missing) => {
++    const f = await pendingExecutionFixture();
++    try {
++      if (missing === "epoch")
++        vi.spyOn(f.sync, "watermarks").mockImplementation(async () => ({
++          epoch: "replacement-epoch",
++          currentRev: 1000,
++          fetchRev: 0,
++          pushRev: 0,
++        }));
++      if (missing === "scope") f.local.sql.exec("DELETE FROM computer_execution_pending_sync");
++      if (missing === "target")
++        f.local.sql.exec("UPDATE computer_execution_pending_sync SET target_rev=NULL");
++      if (missing === "identity") f.local.sql.exec("DELETE FROM computer_execution_runtime");
++      const before = f.local.sql.exec("SELECT * FROM computer_execution_pending_sync").toArray();
++      await f.restart(missing === "runtime");
++      const resumed = f.owner.resumeExecutionSync("original", "peer");
++      if (missing === "runtime" || missing === "epoch")
++        await expect(resumed).rejects.toMatchObject({ code: "EEXEC_LOST" });
++      else await expect(resumed).rejects.toThrow("ESYNC_SCOPE_UNKNOWN");
++      expect(f.local.sql.exec("SELECT * FROM computer_execution_pending_sync").toArray()).toEqual(
++        before,
++      );
++      expect(await f.owner.executionSync("original", "peer")).toBeUndefined();
++      expect(f.exec).toHaveBeenCalledTimes(1);
++      expect(f.getExec).not.toHaveBeenCalled();
++    } finally {
++      await f.close();
++    }
++  },
++);
++
++it("recovers an exit saved before its target and retains the first target across another interruption", async () => {
++  const f = await pendingExecutionFixture(false);
++  try {
++    await f.restart();
++    using client = await getWorkspace({ __getWorkspaceStub: async () => f.owner.stub() });
++    await expect(client.resumeExecutionSync("original", "peer")).rejects.toThrow(
++      "ESYNC_SCOPE_UNKNOWN",
++    );
 +    expect(
-+      localStorage.sql.exec("SELECT count(*) AS count FROM _vfs_sync_refusals").toArray(),
-+    ).toEqual([{ count: 0 }]);
-+    expect(await owner.executionSync("A", "peer")).toMatchObject({
-+      skipped: aResult.sync.skipped,
-+      skippedTruncated: true,
-+    });
++      f.local.sql.exec("SELECT target_rev FROM computer_execution_pending_sync").toArray(),
++    ).toEqual([{ target_rev: null }]);
++    const originalTarget = (await f.sync.watermarks({ settle: true })).currentRev;
++    const planning = vi
++      .spyOn(f.sync, "prepareChanges")
++      .mockRejectedValueOnce(new Error("interrupted after saving the target"));
++    await expect(
++      client.resumeExecutionSync("original", "peer", { executionExited: true }),
++    ).rejects.toThrow("interrupted after saving the target");
++    expect(
++      f.local.sql.exec("SELECT target_rev FROM computer_execution_pending_sync").toArray(),
++    ).toEqual([{ target_rev: originalTarget }]);
++    planning.mockRestore();
++    f.files.writeFileSync("/later.txt", "later output");
++    for (let attempt = 0; ; attempt++) {
++      expect(attempt).toBeLessThan(30);
++      await f.restart();
++      using resumed = await getWorkspace(f.owner);
++      const result = await resumed.resumeExecutionSync("original", "peer", {
++        executionExited: true,
++      });
++      if (result.status === "complete") {
++        expect(result.outcome).toMatchObject({ rev: originalTarget, skipped: [] });
++        break;
++      }
++    }
++    expect(await f.owner.fs.readFile("/result.txt", "utf8")).toBe("original result");
++    expect(f.exec).toHaveBeenCalledTimes(1);
++    expect(f.getExec).not.toHaveBeenCalled();
 +  } finally {
-+    await owner.close();
-+    localStorage.close();
-+    remoteStorage.close();
++    await f.close();
 +  }
 +});
++
++it.each(["runtime", "epoch", "local epoch", "scope"] as const)(
++  "does not capture a new target from an exited receipt after losing its original %s",
++  async (missing) => {
++    const f = await pendingExecutionFixture(false);
++    try {
++      if (missing === "epoch")
++        vi.spyOn(f.sync, "watermarks").mockResolvedValue({
++          epoch: "replacement-epoch",
++          currentRev: 1000,
++          fetchRev: 0,
++          pushRev: 0,
++        });
++      if (missing === "local epoch")
++        f.local.sql.exec(
++          "UPDATE _vfs_sync_identity SET epoch='replacement-epoch' WHERE slot='peer:peer'",
++        );
++      if (missing === "scope") f.local.sql.exec("DELETE FROM computer_execution_pending_sync");
++      const before = f.local.sql.exec("SELECT * FROM computer_execution_pending_sync").toArray();
++      await f.restart(missing === "runtime");
++      const result = f.owner.resumeExecutionSync("original", "peer", { executionExited: true });
++      if (missing === "scope") await expect(result).rejects.toThrow("ESYNC_SCOPE_UNKNOWN");
++      else await expect(result).rejects.toMatchObject({ code: "EEXEC_LOST" });
++      expect(f.local.sql.exec("SELECT * FROM computer_execution_pending_sync").toArray()).toEqual(
++        before,
++      );
++      expect(await f.owner.executionSync("original", "peer")).toBeUndefined();
++      expect(f.exec).toHaveBeenCalledTimes(1);
++      expect(f.getExec).not.toHaveBeenCalled();
++    } finally {
++      await f.close();
++    }
++  },
++);
 diff --git a/packages/computer/src/index.ts b/packages/computer/src/index.ts
-index ee72293..314d5d5 100644
+index ee72293..b9bb1a7 100644
 --- a/packages/computer/src/index.ts
 +++ b/packages/computer/src/index.ts
-@@ -123,3 +123,4 @@ export {
-   type WorkspaceGitFactory,
-   type WorkspaceOptions,
- } from "./workspace.js";
+@@ -35,6 +35,11 @@ export {
+   type WorkspaceRuntimeClient,
+ } from "./client.js";
+ export { decodeExecEvents, encodeExecEvents } from "./exec-wire.js";
++export type {
++  ExecutionSyncOutcome,
++  ExecutionSyncResumeOptions,
++  ExecutionSyncResumeResult,
++} from "./execution-runtime-tracker.js";
+ export { R2Bucket, type R2BucketBinding, type R2BucketOptions } from "./mounts/providers/r2.js";
+ export type {
+   EagerMount,
+@@ -111,6 +116,7 @@ export {
+   WorkspaceRuntimeStub,
+   WorkspaceStub,
+ } from "./stub.js";
 +export { WorkspaceSyncPendingError } from "./sync-pending.js";
+ export {
+   type WithWorkspaceCtor,
+   type WorkspaceLocalHost,
 diff --git a/packages/computer/src/runtime/decode-command-events.ts b/packages/computer/src/runtime/decode-command-events.ts
 new file mode 100644
 index 0000000..05255f3
@@ -1250,13 +1573,24 @@ index ce23b6f..f6c9d75 100644
    } catch (error) {
      try {
 diff --git a/packages/computer/src/stub.ts b/packages/computer/src/stub.ts
-index 9e7d058..b925238 100644
+index 9e7d058..fe51bf5 100644
 --- a/packages/computer/src/stub.ts
 +++ b/packages/computer/src/stub.ts
-@@ -610,6 +610,13 @@ export class WorkspaceGitStub extends RpcTarget {
+@@ -66,6 +66,7 @@ import type {
+   ArtifactsCLIResult,
+ } from "./artifacts/index.js";
+ import type { ShareOptions } from "./assets/index.js";
++import type { ExecutionSyncResumeOptions } from "./execution-runtime-tracker.js";
+ import type { GitCliInput, GitCliResult } from "./git/index.js";
+ import { withSpan } from "./observe.js";
+ import type { WorkspaceBackendInfo } from "./runtime/runtime.js";
+@@ -610,6 +611,16 @@ export class WorkspaceGitStub extends RpcTarget {
  // (the Workers-RPC value carried between the DO and a Worker), so
  // the name doesn't clash.
  export class WorkspaceStub extends RpcTarget {
++  resumeExecutionSync(id: string, backend?: string, options?: ExecutionSyncResumeOptions) {
++    return this.#ws.resumeExecutionSync(id, backend, options);
++  }
 +  readonly #ws: Workspace;
 +  executionSync(id: string, backend?: string) {
 +    return this.#ws.executionSync(id, backend);
@@ -1267,7 +1601,7 @@ index 9e7d058..b925238 100644
    // Getters rather than instance properties so Workers RPC
    // exposes them through the stub proxy. Plain readonly fields
    // set in the constructor land as private isolate state and the
-@@ -623,6 +630,7 @@ export class WorkspaceStub extends RpcTarget {
+@@ -623,6 +634,7 @@ export class WorkspaceStub extends RpcTarget {
  
    constructor(ws: Workspace) {
      super();
@@ -1330,14 +1664,10 @@ index a9027ed..0dd284c 100644
      let closes = 0;
      const broken: import("@cloudflare/computer-rpc").SyncRPC = {
 diff --git a/packages/computer/src/workspace.ts b/packages/computer/src/workspace.ts
-index 12820e6..d5fdb49 100644
+index 12820e6..d41a8ee 100644
 --- a/packages/computer/src/workspace.ts
 +++ b/packages/computer/src/workspace.ts
-@@ -10,21 +10,30 @@
- // routed through Workspace.runtime.exec.
- 
- import type { ShellRPC } from "@cloudflare/computer-rpc";
-+import { WorkspaceSyncPendingError } from "./sync-pending.js";
+@@ -13,18 +13,26 @@ import type { ShellRPC } from "@cloudflare/computer-rpc";
  import {
    captureSyncTarget,
    pullBlocks,
@@ -1351,23 +1681,47 @@ index 12820e6..d5fdb49 100644
  import {
    type ApplyResult,
    type ChangeCursor,
-   Database,
-+  currentRev,
++  collectContentStep,
 +  compareChangeCursors,
-+  readFetchCursor,
-+  readPushCursor,
++  currentRev,
 +  cursorLowerBound,
-+  readSyncRefusals,
-+  pruneSyncRefusals,
-+  readSyncPeerEpoch,
-+  oldSyncRefusalEpoch,
+   Database,
    type DurableObjectStorageLike,
    initializeSchema,
-+  collectContentStep,
++  oldSyncRefusalEpoch,
++  pruneSyncRefusals,
++  readFetchCursor,
++  readPushCursor,
++  readSyncPeerEpoch,
++  readSyncRefusals,
    SQLiteWorkspaceProvider,
    WorkspaceFilesystem,
  } from "@cloudflare/dofs";
-@@ -81,6 +90,12 @@ export interface WorkspaceOptions {
+@@ -37,7 +45,14 @@ import {
+ } from "./artifacts/index.js";
+ import type { AssetsClient } from "./assets/index.js";
+ import type { BackendHandle, WorkspaceBackend } from "./backend.js";
+-import { ExecutionRuntimeTracker, SqlExecutionRuntimeStore } from "./execution-runtime-tracker.js";
++import {
++  ExecutionRuntimeTracker,
++  type ExecutionSyncOutcome,
++  type ExecutionSyncResumeOptions,
++  type ExecutionSyncResumeResult,
++  type ExecutionSyncWindow,
++  SqlExecutionRuntimeStore,
++} from "./execution-runtime-tracker.js";
+ import type { GitClient, GitClientFactory, GitIdentity } from "./git/index.js";
+ import { MountIndex } from "./mounts/index.js";
+ import { buildMountRegistry, type MountValue } from "./mounts/registry.js";
+@@ -62,6 +77,7 @@ import {
+ } from "./runtime/types.js";
+ import { CommandExecutor, maybeDispose, spawnShell } from "./shell.js";
+ import { WorkspaceStub } from "./stub.js";
++import { WorkspaceSyncPendingError } from "./sync-pending.js";
+ import {
+   isWorkspacePreDispatchTransportFailure,
+   isWorkspaceTransportFailure,
+@@ -81,6 +97,12 @@ export interface WorkspaceOptions {
    // @cloudflare/dofs/testing. The constructor opens a
    // Database against it and runs initializeSchema (idempotent).
    storage: DurableObjectStorageLike;
@@ -1380,12 +1734,16 @@ index 12820e6..d5fdb49 100644
  
    // Registered execution backends. The first is the default;
    // callers can select another by stable id.
-@@ -305,8 +320,11 @@ export class Workspace {
+@@ -305,8 +327,15 @@ export class Workspace {
      this.#artifacts = options.artifacts
        ? createArtifact(options.artifacts.binding, artifactsSessionId(options))
        : createDisabledArtifactsClient();
 -    this.#db = new Database(options.storage);
-+    this.#db = new Database(options.storage, options.onMaintenanceNeeded, options.storageCapacityBytes);
++    this.#db = new Database(
++      options.storage,
++      options.onMaintenanceNeeded,
++      options.storageCapacityBytes,
++    );
      initializeSchema(this.#db, this.#now);
 +    // A previous isolate may have disappeared with ephemeral stream pins.
 +    // Its finally blocks cannot wake GC; a cold owner always starts one sweep.
@@ -1393,7 +1751,7 @@ index 12820e6..d5fdb49 100644
      this.#executionRuntimes = new ExecutionRuntimeTracker(
        1_024,
        new SqlExecutionRuntimeStore(this.#db),
-@@ -710,7 +728,44 @@ export class Workspace {
+@@ -710,7 +739,139 @@ export class Workspace {
      };
    }
  
@@ -1404,6 +1762,101 @@ index 12820e6..d5fdb49 100644
 +    const key = this.#executionRuntimeKey(id, executionId);
 +    const runtime = this.#executionRuntimes.get(key);
 +    return runtime === undefined ? undefined : this.#executionRuntimes.syncOutcome(key, runtime);
++  }
++
++  // Resume the saved file window independently of retained execution logs.
++  // Each call accepts at most one pull block. A retained exit permits first
++  // capture at the settled recovery horizon; an existing target never moves.
++  resumeExecutionSync(
++    executionId: string,
++    backend?: string,
++    options?: ExecutionSyncResumeOptions,
++  ): Promise<ExecutionSyncResumeResult> {
++    return this.#serialize(backend, async (id) => {
++      if (id === undefined || this.#moduleBackendsById.has(id))
++        throw new Error("ESYNC_SCOPE_UNKNOWN: execution synchronization scope is unavailable");
++      const key = this.#executionRuntimeKey(id, executionId);
++      const runtime = this.#executionRuntimes.get(key);
++      if (runtime === undefined)
++        throw new Error("ESYNC_SCOPE_UNKNOWN: execution runtime is unavailable");
++      const prior = this.#executionRuntimes.syncOutcome(key, runtime);
++      if (prior?.error) throw executionLostError("execution file source is no longer available");
++      if (prior) return { status: "complete", outcome: prior };
++      const window = this.#executionRuntimes.syncWindow(key, runtime);
++      if (!window || window.backend !== id)
++        throw new Error("ESYNC_SCOPE_UNKNOWN: execution synchronization window is unavailable");
++      if (window.target === undefined && options?.executionExited !== true)
++        throw new Error(
++          "ESYNC_SCOPE_UNKNOWN: execution synchronization target requires a retained exit",
++        );
++      if (readSyncPeerEpoch(this.#db, id) !== window.epoch)
++        throw executionLostError("execution file source is no longer available");
++      if (
++        window.target !== undefined &&
++        compareChangeCursors(readFetchCursor(this.#db, id), { rev: window.target, path: null }) >= 0
++      )
++        return {
++          status: "complete",
++          outcome: this.#freezeExecutionSync(id, key, runtime, window, window.target),
++        };
++      let pulling = false;
++      return this.#runWithReconnect(
++        id,
++        "execution file sync",
++        async (handle): Promise<ExecutionSyncResumeResult> => {
++          assertExecutionRuntime(executionId, runtime, handle.runtimeId);
++          const head = await handle.rpc.sync.watermarks({ settle: window.target === undefined });
++          if (head.epoch !== window.epoch || readSyncPeerEpoch(this.#db, id) !== window.epoch)
++            throw executionLostError("execution file source is no longer available");
++          const target =
++            window.target ??
++            this.#executionRuntimes.syncTarget(key, runtime, {
++              epoch: window.epoch,
++              rev: head.currentRev,
++            })?.rev;
++          if (target === undefined)
++            throw new Error("ESYNC_SCOPE_UNKNOWN: execution synchronization window is unavailable");
++          const horizon = { rev: target, path: null };
++          if (compareChangeCursors(readFetchCursor(this.#db, id), horizon) < 0) {
++            pulling = true;
++            const step = await pullBlocks(this.#db, handle.rpc.sync, { backend: id })
++              [Symbol.asyncIterator]()
++              .next();
++            if (readSyncPeerEpoch(this.#db, id) !== window.epoch)
++              throw executionLostError("execution file source is no longer available");
++            if (step.done) throw new Error("sync: missing pull progress");
++            if (compareChangeCursors(readFetchCursor(this.#db, id), horizon) < 0)
++              return { status: "pending", progress: { ...step.value, complete: false } };
++          }
++          return {
++            status: "complete",
++            outcome: this.#freezeExecutionSync(id, key, runtime, window, target),
++          };
++        },
++        "always",
++        () => !pulling,
++      );
++    });
++  }
++
++  #freezeExecutionSync(
++    backend: string,
++    key: string,
++    runtime: string,
++    window: ExecutionSyncWindow,
++    target: number,
++  ): ExecutionSyncOutcome {
++    const outcome = {
++      epoch: window.epoch,
++      rev: target,
++      ...readSyncRefusals(this.#db, backend, window.epoch, window.start, target),
++    };
++    this.#executionRuntimes.freezeSync(key, runtime, outcome);
++    const floor =
++      this.#executionRuntimes.syncFloor(backend, window.epoch) ??
++      cursorLowerBound(readFetchCursor(this.#db, backend));
++    pruneSyncRefusals(this.#db, backend, window.epoch, floor);
++    return outcome;
 +  }
 +
 +  async maintainSync(): Promise<boolean> {
@@ -1439,7 +1892,7 @@ index 12820e6..d5fdb49 100644
      return withSpan(
        this.#observer,
        "workspace.sync.pull",
-@@ -724,7 +779,53 @@ export class Workspace {
+@@ -724,7 +885,48 @@ export class Workspace {
              assertExecutionRuntime("post-command sync", expectedRuntimeId, handle.runtimeId);
            }
            if (handle.sync === "none") return { applied: 0, skipped: [] };
@@ -1472,29 +1925,24 @@ index 12820e6..d5fdb49 100644
 +              throw new Error(
 +                "ESYNC_SCOPE_UNKNOWN: execution synchronization start is unavailable",
 +              );
-+            const outcome = readSyncRefusals(
-+              this.#db,
++            const outcome = this.#freezeExecutionSync(
 +              resolvedId,
-+              window.epoch,
-+              window.start,
++              executionKey,
++              handle.runtimeId,
++              window,
 +              horizon.rev,
 +            );
-+            this.#executionRuntimes.freezeSync(executionKey, handle.runtimeId, {
-+              epoch: window.epoch,
-+              rev: horizon.rev,
-+              ...outcome,
-+            });
-+            const floor =
-+              this.#executionRuntimes.syncFloor(resolvedId, window.epoch) ??
-+              cursorLowerBound(readFetchCursor(this.#db, resolvedId));
-+            pruneSyncRefusals(this.#db, resolvedId, window.epoch, floor);
-+            return { applied: step.value.entries, ...outcome };
++            return {
++              applied: step.value.entries,
++              skipped: outcome.skipped,
++              skippedTruncated: outcome.skippedTruncated,
++            };
 +          }
 +          return { applied: step.value.entries, skipped: [] };
          });
        },
        (span, outcome) => {
-@@ -745,6 +846,7 @@ export class Workspace {
+@@ -745,6 +947,7 @@ export class Workspace {
    async #capturePendingSync(
      id: string,
      runtimeId?: string,
@@ -1502,7 +1950,7 @@ index 12820e6..d5fdb49 100644
    ): Promise<{ backend?: string; runtimeId?: string; targetCursor?: ChangeCursor }> {
      return this.#serialize(id, async (resolvedId) => {
        if (resolvedId === undefined || this.#moduleBackendsById.has(resolvedId)) return {};
-@@ -758,7 +860,8 @@ export class Workspace {
+@@ -758,7 +961,8 @@ export class Workspace {
        // changes are pinned even though nothing drains them yet. A
        // later pull() joins this pending operation rather than
        // capturing a newer target that could race ahead.
@@ -1512,7 +1960,7 @@ index 12820e6..d5fdb49 100644
        return {
          backend: resolvedId,
          ...(runtimeId === undefined ? {} : { runtimeId }),
-@@ -767,6 +870,28 @@ export class Workspace {
+@@ -767,6 +971,28 @@ export class Workspace {
      });
    }
  
@@ -1534,14 +1982,14 @@ index 12820e6..d5fdb49 100644
 +      rev: head.currentRev,
 +    });
 +    if (target === undefined || target.epoch !== head.epoch)
-+      throw new Error("EEXEC_LOST: execution file source is no longer available");
++      throw executionLostError("execution file source is no longer available");
 +    return { rev: target.rev, path: null };
 +  }
 +
    // Drop and close a cached handle after a transport failure.
    // Matches by identity so a late error from an old operation cannot
    // tear down a replacement that another caller already installed.
-@@ -799,6 +924,7 @@ export class Workspace {
+@@ -799,6 +1025,7 @@ export class Workspace {
      operation: string,
      op: (handle: BackendHandle) => Promise<T>,
      policy: BackendRetryPolicy = "always",
@@ -1549,54 +1997,67 @@ index 12820e6..d5fdb49 100644
    ): Promise<T> {
      let firstError: unknown;
      for (let attempt = 0; attempt < 2; attempt++) {
-@@ -824,10 +950,10 @@ export class Workspace {
-         // A failed connection is always before dispatch. Once an
+@@ -825,9 +1052,10 @@ export class Workspace {
          // operation reached a handle, only an "always" policy or a
          // local disposed-stub failure makes replay safe.
--        const canRetry =
-+        const canRetry = retryAllowed() && (
-           handle === undefined ||
-           policy === "always" ||
+         const canRetry =
+-          handle === undefined ||
+-          policy === "always" ||
 -          isWorkspacePreDispatchTransportFailure(error);
-+          isWorkspacePreDispatchTransportFailure(error));
++          retryAllowed() &&
++          (handle === undefined ||
++            policy === "always" ||
++            isWorkspacePreDispatchTransportFailure(error));
          if (!canRetry) {
            throw new WorkspaceTransportError(
              `Workspace backend ${JSON.stringify(id)}: ${operation} transport failed; the command may have started and was not replayed: ${safeErrorMessage(error).slice(0, 240)}`,
-@@ -944,8 +1070,10 @@ export class Workspace {
+@@ -944,24 +1172,33 @@ export class Workspace {
      const cached = this.#commandHandles.get(id);
      if (cached) return cached;
      const shell = this.#shellFor(id);
 -    const adapter: WorkspaceModuleBackendHandle = {
 -      exec: async (input) => {
+-        const envelope = await shell.exec(input.source, {
 +    const execute = async (
 +      input: Parameters<WorkspaceModuleBackendHandle["exec"]>[0],
 +      beforeDispatch?: () => Promise<void>,
 +    ) => {
-         const envelope = await shell.exec(input.source, {
++      const envelope = await shell.exec(
++        input.source,
++        {
            id: input.id,
            cwd: input.cwd,
-@@ -953,7 +1081,7 @@ export class Workspace {
+           timeoutMs: input.timeoutMs,
            env: input.env,
            stdin: input.stdin,
            sync: input.sync,
 -        });
-+        }, beforeDispatch);
-         this.#rememberExecutionRuntime(id, envelope.id, envelope.runtimeId);
-         return {
-           id: envelope.id,
-@@ -961,7 +1089,10 @@ export class Workspace {
-           events: envelope.events as ReadableStream<WorkspaceRuntimeEvent>,
-           sync: envelope.sync,
-         };
+-        this.#rememberExecutionRuntime(id, envelope.id, envelope.runtimeId);
+-        return {
+-          id: envelope.id,
+-          runtimeId: envelope.runtimeId,
+-          events: envelope.events as ReadableStream<WorkspaceRuntimeEvent>,
+-          sync: envelope.sync,
+-        };
 -      },
++        },
++        beforeDispatch,
++      );
++      this.#rememberExecutionRuntime(id, envelope.id, envelope.runtimeId);
++      return {
++        id: envelope.id,
++        runtimeId: envelope.runtimeId,
++        events: envelope.events as ReadableStream<WorkspaceRuntimeEvent>,
++        sync: envelope.sync,
 +      };
++    };
 +    const adapter: WorkspaceModuleBackendHandle = {
 +      exec: (input) => execute(input),
 +      execWithAdmission: (input, beforeDispatch) => execute(input, beforeDispatch),
        getExec: async ({ id: execId, after, runtimeId }) => {
          const resume = after === undefined ? "full" : after;
          const expectedRuntimeId =
-@@ -1079,19 +1210,9 @@ export class Workspace {
+@@ -1079,19 +1316,9 @@ export class Workspace {
          if (generation !== this.#connectionGeneration) {
            throw new Error(`Workspace closed while backend ${JSON.stringify(id)} was connecting.`);
          }
@@ -1619,7 +2080,7 @@ index 12820e6..d5fdb49 100644
          this.#handles.set(id, handle);
          // Watch the transport for mid-session loss. Backends without
          // a `closed` promise (in-process fakes) opt out by omitting
-@@ -1139,33 +1260,91 @@ export class Workspace {
+@@ -1139,33 +1366,97 @@ export class Workspace {
    #shellFor(id: string): CommandExecutor {
      const cached = this.#shells.get(id);
      if (cached !== undefined) return cached;
@@ -1649,7 +2110,10 @@ index 12820e6..d5fdb49 100644
 -          };
 -        },
 -        "pre-dispatch",
-+    const dispatch = (input: Parameters<ShellRPC["exec"]>[0], beforeDispatch?: () => Promise<void>) => {
++    const dispatch = (
++      input: Parameters<ShellRPC["exec"]>[0],
++      beforeDispatch?: () => Promise<void>,
++    ) => {
 +      // Once admission starts, its durable outcome may be uncertain even if
 +      // the callback throws. Never re-enter it through automatic reconnect.
 +      let admissionEntered = false;
@@ -1694,7 +2158,10 @@ index 12820e6..d5fdb49 100644
 +            // Ordinary file writes do not take the mutation FIFO. Changes
 +            // during admission require another preparation page, not a spawn
 +            // with stale inputs or an unbounded push under the dispatch claim.
-+            if (executionInput.syncFence && currentRev(this.#db) > executionInput.syncFence.cursor.rev) {
++            if (
++              executionInput.syncFence &&
++              currentRev(this.#db) > executionInput.syncFence.cursor.rev
++            ) {
 +              throw this.#preDispatchSyncPending(id);
 +            }
 +            if (executionInput.syncFence && handle.runtimeId !== undefined) {
@@ -1708,7 +2175,7 @@ index 12820e6..d5fdb49 100644
 +                },
 +              );
 +            }
-+            let envelope;
++            let envelope: Awaited<ReturnType<typeof spawnShell>>;
 +            try {
 +              envelope = await spawnShell(handle.rpc.shell, executionInput, this.#observer);
 +            } catch (error) {
@@ -1737,7 +2204,7 @@ index 12820e6..d5fdb49 100644
      const getDispatch = (input: Parameters<ShellRPC["getExec"]>[0] & { runtimeId?: string }) =>
        this.#runShellEnvelope(
          id,
-@@ -1188,14 +1367,15 @@ export class Workspace {
+@@ -1188,14 +1479,15 @@ export class Workspace {
        rpc,
        {
          push: () => this.#pushForExecDefault(id),
@@ -1755,7 +2222,7 @@ index 12820e6..d5fdb49 100644
        },
        this.#observer,
        dispatch,
-@@ -1205,8 +1385,10 @@ export class Workspace {
+@@ -1205,8 +1497,10 @@ export class Workspace {
      return shell;
    }
  
@@ -1768,7 +2235,7 @@ index 12820e6..d5fdb49 100644
    }
  
    // The exec bracket's pre-command push. Distinct from the public
-@@ -1223,7 +1405,7 @@ export class Workspace {
+@@ -1223,7 +1517,7 @@ export class Workspace {
            if (resolvedId === undefined || this.#moduleBackendsById.has(resolvedId)) return 0;
            return this.#runWithReconnect(resolvedId, "push", async (handle) => {
              if (handle.sync === "none") return 0;
@@ -1777,7 +2244,7 @@ index 12820e6..d5fdb49 100644
            });
          },
          (span, outcome) => {
-@@ -1233,21 +1415,34 @@ export class Workspace {
+@@ -1233,21 +1527,34 @@ export class Workspace {
      );
    }
  
@@ -1826,7 +2293,7 @@ index 12820e6..d5fdb49 100644
      );
    }
  
-@@ -1289,6 +1484,26 @@ export class Workspace {
+@@ -1289,6 +1596,26 @@ export class Workspace {
      });
    }
  
@@ -1853,6 +2320,172 @@ index 12820e6..d5fdb49 100644
    #executionRuntimeKey(backendId: string, executionId: string): string {
      return JSON.stringify([backendId, executionId]);
    }
+@@ -1344,14 +1671,18 @@ function assertExecutionRuntime(
+   currentRuntimeId: string | undefined,
+ ): void {
+   if (expectedRuntimeId === undefined || currentRuntimeId === expectedRuntimeId) return;
+-  throw Object.assign(
+-    new Error(
+-      `Execution ${JSON.stringify(executionId)} was lost when its container runtime was replaced.`,
+-    ),
+-    { name: "WorkspaceExecutionLostError", code: "EEXEC_LOST" },
++  throw executionLostError(
++    `Execution ${JSON.stringify(executionId)} was lost when its container runtime was replaced.`,
+   );
+ }
+ 
++function executionLostError(message: string): Error & { code: string } {
++  return Object.assign(new Error(`EEXEC_LOST: ${message}`), {
++    name: "WorkspaceExecutionLostError",
++    code: "EEXEC_LOST",
++  });
++}
++
+ // Keep ownership of the original capnweb result envelope while
+ // replacing its event stream with a transport-aware wrapper. The
+ // CommandExecutor disposes this local envelope when the stream ends;
+diff --git a/packages/computer/tests/execution-sync-worker.ts b/packages/computer/tests/execution-sync-worker.ts
+new file mode 100644
+index 0000000..7c66b28
+--- /dev/null
++++ b/packages/computer/tests/execution-sync-worker.ts
+@@ -0,0 +1,72 @@
++import { DurableObject } from "cloudflare:workers";
++import type { ShellRPC } from "@cloudflare/computer-rpc";
++import { reconcileSyncSnapshot } from "@cloudflare/computer-rpc/driver";
++import { createSyncServer } from "@cloudflare/computer-rpc/server";
++import { Database } from "@cloudflare/dofs";
++import { SqlExecutionRuntimeStore } from "../src/execution-runtime-tracker.js";
++import { Workspace } from "../src/workspace.js";
++
++export interface Env {
++  WORKSPACE: DurableObjectNamespace<ExecutionSyncWorkspace>;
++}
++
++export type Loss = "runtime" | "epoch" | "retired epoch";
++
++// The node suite creates these receipts through real execution and sync.
++// This fixture isolates their error contract across actual Workers RPC.
++export class ExecutionSyncWorkspace extends DurableObject<Env> {
++  #workspace: Workspace | undefined;
++  #nativeCalls = 0;
++
++  async prepare(loss: Loss) {
++    const db = new Database(this.ctx.storage);
++    const forbid = async (): Promise<never> => {
++      this.#nativeCalls++;
++      throw new Error("Execution recovery must not read or restart the process");
++    };
++    const shell: ShellRPC = {
++      exec: forbid,
++      getExec: forbid,
++      killExec: forbid,
++      disposeExec: forbid,
++    };
++    this.#workspace = new Workspace({
++      storage: this.ctx.storage,
++      backends: [
++        {
++          id: "peer",
++          type: "retained-execution-window",
++          connect: async () => ({
++            runtimeId: loss === "runtime" ? "replacement-runtime" : "original-runtime",
++            sync: "remote",
++            rpc: { sync: createSyncServer(db), shell },
++            close: async () => {},
++          }),
++        },
++      ],
++    });
++    const head = await createSyncServer(db).watermarks();
++    const epoch = "original-epoch";
++    reconcileSyncSnapshot(db, { ...head, epoch }, "peer");
++    const store = new SqlExecutionRuntimeStore(db);
++    const key = JSON.stringify(["peer", "original"]);
++    store.beginSync(key, "original-runtime", {
++      backend: "peer",
++      epoch,
++      start: { rev: 0, key: new Uint8Array() },
++    });
++    store.syncTarget(key, "original-runtime", { epoch, rev: head.currentRev + 1 });
++    if (loss === "retired epoch") store.retireSyncEpochs("peer", "replacement-epoch");
++  }
++
++  __getWorkspaceStub() {
++    if (!this.#workspace) throw new Error("Prepare the receipt first");
++    return this.#workspace.stub();
++  }
++
++  nativeCalls() {
++    return this.#nativeCalls;
++  }
++}
++
++export default { fetch: () => new Response("execution sync tests") };
+diff --git a/packages/computer/tests/execution-sync.test.ts b/packages/computer/tests/execution-sync.test.ts
+new file mode 100644
+index 0000000..beb22aa
+--- /dev/null
++++ b/packages/computer/tests/execution-sync.test.ts
+@@ -0,0 +1,25 @@
++import { env } from "cloudflare:test";
++import { expect, it } from "vitest";
++import { getWorkspace } from "../src/client.js";
++import type { Env } from "./execution-sync-worker.js";
++
++declare module "cloudflare:test" {
++  interface ProvidedEnv extends Env {}
++}
++
++it.each(["runtime", "epoch", "retired epoch"] as const)(
++  "preserves typed %s loss through SQLite Workspace, Workers RPC and WorkspaceClient",
++  async (loss) => {
++    const owner = env.WORKSPACE.get(env.WORKSPACE.newUniqueId());
++    await owner.prepare(loss);
++    using client = await getWorkspace(owner);
++    let failure: unknown;
++    try {
++      await client.resumeExecutionSync("original", "peer", { executionExited: true });
++    } catch (error) {
++      failure = error;
++    }
++    expect(failure).toMatchObject({ name: "WorkspaceExecutionLostError", code: "EEXEC_LOST" });
++    expect(await owner.nativeCalls()).toBe(0);
++  },
++);
+diff --git a/packages/computer/tests/wrangler.execution-sync.jsonc b/packages/computer/tests/wrangler.execution-sync.jsonc
+new file mode 100644
+index 0000000..fcc966a
+--- /dev/null
++++ b/packages/computer/tests/wrangler.execution-sync.jsonc
+@@ -0,0 +1,10 @@
++{
++  "name": "computer-execution-sync-tests",
++  "main": "./execution-sync-worker.ts",
++  "compatibility_date": "2026-07-15",
++  "compatibility_flags": ["nodejs_compat"],
++  "durable_objects": {
++    "bindings": [{ "name": "WORKSPACE", "class_name": "ExecutionSyncWorkspace" }]
++  },
++  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ExecutionSyncWorkspace"] }]
++}
+diff --git a/packages/computer/vitest.config.execution-sync.ts b/packages/computer/vitest.config.execution-sync.ts
+new file mode 100644
+index 0000000..7bf2a73
+--- /dev/null
++++ b/packages/computer/vitest.config.execution-sync.ts
+@@ -0,0 +1,11 @@
++import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
++import { defineConfig } from "vitest/config";
++
++export default defineConfig({
++  plugins: [
++    cloudflareTest({
++      wrangler: { configPath: "./tests/wrangler.execution-sync.jsonc" },
++    }),
++  ],
++  test: { include: ["tests/execution-sync.test.ts"] },
++});
 diff --git a/packages/computerd/src/cli/computerd.ts b/packages/computerd/src/cli/computerd.ts
 index 03fed77..2ca8ed2 100644
 --- a/packages/computerd/src/cli/computerd.ts

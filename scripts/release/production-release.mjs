@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { readCutoverTarget } from "../../tooling/postgresql/remote-target.mjs";
 import { hasUnchangedCloudComputerRequests } from "./cloud-computer-request-compatibility.mjs";
 import {
@@ -1025,6 +1025,10 @@ export function parseProductionReleaseArgs(argv) {
     if (arg === "--") {
       continue;
     }
+    if (arg === "--containers-rollout=none") {
+      options.retainContainers = true;
+      continue;
+    }
     if (arg === "--database-cutover" && command === "plan") {
       options.databaseCutover = true;
       continue;
@@ -1058,7 +1062,26 @@ export function parseProductionReleaseArgs(argv) {
   validateDomainReleaseOptions(options);
   validateDatabaseCutoverOptions(options);
   validateReleaseLane(options);
+  validateRetainedContainerOptions(options);
   return options;
+}
+
+function validateRetainedContainerOptions(options) {
+  if (
+    options.retainContainers &&
+    (options.scope !== "remote-agent" ||
+      options.lane !== "local" ||
+      options.command === "verify" ||
+      options.redeploy ||
+      options.domainEvidence ||
+      options.domainPhase ||
+      options.databaseCutoverSnapshot ||
+      options.databaseCutoverRestoreCrons)
+  ) {
+    throw new Error(
+      "Retaining Containers requires an explicit local Remote Agent plan, preflight or deploy without other release modes."
+    );
+  }
 }
 
 function validateReleaseLane(options) {
@@ -1496,18 +1519,26 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
     input.taskInboxRetired,
     input.compatibilityContext
   );
+  const coreCurrentCliProjection =
+    input.coreCurrentCliProjection ??
+    resolveCoreCurrentCliProjection({
+      changedPaths: compatibilityChangedPaths,
+      context: input.compatibilityContext,
+      deployOrderProfile,
+      taskInboxRetired: input.taskInboxRetired,
+    });
   assertWakeProgressOptInDeployOrder(orderedScopes, changedPaths);
   assertSpaceHistoryQueryDeployOrder(orderedScopes, changedPaths);
   for (const scope of orderedScopes) {
     const start = steps.length;
     appendProductionDeployScopeSteps({
+      retainContainers: input.retainContainers,
       databaseBackend: input.databaseBackend,
       databaseCutoverSnapshot: input.databaseCutoverSnapshot,
       coreReceiverFirst:
+        coreCurrentCliProjection ||
         isWorkingFolderRecoveryDiff(changedPaths) ||
         isLocalServiceRuntimeReceiverFirstDiff(changedPaths) ||
-        deployOrderProfile === "core-worker-response-reader-first" ||
-        deployOrderProfile === "remote-agent-receiver-first" ||
         isInboxSourceTargetReceiverFirstDiff(
           changedPaths,
           input.compatibilityContext
@@ -1528,6 +1559,31 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
     annotateReleaseScope(steps, steps.length - 1, "cli");
   }
   return steps;
+}
+
+function resolveCoreCurrentCliProjection(input) {
+  if (
+    input.deployOrderProfile === "core-worker-response-reader-first" ||
+    input.deployOrderProfile === "remote-agent-receiver-first"
+  ) {
+    return true;
+  }
+  const dependencies = resolveProductionCompatibilityDependencies(
+    input.changedPaths,
+    input.taskInboxRetired,
+    input.context
+  );
+  // Use the full contract graph even for a Core-only stage. CLI publication
+  // cannot own a receiver that must already be healthy before it can start.
+  const required = new Set(["cli"]);
+  for (const producer of required) {
+    for (const [receiver, dependent] of dependencies) {
+      if (dependent === producer) {
+        required.add(receiver);
+      }
+    }
+  }
+  return required.has("core");
 }
 
 export function buildCoreReceiverStepSpecs(releaseSha) {
@@ -1726,6 +1782,7 @@ function appendProductionDeployScopeSteps(input) {
             "--env",
             "prod",
           ],
+          retainContainers: input.retainContainers,
         }
       ),
       workerDeploymentHealthStep({
@@ -3124,15 +3181,20 @@ export function buildProductionReleasePlan(input) {
     taskInboxRetired,
     compatibilityContext
   );
-  const coreCurrentCliProjection =
-    deployOrderProfile === "core-worker-response-reader-first" ||
-    deployOrderProfile === "remote-agent-receiver-first";
+  const coreCurrentCliProjection = resolveCoreCurrentCliProjection({
+    changedPaths: compatibilityChangedPaths,
+    context: compatibilityContext,
+    deployOrderProfile,
+    taskInboxRetired,
+  });
   return {
     ...describeProductionReleaseImpact(context),
     coreProjectionFromCli: scopes.includes("cli"),
     deployOrderProfile,
     deployScopeOrder,
     deploySteps: buildProductionDeployStepSpecs(scopes, {
+      retainContainers: input.retainContainers,
+      coreCurrentCliProjection,
       databaseBackend: input.databaseBackend,
       databaseCutoverSnapshot: input.databaseCutoverSnapshot,
       compatibilityContext,
@@ -3671,6 +3733,20 @@ function selectContinuationStage(
   );
 }
 
+function assertNoAutomaticNativeRollout(status, remaining) {
+  if (
+    status.components.some(
+      (component) =>
+        remaining.includes(component.scope) &&
+        component.recovery?.kind === "guarded-remote-container-continuation"
+    )
+  ) {
+    throw new Error(
+      "The Remote Agent Worker is applied with original Containers retained. Complete original file synchronization, then explicitly deploy --scope remote-agent from the retained source. Automatic continuation cannot start native rollout."
+    );
+  }
+}
+
 export async function resumeProductionRelease(input) {
   const { collectProductionReleaseStatus } = await import(
     "./production-release-status.mjs"
@@ -3705,6 +3781,7 @@ export async function resumeProductionRelease(input) {
       );
       return;
     }
+    assertNoAutomaticNativeRollout(status, remaining);
     // Waiting is read-only. A running publisher can temporarily leave a
     // started receipt; wait for it before deciding whether a new write is safe.
     if (await input.waitForActiveRelease?.(remaining, status)) {
@@ -3843,7 +3920,7 @@ function isAutomaticContinuation(options) {
   );
 }
 
-async function main(argv) {
+export async function runProductionRelease(argv) {
   const options = {
     ...parseProductionReleaseArgs(argv),
     databaseBackend: "postgresql",
@@ -3885,7 +3962,13 @@ async function main(argv) {
             ]),
           ]);
         } else {
-          await main(["deploy", "--base", baseSha, "--scope", scope]);
+          await runProductionRelease([
+            "deploy",
+            "--base",
+            baseSha,
+            "--scope",
+            scope,
+          ]);
         }
         assertSourceStillMatches(sourceSha);
       },
@@ -4020,6 +4103,7 @@ async function main(argv) {
               sourceSha: plan.sourceSha,
               executeSteps: executeProductionDeploySteps,
               redeploy: options.redeploy ?? false,
+              retainContainers: options.retainContainers ?? false,
               beforeStep: () => {
                 assertSourceStillMatches(plan.sourceSha);
                 for (const scope of ["auth", "core"]) {
@@ -4102,7 +4186,13 @@ function cliReleaseMetadataStep() {
 
 function packageDeployStep(packageName, label, input) {
   return {
-    args: ["--filter", packageName, "run", "deploy"],
+    args: [
+      "--filter",
+      packageName,
+      "run",
+      "deploy",
+      ...(input.retainContainers ? ["--containers-rollout=none"] : []),
+    ],
     command: "pnpm",
     label,
     workerDeploymentArgs: input.args,
@@ -4241,15 +4331,4 @@ function resolveCommandBinary(command) {
     return "pnpm.cmd";
   }
   return command;
-}
-
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
-  try {
-    await main(process.argv.slice(2));
-  } catch (error) {
-    process.stderr.write(
-      `${error instanceof Error ? error.message : String(error)}\n`
-    );
-    process.exitCode = 1;
-  }
 }

@@ -33,13 +33,13 @@ do not move it forward when continuing the same release.
 ```sh
 # Release the remaining affected components using the local environment.
 # CLI publication runs in its existing GitHub workflow and then continues.
-pnpm deploy -- --base <BASE>
+pnpm run deploy -- --base <BASE>
 
 # Use GitHub for supported components; no local production secrets needed.
-pnpm deploy -- --base <BASE> --lane github
+pnpm run deploy -- --base <BASE> --lane github
 
 # Release only the named component. The GitHub lane skips a current component.
-pnpm deploy -- --base <BASE> --scope web --lane github
+pnpm run deploy -- --base <BASE> --scope web --lane github
 
 # Read state without releasing anything.
 pnpm release:status -- --ref HEAD --change-base <BASE>
@@ -52,6 +52,15 @@ An interrupted command can be repeated at the same source and base: current
 components are skipped and active exact-source GitHub runs are followed.
 Failed runs stop the command. An uncertain dispatch is reported, never retried
 automatically. Use a current `gh` version that returns the created workflow URL.
+
+The command entry and reusable release controller have separate module
+boundaries. Status readers can import planning contracts without starting a
+release or waiting for a running command to finish. The complete compatibility
+graph also decides whether Core must precede CLI publication, including through
+another receiver such as Gateway. In that case both automatic and explicit
+Core stages deploy the approved source with the immutable currently published
+CLI projection. Preflight, verification, and deployment use that same decision;
+the CLI publisher owns activation of the new CLI projection afterward.
 
 The automatic command already checks completion from the component receipts.
 An explicit scope completes only those components, not the whole change.
@@ -317,7 +326,7 @@ live identity; admission does not promote the failed receipt. Cron restoration
 requires verified receipts and cannot use this health-resume path.
 
 For local recovery after a control-only fix, keep the approved product checkout
-clean and invoke the current-main `scripts/release/production-release.mjs` by
+clean and invoke the current-main `scripts/release/production-release-cli.mjs` by
 absolute path with the product checkout as the working directory. The executor
 honors each step's declared control interpreter, Node flags and arguments, and
 sets its verification root to the product source. Worker target resolution loads
@@ -375,6 +384,49 @@ superseded receipt explicitly; it never claims the old runner wrote a receipt.
 Alignment failure retains applied/failed evidence; retry reuses that same
 reconciliation attempt. This command cannot upload or deploy a Cloudflare Worker.
 After completion, rerun release status and CLI stage admission before publication.
+
+### Preserve Containers while repairing their Worker
+
+When original files still exist only in a running Computer, the protected local
+Remote Agent stage can deploy a compatible Worker without replacing Containers:
+
+```sh
+pnpm run deploy -- --base <BASE> --scope remote-agent --containers-rollout=none
+```
+
+This option is limited to an explicit local Remote Agent plan, preflight or
+deploy. The standard source checks, preflight, scope lease and receipt owner
+still apply. Wrangler's native option preserves the deployed Container metadata
+and does not build or update Containers. Do not edit generated configuration or
+call Wrangler directly to obtain this mode.
+
+The executor verifies the previous Worker receipt, reads the live Container
+application and records its ID, version, image digest, configuration hash and
+active instance IDs. The previous release receipt remains linked as evidence;
+its source alone is not proof of a Container image's build provenance. Before
+and after the Worker deployment, the application must have no active rollout.
+The recorded configuration and original active instance IDs must remain present
+at the same version. Incomplete instance pagination or drift fails closed.
+Stable instance IDs do not prove that a native process never restarted. Product
+acceptance must verify the original runtime ID/epoch and original sync window.
+
+This stage stops with an `applied` Remote Agent receipt. It never reports the
+whole component as `verified`, and automatic continuation cannot start native
+rollout. Complete the original synchronization and read the retained files from
+canonical storage before explicitly running the full stage at the same source:
+
+```sh
+pnpm run deploy -- --base <BASE> --scope remote-agent
+```
+
+The full stage rechecks the retained Worker and Container identities under the
+same lease. It continues the same receipt attempt, deploys the native image and
+requires the registry digest, healthy settled rollout and command-correlated
+Worker identity before recording `verified`. Interruption or uncertain drift
+remains unresolved evidence; it cannot silently replay a native rollout. A
+repeated Worker-only command only verifies its retained evidence and does not
+deploy again. Worker-only code must remain compatible with the retained native
+RPC contract. This mode does not make an unsynchronized Container disk durable.
 
 For the specific Remote Agent Worker-first/container-image failure, current-main
 tooling provides `release:recover:remote-agent-partial`. It requires the clean
@@ -1606,8 +1658,9 @@ OPENMELD_PRODUCTION_TRAIN_SCOPES=db,core pnpm run release:deploy:local -- --scop
 OPENMELD_PRODUCTION_TRAIN_SCOPES=cloud pnpm run deploy:cloud
 ```
 
-`pnpm deploy` is a short alias for the automatic local scoped release. Prefer
-the longer command in deployment reports because it makes the lane explicit.
+`pnpm run deploy` runs the automatic local scoped release. Include `run` because
+`pnpm deploy` is pnpm's package deployment command. Use
+`pnpm run release:deploy:local` in deployment reports to make the lane explicit.
 `pnpm run deploy:cloud` is the guarded alias for `--scope cloud`; it must not
 expand into raw per-component deploy scripts. The former `deploy:cloud:*` raw
 aliases are retired because they bypassed source validation, preflight, ordered

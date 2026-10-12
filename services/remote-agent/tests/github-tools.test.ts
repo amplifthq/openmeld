@@ -421,6 +421,73 @@ describe("Remote Agent GitHub tools", () => {
     ]);
   });
 
+  it.each([
+    "github_create_issue",
+    "github_execute_action",
+  ] as const)("admits an explicitly requested repository through %s without Project metadata", async (toolName) => {
+    const resolveProjectIssueAction = vi.fn(() =>
+      Promise.reject(new Error("Project metadata is unavailable"))
+    );
+    const ledger = withTestConnectorOperationLedger({
+      centerAgentResolveConnectorConnection: vi.fn(async () =>
+        connectionSelection({
+          ownerDisplayName: "Mira",
+          userId: "user_mira",
+          scope: "shared",
+        })
+      ),
+    });
+    const record = vi.fn(ledger.centerAgentRecordConnectorActionOperation);
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      testOpenConnectorSuccessResponse({
+        actionId: "github.create_issue",
+        data: { number: 7, title: "Track connector bug" },
+        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+      })
+    );
+    const tools = getRemoteAgentGitHubToolDefinitions({
+      coreWorker: {
+        ...ledger,
+        resolveProjectIssueAction,
+        centerAgentRecordConnectorActionOperation: record,
+      },
+      storage: await createStorage(createSubmitTurnRequest()),
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        runtimeToken: "test-runtime-token",
+        fetch: fetchMock,
+      },
+    });
+    const issue = {
+      owner: "amplifthq",
+      repo: "openmeld",
+      title: "Track connector bug",
+    };
+    await expect(
+      executeTool(tools, toolName, {
+        githubActor: "organization",
+        operationId: "explicit-issue",
+        issueDestinationAuthority: "explicit_request",
+        ...(toolName === "github_execute_action"
+          ? { actionId: "github.create_issue", input: issue }
+          : issue),
+      })
+    ).resolves.toMatchObject({ status: "completed" });
+    expect(resolveProjectIssueAction).not.toHaveBeenCalled();
+    expect(record.mock.calls[0]?.[0]).toMatchObject({
+      issueDestination: {
+        provider: "github",
+        owner: "amplifthq",
+        repo: "openmeld",
+      },
+      issueDestinationAuthority: "explicit_request",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).input
+    ).toEqual(issue);
+  });
+
   it("checks the Project destination before accepting a new issue write", async () => {
     const resolveProjectIssueAction = vi.fn(() =>
       Promise.reject(new Error("New issues for Payments go to Linear."))
@@ -3308,7 +3375,10 @@ describe("Remote Agent GitHub tools", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("resumes an incomplete authorized GitHub batch during a Routine", async () => {
+  it.each([
+    undefined,
+    "explicit_request",
+  ] as const)("resumes an incomplete authorized GitHub batch with unchanged authority %s during a Routine", async (issueDestinationAuthority) => {
     const interactiveRequest = createSubmitTurnRequest();
     const storage = await createStorage(interactiveRequest);
     const fetchMock = vi.fn<typeof fetch>((url) => {
@@ -3359,6 +3429,7 @@ describe("Remote Agent GitHub tools", () => {
     const coreWorkerWithLedger = withTestConnectorOperationLedger(coreWorker);
     const batchInput = {
       githubActor: "organization",
+      issueDestinationAuthority,
       issues: [{ externalKey: "finding-1", title: "Review finding 1" }],
       operationId: "confirmed-incomplete-routine-retry",
       owner: "openmeld",
@@ -3379,6 +3450,16 @@ describe("Remote Agent GitHub tools", () => {
     });
     const providerCallCount = fetchMock.mock.calls.length;
     expect(providerCallCount).toBeGreaterThan(0);
+
+    await expect(
+      executeTool(firstTurnTools, "github_create_issue_batch", {
+        ...batchInput,
+        issueDestinationAuthority: issueDestinationAuthority
+          ? undefined
+          : "explicit_request",
+      })
+    ).rejects.toThrow("immutable manifest");
+    expect(fetchMock).toHaveBeenCalledTimes(providerCallCount);
 
     const routineSubmissionId = "flue_submission_routine_retry";
     const routineRequest = createSubmitTurnRequest({
@@ -5071,7 +5152,10 @@ describe("Remote Agent GitHub tools", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("executes an authorized issue batch immediately and checkpoints every issue", async () => {
+  it.each([
+    undefined,
+    "explicit_request",
+  ] as const)("executes an authorized issue batch with authority %s and checkpoints every issue", async (issueDestinationAuthority) => {
     const request = createSubmitTurnRequest();
     const sender = requireMemberSender(request.turnEnvelope.sender);
     const storage = await createStorage(request);
@@ -5126,6 +5210,7 @@ describe("Remote Agent GitHub tools", () => {
       storage,
     });
     const batchInput = {
+      issueDestinationAuthority,
       issues: [
         { externalKey: "pr-14", title: "Review PR 14" },
         { externalKey: "pr-13", title: "Review PR 13" },

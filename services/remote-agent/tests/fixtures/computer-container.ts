@@ -789,7 +789,12 @@ export class ComputerContainerProbe extends withLegacyWorkspaceContainer(
       return await runComputerObjectBatchStep({
         owner,
         storage: this.ctx.storage,
-        execNative: (source) => this.execNative(source),
+        nativeShell: () => {
+          check(this.nativeHandle, "Native transport must be connected");
+          return this.nativeHandle.rpc.shell;
+        },
+        executionCount: (id) =>
+          this.execIds.filter((executionId) => executionId === id).length,
         inspectMount: () => this.execNative(NATIVE_SOURCE_INSPECTION),
         batches: this.objectBatches,
       });
