@@ -138,15 +138,75 @@ it("rejects admission on a remote client before calling its runtime or callback"
   expect(f.counts().spawns).toBe(0);
 });
 
-it("admits one native execution when concurrent callers prepare the same command", async () => {
+it("returns running to a concurrent caller after launch ACK but before the first observation", async () => {
   const f = fixture();
-  await Promise.all([f.start(), f.start()]);
-  for (let step = 0; step < 10 && f.counts().spawns === 0; step++) {
-    await Promise.all([f.poll(), f.poll()]);
+  f.refuseLaunch(true);
+  await f.start();
+  for (let step = 0; step < 5; step++) {
+    await f.poll();
   }
-  expect(f.counts().spawns).toBe(1);
-  expect((await f.record()).launchRequestedAt).toEqual(expect.any(Number));
-  await Promise.all([f.poll(), f.poll()]);
+  f.refuseLaunch(false);
+  const preparing = Promise.withResolvers<void>();
+  const releasePreparation = Promise.withResolvers<void>();
+  const bothExecuting = Promise.withResolvers<void>();
+  const acknowledged = Promise.withResolvers<void>();
+  const releaseObservation = Promise.withResolvers<void>();
+  let calls = 0;
+  const exec = f.owner.runtime.execWithAdmission.bind(f.owner.runtime);
+  f.owner.runtime.execWithAdmission = (...args) => {
+    if (++calls === 2) {
+      bothExecuting.resolve();
+    }
+    return exec(...args);
+  };
+  f.beforePreparation(() => {
+    preparing.resolve();
+    return releasePreparation.promise;
+  });
+  const compare = f.storage.compareAndSetExpiring.bind(f.storage);
+  let gated = false;
+  f.storage.compareAndSetExpiring = async (...args) => {
+    const saved = await compare(...args);
+    const next = args[2] as {
+      launchAcknowledgedAt?: number;
+      observation?: unknown;
+    };
+    if (
+      saved &&
+      next.launchAcknowledgedAt !== undefined &&
+      !next.observation &&
+      !gated
+    ) {
+      gated = true;
+      acknowledged.resolve();
+      await releaseObservation.promise;
+    }
+    return saved;
+  };
+  const first = f.start();
+  await preparing.promise;
+  const second = f.start();
+  try {
+    await bothExecuting.promise;
+    releasePreparation.resolve();
+    await acknowledged.promise;
+    const loser = await Promise.race([first, second]);
+    const record = await f.record();
+    expect(record.preparation).toBeUndefined();
+    expect(record.observation).toBeUndefined();
+    expect(record.launchAcknowledgedAt).toEqual(expect.any(Number));
+    expect(loser).toMatchObject({
+      status: "running",
+      outputPending: true,
+      nextAction: "poll",
+    });
+    expect(f.counts().spawns).toBe(1);
+  } finally {
+    releasePreparation.resolve();
+    releaseObservation.resolve();
+    await Promise.all([first, second]);
+  }
+  await f.poll();
   expect(f.counts().spawns).toBe(1);
 });
 

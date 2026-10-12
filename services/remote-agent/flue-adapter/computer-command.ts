@@ -808,7 +808,7 @@ export function createComputerCommandTool(input: {
   const project = (command: Command, after = 0): CommandResult => {
     const result = command.observation ?? command.terminalResult;
     if (!result) {
-      if (command.preparation) {
+      if (command.preparation || hasLaunchEvidence(command)) {
         return {
           id: command.id,
           key: command.key,
