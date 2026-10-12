@@ -91,6 +91,14 @@ durable transfer generations determine content retention. Namespace creation
 reserves deletion metadata before accepting new paths. Legacy preparation keeps
 reads available and refuses new mutations until its resumable pass completes.
 
+Synchronization reset detection uses the current peer identity, accepted cursors
+and active operation targets. A failed or lost operation is diagnostic history;
+its old target must not repeatedly invalidate a replacement peer or block new
+command admission. Reconciliation preserves that terminal diagnostic until the
+owning sync direction starts a new generation. Genuine peer replacement or
+accepted-cursor regression still invalidates the current admission attempt.
+This does not authorize replay of an earlier command or change its result fence.
+
 Worker-shell returns only after execution and provides no retained lookup. Its
 terminal output is kept with the Computer's existing command receipt. Atomic
 compare-and-set updates prevent cleanup from replacing a concurrent exit receipt.
@@ -108,6 +116,10 @@ This survives a Worker termination before catch/finally. Bounded backoff pauses
 later automatic checks after eight unconfirmed attempts; a normal caught error
 does not count its already reserved attempt again;
 this is a scheduling budget, never process failure, loss or replay authority.
+The model finish observer reads this owner without acquiring Stop authority.
+A slow or rejected read is unknown observation state, not a stopped or failed
+command. Only explicit cancellation, a confirmed execution failure or an existing
+cleanup obligation can request Stop during final publication or reconciliation.
 Fresh accepted native evidence resets that count. Successful manual inspection
 or Stop resumes the same receipt. Paused receipts remain available under the
 existing retention policy, and an older failed read cannot overwrite a newer
