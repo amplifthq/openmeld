@@ -385,6 +385,49 @@ Alignment failure retains applied/failed evidence; retry reuses that same
 reconciliation attempt. This command cannot upload or deploy a Cloudflare Worker.
 After completion, rerun release status and CLI stage admission before publication.
 
+### Preserve Containers while repairing their Worker
+
+When original files still exist only in a running Computer, the protected local
+Remote Agent stage can deploy a compatible Worker without replacing Containers:
+
+```sh
+pnpm run deploy -- --base <BASE> --scope remote-agent --containers-rollout=none
+```
+
+This option is limited to an explicit local Remote Agent plan, preflight or
+deploy. The standard source checks, preflight, scope lease and receipt owner
+still apply. Wrangler's native option preserves the deployed Container metadata
+and does not build or update Containers. Do not edit generated configuration or
+call Wrangler directly to obtain this mode.
+
+The executor verifies the previous Worker receipt, reads the live Container
+application and records its ID, version, image digest, configuration hash and
+active instance IDs. The previous release receipt remains linked as evidence;
+its source alone is not proof of a Container image's build provenance. Before
+and after the Worker deployment, the application must have no active rollout.
+The recorded configuration and original active instance IDs must remain present
+at the same version. Incomplete instance pagination or drift fails closed.
+Stable instance IDs do not prove that a native process never restarted. Product
+acceptance must verify the original runtime ID/epoch and original sync window.
+
+This stage stops with an `applied` Remote Agent receipt. It never reports the
+whole component as `verified`, and automatic continuation cannot start native
+rollout. Complete the original synchronization and read the retained files from
+canonical storage before explicitly running the full stage at the same source:
+
+```sh
+pnpm run deploy -- --base <BASE> --scope remote-agent
+```
+
+The full stage rechecks the retained Worker and Container identities under the
+same lease. It continues the same receipt attempt, deploys the native image and
+requires the registry digest, healthy settled rollout and command-correlated
+Worker identity before recording `verified`. Interruption or uncertain drift
+remains unresolved evidence; it cannot silently replay a native rollout. A
+repeated Worker-only command only verifies its retained evidence and does not
+deploy again. Worker-only code must remain compatible with the retained native
+RPC contract. This mode does not make an unsynchronized Container disk durable.
+
 For the specific Remote Agent Worker-first/container-image failure, current-main
 tooling provides `release:recover:remote-agent-partial`. It requires the clean
 original release source, the retained failed attempt and its start event, the

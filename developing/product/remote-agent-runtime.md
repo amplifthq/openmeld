@@ -568,9 +568,24 @@ an already collected result. An exited process with unconfirmed file sync report
 `syncPending`; it must not be presented as completed. Infrastructure outages or
 container replacement can still prevent collection. Such uncertainty remains an
 explicit error, never an automatic replay or invented success.
-If synchronization loses its native record with `ENOENT` or `EEXEC_LOST`, the
-receipt preserves the known exit and output. It reports `syncError` and
-`nextAction: inspect`. The agent stops polling and inspects persistent files.
+After a durable exit, synchronization resumes from the SDK's original execution
+window, independently of native execution-log retention. Each observation moves
+at most one bounded pull block. Only a new persisted synchronization checkpoint
+resets the automatic observation budget. Accepted canonical data that covers the
+original target can confirm completion without reconnecting to the Computer.
+If interruption leaves the original window without a target, the command owner
+can attest its retained exit. The SDK then checks the original runtime and data
+epoch before fixing the first settled recovery target. This is a recovery
+horizon, not an exact exit-time snapshot. An existing target is never widened;
+a missing original window is never reconstructed.
+Loss of the original file source reports `syncError` and `nextAction: inspect`
+while preserving the known exit and output. A missing synchronization scope
+returns an explicit scope error; it cannot authorize completion or replay.
+The agent stops polling after a terminal sync error and inspects persistent
+files. An explicit poll can resume a
+historical `ENOENT` receipt when its original window remains available. It keeps
+the failure markers until authoritative synchronization evidence resolves them;
+it neither replays the command nor treats an unknown source as recoverable.
 The status stays `running` with `syncPending` for existing clients; it does not
 mean the process still runs. Cleanup never signals a command with an observed
 exit. Loss delivered to the model permits its final explanation to publish.
@@ -784,14 +799,27 @@ not acquire authority to stop another accepted call.
 
 The finish hook can feed pending receipts back once. A second model finish does
 not authorize Stop while the original Computer still observes active work.
-The original unsettled Flue hook waits through bounded receipt reads while the
+The original unsettled Flue hook waits through single-flight receipt reads while the
 existing Computer alarm advances preparation and result collection. It respects
 the hook AbortSignal, explicit Stop and the original turn's authority. It does
 not create repeated model feedback cycles, a replacement task or a total
 execution deadline. Ordinary queued input waits for the current turn; explicit
 Stop can interrupt it. Completion supplies retained result references to the
-model before its final answer. Paused observation, explicit loss or unavailable
-evidence enters the existing recovery-facts and cleanup handoff. The hook
+model before its final answer. A slow read remains one in-flight observation;
+a rejected read retries with bounded backoff under the original turn authority.
+Neither a local observation timeout nor a failed read authorizes Stop. Abort
+ends the local wait without claiming to cancel the underlying read-only RPC.
+Paused collection, explicit loss or unavailable results confirmed by the Computer
+enter the existing recovery-facts and cleanup handoff. Unknown read state does not.
+Normal result publication and completed-result reconciliation only confirm
+Computer state; they cannot create a Stop obligation. Explicit cancellation,
+confirmed execution failure and existing Stop handoffs retain cleanup authority.
+The original execution retains a requested safety failure through terminal
+settlement. After the terminal compare-and-set, publication and crash recovery
+deliver any canonical cancellation or safety Stop intent before the callback.
+This closes the race with a late Stop without treating an observation error as
+Stop authority or adding a second execution owner.
+The hook
 persists that disposition with Flue's atomic hook state. Cleanup progress
 cannot upgrade an already blocked task to success.
 

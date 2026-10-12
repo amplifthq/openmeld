@@ -164,7 +164,7 @@ type Command = {
   terminalResult?: CommandResult;
   observation?: CommandResult;
   output?: { after: number; stdout: string; stderr: string }[];
-  syncCursor?: number;
+  syncProgress?: { generation: string; checkpoint?: string };
   loss?: "ENOENT" | "EEXEC_LOST";
   lossConfirmed?: boolean;
   collectable?: boolean;
@@ -212,7 +212,12 @@ function synchronizedObservation(
   receipt: CommandResult,
   sync: Extract<CommandSync, { status: "complete" }>
 ): CommandResult {
-  const { syncPending: _, ...completed } = receipt;
+  const {
+    syncPending: _pending,
+    syncError: _error,
+    nextAction: _action,
+    ...completed
+  } = receipt;
   if (sync.skipped.length === 0) {
     return { ...completed, status: "completed" };
   }
@@ -442,6 +447,15 @@ function hasCommandExited(command: Command) {
   return Boolean(receipt && receipt.exitCode !== null);
 }
 
+function canResumeRetainedSync(command: Command) {
+  return (
+    hasCommandExited(command) &&
+    command.observation?.syncPending === true &&
+    command.observation.syncError === "ENOENT" &&
+    command.loss !== "EEXEC_LOST"
+  );
+}
+
 function commandDiagnostics(command?: Command) {
   return {
     commandId: command?.id,
@@ -477,7 +491,14 @@ function acceptsObservation(
   }
   return (
     previous.status !== "completed" &&
-    !(previous.syncError && result.status !== "completed") &&
+    !(
+      previous.syncError &&
+      result.status !== "completed" &&
+      !(
+        previous.syncError === "ENOENT" &&
+        result.syncError === "ESYNC_READ_ONLY"
+      )
+    ) &&
     after >= previous.after &&
     !(previous.syncPending && result.exitCode === null)
   );
@@ -562,7 +583,6 @@ function mergeCommandObservation(
       : {}),
     observation,
     output: retained.output,
-    ...(exitSequence !== undefined ? { syncCursor: result.after } : {}),
   };
 }
 
@@ -783,7 +803,7 @@ function commandPollBudgetMs(command: Command, waitSeconds: number): number {
 }
 
 function collectionAfterObservation(current: Command): Command {
-  if (hasUnconfirmedAdmission(current)) {
+  if (hasUnconfirmedAdmission(current) || current.observation?.syncPending) {
     // Acceptance and a repeated preparation checkpoint are not native
     // liveness. The preparation owner alone confirms SDK progress.
     return current;
@@ -943,70 +963,68 @@ export function createComputerCommandTool(input: {
   const confirmSync = async (
     workspace: WorkspaceClient,
     command: Command,
-    waitMs: number,
     signal?: AbortSignal
   ) => {
     const receipt = command.observation;
     if (!receipt?.syncPending) {
       return command;
     }
-    // result() is the SDK's public synchronization receipt. Stream closure alone
-    // also occurs after a failed pull and therefore cannot establish completion.
-    let handle: WorkspaceRuntimeExecHandle<"utf8"> | undefined;
-    const timer = new AbortController();
     try {
-      const proof = await readSyncProof(workspace, command);
-      let result: { sync: CommandSync } | null;
-      if (proof) {
-        result = {
-          sync: {
-            status: "complete" as const,
-            applied: 0,
-            skipped: proof.skipped,
-            skippedTruncated: proof.skippedTruncated,
-          },
-        };
-      } else {
-        handle = await workspace.runtime.getExec(command.id, {
-          backend: commandBackend(command),
-          encoding: "utf8",
-          resume: command.syncCursor ?? 0,
-        });
-        result = await Promise.race([
-          handle.result(),
-          delay(waitMs, null, {
-            signal: signal
-              ? AbortSignal.any([signal, timer.signal])
-              : timer.signal,
-          }),
-        ]);
-      }
+      // The retained exit and the SDK's durable sync window are sufficient.
+      // Native execution logs may expire while a large file tree is syncing.
+      const retained = await readSyncProof(workspace, command);
+      const result = retained
+        ? { status: "complete" as const, outcome: retained }
+        : await workspace.resumeExecutionSync(
+            command.id,
+            commandBackend(command),
+            { executionExited: true }
+          );
       signal?.throwIfAborted();
-      if (result?.sync.status === "complete") {
-        return await saveObservation(
-          command.key,
-          synchronizedObservation(receipt, result.sync)
-        );
-      }
-      if (
-        result?.sync.status === "pending" &&
-        result.sync.error?.startsWith("ESYNC_PENDING:")
-      ) {
-        // Successful planning/transfer is progress, not a failed observation.
-        // Yield to a new alarm/RPC instead of exhausting the failure budget.
+      if (result.status === "pending") {
+        const { generation, checkpoint } = result.progress;
         return await updateCommand(
           input.storage,
           `${prefix}${encodeURIComponent(command.key)}`,
-          (current) => ({
-            ...current,
-            collection: {
-              unconfirmedAttempts: 0,
-              nextAttemptAtMs: Date.now() + COLLECTION_INTERVAL_MS,
-            },
-          })
+          (current) => {
+            if (
+              isCommandComplete(current) ||
+              JSON.stringify(current.syncProgress) !==
+                JSON.stringify(command.syncProgress)
+            ) {
+              return current;
+            }
+            const previous = current.syncProgress;
+            const progressed =
+              checkpoint !== undefined &&
+              (previous?.checkpoint === undefined ||
+                (generation === previous.generation &&
+                  checkpoint !== previous.checkpoint));
+            return {
+              ...current,
+              syncProgress: { generation, checkpoint },
+              ...(progressed && !current.observation?.syncError
+                ? {
+                    collection: {
+                      unconfirmedAttempts: 0,
+                      nextAttemptAtMs:
+                        Date.now() + SYNC_CONTINUATION_INTERVAL_MS,
+                    },
+                  }
+                : {}),
+            };
+          }
         );
       }
-      return command;
+      return await saveObservation(
+        command.key,
+        synchronizedObservation(receipt, {
+          status: "complete",
+          applied: 0,
+          skipped: result.outcome.skipped,
+          skippedTruncated: result.outcome.skippedTruncated,
+        })
+      );
     } catch (error) {
       signal?.throwIfAborted();
       if (
@@ -1035,9 +1053,6 @@ export function createComputerCommandTool(input: {
                 },
               }
       );
-    } finally {
-      timer.abort();
-      handle?.[Symbol.dispose]();
     }
   };
   const observe = async (
@@ -1047,8 +1062,7 @@ export function createComputerCommandTool(input: {
     signal?: AbortSignal,
     started?: WorkspaceRuntimeExecHandle<"utf8">
   ) => {
-    const deadline = Date.now() + waitMs;
-    if (command.observation?.syncError) {
+    if (command.observation?.syncError && !canResumeRetainedSync(command)) {
       return input.reportErrors === false
         ? command
         : await updateCommand(
@@ -1066,7 +1080,7 @@ export function createComputerCommandTool(input: {
       );
     }
     if (command.observation?.syncPending) {
-      return await confirmSync(workspace, command, waitMs, signal);
+      return await confirmSync(workspace, command, signal);
     }
     const after = command.observation?.after ?? 0;
     const onExit = async (result: CommandResult, seq: number) => {
@@ -1102,12 +1116,7 @@ export function createComputerCommandTool(input: {
           status: "completed",
         });
       }
-      return await confirmSync(
-        workspace,
-        current,
-        Math.max(0, deadline - Date.now()),
-        signal
-      );
+      return await confirmSync(workspace, current, signal);
     }
     return await saveObservation(command.key, result);
   };
@@ -1548,7 +1557,9 @@ export function createComputerCommandTool(input: {
         command,
         input.context.submissionId
       );
-      if (command.observation?.syncError) {
+      const resumesSync =
+        request.action === "poll" && canResumeRetainedSync(command);
+      if (command.observation?.syncError && !resumesSync) {
         return await reportUnconfirmedSync(command, after);
       }
       if (
@@ -1561,11 +1572,12 @@ export function createComputerCommandTool(input: {
       if (request.action === "stop") {
         return await stopCommand(request, command, options?.signal);
       }
+      const waitSeconds = request.waitSeconds ?? 20;
       const preparation = command.preparation;
       if (preparation && command.launchRequestedAt === undefined) {
         return await withCommandWorkspace({
           access: input.workspaceAccess,
-          budgetMs: commandPollBudgetMs(command, request.waitSeconds ?? 20),
+          budgetMs: commandPollBudgetMs(command, waitSeconds),
           observationDeadlineMs: input.observationDeadlineMs,
           phase: "launch",
           signal: options?.signal,
@@ -1581,7 +1593,7 @@ export function createComputerCommandTool(input: {
       }
       return await withCommandWorkspace({
         access: input.workspaceAccess,
-        budgetMs: commandPollBudgetMs(command, request.waitSeconds ?? 20),
+        budgetMs: commandPollBudgetMs(command, waitSeconds),
         observationDeadlineMs: input.observationDeadlineMs,
         phase: "poll",
         signal: options?.signal,
@@ -1590,7 +1602,7 @@ export function createComputerCommandTool(input: {
             await observeWithPendingStop(
               workspace,
               command,
-              (request.waitSeconds ?? 20) * 1000,
+              waitSeconds * 1000,
               observationSignal
             ),
             request.after ?? 0
