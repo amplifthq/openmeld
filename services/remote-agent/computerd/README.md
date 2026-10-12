@@ -12,7 +12,10 @@ Both producers prepare a durable generation through indexed pages of at most
 512 reads. Candidate paths, ancestor traversal, aliases and tombstones resume
 from SQLite, including within one revision. UTF-16 path ordering matches the
 wire cursor. One invocation transfers at most 256 metadata entries, 1 MiB of
-metadata and 16 objects. A file with more than 8,192 chunks is rejected explicitly
+metadata and a streamed object batch of at most 256 objects and 8 MiB. Small
+files fit together without repeatedly rebuilding their entire metadata page;
+large files still stage bounded batches before metadata application. A file
+with more than 8,192 chunks is rejected explicitly
 without advancing its ACK. Pack transport is disabled on this bounded path.
 The legacy whole-window utility is not used by production synchronization.
 
@@ -22,6 +25,15 @@ external hardlinks survive cleanup. Delayed tombstones cannot overwrite newer
 deletion history. Path resolution checks read-only destinations through symlinks.
 Metadata, deliberate refusals and accepted source cursors commit together.
 ACK loss replays the exact source page without overwriting receiver-local work.
+Preparation exposes an opaque digest of its actual durable traversal position,
+including pending deletion traversal, without revealing file paths. Repeating
+a read without work produces the same checkpoint.
+
+Generation closure atomically fences late writes and persists a retirement
+record. That durable handoff acknowledges cleanup responsibility before physical
+reclamation. Existing native and Worker maintenance loops reclaim the retired
+generation in bounded pages after restart. Launch readiness depends on input
+ACK and epoch checks, not on deleting every obsolete pin and plan first.
 
 Every database has a durable epoch. A new peer epoch resets transfer cursors,
 not user files. Before dispatch, native shell execution synchronously checks
@@ -116,6 +128,24 @@ storage, independent HTTP steps, receiver-committed lost ACKs and Computer resta
 ```sh
 pnpm dev:run -- node services/remote-agent/scripts/verify-computer-container.mjs bounded candidate
 ```
+
+The focused nonempty-object check transfers 256 distinct small files and a
+10 MiB file in both directions. It counts objects and bytes in the actual RPC
+streams, verifies both batch ceilings and content, and uses separate HTTP steps:
+
+```sh
+pnpm dev:run -- node services/remote-agent/scripts/verify-computer-container.mjs objects candidate --stress
+```
+
+The same check retains the original command output and exit code, disposes its
+native execution logs, and confirms `ENOENT` for that execution record. Cold
+Workspace instances then resume the original synchronization window. File bytes
+and the single command launch are checked independently of the expired logs.
+
+This applies the same native CPU and memory limits after warmup, on one
+disposable instance. It complements rather than replaces the large-directory
+restart matrix. SDK progress byte counts describe a metadata block and must
+not be treated as measured transport bytes.
 
 Reports retain exact source/binary provenance outside disposable runtime state.
 Local checks do not certify production CPU limits or identify historical OOM

@@ -10,7 +10,7 @@ const OOM_KILL = /^oom_kill (\d+)$/m;
 
 // Warm an empty owned container, install limits, then admit workload requests.
 // Repeat the gate after each deliberate restart. Startup is measured separately.
-export function resourceMonitor(reportPath, workerName) {
+export function resourceMonitor(reportPath, workerName, requiredInstances = 5) {
   const containers = new Map();
   async function sample(id, record) {
     const { stdout } = await exec("docker", ["inspect", id], { timeout: 5000 });
@@ -158,8 +158,8 @@ export function resourceMonitor(reportPath, workerName) {
       };
       await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`);
       assert(
-        containers.size >= 5,
-        "Initial instance plus four replacements required"
+        containers.size >= requiredInstances,
+        `Expected at least ${requiredInstances} owned instances`
       );
       for (const record of containers.values()) {
         assert(

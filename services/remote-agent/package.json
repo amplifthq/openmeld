@@ -12,7 +12,7 @@
     "predev:isolated": "node ../../scripts/dev/run-guarded-service-predev.mjs remote-agent \"corepack pnpm -C ../.. exec turbo run build --filter=@openmeld/remote-agent\"",
     "dev:isolated": "dotenv -e ../../.env -- node ../../scripts/dev/run-isolated-worker-dev.mjs remote-agent",
     "dev:prod": "dotenv -e ../../.env -o -- sh -c 'pnpm run build && pnpm run build:prod-config && wrangler dev --config dist/openmeld_remote_agent/wrangler.prod.json --persist-to ../../.wrangler-dev-state --inspector-port 19333'",
-    "deploy": "pnpm run build:workspace-dependencies && dotenv -e ../../.env -o -- sh -c 'pnpm run build && pnpm run build:prod-config && wrangler deploy --config dist/openmeld_remote_agent/wrangler.prod.json'",
+    "deploy": "pnpm run build:workspace-dependencies && node scripts/deploy-production.mjs",
     "deploy:stg": "pnpm run build:workspace-dependencies && pnpm run build && pnpm run build:stg-config && wrangler deploy --config dist/openmeld_remote_agent/wrangler.stg.json",
     "sync:config:prod": "pnpm run deploy",
     "sync:config:stg": "pnpm run deploy:stg",

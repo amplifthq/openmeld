@@ -1716,6 +1716,45 @@ test("orders the real Binding and Cloud increments by their receivers", () => {
       databaseBackend: "postgresql",
     });
     assert.deepEqual(plan.deployScopeOrder, order);
+    if (order.includes("cli")) {
+      for (const selectedScope of [scope, "core"]) {
+        const selectedPlan = buildProductionReleasePlan({
+          ...increment,
+          scope: selectedScope,
+          readGitFile: readReliabilityProduct,
+          databaseBackend: "postgresql",
+        });
+        const coreSteps = selectedPlan.deploySteps.filter(
+          (step) => step.releaseScope === "core"
+        );
+        assert.equal(
+          coreSteps.length,
+          2,
+          "Core must actually deploy and verify before its dependent CLI"
+        );
+        assert.ok(
+          coreSteps.every((step) =>
+            step.args.includes(
+              "scripts/release/deploy-core-current-cli-projection.mjs"
+            )
+          ),
+          "An early Core must retain the published CLI projection"
+        );
+        assert.equal(coreSteps.at(-1).completesReleaseScope, true);
+        for (const checks of [
+          selectedPlan.preflightSteps,
+          selectedPlan.verifySteps,
+        ]) {
+          assert.equal(
+            checks.some(
+              (step) => step.label === "Verify Core CLI channel compatibility"
+            ),
+            false,
+            "Receiver admission must validate the published projection, not require the future CLI"
+          );
+        }
+      }
+    }
   }
 });
 

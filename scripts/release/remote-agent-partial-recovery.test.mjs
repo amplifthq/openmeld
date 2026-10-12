@@ -175,7 +175,9 @@ test("requires registry tag digest, settled rollout and complete instance observ
         instances: {
           active: 1,
           assigned: 0,
-          healthy: 7,
+          // Captured Cloudflare shape: one active instance plus six healthy
+          // idle instances account for the seven configured instances.
+          healthy: 6,
           failed: 0,
           starting: 0,
           stopped: 0,

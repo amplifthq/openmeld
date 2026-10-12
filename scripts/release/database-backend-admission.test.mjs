@@ -266,7 +266,7 @@ test("cutover preparation reports the native target without executable promotion
   const result = spawnSync(
     process.execPath,
     [
-      "scripts/release/production-release.mjs",
+      "scripts/release/production-release-cli.mjs",
       "plan",
       "--database-cutover",
       "--base",
@@ -296,7 +296,7 @@ test("cutover preparation reports the native target without executable promotion
   assert.equal(plan.databaseCutover.promotionAllowed, false);
   assert.equal(
     plan.databaseCutover.executor,
-    "production-release.mjs deploy --database-cutover-snapshot <snapshot>"
+    "pnpm run deploy -- --database-cutover-snapshot <snapshot>"
   );
   assert.equal(plan.databaseCutover.evidenceStatus, "not_evaluated");
   assert.equal(plan.compatibilityEvidence.basis, "source_comparison_only");
@@ -623,6 +623,7 @@ test("ordinary PostgreSQL releases cannot resume paused crons and explicit resto
     sourceSha,
     scope: "auth,core",
     changedPaths: ["services/core/src/index.ts"],
+    readGitFile: () => "// Historical source without receiver-first contracts.",
     affectedPackages: [],
     databaseBackend: "postgresql",
   };

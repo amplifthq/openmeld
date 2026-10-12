@@ -629,6 +629,62 @@ function validateCorrelationTransition(current, next, recoveryProved) {
   ) {
     return false;
   }
+  const retained = previous.remoteAgent;
+  const continuing = next.receipt.remoteAgent;
+  const nextPhase = {
+    "worker-only": "retained",
+    retained: "rollout",
+    rollout: "complete",
+    complete: "complete",
+  };
+  if (
+    retained &&
+    continuing &&
+    continuing.phase !== retained.phase &&
+    continuing.phase !== nextPhase[retained.phase]
+  ) {
+    throw new Error(
+      "A retained native release cannot skip its explicit rollout stage."
+    );
+  }
+  if (
+    retained &&
+    (!continuing ||
+      JSON.stringify({
+        ...retained,
+        phase: undefined,
+        workerIdentity: undefined,
+      }) !==
+        JSON.stringify({
+          ...continuing,
+          phase: undefined,
+          workerIdentity: undefined,
+        }) ||
+      (retained.workerIdentity &&
+        JSON.stringify(retained.workerIdentity) !==
+          JSON.stringify(continuing.workerIdentity)))
+  ) {
+    throw new Error(
+      "Retained native provenance cannot be removed or changed within a release attempt."
+    );
+  }
+  if (
+    current.scope === "remote-agent" &&
+    retained?.phase === "retained" &&
+    continuing?.phase === "rollout" &&
+    previous.status === "applied" &&
+    next.receipt.status === "started" &&
+    next.receipt.application === "unknown" &&
+    !next.receipt.identity &&
+    previous.operationKey === next.receipt.operationKey &&
+    previous.startedAt === next.receipt.startedAt &&
+    JSON.stringify({ ...retained, phase: "rollout" }) ===
+      JSON.stringify(continuing) &&
+    JSON.stringify(previous.identity) ===
+      JSON.stringify(retained.workerIdentity)
+  ) {
+    return true;
+  }
   if (
     previous.operationKey !== next.receipt.operationKey ||
     previous.startedAt !== next.receipt.startedAt ||

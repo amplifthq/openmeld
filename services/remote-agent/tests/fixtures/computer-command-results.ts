@@ -60,6 +60,7 @@ export async function verifyDurableCommandResults(
   let pullFails = true;
   let expired = false;
   let starts = 0;
+  let pushed = 0;
   const retention: Pick<
     NonNullable<BackendHandle["rpc"]["sync"]>,
     "retentionHead" | "beginRetention"
@@ -119,9 +120,11 @@ export async function verifyDurableCommandResults(
         type: "retained-test-container",
         connect: () =>
           Promise.resolve({
-            get sync(): "remote" | "none" {
-              return exited ? "remote" : "none";
-            },
+            sync: "remote" as const,
+            runtimeId:
+              expired && syncOutcome === "EEXEC_LOST"
+                ? "replacement"
+                : "retained",
             rpc: {
               shell: {
                 exec: (input: { id?: string }) => {
@@ -145,18 +148,37 @@ export async function verifyDurableCommandResults(
               sync: {
                 ...retention,
                 watermarks: () =>
-                  exited && pullFails
-                    ? Promise.reject(
-                        new Error("injected settled source failure")
-                      )
-                    : Promise.resolve({
-                        currentRev: 0,
-                        pushRev: 0,
-                        fetchCursor: { rev: 0, path: null },
-                      }),
+                  Promise.resolve({
+                    epoch: "durable-result-peer",
+                    currentRev: exited ? 8 : 0,
+                    pushRev: 0,
+                    fetchCursor: { rev: pushed, path: null },
+                  }),
+                push: async (
+                  input: Parameters<
+                    NonNullable<BackendHandle["rpc"]["sync"]>["push"]
+                  >[0]
+                ) => {
+                  const reader = input.changes.getReader();
+                  try {
+                    while (!(await reader.read()).done) {
+                      // Consume the canonical push before acknowledging its cursor.
+                    }
+                  } finally {
+                    reader.releaseLock();
+                  }
+                  pushed = input.senderRev;
+                  return {
+                    rev: 0,
+                    appliedPushCursor: input.senderCursor ?? {
+                      rev: pushed,
+                      path: null,
+                    },
+                  };
+                },
                 prepareChanges: () => {
-                  if (pullFails) {
-                    return Promise.reject(new Error("injected pull failure"));
+                  if (exited && pullFails) {
+                    return Promise.resolve({ ready: false, reads: 1 });
                   }
                   return Promise.resolve({ ready: true, reads: 0 });
                 },
@@ -167,10 +189,10 @@ export async function verifyDurableCommandResults(
                     throw new Error("injected pull failure");
                   }
                   return Promise.resolve({
-                    currentCursor: { rev: 0, path: null },
-                    blockCursor: { rev: 0, path: null },
+                    currentCursor: { rev: exited ? 8 : 0, path: null },
+                    blockCursor: { rev: exited ? 8 : 0, path: null },
                     drained: true,
-                    appliedPushCursor: { rev: 0, path: null },
+                    appliedPushCursor: { rev: pushed, path: null },
                     stream: new ReadableStream({
                       start(controller) {
                         controller.close();
@@ -220,8 +242,9 @@ export async function verifyDurableCommandResults(
       storage: new ComputerCommandSqlStorage(sql),
       access: () => workspaceAccess,
     });
-    pullFails = syncOutcome !== "complete";
+    pullFails = false;
     expired = syncOutcome !== "complete";
+    await owner.close();
     // No model poll: collection must retain the terminal result itself.
     // Each collection resumes one bounded page, including the cleanup page.
     for (let step = 0; step < 4; step++) {
@@ -234,7 +257,7 @@ export async function verifyDurableCommandResults(
     const recovered = await tool().execute({
       action: "poll",
       key: "work",
-      after: 1,
+      after: 0,
     });
     const cleanup = await stopStoredComputerCommands({
       context: { submissionId: "durable-result" },
