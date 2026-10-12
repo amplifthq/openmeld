@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 
 import { productionReleaseEvidenceSchema } from "../../packages/schemas/src/schemas/release/production-release-evidence.ts";
 import {
@@ -23,6 +24,7 @@ import {
   releaseComponentOperationKey,
   resumeRemoteAgentVerification,
 } from "./production-release-receipts.mjs";
+import { describeRemoteContainerConfiguration } from "./remote-agent-container-evidence.mjs";
 import {
   createWorkerDeploymentCapture,
   resolveReceiptWorkerTarget,
@@ -109,7 +111,9 @@ export function assessRemoteAgentPartialRecovery(input) {
     container.health.errors.length !== 0 ||
     !Number.isInteger(container.instances) ||
     container.instances < 1 ||
-    container.health?.instances?.healthy !== container.instances ||
+    container.health?.instances?.healthy +
+      container.health?.instances?.active !==
+      container.instances ||
     container.health.instances.failed !== 0 ||
     container.health.instances.starting !== 0
   ) {
@@ -152,15 +156,37 @@ export function verifyRecoveredRemoteAgentTarget(input) {
     ? listed.filter((instance) => instance.state !== "inactive")
     : [];
   const imagePrefix = baseline.containerImage.split("@")[0];
+  const unchanged =
+    input.nativeProvenance && container?.version === baseline.containerVersion;
+  if (unchanged) {
+    const observed = describeRemoteContainerConfiguration(container);
+    const expected = input.nativeProvenance.container;
+    if (
+      observed.id !== expected.id ||
+      observed.version !== expected.version ||
+      observed.image !== expected.image ||
+      observed.configurationHash !== expected.configurationHash ||
+      expected.image !== baseline.containerImage ||
+      imageDigest !== expected.image.split("@")[1]
+    ) {
+      throw new Error("The proven native artifact or configuration changed.");
+    }
+  }
   if (
     container?.id !== baseline.containerId ||
     container.name !== CONTAINER_NAME ||
-    container.version <= baseline.containerVersion ||
+    (!unchanged && container.version <= baseline.containerVersion) ||
     !IMAGE_DIGEST.test(imageDigest) ||
     container.configuration?.image !== `${imagePrefix}@${imageDigest}` ||
     container.active_rollout_id != null ||
-    !image?.tags?.includes(workerVersionId.slice(0, 8)) ||
-    container.health?.errors?.length ||
+    !image?.tags?.includes(
+      (unchanged
+        ? input.nativeProvenance.workerVersionId
+        : workerVersionId
+      ).slice(0, 8)
+    ) ||
+    !Array.isArray(container.health?.errors) ||
+    container.health.errors.length ||
     !Array.isArray(listed) ||
     listed.length === 0 ||
     page?.next_page_token !== null ||
@@ -193,6 +219,47 @@ export function verifyRecoveredRemoteAgentTarget(input) {
     healthyInstances: health.healthy,
     activeInstances: health.active,
   };
+}
+
+export function proveNativeBaseline(input) {
+  const prior = input.verifiedHistoryBaseline;
+  const identity = prior?.receipt?.identity;
+  const container = describeRemoteContainerConfiguration(input.container);
+  if (
+    !(
+      EXACT_SHA.test(prior?.evidenceSha ?? "") &&
+      EXACT_SHA.test(prior?.sha ?? "")
+    ) ||
+    prior.receipt.status !== "verified" ||
+    identity?.kind !== "worker-deployment" ||
+    identity.workerName !== WORKER_NAME ||
+    identity.environment !== "prod" ||
+    identity.sourceSha !== prior.sha ||
+    (prior.receipt.remoteAgent &&
+      prior.receipt.remoteAgent.phase !== "complete") ||
+    !(Date.parse(prior.recordedAt) <= Date.parse(input.startedAt)) ||
+    container.id !== input.baseline.containerId ||
+    container.version !== input.baseline.containerVersion ||
+    container.image !== input.baseline.containerImage ||
+    !IMAGE_DIGEST.test(input.imageDigest) ||
+    container.image.split("@")[1] !== input.imageDigest
+  ) {
+    throw new Error(
+      "The existing native artifact lacks matching verified release provenance."
+    );
+  }
+  const provenance = {
+    evidenceSha: prior.evidenceSha,
+    sourceSha: prior.sha,
+    workerVersionId: identity.versionId,
+    container,
+  };
+  verifyRecoveredRemoteAgentTarget({
+    ...input,
+    nativeProvenance: provenance,
+    workerVersionId: identity.versionId,
+  });
+  return provenance;
 }
 
 async function readImageDigest(cwd, imageRef, workerVersionId) {
@@ -360,6 +427,74 @@ function readStartedEvidence(cwd, evidenceSha) {
   return productionReleaseEvidenceSchema.parse(JSON.parse(message));
 }
 
+export function readNativeHistoryBaseline(cwd, prior) {
+  if (!prior) {
+    return undefined;
+  }
+  const parents = run(
+    "git",
+    ["show", "-s", "--format=%P", prior.evidenceSha],
+    cwd
+  ).split(" ");
+  if (parents.length < 2) {
+    return prior;
+  }
+  const proof = productionReleaseEvidenceSchema.parse(
+    JSON.parse(run("git", ["show", "-s", "--format=%B", parents[1]], cwd))
+  );
+  if (proof.schemaVersion !== 4 || !proof.receipt.recovery.nativeProvenance) {
+    return prior;
+  }
+  const { recovery, ...receipt } = proof.receipt;
+  if (
+    proof.scope !== REMOTE_AGENT ||
+    proof.sourceSha !== prior.sha ||
+    !isDeepStrictEqual(receipt, prior.receipt) ||
+    run("git", ["rev-parse", `${parents[1]}^{tree}`], cwd) !==
+      run("git", ["rev-parse", `${prior.sha}^{tree}`], cwd)
+  ) {
+    throw new Error(
+      "Native recovery provenance does not match its canonical receipt."
+    );
+  }
+  const reference = recovery.nativeProvenance;
+  if (
+    recovery.completed?.containerVersion !== reference.container.version ||
+    recovery.completed.containerImage !== reference.container.image
+  ) {
+    throw new Error(
+      "Native provenance does not describe the completed unchanged artifact."
+    );
+  }
+  const metadata = productionReleaseEvidenceSchema.parse(
+    JSON.parse(
+      run("git", ["show", "-s", "--format=%B", reference.evidenceSha], cwd)
+    )
+  );
+  run(
+    "git",
+    ["merge-base", "--is-ancestor", reference.evidenceSha, prior.evidenceSha],
+    cwd
+  );
+  if (
+    metadata.scope !== REMOTE_AGENT ||
+    metadata.sourceSha !== reference.sourceSha ||
+    metadata.receipt?.identity?.versionId !== reference.workerVersionId ||
+    run("git", ["rev-parse", `${reference.evidenceSha}^{tree}`], cwd) !==
+      run("git", ["rev-parse", `${reference.sourceSha}^{tree}`], cwd)
+  ) {
+    throw new Error(
+      "Original native receipt provenance does not match its reference."
+    );
+  }
+  return {
+    evidenceSha: reference.evidenceSha,
+    sha: metadata.sourceSha,
+    recordedAt: metadata.recordedAt,
+    receipt: metadata.receipt,
+  };
+}
+
 function assertCleanSource(cwd, expectedSha) {
   if (
     run("git", ["rev-parse", "HEAD"], cwd) !== expectedSha ||
@@ -374,7 +509,8 @@ function assertCleanSource(cwd, expectedSha) {
 export async function waitForRemoteAgentContainer(
   cwd,
   baseline,
-  workerVersionId
+  workerVersionId,
+  nativeProvenance
 ) {
   const deadline = Date.now() + ROLLOUT_TIMEOUT_MS;
   let lastError;
@@ -384,7 +520,10 @@ export async function waitForRemoteAgentContainer(
       const imageDigest = await readImageDigest(
         cwd,
         baseline.containerImage,
-        workerVersionId
+        nativeProvenance &&
+          state.container.version === baseline.containerVersion
+          ? nativeProvenance.workerVersionId
+          : workerVersionId
       );
       const instancesPage = readCloudflare(cwd, [
         "containers",
@@ -401,6 +540,7 @@ export async function waitForRemoteAgentContainer(
         instancesPage,
         imageDigest,
         workerVersionId,
+        nativeProvenance,
       });
     } catch (error) {
       lastError = error;
@@ -419,6 +559,12 @@ export async function executeRemoteAgentRecovery(input) {
     const completed = await input.verifyContainer(identity.versionId);
     await input.verifyWorker(identity);
     input.recovery.completed = completed;
+    if (
+      completed.containerVersion !== input.recovery.baseline.containerVersion ||
+      completed.containerImage !== input.recovery.baseline.containerImage
+    ) {
+      input.recovery.nativeProvenance = undefined;
+    }
     input.record("verified", "applied", identity);
     return { identity, completed };
   } catch (error) {
@@ -448,6 +594,7 @@ function parseArgs(argv) {
           "--container-version",
           "--container-image",
           "--verify-only",
+          "--base",
         ].includes(key) && argv[index + 1]
       ) ||
       options[key]
@@ -459,7 +606,10 @@ function parseArgs(argv) {
     options[key] = argv[index + 1];
   }
   if (
-    Object.keys(options).length !== (options["--verify-only"] ? 9 : 8) ||
+    Object.keys(options).length !== 9 ||
+    (options["--verify-only"] !== "true" &&
+      !EXACT_SHA.test(options["--base"] ?? "")) ||
+    (options["--verify-only"] === "true" && options["--base"] !== undefined) ||
     (options["--verify-only"] !== undefined &&
       options["--verify-only"] !== "true") ||
     !EXACT_SHA.test(options["--source-sha"])
@@ -517,7 +667,7 @@ async function main(argv) {
         "--scope",
         REMOTE_AGENT,
         "--base",
-        "99bd94a254457683a4922452b05bc80e175d50ac",
+        options["--base"],
       ],
       sourceDir,
       { inherit: true, timeout: 20 * 60_000 }
@@ -577,6 +727,35 @@ async function main(argv) {
         startedAt: new Date().toISOString(),
         baseline,
       };
+      const prior = readNativeHistoryBaseline(
+        sourceDir,
+        latest.verifiedHistoryBaseline
+      );
+      const nativeProvenance = prior
+        ? proveNativeBaseline({
+            verifiedHistoryBaseline: prior,
+            startedAt: latest.receipt.startedAt,
+            baseline,
+            container: original.container,
+            images: original.images,
+            instancesPage: readCloudflare(sourceDir, [
+              "containers",
+              "instances",
+              baseline.containerId,
+              "--per-page",
+              "100",
+              "--json",
+            ]),
+            imageDigest: await readImageDigest(
+              sourceDir,
+              baseline.containerImage,
+              prior.receipt.identity?.versionId
+            ),
+          })
+        : undefined;
+      if (nativeProvenance) {
+        recovery.nativeProvenance = nativeProvenance;
+      }
       const record = (status, application, identity) => {
         const receipt = {
           ...latest.receipt,
@@ -634,6 +813,19 @@ async function main(argv) {
                       "Remote Agent state drifted after the recovery lease was acquired."
                     );
                   }
+                  if (nativeProvenance) {
+                    const observed = describeRemoteContainerConfiguration(
+                      fresh.container
+                    );
+                    if (
+                      observed.configurationHash !==
+                      nativeProvenance.container.configurationHash
+                    ) {
+                      throw new Error(
+                        "Native configuration changed before recovery deployment."
+                      );
+                    }
+                  }
                   capture.recordDeploymentBaseline(state);
                 }
                 assertCleanSource(sourceDir, sourceSha);
@@ -649,7 +841,12 @@ async function main(argv) {
               runCommand: (input) => readWorkerCommand(sourceDir, input),
             }),
           verifyContainer: (workerVersionId) =>
-            waitForRemoteAgentContainer(sourceDir, baseline, workerVersionId),
+            waitForRemoteAgentContainer(
+              sourceDir,
+              baseline,
+              workerVersionId,
+              nativeProvenance
+            ),
           observeFailure: () => {
             const observed = readState(sourceDir, baseline.containerId);
             const active = observed.deployments.toSorted(
