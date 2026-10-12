@@ -187,24 +187,32 @@ function requestExecutionGuard(row: RequestRow): PluginRequestExecutionGuard {
   };
 }
 
-/** A retained decision cannot be bypassed by changing an operation's authority. */
-export async function hasPluginActionRequestForOperation(input: {
+/** Check absence now and again in the operation claim; a later request owns consent. */
+export async function preparePluginActionRequestAbsenceGuard(input: {
   db: PostgresDatabase;
   organizationId: string;
   userId: string;
   actorProfileId: string;
   operationId: string;
-}): Promise<boolean> {
-  const result = await input.db.query({
-    text: 'SELECT id FROM "openmeld"."plugin_action_requests" WHERE organization_id = $1 AND user_id = $2 AND actor_profile_id = $3 AND operation_id = $4 LIMIT 1',
-    values: [
+}): Promise<PluginRequestExecutionGuard | null> {
+  const guard: PluginRequestExecutionGuard = {
+    sql: (
+      first
+    ) => `NOT EXISTS (SELECT 1 FROM "openmeld"."plugin_action_requests"
+      WHERE organization_id = $${first} AND user_id = $${first + 1}
+        AND actor_profile_id = $${first + 2} AND operation_id = $${first + 3})`,
+    bindings: [
       input.organizationId,
       input.userId,
       input.actorProfileId,
       input.operationId,
     ],
+  };
+  const result = await input.db.query({
+    text: `SELECT 1 WHERE ${guard.sql(1)}`,
+    values: guard.bindings,
   });
-  return result.rows.length > 0;
+  return result.rows.length > 0 ? guard : null;
 }
 
 /** Reads authority for a retained operation. It never creates a new request. */

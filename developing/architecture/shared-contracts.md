@@ -2717,8 +2717,13 @@ consulting optional Project metadata; current connection policy and provider
 repository permission remain enforced by their owners. An absent declaration,
 Routine, Agent sender, or missing/mismatched requester evidence cannot use this
 path. Inferred, incomplete, or conflicting destinations retain confirmation.
-The declaration is included in the operation input digest and never forwarded
-to GitHub. Existing Plugin requests keep their decision authority on retry.
+The declaration is included in both the operation input digest and the immutable
+batch manifest digest, and is never forwarded to GitHub. A changed declaration
+cannot resume a batch's remaining writes. Existing Plugin requests keep their
+decision authority on retry, including after a Project default changes. Fresh
+direct/default claims reuse the Plugin request owner's SQL execution guard to
+recheck request absence in the operation/audit transaction; an approval request
+that appears after preparation prevents unconfirmed admission.
 
 Otherwise, Core verifies the active delivery and current
 Task associations, returning either `project_default` or `confirmation_required`.
@@ -2756,7 +2761,11 @@ CLI/Service/Skills contract floor, setup, Wake, Space action, or diagnostic
 payload changes. Local Plugin calls retain their existing dispatch/confirmation
 path. Shared-schema packaging impact must be checked by release readiness;
 this change does not publish a local component. Rollback preserves the existing
-operation and approval owners and exact-input replay identity.
+operation and approval owners and exact-input replay identity. Legacy batches
+without a declaration keep their original digest. An older Remote Agent cannot
+resume a batch created with explicit destination authority: its immutable
+manifest comparison fails closed before remaining writes. Restore the compatible
+caller to resume that operation; never replace its ID to bypass the mismatch.
 
 Apply PostgreSQL migration `0027_project_workflow` before the Core readers and
 writers. Historical D1 migrations remain unchanged. The

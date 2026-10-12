@@ -3375,7 +3375,10 @@ describe("Remote Agent GitHub tools", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("resumes an incomplete authorized GitHub batch during a Routine", async () => {
+  it.each([
+    undefined,
+    "explicit_request",
+  ] as const)("resumes an incomplete authorized GitHub batch with unchanged authority %s during a Routine", async (issueDestinationAuthority) => {
     const interactiveRequest = createSubmitTurnRequest();
     const storage = await createStorage(interactiveRequest);
     const fetchMock = vi.fn<typeof fetch>((url) => {
@@ -3426,6 +3429,7 @@ describe("Remote Agent GitHub tools", () => {
     const coreWorkerWithLedger = withTestConnectorOperationLedger(coreWorker);
     const batchInput = {
       githubActor: "organization",
+      issueDestinationAuthority,
       issues: [{ externalKey: "finding-1", title: "Review finding 1" }],
       operationId: "confirmed-incomplete-routine-retry",
       owner: "openmeld",
@@ -3446,6 +3450,16 @@ describe("Remote Agent GitHub tools", () => {
     });
     const providerCallCount = fetchMock.mock.calls.length;
     expect(providerCallCount).toBeGreaterThan(0);
+
+    await expect(
+      executeTool(firstTurnTools, "github_create_issue_batch", {
+        ...batchInput,
+        issueDestinationAuthority: issueDestinationAuthority
+          ? undefined
+          : "explicit_request",
+      })
+    ).rejects.toThrow("immutable manifest");
+    expect(fetchMock).toHaveBeenCalledTimes(providerCallCount);
 
     const routineSubmissionId = "flue_submission_routine_retry";
     const routineRequest = createSubmitTurnRequest({

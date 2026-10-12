@@ -96,8 +96,11 @@ different proposed destination, require an exact-target confirmation through
 the existing private Plugin request in the originating conversation or Inbox. The confirmation
 binds the actor, operation, account, complete target and input identity; it does
 not change the Project default. Once a confirmation request exists, a later
-authority declaration cannot bypass its decision. A later chat message is not
-that confirmation. Approval reuses the original request continuation.
+authority declaration or Project default change cannot bypass its decision.
+New direct/default claims recheck request absence when claiming execution.
+A later chat message is not that confirmation. Approval reuses the original
+request continuation. A batch retry retains its original destination authority
+as part of the immutable input.
 Users do not need to type Linear UUIDs into their request. The Agent discovers
 the target and the requester reviews the concrete account and identifiers.
 No Task is required merely to create an issue: the same confirmation path works

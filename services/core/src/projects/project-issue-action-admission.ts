@@ -6,10 +6,11 @@ import type {
 } from "@openmeld/schemas/types";
 import { readPluginAccess } from "../connectors/plugin-access";
 import {
-  hasPluginActionRequestForOperation,
   preparePluginActionRequest,
+  preparePluginActionRequestAbsenceGuard,
 } from "../connectors/plugin-action-requests";
 import type { CoreBindings } from "../lib/bindings";
+import { isNativeDeliveryExecutingStatus } from "../remote-agent/application/native-delivery-execution-status";
 import { readRemoteAgentNativeDeliveryByDeliveryId } from "../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import { projectIssueRoutingDecisionForClaim } from "./project-issue-action-routing";
@@ -71,16 +72,37 @@ export async function prepareProjectIssueActionAdmission(input: {
         "The complete issue destination must match its provider before a new operation is accepted.",
     });
   }
-  if (await hasExplicitGitHubIssueRequest(input)) {
-    return { sourceRequestKey: input.sourceRequestKey };
-  }
-  const resolution = await resolveAdmittedProjectIssueAction(input.env, {
-    context: input.context,
-    proposedDestination: destination,
-  });
-  const issueRoutingDecision = projectIssueRoutingDecisionForClaim(resolution);
-  if (issueRoutingDecision) {
-    return { issueRoutingDecision, sourceRequestKey: input.sourceRequestKey };
+  const requestAbsenceGuard = input.userId
+    ? await preparePluginActionRequestAbsenceGuard({
+        db: input.db,
+        organizationId: input.organizationId,
+        userId: input.userId,
+        actorProfileId: input.actorProfileId,
+        operationId: operation.operationId,
+      })
+    : undefined;
+  // Once a request exists, neither a new declaration nor a Project edit can
+  // replace its decision. Fresh direct/default claims guard absence atomically.
+  if (requestAbsenceGuard !== null) {
+    if (await hasExplicitGitHubIssueRequest(input)) {
+      return {
+        executionGuard: requestAbsenceGuard,
+        sourceRequestKey: input.sourceRequestKey,
+      };
+    }
+    const resolution = await resolveAdmittedProjectIssueAction(input.env, {
+      context: input.context,
+      proposedDestination: destination,
+    });
+    const issueRoutingDecision =
+      projectIssueRoutingDecisionForClaim(resolution);
+    if (issueRoutingDecision) {
+      return {
+        issueRoutingDecision,
+        executionGuard: requestAbsenceGuard,
+        sourceRequestKey: input.sourceRequestKey,
+      };
+    }
   }
   if (!input.userId) {
     throw createCoreRpcHttpError({
@@ -115,7 +137,7 @@ export async function prepareProjectIssueActionAdmission(input: {
       actionId: operation.actionId,
       effect: "write",
       input: {
-        ...resolution.destination,
+        ...destination,
         requestSignature: operation.requestSignature,
       },
     },
@@ -159,8 +181,7 @@ async function hasExplicitGitHubIssueRequest(
     delivery?.executionRecoverySubmitRequest ?? delivery?.workerSubmitRequest
   )?.turnEnvelope.sender;
   if (
-    !delivery ||
-    (delivery.status !== "accepted" && delivery.status !== "retry_observed") ||
+    !(delivery && isNativeDeliveryExecutingStatus(delivery.status)) ||
     delivery.organizationId !== input.organizationId ||
     delivery.profileId !== input.actorProfileId ||
     delivery.submissionId !== input.context.agentControllerConversationId ||
@@ -174,11 +195,5 @@ async function hasExplicitGitHubIssueRequest(
   }
   // Intent is interpreted semantically by the Agent. Core verifies the request
   // identity and existing decisions; Project metadata supplies neither fact.
-  return !(await hasPluginActionRequestForOperation({
-    db: input.db,
-    organizationId: input.organizationId,
-    userId: input.userId,
-    actorProfileId: input.actorProfileId,
-    operationId: input.operation.operationId,
-  }));
+  return true;
 }

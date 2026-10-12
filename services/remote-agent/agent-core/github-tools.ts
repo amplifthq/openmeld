@@ -1274,6 +1274,7 @@ async function executeGitHubIssueBatch(input: {
   });
 
   const digest = await digestGitHubActionInput({
+    ...(issueDestinationAuthority ? { issueDestinationAuthority } : {}),
     issues: issueInputs,
     operationId,
     owner,

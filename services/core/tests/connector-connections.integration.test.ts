@@ -14,7 +14,10 @@ import type {
 } from "@openmeld/schemas/types";
 import { OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE } from "@openmeld/space";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
-import { createSubmitTurnRequestV2 } from "../../remote-agent/tests/fixtures";
+import {
+  createRoutineTurnEnvelope,
+  createSubmitTurnRequestV2,
+} from "../../remote-agent/tests/fixtures";
 import capturedActions from "../../remote-agent/tests/fixtures/openconnector-runtime-actions.json";
 import {
   activateAgentDelegationChildren,
@@ -521,6 +524,10 @@ describe("Project issue destination confirmation", () => {
     ["github", "explicit_request", true],
     ["github", "explicit_request", false],
     ["github", undefined, true],
+    ["github", "explicit_request", "unverified"],
+    ["github", "explicit_request", "other_member"],
+    ["github", "explicit_request", "agent_sender"],
+    ["github", "explicit_request", "routine"],
   ] as const)("admits %s destinations with authority %s and verified request %s", async (service, issueDestinationAuthority, verifiedRequest) => {
     const f = await seedConnectorFixture();
     const center = await seedDesignatedCenterAgent(f);
@@ -620,15 +627,39 @@ describe("Project issue destination confirmation", () => {
           triggerMessageId: delivery.triggerMessageId,
           turnEnvelope: {
             ...defaults.turnEnvelope,
-            sender: {
-              kind: "member",
-              id: member.id,
-              verified: true,
-              profileId: f.ownerProfileId,
-              ownerUserId: f.ownerA,
-              displayName: "Requester",
-              role: "owner",
-            },
+            ...(verifiedRequest === "routine"
+              ? { trigger: createRoutineTurnEnvelope().trigger }
+              : {}),
+            sender:
+              verifiedRequest === "routine"
+                ? {
+                    kind: "routine",
+                    routineId: "routine_1",
+                    createdByUserId: f.ownerA,
+                    delegatedBy: {
+                      id: member.id,
+                      verified: true,
+                      profileId: f.ownerProfileId,
+                      ownerUserId: f.ownerA,
+                      displayName: "Requester",
+                      role: "owner",
+                    },
+                  }
+                : {
+                    kind:
+                      verifiedRequest === "agent_sender"
+                        ? "agent_profile"
+                        : "member",
+                    id:
+                      verifiedRequest === "other_member"
+                        ? crypto.randomUUID()
+                        : member.id,
+                    verified: verifiedRequest !== "unverified",
+                    profileId: f.ownerProfileId,
+                    ownerUserId: f.ownerA,
+                    displayName: "Requester",
+                    role: "owner",
+                  },
           },
         }),
       });
@@ -673,7 +704,7 @@ describe("Project issue destination confirmation", () => {
     await expect(
       rpcCenterAgentRecordConnectorActionOperation(core, proposal)
     ).rejects.toMatchObject({ code: "project.issue_target_required" });
-    if (verifiedRequest && issueDestinationAuthority) {
+    if (verifiedRequest === true && issueDestinationAuthority) {
       await expect(
         rpcCenterAgentRecordConnectorActionOperation(core, {
           ...proposal,
@@ -699,6 +730,49 @@ describe("Project issue destination confirmation", () => {
           requestSignature: "b".repeat(64),
         })
       ).rejects.toThrow();
+      const racedProposal = {
+        ...proposal,
+        issueDestination,
+        operationId: crypto.randomUUID(),
+        requestSignature: "c".repeat(64),
+      };
+      const transaction = PostgresDatabase.prototype.transaction;
+      const concurrentRequest = vi
+        .spyOn(PostgresDatabase.prototype, "transaction")
+        .mockImplementationOnce(async (callback) => {
+          await expect(
+            rpcCenterAgentRecordConnectorActionOperation(core, {
+              ...racedProposal,
+              issueDestinationAuthority: undefined,
+            })
+          ).rejects.toMatchObject({
+            code: "project.issue_confirmation_required",
+          });
+          return transaction.call(db, callback);
+        });
+      try {
+        await expect(
+          rpcCenterAgentRecordConnectorActionOperation(core, racedProposal)
+        ).rejects.toThrow();
+      } finally {
+        concurrentRequest.mockRestore();
+      }
+      expect(
+        (
+          await db.query({
+            text: 'SELECT id FROM "openmeld"."center_agent_connector_action_operations" WHERE operation_id = $1',
+            values: [racedProposal.operationId],
+          })
+        ).rows
+      ).toEqual([]);
+      expect(
+        (
+          await db.query({
+            text: 'SELECT id FROM "openmeld"."center_agent_audit_journal" WHERE resource_id = $1',
+            values: [`github:github.create_issue:${racedProposal.operationId}`],
+          })
+        ).rows
+      ).toEqual([]);
       await db.query({
         text: 'UPDATE "openmeld"."connector_connections" SET access_policy = $1 WHERE connection_name = $2',
         values: [
