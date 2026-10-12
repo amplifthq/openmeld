@@ -569,6 +569,13 @@ Both tool waits and finish waits yield at their next bounded observation when
 the exact-execution intake has accepted new user input. Flue applies that input
 under the original execution; its canonical input ID opens a fresh response
 phase without rerunning agent-start effects. The Computer continues running.
+Recovery classifies that input under the same submission owner and considers
+only assistant work after the latest accepted input. An earlier answer cannot
+settle an unanswered check-in. Before writing recovery or resource signals,
+Flue repairs any trailing tool batch: saved outcomes remain intact and unresolved
+non-durable calls retain an explicit unknown outcome without being replayed.
+The installed `2.2.2` patch extends this canonical classification for exact-execution
+steering; it does not change record validation or create another execution owner.
 Normal queued messages still wait by design; the existing Send now action is
 the explicit ingress for same-author Center DM steering.
 

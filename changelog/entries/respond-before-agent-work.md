@@ -14,6 +14,10 @@ Direct answers and progress updates use the same publication confirmation, so
 the agent can continue the original task after answering a check-in. A rejected
 update does not count as a visible response.
 
+After a restart, the agent keeps accepted check-ins and saved tool results.
+It answers an unanswered check-in before finishing and resumes from saved
+results without repeating completed actions.
+
 Long Computer commands wait for their original results without asking the model
 to check again at each interval. Stop and file synchronization keep their
 existing controls.

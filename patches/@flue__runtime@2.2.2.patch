@@ -1096,7 +1096,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..c1510ae6ca6742f3e996de5694815687
  			kind: submission.kind,
  			reason: "aborted",
 diff --git a/dist/dispatch-BlxCz6iq.mjs b/dist/dispatch-BlxCz6iq.mjs
-index 94d0dc4e069259c5f321b429e5a086ed724c5158..253f8705ffaba070ee2e4474f32345fda6812fab 100644
+index 94d0dc4e069259c5f321b429e5a086ed724c5158..d962c8bb797d2e16b40eecd93a35ef47b19e83fa 100644
 --- a/dist/dispatch-BlxCz6iq.mjs
 +++ b/dist/dispatch-BlxCz6iq.mjs
 @@ -1,9 +1,12 @@
@@ -1498,6 +1498,51 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..253f8705ffaba070ee2e4474f32345fd
  	const { readFiles, modifiedFiles } = computeFileLists(fileOps);
  	summary += formatFileOperations(readFiles, modifiedFiles);
  	return {
+@@ -2101,18 +2214,14 @@ function isAssistantContextOverflow(assistant, contextWindow) {
+ //#endregion
+ //#region src/submission-state.ts
+ /**
+-* A user message absorbed into the classified submission's own response by
+-* the turn-boundary join protocol (a queued direct delivery), rather than a
+-* later input the session moved on to. A joined delivery's record carries
+-* the DELIVERY's `submissionId` — never the host's — while every record the
+-* host writes carries the host's own, and programmatic `session.prompt()`
+-* inputs carry none. Recognized only when the classified input's owning
+-* submission is known: joins exist solely under coordinator submissions, so
+-* an unowned input (degenerate/test setups, subagent reattach) keeps the
+-* strict reading.
++* A user input admitted into a submission's response. Queued deliveries
++* carry their own submission id; exact-execution steering is written by the
++* host and carries the host's id. Both continue the same response. Admission
++* and canonical append authorization establish this ownership before the
++* classifier runs. Unowned programmatic inputs keep the strict reading.
+ */
+-function isJoinedDeliveryInput(entry, ownSubmissionId) {
+-	return ownSubmissionId !== void 0 && entry.submissionId !== void 0 && entry.submissionId !== ownSubmissionId;
++function isSubmissionContinuationInput(entry, ownSubmissionId) {
++	return ownSubmissionId !== void 0 && entry.submissionId !== void 0;
+ }
+ /**
+ * Classify how far a persisted submission input progressed.
+@@ -2125,12 +2234,16 @@ function isJoinedDeliveryInput(entry, ownSubmissionId) {
+ *   explicit overflow error messages are detected then).
+ * @param opts.ownSubmissionId - The submission that owns the classified
+ *   input entry. User messages joined into that submission's response (see
+-*   {@link isJoinedDeliveryInput}) are continuation input for the same
++*   {@link isSubmissionContinuationInput}) are continuation input for the same
+ *   response, not the session advancing past the input.
+ */
+ function classifySubmissionState(following, opts) {
+ 	if (following === void 0) return { kind: "absent" };
+-	if (following.some((entry) => entry.type === "message" && entry.message.role === "user" && !isJoinedDeliveryInput(entry, opts.ownSubmissionId))) return { kind: "advanced_past_input" };
++	if (following.some((entry) => entry.type === "message" && entry.message.role === "user" && !isSubmissionContinuationInput(entry, opts.ownSubmissionId))) return { kind: "advanced_past_input" };
++	// A completed assistant before the latest accepted input cannot answer it.
++	// Keep the full transcript; narrow only this recovery classification.
++	const latestInputIndex = following.findLastIndex((entry) => entry.type === "message" && entry.message.role === "user");
++	if (latestInputIndex !== -1) following = following.slice(latestInputIndex + 1);
+ 	const assistantIndex = following.findLastIndex((entry) => entry.type === "message" && entry.message.role === "assistant");
+ 	const assistantEntry = assistantIndex === -1 ? void 0 : following[assistantIndex];
+ 	const assistant = assistantEntry?.type === "message" ? assistantEntry.message : void 0;
 @@ -2166,6 +2279,13 @@ function classifySubmissionState(following, opts) {
  			assistant
  		};

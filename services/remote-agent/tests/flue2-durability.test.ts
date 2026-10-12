@@ -1,12 +1,14 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import {
   fauxAssistantMessage,
   fauxProvider,
   fauxToolCall,
 } from "@earendil-works/pi-ai";
 import {
+  type AgentSteeringInput,
   defineTool,
   init,
   useAgentStart,
@@ -18,6 +20,197 @@ import { object } from "valibot";
 import { describe, expect, it, vi } from "vitest";
 
 describe("Flue 2 OpenMeld durability contracts", () => {
+  it.each([
+    "tool_batch",
+    "steered_input",
+  ] as const)("recovers %s after same-execution steering without replaying tools or losing input", async (boundary) => {
+    const directory = await mkdtemp(join(tmpdir(), "flue-steering-recovery-"));
+    const original = join(directory, "original.sqlite");
+    const snapshot = join(directory, "interrupted.sqlite");
+    const captured = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const provider = fauxProvider({
+      provider: "steering-recovery",
+      tokensPerSecond: Number.POSITIVE_INFINITY,
+    });
+    const model = provider.getModel();
+    let correction: AgentSteeringInput | undefined;
+    let steeringReady = false;
+    let recovery = false;
+    const completedWork = vi.fn(() => ({ output: "Saved result: Cedar 200." }));
+    const capture = () => {
+      const sql = new DatabaseSync(original);
+      try {
+        // Capture committed runtime records without rewriting their contents.
+        sql.exec(`VACUUM INTO '${snapshot.replaceAll("'", "''")}'`);
+      } finally {
+        sql.close();
+      }
+      captured.resolve();
+    };
+    const unfinishedWork = vi.fn(async () => {
+      // This tool's real outcome has not been persisted in the snapshot.
+      capture();
+      await release.promise;
+      return { output: "Original owner returned." };
+    });
+    const saved = defineTool({
+      name: "save_record",
+      description: "Save the selected record once.",
+      input: object({}),
+      run: completedWork,
+    });
+    const waiting = defineTool({
+      name: "inspect_record",
+      description: "Inspect the saved record.",
+      input: object({}),
+      run: unfinishedWork,
+    });
+    function Recovery() {
+      useModel(`${model.provider}/${model.id}`);
+      useTool(saved);
+      useTool(waiting);
+      return recovery
+        ? "Preserve saved records. Explain any interrupted inspection."
+        : "Save the selected record and inspect it.";
+    }
+    Recovery.durability = { maxAttempts: 5, timeoutMs: 0 };
+    Recovery.joinQueuedDeliveries = false;
+    Recovery.steeringSource = (submissionId: string) => ({
+      claim: () => {
+        if (!steeringReady) {
+          return Promise.resolve([]);
+        }
+        correction ??= {
+          targetSubmissionId: submissionId,
+          status: "joining",
+          input: {
+            kind: "dispatch",
+            submissionId: "same-execution-check-in",
+            agent: "Recovery",
+            id: "steered-recovery",
+            acceptedAt: new Date().toISOString(),
+            message: { kind: "user", body: "Keep the saved Cedar record." },
+          },
+        };
+        return Promise.resolve(
+          correction.status === "joining" ? [correction] : []
+        );
+      },
+      listUnresolved: async () => (correction ? [correction] : []),
+      finalize: async () => {
+        if (correction) {
+          correction.status = "joined";
+        }
+        if (!recovery && boundary === "steered_input") {
+          // The check-in is canonical and acknowledged; its answering model
+          // turn has not started. The previous assistant cannot answer it.
+          capture();
+          await release.promise;
+        }
+      },
+      revert: async () => undefined,
+    });
+    provider.setResponses([
+      () => {
+        steeringReady = true;
+        return boundary === "tool_batch"
+          ? fauxAssistantMessage(fauxToolCall("save_record", {}), {
+              stopReason: "toolUse",
+            })
+          : fauxAssistantMessage("The earlier answer was Cedar.");
+      },
+      (context) => {
+        expect(JSON.stringify(context.messages)).toContain(
+          "Keep the saved Cedar record."
+        );
+        return boundary === "tool_batch"
+          ? fauxAssistantMessage(fauxToolCall("inspect_record", {}), {
+              stopReason: "toolUse",
+            })
+          : fauxAssistantMessage("Original owner finished.");
+      },
+      fauxAssistantMessage("Original owner finished."),
+    ]);
+    let runtime = await start({
+      agents: [Recovery],
+      db: sqlite(original),
+      providers: [provider.provider],
+    });
+    const realNow = Date.now.bind(Date);
+    const clock = vi.spyOn(Date, "now");
+    try {
+      const agent = init(Recovery, { id: "steered-recovery" });
+      const receipt = await agent.dispatch("Save Cedar, then inspect it.");
+      const originalResult = agent.read(receipt);
+      await Promise.race([
+        captured.promise,
+        originalResult.then(() => {
+          throw new Error(
+            "Submission settled before the interrupted boundary."
+          );
+        }),
+      ]);
+      expect(correction?.status).toBe("joined");
+      release.resolve();
+      await originalResult;
+      await runtime.stop();
+      recovery = true;
+      clock.mockImplementation(() => realNow() + 120_000);
+      provider.setResponses([
+        (context) => {
+          const messages = JSON.stringify(context.messages);
+          expect(messages).toContain("Keep the saved Cedar record.");
+          if (boundary === "tool_batch") {
+            expect(messages).toContain("Saved result: Cedar 200.");
+            expect(messages).toContain("The outcome is unknown.");
+          } else {
+            expect(messages).toContain("The earlier answer was Cedar.");
+          }
+          return fauxAssistantMessage(
+            "The resumed response addresses the check-in."
+          );
+        },
+        fauxAssistantMessage("Cedar remains saved."),
+      ]);
+      runtime = await start({
+        agents: [Recovery],
+        db: sqlite(snapshot),
+        providers: [provider.provider],
+      });
+      const replacement = init(Recovery, { id: "steered-recovery" });
+      expect((await replacement.read(receipt)).text).toBe(
+        `${boundary === "steered_input" ? "The earlier answer was Cedar.\n\n" : ""}The resumed response addresses the check-in.`
+      );
+      expect(completedWork).toHaveBeenCalledTimes(
+        boundary === "tool_batch" ? 1 : 0
+      );
+      expect(unfinishedWork).toHaveBeenCalledTimes(
+        boundary === "tool_batch" ? 1 : 0
+      );
+      // A later independent submission must remain usable and distinct.
+      correction = undefined;
+      Recovery.steeringSource = () => ({
+        claim: async () => [],
+        listUnresolved: async () => [],
+        finalize: async () => undefined,
+        revert: async () => undefined,
+      });
+      expect(
+        (
+          await replacement.read(
+            await replacement.dispatch("Confirm the record.")
+          )
+        ).text
+      ).toBe("Cedar remains saved.");
+    } finally {
+      release.resolve();
+      await runtime.stop();
+      clock.mockRestore();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it.each([
     false,
     true,
