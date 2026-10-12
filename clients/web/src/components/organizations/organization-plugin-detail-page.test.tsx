@@ -3,6 +3,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OrganizationPluginDetailPage } from "./organization-plugin-detail-page";
+import type { PluginDetailLayout } from "./plugin-detail-connection";
 
 vi.mock("./plugin-agent-access", () => ({ PluginAgentAccess: () => null }));
 vi.mock("./plugin-scope-tabs", () => ({
@@ -21,31 +22,39 @@ vi.mock("./center-agent-github-connection-card", () => ({
 		canManage,
 		isPersonalWorkspace,
 		mode,
+		renderDetail,
 	}: {
 		canManage: boolean;
 		isPersonalWorkspace: boolean;
 		mode: string;
-	}) => (
-		<div
-			data-can-manage={String(canManage)}
-			data-mode={mode}
-			data-personal={String(isPersonalWorkspace)}
-			data-testid="github-access"
-		/>
-	),
+		renderDetail: PluginDetailLayout;
+	}) =>
+		renderDetail(
+			null,
+			<div
+				data-can-manage={String(canManage)}
+				data-mode={mode}
+				data-personal={String(isPersonalWorkspace)}
+				data-testid="github-access"
+			/>
+		),
 }));
 
 vi.mock("./plugin-connection-card", () => ({
 	PluginConnectionCard: ({
 		isPersonalWorkspace,
+		renderDetail,
 	}: {
 		isPersonalWorkspace: boolean;
-	}) => (
-		<div
-			data-personal={String(isPersonalWorkspace)}
-			data-testid="plugin-access"
-		/>
-	),
+		renderDetail: PluginDetailLayout;
+	}) =>
+		renderDetail(
+			null,
+			<div
+				data-personal={String(isPersonalWorkspace)}
+				data-testid="plugin-access"
+			/>
+		),
 }));
 
 describe("OrganizationPluginDetailPage", () => {
@@ -173,11 +182,6 @@ describe("OrganizationPluginDetailPage", () => {
 			/>
 		);
 
-		expect(
-			screen.getByText(
-				"Connect your account, then choose which Agents may use it."
-			)
-		).toBeTruthy();
 		expect(
 			screen.getByTestId("plugin-access").getAttribute("data-personal")
 		).toBe("true");

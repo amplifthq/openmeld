@@ -16,3 +16,7 @@ only the OpenMeld logo.
 
 Plugin details show known names, logos, and navigation immediately, with
 skeletons for settings until live setup information is available.
+
+Plugin details put Connect or Connected beside Website. Select Connected to
+review the account and confirm disconnection. Agent access has a Save access
+button beside its heading, and credential setup stays available below.

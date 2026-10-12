@@ -456,7 +456,7 @@ export function PluginStatusBadge(input: {
 	}
 	return (
 		<Badge className={resolveStatusToneProminentBadgeClassName("ready")}>
-			Account connected
+			Connected
 		</Badge>
 	);
 }

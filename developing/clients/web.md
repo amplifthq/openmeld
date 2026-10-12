@@ -583,7 +583,13 @@ when opening a Plugin and returning to the catalog. Personal status includes
 only the signed-in member's connection; organization status includes only the
 shared connection. All members can inspect shared status and permissions;
 only owners and admins can change them. Reuse Fluid Select for permission
-controls and keep account connection controls beside their scoped permissions.
+controls. Detail pages place Connect or Connected beside Website in the header.
+Connected opens account information and an explicit disconnect confirmation;
+reconnection, unavailable status, and mutation failures retain their real meaning.
+Provider components own the snapshot and mutations and supply the header action
+through a layout slot, without a second status query or page-owned connection state.
+Credential forms and GitHub installation guidance remain below the scope tabs.
+Save access sits opposite the Agent access heading and requires an unsaved change.
 Loading connection status must not block opening the catalog or a Plugin's
 settings. Route loaders do not await connection snapshots; the mounted page
 owns loading, cached status, and retry feedback after organization authorization.

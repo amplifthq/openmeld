@@ -156,7 +156,7 @@ describe("PluginsCatalogPanel", () => {
 		const githubLink = screen.getByRole("link", { name: GITHUB_LINK_NAME });
 		expect(catalog.getAttribute("aria-busy")).toBe("true");
 		expect(githubLink.hasAttribute("aria-disabled")).toBe(false);
-		expect(within(githubLink).queryByText("Account connected")).toBeNull();
+		expect(within(githubLink).queryByText("Connected")).toBeNull();
 		expect(
 			within(githubLink).queryByTestId("plugin-connection-status-skeleton")
 		).toBeTruthy();
@@ -184,43 +184,37 @@ describe("PluginsCatalogPanel", () => {
 		const own = screen.getByRole("link", { name: GITHUB_LINK_NAME });
 		const shared = screen.getByRole("link", { name: NOTION_LINK_NAME });
 		expect(
-			await within(scope === "personal" ? own : shared).findByText(
-				"Account connected"
-			)
+			await within(scope === "personal" ? own : shared).findByText("Connected")
 		).toBeTruthy();
 		expect(
-			within(scope === "personal" ? shared : own).queryByText(
-				"Account connected"
-			)
+			within(scope === "personal" ? shared : own).queryByText("Connected")
 		).toBeNull();
 		expect(
 			within(screen.getByRole("link", { name: FIGMA_LINK_NAME })).queryByText(
-				"Account connected"
+				"Connected"
 			)
 		).toBeNull();
 	});
 
-	it("shows Account connected only for real Plugin connections", async () => {
+	it("shows Connected only for real Plugin connections", async () => {
 		renderCatalog();
 
 		const githubLink = screen.getByRole("link", { name: GITHUB_LINK_NAME });
-		expect(
-			await within(githubLink).findByText("Account connected")
-		).toBeTruthy();
+		expect(await within(githubLink).findByText("Connected")).toBeTruthy();
 		expect(screen.queryByText("Available")).toBeNull();
 		expect(
 			within(
 				screen.getByRole("link", { name: GOOGLE_DRIVE_LINK_NAME })
-			).queryByText("Account connected")
+			).queryByText("Connected")
 		).toBeNull();
 		expect(
 			within(screen.getByRole("link", { name: NOTION_LINK_NAME })).getByText(
-				"Account connected"
+				"Connected"
 			)
 		).toBeTruthy();
 		expect(
 			within(screen.getByRole("link", { name: FIGMA_LINK_NAME })).queryByText(
-				"Account connected"
+				"Connected"
 			)
 		).toBeNull();
 		expect(screen.queryByText("Planned")).toBeNull();
@@ -285,7 +279,7 @@ describe("PluginsCatalogPanel", () => {
 			)
 		).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
-		expect(screen.queryByText("Account connected")).toBeNull();
+		expect(screen.queryByText("Connected")).toBeNull();
 		expect(screen.queryByText("Available")).toBeNull();
 		fireEvent.click(screen.getByLabelText("Show connected Plugins"));
 		expect(screen.queryByText("No Plugins found")).toBeNull();
