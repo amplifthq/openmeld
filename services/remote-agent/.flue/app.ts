@@ -14,9 +14,10 @@ const app = new Hono<{ Bindings: CloudflareBindings }>();
 instrument(createCloudflareTracing({ content: false }));
 installRemoteAgentExecutionInstrumentation();
 const dispatchCenterAgentObservation = createCenterAgentObservationDispatcher({
-  handle: async (event) =>
+  handle: async (event, responseInputId) =>
     await handleCenterAgentObservation({
       event,
+      responseInputId,
       streamPublisher: remoteAgentStreamPublisher,
     }),
   scheduleBackground: waitUntil,

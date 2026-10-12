@@ -22,7 +22,10 @@ export function isProductionRecoveryCandidate(component, sourceSha) {
     component.recovery.sourceSha === sourceSha &&
     (component.recovery.kind === "guarded-health-resume" ||
       (component.scope === "remote-agent" &&
-        component.recovery.kind === "guarded-remote-container-continuation") ||
+        [
+          "guarded-remote-container-continuation",
+          "guarded-remote-native-verification",
+        ].includes(component.recovery.kind)) ||
       (component.scope === "db" &&
         component.recovery.kind === "guarded-postgresql-forward-retry") ||
       (component.scope === "core" &&

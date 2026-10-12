@@ -254,7 +254,10 @@ describe("PluginConnectionCard", () => {
 		expect(within(yourAccess).queryByText("Ashley")).toBeNull();
 	});
 
-	it("requires confirmation before disconnecting an Plugin", async () => {
+	it.each([
+		false,
+		true,
+	])("requires confirmation before disconnecting a Plugin (detail: %s)", async (detail) => {
 		listConnectionsMock.mockResolvedValue({
 			connections: [createLinearConnection()],
 			currentUserId: "user-1",
@@ -268,12 +271,22 @@ describe("PluginConnectionCard", () => {
 					mode="member"
 					organizationId="org-acme"
 					plugin={linearApp}
+					renderDetail={
+						detail
+							? (action, content) => (
+									<>
+										{action}
+										{content}
+									</>
+								)
+							: undefined
+					}
 				/>
 			</TestQueryClientProvider>
 		);
 
 		const disconnectButton = await screen.findByRole("button", {
-			name: "Disconnect Linear",
+			name: detail ? "Connected" : "Disconnect Linear",
 		});
 		await waitFor(() => {
 			expect(disconnectButton.hasAttribute("disabled")).toBe(false);
@@ -282,11 +295,15 @@ describe("PluginConnectionCard", () => {
 
 		expect(screen.getByRole("dialog")).toBeTruthy();
 		expect(
-			screen.getByRole("heading", { name: "Disconnect Linear?" })
+			screen.getByRole("heading", {
+				name: detail ? "Linear connection" : "Disconnect Linear?",
+			})
 		).toBeTruthy();
 		expect(
 			screen.getByText(
-				"This removes this connection from this OpenMeld workspace. It does not delete anything in Linear."
+				detail
+					? "Disconnecting removes this account’s access in OpenMeld. It does not delete data in Linear."
+					: "This removes this connection from this OpenMeld workspace. It does not delete anything in Linear."
 			)
 		).toBeTruthy();
 		expect(
@@ -296,8 +313,16 @@ describe("PluginConnectionCard", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 
-		fireEvent.click(screen.getByRole("button", { name: "Disconnect Linear" }));
-		fireEvent.click(screen.getByRole("button", { name: "Disconnect Linear" }));
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: detail ? "Connected" : "Disconnect Linear",
+			})
+		);
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: detail ? "Disconnect" : "Disconnect Linear",
+			})
+		);
 
 		await waitFor(() => {
 			expect(
@@ -750,7 +775,7 @@ describe("PluginConnectionCard", () => {
 		});
 		popup.closed = true;
 
-		expect(await screen.findByText("Account connected")).toBeTruthy();
+		expect(await screen.findByText("Connected")).toBeTruthy();
 		expect(
 			screen.queryByText(
 				"Linear wasn’t connected. Try again when you’re ready."
@@ -1116,7 +1141,7 @@ describe("PluginConnectionCard", () => {
 			await lateConnectionLookup;
 		});
 
-		expect(await screen.findByText("Account connected")).toBeTruthy();
+		expect(await screen.findByText("Connected")).toBeTruthy();
 		expect(
 			screen.queryByText(
 				"Linear authorization timed out. Start again when you are ready."

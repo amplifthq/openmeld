@@ -48,6 +48,10 @@ import {
 	PluginAccessLoadingSkeleton,
 	usePluginConnectionSnapshotCurrent,
 } from "./plugin-connection-status-ui";
+import {
+	PluginDetailConnection,
+	type PluginDetailLayout,
+} from "./plugin-detail-connection";
 
 const AUTHORIZATION_POLL_INTERVAL_MS = 1200;
 const MEMBER_AUTHORIZATION_TIMEOUT_MS = 120_000;
@@ -70,6 +74,7 @@ type GitHubConnectionCardPresentation =
 	| "conversation";
 
 export function CenterAgentGitHubConnectionCard(input: {
+	renderDetail?: PluginDetailLayout;
 	organizationName?: string;
 	canManage: boolean;
 	isPersonalWorkspace?: boolean;
@@ -375,6 +380,7 @@ export function CenterAgentGitHubConnectionCard(input: {
 			organizationName={input.organizationName}
 			otherMemberConnections={otherMemberConnections}
 			presentation={presentation}
+			renderDetail={input.renderDetail}
 			sharedConnection={sharedConnection}
 			statusAvailable={statusAvailable}
 			statusChecking={statusChecking}
@@ -389,6 +395,7 @@ type GitHubConnectionCardErrorState = {
 } | null;
 
 function GitHubConnectionCardContent(input: {
+	renderDetail?: PluginDetailLayout;
 	organizationName?: string;
 	authorizationDisabled: boolean;
 	canManage: boolean;
@@ -415,6 +422,72 @@ function GitHubConnectionCardContent(input: {
 	statusChecking: boolean;
 	waitingScope: AuthorizationScope | null;
 }) {
+	if (input.renderDetail && input.mode !== "all") {
+		const scope = input.mode;
+		const connection =
+			scope === "shared" ? input.sharedConnection : input.currentUserConnection;
+		const canManage = scope === "member" || input.canManage;
+		return (
+			<PluginDetailConnection
+				appName="GitHub"
+				canConnect
+				canManage={canManage}
+				connecting={input.waitingScope !== null}
+				connection={connection}
+				disabled={input.authorizationDisabled || input.disconnectDisabled}
+				disconnectDescription="This removes the connection from this OpenMeld workspace. It does not sign you out of GitHub or uninstall the OpenMeld GitHub Plugin."
+				disconnecting={input.disconnectPendingRequest !== null}
+				errorMessage={input.errorState?.message}
+				loading={input.loading}
+				onConnect={() => input.onConnect(scope)}
+				onDisconnect={() =>
+					input.onDisconnect({
+						scope,
+						...(scope === "member" ? { userId: connection?.userId } : {}),
+					})
+				}
+				renderDetail={input.renderDetail}
+				unavailable={!(input.statusAvailable || input.loading)}
+			>
+				{input.waitingScope ? (
+					<Button
+						onClick={input.onCancelAuthorization}
+						size="sm"
+						variant="outline"
+					>
+						Cancel authorization
+					</Button>
+				) : null}
+				{scope === "shared" &&
+				canManage &&
+				!connection &&
+				!input.loading &&
+				input.statusAvailable ? (
+					<Button
+						className="px-0"
+						disabled={input.authorizationDisabled}
+						onClick={() => input.onConnect("shared", true)}
+						size="sm"
+						variant="link"
+					>
+						Use an existing installation
+					</Button>
+				) : null}
+				{connection ? <GitHubOrganizationAccessNotice /> : null}
+				<GitHubConnectionError
+					errorState={input.errorState}
+					isConnectionError={input.isConnectionError}
+					onRetry={input.onRetry}
+				/>
+			</PluginDetailConnection>
+		);
+	}
+	return <GitHubConnectionSections {...input} />;
+}
+
+function GitHubConnectionSections(
+	input: Parameters<typeof GitHubConnectionCardContent>[0]
+) {
 	const disconnectingCurrentUser =
 		input.disconnectPendingRequest?.scope === "member" &&
 		input.disconnectPendingRequest.userId === input.currentUserId;

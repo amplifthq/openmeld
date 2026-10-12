@@ -503,6 +503,9 @@ function componentImpactCacheKey(sha, scope) {
 }
 
 function recoveryGuidance(recovery) {
+  if (recovery.kind === "guarded-remote-native-verification") {
+    return "Remote Agent native rollout applied; rerun the guarded stage to verify its exact Worker and Container identities and complete the existing receipt without deploying again.";
+  }
   return recovery.kind === "guarded-remote-container-continuation"
     ? "Remote Agent Worker applied; original Containers retained and native rollout pending. Verify original file synchronization before explicitly continuing the full Remote Agent stage."
     : "Retained evidence permits guarded recovery admission. The executor must still verify the exact operation and live deployment before continuing the retained attempt.";

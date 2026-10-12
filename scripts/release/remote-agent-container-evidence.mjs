@@ -55,6 +55,15 @@ export function describeRetainedContainer(container, page) {
     throw new Error("A Container instance is changing or unavailable.");
   }
   return retainedRemoteContainerSchema.parse({
+    ...describeRemoteContainerConfiguration(container),
+    instances: active
+      .map(({ id, version }) => ({ id, version }))
+      .sort((a, b) => a.id.localeCompare(b.id)),
+  });
+}
+
+export function describeRemoteContainerConfiguration(container) {
+  return retainedRemoteContainerSchema.omit({ instances: true }).parse({
     id: container.id,
     name: container.name,
     version: container.version,
@@ -74,9 +83,6 @@ export function describeRetainedContainer(container, page) {
         )
       )
       .digest("hex"),
-    instances: active
-      .map(({ id, version }) => ({ id, version }))
-      .sort((a, b) => a.id.localeCompare(b.id)),
   });
 }
 
