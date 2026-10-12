@@ -1238,9 +1238,7 @@ export class ComputerContainerProbe extends withLegacyWorkspaceContainer(
         workingDirectory: ROOT,
         workspaceAccess: {
           withWorkspace: async (operation) => {
-            using client = await getWorkspace({
-              __getWorkspaceStub: () => Promise.resolve(owner.stub()),
-            });
+            using client = await getWorkspace(owner);
             return await operation(client);
           },
         },

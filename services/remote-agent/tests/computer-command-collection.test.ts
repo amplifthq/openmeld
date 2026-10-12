@@ -209,6 +209,33 @@ it.each([
   }
 });
 
+it("keeps the automatic observation budget bounded while native admission is unknown", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(0);
+  const f = fixture();
+  await seed(f, "one", {
+    preparation: {
+      request: { action: "start", key: "one", command: "run once" },
+      workingDirectory: "/computer",
+    },
+  });
+  f.getExec.mockRejectedValue(
+    Object.assign(new Error("not admitted"), { code: "ENOENT" })
+  );
+  for (let attempt = 0; attempt < 9; attempt++) {
+    await collectComputerCommands(f);
+    await vi.advanceTimersByTimeAsync(300_000);
+  }
+  expect(f.getExec).toHaveBeenCalledTimes(8);
+  await expect(
+    f.tool.execute({ action: "poll", key: "one", waitSeconds: 0 })
+  ).resolves.toMatchObject({
+    phase: "launch_unknown",
+    collection: { unconfirmedAttempts: 8, nextAttemptAtMs: null },
+  });
+  expect(f.killExec).not.toHaveBeenCalled();
+});
+
 it("does not apply a late failed collection over a fresh manual observation on the same receipt", async () => {
   vi.useFakeTimers();
   vi.setSystemTime(0);
