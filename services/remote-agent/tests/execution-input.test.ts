@@ -11,6 +11,7 @@ import {
 } from "../agent-core/execution-state";
 import {
   createRemoteAgentSteeringSource,
+  hasPendingRemoteAgentExecutionInput,
   readRemoteAgentExecutionInput,
   receiveRemoteAgentExecutionInput,
 } from "../flue-adapter/execution-input";
@@ -66,7 +67,11 @@ describe("exact-execution input intake", () => {
       receipt: { appliedAtMs: null },
     });
     const firstSource = createRemoteAgentSteeringSource({ storage, context });
+    expect(
+      await hasPendingRemoteAgentExecutionInput({ storage, context })
+    ).toBe(true);
     const pending = await firstSource.claim();
+    expect(firstSource.getResponseId()).toBe("openmeld-input:correction");
     expect(pending).toHaveLength(1);
     const message = pending[0]?.input.message;
     expect(message).toMatchObject({
@@ -91,6 +96,10 @@ describe("exact-execution input intake", () => {
     }
     await rebuilt.finalize(firstInput.input.submissionId);
     expect(await firstSource.claim()).toEqual([]);
+    expect(
+      await hasPendingRemoteAgentExecutionInput({ storage, context })
+    ).toBe(false);
+    expect(rebuilt.getResponseId()).toBe(firstSource.getResponseId());
     expect(
       await readRemoteAgentExecutionInput({ storage, query: request })
     ).toMatchObject({
