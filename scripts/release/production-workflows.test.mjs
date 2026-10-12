@@ -740,13 +740,17 @@ test("maps the GitHub OAuth secret around GitHub's reserved secret prefix", () =
   );
 });
 
-test("uses one cached repository setup in current release jobs", () => {
+test("caches workspace builds without restoring the workspace store for publication tools", () => {
   const setupAction = readRepoFile(
     ".github/actions/setup-node-pnpm/action.yml"
   );
 
   assert.ok(setupAction.includes("pnpm/action-setup@v6"));
-  assert.ok(setupAction.includes("cache: pnpm"));
+  assert.ok(
+    setupAction.includes(
+      "inputs.dependency_mode == 'workspace' && 'pnpm' || ''"
+    )
+  );
   assert.ok(
     setupAction.includes(
       'pnpm --dir "$SETUP_WORKING_DIRECTORY" install --frozen-lockfile'

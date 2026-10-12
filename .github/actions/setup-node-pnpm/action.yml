@@ -32,7 +32,8 @@ runs:
       uses: actions/setup-node@v5
       with:
         node-version: ${{ inputs.node_version }}
-        cache: pnpm
+        cache: ${{ inputs.dependency_mode == 'workspace' && 'pnpm' || '' }}
+        package-manager-cache: ${{ inputs.dependency_mode == 'workspace' }}
         cache-dependency-path: ${{ inputs.working_directory }}/pnpm-lock.yaml
 
     - name: Install dependencies

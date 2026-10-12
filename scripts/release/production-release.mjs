@@ -10,6 +10,7 @@ import { readCutoverTarget } from "../../tooling/postgresql/remote-target.mjs";
 import { hasUnchangedCloudComputerRequests } from "./cloud-computer-request-compatibility.mjs";
 import {
   admitPostgresqlProductRelease,
+  assertHostedProductDatabaseReleaseSupported,
   readPostgresqlCutoverPreparation,
   restoreProductCrons,
   verifyProductCrons,
@@ -49,6 +50,7 @@ const DEFAULT_BASE_REF = "origin/main";
 const COMPLETION_PROBE_TIMEOUT_MS = 30_000;
 const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const LINE_SPLIT_REGEX = /\r?\n/u;
+const GITHUB_RUN_URL = /\/actions\/runs\/(\d+)\b/u;
 const TEST_FILE_REGEX =
   /(?:^|\/)[^/]+\.(?:integration\.)?(?:spec|test)\.[cm]?[jt]sx?$/u;
 const VITEST_CONFIG_REGEX = /(?:^|\/)vitest\.[^/]+config\.[cm]?[jt]s$/u;
@@ -1016,6 +1018,7 @@ export function parseProductionReleaseArgs(argv) {
     command,
     json: false,
     scope: "auto",
+    lane: "local",
   };
   for (let index = 1; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -1033,6 +1036,7 @@ export function parseProductionReleaseArgs(argv) {
     const valueOption = new Map([
       ["--base", "base"],
       ["--scope", "scope"],
+      ["--lane", "lane"],
       ["--domain-evidence", "domainEvidence"],
       ["--domain-phase", "domainPhase"],
       ["--database-cutover-snapshot", "databaseCutoverSnapshot"],
@@ -1053,7 +1057,27 @@ export function parseProductionReleaseArgs(argv) {
   }
   validateDomainReleaseOptions(options);
   validateDatabaseCutoverOptions(options);
+  validateReleaseLane(options);
   return options;
+}
+
+function validateReleaseLane(options) {
+  if (!["local", "github"].includes(options.lane)) {
+    throw new Error("--lane must be local or github.");
+  }
+  if (
+    options.lane === "github" &&
+    (options.command !== "deploy" ||
+      options.domainEvidence ||
+      options.domainPhase ||
+      options.databaseCutoverSnapshot ||
+      options.databaseCutoverRestoreCrons ||
+      options.redeploy)
+  ) {
+    throw new Error(
+      "The GitHub lane supports ordinary deploys; use the local lane for recovery and explicit redeploys."
+    );
+  }
 }
 
 function validateDatabaseCutoverOptions(options) {
@@ -3603,7 +3627,7 @@ function assertContinuationScope(status, input, scopes) {
     status.sourceSha !== input.sourceSha ||
     status.currentChange?.baseSha !== input.baseSha ||
     status.currentChange.error ||
-    status.currentChange.orderingError
+    (!input.scopes && status.currentChange.orderingError)
   ) {
     throw new Error(
       "Release continuation requires the unchanged source and change base with a valid scope plan."
@@ -3656,13 +3680,18 @@ export async function resumeProductionRelease(input) {
   const collect = input.collectStatus ?? collectProductionReleaseStatus;
   const write = input.write ?? ((line) => process.stdout.write(`${line}\n`));
   const attempted = new Set();
+  const completion = input.scopes
+    ? `Selected components complete: ${input.scopes.join(", ")}.`
+    : "Deployment complete for this change.";
   let scopes;
+  let changeScopes;
   for (;;) {
     const status = await collect({
       argv: ["--ref", input.sourceSha, "--change-base", input.baseSha],
     });
-    assertContinuationScope(status, input, scopes);
-    scopes ??= [...status.currentChange.scopes];
+    assertContinuationScope(status, input, changeScopes);
+    changeScopes ??= [...status.currentChange.scopes];
+    scopes ??= input.scopes ?? changeScopes;
     const remaining = scopes.filter(
       (scope) =>
         !status.components.some(
@@ -3672,9 +3701,14 @@ export async function resumeProductionRelease(input) {
     );
     if (remaining.length === 0) {
       write(
-        "Deployment complete for this change. Complete the changed-path product smoke and any required Desktop acceptance separately."
+        `${completion} Complete the changed-path product smoke and any required Desktop acceptance separately.`
       );
       return;
+    }
+    // Waiting is read-only. A running publisher can temporarily leave a
+    // started receipt; wait for it before deciding whether a new write is safe.
+    if (await input.waitForActiveRelease?.(remaining, status)) {
+      continue;
     }
     for (const scope of remaining) {
       if (attempted.has(scope)) {
@@ -3709,12 +3743,83 @@ export async function resumeProductionRelease(input) {
   }
 }
 
-export function assertLocalContinuationScope(scope, sourceSha, trainScopes) {
-  if (scope === "cli") {
-    throw new Error(
-      `CLI publication requires the existing GitHub Trusted Publishing workflow. Run: gh workflow run cli-release.yml --ref main -f release_sha=${sourceSha} -f production_train_scopes=${trainScopes.join(",")}. After it succeeds, rerun the original local continuation command; verified components will be skipped.`
-    );
+export function runHostedRelease(scope, sourceSha, trainScopes, input = {}) {
+  const capture =
+    input.capture ??
+    ((args) => execFileSync("gh", args, { encoding: "utf8" }).trim());
+  const watch =
+    input.watch ??
+    ((args) => {
+      const result = spawnSync("gh", args, { stdio: "inherit" });
+      if (result.error || result.status !== 0) {
+        throw (
+          result.error ??
+          new Error(
+            "GitHub release did not complete successfully. Inspect the run; do not repeat completed components."
+          )
+        );
+      }
+    });
+  const workflow = scope === "cli" ? "cli-release.yml" : "release-on-main.yml";
+  const title =
+    scope === "cli"
+      ? `CLI Release @ ${sourceSha}`
+      : `Scoped Production Release ${scope} @ ${sourceSha}`;
+  // GitHub owns dispatch and waiting. Reattach to an active exact-source run
+  // after interruption rather than maintaining another local release ledger.
+  const active = JSON.parse(
+    capture([
+      "run",
+      "list",
+      "--workflow",
+      workflow,
+      "--branch",
+      "main",
+      "--event",
+      "workflow_dispatch",
+      "--limit",
+      "100",
+      "--json",
+      "databaseId,displayTitle,status",
+    ])
+  ).find((run) => run.displayTitle === title && run.status !== "completed");
+  let runId = active?.databaseId;
+  if (!runId && input.waitOnly) {
+    return false;
   }
+  if (!runId) {
+    const output = capture([
+      "workflow",
+      "run",
+      workflow,
+      "--ref",
+      "main",
+      "--raw-field",
+      `release_sha=${sourceSha}`,
+      "--raw-field",
+      `production_train_scopes=${trainScopes.join(",")}`,
+      ...(scope === "cli"
+        ? []
+        : ["--raw-field", `scope=${scope === "db" ? "database" : scope}`]),
+    ]);
+    process.stdout.write(`${output}\n`);
+    runId = output.match(GITHUB_RUN_URL)?.[1];
+    if (!runId) {
+      throw new Error(
+        "GitHub accepted the dispatch without a run URL. Inspect Actions before retrying; use a current GitHub CLI that returns the created run URL."
+      );
+    }
+  }
+  watch([
+    "run",
+    "watch",
+    String(runId),
+    "--exit-status",
+    "--interval",
+    "30",
+    "--compact",
+  ]);
+  return true;
 }
 
 function assertContinuationOptions(options) {
@@ -3728,7 +3833,9 @@ function assertContinuationOptions(options) {
 function isAutomaticContinuation(options) {
   return (
     options.command === "deploy" &&
-    options.scope === "auto" &&
+    (options.scope === "auto" ||
+      options.lane === "github" ||
+      options.scope === "cli") &&
     !options.domainEvidence &&
     !options.domainPhase &&
     !options.databaseCutoverSnapshot &&
@@ -3751,14 +3858,35 @@ async function main(argv) {
     await resumeProductionRelease({
       sourceSha,
       baseSha,
+      scopes: expandRequestedReleaseScopes(options.scope),
+      waitForActiveRelease: (remaining, status) => {
+        for (const scope of remaining) {
+          if (
+            (scope === "cli" || options.lane === "github") &&
+            runHostedRelease(scope, sourceSha, status.currentChange.scopes, {
+              waitOnly: true,
+            })
+          ) {
+            return true;
+          }
+        }
+        return false;
+      },
       deployScope: async (scope, status) => {
-        assertLocalContinuationScope(
-          scope,
-          sourceSha,
-          status.currentChange.scopes
-        );
         assertSourceStillMatches(sourceSha);
-        await main(["deploy", "--base", baseSha, "--scope", scope]);
+        if (scope === "cli" || options.lane === "github") {
+          if (scope !== "cli") {
+            assertHostedProductDatabaseReleaseSupported(process.cwd(), [scope]);
+          }
+          runHostedRelease(scope, sourceSha, [
+            ...new Set([
+              ...status.currentChange.scopes,
+              ...(expandRequestedReleaseScopes(options.scope) ?? []),
+            ]),
+          ]);
+        } else {
+          await main(["deploy", "--base", baseSha, "--scope", scope]);
+        }
         assertSourceStillMatches(sourceSha);
       },
     });

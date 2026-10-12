@@ -40,6 +40,7 @@ import {
   acquireProductionScopeLease,
   releaseProductionScopeLease,
 } from "./production-scope-lease.mjs";
+import { requireMainlineReleaseSha } from "./require-mainline-release-sha.mjs";
 
 const DMG_SUFFIX = /\.dmg$/;
 const STABLE_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
@@ -414,7 +415,10 @@ export function assertDesktopPromotionVersion(next, current) {
 }
 
 export async function promoteDesktopCandidate(id, expectedVersion) {
-  const publisherEnv = await checkDesktopPublisher();
+  const { env: publisherEnv } = desktopPublisherCredentials();
+  const { releaseSha } = requireMainlineReleaseSha({
+    releaseSha: process.env.OPENMELD_DESKTOP_RELEASE_SHA,
+  });
   const repoRoot = process.cwd();
   const manifestPath = path.join(
     repoRoot,
@@ -424,7 +428,12 @@ export async function promoteDesktopCandidate(id, expectedVersion) {
     JSON.parse(readFileSync(manifestPath, "utf8"))
   );
   const updateArtifact = desktopCandidateUpdateArtifact(manifest);
-  if (id !== manifest.sha256 || !updateArtifact || !expectedVersion) {
+  if (
+    id !== manifest.sha256 ||
+    manifest.releaseSha !== releaseSha ||
+    !updateArtifact ||
+    !expectedVersion
+  ) {
     throw new Error(
       "Specify the reviewed candidate hash and expected current version (or none)."
     );
@@ -459,29 +468,9 @@ export async function promoteDesktopCandidate(id, expectedVersion) {
       "Published candidate metadata differs from the reviewed candidate."
     );
   }
-  const artifactPath = path.join(
-    repoRoot,
-    "clients/desktop/dist/production-preview",
-    location.artifactName
-  );
-  const inspected = await inspectPlatformCandidate(
-    repoRoot,
-    artifactPath,
-    manifest.version,
-    manifest.platform
-  );
-  if (
-    inspected.releaseSha !== manifest.releaseSha ||
-    (manifest.windows &&
-      inspected.windows?.publisherName !== manifest.windows.publisherName)
-  ) {
-    throw new Error(
-      "Candidate source or signing identity differs from the reviewed manifest."
-    );
-  }
-  if (hashFileSha256(artifactPath) !== id) {
-    throw new Error("Candidate installer changed.");
-  }
+  // Upload owns native signature/source inspection. The immutable published
+  // manifest and public artifact hashes bind promotion to those exact bytes;
+  // inspecting another local copy adds no guarantee.
   // Complete public reads prove the deployed routes and both immutable artifacts
   // before the sole mutable pointer becomes visible to clients.
   for (const [pathname, sha256, size] of [
