@@ -478,7 +478,6 @@ export async function readPostgresqlCutoverPreparation(root = process.cwd()) {
         "Freeze again and preserve/reconcile new PostgreSQL writes plus DO/R2 effects, or forward-fix. Never point writers back to the stale D1 snapshot.",
     },
     evidenceStatus: "not_evaluated",
-    executor:
-      "production-release.mjs deploy --database-cutover-snapshot <snapshot>",
+    executor: "pnpm run deploy -- --database-cutover-snapshot <snapshot>",
   };
 }

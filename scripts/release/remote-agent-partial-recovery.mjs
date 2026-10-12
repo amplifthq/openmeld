@@ -166,8 +166,8 @@ export function verifyRecoveredRemoteAgentTarget(input) {
     page?.page_token !== null ||
     !Number.isInteger(page?.per_page) ||
     page.per_page < listed.length ||
-    health?.healthy !== container.instances ||
-    health?.healthy < 1 ||
+    health?.healthy + health?.active !== container.instances ||
+    health?.healthy + health?.active < 1 ||
     health?.failed !== 0 ||
     health?.starting !== 0 ||
     health?.stopped !== 0 ||
@@ -370,7 +370,11 @@ function assertCleanSource(cwd, expectedSha) {
   }
 }
 
-async function waitForContainer(cwd, baseline, workerVersionId) {
+export async function waitForRemoteAgentContainer(
+  cwd,
+  baseline,
+  workerVersionId
+) {
   const deadline = Date.now() + ROLLOUT_TIMEOUT_MS;
   let lastError;
   while (Date.now() < deadline) {
@@ -623,7 +627,7 @@ async function main(argv) {
               runCommand: (input) => readWorkerCommand(sourceDir, input),
             }),
           verifyContainer: (workerVersionId) =>
-            waitForContainer(sourceDir, baseline, workerVersionId),
+            waitForRemoteAgentContainer(sourceDir, baseline, workerVersionId),
           observeFailure: () => {
             const observed = readState(sourceDir, baseline.containerId);
             const active = observed.deployments.toSorted(

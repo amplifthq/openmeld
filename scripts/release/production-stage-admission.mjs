@@ -21,6 +21,8 @@ export function isProductionRecoveryCandidate(component, sourceSha) {
     component.recovery?.admission === "candidate" &&
     component.recovery.sourceSha === sourceSha &&
     (component.recovery.kind === "guarded-health-resume" ||
+      (component.scope === "remote-agent" &&
+        component.recovery.kind === "guarded-remote-container-continuation") ||
       (component.scope === "db" &&
         component.recovery.kind === "guarded-postgresql-forward-retry") ||
       (component.scope === "core" &&

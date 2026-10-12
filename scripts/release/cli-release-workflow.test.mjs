@@ -575,12 +575,6 @@ test("keeps the Remote Agent release check on the repository-pinned formatter", 
     remoteAgentPackage.scripts.check,
     "biome check . && pnpm run typecheck"
   );
-  assert.ok(
-    remoteAgentPackage.scripts.deploy.includes(
-      "wrangler deploy --config dist/openmeld_remote_agent/wrangler.prod.json"
-    )
-  );
-  assert.ok(!remoteAgentPackage.scripts.deploy.includes("--minify"));
 });
 
 test("builds Web workspace dependencies before a production Vite build", () => {

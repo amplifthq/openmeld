@@ -192,6 +192,15 @@ function fixture() {
   const killExec = vi.fn((_id: string) => Promise.resolve());
   const workspace = {
     executionSync: vi.fn(async () => undefined),
+    resumeExecutionSync: vi.fn(async () => ({
+      status: "complete" as const,
+      outcome: {
+        epoch: "retained",
+        rev: 8,
+        skipped: [],
+        skippedTruncated: false,
+      },
+    })),
     maintainSync: vi.fn(async () => false),
     runtime: {
       exec,
@@ -232,6 +241,159 @@ function fixture() {
 }
 
 describe("retained Computer commands", () => {
+  it.each([
+    false,
+    true,
+  ])("resumes file sync after native logs expire, including a historical refusal: %s", async (historical) => {
+    const f = fixture();
+    // Captured production failure: the command exited before its large file
+    // tree finished syncing. The native log expired; the sync window did not.
+    const key =
+      "openmeld:remote-agent:computer-command:execution-a:expired-log";
+    const id = "retained-execution";
+    await f.storage.put(key, {
+      id,
+      key: "expired-log",
+      fingerprint: "captured-exit",
+      createdAt: Date.now() - 600_000,
+      backend: "container",
+      collectable: true,
+      observation: {
+        id,
+        key: "expired-log",
+        status: "running",
+        exitCode: 17,
+        stdout: "",
+        stderr: "",
+        after: 2,
+        syncPending: true,
+        ...(historical ? { syncError: "ENOENT", nextAction: "inspect" } : {}),
+      },
+      output: [{ after: 1, stdout: "saved result\n", stderr: "" }],
+      ...(historical
+        ? { loss: "ENOENT", lossConfirmed: true, lossReported: true }
+        : {}),
+      collection: { unconfirmedAttempts: 0, nextAttemptAtMs: null },
+    });
+    f.getExec.mockRejectedValue(
+      Object.assign(new Error("no exec record"), { code: "ENOENT" })
+    );
+    vi.mocked(f.workspace.resumeExecutionSync).mockResolvedValueOnce({
+      status: "pending",
+      progress: {
+        operationId: "retained-sync",
+        generation: "retained-sync",
+        backend: "container",
+        direction: "pull",
+        mode: "entries",
+        phase: "transferring",
+        checkpoint: "retained-cursor-1",
+        cursor: { rev: 1, path: null },
+        targetCursor: { rev: 8, path: null },
+        entries: 1,
+        bytes: 8,
+        skipped: 0,
+        complete: false,
+      },
+    });
+    const pending = await f
+      .tool()
+      .execute({ action: "poll", key: "expired-log" });
+    expect(pending).toMatchObject({
+      status: "running",
+      syncPending: true,
+      exitCode: 17,
+      stdout: "saved result\n",
+    });
+    if (historical) {
+      expect(pending).toMatchObject({
+        syncError: "ENOENT",
+        nextAction: "inspect",
+      });
+      expect(await f.storage.get(key)).toMatchObject({ lossConfirmed: true });
+    }
+    const result = await f
+      .tool()
+      .execute({ action: "poll", key: "expired-log" });
+    expect(result).toMatchObject({
+      phase: "completed",
+      status: "completed",
+      exitCode: 17,
+      stdout: "saved result\n",
+    });
+    expect(result).not.toHaveProperty("syncError");
+    expect(result).not.toHaveProperty("syncPending");
+    const saved = await f.storage.get<Record<string, unknown>>(key);
+    expect(saved).not.toHaveProperty("loss");
+    expect(saved).not.toHaveProperty("lossConfirmed");
+    expect(f.exec).not.toHaveBeenCalled();
+    expect(f.getExec).not.toHaveBeenCalled();
+    expect(f.killExec).not.toHaveBeenCalled();
+  });
+
+  it("pauses file-sync observations without checkpoint progress and resumes on real progress", async () => {
+    const f = fixture();
+    const progress = {
+      operationId: "sync",
+      generation: "sync",
+      backend: "container",
+      direction: "pull" as const,
+      mode: "entries" as const,
+      checkpoint: "cursor-1",
+      cursor: { rev: 1, path: null },
+      targetCursor: { rev: 8, path: null },
+      entries: 1,
+      bytes: 8,
+      skipped: 0,
+      complete: false,
+    };
+    vi.mocked(f.workspace.resumeExecutionSync).mockImplementation(() =>
+      Promise.resolve({ status: "pending", progress })
+    );
+    await f
+      .tool()
+      .execute({ action: "start", key: "sync-budget", command: "echo saved" });
+    f.getExec.mockImplementation(async (id) =>
+      handle(
+        id,
+        [
+          { id, seq: 1, name: "stdout", value: "saved" },
+          { id, seq: 2, name: "exit", code: 17 },
+        ],
+        true
+      )
+    );
+    await f.tool().execute({ action: "poll", key: "sync-budget" });
+    for (let attempt = 0; attempt < 8; attempt++) {
+      await collectComputerCommands({
+        storage: f.storage,
+        workspaceAccess: f.workspaceAccess,
+      });
+    }
+    const key =
+      "openmeld:remote-agent:computer-command:execution-a:sync-budget";
+    expect(await f.storage.get(key)).toMatchObject({
+      collection: { unconfirmedAttempts: 8, nextAttemptAtMs: null },
+    });
+    const calls = vi.mocked(f.workspace.resumeExecutionSync).mock.calls.length;
+    await collectComputerCommands({
+      storage: f.storage,
+      workspaceAccess: f.workspaceAccess,
+    });
+    expect(f.workspace.resumeExecutionSync).toHaveBeenCalledTimes(calls);
+    await f.tool().execute({ action: "poll", key: "sync-budget" });
+    expect(await f.storage.get(key)).toMatchObject({
+      collection: { unconfirmedAttempts: 8, nextAttemptAtMs: null },
+    });
+    progress.checkpoint = "cursor-2";
+    progress.cursor.rev = 2;
+    await f.tool().execute({ action: "poll", key: "sync-budget" });
+    expect(await f.storage.get(key)).toMatchObject({
+      collection: { unconfirmedAttempts: 0 },
+    });
+    expect(f.exec).toHaveBeenCalledOnce();
+  });
+
   it("resumes bounded preparation after reconstruction without treating it as an uncertain dispatch", async () => {
     const f = fixture();
     const progress = {
@@ -241,11 +403,12 @@ describe("retained Computer commands", () => {
       direction: "push" as const,
       mode: "entries" as const,
       phase: "preparing" as const,
-      cursor: { rev: 0, path: null },
-      targetCursor: { rev: 100, path: null },
-      entries: 0,
-      bytes: 0,
-      skipped: 0,
+      checkpoint: "opaque-checkpoint-1",
+      cursor: { rev: 0, path: "/private/preparation-cursor" },
+      targetCursor: { rev: 100, path: "/private/preparation-target" },
+      entries: 16,
+      bytes: 128,
+      skipped: 1,
       complete: false,
     };
     const entered = Promise.withResolvers<void>();
@@ -282,14 +445,57 @@ describe("retained Computer commands", () => {
       await starting;
     }
     const start = await starting;
-    expect(start).toMatchObject({ phase: "accepted", nextAction: "poll" });
+    expect(start).toMatchObject({
+      phase: "accepted",
+      nextAction: "poll",
+      preparation: {
+        phase: "preparing",
+        generation: "plan",
+        checkpoint: "opaque-checkpoint-1",
+        cursorRevision: 0,
+        targetRevision: 100,
+        entries: 16,
+        bytes: 128,
+        skipped: 1,
+      },
+    });
+    expect(JSON.stringify(start)).not.toContain("/private/preparation-");
+    expect(
+      JSON.stringify([...(await f.storage.list()).values()])
+    ).not.toContain("/private/preparation-");
     expect(f.processes.size).toBe(0);
     expect(f.getExec).toHaveBeenCalledTimes(2);
     f.getExec.mockReset();
+    const nextProgress = {
+      ...progress,
+      checkpoint: "opaque-checkpoint-2",
+      phase: "transferring" as const,
+      entries: 2,
+      bytes: 8,
+      skipped: 0,
+    };
+    f.exec.mockRejectedValueOnce(new WorkspaceSyncPendingError(nextProgress));
+    expect(
+      await f
+        .tool()
+        .execute({ action: "poll", key: "prepared", waitSeconds: 0 })
+    ).toMatchObject({
+      preparation: {
+        checkpoint: "opaque-checkpoint-2",
+        phase: "transferring",
+        entries: 2,
+        bytes: 8,
+        skipped: 0,
+      },
+    });
+    expect(f.processes.size).toBe(0);
     // Recreate the tool: only its persisted request authorizes the first spawn.
-    await f.tool().execute({ action: "poll", key: "prepared", waitSeconds: 0 });
+    const launched = await f
+      .tool()
+      .execute({ action: "poll", key: "prepared", waitSeconds: 0 });
+    expect(launched).not.toHaveProperty("preparation");
     expect(f.processes.size).toBe(1);
-    expect(f.exec.mock.calls[1]?.[1].id).toBe(f.exec.mock.calls[0]?.[1].id);
+    expect(f.exec.mock.calls[2]?.[1].id).toBe(f.exec.mock.calls[0]?.[1].id);
   });
 
   it("stops a prepared command before dispatch and cleanup never looks for a nonexistent native handle", async () => {
@@ -310,11 +516,13 @@ describe("retained Computer commands", () => {
         complete: false,
       })
     );
-    await f.tool().execute({
+    const prepared = await f.tool().execute({
       action: "start",
       key: "stop-prepared",
       command: "echo must-not-run",
     });
+    expect(prepared).toHaveProperty("preparation.phase", "preparing");
+    expect(prepared).not.toHaveProperty("preparation.checkpoint");
     expect(
       await f.tool().execute({ action: "stop", key: "stop-prepared" })
     ).toMatchObject({ status: "completed", exitCode: null });
@@ -365,6 +573,22 @@ describe("retained Computer commands", () => {
 
   it("retains a read-only refusal without losing successful output or reporting every file saved", async () => {
     const f = fixture();
+    vi.mocked(f.workspace.resumeExecutionSync).mockResolvedValue({
+      status: "complete",
+      outcome: {
+        epoch: "retained",
+        rev: 8,
+        skippedTruncated: false,
+        skipped: [
+          {
+            path: "/protected/result.txt",
+            mountRoot: "/protected",
+            op: "write",
+            reason: "read-only",
+          },
+        ],
+      },
+    });
     f.getExec.mockImplementation(async (id) => {
       const execution = handle(
         id,
@@ -1292,6 +1516,9 @@ describe("retained Computer commands", () => {
 
   it("preserves the inspect action when the first exit cannot synchronize", async () => {
     const f = fixture();
+    vi.mocked(f.workspace.resumeExecutionSync).mockRejectedValue(
+      Object.assign(new Error("file source missing"), { code: "ENOENT" })
+    );
     f.exec.mockImplementationOnce((_source, options) =>
       Promise.resolve(
         handle(
@@ -1367,26 +1594,39 @@ describe("retained Computer commands", () => {
       });
       return Promise.resolve(receipt);
     });
+    vi.mocked(f.workspace.resumeExecutionSync).mockResolvedValueOnce({
+      status: "pending",
+      progress: {
+        operationId: "sync",
+        generation: "sync",
+        backend: "container",
+        direction: "pull",
+        mode: "entries",
+        checkpoint: "cursor-1",
+        cursor: { rev: 1, path: null },
+        targetCursor: { rev: 8, path: null },
+        entries: 1,
+        bytes: 8,
+        skipped: 0,
+        complete: false,
+      },
+    });
     await f.tool().execute({ action: "poll", key: "sync" });
     const entered = Promise.withResolvers<void>();
     const synchronized =
       Promise.withResolvers<
-        Awaited<ReturnType<WorkspaceRuntimeExecHandle<"utf8">["result"]>>
+        Awaited<ReturnType<WorkspaceClient["resumeExecutionSync"]>>
       >();
-    f.getExec.mockImplementationOnce((id) => {
-      const receipt = run(id);
-      receipt.result = () => {
-        entered.resolve();
-        return synchronized.promise;
-      };
-      return Promise.resolve(receipt);
+    vi.mocked(f.workspace.resumeExecutionSync).mockImplementationOnce(() => {
+      entered.resolve();
+      return synchronized.promise;
     });
     const confirming = f
       .tool()
       .execute({ action: "poll", key: "sync", waitSeconds: 20 });
     await entered.promise;
-    f.getExec.mockRejectedValue(
-      Object.assign(new Error("record expired"), { code: "ENOENT" })
+    vi.mocked(f.workspace.resumeExecutionSync).mockRejectedValue(
+      Object.assign(new Error("file source missing"), { code: "ENOENT" })
     );
     await collectComputerCommands({
       storage: f.storage,
@@ -1419,14 +1659,13 @@ describe("retained Computer commands", () => {
       await reconcile();
     }
     synchronized.resolve({
-      status: "completed",
-      exitCode: 0,
-      stdout: "",
-      stderr: "",
-      pushed: 0,
-      pulled: 0,
-      skipped: [],
-      sync: { status: "complete", applied: 0, skipped: [] },
+      status: "complete",
+      outcome: {
+        epoch: "retained",
+        rev: 8,
+        skipped: [],
+        skippedTruncated: false,
+      },
     });
     await expect(confirming).resolves.toMatchObject({
       status: "completed",
@@ -1460,6 +1699,37 @@ describe("retained Computer commands", () => {
       .tool()
       .execute({ action: "start", key: "sync", command: "printf saved" });
     let synced = false;
+    vi.mocked(f.workspace.resumeExecutionSync).mockImplementation(async () => {
+      await Promise.resolve();
+      if (!synced) {
+        return {
+          status: "pending",
+          progress: {
+            operationId: "sync",
+            generation: "sync",
+            backend: "container",
+            direction: "pull",
+            mode: "entries",
+            checkpoint: "cursor-1",
+            cursor: { rev: 1, path: null },
+            targetCursor: { rev: 8, path: null },
+            entries: 1,
+            bytes: 8,
+            skipped: 0,
+            complete: false,
+          },
+        };
+      }
+      return {
+        status: "complete",
+        outcome: {
+          epoch: "retained",
+          rev: 8,
+          skipped: [],
+          skippedTruncated: false,
+        },
+      };
+    });
     f.getExec.mockImplementation((id) => {
       const run = handle(
         id,
@@ -1535,6 +1805,9 @@ describe("retained Computer commands", () => {
         Object.assign(new Error("native receipt unavailable"), {
           code: lossCode,
         })
+      );
+      vi.mocked(f.workspace.resumeExecutionSync).mockRejectedValue(
+        Object.assign(new Error("file source unavailable"), { code: lossCode })
       );
       await collectComputerCommands({
         storage: f.storage,
@@ -2468,7 +2741,7 @@ describe("retained Computer commands", () => {
         storage: f.storage,
       })
     ).resolves.toMatchObject({ unfinished: 0 });
-    expect(f.getExec).toHaveBeenCalledTimes(3);
+    expect(f.getExec).toHaveBeenCalledTimes(2);
   });
 
   it("reports a native live subscriber as running and later reads the retained exit", async () => {
