@@ -1,16 +1,13 @@
-import { type ToolDefinition, usePersistentState } from "@flue/runtime";
+import type { ToolDefinition } from "@flue/runtime";
 import { HOSTED_PUBLIC_PROGRESS_TOOL_NAME } from "./public-progress";
 
 export function useInteractiveResponse(input: {
   getInputId: () => string | null;
+  getAcceptedResponseInputId: () => string | null;
   tools: ToolDefinition[];
 }): { tools: ToolDefinition[]; ready: boolean } {
-  const [respondedInput, setRespondedInput] = usePersistentState<string | null>(
-    "openmeld.interactiveResponse",
-    null
-  );
   const inputId = input.getInputId();
-  const ready = !inputId || respondedInput === inputId;
+  const ready = !inputId || input.getAcceptedResponseInputId() === inputId;
   if (ready) {
     return { tools: input.tools, ready };
   }
@@ -22,11 +19,12 @@ export function useInteractiveResponse(input: {
   }
   // Do not expose work, discovery, Code Mode or Skills until Core accepts the
   // user-facing response. This keeps one submission and its existing authority.
-  // Flue checkpoints the state with the tool settlement; the next render opens
-  // the normal catalog. An unseen update cannot unlock work.
+  // Text and progress share the publisher's durable Core acknowledgement;
+  // generated text or a successful tool invocation alone cannot unlock work.
   const responseTool: ToolDefinition = {
     ...progress,
     run: async (context) => {
+      const responseInputId = input.getInputId();
       const result = await progress.run(context);
       if (
         result &&
@@ -35,9 +33,10 @@ export function useInteractiveResponse(input: {
         result.output &&
         typeof result.output === "object" &&
         "shown" in result.output &&
-        result.output.shown === true
+        result.output.shown === true &&
+        responseInputId === input.getInputId() &&
+        input.getAcceptedResponseInputId() === responseInputId
       ) {
-        setRespondedInput(input.getInputId());
         return {
           ...result,
           output: {
