@@ -583,10 +583,26 @@ when opening a Plugin and returning to the catalog. Personal status includes
 only the signed-in member's connection; organization status includes only the
 shared connection. All members can inspect shared status and permissions;
 only owners and admins can change them. Reuse Fluid Select for permission
-controls and keep account connection controls beside their scoped permissions.
+controls. Detail pages place Connect or Connected beside Website in the header.
+Connected opens account information and an explicit disconnect confirmation;
+reconnection, unavailable status, and mutation failures retain their real meaning.
+Provider components own the snapshot and mutations and supply the header action
+through a layout slot, without a second status query or page-owned connection state.
+Credential forms and GitHub installation guidance remain below the scope tabs.
+Save access sits opposite the Agent access heading and requires an unsaved change.
 Loading connection status must not block opening the catalog or a Plugin's
 settings. Route loaders do not await connection snapshots; the mounted page
 owns loading, cached status, and retry feedback after organization authorization.
+The catalog and detail routes start provider and connection prefetches concurrently after
+scope authorization, without awaiting them for navigation. It reuses the same
+query cache as the mounted page. Known connections can render while providers
+are pending; skeleton rows cover unavailable results. The connected filter
+uses the current scope's active connections, including accounts needing
+reconnection, and combines with category and search filters. Pending or failed
+connection reads must not appear as an empty connected list.
+Cold detail pages can show curated identity and scope navigation immediately,
+but setup controls wait for live provider metadata. Skeletons occupy pending
+settings; a static Plugin definition does not establish sign-in readiness.
 
 ### Organization Skills
 

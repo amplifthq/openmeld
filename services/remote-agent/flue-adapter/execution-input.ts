@@ -168,17 +168,39 @@ export async function readRemoteAgentExecutionInput(input: {
   };
 }
 
+async function listExecutionInput(input: {
+  context: RemoteAgentCallbackContext;
+  storage: RemoteAgentStorage;
+}) {
+  return [...(await input.storage.list<Record>({ prefix: PREFIX })).values()]
+    .filter((record) =>
+      sameTarget(record.request.target, { ...input.context, v: 1 })
+    )
+    .sort((left, right) => left.sequence - right.sequence);
+}
+
+export async function hasPendingRemoteAgentExecutionInput(input: {
+  context: RemoteAgentCallbackContext;
+  storage: RemoteAgentStorage;
+}): Promise<boolean> {
+  return (await listExecutionInput(input)).some(
+    (record) => record.appliedAtMs === null
+  );
+}
+
 export function createRemoteAgentSteeringSource(input: {
   context: RemoteAgentCallbackContext;
   storage: RemoteAgentStorage;
-}): AgentSteeringSource {
-  const list = async () =>
-    [...(await input.storage.list<Record>({ prefix: PREFIX })).values()]
-      .filter(
-        (record) =>
-          record.request.target.submissionId === input.context.submissionId
-      )
-      .sort((left, right) => left.sequence - right.sequence);
+}): AgentSteeringSource & { getResponseId(): string } {
+  let responseId = input.context.submissionId;
+  const list = async () => {
+    const records = await listExecutionInput(input);
+    const latest = records.at(-1);
+    if (latest) {
+      responseId = `openmeld-input:${latest.request.inputId}`;
+    }
+    return records;
+  };
   const convert = (record: Record) => ({
     targetSubmissionId: input.context.submissionId,
     status:
@@ -203,6 +225,9 @@ export function createRemoteAgentSteeringSource(input: {
     },
   });
   return {
+    // A projection of the canonical intake consumed at Flue's join boundary.
+    // It never changes execution identity or repeats agent-start side effects.
+    getResponseId: () => responseId,
     claim: async () =>
       (await list())
         .filter((record) => record.appliedAtMs === null)

@@ -22,6 +22,7 @@ import {
   computerFinishFingerprint,
   reportComputerFinishFacts,
 } from "./execution-cleanup";
+import { hasPendingRemoteAgentExecutionInput } from "./execution-input";
 
 export type ComputerFinishState = {
   submissionId: string;
@@ -94,8 +95,8 @@ export async function checkRemoteAgentExecutionFinish(
     // still observes real work. Reads stay single-flight and the wait is
     // cancellable; the owner advances the receipt on its alarm. Model finish
     // count is not evidence of a failure.
-    // Abort/Stop remains authoritative. Ordinary queued input waits for this
-    // turn, just as it does while a model tool call is outstanding.
+    // Abort/Stop remains authoritative. Accepted same-execution input can
+    // yield the wait without changing the original command's ownership.
     state = await waitForComputerResults(input, state);
     if (!state) {
       return;
@@ -184,6 +185,14 @@ async function observeComputerFinish(
   let failures = 0;
   while (await canContinueComputerFinish(input)) {
     input.finish.signal?.throwIfAborted();
+    if (await hasPendingRemoteAgentExecutionInput(input)) {
+      input.finish.append({
+        kind: "signal",
+        type: "computer_wait_yielded",
+        body: "New authorized user input is waiting for this execution. Respond to it before continuing work. The original Computer commands remain active; inspect their existing references, without restarting or stopping them.",
+      });
+      return;
+    }
     let state: CloudComputerInvocationState;
     try {
       // One in-flight read owns this observation. A local wait budget must

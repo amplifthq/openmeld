@@ -3,6 +3,7 @@ import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
 import { appShellStaticData } from "#/components/app/shell-layout";
 import { TeamHeader } from "#/components/directory/team-header";
 import { TeamPeopleSidebar } from "#/components/directory/team-people-sidebar";
+import { prefetchPluginsRouteData } from "#/lib/organizations/app-route-prefetch";
 import { pluginScopeParser } from "#/lib/page-tab-search";
 import { getAppSidebarStatesForRoute } from "#/lib/sidebar-width-cookie";
 
@@ -21,7 +22,18 @@ export const Route = createFileRoute("/o/$orgSlug/plugins")({
 			: {}),
 	}),
 	staticData: appShellStaticData.plugins,
-	loader: async () => ({ sidebarStates: await getAppSidebarStatesForRoute() }),
+	loader: async ({ context, location, params }) => {
+		// Warm catalog and detail entries without gating navigation on either read.
+		prefetchPluginsRouteData({
+			organizationSlug: params.orgSlug,
+			queryClient: context.queryClient,
+			queryPersistence: context.queryPersistence,
+			routeFamily: location.href,
+		}).catch((error: unknown) => {
+			console.error("Failed to prefetch Plugins.", error);
+		});
+		return { sidebarStates: await getAppSidebarStatesForRoute() };
+	},
 	component: PluginsLayout,
 });
 
