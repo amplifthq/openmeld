@@ -173,22 +173,28 @@ it("pauses bounded automatic Stop delivery and permits only an explicit resume o
 it("does not equate exit with saved files or upgrade an explained blocked task after cleanup completes", async () => {
   const f = await fixture();
   f.state.pendingResults = 1;
-  await expect(
-    finishRemoteAgentComputerCommands(f.input)
-  ).resolves.toMatchObject({
+  const unreviewed = await finishRemoteAgentComputerCommands({
+    ...f.input,
+    assistantText: "All done",
+  });
+  expect(unreviewed).toMatchObject({
     code: "remote_agent.computer.command_cleanup_failed",
   });
+  expect(unreviewed?.explanationText).toBeUndefined();
   await reportComputerFinishFacts({ ...f.input, state: f.state });
   f.state.pendingResults = 0;
   const result = await finishRemoteAgentComputerCommands({
     ...f.input,
-    assistantText: "All done",
+    assistantText:
+      "The command exited, but I could not yet confirm that its files were saved.",
   });
   expect(result).toMatchObject({
     code: "remote_agent.computer.command_cleanup_failed",
     computerCleanup: { state: { pendingResults: 0 } },
   });
-  expect(result?.explanationText).toBeUndefined();
+  expect(result?.explanationText).toBe(
+    "The command exited, but I could not yet confirm that its files were saved."
+  );
 });
 
 it("limits changing Computer finish facts to two model feedback cycles", async () => {
@@ -248,7 +254,9 @@ it("limits changing Computer finish facts to two model feedback cycles", async (
     assistantText: "The previously observed output is saved.",
   });
   expect(result?.code).toBe("remote_agent.computer.command_cleanup_failed");
-  expect(result?.explanationText).toBeUndefined();
+  expect(result?.explanationText).toBe(
+    "The previously observed output is saved."
+  );
 });
 
 async function retainLegacyRunningCommand(

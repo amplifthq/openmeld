@@ -2213,19 +2213,25 @@ leave the SHA empty to select the dispatched main commit).
 - `operation=candidate` builds, signs, notarizes, verifies, and uploads a
   macOS arm64 candidate. It does not change the stable channel. The run summary
   records the version, source SHA, candidate hash, and public candidate page.
-  Build and publication are separate jobs. Retry a failed publication with
-  **Re-run failed jobs** to reuse the signed bundle. If the prior attempt already
-  published the complete candidate, the uploader verifies the same authoritative
-  metadata and both public artifacts without overwriting them.
+  Build and upload use one job and one toolchain setup. Re-running that job
+  rebuilds the candidate; it is not a publication-only retry. A local retry with
+  the same signed bytes can reuse an already uploaded candidate. Never rebuild
+  a candidate that has already been reviewed for promotion.
 - Complete the public-download and installed acceptance below. Then explicitly
   dispatch `operation=promote` with the same `release_sha`, successful
   `candidate_run_id`, reviewed `candidate_hash`, and `expected_version` (or
-  `none` for an empty channel). This restores the signed files from that run,
-  rechecks them against R2 and the public downloads, and uses the existing
+  `none` for an empty channel). This restores the small candidate metadata from
+  that run, matches it to authoritative R2 metadata and public artifact hashes,
+  and uses the existing
   shared `web` lease and sole promoted pointer. It does not rebuild or resign.
-- GitHub retains the signed promotion bundle for 30 days. Preserve the bundle
-  locally if promotion will happen later; the immutable R2 candidate remains
-  available. Do not rebuild an already reviewed candidate for promotion.
+- GitHub retains candidate metadata for 30 days; the immutable R2 candidate
+  owns the signed bytes. Promotion does not download another local installer,
+  mount it, repeat notarization checks, rebuild, or resign. Native signature and
+  embedded-source inspection belong to candidate upload; hashes preserve that
+  identity through promotion. A local promotion needs the reviewed metadata
+  in `clients/desktop/dist/production-preview/candidate.json`, not local DMG/ZIP
+  copies. Both local and GitHub promotion keep the public download checks,
+  expected-version comparison, release lease, and installed update acceptance.
 
 Both lanes use the existing company Developer ID and notarization account.
 The GitHub `production` environment supplies the same six `APPLE_*` credentials
