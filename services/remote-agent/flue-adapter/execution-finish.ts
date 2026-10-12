@@ -17,9 +17,9 @@ import {
   assertRemoteAgentTurnAllowsToolExecution,
   RemoteAgentTurnEndedError,
 } from "../agent-core/turn-end";
+import { inspectRemoteAgentComputerInvocation } from "./computer-command";
 import {
   computerFinishFingerprint,
-  readComputerFinishState,
   reportComputerFinishFacts,
   requestComputerCleanup,
 } from "./execution-cleanup";
@@ -71,7 +71,10 @@ export async function checkRemoteAgentExecutionFinish(
   if (!(await canContinueComputerFinish(input))) {
     return;
   }
-  let state = await readComputerFinishStateOrNull(input);
+  let state = await observeComputerFinish(input);
+  if (!state) {
+    return;
+  }
   const previous =
     input.finishState?.submissionId === input.context.submissionId
       ? input.finishState
@@ -82,13 +85,9 @@ export async function checkRemoteAgentExecutionFinish(
     // receipt on its alarm. Model finish count is not evidence of a failure.
     // Abort/Stop remains authoritative. Ordinary queued input waits for this
     // turn, just as it does while a model tool call is outstanding.
-    while (hasObservedComputerWork(state)) {
-      input.finish.signal?.throwIfAborted();
-      await delay(1000, undefined, { signal: input.finish.signal });
-      if (!(await canContinueComputerFinish(input))) {
-        return;
-      }
-      state = await readComputerFinishStateOrNull(input);
+    state = await waitForComputerResults(input, state);
+    if (!state) {
+      return;
     }
     if (hasCompleteComputerResults(state)) {
       // Persist this handoff with the appended facts, including when completion
@@ -127,8 +126,8 @@ export async function checkRemoteAgentExecutionFinish(
     return;
   }
   const cleanup = await requestComputerCleanup(input);
-  state = cleanup?.state ?? null;
-  const informed = computerFinishFingerprint(state);
+  const cleanupState = cleanup?.state ?? null;
+  const informed = computerFinishFingerprint(cleanupState);
   if (previous?.informed) {
     // Flue persists hook state and the appended facts in one canonical batch.
     // Reaching the next finish cycle proves the model processed that batch.
@@ -136,7 +135,7 @@ export async function checkRemoteAgentExecutionFinish(
     // their explanation independently of later cleanup progress.
     await reportComputerFinishFacts({
       ...input,
-      state,
+      state: cleanupState,
       reviewedFingerprint: previous.informed,
     });
     return;
@@ -148,7 +147,7 @@ export async function checkRemoteAgentExecutionFinish(
   input.finish.append({
     kind: "signal",
     type: "computer_result_incomplete",
-    body: `Computer recovery facts: ${JSON.stringify({ stopHandoffAccepted: cleanup?.accepted ?? false, state })}. Do not claim unknown actions completed, unsynchronized files were saved, or an unconfirmed process stopped. Explain the confirmed results and their existing references, what is incomplete or unknown, and the next safe step. The original receipts retain cleanup responsibility. Do not restart an uncertain command or repeat an external write. Computer launches for this invocation are fenced after Stop. You may finish with a truthful blocked answer, or use independent authorized non-Computer tools. Do not poll indefinitely.`,
+    body: `Computer recovery facts: ${JSON.stringify({ stopHandoffAccepted: cleanup?.accepted ?? false, state: cleanupState })}. Do not claim unknown actions completed, unsynchronized files were saved, or an unconfirmed process stopped. Explain the confirmed results and their existing references, what is incomplete or unknown, and the next safe step. The original receipts retain cleanup responsibility. Do not restart an uncertain command or repeat an external write. Computer launches for this invocation are fenced after Stop. You may finish with a truthful blocked answer, or use independent authorized non-Computer tools. Do not poll indefinitely.`,
   });
 }
 
@@ -173,13 +172,76 @@ async function canContinueComputerFinish(
   }
 }
 
-async function readComputerFinishStateOrNull(
-  input: Parameters<typeof readComputerFinishState>[0]
-): Promise<CloudComputerInvocationState | null> {
+async function waitForComputerResults(
+  input: ComputerExecutionFinishInput,
+  initial: CloudComputerInvocationState
+): Promise<CloudComputerInvocationState | undefined> {
+  let state: CloudComputerInvocationState | undefined = initial;
+  while (state && hasObservedComputerWork(state)) {
+    await delay(1000, undefined, { signal: input.finish.signal });
+    state = await observeComputerFinish(input);
+  }
+  return state;
+}
+
+async function observeComputerFinish(
+  input: ComputerExecutionFinishInput
+): Promise<CloudComputerInvocationState | undefined> {
+  let failures = 0;
+  while (await canContinueComputerFinish(input)) {
+    input.finish.signal?.throwIfAborted();
+    let state: CloudComputerInvocationState;
+    try {
+      // One in-flight read owns this observation. A local wait budget must
+      // neither abandon it and start overlapping reads nor authorize Stop.
+      state = await waitForObservation(
+        inspectRemoteAgentComputerInvocation(input),
+        input.finish.signal
+      );
+    } catch (error) {
+      input.finish.signal?.throwIfAborted();
+      failures += 1;
+      const retryAfterMs = Math.min(
+        1000 * 2 ** Math.min(failures - 1, 5),
+        30_000
+      );
+      console.warn("[remote_agent.computer_finish.observation_failed]", {
+        submissionId: input.context.submissionId,
+        failures,
+        retryAfterMs,
+        errorName: error instanceof Error ? error.name : "Error",
+      });
+      await delay(retryAfterMs, undefined, { signal: input.finish.signal });
+      continue;
+    }
+    input.finish.signal?.throwIfAborted();
+    return (await canContinueComputerFinish(input)) ? state : undefined;
+  }
+}
+
+async function waitForObservation<T>(
+  read: Promise<T>,
+  signal?: AbortSignal
+): Promise<T> {
+  if (!signal) {
+    return await read;
+  }
+  // Abort ends this observer, not the underlying read-only RPC. Both late
+  // resolution and rejection remain handled; no replacement read is started.
+  let abort: (() => void) | undefined;
   try {
-    return await readComputerFinishState(input);
-  } catch {
-    return null;
+    return await new Promise<T>((resolve, reject) => {
+      abort = () => reject(signal.reason);
+      signal.addEventListener("abort", abort, { once: true });
+      if (signal.aborted) {
+        abort();
+      }
+      read.then(resolve, reject);
+    });
+  } finally {
+    if (abort) {
+      signal.removeEventListener("abort", abort);
+    }
   }
 }
 

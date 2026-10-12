@@ -174,6 +174,7 @@ export async function reconcileRemoteAgentExecution(input: {
     ),
     env: input.env,
     storage: input.storage,
+    requestStop: true,
   });
 
   const settledExecution = await completeRemoteAgentExecutionState({

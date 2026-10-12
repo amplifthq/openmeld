@@ -799,14 +799,22 @@ not acquire authority to stop another accepted call.
 
 The finish hook can feed pending receipts back once. A second model finish does
 not authorize Stop while the original Computer still observes active work.
-The original unsettled Flue hook waits through bounded receipt reads while the
+The original unsettled Flue hook waits through single-flight receipt reads while the
 existing Computer alarm advances preparation and result collection. It respects
 the hook AbortSignal, explicit Stop and the original turn's authority. It does
 not create repeated model feedback cycles, a replacement task or a total
 execution deadline. Ordinary queued input waits for the current turn; explicit
 Stop can interrupt it. Completion supplies retained result references to the
-model before its final answer. Paused observation, explicit loss or unavailable
-evidence enters the existing recovery-facts and cleanup handoff. The hook
+model before its final answer. A slow read remains one in-flight observation;
+a rejected read retries with bounded backoff under the original turn authority.
+Neither a local observation timeout nor a failed read authorizes Stop. Abort
+ends the local wait without claiming to cancel the underlying read-only RPC.
+Paused collection, explicit loss or unavailable results confirmed by the Computer
+enter the existing recovery-facts and cleanup handoff. Unknown read state does not.
+Normal result publication and completed-result reconciliation only confirm
+Computer state; they cannot create a Stop obligation. Explicit cancellation,
+confirmed execution failure and existing Stop handoffs retain cleanup authority.
+The hook
 persists that disposition with Flue's atomic hook state. Cleanup progress
 cannot upgrade an already blocked task to success.
 

@@ -75,6 +75,7 @@ async function fixture(legacy = false) {
     storage,
     state,
     requestComputerCleanup,
+    readComputerInvocation,
     input: {
       context,
       storage,
@@ -91,6 +92,80 @@ async function fixture(legacy = false) {
     },
   };
 }
+
+it.each([
+  false,
+  true,
+])("keeps a slow finish observation single-flight and respects abort=%s", async (abort) => {
+  const f = await fixture();
+  vi.useFakeTimers();
+  await initializeRemoteAgentExecutionState({
+    identity: buildRemoteAgentExecutionIdentity(f.context),
+    storage: f.storage,
+    acceptedAtMs: TEST_NOW_MS,
+  });
+  const entered = Promise.withResolvers<void>();
+  const held = Promise.withResolvers<CloudComputerInvocationState>();
+  f.readComputerInvocation.mockImplementationOnce(() => {
+    entered.resolve();
+    return held.promise;
+  });
+  const controller = new AbortController();
+  const append = vi.fn();
+  const outcome = checkRemoteAgentExecutionFinish({
+    ...f.input,
+    finish: { append, signal: controller.signal },
+    finishState: { submissionId: "original", pending: "pending" },
+  }).catch((error: unknown) => error);
+  await entered.promise;
+  await vi.advanceTimersByTimeAsync(6000);
+  expect(f.readComputerInvocation).toHaveBeenCalledOnce();
+  expect(f.requestComputerCleanup).not.toHaveBeenCalled();
+  expect(await listComputerCleanupHandoffs(f.storage)).toEqual([]);
+  if (abort) {
+    controller.abort(new Error("Explicit cancellation"));
+    expect(await outcome).toBe(controller.signal.reason);
+    held.resolve(f.state);
+    expect(append).not.toHaveBeenCalled();
+  } else {
+    held.resolve(f.state);
+    expect(await outcome).toBeUndefined();
+    expect(append).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "computer_results_ready" })
+    );
+  }
+  expect(f.requestComputerCleanup).not.toHaveBeenCalled();
+});
+
+it.each([
+  false,
+  true,
+])("requires explicit Stop authority after confirmation failure: %s", async (requestStop) => {
+  const f = await fixture();
+  f.readComputerInvocation.mockRejectedValue(
+    new Error("Observation disconnected")
+  );
+  const result = await finishRemoteAgentComputerCommands({
+    ...f.input,
+    requestStop,
+  });
+  if (requestStop) {
+    expect(f.requestComputerCleanup).toHaveBeenCalledOnce();
+    expect(await listComputerCleanupHandoffs(f.storage)).toMatchObject([
+      { accepted: true },
+    ]);
+  } else {
+    expect(result).toMatchObject({
+      computerCleanup: {
+        stopAccepted: false,
+        automaticRetryPaused: false,
+        state: null,
+      },
+    });
+    expect(f.requestComputerCleanup).not.toHaveBeenCalled();
+    expect(await listComputerCleanupHandoffs(f.storage)).toEqual([]);
+  }
+});
 
 it("retains Stop delivery through a lost RPC reply and missing callback projection without poisoning recovered results", async () => {
   const f = await fixture();

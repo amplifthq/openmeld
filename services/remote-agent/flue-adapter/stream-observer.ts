@@ -530,6 +530,7 @@ async function handleCenterAgentPromptCompletion(input: {
     env,
     storage,
     assistantText: observedFailure ? undefined : assistantText,
+    requestStop: !!observedFailure,
   });
   const terminalFailure = retainRemoteAgentCleanupFacts(
     observedFailure,
