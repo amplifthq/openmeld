@@ -25,6 +25,42 @@ used to invent a second merge or evidence contract.
 
 Release only what changed.
 
+### Everyday commands
+
+Use a clean checkout of the merged commit. Keep the pre-merge commit as `BASE`;
+do not move it forward when continuing the same release.
+
+```sh
+# Release the remaining affected components using the local environment.
+# CLI publication runs in its existing GitHub workflow and then continues.
+pnpm deploy -- --base <BASE>
+
+# Use GitHub for supported components; no local production secrets needed.
+pnpm deploy -- --base <BASE> --lane github
+
+# Release only the named component. The GitHub lane skips a current component.
+pnpm deploy -- --base <BASE> --scope web --lane github
+
+# Read state without releasing anything.
+pnpm release:status -- --ref HEAD --change-base <BASE>
+```
+
+The GitHub lane supports Web, Website, Docs, Gateway, Remote Agent and CLI.
+Database, Auth and standalone Core still need the local PostgreSQL release
+environment; the command reports this before dispatching an unsupported stage.
+An interrupted command can be repeated at the same source and base: current
+components are skipped and active exact-source GitHub runs are followed.
+Failed runs stop the command. An uncertain dispatch is reported, never retried
+automatically. Use a current `gh` version that returns the created workflow URL.
+
+The automatic command already checks completion from the component receipts.
+An explicit scope completes only those components, not the whole change.
+Do not follow a successful automatic whole-change continuation with another full status scan, repeat
+its health checks, or rerun development tests as release ceremony. Run one
+product smoke for the changed behavior. Desktop and OpenConnector keep their
+separate publication commands below; component deployment completion does not
+claim their installation or product acceptance.
+
 Production uses PostgreSQL. Use the guarded local lane for Database, Auth and
 Core, and the GitHub CLI workflow for npm Trusted Publishing. Other hosted
 scopes remain available. The parent workflow rejects unsupported PostgreSQL
@@ -2082,10 +2118,11 @@ their existing dedicated commands. An intentional redeploy requires an explicit
 component scope and `--redeploy`.
 
 CLI publication stays with the official GitHub Trusted Publishing workflow.
-When a pending CLI stage becomes eligible, local continuation stops before CLI
-mutation and prints that workflow command with the original source and train.
-After it succeeds, rerun the same local command; the receipt skips the completed
-CLI stage. This does not introduce a second npm publisher or dispatch tracker.
+When a pending CLI stage becomes eligible, continuation calls that workflow
+with the original source and train, follows the exact run through `gh run watch`,
+and continues from the existing receipts. It does not introduce a second npm
+publisher, polling service, or dispatch ledger. `--lane github` uses this same
+continuation for the other supported hosted components.
 
 Use `release:status -- --ref <product-sha> --change-base <pre-merge-sha>
 --check-complete` for the deployment closeout check. It requires real receipts,

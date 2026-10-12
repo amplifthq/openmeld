@@ -289,6 +289,8 @@ class MissingComputerExecRecordError extends Error {
   }
 }
 
+class ComputerAdmissionDeclinedError extends Error {}
+
 function isCommandLoss(
   error: unknown
 ): error is Error & { code: "ENOENT" | "EEXEC_LOST" } {
@@ -592,6 +594,40 @@ function stopPreparedCommand(command: Command): Command {
   };
 }
 
+function resumeCommandPreparation(
+  command: Command,
+  claimed: boolean,
+  stopped: boolean
+): Command {
+  // A concurrent preparation page cannot release another call's dispatch
+  // claim. The owning call needs explicit SDK proof that it did not dispatch.
+  if (
+    isCommandComplete(command) ||
+    !command.preparation ||
+    (!claimed && command.launchRequestedAt !== undefined)
+  ) {
+    return command;
+  }
+  return stopPreparedCommand({
+    ...command,
+    launchRequestedAt: undefined,
+    ...(stopped ? { stopRequested: true } : {}),
+    collection: {
+      unconfirmedAttempts: 0,
+      nextAttemptAtMs: Date.now() + COLLECTION_INTERVAL_MS,
+    },
+  });
+}
+
+function isPreDispatchPending(
+  error: unknown
+): error is WorkspaceSyncPendingError {
+  return (
+    error instanceof WorkspaceSyncPendingError &&
+    error.progress.direction === "push"
+  );
+}
+
 function assertCommandMatches(command: Command, fingerprint: string) {
   if (command.fingerprint !== fingerprint) {
     throw new Error(
@@ -662,6 +698,36 @@ function hasLaunchEvidence(command: Command) {
     command.launchAcknowledgedAt !== undefined ||
     command.observation !== undefined
   );
+}
+
+function hasUnconfirmedAdmission(command: Command) {
+  return Boolean(command.preparation && !hasLaunchEvidence(command));
+}
+
+function collectionAfterObservation(current: Command): Command {
+  if (
+    current.launchRequestedAt !== undefined &&
+    hasUnconfirmedAdmission(current)
+  ) {
+    // A missing native record during admission is still an unconfirmed check.
+    // Do not reset its bounded retry budget.
+    return current;
+  }
+  if (!(isCollectableCommand(current) || current.collection)) {
+    return current;
+  }
+  const collection = {
+    unconfirmedAttempts: 0,
+    nextAttemptAtMs: isCollectableCommand(current)
+      ? Date.now() +
+        (current.preparation || current.observation?.syncPending
+          ? SYNC_CONTINUATION_INTERVAL_MS
+          : COLLECTION_INTERVAL_MS)
+      : null,
+  };
+  return JSON.stringify(collection) === JSON.stringify(current.collection)
+    ? current
+    : { ...current, collection };
 }
 
 /** A native acknowledgement confirms signal delivery, never process exit.
@@ -742,7 +808,7 @@ export function createComputerCommandTool(input: {
   const project = (command: Command, after = 0): CommandResult => {
     const result = command.observation ?? command.terminalResult;
     if (!result) {
-      if (command.preparation && command.launchRequestedAt === undefined) {
+      if (command.preparation || hasLaunchEvidence(command)) {
         return {
           id: command.id,
           key: command.key,
@@ -968,6 +1034,28 @@ export function createComputerCommandTool(input: {
     }
     return await saveObservation(command.key, result);
   };
+  const observeAdmission = async (
+    workspace: WorkspaceClient,
+    command: Command,
+    waitMs: number,
+    signal: AbortSignal
+  ) => {
+    try {
+      return await observe(workspace, command, waitMs, signal);
+    } catch (error) {
+      signal.throwIfAborted();
+      if (error instanceof MissingComputerExecRecordError) {
+        const current = await read(command.key);
+        if (hasUnconfirmedAdmission(current)) {
+          // Native admission may still be doing bounded pre-dispatch sync.
+          // Absence is not lost output or permission to clear the launch claim.
+          // Keep inspecting this identity, including after an uncertain launch.
+          return current;
+        }
+      }
+      throw error;
+    }
+  };
   const launchWasStopped = async (key: string, signal?: AbortSignal) =>
     Boolean((await read(key)).stopRequested || signal?.aborted);
   const observeWithPendingStop = async (
@@ -979,7 +1067,7 @@ export function createComputerCommandTool(input: {
     const deadline = Date.now() + waitMs;
     const current = await read(command.key);
     if (!current.stopRequested || hasCommandExited(current)) {
-      return await observe(workspace, current, waitMs, signal);
+      return await observeAdmission(workspace, current, waitMs, signal);
     }
     // Inspect queued exit evidence before signalling. A pending Stop should
     // not wait for a live process to produce output before its signal is sent.
@@ -1104,30 +1192,16 @@ export function createComputerCommandTool(input: {
     observationSignal.throwIfAborted();
     return undefined;
   };
-  const launchCommand = async (
-    workspace: WorkspaceClient,
-    request: StartCommand,
-    command: Command,
-    observationSignal: AbortSignal,
-    userSignal?: AbortSignal
-  ): Promise<CommandResult> => {
-    // Persist identity before dispatch. An uncertain spawn must be inspected,
-    // never replayed: even a missing retained handle cannot prove no effect.
-    const stopped = await prepareCommandLaunch(
-      workspace,
-      request,
-      command,
-      observationSignal,
-      userSignal
-    );
-    if (stopped) {
-      return stopped;
-    }
+  const claimPreparedCommand = async (key: string, signal: AbortSignal) => {
+    signal.throwIfAborted();
+    await input.assertCanStart?.();
+    signal.throwIfAborted();
     let claimed = false;
     await updateCommand(
       input.storage,
-      `${prefix}${encodeURIComponent(command.key)}`,
+      `${prefix}${encodeURIComponent(key)}`,
       (current) => {
+        signal.throwIfAborted();
         claimed = false;
         if (
           current.launchRequestedAt !== undefined ||
@@ -1140,13 +1214,31 @@ export function createComputerCommandTool(input: {
         return { ...current, launchRequestedAt: Date.now() };
       }
     );
-    if (!claimed) {
-      return project(await read(command.key));
+    return claimed;
+  };
+  const launchCommand = async (
+    workspace: WorkspaceClient,
+    request: StartCommand,
+    command: Command,
+    observationSignal: AbortSignal,
+    userSignal?: AbortSignal
+  ): Promise<CommandResult> => {
+    // Identity is already durable. Preparation remains replay-safe until the
+    // SDK reaches its local native-dispatch boundary and calls admission.
+    const stopped = await prepareCommandLaunch(
+      workspace,
+      request,
+      command,
+      observationSignal,
+      userSignal
+    );
+    if (stopped) {
+      return stopped;
     }
-    observationSignal.throwIfAborted();
+    let claimed = false;
     let handle: WorkspaceRuntimeExecHandle<"utf8">;
     try {
-      handle = await workspace.runtime.exec(
+      handle = await workspace.runtime.execWithAdmission(
         command.backend === AGENT_COMPUTER_CONTAINER_BACKEND_ID
           ? buildComputerCommandProcess(request.command)
           : request.command,
@@ -1159,30 +1251,32 @@ export function createComputerCommandTool(input: {
           env: request.env,
           stdin: request.stdin,
           input: request.input,
+        },
+        async () => {
+          claimed = await claimPreparedCommand(command.key, observationSignal);
+          if (!claimed) {
+            throw new ComputerAdmissionDeclinedError();
+          }
         }
       );
     } catch (error) {
+      if (error instanceof ComputerAdmissionDeclinedError) {
+        return project(await read(command.key));
+      }
       // Only the SDK's local pre-dispatch owner can prove execution never
       // started. A timeout, remote error, or missing handle cannot clear this.
-      if (
-        !(error instanceof WorkspaceSyncPendingError) ||
-        error.progress.direction !== "push"
-      ) {
+      if (!isPreDispatchPending(error)) {
         throw error;
       }
       const preparing = await updateCommand(
         input.storage,
         `${prefix}${encodeURIComponent(command.key)}`,
         (current) =>
-          stopPreparedCommand({
-            ...current,
-            launchRequestedAt: undefined,
-            ...(userSignal?.aborted ? { stopRequested: true } : {}),
-            collection: {
-              unconfirmedAttempts: 0,
-              nextAttemptAtMs: Date.now() + COLLECTION_INTERVAL_MS,
-            },
-          })
+          resumeCommandPreparation(
+            current,
+            claimed,
+            userSignal?.aborted === true
+          )
       );
       await input.scheduleCollection?.();
       return project(preparing);
@@ -1272,7 +1366,7 @@ export function createComputerCommandTool(input: {
               observationSignal,
               signal
             )
-          : observe(workspace, command, 1000, observationSignal).then(
+          : observeAdmission(workspace, command, 1000, observationSignal).then(
               (current) => project(current)
             ),
     });
@@ -1502,24 +1596,7 @@ export function createComputerCommandTool(input: {
           await updateCommand(
             input.storage,
             `${prefix}${encodeURIComponent(observed.key)}`,
-            (current) => {
-              if (!(isCollectableCommand(current) || current.collection)) {
-                return current;
-              }
-              const collection = {
-                unconfirmedAttempts: 0,
-                nextAttemptAtMs: isCollectableCommand(current)
-                  ? Date.now() +
-                    (current.preparation || current.observation?.syncPending
-                      ? SYNC_CONTINUATION_INTERVAL_MS
-                      : COLLECTION_INTERVAL_MS)
-                  : null,
-              };
-              return JSON.stringify(collection) ===
-                JSON.stringify(current.collection)
-                ? current
-                : { ...current, collection };
-            }
+            collectionAfterObservation
           );
           if (source === "tool" && isCollectableCommand(observed)) {
             await input.scheduleCollection?.();
