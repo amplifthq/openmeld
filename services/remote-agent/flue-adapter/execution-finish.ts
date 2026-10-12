@@ -81,8 +81,9 @@ export async function checkRemoteAgentExecutionFinish(
       : null;
   if (previous?.pending && !previous.informed) {
     // Keep this original, unsettled Flue turn alive while its Computer owner
-    // still observes real work. Each read is bounded; the owner advances the
-    // receipt on its alarm. Model finish count is not evidence of a failure.
+    // still observes real work. Reads stay single-flight and the wait is
+    // cancellable; the owner advances the receipt on its alarm. Model finish
+    // count is not evidence of a failure.
     // Abort/Stop remains authoritative. Ordinary queued input waits for this
     // turn, just as it does while a model tool call is outstanding.
     state = await waitForComputerResults(input, state);
