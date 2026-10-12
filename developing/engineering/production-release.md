@@ -450,6 +450,16 @@ already applied deployment under the existing identity and lease guards and
 introduces no new artifact or receiver; recovery that deploys still requires
 deployment preflight.
 
+Recovery that deploys requires `--base <exact-original-release-base>` in
+addition to the eight selectors. It repeats the full guarded deployment at the
+same source, not user commands. A successful deployment can retain a Container
+version when Wrangler reuses an existing immutable image. This outcome requires
+the prior verified native receipt and its registry digest, unchanged application
+configuration before and after deployment, and complete healthy instance
+evidence with no active rollout. Missing image tags or registry failures never
+prove reuse. The existing recovery proof keeps the native provenance reference
+for subsequent recovery; the canonical receipt remains compatible with v3 readers.
+
 For the specific Remote Agent Worker-first/container-image failure, current-main
 tooling provides `release:recover:remote-agent-partial`. It requires the clean
 original release source, the retained failed attempt and its start event, the

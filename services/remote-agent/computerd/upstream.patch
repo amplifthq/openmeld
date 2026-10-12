@@ -4741,8 +4741,8 @@ index 0000000..03e77e5
 +describe("durable bounded change planning", () => {
 +  it("resumes a large live/deletion window without changing the ACK and preserves UTF-16 order", async () => {
 +    await withDB(async (db) => {
-+      for (let i = 0; i < 800; i++) await writeFile(db, `/f${i}`, String(i), {}, () => i);
-+      for (let i = 0; i < 400; i++) rm(db, `/f${i}`, {}, () => 1000);
++      for (let i = 0; i < 2400; i++) await writeFile(db, `/f${i}`, String(i), {}, () => i);
++      for (let i = 0; i < 1200; i++) rm(db, `/f${i}`, {}, () => 1000);
 +      await writeFile(db, "/\uE000", "BMP", {}, () => 1);
 +      await writeFile(db, "/😀", "astral", {}, () => 1);
 +      // Directory rename and recursive delete can give many paths one rev.
@@ -4796,7 +4796,7 @@ new file mode 100644
 index 0000000..10d665d
 --- /dev/null
 +++ b/packages/dofs/src/sync/planning.ts
-@@ -0,0 +1,323 @@
+@@ -0,0 +1,324 @@
 +import { createHash } from "node:crypto";
 +import { ROOT_INODE } from "../schema/core.js";
 +import { releasePinsStep } from "./retention.js";
@@ -4809,7 +4809,8 @@ index 0000000..10d665d
 +// One call performs at most this many indexed reads, including hardlink
 +// aliases and ancestor walks. The caller must return to its invocation
 +// owner between calls; draining prepare() in a loop defeats the CPU bound.
-+export const PLAN_READ_BUDGET = 512;
++export const PLAN_READ_BUDGET = 4096;
++const PLAN_CLEANUP_BUDGET = 512;
 +export const PLAN_STATEMENTS = [
 +  `CREATE TABLE IF NOT EXISTS _vfs_sync_identity (slot TEXT PRIMARY KEY, epoch TEXT NOT NULL)`,
 +  `CREATE TABLE IF NOT EXISTS _vfs_retired_change_plans (generation TEXT PRIMARY KEY)`,
@@ -5079,7 +5080,7 @@ index 0000000..10d665d
 +      (SELECT path FROM _vfs_change_candidates WHERE generation=? LIMIT ?)`,
 +      generation,
 +      generation,
-+      PLAN_READ_BUDGET,
++      PLAN_CLEANUP_BUDGET,
 +    );
 +    if (db.one("SELECT 1 FROM _vfs_change_candidates WHERE generation=? LIMIT 1", generation))
 +      return false;
@@ -5088,7 +5089,7 @@ index 0000000..10d665d
 +      (SELECT inode FROM _vfs_change_parent_paths WHERE generation=? LIMIT ?)`,
 +      generation,
 +      generation,
-+      PLAN_READ_BUDGET,
++      PLAN_CLEANUP_BUDGET,
 +    );
 +    if (db.one("SELECT 1 FROM _vfs_change_parent_paths WHERE generation=? LIMIT 1", generation))
 +      return false;
