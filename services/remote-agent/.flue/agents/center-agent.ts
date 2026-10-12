@@ -480,7 +480,13 @@ export function CenterAgentV2() {
   for (const tool of response.tools) {
     useTool(tool);
   }
-  return `${resources.instructions}\n\n${REMOTE_AGENT_TOOL_CALLING_CONTRACT}${response.ready ? "" : "\n\nRespond to the user's current message now. If it needs only a direct answer, answer without tools. Before continuing work, use openmeld_report_progress to answer the check-in or explain your next action in the user's language. Work tools become available after that response is published. This does not end or restart the task."}`;
+  let responsePhase = "";
+  if (resources.interactiveResponseId()) {
+    responsePhase = response.ready
+      ? "The current input's response has been published. The full work-tool catalog is available now; earlier resource-removal notices described only the response phase. Continue existing authorized work with its original command references. A check-in does not pause the task or require another user message to finish collecting results."
+      : "Respond to the user's current message now. If it needs only a direct answer, answer without tools. Before continuing work, use openmeld_report_progress to answer the check-in or explain your next action in the user's language. Work tools become available after that response is published. This does not end or restart the task.";
+  }
+  return `${resources.instructions}\n\n${REMOTE_AGENT_TOOL_CALLING_CONTRACT}\n\n${responsePhase}`;
 }
 
 CenterAgentV2.agentName = "center-agent-v2";
