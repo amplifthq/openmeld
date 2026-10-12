@@ -17,12 +17,15 @@ const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const mode = process.argv[2] ?? "matrix";
 const profile = process.argv[3] ?? "candidate";
 const stress = process.argv.includes("--stress");
-assert(!stress || mode === "bounded", "Stress requires bounded mode");
+assert(
+  !stress || ["bounded", "objects"].includes(mode),
+  "Stress requires a bounded mode"
+);
 const workerName = `openmeld-container-check-${randomUUID().slice(0, 8)}`;
 const execFileAsync = promisify(execFile);
 assert(
-  ["matrix", "adoption", "pack", "bounded"].includes(mode),
-  "Use matrix, adoption, pack or bounded"
+  ["matrix", "adoption", "pack", "bounded", "objects"].includes(mode),
+  "Use matrix, adoption, pack, bounded or objects"
 );
 assert(
   ["candidate", "default", "ac-only", "attr-ac"].includes(profile),
@@ -47,6 +50,7 @@ const sourcePaths = [
   "services/remote-agent/flue-adapter/computer-workspace-config.ts",
   "services/remote-agent/flue-adapter/computer-command.ts",
   "services/remote-agent/tests/fixtures/computer-container.ts",
+  "services/remote-agent/tests/fixtures/computer-object-batches.ts",
   "services/remote-agent/scripts/verify-computer-container.mjs",
   "services/remote-agent/Dockerfile",
   "services/remote-agent/computerd/upstream.patch",
@@ -121,7 +125,11 @@ await writeFile(
   )
 );
 const monitor = stress
-  ? resourceMonitor(join(artifactRoot, "resources.json"), workerName)
+  ? resourceMonitor(
+      join(artifactRoot, "resources.json"),
+      workerName,
+      mode === "objects" ? 1 : 5
+    )
   : undefined;
 const child = spawn(
   process.execPath,
@@ -215,7 +223,7 @@ try {
   let body = await response.text();
   assert(response.status === 200, body.slice(0, 2000));
   let data = JSON.parse(body);
-  if (mode === "bounded") {
+  if (mode === "bounded" || mode === "objects") {
     let previousPhase;
     for (let steps = 0; !data.done; steps++) {
       assert(
@@ -243,7 +251,7 @@ try {
         join(artifactRoot, "last-progress.json"),
         `${JSON.stringify({ recordedAt: new Date().toISOString(), ...data }, null, 2)}\n`
       );
-      response = await fetch(`http://127.0.0.1:${port}/bounded`, {
+      response = await fetch(`http://127.0.0.1:${port}/${mode}`, {
         signal: AbortSignal.any([
           shutdown.signal,
           AbortSignal.timeout(
@@ -276,7 +284,20 @@ try {
       sourceHashes["services/remote-agent/computerd/capnweb-0.12.0.patch"],
     "Native transport patch differs from the candidate"
   );
-  if (mode === "bounded") {
+  if (mode === "objects") {
+    summary = {
+      steps: data.steps,
+      smallFiles: data.smallFiles,
+      largeBytes: data.largeBytes,
+      bytesVerified: data.bytesVerified,
+      executionId: data.executionId,
+      executionCount: data.executionCount,
+      originalExitCode: data.nativeResult?.exitCode,
+      nativeLogMissing: data.nativeLogMissing,
+      resumeSteps: data.resumeSteps,
+      originalResultVerified: data.originalResultVerified,
+    };
+  } else if (mode === "bounded") {
     summary = {
       leaves: data.leaves,
       steps: data.steps,
@@ -310,7 +331,24 @@ try {
       ...summary,
     })
   );
-  if (mode === "bounded") {
+  if (mode === "objects") {
+    assert(
+      data.smallFiles === 256 &&
+        data.largeBytes === 10 * 1024 * 1024 &&
+        data.bytesVerified,
+      "Native object bytes were not verified"
+    );
+    assert(
+      data.executionCount === 1 &&
+        data.originalResultVerified &&
+        data.nativeResult?.exitCode === 17 &&
+        data.nativeLogMissing?.code === "ENOENT" &&
+        data.resumeSteps >= 2 &&
+        data.syncOutcome &&
+        !data.syncOutcome.error,
+      "Original command result did not survive native log disposal and cold sync resumption"
+    );
+  } else if (mode === "bounded") {
     assert(
       data.leaves === 20_200 && data.lostInitial && data.lostDelete,
       "Large tree and lost ACK injections must all complete"

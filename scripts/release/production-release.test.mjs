@@ -907,6 +907,8 @@ test("rejects opposing Space Task receiver orders instead of overriding existing
       sourceSha: REMOTE_SOURCE_SHA,
       scope: "core",
       changedPaths: SPACE_TASK_PATHS.filter((file) => file !== omitted),
+      readGitFile: () =>
+        "// Historical source without other receiver contracts.",
     });
     assert.equal(plan.deploySteps[0].label, "Deploy Core Worker");
     assert.ok(

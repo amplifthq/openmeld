@@ -33,10 +33,10 @@ it.each([
       lostDuringCleanup: false,
     });
     expect(result.recovered).toMatchObject({
-      status: syncOutcome === "complete" ? "completed" : "running",
-      stdout: "DONE\n",
+      status: syncOutcome !== "EEXEC_LOST" ? "completed" : "running",
+      stdout: "BEGIN\nDONE\n",
       exitCode: 0,
-      ...(syncOutcome === "complete"
+      ...(syncOutcome !== "EEXEC_LOST"
         ? {}
         : { syncError: syncOutcome, nextAction: "inspect" }),
     });

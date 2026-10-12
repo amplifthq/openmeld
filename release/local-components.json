@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-12T03:25:46.229Z",
+  "updatedAt": "2026-10-12T06:38:04.801Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-project-work-v1",
-      "packageVersion": "0.3.254",
+      "packageVersion": "0.3.255",
       "updatePolicy": "available",
-      "reason": "Existing CLI request schemas and public Computer error enums remain supported; deploy Task v3 and approval-list cloud receivers before publishing the optional CLI update."
+      "reason": "Computer recovery preserves existing command response shapes; current CLI versions remain compatible with both cloud versions."
     },
     "service": {
-      "bundleHash": "3c033a84ae34fb377fc67f934af05f4c5d84ddf2f70ce54a93f83f4e853ac631",
-      "portableBundleHash": "4040460c604f23ed88ff40b42222c25051defe10aae7c3530172e926efdf4f1c",
-      "bundleVersion": "0.3.254",
+      "bundleHash": "e861442c01226c9164571ba84f21d92c5809e42c3d4d8ba0c1adedfb101b64dc",
+      "portableBundleHash": "dec87db74603cbe27856e2683d392592d74d3dc3e51c1b31176fd022f5d42415",
+      "bundleVersion": "0.3.255",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
       "serviceContractVersion": "openmeld-service-contract-2026-09-project-work-v1",
       "updatePolicy": "available",
-      "reason": "The Remote Agent SDK patch updates the shared lockfile without changing local Service contracts; old and new cloud and local versions remain compatible."
+      "reason": "No Service transport or execution contract changes; existing Services can continue setup, Wake, Space actions and diagnostics safely."
     },
     "skills": {
       "bundleHash": "0507d367ef298936053223f81441697545949fbf4d39b1b306872f7c254a4871",

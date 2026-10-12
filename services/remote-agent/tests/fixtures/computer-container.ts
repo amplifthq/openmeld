@@ -14,6 +14,7 @@ import {
 import { createComputerCommandTool } from "../../flue-adapter/computer-command";
 import { ComputerCommandSqlStorage } from "../../flue-adapter/computer-command-storage";
 import { AGENT_COMPUTER_CONTAINER_ENV } from "../../flue-adapter/computer-workspace-config";
+import { runComputerObjectBatchStep } from "./computer-object-batches";
 
 // biome-ignore lint/performance/noBarrelFile: The SDK requires this named Worker RPC entrypoint.
 export { WorkspaceProxy } from "@cloudflare/computer";
@@ -37,6 +38,8 @@ type BoundedState = {
   nativeUnacknowledgedSurvived?: boolean;
 };
 const LEAVES = 20_200;
+const NATIVE_SOURCE_INSPECTION =
+  'python3 -c \'import pathlib,json,hashlib; s=json.loads(pathlib.Path("/usr/local/share/openmeld/computerd-source.json").read_text()); print(json.dumps({"source":s,"binarySha256":hashlib.sha256(pathlib.Path("/usr/local/bin/computerd").read_bytes()).hexdigest(),"mount":[x for x in pathlib.Path("/proc/mounts").read_text().splitlines() if " /computer " in x]}))\'';
 
 function containerEnvironment(
   profile: string | undefined
@@ -94,6 +97,49 @@ export class ComputerContainerProbe extends withLegacyWorkspaceContainer(
   entriesAcknowledgement: unknown;
   receiverPackWrites: unknown;
   sourceTime: number | undefined;
+  checkingObjectBatches = false;
+  readonly objectBatches: Array<{
+    direction: string;
+    count: number;
+    bytes: number;
+  }> = [];
+  private measureObjectBatch(
+    direction: string,
+    stream: ReadableStream<{ hash: Uint8Array; bytes: Uint8Array }>
+  ) {
+    if (!this.checkingObjectBatches) {
+      return stream;
+    }
+    const batch = { direction, count: 0, bytes: 0 };
+    const batches = this.objectBatches;
+    const pendingReader = Promise.resolve(stream).then((value) =>
+      value.getReader()
+    );
+    return new ReadableStream<{ hash: Uint8Array; bytes: Uint8Array }>({
+      async pull(controller) {
+        const reader = await pendingReader;
+        const part = await reader.read();
+        if (part.done) {
+          reader.releaseLock();
+          batches.push(batch);
+          controller.close();
+          return;
+        }
+        batch.count++;
+        batch.bytes += part.value.bytes.byteLength;
+        check(
+          batch.count <= 256 && batch.bytes <= 8 * 1024 * 1024,
+          "Actual object stream exceeded its batch budget"
+        );
+        controller.enqueue(part.value);
+      },
+      async cancel(reason) {
+        const reader = await pendingReader;
+        await reader.cancel(reason);
+        reader.releaseLock();
+      },
+    });
+  }
   private async traceSync<T>(
     name: string,
     operation: () => Promise<T>
@@ -234,10 +280,14 @@ export class ComputerContainerProbe extends withLegacyWorkspaceContainer(
               this.traceSync("hasObjects", () =>
                 sync.hasObjects(hashes, scope)
               ),
-            fetchObjects: (hashes, scope) => sync.fetchObjects(hashes, scope),
+            fetchObjects: (hashes, scope) =>
+              this.measureObjectBatch("pull", sync.fetchObjects(hashes, scope)),
             pushObjects: (objects, scope) =>
               this.traceSync("pushObjects", () =>
-                sync.pushObjects(objects, scope)
+                sync.pushObjects(
+                  this.measureObjectBatch("push", objects),
+                  scope
+                )
               ),
             fetchChangePack: (input) => {
               check(
@@ -659,9 +709,7 @@ export class ComputerContainerProbe extends withLegacyWorkspaceContainer(
           files.recreated === "recreated directory",
         "Delete/recreate lost files or retained stale files"
       );
-      const mount = await this.execNative(
-        'python3 -c \'import pathlib,json,hashlib; s=json.loads(pathlib.Path("/usr/local/share/openmeld/computerd-source.json").read_text()); print(json.dumps({"source":s,"binarySha256":hashlib.sha256(pathlib.Path("/usr/local/bin/computerd").read_bytes()).hexdigest(),"mount":[x for x in pathlib.Path("/proc/mounts").read_text().splitlines() if " /computer " in x]}))\''
-      );
+      const mount = await this.execNative(NATIVE_SOURCE_INSPECTION);
       check(
         (mount.mount as string[]).some((row) =>
           row.includes(" /computer fuse ")
@@ -712,6 +760,9 @@ export class ComputerContainerProbe extends withLegacyWorkspaceContainer(
   }
 
   fetch(request: Request) {
+    if (new URL(request.url).pathname === "/objects") {
+      return this.runObjectBatchStep();
+    }
     if (new URL(request.url).pathname === "/warm") {
       return this.warmContainer();
     }
@@ -728,6 +779,28 @@ export class ComputerContainerProbe extends withLegacyWorkspaceContainer(
       return this.runAdoption();
     }
     return this.runPack();
+  }
+
+  private async runObjectBatchStep() {
+    const owner = this.makeWorkspace();
+    this.loseNextAcknowledgement = false;
+    this.checkingObjectBatches = true;
+    try {
+      return await runComputerObjectBatchStep({
+        owner,
+        storage: this.ctx.storage,
+        nativeShell: () => {
+          check(this.nativeHandle, "Native transport must be connected");
+          return this.nativeHandle.rpc.shell;
+        },
+        executionCount: (id) =>
+          this.execIds.filter((executionId) => executionId === id).length,
+        inspectMount: () => this.execNative(NATIVE_SOURCE_INSPECTION),
+        batches: this.objectBatches,
+      });
+    } finally {
+      await owner.close();
+    }
   }
 
   private async runPack() {
