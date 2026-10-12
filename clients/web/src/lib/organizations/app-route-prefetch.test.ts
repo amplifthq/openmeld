@@ -12,12 +12,19 @@ import {
 	prefetchCenterAgentConversationData,
 	prefetchKnownSpaceConversationData,
 	prefetchPeopleRouteData,
+	prefetchPluginsRouteData,
 	prefetchSpaceConversationRouteData,
 	prefetchSpacesRouteData,
 	restoreSpaceConversationRouteData,
 } from "./app-route-prefetch";
 
 const readAccountContextMock = vi.hoisted(() => vi.fn());
+const listPluginProvidersMock = vi.hoisted(() => vi.fn());
+const listPluginConnectionsMock = vi.hoisted(() => vi.fn());
+vi.mock("#/lib/organizations/connector-connections", () => ({
+	listCurrentOrganizationConnectorAppCatalog: listPluginProvidersMock,
+	listCurrentOrganizationAppConnections: listPluginConnectionsMock,
+}));
 const listStartProfilesMock = vi.hoisted(() => vi.fn());
 const readOrganizationProfileDirectoryMock = vi.hoisted(() => vi.fn());
 const readOrganizationAgentRuntimeOverviewMock = vi.hoisted(() => vi.fn());
@@ -253,6 +260,41 @@ describe("organization app route prefetch", () => {
 				organizationQueryKeys.agentRuntimeOverview("org-acme")
 			)
 		).toBeUndefined();
+	});
+
+	it("starts both Plugin reads together and reuses in-flight requests", async () => {
+		const queryClient = createQueryClient();
+		let releaseProviders!: (value: {
+			providers: [];
+			organizationId: string;
+		}) => void;
+		listPluginProvidersMock.mockReturnValue(
+			new Promise((resolve) => {
+				releaseProviders = resolve;
+			})
+		);
+		listPluginConnectionsMock.mockResolvedValue({
+			connections: [],
+			currentUserId: "user-1",
+			organizationId: "org-acme",
+		});
+		const input = {
+			organizationSlug: "acme",
+			queryClient,
+			queryPersistence,
+			routeFamily: "/o/acme/plugins",
+		};
+		const first = prefetchPluginsRouteData(input);
+		await vi.waitFor(() =>
+			expect(listPluginConnectionsMock).toHaveBeenCalledOnce()
+		);
+		expect(listPluginProvidersMock).toHaveBeenCalledOnce();
+		const second = prefetchPluginsRouteData(input);
+		releaseProviders({ providers: [], organizationId: "org-acme" });
+		await Promise.all([first, second]);
+		expect(listPluginProvidersMock).toHaveBeenCalledOnce();
+		expect(listPluginConnectionsMock).toHaveBeenCalledOnce();
+		queryClient.clear();
 	});
 
 	it("warms the Spaces list and account profiles in parallel", async () => {

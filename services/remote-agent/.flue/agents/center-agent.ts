@@ -117,6 +117,7 @@ import {
   type FlueSubmissionLifecycle,
   reconcileRemoteAgentExecution,
 } from "../../flue-adapter/execution-reconciliation";
+import { useInteractiveResponse } from "../../flue-adapter/interactive-response";
 import { registerRemoteAgentCloudflareProvider } from "../../flue-adapter/model";
 import { resolveCurrentOrganizationDocumentPromptContext } from "../../flue-adapter/organization-document-prompt-context";
 import { materializeOrganizationSkillFlueSkillsFromCatalog } from "../../flue-adapter/organization-skills";
@@ -128,6 +129,7 @@ import { createRetainedToolResultReducer } from "../../flue-adapter/retained-con
 import { readRemoteAgentRuntimeDiagnostics } from "../../flue-adapter/runtime-diagnostics";
 import { disabledNoNetworkSandbox } from "../../flue-adapter/sandbox";
 import { createRemoteAgentSqlStorage } from "../../flue-adapter/storage";
+import { remoteAgentStreamPublisher } from "../../flue-adapter/stream-publisher-instance";
 import {
   projectRemoteAgentResourceSignal,
   REMOTE_AGENT_TOOL_CALLING_CONTRACT,
@@ -380,7 +382,26 @@ async function prepareCenterAgentRender() {
     submissionId: executionContext?.submissionId ?? null,
   });
 
+  const steeringSource = executionContext
+    ? createRemoteAgentSteeringSource({ context: executionContext, storage })
+    : null;
   return {
+    getAcceptedResponseInputId: executionContext
+      ? await remoteAgentStreamPublisher.prepareResponseProjection({
+          context: executionContext,
+          storage,
+          observedAtMs: Date.now(),
+        })
+      : () => null,
+    interactiveResponseId: () =>
+      executionContext &&
+      !executionContext.replyRecovery &&
+      !executionContext.workLoopCheckpoint &&
+      turnEnvelope?.sender.kind === "member" &&
+      (turnEnvelope.trigger.source === "web_dm" ||
+        turnEnvelope.trigger.source === "space_wake")
+        ? (steeringSource?.getResponseId() ?? executionContext.submissionId)
+        : null,
     messageReadBudget,
     beforeModel: executionContext
       ? () =>
@@ -406,9 +427,7 @@ async function prepareCenterAgentRender() {
             setFinishState,
           })
       : undefined,
-    steeringSource: executionContext
-      ? createRemoteAgentSteeringSource({ context: executionContext, storage })
-      : null,
+    steeringSource,
     compaction: {
       ...materialization.model.compaction,
       reduceToolResultPreviews: executionContext
@@ -451,21 +470,32 @@ export function CenterAgentV2() {
   if (resources.checkFinish) {
     useRemoteAgentExecutionFinish(resources.checkFinish);
   }
+  const response = useInteractiveResponse({
+    getInputId: resources.interactiveResponseId,
+    getAcceptedResponseInputId: resources.getAcceptedResponseInputId,
+    tools: resources.tools,
+  });
   useModel(resources.model, {
     compaction: resources.compaction,
-    thinkingLevel: resources.thinkingLevel,
+    thinkingLevel: response.ready ? resources.thinkingLevel : "low",
   });
   // Computer access is supplied by the authorized OpenMeld tools. Omitting a
   // Flue sandbox also prevents workspace files from implicitly becoming agent
   // instructions or unapproved Skills. Packaged Skills remain readable through
   // Flue's read_skill_resource tool without a sandbox.
-  for (const skill of resources.skills) {
+  for (const skill of response.ready ? resources.skills : []) {
     useSkill(skill);
   }
-  for (const tool of resources.tools) {
+  for (const tool of response.tools) {
     useTool(tool);
   }
-  return `${resources.instructions}\n\n${REMOTE_AGENT_TOOL_CALLING_CONTRACT}`;
+  let responsePhase = "";
+  if (resources.interactiveResponseId()) {
+    responsePhase = response.ready
+      ? "The current input's response has been published. The full work-tool catalog is available now; earlier resource-removal notices described only the response phase. Continue existing authorized work with its original command references. A check-in does not pause the task or require another user message to finish collecting results."
+      : "Respond to the user's current message now. If it needs only a direct answer, answer without tools. Before continuing work, use openmeld_report_progress to answer the check-in or explain your next action in the user's language. Work tools become available after that response is published. This does not end or restart the task.";
+  }
+  return `${resources.instructions}\n\n${REMOTE_AGENT_TOOL_CALLING_CONTRACT}\n\n${responsePhase}`;
 }
 
 CenterAgentV2.agentName = "center-agent-v2";

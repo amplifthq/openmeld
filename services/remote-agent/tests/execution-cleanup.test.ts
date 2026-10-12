@@ -299,13 +299,16 @@ it("limits changing Computer finish facts to two model feedback cycles", async (
         stopRequested: false,
         terminationConfirmed: false,
         resultUnavailable: false,
-        collection: null,
+        collection: { unconfirmedAttempts: 8, nextAttemptAtMs: null },
       },
     ],
   } satisfies Partial<CloudComputerInvocationState>);
   const append = vi.fn();
   let finishState: ComputerFinishState = null;
   for (let cycle = 0; cycle < 6; cycle++) {
+    if (cycle === 2) {
+      f.readComputerInvocation.mockRejectedValue(new Error("RPC unavailable"));
+    }
     f.state.commands = f.state.commands.map((command) => ({
       ...command,
       after: cycle,
@@ -323,15 +326,32 @@ it("limits changing Computer finish facts to two model feedback cycles", async (
     "owned_commands_pending",
     "computer_result_incomplete",
   ]);
-  expect(f.requestComputerCleanup).toHaveBeenCalledTimes(1);
+  expect(f.requestComputerCleanup).not.toHaveBeenCalled();
+  expect(f.readComputerInvocation).toHaveBeenCalledTimes(2);
+  expect(await listComputerCleanupHandoffs(f.storage)).toEqual([]);
+  f.readComputerInvocation.mockResolvedValue(f.state);
   const result = await finishRemoteAgentComputerCommands({
     ...f.input,
     assistantText: "The previously observed output is saved.",
   });
   expect(result?.code).toBe("remote_agent.computer.command_cleanup_failed");
+  expect(result?.computerCleanup?.stopAccepted).toBe(false);
+  expect(result?.computerCleanup?.automaticRetryPaused).toBe(true);
   expect(result?.explanationText).toBe(
     "The previously observed output is saved."
   );
+  f.state.commands = f.state.commands.map((command) => ({
+    ...command,
+    collection: {
+      unconfirmedAttempts: 8,
+      nextAttemptAtMs: null,
+      observationExpiresAtMs: TEST_NOW_MS + 1000,
+    },
+  }));
+  expect(
+    (await finishRemoteAgentComputerCommands(f.input))?.computerCleanup
+      ?.automaticRetryPaused
+  ).toBe(false);
 });
 
 async function retainLegacyRunningCommand(

@@ -136,6 +136,17 @@ function computerFixture(preparationSteps = 2, deferNativeAck = false) {
             }
           : undefined
     ),
+    resumeExecutionSync: vi
+      .fn<WorkspaceClient["resumeExecutionSync"]>()
+      .mockResolvedValue({
+        status: "complete",
+        outcome: {
+          epoch: "retained",
+          rev: 8,
+          skipped: [],
+          skippedTruncated: false,
+        },
+      }),
     maintainSync: vi.fn(async () => false),
     runtime: {
       execWithAdmission: async (
@@ -239,7 +250,14 @@ it.each([
   expect(started).toMatchObject({
     preparation: { checkpoint: "checkpoint-1" },
   });
+  const original = await f.storage.get<ComputerCommandRecord>(
+    `${COMPUTER_COMMAND_PREFIX}original:once`
+  );
+  if (!original) {
+    throw new Error("Missing original command receipt");
+  }
   const releaseObservation = Promise.withResolvers<void>();
+  const originalWorkspaceAccess = f.workspaceAccess.withWorkspace;
   let collecting: Promise<boolean> | undefined;
   let restoreClock: (() => void) | undefined;
   if (eighthObservation) {
@@ -430,7 +448,14 @@ it.each([
   try {
     const receipt = await agent.dispatch("Complete the original work.");
     const read = agent.read(receipt).catch((error: unknown) => error);
-    expect(await Promise.race([secondFinish.promise, read])).toBeUndefined();
+    await Promise.race([
+      secondFinish.promise,
+      read.then((result) => {
+        throw new Error(
+          `Submission settled before its wait: ${JSON.stringify(result)}`
+        );
+      }),
+    ]);
     if (eighthObservation) {
       expect(
         await Promise.race([
@@ -513,11 +538,40 @@ it.each([
         text: expect.stringContaining(blockedExplanation),
       });
       expect(finalText).toBe(blockedExplanation);
-      expect(requestCleanup).toHaveBeenCalledOnce();
+      expect(requestCleanup).not.toHaveBeenCalled();
       expect(resultReads).not.toHaveBeenCalled();
+      const retained = [
+        ...(
+          await f.storage.list<ComputerCommandRecord>({
+            prefix: COMPUTER_COMMAND_PREFIX,
+          })
+        ).values(),
+      ][0];
+      expect(retained).toMatchObject({
+        id: original.id,
+        fingerprint: original.fingerprint,
+        collection: { unconfirmedAttempts: 8, nextAttemptAtMs: null },
+      });
+      expect(retained?.completed).not.toBe(true);
+      expect(retained?.stopRequested).not.toBe(true);
       releaseObservation.resolve();
       await collecting;
-      expect(f.nativeStarts).not.toHaveBeenCalled();
+      restoreClock?.();
+      restoreClock = undefined;
+      f.workspaceAccess.withWorkspace = originalWorkspaceAccess;
+      const recovered = await f.tool.execute({
+        action: "poll",
+        key: "once",
+        waitSeconds: 0,
+      });
+      expect(recovered).toMatchObject({
+        id: original.id,
+        status: "completed",
+        stdout: "ORIGINAL-RESULT-781\n",
+        exitCode: 0,
+      });
+      expect(f.nativeStarts).toHaveBeenCalledOnce();
+      expect(new Set(f.preparationIds)).toEqual(new Set([original.id]));
     } else {
       if (ending === "stop") {
         await cancelFlueRemoteAgentExecution({
@@ -548,7 +602,7 @@ it.each([
     expect(
       (await agent.read(await agent.dispatch("Answer a new question."))).text
     ).toBe(next);
-    expect(f.nativeStarts).toHaveBeenCalledTimes(completed ? 1 : 0);
+    expect(f.nativeStarts).toHaveBeenCalledTimes(completed || blocked ? 1 : 0);
     expect(f.killExec).not.toHaveBeenCalled();
     expect(provider.getPendingResponseCount()).toBe(0);
   } finally {

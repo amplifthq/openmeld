@@ -428,6 +428,28 @@ repeated Worker-only command only verifies its retained evidence and does not
 deploy again. Worker-only code must remain compatible with the retained native
 RPC contract. This mode does not make an unsynchronized Container disk durable.
 
+If the full stage has an `applied` receipt in phase `rollout`, a repeated guarded
+stage only verifies the recorded Worker and its native image. It checks the
+Worker again after the native rollout settles and appends `verified` to the
+same attempt. It does not deploy, replay commands, or require the replaced
+Container version to remain active. Failed verification leaves the applied
+receipt unresolved.
+
+When the receipt needs recovery code newer than its pinned source, run the
+existing `scripts/release/remote-agent-partial-recovery.mjs` from a clean current
+main control checkout with `--verify-only true`. Supply its existing eight
+selectors: `--source-dir`, `--source-sha`, `--attempt`, `--expected-deployment`,
+`--expected-worker-version`, `--container-id`, `--container-version`, and
+`--container-image`. Worker selectors refer to the applied deployment; Container
+selectors refer to the original baseline in that receipt. The control checks
+the source, exact selectors and operation under the Remote Agent lease, then
+uses the same verification and receipt writer as guarded deploy. Keep the old
+source checkout intact. Never publish a locally created receipt commit by hand.
+Verification-only recovery does not run deployment preflight: it proves an
+already applied deployment under the existing identity and lease guards and
+introduces no new artifact or receiver; recovery that deploys still requires
+deployment preflight.
+
 For the specific Remote Agent Worker-first/container-image failure, current-main
 tooling provides `release:recover:remote-agent-partial`. It requires the clean
 original release source, the retained failed attempt and its start event, the

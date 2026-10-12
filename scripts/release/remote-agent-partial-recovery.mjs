@@ -21,6 +21,7 @@ import {
 import {
   groupReleaseSteps,
   releaseComponentOperationKey,
+  resumeRemoteAgentVerification,
 } from "./production-release-receipts.mjs";
 import {
   createWorkerDeploymentCapture,
@@ -446,6 +447,7 @@ function parseArgs(argv) {
           "--container-id",
           "--container-version",
           "--container-image",
+          "--verify-only",
         ].includes(key) && argv[index + 1]
       ) ||
       options[key]
@@ -457,7 +459,9 @@ function parseArgs(argv) {
     options[key] = argv[index + 1];
   }
   if (
-    Object.keys(options).length !== 8 ||
+    Object.keys(options).length !== (options["--verify-only"] ? 9 : 8) ||
+    (options["--verify-only"] !== undefined &&
+      options["--verify-only"] !== "true") ||
     !EXACT_SHA.test(options["--source-sha"])
   ) {
     throw new Error(
@@ -503,20 +507,22 @@ async function main(argv) {
     sourceDir
   );
   assertProductionReleaseSource({ cwd: sourceDir, sourceSha });
-  run(
-    "pnpm",
-    [
-      "run",
-      "release:preflight:local",
-      "--",
-      "--scope",
-      REMOTE_AGENT,
-      "--base",
-      "99bd94a254457683a4922452b05bc80e175d50ac",
-    ],
-    sourceDir,
-    { inherit: true, timeout: 20 * 60_000 }
-  );
+  if (options["--verify-only"] !== "true") {
+    run(
+      "pnpm",
+      [
+        "run",
+        "release:preflight:local",
+        "--",
+        "--scope",
+        REMOTE_AGENT,
+        "--base",
+        "99bd94a254457683a4922452b05bc80e175d50ac",
+      ],
+      sourceDir,
+      { inherit: true, timeout: 20 * 60_000 }
+    );
+  }
   const steps = buildProductionDeployStepSpecs([REMOTE_AGENT]);
   const [group] = groupReleaseSteps(steps);
   const target = await resolveReceiptWorkerTarget({ cwd: sourceDir, group });
@@ -534,6 +540,22 @@ async function main(argv) {
       const latest = readGuardedLocalReleaseSources({ cwd: sourceDir }).get(
         REMOTE_AGENT
       );
+      if (options["--verify-only"] === "true") {
+        assertRemoteVerificationSelectors(latest, options);
+        await resumeRemoteAgentVerification({
+          cwd: sourceDir,
+          sourceSha,
+          group,
+          target,
+          operationKey,
+          previous: latest,
+          runCommand: (input) => readWorkerCommand(sourceDir, input),
+        });
+        process.stdout.write(
+          "Remote Agent original attempt verified without deployment.\n"
+        );
+        return;
+      }
       const started = readStartedEvidence(sourceDir, latest.evidenceSha);
       const original = readState(sourceDir, options["--container-id"]);
       const baseline = assessRemoteAgentPartialRecovery({
@@ -650,6 +672,24 @@ async function main(argv) {
       }
     },
   });
+}
+
+export function assertRemoteVerificationSelectors(latest, options) {
+  const receipt = latest?.receipt;
+  const container = receipt?.remoteAgent?.container;
+  if (
+    latest?.sha !== options["--source-sha"] ||
+    receipt?.attemptId !== options["--attempt"] ||
+    receipt?.identity?.deploymentId !== options["--expected-deployment"] ||
+    receipt?.identity?.versionId !== options["--expected-worker-version"] ||
+    container?.id !== options["--container-id"] ||
+    container?.version !== Number(options["--container-version"]) ||
+    container?.image !== options["--container-image"]
+  ) {
+    throw new Error(
+      "Verification selectors do not match the retained Remote Agent attempt."
+    );
+  }
 }
 
 if (

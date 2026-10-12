@@ -296,28 +296,30 @@ export async function finishRemoteAgentComputerCommands(
       : {}),
     computerCleanup: {
       stopAccepted: cleanup?.accepted ?? false,
-      automaticRetryPaused: isComputerCleanupPaused(cleanup),
+      automaticRetryPaused: isComputerRecoveryPaused(cleanup, state),
       state,
     },
   };
 }
 
-function isComputerCleanupPaused(
-  cleanup: ComputerCleanupHandoff | null
+function isComputerRecoveryPaused(
+  cleanup: ComputerCleanupHandoff | null,
+  state: CloudComputerInvocationState | null
 ): boolean {
   return (
-    !!cleanup &&
-    cleanup.nextAttemptAtMs === null &&
-    (!cleanup.accepted ||
-      (!cleanup.computerName &&
-        !!cleanup.state &&
-        (cleanup.state.unfinished > 0 || cleanup.state.pendingResults > 0)) ||
-      !!cleanup.state?.commands.some(
-        (command) =>
-          command.collection?.nextAttemptAtMs === null &&
-          !command.resultUnavailable &&
-          !(command.terminationConfirmed && command.filesSynced)
-      ))
+    !!state?.commands.some(
+      (command) =>
+        command.collection?.nextAttemptAtMs === null &&
+        (command.collection.observationExpiresAtMs ?? 0) <= Date.now() &&
+        !command.resultUnavailable &&
+        !(command.terminationConfirmed && command.filesSynced)
+    ) ||
+    (!!cleanup &&
+      cleanup.nextAttemptAtMs === null &&
+      (!cleanup.accepted ||
+        (!cleanup.computerName &&
+          !!state &&
+          (state.unfinished > 0 || state.pendingResults > 0))))
   );
 }
 

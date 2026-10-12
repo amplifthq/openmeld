@@ -97,7 +97,7 @@ export const PLUGINS = [
     category: "Communication",
     connection: { auth: { kind: "oauth" } },
     description:
-      "Search and work with Slack messages and files using your authorized account.",
+      "Find messages and files, catch up on threads, and reply to your team.",
     homepage: "https://slack.com",
     logoPath: SLACK_CHANNEL_IDENTITY.logoPath,
     name: "Slack",
@@ -107,8 +107,7 @@ export const PLUGINS = [
     availability: "available",
     category: "Productivity",
     connection: { auth: { kind: "oauth" } },
-    description:
-      "Work with documents, wikis, tables, and calendars using your authorized Lark account.",
+    description: "Read documents and find records in your team's tables.",
     homepage: "https://www.larksuite.com",
     logoPath: FEISHU_CHANNEL_LOGO_PATH,
     name: "Lark",
@@ -118,8 +117,7 @@ export const PLUGINS = [
     availability: "available",
     category: "Productivity",
     connection: { auth: { kind: "oauth" } },
-    description:
-      "Work with documents, wikis, tables, and calendars using your authorized Feishu account.",
+    description: "Read documents and find records in your team's tables.",
     homepage: "https://www.feishu.cn",
     logoPath: FEISHU_CHANNEL_LOGO_PATH,
     name: "Feishu",
@@ -132,7 +130,8 @@ export const PLUGINS = [
     connection: {
       auth: { kind: "oauth" },
     },
-    description: "Work with Drive files using the access you grant.",
+    description:
+      "Find, read, and organize files, and share them with your team.",
     homepage: "https://workspace.google.com/products/drive/",
     logoPath: "/app-logos/google-drive.svg",
     name: "Google Drive",
@@ -144,7 +143,7 @@ export const PLUGINS = [
     connection: {
       auth: { kind: "oauth" },
     },
-    description: "Work with calendars and events using the access you grant.",
+    description: "Check your schedule and create or update calendar events.",
     homepage: "https://workspace.google.com/products/calendar/",
     logoPath: "/app-logos/google-calendar.svg",
     name: "Google Calendar",
@@ -156,7 +155,7 @@ export const PLUGINS = [
     connection: {
       auth: { kind: "oauth" },
     },
-    description: "Work with email using the access you grant.",
+    description: "Find emails, read conversations, and send replies.",
     homepage: "https://workspace.google.com/products/gmail/",
     logoPath: "/app-logos/gmail.svg",
     name: "Gmail",
@@ -185,8 +184,7 @@ export const PLUGINS = [
         kind: "oauth",
       },
     },
-    description:
-      "Search workspace content and update pages and databases within the capabilities and Content access you grant.",
+    description: "Find workspace information and update pages and databases.",
     homepage: "https://www.notion.com",
     logoPath: "/app-logos/notion.svg",
     name: "Notion",
@@ -198,7 +196,7 @@ export const PLUGINS = [
     connection: {
       auth: { kind: "oauth" },
     },
-    description: "Read issues and help maintain project workflows.",
+    description: "Find issues and track project progress.",
     homepage: "https://linear.plugin",
     logoPath: "/app-logos/linear.svg",
     name: "Linear",
@@ -778,7 +776,7 @@ export const PLUGINS = [
       },
     },
     description:
-      "Manage products, inventory, and fulfillment, and read orders and customers through the Admin GraphQL API.",
+      "Update products and inventory, manage fulfillment, and look up orders and customers.",
     homepage: "https://www.shopify.com",
     logoPath: "/app-logos/shopify.svg",
     name: "Shopify Admin",
@@ -967,7 +965,8 @@ export const PLUGINS = [
         kind: "credential",
       },
     },
-    description: "Get temporary kubeconfig credentials for an ACK cluster.",
+    description:
+      "Get temporary credentials to connect to an ACK Kubernetes cluster.",
     homepage: "https://www.alibabacloud.com/product/kubernetes",
     logoPath: "/app-logos/alibaba-cloud.svg",
     name: "Alibaba Cloud ACK",
@@ -1296,7 +1295,7 @@ export const PLUGINS = [
       },
     },
     description:
-      "Read user profiles, list meetings, and create or update meetings.",
+      "Find upcoming meetings, schedule new ones, and update meeting details.",
     homepage: "https://www.zoom.com",
     logoPath: "/app-logos/zoom.svg",
     name: "Zoom",

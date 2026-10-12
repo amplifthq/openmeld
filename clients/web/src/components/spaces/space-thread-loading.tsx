@@ -1,14 +1,12 @@
 import { Button } from "@openmeld/ui/components/button";
+import { SkeletonRegion } from "@openmeld/ui/components/skeleton-content";
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
-import {
-	ArrowSquareOutIcon,
-	SpinnerGapIcon,
-	XIcon,
-} from "@phosphor-icons/react";
+import { ArrowSquareOutIcon, XIcon } from "@phosphor-icons/react";
+import { SpaceConversationSkeleton } from "./space-conversation-skeleton";
 import {
 	SpaceInlineSidePanel,
 	SpaceInlineSidePanelHeader,
@@ -63,17 +61,10 @@ export function ThreadPanelHeader(input: {
 
 export function ThreadMessagesLoading() {
 	return (
-		<div
-			aria-busy="true"
-			className="flex min-h-0 flex-1 items-center justify-center p-4"
-		>
-			<output className="flex flex-col items-center gap-2 text-muted-foreground text-sm">
-				<SpinnerGapIcon
-					aria-hidden="true"
-					className="size-5 motion-safe:animate-spin"
-				/>
-				<span>Loading messages…</span>
-			</output>
+		<div aria-busy="true" className="min-h-0 flex-1 overflow-hidden p-4">
+			<SkeletonRegion label="Loading messages…">
+				<SpaceConversationSkeleton />
+			</SkeletonRegion>
 		</div>
 	);
 }
