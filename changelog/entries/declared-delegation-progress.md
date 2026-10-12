@@ -13,3 +13,7 @@ source or result, including messages outside the loaded conversation.
 
 The view preserves each Space's access rules and owner-private input. Existing
 Stop controls and task recovery remain tied to the exact Wake.
+
+Agents can finish their replies when Space membership changes while they wait
+for input. Stopping a task with a pending question preserves the Stop outcome
+when the input cancellation reaches the Agent before the native Stop command.

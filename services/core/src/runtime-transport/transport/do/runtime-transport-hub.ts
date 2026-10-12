@@ -9667,7 +9667,15 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         }
         const next: RuntimeCoordinatorRunCommandState = {
           ...current,
-          lastCommandReasonCode: "runtime_coordinator.interaction_delivered",
+          // A cancelled waiter can finish before the native Stop frame arrives.
+          // Its acknowledgement must not erase the durable Stop intent.
+          lastCommandReasonCode:
+            current.lastCommandReasonCode ===
+              RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE ||
+            current.lastCommandReasonCode ===
+              "runtime_coordinator.wake_stop_delivery_pending"
+              ? current.lastCommandReasonCode
+              : "runtime_coordinator.interaction_delivered",
           interactionResponseReceipts: {
             ...current.interactionResponseReceipts,
             [pendingInteraction.request.interactionId]: {
