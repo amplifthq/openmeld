@@ -147,11 +147,9 @@ export function PluginAgentAccess(input: {
 			aria-label="Agent access"
 			className="border-border/70 border-t py-4"
 		>
-			<h3 className="font-medium text-sm">Agent access</h3>
-			<p className="mt-2 text-muted-foreground text-sm">
-				Choose which Agents may use this account, then save your permissions.
-				Connecting an account does not grant new Agent access or start a task.
-			</p>
+			{active.length > 1 ? (
+				<h3 className="font-medium text-sm">Agent access</h3>
+			) : null}
 			{active.map((item) => {
 				return (
 					<ConnectionAgentAccess
@@ -166,6 +164,7 @@ export function PluginAgentAccess(input: {
 						onSaved={() =>
 							queryClient.invalidateQueries({ queryKey: accessQueryKey })
 						}
+						single={active.length === 1}
 					/>
 				);
 			})}
@@ -174,6 +173,7 @@ export function PluginAgentAccess(input: {
 }
 
 function ConnectionAgentAccess(input: {
+	single: boolean;
 	access: PluginAccess;
 	organizationId: string;
 	service: ConnectorService;
@@ -208,10 +208,27 @@ function ConnectionAgentAccess(input: {
 	return (
 		<>
 			<fieldset
-				className="mt-4 space-y-3"
+				className="space-y-3"
 				disabled={!input.access.canManage || mutation.isPending}
 			>
-				<legend className="font-medium text-sm">{input.label}</legend>
+				<legend className="sr-only">{input.label}</legend>
+				<div className="flex items-center justify-between gap-4">
+					<h3 className="font-medium text-sm">
+						{input.single ? "Agent access" : input.label}
+					</h3>
+					{input.access.canManage ? (
+						<Button
+							disabled={!changed || mutation.isPending}
+							onClick={() => mutation.mutate()}
+							size="sm"
+						>
+							{mutation.isPending ? "Saving…" : "Save access"}
+						</Button>
+					) : null}
+				</div>
+				<p className="mt-2 text-muted-foreground text-sm">
+					Choose which Agents can use this account.
+				</p>
 				{hasSavedAccess ? null : (
 					<p className="text-muted-foreground text-sm">
 						No Agent has access yet.
@@ -252,15 +269,7 @@ function ConnectionAgentAccess(input: {
 						</Select>
 					</div>
 				))}
-				{input.access.canManage ? (
-					<Button
-						disabled={!changed || mutation.isPending}
-						onClick={() => mutation.mutate()}
-						size="sm"
-					>
-						{mutation.isPending ? "Saving…" : "Save access"}
-					</Button>
-				) : (
+				{input.access.canManage ? null : (
 					<p className="text-muted-foreground text-xs">
 						{input.access.scope === "shared"
 							? "An organization owner or admin manages this access."

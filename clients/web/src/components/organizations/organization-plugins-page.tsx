@@ -5,6 +5,10 @@ import {
 	type PluginDefinition,
 	pluginFromProvider,
 } from "@openmeld/product-catalog/plugins";
+import {
+	SkeletonForm,
+	SkeletonRows,
+} from "@openmeld/ui/components/skeleton-content";
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { AppPageHeader } from "#/components/app/app-page-header";
@@ -40,7 +44,22 @@ export function OrganizationPluginsPage({
 		? pluginFromProvider(provider)
 		: findPluginDefinition(selectedService ?? "");
 	if (selectedService && catalog.isPending) {
-		return <output>Loading Plugin…</output>;
+		return selectedPlugin ? (
+			<OrganizationPluginDetailPage
+				canManageSharedPlugins={false}
+				catalogPending
+				isPersonalWorkspace={currentOrganization.isPersonal === true}
+				organizationId={currentOrganization.id}
+				organizationName={currentOrganization.name}
+				organizationSlug={currentOrganization.slug}
+				plugin={selectedPlugin}
+			/>
+		) : (
+			<>
+				<SkeletonRows label="Loading Plugin" rows={1} />
+				<SkeletonForm className="max-w-xl" label="Loading Plugin settings" />
+			</>
+		);
 	}
 	if (selectedService && catalog.isError) {
 		return (
