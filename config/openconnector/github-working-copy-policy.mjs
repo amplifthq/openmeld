@@ -2,7 +2,7 @@
 // OpenConnector keys its app cache by allowedProxies AND blockedProxies. Keep its
 // ordinary API/MCP environment unchanged and unblock only this validated call.
 export const OPENMELD_GIT_PROXY_UPSTREAM_SHA =
-  "7e53734eb6c0f1c7442b9228889a816d0a3055e5";
+  "01a5b2c57d95c9b57d7c63b9c31cb766e49b0c6c";
 export const OPENMELD_GIT_PROXY_PATH = "/v1/openmeld/github-working-copy";
 const REPOSITORY_PATH = /^\/repos\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_.-]+)(.*)$/u;
 const SHA = /^[a-f0-9]{40}$/u;
