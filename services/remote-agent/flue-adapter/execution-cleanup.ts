@@ -247,8 +247,11 @@ export async function finishRemoteAgentComputerCommands(
         : "Computer cleanup has not acknowledged Stop. Original command receipts and saved results are retained; process termination is unknown.",
     }),
     code: REMOTE_AGENT_COMPUTER_CLEANUP_FAILED_CODE,
-    ...(reviewed === computerFinishFingerprint(cleanup.state) &&
-    input.assistantText?.trim()
+    // The explanation describes the snapshot delivered to the original model.
+    // Background collection can advance before callback publication; it must
+    // not erase that business result or promote the task to success. Publish
+    // the latest cleanup projection separately from the reviewed explanation.
+    ...(typeof reviewed === "string" && input.assistantText?.trim()
       ? { explanationText: input.assistantText.trim() }
       : {}),
     computerCleanup: {

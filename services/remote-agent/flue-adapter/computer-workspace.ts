@@ -320,7 +320,7 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
       assertCanStart: () => this.assertComputerCanStart(request.invocationId),
       workspaceAccess: {
         withWorkspace: async (operation) => {
-          using workspace = await getWorkspace(this);
+          using workspace = await getWorkspace(this.workspace);
           return await operation(workspace);
         },
       },
@@ -371,7 +371,7 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
       storage: this.#commands,
       access: () => ({
         withWorkspace: async (operation) => {
-          using workspace = await getWorkspace(this);
+          using workspace = await getWorkspace(this.workspace);
           return await operation(workspace);
         },
       }),
@@ -582,7 +582,7 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
         this.assertComputerCanStart(invocationId),
       workspaceAccess: {
         withWorkspace: async (operation) => {
-          using workspace = await getWorkspace(this);
+          using workspace = await getWorkspace(this.workspace);
           return await operation(workspace);
         },
       },
@@ -590,7 +590,7 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
     // Pack downloads can take minutes. Keep them out of the alarm handler so
     // they cannot block command receipts past the native retention window.
     this.ctx.waitUntil(this.collectGitPack());
-    using workspace = await getWorkspace(this);
+    using workspace = await getWorkspace(this.workspace);
     const maintenanceRevision = this.#maintenanceRevision;
     const hasSyncMaintenance = await workspace.maintainSync();
     await this.ctx.blockConcurrencyWhile(async () => {

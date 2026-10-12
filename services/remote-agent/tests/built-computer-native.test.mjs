@@ -114,7 +114,11 @@ test("native Computer uses official files and both isolate engines through the b
     const described = await call({ action: "describe" });
     assert.equal(described.capabilities.storage.scope, "persistent");
     assert.ok(described.capabilities.storage.databaseBytes > 0);
-    assert.equal(described.capabilities.storage.limitBytes, 10_000_000_000);
+    // The storage contract reserves 64 MiB of its 4 GiB budget for maintenance.
+    assert.equal(
+      described.capabilities.storage.limitBytes,
+      4 * 1024 ** 3 - 64 * 1024 ** 2
+    );
     assert.equal(described.capabilities.storage.status, "available");
     assert.deepEqual(Object.keys(described.capabilities.backends).sort(), [
       "container",
