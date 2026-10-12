@@ -587,6 +587,13 @@ controls and keep account connection controls beside their scoped permissions.
 Loading connection status must not block opening the catalog or a Plugin's
 settings. Route loaders do not await connection snapshots; the mounted page
 owns loading, cached status, and retry feedback after organization authorization.
+The catalog route starts provider and connection prefetches concurrently after
+scope authorization, without awaiting them for navigation. It reuses the same
+query cache as the mounted page. Known connections can render while providers
+are pending; skeleton rows cover unavailable results. The connected filter
+uses the current scope's active connections, including accounts needing
+reconnection, and combines with category and search filters. Pending or failed
+connection reads must not appear as an empty connected list.
 
 ### Organization Skills
 

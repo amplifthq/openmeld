@@ -29,6 +29,7 @@ const SLACK_LINK_NAME = /Slack/;
 const TEAMS_LINK_NAME = /Microsoft Teams/;
 const TRANSIENT_STATUS_COPY = /checking|updating/i;
 const listAppConnectionsMock = vi.hoisted(() => vi.fn());
+const listProvidersMock = vi.hoisted(() => vi.fn());
 const scopeState = vi.hoisted(() => ({
 	value: "personal" as "personal" | "organization",
 }));
@@ -57,6 +58,7 @@ vi.mock("@tanstack/react-router", () => ({
 
 vi.mock("#/lib/organizations/connector-connections", () => ({
 	listCurrentOrganizationAppConnections: listAppConnectionsMock,
+	listCurrentOrganizationConnectorAppCatalog: listProvidersMock,
 }));
 
 describe("PluginsCatalogPanel", () => {
@@ -67,6 +69,7 @@ describe("PluginsCatalogPanel", () => {
 			currentUserId: "user-1",
 			organizationId: "org-acme",
 		});
+		listProvidersMock.mockReset();
 	});
 
 	afterEach(cleanup);
@@ -284,12 +287,77 @@ describe("PluginsCatalogPanel", () => {
 		expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
 		expect(screen.queryByText("Account connected")).toBeNull();
 		expect(screen.queryByText("Available")).toBeNull();
+		fireEvent.click(screen.getByLabelText("Show connected Plugins"));
+		expect(screen.queryByText("No Plugins found")).toBeNull();
+	});
+
+	it("renders known connections while the provider catalog is still pending", async () => {
+		let releaseProviders!: (value: { providers: unknown[] }) => void;
+		listProvidersMock.mockReturnValue(
+			new Promise((resolve) => {
+				releaseProviders = resolve;
+			})
+		);
+		renderCatalog(createTestQueryClient(), false);
+		expect(screen.getByLabelText("Loading Plugins")).toBeTruthy();
+		expect(
+			await screen.findByRole("link", { name: GITHUB_LINK_NAME })
+		).toBeTruthy();
+		expect(screen.getByLabelText("Loading Plugins")).toBeTruthy();
+		releaseProviders({ providers: capturedProviders.data });
+		expect(
+			await screen.findByRole("link", { name: GOOGLE_DRIVE_LINK_NAME })
+		).toBeTruthy();
+		expect(screen.queryByLabelText("Loading Plugins")).toBeNull();
+	});
+
+	it("filters only the current member's connections, including those needing reconnection", async () => {
+		listAppConnectionsMock.mockResolvedValue({
+			connections: [
+				{
+					...activeConnection("github"),
+					health: { state: "reconnect_required" },
+				},
+				{ ...activeConnection("notion"), userId: "another-user" },
+				{ ...activeConnection("gmail"), scope: "shared" },
+			],
+			currentUserId: "user-1",
+			organizationId: "org-acme",
+		});
+		renderCatalog();
+		await screen.findByText("Reconnect required");
+		const filter = screen.getByLabelText("Show connected Plugins");
+		fireEvent.click(filter);
+		expect(filter.getAttribute("aria-pressed")).toBe("true");
+		expect(screen.getAllByRole("link")).toHaveLength(1);
+		expect(screen.getByRole("link", { name: GITHUB_LINK_NAME })).toBeTruthy();
+		fireEvent.change(screen.getByLabelText("Search Plugins"), {
+			target: { value: "notion" },
+		});
+		expect(screen.queryByRole("link")).toBeNull();
+		fireEvent.click(screen.getByText("Clear filters"));
+		expect(filter.getAttribute("aria-pressed")).toBe("false");
+		expect(screen.getAllByRole("link")).toHaveLength(PLUGINS.length);
+	});
+
+	it("keeps a filtered cold load pending rather than claiming no connections", () => {
+		listAppConnectionsMock.mockReturnValue(new Promise(() => undefined));
+		renderCatalog();
+		fireEvent.click(screen.getByLabelText("Show connected Plugins"));
+		expect(screen.getByLabelText("Loading Plugins")).toBeTruthy();
+		expect(screen.queryByText("No Plugins found")).toBeNull();
+		fireEvent.click(screen.getByLabelText("Show connected Plugins"));
+		expect(screen.getByRole("link", { name: GITHUB_LINK_NAME })).toBeTruthy();
 	});
 });
 
-function renderCatalog(queryClient = createTestQueryClient()) {
+function renderCatalog(
+	queryClient = createTestQueryClient(),
+	seedProviders = true
+) {
 	// Captured vendor contract; these layout cases model configured OAuth clients.
 	if (
+		seedProviders &&
 		!queryClient.getQueryData(
 			organizationPluginConnectionQueryKeys.providers("org-acme")
 		)
