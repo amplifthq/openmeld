@@ -642,6 +642,15 @@ alarm reads the next due time from the same receipts; pending Git transfers
 retain their existing alarm cadence. The index adds a write cost to eligible
 receipt updates and an initial build on existing storage; it is not a separate
 queue or execution state.
+Normal model completion only observes these receipts. A paused collection,
+expired observation, or unavailable result can produce a reviewed explanation
+of the incomplete task, but cannot create a Stop request. Once that explanation
+has been reviewed, a new observation must not block its publication. The final
+bounded read can update diagnostics without changing the reviewed facts. A later
+authorized request can poll the original reference after the first submission
+settles; it cannot replay the command or revise the first task's published
+outcome. Explicit cancellation, original execution failure intent, and existing
+durable Stop handoffs retain their separate stopping authority.
 The command receipt retains the requested Stop signal and its native delivery
 acknowledgement. After an acquisition timeout, polling and collection continue
 the pending Stop for that same identity. A short native inspection can avoid
@@ -810,7 +819,8 @@ a rejected read retries with bounded backoff under the original turn authority.
 Neither a local observation timeout nor a failed read authorizes Stop. Abort
 ends the local wait without claiming to cancel the underlying read-only RPC.
 Paused collection, explicit loss or unavailable results confirmed by the Computer
-enter the existing recovery-facts and cleanup handoff. Unknown read state does not.
+enter the existing recovery-facts and reviewed incomplete-outcome path. These
+facts do not create a Stop handoff. Unknown read state keeps the observer waiting.
 Normal result publication and completed-result reconciliation only confirm
 Computer state; they cannot create a Stop obligation. Explicit cancellation,
 confirmed execution failure and existing Stop handoffs retain cleanup authority.
