@@ -2,6 +2,7 @@ import type { PluginDefinition } from "@openmeld/product-catalog/plugins";
 import { connectorConnectionScopeAllowed } from "@openmeld/schemas";
 import { AppLogo } from "@openmeld/ui/components/app-logo";
 import { buttonVariants } from "@openmeld/ui/components/button";
+import { SkeletonForm } from "@openmeld/ui/components/skeleton-content";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowLeftIcon, ArrowSquareOutIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
@@ -19,6 +20,7 @@ export function OrganizationPluginDetailPage(input: {
 	organizationSlug: string;
 	organizationName: string;
 	permissionNotice?: ReactNode;
+	catalogPending?: boolean;
 }) {
 	const selectedScope = usePluginScope();
 	const scope =
@@ -61,7 +63,9 @@ export function OrganizationPluginDetailPage(input: {
 								<h1 className="font-medium text-2xl text-foreground">
 									{input.plugin.name}
 								</h1>
-								<PluginStatusBadge plugin={input.plugin} />
+								{input.catalogPending ? null : (
+									<PluginStatusBadge plugin={input.plugin} />
+								)}
 							</div>
 							<p className="mt-1 text-muted-foreground text-xs">
 								{input.plugin.category}
@@ -91,7 +95,13 @@ export function OrganizationPluginDetailPage(input: {
 				</p>
 			)}
 
-			{input.plugin.availability === "available" ? (
+			{input.catalogPending ? (
+				<SkeletonForm
+					className="max-w-xl py-4"
+					label="Loading Plugin settings"
+				/>
+			) : null}
+			{!input.catalogPending && input.plugin.availability === "available" ? (
 				<section className="overflow-hidden" data-testid="plugin-detail-access">
 					{scopeAllowed ? (
 						<div className="border-border/70 border-b pb-4">
@@ -118,14 +128,15 @@ export function OrganizationPluginDetailPage(input: {
 						plugin={input.plugin}
 					/>
 				</section>
-			) : (
+			) : null}
+			{!input.catalogPending && input.plugin.availability !== "available" ? (
 				<section className="rounded-md border border-border/70 bg-card px-4 py-5 sm:px-5">
 					<h2 className="font-medium text-foreground text-sm">Availability</h2>
 					<p className="mt-1 max-w-2xl text-muted-foreground text-sm leading-6">
 						{input.plugin.name} does not have a configured sign-in method yet.
 					</p>
 				</section>
-			)}
+			) : null}
 		</>
 	);
 }

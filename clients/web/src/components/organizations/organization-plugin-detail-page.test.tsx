@@ -51,6 +51,30 @@ vi.mock("./plugin-connection-card", () => ({
 describe("OrganizationPluginDetailPage", () => {
 	afterEach(cleanup);
 
+	it("shows known identity and navigation without enabling setup before catalog readiness", () => {
+		const github = findPluginDefinition("github");
+		if (!github) {
+			throw new Error("Missing GitHub fixture");
+		}
+		render(
+			<OrganizationPluginDetailPage
+				canManageSharedPlugins={false}
+				catalogPending
+				isPersonalWorkspace={false}
+				organizationId="org-acme"
+				organizationName="Acme"
+				organizationSlug="acme"
+				plugin={github}
+			/>
+		);
+		expect(screen.getByRole("heading", { name: "GitHub" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "All Plugins" })).toBeTruthy();
+		expect(screen.getByLabelText("Loading Plugin settings")).toBeTruthy();
+		expect(screen.queryByTestId("github-access")).toBeNull();
+		expect(screen.queryByTestId("plugin-access")).toBeNull();
+		expect(screen.queryByText("Sign-in unavailable")).toBeNull();
+	});
+
 	it("keeps GitHub connection management on its own page", () => {
 		const github = findPluginDefinition("github");
 		expect(github).not.toBeNull();

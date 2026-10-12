@@ -13,3 +13,6 @@ reconnection.
 Plugin requests start earlier and load independently, with skeleton rows while
 results arrive. Threads reuse message skeletons, and the opening screen shows
 only the OpenMeld logo.
+
+Plugin details show known names, logos, and navigation immediately, with
+skeletons for settings until live setup information is available.
