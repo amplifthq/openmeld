@@ -193,7 +193,19 @@ function fixture() {
   const workspace = {
     executionSync: vi.fn(async () => undefined),
     maintainSync: vi.fn(async () => false),
-    runtime: { exec, getExec, killExec },
+    runtime: {
+      exec,
+      execWithAdmission: async (
+        source: string,
+        options: { id: string },
+        admit: () => Promise<void>
+      ) => {
+        await admit();
+        return await exec(source, options);
+      },
+      getExec,
+      killExec,
+    },
   } as unknown as WorkspaceClient;
   const workspaceAccess = {
     withWorkspace: async <T>(
