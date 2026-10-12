@@ -137,6 +137,11 @@ streams, verifies both batch ceilings and content, and uses separate HTTP steps:
 pnpm dev:run -- node services/remote-agent/scripts/verify-computer-container.mjs objects candidate --stress
 ```
 
+The same check retains the original command output and exit code, disposes its
+native execution logs, and confirms `ENOENT` for that execution record. Cold
+Workspace instances then resume the original synchronization window. File bytes
+and the single command launch are checked independently of the expired logs.
+
 This applies the same native CPU and memory limits after warmup, on one
 disposable instance. It complements rather than replaces the large-directory
 restart matrix. SDK progress byte counts describe a metadata block and must

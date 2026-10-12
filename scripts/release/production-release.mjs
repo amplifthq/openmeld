@@ -1025,6 +1025,10 @@ export function parseProductionReleaseArgs(argv) {
     if (arg === "--") {
       continue;
     }
+    if (arg === "--containers-rollout=none") {
+      options.retainContainers = true;
+      continue;
+    }
     if (arg === "--database-cutover" && command === "plan") {
       options.databaseCutover = true;
       continue;
@@ -1058,7 +1062,26 @@ export function parseProductionReleaseArgs(argv) {
   validateDomainReleaseOptions(options);
   validateDatabaseCutoverOptions(options);
   validateReleaseLane(options);
+  validateRetainedContainerOptions(options);
   return options;
+}
+
+function validateRetainedContainerOptions(options) {
+  if (
+    options.retainContainers &&
+    (options.scope !== "remote-agent" ||
+      options.lane !== "local" ||
+      options.command === "verify" ||
+      options.redeploy ||
+      options.domainEvidence ||
+      options.domainPhase ||
+      options.databaseCutoverSnapshot ||
+      options.databaseCutoverRestoreCrons)
+  ) {
+    throw new Error(
+      "Retaining Containers requires an explicit local Remote Agent plan, preflight or deploy without other release modes."
+    );
+  }
 }
 
 function validateReleaseLane(options) {
@@ -1509,6 +1532,7 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   for (const scope of orderedScopes) {
     const start = steps.length;
     appendProductionDeployScopeSteps({
+      retainContainers: input.retainContainers,
       databaseBackend: input.databaseBackend,
       databaseCutoverSnapshot: input.databaseCutoverSnapshot,
       coreReceiverFirst:
@@ -1758,6 +1782,7 @@ function appendProductionDeployScopeSteps(input) {
             "--env",
             "prod",
           ],
+          retainContainers: input.retainContainers,
         }
       ),
       workerDeploymentHealthStep({
@@ -3168,6 +3193,7 @@ export function buildProductionReleasePlan(input) {
     deployOrderProfile,
     deployScopeOrder,
     deploySteps: buildProductionDeployStepSpecs(scopes, {
+      retainContainers: input.retainContainers,
       coreCurrentCliProjection,
       databaseBackend: input.databaseBackend,
       databaseCutoverSnapshot: input.databaseCutoverSnapshot,
@@ -3707,6 +3733,20 @@ function selectContinuationStage(
   );
 }
 
+function assertNoAutomaticNativeRollout(status, remaining) {
+  if (
+    status.components.some(
+      (component) =>
+        remaining.includes(component.scope) &&
+        component.recovery?.kind === "guarded-remote-container-continuation"
+    )
+  ) {
+    throw new Error(
+      "The Remote Agent Worker is applied with original Containers retained. Complete original file synchronization, then explicitly deploy --scope remote-agent from the retained source. Automatic continuation cannot start native rollout."
+    );
+  }
+}
+
 export async function resumeProductionRelease(input) {
   const { collectProductionReleaseStatus } = await import(
     "./production-release-status.mjs"
@@ -3741,6 +3781,7 @@ export async function resumeProductionRelease(input) {
       );
       return;
     }
+    assertNoAutomaticNativeRollout(status, remaining);
     // Waiting is read-only. A running publisher can temporarily leave a
     // started receipt; wait for it before deciding whether a new write is safe.
     if (await input.waitForActiveRelease?.(remaining, status)) {
@@ -4062,6 +4103,7 @@ export async function runProductionRelease(argv) {
               sourceSha: plan.sourceSha,
               executeSteps: executeProductionDeploySteps,
               redeploy: options.redeploy ?? false,
+              retainContainers: options.retainContainers ?? false,
               beforeStep: () => {
                 assertSourceStillMatches(plan.sourceSha);
                 for (const scope of ["auth", "core"]) {
@@ -4144,7 +4186,13 @@ function cliReleaseMetadataStep() {
 
 function packageDeployStep(packageName, label, input) {
   return {
-    args: ["--filter", packageName, "run", "deploy"],
+    args: [
+      "--filter",
+      packageName,
+      "run",
+      "deploy",
+      ...(input.retainContainers ? ["--containers-rollout=none"] : []),
+    ],
     command: "pnpm",
     label,
     workerDeploymentArgs: input.args,
