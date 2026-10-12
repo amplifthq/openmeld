@@ -9,6 +9,7 @@ import {
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { resolveStatusToneTextClassName } from "@openmeld/ui/lib/status-tone";
 import { CheckIcon } from "@phosphor-icons/react";
 import { type ReactNode, useState } from "react";
 
@@ -51,8 +52,16 @@ export function PluginDetailConnection(input: {
 			size="sm"
 			variant="outline"
 		>
-			{input.connection && !reconnect ? <CheckIcon aria-hidden="true" /> : null}
-			{label}
+			<span
+				className={
+					label === "Connected"
+						? `inline-flex items-center gap-1 ${resolveStatusToneTextClassName("ready")}`
+						: "inline-flex items-center gap-1"
+				}
+			>
+				{label === "Connected" ? <CheckIcon aria-hidden="true" /> : null}
+				{label}
+			</span>
 		</Button>
 	);
 	return (
