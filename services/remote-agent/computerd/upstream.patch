@@ -1,4 +1,5 @@
 diff --git a/package-lock.json b/package-lock.json
+index 6f65bef..75121a1 100644
 --- a/package-lock.json
 +++ b/package-lock.json
 @@ -24959,7 +24959,7 @@
@@ -46,6 +47,7 @@ diff --git a/package-lock.json b/package-lock.json
        "workspaces": [
          ".",
 diff --git a/packages/computer/package.json b/packages/computer/package.json
+index 2c76034..7f2367c 100644
 --- a/packages/computer/package.json
 +++ b/packages/computer/package.json
 @@ -145,7 +145,7 @@
@@ -58,9 +60,10 @@ diff --git a/packages/computer/package.json b/packages/computer/package.json
    },
    "peerDependencies": {
 diff --git a/packages/computer/src/backends/container-legacy/cloudflare-container.test.ts b/packages/computer/src/backends/container-legacy/cloudflare-container.test.ts
+index f34dcd8..e8b8b70 100644
 --- a/packages/computer/src/backends/container-legacy/cloudflare-container.test.ts
 +++ b/packages/computer/src/backends/container-legacy/cloudflare-container.test.ts
-@@ -21,6 +21,7 @@
+@@ -21,6 +21,7 @@ interface FakeHostOptions {
    authProbeStatus?: number;
    // Accept the probe and never answer it, to prove the request is bounded.
    authProbeHang?: boolean;
@@ -68,7 +71,7 @@ diff --git a/packages/computer/src/backends/container-legacy/cloudflare-containe
    healthy?: boolean;
    // Health probe sequence: each connect() reads from the head of
    // this array. true = answer 200, false = throw "connection
-@@ -128,6 +129,12 @@
+@@ -128,6 +129,12 @@ function makeFakeHost(opts: FakeHostOptions = {}): FakeHost {
          return new Response(null, { status: opts.authProbeStatus ?? 401 });
        }
        if (url.pathname === "/connect") {
@@ -81,7 +84,7 @@ diff --git a/packages/computer/src/backends/container-legacy/cloudflare-containe
          state.connectBody = (await request
            .clone()
            .json()
-@@ -177,6 +184,15 @@
+@@ -177,6 +184,15 @@ function makeFakeHost(opts: FakeHostOptions = {}): FakeHost {
  const fakeWorkspace: WorkspaceRef = { binding: "TestDO", id: "abc123" };
  
  describe("LegacyContainerBackend", () => {
@@ -98,9 +101,10 @@ diff --git a/packages/computer/src/backends/container-legacy/cloudflare-containe
      const platformError = new Error(
        "There is no container instance that can be provided to this Durable Object, try again later",
 diff --git a/packages/computer/src/backends/container-legacy/cloudflare-container.ts b/packages/computer/src/backends/container-legacy/cloudflare-container.ts
+index a6089f0..cd249dc 100644
 --- a/packages/computer/src/backends/container-legacy/cloudflare-container.ts
 +++ b/packages/computer/src/backends/container-legacy/cloudflare-container.ts
-@@ -632,6 +632,7 @@
+@@ -632,6 +632,7 @@ export class LegacyContainerBackend implements WorkspaceBackend {
      try {
        res = await host.fetchPort(this.#options.containerPort, "http://container/connect", {
          method: "POST",
@@ -109,9 +113,10 @@ diff --git a/packages/computer/src/backends/container-legacy/cloudflare-containe
            "content-type": "application/json",
            authorization: `Bearer ${clientSecret}`,
 diff --git a/packages/computer/src/backends/container/container-backend.ts b/packages/computer/src/backends/container/container-backend.ts
+index de42fcc..b8e6d79 100644
 --- a/packages/computer/src/backends/container/container-backend.ts
 +++ b/packages/computer/src/backends/container/container-backend.ts
-@@ -790,6 +790,7 @@
+@@ -790,6 +790,7 @@ export class ContainerBackend implements WorkspaceBackend {
      try {
        res = await host.fetchPort(this.#options.containerPort, "http://container/connect", {
          method: "POST",
@@ -120,9 +125,10 @@ diff --git a/packages/computer/src/backends/container/container-backend.ts b/pac
            "content-type": "application/json",
            authorization: `Bearer ${clientSecret}`,
 diff --git a/packages/computer/src/client.test.ts b/packages/computer/src/client.test.ts
+index 28b2ad3..1e138b9 100644
 --- a/packages/computer/src/client.test.ts
 +++ b/packages/computer/src/client.test.ts
-@@ -215,6 +215,8 @@
+@@ -215,6 +215,8 @@ describe("getWorkspace — local dispatch", () => {
      const { host, calls } = fakeLocal();
      const ws = await getWorkspace(host);
      await ws.runtime.exec`cat ${"my file.txt"}`;
@@ -132,9 +138,10 @@ diff --git a/packages/computer/src/client.test.ts b/packages/computer/src/client
      expect(ws).not.toHaveProperty("readFile");
    });
 diff --git a/packages/computer/src/client.ts b/packages/computer/src/client.ts
+index db89f87..6a8eacb 100644
 --- a/packages/computer/src/client.ts
 +++ b/packages/computer/src/client.ts
-@@ -76,6 +76,15 @@
+@@ -76,6 +76,15 @@ async function rebuildExecHandle<E extends ExecEncoding>(
    let claimed: "result" | "stream" | undefined;
    let resultPromise: Promise<WorkspaceRuntimeResult<E>> | undefined;
    let reader: ReadableStreamDefaultReader<WorkspaceRuntimeEvent<E>> | undefined;
@@ -150,7 +157,7 @@ diff --git a/packages/computer/src/client.ts b/packages/computer/src/client.ts
    const stream = new ReadableStream<WorkspaceRuntimeEvent<E>>(
      {
        // Lazy: don't call remote.stream() until the consumer actually
-@@ -92,15 +101,14 @@
+@@ -92,15 +101,14 @@ async function rebuildExecHandle<E extends ExecEncoding>(
          }
          if (reader === undefined) {
            claimed = "stream";
@@ -169,7 +176,7 @@ diff --git a/packages/computer/src/client.ts b/packages/computer/src/client.ts
            if (done) {
              activeReader.releaseLock();
              reader = undefined;
-@@ -109,22 +117,21 @@
+@@ -109,22 +117,21 @@ async function rebuildExecHandle<E extends ExecEncoding>(
            }
            controller.enqueue(value);
          } catch (error) {
@@ -198,7 +205,39 @@ diff --git a/packages/computer/src/client.ts b/packages/computer/src/client.ts
            dispose();
          }
        },
-@@ -338,6 +345,11 @@
+@@ -188,6 +195,12 @@ async function rebuildExecHandle<E extends ExecEncoding>(
+ //     in `sh` to escape it: `exec(sh`cat ${file}`, { cwd })`.
+ //
+ export interface WorkspaceRuntimeClient {
++  /** Only a local Workspace owner may supply an admission callback. */
++  execWithAdmission<E extends ExecEncoding>(
++    source: string,
++    options: RuntimeExecOptions & { encoding?: E },
++    beforeDispatch: () => Promise<void>,
++  ): Promise<WorkspaceRuntimeExecHandle<E>>;
+   exec(
+     strings: TemplateStringsArray,
+     ...values: ShellValue[]
+@@ -281,6 +294,7 @@ function makeRuntimeClient(
+   // snapshot serves the client's lifetime. It keeps backends()
+   // synchronous over RPC, where the tools need it at construction.
+   backends: readonly WorkspaceBackendInfo[],
++  localAdmission?: WorkspaceRuntimeClient["execWithAdmission"],
+ ): WorkspaceRuntimeClient {
+   async function exec(
+     commandOrStrings: string | TemplateStringsArray,
+@@ -320,6 +334,10 @@ function makeRuntimeClient(
+   );
+   return {
+     exec,
++    execWithAdmission: <E extends ExecEncoding>(source: string, options: RuntimeExecOptions & { encoding?: E }, beforeDispatch: () => Promise<void>) => {
++      if (!localAdmission) throw new Error("Execution admission requires the local Workspace owner");
++      return localAdmission(source, withExecutionId(options) as RuntimeExecOptions & { encoding?: E }, beforeDispatch);
++    },
+     getExec,
+     killExec,
+     disposeExec,
+@@ -338,6 +356,11 @@ function withExecutionId(
  // members, passed through. The filesystem stub mirrors the local
  // filesystem, so it also serves as the common client type.
  export interface WorkspaceClient extends Partial<ThinkWorkspaceCompatibility> {
@@ -210,8 +249,17 @@ diff --git a/packages/computer/src/client.ts b/packages/computer/src/client.ts
    readonly fs: WorkspaceFilesystem;
    readonly runtime: WorkspaceRuntimeClient;
    // biome-ignore lint/suspicious/noExplicitAny: git type differs local vs remote
-@@ -364,6 +376,8 @@
+@@ -357,13 +380,17 @@ function makeClient(
+   useThink: boolean,
+   backends: readonly WorkspaceBackendInfo[],
+   hasAssets: boolean,
++  localAdmission?: WorkspaceRuntimeClient["execWithAdmission"],
+ ): WorkspaceClient {
+   const runtime = makeRuntimeClient(
+     surface.runtime as UnderlyingRuntime,
+     rehydrate as RehydrateRuntimeHandle,
      backends,
++    localAdmission,
    );
    const client: WorkspaceClient = {
 +    executionSync: (id, backend) => surface.executionSync(id, backend),
@@ -219,7 +267,20 @@ diff --git a/packages/computer/src/client.ts b/packages/computer/src/client.ts
      get fs() {
        return surface.fs;
      },
-@@ -399,6 +413,8 @@
+@@ -388,10 +415,10 @@ function makeClient(
+ // What `getWorkspace` accepts: a local host carrying the symbol stash
+ // (the durable object `this`), or a remote stub exposing
+ // `__getWorkspaceStub`.
+-export type WorkspaceHandle = { [WORKSPACE]?: unknown } | WorkspaceStubHost;
++export type WorkspaceHandle = Workspace | { [WORKSPACE]?: unknown } | WorkspaceStubHost;
+ 
+ export async function getWorkspace(handle: WorkspaceHandle): Promise<WorkspaceClient> {
+-  const local = (handle as { [WORKSPACE]?: unknown })[WORKSPACE];
++  const local = handle instanceof Workspace ? handle : (handle as { [WORKSPACE]?: unknown })[WORKSPACE];
+   if (local instanceof Workspace) {
+     // Local path: delegate straight to the in-isolate Workspace.
+     // Nothing to dispose — the durable object owns the Workspace
+@@ -399,6 +426,8 @@ export async function getWorkspace(handle: WorkspaceHandle): Promise<WorkspaceCl
      await local.ready();
      return makeClient(
        {
@@ -228,7 +289,16 @@ diff --git a/packages/computer/src/client.ts b/packages/computer/src/client.ts
          fs: local.fs,
          runtime: local.runtime,
          get git() {
+@@ -413,6 +442,7 @@ export async function getWorkspace(handle: WorkspaceHandle): Promise<WorkspaceCl
+       local.useThink,
+       local.runtime.backends(),
+       local.assets !== undefined,
++      (source, options, beforeDispatch) => local.runtime.execWithAdmission(source, options, beforeDispatch),
+     );
+   }
+   // Remote path: fetch the stub over RPC and delegate to it. Handle
 diff --git a/packages/computer/src/execution-runtime-tracker.ts b/packages/computer/src/execution-runtime-tracker.ts
+index ee1c858..6fbc46e 100644
 --- a/packages/computer/src/execution-runtime-tracker.ts
 +++ b/packages/computer/src/execution-runtime-tracker.ts
 @@ -3,7 +3,23 @@
@@ -256,7 +326,7 @@ diff --git a/packages/computer/src/execution-runtime-tracker.ts b/packages/compu
  
  const DEFAULT_MAX_ENTRIES = 1_024;
  
-@@ -11,6 +27,17 @@
+@@ -11,6 +27,17 @@ export interface ExecutionRuntimeStore {
    get(key: string): string | undefined;
    remember(key: string, runtimeId: string): void;
    delete(key: string, expectedRuntimeId?: string): void;
@@ -274,7 +344,7 @@ diff --git a/packages/computer/src/execution-runtime-tracker.ts b/packages/compu
  }
  
  export class SqlExecutionRuntimeStore implements ExecutionRuntimeStore {
-@@ -21,6 +48,146 @@
+@@ -21,6 +48,146 @@ export class SqlExecutionRuntimeStore implements ExecutionRuntimeStore {
          runtime_id TEXT NOT NULL
        )
      `);
@@ -421,15 +491,16 @@ diff --git a/packages/computer/src/execution-runtime-tracker.ts b/packages/compu
    }
  
    get(key: string): string | undefined {
-@@ -32,15 +199,28 @@
+@@ -31,16 +198,29 @@ export class SqlExecutionRuntimeStore implements ExecutionRuntimeStore {
+   }
  
    remember(key: string, runtimeId: string): void {
-     this.db.run(
++    this.db.run(
 +      "DELETE FROM computer_execution_pending_sync WHERE execution_key=? AND runtime_id<>?",
 +      key,
 +      runtimeId,
 +    );
-+    this.db.run(
+     this.db.run(
        `INSERT INTO computer_execution_runtime (execution_key, runtime_id)
         VALUES (?, ?)
 -       ON CONFLICT(execution_key) DO UPDATE SET runtime_id = excluded.runtime_id`,
@@ -451,12 +522,10 @@ diff --git a/packages/computer/src/execution-runtime-tracker.ts b/packages/compu
      if (expectedRuntimeId === undefined) {
        this.db.run("DELETE FROM computer_execution_runtime WHERE execution_key = ?", key);
        return;
-@@ -80,6 +260,33 @@
-   remember(key: string, runtimeId: string): void {
-     this.#store?.remember(key, runtimeId);
+@@ -82,6 +262,33 @@ export class ExecutionRuntimeTracker {
      this.#touch(key, runtimeId);
-+  }
-+
+   }
+ 
 +  syncTarget(
 +    key: string,
 +    runtimeId: string,
@@ -482,11 +551,14 @@ diff --git a/packages/computer/src/execution-runtime-tracker.ts b/packages/compu
 +  }
 +  retireSyncEpochs(backend: string, epoch: string): boolean {
 +    return this.#store?.retireSyncEpochs?.(backend, epoch) ?? false;
-   }
- 
++  }
++
    delete(key: string, expectedRuntimeId?: string): void {
+     this.#store?.delete(key, expectedRuntimeId);
+     if (expectedRuntimeId !== undefined && this.#entries.get(key) !== expectedRuntimeId) return;
 diff --git a/packages/computer/src/execution-sync.test.ts b/packages/computer/src/execution-sync.test.ts
 new file mode 100644
+index 0000000..21dd3f1
 --- /dev/null
 +++ b/packages/computer/src/execution-sync.test.ts
 @@ -0,0 +1,277 @@
@@ -768,15 +840,17 @@ new file mode 100644
 +  }
 +});
 diff --git a/packages/computer/src/index.ts b/packages/computer/src/index.ts
+index ee72293..314d5d5 100644
 --- a/packages/computer/src/index.ts
 +++ b/packages/computer/src/index.ts
-@@ -123,3 +123,4 @@
+@@ -123,3 +123,4 @@ export {
    type WorkspaceGitFactory,
    type WorkspaceOptions,
  } from "./workspace.js";
 +export { WorkspaceSyncPendingError } from "./sync-pending.js";
 diff --git a/packages/computer/src/runtime/decode-command-events.ts b/packages/computer/src/runtime/decode-command-events.ts
 new file mode 100644
+index 0000000..05255f3
 --- /dev/null
 +++ b/packages/computer/src/runtime/decode-command-events.ts
 @@ -0,0 +1,40 @@
@@ -821,9 +895,63 @@ new file mode 100644
 +  );
 +}
 diff --git a/packages/computer/src/runtime/runtime.ts b/packages/computer/src/runtime/runtime.ts
+index fe47aa8..9d86dd9 100644
 --- a/packages/computer/src/runtime/runtime.ts
 +++ b/packages/computer/src/runtime/runtime.ts
-@@ -254,11 +254,12 @@
+@@ -93,6 +93,23 @@ export class WorkspaceRuntime {
+   async exec<E extends ExecEncoding>(
+     source: string,
+     options: WorkspaceRuntimeExecOptions<E> = {},
++  ): Promise<WorkspaceRuntimeExecHandle<E>> {
++    return this.#exec(source, options);
++  }
++
++  /** Local execution admission, after preparation and before native dispatch. */
++  execWithAdmission<E extends ExecEncoding>(
++    source: string,
++    options: WorkspaceRuntimeExecOptions<E>,
++    beforeDispatch: () => Promise<void>,
++  ): Promise<WorkspaceRuntimeExecHandle<E>> {
++    return this.#exec(source, options, beforeDispatch);
++  }
++
++  async #exec<E extends ExecEncoding>(
++    source: string,
++    options: WorkspaceRuntimeExecOptions<E>,
++    beforeDispatch?: () => Promise<void>,
+   ): Promise<WorkspaceRuntimeExecHandle<E>> {
+     if (options.id !== undefined) assertExecutionId(options.id);
+     const backend = this.#backend(options.backend);
+@@ -100,7 +117,7 @@ export class WorkspaceRuntime {
+       throw new Error(notCallableMessage(backend));
+     }
+     const runtime = await this.#options.backendHandle(backend);
+-    const envelope = await runtime.exec({
++    const input = {
+       id: options.id,
+       source,
+       cwd: options.cwd,
+@@ -109,7 +126,18 @@ export class WorkspaceRuntime {
+       stdin: options.stdin,
+       timeoutMs: options.timeoutMs,
+       sync: options.sync,
+-    });
++    };
++    let envelope;
++    if (!beforeDispatch) {
++      envelope = await runtime.exec(input);
++    } else if (isModuleBackend(this.#options.backends.get(backend)!)) {
++      // Module backends share the host store and need no pre-exec file push.
++      await beforeDispatch();
++      envelope = await runtime.exec(input);
++    } else {
++      if (!runtime.execWithAdmission) throw new Error("Command backend lacks local execution admission");
++      envelope = await runtime.execWithAdmission(input, beforeDispatch);
++    }
+     return wrapModuleHandle(
+       runtime,
+       backend,
+@@ -254,11 +282,12 @@ function wrapModuleHandle<E extends ExecEncoding>(
        async cancel(reason) {
          sourceCancelled = true;
          if (reader) {
@@ -839,7 +967,7 @@ diff --git a/packages/computer/src/runtime/runtime.ts b/packages/computer/src/ru
            }
          } else await source.cancel(reason);
        },
-@@ -317,14 +318,14 @@
+@@ -317,14 +346,14 @@ function transformModuleEvents<E extends ExecEncoding>(
    let stderrMeta: { id: string; seq: number } | undefined;
    let lastSeq = 0;
    const enqueue = (
@@ -856,7 +984,7 @@ diff --git a/packages/computer/src/runtime/runtime.ts b/packages/computer/src/ru
      beforeSeq?: number,
    ) => {
      const pending: WorkspaceRuntimeEvent<E>[] = [];
-@@ -357,29 +358,27 @@
+@@ -357,29 +386,27 @@ function transformModuleEvents<E extends ExecEncoding>(
      stdoutMeta = undefined;
      stderrMeta = undefined;
    };
@@ -907,12 +1035,13 @@ diff --git a/packages/computer/src/runtime/runtime.ts b/packages/computer/src/ru
  }
  
  async function drainModuleResult<E extends ExecEncoding>(
-@@ -547,3 +546,4 @@
+@@ -547,3 +574,4 @@ function resumeToAfter(resume: "tail" | "full" | number | undefined) {
    if (typeof resume === "number") return resume;
    return undefined;
  }
 +import { decodeCommandEvents } from "./decode-command-events.js";
 diff --git a/packages/computer/src/runtime/wire.ts b/packages/computer/src/runtime/wire.ts
+index f39acff..9409ae1 100644
 --- a/packages/computer/src/runtime/wire.ts
 +++ b/packages/computer/src/runtime/wire.ts
 @@ -1,4 +1,5 @@
@@ -921,7 +1050,7 @@ diff --git a/packages/computer/src/runtime/wire.ts b/packages/computer/src/runti
  import type { WorkspaceRuntimeEvent, WorkspaceRuntimeValue } from "./types.js";
  
  type RuntimeFrame =
-@@ -53,20 +54,18 @@
+@@ -53,20 +54,18 @@ export function decodeRuntimeEvents(
  ): ReadableStream<WorkspaceRuntimeEvent<ExecEncoding>> {
    const decoder = new TextDecoder();
    let buffered = "";
@@ -957,9 +1086,10 @@ diff --git a/packages/computer/src/runtime/wire.ts b/packages/computer/src/runti
 +  });
  }
 diff --git a/packages/computer/src/shell.ts b/packages/computer/src/shell.ts
+index ce23b6f..f6c9d75 100644
 --- a/packages/computer/src/shell.ts
 +++ b/packages/computer/src/shell.ts
-@@ -38,7 +38,7 @@
+@@ -38,7 +38,7 @@ export type WorkspaceExecEvent<E extends ExecEncoding = undefined> =
    | { id: string; seq: number; name: "exit"; value: number };
  
  export type ExecSyncResult =
@@ -968,7 +1098,7 @@ diff --git a/packages/computer/src/shell.ts b/packages/computer/src/shell.ts
    | {
        status: "pending";
        applied: number;
-@@ -103,9 +103,12 @@
+@@ -103,9 +103,12 @@ export interface GetExecOptions {
  // skipped read-only entries on the sync outcome.
  export interface Sync {
    push(): Promise<number>;
@@ -983,7 +1113,40 @@ diff --git a/packages/computer/src/shell.ts b/packages/computer/src/shell.ts
      backend?: string;
      runtimeId?: string;
      targetCursor?: ChangeCursor;
-@@ -179,8 +182,8 @@
+@@ -124,7 +127,10 @@ export interface CommandDispatchResult {
+   envelope: ShellExecEnvelope;
+ }
+ 
+-export type CommandDispatch = (input: ShellExecInput) => Promise<CommandDispatchResult>;
++export type CommandDispatch = (
++  input: ShellExecInput,
++  beforeDispatch?: () => Promise<void>,
++) => Promise<CommandDispatchResult>;
+ export type CommandGetDispatch = (input: ShellGetInput) => Promise<ShellExecEnvelope>;
+ 
+ export class CommandExecutor {
+@@ -152,7 +158,7 @@ export class CommandExecutor {
+   // sees them, then returns the raw event stream and the sync
+   // bracket stats. A failed push aborts before shell.exec: running
+   // with stale or incomplete workspace contents is not safe.
+-  async exec(source: string, options: ExecOptions = {}): Promise<CommandExecution> {
++  async exec(source: string, options: ExecOptions = {}, beforeDispatch?: () => Promise<void>): Promise<CommandExecution> {
+     assertNotTemplate(source);
+     const input: ShellExecInput = {
+       source,
+@@ -166,9 +172,10 @@ export class CommandExecutor {
+     let pushed: number;
+     let envelope: ShellExecEnvelope;
+     if (this.#dispatch !== undefined) {
+-      ({ pushed, envelope } = await this.#dispatch(input));
++      ({ pushed, envelope } = await this.#dispatch(input, beforeDispatch));
+     } else {
+       pushed = await this.#sync.push();
++      await beforeDispatch?.();
+       envelope = await spawnShell(this.#shell, input, this.#observer);
+     }
+     // Dispose the RPC envelope when the event stream finishes
+@@ -179,8 +186,8 @@ export class CommandExecutor {
      const drained = disposeOnDone(envelope.events, () => maybeDispose(envelope));
      const wrapped =
        options.sync === "defer"
@@ -994,7 +1157,7 @@ diff --git a/packages/computer/src/shell.ts b/packages/computer/src/shell.ts
      return {
        id: envelope.id,
        runtimeId: envelope.runtimeId,
-@@ -200,7 +203,7 @@
+@@ -200,7 +207,7 @@ export class CommandExecutor {
          ? await this.#shell.getExec({ id, after })
          : await this.#getDispatch({ id, after, runtimeId: options.runtimeId });
      const drained = disposeOnDone(envelope.events, () => maybeDispose(envelope));
@@ -1003,7 +1166,7 @@ diff --git a/packages/computer/src/shell.ts b/packages/computer/src/shell.ts
      return { id, runtimeId: envelope.runtimeId, events: stream, sync: { pushed: 0, outcome } };
    }
  
-@@ -249,8 +252,11 @@
+@@ -249,8 +256,11 @@ export function withPostPull(
    source: ReadableStream<ExecEvent>,
    sync: Sync,
    runtimeId?: string,
@@ -1015,7 +1178,7 @@ diff --git a/packages/computer/src/shell.ts b/packages/computer/src/shell.ts
    let resolveOutcome!: (outcome: PostPullOutcome) => void;
    const outcome = new Promise<PostPullOutcome>((resolve) => {
      resolveOutcome = resolve;
-@@ -260,12 +266,15 @@
+@@ -260,12 +270,15 @@ export function withPostPull(
        async pull(controller) {
          try {
            const next = await reader.read();
@@ -1032,19 +1195,18 @@ diff --git a/packages/computer/src/shell.ts b/packages/computer/src/shell.ts
            resolveOutcome(pulled);
            controller.close();
          } catch (error) {
-@@ -284,8 +293,9 @@
+@@ -284,8 +297,9 @@ export function withPostPull(
          }
        },
        async cancel(reason) {
--        try {
--          await reader.cancel(reason);
 +        cancelled = true;
-+        try {
+         try {
+-          await reader.cancel(reason);
 +          if (!sourceDone) await reader.cancel(reason);
          } finally {
            reader.releaseLock();
            try {
-@@ -308,6 +318,7 @@
+@@ -308,6 +322,7 @@ export function withDeferredPostPull(
    source: ReadableStream<ExecEvent>,
    sync: Sync,
    runtimeId?: string,
@@ -1052,7 +1214,7 @@ diff --git a/packages/computer/src/shell.ts b/packages/computer/src/shell.ts
  ): { stream: ReadableStream<ExecEvent>; outcome: Promise<PostPullOutcome> } {
    const reader = source.getReader();
    let resolveOutcome!: (outcome: PostPullOutcome) => void;
-@@ -318,7 +329,7 @@
+@@ -318,7 +333,7 @@ export function withDeferredPostPull(
      let metadata: Awaited<ReturnType<NonNullable<Sync["onPostExecPending"]>>> = {};
      let error: unknown;
      try {
@@ -1061,7 +1223,7 @@ diff --git a/packages/computer/src/shell.ts b/packages/computer/src/shell.ts
      } catch (caught) {
        error = caught;
      }
-@@ -392,13 +403,22 @@
+@@ -392,13 +407,22 @@ export function withDeferredPostPull(
    return { stream, outcome };
  }
  
@@ -1088,9 +1250,10 @@ diff --git a/packages/computer/src/shell.ts b/packages/computer/src/shell.ts
    } catch (error) {
      try {
 diff --git a/packages/computer/src/stub.ts b/packages/computer/src/stub.ts
+index 9e7d058..b925238 100644
 --- a/packages/computer/src/stub.ts
 +++ b/packages/computer/src/stub.ts
-@@ -610,6 +610,13 @@
+@@ -610,6 +610,13 @@ export class WorkspaceGitStub extends RpcTarget {
  // (the Workers-RPC value carried between the DO and a Worker), so
  // the name doesn't clash.
  export class WorkspaceStub extends RpcTarget {
@@ -1104,7 +1267,7 @@ diff --git a/packages/computer/src/stub.ts b/packages/computer/src/stub.ts
    // Getters rather than instance properties so Workers RPC
    // exposes them through the stub proxy. Plain readonly fields
    // set in the constructor land as private isolate state and the
-@@ -623,6 +630,7 @@
+@@ -623,6 +630,7 @@ export class WorkspaceStub extends RpcTarget {
  
    constructor(ws: Workspace) {
      super();
@@ -1114,6 +1277,7 @@ diff --git a/packages/computer/src/stub.ts b/packages/computer/src/stub.ts
      this.#git = new WorkspaceGitStub(ws);
 diff --git a/packages/computer/src/sync-pending.ts b/packages/computer/src/sync-pending.ts
 new file mode 100644
+index 0000000..0413313
 --- /dev/null
 +++ b/packages/computer/src/sync-pending.ts
 @@ -0,0 +1,13 @@
@@ -1131,9 +1295,10 @@ new file mode 100644
 +  }
 +}
 diff --git a/packages/computer/src/workspace.test.ts b/packages/computer/src/workspace.test.ts
+index a9027ed..0dd284c 100644
 --- a/packages/computer/src/workspace.test.ts
 +++ b/packages/computer/src/workspace.test.ts
-@@ -1036,7 +1036,7 @@
+@@ -1036,7 +1036,7 @@ describe("Workspace backend selection", () => {
      expect(connectCount).toBe(2);
    });
  
@@ -1142,7 +1307,7 @@ diff --git a/packages/computer/src/workspace.test.ts b/packages/computer/src/wor
      let watermarksCalls = 0;
      const sync: import("@cloudflare/computer-rpc").SyncRPC = {
        ...fakeRpc(),
-@@ -1055,9 +1055,9 @@
+@@ -1055,9 +1055,9 @@ describe("Workspace backend selection", () => {
      writeFetchCursor(ws.db, { rev: 42, path: null }, "only");
      // ready() alone no longer dials; ready(id) forces the connect.
      await ws.ready("only");
@@ -1155,7 +1320,7 @@ diff --git a/packages/computer/src/workspace.test.ts b/packages/computer/src/wor
    });
  
    it("skips push/pull when the backend declares sync: 'none'", async () => {
-@@ -1444,7 +1444,7 @@
+@@ -1444,7 +1444,7 @@ describe("Workspace transport-failure invalidation", () => {
      expect(connects).toBe(2);
    });
  
@@ -1165,6 +1330,7 @@ diff --git a/packages/computer/src/workspace.test.ts b/packages/computer/src/wor
      let closes = 0;
      const broken: import("@cloudflare/computer-rpc").SyncRPC = {
 diff --git a/packages/computer/src/workspace.ts b/packages/computer/src/workspace.ts
+index 12820e6..d5fdb49 100644
 --- a/packages/computer/src/workspace.ts
 +++ b/packages/computer/src/workspace.ts
 @@ -10,21 +10,30 @@
@@ -1201,7 +1367,7 @@ diff --git a/packages/computer/src/workspace.ts b/packages/computer/src/workspac
    SQLiteWorkspaceProvider,
    WorkspaceFilesystem,
  } from "@cloudflare/dofs";
-@@ -81,6 +90,12 @@
+@@ -81,6 +90,12 @@ export interface WorkspaceOptions {
    // @cloudflare/dofs/testing. The constructor opens a
    // Database against it and runs initializeSchema (idempotent).
    storage: DurableObjectStorageLike;
@@ -1214,7 +1380,7 @@ diff --git a/packages/computer/src/workspace.ts b/packages/computer/src/workspac
  
    // Registered execution backends. The first is the default;
    // callers can select another by stable id.
-@@ -305,8 +320,11 @@
+@@ -305,8 +320,11 @@ export class Workspace {
      this.#artifacts = options.artifacts
        ? createArtifact(options.artifacts.binding, artifactsSessionId(options))
        : createDisabledArtifactsClient();
@@ -1227,7 +1393,7 @@ diff --git a/packages/computer/src/workspace.ts b/packages/computer/src/workspac
      this.#executionRuntimes = new ExecutionRuntimeTracker(
        1_024,
        new SqlExecutionRuntimeStore(this.#db),
-@@ -710,7 +728,44 @@
+@@ -710,7 +728,44 @@ export class Workspace {
      };
    }
  
@@ -1273,7 +1439,7 @@ diff --git a/packages/computer/src/workspace.ts b/packages/computer/src/workspac
      return withSpan(
        this.#observer,
        "workspace.sync.pull",
-@@ -724,7 +779,53 @@
+@@ -724,7 +779,53 @@ export class Workspace {
              assertExecutionRuntime("post-command sync", expectedRuntimeId, handle.runtimeId);
            }
            if (handle.sync === "none") return { applied: 0, skipped: [] };
@@ -1328,7 +1494,7 @@ diff --git a/packages/computer/src/workspace.ts b/packages/computer/src/workspac
          });
        },
        (span, outcome) => {
-@@ -745,6 +846,7 @@
+@@ -745,6 +846,7 @@ export class Workspace {
    async #capturePendingSync(
      id: string,
      runtimeId?: string,
@@ -1336,7 +1502,7 @@ diff --git a/packages/computer/src/workspace.ts b/packages/computer/src/workspac
    ): Promise<{ backend?: string; runtimeId?: string; targetCursor?: ChangeCursor }> {
      return this.#serialize(id, async (resolvedId) => {
        if (resolvedId === undefined || this.#moduleBackendsById.has(resolvedId)) return {};
-@@ -758,13 +860,36 @@
+@@ -758,7 +860,8 @@ export class Workspace {
        // changes are pinned even though nothing drains them yet. A
        // later pull() joins this pending operation rather than
        // capturing a newer target that could race ahead.
@@ -1346,11 +1512,10 @@ diff --git a/packages/computer/src/workspace.ts b/packages/computer/src/workspac
        return {
          backend: resolvedId,
          ...(runtimeId === undefined ? {} : { runtimeId }),
-         ...(target === undefined ? {} : { targetCursor: target }),
-       };
+@@ -767,6 +870,28 @@ export class Workspace {
      });
-+  }
-+
+   }
+ 
 +  async #executionSyncTarget(
 +    id: string,
 +    handle: BackendHandle,
@@ -1371,10 +1536,67 @@ diff --git a/packages/computer/src/workspace.ts b/packages/computer/src/workspac
 +    if (target === undefined || target.epoch !== head.epoch)
 +      throw new Error("EEXEC_LOST: execution file source is no longer available");
 +    return { rev: target.rev, path: null };
-   }
- 
++  }
++
    // Drop and close a cached handle after a transport failure.
-@@ -1079,19 +1204,9 @@
+   // Matches by identity so a late error from an old operation cannot
+   // tear down a replacement that another caller already installed.
+@@ -799,6 +924,7 @@ export class Workspace {
+     operation: string,
+     op: (handle: BackendHandle) => Promise<T>,
+     policy: BackendRetryPolicy = "always",
++    retryAllowed: () => boolean = () => true,
+   ): Promise<T> {
+     let firstError: unknown;
+     for (let attempt = 0; attempt < 2; attempt++) {
+@@ -824,10 +950,10 @@ export class Workspace {
+         // A failed connection is always before dispatch. Once an
+         // operation reached a handle, only an "always" policy or a
+         // local disposed-stub failure makes replay safe.
+-        const canRetry =
++        const canRetry = retryAllowed() && (
+           handle === undefined ||
+           policy === "always" ||
+-          isWorkspacePreDispatchTransportFailure(error);
++          isWorkspacePreDispatchTransportFailure(error));
+         if (!canRetry) {
+           throw new WorkspaceTransportError(
+             `Workspace backend ${JSON.stringify(id)}: ${operation} transport failed; the command may have started and was not replayed: ${safeErrorMessage(error).slice(0, 240)}`,
+@@ -944,8 +1070,10 @@ export class Workspace {
+     const cached = this.#commandHandles.get(id);
+     if (cached) return cached;
+     const shell = this.#shellFor(id);
+-    const adapter: WorkspaceModuleBackendHandle = {
+-      exec: async (input) => {
++    const execute = async (
++      input: Parameters<WorkspaceModuleBackendHandle["exec"]>[0],
++      beforeDispatch?: () => Promise<void>,
++    ) => {
+         const envelope = await shell.exec(input.source, {
+           id: input.id,
+           cwd: input.cwd,
+@@ -953,7 +1081,7 @@ export class Workspace {
+           env: input.env,
+           stdin: input.stdin,
+           sync: input.sync,
+-        });
++        }, beforeDispatch);
+         this.#rememberExecutionRuntime(id, envelope.id, envelope.runtimeId);
+         return {
+           id: envelope.id,
+@@ -961,7 +1089,10 @@ export class Workspace {
+           events: envelope.events as ReadableStream<WorkspaceRuntimeEvent>,
+           sync: envelope.sync,
+         };
+-      },
++      };
++    const adapter: WorkspaceModuleBackendHandle = {
++      exec: (input) => execute(input),
++      execWithAdmission: (input, beforeDispatch) => execute(input, beforeDispatch),
+       getExec: async ({ id: execId, after, runtimeId }) => {
+         const resume = after === undefined ? "full" : after;
+         const expectedRuntimeId =
+@@ -1079,19 +1210,9 @@ export class Workspace {
          if (generation !== this.#connectionGeneration) {
            throw new Error(`Workspace closed while backend ${JSON.stringify(id)} was connecting.`);
          }
@@ -1397,10 +1619,11 @@ diff --git a/packages/computer/src/workspace.ts b/packages/computer/src/workspac
          this.#handles.set(id, handle);
          // Watch the transport for mid-session loss. Backends without
          // a `closed` promise (in-process fakes) opt out by omitting
-@@ -1140,31 +1255,72 @@
+@@ -1139,33 +1260,91 @@ export class Workspace {
+   #shellFor(id: string): CommandExecutor {
      const cached = this.#shells.get(id);
      if (cached !== undefined) return cached;
-     const dispatch = (input: Parameters<ShellRPC["exec"]>[0]) =>
+-    const dispatch = (input: Parameters<ShellRPC["exec"]>[0]) =>
 -      this.#runWithReconnect(
 -        id,
 -        "shell.exec",
@@ -1426,7 +1649,11 @@ diff --git a/packages/computer/src/workspace.ts b/packages/computer/src/workspac
 -          };
 -        },
 -        "pre-dispatch",
-+      this.#serialize(id, () =>
++    const dispatch = (input: Parameters<ShellRPC["exec"]>[0], beforeDispatch?: () => Promise<void>) => {
++      // Once admission starts, its durable outcome may be uncertain even if
++      // the callback throws. Never re-enter it through automatic reconnect.
++      let admissionEntered = false;
++      return this.#serialize(id, () =>
 +        this.#runWithReconnect(
 +          id,
 +          "shell.exec",
@@ -1455,19 +1682,31 @@ diff --git a/packages/computer/src/workspace.ts b/packages/computer/src/workspac
 +                // invocation; never bind an old ACK to a replacement database.
 +                throw this.#preDispatchSyncPending(id);
 +              }
++              executionInput.syncFence = {
++                epoch: source.epoch,
++                cursor: readPushCursor(this.#db, id),
++              };
++            }
++            if (beforeDispatch) {
++              admissionEntered = true;
++              await beforeDispatch();
++            }
++            // Ordinary file writes do not take the mutation FIFO. Changes
++            // during admission require another preparation page, not a spawn
++            // with stale inputs or an unbounded push under the dispatch claim.
++            if (executionInput.syncFence && currentRev(this.#db) > executionInput.syncFence.cursor.rev) {
++              throw this.#preDispatchSyncPending(id);
++            }
++            if (executionInput.syncFence && handle.runtimeId !== undefined) {
 +              this.#executionRuntimes.beginSync(
 +                this.#executionRuntimeKey(id, executionInput.id),
 +                handle.runtimeId,
 +                {
 +                  backend: id,
-+                  epoch: source.epoch,
++                  epoch: executionInput.syncFence.epoch,
 +                  start: cursorLowerBound(readFetchCursor(this.#db, id)),
 +                },
 +              );
-+              executionInput.syncFence = {
-+                epoch: source.epoch,
-+                cursor: readPushCursor(this.#db, id),
-+              };
 +            }
 +            let envelope;
 +            try {
@@ -1491,11 +1730,14 @@ diff --git a/packages/computer/src/workspace.ts b/packages/computer/src/workspac
 +            };
 +          },
 +          "pre-dispatch",
++          () => !admissionEntered,
 +        ),
        );
++    };
      const getDispatch = (input: Parameters<ShellRPC["getExec"]>[0] & { runtimeId?: string }) =>
        this.#runShellEnvelope(
-@@ -1188,14 +1344,15 @@
+         id,
+@@ -1188,14 +1367,15 @@ export class Workspace {
        rpc,
        {
          push: () => this.#pushForExecDefault(id),
@@ -1513,7 +1755,7 @@ diff --git a/packages/computer/src/workspace.ts b/packages/computer/src/workspac
        },
        this.#observer,
        dispatch,
-@@ -1205,8 +1362,10 @@
+@@ -1205,8 +1385,10 @@ export class Workspace {
      return shell;
    }
  
@@ -1526,7 +1768,7 @@ diff --git a/packages/computer/src/workspace.ts b/packages/computer/src/workspac
    }
  
    // The exec bracket's pre-command push. Distinct from the public
-@@ -1223,7 +1382,7 @@
+@@ -1223,7 +1405,7 @@ export class Workspace {
            if (resolvedId === undefined || this.#moduleBackendsById.has(resolvedId)) return 0;
            return this.#runWithReconnect(resolvedId, "push", async (handle) => {
              if (handle.sync === "none") return 0;
@@ -1535,7 +1777,7 @@ diff --git a/packages/computer/src/workspace.ts b/packages/computer/src/workspac
            });
          },
          (span, outcome) => {
-@@ -1233,21 +1392,34 @@
+@@ -1233,21 +1415,34 @@ export class Workspace {
      );
    }
  
@@ -1584,13 +1826,10 @@ diff --git a/packages/computer/src/workspace.ts b/packages/computer/src/workspac
      );
    }
  
-@@ -1286,6 +1458,26 @@
-     return this.#runWithReconnect(id, operation, async (handle) => {
-       assertExecutionRuntime(executionId, runtimeId, handle.runtimeId);
-       await op(handle.rpc.shell);
-+    });
-+  }
-+
+@@ -1289,6 +1484,26 @@ export class Workspace {
+     });
+   }
+ 
 +  #preDispatchSyncPending(backend: string): WorkspaceSyncPendingError {
 +    // No new operation was captured. Empty IDs describe that absence; the
 +    // next invocation owns preparation. Do no network I/O after rejection,
@@ -1608,13 +1847,17 @@ diff --git a/packages/computer/src/workspace.ts b/packages/computer/src/workspac
 +      bytes: 0,
 +      skipped: 0,
 +      complete: false,
-     });
++    });
++  }
++
+   #executionRuntimeKey(backendId: string, executionId: string): string {
+     return JSON.stringify([backendId, executionId]);
    }
- 
 diff --git a/packages/computerd/src/cli/computerd.ts b/packages/computerd/src/cli/computerd.ts
+index 03fed77..2ca8ed2 100644
 --- a/packages/computerd/src/cli/computerd.ts
 +++ b/packages/computerd/src/cli/computerd.ts
-@@ -29,6 +29,7 @@
+@@ -29,6 +29,7 @@ import {
  } from "../fuse/index.js";
  import { mountShim, type ShimMount } from "../shim/index.js";
  import { installLogging } from "./logger.js";
@@ -1622,12 +1865,10 @@ diff --git a/packages/computerd/src/cli/computerd.ts b/packages/computerd/src/cl
  
  // The compiled-in default port. esbuild's `define` substitutes the
  // real value at SEA bundle time when COMPUTERD_DEFAULT_PORT is set on
-@@ -589,24 +590,6 @@
-   if (input.startsWith("http://")) return `ws://${input.slice("http://".length)}`;
-   if (input.startsWith("https://")) return `wss://${input.slice("https://".length)}`;
+@@ -591,24 +592,6 @@ function toWebSocketUrl(input: string): string {
    throw new Error(`unsupported URL scheme: ${input}`);
--}
--
+ }
+ 
 -async function waitForHealth(healthUrl: string, timeoutMs: number): Promise<void> {
 -  const deadline = Date.now() + timeoutMs;
 -  let lastError: unknown;
@@ -1644,11 +1885,14 @@ diff --git a/packages/computerd/src/cli/computerd.ts b/packages/computerd/src/cl
 -  throw new Error(
 -    `${healthUrl} not healthy within ${timeoutMs}ms: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
 -  );
- }
- 
+-}
+-
  async function main(): Promise<void> {
+   // Install logging + crash handlers first thing so any early throws
+   // (parsePort, parseMountPoint, resolveFuseBackend) still land in
 diff --git a/packages/computerd/src/cli/health.test.ts b/packages/computerd/src/cli/health.test.ts
 new file mode 100644
+index 0000000..9f32048
 --- /dev/null
 +++ b/packages/computerd/src/cli/health.test.ts
 @@ -0,0 +1,17 @@
@@ -1671,6 +1915,7 @@ new file mode 100644
 +});
 diff --git a/packages/computerd/src/cli/health.ts b/packages/computerd/src/cli/health.ts
 new file mode 100644
+index 0000000..0ce93aa
 --- /dev/null
 +++ b/packages/computerd/src/cli/health.ts
 @@ -0,0 +1,18 @@
@@ -1693,9 +1938,10 @@ new file mode 100644
 +  throw new Error(`${healthUrl} not healthy within ${timeoutMs}ms: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
 +}
 diff --git a/packages/computerd/src/fuse/driver.ts b/packages/computerd/src/fuse/driver.ts
+index e5b2c8f..05dba76 100644
 --- a/packages/computerd/src/fuse/driver.ts
 +++ b/packages/computerd/src/fuse/driver.ts
-@@ -19,6 +19,8 @@
+@@ -19,6 +19,8 @@ const ERRNO = {
    EINVAL: -22,
    EPERM: -1,
    EFBIG: -27,
@@ -1704,7 +1950,7 @@ diff --git a/packages/computerd/src/fuse/driver.ts b/packages/computerd/src/fuse
    EROFS: -30,
    ENOTEMPTY: -39,
    ENODATA: -61,
-@@ -832,12 +834,13 @@
+@@ -832,12 +834,13 @@ export function makeFUSEOps(vfs: NodeVirtualFileSystem, mountPoint = "/"): FuseO
      },
  
      statfs(_path, cb) {
@@ -1721,7 +1967,7 @@ diff --git a/packages/computerd/src/fuse/driver.ts b/packages/computerd/src/fuse
          files: 1024 * 1024,
          ffree: 1024 * 1024,
          favail: 1024 * 1024,
-@@ -1108,6 +1111,8 @@
+@@ -1108,6 +1111,8 @@ function toErrno(error: unknown): number {
    const code =
      typeof error === "object" && error !== null && "code" in error ? String(error.code) : undefined;
    if (code === "ENOENT") return ERRNO.ENOENT;
@@ -1731,6 +1977,7 @@ diff --git a/packages/computerd/src/fuse/driver.ts b/packages/computerd/src/fuse
    if (code === "ENOTDIR") return ERRNO.ENOTDIR;
    if (code === "EISDIR") return ERRNO.EISDIR;
 diff --git a/packages/computerd/src/fuse/vfs.test.ts b/packages/computerd/src/fuse/vfs.test.ts
+index a66061a..a2398e0 100644
 --- a/packages/computerd/src/fuse/vfs.test.ts
 +++ b/packages/computerd/src/fuse/vfs.test.ts
 @@ -1,7 +1,8 @@
@@ -1743,7 +1990,7 @@ diff --git a/packages/computerd/src/fuse/vfs.test.ts b/packages/computerd/src/fu
  
  import { createNodeVirtualFileSystem } from "./index.js";
  
-@@ -31,6 +32,36 @@
+@@ -31,6 +32,36 @@ test("createNodeVirtualFileSystem returns a @platformatic/vfs filesystem", async
  });
  
  describe("createNodeVirtualFileSystem store selection", () => {
@@ -1780,7 +2027,7 @@ diff --git a/packages/computerd/src/fuse/vfs.test.ts b/packages/computerd/src/fu
    test("defaults to an in-memory store", async () => {
      const handle = await createNodeVirtualFileSystem();
      expect(handle.store).toEqual({ kind: "memory" });
-@@ -92,9 +123,6 @@
+@@ -92,9 +123,6 @@ describe("createNodeVirtualFileSystem store selection", () => {
        "truncateFileSync",
        "chmodSync",
        "readRangeSync",
@@ -1790,7 +2037,7 @@ diff --git a/packages/computerd/src/fuse/vfs.test.ts b/packages/computerd/src/fu
      ] as const;
      const missing = forwarded.filter(
        (name) => typeof (handle.vfs as unknown as Record<string, unknown>)[name] !== "function",
-@@ -102,6 +130,9 @@
+@@ -102,6 +130,9 @@ describe("createNodeVirtualFileSystem store selection", () => {
      handle.close();
  
      expect(missing).toEqual([]);
@@ -1801,6 +2048,7 @@ diff --git a/packages/computerd/src/fuse/vfs.test.ts b/packages/computerd/src/fu
  
    test("a file store serves range reads through the forwarded dofs method", async () => {
 diff --git a/packages/computerd/src/fuse/vfs.ts b/packages/computerd/src/fuse/vfs.ts
+index 13b5c0e..ef4e188 100644
 --- a/packages/computerd/src/fuse/vfs.ts
 +++ b/packages/computerd/src/fuse/vfs.ts
 @@ -1,5 +1,6 @@
@@ -1810,7 +2058,7 @@ diff --git a/packages/computerd/src/fuse/vfs.ts b/packages/computerd/src/fuse/vf
    initializeSchema,
    invalidateReadOnlyMountCache,
    SQLiteWorkspaceProvider,
-@@ -86,8 +87,12 @@
+@@ -86,8 +87,12 @@ export async function createNodeVirtualFileSystem(
    const store: ResolvedStore = options.store ?? { kind: "memory" };
    const storage = new NodeSQLiteStorage({
      location: store.kind === "file" ? store.path : ":memory:",
@@ -1824,7 +2072,7 @@ diff --git a/packages/computerd/src/fuse/vfs.ts b/packages/computerd/src/fuse/vf
    try {
      // On a restored store this is the migration step, and the guard
      // against a stale binary: initializeSchema migrates a database
-@@ -111,6 +116,9 @@
+@@ -111,6 +116,9 @@ export async function createNodeVirtualFileSystem(
  
    const provider = new SQLiteWorkspaceProvider(db);
    const vfs = create(provider as unknown as VirtualProvider, { moduleHooks: false });
@@ -1834,7 +2082,7 @@ diff --git a/packages/computerd/src/fuse/vfs.ts b/packages/computerd/src/fuse/vf
    // Forward the extra dofs methods that @platformatic/vfs's
    // VirtualFileSystem doesn't expose. We bind directly to the
    // provider — there is no `inner` indirection — so dispatch can't
-@@ -118,6 +126,7 @@
+@@ -118,6 +126,7 @@ export async function createNodeVirtualFileSystem(
    // biome-ignore lint/suspicious/noExplicitAny: untyped extension surface
    const providerAny = provider as any;
    for (const name of EXTRA_VFS_METHODS) {
@@ -1842,7 +2090,7 @@ diff --git a/packages/computerd/src/fuse/vfs.ts b/packages/computerd/src/fuse/vf
      const fn = providerAny[name];
      if (typeof fn !== "function") continue;
      Object.defineProperty(vfs, name, {
-@@ -127,6 +136,12 @@
+@@ -127,6 +136,12 @@ export async function createNodeVirtualFileSystem(
        configurable: true,
      });
    }
@@ -1855,7 +2103,7 @@ diff --git a/packages/computerd/src/fuse/vfs.ts b/packages/computerd/src/fuse/vf
    return {
      vfs,
      db,
-@@ -137,6 +152,7 @@
+@@ -137,6 +152,7 @@ export async function createNodeVirtualFileSystem(
        freelistCount: storage.freelistCount(),
      }),
      close: () => {
@@ -1864,6 +2112,7 @@ diff --git a/packages/computerd/src/fuse/vfs.ts b/packages/computerd/src/fuse/vf
        storage.close();
      },
 diff --git a/packages/dofs/src/errors.ts b/packages/dofs/src/errors.ts
+index b36e37a..2524176 100644
 --- a/packages/dofs/src/errors.ts
 +++ b/packages/dofs/src/errors.ts
 @@ -1,5 +1,7 @@
@@ -1875,9 +2124,10 @@ diff --git a/packages/dofs/src/errors.ts b/packages/dofs/src/errors.ts
    | "ENOTDIR"
    | "EISDIR"
 diff --git a/packages/dofs/src/fs/gc.test.ts b/packages/dofs/src/fs/gc.test.ts
+index 127cebf..2aabb73 100644
 --- a/packages/dofs/src/fs/gc.test.ts
 +++ b/packages/dofs/src/fs/gc.test.ts
-@@ -2,14 +2,16 @@
+@@ -2,14 +2,16 @@ import { createHash } from "node:crypto";
  
  import { describe, expect, it } from "vitest";
  
@@ -1895,7 +2145,7 @@ diff --git a/packages/dofs/src/fs/gc.test.ts b/packages/dofs/src/fs/gc.test.ts
  
  function blobCount(db: Database): number {
    return db.scalar<number>("SELECT COUNT(*) FROM vfs_blobs") ?? 0;
-@@ -20,6 +22,82 @@
+@@ -20,6 +22,82 @@ function blobBytesCount(db: Database): number {
  }
  
  describe("gc", () => {
@@ -1979,9 +2229,10 @@ diff --git a/packages/dofs/src/fs/gc.test.ts b/packages/dofs/src/fs/gc.test.ts
      await withDB((db) => {
        expect(gc(db, { now: () => 1_000_000 })).toEqual({ blobsFreed: 0, manifestsFreed: 0 });
 diff --git a/packages/dofs/src/fs/link.ts b/packages/dofs/src/fs/link.ts
+index c5e21d1..0782ced 100644
 --- a/packages/dofs/src/fs/link.ts
 +++ b/packages/dofs/src/fs/link.ts
-@@ -3,6 +3,7 @@
+@@ -3,6 +3,7 @@ import { canonicalizePath } from "../path.js";
  import { incrementRev } from "../rev.js";
  import { ROOT_INODE } from "../schema/index.js";
  import type { Database } from "../storage.js";
@@ -1989,7 +2240,7 @@ diff --git a/packages/dofs/src/fs/link.ts b/packages/dofs/src/fs/link.ts
  import { assertNotReadOnly } from "./mount-guard.js";
  import { resolveInode } from "./resolve.js";
  import { invalidateResolveExact } from "./resolveCache.js";
-@@ -69,12 +70,8 @@
+@@ -69,12 +70,8 @@ export function link(db: Database, existingPath: string, newPath: string): void
        throw createWorkspaceError("EEXIST", `path exists: ${canonicalNew}`, canonicalNew);
      }
  
@@ -2005,6 +2256,7 @@ diff --git a/packages/dofs/src/fs/link.ts b/packages/dofs/src/fs/link.ts
      db.run("UPDATE vfs_nodes SET rev = ? WHERE inode = ?", rev, source.inode);
      // A new hardlink name for an existing file: a leaf with no
 diff --git a/packages/dofs/src/fs/mkdir.test.ts b/packages/dofs/src/fs/mkdir.test.ts
+index 4a149ac..8d8338e 100644
 --- a/packages/dofs/src/fs/mkdir.test.ts
 +++ b/packages/dofs/src/fs/mkdir.test.ts
 @@ -1,6 +1,7 @@
@@ -2015,7 +2267,7 @@ diff --git a/packages/dofs/src/fs/mkdir.test.ts b/packages/dofs/src/fs/mkdir.tes
  import { mkdir } from "./mkdir.js";
  import { resolveInode } from "./resolve.js";
  import { symlink } from "./symlink.js";
-@@ -94,13 +95,18 @@
+@@ -94,13 +95,18 @@ describe("mkdir", () => {
        expect(resolveInode(db, "/x")?.type).toBe("dir");
        expect(resolveInode(db, "/x/y")?.type).toBe("dir");
        expect(resolveInode(db, "/x/y/z")?.type).toBe("dir");
@@ -2036,9 +2288,10 @@ diff --git a/packages/dofs/src/fs/mkdir.test.ts b/packages/dofs/src/fs/mkdir.tes
    });
  
 diff --git a/packages/dofs/src/fs/mkdir.ts b/packages/dofs/src/fs/mkdir.ts
+index a452050..bc0f81c 100644
 --- a/packages/dofs/src/fs/mkdir.ts
 +++ b/packages/dofs/src/fs/mkdir.ts
-@@ -3,6 +3,7 @@
+@@ -3,6 +3,7 @@ import { canonicalizePath } from "../path.js";
  import { incrementRev } from "../rev.js";
  import { ROOT_INODE } from "../schema/index.js";
  import type { Database } from "../storage.js";
@@ -2046,7 +2299,7 @@ diff --git a/packages/dofs/src/fs/mkdir.ts b/packages/dofs/src/fs/mkdir.ts
  import { assertNotInReadOnlyMount, assertNotReadOnly } from "./mount-guard.js";
  import { invalidateResolveExact } from "./resolveCache.js";
  
-@@ -58,6 +59,7 @@
+@@ -58,6 +59,7 @@ function createDir(
    rev: number,
  ): number {
    // RETURNING folds the rowid read into the INSERT.
@@ -2054,7 +2307,7 @@ diff --git a/packages/dofs/src/fs/mkdir.ts b/packages/dofs/src/fs/mkdir.ts
    const row = db.one<{ inode: number }>(
      "INSERT INTO vfs_nodes (type, mode, mtime, rev) VALUES ('dir', ?, ?, ?) RETURNING inode",
      mode,
-@@ -68,12 +70,7 @@
+@@ -68,12 +70,7 @@ function createDir(
      throw createWorkspaceError("EIO", "failed to allocate inode");
    }
    const inode = row.inode;
@@ -2068,7 +2321,7 @@ diff --git a/packages/dofs/src/fs/mkdir.ts b/packages/dofs/src/fs/mkdir.ts
    return inode;
  }
  
-@@ -108,7 +105,7 @@
+@@ -108,7 +105,7 @@ function resolveMkdirParent(
    canonical: string,
    recursive: boolean,
    mtime: number,
@@ -2077,7 +2330,7 @@ diff --git a/packages/dofs/src/fs/mkdir.ts b/packages/dofs/src/fs/mkdir.ts
  ): ResolvedParent {
    // Segments still to walk. A segment that came from a link target
    // carries `fromLink` so a dangling link reports ENOENT rather than
-@@ -139,7 +136,7 @@
+@@ -139,7 +136,7 @@ function resolveMkdirParent(
        if (!recursive || fromLink) {
          throw createWorkspaceError("ENOENT", `parent directory missing: ${canonical}`, canonical);
        }
@@ -2086,7 +2339,7 @@ diff --git a/packages/dofs/src/fs/mkdir.ts b/packages/dofs/src/fs/mkdir.ts
        inodeStack.push(created);
        realParts.push(name);
        // A newly created directory is empty, so a cached negative for
-@@ -213,11 +210,14 @@
+@@ -213,11 +210,14 @@ function mkdirWithGuard(
    guard(db, canonical);
  
    db.transactionSync(() => {
@@ -2103,7 +2356,7 @@ diff --git a/packages/dofs/src/fs/mkdir.ts b/packages/dofs/src/fs/mkdir.ts
      const leafName = parts[parts.length - 1];
      const realPath = parent.realPath === "/" ? `/${leafName}` : `${parent.realPath}/${leafName}`;
      // A path that traversed a link can land somewhere the caller's own
-@@ -235,7 +235,7 @@
+@@ -235,7 +235,7 @@ function mkdirWithGuard(
        throw createWorkspaceError("EEXIST", `path exists: ${canonical}`, canonical);
      }
  
@@ -2113,6 +2366,7 @@ diff --git a/packages/dofs/src/fs/mkdir.ts b/packages/dofs/src/fs/mkdir.ts
      if (realPath !== canonical) invalidateResolveExact(db, canonical);
    });
 diff --git a/packages/dofs/src/fs/readFile.ts b/packages/dofs/src/fs/readFile.ts
+index 2abd2ac..12ed1ad 100644
 --- a/packages/dofs/src/fs/readFile.ts
 +++ b/packages/dofs/src/fs/readFile.ts
 @@ -1,6 +1,7 @@
@@ -2123,7 +2377,7 @@ diff --git a/packages/dofs/src/fs/readFile.ts b/packages/dofs/src/fs/readFile.ts
  import { getBlobBytes } from "./blobCache.js";
  import { findPendingWriteBuffer } from "./pendingWriteBuffer.js";
  import { resolveInode } from "./resolve.js";
-@@ -109,16 +110,26 @@
+@@ -109,16 +110,26 @@ export async function readFile(
    // The row list is captured once when the stream opens. Blob hashes are
    // immutable, so later writes cannot tear the returned range. Pulling stays
    // lazy and preserves backpressure across the RPC stream.
@@ -2156,9 +2410,10 @@ diff --git a/packages/dofs/src/fs/readFile.ts b/packages/dofs/src/fs/readFile.ts
  }
  
 diff --git a/packages/dofs/src/fs/rename.ts b/packages/dofs/src/fs/rename.ts
+index c2692b1..006fbf1 100644
 --- a/packages/dofs/src/fs/rename.ts
 +++ b/packages/dofs/src/fs/rename.ts
-@@ -2,7 +2,7 @@
+@@ -2,7 +2,7 @@ import { createWorkspaceError } from "../errors.js";
  import { canonicalizePath } from "../path.js";
  import { incrementRev } from "../rev.js";
  import type { Database } from "../storage.js";
@@ -2167,7 +2422,7 @@ diff --git a/packages/dofs/src/fs/rename.ts b/packages/dofs/src/fs/rename.ts
  import { pathOf } from "../sync/paths.js";
  import { assertNotReadOnly } from "./mount-guard.js";
  import { resolveInode } from "./resolve.js";
-@@ -125,15 +125,20 @@
+@@ -125,15 +125,20 @@ export function rename(db: Database, oldPath: string, newPath: string): void {
        unlinkDirent(db, newParent.inode, newName, existing.child_inode, existing.type);
      }
  
@@ -2194,7 +2449,7 @@ diff --git a/packages/dofs/src/fs/rename.ts b/packages/dofs/src/fs/rename.ts
  
      const rev = incrementRev(db);
      // Rename is represented on the wire as old-path tombstones plus
-@@ -222,7 +227,8 @@
+@@ -222,7 +227,8 @@ function stampRenamedSubtree(db: Database, rootInode: number, rootPath: string,
      rev,
    );
    db.run(
@@ -2205,6 +2460,7 @@ diff --git a/packages/dofs/src/fs/rename.ts b/packages/dofs/src/fs/rename.ts
      rootPath,
      rev,
 diff --git a/packages/dofs/src/fs/rm.test.ts b/packages/dofs/src/fs/rm.test.ts
+index 5acd002..bc4bcce 100644
 --- a/packages/dofs/src/fs/rm.test.ts
 +++ b/packages/dofs/src/fs/rm.test.ts
 @@ -1,4 +1,5 @@
@@ -2213,7 +2469,7 @@ diff --git a/packages/dofs/src/fs/rm.test.ts b/packages/dofs/src/fs/rm.test.ts
  
  import type { Database } from "../storage.js";
  import { mkdir } from "./mkdir.js";
-@@ -190,6 +191,7 @@
+@@ -190,6 +191,7 @@ describe("rm", () => {
        await writeFile(db, "/d/a", "x", {}, () => 0);
        await writeFile(db, "/d/b", "y", {}, () => 0);
        rm(db, "/d", { recursive: true });
@@ -2221,16 +2477,16 @@ diff --git a/packages/dofs/src/fs/rm.test.ts b/packages/dofs/src/fs/rm.test.ts
        const paths = listChanges(db)
          .map((r) => r.path)
          .sort();
-@@ -205,6 +207,8 @@
-       symlink(db, "/real", "/link", () => 0);
+@@ -206,6 +208,8 @@ describe("rm", () => {
  
        rm(db, "/link/dir", { recursive: true });
-+
-+      while (!drainSyncRemovals(db)) {}
  
++      while (!drainSyncRemovals(db)) {}
++
        const paths = listChanges(db)
          .map((r) => r.path)
-@@ -234,6 +238,7 @@
+         .sort();
+@@ -234,6 +238,7 @@ describe("rm", () => {
        await writeFile(db, "/d/a", "first", {}, () => 0);
        await writeFile(db, "/d/b", "second", {}, () => 0);
        rm(db, "/d", { recursive: true });
@@ -2239,9 +2495,10 @@ diff --git a/packages/dofs/src/fs/rm.test.ts b/packages/dofs/src/fs/rm.test.ts
        expect(chunkRows).toBe(0);
      });
 diff --git a/packages/dofs/src/fs/rm.ts b/packages/dofs/src/fs/rm.ts
+index cf82fb8..a98d84c 100644
 --- a/packages/dofs/src/fs/rm.ts
 +++ b/packages/dofs/src/fs/rm.ts
-@@ -3,6 +3,7 @@
+@@ -3,6 +3,7 @@ import { canonicalizePath } from "../path.js";
  import { incrementRev } from "../rev.js";
  import type { Database } from "../storage.js";
  import { recordDelete } from "../sync/changes.js";
@@ -2249,12 +2506,10 @@ diff --git a/packages/dofs/src/fs/rm.ts b/packages/dofs/src/fs/rm.ts
  import { pathOf } from "../sync/paths.js";
  import { assertNotReadOnly } from "./mount-guard.js";
  import { resolveInode } from "./resolve.js";
-@@ -12,87 +13,6 @@
- export interface RmOptions {
-   recursive?: boolean;
+@@ -14,87 +15,6 @@ export interface RmOptions {
    force?: boolean;
--}
--
+ }
+ 
 -interface DirChild {
 -  name: string;
 -  child_inode: number;
@@ -2334,10 +2589,12 @@ diff --git a/packages/dofs/src/fs/rm.ts b/packages/dofs/src/fs/rm.ts
 -      });
 -    }
 -  }
- }
- 
+-}
+-
  export function rm(db: Database, path: string, options: RmOptions): void {
-@@ -147,7 +67,7 @@
+   const { parts, path: canonical } = canonicalizePath(path);
+ 
+@@ -147,7 +67,7 @@ export function rm(db: Database, path: string, options: RmOptions): void {
      const realPath = parentReal === "/" ? `/${name}` : `${parentReal}/${name}`;
      assertNotReadOnly(db, realPath);
  
@@ -2346,7 +2603,7 @@ diff --git a/packages/dofs/src/fs/rm.ts b/packages/dofs/src/fs/rm.ts
  
      if (node.type !== "dir" || !recursive) {
        // Single entry removal — file, symlink, or empty directory. A
-@@ -165,15 +85,9 @@
+@@ -165,15 +85,9 @@ export function rm(db: Database, path: string, options: RmOptions): void {
        return;
      }
  
@@ -2366,9 +2623,10 @@ diff --git a/packages/dofs/src/fs/rm.ts b/packages/dofs/src/fs/rm.ts
      // every descendant's cached resolution.
      invalidateResolveSubtree(db, realPath);
 diff --git a/packages/dofs/src/fs/symlink.ts b/packages/dofs/src/fs/symlink.ts
+index cbd6f2e..08f8c1a 100644
 --- a/packages/dofs/src/fs/symlink.ts
 +++ b/packages/dofs/src/fs/symlink.ts
-@@ -3,6 +3,7 @@
+@@ -3,6 +3,7 @@ import { canonicalizePath } from "../path.js";
  import { incrementRev } from "../rev.js";
  import { ROOT_INODE } from "../schema/index.js";
  import type { Database } from "../storage.js";
@@ -2376,7 +2634,7 @@ diff --git a/packages/dofs/src/fs/symlink.ts b/packages/dofs/src/fs/symlink.ts
  import { assertNotReadOnly } from "./mount-guard.js";
  import { invalidateResolveSubtree } from "./resolveCache.js";
  
-@@ -56,6 +57,7 @@
+@@ -56,6 +57,7 @@ export function symlink(db: Database, target: string, path: string, now: () => n
      const rev = incrementRev(db);
      const mtime = now();
      // RETURNING folds the rowid read into the INSERT.
@@ -2384,7 +2642,7 @@ diff --git a/packages/dofs/src/fs/symlink.ts b/packages/dofs/src/fs/symlink.ts
      const row = db.one<{ inode: number }>(
        "INSERT INTO vfs_nodes (type, mode, mtime, rev, link_target) VALUES ('symlink', ?, ?, ?, ?) RETURNING inode",
        0o777,
-@@ -67,12 +69,7 @@
+@@ -67,12 +69,7 @@ export function symlink(db: Database, target: string, path: string, now: () => n
        throw createWorkspaceError("EIO", "failed to allocate inode");
      }
      const inode = row.inode;
@@ -2399,9 +2657,10 @@ diff --git a/packages/dofs/src/fs/symlink.ts b/packages/dofs/src/fs/symlink.ts
      // /s -> a populated dir) now resolve, so any cached negative
      // beneath the link must be dropped.
 diff --git a/packages/dofs/src/fs/writeFile.ts b/packages/dofs/src/fs/writeFile.ts
+index 34d393c..d7a914b 100644
 --- a/packages/dofs/src/fs/writeFile.ts
 +++ b/packages/dofs/src/fs/writeFile.ts
-@@ -5,6 +5,8 @@
+@@ -5,6 +5,8 @@ import { incrementRev } from "../rev.js";
  import { ROOT_INODE } from "../schema/index.js";
  import type { Database } from "../storage.js";
  import { stageBlob } from "../sync/blobs.js";
@@ -2410,7 +2669,7 @@ diff --git a/packages/dofs/src/fs/writeFile.ts b/packages/dofs/src/fs/writeFile.
  import { buildManifest } from "../sync/manifests.js";
  import { pathOf } from "../sync/paths.js";
  import { getBlobBytes } from "./blobCache.js";
-@@ -352,12 +354,14 @@
+@@ -352,12 +354,14 @@ async function writeFileStreaming(
    const mtime = now();
  
    const chunkRefs: Array<{ hash: Uint8Array; size: number }> = [];
@@ -2425,7 +2684,7 @@ diff --git a/packages/dofs/src/fs/writeFile.ts b/packages/dofs/src/fs/writeFile.
      stageBlob(db, hash, chunk, mtime);
      chunkRefs.push({ hash, size: chunk.byteLength });
    };
-@@ -390,14 +394,12 @@
+@@ -390,14 +394,12 @@ async function writeFileStreaming(
          carry = input.slice(offset);
        }
      }
@@ -2433,18 +2692,17 @@ diff --git a/packages/dofs/src/fs/writeFile.ts b/packages/dofs/src/fs/writeFile.
 +    linkStagedChunksSync(db, canonical, parts, chunkRefs, { ...options, mode }, mtime);
    } finally {
      reader.releaseLock();
--  }
++    pins.release();
+   }
 -  if (carry !== undefined && carry.byteLength > 0) {
 -    flush(carry);
 -  }
 -
 -  linkStagedChunksSync(db, canonical, parts, chunkRefs, { ...options, mode }, mtime);
-+    pins.release();
-+  }
  }
  
  // Reject a chunk list that positional reads could not address.
-@@ -490,16 +492,12 @@
+@@ -490,16 +492,12 @@ function insertFileDirent(
    childInode: number,
    canonicalPath: string,
  ): void {
@@ -2463,7 +2721,7 @@ diff --git a/packages/dofs/src/fs/writeFile.ts b/packages/dofs/src/fs/writeFile.
    const row = db.one<{ inode: number }>(
      "INSERT INTO vfs_nodes (type, mode, mtime, rev) VALUES ('file', ?, ?, 0) RETURNING inode",
      mode,
-@@ -512,6 +510,7 @@
+@@ -512,6 +510,7 @@ function insertFileNode(db: Database, mode: number, mtime: number): number {
  }
  
  function upsertChunkBlob(db: Database, chunk: PreparedChunk, lastSeen: number): void {
@@ -2472,6 +2730,7 @@ diff --git a/packages/dofs/src/fs/writeFile.ts b/packages/dofs/src/fs/writeFile.
      "INSERT INTO vfs_blobs (hash, size, last_seen) VALUES (?, ?, ?) ON CONFLICT(hash) DO UPDATE SET last_seen = excluded.last_seen",
      chunk.hash,
 diff --git a/packages/dofs/src/index.ts b/packages/dofs/src/index.ts
+index 95de99f..e6263eb 100644
 --- a/packages/dofs/src/index.ts
 +++ b/packages/dofs/src/index.ts
 @@ -1,6 +1,14 @@
@@ -2489,15 +2748,23 @@ diff --git a/packages/dofs/src/index.ts b/packages/dofs/src/index.ts
  export {
    WorkspaceFilesystem,
    type WorkspaceFilesystemOptions,
-@@ -42,6 +50,7 @@
+@@ -32,6 +40,7 @@ export type { RmOptions } from "./fs/rm.js";
+ export { lstat, stat, type WorkspaceStatResult } from "./fs/stat.js";
+ export { symlink } from "./fs/symlink.js";
+ export type { WriteFileContent, WriteFileOptions } from "./fs/writeFile.js";
++export { CHUNK_SIZE } from "./fs/writeFile.js";
+ export type { SQLiteWorkspaceProviderOptions } from "./provider.js";
+ export { SQLiteWorkspaceProvider } from "./provider.js";
+ export { initializeSchema, ROOT_INODE, SCHEMA_VERSION } from "./schema/index.js";
+@@ -42,6 +51,7 @@ export type { ApplyOptions, ApplyResult, SkippedEntry } from "./sync/apply.js";
  // to a Database.
  export { applyChanges, applyChangesSync } from "./sync/apply.js";
  export { stageBlob } from "./sync/blobs.js";
-+export { assertRetention, beginRetention, retentionHead, pinBlobs, collectContentStep, type RetentionScope } from "./sync/retention.js";
++export { assertRetention, beginRetention, retentionHead, pinBlobs, retirePins, collectContentStep, type RetentionScope } from "./sync/retention.js";
  export type {
    BlockObject,
    ModeDecision,
-@@ -72,6 +81,12 @@
+@@ -72,6 +82,12 @@ export type { ChangeEntry } from "./sync/changes.js";
  export { materialiseChange } from "./sync/changes.js";
  export type { CoalesceOptions } from "./sync/coalesce.js";
  export { coalesceChanges } from "./sync/coalesce.js";
@@ -2511,6 +2778,7 @@ diff --git a/packages/dofs/src/index.ts b/packages/dofs/src/index.ts
  export { DEFAULT_IGNORE, isIgnored } from "./sync/ignore.js";
  export { assertAppliedPushCursor } from "./sync/invariant.js";
 diff --git a/packages/dofs/src/node-storage.test.ts b/packages/dofs/src/node-storage.test.ts
+index 0b1d3c0..b7ae5b1 100644
 --- a/packages/dofs/src/node-storage.test.ts
 +++ b/packages/dofs/src/node-storage.test.ts
 @@ -1,6 +1,9 @@
@@ -2523,7 +2791,7 @@ diff --git a/packages/dofs/src/node-storage.test.ts b/packages/dofs/src/node-sto
  import { afterEach, beforeEach, describe, expect, it } from "vitest";
  
  import { WorkspaceFilesystem } from "./fs/filesystem.js";
-@@ -32,6 +35,158 @@
+@@ -32,6 +35,158 @@ function openStore(path: string): { storage: NodeSQLiteStorage; db: Database } {
  }
  
  describe("NodeSQLiteStorage on a file", () => {
@@ -2682,7 +2950,7 @@ diff --git a/packages/dofs/src/node-storage.test.ts b/packages/dofs/src/node-sto
    it("keeps files and their bytes across a close and reopen", async () => {
      const path = join(dir, "state.db");
  
-@@ -242,6 +397,25 @@
+@@ -242,6 +397,25 @@ describe("NodeSQLiteStorage on a file", () => {
  
      expect(value).toBeUndefined();
    });
@@ -2709,9 +2977,10 @@ diff --git a/packages/dofs/src/node-storage.test.ts b/packages/dofs/src/node-sto
  
  describe("NodeSQLiteStorage in memory", () => {
 diff --git a/packages/dofs/src/node-storage.ts b/packages/dofs/src/node-storage.ts
+index 430793f..3a83916 100644
 --- a/packages/dofs/src/node-storage.ts
 +++ b/packages/dofs/src/node-storage.ts
-@@ -12,6 +12,7 @@
+@@ -12,6 +12,7 @@ import { dirname } from "node:path";
  import { DatabaseSync, type StatementSync } from "node:sqlite";
  
  import type { DurableObjectStorageLike, SQLCursorLike } from "./types.js";
@@ -2719,7 +2988,7 @@ diff --git a/packages/dofs/src/node-storage.ts b/packages/dofs/src/node-storage.
  
  export type JournalMode = "wal" | "delete" | "memory";
  export type SynchronousLevel = "off" | "normal" | "full";
-@@ -28,6 +29,7 @@
+@@ -28,6 +29,7 @@ export interface NodeSQLiteStorageOptions {
    synchronous?: SynchronousLevel;
    tempStore?: "default" | "file" | "memory";
    busyTimeoutMs?: number;
@@ -2727,7 +2996,7 @@ diff --git a/packages/dofs/src/node-storage.ts b/packages/dofs/src/node-storage.
  }
  
  export interface CheckpointResult {
-@@ -62,33 +64,70 @@
+@@ -62,40 +64,84 @@ class NodeCursor<Row extends object> implements SQLCursorLike<Row> {
  }
  
  export class NodeSQLiteStorage implements DurableObjectStorageLike {
@@ -2786,8 +3055,8 @@ diff --git a/packages/dofs/src/node-storage.ts b/packages/dofs/src/node-storage.
 -        return new NodeCursor<Row>(rows);
        },
      };
-+  }
-+
+   }
+ 
 +  // Every default here applies only to a file-backed store. An
 +  assertContentCapacity(bytes: number): void {
 +    if (this.maxSizeBytes === undefined) return;
@@ -2803,10 +3072,10 @@ diff --git a/packages/dofs/src/node-storage.ts b/packages/dofs/src/node-storage.
 +    const totalBytes = this.maxSizeBytes ?? this.scalarNumber("PRAGMA max_page_count") * this.scalarNumber("PRAGMA page_size");
 +    const used = this.sizeBytes() - this.freelistCount() * this.scalarNumber("PRAGMA page_size");
 +    return { totalBytes, availableBytes: Math.max(0, totalBytes - used - Math.min(64 * 1024 ** 2, Math.floor(totalBytes / 8))) };
-   }
- 
++  }
++
    // Every default here applies only to a file-backed store. An
-@@ -96,6 +135,13 @@
+   // in-memory database has no disk to tune against, and forcing a
    // journal mode on it would change behavior the several hundred
    // tests built on SQLiteTestStorage already depend on.
    private applyPragmas(options: NodeSQLiteStorageOptions, onDisk: boolean): void {
@@ -2820,7 +3089,7 @@ diff --git a/packages/dofs/src/node-storage.ts b/packages/dofs/src/node-storage.
      const journalMode = options.journalMode ?? (onDisk ? "wal" : undefined);
      if (journalMode !== undefined) {
        this.db.exec(`PRAGMA journal_mode = ${journalMode}`);
-@@ -136,14 +182,30 @@
+@@ -136,14 +182,30 @@ export class NodeSQLiteStorage implements DurableObjectStorageLike {
    }
  
    transactionSync<T>(closure: () => T): T {
@@ -2854,7 +3123,7 @@ diff --git a/packages/dofs/src/node-storage.ts b/packages/dofs/src/node-storage.
      }
    }
  
-@@ -204,7 +266,9 @@
+@@ -204,7 +266,9 @@ export class NodeSQLiteStorage implements DurableObjectStorageLike {
  function toSQLiteValue(value: unknown): string | number | bigint | null | Uint8Array {
    if (value === undefined || value === null) return null;
    if (typeof value === "boolean") return value ? 1 : 0;
@@ -2866,6 +3135,7 @@ diff --git a/packages/dofs/src/node-storage.ts b/packages/dofs/src/node-storage.
      return value;
    }
 diff --git a/packages/dofs/src/rev.ts b/packages/dofs/src/rev.ts
+index df7f6d3..ecbf406 100644
 --- a/packages/dofs/src/rev.ts
 +++ b/packages/dofs/src/rev.ts
 @@ -1,4 +1,5 @@
@@ -2874,7 +3144,7 @@ diff --git a/packages/dofs/src/rev.ts b/packages/dofs/src/rev.ts
  
  // Atomic monotonic rev counter. Every FS mutation (mkdir, writeFile,
  // rm, ...) calls incrementRev once per transaction and stamps the returned
-@@ -8,7 +9,10 @@
+@@ -8,7 +9,10 @@ import type { Database } from "./storage.js";
  // Must be called inside a transactionSync — the UPDATE and SELECT
  // otherwise race with concurrent mutations. The DO single-writer model
  // makes that unlikely in practice, but the contract is "wrap me".
@@ -2887,9 +3157,10 @@ diff --git a/packages/dofs/src/rev.ts b/packages/dofs/src/rev.ts
    // pays one round-trip instead of two. SQLite has supported it since
    // 3.35; both node:sqlite and Cloudflare DO SqlStorage are on newer
 diff --git a/packages/dofs/src/schema/index.ts b/packages/dofs/src/schema/index.ts
+index dcf8580..2f48fd7 100644
 --- a/packages/dofs/src/schema/index.ts
 +++ b/packages/dofs/src/schema/index.ts
-@@ -3,6 +3,11 @@
+@@ -3,6 +3,11 @@ import type { Database } from "../storage.js";
  import { CORE_STATEMENTS, ROOT_INODE, SCHEMA_VERSION } from "./core.js";
  import { runMigrations } from "./migrations.js";
  import { SYNC_STATEMENTS } from "./sync.js";
@@ -2901,7 +3172,7 @@ diff --git a/packages/dofs/src/schema/index.ts b/packages/dofs/src/schema/index.
  
  export { ROOT_INODE, SCHEMA_VERSION } from "./core.js";
  
-@@ -22,6 +27,15 @@
+@@ -22,6 +27,15 @@ export function initializeSchema(db: Database, now: () => number): void {
      for (const statement of SYNC_STATEMENTS) {
        db.run(statement);
      }
@@ -2918,6 +3189,7 @@ diff --git a/packages/dofs/src/schema/index.ts b/packages/dofs/src/schema/index.
      // 2. Read the on-disk schema version. Absent → 0 (very first
      //    boot of this database). The baseline above just created
 diff --git a/packages/dofs/src/storage.ts b/packages/dofs/src/storage.ts
+index 9362325..1305f30 100644
 --- a/packages/dofs/src/storage.ts
 +++ b/packages/dofs/src/storage.ts
 @@ -1,39 +1,33 @@
@@ -2939,24 +3211,8 @@ diff --git a/packages/dofs/src/storage.ts b/packages/dofs/src/storage.ts
    #txDepth = 0;
  
 -  constructor(storage: DurableObjectStorageLike) {
-+  readonly requestMaintenance: () => void;
-+  constructor(storage: DurableObjectStorageLike, onMaintenanceNeeded: () => void = () => {}, capacityBytes?: number) {
-+    this.requestMaintenance = () => {
-+      this.run("UPDATE _vfs_gc_state SET dirty=dirty+1 WHERE slot=1");
-+      onMaintenanceNeeded();
-+    };
-+    this.assertContentCapacity = (bytes) => {
-+      storage.assertContentCapacity?.(bytes);
-+      if (capacityBytes !== undefined) {
-+        const used = storage.sql.databaseSize;
-+        if (used === undefined || !Number.isFinite(used)) throw new Error("Storage capacity projection is unavailable");
-+        if (used + bytes + 32 * 1024 > capacityBytes - Math.min(64 * 1024 ** 2, Math.floor(capacityBytes / 8))) {
-+          throw createWorkspaceError("ENOSPC", "Computer storage is full; remove files before writing more");
-+        }
-+      }
-+    };
-     this.sql = storage.sql;
-     this.transactionSync = <T>(closure: () => T): T => {
+-    this.sql = storage.sql;
+-    this.transactionSync = <T>(closure: () => T): T => {
 -      if (this.#txDepth > 0) {
 -        // Reentrant call: use a savepoint. SQLite's RELEASE on a
 -        // savepoint inside an outer transaction commits the inner
@@ -2974,14 +3230,31 @@ diff --git a/packages/dofs/src/storage.ts b/packages/dofs/src/storage.ts
 -          throw error;
 -        } finally {
 -          this.#txDepth--;
--        }
--      }
++  readonly requestMaintenance: () => void;
++  constructor(storage: DurableObjectStorageLike, onMaintenanceNeeded: () => void = () => {}, capacityBytes?: number) {
++    this.requestMaintenance = () => {
++      this.run("UPDATE _vfs_gc_state SET dirty=dirty+1 WHERE slot=1");
++      onMaintenanceNeeded();
++    };
++    this.assertContentCapacity = (bytes) => {
++      storage.assertContentCapacity?.(bytes);
++      if (capacityBytes !== undefined) {
++        const used = storage.sql.databaseSize;
++        if (used === undefined || !Number.isFinite(used)) throw new Error("Storage capacity projection is unavailable");
++        if (used + bytes + 32 * 1024 > capacityBytes - Math.min(64 * 1024 ** 2, Math.floor(capacityBytes / 8))) {
++          throw createWorkspaceError("ENOSPC", "Computer storage is full; remove files before writing more");
+         }
+       }
 -      // Outer call: hand off to the storage adapter so the DO
 -      // runtime's transaction semantics apply.
++    };
++    this.sql = storage.sql;
++    this.transactionSync = <T>(closure: () => T): T => {
        this.#txDepth++;
        try {
          if (storage.transactionSync !== undefined) {
 diff --git a/packages/dofs/src/sync/apply.ts b/packages/dofs/src/sync/apply.ts
+index ccc421a..fadba56 100644
 --- a/packages/dofs/src/sync/apply.ts
 +++ b/packages/dofs/src/sync/apply.ts
 @@ -1,10 +1,9 @@
@@ -2997,7 +3270,7 @@ diff --git a/packages/dofs/src/sync/apply.ts b/packages/dofs/src/sync/apply.ts
  import { assertChunkWindows, linkStagedChunksSync } from "../fs/writeFile.js";
  import { canonicalizePath } from "../path.js";
  import { incrementRev } from "../rev.js";
-@@ -13,6 +12,7 @@
+@@ -13,6 +12,7 @@ import { stageBlob } from "./blobs.js";
  import type { ChangeEntry } from "./changes.js";
  import { computeManifestHash } from "./manifests.js";
  import { pathOf } from "./paths.js";
@@ -3005,7 +3278,7 @@ diff --git a/packages/dofs/src/sync/apply.ts b/packages/dofs/src/sync/apply.ts
  
  // One container-side change that landed under a read-only mount and
  // was therefore skipped rather than applied. Callers (the workspace
-@@ -37,6 +37,9 @@
+@@ -37,6 +37,9 @@ export interface SkippedEntry {
  // that only wanted a count read `result.applied`; new callers can
  // surface `result.skipped`.
  export interface ApplyResult {
@@ -3015,7 +3288,7 @@ diff --git a/packages/dofs/src/sync/apply.ts b/packages/dofs/src/sync/apply.ts
    // Entries written through writeFile / mkdir / symlink / rm.
    applied: number;
    // Entries dropped because they targeted a read-only mount root.
-@@ -63,6 +66,11 @@
+@@ -63,6 +66,11 @@ export interface ApplyOptions {
    // rev further, bounding the echo at one extra round trip per
    // upstream apply.
    source?: "local" | "upstream";
@@ -3027,7 +3300,7 @@ diff --git a/packages/dofs/src/sync/apply.ts b/packages/dofs/src/sync/apply.ts
    // Backend id whose watermark row this apply should touch. The
    // DO hosts independent sync cursors per backend; threading the
    // id through here keeps a pull from backend A from bumping
-@@ -92,86 +100,44 @@
+@@ -92,86 +100,44 @@ function removeReplaceableFinalEntry(
    if (existing === null) return;
    if (incomingKind === "file" && existing.type === "file") return;
  
@@ -3092,13 +3365,6 @@ diff --git a/packages/dofs/src/sync/apply.ts b/packages/dofs/src/sync/apply.ts
 -      }
 -      continue;
 -    }
--
--    // Unlink this one name and reap the inode only when its last link
--    // disappears, so a sibling hardlink (inside or outside the subtree)
--    // keeps the file alive. (parent, name) is unique, so this removes
--    // exactly the dirent the walk is visiting.
--    unlinkDirent(db, current.parentInode, current.name, current.inode, current.type);
--  }
 +  db.transactionSync(() => {
 +    const root = direntForPath(db, path, inode);
 +    assertNotReadOnly(db, root.realPath);
@@ -3106,7 +3372,13 @@ diff --git a/packages/dofs/src/sync/apply.ts b/packages/dofs/src/sync/apply.ts
 +    detachForSync(db, root.parentInode, root.name, inode, root.realPath, incrementRev(db, true));
 +  });
 +}
-+
+ 
+-    // Unlink this one name and reap the inode only when its last link
+-    // disappears, so a sibling hardlink (inside or outside the subtree)
+-    // keeps the file alive. (parent, name) is unique, so this removes
+-    // exactly the dirent the walk is visiting.
+-    unlinkDirent(db, current.parentInode, current.name, current.inode, current.type);
+-  }
 +function applyDeleteEntry(db: Database, path: string): void {
 +  const existing = resolveInode(db, path, { followSymlinks: false });
 +  if (existing) removeInodeTreeAtPath(db, path, existing.inode);
@@ -3129,7 +3401,7 @@ diff --git a/packages/dofs/src/sync/apply.ts b/packages/dofs/src/sync/apply.ts
    if (parent === null || parent.type !== "dir") {
      throw new Error(`applyChanges: parent missing for structural replacement ${canonical}`);
    }
-@@ -183,7 +149,13 @@
+@@ -183,7 +149,13 @@ function direntForPath(
    if (child !== inode) {
      throw new Error(`applyChanges: dirent mismatch for structural replacement ${canonical}`);
    }
@@ -3144,7 +3416,7 @@ diff --git a/packages/dofs/src/sync/apply.ts b/packages/dofs/src/sync/apply.ts
  }
  
  function applyDirectoryEntry(db: Database, entry: Extract<ChangeEntry, { kind: "dir" }>): void {
-@@ -194,7 +166,7 @@
+@@ -194,7 +166,7 @@ function applyDirectoryEntry(db: Database, entry: Extract<ChangeEntry, { kind: "
      return;
    }
    if (existing.type !== "dir") {
@@ -3153,7 +3425,7 @@ diff --git a/packages/dofs/src/sync/apply.ts b/packages/dofs/src/sync/apply.ts
      mkdir(db, entry.path, { mode, recursive: true }, () => entry.mtime);
      return;
    }
-@@ -245,7 +217,7 @@
+@@ -245,7 +217,7 @@ function ensureParentDirectories(
      if (ancestor.type === "dir") continue;
      const blockingRoot = readOnlyRootFor(db, ancestorPath);
      if (blockingRoot !== undefined) return { path: canonical, blockingRoot };
@@ -3162,7 +3434,7 @@ diff --git a/packages/dofs/src/sync/apply.ts b/packages/dofs/src/sync/apply.ts
      mkdirForSyncParents(db, parentPath, { recursive: true }, () => mtime);
      return { path: canonical };
    }
-@@ -283,6 +255,7 @@
+@@ -283,6 +255,7 @@ export async function applyChanges(
    };
  
    for await (const entry of entries) {
@@ -3170,7 +3442,7 @@ diff --git a/packages/dofs/src/sync/apply.ts b/packages/dofs/src/sync/apply.ts
      // Idempotent skip: if the entry already matches the local
      // state, drop it on the floor. The check is what stops a
      // pull from bumping vfs_meta.rev for entries that are
-@@ -291,9 +264,14 @@
+@@ -291,9 +264,14 @@ export async function applyChanges(
      if (options.source === "upstream" && entry.kind !== "delete") {
        if (alreadyApplied(db, entry)) continue;
      }
@@ -3188,7 +3460,7 @@ diff --git a/packages/dofs/src/sync/apply.ts b/packages/dofs/src/sync/apply.ts
        continue;
      }
      // Read-only mount guard. Entries under a registered read-only
-@@ -312,11 +290,7 @@
+@@ -312,11 +290,7 @@ export async function applyChanges(
        continue;
      }
      if (entry.kind === "delete") {
@@ -3201,7 +3473,7 @@ diff --git a/packages/dofs/src/sync/apply.ts b/packages/dofs/src/sync/apply.ts
        applied++;
        pathsInBatch++;
        if (pathsInBatch >= maxPaths) flush();
-@@ -418,12 +392,18 @@
+@@ -418,12 +392,18 @@ export function applyChangesSync(
    };
  
    for (const entry of entries) {
@@ -3223,7 +3495,7 @@ diff --git a/packages/dofs/src/sync/apply.ts b/packages/dofs/src/sync/apply.ts
        continue;
      }
      const blockingRoot = readOnlyRootFor(db, entry.path);
-@@ -437,11 +417,7 @@
+@@ -437,11 +417,7 @@ export function applyChangesSync(
        continue;
      }
      if (entry.kind === "delete") {
@@ -3236,7 +3508,7 @@ diff --git a/packages/dofs/src/sync/apply.ts b/packages/dofs/src/sync/apply.ts
        applied++;
        pathsInBatch++;
        if (pathsInBatch >= maxPaths) flush();
-@@ -568,6 +544,7 @@
+@@ -568,6 +544,7 @@ function assertChunkSize(actual: number, declared: number, hash: Uint8Array, pat
  }
  
  // Decide whether an upstream tombstone may delete the live path.
@@ -3244,7 +3516,7 @@ diff --git a/packages/dofs/src/sync/apply.ts b/packages/dofs/src/sync/apply.ts
  //
  // A tombstone describes the path as of the revision it was stamped
  // with. Because the sync cursor only advances after a block applies,
-@@ -583,6 +560,14 @@
+@@ -583,6 +560,14 @@ function assertChunkSize(actual: number, declared: number, hash: Uint8Array, pat
  //
  // Local deletes are exempt. They are authored here, not replayed, so
  // there is no earlier revision to compare against.
@@ -3260,6 +3532,7 @@ diff --git a/packages/dofs/src/sync/apply.ts b/packages/dofs/src/sync/apply.ts
    const live = resolveInode(db, entry.path, { followSymlinks: false });
    if (live === null) return false;
 diff --git a/packages/dofs/src/sync/blobs.ts b/packages/dofs/src/sync/blobs.ts
+index d51fabe..71defca 100644
 --- a/packages/dofs/src/sync/blobs.ts
 +++ b/packages/dofs/src/sync/blobs.ts
 @@ -1,5 +1,6 @@
@@ -3269,7 +3542,7 @@ diff --git a/packages/dofs/src/sync/blobs.ts b/packages/dofs/src/sync/blobs.ts
  
  // Stage a chunk directly into vfs_blobs + vfs_blob_bytes without
  // creating a node or a manifest. The receiver-side push path uses
-@@ -14,8 +15,11 @@
+@@ -14,8 +15,11 @@ import type { Database } from "../storage.js";
  // Callers are expected to have verified that hash === sha256(bytes)
  // before calling. The function trusts the caller; a mismatched
  // pair would silently land under the wrong key.
@@ -3283,6 +3556,7 @@ diff --git a/packages/dofs/src/sync/blobs.ts b/packages/dofs/src/sync/blobs.ts
        "INSERT INTO vfs_blobs (hash, size, last_seen) VALUES (?, ?, ?) ON CONFLICT(hash) DO UPDATE SET size = excluded.size, last_seen = excluded.last_seen",
        hash,
 diff --git a/packages/dofs/src/sync/blocks.ts b/packages/dofs/src/sync/blocks.ts
+index c135b71..29c89db 100644
 --- a/packages/dofs/src/sync/blocks.ts
 +++ b/packages/dofs/src/sync/blocks.ts
 @@ -12,7 +12,10 @@
@@ -3297,7 +3571,7 @@ diff --git a/packages/dofs/src/sync/blocks.ts b/packages/dofs/src/sync/blocks.ts
  import { coalesceChanges } from "./coalesce.js";
  import type { BlockProfile, SyncMode } from "./operations.js";
  import type { ChangeCursor } from "./watermarks.js";
-@@ -49,6 +52,8 @@
+@@ -49,6 +52,8 @@ export interface PlannedBlock {
  }
  
  export interface PlanBlockRequest {
@@ -3306,7 +3580,7 @@ diff --git a/packages/dofs/src/sync/blocks.ts b/packages/dofs/src/sync/blocks.ts
    readonly after: ChangeCursor;
    readonly through: ChangeCursor;
    readonly profile: BlockProfile;
-@@ -81,11 +86,56 @@
+@@ -81,11 +86,56 @@ export async function planBlock(db: Database, request: PlanBlockRequest): Promis
    const objects: BlockObject[] = [];
    const seen = new Set<string>();
    let objectBytes = 0;
@@ -3365,7 +3639,7 @@ diff --git a/packages/dofs/src/sync/blocks.ts b/packages/dofs/src/sync/blocks.ts
      if (entries.length >= profile.maxEntries) {
        // The window still has entries the profile cannot carry, so the
        // operation is not finished at this cursor.
-@@ -107,6 +157,7 @@
+@@ -107,6 +157,7 @@ export async function planBlock(db: Database, request: PlanBlockRequest): Promis
      }
  
      entries.push(entry);
@@ -3373,7 +3647,7 @@ diff --git a/packages/dofs/src/sync/blocks.ts b/packages/dofs/src/sync/blocks.ts
      for (const [key, object] of unique) {
        seen.add(key);
        objects.push(object);
-@@ -122,8 +173,10 @@
+@@ -122,8 +173,10 @@ export async function planBlock(db: Database, request: PlanBlockRequest): Promis
    const cursor: ChangeCursor = drained
      ? through
      : last === undefined
@@ -3387,6 +3661,7 @@ diff --git a/packages/dofs/src/sync/blocks.ts b/packages/dofs/src/sync/blocks.ts
    return { entries, objects, objectBytes, cursor, drained };
  }
 diff --git a/packages/dofs/src/sync/changes.ts b/packages/dofs/src/sync/changes.ts
+index 2cef232..ae8bfff 100644
 --- a/packages/dofs/src/sync/changes.ts
 +++ b/packages/dofs/src/sync/changes.ts
 @@ -1,13 +1,88 @@
@@ -3480,7 +3755,7 @@ diff --git a/packages/dofs/src/sync/changes.ts b/packages/dofs/src/sync/changes.
  }
  
  // One row of the sync wire. The DO pushes these to the container
-@@ -49,7 +124,11 @@
+@@ -49,7 +124,11 @@ export type ChangeEntry =
  // Symlinks are returned as symlink entries; we never follow them on
  // the sync wire. Callers that want "the file the link points at"
  // resolve it themselves after applying the symlink entry.
@@ -3493,7 +3768,7 @@ diff --git a/packages/dofs/src/sync/changes.ts b/packages/dofs/src/sync/changes.
    const canonical = canonicalizePath(path).path;
    const live = resolveInode(db, canonical, { followSymlinks: false });
    if (live !== null) {
-@@ -76,9 +155,15 @@
+@@ -76,9 +155,15 @@ export function materialiseChange(db: Database, path: string): ChangeEntry | nul
      // separate manifest lookup. An empty file has zero chunk rows
      // and reports size 0.
      const chunks = db.all<{ hash: Uint8Array; size: number }>(
@@ -3510,7 +3785,7 @@ diff --git a/packages/dofs/src/sync/changes.ts b/packages/dofs/src/sync/changes.
      let size = 0;
      for (const c of chunks) size += c.size;
      return {
-@@ -98,7 +183,7 @@
+@@ -98,7 +183,7 @@ export function materialiseChange(db: Database, path: string): ChangeEntry | nul
      "SELECT rev, op FROM vfs_changes WHERE path = ? ORDER BY id DESC LIMIT 1",
      canonical,
    );
@@ -3520,9 +3795,10 @@ diff --git a/packages/dofs/src/sync/changes.ts b/packages/dofs/src/sync/changes.
    }
    return null;
 diff --git a/packages/dofs/src/sync/coalesce.ts b/packages/dofs/src/sync/coalesce.ts
+index d6aeb62..bccb036 100644
 --- a/packages/dofs/src/sync/coalesce.ts
 +++ b/packages/dofs/src/sync/coalesce.ts
-@@ -2,6 +2,7 @@
+@@ -2,6 +2,7 @@ import type { Database } from "../storage.js";
  import { type ChangeEntry, materialiseChange } from "./changes.js";
  import { isIgnored } from "./ignore.js";
  import { pathsOfMany } from "./paths.js";
@@ -3530,7 +3806,7 @@ diff --git a/packages/dofs/src/sync/coalesce.ts b/packages/dofs/src/sync/coalesc
  import { type ChangeCursor, compareChangeCursors } from "./watermarks.js";
  
  // Yield one ChangeEntry per path touched after `after`. Per-path
-@@ -37,6 +38,9 @@
+@@ -37,6 +38,9 @@ export async function* coalesceChanges(
    after: ChangeCursor | number,
    options: CoalesceOptions = {},
  ): AsyncIterable<ChangeEntry> {
@@ -3541,6 +3817,7 @@ diff --git a/packages/dofs/src/sync/coalesce.ts b/packages/dofs/src/sync/coalesc
    const cursor = typeof after === "number" ? { rev: after, path: null } : after;
    const through = options.through;
 diff --git a/packages/dofs/src/sync/operations.ts b/packages/dofs/src/sync/operations.ts
+index 36ec02f..3de3d67 100644
 --- a/packages/dofs/src/sync/operations.ts
 +++ b/packages/dofs/src/sync/operations.ts
 @@ -19,6 +19,7 @@
@@ -3551,7 +3828,7 @@ diff --git a/packages/dofs/src/sync/operations.ts b/packages/dofs/src/sync/opera
  import { type ChangeCursor, DEFAULT_BACKEND_ID } from "./watermarks.js";
  
  export type SyncDirection = "pull" | "push";
-@@ -303,6 +304,7 @@
+@@ -303,6 +304,7 @@ export function completeOperation(
  ): boolean {
    const existing = readOperation(db, backend, direction);
    if (existing?.generation !== generation) return false;
@@ -3559,7 +3836,7 @@ diff --git a/packages/dofs/src/sync/operations.ts b/packages/dofs/src/sync/opera
    db.run(
      "DELETE FROM _vfs_sync_operations WHERE backend = ? AND direction = ? AND generation = ?",
      backend,
-@@ -325,20 +327,23 @@
+@@ -325,20 +327,23 @@ export function failOperation(
    error: string,
    now: number = Date.now(),
  ): boolean {
@@ -3595,7 +3872,7 @@ diff --git a/packages/dofs/src/sync/operations.ts b/packages/dofs/src/sync/opera
  }
  
  // Persisted before a block stream opens. If a later invocation finds
-@@ -406,8 +411,8 @@
+@@ -406,8 +411,8 @@ export function shrinkBlockProfile(
    const existing = readOperation(db, backend, direction);
    if (existing?.generation !== generation) return undefined;
    const next: BlockProfile = {
@@ -3606,7 +3883,7 @@ diff --git a/packages/dofs/src/sync/operations.ts b/packages/dofs/src/sync/opera
    };
    db.run(
      `UPDATE _vfs_sync_operations
-@@ -480,11 +485,30 @@
+@@ -480,11 +485,30 @@ export function pruneSkips(
    backend: string,
    direction: SyncDirection,
    generation: string,
@@ -3616,8 +3893,6 @@ diff --git a/packages/dofs/src/sync/operations.ts b/packages/dofs/src/sync/opera
 -    backend,
 -    direction,
 -    generation,
--  );
--}
 +): boolean {
 +  // Two indexed ranges avoid scanning the current generation to find old
 +  // rows. Cleanup is at most 256 rows, including on the final completion tick.
@@ -3643,12 +3918,13 @@ diff --git a/packages/dofs/src/sync/operations.ts b/packages/dofs/src/sync/opera
 +      direction,
 +      generation,
 +    )
-+  );
-+}
+   );
+ }
 diff --git a/packages/dofs/src/sync/paths.ts b/packages/dofs/src/sync/paths.ts
+index cb75a3a..5c4bf4b 100644
 --- a/packages/dofs/src/sync/paths.ts
 +++ b/packages/dofs/src/sync/paths.ts
-@@ -63,8 +63,8 @@
+@@ -63,8 +63,8 @@ const PATHS_BATCH_SIZE = 512;
  //
  // Shape: seed one row per (target, dirent) so hardlinks fan out, then
  // walk `child_inode -> parent_inode` upward, carrying `target` along.
@@ -3659,7 +3935,7 @@ diff --git a/packages/dofs/src/sync/paths.ts b/packages/dofs/src/sync/paths.ts
  // no seed row and is simply absent from the result — same contract as
  // pathsOf returning [] / pathOf returning null.
  export function pathsOfMany(db: Database, inodes: readonly number[]): Map<number, string[]> {
-@@ -94,16 +94,13 @@
+@@ -94,16 +94,13 @@ export function pathsOfMany(db: Database, inodes: readonly number[]): Map<number
  
  interface SegmentRow {
    target: number;
@@ -3678,7 +3954,7 @@ diff --git a/packages/dofs/src/sync/paths.ts b/packages/dofs/src/sync/paths.ts
    // hardlinks can share a parent directory ("/one.txt" and "/two.txt"
    // both sit under the root), so the seed's parent inode alone is not
    // a unique key — the seed's (parent_inode, name) pair is.
-@@ -112,54 +109,29 @@
+@@ -112,54 +109,29 @@ function collectBatch(db: Database, batch: number[], out: Map<number, string[]>)
         targets(inode) AS (
           SELECT value FROM json_each(?)
         ),
@@ -3746,9 +4022,10 @@ diff --git a/packages/dofs/src/sync/paths.ts b/packages/dofs/src/sync/paths.ts
  }
 diff --git a/packages/dofs/src/sync/planning.test.ts b/packages/dofs/src/sync/planning.test.ts
 new file mode 100644
+index 0000000..03e77e5
 --- /dev/null
 +++ b/packages/dofs/src/sync/planning.test.ts
-@@ -0,0 +1,61 @@
+@@ -0,0 +1,66 @@
 +import { describe, expect, it } from "vitest";
 +import { withDB } from "../fs/with-db.js";
 +import { writeFile } from "../fs/writeFile.js";
@@ -3780,16 +4057,21 @@ new file mode 100644
 +      for await (const e of coalesceChanges(db, request.after, request))
 +        expected.push({ path: e.path, rev: e.rev });
 +      let steps = 0;
++      let checkpoint: string | undefined;
 +      while (true) {
 +        // No JS plan object survives this call. Every step reopens durable state.
 +        const result = prepareChangePlan(db, request);
 +        expect(result.reads).toBeLessThanOrEqual(PLAN_READ_BUDGET);
 +        expect(readPushCursor(db)).toEqual({ rev: 0, path: null });
++        expect(result.checkpoint).toMatch(/^[a-f0-9]{64}$/);
++        expect(result.checkpoint).not.toBe(checkpoint);
++        checkpoint = result.checkpoint;
 +        steps++;
 +        if (result.ready) break;
 +        expect(steps).toBeLessThan(100);
 +      }
 +      expect(steps).toBeGreaterThan(1);
++      expect(prepareChangePlan(db, request).checkpoint).toBe(checkpoint);
 +      let after = request.after as { rev: number; path: string | null };
 +      const actual = [];
 +      while (true) {
@@ -3812,9 +4094,11 @@ new file mode 100644
 +});
 diff --git a/packages/dofs/src/sync/planning.ts b/packages/dofs/src/sync/planning.ts
 new file mode 100644
+index 0000000..10d665d
 --- /dev/null
 +++ b/packages/dofs/src/sync/planning.ts
-@@ -0,0 +1,305 @@
+@@ -0,0 +1,323 @@
++import { createHash } from "node:crypto";
 +import { ROOT_INODE } from "../schema/core.js";
 +import { releasePinsStep } from "./retention.js";
 +import type { Database } from "../storage.js";
@@ -3883,11 +4167,25 @@ new file mode 100644
 +): {
 +  ready: boolean;
 +  reads: number;
++  checkpoint: string;
 +} {
 +  return db.transactionSync(() => {
 +    // Deletion tombstones use the original deletion revision. Finish their
 +    // bounded production before planning this fixed revision window.
-+    if (!drainSyncRemovals(db)) return { ready: false, reads: 0 };
++    if (!drainSyncRemovals(db)) {
++      // A large detached tree can require many preparation pages before the
++      // plan itself advances. Read its real durable position, not a poll time.
++      const task = db.one<{ inode: number; change_id: number; rev: number }>(
++        `SELECT inode,change_id,rev FROM _vfs_sync_removals
++         ORDER BY priority DESC,inode LIMIT 1`,
++      );
++      const position = task === undefined ? null : {
++        task,
++        child: db.one("SELECT name,child_inode FROM vfs_dirents WHERE parent_inode=? ORDER BY name LIMIT 1", task.inode),
++        chunk: db.scalar<number>("SELECT idx FROM vfs_chunks WHERE inode=? ORDER BY idx LIMIT 1", task.inode),
++      };
++      return { ready: false, reads: 0, checkpoint: createHash("sha256").update(JSON.stringify(position)).digest("hex") };
++    }
 +    const retired = db.scalar<string>("SELECT generation FROM _vfs_retired_change_plans LIMIT 1");
 +    if (retired !== undefined && discardChangePlanStep(db, retired)) {
 +      db.run("DELETE FROM _vfs_retired_change_plans WHERE generation=?", retired);
@@ -4055,7 +4353,10 @@ new file mode 100644
 +      request.generation,
 +      JSON.stringify(plan),
 +    );
-+    return { ready: plan.phase === "ready", reads };
++    // Opaque evidence only. Paths and internal traversal state stay with their
++    // owner, while callers can distinguish durable work from another retry.
++    const checkpoint = createHash("sha256").update(JSON.stringify(plan)).digest("hex");
++    return { ready: plan.phase === "ready", reads, checkpoint };
 +  });
 +}
 +
@@ -4122,6 +4423,7 @@ new file mode 100644
 +}
 diff --git a/packages/dofs/src/sync/refusals.ts b/packages/dofs/src/sync/refusals.ts
 new file mode 100644
+index 0000000..f0e0163
 --- /dev/null
 +++ b/packages/dofs/src/sync/refusals.ts
 @@ -0,0 +1,126 @@
@@ -4253,6 +4555,7 @@ new file mode 100644
 +}
 diff --git a/packages/dofs/src/sync/removals.test.ts b/packages/dofs/src/sync/removals.test.ts
 new file mode 100644
+index 0000000..c7663da
 --- /dev/null
 +++ b/packages/dofs/src/sync/removals.test.ts
 @@ -0,0 +1,72 @@
@@ -4330,6 +4633,7 @@ new file mode 100644
 +);
 diff --git a/packages/dofs/src/sync/removals.ts b/packages/dofs/src/sync/removals.ts
 new file mode 100644
+index 0000000..22153f8
 --- /dev/null
 +++ b/packages/dofs/src/sync/removals.ts
 @@ -0,0 +1,80 @@
@@ -4415,6 +4719,7 @@ new file mode 100644
 +}
 diff --git a/packages/dofs/src/sync/retention.ts b/packages/dofs/src/sync/retention.ts
 new file mode 100644
+index 0000000..e957cc1
 --- /dev/null
 +++ b/packages/dofs/src/sync/retention.ts
 @@ -0,0 +1,135 @@
@@ -4554,9 +4859,10 @@ new file mode 100644
 +  return result;
 +}
 diff --git a/packages/dofs/src/types.ts b/packages/dofs/src/types.ts
+index 9c66fa7..20f76e2 100644
 --- a/packages/dofs/src/types.ts
 +++ b/packages/dofs/src/types.ts
-@@ -3,6 +3,7 @@
+@@ -3,6 +3,7 @@ export interface SQLCursorLike<Row extends object = Record<string, unknown>> {
  }
  
  export interface SQLStorageLike {
@@ -4564,7 +4870,7 @@ diff --git a/packages/dofs/src/types.ts b/packages/dofs/src/types.ts
    // Not generic: the Workers runtime's `exec` constrains its row type in
    // a way a generic signature here can't accept. Database casts rows to
    // the shape each query selects.
-@@ -10,6 +11,7 @@
+@@ -10,6 +11,7 @@ export interface SQLStorageLike {
  }
  
  export interface DurableObjectStorageLike {
@@ -4573,6 +4879,7 @@ diff --git a/packages/dofs/src/types.ts b/packages/dofs/src/types.ts
    transaction?<T>(closure: () => T | Promise<T>): T | Promise<T>;
    transactionSync?<T>(closure: () => T): T;
 diff --git a/packages/rpc/package.json b/packages/rpc/package.json
+index 47bd4f7..f399e81 100644
 --- a/packages/rpc/package.json
 +++ b/packages/rpc/package.json
 @@ -36,7 +36,7 @@
@@ -4586,11 +4893,13 @@ diff --git a/packages/rpc/package.json b/packages/rpc/package.json
      "@cloudflare/workers-types": "^4.20260616.1 || ^5.20260921.1"
 diff --git a/packages/rpc/src/bounded-sync.test.ts b/packages/rpc/src/bounded-sync.test.ts
 new file mode 100644
+index 0000000..7fed39f
 --- /dev/null
 +++ b/packages/rpc/src/bounded-sync.test.ts
-@@ -0,0 +1,206 @@
+@@ -0,0 +1,230 @@
 +import {
 +  Database,
++  collectContentStep,
 +  initializeSchema,
 +  SQLiteWorkspaceProvider,
 +  readPushCursor,
@@ -4683,6 +4992,13 @@ new file mode 100644
 +    await drive();
 +    expect(target.fs.readdirSync("/renamed")).toEqual(["answer.txt"]);
 +    expect(target.fs.readFileSync("/renamed/answer.txt", "utf8")).toBe("kept after deletion");
++    // Sync readiness hands retired projections to durable maintenance. It
++    // does not wait for every physical cleanup page before reporting ready.
++    for (const db of [source.db, target.db]) {
++      let complete = false;
++      for (let page = 0; page < 500 && !complete; page++) complete = collectContentStep(db).complete;
++      expect(complete).toBe(true);
++    }
 +    expect(source.db.scalar<number>("SELECT COUNT(*) FROM _vfs_change_candidates")).toBe(0);
 +    // The opposite direction must use the same bounded producer protocol.
 +    let pullSteps = 0;
@@ -4754,7 +5070,9 @@ new file mode 100644
 +    let lost = false;
 +    let maxChunks = 0;
 +    let calls = 0;
-+    peer.pushObjects = async (stream) => {
++    let stagedCheckpoint: string | undefined;
++    let appliedCheckpoint: string | undefined;
++    peer.pushObjects = async (stream, scope) => {
 +      let chunks = 0;
 +      const ack = await original(
 +        stream.pipeThrough(
@@ -4765,6 +5083,7 @@ new file mode 100644
 +            },
 +          }),
 +        ),
++        scope,
 +      );
 +      maxChunks = Math.max(maxChunks, chunks);
 +      calls++;
@@ -4778,6 +5097,17 @@ new file mode 100644
 +      expect(steps).toBeLessThan(30);
 +      try {
 +        const step = await pushBlocks(source!, peer)[Symbol.asyncIterator]().next();
++        if (step.value?.phase === "transferring") {
++          expect(step.value.checkpoint).toMatch(/^[a-f0-9]{64}$/);
++          if (step.value.entries === 0) {
++            expect(readPushCursor(source!)).toEqual({ rev: 0, path: null });
++            stagedCheckpoint = step.value.checkpoint;
++          } else {
++            expect(stagedCheckpoint).toBeDefined();
++            expect(step.value.checkpoint).not.toBe(stagedCheckpoint);
++            appliedCheckpoint = step.value.checkpoint;
++          }
++        }
 +        if (step.done || step.value.complete) break;
 +      } catch (error) {
 +        expect(String(error)).toContain("lost staging ACK");
@@ -4786,6 +5116,8 @@ new file mode 100644
 +    }
 +    expect(maxChunks).toBeLessThanOrEqual(16);
 +    expect(calls).toBeGreaterThan(1);
++    expect(stagedCheckpoint).toBeDefined();
++    expect(appliedCheckpoint).toBeDefined();
 +    const hash = (data: Uint8Array) => createHash("sha256").update(data).digest("hex");
 +    expect(
 +      hash(new SQLiteWorkspaceProvider(target!).readFileSync("/large.bin") as Uint8Array),
@@ -4797,6 +5129,7 @@ new file mode 100644
 +});
 diff --git a/packages/rpc/src/dispatch-fence.test.ts b/packages/rpc/src/dispatch-fence.test.ts
 new file mode 100644
+index 0000000..8af057b
 --- /dev/null
 +++ b/packages/rpc/src/dispatch-fence.test.ts
 @@ -0,0 +1,37 @@
@@ -4838,6 +5171,7 @@ new file mode 100644
 +  }
 +});
 diff --git a/packages/rpc/src/interface.ts b/packages/rpc/src/interface.ts
+index 8e46173..a25eace 100644
 --- a/packages/rpc/src/interface.ts
 +++ b/packages/rpc/src/interface.ts
 @@ -17,9 +17,19 @@
@@ -4856,12 +5190,12 @@ diff --git a/packages/rpc/src/interface.ts b/packages/rpc/src/interface.ts
 +    after: ChangeCursor;
 +    through: ChangeCursor;
 +    ignore?: string[];
-+  }): Promise<{ ready: boolean; reads: number }>;
++  }): Promise<{ ready: boolean; reads: number; checkpoint?: string }>;
 +  discardChanges?(generation: string, scope?: RetentionScope): Promise<boolean>;
    // DO → container. Stream a coalesced batch of changes. Bytes are
    // not inline: the DO sends ChangeEntry records with chunk hashes,
    // the container calls back via hasObjects / asks for the missing
-@@ -29,6 +39,7 @@
+@@ -29,6 +39,7 @@ export interface SyncRPC {
    // settles, and echoes that cursor back as `appliedPushCursor` so
    // the sender can assert applied covers pushed on every response.
    push(input: {
@@ -4869,7 +5203,7 @@ diff --git a/packages/rpc/src/interface.ts b/packages/rpc/src/interface.ts
      senderRev: number;
      senderCursor?: ChangeCursor;
      changes: ReadableStream<ChangeEntry>;
-@@ -51,6 +62,9 @@
+@@ -51,6 +62,9 @@ export interface SyncRPC {
    //
    // Per-file entries carry (hash, size) chunk lists; no bytes inline.
    fetchChanges(input: {
@@ -4879,7 +5213,7 @@ diff --git a/packages/rpc/src/interface.ts b/packages/rpc/src/interface.ts
      after?: ChangeCursor;
      through?: ChangeCursor;
      ignore?: string[];
-@@ -58,6 +72,8 @@
+@@ -58,6 +72,8 @@ export interface SyncRPC {
      currentCursor: ChangeCursor;
      appliedPushCursor: ChangeCursor;
      stream: ReadableStream<ChangeEntry>;
@@ -4888,7 +5222,7 @@ diff --git a/packages/rpc/src/interface.ts b/packages/rpc/src/interface.ts
    }>;
  
    // Read the receiver's full sync watermark state. Cheap (three
-@@ -75,6 +91,7 @@
+@@ -75,6 +91,7 @@ export interface SyncRPC {
    // the receiver's pre-fetch reconciliation before currentRev is read;
    // deferred command sync uses that as its durable target fence.
    watermarks(input?: { settle?: boolean }): Promise<{
@@ -4896,7 +5230,7 @@ diff --git a/packages/rpc/src/interface.ts b/packages/rpc/src/interface.ts
      currentRev: number;
      pushRev: number;
      fetchCursor: ChangeCursor;
-@@ -89,12 +106,12 @@
+@@ -89,12 +106,12 @@ export interface SyncRPC {
    // to look up one path.
    readEntry(path: string): Promise<ChangeEntry | null>;
  
@@ -4911,7 +5245,7 @@ diff --git a/packages/rpc/src/interface.ts b/packages/rpc/src/interface.ts
  
    // Bulk pull transport. Same cursor semantics as fetchChanges, but the
    // response is one gzip change pack carrying entries interleaved with
-@@ -136,7 +153,7 @@
+@@ -136,7 +153,7 @@ export interface SyncRPC {
    // DO → container direction of object transfer. The DO streams the
    // bytes the container reported missing (via hasObjects) during a
    // push. Pushed objects are addressable immediately by hash.
@@ -4920,7 +5254,7 @@ diff --git a/packages/rpc/src/interface.ts b/packages/rpc/src/interface.ts
  }
  
  // Process supervision surface. Lives alongside SyncRPC. computerd's
-@@ -148,6 +165,7 @@
+@@ -148,6 +165,7 @@ export interface ShellRPC {
    // Capnweb streams handle backpressure end-to-end; consumer-side
    // slowness propagates to the spawned process via the kernel pipe.
    exec(input: {
@@ -4930,14 +5264,15 @@ diff --git a/packages/rpc/src/interface.ts b/packages/rpc/src/interface.ts
      id?: string;
 diff --git a/packages/rpc/src/retention.test.ts b/packages/rpc/src/retention.test.ts
 new file mode 100644
+index 0000000..d18294e
 --- /dev/null
 +++ b/packages/rpc/src/retention.test.ts
-@@ -0,0 +1,128 @@
-+import { mkdtempSync, rmSync } from "node:fs";
+@@ -0,0 +1,282 @@
++import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
 +import { tmpdir } from "node:os";
 +import { join } from "node:path";
 +import { randomBytes } from "node:crypto";
-+import { Database, initializeSchema, SQLiteWorkspaceProvider, collectContentStep, retentionHead, beginRetention, pinBlobs, failOperation, readOperation, readFetchCursor, type RetentionScope } from "@cloudflare/dofs";
++import { Database, initializeSchema, SQLiteWorkspaceProvider, collectContentStep, retentionHead, beginRetention, pinBlobs, failOperation, readOperation, readFetchCursor, readPushCursor, type RetentionScope } from "@cloudflare/dofs";
 +import { NodeSQLiteStorage } from "@cloudflare/dofs/node";
 +import { describe, expect, it } from "vitest";
 +import { createSyncServer } from "./server.js";
@@ -4955,6 +5290,117 @@ new file mode 100644
 +}
 +
 +describe("content retention across interrupted synchronization", () => {
++  it.each([
++    { direction: "push", size: 1024 },
++    { direction: "pull", size: 1024 },
++    { direction: "push", size: 64 * 1024 },
++    { direction: "pull", size: 64 * 1024 },
++  ] as const)("transfers $size-byte files in bounded $direction batches without one RPC per 16 files", async ({ direction, size }) => {
++    const local = peer(":memory:");
++    const remote = peer(":memory:");
++    const source = direction === "push" ? local : remote;
++    const receiver = direction === "push" ? remote : local;
++    const base = "/computer/.pnpm-store/v10/files/62";
++    const files = Array.from({ length: 256 }, (_, i) => {
++      const bytes = Buffer.alloc(size, i % 251);
++      bytes.writeUInt32LE(i, 0);
++      return { path: `${base}/file-${i}`, bytes };
++    });
++    const batches: { objects: number; bytes: number }[] = [];
++    const observe = (stream: ReadableStream<{ hash: Uint8Array; bytes: Uint8Array }>) => {
++      const batch = { objects: 0, bytes: 0 };
++      batches.push(batch);
++      return stream.pipeThrough(new TransformStream({ transform(value, controller) {
++        batch.objects++;
++        batch.bytes += value.bytes.byteLength;
++        controller.enqueue(value);
++      } }));
++    };
++    const rpc = new Proxy(remote.rpc, { get(target, prop) {
++      if (prop === "pushObjects") return (stream: Parameters<typeof target.pushObjects>[0], scope: Parameters<typeof target.pushObjects>[1]) =>
++        target.pushObjects(observe(stream), scope);
++      if (prop === "fetchObjects") return (hashes: Parameters<typeof target.fetchObjects>[0], scope: Parameters<typeof target.fetchObjects>[1]) =>
++        observe(target.fetchObjects(hashes, scope));
++      const value = Reflect.get(target, prop);
++      return typeof value === "function" ? value.bind(target) : value;
++    } });
++    try {
++      source.fs.mkdirSync(base, { recursive: true });
++      for (const file of files) source.fs.writeFileSync(file.path, file.bytes);
++      let complete = false;
++      for (let step = 0; step < 80; step++) {
++        const result = await (direction === "push" ? pushBlocks : pullBlocks)(local.db, rpc)[Symbol.asyncIterator]().next();
++        complete = result.done || result.value.complete;
++        if (complete) break;
++      }
++      expect(complete).toBe(true);
++      expect(batches.length).toBeGreaterThan(0);
++      // Tiny files fit one object-count page; the 64 KiB case crosses the
++      // byte limit. Neither should re-materialise a page for every 16 files.
++      expect(batches.length).toBeLessThanOrEqual(3);
++      expect(batches.every(batch => batch.objects <= 256 && batch.bytes <= 8 * 1024 * 1024)).toBe(true);
++      for (const file of files) expect(Buffer.from(receiver.fs.readFileSync(file.path)).equals(file.bytes)).toBe(true);
++    } finally { local.storage.close(); remote.storage.close(); }
++  });
++
++  it.each(["push", "pull"] as const)("retains %s cleanup ownership across a lost close ACK and disk reopen", async direction => {
++    const directory = mkdtempSync(join(tmpdir(), "computer-retirement-"));
++    let local = peer(join(directory, "local.sqlite"));
++    let remote = peer(join(directory, "remote.sqlite"));
++    let generation = "";
++    let closeLost = false;
++    const value = (i: number) => `retained-${i}`;
++    try {
++      const source = direction === "push" ? local : remote;
++      for (let i = 0; i < 300; i++) source.fs.writeFileSync(`/file-${i}`, value(i));
++      const entry = await source.rpc.readEntry("/file-0");
++      if (entry?.kind !== "file") throw new Error("expected file");
++      const rpc = new Proxy(remote.rpc, { get(target, prop) {
++        if (prop === "discardChanges") return async (...args: Parameters<NonNullable<typeof target.discardChanges>>) => {
++          await target.discardChanges!(...args);
++          generation = args[0];
++          closeLost = true;
++          throw new Error("lost committed close ACK");
++        };
++        const result = Reflect.get(target, prop);
++        return typeof result === "function" ? result.bind(target) : result;
++      } });
++      const drive = (target = rpc) => (direction === "push" ? pushBlocks : pullBlocks)(local.db, target)[Symbol.asyncIterator]().next();
++      for (let step = 0; step < 80 && !closeLost; step++) {
++        try { await drive(); }
++        catch (error) { expect((error as Error).message).toBe("lost committed close ACK"); }
++      }
++      expect(closeLost).toBe(true);
++      expect(readOperation(local.db, "default", direction)?.generation).toBe(generation);
++      expect(remote.db.scalar("SELECT count(*) FROM _vfs_retired_change_plans WHERE generation=?", generation)).toBe(1);
++      expect(remote.db.scalar<number>("SELECT count(*) FROM _vfs_blob_pins WHERE owner=?", generation)).toBeGreaterThan(128);
++      const cursor = direction === "push" ? readPushCursor(local.db) : readFetchCursor(local.db);
++
++      local.storage.close(); remote.storage.close();
++      local = peer(join(directory, "local.sqlite")); remote = peer(join(directory, "remote.sqlite"));
++      const head = await remote.rpc.retentionHead!(`default:${direction}`);
++      const oldScope = { epoch: head.epoch, slot: `default:${direction}`, generation };
++      await expect(remote.rpc.pushObjects(new ReadableStream({ start(controller) {
++        controller.enqueue({ hash: entry.chunks[0]!.hash, bytes: Buffer.from(value(0)) });
++        controller.close();
++      } }), oldScope)).rejects.toThrow("ESYNC_STALE_RETENTION");
++      const resumed = await drive(remote.rpc);
++      expect(resumed.value?.complete).toBe(true);
++      expect(direction === "push" ? readPushCursor(local.db) : readFetchCursor(local.db)).toEqual(cursor);
++      expect(local.db.scalar("SELECT count(*) FROM _vfs_retired_change_plans WHERE generation=?", generation)).toBe(1);
++      expect(local.db.scalar<number>("SELECT count(*) FROM _vfs_blob_pins WHERE owner=?", generation)).toBeGreaterThan(128);
++      // Input readiness precedes physical cleanup, which remains durable on
++      // both peers and completes through their existing maintenance owner.
++      sweep(local.db); sweep(remote.db);
++      for (const current of [local, remote]) {
++        expect(current.db.scalar("SELECT count(*) FROM _vfs_blob_pins WHERE owner=?", generation)).toBe(0);
++        expect(current.db.scalar("SELECT count(*) FROM _vfs_retired_change_plans WHERE generation=?", generation)).toBe(0);
++      }
++      const receiver = direction === "push" ? remote : local;
++      for (let i = 0; i < 300; i++) expect(receiver.fs.readFileSync(`/file-${i}`, "utf8")).toBe(value(i));
++    } finally { local.storage.close(); remote.storage.close(); rmSync(directory, { recursive: true, force: true }); }
++  });
++
 +  it("rejects a late object response after the same generation is terminal", async () => {
 +    const local = peer(":memory:");
 +    const remote = peer(":memory:");
@@ -4990,18 +5436,50 @@ new file mode 100644
 +    const dir = mkdtempSync(join(tmpdir(), "computer-retention-"));
 +    let local = peer(join(dir, "local.sqlite"));
 +    let remote = peer(join(dir, "remote.sqlite"));
-+    const bytes = randomBytes(20 * 512 * 1024 + 17);
++    const bytes = randomBytes(40 * 512 * 1024 + 17);
 +    try {
 +      const source = direction === "push" ? local : remote;
 +      source.fs.writeFileSync("/answer.bin", bytes);
-+      const drive = () => (direction === "push" ? pushBlocks : pullBlocks)(local.db, remote.rpc)[Symbol.asyncIterator]();
++      // Replay the same persisted starting facts through a new generation and
++      // clock. These are isolated copies, not a reset of the active transfer.
++      local.storage.close(); remote.storage.close();
++      for (const name of ["local", "remote"]) copyFileSync(join(dir, `${name}.sqlite`), join(dir, `${name}-replay.sqlite`));
++      local = peer(join(dir, "local.sqlite")); remote = peer(join(dir, "remote.sqlite"));
++      const drive = (now: () => number = () => 1000) =>
++        (direction === "push" ? pushBlocks : pullBlocks)(local.db, remote.rpc, { now })[Symbol.asyncIterator]();
 +      let staged = false;
++      let firstCheckpoint: string | undefined;
++      let firstGeneration: string | undefined;
++      let firstCursor: { rev: number; path: string | null } | undefined;
 +      for (let i = 0; i < 30; i++) {
 +        const step = await drive().next();
 +        sweep(local.db); sweep(remote.db);
-+        if (step.value?.phase === "transferring") { staged = true; break; }
++        if (step.value?.phase === "transferring") {
++          expect(step.value.entries).toBe(0);
++          firstCheckpoint = step.value.checkpoint;
++          firstGeneration = step.value.generation;
++          firstCursor = step.value.cursor;
++          expect(firstCheckpoint).toMatch(/^[a-f0-9]{64}$/);
++          staged = true;
++          break;
++        }
 +      }
 +      expect(staged).toBe(true);
++      local.storage.close(); remote.storage.close();
++      local = peer(join(dir, "local-replay.sqlite")); remote = peer(join(dir, "remote-replay.sqlite"));
++      let replayed = false;
++      for (let i = 0; i < 30; i++) {
++        const step = await drive(() => 9000).next();
++        if (step.value?.phase === "transferring") {
++          expect(step.value.entries).toBe(0);
++          expect(step.value.cursor).toEqual(firstCursor);
++          expect(step.value.generation).not.toBe(firstGeneration);
++          expect(step.value.checkpoint).toBe(firstCheckpoint);
++          replayed = true;
++          break;
++        }
++      }
++      expect(replayed).toBe(true);
 +      local.storage.close(); remote.storage.close();
 +      local = peer(join(dir, "local.sqlite")); remote = peer(join(dir, "remote.sqlite"));
 +      sweep(local.db); sweep(remote.db);
@@ -5017,15 +5495,26 @@ new file mode 100644
 +        return typeof value === "function" ? value.bind(target) : value;
 +      } });
 +      let done = false;
++      let advancedWithoutEntryACK = false;
 +      for (let i = 0; i < 80; i++) {
-+        try { const step = await drive().next(); done = step.done || step.value.complete; }
++        try {
++          const step = await drive().next();
++          done = step.done || step.value.complete;
++          if (step.value?.phase === "transferring" && step.value.entries === 0) {
++            expect(step.value.cursor).toEqual(firstCursor);
++            expect(step.value.checkpoint).toMatch(/^[a-f0-9]{64}$/);
++            expect(step.value.checkpoint).not.toBe(firstCheckpoint);
++            advancedWithoutEntryACK = true;
++          }
++        }
 +        catch (error) { if ((error as Error).message !== "lost committed ACK") throw error; }
 +        sweep(local.db); sweep(remote.db);
 +        if (done) break;
 +      }
 +      expect(done).toBe(true);
++      expect(advancedWithoutEntryACK).toBe(true);
 +      const receiver = direction === "push" ? remote : local;
-+      expect(Buffer.from(receiver.fs.readFileSync("/answer.bin"))).toEqual(bytes);
++      expect(Buffer.from(receiver.fs.readFileSync("/answer.bin")).equals(bytes)).toBe(true);
 +      expect(local.db.scalar("SELECT count(*) FROM _vfs_blob_pins")).toBe(0);
 +      expect(remote.db.scalar("SELECT count(*) FROM _vfs_blob_pins")).toBe(0);
 +    } finally { local.storage.close(); remote.storage.close(); rmSync(dir, { recursive: true, force: true }); }
@@ -5062,6 +5551,7 @@ new file mode 100644
 +  });
 +});
 diff --git a/packages/rpc/src/server.ts b/packages/rpc/src/server.ts
+index 4e675c3..c39be2a 100644
 --- a/packages/rpc/src/server.ts
 +++ b/packages/rpc/src/server.ts
 @@ -6,9 +6,11 @@
@@ -5073,11 +5563,11 @@ diff --git a/packages/rpc/src/server.ts b/packages/rpc/src/server.ts
    type ChangeEntry,
 -  coalesceChanges,
 +  prepareChangePlan,
-+  discardChangePlanStep,
++  retirePins,
    compareChangeCursors,
    currentRev,
    type Database,
-@@ -89,6 +91,13 @@
+@@ -89,6 +91,13 @@ export interface ServerOptions {
  }
  
  class SyncRPCServer extends RpcTarget implements SyncRPC {
@@ -5091,7 +5581,7 @@ diff --git a/packages/rpc/src/server.ts b/packages/rpc/src/server.ts
    constructor(
      private readonly db: Database,
      private readonly options: Required<Pick<ServerOptions, "ignore">> &
-@@ -103,6 +112,7 @@
+@@ -103,6 +112,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
    }
  
    async push(input: {
@@ -5099,7 +5589,7 @@ diff --git a/packages/rpc/src/server.ts b/packages/rpc/src/server.ts
      senderRev: number;
      senderCursor?: ChangeCursor;
      changes: ReadableStream<ChangeEntry>;
-@@ -139,13 +149,17 @@
+@@ -139,13 +149,17 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
      // assembly step) rolls back every prior entry. Without this
      // wrapper the receiver could be left with a subset of the
      // pushed entries committed.
@@ -5120,7 +5610,7 @@ diff --git a/packages/rpc/src/server.ts b/packages/rpc/src/server.ts
      });
      // Settle the receiver's shim, and let the outcome decide what the
      // caller is told — which differs by who the caller is.
-@@ -157,8 +171,7 @@
+@@ -157,8 +171,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
      // acknowledgment, and only then spawns: acknowledging an
      // unflushed block would retire it and let the command read stale
      // disk. Replay is safe because these entries carry
@@ -5130,7 +5620,7 @@ diff --git a/packages/rpc/src/server.ts b/packages/rpc/src/server.ts
      //
      // An external push is not replayable. It has no durable cursor to
      // rewind, and its entries are applied as source: "local", which
-@@ -183,12 +196,34 @@
+@@ -183,12 +196,41 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
      }
      return {
        rev: currentRev(this.db),
@@ -5153,10 +5643,17 @@ diff --git a/packages/rpc/src/server.ts b/packages/rpc/src/server.ts
 +  }
 +  async discardChanges(generation: string, scope?: RetentionScope) {
 +    if (!scope || scope.generation !== generation) throw new Error("ESYNC_RETENTION_REQUIRED");
-+    const head = retentionHead(this.db, scope.slot);
-+    if (head.epoch !== scope.epoch || head.generation !== generation) throw new Error("ESYNC_STALE_RETENTION");
-+    this.db.run("UPDATE _vfs_retention_slots SET closed=1 WHERE slot=?", scope.slot);
-+    return discardChangePlanStep(this.db, generation);
++    return this.db.transactionSync(() => {
++      const head = retentionHead(this.db, scope.slot);
++      if (head.epoch !== scope.epoch || head.generation !== generation) throw new Error("ESYNC_STALE_RETENTION");
++      // Closing the generation rejects late writes. Retire its temporary
++      // references in the same transaction before acknowledging the handoff.
++      // Physical reclamation belongs to the existing bounded maintenance loop;
++      // acknowledged input must not wait for every garbage page to be deleted.
++      this.db.run("UPDATE _vfs_retention_slots SET closed=1 WHERE slot=?", scope.slot);
++      retirePins(this.db, generation);
++      return true;
++    });
 +  }
 +
    async fetchChanges(input: {
@@ -5166,7 +5663,7 @@ diff --git a/packages/rpc/src/server.ts b/packages/rpc/src/server.ts
      after?: ChangeCursor;
      through?: ChangeCursor;
      ignore?: string[];
-@@ -196,7 +231,11 @@
+@@ -196,7 +238,11 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
      currentCursor: ChangeCursor;
      appliedPushCursor: ChangeCursor;
      stream: ReadableStream<ChangeEntry>;
@@ -5178,7 +5675,7 @@ diff --git a/packages/rpc/src/server.ts b/packages/rpc/src/server.ts
      if (this.options.beforeFetch !== undefined) {
        try {
          await this.options.beforeFetch();
-@@ -215,13 +254,30 @@
+@@ -215,13 +261,30 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
        input.through !== undefined && compareChangeCursors(input.through, snapshotCursor) < 0
          ? input.through
          : snapshotCursor;
@@ -5216,7 +5713,7 @@ diff --git a/packages/rpc/src/server.ts b/packages/rpc/src/server.ts
    }
  
    // Bulk pull. Plans one block against the same cursor window
-@@ -241,40 +297,7 @@
+@@ -241,40 +304,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
      appliedPushCursor: ChangeCursor;
      stream: ReadableStream<Uint8Array>;
    }> {
@@ -5258,7 +5755,7 @@ diff --git a/packages/rpc/src/server.ts b/packages/rpc/src/server.ts
    }
  
    // Bulk push receiver. Decode fully before applying anything: a pack
-@@ -294,12 +317,19 @@
+@@ -294,12 +324,19 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
      for (const [key, bytes] of decoded.objects) {
        stageBlob(this.db, hexToBytes(key), bytes, Date.now());
      }
@@ -5281,7 +5778,7 @@ diff --git a/packages/rpc/src/server.ts b/packages/rpc/src/server.ts
      // Mirror push(): settle the receiver's shim so a subsequent
      // shell.exec sees the just-pushed files on disk. Pack mode is
      // selected for exactly the large windows a pre-command push
-@@ -312,7 +342,7 @@
+@@ -312,7 +349,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
      // lets the command read stale disk. Failing the RPC leaves the
      // sender cursor where it was and the next push replans the same
      // block; the entries are already committed here, and applying
@@ -5290,7 +5787,7 @@ diff --git a/packages/rpc/src/server.ts b/packages/rpc/src/server.ts
      if (this.options.afterApply !== undefined && decoded.entries.length > 0) {
        await this.options.afterApply();
      }
-@@ -328,6 +358,7 @@
+@@ -328,6 +365,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
    }
  
    async watermarks(input: { settle?: boolean } = {}): Promise<{
@@ -5298,7 +5795,7 @@ diff --git a/packages/rpc/src/server.ts b/packages/rpc/src/server.ts
      currentRev: number;
      pushRev: number;
      fetchCursor: ChangeCursor;
-@@ -340,29 +371,45 @@
+@@ -340,29 +378,45 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
        await this.options.beforeFetch();
      }
      return {
@@ -5311,10 +5808,6 @@ diff --git a/packages/rpc/src/server.ts b/packages/rpc/src/server.ts
  
 -  async hasObjects(hashes: Uint8Array[]): Promise<Uint8Array[]> {
 -    return hasObjects(this.db, hashes);
--  }
--
--  fetchObjects(hashes: Uint8Array[]): ReadableStream<{ hash: Uint8Array; bytes: Uint8Array }> {
--    return iterableToReadableStream(fetchObjects(this.db, hashes));
 +  async hasObjects(hashes: Uint8Array[], scope?: RetentionScope): Promise<Uint8Array[]> {
 +    return this.db.transactionSync(() => {
 +      const owner = this.requireRetention(scope);
@@ -5322,8 +5815,10 @@ diff --git a/packages/rpc/src/server.ts b/packages/rpc/src/server.ts
 +      pinBlobs(this.db, owner.generation, present);
 +      return present;
 +    });
-+  }
-+
+   }
+ 
+-  fetchObjects(hashes: Uint8Array[]): ReadableStream<{ hash: Uint8Array; bytes: Uint8Array }> {
+-    return iterableToReadableStream(fetchObjects(this.db, hashes));
 +  fetchObjects(hashes: Uint8Array[], scope?: RetentionScope): ReadableStream<{ hash: Uint8Array; bytes: Uint8Array }> {
 +    const owner = this.requireRetention(scope);
 +    pinBlobs(this.db, owner.generation, hashes);
@@ -5351,7 +5846,7 @@ diff --git a/packages/rpc/src/server.ts b/packages/rpc/src/server.ts
        }
      } finally {
        reader.releaseLock();
-@@ -370,7 +417,10 @@
+@@ -370,7 +424,10 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
    }
  }
  class ShellRPCServer extends RpcTarget implements ShellRPC {
@@ -5363,7 +5858,7 @@ diff --git a/packages/rpc/src/server.ts b/packages/rpc/src/server.ts
      super();
      trackStub(this);
    }
-@@ -380,6 +430,7 @@
+@@ -380,6 +437,7 @@ class ShellRPCServer extends RpcTarget implements ShellRPC {
    }
  
    async exec(input: {
@@ -5371,7 +5866,7 @@ diff --git a/packages/rpc/src/server.ts b/packages/rpc/src/server.ts
      source: string;
      cwd?: string;
      id?: string;
-@@ -391,6 +442,17 @@
+@@ -391,6 +449,17 @@ class ShellRPCServer extends RpcTarget implements ShellRPC {
      id: string;
      events: ReadableStream<ExecEvent>;
    }> {
@@ -5389,7 +5884,7 @@ diff --git a/packages/rpc/src/server.ts b/packages/rpc/src/server.ts
      return this.runner.exec(input.source, {
        id: input.id,
        cwd: input.cwd,
-@@ -472,7 +534,7 @@
+@@ -472,7 +541,7 @@ export function createWorkspaceServer(
    runner: RunnerLike,
    options: ServerOptions = {},
  ): WorkspaceRPC {
@@ -5399,9 +5894,10 @@ diff --git a/packages/rpc/src/server.ts b/packages/rpc/src/server.ts
  
  // Attach a capnweb RPC session to a WHATWG-shaped WebSocket. The
 diff --git a/packages/rpc/src/sync-driver.test.ts b/packages/rpc/src/sync-driver.test.ts
+index 850e4af..dd595b7 100644
 --- a/packages/rpc/src/sync-driver.test.ts
 +++ b/packages/rpc/src/sync-driver.test.ts
-@@ -88,6 +88,34 @@
+@@ -88,6 +88,34 @@ function trackFetchDisposal(
  }
  
  describe("sync driver — pullOnce", () => {
@@ -5436,7 +5932,7 @@ diff --git a/packages/rpc/src/sync-driver.test.ts b/packages/rpc/src/sync-driver
    it("pulls a single entry from upstream", async () => {
      const a = makePeer();
      const b = makePeer();
-@@ -1145,11 +1173,15 @@
+@@ -1145,11 +1173,15 @@ describe("sync driver — streaming pullOnce", () => {
        providerA.writeFileSync("/before-stale-path.txt", "pushed");
        const pushedRev = currentRev(a.db);
  
@@ -5454,6 +5950,7 @@ diff --git a/packages/rpc/src/sync-driver.test.ts b/packages/rpc/src/sync-driver
        providerA.writeFileSync("/after-push.txt", "pulled later");
        const pulled = await pullOnce(b.db, a.rpc);
 diff --git a/packages/rpc/src/sync-driver.ts b/packages/rpc/src/sync-driver.ts
+index 076e783..f29b9fd 100644
 --- a/packages/rpc/src/sync-driver.ts
 +++ b/packages/rpc/src/sync-driver.ts
 @@ -11,13 +11,15 @@
@@ -5473,14 +5970,21 @@ diff --git a/packages/rpc/src/sync-driver.ts b/packages/rpc/src/sync-driver.ts
    readFetchCursor,
    readPushCursor,
    readWatermark,
-@@ -244,17 +246,16 @@
+@@ -244,17 +246,16 @@ async function pullOnceImpl(
            }
          }
  
 -        const batchResult = await applyChanges(db, batch, new Map(), {
 -          source: "upstream",
 -          backend,
-+        const last = batch[batch.length - 1];
+-        });
+         const last = batch[batch.length - 1];
+-        // Cursor advancement intentionally happens after applyChanges()
+-        // and is not atomic with it. A crash between apply and this
+-        // checkpoint re-fetches the batch; upstream apply is idempotent
+-        // because alreadyApplied() drops entries whose live state
+-        // already matches.
+-        writeFetchCursorIfAhead(db, { rev: last.rev, path: last.path }, backend);
 +        const batchResult = db.transactionSync(() => {
 +          const result = applyChangesSync(db, batch, new Map(), {
 +            source: "upstream",
@@ -5489,18 +5993,11 @@ diff --git a/packages/rpc/src/sync-driver.ts b/packages/rpc/src/sync-driver.ts
 +          });
 +          writeFetchCursorIfAhead(db, { rev: last.rev, path: last.path }, backend);
 +          return result;
-         });
--        const last = batch[batch.length - 1];
--        // Cursor advancement intentionally happens after applyChanges()
--        // and is not atomic with it. A crash between apply and this
--        // checkpoint re-fetches the batch; upstream apply is idempotent
--        // because alreadyApplied() drops entries whose live state
--        // already matches.
--        writeFetchCursorIfAhead(db, { rev: last.rev, path: last.path }, backend);
++        });
          totalApplied += batchResult.applied;
          if (batchResult.skipped.length > 0) {
            for (const s of batchResult.skipped) totalSkipped.push(s);
-@@ -340,6 +341,56 @@
+@@ -340,6 +341,56 @@ export async function reconcileWatermarks(
    backend?: string,
  ): Promise<{ fetchRevReset: boolean; pushRevReset: boolean }> {
    const remoteWatermarks = await remote.watermarks();
@@ -5557,7 +6054,7 @@ diff --git a/packages/rpc/src/sync-driver.ts b/packages/rpc/src/sync-driver.ts
    const localFetchCursor = readFetchCursor(db, backend);
    const localPushCursor = readPushCursor(db, backend);
  
-@@ -349,8 +400,23 @@
+@@ -349,8 +400,23 @@ export async function reconcileWatermarks(
    // If the remote's currentRev is below our fetch cursor rev, the remote's
    // log is shorter than we remember — it lost state since we last
    // pulled. Re-baseline from 0.
@@ -5583,7 +6080,7 @@ diff --git a/packages/rpc/src/sync-driver.ts b/packages/rpc/src/sync-driver.ts
      fetchRevReset = true;
    }
  
-@@ -368,7 +434,19 @@
+@@ -368,7 +434,19 @@ export async function reconcileWatermarks(
    // make every reconcile spuriously reset pushRev and force a full
    // re-push on every reconnect.
    if (compareChangeCursors(remoteWatermarks.fetchCursor, localPushCursor) < 0) {
@@ -5605,6 +6102,7 @@ diff --git a/packages/rpc/src/sync-driver.ts b/packages/rpc/src/sync-driver.ts
    }
  
 diff --git a/packages/rpc/src/sync-engine-push.test.ts b/packages/rpc/src/sync-engine-push.test.ts
+index a30a99e..52695ff 100644
 --- a/packages/rpc/src/sync-engine-push.test.ts
 +++ b/packages/rpc/src/sync-engine-push.test.ts
 @@ -1,6 +1,7 @@
@@ -5615,7 +6113,7 @@ diff --git a/packages/rpc/src/sync-engine-push.test.ts b/packages/rpc/src/sync-e
    readOperation,
    readPushCursor,
    SQLiteWorkspaceProvider,
-@@ -64,15 +65,15 @@
+@@ -64,15 +65,15 @@ async function drainPush(
  
  describe("restartable push engine", () => {
    describe("completion contract", () => {
@@ -5635,7 +6133,7 @@ diff --git a/packages/rpc/src/sync-engine-push.test.ts b/packages/rpc/src/sync-e
        } finally {
          local.close();
          remote.close();
-@@ -114,6 +115,69 @@
+@@ -114,6 +115,69 @@ describe("restartable push engine", () => {
    });
  
    describe("acknowledgment is the only cursor authority", () => {
@@ -5706,9 +6204,10 @@ diff --git a/packages/rpc/src/sync-engine-push.test.ts b/packages/rpc/src/sync-e
        const local = makePeer();
        const remote = makePeer();
 diff --git a/packages/rpc/src/sync-engine.test.ts b/packages/rpc/src/sync-engine.test.ts
+index 9c5381f..0ccd228 100644
 --- a/packages/rpc/src/sync-engine.test.ts
 +++ b/packages/rpc/src/sync-engine.test.ts
-@@ -5,6 +5,8 @@
+@@ -5,6 +5,8 @@ import {
    readFetchCursor,
    readOperation,
    readSkips,
@@ -5717,7 +6216,7 @@ diff --git a/packages/rpc/src/sync-engine.test.ts b/packages/rpc/src/sync-engine
    SQLiteWorkspaceProvider,
  } from "@cloudflare/dofs";
  import { SQLiteTestStorage } from "@cloudflare/dofs/testing";
-@@ -68,15 +70,47 @@
+@@ -68,15 +70,47 @@ async function drainPull(
  
  describe("restartable pull engine", () => {
    describe("completion contract", () => {
@@ -5769,7 +6268,7 @@ diff --git a/packages/rpc/src/sync-engine.test.ts b/packages/rpc/src/sync-engine
        } finally {
          local.close();
          remote.close();
-@@ -514,7 +548,7 @@
+@@ -514,7 +548,7 @@ describe("restartable pull engine", () => {
  
          expect(seen[seen.length - 1].complete).toBe(true);
          expect(seen.some((p) => p.skipped > 0)).toBe(true);
@@ -5779,20 +6278,27 @@ diff --git a/packages/rpc/src/sync-engine.test.ts b/packages/rpc/src/sync-engine
          expect(skips[0].reason).toBe("read-only");
        } finally {
 diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
+index b26db85..bab5466 100644
 --- a/packages/rpc/src/sync-engine.ts
 +++ b/packages/rpc/src/sync-engine.ts
-@@ -17,7 +17,9 @@
+@@ -16,10 +16,15 @@
+ // This module owns no timer and no alarm. The application decides when
  // to call `next()`, from a request, an alarm, a queue, or a Workflow.
  
++import { createHash } from "node:crypto";
  import {
 -  applyChanges,
 +  applyChangesSync,
 +  pinBlobs,
 +  type RetentionScope,
    assertAppliedPushCursor,
++  type BlockObject,
    type BlockProfile,
++  CHUNK_SIZE,
    type ChangeCursor,
-@@ -27,24 +29,21 @@
+   type ChangeEntry,
+   clearBlockMarker,
+@@ -27,24 +32,20 @@ import {
    completeOperation,
    currentRev,
    type Database,
@@ -5807,7 +6313,6 @@ diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
 -  PACK_THRESHOLD_ENTRIES,
    planBlock,
 +  prepareChangePlan,
-+  discardChangePlanStep,
    pruneSkips,
    readFetchCursor,
    readOperation,
@@ -5820,7 +6325,7 @@ diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
    shrinkBlockProfile,
    stageBlob,
    writeFetchCursor,
-@@ -52,8 +51,10 @@
+@@ -52,8 +53,11 @@ import {
  } from "@cloudflare/dofs";
  
  import type { SyncRPC } from "./interface.js";
@@ -5828,61 +6333,64 @@ diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
  
  export interface SyncProgress {
 +  readonly phase?: "preparing" | "transferring" | "cleaning";
++  readonly checkpoint?: string;
    readonly operationId: string;
    readonly generation: string;
    readonly backend: string;
-@@ -103,135 +104,53 @@
+@@ -69,6 +73,15 @@ export interface SyncProgress {
+   readonly complete: boolean;
+ }
+ 
++// A read projection of accepted work, never a dispatch or replay authority.
++// Including the cursor's private path supports many entries at one revision;
++// hashing keeps that path out of public command receipts.
++function transferCheckpoint(cursor: ChangeCursor, stagedObjects = 0): string {
++  return createHash("sha256")
++    .update(JSON.stringify({ cursor, stagedObjects }))
++    .digest("hex");
++}
++
+ export interface PullBlocksOptions {
+   readonly backend?: string;
+   readonly ignore?: string[];
+@@ -87,6 +100,24 @@ export interface PullBlocksOptions {
+ export type PushBlocksOptions = PullBlocksOptions;
+ 
+ const DEFAULT_BACKEND = "default";
++const OBJECT_BATCH_LIMIT = 256;
++const OBJECT_BATCH_BYTES = 8 * 1024 * 1024;
++
++// Keep the existing large-file byte bound while allowing a page of small
++// objects to share a round trip. Payloads are still streamed one at a time.
++function objectBatch(objects: readonly BlockObject[]): BlockObject[] {
++  const batch: BlockObject[] = [];
++  let bytes = 0;
++  for (const object of objects) {
++    if (batch.length === OBJECT_BATCH_LIMIT) break;
++    if (!Number.isSafeInteger(object.size) || object.size < 0 || object.size > CHUNK_SIZE)
++      throw new Error("sync: object size exceeds the filesystem chunk contract; cursor unchanged");
++    if (bytes + object.size > OBJECT_BATCH_BYTES) break;
++    batch.push(object);
++    bytes += object.size;
++  }
++  return batch;
++}
+ 
+ function hex(bytes: Uint8Array): string {
+   let s = "";
+@@ -103,135 +134,53 @@ function entryCursor(entry: ChangeEntry): ChangeCursor {
    return { rev: entry.rev, path: entry.path };
  }
  
-+function assertActiveOperation(db: Database, backend: string, direction: "pull" | "push", generation: string): void {
-+  const active = readOperation(db, backend, direction);
-+  if (active?.generation !== generation || active.status !== "pending") {
-+    throw new Error("sync: operation replaced or no longer pending");
-+  }
-+}
-+
-+function operationProfile(db: Database, backend: string, direction: SyncDirection, generation: string, current: BlockProfile, ceiling?: BlockProfile): BlockProfile {
-+  if (!ceiling) return current;
-+  const profile = { maxEntries: Math.min(current.maxEntries, ceiling.maxEntries), maxBytes: Math.min(current.maxBytes, ceiling.maxBytes) };
-+  db.run("UPDATE _vfs_sync_operations SET internal_max_entries=?,internal_max_bytes=? WHERE backend=? AND direction=? AND generation=?",
-+    profile.maxEntries, profile.maxBytes, backend, direction, generation);
-+  return profile;
-+}
-+
-+async function retainTransfer(db: Database, remote: SyncRPC, backend: string,
-+  direction: "pull" | "push", generation: string, cleaning = false): Promise<RetentionScope> {
-+  if (!remote.retentionHead || !remote.beginRetention) throw new Error("sync: peer requires content retention support");
-+  const slot = `${backend}:${direction}`;
-+  const head = await remote.retentionHead(slot);
-+  assertActiveOperation(db, backend, direction, generation);
-+  const scope = { epoch: head.epoch, slot, generation };
-+  if (!cleaning || head.generation !== generation) await remote.beginRetention(scope, head.generation);
-+  assertActiveOperation(db, backend, direction, generation);
-+  return scope;
-+}
-+
- // In-isolate join table. Two iterators in the same isolate driving the
- // same backend and direction share one in-flight block instead of
- // duplicating the transfer. This is an optimization only: after an
- // eviction the map is empty and the durable operation row is what
- // makes the next iterator correct.
+-// In-isolate join table. Two iterators in the same isolate driving the
+-// same backend and direction share one in-flight block instead of
+-// duplicating the transfer. This is an optimization only: after an
+-// eviction the map is empty and the durable operation row is what
+-// makes the next iterator correct.
 -const active = new Map<string, { generation: string; settled: Promise<SyncProgress> }>();
-+const activeByDatabase = new WeakMap<
-+  Database,
-+  Map<string, { generation: string; settled: Promise<SyncProgress> }>
-+>();
-+function activeFor(db: Database) {
-+  let entries = activeByDatabase.get(db);
-+  if (!entries) {
-+    entries = new Map();
-+    activeByDatabase.set(db, entries);
-+  }
-+  return entries;
-+}
- 
- function activeKey(backend: string, direction: SyncDirection): string {
-   return `${backend}:${direction}`;
+-
+-function activeKey(backend: string, direction: SyncDirection): string {
+-  return `${backend}:${direction}`;
 -}
 -
 -// Ask the source how big the window is, and pick a transport.
@@ -5925,9 +6433,13 @@ diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
 -  } finally {
 -    await probe.stream.cancel().catch(() => {});
 -    maybeDispose(probe);
--  }
--}
--
++function assertActiveOperation(db: Database, backend: string, direction: "pull" | "push", generation: string): void {
++  const active = readOperation(db, backend, direction);
++  if (active?.generation !== generation || active.status !== "pending") {
++    throw new Error("sync: operation replaced or no longer pending");
+   }
+ }
+ 
 -// Transfer and apply one pack block.
 -//
 -// The pack is decoded and validated before anything is applied. A pack
@@ -5968,7 +6480,14 @@ diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
 -  } finally {
 -    maybeDispose(response);
 -  }
--
++function operationProfile(db: Database, backend: string, direction: SyncDirection, generation: string, current: BlockProfile, ceiling?: BlockProfile): BlockProfile {
++  if (!ceiling) return current;
++  const profile = { maxEntries: Math.min(current.maxEntries, ceiling.maxEntries), maxBytes: Math.min(current.maxBytes, ceiling.maxBytes) };
++  db.run("UPDATE _vfs_sync_operations SET internal_max_entries=?,internal_max_bytes=? WHERE backend=? AND direction=? AND generation=?",
++    profile.maxEntries, profile.maxBytes, backend, direction, generation);
++  return profile;
++}
+ 
 -  // Stage every object the pack carried before applying metadata, so a
 -  // crash between the two replays as a no-op rather than as a file with
 -  // missing bytes.
@@ -5977,14 +6496,39 @@ diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
 -    stageBlob(db, hexToBytes(key), payload, now());
 -    bytes += payload.byteLength;
 -  }
--
++async function retainTransfer(db: Database, remote: SyncRPC, backend: string,
++  direction: "pull" | "push", generation: string, cleaning = false): Promise<RetentionScope> {
++  if (!remote.retentionHead || !remote.beginRetention) throw new Error("sync: peer requires content retention support");
++  const slot = `${backend}:${direction}`;
++  const head = await remote.retentionHead(slot);
++  assertActiveOperation(db, backend, direction, generation);
++  const scope = { epoch: head.epoch, slot, generation };
++  if (!cleaning || head.generation !== generation) await remote.beginRetention(scope, head.generation);
++  assertActiveOperation(db, backend, direction, generation);
++  return scope;
++}
+ 
 -  const result = await applyChanges(db, decoded.entries, new Map(), {
 -    source: "upstream",
 -    backend,
 -  });
 -  for (const skip of result.skipped) {
 -    recordSkip(db, backend, "pull", operation.generation, skip.path, skip.reason, now());
--  }
++// In-isolate join table. Two iterators in the same isolate driving the
++// same backend and direction share one in-flight block instead of
++// duplicating the transfer. This is an optimization only: after an
++// eviction the map is empty and the durable operation row is what
++// makes the next iterator correct.
++const activeByDatabase = new WeakMap<
++  Database,
++  Map<string, { generation: string; settled: Promise<SyncProgress> }>
++>();
++function activeFor(db: Database) {
++  let entries = activeByDatabase.get(db);
++  if (!entries) {
++    entries = new Map();
++    activeByDatabase.set(db, entries);
+   }
 -
 -  // The footer's block cursor is authoritative: it is what the encoder
 -  // committed to, and it already accounts for a drained window jumping
@@ -5995,18 +6539,21 @@ diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
 -    skipped: result.skipped.length,
 -    cursor: decoded.footer.blockCursor,
 -  };
--}
--
++  return entries;
+ }
+ 
 -function hexToBytes(hex: string): Uint8Array {
 -  const out = new Uint8Array(hex.length / 2);
 -  for (let i = 0; i < out.length; i++) {
 -    out[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
 -  }
 -  return out;
++function activeKey(backend: string, direction: SyncDirection): string {
++  return `${backend}:${direction}`;
  }
  
  // Drive one pull block to completion, or throw.
-@@ -248,12 +167,22 @@
+@@ -248,12 +197,22 @@ async function runPullBlock(
    options: PullBlocksOptions,
  ): Promise<SyncProgress> {
    const now = options.now ?? (() => Date.now());
@@ -6030,7 +6577,7 @@ diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
  
    if (operation.status === "capturing") {
      // Two-phase target capture: the remote settle call cannot join a
-@@ -271,17 +200,9 @@
+@@ -271,17 +230,9 @@ async function runPullBlock(
      // mode is then fixed: a block's encoding must not depend on when it
      // was requested, or a replayed block would not match the original.
      const target = { rev: settled.currentRev, path: null };
@@ -6051,7 +6598,7 @@ diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
      const promoted = fixTarget(db, backend, "pull", operation.generation, { target, mode }, now());
      if (!promoted) {
        // Another caller replaced this operation while the target was in
-@@ -311,7 +232,16 @@
+@@ -311,7 +262,15 @@ async function runPullBlock(
    // report completion so a one-step alarm can stop without a second
    // next() call.
    if (compareChangeCursors(after, target) >= 0) {
@@ -6059,27 +6606,26 @@ diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
 +    if (typeof remote.discardChanges !== "function")
 +      throw new Error("sync: peer requires bounded planning support");
 +    const scope = await retainTransfer(db, remote, backend, "pull", operation.generation, true);
-+    const remoteCleaned = await remote.discardChanges(operation.generation, scope);
++    const remoteClosed = await remote.discardChanges(operation.generation, scope);
 +    assertActiveOperation(db, backend, "pull", operation.generation);
-+    const cleaned =
-+      discardChangePlanStep(db, operation.generation) &&
-+      remoteCleaned &&
-+      pruneSkips(db, backend, "pull", operation.generation);
-+    if (cleaned) completeOperation(db, backend, "pull", operation.generation);
++    // Both peers retain their cleanup obligation before input readiness is
++    // returned. The existing maintenance owner reclaims retired pages later.
++    const complete = remoteClosed && pruneSkips(db, backend, "pull", operation.generation);
++    if (complete) completeOperation(db, backend, "pull", operation.generation);
      return {
        operationId: operation.generation,
        generation: operation.generation,
-@@ -323,7 +253,8 @@
+@@ -323,7 +282,8 @@ async function runPullBlock(
        entries: 0,
        bytes: 0,
        skipped: 0,
 -      complete: true,
 +      phase: "cleaning",
-+      complete: cleaned,
++      complete,
      };
    }
  
-@@ -336,48 +267,41 @@
+@@ -336,48 +296,42 @@ async function runPullBlock(
        ? (shrinkBlockProfile(db, backend, "pull", operation.generation, now()) ?? profile)
        : profile;
  
@@ -6126,6 +6672,7 @@ diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
 -      cursor: packed.cursor,
 +      mode: operation.mode ?? "entries",
 +      phase: "preparing",
++      checkpoint: preparation.checkpoint,
 +      cursor: after,
        targetCursor: target,
 -      entries: packed.entries,
@@ -6151,7 +6698,7 @@ diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
      after,
      through: target,
      ...(options.ignore === undefined ? {} : { ignore: options.ignore }),
-@@ -400,7 +324,12 @@
+@@ -400,7 +354,12 @@ async function runPullBlock(
        }
        // The first entry is always accepted so one oversized file still
        // makes progress; later entries stop the block at the bound.
@@ -6165,46 +6712,65 @@ diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
      }
    } finally {
      reader.releaseLock();
-@@ -429,11 +358,15 @@
+@@ -414,7 +373,7 @@ async function runPullBlock(
+   //    content-addressed store. Bytes are staged into the blob store
+   //    rather than handed to applyChanges in memory, so a block's peak
+   //    memory stays bounded by its metadata.
+-  const wanted: Uint8Array[] = [];
++  const wanted: BlockObject[] = [];
+   const seen = new Set<string>();
+   for (const entry of entries) {
+     if (entry.kind !== "file") continue;
+@@ -422,62 +381,98 @@ async function runPullBlock(
+       const key = hex(chunk.hash);
+       if (seen.has(key)) continue;
+       seen.add(key);
+-      wanted.push(chunk.hash);
++      wanted.push(chunk);
+     }
+   }
+   if (wanted.length > 0) {
      // Ask for only what the source actually holds and we actually
      // lack. Requesting a hash the source has dropped would throw
      // EUNKNOWN_HASH and fail an otherwise applicable block.
 -    const remoteHas = new Set((await remote.hasObjects(wanted)).map(hex));
 -    const localHas = new Set(hasObjects(db, wanted).map(hex));
-+    const remoteHas = new Set((await remote.hasObjects(wanted, scope)).map(hex));
+-    const missing = wanted.filter((h) => remoteHas.has(hex(h)) && !localHas.has(hex(h)));
++    const hashes = wanted.map(object => object.hash);
++    const remoteHas = new Set((await remote.hasObjects(hashes, scope)).map(hex));
 +    const localHas = db.transactionSync(() => {
 +      assertActiveOperation(db, backend, "pull", operation.generation);
-+      pinBlobs(db, operation.generation, wanted);
-+      return new Set(hasObjects(db, wanted).map(hex));
++      pinBlobs(db, operation.generation, hashes);
++      return new Set(hasObjects(db, hashes).map(hex));
 +    });
-     const missing = wanted.filter((h) => remoteHas.has(hex(h)) && !localHas.has(hex(h)));
++    const missing = wanted.filter(object => remoteHas.has(hex(object.hash)) && !localHas.has(hex(object.hash)));
      if (missing.length > 0) {
 -      const objectStream = await remote.fetchObjects(missing);
-+      const objectStream = await remote.fetchObjects(missing.slice(0, 16), scope);
++      const batch = objectBatch(missing);
++      const expected = new Map(batch.map(object => [hex(object.hash), object.size]));
++      const objectStream = await remote.fetchObjects(batch.map(object => object.hash), scope);
        const objectReader = objectStream.getReader();
        try {
          while (true) {
-@@ -441,43 +374,66 @@
+           const { value, done } = await objectReader.read();
            if (done) break;
++          const key = hex(value.hash);
++          if (value.bytes.byteLength !== expected.get(key))
++            throw new Error("sync: object response does not match the bounded batch; cursor unchanged");
++          expected.delete(key);
            // Stage before apply so a crash between the two replays as a
            // no-op rather than as a missing object.
 -          stageBlob(db, value.hash, value.bytes, now());
 +          assertActiveOperation(db, backend, "pull", operation.generation);
 +          stageBlob(db, value.hash, value.bytes, now(), operation.generation);
          }
++        if (expected.size > 0) throw new Error("sync: object response ended before the bounded batch; cursor unchanged");
        } finally {
          objectReader.releaseLock();
++        await objectStream.cancel().catch(() => {});
          maybeDispose(objectStream);
        }
--    }
--  }
--
--  // 4. Apply metadata before the cursor moves. Chunk bytes come from
--  //    the staged blob store, not from an in-memory map.
--  const result = await applyChanges(db, entries, new Map(), {
--    source: "upstream",
--    backend,
-+      if (missing.length > 16) {
++      if (missing.length > batch.length) {
 +        assertActiveOperation(db, backend, "pull", operation.generation);
 +        clearBlockMarker(db, backend, "pull", operation.generation, now());
 +        return {
@@ -6214,6 +6780,7 @@ diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
 +          direction: "pull",
 +          mode: "entries",
 +          phase: "transferring",
++          checkpoint: transferCheckpoint(after, localHas.size + batch.length),
 +          cursor: after,
 +          targetCursor: target,
 +          entries: 0,
@@ -6222,12 +6789,32 @@ diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
 +          complete: false,
 +        };
 +      }
-+    }
-+  }
-+
+     }
+   }
+ 
+-  // 4. Apply metadata before the cursor moves. Chunk bytes come from
+-  //    the staged blob store, not from an in-memory map.
+-  const result = await applyChanges(db, entries, new Map(), {
+-    source: "upstream",
+-    backend,
+-  });
+-
+-  // 5. Record refusals durably. The cursor advances past them so the
+-  //    operation cannot stall on an entry that can never apply, which
+-  //    would otherwise loop forever on the same rejection.
+-  for (const skip of result.skipped) {
+-    recordSkip(db, backend, "pull", operation.generation, skip.path, skip.reason, now());
+-  }
+-
+-  // 6. Advance the cursor. Drained means every change through the
+-  //    target was offered, so the cursor jumps to the target itself.
 +  // Commit metadata, deliberate refusals and source progress together.
 +  // Chunk bytes were staged before this synchronous transaction.
-+  const lastEntry = entries[entries.length - 1];
+   const lastEntry = entries[entries.length - 1];
+-  const cursor = drained ? target : lastEntry === undefined ? after : entryCursor(lastEntry);
+-  if (compareChangeCursors(cursor, after) > 0) {
+-    writeFetchCursor(db, cursor, backend);
+-  }
 +  const cursor =
 +    fetchResult.blockCursor ??
 +    (drained ? target : lastEntry === undefined ? after : entryCursor(lastEntry));
@@ -6250,36 +6837,30 @@ diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
 +      writeFetchCursor(db, cursor, backend);
 +    }
 +    return applied;
-   });
--
--  // 5. Record refusals durably. The cursor advances past them so the
--  //    operation cannot stall on an entry that can never apply, which
--  //    would otherwise loop forever on the same rejection.
--  for (const skip of result.skipped) {
--    recordSkip(db, backend, "pull", operation.generation, skip.path, skip.reason, now());
--  }
--
--  // 6. Advance the cursor. Drained means every change through the
--  //    target was offered, so the cursor jumps to the target itself.
--  const lastEntry = entries[entries.length - 1];
--  const cursor = drained ? target : lastEntry === undefined ? after : entryCursor(lastEntry);
--  if (compareChangeCursors(cursor, after) > 0) {
--    writeFetchCursor(db, cursor, backend);
--  }
++  });
    clearBlockMarker(db, backend, "pull", operation.generation, now());
  
-   // 7. Complete when the cursor reaches the fixed target.
+-  // 7. Complete when the cursor reaches the fixed target.
 -  const complete = compareChangeCursors(cursor, target) >= 0;
 -  if (complete) {
 -    completeOperation(db, backend, "pull", operation.generation);
 -  }
-+  // Leave the operation until its projection has been reclaimed, one page
-+  // per subsequent call. The ACK is already durable and is not rolled back.
++  // 7. The next bounded step closes the generation and hands cleanup to
++  // maintenance. This page's ACK is already durable and is not rolled back.
 +  const complete = false;
  
    return {
      operationId: operation.generation,
-@@ -503,6 +459,7 @@
+@@ -485,6 +480,8 @@ async function runPullBlock(
+     backend,
+     direction: "pull",
+     mode: operation.mode ?? "entries",
++    phase: "transferring",
++    checkpoint: transferCheckpoint(cursor),
+     cursor,
+     targetCursor: target,
+     entries: entries.length,
+@@ -503,6 +500,7 @@ async function nextPullBlock(
    options: PullBlocksOptions,
  ): Promise<SyncProgress> {
    const key = activeKey(backend, "pull");
@@ -6287,7 +6868,7 @@ diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
    const existing = active.get(key);
    if (existing !== undefined) {
      // Someone else in this isolate is already driving a block for this
-@@ -543,29 +500,27 @@
+@@ -543,29 +541,27 @@ async function runPushBlock(
    options: PushBlocksOptions,
  ): Promise<SyncProgress> {
    const now = options.now ?? (() => Date.now());
@@ -6330,7 +6911,7 @@ diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
      const promoted = fixTarget(db, backend, "push", operation.generation, { target, mode }, now());
      const current = readOperation(db, backend, "push");
      if (current === undefined) {
-@@ -585,7 +540,16 @@
+@@ -585,7 +581,13 @@ async function runPushBlock(
    const after = readPushCursor(db, backend);
  
    if (compareChangeCursors(after, target) >= 0) {
@@ -6338,67 +6919,41 @@ diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
 +    if (typeof remote.discardChanges !== "function")
 +      throw new Error("sync: peer requires bounded planning support");
 +    const scope = await retainTransfer(db, remote, backend, "push", operation.generation, true);
-+    const remoteCleaned = await remote.discardChanges(operation.generation, scope);
++    const remoteClosed = await remote.discardChanges(operation.generation, scope);
 +    assertActiveOperation(db, backend, "push", operation.generation);
-+    const cleaned =
-+      discardChangePlanStep(db, operation.generation) &&
-+      remoteCleaned &&
-+      pruneSkips(db, backend, "push", operation.generation);
-+    if (cleaned) completeOperation(db, backend, "push", operation.generation);
++    const complete = remoteClosed && pruneSkips(db, backend, "push", operation.generation);
++    if (complete) completeOperation(db, backend, "push", operation.generation);
      return {
        operationId: operation.generation,
        generation: operation.generation,
-@@ -597,7 +561,8 @@
+@@ -597,7 +599,8 @@ async function runPushBlock(
        entries: 0,
        bytes: 0,
        skipped: 0,
 -      complete: true,
 +      phase: "cleaning",
-+      complete: cleaned,
++      complete,
      };
    }
  
-@@ -606,68 +571,53 @@
+@@ -606,68 +609,55 @@ async function runPushBlock(
        ? (shrinkBlockProfile(db, backend, "push", operation.generation, now()) ?? profile)
        : profile;
  
+-  markBlockStarted(db, backend, "push", operation.generation, after, now());
+-
+-  // Plan the block locally. planBlock owns the ordered-prefix and
+-  // byte-bound rules, so push and pull select blocks identically.
+-  const planned = await planBlock(db, {
 +  const scope = await retainTransfer(db, remote, backend, "push", operation.generation);
 +  const preparation = prepareChangePlan(db, {
 +    generation: operation.generation,
-+    after,
-+    through: target,
-+    ...(options.ignore === undefined ? {} : { ignore: options.ignore }),
-+  });
-+  if (!preparation.ready)
-+    return {
-+      operationId: operation.generation,
-+      generation: operation.generation,
-+      backend,
-+      direction: "push",
-+      mode: operation.mode ?? "entries",
-+      phase: "preparing",
-+      cursor: after,
-+      targetCursor: target,
-+      entries: 0,
-+      bytes: 0,
-+      skipped: 0,
-+      complete: false,
-+    };
-   markBlockStarted(db, backend, "push", operation.generation, after, now());
- 
-   // Plan the block locally. planBlock owns the ordered-prefix and
-   // byte-bound rules, so push and pull select blocks identically.
-   const planned = await planBlock(db, {
-+    assertActive: () => {
-+      assertActiveOperation(db, backend, "push", operation.generation);
-+    },
-+    generation: operation.generation,
      after,
      through: target,
-     profile: effectiveProfile,
+-    profile: effectiveProfile,
      ...(options.ignore === undefined ? {} : { ignore: options.ignore }),
    });
- 
+-
 -  // Pack mode: one compressed stream carries the entries and every
 -  // object they reference, so no hasObjects probe or separate
 -  // pushObjects call is needed.
@@ -6426,21 +6981,43 @@ diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
 -    if (packComplete) {
 -      completeOperation(db, backend, "push", operation.generation);
 -    }
--    return {
--      operationId: operation.generation,
--      generation: operation.generation,
--      backend,
--      direction: "push",
++  if (!preparation.ready)
+     return {
+       operationId: operation.generation,
+       generation: operation.generation,
+       backend,
+       direction: "push",
 -      mode: "pack",
 -      cursor: planned.cursor,
--      targetCursor: target,
++      mode: operation.mode ?? "entries",
++      phase: "preparing",
++      checkpoint: preparation.checkpoint,
++      cursor: after,
+       targetCursor: target,
 -      entries: planned.entries.length,
 -      bytes: planned.objectBytes,
--      skipped: 0,
++      entries: 0,
++      bytes: 0,
+       skipped: 0,
 -      complete: packComplete,
--    };
++      complete: false,
+     };
 -  }
--
++  markBlockStarted(db, backend, "push", operation.generation, after, now());
++
++  // Plan the block locally. planBlock owns the ordered-prefix and
++  // byte-bound rules, so push and pull select blocks identically.
++  const planned = await planBlock(db, {
++    assertActive: () => {
++      assertActiveOperation(db, backend, "push", operation.generation);
++    },
++    generation: operation.generation,
++    after,
++    through: target,
++    profile: effectiveProfile,
++    ...(options.ignore === undefined ? {} : { ignore: options.ignore }),
++  });
+ 
    // Ship the bytes the receiver lacks before the entries that
    // reference them, so the receiver never sees an entry whose content
    // it cannot resolve.
@@ -6452,18 +7029,27 @@ diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
      const missing = planned.objects.filter((o) => !have.has(hex(o.hash)));
      if (missing.length > 0) {
 -      const pending = [...missing];
-+      const pending = missing.slice(0, 16);
++      const batch = objectBatch(missing);
++      const pending = [...batch];
        const objectStream = new ReadableStream<{ hash: Uint8Array; bytes: Uint8Array }>({
          pull(controller) {
            const next = pending.shift();
-@@ -687,7 +637,25 @@
+@@ -683,11 +673,34 @@ async function runPushBlock(
+             controller.error(new Error(`sync: missing local blob ${hex(next.hash)}`));
+             return;
+           }
++          if (row.bytes.byteLength !== next.size) {
++            controller.error(new Error("sync: local object size does not match the bounded batch; cursor unchanged"));
++            return;
++          }
+           bytes += row.bytes.byteLength;
            controller.enqueue({ hash: next.hash, bytes: row.bytes });
          },
        });
 -      await remote.pushObjects(objectStream);
 +      await remote.pushObjects(objectStream, scope);
 +      assertActiveOperation(db, backend, "push", operation.generation);
-+      if (missing.length > 16) {
++      if (missing.length > batch.length) {
 +        clearBlockMarker(db, backend, "push", operation.generation, now());
 +        return {
 +          operationId: operation.generation,
@@ -6472,6 +7058,7 @@ diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
 +          direction: "push",
 +          mode: "entries",
 +          phase: "transferring",
++          checkpoint: transferCheckpoint(after, have.size + batch.length),
 +          cursor: after,
 +          targetCursor: target,
 +          entries: 0,
@@ -6483,7 +7070,7 @@ diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
      }
    }
  
-@@ -699,6 +667,7 @@
+@@ -699,6 +712,7 @@ async function runPushBlock(
    });
  
    const response = await remote.push({
@@ -6491,7 +7078,7 @@ diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
      senderRev: target.rev,
      senderCursor: planned.cursor,
      changes: entryStream,
-@@ -708,16 +677,14 @@
+@@ -708,16 +722,14 @@ async function runPushBlock(
    // refuses an acknowledgment that does not cover what we sent, so a
    // confused peer cannot advance us past unapplied entries.
    assertAppliedPushCursor(response.appliedPushCursor, planned.cursor);
@@ -6510,7 +7097,16 @@ diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
  
    return {
      operationId: operation.generation,
-@@ -741,6 +708,7 @@
+@@ -725,6 +737,8 @@ async function runPushBlock(
+     backend,
+     direction: "push",
+     mode: operation.mode ?? "entries",
++    phase: "transferring",
++    checkpoint: transferCheckpoint(planned.cursor),
+     cursor: planned.cursor,
+     targetCursor: target,
+     entries: planned.entries.length,
+@@ -741,6 +755,7 @@ async function nextPushBlock(
    options: PushBlocksOptions,
  ): Promise<SyncProgress> {
    const key = activeKey(backend, "push");
@@ -6518,7 +7114,7 @@ diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
    const existing = active.get(key);
    if (existing !== undefined) {
      try {
-@@ -806,21 +774,14 @@
+@@ -806,21 +821,14 @@ export async function captureSyncTarget(
    options: { now?: () => number } = {},
  ): Promise<ChangeCursor | undefined> {
    const now = options.now ?? (() => Date.now());

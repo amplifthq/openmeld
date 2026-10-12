@@ -8,11 +8,13 @@ import { WorkspaceSyncPendingError } from "@cloudflare/computer";
 import {
   type CloudComputerCommandCollection,
   type CloudComputerCommandPhase,
+  type CloudComputerCommandPreparation,
   type CloudComputerCommandReference,
   type CloudComputerInvocationState,
   type CloudComputerOperation,
   cloudComputerCleanupResultSchema,
   cloudComputerCommandErrorSchema,
+  cloudComputerCommandPreparationSchema,
   cloudComputerCommandSchema,
   cloudComputerInvocationStateSchema,
 } from "@openmeld/schemas";
@@ -98,6 +100,7 @@ const COLLECTION_BATCH_SIZE = 16;
 const COLLECTION_INTERVAL_MS = 15_000;
 const SYNC_CONTINUATION_INTERVAL_MS = 250;
 const COLLECTION_ATTEMPT_BUDGET = 8;
+const COLLECTION_POLL_WAIT_SECONDS = 1;
 const COMMAND_RECORD_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const COMMAND_ACTIONS = ["start", "poll", "stop", "list"] as const;
 const COMMAND_DIAGNOSTIC_PHASES = [
@@ -145,6 +148,7 @@ type Command = {
     request: StartCommand;
     workingDirectory: string;
     requiresDirectory?: boolean;
+    progress?: CloudComputerCommandPreparation;
   };
   recordExpiresAtMs?: number;
   launchRequestedAt?: number;
@@ -229,6 +233,7 @@ function synchronizedObservation(
 async function withCommandWorkspace<T>(input: {
   access: AgentComputerWorkspaceAccess;
   budgetMs: number;
+  observationDeadlineMs?: number;
   phase: "launch" | "poll" | "stop" | "cleanup";
   signal?: AbortSignal;
   operation: (workspace: WorkspaceClient, signal: AbortSignal) => Promise<T>;
@@ -238,18 +243,25 @@ async function withCommandWorkspace<T>(input: {
   const signal = input.signal
     ? AbortSignal.any([input.signal, timeout.signal])
     : timeout.signal;
-  const timer = setTimeout(
-    () =>
-      timeout.abort(
-        Object.assign(
-          new Error(
-            "Computer command observation timed out. The command may still be running. Poll the same key; do not start it again."
-          ),
-          { code: "computer.observation_timeout", phase }
-        )
-      ),
-    input.budgetMs
+  const abortObservation = () =>
+    timeout.abort(
+      Object.assign(
+        new Error(
+          "Computer command observation timed out. The command may still be running. Poll the same key; do not start it again."
+        ),
+        { code: "computer.observation_timeout", phase }
+      )
+    );
+  const budgetMs = Math.min(
+    input.budgetMs,
+    input.observationDeadlineMs === undefined
+      ? input.budgetMs
+      : Math.max(0, input.observationDeadlineMs - Date.now())
   );
+  const timer = setTimeout(abortObservation, budgetMs);
+  if (budgetMs === 0) {
+    abortObservation();
+  }
   let abort: (() => void) | undefined;
   const cancelled = new Promise<never>((_, reject) => {
     abort = () => reject(signal.reason);
@@ -260,6 +272,9 @@ async function withCommandWorkspace<T>(input: {
     }
   });
   try {
+    if (signal.aborted) {
+      return await cancelled;
+    }
     return await Promise.race([
       input.access.withWorkspace(async (workspace) => {
         signal.throwIfAborted();
@@ -363,10 +378,15 @@ function commandReceiptAddress(command: Command, invocationId: string) {
       backend: commandBackend(command),
     } satisfies CloudComputerCommandReference,
     phase,
+    ...(command.preparation?.progress
+      ? { preparation: command.preparation.progress }
+      : {}),
     ...(command.collection
       ? {
           collection: {
-            ...command.collection,
+            // Installed CLI readers strictly validate these two fields.
+            // Active observation belongs to the internal invocation view.
+            unconfirmedAttempts: command.collection.unconfirmedAttempts,
             nextAttemptAtMs: isCollectableCommand(command)
               ? command.collection.nextAttemptAtMs
               : null,
@@ -597,7 +617,9 @@ function stopPreparedCommand(command: Command): Command {
 function resumeCommandPreparation(
   command: Command,
   claimed: boolean,
-  stopped: boolean
+  stopped: boolean,
+  progress: WorkspaceSyncPendingError["progress"],
+  expectedProgress: CloudComputerCommandPreparation | undefined
 ): Command {
   // A concurrent preparation page cannot release another call's dispatch
   // claim. The owning call needs explicit SDK proof that it did not dispatch.
@@ -608,14 +630,61 @@ function resumeCommandPreparation(
   ) {
     return command;
   }
+  const previous = command.preparation.progress;
+  // An older SDK result must not overwrite a newer persisted page after its
+  // compare-and-set retries. Opaque checkpoints cannot order those results.
+  const candidateProgress =
+    JSON.stringify(previous) === JSON.stringify(expectedProgress)
+      ? projectCommandPreparation(progress)
+      : previous;
+  // A synthetic pre-dispatch refusal has no sync checkpoint. Keep the last
+  // confirmed observation so it cannot turn the next generation into a false
+  // "first checkpoint" that repeatedly resets the observation budget.
+  const nextProgress =
+    previous?.checkpoint !== undefined &&
+    candidateProgress?.generation === "" &&
+    candidateProgress.checkpoint === undefined
+      ? previous
+      : candidateProgress;
+  const confirmedProgress =
+    nextProgress?.checkpoint !== undefined &&
+    (previous?.checkpoint === undefined ||
+      (previous.generation === nextProgress.generation &&
+        previous.checkpoint !== nextProgress.checkpoint));
   return stopPreparedCommand({
     ...command,
+    preparation: {
+      ...command.preparation,
+      progress: nextProgress,
+    },
     launchRequestedAt: undefined,
     ...(stopped ? { stopRequested: true } : {}),
-    collection: {
-      unconfirmedAttempts: 0,
-      nextAttemptAtMs: Date.now() + COLLECTION_INTERVAL_MS,
-    },
+    collection: confirmedProgress
+      ? {
+          unconfirmedAttempts: 0,
+          nextAttemptAtMs: Date.now() + SYNC_CONTINUATION_INTERVAL_MS,
+        }
+      : (command.collection ?? {
+          unconfirmedAttempts: 0,
+          nextAttemptAtMs: Date.now() + COLLECTION_INTERVAL_MS,
+        }),
+  });
+}
+
+function projectCommandPreparation(
+  progress: WorkspaceSyncPendingError["progress"]
+): CloudComputerCommandPreparation {
+  return cloudComputerCommandPreparationSchema.parse({
+    ...(progress.phase === undefined ? {} : { phase: progress.phase }),
+    generation: progress.generation,
+    ...("checkpoint" in progress && typeof progress.checkpoint === "string"
+      ? { checkpoint: progress.checkpoint }
+      : {}),
+    cursorRevision: progress.cursor.rev,
+    targetRevision: progress.targetCursor.rev,
+    entries: progress.entries,
+    bytes: progress.bytes,
+    skipped: progress.skipped,
   });
 }
 
@@ -704,13 +773,19 @@ function hasUnconfirmedAdmission(command: Command) {
   return Boolean(command.preparation && !hasLaunchEvidence(command));
 }
 
+function commandPollBudgetMs(command: Command, waitSeconds: number): number {
+  return (
+    OBSERVATION_SETUP_BUDGET_MS +
+    (command.preparation && command.launchRequestedAt === undefined
+      ? 0
+      : waitSeconds * 1000)
+  );
+}
+
 function collectionAfterObservation(current: Command): Command {
-  if (
-    current.launchRequestedAt !== undefined &&
-    hasUnconfirmedAdmission(current)
-  ) {
-    // A missing native record during admission is still an unconfirmed check.
-    // Do not reset its bounded retry budget.
+  if (hasUnconfirmedAdmission(current)) {
+    // Acceptance and a repeated preparation checkpoint are not native
+    // liveness. The preparation owner alone confirms SDK progress.
     return current;
   }
   if (!(isCollectableCommand(current) || current.collection)) {
@@ -763,6 +838,8 @@ async function sendPendingComputerStop(input: {
 }
 
 export function createComputerCommandTool(input: {
+  /** Internal collector deadline; never a user cancellation signal. */
+  observationDeadlineMs?: number;
   context: Pick<RemoteAgentCallbackContext, "submissionId">;
   storage: RemoteAgentStorage;
   workspaceAccess: AgentComputerWorkspaceAccess;
@@ -1275,7 +1352,9 @@ export function createComputerCommandTool(input: {
           resumeCommandPreparation(
             current,
             claimed,
-            userSignal?.aborted === true
+            userSignal?.aborted === true,
+            error.progress,
+            command.preparation?.progress
           )
       );
       await input.scheduleCollection?.();
@@ -1447,14 +1526,17 @@ export function createComputerCommandTool(input: {
       if (request.action === "list") {
         return [
           ...(await input.storage.list<Command>({ prefix })).values(),
-        ].map((command) => ({
-          key: command.key,
-          id: command.id,
-          createdAt: command.createdAt,
-          ...(request.includeReceiptDetails
-            ? commandReceiptAddress(command, input.context.submissionId)
-            : {}),
-        }));
+        ].map((command) => {
+          // Older list readers use a strict object, unlike poll/start results.
+          const { preparation: _preparation, ...receipt } =
+            commandReceiptAddress(command, input.context.submissionId);
+          return {
+            key: command.key,
+            id: command.id,
+            createdAt: command.createdAt,
+            ...(request.includeReceiptDetails ? receipt : {}),
+          };
+        });
       }
       if (request.action === "start") {
         return await startCommand(request, options?.signal);
@@ -1483,7 +1565,8 @@ export function createComputerCommandTool(input: {
       if (preparation && command.launchRequestedAt === undefined) {
         return await withCommandWorkspace({
           access: input.workspaceAccess,
-          budgetMs: OBSERVATION_SETUP_BUDGET_MS,
+          budgetMs: commandPollBudgetMs(command, request.waitSeconds ?? 20),
+          observationDeadlineMs: input.observationDeadlineMs,
           phase: "launch",
           signal: options?.signal,
           operation: (workspace, observationSignal) =>
@@ -1498,8 +1581,8 @@ export function createComputerCommandTool(input: {
       }
       return await withCommandWorkspace({
         access: input.workspaceAccess,
-        budgetMs:
-          OBSERVATION_SETUP_BUDGET_MS + (request.waitSeconds ?? 20) * 1000,
+        budgetMs: commandPollBudgetMs(command, request.waitSeconds ?? 20),
+        observationDeadlineMs: input.observationDeadlineMs,
         phase: "poll",
         signal: options?.signal,
         operation: async (workspace, observationSignal) => {
@@ -1638,6 +1721,26 @@ function completedResult(result: CommandResult, after?: number): CommandResult {
     : result;
 }
 
+async function clearCollectionObservation(
+  storage: RemoteAgentStorage,
+  key: string,
+  attempt: Command
+): Promise<void> {
+  await updateCommand(storage, key, (current) => {
+    // A newer successful observation owns its own schedule. An older finally
+    // can only release the exact reservation that it made before I/O.
+    if (
+      !current.collection ||
+      JSON.stringify(current.collection) !== JSON.stringify(attempt.collection)
+    ) {
+      return current;
+    }
+    const { observationExpiresAtMs: _expires, ...collection } =
+      current.collection;
+    return { ...current, collection };
+  });
+}
+
 /** Resume preparation or collect retained results under the original command ID.
  * An uncertain execution is inspected, never dispatched again. */
 export async function collectComputerCommands(input: {
@@ -1649,11 +1752,7 @@ export async function collectComputerCommands(input: {
     ...(await input.storage.listDueCommands(Date.now(), COLLECTION_BATCH_SIZE)),
   ];
   const collect = async () => {
-    for (;;) {
-      const next = remaining.shift();
-      if (!next) {
-        return;
-      }
+    for (let next = remaining.shift(); next; next = remaining.shift()) {
       const [key, command] = next;
       if (!isCollectableCommand(command)) {
         continue;
@@ -1669,6 +1768,8 @@ export async function collectComputerCommands(input: {
         reserved = false;
         if (
           !isCollectableCommand(current) ||
+          (current.collection?.unconfirmedAttempts ?? 0) >=
+            COLLECTION_ATTEMPT_BUDGET ||
           current.collection?.nextAttemptAtMs === null ||
           (current.collection?.nextAttemptAtMs ?? 0) > Date.now() ||
           current.observedAt !== command.observedAt ||
@@ -1685,6 +1786,9 @@ export async function collectComputerCommands(input: {
           ...current,
           collection: {
             unconfirmedAttempts,
+            observationExpiresAtMs:
+              Date.now() +
+              commandPollBudgetMs(current, COLLECTION_POLL_WAIT_SECONDS),
             nextAttemptAtMs:
               unconfirmedAttempts >= COLLECTION_ATTEMPT_BUDGET
                 ? null
@@ -1704,10 +1808,11 @@ export async function collectComputerCommands(input: {
             input.assertCanStart?.(submissionId) ?? Promise.resolve(),
           workingDirectory: "/computer",
           reportErrors: false,
+          observationDeadlineMs: attempt.collection?.observationExpiresAtMs,
         }).execute({
           action: "poll",
           key: command.key,
-          waitSeconds: 1,
+          waitSeconds: COLLECTION_POLL_WAIT_SECONDS,
         });
       } catch {
         // The attempt was already counted. A late failure makes no scheduling
@@ -1727,6 +1832,8 @@ export async function collectComputerCommands(input: {
             unconfirmedAttempts: current.collection.unconfirmedAttempts,
           });
         }
+      } finally {
+        await clearCollectionObservation(input.storage, key, attempt);
       }
     }
   };
@@ -1947,8 +2054,10 @@ export async function readStoredComputerInvocation(input: {
   ];
   const commands = receipts.map((command) => {
     const observation = command.observation ?? command.terminalResult;
+    const receipt = commandReceiptAddress(command, input.context.submissionId);
+    const observationExpiresAtMs = command.collection?.observationExpiresAtMs;
     return {
-      ...commandReceiptAddress(command, input.context.submissionId),
+      ...receipt,
       after: observation?.after ?? 0,
       exitCode: observation?.exitCode ?? null,
       outputRetained:
@@ -1967,9 +2076,16 @@ export async function readStoredComputerInvocation(input: {
         !!command.lossReported ||
         !!command.lostDuringCleanup ||
         !!observation?.syncError,
-      collection:
-        commandReceiptAddress(command, input.context.submissionId).collection ??
-        null,
+      collection: receipt.collection
+        ? {
+            ...receipt.collection,
+            ...(isCollectableCommand(command) &&
+            observationExpiresAtMs !== undefined &&
+            observationExpiresAtMs > Date.now()
+              ? { observationExpiresAtMs }
+              : {}),
+          }
+        : null,
     };
   });
   return cloudComputerInvocationStateSchema.parse({
