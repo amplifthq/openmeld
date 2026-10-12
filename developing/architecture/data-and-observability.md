@@ -108,6 +108,10 @@ This survives a Worker termination before catch/finally. Bounded backoff pauses
 later automatic checks after eight unconfirmed attempts; a normal caught error
 does not count its already reserved attempt again;
 this is a scheduling budget, never process failure, loss or replay authority.
+The model finish observer reads this owner without acquiring Stop authority.
+A slow or rejected read is unknown observation state, not a stopped or failed
+command. Only explicit cancellation, a confirmed execution failure or an existing
+cleanup obligation can request Stop during final publication or reconciliation.
 Fresh accepted native evidence resets that count. Successful manual inspection
 or Stop resumes the same receipt. Paused receipts remain available under the
 existing retention policy, and an older failed read cannot overwrite a newer

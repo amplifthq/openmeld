@@ -123,8 +123,19 @@ function computerFixture(preparationSteps = 2, deferNativeAck = false) {
   const releaseNativeAck = Promise.withResolvers<void>();
   const preparationIds: string[] = [];
   const killExec = vi.fn(async () => undefined);
+  let exited = false;
   const workspace = {
-    executionSync: vi.fn(async () => undefined),
+    executionSync: vi.fn(
+      async (): ReturnType<WorkspaceClient["executionSync"]> =>
+        exited
+          ? {
+              epoch: "generation-1",
+              rev: 100,
+              skipped: [],
+              skippedTruncated: false,
+            }
+          : undefined
+    ),
     maintainSync: vi.fn(async () => false),
     runtime: {
       execWithAdmission: async (
@@ -157,6 +168,7 @@ function computerFixture(preparationSteps = 2, deferNativeAck = false) {
         if (deferNativeAck) {
           await releaseNativeAck.promise;
         }
+        exited = true;
         return handle;
       },
       getExec: async (id: string) => completedHandle(id),
@@ -189,6 +201,7 @@ function computerFixture(preparationSteps = 2, deferNativeAck = false) {
 
 it.each([
   "completed",
+  "completed_read_failure",
   "completed_before_second_finish",
   "completed_eighth_observation",
   "failed_eighth_observation",
@@ -199,7 +212,9 @@ it.each([
   const completed = ending.startsWith("completed");
   const eighthObservation = ending.endsWith("eighth_observation");
   const blocked = eighthObservation && !completed;
-  const f = computerFixture(eighthObservation ? 1 : 2, ending === "completed");
+  const deferredAck =
+    ending === "completed" || ending === "completed_read_failure";
+  const f = computerFixture(eighthObservation ? 1 : 2, deferredAck);
   const storage = new InMemoryDurableObjectStorage();
   let current = context("original");
   const bind = async () => {
@@ -283,6 +298,14 @@ it.each([
           }
           if (reads === 3) {
             waitingObservation.resolve();
+            if (ending === "completed_read_failure") {
+              throw Object.assign(
+                new Error("Computer observation reply lost"),
+                {
+                  code: "ECONNRESET",
+                }
+              );
+            }
           }
           if (
             state.commands.some((command) => command.phase === "launch_unknown")
@@ -407,7 +430,7 @@ it.each([
   try {
     const receipt = await agent.dispatch("Complete the original work.");
     const read = agent.read(receipt).catch((error: unknown) => error);
-    await secondFinish.promise;
+    expect(await Promise.race([secondFinish.promise, read])).toBeUndefined();
     if (eighthObservation) {
       expect(
         await Promise.race([
@@ -443,14 +466,19 @@ it.each([
       }
     } else if (ending !== "completed_before_second_finish") {
       await collectDueComputerCommands(f);
-      await progressObserved.promise;
+      expect(
+        await Promise.race([
+          progressObserved.promise.then(() => "progress"),
+          cleanupRequested.promise.then(() => "stopped"),
+        ])
+      ).toBe("progress");
       expect(modelCalls).toBe(2);
       expect(requestCleanup).not.toHaveBeenCalled();
       expect(f.killExec).not.toHaveBeenCalled();
       expect(f.nativeStarts).not.toHaveBeenCalled();
     }
     if (completed) {
-      if (ending === "completed") {
+      if (deferredAck) {
         collecting = collectDueComputerCommands(f);
         await f.nativeAdmitted.promise;
         expect(
@@ -534,4 +562,4 @@ it.each([
     f.database.close();
     await rm(directory, { recursive: true, force: true });
   }
-});
+}, 10_000);
