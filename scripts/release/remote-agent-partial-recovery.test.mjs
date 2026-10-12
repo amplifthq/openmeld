@@ -14,6 +14,7 @@ import {
 } from "./production-release-evidence.mjs";
 
 import {
+  assertRemoteVerificationSelectors,
   assessRemoteAgentPartialRecovery,
   executeRemoteAgentRecovery,
   verifyRecoveredRemoteAgentTarget,
@@ -32,6 +33,40 @@ const NEW_DIGEST = `sha256:${"a".repeat(64)}`;
 const LEASE_HELD = /lease held/u;
 const ROLLOUT_UNVERIFIED = /healthy container rollout/u;
 const RECEIPT_PUBLICATION_FAILED = /receipt publication failed/u;
+const SELECTOR_MISMATCH = /selectors do not match/u;
+
+test("verification-only recovery requires exact original source, attempt, Worker and native baseline selectors", () => {
+  const latest = {
+    sha: SOURCE,
+    receipt: {
+      attemptId: ATTEMPT,
+      identity: { deploymentId: DEPLOYMENT, versionId: VERSION },
+      remoteAgent: {
+        container: { id: CONTAINER, version: 125, image: OLD_IMAGE },
+      },
+    },
+  };
+  const options = {
+    "--source-sha": SOURCE,
+    "--attempt": ATTEMPT,
+    "--expected-deployment": DEPLOYMENT,
+    "--expected-worker-version": VERSION,
+    "--container-id": CONTAINER,
+    "--container-version": "125",
+    "--container-image": OLD_IMAGE,
+  };
+  assertRemoteVerificationSelectors(latest, options);
+  for (const key of Object.keys(options)) {
+    assert.throws(
+      () =>
+        assertRemoteVerificationSelectors(latest, {
+          ...options,
+          [key]: "changed",
+        }),
+      SELECTOR_MISMATCH
+    );
+  }
+});
 
 function fixture() {
   const receipt = {

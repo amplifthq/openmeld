@@ -73,6 +73,7 @@ const executionSubmissionStorage = new AsyncLocalStorage<string>();
 let instrumentationInstalled = false;
 export type RemoteAgentMessageReadBudget = { remainingBytes: number };
 type PreparedExecutionResources = {
+  interactiveResponseId?: () => string | null;
   messageReadBudget?: RemoteAgentMessageReadBudget;
   beforeModel?: () => Promise<void>;
   deferredToolCount?: number;
@@ -164,6 +165,10 @@ export function installRemoteAgentExecutionInstrumentation(): void {
 
 export function getRemoteAgentExecutionSubmissionId(): string | null {
   return executionSubmissionStorage.getStore() ?? null;
+}
+
+export function getRemoteAgentResponseInputId(): string | null {
+  return executionResources.getStore()?.interactiveResponseId?.() ?? null;
 }
 
 export function getRemoteAgentModelPurpose(): LlmTurnPurpose {

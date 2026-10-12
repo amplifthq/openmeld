@@ -82,6 +82,7 @@ const ORGANIZATION_SKILL_ACTIVATION_PREFIX =
 export async function handleCenterAgentObservation(input: {
   conversationCompactionObserver?: RemoteAgentConversationCompactionObserver;
   event: FlueObservation;
+  responseInputId?: string | null;
   resolveDependencies?: () => RemoteAgentObservationDependencies;
   scheduleBackground?: (task: Promise<void>) => void;
   streamPublisher: RemoteAgentStreamPublisher;
@@ -132,6 +133,7 @@ export async function handleCenterAgentObservation(input: {
     await handleCenterAgentStreamDelta({
       dependencies: resolveDependencies(input.resolveDependencies),
       eventIndex: event.eventIndex,
+      responseInputId: input.responseInputId,
       streamPublisher: input.streamPublisher,
       streamDelta,
     });
@@ -360,6 +362,7 @@ async function handleCenterAgentStreamDelta(input: {
   dependencies: RemoteAgentObservationDependencies;
   eventIndex: number;
   streamDelta: FlueStreamDelta;
+  responseInputId?: string | null;
   streamPublisher: RemoteAgentStreamPublisher;
 }): Promise<void> {
   const { coreWorker, env, storage } = input.dependencies;
@@ -431,6 +434,7 @@ async function handleCenterAgentStreamDelta(input: {
       kind: input.streamDelta.kind,
       observedAtMs: input.streamDelta.observedAtMs,
       replaceTextPrefix: input.streamDelta.replaceTextPrefix,
+      responseInputId: input.responseInputId,
       storage,
     });
     if (result.status === "published") {

@@ -541,7 +541,15 @@ Interactive member requests in Spaces and Center DMs have a response phase
 before work. The first model call can answer directly or publish an authored
 progress response through Core. Work tools, capability discovery, Code Mode and
 Skill resources become available only after Core accepts that response. The
-phase uses Flue's durable state keyed to the canonical input, not diagnostic text counters.
+phase reads the stream publisher's durable Core acknowledgement for the exact
+canonical input. Text and authored progress use the same acknowledgement owner;
+each render reads its live projection, which is restored from SQL after recovery.
+Buffered content retains the input it answers, so an old response cannot unlock
+a later check-in. Generated text, thinking and tool lifecycle parts are not
+response acknowledgements. The installed Flue patch backports the
+[upstream finish-cycle resource refresh](https://github.com/withastro/flue/blob/95a8c86244557e4c257b0fbd7eef2481de2c2150/packages/runtime/src/session.ts)
+from commit `95a8c86244557e4c257b0fbd7eef2481de2c2150`. Remove this backport
+when upgrading beyond stable `2.2.2` to a release that includes that fix.
 An unpublished update cannot unlock work. The first response uses low reasoning
 effort; subsequent work retains the selected model's reasoning setting.
 This phase does not settle the submission, invoke cleanup, create a new task or
