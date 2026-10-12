@@ -1,3 +1,4 @@
+import type { SpaceMessageDelegations } from "@openmeld/schemas/types";
 import type { SpaceEphemeralActivityItem } from "#/lib/spaces/dispatch-activity";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import type { SpaceCollaborationProfilePresentation } from "./space-collaboration-profile";
@@ -42,7 +43,7 @@ export type SpaceGraphNode = SpaceGraphMessageNode | SpaceGraphWakeNode;
 
 export type SpaceGraphEdge = {
 	id: string;
-	kind: "reply" | "wake" | "result";
+	kind: "reply" | "wake" | "result" | "delegation";
 	source: SpaceGraphNode["id"];
 	target: SpaceGraphNode["id"];
 };
@@ -53,6 +54,8 @@ export type SpaceGraphPresentation = {
 };
 
 export function buildSpaceGraphPresentation(input: {
+	spaceId?: string | null;
+	delegationsBySourceSignalId?: ReadonlyMap<string, SpaceMessageDelegations>;
 	profileNamesById: ReadonlyMap<string, string>;
 	profilePresentationsById?: ReadonlyMap<
 		string,
@@ -74,6 +77,11 @@ export function buildSpaceGraphPresentation(input: {
 	});
 	const progressStatusByWakeKey = buildWakeProgressStatusByKey(
 		input.wakeProgressItems ?? []
+	);
+	applyDeclaredDelegationStatuses(
+		progressStatusByWakeKey,
+		input.delegationsBySourceSignalId,
+		input.spaceId
 	);
 	const activeResultSignalIds = collectActiveResultSignalIds(resultsByWakeKey);
 	const messageItems = graphMessages.filter(
@@ -153,7 +161,94 @@ export function buildSpaceGraphPresentation(input: {
 		}
 	}
 
+	edges.push(
+		...buildDeclaredDelegationEdges(
+			input.delegationsBySourceSignalId,
+			signalIds,
+			input.spaceId
+		)
+	);
 	return { edges, nodes };
+}
+
+function buildDeclaredDelegationEdges(
+	delegationsBySourceSignalId:
+		| ReadonlyMap<string, SpaceMessageDelegations>
+		| undefined,
+	signalIds: ReadonlySet<string>,
+	spaceId: string | null | undefined
+): SpaceGraphEdge[] {
+	const edges: SpaceGraphEdge[] = [];
+	for (const [sourceSignalId, delegations] of delegationsBySourceSignalId ??
+		[]) {
+		if (!signalIds.has(sourceSignalId)) {
+			continue;
+		}
+		const destinations = new Set<string>();
+		for (const group of delegations.groups) {
+			for (const child of group.children) {
+				if (
+					child.availability === "readable" &&
+					child.spaceId === spaceId &&
+					child.sourceSignalId &&
+					child.sourceSignalId !== sourceSignalId &&
+					signalIds.has(child.sourceSignalId)
+				) {
+					destinations.add(child.sourceSignalId);
+				}
+			}
+		}
+		for (const targetSignalId of destinations) {
+			edges.push({
+				id: `delegation:${sourceSignalId}:${targetSignalId}`,
+				kind: "delegation",
+				source: buildMessageNodeId(sourceSignalId),
+				target: buildMessageNodeId(targetSignalId),
+			});
+		}
+	}
+	return edges;
+}
+
+function applyDeclaredDelegationStatuses(
+	statuses: Map<string, SpaceGraphWakeStatus>,
+	delegations: ReadonlyMap<string, SpaceMessageDelegations> | undefined,
+	spaceId: string | null | undefined
+): void {
+	for (const page of delegations?.values() ?? []) {
+		for (const child of page.groups.flatMap((group) => group.children)) {
+			if (
+				child.availability !== "readable" ||
+				child.spaceId !== spaceId ||
+				!child.sourceSignalId ||
+				!child.targetProfileId
+			) {
+				continue;
+			}
+			const key = buildWakeNodeKey(child.sourceSignalId, child.targetProfileId);
+			if (child.outcome) {
+				const outcomes: Record<
+					NonNullable<typeof child.outcome>["status"],
+					SpaceGraphWakeStatus
+				> = {
+					succeeded: "done",
+					completed: "done",
+					failed: "failed",
+					stopped: "stopped",
+					stayed_silent: "silent",
+					publication_failed: "failed",
+				};
+				statuses.set(key, outcomes[child.outcome.status]);
+			} else if (child.progress) {
+				statuses.set(
+					key,
+					child.progress.pendingInteraction
+						? "needs_input"
+						: resolveWakeProgressStatus(child.progress.phase)
+				);
+			}
+		}
+	}
 }
 
 function collectActiveResultSignalIds(
@@ -170,7 +265,7 @@ function collectActiveResultSignalIds(
 
 function buildWakeProgressStatusByKey(
 	items: readonly SpaceEphemeralActivityItem[]
-): ReadonlyMap<string, SpaceGraphWakeStatus> {
+): Map<string, SpaceGraphWakeStatus> {
 	const statuses = new Map<string, SpaceGraphWakeStatus>();
 	for (const item of items) {
 		if (!item.sourceSignalId) {
@@ -178,7 +273,9 @@ function buildWakeProgressStatusByKey(
 		}
 		statuses.set(
 			buildWakeNodeKey(item.sourceSignalId, item.targetProfileId),
-			resolveWakeProgressStatus(item.phase)
+			item.pendingInteraction
+				? "needs_input"
+				: resolveWakeProgressStatus(item.phase)
 		);
 	}
 	return statuses;

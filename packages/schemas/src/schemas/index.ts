@@ -2530,6 +2530,8 @@ export {
 export {
   getSpaceMessageDetailsInputSchema,
   getSpaceMessageDetailsResponseSchema,
+  spaceMessageDelegatedTaskSchema,
+  spaceMessageDelegationsSchema,
   spaceMessageDetailsActorSchema,
   spaceMessageDetailsAgentContextSchema,
   spaceMessageDetailsDiagnosticsSchema,

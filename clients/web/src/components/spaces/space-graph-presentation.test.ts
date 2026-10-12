@@ -3,6 +3,74 @@ import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import { buildSpaceGraphPresentation } from "./space-graph-presentation";
 
 describe("buildSpaceGraphPresentation", () => {
+	it("adds only declared readable delegation edges between recorded messages", () => {
+		const source = buildTimelineItem({
+			id: "origin",
+			text: "Analyze this change.",
+		});
+		const childSource = buildTimelineItem({
+			id: "child-source",
+			text: "Review the pinned revision.",
+		});
+		const declaredChild = {
+			key: "child",
+			availability: "readable" as const,
+			coordinationState: "active" as const,
+			role: "primary" as const,
+			spaceId: "space",
+			sourceSignalId: "child-source",
+			resultSignalId: null,
+			targetProfileId: "reviewer",
+			targetLabel: "Reviewer",
+			taskPreview: null,
+			progress: null,
+			outcome: null,
+		};
+		const graph = buildSpaceGraphPresentation({
+			spaceId: "space",
+			profileNamesById: new Map(),
+			timelineItems: [source, childSource],
+			delegationsBySourceSignalId: new Map([
+				[
+					"origin",
+					{
+						nextCursor: null,
+						groups: [
+							{
+								delegationId: "delegation",
+								coordinatorProfileId: "center",
+								completionPolicy: { mode: "child_reports_directly" },
+								children: [
+									declaredChild,
+									{ ...declaredChild, key: "duplicate" },
+									{
+										...declaredChild,
+										key: "hidden",
+										availability: "unavailable",
+									},
+									{
+										...declaredChild,
+										key: "unloaded",
+										sourceSignalId: "not-loaded",
+									},
+								],
+							},
+						],
+					},
+				],
+			]),
+		});
+		expect(graph.edges).toEqual([
+			{
+				id: "delegation:origin:child-source",
+				kind: "delegation",
+				source: "message:origin",
+				target: "message:child-source",
+			},
+		]);
+		expect(graph.nodes).toHaveLength(2);
+	});
+
 	it("projects ordinary messages and reply relationships without inventing work", () => {
 		const source = buildTimelineItem({
 			actorName: "Felix",

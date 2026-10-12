@@ -116,6 +116,66 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 describe("SpaceMessageDetailsDrawer", () => {
+	it("shows partial delegated outcomes and links an unloaded child through its durable message URL", () => {
+		const details = createHumanMessageDetails();
+		details.delegations = {
+			nextCursor: null,
+			groups: [
+				{
+					delegationId: "delegation-1",
+					coordinatorProfileId: "center",
+					completionPolicy: { mode: "resume_parent", when: "all_terminal" },
+					children: [
+						{
+							key: "child-1",
+							availability: "readable",
+							coordinationState: "terminal",
+							role: "primary",
+							spaceId: "space-123",
+							sourceSignalId: "unloaded-source",
+							resultSignalId: "sig-agent-reply",
+							targetProfileId: "reviewer",
+							targetLabel: "Reviewer",
+							taskPreview: "Review the pinned revision.",
+							progress: null,
+							outcome: {
+								status: "failed",
+								eventId: "failed",
+								errorCode: "failed",
+								occurredAtMs: 100,
+								publishedSignalId: "sig-agent-reply",
+							},
+						},
+					],
+				},
+			],
+		};
+		useQueryMock.mockReturnValue(createQueryResult({ data: details }));
+		const onJumpToMessage = vi.fn();
+		renderMessageDetailsPanel({
+			item: createTimelineItem({ id: "sig-source" }),
+			onJumpToMessage,
+		});
+		const delegated = within(
+			screen.getByRole("region", { name: "Delegated work" })
+		);
+		expect(delegated.getByText("1 failed")).toBeTruthy();
+		expect(
+			delegated.getByText(
+				"The coordinating Agent owns the follow-up after all delegated tasks finish, including failures."
+			)
+		).toBeTruthy();
+		expect(
+			delegated
+				.getByText("Open task and recovery")
+				.closest("a")
+				?.getAttribute("href")
+		).toContain("unloaded-source");
+		fireEvent.click(delegated.getByText("View result"));
+		expect(onJumpToMessage).toHaveBeenCalledWith("sig-agent-reply");
+		expect(delegated.queryByText("Stop")).toBeNull();
+	});
+
 	it("keeps unavailable task settings visible without offering recovery", () => {
 		const details = createWakeSuccessReplyDetails();
 		const target = details.wakeContext.targets[0];

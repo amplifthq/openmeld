@@ -12,6 +12,7 @@ export async function readSpaceMessageDetails(input: {
 	signalId: string;
 	openMeldProfileId?: string;
 	spacePassword?: string;
+	delegationCursor?: string;
 }): Promise<GetSpaceMessageDetailsResponse> {
 	try {
 		return await createUnscopedWebSpaceApi({
@@ -22,6 +23,8 @@ export async function readSpaceMessageDetails(input: {
 			spaceId: input.spaceId,
 			signalId: input.signalId,
 			executionContextVersion: 1,
+			delegationVersion: 1,
+			delegationCursor: input.delegationCursor,
 			...(input.spacePassword === undefined
 				? {}
 				: { spacePassword: input.spacePassword }),
@@ -36,21 +39,26 @@ export function spaceMessageDetailsQueryOptions(input: {
 	signalId: string;
 	openMeldProfileId?: string;
 	spacePassword?: string;
+	delegationCursor?: string;
 	enabled: boolean;
 }) {
 	return queryOptions<
 		GetSpaceMessageDetailsResponse,
 		StructuredApiClientFailure
 	>({
-		queryKey: spaceQueryKeys.messageDetails(
-			input.spaceId,
-			input.signalId,
-			input.openMeldProfileId
-		),
+		queryKey: [
+			...spaceQueryKeys.messageDetails(
+				input.spaceId,
+				input.signalId,
+				input.openMeldProfileId
+			),
+			...(input.delegationCursor ? [input.delegationCursor] : []),
+		],
 		queryFn: async () =>
 			await readSpaceMessageDetails({
 				spaceId: input.spaceId,
 				signalId: input.signalId,
+				delegationCursor: input.delegationCursor,
 				...(input.openMeldProfileId === undefined
 					? {}
 					: { openMeldProfileId: input.openMeldProfileId }),
@@ -63,6 +71,26 @@ export function spaceMessageDetailsQueryOptions(input: {
 		retry: shouldRetrySpaceQuery,
 		staleTime: 0,
 		refetchOnMount: "always",
-		refetchOnWindowFocus: false,
+		refetchOnWindowFocus: true,
+		refetchOnReconnect: "always",
+		refetchInterval: (query) => {
+			const data = query.state.data;
+			return data?.wakeContext.targets.some(
+				(target) => target.status === "pending" || target.status === "running"
+			) ||
+				data?.delegations?.groups.some((group) =>
+					group.children.some(
+						(child) =>
+							child.availability === "readable" &&
+							!child.outcome &&
+							(child.progress
+								? !child.progress.terminal
+								: child.coordinationState === "planned" ||
+									child.coordinationState === "active")
+					)
+				)
+				? 5000
+				: false;
+		},
 	});
 }

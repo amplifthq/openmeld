@@ -2855,6 +2855,8 @@ export type GetSpaceWakeTraceWaterfallInput = {
   spaceAccess?: SpaceAccessContext;
 };
 export type GetSpaceMessageDetailsInput = {
+  delegationVersion?: 1;
+  delegationCursor?: string;
   spaceId: string;
   signalId: string;
   executionContextVersion?: 1;
@@ -22698,6 +22700,8 @@ export async function rpcGetSpaceMessageDetails(
   input: GetSpaceMessageDetailsInput
 ): Promise<GetSpaceMessageDetailsResponse> {
   const parsed = getSpaceMessageDetailsInputSchema.safeParse({
+    delegationVersion: input.delegationVersion,
+    delegationCursor: input.delegationCursor,
     spaceId: input.spaceId,
     signalId: input.signalId,
     ...(input.executionContextVersion
@@ -22718,7 +22722,7 @@ export async function rpcGetSpaceMessageDetails(
     env,
     parsed.data.spaceId
   );
-  return await stub.rpcGetMessageDetails({
+  const details = await stub.rpcGetMessageDetails({
     spaceId,
     signalId: parsed.data.signalId,
     ...(parsed.data.executionContextVersion
@@ -22726,6 +22730,50 @@ export async function rpcGetSpaceMessageDetails(
       : {}),
     ...access,
   });
+  if (parsed.data.delegationVersion !== 1) {
+    return details;
+  }
+  const { readSpaceMessageDelegations } = await import(
+    "../space/application/space-message-delegations"
+  );
+  const delegations = await readSpaceMessageDelegations({
+    db: requireAgentTaskCoordinationDb(env),
+    details,
+    after: parsed.data.delegationCursor,
+    readTarget: async (childSpaceId, profileId) => {
+      const directory = await rpcGetSpaceIdentityDirectory(env, {
+        spaceId: childSpaceId,
+        ...(childSpaceId === spaceId ? access : { context: access.context }),
+      });
+      return (
+        directory.entries.find(
+          (entry) =>
+            entry.profileId === profileId && entry.profileKind === "agent"
+        )?.profileName ?? null
+      );
+    },
+    readMessage: async (childSpaceId, signalId) => {
+      const child = resolveRpcSpaceStubOrThrow(env, childSpaceId);
+      return await child.stub.rpcGetMessageDetails({
+        spaceId: child.spaceId,
+        signalId,
+        executionContextVersion: 1,
+        // Source-Space passwords and continuation grants never authorize another Space.
+        ...(child.spaceId === spaceId ? access : { context: access.context }),
+      });
+    },
+    readProgress: async (childSpaceId, clientMessageId, targetProfileId) => {
+      return await rpcGetSpaceWakeProgress(env, {
+        spaceId: childSpaceId,
+        clientMessageId,
+        targetProfileId,
+        includeSourceContext: true,
+        includeWakeStopEligibility: true,
+        ...(childSpaceId === spaceId ? access : { context: access.context }),
+      });
+    },
+  });
+  return { ...details, delegations };
 }
 export async function rpcCreateSpaceDiagnosticReport(
   env: CoreBindings,

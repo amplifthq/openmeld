@@ -5589,6 +5589,19 @@ separate Replies section, a detached `Why this failed` summary, or an extra
 that presentation model but cannot become a second status source or final
 outcome.
 
+Visible originating Center Agent requests read the
+optional Message Details delegation projection for a compact progress summary.
+Message details expands the same projection into declared child rows and
+completion ownership. Pagination retrieves additional declared groups independently
+of the timeline window. Source/result links use in-view navigation only for
+loaded messages; otherwise they use the canonical Space message URL.
+
+Wake progress invalidations refresh Message Details, and visible active delegated
+work refreshes through the same query. Reconnect and focus reread canonical
+state. There is no additional client execution store. Graph reads the same query
+and adds declared edges only when both authorized same-Space message nodes are
+loaded; it neither invents missing nodes nor infers delegation from prose.
+
 Spaces retain **Messages** and **Graph** as two views of the same
 loaded timeline projection. The Space header's Graph entry is commented out
 pending replacement with a board; Center Agent navigation is unchanged.
