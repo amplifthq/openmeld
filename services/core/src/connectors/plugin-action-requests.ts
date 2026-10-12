@@ -187,6 +187,26 @@ function requestExecutionGuard(row: RequestRow): PluginRequestExecutionGuard {
   };
 }
 
+/** A retained decision cannot be bypassed by changing an operation's authority. */
+export async function hasPluginActionRequestForOperation(input: {
+  db: PostgresDatabase;
+  organizationId: string;
+  userId: string;
+  actorProfileId: string;
+  operationId: string;
+}): Promise<boolean> {
+  const result = await input.db.query({
+    text: 'SELECT id FROM "openmeld"."plugin_action_requests" WHERE organization_id = $1 AND user_id = $2 AND actor_profile_id = $3 AND operation_id = $4 LIMIT 1',
+    values: [
+      input.organizationId,
+      input.userId,
+      input.actorProfileId,
+      input.operationId,
+    ],
+  });
+  return result.rows.length > 0;
+}
+
 /** Reads authority for a retained operation. It never creates a new request. */
 export async function readPluginActionRequestForOperation(input: {
   db: PostgresDatabase;

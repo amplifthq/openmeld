@@ -5,8 +5,12 @@ import type {
   OpenMeldRequestContext,
 } from "@openmeld/schemas/types";
 import { readPluginAccess } from "../connectors/plugin-access";
-import { preparePluginActionRequest } from "../connectors/plugin-action-requests";
+import {
+  hasPluginActionRequestForOperation,
+  preparePluginActionRequest,
+} from "../connectors/plugin-action-requests";
 import type { CoreBindings } from "../lib/bindings";
+import { readRemoteAgentNativeDeliveryByDeliveryId } from "../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import { projectIssueRoutingDecisionForClaim } from "./project-issue-action-routing";
 import { resolveAdmittedProjectIssueAction } from "./project-rpc";
@@ -67,6 +71,9 @@ export async function prepareProjectIssueActionAdmission(input: {
         "The complete issue destination must match its provider before a new operation is accepted.",
     });
   }
+  if (await hasExplicitGitHubIssueRequest(input)) {
+    return { sourceRequestKey: input.sourceRequestKey };
+  }
   const resolution = await resolveAdmittedProjectIssueAction(input.env, {
     context: input.context,
     proposedDestination: destination,
@@ -124,11 +131,54 @@ export async function prepareProjectIssueActionAdmission(input: {
     throw createCoreRpcHttpError({
       code: "project.issue_confirmation_required",
       status: 409,
-      reason: `Open your OpenMeld Inbox to confirm the exact issue destination (request ${authorization.request.requestId}), then retry the same operation ID and unchanged input. No issue was created.`,
+      reason: `Confirm the exact issue destination in the originating conversation or your OpenMeld Inbox (request ${authorization.request.requestId}). Approval continues the original request. No issue was created.`,
     });
   }
   return {
     executionGuard: authorization.executionGuard,
     sourceRequestKey: authorization.root,
   };
+}
+
+async function hasExplicitGitHubIssueRequest(
+  input: Parameters<typeof prepareProjectIssueActionAdmission>[0]
+): Promise<boolean> {
+  if (
+    input.operation.issueDestinationAuthority !== "explicit_request" ||
+    input.operation.issueDestination?.provider !== "github" ||
+    !input.userId ||
+    !input.sourceNativeDeliveryId
+  ) {
+    return false;
+  }
+  const delivery = await readRemoteAgentNativeDeliveryByDeliveryId({
+    db: input.db,
+    deliveryId: input.sourceNativeDeliveryId,
+  });
+  const sender = (
+    delivery?.executionRecoverySubmitRequest ?? delivery?.workerSubmitRequest
+  )?.turnEnvelope.sender;
+  if (
+    !delivery ||
+    (delivery.status !== "accepted" && delivery.status !== "retry_observed") ||
+    delivery.organizationId !== input.organizationId ||
+    delivery.profileId !== input.actorProfileId ||
+    delivery.submissionId !== input.context.agentControllerConversationId ||
+    sender?.kind !== "member" ||
+    !sender.verified ||
+    sender.ownerUserId !== input.userId ||
+    "kind" in input.operation.speakerMember ||
+    sender.id !== input.operation.speakerMember.memberId
+  ) {
+    return false;
+  }
+  // Intent is interpreted semantically by the Agent. Core verifies the request
+  // identity and existing decisions; Project metadata supplies neither fact.
+  return !(await hasPluginActionRequestForOperation({
+    db: input.db,
+    organizationId: input.organizationId,
+    userId: input.userId,
+    actorProfileId: input.actorProfileId,
+    operationId: input.operation.operationId,
+  }));
 }
