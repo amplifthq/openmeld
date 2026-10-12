@@ -224,6 +224,9 @@ export async function collectProductionReleaseStatus(input = {}) {
       continue;
     }
     const releaseSource = sources.get(scope);
+    const remoteAgentRecovery =
+      scope === "remote-agent" ? input.remoteAgentRecovery : undefined;
+    assertRemoteRecoverySource(releaseSource, remoteAgentRecovery, sourceSha);
     const component = describeReleaseComponent({
       releaseSource,
       scope,
@@ -232,6 +235,7 @@ export async function collectProductionReleaseStatus(input = {}) {
       adapters,
       sourceSha,
       webReleaseSource: sources.get("web"),
+      remoteAgentRecovery,
     });
     if (component.state === "unknown") {
       unknownSources.push(scope);
@@ -511,9 +515,33 @@ function recoveryGuidance(recovery) {
     : "Retained evidence permits guarded recovery admission. The executor must still verify the exact operation and live deployment before continuing the retained attempt.";
 }
 
+function assertRemoteRecoverySource(current, proof, sourceSha) {
+  if (!proof) {
+    return;
+  }
+  const receipt = current?.receipt;
+  const prior = current?.verifiedHistoryBaseline;
+  if (
+    proof.sourceSha !== sourceSha ||
+    current?.sha !== sourceSha ||
+    !EXACT_SOURCE_SHA.test(String(proof.evidenceSha ?? "")) ||
+    current.evidenceSha !== proof.evidenceSha ||
+    receipt?.attemptId !== proof.attemptId ||
+    receipt?.operationKey !== proof.operationKey ||
+    receipt?.status !== "failed" ||
+    receipt.application !== "unknown" ||
+    receipt.identity ||
+    prior?.receipt?.status !== "verified" ||
+    !EXACT_SOURCE_SHA.test(String(prior?.sha ?? ""))
+  ) {
+    throw new Error(
+      "Remote recovery admission no longer matches its exact retained attempt and verified baseline."
+    );
+  }
+}
+
 function describeReleaseComponent(input) {
-  const { releaseSource, scope, history, plansByBase, adapters, sourceSha } =
-    input;
+  const { releaseSource, scope, history, adapters, sourceSha } = input;
   const unknown = (reason, facts = {}) => ({
     ...releaseSource,
     evidence: describeComponentEvidence(releaseSource),
@@ -546,7 +574,11 @@ function describeReleaseComponent(input) {
       "Conflicting deployment events have the same completion time; reconcile their actual activation order."
     );
   }
-  if (releaseSource.receipt && releaseSource.receipt.status !== "verified") {
+  if (
+    releaseSource.receipt &&
+    releaseSource.receipt.status !== "verified" &&
+    !input.remoteAgentRecovery
+  ) {
     const receipt = releaseSource.receipt;
     const recovery = describeGuardedReceiptRecoveryCandidate(
       releaseSource,
@@ -568,20 +600,30 @@ function describeReleaseComponent(input) {
       `Local release is ${receipt.status}/${receipt.application}; ${guidance}`
     );
   }
-  const impactKey = componentImpactCacheKey(releaseSource.sha, scope);
+  return describeReleaseComponentImpact(input, unknown);
+}
+
+function describeReleaseComponentImpact(input, unknown) {
+  const { releaseSource, scope, plansByBase, adapters, sourceSha } = input;
+  // A lease-proven recovery is pending, never verified. Compute compatibility
+  // from the last verified deployment, not the operator's source-check base.
+  const impactSource = input.remoteAgentRecovery
+    ? releaseSource.verifiedHistoryBaseline
+    : releaseSource;
+  const impactKey = componentImpactCacheKey(impactSource.sha, scope);
   let entry = plansByBase.get(impactKey);
   if (!entry) {
     try {
       entry = {
         plan: adapters.buildImpact({
-          base: releaseSource.sha,
+          base: impactSource.sha,
           sourceSha,
           componentScope: scope,
         }),
       };
     } catch (error) {
       entry = {
-        error: `Source impact from ${releaseSource.sha} failed: ${error.message}`,
+        error: `Source impact from ${impactSource.sha} failed: ${error.message}`,
       };
     }
     plansByBase.set(impactKey, entry);
@@ -605,7 +647,10 @@ function describeReleaseComponent(input) {
     })),
     evidence: describeComponentEvidence(releaseSource),
     scope,
-    state: entry.plan.scopes.includes(scope) ? "pending" : "current",
+    state:
+      input.remoteAgentRecovery || entry.plan.scopes.includes(scope)
+        ? "pending"
+        : "current",
   };
 }
 
