@@ -507,20 +507,22 @@ async function main(argv) {
     sourceDir
   );
   assertProductionReleaseSource({ cwd: sourceDir, sourceSha });
-  run(
-    "pnpm",
-    [
-      "run",
-      "release:preflight:local",
-      "--",
-      "--scope",
-      REMOTE_AGENT,
-      "--base",
-      "99bd94a254457683a4922452b05bc80e175d50ac",
-    ],
-    sourceDir,
-    { inherit: true, timeout: 20 * 60_000 }
-  );
+  if (options["--verify-only"] !== "true") {
+    run(
+      "pnpm",
+      [
+        "run",
+        "release:preflight:local",
+        "--",
+        "--scope",
+        REMOTE_AGENT,
+        "--base",
+        "99bd94a254457683a4922452b05bc80e175d50ac",
+      ],
+      sourceDir,
+      { inherit: true, timeout: 20 * 60_000 }
+    );
+  }
   const steps = buildProductionDeployStepSpecs([REMOTE_AGENT]);
   const [group] = groupReleaseSteps(steps);
   const target = await resolveReceiptWorkerTarget({ cwd: sourceDir, group });
