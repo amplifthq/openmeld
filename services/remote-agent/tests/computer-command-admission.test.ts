@@ -1,6 +1,10 @@
 import { getWorkspace } from "@cloudflare/computer";
 import { afterEach, expect, it } from "vitest";
 import {
+  type ComputerCommandRecord,
+  readStoredComputerInvocation,
+} from "../flue-adapter/computer-command";
+import {
   createCommandAdmissionFixture,
   transportFailure,
 } from "./fixtures/computer-command-admission";
@@ -35,6 +39,99 @@ it("resumes preparation after transport failure and owner restart without claimi
   expect(f.files.has("/computer/input.txt")).toBe(true);
   await f.poll();
   expect(f.counts().spawns).toBe(1);
+});
+
+it.each([
+  "launch",
+  "stop",
+] as const)("retains SDK preparation through restart and clears it after %s", async (outcome) => {
+  const f = fixture();
+  await f.owner.fs.mkdir("/computer", { recursive: true });
+  await f.owner.fs.writeFile("/computer/private-input.txt", "retained input");
+  const accepted = await f.start();
+  expect(accepted).toMatchObject({
+    phase: "accepted",
+    preparation: {
+      generation: expect.any(String),
+      cursorRevision: expect.any(Number),
+      targetRevision: expect.any(Number),
+      entries: expect.any(Number),
+      bytes: expect.any(Number),
+      skipped: expect.any(Number),
+    },
+  });
+  const list = await f
+    .tool()
+    .execute({ action: "list", includeReceiptDetails: true });
+  expect(JSON.stringify(list)).not.toContain("private-input");
+  expect(f.counts().spawns).toBe(0);
+  await f.restart();
+  expect(
+    await f.tool().execute({ action: "list", includeReceiptDetails: true })
+  ).toEqual(list);
+  const retained = await readStoredComputerInvocation({
+    context: { submissionId: "admission" },
+    storage: f.storage,
+  });
+  expect(retained.commands[0]).toMatchObject({
+    phase: "accepted",
+    preparation: expect.objectContaining({ generation: expect.any(String) }),
+    terminationConfirmed: false,
+  });
+  const originalId = (await f.record()).id;
+  if (outcome === "stop") {
+    const stopped = await f.tool().execute({ action: "stop", key: "one" });
+    expect(stopped).not.toHaveProperty("preparation");
+    await f.poll();
+    expect(f.counts().spawns).toBe(0);
+  } else {
+    expect(await f.runUntil(() => f.counts().spawns === 1)).toBe(true);
+    await f.poll();
+    expect(f.counts().spawns).toBe(1);
+  }
+  expect((await f.record()).id).toBe(originalId);
+  expect((await f.record()).preparation).toBeUndefined();
+  const completed = await readStoredComputerInvocation({
+    context: { submissionId: "admission" },
+    storage: f.storage,
+  });
+  expect(completed.commands[0]).not.toHaveProperty("preparation");
+});
+
+it("does not replace newer preparation with a delayed older SDK result", async () => {
+  const f = fixture();
+  await f.owner.fs.mkdir("/computer", { recursive: true });
+  await f.owner.fs.writeFile("/computer/input.txt", "retained input");
+  f.refuseLaunch(true);
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const compare = f.storage.compareAndSetExpiring.bind(f.storage);
+  let delayed = false;
+  let older: ComputerCommandRecord["preparation"];
+  f.storage.compareAndSetExpiring = async (...args) => {
+    const next = args[2] as ComputerCommandRecord;
+    if (!delayed && next.preparation?.progress) {
+      delayed = true;
+      older = next.preparation;
+      entered.resolve();
+      await release.promise;
+    }
+    return await compare(...args);
+  };
+  const starting = f.start();
+  await entered.promise;
+  let newer: unknown;
+  try {
+    await f.poll();
+    newer = (await f.record()).preparation;
+    expect(newer).toHaveProperty("progress");
+    expect(newer).not.toEqual(older);
+  } finally {
+    release.resolve();
+    await starting;
+  }
+  expect((await f.record()).preparation).toEqual(newer);
+  expect(f.counts().spawns).toBe(0);
 });
 
 it("does not retry admission when its durable callback result is uncertain", async () => {
@@ -234,4 +331,8 @@ it.each([
   await result;
   expect(f.counts().spawns).toBe(0);
   expect((await f.record()).launchRequestedAt).toBeUndefined();
+  if (change === "stop") {
+    expect((await f.record()).preparation).toBeUndefined();
+    expect(await f.poll()).not.toHaveProperty("preparation");
+  }
 });

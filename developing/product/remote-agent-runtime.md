@@ -601,7 +601,23 @@ the next check time. A Worker termination cannot bypass that persisted budget.
 Checks without confirmed native evidence back off from 30 seconds to five
 minutes; the eighth unconfirmed attempt pauses later automatic checks with
 `nextAttemptAtMs: null`. A normal caught error does not count that attempt again.
-Successful checks clear the count and schedule another check after 15 seconds.
+The same collection owner records a bounded observation expiry before external
+I/O. This distinguishes the final check still in flight from paused checks;
+it is not progress evidence and never restores or extends the attempt budget.
+The attempt clears only its own expiry when it settles. An expired observation
+cannot authorize another automatic attempt. Internal invocation readers expose
+this fact to the finish hook; public command collection responses retain their
+existing two-field shape for installed CLI readers. Command lists also retain
+their existing shape; preparation details are available on poll and invocation
+results.
+Confirmed native checks clear the count and schedule another check after 15 seconds.
+Preparation instead exposes an optional owner-issued checkpoint and phase on
+the original receipt. Only a changed checkpoint within the same generation, or
+the first available checkpoint, confirms preparation progress. An unchanged
+reply, a new poll timestamp, or a generation change alone does not reset the
+unconfirmed-attempt budget. Public progress omits private file paths; per-step
+entries and bytes are not cumulative completion percentages. Older pending
+observations cannot replace a newer stored preparation checkpoint.
 This does not stop or fail the process, confirm loss, or authorize another
 launch. A successful manual poll or Stop
 resumes collection of the same identity. Fresh accepted process evidence resets
@@ -627,6 +643,13 @@ The Computer 0.5.0 patch bounds producer planning, transfer and receiver cleanup
 per invocation. Durable SQLite generations retain traversal progress, hardlink
 paths, tombstones and same-revision ordering. Large directories resume across
 Worker replacement and native restart without excluding dependency files.
+Object transfer uses both a byte budget and an object-count budget, so tiny
+files do not repeatedly materialize a whole metadata page for each handful of
+bytes. A closed transfer generation atomically records its durable retirement
+before acknowledging cleanup handoff. Existing maintenance owners reclaim its
+temporary pins and plans in bounded pages. Accepted input and its epoch fence
+do not wait for physical garbage collection. A lost closure acknowledgement
+retries the same generation; closed generations reject late writes.
 Each execution pins its own start and settled output target; another command's
 older shared transfer cannot prove its completion. The native shell receiver
 checks database epoch and accepted input cursor synchronously before spawning.
@@ -759,12 +782,23 @@ retained command receipts, Stop fence and collector. Helpers cannot restart an
 unconfirmed operation for the same resource; a rejected concurrent helper does
 not acquire authority to stop another accepted call.
 
-The finish hook can feed pending receipts back once, then supply recovery facts
-once. It persists that disposition with Flue's hook state. Continuing output
-does not create an unbounded finish loop or a fixed execution lifetime. When
-the model finishes again, Remote preserves its explanation only if the reviewed
-facts still match. Otherwise Core publishes controlled facts and retained file
-references. Cleanup progress cannot upgrade that blocked task to success.
+The finish hook can feed pending receipts back once. A second model finish does
+not authorize Stop while the original Computer still observes active work.
+The original unsettled Flue hook waits through bounded receipt reads while the
+existing Computer alarm advances preparation and result collection. It respects
+the hook AbortSignal, explicit Stop and the original turn's authority. It does
+not create repeated model feedback cycles, a replacement task or a total
+execution deadline. Ordinary queued input waits for the current turn; explicit
+Stop can interrupt it. Completion supplies retained result references to the
+model before its final answer. Paused observation, explicit loss or unavailable
+evidence enters the existing recovery-facts and cleanup handoff. The hook
+persists that disposition with Flue's atomic hook state. Cleanup progress
+cannot upgrade an already blocked task to success.
+
+A command poll's bounded wait is coordinated across Computer RPC calls. Each
+Computer event still performs at most one preparation step and checks the
+original identity and current authorization. Reaching the caller's wait budget
+returns the current receipt; it does not stop, fail or replay the command.
 
 Remote persists Stop delivery before its RPC and retries it at most eight times
 with backoff. The original Computer independently owns bounded receipt
