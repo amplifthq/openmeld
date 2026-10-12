@@ -631,6 +631,18 @@ Each execution pins its own start and settled output target; another command's
 older shared transfer cannot prove its completion. The native shell receiver
 checks database epoch and accepted input cursor synchronously before spawning.
 Only a proven pre-dispatch rejection permits preparation to resume.
+The command identity and original request are durable before preparation starts.
+The SDK's local execution owner confirms launch admission only after bounded
+input synchronization and native epoch checks finish. That callback checks
+current permission, Stop and the existing receipt with compare-and-set; it is
+not an RPC payload or a second execution ledger. Entering the callback disables
+whole-execution reconnect retries, even if its result is uncertain. The owner
+rechecks the input revision after the callback and before native dispatch.
+Preparation interrupted before admission can resume under the original identity
+and files after Worker replacement. Only the call that owns an admission may
+release it using an explicit pre-dispatch refusal. Missing native records and
+historical uncertain admissions never authorize clearing a claim or replaying
+the command.
 Concurrent polls and repeated starts with the same key can inspect admission
 before a native execution record exists. Without launch evidence, an absent
 record keeps the original receipt in `launch_unknown`; it does not prove lost

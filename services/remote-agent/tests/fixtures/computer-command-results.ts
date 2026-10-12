@@ -191,9 +191,7 @@ export async function verifyDurableCommandResults(
         workspace: Awaited<ReturnType<typeof getWorkspace>>
       ) => Promise<T>
     ) => {
-      using workspace = await getWorkspace({
-        __getWorkspaceStub: () => Promise.resolve(owner.stub()),
-      });
+      using workspace = await getWorkspace(owner);
       return await operation(workspace);
     },
   };
