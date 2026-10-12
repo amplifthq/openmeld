@@ -537,6 +537,33 @@ can provide.
 
 ## Center Agent operating control
 
+Interactive member requests in Spaces and Center DMs have a response phase
+before work. The first model call can answer directly or publish an authored
+progress response through Core. Work tools, capability discovery, Code Mode and
+Skill resources become available only after Core accepts that response. The
+phase uses Flue's durable state keyed to the canonical input, not diagnostic text counters.
+An unpublished update cannot unlock work. The first response uses low reasoning
+effort; subsequent work retains the selected model's reasoning setting.
+This phase does not settle the submission, invoke cleanup, create a new task or
+change authorization. Ordinary queued deliveries and exact-execution steering
+retain their existing ingress boundaries. Automated continuations, reply
+recovery and external message channels retain their own publication contracts.
+
+An Agent's blocking `computer_command` poll waits inside the original tool call
+while the Computer still observes work. Each native read remains bounded and
+rechecks access. No model turn is needed for each unchanged poll. The wait keeps
+the original reference and output cursor, includes file synchronization, and
+returns on completion, Stop or an inspection condition. `waitSeconds: 0` remains
+an immediate status read for independent work. The public Computer API and CLI
+retain their bounded polling contract. Waiting does not start a command or own
+cleanup; those remain with the existing Computer receipt and execution lifecycle.
+Both tool waits and finish waits yield at their next bounded observation when
+the exact-execution intake has accepted new user input. Flue applies that input
+under the original execution; its canonical input ID opens a fresh response
+phase without rerunning agent-start effects. The Computer continues running.
+Normal queued messages still wait by design; the existing Send now action is
+the explicit ingress for same-author Center DM steering.
+
 Long Computer commands use the native retained container execution API through
 `computer_command`; shell backgrounding is not a supported command-session
 mechanism. The runtime persists a dispatch key before spawn, scopes controls to

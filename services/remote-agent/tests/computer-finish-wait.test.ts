@@ -125,6 +125,17 @@ function computerFixture(preparationSteps = 2, deferNativeAck = false) {
   const killExec = vi.fn(async () => undefined);
   const workspace = {
     executionSync: vi.fn(async () => undefined),
+    resumeExecutionSync: vi
+      .fn<WorkspaceClient["resumeExecutionSync"]>()
+      .mockResolvedValue({
+        status: "complete",
+        outcome: {
+          epoch: "retained",
+          rev: 8,
+          skipped: [],
+          skippedTruncated: false,
+        },
+      }),
     maintainSync: vi.fn(async () => false),
     runtime: {
       execWithAdmission: async (
@@ -407,7 +418,14 @@ it.each([
   try {
     const receipt = await agent.dispatch("Complete the original work.");
     const read = agent.read(receipt).catch((error: unknown) => error);
-    await secondFinish.promise;
+    await Promise.race([
+      secondFinish.promise,
+      read.then((result) => {
+        throw new Error(
+          `Submission settled before its wait: ${JSON.stringify(result)}`
+        );
+      }),
+    ]);
     if (eighthObservation) {
       expect(
         await Promise.race([

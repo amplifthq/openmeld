@@ -23,6 +23,7 @@ import {
   reportComputerFinishFacts,
   requestComputerCleanup,
 } from "./execution-cleanup";
+import { hasPendingRemoteAgentExecutionInput } from "./execution-input";
 
 export type ComputerFinishState = {
   submissionId: string;
@@ -82,14 +83,11 @@ export async function checkRemoteAgentExecutionFinish(
     // receipt on its alarm. Model finish count is not evidence of a failure.
     // Abort/Stop remains authoritative. Ordinary queued input waits for this
     // turn, just as it does while a model tool call is outstanding.
-    while (hasObservedComputerWork(state)) {
-      input.finish.signal?.throwIfAborted();
-      await delay(1000, undefined, { signal: input.finish.signal });
-      if (!(await canContinueComputerFinish(input))) {
-        return;
-      }
-      state = await readComputerFinishStateOrNull(input);
+    const waited = await waitForComputerResults(input, state);
+    if (waited.yielded) {
+      return;
     }
+    state = waited.state;
     if (hasCompleteComputerResults(state)) {
       // Persist this handoff with the appended facts, including when completion
       // happened before this finish check. A later finish must not repeat it.
@@ -150,6 +148,30 @@ export async function checkRemoteAgentExecutionFinish(
     type: "computer_result_incomplete",
     body: `Computer recovery facts: ${JSON.stringify({ stopHandoffAccepted: cleanup?.accepted ?? false, state })}. Do not claim unknown actions completed, unsynchronized files were saved, or an unconfirmed process stopped. Explain the confirmed results and their existing references, what is incomplete or unknown, and the next safe step. The original receipts retain cleanup responsibility. Do not restart an uncertain command or repeat an external write. Computer launches for this invocation are fenced after Stop. You may finish with a truthful blocked answer, or use independent authorized non-Computer tools. Do not poll indefinitely.`,
   });
+}
+
+async function waitForComputerResults(
+  input: ComputerExecutionFinishInput,
+  initial: CloudComputerInvocationState | null
+) {
+  let state = initial;
+  while (hasObservedComputerWork(state)) {
+    input.finish.signal?.throwIfAborted();
+    if (await hasPendingRemoteAgentExecutionInput(input)) {
+      input.finish.append({
+        kind: "signal",
+        type: "computer_wait_yielded",
+        body: "New authorized user input is waiting for this execution. Respond to it before continuing work. The original Computer commands remain active; inspect their existing references, without restarting or stopping them.",
+      });
+      return { state, yielded: true };
+    }
+    await delay(1000, undefined, { signal: input.finish.signal });
+    if (!(await canContinueComputerFinish(input))) {
+      return { state, yielded: true };
+    }
+    state = await readComputerFinishStateOrNull(input);
+  }
+  return { state, yielded: false };
 }
 
 async function canContinueComputerFinish(
