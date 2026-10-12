@@ -1,4 +1,7 @@
-import { resolveRemoteAgentExecutionScope } from "@openmeld/schemas";
+import {
+  type CloudComputerOperation,
+  resolveRemoteAgentExecutionScope,
+} from "@openmeld/schemas";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createRemoteAgentCallbackContext } from "../agent-core/callback-context";
 import { createAgentComputerWorkspaceAccess } from "../flue-adapter/agent-computer-workspace-access";
@@ -30,6 +33,53 @@ function context() {
 
 describe("Computer audience and current access", () => {
   beforeEach(() => getWorkspace.mockReset());
+
+  it("waits across bounded preparation RPCs using the original receipt", async () => {
+    const reference = {
+      invocationId: "original",
+      key: "prepare",
+      id: "original-process",
+      backend: "container" as const,
+    };
+    const observed: CloudComputerOperation[] = [];
+    const access = createAgentComputerWorkspaceAccess({
+      computerId: {} as DurableObjectId,
+      namespace: {
+        idFromName: vi.fn(),
+        get: () =>
+          ({
+            computerOperation: (request: CloudComputerOperation) => {
+              observed.push(request);
+              return Promise.resolve({
+                id: reference.id,
+                key: reference.key,
+                reference,
+                phase: observed.length === 1 ? "accepted" : "completed",
+                status: observed.length === 1 ? "running" : "completed",
+                exitCode: observed.length === 1 ? null : 17,
+                stdout: observed.length === 1 ? "" : "retained output",
+              });
+            },
+          }) as unknown as DurableObjectStub,
+      },
+    });
+    await expect(
+      access.computerOperation?.({
+        action: "command",
+        invocationId: reference.invocationId,
+        command: { action: "poll", key: reference.key, waitSeconds: 1 },
+      })
+    ).resolves.toMatchObject({
+      status: "completed",
+      exitCode: 17,
+      stdout: "retained output",
+    });
+    expect(observed).toHaveLength(2);
+    expect(observed[1]).toMatchObject({
+      invocationId: reference.invocationId,
+      command: { action: "poll", key: reference.key, reference },
+    });
+  });
 
   it("preserves historical audience addresses for cleanup", () => {
     const original = { ...context(), computerIsolationVersion: 2 as const };

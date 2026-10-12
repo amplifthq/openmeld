@@ -38,7 +38,7 @@ patchedDependencies:
     hash: a17b71a0ae3c0c484d6a40458c00fd006034b8082ff7a03e604e3745ed376fda
     path: patches/@better-auth__electron@1.6.30.patch
   '@cloudflare/computer@0.5.0':
-    hash: c9bf7d0609baa637cec0468b29c2b3c5725b4a7c8fb866e3622e6c62a2230e78
+    hash: 78b33fde7532d06ff10d472ee85243b4b466c2633862a1b193792fc6b26b16c0
     path: patches/@cloudflare__computer@0.5.0.patch
   '@flue/runtime@2.2.2':
     hash: cdefdd808ad2fb6131998f9b01bcfff6fdda0a972101287312f0fba8ca5cbe11
@@ -1891,7 +1891,7 @@ importers:
         version: 0.5.1(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(ai@6.0.219(zod@4.6.5))(zod@4.6.5)
       '@cloudflare/computer':
         specifier: 0.5.0
-        version: 0.5.0(patch_hash=c9bf7d0609baa637cec0468b29c2b3c5725b4a7c8fb866e3622e6c62a2230e78)(@cloudflare/workers-types@5.20261001.1)(ai@6.0.219(zod@4.6.5))(zod@4.6.5)
+        version: 0.5.0(patch_hash=78b33fde7532d06ff10d472ee85243b4b466c2633862a1b193792fc6b26b16c0)(@cloudflare/workers-types@5.20261001.1)(ai@6.0.219(zod@4.6.5))(zod@4.6.5)
       '@earendil-works/pi-ai':
         specifier: 0.87.1
         version: 0.87.1(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(ws@8.21.3)(zod@4.6.5)
@@ -16292,7 +16292,7 @@ snapshots:
       ai: 6.0.219(zod@4.6.5)
       zod: 4.6.5
 
-  '@cloudflare/computer@0.5.0(patch_hash=c9bf7d0609baa637cec0468b29c2b3c5725b4a7c8fb866e3622e6c62a2230e78)(@cloudflare/workers-types@5.20261001.1)(ai@6.0.219(zod@4.6.5))(zod@4.6.5)':
+  '@cloudflare/computer@0.5.0(patch_hash=78b33fde7532d06ff10d472ee85243b4b466c2633862a1b193792fc6b26b16c0)(@cloudflare/workers-types@5.20261001.1)(ai@6.0.219(zod@4.6.5))(zod@4.6.5)':
     dependencies:
       acorn: 8.18.0
       capnweb: 0.12.0(patch_hash=7f8f0dca8db0a032e037f83deff97aac1b9429e88c880b4cc9aa13d3d661a73a)
