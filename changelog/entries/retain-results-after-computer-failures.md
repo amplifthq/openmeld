@@ -13,6 +13,9 @@ across conversation rollover, without restarting uncertain operations.
 
 Interrupted reply delivery reuses the saved explanation and file references.
 Long responses continue to stream, and independent follow-up work can proceed.
+Background cleanup no longer replaces an already reviewed explanation with a
+generic failure. A command still being prepared keeps its original reference
+without being reported as a lost execution result.
 
 Computer synchronizes large directories in resumable steps, including deletions
 and restarts. Dependency files and user results keep their existing storage

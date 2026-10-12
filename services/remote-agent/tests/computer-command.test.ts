@@ -236,13 +236,44 @@ describe("retained Computer commands", () => {
       skipped: 0,
       complete: false,
     };
-    f.exec.mockRejectedValueOnce(new WorkspaceSyncPendingError(progress));
-    const start = await f
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    f.exec.mockImplementationOnce(async () => {
+      entered.resolve();
+      await release.promise;
+      throw new WorkspaceSyncPendingError(progress);
+    });
+    f.getExec.mockRejectedValue(
+      Object.assign(new Error("Native command has not been admitted"), {
+        code: "ENOENT",
+      })
+    );
+    const starting = f
       .tool()
       .execute({ action: "start", key: "prepared", command: "echo retained" });
+    await entered.promise;
+    try {
+      await expect(
+        f.tool().execute({ action: "poll", key: "prepared", waitSeconds: 0 })
+      ).resolves.toMatchObject({ phase: "launch_unknown", nextAction: "poll" });
+      await expect(
+        f.tool().execute({
+          action: "start",
+          key: "prepared",
+          command: "echo retained",
+        })
+      ).resolves.toMatchObject({ phase: "launch_unknown", nextAction: "poll" });
+      expect(f.exec).toHaveBeenCalledTimes(1);
+      expect(f.processes.size).toBe(0);
+    } finally {
+      release.resolve();
+      await starting;
+    }
+    const start = await starting;
     expect(start).toMatchObject({ phase: "accepted", nextAction: "poll" });
     expect(f.processes.size).toBe(0);
-    expect(f.getExec).not.toHaveBeenCalled();
+    expect(f.getExec).toHaveBeenCalledTimes(2);
+    f.getExec.mockReset();
     // Recreate the tool: only its persisted request authorizes the first spawn.
     await f.tool().execute({ action: "poll", key: "prepared", waitSeconds: 0 });
     expect(f.processes.size).toBe(1);
@@ -611,7 +642,7 @@ describe("retained Computer commands", () => {
     );
     await expect(
       f.tool().execute({ action: "poll", key: "publish", waitSeconds: 0 })
-    ).rejects.toMatchObject({ code: "computer.execution_result_unavailable" });
+    ).resolves.toMatchObject({ phase: "launch_unknown", nextAction: "poll" });
     const computer = {
       registerComputerInvocation: (owner: unknown) =>
         registerComputerInvocation(f.storage, owner),
@@ -663,6 +694,14 @@ describe("retained Computer commands", () => {
       "The saved report is retained. Publication is unconfirmed; I have not repeated it. Stop was requested, but termination is not confirmed.";
     provider.setResponses([
       fauxAssistantMessage("All publication work succeeded."),
+      (ctx) => {
+        expect(JSON.stringify(ctx.messages)).toContain(
+          "owned_commands_pending"
+        );
+        return fauxAssistantMessage(
+          "Publication is still unconfirmed. I cannot safely repeat it."
+        );
+      },
       (ctx) => {
         expect(JSON.stringify(ctx.messages)).toContain(
           "computer_result_incomplete"
@@ -797,8 +836,8 @@ describe("retained Computer commands", () => {
           {
             invocationId: original.submissionId,
             unfinished: 1,
-            pendingResults: 0,
-            unavailable: 1,
+            pendingResults: 1,
+            unavailable: 0,
             total: 1,
             commands: expect.any(Array),
           },
@@ -2552,14 +2591,21 @@ describe("retained Computer commands", () => {
         code: nativeCode,
       })
     );
-    await expect(
-      f
-        .tool()
-        .execute({ action: "poll", key: "retained", reference, waitSeconds: 0 })
-    ).rejects.toMatchObject({
-      code: "computer.execution_result_unavailable",
-      cause: { status: 404, code: "computer.execution_result_unavailable" },
-    });
+    const poll = f
+      .tool()
+      .execute({ action: "poll", key: "retained", reference, waitSeconds: 0 });
+    if (acknowledged) {
+      await expect(poll).rejects.toMatchObject({
+        code: "computer.execution_result_unavailable",
+        cause: { status: 404, code: "computer.execution_result_unavailable" },
+      });
+    } else {
+      await expect(poll).resolves.toMatchObject({
+        reference,
+        phase,
+        nextAction: "poll",
+      });
+    }
     await expect(
       f.tool().execute({ action: "list", includeReceiptDetails: true })
     ).resolves.toMatchObject([{ reference, phase }]);
