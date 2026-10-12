@@ -5,7 +5,11 @@ import {
   PostgresDatabase,
   type QueryConfig,
 } from "@openmeld/db/postgresql";
-import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/schemas";
+import {
+  HOSTED_CENTER_AGENT_CONTROLLER_REF,
+  HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
+  HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
+} from "@openmeld/schemas";
 import type {
   AuthRpcResolveProfileByIdResult,
   PluginActionRpcInput,
@@ -46,6 +50,8 @@ import { rpcPluginAction } from "../src/connectors/plugin-actions";
 import { createInboxService } from "../src/inbox/application/inbox-service";
 import { rpcGetInboxItem } from "../src/inbox/transport/rpc/inbox-rpc";
 import type { CoreBindings } from "../src/lib/bindings";
+import { rpcResolveProjectIssueAction } from "../src/projects/project-rpc";
+import { authorizeRemoteAgentExecutionAccess } from "../src/remote-agent/application/remote-agent-execution-access";
 import {
   markRemoteAgentNativeDeliveryAck,
   persistRemoteAgentWorkerSubmitRequest,
@@ -73,7 +79,7 @@ import { issueRuntimeCoordinatorExecutionToken } from "../src/runtime-transport/
 import { writeRuntimeCoordinatorTokenAuthorityToStorage } from "../src/runtime-transport/application/runtime-coordinator-storage";
 import type { RuntimeTransportHub } from "../src/runtime-transport/transport/do/runtime-transport-hub";
 import { deleteConversationHistoryForUser } from "../src/space/application/conversation-history";
-
+import { upsertSpaceMemberRecord } from "../src/space/infrastructure/sql/space-member-repo";
 import { upsertSpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
 import { insertSignalRecord } from "../src/space/infrastructure/sql/space-signal-repo";
 import type { Space } from "../src/space/transport/do/space";
@@ -528,6 +534,8 @@ describe("Project issue destination confirmation", () => {
     ["github", "explicit_request", "other_member"],
     ["github", "explicit_request", "agent_sender"],
     ["github", "explicit_request", "routine"],
+    ["github", "explicit_request", "membership_revoked"],
+    ["github", "explicit_request", "binding_disabled"],
   ] as const)("admits %s destinations with authority %s and verified request %s", async (service, issueDestinationAuthority, verifiedRequest) => {
     const f = await seedConnectorFixture();
     const center = await seedDesignatedCenterAgent(f);
@@ -590,10 +598,57 @@ describe("Project issue destination confirmation", () => {
       if (!delivery?.bindingId) {
         throw new Error("Missing issue request delivery");
       }
+      await db.query({
+        text: `INSERT INTO "openmeld"."openMeldDaemon_agent_profile_bindings" (
+          binding_id, owner_kind, owner_id, agent_profile_id,
+          openmeld_service_runtime_id, runtime_kind, hosted_runtime_identity_json,
+          agent_controller_ref, binding_state, created_at_ms, updated_at_ms
+        ) VALUES ($1, 'organization', $2, $3, $4, 'hosted_center_agent', $5, $6,
+          'enabled_primary', $7, $7)`,
+        values: [
+          delivery.bindingId,
+          f.organizationA,
+          center.profileId,
+          HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
+          JSON.stringify(HOSTED_CENTER_AGENT_RUNTIME_IDENTITY),
+          HOSTED_CENTER_AGENT_CONTROLLER_REF,
+          nowMs,
+        ],
+      });
       const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
       await runInDurableObject(
         namespace.get(namespace.idFromString(sourceSpaceId)),
         (_instance, state) => {
+          const now = new Date(nowMs).toISOString();
+          for (const [profileId, kind] of [
+            [f.ownerProfileId, "human"],
+            [center.profileId, "agent"],
+          ] as const) {
+            upsertSpaceMemberRecord(state.storage.sql, {
+              spaceId: sourceSpaceId,
+              profileId,
+              profileKindSnapshot: kind,
+              profileNameSnapshot: kind,
+              ownerUserIdSnapshot: kind === "human" ? f.ownerA : null,
+              ownerNameSnapshot: null,
+              controllerRefSnapshot:
+                kind === "agent" ? HOSTED_CENTER_AGENT_CONTROLLER_REF : null,
+              status: "active",
+              memberSource: "joined_directly",
+              addedAt: now,
+              removedAt: null,
+              addedByProfileId: null,
+              addedByOwnerUserId: null,
+              addedByDisplayNameSnapshot: null,
+              removedByProfileId: null,
+              removedByOwnerUserId: null,
+              removalReason: null,
+              firstEnteredAt: now,
+              lastEnteredAt: now,
+              createdAt: now,
+              updatedAt: now,
+            });
+          }
           insertSignalRecord(state.storage.sql, {
             v: 1,
             id: delivery.triggerMessageId,
@@ -625,10 +680,24 @@ describe("Project issue destination confirmation", () => {
           bindingId: delivery.bindingId,
           dispatchId: delivery.dispatchId,
           triggerMessageId: delivery.triggerMessageId,
+          author: {
+            profileId: f.ownerProfileId,
+            profileKind: "human",
+            displayName: "Requester",
+          },
           turnEnvelope: {
             ...defaults.turnEnvelope,
+            organization: {
+              ...defaults.turnEnvelope.organization,
+              id: f.organizationA,
+            },
+            space: { ...defaults.turnEnvelope.space, id: sourceSpaceId },
             ...(verifiedRequest === "routine"
-              ? { trigger: createRoutineTurnEnvelope().trigger }
+              ? {
+                  trigger: createRoutineTurnEnvelope({
+                    destination: { kind: "space", spaceId: sourceSpaceId },
+                  }).trigger,
+                }
               : {}),
             sender:
               verifiedRequest === "routine"
@@ -704,6 +773,69 @@ describe("Project issue destination confirmation", () => {
     await expect(
       rpcCenterAgentRecordConnectorActionOperation(core, proposal)
     ).rejects.toMatchObject({ code: "project.issue_target_required" });
+    if (
+      verifiedRequest === "membership_revoked" ||
+      verifiedRequest === "binding_disabled"
+    ) {
+      await expect(
+        authorizeRemoteAgentExecutionAccess(core, {
+          context: proposal.context,
+          submissionId,
+          effect: "write",
+        })
+      ).resolves.toMatchObject({ submissionId });
+      if (verifiedRequest === "membership_revoked") {
+        const namespace = core.OPENMELD_SPACES;
+        await runInDurableObject(
+          namespace.get(namespace.idFromString(sourceSpaceId)),
+          (_instance, state) => {
+            state.storage.sql.exec(
+              "UPDATE space_members SET status = 'removed', removed_at = ? WHERE profile_id = ?",
+              Date.now(),
+              f.ownerProfileId
+            );
+          }
+        );
+      } else {
+        await db.query({
+          text: `UPDATE "openmeld"."openMeldDaemon_agent_profile_bindings" SET binding_state = 'disabled_historical', disabled_at_ms = $1 WHERE agent_profile_id = $2`,
+          values: [Date.now(), center.profileId],
+        });
+      }
+      const reason =
+        verifiedRequest === "membership_revoked"
+          ? "remote_agent.space_membership_revoked"
+          : "remote_agent.execution_binding_changed";
+      await expect(
+        rpcResolveProjectIssueAction(core, {
+          context: proposal.context,
+          proposedDestination: issueDestination,
+        })
+      ).rejects.toThrow(reason);
+      await expect(
+        rpcCenterAgentRecordConnectorActionOperation(core, {
+          ...proposal,
+          issueDestination,
+        })
+      ).rejects.toThrow(reason);
+      for (const query of [
+        {
+          text: 'SELECT id FROM "openmeld"."center_agent_connector_action_operations" WHERE operation_id = $1',
+          values: [proposal.operationId],
+        },
+        {
+          text: 'SELECT id FROM "openmeld"."center_agent_audit_journal" WHERE resource_id = $1',
+          values: [`github:github.create_issue:${proposal.operationId}`],
+        },
+        {
+          text: 'SELECT id FROM "openmeld"."plugin_action_requests" WHERE operation_id = $1',
+          values: [proposal.operationId],
+        },
+      ]) {
+        expect((await db.query(query)).rows).toEqual([]);
+      }
+      return;
+    }
     if (verifiedRequest === true && issueDestinationAuthority) {
       await expect(
         rpcCenterAgentRecordConnectorActionOperation(core, {

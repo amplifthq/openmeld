@@ -2712,9 +2712,13 @@ proposed provider target to Core. GitHub issue and batch claims may also carry
 the verified interactive member's explicit authorization of that exact
 repository and issue-creation effect, interpreted from the complete conversation.
 Core rechecks the admitted active delivery, Organization, Agent, submission,
-verified Human sender and represented member. It admits that request without
-consulting optional Project metadata; current connection policy and provider
-repository permission remain enforced by their owners. An absent declaration,
+verified Human sender and represented member. Explicit requests also call the
+existing execution-access owner before admission, retaining its live Binding
+and source Space membership checks independently of Project routing. Retained
+delivery/sender evidence alone never replaces those current checks.
+Core admits that request without consulting optional Project metadata; current
+connection policy and provider repository permission remain enforced by their
+owners. An absent declaration,
 Routine, Agent sender, or missing/mismatched requester evidence cannot use this
 path. Inferred, incomplete, or conflicting destinations retain confirmation.
 The declaration is included in both the operation input digest and the immutable

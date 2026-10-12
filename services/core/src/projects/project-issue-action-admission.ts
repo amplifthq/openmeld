@@ -11,6 +11,7 @@ import {
 } from "../connectors/plugin-action-requests";
 import type { CoreBindings } from "../lib/bindings";
 import { isNativeDeliveryExecutingStatus } from "../remote-agent/application/native-delivery-execution-status";
+import { authorizeRemoteAgentExecutionAccess } from "../remote-agent/application/remote-agent-execution-access";
 import { readRemoteAgentNativeDeliveryByDeliveryId } from "../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import { projectIssueRoutingDecisionForClaim } from "./project-issue-action-routing";
@@ -72,6 +73,8 @@ export async function prepareProjectIssueActionAdmission(input: {
         "The complete issue destination must match its provider before a new operation is accepted.",
     });
   }
+  const explicitGitHubIssueRequest =
+    await authorizeExplicitGitHubIssueRequest(input);
   const requestAbsenceGuard = input.userId
     ? await preparePluginActionRequestAbsenceGuard({
         db: input.db,
@@ -84,7 +87,7 @@ export async function prepareProjectIssueActionAdmission(input: {
   // Once a request exists, neither a new declaration nor a Project edit can
   // replace its decision. Fresh direct/default claims guard absence atomically.
   if (requestAbsenceGuard !== null) {
-    if (await hasExplicitGitHubIssueRequest(input)) {
+    if (explicitGitHubIssueRequest) {
       return {
         executionGuard: requestAbsenceGuard,
         sourceRequestKey: input.sourceRequestKey,
@@ -162,7 +165,7 @@ export async function prepareProjectIssueActionAdmission(input: {
   };
 }
 
-async function hasExplicitGitHubIssueRequest(
+async function authorizeExplicitGitHubIssueRequest(
   input: Parameters<typeof prepareProjectIssueActionAdmission>[0]
 ): Promise<boolean> {
   if (
@@ -195,5 +198,11 @@ async function hasExplicitGitHubIssueRequest(
   }
   // Intent is interpreted semantically by the Agent. Core verifies the request
   // identity and existing decisions; Project metadata supplies neither fact.
+  // Explicit destinations skip Project routing, never current execution access.
+  await authorizeRemoteAgentExecutionAccess(input.env, {
+    context: input.context,
+    submissionId: input.context.agentControllerConversationId,
+    effect: "write",
+  });
   return true;
 }

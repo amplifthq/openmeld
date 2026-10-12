@@ -81,10 +81,10 @@ and optional Linear project. A verified interactive member's explicit request
 to create GitHub issues in a fully specified `owner/repo` can proceed through
 the named, catalog, or batch GitHub tool without a Project or repository link.
 The Agent interprets the complete conversation and declares explicit destination
-authority; Core verifies the active delivery's Human requester and current
-connection/write permission. Provider repository access remains enforced by
-the selected connection. Project repository metadata is a discovery hint, not
-authorization or a prerequisite for that request.
+authority; Core verifies the active delivery's Human requester, current Binding,
+source Space membership, and connection/write permission. Provider repository
+access remains enforced by the selected connection. Project repository metadata
+is a discovery hint, not authorization or a prerequisite for that request.
 
 Without explicit verified destination authority, supported issue-creation
 actions re-read the admitted operation and current Project configuration before
