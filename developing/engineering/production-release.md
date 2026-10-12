@@ -33,13 +33,13 @@ do not move it forward when continuing the same release.
 ```sh
 # Release the remaining affected components using the local environment.
 # CLI publication runs in its existing GitHub workflow and then continues.
-pnpm deploy -- --base <BASE>
+pnpm run deploy -- --base <BASE>
 
 # Use GitHub for supported components; no local production secrets needed.
-pnpm deploy -- --base <BASE> --lane github
+pnpm run deploy -- --base <BASE> --lane github
 
 # Release only the named component. The GitHub lane skips a current component.
-pnpm deploy -- --base <BASE> --scope web --lane github
+pnpm run deploy -- --base <BASE> --scope web --lane github
 
 # Read state without releasing anything.
 pnpm release:status -- --ref HEAD --change-base <BASE>
@@ -52,6 +52,15 @@ An interrupted command can be repeated at the same source and base: current
 components are skipped and active exact-source GitHub runs are followed.
 Failed runs stop the command. An uncertain dispatch is reported, never retried
 automatically. Use a current `gh` version that returns the created workflow URL.
+
+The command entry and reusable release controller have separate module
+boundaries. Status readers can import planning contracts without starting a
+release or waiting for a running command to finish. The complete compatibility
+graph also decides whether Core must precede CLI publication, including through
+another receiver such as Gateway. In that case both automatic and explicit
+Core stages deploy the approved source with the immutable currently published
+CLI projection. Preflight, verification, and deployment use that same decision;
+the CLI publisher owns activation of the new CLI projection afterward.
 
 The automatic command already checks completion from the component receipts.
 An explicit scope completes only those components, not the whole change.
@@ -1606,8 +1615,9 @@ OPENMELD_PRODUCTION_TRAIN_SCOPES=db,core pnpm run release:deploy:local -- --scop
 OPENMELD_PRODUCTION_TRAIN_SCOPES=cloud pnpm run deploy:cloud
 ```
 
-`pnpm deploy` is a short alias for the automatic local scoped release. Prefer
-the longer command in deployment reports because it makes the lane explicit.
+`pnpm run deploy` runs the automatic local scoped release. Include `run` because
+`pnpm deploy` is pnpm's package deployment command. Use
+`pnpm run release:deploy:local` in deployment reports to make the lane explicit.
 `pnpm run deploy:cloud` is the guarded alias for `--scope cloud`; it must not
 expand into raw per-component deploy scripts. The former `deploy:cloud:*` raw
 aliases are retired because they bypassed source validation, preflight, ordered
