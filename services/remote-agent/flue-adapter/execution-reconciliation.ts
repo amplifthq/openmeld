@@ -28,7 +28,10 @@ import {
 } from "../agent-core/terminal-callback-projection";
 import { createRemoteAgentTerminalFailureFact } from "../agent-core/terminal-failure";
 import { normalizeFluePromptUsage } from "../agent-core/usage";
-import { finishRemoteAgentComputerCommands } from "./execution-cleanup";
+import {
+  finishRemoteAgentComputerCommands,
+  retainTerminalComputerStop,
+} from "./execution-cleanup";
 
 export type FlueSubmissionLifecycle = Pick<
   AgentSubmissionProjection,
@@ -307,7 +310,7 @@ function normalizeTerminalMetadata(
 }
 
 async function projectRemoteAgentTerminalExecution(input: {
-  env?: RemoteAgentDiagnosticsEnv;
+  env?: RemoteAgentDiagnosticsEnv & { AGENT_COMPUTER?: unknown };
   coreWorker?: RemoteAgentCoreWorkerBinding;
   execution: Awaited<ReturnType<typeof completeRemoteAgentExecutionState>>;
   identity: RemoteAgentWorkerExecutionQuery;
@@ -325,6 +328,13 @@ async function projectRemoteAgentTerminalExecution(input: {
       input.identity.submissionId
     );
   }
+  await retainTerminalComputerStop({
+    ...input,
+    context: await readRemoteAgentCallbackContext(
+      input.storage,
+      input.identity.submissionId
+    ),
+  });
   const result = buildRemoteAgentTerminalCallbackResult({
     outcome,
     requestId: input.identity.submissionId,

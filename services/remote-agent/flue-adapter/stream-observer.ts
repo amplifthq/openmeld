@@ -45,7 +45,10 @@ import {
   type RemoteAgentConversationCompactionObserver,
   remoteAgentConversationCompactionObserver,
 } from "./conversation-compaction";
-import { finishRemoteAgentComputerCommands } from "./execution-cleanup";
+import {
+  finishRemoteAgentComputerCommands,
+  retainTerminalComputerStop,
+} from "./execution-cleanup";
 import { getRemoteAgentExecutionSubmissionId } from "./execution-context";
 import {
   extractAssistantText,
@@ -575,6 +578,7 @@ async function handleCenterAgentPromptCompletion(input: {
     });
     throw new RemoteAgentTerminalExecutionOwnerMissingError(submissionId);
   }
+  await retainTerminalComputerStop({ context: callbackContext, env, storage });
   const result = buildRemoteAgentTerminalCallbackResult({
     modelId: extractModelId(input.event),
     outcome,

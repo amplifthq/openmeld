@@ -814,6 +814,11 @@ enter the existing recovery-facts and cleanup handoff. Unknown read state does n
 Normal result publication and completed-result reconciliation only confirm
 Computer state; they cannot create a Stop obligation. Explicit cancellation,
 confirmed execution failure and existing Stop handoffs retain cleanup authority.
+The original execution retains a requested safety failure through terminal
+settlement. After the terminal compare-and-set, publication and crash recovery
+deliver any canonical cancellation or safety Stop intent before the callback.
+This closes the race with a late Stop without treating an observation error as
+Stop authority or adding a second execution owner.
 The hook
 persists that disposition with Flue's atomic hook state. Cleanup progress
 cannot upgrade an already blocked task to success.

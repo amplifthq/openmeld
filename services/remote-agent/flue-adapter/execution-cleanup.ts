@@ -9,6 +9,10 @@ import {
   readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
 import {
+  buildRemoteAgentExecutionIdentity,
+  hasRemoteAgentExecutionStopIntent,
+} from "../agent-core/execution-state";
+import {
   createRemoteAgentTerminalFailureFact,
   type RemoteAgentTerminalFailureFact,
 } from "../agent-core/terminal-failure";
@@ -22,6 +26,20 @@ import type { AgentComputer } from "./computer-workspace";
 const CLEANUP_PREFIX = "openmeld:remote-agent:computer-cleanup:";
 const FINISH_FACTS_PREFIX = "openmeld:remote-agent:computer-finish-facts:";
 const HANDOFF_ATTEMPTS = 8;
+
+// Call after terminal CAS and before publication, including crash recovery.
+// A cancellation can win the CAS after the finish observer last read state.
+export async function retainTerminalComputerStop(input: CleanupInput) {
+  if (
+    input.context &&
+    (await hasRemoteAgentExecutionStopIntent({
+      identity: buildRemoteAgentExecutionIdentity(input.context),
+      storage: input.storage,
+    }))
+  ) {
+    await requestComputerCleanup(input);
+  }
+}
 
 // This is a Stop delivery obligation, not a second process owner. Only the
 // Computer's original receipts establish execution/exit/synchronization.
