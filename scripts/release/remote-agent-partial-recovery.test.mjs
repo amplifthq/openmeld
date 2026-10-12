@@ -1,9 +1,16 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   executeProductionDeploySteps,
   executeWithProductionScopeLeases,
@@ -34,6 +41,115 @@ const LEASE_HELD = /lease held/u;
 const ROLLOUT_UNVERIFIED = /healthy container rollout/u;
 const RECEIPT_PUBLICATION_FAILED = /receipt publication failed/u;
 const SELECTOR_MISMATCH = /selectors do not match/u;
+const TARGET_BOUNDARY = /fixture target boundary reached/u;
+const PREFLIGHT_BLOCKED = /pnpm run failed: 19/u;
+
+test("recovery CLI reserves deployment preflight for recovery that deploys", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "openmeld-recovery-entry-"));
+  const git = (...args) =>
+    execFileSync("git", args, {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+  try {
+    git("init", "--quiet", "--initial-branch=main");
+    git("config", "user.name", "Release Test");
+    git("config", "user.email", "release-test@openmeld.ai");
+    writeFileSync(path.join(root, ".gitignore"), "node_modules/\n");
+    git("add", ".gitignore");
+    git("commit", "--quiet", "-m", "fixture");
+    git("remote", "add", "origin", root);
+    const sourceSha = git("rev-parse", "HEAD");
+    const capture = path.join(root, ".git", "preflight-call.json");
+    const preload = path.join(root, ".git", "command-boundary.mjs");
+    writeFileSync(
+      preload,
+      `
+import childProcess from "node:child_process";
+import { writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
+const original = childProcess.spawnSync;
+childProcess.spawnSync = (command, args, options) => {
+  if (command === "git") return original(command, args, options);
+  if (command === "pnpm" && args[0] === "run" && args[1] === "release:preflight:local") {
+    writeFileSync(${JSON.stringify(capture)}, JSON.stringify(args));
+    return { status: 19, stdout: null, stderr: null };
+  }
+  throw new Error("Unexpected external command: " + command);
+};
+syncBuiltinESMExports();
+`
+    );
+    // Stop at the next external boundary, before any lease or Cloudflare read.
+    // No Wrangler API response is fabricated; importing the target reader fails.
+    const target = path.join(root, "node_modules", "wrangler");
+    mkdirSync(target, { recursive: true });
+    writeFileSync(
+      path.join(target, "package.json"),
+      JSON.stringify({ main: "index.cjs" })
+    );
+    writeFileSync(
+      path.join(target, "index.cjs"),
+      'throw new Error("fixture target boundary reached");\n'
+    );
+    const selectors = [
+      "--source-dir",
+      root,
+      "--source-sha",
+      sourceSha,
+      "--attempt",
+      ATTEMPT,
+      "--expected-deployment",
+      DEPLOYMENT,
+      "--expected-worker-version",
+      VERSION,
+      "--container-id",
+      CONTAINER,
+      "--container-version",
+      "125",
+      "--container-image",
+      OLD_IMAGE,
+    ];
+    for (const verifyOnly of [true, false]) {
+      writeFileSync(capture, "null");
+      const result = spawnSync(
+        process.execPath,
+        [
+          "--import",
+          preload,
+          fileURLToPath(
+            new URL("./remote-agent-partial-recovery.mjs", import.meta.url)
+          ),
+          ...selectors,
+          ...(verifyOnly ? ["--verify-only", "true"] : []),
+        ],
+        { cwd: root, encoding: "utf8", timeout: 10_000 }
+      );
+      assert.equal(result.error, undefined);
+      assert.equal(result.status, 1);
+      const preflight = JSON.parse(readFileSync(capture, "utf8"));
+      if (verifyOnly) {
+        assert.equal(
+          preflight,
+          null,
+          "verification must not run deployment preflight"
+        );
+        assert.match(result.stderr, TARGET_BOUNDARY);
+      } else {
+        assert.equal(preflight[1], "release:preflight:local");
+        assert.match(result.stderr, PREFLIGHT_BLOCKED);
+        assert.doesNotMatch(
+          result.stderr,
+          TARGET_BOUNDARY,
+          "failed preflight must stop deployment recovery"
+        );
+      }
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("verification-only recovery requires exact original source, attempt, Worker and native baseline selectors", () => {
   const latest = {

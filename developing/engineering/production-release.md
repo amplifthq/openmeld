@@ -445,6 +445,10 @@ selectors refer to the original baseline in that receipt. The control checks
 the source, exact selectors and operation under the Remote Agent lease, then
 uses the same verification and receipt writer as guarded deploy. Keep the old
 source checkout intact. Never publish a locally created receipt commit by hand.
+Verification-only recovery does not run deployment preflight: it proves an
+already applied deployment under the existing identity and lease guards and
+introduces no new artifact or receiver; recovery that deploys still requires
+deployment preflight.
 
 For the specific Remote Agent Worker-first/container-image failure, current-main
 tooling provides `release:recover:remote-agent-partial`. It requires the clean
