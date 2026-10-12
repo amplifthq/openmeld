@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { readCutoverTarget } from "../../tooling/postgresql/remote-target.mjs";
 import { hasUnchangedCloudComputerRequests } from "./cloud-computer-request-compatibility.mjs";
 import {
@@ -1496,6 +1496,14 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
     input.taskInboxRetired,
     input.compatibilityContext
   );
+  const coreCurrentCliProjection =
+    input.coreCurrentCliProjection ??
+    resolveCoreCurrentCliProjection({
+      changedPaths: compatibilityChangedPaths,
+      context: input.compatibilityContext,
+      deployOrderProfile,
+      taskInboxRetired: input.taskInboxRetired,
+    });
   assertWakeProgressOptInDeployOrder(orderedScopes, changedPaths);
   assertSpaceHistoryQueryDeployOrder(orderedScopes, changedPaths);
   for (const scope of orderedScopes) {
@@ -1504,10 +1512,9 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
       databaseBackend: input.databaseBackend,
       databaseCutoverSnapshot: input.databaseCutoverSnapshot,
       coreReceiverFirst:
+        coreCurrentCliProjection ||
         isWorkingFolderRecoveryDiff(changedPaths) ||
         isLocalServiceRuntimeReceiverFirstDiff(changedPaths) ||
-        deployOrderProfile === "core-worker-response-reader-first" ||
-        deployOrderProfile === "remote-agent-receiver-first" ||
         isInboxSourceTargetReceiverFirstDiff(
           changedPaths,
           input.compatibilityContext
@@ -1528,6 +1535,31 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
     annotateReleaseScope(steps, steps.length - 1, "cli");
   }
   return steps;
+}
+
+function resolveCoreCurrentCliProjection(input) {
+  if (
+    input.deployOrderProfile === "core-worker-response-reader-first" ||
+    input.deployOrderProfile === "remote-agent-receiver-first"
+  ) {
+    return true;
+  }
+  const dependencies = resolveProductionCompatibilityDependencies(
+    input.changedPaths,
+    input.taskInboxRetired,
+    input.context
+  );
+  // Use the full contract graph even for a Core-only stage. CLI publication
+  // cannot own a receiver that must already be healthy before it can start.
+  const required = new Set(["cli"]);
+  for (const producer of required) {
+    for (const [receiver, dependent] of dependencies) {
+      if (dependent === producer) {
+        required.add(receiver);
+      }
+    }
+  }
+  return required.has("core");
 }
 
 export function buildCoreReceiverStepSpecs(releaseSha) {
@@ -3124,15 +3156,19 @@ export function buildProductionReleasePlan(input) {
     taskInboxRetired,
     compatibilityContext
   );
-  const coreCurrentCliProjection =
-    deployOrderProfile === "core-worker-response-reader-first" ||
-    deployOrderProfile === "remote-agent-receiver-first";
+  const coreCurrentCliProjection = resolveCoreCurrentCliProjection({
+    changedPaths: compatibilityChangedPaths,
+    context: compatibilityContext,
+    deployOrderProfile,
+    taskInboxRetired,
+  });
   return {
     ...describeProductionReleaseImpact(context),
     coreProjectionFromCli: scopes.includes("cli"),
     deployOrderProfile,
     deployScopeOrder,
     deploySteps: buildProductionDeployStepSpecs(scopes, {
+      coreCurrentCliProjection,
       databaseBackend: input.databaseBackend,
       databaseCutoverSnapshot: input.databaseCutoverSnapshot,
       compatibilityContext,
@@ -3843,7 +3879,7 @@ function isAutomaticContinuation(options) {
   );
 }
 
-async function main(argv) {
+export async function runProductionRelease(argv) {
   const options = {
     ...parseProductionReleaseArgs(argv),
     databaseBackend: "postgresql",
@@ -3885,7 +3921,13 @@ async function main(argv) {
             ]),
           ]);
         } else {
-          await main(["deploy", "--base", baseSha, "--scope", scope]);
+          await runProductionRelease([
+            "deploy",
+            "--base",
+            baseSha,
+            "--scope",
+            scope,
+          ]);
         }
         assertSourceStillMatches(sourceSha);
       },
@@ -4241,15 +4283,4 @@ function resolveCommandBinary(command) {
     return "pnpm.cmd";
   }
   return command;
-}
-
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
-  try {
-    await main(process.argv.slice(2));
-  } catch (error) {
-    process.stderr.write(
-      `${error instanceof Error ? error.message : String(error)}\n`
-    );
-    process.exitCode = 1;
-  }
 }
