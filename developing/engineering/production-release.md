@@ -326,7 +326,7 @@ live identity; admission does not promote the failed receipt. Cron restoration
 requires verified receipts and cannot use this health-resume path.
 
 For local recovery after a control-only fix, keep the approved product checkout
-clean and invoke the current-main `scripts/release/production-release.mjs` by
+clean and invoke the current-main `scripts/release/production-release-cli.mjs` by
 absolute path with the product checkout as the working directory. The executor
 honors each step's declared control interpreter, Node flags and arguments, and
 sets its verification root to the product source. Worker target resolution loads
