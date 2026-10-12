@@ -39,6 +39,9 @@ Every database has a durable epoch. A new peer epoch resets transfer cursors,
 not user files. Before dispatch, native shell execution synchronously checks
 the expected epoch and accepted input cursor. An explicit pre-dispatch rejection
 permits another preparation step; an uncertain dispatch never permits replay.
+Failed and lost sync targets remain diagnostic history. Only active targets
+participate in regression detection, so repeated checks of a replacement peer
+converge without clearing a historical failure or replaying its command.
 
 Each execution pins its accepted start cursor and its own settled output target.
 A shared transfer finishing another command's earlier target is insufficient.

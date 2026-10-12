@@ -91,6 +91,14 @@ durable transfer generations determine content retention. Namespace creation
 reserves deletion metadata before accepting new paths. Legacy preparation keeps
 reads available and refuses new mutations until its resumable pass completes.
 
+Synchronization reset detection uses the current peer identity, accepted cursors
+and active operation targets. A failed or lost operation is diagnostic history;
+its old target must not repeatedly invalidate a replacement peer or block new
+command admission. Reconciliation preserves that terminal diagnostic until the
+owning sync direction starts a new generation. Genuine peer replacement or
+accepted-cursor regression still invalidates the current admission attempt.
+This does not authorize replay of an earlier command or change its result fence.
+
 Worker-shell returns only after execution and provides no retained lookup. Its
 terminal output is kept with the Computer's existing command receipt. Atomic
 compare-and-set updates prevent cleanup from replacing a concurrent exit receipt.
