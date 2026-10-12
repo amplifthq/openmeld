@@ -20,3 +20,4 @@ skeletons for settings until live setup information is available.
 Plugin details put Connect or Connected beside Website. Select Connected to
 review the account and confirm disconnection. Agent access has a Save access
 button beside its heading, and credential setup stays available below.
+Each detail page also includes a short description of what the Plugin can do.

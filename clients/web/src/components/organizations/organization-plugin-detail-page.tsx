@@ -73,6 +73,9 @@ export function OrganizationPluginDetailPage(input: {
 						{action}
 					</div>
 				</div>
+				<p className="mt-4 max-w-2xl text-muted-foreground text-sm leading-6">
+					{input.plugin.description}
+				</p>
 			</section>
 			<PluginScopeTabs
 				isPersonalWorkspace={input.isPersonalWorkspace}
