@@ -289,6 +289,8 @@ class MissingComputerExecRecordError extends Error {
   }
 }
 
+class ComputerAdmissionDeclinedError extends Error {}
+
 function isCommandLoss(
   error: unknown
 ): error is Error & { code: "ENOENT" | "EEXEC_LOST" } {
@@ -590,6 +592,40 @@ function stopPreparedCommand(command: Command): Command {
     },
     collection: { unconfirmedAttempts: 0, nextAttemptAtMs: null },
   };
+}
+
+function resumeCommandPreparation(
+  command: Command,
+  claimed: boolean,
+  stopped: boolean
+): Command {
+  // A concurrent preparation page cannot release another call's dispatch
+  // claim. The owning call needs explicit SDK proof that it did not dispatch.
+  if (
+    isCommandComplete(command) ||
+    !command.preparation ||
+    (!claimed && command.launchRequestedAt !== undefined)
+  ) {
+    return command;
+  }
+  return stopPreparedCommand({
+    ...command,
+    launchRequestedAt: undefined,
+    ...(stopped ? { stopRequested: true } : {}),
+    collection: {
+      unconfirmedAttempts: 0,
+      nextAttemptAtMs: Date.now() + COLLECTION_INTERVAL_MS,
+    },
+  });
+}
+
+function isPreDispatchPending(
+  error: unknown
+): error is WorkspaceSyncPendingError {
+  return (
+    error instanceof WorkspaceSyncPendingError &&
+    error.progress.direction === "push"
+  );
 }
 
 function assertCommandMatches(command: Command, fingerprint: string) {
@@ -1156,30 +1192,16 @@ export function createComputerCommandTool(input: {
     observationSignal.throwIfAborted();
     return undefined;
   };
-  const launchCommand = async (
-    workspace: WorkspaceClient,
-    request: StartCommand,
-    command: Command,
-    observationSignal: AbortSignal,
-    userSignal?: AbortSignal
-  ): Promise<CommandResult> => {
-    // Persist identity before dispatch. An uncertain spawn must be inspected,
-    // never replayed: even a missing retained handle cannot prove no effect.
-    const stopped = await prepareCommandLaunch(
-      workspace,
-      request,
-      command,
-      observationSignal,
-      userSignal
-    );
-    if (stopped) {
-      return stopped;
-    }
+  const claimPreparedCommand = async (key: string, signal: AbortSignal) => {
+    signal.throwIfAborted();
+    await input.assertCanStart?.();
+    signal.throwIfAborted();
     let claimed = false;
     await updateCommand(
       input.storage,
-      `${prefix}${encodeURIComponent(command.key)}`,
+      `${prefix}${encodeURIComponent(key)}`,
       (current) => {
+        signal.throwIfAborted();
         claimed = false;
         if (
           current.launchRequestedAt !== undefined ||
@@ -1192,13 +1214,31 @@ export function createComputerCommandTool(input: {
         return { ...current, launchRequestedAt: Date.now() };
       }
     );
-    if (!claimed) {
-      return project(await read(command.key));
+    return claimed;
+  };
+  const launchCommand = async (
+    workspace: WorkspaceClient,
+    request: StartCommand,
+    command: Command,
+    observationSignal: AbortSignal,
+    userSignal?: AbortSignal
+  ): Promise<CommandResult> => {
+    // Identity is already durable. Preparation remains replay-safe until the
+    // SDK reaches its local native-dispatch boundary and calls admission.
+    const stopped = await prepareCommandLaunch(
+      workspace,
+      request,
+      command,
+      observationSignal,
+      userSignal
+    );
+    if (stopped) {
+      return stopped;
     }
-    observationSignal.throwIfAborted();
+    let claimed = false;
     let handle: WorkspaceRuntimeExecHandle<"utf8">;
     try {
-      handle = await workspace.runtime.exec(
+      handle = await workspace.runtime.execWithAdmission(
         command.backend === AGENT_COMPUTER_CONTAINER_BACKEND_ID
           ? buildComputerCommandProcess(request.command)
           : request.command,
@@ -1211,30 +1251,32 @@ export function createComputerCommandTool(input: {
           env: request.env,
           stdin: request.stdin,
           input: request.input,
+        },
+        async () => {
+          claimed = await claimPreparedCommand(command.key, observationSignal);
+          if (!claimed) {
+            throw new ComputerAdmissionDeclinedError();
+          }
         }
       );
     } catch (error) {
+      if (error instanceof ComputerAdmissionDeclinedError) {
+        return project(await read(command.key));
+      }
       // Only the SDK's local pre-dispatch owner can prove execution never
       // started. A timeout, remote error, or missing handle cannot clear this.
-      if (
-        !(error instanceof WorkspaceSyncPendingError) ||
-        error.progress.direction !== "push"
-      ) {
+      if (!isPreDispatchPending(error)) {
         throw error;
       }
       const preparing = await updateCommand(
         input.storage,
         `${prefix}${encodeURIComponent(command.key)}`,
         (current) =>
-          stopPreparedCommand({
-            ...current,
-            launchRequestedAt: undefined,
-            ...(userSignal?.aborted ? { stopRequested: true } : {}),
-            collection: {
-              unconfirmedAttempts: 0,
-              nextAttemptAtMs: Date.now() + COLLECTION_INTERVAL_MS,
-            },
-          })
+          resumeCommandPreparation(
+            current,
+            claimed,
+            userSignal?.aborted === true
+          )
       );
       await input.scheduleCollection?.();
       return project(preparing);
