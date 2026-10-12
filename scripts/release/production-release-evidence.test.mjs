@@ -43,6 +43,101 @@ const VERIFIED_APPLIED_EVENT = /"status":"verified","application":"applied"/u;
 const UNRESOLVED_DATABASE_ATTEMPT = /unresolved/u;
 const DATABASE_BASELINE_ERROR = /baseline/u;
 
+test("retained native release appends both stages to one correlated receipt history", () => {
+  const fixture = createGitFixture();
+  try {
+    const context = {
+      cwd: fixture.repository,
+      remote: fixture.remote,
+      scopes: ["remote-agent"],
+      sourceSha: fixture.sourceSha,
+    };
+    const worker = {
+      kind: "worker-deployment",
+      workerName: "openmeld-remote-agent-prod",
+      environment: "prod",
+      deploymentId: "worker-deployment",
+      versionId: "worker-version",
+      sourceSha: fixture.sourceSha,
+      proof: "command-output",
+    };
+    const stage = {
+      phase: "worker-only",
+      baselineEvidenceSha: "b".repeat(40),
+      baselineSourceSha: fixture.sourceSha,
+      container: {
+        id: "app",
+        name: "openmeld-agent-computer",
+        version: 124,
+        image: `registry.cloudflare.com/account/openmeld-agent-computer@sha256:${"d".repeat(64)}`,
+        configurationHash: "c".repeat(64),
+        instances: [{ id: "original-instance", version: 124 }],
+      },
+    };
+    const receipt = {
+      attemptId: "00000000-0000-4000-8000-000000000001",
+      componentIndex: 0,
+      operationKey: "a".repeat(64),
+      startedAt: "2026-01-01T00:00:00Z",
+      status: "started",
+      application: "unknown",
+      remoteAgent: stage,
+    };
+    const publish = (value) =>
+      publishGuardedLocalReleaseEvidence({
+        ...context,
+        receipts: { "remote-agent": value },
+      });
+    publish(receipt);
+    const retained = {
+      ...receipt,
+      status: "applied",
+      application: "applied",
+      identity: worker,
+      remoteAgent: { ...stage, phase: "retained", workerIdentity: worker },
+    };
+    publish(retained);
+    assert.throws(() =>
+      publish({
+        ...retained,
+        status: "verified",
+        remoteAgent: { ...retained.remoteAgent, phase: "complete" },
+      })
+    );
+    assert.throws(() =>
+      publish({ ...retained, status: "verified", remoteAgent: undefined })
+    );
+    const rollout = {
+      ...receipt,
+      remoteAgent: { ...retained.remoteAgent, phase: "rollout" },
+    };
+    publish(rollout);
+    const applied = {
+      ...rollout,
+      status: "applied",
+      application: "applied",
+      identity: {
+        ...worker,
+        versionId: "full-version",
+        deploymentId: "full-deployment",
+      },
+    };
+    publish(applied);
+    publish({
+      ...applied,
+      status: "verified",
+      remoteAgent: { ...applied.remoteAgent, phase: "complete" },
+    });
+    const result = readGuardedLocalReleaseSources(context).get("remote-agent");
+    assert.equal(result.receipt.status, "verified");
+    assert.equal(result.receipt.identity.versionId, "full-version");
+    assert.deepEqual(result.receipt.remoteAgent.container, stage.container);
+    assert.equal(result.receipt.attemptId, receipt.attemptId);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("publishes exact guarded local release sources for later status checks", () => {
   const fixture = createGitFixture();
   try {

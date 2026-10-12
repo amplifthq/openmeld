@@ -568,9 +568,24 @@ an already collected result. An exited process with unconfirmed file sync report
 `syncPending`; it must not be presented as completed. Infrastructure outages or
 container replacement can still prevent collection. Such uncertainty remains an
 explicit error, never an automatic replay or invented success.
-If synchronization loses its native record with `ENOENT` or `EEXEC_LOST`, the
-receipt preserves the known exit and output. It reports `syncError` and
-`nextAction: inspect`. The agent stops polling and inspects persistent files.
+After a durable exit, synchronization resumes from the SDK's original execution
+window, independently of native execution-log retention. Each observation moves
+at most one bounded pull block. Only a new persisted synchronization checkpoint
+resets the automatic observation budget. Accepted canonical data that covers the
+original target can confirm completion without reconnecting to the Computer.
+If interruption leaves the original window without a target, the command owner
+can attest its retained exit. The SDK then checks the original runtime and data
+epoch before fixing the first settled recovery target. This is a recovery
+horizon, not an exact exit-time snapshot. An existing target is never widened;
+a missing original window is never reconstructed.
+Loss of the original file source reports `syncError` and `nextAction: inspect`
+while preserving the known exit and output. A missing synchronization scope
+returns an explicit scope error; it cannot authorize completion or replay.
+The agent stops polling after a terminal sync error and inspects persistent
+files. An explicit poll can resume a
+historical `ENOENT` receipt when its original window remains available. It keeps
+the failure markers until authoritative synchronization evidence resolves them;
+it neither replays the command nor treats an unknown source as recoverable.
 The status stays `running` with `syncPending` for existing clients; it does not
 mean the process still runs. Cleanup never signals a command with an observed
 exit. Loss delivered to the model permits its final explanation to publish.
