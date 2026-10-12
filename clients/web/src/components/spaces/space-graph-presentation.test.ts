@@ -342,16 +342,31 @@ describe("buildSpaceGraphPresentation", () => {
 		);
 	});
 
-	it("updates an active Wake card from live progress", () => {
+	it.each([
+		false,
+		true,
+	])("updates an active Wake card from current progress over an older stream (pending input: %s)", (needsInput) => {
 		const source = buildTimelineItem({
 			actorProfileKind: "human",
 			id: "message-source",
 			wakeTargetProfileIds: ["profile-codex"],
 		});
 
+		const stream = buildTimelineItem({
+			id: "stream-codex",
+			actorProfileId: "profile-codex",
+			replyToSignalId: source.id,
+			wakeSourceSignalId: source.id,
+			agentStreamState: {
+				reasonCode: null,
+				sequence: 1,
+				status: "streaming",
+				streamId: "stream-codex",
+			},
+		});
 		const graph = buildSpaceGraphPresentation({
 			profileNamesById: new Map([["profile-codex", "Codex"]]),
-			timelineItems: [source],
+			timelineItems: [source, stream],
 			wakeProgressItems: [
 				{
 					clientMessageId: null,
@@ -363,6 +378,16 @@ describe("buildSpaceGraphPresentation", () => {
 					targetProfileId: "profile-codex",
 					terminal: false,
 					updatedAtMs: 2,
+					pendingInteraction: needsInput
+						? {
+								interactionId: "question",
+								kind: "question",
+								requestedAtMs: 1,
+								expiresAtMs: 100,
+								canRespond: false,
+								request: null,
+							}
+						: null,
 				},
 			],
 		});
@@ -370,7 +395,7 @@ describe("buildSpaceGraphPresentation", () => {
 		expect(graph.nodes).toContainEqual(
 			expect.objectContaining({
 				id: "wake:message-source:profile-codex",
-				status: "working",
+				status: needsInput ? "needs_input" : "working",
 			})
 		);
 	});

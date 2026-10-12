@@ -126,12 +126,12 @@ export function buildSpaceGraphPresentation(input: {
 				profilePresentation:
 					input.profilePresentationsById?.get(targetProfileId) ?? null,
 				sourceSignalId: item.id,
-				status:
-					result?.status ??
+				status: resolveGraphWakeStatus(
+					result?.status,
 					progressStatusByWakeKey.get(
 						buildWakeNodeKey(item.id, targetProfileId)
-					) ??
-					"requested",
+					)
+				),
 				targetProfileId,
 			};
 			nodes.push(wakeNode);
@@ -169,6 +169,17 @@ export function buildSpaceGraphPresentation(input: {
 		)
 	);
 	return { edges, nodes };
+}
+
+function resolveGraphWakeStatus(
+	result: SpaceGraphWakeStatus | undefined,
+	progress: SpaceGraphWakeStatus | undefined
+): SpaceGraphWakeStatus {
+	// Current owner progress supersedes a stream; a durable terminal outcome wins.
+	if (result && isTerminalWakeResult(result)) {
+		return result;
+	}
+	return progress ?? result ?? "requested";
 }
 
 function buildDeclaredDelegationEdges(

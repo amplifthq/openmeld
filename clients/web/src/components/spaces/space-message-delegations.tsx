@@ -110,6 +110,10 @@ function DelegatedTaskRow(
 	const child = input.child;
 	const status = delegatedTaskStatus(child);
 	const assignment = child.taskContext?.assignment;
+	const contextSummary =
+		assignment?.readStatus === "found"
+			? `${assignment.workspace === "isolated" ? "Isolated task folder" : "Current working folder"} · ${taskAccessLabel(child.taskContext)}`
+			: taskAccessLabel(child.taskContext);
 	return (
 		<li className="grid min-w-0 gap-2 border-border border-l-2 pl-3 text-sm">
 			<div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
@@ -132,20 +136,17 @@ function DelegatedTaskRow(
 					{child.taskPreview}
 				</p>
 			) : null}
-			{assignment?.readStatus === "found" ? (
-				<p className="text-muted-foreground">
-					{assignment.workspace === "isolated"
-						? "Isolated task folder"
-						: "Current working folder"}{" "}
-					· {taskAccessLabel(child.taskContext)}
-				</p>
+			{child.taskContext ? (
+				<p className="text-muted-foreground">{contextSummary}</p>
 			) : null}
 			{child.availability === "unavailable" ? (
 				<p className="text-muted-foreground">
 					This task is not available to view. Its result has not been assumed.
 				</p>
 			) : null}
-			{child.progress?.message && !child.outcome ? (
+			{child.progress?.message &&
+			!child.outcome &&
+			!child.progress.pendingInteraction ? (
 				<p className="text-muted-foreground">{child.progress.message}</p>
 			) : null}
 			<DelegatedTaskActions {...input} />
@@ -164,7 +165,7 @@ function DelegatedTaskActions(
 		return null;
 	}
 	let label = "Open task";
-	if (child.progress?.pendingInteraction) {
+	if (!child.outcome && child.progress?.pendingInteraction) {
 		label = child.progress.pendingInteraction.canRespond
 			? "Respond to pending input"
 			: "Open waiting task";
@@ -172,7 +173,7 @@ function DelegatedTaskActions(
 		child.outcome?.status === "failed" ||
 		child.outcome?.status === "publication_failed"
 	) {
-		label = "Open task and recovery";
+		label = "Open failed task";
 	}
 	return (
 		<div className="flex flex-wrap items-center gap-2">
