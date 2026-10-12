@@ -1452,6 +1452,7 @@ export async function recordConnectorActionOperation(input: {
   providerExecutionId: string | null;
   requestSignature: string;
   issueDestination?: CenterAgentRecordConnectorActionOperationBody["issueDestination"];
+  issueDestinationAuthority?: CenterAgentRecordConnectorActionOperationBody["issueDestinationAuthority"];
   linearIssueReceipt?: CenterAgentRecordConnectorActionOperationBody["linearIssueReceipt"];
   service: ConnectorService;
   toolContext: ConnectorToolContext;
@@ -1481,6 +1482,9 @@ export async function recordConnectorActionOperation(input: {
           requestSignature: input.requestSignature,
           ...(input.issueDestination
             ? { issueDestination: input.issueDestination }
+            : {}),
+          ...(input.issueDestinationAuthority
+            ? { issueDestinationAuthority: input.issueDestinationAuthority }
             : {}),
           ...(input.linearIssueReceipt
             ? { linearIssueReceipt: input.linearIssueReceipt }

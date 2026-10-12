@@ -187,6 +187,34 @@ function requestExecutionGuard(row: RequestRow): PluginRequestExecutionGuard {
   };
 }
 
+/** Check absence now and again in the operation claim; a later request owns consent. */
+export async function preparePluginActionRequestAbsenceGuard(input: {
+  db: PostgresDatabase;
+  organizationId: string;
+  userId: string;
+  actorProfileId: string;
+  operationId: string;
+}): Promise<PluginRequestExecutionGuard | null> {
+  const guard: PluginRequestExecutionGuard = {
+    sql: (
+      first
+    ) => `NOT EXISTS (SELECT 1 FROM "openmeld"."plugin_action_requests"
+      WHERE organization_id = $${first} AND user_id = $${first + 1}
+        AND actor_profile_id = $${first + 2} AND operation_id = $${first + 3})`,
+    bindings: [
+      input.organizationId,
+      input.userId,
+      input.actorProfileId,
+      input.operationId,
+    ],
+  };
+  const result = await input.db.query({
+    text: `SELECT 1 WHERE ${guard.sql(1)}`,
+    values: guard.bindings,
+  });
+  return result.rows.length > 0 ? guard : null;
+}
+
 /** Reads authority for a retained operation. It never creates a new request. */
 export async function readPluginActionRequestForOperation(input: {
   db: PostgresDatabase;

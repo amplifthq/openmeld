@@ -709,6 +709,85 @@ test("reports a remote full release as ready when push checks are green", async 
   assert.match(output, FULL_RELEASE_RECOMMENDATION_REGEX);
 });
 
+test("Worker-only receipts remain incomplete and expose only explicit native continuation", async () => {
+  let output = "";
+  const adapters = releaseStatusAdapters({
+    pushChecks: [
+      {
+        conclusion: "success",
+        event: "push",
+        status: "completed",
+        workflowName: "Push Guard",
+      },
+    ],
+  });
+  const identity = {
+    kind: "worker-deployment",
+    workerName: "openmeld-remote-agent-prod",
+    environment: "prod",
+    deploymentId: "deployment",
+    versionId: "version",
+    sourceSha: SOURCE_SHA,
+    proof: "command-output",
+  };
+  adapters.readLocalReleaseSources = async () =>
+    new Map([
+      [
+        "remote-agent",
+        {
+          sha: SOURCE_SHA,
+          source: "guarded-local",
+          recordedAt: "2026-07-15T21:00:00Z",
+          evidenceSha: "4".repeat(40),
+          receipt: {
+            attemptId: "00000000-0000-4000-8000-000000000001",
+            componentIndex: 0,
+            operationKey: "a".repeat(64),
+            startedAt: "2026-07-15T20:00:00Z",
+            status: "applied",
+            application: "applied",
+            identity,
+            remoteAgent: {
+              phase: "retained",
+              workerIdentity: identity,
+              baselineEvidenceSha: "5".repeat(40),
+              baselineSourceSha: GATEWAY_REMOTE_SHA,
+              container: {
+                id: "app",
+                name: "openmeld-agent-computer",
+                version: 124,
+                image: `registry.cloudflare.com/account/openmeld-agent-computer@sha256:${"d".repeat(64)}`,
+                configurationHash: "c".repeat(64),
+                instances: [{ id: "original-instance", version: 124 }],
+              },
+            },
+          },
+        },
+      ],
+    ]);
+  const code = await runProductionReleaseStatus({
+    adapters,
+    argv: [
+      "--ref",
+      "origin/main",
+      "--change-base",
+      CHANGE_BASE_SHA,
+      "--json",
+      "--check-complete",
+    ],
+    write: (value) => {
+      output += value;
+    },
+  });
+  const remote = JSON.parse(output).components.find(
+    (component) => component.scope === "remote-agent"
+  );
+  assert.equal(code, 1);
+  assert.equal(remote.state, "unknown");
+  assert.equal(remote.evidence.result, "applied");
+  assert.equal(remote.recovery.kind, "guarded-remote-container-continuation");
+});
+
 test("reports component source, version, artifact and result from a verified receipt", async () => {
   let output = "";
   const adapters = releaseStatusAdapters({

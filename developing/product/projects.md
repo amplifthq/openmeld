@@ -77,16 +77,30 @@ before its repository association list can be changed.
 ### Issue Destination
 
 One optional Project default names an exact GitHub repository or Linear team
-and optional Linear project. Supported OpenMeld-controlled issue-creation
+and optional Linear project. A verified interactive member's explicit request
+to create GitHub issues in a fully specified `owner/repo` can proceed through
+the named, catalog, or batch GitHub tool without a Project or repository link.
+The Agent interprets the complete conversation and declares explicit destination
+authority; Core verifies the active delivery's Human requester, current Binding,
+source Space membership, and connection/write permission. Provider repository
+access remains enforced by the selected connection. Project repository metadata
+is a discovery hint, not authorization or a prerequisite for that request.
+
+Without explicit verified destination authority, supported issue-creation
 actions re-read the admitted operation and current Project configuration before
 claiming a new provider operation. One complete, verified source Task Project
 association can select its exact configured default. Free text, repository URLs,
 provider names, and model arguments do not establish an override or select a
 Project for write authority. Missing, ambiguous or incomplete Task scope, and a
 different proposed destination, require an exact-target confirmation through
-the existing private Plugin request in the requester's Inbox. The confirmation
+the existing private Plugin request in the originating conversation or Inbox. The confirmation
 binds the actor, operation, account, complete target and input identity; it does
-not change the Project default. A later chat message is not that confirmation.
+not change the Project default. Once a confirmation request exists, a later
+authority declaration or Project default change cannot bypass its decision.
+New direct/default claims recheck request absence when claiming execution.
+A later chat message is not that confirmation. Approval reuses the original
+request continuation. A batch retry retains its original destination authority
+as part of the immutable input.
 Users do not need to type Linear UUIDs into their request. The Agent discovers
 the target and the requester reviews the concrete account and identifiers.
 No Task is required merely to create an issue: the same confirmation path works

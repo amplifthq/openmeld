@@ -1,3 +1,4 @@
+import { setTimeout as delay } from "node:timers/promises";
 import {
   type AgentFinishContext,
   useAgentFinish,
@@ -29,9 +30,12 @@ export type ComputerFinishState = {
   informed?: string;
 } | null;
 
+type ComputerFinishContext = Pick<AgentFinishContext, "append"> &
+  Partial<Pick<AgentFinishContext, "signal">>;
+
 export function useRemoteAgentExecutionFinish(
   check: (
-    finish: Pick<AgentFinishContext, "append">,
+    finish: ComputerFinishContext,
     state: ComputerFinishState,
     setState: (value: ComputerFinishState) => void
   ) => Promise<void>
@@ -51,47 +55,54 @@ export function useRemoteAgentExecutionFinish(
   );
 }
 
-// Append facts only before Flue settles. Never reopen a settled model turn.
-export async function checkRemoteAgentExecutionFinish(input: {
+type ComputerExecutionFinishInput = {
   context: RemoteAgentCallbackContext;
   storage: RemoteAgentStorage;
   env?: { AGENT_COMPUTER?: unknown };
-  finish: Pick<AgentFinishContext, "append">;
+  finish: ComputerFinishContext;
   finishState?: ComputerFinishState;
   setFinishState?: (state: ComputerFinishState) => void;
-}): Promise<void> {
-  await assertRemoteAgentExecutionCanContinue({
-    storage: input.storage,
-    identity: buildRemoteAgentExecutionIdentity(input.context),
-  });
-  try {
-    await assertRemoteAgentTurnAllowsToolExecution({
-      storage: input.storage,
-      submissionId: input.context.submissionId,
-    });
-  } catch (error) {
-    if (error instanceof RemoteAgentTurnEndedError) {
-      return;
-    }
-    throw error;
+};
+
+// Append facts only before Flue settles. Never reopen a settled model turn.
+export async function checkRemoteAgentExecutionFinish(
+  input: ComputerExecutionFinishInput
+): Promise<void> {
+  if (!(await canContinueComputerFinish(input))) {
+    return;
   }
-  let state: CloudComputerInvocationState | null;
-  try {
-    state = await readComputerFinishState(input);
-  } catch {
-    state = null;
-  }
+  let state = await readComputerFinishStateOrNull(input);
   const previous =
     input.finishState?.submissionId === input.context.submissionId
       ? input.finishState
       : null;
-  if (
-    state &&
-    state.unfinished === 0 &&
-    state.pendingResults === 0 &&
-    state.unavailable === 0 &&
-    !previous?.informed
-  ) {
+  if (previous?.pending && !previous.informed) {
+    // Keep this original, unsettled Flue turn alive while its Computer owner
+    // still observes real work. Each read is bounded; the owner advances the
+    // receipt on its alarm. Model finish count is not evidence of a failure.
+    // Abort/Stop remains authoritative. Ordinary queued input waits for this
+    // turn, just as it does while a model tool call is outstanding.
+    while (hasObservedComputerWork(state)) {
+      input.finish.signal?.throwIfAborted();
+      await delay(1000, undefined, { signal: input.finish.signal });
+      if (!(await canContinueComputerFinish(input))) {
+        return;
+      }
+      state = await readComputerFinishStateOrNull(input);
+    }
+    if (hasCompleteComputerResults(state)) {
+      // Persist this handoff with the appended facts, including when completion
+      // happened before this finish check. A later finish must not repeat it.
+      input.setFinishState?.(null);
+      input.finish.append({
+        kind: "signal",
+        type: "computer_results_ready",
+        body: `The original Computer commands have completed and their results are retained: ${JSON.stringify(state)}. Read the original command results and files, then answer from those results. Do not repeat the commands.`,
+      });
+      return;
+    }
+  }
+  if (hasCompleteComputerResults(state) && !previous?.informed) {
     return;
   }
   const fingerprint = computerFinishFingerprint(state);
@@ -111,7 +122,7 @@ export async function checkRemoteAgentExecutionFinish(input: {
     input.finish.append({
       kind: "signal",
       type: "owned_commands_pending",
-      body: `Computer commands still need their results collected: ${JSON.stringify(state)}. Poll these original references with bounded waits. Do not restart them. Separate saved results from unsynchronized files. Continue independent authorized work if useful. If these operations cannot make progress, explain the blocker and finish; the original Computer will retain Stop responsibility.`,
+      body: `Computer commands still need their results collected: ${JSON.stringify(state)}. Poll these original references with bounded waits. Preparation can continue before native execution starts; its checkpoint describes actual work, not a timeout. Do not restart commands or treat an unchanged accepted label as failure. Separate saved results from unsynchronized files. Continue independent authorized work if useful. Explain a confirmed blocker or paused observation; the original Computer retains recovery and Stop responsibility.`,
     });
     return;
   }
@@ -139,4 +150,66 @@ export async function checkRemoteAgentExecutionFinish(input: {
     type: "computer_result_incomplete",
     body: `Computer recovery facts: ${JSON.stringify({ stopHandoffAccepted: cleanup?.accepted ?? false, state })}. Do not claim unknown actions completed, unsynchronized files were saved, or an unconfirmed process stopped. Explain the confirmed results and their existing references, what is incomplete or unknown, and the next safe step. The original receipts retain cleanup responsibility. Do not restart an uncertain command or repeat an external write. Computer launches for this invocation are fenced after Stop. You may finish with a truthful blocked answer, or use independent authorized non-Computer tools. Do not poll indefinitely.`,
   });
+}
+
+async function canContinueComputerFinish(
+  input: Pick<ComputerExecutionFinishInput, "context" | "storage">
+): Promise<boolean> {
+  await assertRemoteAgentExecutionCanContinue({
+    storage: input.storage,
+    identity: buildRemoteAgentExecutionIdentity(input.context),
+  });
+  try {
+    await assertRemoteAgentTurnAllowsToolExecution({
+      storage: input.storage,
+      submissionId: input.context.submissionId,
+    });
+    return true;
+  } catch (error) {
+    if (error instanceof RemoteAgentTurnEndedError) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+async function readComputerFinishStateOrNull(
+  input: Parameters<typeof readComputerFinishState>[0]
+): Promise<CloudComputerInvocationState | null> {
+  try {
+    return await readComputerFinishState(input);
+  } catch {
+    return null;
+  }
+}
+
+function hasCompleteComputerResults(
+  state: CloudComputerInvocationState | null
+): boolean {
+  return Boolean(
+    state &&
+      state.unfinished === 0 &&
+      state.pendingResults === 0 &&
+      state.unavailable === 0
+  );
+}
+
+function hasObservedComputerWork(
+  state: CloudComputerInvocationState | null
+): boolean {
+  return Boolean(
+    state &&
+      state.unavailable === 0 &&
+      state.commands.some(
+        (command) =>
+          !(command.filesSynced || command.stopRequested) &&
+          (command.phase === "accepted" ||
+            command.phase === "launch_unknown" ||
+            command.phase === "running" ||
+            command.phase === "process_exited" ||
+            command.phase === "sync_pending") &&
+          (command.collection?.nextAttemptAtMs != null ||
+            (command.collection?.observationExpiresAtMs ?? 0) > Date.now())
+      )
+  );
 }
