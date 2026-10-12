@@ -121,8 +121,8 @@ export async function checkRemoteAgentExecutionFinish(input: {
   if (previous?.informed) {
     // Flue persists hook state and the appended facts in one canonical batch.
     // Reaching the next finish cycle proves the model processed that batch.
-    // Only the facts supplied to that model cycle were reviewed. Later
-    // progress may require controlled copy, but never another finish loop.
+    // Only the facts supplied to that model cycle were reviewed. Preserve
+    // their explanation independently of later cleanup progress.
     await reportComputerFinishFacts({
       ...input,
       state,

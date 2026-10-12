@@ -664,6 +664,36 @@ function hasLaunchEvidence(command: Command) {
   );
 }
 
+function hasUnconfirmedAdmission(command: Command) {
+  return Boolean(command.preparation && !hasLaunchEvidence(command));
+}
+
+function collectionAfterObservation(current: Command): Command {
+  if (
+    current.launchRequestedAt !== undefined &&
+    hasUnconfirmedAdmission(current)
+  ) {
+    // A missing native record during admission is still an unconfirmed check.
+    // Do not reset its bounded retry budget.
+    return current;
+  }
+  if (!(isCollectableCommand(current) || current.collection)) {
+    return current;
+  }
+  const collection = {
+    unconfirmedAttempts: 0,
+    nextAttemptAtMs: isCollectableCommand(current)
+      ? Date.now() +
+        (current.preparation || current.observation?.syncPending
+          ? SYNC_CONTINUATION_INTERVAL_MS
+          : COLLECTION_INTERVAL_MS)
+      : null,
+  };
+  return JSON.stringify(collection) === JSON.stringify(current.collection)
+    ? current
+    : { ...current, collection };
+}
+
 /** A native acknowledgement confirms signal delivery, never process exit.
  * Recheck the desired signal when recording it: an older acknowledgement
  * cannot acknowledge a newer request for the same command identity. */
@@ -742,7 +772,7 @@ export function createComputerCommandTool(input: {
   const project = (command: Command, after = 0): CommandResult => {
     const result = command.observation ?? command.terminalResult;
     if (!result) {
-      if (command.preparation && command.launchRequestedAt === undefined) {
+      if (command.preparation) {
         return {
           id: command.id,
           key: command.key,
@@ -968,6 +998,28 @@ export function createComputerCommandTool(input: {
     }
     return await saveObservation(command.key, result);
   };
+  const observeAdmission = async (
+    workspace: WorkspaceClient,
+    command: Command,
+    waitMs: number,
+    signal: AbortSignal
+  ) => {
+    try {
+      return await observe(workspace, command, waitMs, signal);
+    } catch (error) {
+      signal.throwIfAborted();
+      if (error instanceof MissingComputerExecRecordError) {
+        const current = await read(command.key);
+        if (hasUnconfirmedAdmission(current)) {
+          // Native admission may still be doing bounded pre-dispatch sync.
+          // Absence is not lost output or permission to clear the launch claim.
+          // Keep inspecting this identity, including after an uncertain launch.
+          return current;
+        }
+      }
+      throw error;
+    }
+  };
   const launchWasStopped = async (key: string, signal?: AbortSignal) =>
     Boolean((await read(key)).stopRequested || signal?.aborted);
   const observeWithPendingStop = async (
@@ -979,7 +1031,7 @@ export function createComputerCommandTool(input: {
     const deadline = Date.now() + waitMs;
     const current = await read(command.key);
     if (!current.stopRequested || hasCommandExited(current)) {
-      return await observe(workspace, current, waitMs, signal);
+      return await observeAdmission(workspace, current, waitMs, signal);
     }
     // Inspect queued exit evidence before signalling. A pending Stop should
     // not wait for a live process to produce output before its signal is sent.
@@ -1272,7 +1324,7 @@ export function createComputerCommandTool(input: {
               observationSignal,
               signal
             )
-          : observe(workspace, command, 1000, observationSignal).then(
+          : observeAdmission(workspace, command, 1000, observationSignal).then(
               (current) => project(current)
             ),
     });
@@ -1502,24 +1554,7 @@ export function createComputerCommandTool(input: {
           await updateCommand(
             input.storage,
             `${prefix}${encodeURIComponent(observed.key)}`,
-            (current) => {
-              if (!(isCollectableCommand(current) || current.collection)) {
-                return current;
-              }
-              const collection = {
-                unconfirmedAttempts: 0,
-                nextAttemptAtMs: isCollectableCommand(current)
-                  ? Date.now() +
-                    (current.preparation || current.observation?.syncPending
-                      ? SYNC_CONTINUATION_INTERVAL_MS
-                      : COLLECTION_INTERVAL_MS)
-                  : null,
-              };
-              return JSON.stringify(collection) ===
-                JSON.stringify(current.collection)
-                ? current
-                : { ...current, collection };
-            }
+            collectionAfterObservation
           );
           if (source === "tool" && isCollectableCommand(observed)) {
             await input.scheduleCollection?.();
