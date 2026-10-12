@@ -3,6 +3,7 @@ import test from "node:test";
 import { productionComponentReceiptSchema } from "../../packages/schemas/src/schemas/release/production-release-evidence.ts";
 import {
   cliProjectionResult,
+  FIXTURE_DEPLOYMENT,
   fixtureWorkerTarget,
   workerDeploymentResponse,
   writeDeploymentOutput,
@@ -30,6 +31,7 @@ const ATTEMPT = "00000000-0000-4000-8000-000000000001";
 const WORKER_VERSION = "23863082-db0f-4cfe-a91b-69c570ee1578";
 const CLI_ARTIFACT_SHA = "b".repeat(64);
 const FAILURE = /fixture failure|persist|boundary|Worker|completion|executor/u;
+const NATIVE_DRIFT = /native drift/u;
 
 function fixture(options = {}) {
   const receipts = [],
@@ -64,6 +66,9 @@ function fixture(options = {}) {
       execute: () =>
         executeRecordedProductionDeploySteps({
           sourceSha: options.sourceSha ?? SOURCE,
+          retainContainers: options.retainContainers,
+          readRetainedContainer: options.readRetainedContainer,
+          verifyNativeCompletion: options.verifyNativeCompletion,
           attemptId: options.attemptId ?? ATTEMPT,
           sourceIsAncestor: options.sourceIsAncestor,
           compareGitPathContents: options.compareGitPathContents,
@@ -154,7 +159,98 @@ function fixture(options = {}) {
           write: () => undefined,
         }),
     });
-  return { run, receipts, effects, latest, released };
+  return { run, receipts, effects, latest, released, sources };
+}
+
+for (const workerDriftAfterNative of [false, true]) {
+  test(`Worker-only release retains native provenance through explicit rollout (late Worker drift: ${workerDriftAfterNative})`, async () => {
+    const native = {
+      id: "app",
+      name: "openmeld-agent-computer",
+      version: 124,
+      image: `registry.cloudflare.com/account/openmeld-agent-computer@sha256:${"d".repeat(64)}`,
+      configurationHash: "c".repeat(64),
+      instances: [{ id: "original-instance", version: 124 }],
+    };
+    let nativeChecks = 0;
+    const options = {
+      scopes: ["remote-agent"],
+      evidenceSha: "e".repeat(40),
+      retainContainers: true,
+      steps: buildProductionDeployStepSpecs(["remote-agent"], {
+        retainContainers: true,
+      }),
+      readRetainedContainer: (_input, expected) => {
+        if (expected) {
+          assert.deepEqual(expected, native);
+        }
+        return native;
+      },
+      verifyNativeCompletion: (_input, retained, identity) => {
+        assert.deepEqual(retained, native);
+        assert.equal(identity.sourceSha, SOURCE);
+        nativeChecks += 1;
+        options.identityFailure = workerDriftAfterNative;
+      },
+    };
+    const result = fixture(options);
+    result.latest.set("remote-agent", {
+      attemptId: "00000000-0000-4000-8000-000000000002",
+      componentIndex: 0,
+      operationKey: "f".repeat(64),
+      startedAt: "2026-01-01T00:00:00Z",
+      status: "verified",
+      application: "applied",
+      identity: {
+        kind: "worker-deployment",
+        workerName: "openmeld-remote-agent-prod",
+        environment: "prod",
+        deploymentId: FIXTURE_DEPLOYMENT,
+        versionId: WORKER_VERSION,
+        sourceSha: "b".repeat(40),
+        proof: "command-output",
+      },
+    });
+    result.sources.set("remote-agent", "b".repeat(40));
+    await result.run();
+    const partial = result.latest.get("remote-agent");
+    assert.equal(partial.status, "applied");
+    assert.equal(partial.remoteAgent.phase, "retained");
+    assert.deepEqual(partial.remoteAgent.container, native);
+    assert.equal(partial.remoteAgent.baselineSourceSha, "b".repeat(40));
+    assert.equal(nativeChecks, 0);
+    const effects = result.effects.length;
+    await result.run();
+    assert.equal(
+      result.effects.length,
+      effects,
+      "repeated Worker-only release must not deploy again"
+    );
+    options.readRetainedContainer = () => {
+      throw new Error("native drift");
+    };
+    options.retainContainers = false;
+    options.steps = buildProductionDeployStepSpecs(["remote-agent"]);
+    await assert.rejects(result.run, NATIVE_DRIFT);
+    assert.equal(result.effects.length, effects);
+    options.readRetainedContainer = () => native;
+    if (workerDriftAfterNative) {
+      await assert.rejects(result.run, IDENTITY_ERROR);
+      assert.equal(result.latest.get("remote-agent").status, "failed");
+      assert.equal(nativeChecks, 1);
+      return;
+    }
+    await result.run();
+    const complete = result.latest.get("remote-agent");
+    assert.equal(complete.status, "verified");
+    assert.equal(complete.remoteAgent.phase, "complete");
+    assert.equal(complete.attemptId, partial.attemptId);
+    assert.equal(complete.operationKey, partial.operationKey);
+    assert.equal(nativeChecks, 1);
+    assert.throws(() =>
+      productionComponentReceiptSchema.parse({ ...partial, status: "verified" })
+    );
+  });
 }
 
 test("keeps verified components visible when a later component fails, with all leases released", async () => {

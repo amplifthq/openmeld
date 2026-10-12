@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-12T05:09:33.501Z",
+  "updatedAt": "2026-10-12T06:38:04.801Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-project-work-v1",
       "packageVersion": "0.3.255",
       "updatePolicy": "available",
-      "reason": "Additive Computer start and poll diagnostics preserve existing requests and old CLI response parsing; public list and collection shapes remain unchanged."
+      "reason": "Computer recovery preserves existing command response shapes; current CLI versions remain compatible with both cloud versions."
     },
     "service": {
-      "bundleHash": "328dd89e8265efd7e257d23c7d2150ca613e316ed1f77ea30796c429e7e7fe30",
-      "portableBundleHash": "47d14e312dfd61814bad9eaeb3220000ed00fdbbbd0ce491c74bf977157d7074",
+      "bundleHash": "e861442c01226c9164571ba84f21d92c5809e42c3d4d8ba0c1adedfb101b64dc",
+      "portableBundleHash": "dec87db74603cbe27856e2683d392592d74d3dc3e51c1b31176fd022f5d42415",
       "bundleVersion": "0.3.255",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
       "serviceContractVersion": "openmeld-service-contract-2026-09-project-work-v1",
       "updatePolicy": "available",
-      "reason": "Shared schema and SDK lockfile changes rebuild the carrier without changing Service runtime contracts; old and new local and cloud versions interoperate and existing floors remain valid."
+      "reason": "No Service transport or execution contract changes; existing Services can continue setup, Wake, Space actions and diagnostics safely."
     },
     "skills": {
       "bundleHash": "0507d367ef298936053223f81441697545949fbf4d39b1b306872f7c254a4871",

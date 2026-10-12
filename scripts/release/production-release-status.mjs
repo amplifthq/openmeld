@@ -502,6 +502,12 @@ function componentImpactCacheKey(sha, scope) {
   return ["website", "docs"].includes(scope) ? `${sha}:${scope}` : sha;
 }
 
+function recoveryGuidance(recovery) {
+  return recovery.kind === "guarded-remote-container-continuation"
+    ? "Remote Agent Worker applied; original Containers retained and native rollout pending. Verify original file synchronization before explicitly continuing the full Remote Agent stage."
+    : "Retained evidence permits guarded recovery admission. The executor must still verify the exact operation and live deployment before continuing the retained attempt.";
+}
+
 function describeReleaseComponent(input) {
   const { releaseSource, scope, history, plansByBase, adapters, sourceSha } =
     input;
@@ -549,10 +555,7 @@ function describeReleaseComponent(input) {
       }
     );
     if (recovery) {
-      return unknown(
-        "Retained evidence permits guarded recovery admission. The executor must still verify the exact operation and live deployment before continuing the retained attempt.",
-        { recovery }
-      );
+      return unknown(recoveryGuidance(recovery), { recovery });
     }
     const guidance =
       receipt.application === "applied" && receipt.identity

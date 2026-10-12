@@ -290,6 +290,12 @@ try {
       smallFiles: data.smallFiles,
       largeBytes: data.largeBytes,
       bytesVerified: data.bytesVerified,
+      executionId: data.executionId,
+      executionCount: data.executionCount,
+      originalExitCode: data.nativeResult?.exitCode,
+      nativeLogMissing: data.nativeLogMissing,
+      resumeSteps: data.resumeSteps,
+      originalResultVerified: data.originalResultVerified,
     };
   } else if (mode === "bounded") {
     summary = {
@@ -331,6 +337,16 @@ try {
         data.largeBytes === 10 * 1024 * 1024 &&
         data.bytesVerified,
       "Native object bytes were not verified"
+    );
+    assert(
+      data.executionCount === 1 &&
+        data.originalResultVerified &&
+        data.nativeResult?.exitCode === 17 &&
+        data.nativeLogMissing?.code === "ENOENT" &&
+        data.resumeSteps >= 2 &&
+        data.syncOutcome &&
+        !data.syncOutcome.error,
+      "Original command result did not survive native log disposal and cold sync resumption"
     );
   } else if (mode === "bounded") {
     assert(
