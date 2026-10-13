@@ -62,6 +62,34 @@ that maintenance finishes. Pending executions retain their necessary journal.
 `MOUNT_IGNORE` is not enabled. Dependencies and user files retain their existing
 storage semantics. Excluding a directory from FUSE is not an equivalent fix.
 
+## Preparation timing
+
+AgentComputer enables the existing SDK `sync.block` log for execution
+preparation as well as public synchronization. Preparation records carry
+`purpose: execution-preparation`, generation, phase, opaque checkpoint,
+block entry/byte counts and accepted revision cursors. Revision values are not
+file counts. Failed blocks omit unconfirmed progress and retain `failedStage`;
+logging failures cannot change the sync result or its original exception.
+
+Each block reports `startedAtMs` and `finishedAtMs` for correlation, monotonic
+`blockMs`, and scalar elapsed intervals: `watermarksMs`, `retentionMs`,
+`prepareMs`, `planMs`, `hasObjectsMs`, `pushObjectsMs`, `pushEntriesMs`,
+`importAckMs`, `cleanupMs` and `localMs`. Counts include `preparationReads`,
+`plannedEntries`, `plannedObjects` and successfully acknowledged `stagedObjects`.
+The existing log owner emits one record per driven block, with no file paths,
+contents, commands, credentials, new durable statistics or RPC fields.
+
+Use one Computer and generation to separate active blocks from gaps between
+blocks, then compare the stage intervals. Keep the platform invocation wall/CPU
+measurements alongside these records. Production Workers timers advance only
+after I/O, so synchronous planning can report zero and its elapsed work can be
+charged to the next I/O interval. These are observations, not SQL CPU profiles
+or isolated network RTTs. CPU headroom is omitted unless the host supplies an
+actual CPU measurement. See the [Workers timer contract](https://developers.cloudflare.com/workers/runtime-apis/performance/).
+Query sampling or missing records prevents an exact gap or total calculation.
+Object-transfer time includes streaming and receiver writes; it does not
+separate native stream waits from individual SQLite commits.
+
 ## Imported-file confirmation
 
 An import receipt avoids reverse enumeration only after proving that the
