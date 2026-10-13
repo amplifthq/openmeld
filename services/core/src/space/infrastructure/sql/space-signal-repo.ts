@@ -1,6 +1,8 @@
 import type { SignalEnvelope } from "@openmeld/protocol";
 import {
   parseOptionalClientMessageId,
+  SPACE_MEMBER_JOIN_NOTICE_PURPOSE,
+  SPACE_MEMBER_REMOVE_NOTICE_PURPOSE,
   signalEnvelopeSchema,
 } from "@openmeld/schemas";
 import { isFinalOutcomeTextPurpose } from "../../rules/dispatch/space-final-outcome";
@@ -601,6 +603,10 @@ export const readAgentReplyObservationState = (
                 json_extract(candidate.payload_json, '$.data.meta.transient'),
                 0
               ) != 1
+              AND COALESCE(
+                json_extract(candidate.payload_json, '$.data.meta.purpose'),
+                ''
+              ) NOT IN (?, ?)
               AND (
                 (
                   ? IS NULL
@@ -622,6 +628,8 @@ export const readAgentReplyObservationState = (
       threadId,
       threadId,
       threadId,
+      SPACE_MEMBER_JOIN_NOTICE_PURPOSE,
+      SPACE_MEMBER_REMOVE_NOTICE_PURPOSE,
       threadId,
       threadId,
       threadId

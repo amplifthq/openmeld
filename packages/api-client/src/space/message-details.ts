@@ -9,10 +9,18 @@ export async function getSpaceMessageDetails(
   input: SpaceRequestInput & {
     signalId: string;
     executionContextVersion?: 1;
+    delegationVersion?: 1;
+    delegationCursor?: string;
   }
 ): Promise<GetSpaceMessageDetailsResponse> {
   const searchParams = new URLSearchParams();
   searchParams.set("signalId", input.signalId);
+  if (input.delegationVersion === 1) {
+    searchParams.set("delegationVersion", "1");
+  }
+  if (input.delegationCursor) {
+    searchParams.set("delegationCursor", input.delegationCursor);
+  }
   if (input.executionContextVersion === 1) {
     searchParams.set("executionContextVersion", "1");
   }

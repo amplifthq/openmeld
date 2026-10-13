@@ -2217,6 +2217,26 @@ than direct table access.
 
 ## Agent Task Coordination
 
+### Originating-message delegation reads
+
+Message Details can opt in to the declared delegation projection. The source
+message passes the ordinary Space read boundary before any coordination read.
+Native delivery owns the mapping from an exact Space/source signal to its
+delivery identities, including later continuation turns. Agent Task Coordination
+reads only delegations with those exact parent Task Handles and matching
+Organizations, using its existing records and keyset pagination. This adds no
+execution writer, relational table, or inferred relationship.
+
+Each child uses the owning Space's current Wake progress and Message Details
+read contracts. The reader reauthorizes source and result messages separately,
+preserves owner-redacted context/input, and does not forward another Space's
+password or continuation grant. Unavailable children expose no content or
+locators; transient read errors remain errors. Planned, unactivated targets
+use the authorized Space identity directory for their name only. Terminal
+coordination observations retain their original outcome even if another child
+succeeds. Execution/publication state is never derived from Agent presence or
+the delegation's active flag.
+
 Core owns the coordination records that connect one exact Agent task to a later
 continuation. The shared `AgentTaskHandle` identifies an execution in its owning
 domain:

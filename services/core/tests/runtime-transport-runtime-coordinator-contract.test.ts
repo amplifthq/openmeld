@@ -14881,6 +14881,107 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
   });
 
+  it("keeps Wake Stop authoritative when pending-input cancellation finishes before control delivery", async () => {
+    const reportGate = Promise.withResolvers<void>();
+    const reportStarted = Promise.withResolvers<void>();
+    const {
+      hub,
+      recordingPostgres,
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+      spaceStub,
+      waitUntilTasks,
+    } = await createHarness({
+      agentControllerReportReadGate: reportGate.promise,
+      agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
+      onAgentControllerReportRead: reportStarted.resolve,
+    });
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+    enableWakeStopControl(state);
+    enableLocalAgentInteraction(state);
+    const interactionHub = hub as unknown as {
+      handleDispatchInteractionRequestFrame: (
+        socket: WebSocket,
+        payload: unknown
+      ) => Promise<void>;
+      handleDispatchInteractionDeliveredFrame: (
+        socket: WebSocket,
+        payload: unknown
+      ) => Promise<void>;
+      handleDispatchResultFrame: (
+        socket: WebSocket,
+        payload: unknown
+      ) => Promise<void>;
+    };
+    await interactionHub.handleDispatchInteractionRequestFrame(
+      socket,
+      buildInteractionRequest(executionToken)
+    );
+    const stop = requestRuntimeCoordinatorWakeStop(hub);
+    try {
+      await reportStarted.promise;
+      expect(sentFrames).toContainEqual(
+        expect.objectContaining({
+          code: "daemon.dispatch.interaction_response",
+          payload: expect.objectContaining({ response: { kind: "cancel" } }),
+        })
+      );
+      await interactionHub.handleDispatchInteractionDeliveredFrame(
+        socket,
+        buildInteractionDeliveredRequest(executionToken)
+      );
+      expect(
+        findRuntimeCoordinatorRunCommandState(storageRecords)
+      ).toMatchObject({
+        lastCommandReasonCode: "runtime_coordinator.wake_stop_requested",
+        pendingInteraction: null,
+      });
+      const result = buildResultRequest({
+        executionTokenEcho: buildExecutionTokenEcho(executionToken),
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        taskResult: buildFailedVisibleTaskResult(),
+      });
+      if (result.taskResult.payload.status !== "failed") {
+        throw new Error("Expected the captured cancellation failure shape.");
+      }
+      result.taskResult.payload.errorCode = "interaction.cancelled";
+      result.taskResult.payload.errorMessage =
+        "The local agent request was cancelled before Codex received an answer.";
+      await interactionHub.handleDispatchResultFrame(socket, result);
+      await Promise.all(waitUntilTasks.splice(0));
+      expect(sentFrames).toContainEqual(
+        expect.objectContaining({
+          code: "daemon.dispatch.accepted",
+          payload: expect.objectContaining({ ok: true }),
+        })
+      );
+      expect(
+        await recordingPostgres.projectionRows.get(
+          RUNTIME_COORDINATOR_EXECUTION_ID
+        )
+      ).toMatchObject({
+        status: "cancelled",
+      });
+      expect(
+        spaceStub.rpcApplyRuntimeCoordinatorWakeStopCommand
+      ).toHaveBeenCalled();
+      expect(
+        spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand
+      ).not.toHaveBeenCalled();
+    } finally {
+      reportGate.resolve();
+      await stop;
+      await Promise.all(waitUntilTasks.splice(0));
+    }
+  });
+
   it("suppresses a success reply when it arrives after Wake Stop is requested before reply finalization", async () => {
     const {
       appliedFinalizationCommands,

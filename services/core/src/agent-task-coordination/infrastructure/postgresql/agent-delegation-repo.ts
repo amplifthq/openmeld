@@ -243,6 +243,51 @@ export async function readAgentDelegation(input: {
     .then((result) => result.rows[0] ?? null);
   return row ? await mapDelegationRow(input.db, row) : null;
 }
+
+/** A read projection over declared relations; never infers children from messages. */
+export async function listAgentDelegationsByParentTasks(input: {
+  db: PostgresDatabase;
+  parents: Array<{ organizationId: string; task: AgentTaskHandle }>;
+  after?: string;
+}): Promise<{ records: AgentDelegationRecord[]; nextCursor: string | null }> {
+  if (input.parents.length === 0) {
+    return { records: [], nextCursor: null };
+  }
+  const rows = await input.db.query<AgentDelegationRow>({
+    text: `
+      SELECT delegation.*
+      FROM "openmeld"."agent_delegations" AS delegation
+      WHERE EXISTS (
+        SELECT 1 FROM jsonb_to_recordset($1::jsonb)
+          AS parent(organization_id text, task_key text)
+        WHERE parent.organization_id = delegation.organization_id
+          AND parent.task_key = delegation.parent_task_key
+      )
+      AND ($2::text IS NULL OR delegation.delegation_id > $2)
+      ORDER BY delegation.delegation_id
+      LIMIT 11
+    `,
+    values: [
+      JSON.stringify(
+        input.parents.map((parent) => ({
+          organization_id: parent.organizationId,
+          task_key: buildAgentTaskKey(parent.task),
+        }))
+      ),
+      input.after ?? null,
+    ],
+  });
+  const selected = rows.rows.slice(0, 10);
+  const records: AgentDelegationRecord[] = [];
+  for (const row of selected) {
+    records.push(await mapDelegationRow(input.db, row));
+  }
+  return {
+    records,
+    nextCursor:
+      rows.rows.length > 10 ? (selected.at(-1)?.delegation_id ?? null) : null,
+  };
+}
 export async function readAgentDelegationByChildTask(input: {
   db: PostgresDatabase;
   task: AgentTaskHandle;
