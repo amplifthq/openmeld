@@ -1,5 +1,9 @@
 # Control Plane image releases
 
+Automatic image publication is retired. CI still builds and checks the image,
+but no workflow publishes it to GHCR. The publication procedure below is kept
+as a historical reference. Existing published images are unchanged.
+
 The Control Plane image contains HTTP, durable jobs, migrations, and bootstrap
 commands. Deployment wrappers consume this image; they must not copy application
 code or SQL. The first published platform is `linux/amd64`.

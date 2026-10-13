@@ -7,41 +7,18 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../.
 const read = (path: string) => readFile(resolve(repositoryRoot, path), "utf8");
 
 describe("Control Plane deployment contract", () => {
-  it("keeps publication actions within the repository's selected-actions policy", async () => {
-    const workflow = await read(".github/workflows/control-plane-image.yml");
+  it("keeps CI actions within the repository's selected-actions policy", async () => {
+    const workflow = await read(".github/workflows/ci.yml");
     for (const match of workflow.matchAll(/uses: ([^\s]+)/gu)) {
       expect(match[1]).toMatch(/^(?:(?:actions|github|amplifthq)\/[^@]+|pnpm\/action-setup)@[a-f0-9]{40}$/u);
     }
-    expect(workflow).toContain("--password-stdin");
-    expect(workflow).toContain('docker --config "$OPENTAG_GHCR_DOCKER_CONFIG" push');
-    expect(workflow).toContain('docker --config "$OPENTAG_GHCR_DOCKER_CONFIG" logout ghcr.io');
-    expect(workflow).toContain('rm -rf -- "$OPENTAG_GHCR_DOCKER_CONFIG"');
-    expect(workflow).toContain("trap 'exit 143' TERM");
-    expect(workflow).not.toMatch(/--password(?:=|\s)/u);
   });
 
-  it("publishes only the tested image from a successful main push", async () => {
-    const [ci, publish] = await Promise.all([
-      read(".github/workflows/ci.yml"), read(".github/workflows/control-plane-image.yml"),
-    ]);
+  it("keeps CI image smoke, audit, and artifact checks", async () => {
+    const ci = await read(".github/workflows/ci.yml");
     expect(ci).toContain("control-plane-image-smoke.mjs opentag-control-plane:verified");
     expect(ci).toContain("audit-control-plane-image.mjs");
     expect(ci).toContain("docker save opentag-control-plane:verified");
-    expect(publish).toContain("github.event.workflow_run.conclusion == 'success'");
-    expect(publish).toContain("github.event.workflow_run.event == 'push'");
-    expect(publish).toContain("github.event.workflow_run.head_branch == 'main'");
-    expect(publish).toContain("github.event.workflow_run.head_repository.full_name == github.repository");
-    expect(publish).toContain("run-id: ${{ github.event.workflow_run.id }}");
-    expect(publish).toContain("docker load --input control-plane-image.tar");
-    expect(publish).not.toContain("docker build");
-    expect(publish).not.toContain(":latest");
-    expect(publish).not.toContain("pull_request_target");
-    expect(publish).toContain("${{ github.run_id }}-${{ github.run_attempt }}");
-    expect(publish).toContain("control-plane-image.json");
-    expect(publish).toContain('docker --config "$anonymous_config" pull "$reference"');
-    for (const match of `${ci}\n${publish}`.matchAll(/uses: ([^\s]+)/gu)) {
-      expect(match[1]).toMatch(/@[a-f0-9]{40}$/u);
-    }
   });
 
   it("keeps container custody separate from the existing Compose secret mounts", async () => {
