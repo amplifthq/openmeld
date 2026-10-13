@@ -13,6 +13,7 @@ import {
 	ChatCircleTextIcon,
 	CheckIcon,
 	ClipboardTextIcon,
+	CloudCheckIcon,
 	CloudIcon,
 	CodeIcon,
 	FileCodeIcon,
@@ -56,6 +57,32 @@ type ComparisonRow = {
 // Reviewed 2026-10-13. Scope and first-party evidence: comparison-sources.md.
 // Null is unverified, never an inferred absence. Text retains narrower support.
 const rows: readonly ComparisonRow[] = [
+	{
+		feature: "Free personal cloud computer",
+		icon: CloudIcon,
+		values: [
+			true,
+			false,
+			false,
+			false,
+			"Starter credits",
+			"Starter credits",
+			"Free cloud tier",
+		],
+	},
+	{
+		feature: "Cloud computer for local & remote agents",
+		icon: CloudCheckIcon,
+		values: [
+			true,
+			false,
+			false,
+			false,
+			"Via Dust agents",
+			"Via API",
+			"Via SDK",
+		],
+	},
 	{
 		feature: "Built-in team chat",
 		icon: ChatCircleTextIcon,

@@ -34,6 +34,51 @@ not deployment or hands-on acceptance. An undocumented feature stays unknown.
 
 ## OpenMeld
 
+### Cloud Computer comparison (reviewed 2026-10-13)
+
+The two leading rows distinguish a free vendor-hosted Computer from using that
+Computer through local and remote agents. They do not promise free model tokens,
+unlimited compute, an always-running VM, or a human remote desktop. A boolean
+negative in the second row means no vendor-provided Computer to share, not that
+agents cannot share a customer's own machine.
+
+- OpenMeld: `developing/product/remote-agent-runtime.md`, Personal cloud Computer,
+  defines one default Computer per human account across Organizations, Agents,
+  and conversations. Center, personal Remote, and optional Local Agents use the
+  same operation contract and persistent `/computer` files. The existing
+  homepage offer explicitly includes a free Computer for each user. Local
+  access is optional and authorized, not an automatic move of local work.
+- Raft: [product FAQ](https://raft.build/) defines Computer as a process on the
+  user's machine. [External agents](https://docs.raft.build/features/agents/external/)
+  also run on customer-supplied infrastructure. Free software is not free compute.
+- Multica: [Cloud quickstart](https://multica.ai/docs/cloud-quickstart) requires
+  connecting a computer with installed coding tools; agents execute on those
+  connected computers. Hosted management does not provide a free execution VM.
+- Paperclip: [homepage](https://paperclip.ing/) offers a Cloud waitlist and a
+  local installation, not a currently available free hosted Computer.
+- Dust: [Computer lifecycle](https://dust.tt/academy/computer/chapter/computer)
+  is a Linux VM per conversation, deleted after seven inactive days; output
+  files remain with that conversation. [Pricing](https://dust.tt/home/pricing)
+  offers 500 lifetime starter credits rather than a replenishing compute grant.
+  External callers can work through Dust agents; direct local-agent access to
+  the same VM was not established. Hence the narrower `Via Dust agents` label.
+- Viktor: [Plans and credits](https://viktor.com/docs/plans-and-credits) gives
+  one-time starter credits; work pauses when exhausted.
+  [Public API script runs](https://viktor.com/docs/public-api) execute in the
+  key owner's workspace sandbox and see the same files as chat. A local caller
+  can use that API, but this is not a verified native local-agent integration.
+- OpenHands: [current pricing](https://www.openhands.dev/pricing) advertises a
+  free Individual cloud tier (10 daily conversations); model usage is BYOK or
+  at cost. Do not call this only a trial or mark free cloud access absent.
+  [CloudWorkspace source](https://github.com/OpenHands/software-agent-sdk/blob/main/openhands-workspace/openhands/workspace/cloud/workspace.py)
+  supports starting or resuming a sandbox through the Cloud API from an SDK
+  client. This is not proof of one persistent free personal Computer shared
+  automatically across arbitrary agents; retain `Free cloud tier` / `Via SDK`.
+
+These are documented product offers and access paths, not hands-on acceptance
+in paid competitor accounts. OpenMeld's personal Computer contract is stronger
+than the narrower alternatives, but those alternatives must remain visible.
+
 Current product evidence: `clients/docs/content/docs/work/messages.mdx`,
 `work/files.mdx`, `work/tasks.mdx`, `work/memory.mdx`, `work/routines.mdx`,
 `work/cloud-computer.mdx`, `team/knowledge.mdx`, and `team/skills.mdx`.
