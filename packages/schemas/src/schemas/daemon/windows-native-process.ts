@@ -9,6 +9,7 @@ const text = z
 export const windowsNativeProcessRequestSchema = z.discriminatedUnion(
   "operation",
   [
+    z.strictObject({ operation: z.literal("prevent-idle-sleep") }),
     z.strictObject({
       operation: z.literal("activate-managed-command"),
       binDirectory: text,

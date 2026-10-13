@@ -158,6 +158,17 @@ export {
   computerConnectionProgressPhaseSchema,
 } from "./computer-connection-progress";
 export {
+  COMPUTER_POWER_CAPABILITY_HEADER,
+  computerPowerRequestFrameSchema,
+  computerPowerRequestSchema,
+  computerPowerResultFrameSchema,
+  computerPowerResultSchema,
+  computerPowerRpcInputSchema,
+  computerPowerStateSchema,
+  computerPowerTargetSchema,
+  computerPowerTransportSchema,
+} from "./computer-power";
+export {
   type DeleteConversationForMeInput,
   type DeleteConversationForMeResponse,
   deleteConversationForMeInputSchema,

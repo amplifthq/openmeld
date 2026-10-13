@@ -235,6 +235,7 @@ const reportResult = z.strictObject({
 });
 
 const executionFrameCodes = new Set([
+  "daemon.computer_power.request",
   "daemon.dispatch.deliver",
   "daemon.dispatch.lifecycle_acknowledged",
   "daemon.dispatch.accepted",
@@ -249,6 +250,7 @@ const executionFrameCodes = new Set([
 ]);
 
 const executionOutputFrameCodes = new Set([
+  "daemon.computer_power.request_result",
   "daemon.dispatch.result",
   "daemon.dispatch.lifecycle",
   "daemon.dispatch.runtime_evidence",
