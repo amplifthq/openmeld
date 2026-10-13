@@ -1487,11 +1487,14 @@ personal-only: connect them under Personal and explicitly authorize each Agent.
 A company email address does not make an individual's mailbox a shared
 Organization account. Other providers currently support both Personal and
 Organization connections; none requires an Organization-only connection.
-The shared policy in `packages/schemas` controls catalog visibility, setup,
+The shared policy in `packages/schemas` controls scoped catalog browsing, setup,
 connection selection, named execution, and access grants. An existing shared
 personal-only connection remains available for owner disconnect, but cannot
 be selected or executed and cannot receive new grants. Do not convert its
 ownership or delete its credentials automatically.
+Catalog search may discover personal-only Plugins from the Organization tab,
+but must label them Personal and route to personal setup. Discovery does not
+grant shared ownership or Agent access.
 
 Providers can declare a `custom_credential` connection with no fields, such as
 the public Cloudflare Docs MCP server. Gateway accepts an empty values object
