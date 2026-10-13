@@ -164,6 +164,15 @@ read stored data. Its source, issue, and pull-request links reuse the homepage's
 repository destination. The open-source copy is prepared for public launch;
 the repository must be public before publishing that claim.
 
+The capability comparison follows Privacy and Open Source, before the FAQ.
+It presents a static, source-reviewed matrix for six alternatives with concise
+scope labels and explicit unknowns. Its row definitions and first-party evidence
+live beside the component in `comparison-sources.md`, not in public disclosures.
+Its catalog row and the Plugins showcase share the same public catalog count;
+that count does not establish account-specific connection readiness. The table
+composes the shared Table/Fluid ScrollArea and keeps feature names fixed during
+horizontal scrolling on narrow screens.
+
 Navigation uses ordinary anchors. App links enter the existing App resolver,
 which alone chooses the viewer's Organization and checks access. Website download
 menus start downloads directly through the retained `/desktop/download?platform=`
