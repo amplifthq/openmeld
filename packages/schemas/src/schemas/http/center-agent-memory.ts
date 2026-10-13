@@ -23,6 +23,9 @@ export const centerAgentOrganizationMemoryPolicyResponseSchema = z.strictObject(
     organizationMemoryOptIn: z.boolean(),
     provider: centerAgentMemoryProviderSchema,
     updatedByUserId: boundedIdentifierSchema.nullable(),
+    availability: z
+      .enum(["available", "unavailable", "not_checked", "disabled"])
+      .optional(),
   }
 );
 
@@ -47,5 +50,6 @@ export const centerAgentRememberForOrganizationResponseSchema = z.strictObject({
     .max(CENTER_AGENT_ORGANIZATION_MEMORY_FACT_MAX_CHARS),
   organizationId: boundedIdentifierSchema,
   saved: z.literal(true),
+  status: z.enum(["processing", "processed"]).optional(),
   source: z.literal("explicit_tool"),
 });

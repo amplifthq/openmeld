@@ -237,11 +237,23 @@ describe("organization Core RPC", () => {
           userId: "user-b",
         }),
       })
-    ).resolves.toMatchObject({
+    ).resolves.toEqual({
       organizationId: "org-a",
       organizationMemoryOptIn: true,
       provider: "zep_cloud",
       updatedByUserId: null,
+    });
+    await expect(
+      rpcReadCenterAgentOrganizationMemoryPolicy(env, {
+        context: buildContext({
+          activeOrganizationId: "org-a",
+          userId: "user-b",
+        }),
+        includeAvailability: true,
+      })
+    ).resolves.toMatchObject({
+      organizationMemoryOptIn: true,
+      availability: "unavailable",
     });
   });
 
@@ -269,11 +281,23 @@ describe("organization Core RPC", () => {
           userId: "user-b",
         }),
       })
-    ).resolves.toMatchObject({
+    ).resolves.toEqual({
       organizationId: "org-a",
       organizationMemoryOptIn: false,
       provider: "zep_cloud",
       updatedByUserId: "user-a",
+    });
+    await expect(
+      rpcReadCenterAgentOrganizationMemoryPolicy(env, {
+        context: buildContext({
+          activeOrganizationId: "org-a",
+          userId: "user-b",
+        }),
+        includeAvailability: true,
+      })
+    ).resolves.toMatchObject({
+      organizationMemoryOptIn: false,
+      availability: "disabled",
     });
 
     const ownerContext = buildContext({
