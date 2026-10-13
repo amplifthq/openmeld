@@ -23,9 +23,6 @@
   <a href="https://openmeld.ai/downloads"><img src="https://img.shields.io/badge/Desktop-macOS-111827?style=flat-square&amp;logo=apple&amp;logoColor=white" alt="Download Desktop for macOS"></a>
   <a href="https://openmeld.ai/downloads"><img src="https://img.shields.io/badge/Desktop-Windows_preview-0078d4?style=flat-square" alt="Download Desktop for Windows (preview)"></a>
   <a href="https://www.npmjs.com/package/openmeld"><img src="https://img.shields.io/npm/v/openmeld?style=flat-square&amp;label=CLI&amp;logo=npm&amp;logoColor=white&amp;color=cb3837" alt="OpenMeld CLI version on npm"></a>
-</p>
-
-<p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-3b82f6?style=flat-square" alt="License: MIT"></a>
   <a href="https://docs.openmeld.ai"><img src="https://img.shields.io/badge/docs-openmeld.ai-475569?style=flat-square" alt="OpenMeld documentation"></a>
   <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/contributions-welcome-15803d?style=flat-square" alt="Contributions welcome"></a>
@@ -35,7 +32,6 @@
   <a href="CREDITS.md"><img src="https://img.shields.io/badge/TypeScript-3178c6?style=flat-square&amp;logo=typescript&amp;logoColor=white" alt="Built with TypeScript"></a>
   <a href="CREDITS.md"><img src="https://img.shields.io/badge/React-20232a?style=flat-square&amp;logo=react&amp;logoColor=61dafb" alt="Built with React"></a>
   <a href="CREDITS.md"><img src="https://img.shields.io/badge/Electron-2b2e3a?style=flat-square&amp;logo=electron&amp;logoColor=9feaf9" alt="Built with Electron"></a>
-  <a href="CREDITS.md"><img src="https://img.shields.io/badge/Tailwind_CSS-0f172a?style=flat-square&amp;logo=tailwindcss&amp;logoColor=38bdf8" alt="Styled with Tailwind CSS"></a>
   <a href="CREDITS.md"><img src="https://img.shields.io/badge/Cloudflare-f38020?style=flat-square&amp;logo=cloudflare&amp;logoColor=white" alt="Runs on Cloudflare"></a>
   <a href="CREDITS.md"><img src="https://img.shields.io/badge/PostgreSQL-4169e1?style=flat-square&amp;logo=postgresql&amp;logoColor=white" alt="Stores data in PostgreSQL"></a>
 </p>
