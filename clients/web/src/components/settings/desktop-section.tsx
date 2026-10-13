@@ -108,18 +108,11 @@ export function DesktopSection() {
 					</div>
 				) : null}
 			</SettingsSection>
-			<SettingsSection id="desktop-window" title="Closing and quitting">
-				<SettingsRow
-					control={null}
-					description="OpenMeld keeps running and can still send desktop notifications. Open the app again to show the window."
-					label="Closing the window"
-				/>
-				<SettingsRow
-					control={null}
-					description="Quitting stops the desktop app and its notifications. OpenMeld Service and accepted local Agent tasks keep running independently."
-					label="Quitting OpenMeld"
-				/>
-			</SettingsSection>
+			<p className="text-muted-foreground text-sm">
+				Closing the window keeps OpenMeld running. Quitting the app stops
+				desktop notifications. OpenMeld Service and accepted local Agent tasks
+				continue running in either case.
+			</p>
 		</>
 	);
 }
