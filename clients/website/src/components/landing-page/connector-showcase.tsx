@@ -104,7 +104,7 @@ export function ConnectorShowcase() {
 				</div>
 			</div>
 			<div className="meld-connectors-footer">
-				<p>More plugins on the way.</p>
+				<p>{Math.floor(plugins.length / 10) * 10}+ plugins supported.</p>
 				<Sheet>
 					<SheetTrigger className="meld-connectors-details">
 						See all plugins <PlusIcon aria-hidden size={14} />

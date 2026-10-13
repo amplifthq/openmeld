@@ -600,6 +600,11 @@ are pending; skeleton rows cover unavailable results. The connected filter
 uses the current scope's active connections, including accounts needing
 reconnection, and combines with category and search filters. Pending or failed
 connection reads must not appear as an empty connected list.
+Search discovers available Plugins across ownership scopes. In an Organization
+search, personal-only results carry a Personal label and open their detail route
+with `scope=personal`. Their status comes only from the signed-in member's
+connection. Clearing search restores scoped browsing; the connected filter
+continues to show only connections in the selected scope.
 Cold detail pages can show curated identity and scope navigation immediately,
 but setup controls wait for live provider metadata. Skeletons occupy pending
 settings; a static Plugin definition does not establish sign-in readiness.
