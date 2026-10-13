@@ -289,6 +289,7 @@ describe("Settings grouped navigation", () => {
 			"Account",
 			"Appearance",
 			"Notifications",
+			"Desktop",
 			"Spaces",
 			"Privacy & Safety",
 			"Updates",

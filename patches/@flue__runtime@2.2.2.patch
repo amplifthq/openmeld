@@ -295,7 +295,7 @@ index 0000000000000000000000000000000000000000..3abc3bc6a00d2fd717fb9093182fc444
 +  };
 +}
 diff --git a/dist/conversation-stream-store-2-jUriih.mjs b/dist/conversation-stream-store-2-jUriih.mjs
-index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e7b15bc1a 100644
+index 210bfa06fdd35f698d537e41f6d2adf9299529bd..c1510ae6ca6742f3e996de5694815687c9504450 100644
 --- a/dist/conversation-stream-store-2-jUriih.mjs
 +++ b/dist/conversation-stream-store-2-jUriih.mjs
 @@ -1,4 +1,6 @@
@@ -359,7 +359,21 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  		if (options?.advance === false) return;
  		this.advanceDelivery?.({
  			kind: "signal",
-@@ -1844,11 +1852,11 @@ var Session = class {
+@@ -1753,8 +1761,12 @@ var Session = class {
+ 				await driveContinuation();
+ 				continue;
+ 			}
++			if ((this.outputChannel?.agentFinishes ?? []).length === 0) return;
++			// The loop only re-renders between turns of one run, never after its
++			// last turn — re-render here so the hooks' closures and guards observe
++			// state written during the run (and by earlier cycles' callbacks).
++			await this.prepareRerenderTurn();
+ 			const hooks = this.outputChannel?.agentFinishes ?? [];
+-			if (hooks.length === 0) return;
+ 			const cycle = await this.countAgentFinishCycles(submissionId);
+ 			const toolCalls = await this.collectResponseToolCalls(submissionId);
+ 			const before = this.pendingSignalAppends.length;
+@@ -1844,11 +1856,11 @@ var Session = class {
  		const entryId = submissionEntryId(input.kind, input.submissionId);
  		if (!await this.conversationWriter.hasConversationEntry(this.conversationId, entryId)) {
  			const parentId = await this.conversationWriter.getConversationLeaf(this.conversationId);
@@ -373,7 +387,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  		await source.finalize(input.submissionId);
  	}
  	/**
-@@ -1860,7 +1868,7 @@ var Session = class {
+@@ -1860,7 +1872,7 @@ var Session = class {
  	async steerJoinedEntry(entryId) {
  		const conversation = await this.requireConversation();
  		const resolved = await this.resolveCanonicalContextAttachments(conversation);
@@ -382,7 +396,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  			const image = resolved.get(attachment.id);
  			if (!image) throw new AttachmentNotAvailableError({ attachmentId: attachment.id });
  			return image;
-@@ -1885,13 +1893,13 @@ var Session = class {
+@@ -1885,13 +1897,13 @@ var Session = class {
  			if (submission.status === "joining") {
  				if (await this.conversationWriter.hasConversationEntry(this.conversationId, entryId)) {
  					this.advanceDelivery?.(input.message);
@@ -398,7 +412,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  		}
  		await this.restoreDeliveryCursor();
  	}
-@@ -2035,6 +2043,7 @@ var Session = class {
+@@ -2035,6 +2047,7 @@ var Session = class {
  	* adopts them instead: the wake hooks ran on the original attempt.
  	*/
  	async beginResponseOutput() {
@@ -406,7 +420,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  		this.responseMessageId = void 0;
  		this.responseHasCompletedStep = false;
  		this.responseUsage = void 0;
-@@ -2211,6 +2220,7 @@ var Session = class {
+@@ -2211,6 +2224,7 @@ var Session = class {
  				thinkingLevel: this.config.thinkingLevel ?? "medium"
  			},
  			streamFn: this.emitTurnRequestAndStream,
@@ -414,7 +428,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  			toolExecution: "parallel",
  			steeringMode: "all",
  			followUpMode: "all",
-@@ -2253,6 +2263,10 @@ var Session = class {
+@@ -2253,6 +2267,10 @@ var Session = class {
  							modelInfo,
  							...isResponseFirstMessage && this.responseStartMetadata ? { responseMetadata: this.responseStartMetadata } : {}
  						}]);
@@ -425,7 +439,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  					}
  					this.emit({
  						type: "message_start",
-@@ -2263,6 +2277,10 @@ var Session = class {
+@@ -2263,6 +2281,10 @@ var Session = class {
  				}
  				case "message_update": {
  					const aEvent = event.assistantMessageEvent;
@@ -436,7 +450,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  					const assistant = this.canonicalAssistant;
  					if (assistant && aEvent.type === "text_start") {
  						const blockId = generateBlockId();
-@@ -2282,6 +2300,8 @@ var Session = class {
+@@ -2282,6 +2304,8 @@ var Session = class {
  					} else if (assistant && aEvent.type === "text_delta") {
  						const block = assistant.blocks.get(aEvent.contentIndex);
  						if (block?.type !== "text") throw new Error("[flue] Canonical text delta has no started block.");
@@ -445,7 +459,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  						this.enqueueCanonical([{
  							...this.canonicalEnvelope("assistant_text_delta"),
  							type: "assistant_text_delta",
-@@ -2291,7 +2311,8 @@ var Session = class {
+@@ -2291,7 +2315,8 @@ var Session = class {
  							delta: aEvent.delta
  						}], () => this.emit({
  							type: "text_delta",
@@ -455,7 +469,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  						}));
  					} else if (assistant && aEvent.type === "text_end") {
  						const block = assistant.blocks.get(aEvent.contentIndex);
-@@ -2567,9 +2588,79 @@ var Session = class {
+@@ -2567,9 +2592,79 @@ var Session = class {
  		return {
  			enabled: true,
  			reserveTokens: cc.reserveTokens ?? defaults.reserveTokens,
@@ -536,7 +550,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  	async initializeCanonicalContext() {
  		await this.rebuildCanonicalContext();
  	}
-@@ -2595,7 +2686,7 @@ var Session = class {
+@@ -2595,7 +2690,7 @@ var Session = class {
  	}
  	processSubmissionInput(input, options) {
  		return createCallHandle(void 0, async (signal) => {
@@ -545,7 +559,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  		});
  	}
  	/**
-@@ -3569,7 +3660,8 @@ var Session = class {
+@@ -3569,7 +3664,8 @@ var Session = class {
  		const activateSkillTool = Object.keys(this.liveSkills).length > 0 ? createActivateSkillTool((name) => this.activateSkillForTool(name)) : void 0;
  		const packagedRead = Object.values(packagedSkills).some((skill) => Object.keys(skill.files).some((path) => path !== "SKILL.md")) ? createPackagedSkillReadTool(packagedSkills) : void 0;
  		const frameworkTools = () => [
@@ -555,7 +569,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  			...activateSkillTool ? [activateSkillTool] : [],
  			...packagedRead ? [packagedRead] : []
  		];
-@@ -3772,7 +3864,7 @@ var Session = class {
+@@ -3772,7 +3868,7 @@ var Session = class {
  			}
  		}
  	}
@@ -564,7 +578,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  		const operationSignal = signal && this.scopeSignal ? AbortSignal.any([signal, this.scopeSignal]) : signal ?? this.scopeSignal;
  		return this.runExclusive(operation, async () => {
  			if (operationSignal?.aborted) throw abortErrorFor(operationSignal);
-@@ -3808,12 +3900,25 @@ var Session = class {
+@@ -3808,12 +3904,25 @@ var Session = class {
  				return result;
  			} catch (error) {
  				const surfaced = operationSignal?.aborted ? abortErrorFor(operationSignal) : error;
@@ -590,7 +604,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  					error: serializeEventError(surfaced)
  				}, operation === "prompt" || operation === "skill" ? {
  					agentInput: this.activeAgentInput,
-@@ -3823,6 +3928,8 @@ var Session = class {
+@@ -3823,6 +3932,8 @@ var Session = class {
  			} finally {
  				operationSignal?.removeEventListener("abort", onAbort);
  				this.emit({ type: "idle" });
@@ -599,7 +613,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  				this.activeOperationId = void 0;
  				this.activeAgentInput = void 0;
  			}
-@@ -3897,7 +4004,7 @@ var Session = class {
+@@ -3897,7 +4008,7 @@ var Session = class {
  	}
  	visibleCanonicalAttachments(conversation) {
  		const available = /* @__PURE__ */ new Map();
@@ -608,7 +622,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  			data: attachment.id,
  			mimeType: attachment.mimeType
  		}) })) {
-@@ -4041,7 +4148,7 @@ var Session = class {
+@@ -4041,7 +4152,7 @@ var Session = class {
  	async rebuildCanonicalContext() {
  		const conversation = await this.requireConversation();
  		const resolved = await this.resolveCanonicalContextAttachments(conversation);
@@ -617,7 +631,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  			const image = resolved.get(attachment.id);
  			if (!image) throw new AttachmentNotAvailableError({ attachmentId: attachment.id });
  			return image;
-@@ -4078,6 +4185,7 @@ var Session = class {
+@@ -4078,6 +4189,7 @@ var Session = class {
  	* caller's `throwIfError` could not surface the failure.
  	*/
  	async runModelTurnWithRecovery(options) {
@@ -625,7 +639,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  		let start = options.start;
  		let assistant = options.resume?.assistant;
  		let turnCompleted = false;
-@@ -4088,12 +4196,17 @@ var Session = class {
+@@ -4088,12 +4200,17 @@ var Session = class {
  		};
  		const throwIfHalted = () => {
  			if (options.signal.aborted) throw abortErrorFor(options.signal);
@@ -645,7 +659,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  				const settledAssistant = assistant ?? this.agentLoop.state.messages.findLast((message) => message.role === "assistant");
  				if (settledAssistant !== void 0) await this.checkCompaction(settledAssistant);
  				if (assistant?.stopReason === "error" || assistant?.stopReason === "aborted") await this.rebuildCanonicalContext();
-@@ -4104,7 +4217,10 @@ var Session = class {
+@@ -4104,7 +4221,10 @@ var Session = class {
  				return;
  			}
  			throwIfHalted();
@@ -657,7 +671,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  				overflowRecoveryAttempted = true;
  				this.internalLog("info", "[flue:compaction] Overflow detected, compacting...");
  				await this.rebuildCanonicalContext();
-@@ -4130,7 +4246,7 @@ var Session = class {
+@@ -4130,7 +4250,7 @@ var Session = class {
  				}
  				start = continueRebuilt;
  			}
@@ -666,7 +680,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  			try {
  				await start();
  				await this.agentLoop.waitForIdle();
-@@ -4144,21 +4260,46 @@ var Session = class {
+@@ -4144,21 +4264,46 @@ var Session = class {
  			assistant = latest?.role === "assistant" ? latest : void 0;
  		}
  	}
@@ -716,7 +730,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  			delayMs,
  			error: assistant.errorMessage
  		});
-@@ -4171,6 +4312,10 @@ var Session = class {
+@@ -4171,6 +4316,10 @@ var Session = class {
  	}
  	async checkCompaction(assistantMessage) {
  		if (assistantMessage.stopReason === "aborted" || assistantMessage.stopReason === "error") return;
@@ -727,7 +741,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  		const model = this.agentLoop.state.model;
  		const settings = this.resolveCompactionSettings(model);
  		if (!settings.enabled) return;
-@@ -4189,6 +4334,7 @@ var Session = class {
+@@ -4189,6 +4338,7 @@ var Session = class {
  	* triggered compaction.
  	*/
  	async runCompaction(reason) {
@@ -735,7 +749,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  		this.compactionAbortController = new AbortController();
  		const messagesBefore = this.agentLoop.state.messages.length;
  		const compactionStartMs = Date.now();
-@@ -4197,30 +4343,51 @@ var Session = class {
+@@ -4197,30 +4347,51 @@ var Session = class {
  			const sessionModel = this.agentLoop.state.model;
  			const settings = this.resolveCompactionSettings(sessionModel);
  			const compactionConfig = this.config.compaction === false ? void 0 : this.config.compaction;
@@ -788,7 +802,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  			this.internalLog("info", `[flue:compaction] Summarizing ${preparation.messagesToSummarize.length} messages` + (preparation.isSplitTurn ? ` (split turn: ${preparation.turnPrefixMessages.length} prefix messages)` : "") + `, keeping messages from index ${preparation.firstKeptIndex}`);
  			const estimatedTokens = preparation.tokensBefore;
  			this.emit({
-@@ -4230,6 +4397,7 @@ var Session = class {
+@@ -4230,6 +4401,7 @@ var Session = class {
  			});
  			terminalPending = true;
  			const result = await compact(preparation, summarizationModel, this.compactionAbortController.signal, {
@@ -796,7 +810,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  				start: (purpose, model, context, options) => {
  					const handle = { turnId: generateTurnId() };
  					this.emitTurnRequest(handle.turnId, purpose, model, context, options);
-@@ -4266,6 +4434,21 @@ var Session = class {
+@@ -4266,6 +4438,21 @@ var Session = class {
  			{
  				const sourceLeafId = (await this.requireConversation()).activeLeafId;
  				if (!sourceLeafId) throw new Error("[flue] Canonical compaction has no source leaf.");
@@ -818,7 +832,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  				await this.rebaselineResources({
  					...this.canonicalEnvelope("compaction"),
  					type: "compaction",
-@@ -4288,11 +4471,13 @@ var Session = class {
+@@ -4288,11 +4475,13 @@ var Session = class {
  				messagesAfter,
  				durationMs: durationSince(compactionStartMs),
  				isError: false,
@@ -832,7 +846,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  			const errorMessage = error instanceof Error ? error.message : String(error);
  			this.internalLog("error", `[flue:compaction] Failed: ${errorMessage}`, { error });
  			if (terminalPending) this.emit({
-@@ -4303,7 +4488,10 @@ var Session = class {
+@@ -4303,7 +4492,10 @@ var Session = class {
  				isError: true,
  				error: serializeEventError(error)
  			}, { errorInfo: classifyError(error) });
@@ -844,7 +858,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  			return false;
  		} finally {
  			this.compactionAbortController = void 0;
-@@ -4574,7 +4762,7 @@ var Session = class {
+@@ -4574,7 +4766,7 @@ var Session = class {
  	resolveSubmissionDurability(startedAt, timeoutAt) {
  		return {
  			maxAttempts: this.config.durability?.maxAttempts ?? 10,
@@ -853,7 +867,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  		};
  	}
  	async runPersistedContextInput(options) {
-@@ -4616,12 +4804,19 @@ var Session = class {
+@@ -4616,12 +4808,19 @@ var Session = class {
  					signal: options.signal
  				});
  				await this.flushResponseOutput();
@@ -874,7 +888,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  				this.activeSubmissionAttemptId = void 0;
  				this.activeJoinSource = void 0;
  				this.activeJoinSignal = void 0;
-@@ -5018,7 +5213,18 @@ async function materializeSubmissionAttachments(input, conversationId, attachmen
+@@ -5018,7 +5217,18 @@ async function materializeSubmissionAttachments(input, conversationId, attachmen
  }
  function createAgentSubmissionSessionHandler(agent, input, execute) {
  	return async (ctx) => {
@@ -894,7 +908,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  	};
  }
  /**
-@@ -5039,10 +5245,26 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -5039,10 +5249,26 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  	const { input } = submission;
  	const attempt = submissionAttemptRef(submission);
  	if (!attempt) return void 0;
@@ -922,7 +936,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  	} catch (renderError) {
  		if (submission.timeoutAt > 0 && Date.now() >= submission.timeoutAt) {
  			await failInterruptedSubmission(submissions, submission, attempt, agent, "exceeded_timeout", () => new SubmissionTimeoutError(), createContext, conversationWriter, emitCoordinatorEvent);
-@@ -5056,7 +5278,7 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -5056,7 +5282,7 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  		return;
  	}
  	if (submission.abortRequestedAt !== void 0) {
@@ -931,7 +945,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  		return;
  	}
  	if (submission.attemptCount >= submission.maxAttempts) {
-@@ -5082,6 +5304,16 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -5082,6 +5308,16 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  	}
  	await submissions.requeueSubmission(attempt);
  }
@@ -948,7 +962,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  /**
  * The wall-clock deadline after which a queued submission that never became
  * claimable (materialization permanently failing, agent definition
-@@ -5098,7 +5330,7 @@ function unreadySubmissionDeadline(submission, agent) {
+@@ -5098,7 +5334,7 @@ function unreadySubmissionDeadline(submission, agent) {
  		assertDurability(agent.durability, `[agent "${submission.input.agent}"]`);
  		timeoutMs = agent.durability?.timeoutMs ?? 36e5;
  	} catch {}
@@ -957,7 +971,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  }
  /**
  * Settle a queued submission that can never be claimed — a durable abort on
-@@ -5113,6 +5345,10 @@ function unreadySubmissionDeadline(submission, agent) {
+@@ -5113,6 +5349,10 @@ function unreadySubmissionDeadline(submission, agent) {
  */
  async function settleUnclaimableSubmission(submissions, submission, outcome, error, emitCoordinatorEvent) {
  	if (!await submissions.settleQueuedSubmission(submission.submissionId, outcome, error)) return false;
@@ -968,7 +982,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  	const errorInfo = { errorInfo: classifyError(error) };
  	emitCoordinatorEvent({
  		type: "submission_settled",
-@@ -5126,8 +5362,30 @@ async function settleUnclaimableSubmission(submissions, submission, outcome, err
+@@ -5126,8 +5366,30 @@ async function settleUnclaimableSubmission(submissions, submission, outcome, err
  		kind: submission.kind,
  		operation: "materialize_submission",
  		outcome: "terminated",
@@ -999,7 +1013,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  	return true;
  }
  /** Synthetic request for the submission's kind: an agent route for direct prompts, the dispatch path for dispatches. */
-@@ -5159,11 +5417,32 @@ async function processSubmission(opts) {
+@@ -5159,11 +5421,32 @@ async function processSubmission(opts) {
  		attemptCount: submission.attemptCount,
  		maxAttempts: submission.maxAttempts
  	});
@@ -1036,7 +1050,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  	};
  	const execute = () => createAgentSubmissionSessionHandler(agent, input, (session) => {
  		const handle = session.processSubmissionInput(input, {
-@@ -5193,17 +5472,7 @@ async function processSubmission(opts) {
+@@ -5193,17 +5476,7 @@ async function processSubmission(opts) {
  		return;
  	}
  	try {
@@ -1055,7 +1069,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  	} catch (error) {
  		if (opts.isShutdownAbort?.(error)) throw error;
  		if (opts.signal?.reason instanceof SubmissionAbortedError) {
-@@ -5223,7 +5492,11 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
+@@ -5223,7 +5496,11 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
  	const ctx = createContext(input.submissionId);
  	let interruptedTools;
  	try {
@@ -1068,7 +1082,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  			submissionId: submission.submissionId,
  			kind: submission.kind,
  			reason,
-@@ -5257,10 +5530,10 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
+@@ -5257,10 +5534,10 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
  * through the two-phase outbox with `outcome: 'aborted'` — the durable
  * terminal record a reconnecting waiter observes.
  */
@@ -1082,7 +1096,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..7bbc1662eba63d34ca1414e33b86bd7e
  			kind: submission.kind,
  			reason: "aborted",
 diff --git a/dist/dispatch-BlxCz6iq.mjs b/dist/dispatch-BlxCz6iq.mjs
-index 94d0dc4e069259c5f321b429e5a086ed724c5158..253f8705ffaba070ee2e4474f32345fda6812fab 100644
+index 94d0dc4e069259c5f321b429e5a086ed724c5158..d962c8bb797d2e16b40eecd93a35ef47b19e83fa 100644
 --- a/dist/dispatch-BlxCz6iq.mjs
 +++ b/dist/dispatch-BlxCz6iq.mjs
 @@ -1,9 +1,12 @@
@@ -1484,6 +1498,51 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..253f8705ffaba070ee2e4474f32345fd
  	const { readFiles, modifiedFiles } = computeFileLists(fileOps);
  	summary += formatFileOperations(readFiles, modifiedFiles);
  	return {
+@@ -2101,18 +2214,14 @@ function isAssistantContextOverflow(assistant, contextWindow) {
+ //#endregion
+ //#region src/submission-state.ts
+ /**
+-* A user message absorbed into the classified submission's own response by
+-* the turn-boundary join protocol (a queued direct delivery), rather than a
+-* later input the session moved on to. A joined delivery's record carries
+-* the DELIVERY's `submissionId` — never the host's — while every record the
+-* host writes carries the host's own, and programmatic `session.prompt()`
+-* inputs carry none. Recognized only when the classified input's owning
+-* submission is known: joins exist solely under coordinator submissions, so
+-* an unowned input (degenerate/test setups, subagent reattach) keeps the
+-* strict reading.
++* A user input admitted into a submission's response. Queued deliveries
++* carry their own submission id; exact-execution steering is written by the
++* host and carries the host's id. Both continue the same response. Admission
++* and canonical append authorization establish this ownership before the
++* classifier runs. Unowned programmatic inputs keep the strict reading.
+ */
+-function isJoinedDeliveryInput(entry, ownSubmissionId) {
+-	return ownSubmissionId !== void 0 && entry.submissionId !== void 0 && entry.submissionId !== ownSubmissionId;
++function isSubmissionContinuationInput(entry, ownSubmissionId) {
++	return ownSubmissionId !== void 0 && entry.submissionId !== void 0;
+ }
+ /**
+ * Classify how far a persisted submission input progressed.
+@@ -2125,12 +2234,16 @@ function isJoinedDeliveryInput(entry, ownSubmissionId) {
+ *   explicit overflow error messages are detected then).
+ * @param opts.ownSubmissionId - The submission that owns the classified
+ *   input entry. User messages joined into that submission's response (see
+-*   {@link isJoinedDeliveryInput}) are continuation input for the same
++*   {@link isSubmissionContinuationInput}) are continuation input for the same
+ *   response, not the session advancing past the input.
+ */
+ function classifySubmissionState(following, opts) {
+ 	if (following === void 0) return { kind: "absent" };
+-	if (following.some((entry) => entry.type === "message" && entry.message.role === "user" && !isJoinedDeliveryInput(entry, opts.ownSubmissionId))) return { kind: "advanced_past_input" };
++	if (following.some((entry) => entry.type === "message" && entry.message.role === "user" && !isSubmissionContinuationInput(entry, opts.ownSubmissionId))) return { kind: "advanced_past_input" };
++	// A completed assistant before the latest accepted input cannot answer it.
++	// Keep the full transcript; narrow only this recovery classification.
++	const latestInputIndex = following.findLastIndex((entry) => entry.type === "message" && entry.message.role === "user");
++	if (latestInputIndex !== -1) following = following.slice(latestInputIndex + 1);
+ 	const assistantIndex = following.findLastIndex((entry) => entry.type === "message" && entry.message.role === "assistant");
+ 	const assistantEntry = assistantIndex === -1 ? void 0 : following[assistantIndex];
+ 	const assistant = assistantEntry?.type === "message" ? assistantEntry.message : void 0;
 @@ -2166,6 +2279,13 @@ function classifySubmissionState(following, opts) {
  			assistant
  		};

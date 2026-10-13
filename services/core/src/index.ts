@@ -921,6 +921,7 @@ import {
   rpcCommitSpaceFileWrite,
   rpcCompleteConnectorDisconnect,
   rpcCompleteGitHubAppInstallation,
+  rpcComputerPowerSettings,
   rpcConnectCandidate,
   rpcConnectCenterAgentSlackWorkspace,
   rpcConnectDeclaredPath,
@@ -1614,6 +1615,11 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   ) {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       rpcComputerSessionHistory(this.env, input)
+    );
+  }
+  computerPowerSettings(input: Parameters<typeof rpcComputerPowerSettings>[1]) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcComputerPowerSettings(this.env, input)
     );
   }
   readPeopleComputerFileAccessPolicy(
@@ -4688,6 +4694,9 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: Parameters<typeof rpcComputerSessionHistory>[1]
   ) {
     return super.computerSessionHistory(input);
+  }
+  computerPowerSettings(input: Parameters<typeof rpcComputerPowerSettings>[1]) {
+    return super.computerPowerSettings(input);
   }
   readPeopleComputerFileAccessPolicy(
     input: Parameters<typeof rpcReadPeopleComputerFileAccessPolicy>[1]

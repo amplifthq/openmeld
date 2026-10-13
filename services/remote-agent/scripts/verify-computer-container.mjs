@@ -304,6 +304,8 @@ try {
       phases: data.phases,
       maxStepMs: data.maxStepMs,
       maxSyncStepMs: data.maxSyncStepMs,
+      importReceipts: data.importReceipts,
+      restoredEchoEntries: data.restoredEchoEntries,
       lostInitial: data.lostInitial,
       lostDelete: data.lostDelete,
     };

@@ -1925,6 +1925,16 @@ progress may enrich this one projection while the Space is open, but it remains
 transient evidence and never replaces Core or RuntimeCoordinator execution
 truth.
 
+An originating Center Agent request also exposes its explicitly declared
+delegation through Message details. Each child has one row with the permitted
+task/context summary, execution or publication state, and authorized source and
+result links. The declared completion policy identifies who owns the follow-up;
+child completion does not imply the original request has its final answer.
+Unreadable children remain unavailable without disclosing their Agent, content,
+locations, or input. A planned fallback is labeled as such and never presented
+as executing. Same-Space Stop reuses the existing exact-Wake control; input and
+recovery links open the child's existing source-message controls.
+
 **Graph** is the Space-wide visual view of those same recorded collaboration
 facts. Messages and Graph are two presentations of one loaded Space
 timeline, not separate activity products or state stores. Ordinary messages,

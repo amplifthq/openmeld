@@ -69,6 +69,10 @@ import {
 	PluginAccessLoadingSkeleton,
 	usePluginConnectionSnapshotCurrent,
 } from "./plugin-connection-status-ui";
+import {
+	PluginDetailConnection,
+	type PluginDetailLayout,
+} from "./plugin-detail-connection";
 
 const AUTHORIZATION_POLL_INTERVAL_MS = 1200;
 const AUTHORIZATION_POPUP_CHECK_INTERVAL_MS = 250;
@@ -160,6 +164,7 @@ function isAuthorizationScopeConnected(input: {
 }
 
 type PluginConnectionCardProps = {
+	renderDetail?: PluginDetailLayout;
 	organizationName?: string;
 	plugin: Extract<PluginDefinition, { availability: "available" }>;
 	canManage: boolean;
@@ -737,6 +742,7 @@ function PluginConnectionCardState(input: PluginConnectionCardProps) {
 			otherMemberConnections={otherMemberConnections}
 			plugin={input.plugin}
 			presentation={input.presentation ?? "management"}
+			renderDetail={input.renderDetail}
 			sharedConnection={sharedConnection}
 			showConnectionRetry={canRetryConnectionStatus({
 				connectionError: connectionsQuery.error,
@@ -750,6 +756,7 @@ function PluginConnectionCardState(input: PluginConnectionCardProps) {
 }
 
 function PluginConnectionCardContent(input: {
+	renderDetail?: PluginDetailLayout;
 	organizationName?: string;
 	actionsDisabled: boolean;
 	plugin: Extract<PluginDefinition, { availability: "available" }>;
@@ -780,6 +787,21 @@ function PluginConnectionCardContent(input: {
 	statusAvailable: boolean;
 	statusChecking: boolean;
 }) {
+	if (input.renderDetail && input.mode !== "all") {
+		return (
+			<PluginDetailControl
+				{...input}
+				mode={input.mode}
+				renderDetail={input.renderDetail}
+			/>
+		);
+	}
+	return <PluginConnectionSections {...input} />;
+}
+
+function PluginConnectionSections(
+	input: Parameters<typeof PluginConnectionCardContent>[0]
+) {
 	if (!(input.statusAvailable || input.loading)) {
 		return <PluginConnectionError {...input} />;
 	}
@@ -899,6 +921,111 @@ function PluginConnectionCardContent(input: {
 	);
 }
 
+function PluginDetailControl(
+	input: Parameters<typeof PluginConnectionCardContent>[0] & {
+		mode: AuthorizationScope;
+		renderDetail: PluginDetailLayout;
+	}
+) {
+	const [showSetup, setShowSetup] = useState(false);
+	const scope = input.mode;
+	const connection =
+		scope === "shared" ? input.sharedConnection : input.currentUserConnection;
+	const canManage = scope === "member" || input.canManage;
+	const canConnect = connectorConnectionScopeAllowed(
+		input.plugin.service,
+		scope
+	);
+	const auth = input.plugin.connection.auth;
+	const needsConnection =
+		!connection || connection.health?.state === "reconnect_required";
+	const connect = () => {
+		if (auth.kind === "oauth" && auth.configured !== false) {
+			input.onConnect(scope, auth, {});
+		} else {
+			setShowSetup(true);
+		}
+	};
+	return (
+		<PluginDetailConnection
+			appName={input.plugin.name}
+			canConnect={
+				canConnect &&
+				!(
+					auth.kind === "oauth" &&
+					auth.configured === false &&
+					!auth.credentialFallback
+				)
+			}
+			canManage={canManage}
+			connecting={input.connectPending !== null}
+			connection={connection}
+			disabled={input.actionsDisabled}
+			disconnecting={input.disconnectPendingRequest !== null}
+			errorMessage={input.errorMessage}
+			loading={input.loading}
+			onConnect={connect}
+			onDisconnect={() =>
+				input.onDisconnect({
+					scope,
+					...(scope === "member" ? { userId: connection?.userId } : {}),
+				})
+			}
+			renderDetail={input.renderDetail}
+			unavailable={!(input.statusAvailable || input.loading)}
+		>
+			{needsConnection &&
+			auth.kind === "oauth" &&
+			auth.credentialFallback &&
+			canManage &&
+			canConnect &&
+			!showSetup ? (
+				<Button
+					className="px-0"
+					disabled={input.actionsDisabled}
+					onClick={() => setShowSetup(true)}
+					size="sm"
+					variant="link"
+				>
+					Use credentials
+				</Button>
+			) : null}
+			{showSetup &&
+			needsConnection &&
+			canManage &&
+			canConnect &&
+			input.statusAvailable ? (
+				<DisconnectedConnectionControl
+					actionsDisabled={input.actionsDisabled}
+					appName={input.plugin.name}
+					canConnect={canConnect}
+					canManage={canManage}
+					connectedScopeName={input.organizationName ?? "Organization"}
+					connectionConfig={input.plugin.connection}
+					connectPendingKind={input.connectPending?.authKind ?? null}
+					description=""
+					disconnectPending={false}
+					loading={input.loading}
+					onConnect={(method, values) => input.onConnect(scope, method, values)}
+					onDisconnect={() => undefined}
+					preferCredentials
+					scope={scope}
+					statusAvailable={input.statusAvailable}
+					statusChecking={input.statusChecking}
+					title="Credentials"
+				/>
+			) : null}
+			{needsConnection && auth.kind === "oauth" ? (
+				<PluginOAuthSetupNotice
+					appName={input.plugin.name}
+					configured={auth.configured}
+				/>
+			) : null}
+			<PluginConnectionError {...input} />
+		</PluginDetailConnection>
+	);
+}
+
 function PluginConnectionError(input: {
 	errorMessage: string | null;
 	showConnectionRetry: boolean;
@@ -928,6 +1055,7 @@ function PluginConnectionError(input: {
 }
 
 type ConnectionSectionInput = {
+	preferCredentials?: boolean;
 	actionsDisabled: boolean;
 	appName: string;
 	canManage: boolean;
@@ -1130,7 +1258,9 @@ function PluginOAuthSetupNotice(input: {
 function DisconnectedConnectionControl(input: ConnectionSectionInput) {
 	const disabled = input.actionsDisabled || !input.canManage;
 	const [values, setValues] = useState<Record<string, string>>({});
-	const [usingCredentialFallback, setUsingCredentialFallback] = useState(false);
+	const [usingCredentialFallback, setUsingCredentialFallback] = useState(
+		input.preferCredentials === true
+	);
 	const [credentialIndex, setCredentialIndex] = useState(0);
 	const primaryAuth = input.connectionConfig.auth;
 	const baseAuth =
@@ -1251,7 +1381,7 @@ function DisconnectedConnectionControl(input: ConnectionSectionInput) {
 						type="button"
 						variant="link"
 					>
-						Connect through {input.appName} instead
+						Use browser sign-in
 					</Button>
 				) : null}
 			</div>
@@ -1363,7 +1493,7 @@ function ConnectionSummary(input: {
 							/>
 							{input.connection.health?.state === "refresh_required"
 								? "Refresh on next use"
-								: "Account connected"}
+								: "Connected"}
 						</Badge>
 					</div>
 					<p className="mt-0.5 text-muted-foreground text-xs">
@@ -1471,7 +1601,7 @@ function resolveConnectActionLabel(input: {
 	if (input.connectPending) {
 		return input.oauth ? "Waiting for authorization…" : "Connecting…";
 	}
-	return `Connect ${input.appName}`;
+	return "Connect";
 }
 
 function resolveDisconnectActionLabel(input: {

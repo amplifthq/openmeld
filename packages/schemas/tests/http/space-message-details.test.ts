@@ -2,10 +2,41 @@ import { describe, expect, it } from "vitest";
 import {
   getSpaceMessageDetailsInputSchema,
   getSpaceMessageDetailsResponseSchema,
+  spaceMessageDelegatedTaskSchema,
   spaceMessageDetailsStringFactSchema,
 } from "../../src/schemas";
 
 describe("space Message Details HTTP schemas", () => {
+  it.each([
+    "spaceId",
+    "sourceSignalId",
+    "resultSignalId",
+    "targetProfileId",
+    "targetLabel",
+    "taskPreview",
+  ] as const)("rejects %s disclosure for an unreadable delegated task", (field) => {
+    const child = {
+      key: "delegation:0",
+      availability: "unavailable",
+      coordinationState: "active",
+      role: "primary",
+      spaceId: null,
+      sourceSignalId: null,
+      resultSignalId: null,
+      targetProfileId: null,
+      targetLabel: null,
+      taskPreview: null,
+      progress: null,
+      outcome: null,
+    };
+    expect(spaceMessageDelegatedTaskSchema.safeParse(child).success).toBe(true);
+    expect(
+      spaceMessageDelegatedTaskSchema.safeParse({
+        ...child,
+        [field]: "private",
+      }).success
+    ).toBe(false);
+  });
   it("accepts the unified Message Details response model", () => {
     const parsed = getSpaceMessageDetailsResponseSchema.safeParse(
       buildValidMessageDetailsResponse()

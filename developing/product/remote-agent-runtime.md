@@ -537,6 +537,48 @@ can provide.
 
 ## Center Agent operating control
 
+Interactive member requests in Spaces and Center DMs have a response phase
+before work. The first model call can answer directly or publish an authored
+progress response through Core. Work tools, capability discovery, Code Mode and
+Skill resources become available only after Core accepts that response. The
+phase reads the stream publisher's durable Core acknowledgement for the exact
+canonical input. Text and authored progress use the same acknowledgement owner;
+each render reads its live projection, which is restored from SQL after recovery.
+Buffered content retains the input it answers, so an old response cannot unlock
+a later check-in. Generated text, thinking and tool lifecycle parts are not
+response acknowledgements. The installed Flue patch backports the
+[upstream finish-cycle resource refresh](https://github.com/withastro/flue/blob/95a8c86244557e4c257b0fbd7eef2481de2c2150/packages/runtime/src/session.ts)
+from commit `95a8c86244557e4c257b0fbd7eef2481de2c2150`. Remove this backport
+when upgrading beyond stable `2.2.2` to a release that includes that fix.
+An unpublished update cannot unlock work. The first response uses low reasoning
+effort; subsequent work retains the selected model's reasoning setting.
+This phase does not settle the submission, invoke cleanup, create a new task or
+change authorization. Ordinary queued deliveries and exact-execution steering
+retain their existing ingress boundaries. Automated continuations, reply
+recovery and external message channels retain their own publication contracts.
+
+An Agent's blocking `computer_command` poll waits inside the original tool call
+while the Computer still observes work. Each native read remains bounded and
+rechecks access. No model turn is needed for each unchanged poll. The wait keeps
+the original reference and output cursor, includes file synchronization, and
+returns on completion, Stop or an inspection condition. `waitSeconds: 0` remains
+an immediate status read for independent work. The public Computer API and CLI
+retain their bounded polling contract. Waiting does not start a command or own
+cleanup; those remain with the existing Computer receipt and execution lifecycle.
+Both tool waits and finish waits yield at their next bounded observation when
+the exact-execution intake has accepted new user input. Flue applies that input
+under the original execution; its canonical input ID opens a fresh response
+phase without rerunning agent-start effects. The Computer continues running.
+Recovery classifies that input under the same submission owner and considers
+only assistant work after the latest accepted input. An earlier answer cannot
+settle an unanswered check-in. Before writing recovery or resource signals,
+Flue repairs any trailing tool batch: saved outcomes remain intact and unresolved
+non-durable calls retain an explicit unknown outcome without being replayed.
+The installed `2.2.2` patch extends this canonical classification for exact-execution
+steering; it does not change record validation or create another execution owner.
+Normal queued messages still wait by design; the existing Send now action is
+the explicit ingress for same-author Center DM steering.
+
 Long Computer commands use the native retained container execution API through
 `computer_command`; shell backgrounding is not a supported command-session
 mechanism. The runtime persists a dispatch key before spawn, scopes controls to
@@ -642,6 +684,15 @@ alarm reads the next due time from the same receipts; pending Git transfers
 retain their existing alarm cadence. The index adds a write cost to eligible
 receipt updates and an initial build on existing storage; it is not a separate
 queue or execution state.
+Normal model completion only observes these receipts. A paused collection,
+expired observation, or unavailable result can produce a reviewed explanation
+of the incomplete task, but cannot create a Stop request. Once that explanation
+has been reviewed, a new observation must not block its publication. The final
+bounded read can update diagnostics without changing the reviewed facts. A later
+authorized request can poll the original reference after the first submission
+settles; it cannot replay the command or revise the first task's published
+outcome. Explicit cancellation, original execution failure intent, and existing
+durable Stop handoffs retain their separate stopping authority.
 The command receipt retains the requested Stop signal and its native delivery
 acknowledgement. After an acquisition timeout, polling and collection continue
 the pending Stop for that same identity. A short native inspection can avoid
@@ -799,14 +850,28 @@ not acquire authority to stop another accepted call.
 
 The finish hook can feed pending receipts back once. A second model finish does
 not authorize Stop while the original Computer still observes active work.
-The original unsettled Flue hook waits through bounded receipt reads while the
+The original unsettled Flue hook waits through single-flight receipt reads while the
 existing Computer alarm advances preparation and result collection. It respects
 the hook AbortSignal, explicit Stop and the original turn's authority. It does
 not create repeated model feedback cycles, a replacement task or a total
 execution deadline. Ordinary queued input waits for the current turn; explicit
 Stop can interrupt it. Completion supplies retained result references to the
-model before its final answer. Paused observation, explicit loss or unavailable
-evidence enters the existing recovery-facts and cleanup handoff. The hook
+model before its final answer. A slow read remains one in-flight observation;
+a rejected read retries with bounded backoff under the original turn authority.
+Neither a local observation timeout nor a failed read authorizes Stop. Abort
+ends the local wait without claiming to cancel the underlying read-only RPC.
+Paused collection, explicit loss or unavailable results confirmed by the Computer
+enter the existing recovery-facts and reviewed incomplete-outcome path. These
+facts do not create a Stop handoff. Unknown read state keeps the observer waiting.
+Normal result publication and completed-result reconciliation only confirm
+Computer state; they cannot create a Stop obligation. Explicit cancellation,
+confirmed execution failure and existing Stop handoffs retain cleanup authority.
+The original execution retains a requested safety failure through terminal
+settlement. After the terminal compare-and-set, publication and crash recovery
+deliver any canonical cancellation or safety Stop intent before the callback.
+This closes the race with a late Stop without treating an observation error as
+Stop authority or adding a second execution owner.
+The hook
 persists that disposition with Flue's atomic hook state. Cleanup progress
 cannot upgrade an already blocked task to success.
 

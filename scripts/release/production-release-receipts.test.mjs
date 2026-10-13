@@ -32,6 +32,7 @@ const WORKER_VERSION = "23863082-db0f-4cfe-a91b-69c570ee1578";
 const CLI_ARTIFACT_SHA = "b".repeat(64);
 const FAILURE = /fixture failure|persist|boundary|Worker|completion|executor/u;
 const NATIVE_DRIFT = /native drift/u;
+const RECEIPT_CAUSE = /Could not persist.*Cause: fixture receipt failure/u;
 
 function fixture(options = {}) {
   const receipts = [],
@@ -162,8 +163,8 @@ function fixture(options = {}) {
   return { run, receipts, effects, latest, released, sources };
 }
 
-for (const workerDriftAfterNative of [false, true]) {
-  test(`Worker-only release retains native provenance through explicit rollout (late Worker drift: ${workerDriftAfterNative})`, async () => {
+for (const failure of ["none", "worker-drift", "receipt-write"]) {
+  test(`Worker-only release retains native provenance through explicit rollout (${failure})`, async () => {
     const native = {
       id: "app",
       name: "openmeld-agent-computer",
@@ -190,7 +191,7 @@ for (const workerDriftAfterNative of [false, true]) {
         assert.deepEqual(retained, native);
         assert.equal(identity.sourceSha, SOURCE);
         nativeChecks += 1;
-        options.identityFailure = workerDriftAfterNative;
+        options.identityFailure = failure === "worker-drift";
       },
     };
     const result = fixture(options);
@@ -234,13 +235,50 @@ for (const workerDriftAfterNative of [false, true]) {
     await assert.rejects(result.run, NATIVE_DRIFT);
     assert.equal(result.effects.length, effects);
     options.readRetainedContainer = () => native;
-    if (workerDriftAfterNative) {
+    if (failure === "worker-drift") {
       await assert.rejects(result.run, IDENTITY_ERROR);
       assert.equal(result.latest.get("remote-agent").status, "failed");
       assert.equal(nativeChecks, 1);
       return;
     }
-    await result.run();
+    if (failure === "receipt-write") {
+      options.receiptFailure = "verified";
+      await assert.rejects(result.run, RECEIPT_CAUSE);
+      const applied = result.latest.get("remote-agent");
+      assert.equal(applied.status, "applied");
+      assert.equal(applied.remoteAgent.phase, "rollout");
+      const deployedEffects = result.effects.length;
+      options.receiptFailure = undefined;
+      options.readRetainedContainer = () =>
+        assert.fail("must not require the replaced native version");
+      options.verifyNativeCompletion = () => {
+        throw new Error("native drift");
+      };
+      await assert.rejects(result.run, NATIVE_DRIFT);
+      assert.deepEqual(result.latest.get("remote-agent"), applied);
+      options.verifyNativeCompletion = () => {
+        options.identityFailure = true;
+      };
+      await assert.rejects(result.run, IDENTITY_ERROR);
+      assert.deepEqual(result.latest.get("remote-agent"), applied);
+      options.identityFailure = false;
+      options.verifyNativeCompletion = (_input, retained, identity) => {
+        assert.deepEqual(retained, native);
+        assert.deepEqual(identity, applied.identity);
+      };
+      await result.run();
+      assert.equal(
+        result.effects.length,
+        deployedEffects,
+        "verification must not deploy or replay any step"
+      );
+      assert.equal(
+        result.latest.get("remote-agent").startedAt,
+        applied.startedAt
+      );
+    } else {
+      await result.run();
+    }
     const complete = result.latest.get("remote-agent");
     assert.equal(complete.status, "verified");
     assert.equal(complete.remoteAgent.phase, "complete");

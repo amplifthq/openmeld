@@ -428,6 +428,43 @@ repeated Worker-only command only verifies its retained evidence and does not
 deploy again. Worker-only code must remain compatible with the retained native
 RPC contract. This mode does not make an unsynchronized Container disk durable.
 
+If the full stage has an `applied` receipt in phase `rollout`, a repeated guarded
+stage only verifies the recorded Worker and its native image. It checks the
+Worker again after the native rollout settles and appends `verified` to the
+same attempt. It does not deploy, replay commands, or require the replaced
+Container version to remain active. Failed verification leaves the applied
+receipt unresolved.
+
+When the receipt needs recovery code newer than its pinned source, run the
+existing `scripts/release/remote-agent-partial-recovery.mjs` from a clean current
+main control checkout with `--verify-only true`. Supply its existing eight
+selectors: `--source-dir`, `--source-sha`, `--attempt`, `--expected-deployment`,
+`--expected-worker-version`, `--container-id`, `--container-version`, and
+`--container-image`. Worker selectors refer to the applied deployment; Container
+selectors refer to the original baseline in that receipt. The control checks
+the source, exact selectors and operation under the Remote Agent lease, then
+uses the same verification and receipt writer as guarded deploy. Keep the old
+source checkout intact. Never publish a locally created receipt commit by hand.
+Verification-only recovery does not run deployment preflight: it proves an
+already applied deployment under the existing identity and lease guards and
+introduces no new artifact or receiver; recovery that deploys still requires
+deployment preflight. Its source, artifact, and compatibility checks use the
+current-main owner against the pinned source. After exact receipt and live cloud
+assessment under the lease, train admission treats only that attempt as pending
+recovery and computes dependencies from its last verified deployment. Ordinary
+stage admission, other unresolved scopes, source proof, and receiver ordering
+remain enforced; an operator's `--base` cannot shorten the compatibility history.
+
+Recovery that deploys requires `--base <exact-original-release-base>` in
+addition to the eight selectors. It repeats the full guarded deployment at the
+same source, not user commands. A successful deployment can retain a Container
+version when Wrangler reuses an existing immutable image. This outcome requires
+the prior verified native receipt and its registry digest, unchanged application
+configuration before and after deployment, and complete healthy instance
+evidence with no active rollout. Missing image tags or registry failures never
+prove reuse. The existing recovery proof keeps the native provenance reference
+for subsequent recovery; the canonical receipt remains compatible with v3 readers.
+
 For the specific Remote Agent Worker-first/container-image failure, current-main
 tooling provides `release:recover:remote-agent-partial`. It requires the clean
 original release source, the retained failed attempt and its start event, the

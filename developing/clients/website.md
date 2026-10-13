@@ -93,7 +93,7 @@ or default model. Channels precede Team Knowledge and Routines.
 The Plugins section uses available entries from the public Plugins catalog
 and shared app logos. The logo wall groups connections by brand and divides
 distinct logos evenly between its two rows; its details Sheet lists every
-supported connection. Its headline rounds the available Plugin count down to
+supported connection. Its footer rounds the available Plugin count down to
 the nearest ten and adds `+`: 63 becomes `60+`, and 74 becomes `70+`. The details
 list remains the precise current catalog. Wrapped brand names stay centered within
 their tiles. Channel support does not admit a Plugin.

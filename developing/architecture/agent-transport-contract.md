@@ -986,6 +986,11 @@ pending substate and interrupts the same provider turn. A Service process loss
 may fail the turn; OpenMeld must not claim it can reconstruct a provider process
 from the cloud interaction record.
 
+An interaction delivery acknowledgement must preserve a durably requested Stop,
+including before native control delivery or its ledger projection completes.
+Cancelling a pending question can finish the provider turn first; its accepted
+result still settles through the existing exact-execution Stop publication path.
+
 The optional Computer file access boundary uses the same interaction authority
 only when local admission cannot prove that the selected controller can enforce
 the exact boundary. The request is private to the Computer owner, even when a
@@ -1782,6 +1787,10 @@ still rejects publication if collaboration advanced again. Context review helps
 later-finishing parallel Agents adapt; it does not serialize execution or replace
 explicit Center Agent delegation and Agent Task Coordination when work needs
 planned ownership, completion barriers, or parent synthesis.
+
+Membership join and removal notices are not collaboration updates. The atomic
+publication guard excludes them just as the bounded Space updates reader does;
+it must not demand review of a notice that the reader deliberately omits.
 
 ### Agent Transport Space Action Delivery
 

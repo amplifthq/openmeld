@@ -223,18 +223,33 @@ describe("CenterAgentGitHubConnectionCard", () => {
 		).toBeTruthy();
 	});
 
-	it("requires modal confirmation before disconnecting GitHub", async () => {
+	it.each([
+		false,
+		true,
+	])("requires modal confirmation before disconnecting GitHub (detail: %s)", async (detail) => {
 		render(
 			<TestQueryClientProvider>
 				<CenterAgentGitHubConnectionCard
 					canManage={false}
 					mode="member"
 					organizationId="org-acme"
+					renderDetail={
+						detail
+							? (action, content) => (
+									<>
+										{action}
+										{content}
+									</>
+								)
+							: undefined
+					}
 				/>
 			</TestQueryClientProvider>
 		);
 
-		expect(await screen.findByText("Felix")).toBeTruthy();
+		expect(
+			await screen.findByText(detail ? "Connected" : "Felix")
+		).toBeTruthy();
 		expect(
 			screen.getByText(
 				"OpenMeld can use only repositories included in an OpenMeld GitHub Plugin installation and allowed for this GitHub identity."
@@ -246,11 +261,17 @@ describe("CenterAgentGitHubConnectionCard", () => {
 				.getAttribute("href")
 		).toBe("https://github.com/settings/installations");
 
-		fireEvent.click(screen.getByRole("button", { name: "Disconnect GitHub" }));
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: detail ? "Connected" : "Disconnect GitHub",
+			})
+		);
 
 		expect(screen.getByRole("dialog")).toBeTruthy();
 		expect(
-			screen.getByRole("heading", { name: "Disconnect GitHub?" })
+			screen.getByRole("heading", {
+				name: detail ? "GitHub connection" : "Disconnect GitHub?",
+			})
 		).toBeTruthy();
 		expect(
 			screen.getByText(
@@ -264,9 +285,17 @@ describe("CenterAgentGitHubConnectionCard", () => {
 		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 		expect(disconnectOrganizationGitHubConnectionMock).not.toHaveBeenCalled();
 
-		fireEvent.click(screen.getByRole("button", { name: "Disconnect GitHub" }));
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: detail ? "Connected" : "Disconnect GitHub",
+			})
+		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Disconnect GitHub" }));
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: detail ? "Disconnect" : "Disconnect GitHub",
+			})
+		);
 
 		await waitFor(() => {
 			expect(disconnectOrganizationGitHubConnectionMock).toHaveBeenCalledWith({

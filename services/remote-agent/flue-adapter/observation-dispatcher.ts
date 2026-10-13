@@ -1,11 +1,15 @@
 import type { FlueObservation } from "@flue/runtime";
 import {
   getRemoteAgentExecutionSubmissionId,
+  getRemoteAgentResponseInputId,
   runWithRemoteAgentSubmissionExecution,
 } from "./execution-context";
 
 type CenterAgentObservationDispatcherOptions = {
-  handle: (event: FlueObservation) => Promise<void>;
+  handle: (
+    event: FlueObservation,
+    responseInputId: string | null
+  ) => Promise<void>;
   scheduleBackground: (task: Promise<void>) => void;
 };
 
@@ -16,18 +20,19 @@ export function createCenterAgentObservationDispatcher(
 
   return (event) => {
     const executionSubmissionId = getRemoteAgentExecutionSubmissionId();
+    const responseInputId = getRemoteAgentResponseInputId();
     const ownerKey = resolveObservationOwnerKey(event, executionSubmissionId);
     const previous = tailByAgentInstance.get(ownerKey) ?? Promise.resolve();
     const current = previous
       .catch(() => undefined)
       .then(async () => {
         if (!executionSubmissionId) {
-          await options.handle(event);
+          await options.handle(event, responseInputId);
           return;
         }
         await runWithRemoteAgentSubmissionExecution(
           executionSubmissionId,
-          async () => await options.handle(event)
+          async () => await options.handle(event, responseInputId)
         );
       });
     const tracked = current.finally(() => {
