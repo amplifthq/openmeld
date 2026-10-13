@@ -306,6 +306,7 @@ export function initializeDesktopPilot(
           webOrigin,
           webBuild: platform.webBuild,
           cookie: auth.cookie,
+          sessionGeneration: auth.sessionGeneration,
           fetch,
           installed: Boolean(installedTarget),
           cloudRequest: auth.cloudRequest,

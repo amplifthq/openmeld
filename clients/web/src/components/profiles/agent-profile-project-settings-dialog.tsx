@@ -24,16 +24,14 @@ import {
 	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { clearPendingAgentProfileCreationLocalSetupForProfile } from "#/lib/profiles/agent-profile-creation-local-setup";
 import { updateAgentProfileDefaultProject } from "#/lib/profiles/update-default-project";
-import {
-	readAgentProfileWorkspace,
-	updateAgentProfileWorkspace,
-} from "#/lib/profiles/update-profile-workspace";
+import { updateAgentProfileWorkspace } from "#/lib/profiles/update-profile-workspace";
 import { projectsQueryOptions } from "#/query/organizations/projects";
 import { startProfilesQueryOptions } from "#/query/profiles/profiles";
+import { agentProfileWorkingFolderQueryOptions } from "#/query/profiles/working-folder";
 import { AgentProfileProjectSelector } from "./agent-profile-project-selector";
 import {
 	FUTURE_WAKES_PROJECT_SETTINGS_NOTICE,
@@ -41,6 +39,8 @@ import {
 } from "./agent-profile-project-settings";
 
 type SettingsInput = {
+	recoveryMessage?: string;
+	onSaved?: () => void;
 	expectedBindingTarget?: AgentProfileBindingTarget;
 	saveBlockedReason?: string;
 	target?: PeopleComputerTarget;
@@ -68,23 +68,62 @@ export function AgentProfileProjectSettingsDialog(input: SettingsInput) {
 	return (
 		<LocalAgentProfileProjectSettingsDialog
 			{...input}
-			key={`${input.storageScope}:${input.organizationId}:${input.profile.openMeldProfileId}:${input.open}:${readRetry}`}
+			key={`${input.storageScope}:${input.organizationId}:${input.profile.openMeldProfileId}:${input.open}`}
 			onRetryRead={() => setReadRetry((retry) => retry + 1)}
+			readRevision={readRetry}
 		/>
 	);
 }
 
 function LocalAgentProfileProjectSettingsDialog(
-	input: SettingsInput & { onRetryRead: () => void }
+	input: SettingsInput & { onRetryRead: () => void; readRevision: number }
 ) {
 	const queryClient = useQueryClient();
 	const [opening] = useState(() => ({
 		target: input.target,
 		bindingTarget: input.expectedBindingTarget,
 	}));
-	const [projectId, setProjectId] = useState("");
+	const workspaceQueryOptions = useMemo(
+		() =>
+			agentProfileWorkingFolderQueryOptions({
+				actorProfileId: input.actorProfileId,
+				organizationId: input.organizationId,
+				profileId: input.profile.openMeldProfileId,
+				storageScope: input.storageScope,
+				target: opening.target,
+				expectedBindingTarget: opening.bindingTarget,
+				enabled: input.open,
+			}),
+		[
+			input.actorProfileId,
+			input.organizationId,
+			input.profile.openMeldProfileId,
+			input.storageScope,
+			input.open,
+			opening,
+		]
+	);
+	const cachedWorkspace = queryClient.getQueryData(
+		workspaceQueryOptions.queryKey
+	);
+	const draftChanged = useRef(false);
+	const [projectId, setProjectId] = useState(
+		input.profile.defaultProjectId ?? ""
+	);
 	const [savedSettings, setSavedSettings] =
-		useState<GetCurrentAgentProfileWorkspaceResponse | null>(null);
+		useState<GetCurrentAgentProfileWorkspaceResponse | null>(
+			cachedWorkspace ?? null
+		);
+	const [verified, setVerified] = useState(false);
+	const [fallback, setFallback] = useState<
+		"advanced" | "managed" | "project" | null
+	>(() =>
+		savedFolderSource(
+			input.profile.defaultProjectId ?? "",
+			cachedWorkspace?.workspace
+		)
+	);
+	const savedLocalDraft = useRef<string | null>(null);
 	const [acquisitionError, setAcquisitionError] = useState<string | null>(null);
 	const acquired = savedSettings !== null;
 	const profilesQuery = useQuery({
@@ -98,11 +137,10 @@ function LocalAgentProfileProjectSettingsDialog(
 	const projectsQuery = useQuery(
 		projectsQueryOptions({
 			organizationId: input.organizationId,
-			enabled: input.open,
+			enabled: input.open && (Boolean(projectId) || fallback === "project"),
 		})
 	);
 	const selectedProjectId = projectId;
-	const initialPath = savedCustomPath(savedSettings?.workspace);
 	const target = savedSettings?.target ?? input.target;
 	const savedConfigurationError = invalidSavedConfigurationMessage(
 		savedSettings?.workspace
@@ -117,33 +155,29 @@ function LocalAgentProfileProjectSettingsDialog(
 			},
 			savedSettings?.target
 		);
-	const [fallback, setFallback] = useState<
-		"advanced" | "managed" | "project" | null
-	>(null);
-	const [path, setPath] = useState("");
+	const [path, setPath] = useState(() =>
+		savedCustomPath(cachedWorkspace?.workspace)
+	);
 	const [connection, setConnection] =
 		useState<LocalProjectControlConnection | null>(null);
 	const [pending, setPending] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	// The revision is an explicit user retry signal; retain the draft between reads.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: A retry must reacquire the same scoped query without remounting the draft.
 	useEffect(() => {
-		if (acquired || !input.open) {
+		if (verified || !input.open) {
 			return;
 		}
 		let disposed = false;
 		const acquire = async () => {
+			setAcquisitionError(null);
 			await cancelPreviousProfileRead(queryClient, input.storageScope);
 			if (disposed) {
 				return;
 			}
 			const [result, local] = await Promise.all([
 				refetchProfiles({ throwOnError: true }),
-				readAgentProfileWorkspace({
-					actorProfileId: input.actorProfileId,
-					organizationId: input.organizationId,
-					profileId: input.profile.openMeldProfileId,
-					target: opening.target,
-					expectedBindingTarget: opening.bindingTarget,
-				}),
+				queryClient.fetchQuery({ ...workspaceQueryOptions, staleTime: 0 }),
 			]);
 			const profile = result.data?.find(
 				(candidate) =>
@@ -159,10 +193,12 @@ function LocalAgentProfileProjectSettingsDialog(
 			// Their acquired values initialize this opening's draft only once.
 			const savedProjectId = profile.defaultProjectId ?? "";
 			setSavedSettings(local);
-			setProjectId(savedProjectId);
-			setPath(savedCustomPath(local.workspace));
-			setConnection(null);
-			setFallback(savedFolderSource(savedProjectId, local.workspace));
+			setVerified(true);
+			if (!draftChanged.current) {
+				setProjectId(savedProjectId);
+				setPath(savedCustomPath(local.workspace));
+				setFallback(savedFolderSource(savedProjectId, local.workspace));
+			}
 		};
 		acquire().catch((failure) => {
 			if (!(disposed || isCancelledError(failure))) {
@@ -173,18 +209,16 @@ function LocalAgentProfileProjectSettingsDialog(
 			disposed = true;
 		};
 	}, [
-		acquired,
+		verified,
+		input.readRevision,
 		input.open,
-		input.actorProfileId,
-		input.organizationId,
-		opening,
 		input.profile.openMeldProfileId,
 		input.storageScope,
 		queryClient,
 		refetchProfiles,
+		workspaceQueryOptions,
 	]);
-	const savedProfileUnavailable = !acquired && acquisitionError !== null;
-	const disabled = pending || !acquired;
+	const disabled = pending;
 	const localFolderChangesBlocked =
 		input.executionTargetChangeEligibilityStatus !== "allowed";
 	const valid =
@@ -199,33 +233,40 @@ function LocalAgentProfileProjectSettingsDialog(
 	const save = async () => {
 		// The displayed choice does not prove that the Service has a usable
 		// workspace. Explicit Save may reapply it to initialize or repair it.
-		if (disabled || !valid) {
+		if (disabled || !valid || !verified) {
 			return;
 		}
 		setPending(true);
 		setError(null);
 		const context = {
-			...(opening.bindingTarget
-				? { expectedBindingTarget: opening.bindingTarget }
-				: {}),
+			expectedBindingTarget: opening.bindingTarget,
 			actorProfileId: input.actorProfileId,
 			organizationId: input.organizationId,
 			profileId: input.profile.openMeldProfileId,
 		};
 		let workspaceSaved = false;
+		const draftKey = JSON.stringify({
+			target,
+			binding: opening.bindingTarget,
+			fallback,
+			path,
+		});
 		try {
 			// Project intent is resolved by the Service's canonical connection. Do not
 			// copy its path into a second custom-folder preference.
-			if (!projectId) {
+			if (!projectId && savedLocalDraft.current !== draftKey) {
 				await updateAgentProfileWorkspace({
 					...context,
+					previousWorkspace: savedSettings?.workspace,
 					target,
 					workspaceMode:
 						fallback === "advanced" ? "custom" : "openmeld_managed",
 					...(fallback === "advanced" ? { workspacePath: path } : {}),
 				});
 				workspaceSaved = true;
+				savedLocalDraft.current = draftKey;
 			}
+			workspaceSaved = !projectId && savedLocalDraft.current === draftKey;
 			const updated = await updateAgentProfileDefaultProject({
 				...context,
 				defaultProjectId: projectId || null,
@@ -234,8 +275,16 @@ function LocalAgentProfileProjectSettingsDialog(
 				input.profile.openMeldProfileId
 			);
 			input.onProfileUpdated(updated);
-			toast.success("Working folder updated.");
+			queryClient.invalidateQueries({
+				queryKey: workspaceQueryOptions.queryKey,
+			});
+			toast.success(
+				input.recoveryMessage
+					? "Working folder saved. Checking Agent availability…"
+					: "Working folder updated."
+			);
 			input.onOpenChange(false);
+			input.onSaved?.();
 		} catch (failure) {
 			setError(folderSaveError(failure, workspaceSaved));
 		} finally {
@@ -259,53 +308,45 @@ function LocalAgentProfileProjectSettingsDialog(
 					</DialogDescription>
 				</DialogHeader>
 				<div className="grid gap-4">
-					{acquired || savedProfileUnavailable ? null : (
-						<output className="text-muted-foreground text-sm">
-							Loading the saved working folder…
-						</output>
-					)}
-					{savedProfileUnavailable ? (
-						<p className="text-destructive text-sm" role="alert">
-							{acquisitionError}{" "}
-							<button
-								className="underline"
-								onClick={input.onRetryRead}
-								type="button"
-							>
-								Try again
-							</button>
-						</p>
-					) : null}
-					{savedConfigurationError ? (
-						<p className="text-destructive text-sm" role="alert">
-							{savedConfigurationError}
-						</p>
-					) : null}
-					<ImportedWorkingFolderNotice workspace={savedSettings?.workspace} />
+					<WorkingFolderReadStatus
+						acquired={acquired}
+						configurationError={savedConfigurationError}
+						error={acquisitionError}
+						onRetry={input.onRetryRead}
+					/>
+					<ImportedWorkingFolderNotice
+						recoveryMessage={input.recoveryMessage}
+						workspace={savedSettings?.workspace}
+					/>
 					<AgentProfileProjectSelector
 						disabled={disabled}
 						localFolderChangesBlocked={localFolderChangesBlocked}
 						manualPath={path}
 						onConnectionReady={setConnection}
 						onManualPathChange={(value) => {
+							draftChanged.current = true;
 							setPath(value);
 							setError(null);
 						}}
 						onProjectChange={(value) => {
+							draftChanged.current = true;
 							setProjectId(value);
 							setConnection(null);
 							setFallback(null);
 							setError(null);
 						}}
 						onUseAdvancedWorkspace={() => {
+							draftChanged.current = true;
 							setFallback("advanced");
-							setPath(initialPath);
 						}}
 						onUseManagedWorkspace={() => {
+							draftChanged.current = true;
 							setFallback("managed");
-							setPath("");
 						}}
-						onUseProjectWorkspace={() => setFallback("project")}
+						onUseProjectWorkspace={() => {
+							draftChanged.current = true;
+							setFallback("project");
+						}}
 						organizationId={input.organizationId}
 						projectId={selectedProjectId}
 						projects={projectsQuery.data?.projects ?? []}
@@ -313,7 +354,8 @@ function LocalAgentProfileProjectSettingsDialog(
 						target={target}
 						workspaceFallbackMode={fallback}
 					/>
-					{projectsQuery.isPending ? (
+					{projectsQuery.isPending &&
+					(Boolean(projectId) || fallback === "project") ? (
 						<output className="text-muted-foreground text-sm">
 							Loading projects…
 						</output>
@@ -364,7 +406,7 @@ function LocalAgentProfileProjectSettingsDialog(
 					>
 						Cancel
 					</Button>
-					<Button disabled={disabled || !valid} onClick={save}>
+					<Button disabled={disabled || !valid || !verified} onClick={save}>
 						{pending ? "Saving…" : "Save changes"}
 					</Button>
 				</DialogFooter>
@@ -373,9 +415,43 @@ function LocalAgentProfileProjectSettingsDialog(
 	);
 }
 
+function WorkingFolderReadStatus(input: {
+	acquired: boolean;
+	error: string | null;
+	configurationError: string | null;
+	onRetry: () => void;
+}) {
+	if (input.error) {
+		return (
+			<p className="text-destructive text-sm" role="alert">
+				{input.error}{" "}
+				<button className="underline" onClick={input.onRetry} type="button">
+					Try again
+				</button>
+			</p>
+		);
+	}
+	if (!input.acquired) {
+		return (
+			<output className="text-muted-foreground text-sm">
+				Loading the saved working folder…
+			</output>
+		);
+	}
+	return input.configurationError ? (
+		<p className="text-destructive text-sm" role="alert">
+			{input.configurationError}
+		</p>
+	) : null;
+}
+
 function ImportedWorkingFolderNotice(input: {
 	workspace?: ProfileWorkspaceReadResult;
+	recoveryMessage?: string;
 }) {
+	if (input.recoveryMessage) {
+		return <output className="text-sm">{input.recoveryMessage}</output>;
+	}
 	if (
 		input.workspace?.status !== "configured" ||
 		input.workspace.configurationOrigin !== "imported_native_session"
@@ -461,9 +537,9 @@ function savedCustomPath(
 
 function savedFolderSource(
 	projectId: string,
-	workspace: ProfileWorkspaceReadResult
+	workspace: ProfileWorkspaceReadResult | undefined
 ): "advanced" | "managed" | null {
-	if (projectId || workspace.status !== "configured") {
+	if (projectId || workspace?.status !== "configured") {
 		return null;
 	}
 	return workspace.workspaceMode === "custom" ? "advanced" : "managed";
@@ -484,14 +560,12 @@ function folderSaveError(failure: unknown, localFolderSaved: boolean): string {
 	if (localFolderSaved) {
 		return targetChanged
 			? "The folder was saved on the original Computer. This Agent’s Default Project is unchanged. Close and reopen Working folder to review its current settings."
-			: "The folder was saved on the original Computer, but the Default Project update could not be confirmed. Close and reopen Working folder to check its current settings.";
+			: "The folder was saved on this computer, but the Default Project update could not be confirmed. Retry to finish applying this choice.";
 	}
 	if (targetChanged) {
 		return "This Agent’s Computer or local agent changed. Close and reopen Working folder to review its current settings.";
 	}
-	return failure instanceof Error
-		? failure.message
-		: "Couldn’t save the working folder. Try again.";
+	return structured.message || "Couldn’t save the working folder. Try again.";
 }
 
 function isWorkingFolderDraftValid(input: {

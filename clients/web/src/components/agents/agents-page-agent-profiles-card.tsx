@@ -189,6 +189,10 @@ import {
 	agentProfileControllerChangeEligibilityQueryOptions,
 	agentProfilePrimaryBindingQueryKeys,
 } from "#/query/profiles/primary-binding";
+import {
+	agentProfileWorkingFolderQueryOptions,
+	describeSavedWorkingFolder,
+} from "#/query/profiles/working-folder";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import { AGENT_PROFILE_ROUTE_REFRESH_WINDOW_MS } from "#/strategy-constants";
 import type { AgentProfileActivityNavigation } from "./agent-profile-activity-preview";
@@ -3772,6 +3776,24 @@ function AgentProfileWorkspacePresentation(input: {
 }) {
 	const { currentOrganization } = useAppOrganization();
 	const projectId = input.input.profile.defaultProjectId;
+	const folderQuery = useQuery(
+		agentProfileWorkingFolderQueryOptions({
+			actorProfileId: input.input.actorProfileId,
+			organizationId: input.input.organizationId,
+			profileId: input.input.profile.openMeldProfileId,
+			storageScope: input.input.storageScope,
+			target: input.input.workingFolderTarget,
+			expectedBindingTarget: input.input.workingFolderBindingTarget,
+			enabled:
+				input.input.capabilities.canManage &&
+				Boolean(input.input.workingFolderTarget) &&
+				!isHostedAgentControllerRef(input.input.primaryAgentControllerRef),
+		})
+	);
+	const folderSummary = describeSavedWorkingFolder(
+		folderQuery.data?.workspace,
+		folderQuery.isFetching
+	);
 	const projectsQuery = useQuery(
 		projectsQueryOptions({
 			organizationId: input.input.organizationId,
@@ -3912,6 +3934,7 @@ function AgentProfileWorkspacePresentation(input: {
 								Boolean(projectId) && projectsQuery.isPending
 							}
 							workingFolderProjectSelected={Boolean(projectId)}
+							workingFolderSummary={folderSummary}
 						/>
 					) : (
 						<AgentProfileReadOnlyConfigurationOverview
@@ -4043,6 +4066,7 @@ function resolveWorkspaceModelPresentation(
 }
 
 type AgentProfileConfigurationOverviewProps = {
+	workingFolderSummary?: string;
 	workingFolderProjectName?: string | null;
 	workingFolderProjectPending?: boolean;
 	workingFolderProjectSelected?: boolean;
@@ -4469,6 +4493,7 @@ function resolveWorkingFolderSummary(
 		return "Project details unavailable";
 	}
 	return (
+		input.workingFolderSummary ??
 		resolveProfileDetailsValue(input.details, "workspace_directory") ??
 		"Folder details unavailable"
 	);

@@ -189,6 +189,7 @@ it.each([
     `sh.openmeld.desktop.dev://auth/callback#token=${token}`
   );
   const originalCookie = auth.cookie();
+  const authenticatedGeneration = auth.sessionGeneration();
   expect(originalCookie).toContain("session_token=");
   {
     vi.setSystemTime(Date.now() + 3000);
@@ -201,6 +202,7 @@ it.each([
       code: responseStatus === 200 ? "ok" : "business.failed",
     });
     expect(response.headers.getSetCookie().length).toBeGreaterThan(1);
+    expect(auth.sessionGeneration()).toBe(authenticatedGeneration);
     auth = createPilotAuth(origin, () => null, vi.fn());
     expect(auth.cookie()).toBe(`${originalCookie}; unrelated=unchanged`); // Expiry-only renewal preserves the token value.
   }

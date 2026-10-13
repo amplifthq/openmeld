@@ -1,5 +1,5 @@
-import type { Stats } from "node:fs";
-import { stat } from "node:fs/promises";
+import { constants, type Stats } from "node:fs";
+import { access, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
 import { normalizeOptionalWorkingDirectory } from "@openmeld/schemas";
@@ -140,7 +140,23 @@ export async function validateCustomProfileWorkspacePath(
         status: "invalid",
       };
     }
+    await access(
+      normalizedPath,
+      constants.R_OK + constants.W_OK + constants.X_OK
+    );
   } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "ENOTDIR"
+    ) {
+      return {
+        path: normalizedPath,
+        reason: "not_directory",
+        status: "invalid",
+      };
+    }
     if (isFileNotFoundError(error)) {
       return {
         path: normalizedPath,
