@@ -13,9 +13,18 @@ import {
   createAuthClient,
 } from "better-auth/client";
 import { app, type BrowserWindow } from "electron";
+import { Agent } from "undici";
 import { assertPilotAuthCallback } from "./pilot-auth-callback";
 
 const SPACE_FILE_CONTENT_PATH = /^\/v1\/spaces\/[^/]+\/files\/[^/]+\/content$/u;
+const FOLDER_PICKER_PATH =
+  /^\/v1\/(?:local-runtimes\/current\/folder-picker|people-computers\/[^/]+\/lanes\/[^/]+\/folders\/select)$/u;
+// The helper allows 590s and Core allows 600s. Node fetch otherwise ends
+// the native request at its default 300s response-header timeout.
+const FOLDER_PICKER_TIMEOUT_MS = 610_000;
+const folderPickerDispatcher = new Agent({
+  headersTimeout: FOLDER_PICKER_TIMEOUT_MS,
+});
 
 export function createPilotAuth(
   webOrigin: string,
@@ -163,6 +172,19 @@ export function createPilotAuth(
         retry: 0,
         headers: Object.fromEntries(request.headers),
         body: request.body,
+        ...(request.method === "POST" &&
+        FOLDER_PICKER_PATH.test(new URL(path, webOrigin).pathname)
+          ? {
+              timeout: FOLDER_PICKER_TIMEOUT_MS,
+              customFetchImpl: (
+                url: string | URL | Request,
+                init?: RequestInit
+              ) => {
+                const options = { ...init, dispatcher: folderPickerDispatcher };
+                return fetch(url, options);
+              },
+            }
+          : {}),
         onResponse({ response }) {
           if (
             response.ok &&
