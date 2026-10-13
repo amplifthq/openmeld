@@ -625,6 +625,26 @@ Agent View and `--json` expose that local evidence under
 `agentControllerInterface` so Desktop and other local clients can reuse the same
 local-controller facts.
 
+`openmeld agents login antigravity` explicitly signs in to the selected official
+Antigravity ACP installation. `--method` selects a method offered by that server
+(default `oauth-personal`); non-personal methods require their native settings
+or environment credentials. The command prints the Google authorization link,
+supports Ctrl+C, and verifies a new process after authentication. It never
+prints or copies tokens. Run `agents show antigravity` or select **Check again**
+on the computer after login to refresh account evidence. Background checks use
+the normal inventory TTL. Legacy `agy` users first install the official ACP
+server and select it with `agents manage`.
+All ACP paths use the same native file credential store and suppress automatic
+browser launches. Signing in through a standalone client's Keychain store does
+not establish this file-store sign-in. Subscription usage remains unsupported.
+
+Space `--new-task` and `--continue-from` support official Antigravity ACP.
+Omit `--task-access` to retain Agent settings; extra access limits and
+`--fork-from` are not supported for Antigravity. `--task-workspace isolated`
+selects a managed working copy, not a filesystem sandbox. A legacy installation
+must be replaced by the selected official ACP installation before independent
+work can run. Agent delegation uses the same checks as human requests.
+
 ACI evidence is local controller evidence only. The CLI must not treat a healthy
 ACI snapshot as final Agent Profile Wakeability, and it must not hide unknown
 controller facts behind success copy. `Available` remains the Core-owned
@@ -1812,10 +1832,15 @@ one with a structured error. The current CLI requests the optional occupancy
 wait reason with `includeWaitReason=true`; older CLI versions omit that query
 and must continue receiving the previous strict response shape. This command
 does not replace `space result`,
-which reads archived results, or `service trace`, which diagnoses the execution
-chain. Missing archived results are not failed Wakes. All output views explain
-that hosted replies can exist without a workstation archive and provide the
-exact dispatch trace command. Read its visible Signal ID through Space history.
+which reads archived or published results, or `service trace`, which diagnoses
+the execution chain. `space result --dispatch` retains an existing archive's
+output. Only an explicit missing archive triggers the existing cross-runtime
+trace read and an exact canonical message read. Hosted replies therefore need
+no workstation archive. The additive `source: published_message` output contains
+the original signal and its proven visible outcome, including failure and stop
+notices. It never substitutes diagnostic text or declares completion before
+publication. Authorization and storage errors remain errors. `--result-ref`
+continues to select an archive only.
 Wake progress, Stop, and result accept trusted Space URLs through the shared
 target resolver before authentication. Explicit Profile and Gateway options
 retain precedence.

@@ -190,6 +190,7 @@ import {
   type DeleteConversationForMeInput,
   type DeleteConversationForMeResponse,
   daemonServiceLaneSchema,
+  decodeSpaceFileText,
   deleteConversationForMeInputSchema,
   deleteSpaceAttachmentRecordInputSchema,
   deleteSpaceAttachmentRecordResultSchema,
@@ -243,6 +244,7 @@ import {
   HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
   isHostedAgentControllerRef,
   isSpaceFileTextEditable,
+  isSpaceFileTextReadable,
   type ListCenterAgentSessionsQuery,
   type ListCenterAgentSessionsResponse,
   larkPlatformActiveRegistrationListResponseSchema,
@@ -15399,7 +15401,7 @@ export async function rpcCenterAgentReadSpaceFile(
     env,
     spaceId: request.spaceId,
   });
-  const resolved = await rpcReadSpaceFileContent(env, {
+  const resolved = await rpcStreamSpaceFileContent(env, {
     context: authorization.context,
     content: {
       fileId: request.fileId,
@@ -15409,11 +15411,13 @@ export async function rpcCenterAgentReadSpaceFile(
     spaceId: request.spaceId,
   });
   if (
-    !isSpaceFileTextEditable({
+    !isSpaceFileTextReadable({
+      fileName: resolved.file.name,
       mimeType: resolved.revision.mimeType,
-      sizeBytes: resolved.bytes.byteLength,
+      sizeBytes: resolved.revision.sizeBytes,
     })
   ) {
+    await resolved.bytes.cancel();
     throw createCoreRpcHttpError({
       code: "space_file.type_unsupported",
       reason:
@@ -15422,11 +15426,9 @@ export async function rpcCenterAgentReadSpaceFile(
     });
   }
   let content: string;
+  const bytes = await new Response(resolved.bytes).arrayBuffer();
   try {
-    content = new TextDecoder("utf-8", {
-      fatal: true,
-      ignoreBOM: false,
-    }).decode(resolved.bytes);
+    content = decodeSpaceFileText(bytes);
   } catch {
     throw createCoreRpcHttpError({
       code: "space_file.type_unsupported",

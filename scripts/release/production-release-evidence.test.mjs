@@ -1465,6 +1465,123 @@ test("PostgreSQL rollback provenance preserves the failed receipt across the new
   }
 });
 
+test("secret reconciliation preserves a verified predecessor and requires immutable proof on every read", () => {
+  const f = createGitFixture();
+  const common = {
+    cwd: f.repository,
+    remote: f.remote,
+    sourceSha: f.sourceSha,
+    scopes: ["core"],
+  };
+  const read = () => readGuardedLocalReleaseSources(common).get("core");
+  const old = {
+    attemptId: "00000000-0000-4000-8000-000000000011",
+    componentIndex: 0,
+    operationKey: "a".repeat(64),
+    startedAt: "2026-01-01T00:00:00.000Z",
+    status: "verified",
+    application: "applied",
+    identity: {
+      kind: "worker-deployment",
+      environment: "prod",
+      workerName: "openmeld-core-prod",
+      sourceSha: f.sourceSha,
+      deploymentId: "old-deployment",
+      versionId: "old-version",
+      projectionTag: "stable-tag",
+      proof: "command-output",
+    },
+  };
+  try {
+    publishGuardedLocalReleaseEvidence({
+      ...common,
+      receipts: { core: old },
+      now: "2026-01-01T00:01:00.000Z",
+    });
+    const prior = read();
+    const identity = {
+      ...old.identity,
+      deploymentId: "new-deployment",
+      versionId: "new-version",
+      proof: "reconciled-secret-addition",
+    };
+    identity.projectionTag = undefined;
+    const receipt = {
+      ...old,
+      attemptId: "00000000-0000-4000-8000-000000000012",
+      operationKey: "b".repeat(64),
+      startedAt: "2026-01-01T00:03:00.000Z",
+      status: "applied",
+      identity,
+    };
+    const proof = {
+      kind: "reconciled-core-secret-addition",
+      controlSha: "c".repeat(40),
+      supersededReceipt: {
+        evidenceSha: prior.evidenceSha,
+        sourceSha: f.sourceSha,
+      },
+      baselineIdentity: old.identity,
+      addedSecret: "ADDED_SECRET",
+      deployedAt: "2026-01-01T00:02:00.000Z",
+      scriptEtag: "d".repeat(64),
+      resourceDigest: "e".repeat(64),
+      inheritedProjectionTag: "stable-tag",
+      tagDroppedBySecretUpdate: true,
+      secretValuesUnobservable: true,
+    };
+    assert.throws(() =>
+      publishGuardedLocalReleaseEvidence({
+        ...common,
+        receipts: { core: receipt },
+        now: receipt.startedAt,
+      })
+    );
+    publishGuardedLocalReleaseEvidence({
+      ...common,
+      receipts: { core: receipt },
+      reconciliation: { core: proof },
+      now: receipt.startedAt,
+    });
+    const applied = read();
+    assert.deepEqual(applied.reconciliation, proof);
+    assert.deepEqual(
+      execFileSync("git", ["show", "-s", "--format=%P", applied.evidenceSha], {
+        cwd: f.repository,
+        encoding: "utf8",
+      })
+        .trim()
+        .split(" "),
+      [prior.evidenceSha, applied.reconciliationEvidenceSha]
+    );
+    for (const [status, now] of [
+      ["failed", "2026-01-01T00:04:00.000Z"],
+      ["verified", "2026-01-01T00:05:00.000Z"],
+    ]) {
+      publishGuardedLocalReleaseEvidence({
+        ...common,
+        receipts: { core: { ...receipt, status } },
+        now,
+      });
+      assert.equal(
+        read().reconciliationEvidenceSha,
+        applied.reconciliationEvidenceSha
+      );
+      assert.equal(read().receipt.status, status);
+    }
+    const original = JSON.parse(
+      execFileSync("git", ["show", "-s", "--format=%B", prior.evidenceSha], {
+        cwd: f.repository,
+        encoding: "utf8",
+      })
+    );
+    assert.equal(original.receipt.status, "verified");
+    assert.equal(original.receipt.identity.versionId, "old-version");
+  } finally {
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
 function createGitFixture() {
   const root = mkdtempSync(
     path.join(tmpdir(), "openmeld-production-release-evidence-")

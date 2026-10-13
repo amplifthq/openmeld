@@ -51,6 +51,8 @@ export {
   type RuntimeAgentTargetKind,
   resolveAgentControllerRefFromAgentTarget,
   runtimeAgentControllerRefMatchesAdapterSnapshot,
+  supportsExecutionContextAccess,
+  supportsExecutionContextSelection,
   supportsLocalExecutionInput,
   supportsSpaceWorkHandoff,
 } from "./agent-controller-ref";

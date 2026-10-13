@@ -385,6 +385,39 @@ Alignment failure retains applied/failed evidence; retry reuses that same
 reconciliation attempt. This command cannot upload or deploy a Cloudflare Worker.
 After completion, rerun release status and CLI stage admission before publication.
 
+### Reconcile an added Core secret
+
+An authorized Core secret addition can create a new Cloudflare deployment even
+though program bytes and non-secret settings are unchanged. If this happened
+after the verified release receipt, do not overwrite that receipt or redeploy
+around admission. Use current-main control to reconcile the direct successor:
+
+```sh
+node /path/to/current-main-control/scripts/release/core-secret-reconciliation.mjs \
+  --release-source /path/to/clean-product-checkout \
+  --deployment <exact-successor-deployment> --version <exact-successor-version> \
+  --added-secret <authorized-added-name> --verify-only
+```
+
+Remove `--verify-only` after verifying the evidence. Writing requires clean
+current-main control and the Core and CLI leases. This command only reads
+Cloudflare and appends release evidence; it cannot deploy or change credentials.
+It accepts one direct, fully active, provider-marked secret successor of a
+verified Core release. The complete script, runtime and non-secret bindings must
+match, and the secret-name set must contain only the declared addition. Keep the
+original owner secret-sync invocation as evidence: provider snapshots expose
+names, not values, and cannot independently prove unchanged existing values.
+Do not use this entrypoint for rotations, deletions or unrelated configuration.
+
+Cloudflare secret updates can omit the version tag. In that case the proof
+records the inherited compiled CLI projection separately; it does not claim an
+active provider tag. The previous actual tag must still match the immutable
+published CLI, with npm/R2 identity and exact Core activation checked before completion.
+The prior receipt remains in history, and an interrupted reconciliation resumes
+its existing attempt. Ordinary deployment and database identity guards stay
+unchanged. Continue the original guarded CLI publication after reconciliation;
+its Core deployment restores the normal tagged projection.
+
 ### Preserve Containers while repairing their Worker
 
 When original files still exist only in a running Computer, the protected local
@@ -2066,6 +2099,11 @@ Windows Native AOT helper bytes can differ across builds of identical source.
 Set `windows_artifact_run_id` to the run used above when publishing the stamped
 manifest. The publisher rechecks its provenance and bytes and skips a second
 Windows build. A different run with the same source is not interchangeable.
+When using guarded hosted release continuation, set `WINDOWS_ARTIFACT_RUN_ID`
+to that numeric run ID. The CLI stage validates and forwards it as
+`windows_artifact_run_id`; other scopes ignore it. An omitted or blank value
+preserves the workflow's normal helper-build behavior. Existing active release
+runs are still watched rather than dispatched again.
 
 Use `release:verify:local -- --scope cli` only when an earlier full go/no-go
 decision or handoff is needed; it is not a default extra gate.

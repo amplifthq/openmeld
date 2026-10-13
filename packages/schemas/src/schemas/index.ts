@@ -2437,9 +2437,11 @@ export {
   createSpaceFileUploadQuerySchema,
   createSpaceFolderBodySchema,
   createSpaceFolderResponseSchema,
+  decodeSpaceFileText,
   discardSpaceComposerUploadResponseSchema,
   getSpaceFileResponseSchema,
   isSpaceFileTextEditable,
+  isSpaceFileTextReadable,
   listSpaceFileRevisionsResponseSchema,
   listSpaceFilesQuerySchema,
   listSpaceFilesResponseSchema,
@@ -2448,6 +2450,7 @@ export {
   publishSpaceComposerUploadBodySchema,
   publishSpaceComposerUploadResponseSchema,
   readSpaceFileTextResponseSchema,
+  readSpaceFileTextStream,
   resolveSpaceComposerUploadScopeResponseSchema,
   resolveSpaceFileContentInputSchema,
   resolveSpaceFileContentResponseSchema,
@@ -2603,6 +2606,7 @@ export { spaceReadContextSchema } from "./http/space-read-context";
 export {
   getSpaceDispatchResultInputSchema,
   getSpaceDispatchResultResponseSchema,
+  spacePublishedDispatchResultSchema,
 } from "./http/space-result";
 export { spaceRouteParamsSchema } from "./http/space-route-params";
 export {

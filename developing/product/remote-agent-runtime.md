@@ -561,7 +561,12 @@ progress response through Core. Work tools, capability discovery, Code Mode and
 Skill resources become available only after Core accepts that response. The
 phase reads the stream publisher's durable Core acknowledgement for the exact
 canonical input. Text and authored progress use the same acknowledgement owner;
-each render reads its live projection, which is restored from SQL after recovery.
+the response-phase owner also supplies the model instructions and progress-tool
+description. Both explain that work capabilities are temporarily hidden, not
+unavailable: requests needing evidence or tool use first publish their next
+action and then continue with the authorized catalog. A request fully answerable
+from existing context can still receive a direct answer without a tool call.
+Each render reads its live projection, which is restored from SQL after recovery.
 Buffered content retains the input it answers, so an old response cannot unlock
 a later check-in. Generated text, thinking and tool lifecycle parts are not
 response acknowledgements. The installed Flue patch backports the
@@ -2784,7 +2789,7 @@ ordinary turns. Core owns only the logical-conversation-to-active-generation
 pointer. That pointer is routing metadata, not transcript, memory, execution,
 or publication truth.
 
-OpenMeld configures compaction with five explicit budgets:
+OpenMeld configures compaction with six explicit budgets:
 
 - model-specific `reserveTokens` starts compaction before the provider context
   limit or a known higher prompt-price band;
@@ -2796,9 +2801,15 @@ OpenMeld configures compaction with five explicit budgets:
 - `workingContextHeadroomTokens = 8,000` (reduced for small models) reserves
   room for new work when selecting the recent tail. Fixed prompt/tool cost
   and checkpoint allowance are deducted first. Indivisible tool pairs can
-  exceed this target; the hard working-context ceiling still applies; and
-- `maxSummaryTokens = 4,096` caps each summary completion independently of the
-  physical model reserve. Reasoning tokens count toward this limit.
+  exceed this target; the hard working-context ceiling still applies;
+- `summaryTargetTokens = 2,048` gives the summarizer an explicit visible
+  checkpoint target. It prioritizes active constraints, confirmed outcomes,
+  unresolved work, and source references instead of listing the full history;
+  and
+- `maxSummaryTokens = 4,096` caps the entire summary generation independently
+  of the physical model reserve. Reasoning tokens also count toward this limit.
+  The visible-text target leaves room to reason and finish; it is not another
+  truncation mechanism or permission to exceed the working-context ceiling.
 
 Working-context compaction produces one checkpoint for earlier history and
 the unfinished turn together, with one summary output budget. Its observation
@@ -2812,8 +2823,18 @@ the separate final payload-capacity and media-admission guards remain intact.
 Flue commits its normal compaction checkpoint and
 rebuilds its active projection before inference. The original canonical entries
 remain intact. An incomplete or empty summary cannot replace that projection.
+After such a failure, the next submission prepares context from those same
+canonical entries, including after a runtime restart, with the budget still
+enabled. A valid checkpoint can then commit through the normal Flue path;
+recovering context never replays a completed operation.
 The working checkpoint preserves active constraints, corrections, unresolved
 work and source pointers instead of repeatedly copying every historical fact.
+The summarizer's system instruction treats an earlier checkpoint as source
+material to rewrite, not a draft to expand. Each fact belongs in one section;
+historical inventories become conclusions with source references or recall
+phrases. This keeps the visible-text target meaningful when an older checkpoint
+is already long. It does not raise the generation ceiling or accept a truncated
+checkpoint.
 The summary must not describe omitted evidence as nonexistent. During a tool
 loop, the cut retains the issuing assistant message with its tool results.
 If compaction cannot fit the current request, inference fails explicitly rather

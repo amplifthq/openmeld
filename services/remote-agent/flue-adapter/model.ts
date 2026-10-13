@@ -76,6 +76,7 @@ export const REMOTE_AGENT_MODEL_METADATA_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 export const REMOTE_AGENT_COMPACTION_KEEP_RECENT_TOKENS = 8000;
 export const REMOTE_AGENT_WORKING_CONTEXT_TOKENS = 48_000;
 export const REMOTE_AGENT_MAX_SUMMARY_TOKENS = 4096;
+export const REMOTE_AGENT_SUMMARY_TARGET_TOKENS = 2048;
 const WORKING_CONTEXT_DEFERRAL_TOKENS = 8000;
 const MODEL_METADATA_FETCH_TIMEOUT_MS = 3000;
 // Flue estimates context tokens, so compact before reaching a provider tier.
@@ -149,6 +150,7 @@ export type RemoteAgentModelRuntimeConfig = {
     preserveActiveInput: true;
     thinkingLevel: "low";
     maxSummaryTokens: number;
+    summaryTargetTokens: number;
   };
   contextWindow: number;
   maxTokens: number;
@@ -486,6 +488,7 @@ function buildRemoteAgentCompactionConfig(input: {
     preserveActiveInput: true,
     thinkingLevel: "low",
     maxSummaryTokens: REMOTE_AGENT_MAX_SUMMARY_TOKENS,
+    summaryTargetTokens: REMOTE_AGENT_SUMMARY_TARGET_TOKENS,
     keepRecentTokens: REMOTE_AGENT_COMPACTION_KEEP_RECENT_TOKENS,
     reserveTokens: input.contextWindow - ceiling,
   };

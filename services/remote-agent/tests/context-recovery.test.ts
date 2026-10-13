@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  type Context,
   fauxAssistantMessage,
   fauxProvider,
   fauxToolCall,
@@ -10,6 +11,161 @@ import { defineTool, init, observe, useModel, useTool } from "@flue/runtime";
 import { sqlite, start } from "@flue/runtime/node";
 import { object } from "valibot";
 import { expect, it } from "vitest";
+
+it("reopens after a failed checkpoint rewrite without replacing history or repeating work", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "flue-context-restart-"));
+  const provider = fauxProvider({
+    provider: "context-restart",
+    tokensPerSecond: Number.POSITIVE_INFINITY,
+  });
+  const model = provider.getModel();
+  let executions = 0;
+  const record = defineTool({
+    name: "record",
+    description: "Record the requested operation once.",
+    input: object({}),
+    run: () => {
+      executions++;
+      return {
+        output: `Receipt COMPLETE-781. ${"Recorded evidence. ".repeat(1800)}`,
+      };
+    },
+  });
+  function Restart() {
+    useModel(`${model.provider}/${model.id}`, {
+      compaction: {
+        workingContextTokens: 6000,
+        maxWorkingContextTokens: 7000,
+        keepRecentTokens: 512,
+        maxSummaryTokens: 512,
+        reserveTokens: 8192,
+        preserveActiveInput: true,
+      },
+    });
+    useTool(record);
+    return "Use the recorded outcome. Never repeat completed work to recover its result.";
+  }
+  const database = join(directory, "history.sqlite");
+  const open = () =>
+    start({
+      agents: [Restart],
+      providers: [provider.provider],
+      db: sqlite(database),
+    });
+  const compactions: boolean[] = [];
+  const summaryOutputLimits: Array<number | undefined> = [];
+  const unsubscribe = observe((event) => {
+    if (event.type === "compaction") {
+      compactions.push(event.isError);
+    }
+    if (event.type === "turn_request" && event.purpose === "compaction") {
+      summaryOutputLimits.push(event.request.maxTokens);
+    }
+  });
+  let runtime = await open();
+  try {
+    const agent = init(Restart, { id: "restart" });
+    provider.setResponses([
+      fauxAssistantMessage("Historical review evidence. ".repeat(250)),
+    ]);
+    await agent.read(
+      await agent.dispatch(
+        `Earlier archive MAPLE-104 is read-only. ${"Historical question. ".repeat(
+          1000
+        )}`
+      )
+    );
+    const previousCheckpoint =
+      `Archive MAPLE-104 is read-only. ${"Earlier measurements are preserved in the original conversation. ".repeat(
+        60
+      )}`.trimEnd();
+    provider.setResponses([
+      fauxAssistantMessage(previousCheckpoint),
+      fauxAssistantMessage("Historical review checkpoint saved."),
+    ]);
+    await agent.read(await agent.dispatch("Prepare to continue the review."));
+    expect(compactions).toEqual([false]);
+
+    const original =
+      "Record once for archive CEDAR-519. No publication is authorized.";
+    provider.setResponses([
+      fauxAssistantMessage(fauxToolCall("record", {}), {
+        stopReason: "toolUse",
+      }),
+      fauxAssistantMessage("Incomplete checkpoint", { stopReason: "length" }),
+    ]);
+    await expect(agent.read(await agent.dispatch(original))).rejects.toThrow(
+      "Agent run failed"
+    );
+    expect(executions).toBe(1);
+    expect(compactions).toEqual([false, true]);
+    await runtime.stop();
+    runtime = await open();
+    const correction =
+      "Report the existing receipt in JSON. Do not record again.";
+    const userTexts = (context: Context) =>
+      context.messages
+        .filter((message) => message.role === "user")
+        .map((message) => JSON.stringify(message.content));
+    let rewriteSystemPrompt = "";
+    let rewriteSource = "";
+    provider.setResponses([
+      (context) => {
+        const prompt = userTexts(context).join("\n");
+        rewriteSystemPrompt = context.messages
+          .filter((message) => message.role === "system")
+          .map((message) => JSON.stringify(message.content))
+          .join("\n");
+        rewriteSource = prompt;
+        return fauxAssistantMessage(
+          "The operation completed with receipt COMPLETE-781. No publication is authorized. The archive identifier remains in the original request."
+        );
+      },
+      (context) => {
+        expect(
+          userTexts(context).filter((text) => text.includes(correction))
+        ).toHaveLength(1);
+        expect(JSON.stringify(context.messages)).toContain("COMPLETE-781");
+        expect(JSON.stringify(context.messages)).not.toContain(
+          "Incomplete checkpoint"
+        );
+        return fauxAssistantMessage(
+          fauxToolCall("recall_conversation", { query: "CEDAR-519" }),
+          { stopReason: "toolUse" }
+        );
+      },
+      (context) => {
+        const recalled = context.messages.findLast(
+          (message) => message.role === "toolResult"
+        );
+        expect(JSON.stringify(recalled)).toContain(original);
+        return fauxAssistantMessage('{"receipt":"COMPLETE-781"}');
+      },
+    ]);
+    const resumed = init(Restart, { id: "restart" });
+    expect((await resumed.read(await resumed.dispatch(correction))).text).toBe(
+      '{"receipt":"COMPLETE-781"}'
+    );
+    expect(executions).toBe(1);
+    expect(compactions).toEqual([false, true, false]);
+    expect(summaryOutputLimits).toEqual([512, 512, 512]);
+    expect(rewriteSource).toContain("at most 256 tokens");
+    expect(rewriteSource).toContain(previousCheckpoint);
+    expect(rewriteSource).toContain("COMPLETE-781");
+    expect(rewriteSource).not.toContain("Incomplete checkpoint");
+    // The supplier sees the rewrite contract above historical user text; it
+    // must not receive the old checkpoint as a draft to preserve and expand.
+    expect(rewriteSystemPrompt).toContain("Write a new checkpoint");
+    expect(rewriteSystemPrompt).toContain(
+      "A previous checkpoint is not a draft"
+    );
+    expect(provider.getPendingResponseCount()).toBe(0);
+  } finally {
+    unsubscribe();
+    await runtime.stop();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 it("does not defer an irreducible request beyond the configured ceiling", async () => {
   const directory = await mkdtemp(join(tmpdir(), "flue-context-ceiling-"));
@@ -113,6 +269,12 @@ it("retains the exact active request across repeated lossy summaries", async () 
     providers: [provider.provider],
     db: sqlite(join(directory, "history.sqlite")),
   });
+  let summarizing = false;
+  const unsubscribe = observe((event) => {
+    if (event.type === "turn_request") {
+      summarizing = event.purpose === "compaction";
+    }
+  });
   try {
     const agent = init(ProtectedRequest, { id: "protected" });
     provider.setResponses(
@@ -129,15 +291,7 @@ it("retains the exact active request across repeated lossy summaries", async () 
     let summaries = 0;
     provider.setResponses(
       Array.from({ length: 10 }, () => (context) => {
-        if (
-          context.messages.some(
-            (message) =>
-              message.role === "system" &&
-              JSON.stringify(message.content).includes(
-                "context summarization assistant"
-              )
-          )
-        ) {
+        if (summarizing) {
           summaries++;
           return fauxAssistantMessage("Documents are being read.");
         }
@@ -165,6 +319,7 @@ it("retains the exact active request across repeated lossy summaries", async () 
     expect(summaries).toBeGreaterThanOrEqual(2);
     expect(correctionApplied).toBe(true);
   } finally {
+    unsubscribe();
     await runtime.stop();
     await rm(directory, { recursive: true, force: true });
   }

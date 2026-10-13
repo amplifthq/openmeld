@@ -217,7 +217,7 @@ it.each([
     for (const tool of response.tools) {
       useTool(tool);
     }
-    return "Answer the user first. Then do their work.";
+    return response.instructions;
   }
   Interactive.joinQueuedDeliveries = false;
   Interactive.agentName = "center-agent-v2";
