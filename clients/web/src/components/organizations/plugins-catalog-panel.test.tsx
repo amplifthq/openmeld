@@ -22,7 +22,8 @@ const GITHUB_LINK_NAME = /GitHub/;
 const CANVA_LINK_NAME = /Canva/;
 const GOOGLE_DRIVE_LINK_NAME = /Google Drive/;
 const GOOGLE_SHEETS_LINK_NAME = /Google Sheets/;
-const GMAIL_LINK_NAME = /Gmail/;
+const GMAIL_LINK_NAME = /^Gmail/;
+const ZOOM_LINK_NAME = /^Zoom/;
 const FIGMA_LINK_NAME = /Figma/;
 const NOTION_LINK_NAME = /Notion/;
 const SLACK_LINK_NAME = /Slack/;
@@ -94,11 +95,13 @@ describe("PluginsCatalogPanel", () => {
 		expect(screen.queryByText("17TRACK")).toBeNull();
 	});
 
-	it("keeps personal mail, calendars, and meetings out of the organization catalog and retains a cleanup link for older shared connections", async () => {
+	it("discovers personal Plugins through organization search while keeping browsing and connected filtering scoped", async () => {
 		scopeState.value = "organization";
 		listAppConnectionsMock.mockResolvedValue({
 			connections: [
 				{ ...activeConnection("gmail"), scope: "shared", canDisconnect: true },
+				activeConnection("zoom"),
+				{ ...activeConnection("gmail"), userId: "another-member" },
 			],
 			currentUserId: "user-1",
 			organizationId: "org-acme",
@@ -121,6 +124,40 @@ describe("PluginsCatalogPanel", () => {
 				"href"
 			)
 		).toBe("/o/acme/plugins/gmail?scope=organization");
+
+		fireEvent.change(screen.getByLabelText("Search Plugins"), {
+			target: { value: "zoom" },
+		});
+		const zoom = screen.getByRole("link", { name: ZOOM_LINK_NAME });
+		expect(zoom.getAttribute("href")).toBe(
+			"/o/acme/plugins/zoom?scope=personal"
+		);
+		expect(within(zoom).getByText("Personal")).toBeTruthy();
+		expect(within(zoom).getByText("Connected")).toBeTruthy();
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Show connected Plugins" })
+		);
+		expect(screen.queryByTestId("app-logo-zoom")).toBeNull();
+		expect(screen.getByText("No connected Plugins in Acme")).toBeTruthy();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Show connected Plugins" })
+		);
+
+		fireEvent.change(screen.getByLabelText("Search Plugins"), {
+			target: { value: "gmail" },
+		});
+		const gmail = screen.getByRole("link", { name: GMAIL_LINK_NAME });
+		expect(gmail.getAttribute("href")).toBe(
+			"/o/acme/plugins/gmail?scope=personal"
+		);
+		expect(within(gmail).getByText("Not connected")).toBeTruthy();
+
+		fireEvent.change(screen.getByLabelText("Search Plugins"), {
+			target: { value: "  " },
+		});
+		expect(screen.queryByTestId("app-logo-zoom")).toBeNull();
+		expect(screen.queryByTestId("app-logo-gmail")).toBeNull();
 	});
 
 	it("keeps Plugin navigation available while connection status loads", () => {
@@ -395,7 +432,7 @@ function renderCatalog(
 	);
 }
 
-function activeConnection(service: "github" | "notion" | "gmail") {
+function activeConnection(service: "github" | "notion" | "gmail" | "zoom") {
 	return {
 		canDisconnect: true,
 		connectionName: `org_aaaaaaaaaaaaaaaaaa__user_bbbbbbbbbbbbbbbbbb__${service}`,

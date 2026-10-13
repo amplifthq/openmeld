@@ -50,6 +50,10 @@ export function PluginsCatalogPanel(input: {
 	const catalogId = useId();
 	const queryClient = useQueryClient();
 	const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase();
+	const scopeName = {
+		personal: "Personal",
+		organization: input.organizationName,
+	}[scope];
 	const providersQuery = useQuery(
 		organizationPluginProviderCatalogQueryOptions({
 			organizationId: input.organizationId,
@@ -61,10 +65,11 @@ export function PluginsCatalogPanel(input: {
 			queryClient,
 		})
 	);
-	const { connectedServices, reconnectServices } = connectionServices(
-		connectionsQuery.data,
-		scope
-	);
+	const servicesByScope = {
+		personal: connectionServices(connectionsQuery.data, "personal"),
+		organization: connectionServices(connectionsQuery.data, "organization"),
+	};
+	const { connectedServices } = servicesByScope[scope];
 	const connectionStatusIsPending = connectionsQuery.isPending;
 	const olderPersonalServices =
 		scope === "organization"
@@ -87,12 +92,14 @@ export function PluginsCatalogPanel(input: {
 			: [];
 	const visiblePlugins = pluginsForCatalog(
 		providersQuery.data?.providers ?? [],
-		connectedServices
+		normalizedSearchQuery
+			? new Set([
+					...connectedServices,
+					...servicesByScope.personal.connectedServices,
+				])
+			: connectedServices
 	).filter((plugin) => {
-		const matchesScope = connectorConnectionScopeAllowed(
-			plugin.service,
-			scope === "personal" ? "member" : "shared"
-		);
+		const matchesScope = catalogResultScope(plugin.service, scope) === scope;
 		const matchesCategory =
 			activeCategory === "All" || plugin.category === activeCategory;
 		const matchesSearch =
@@ -101,10 +108,11 @@ export function PluginsCatalogPanel(input: {
 				.toLocaleLowerCase()
 				.includes(normalizedSearchQuery);
 		return (
-			matchesScope &&
+			(matchesScope || normalizedSearchQuery.length > 0) &&
 			matchesCategory &&
 			matchesSearch &&
-			(!connectedOnly || connectedServices.has(plugin.service))
+			(!connectedOnly ||
+				(matchesScope && connectedServices.has(plugin.service)))
 		);
 	});
 	const resultsPending =
@@ -133,7 +141,7 @@ export function PluginsCatalogPanel(input: {
 					organizationName={input.organizationName}
 				/>
 				<div className="ml-auto flex @lg:w-auto w-full items-center gap-2">
-					<TooltipHint content="Show connected Plugins">
+					<TooltipHint content={`Show connected Plugins in ${scopeName}`}>
 						<Button
 							aria-label="Show connected Plugins"
 							aria-pressed={connectedOnly}
@@ -256,29 +264,34 @@ export function PluginsCatalogPanel(input: {
 								aria-label={`${category} Plugins`}
 								className="grid @3xl:grid-cols-2 gap-x-6 gap-y-1"
 							>
-								{plugins.map((plugin) => (
-									<li className="min-w-0" key={plugin.service}>
-										<FluidCardItem
-											className="bg-transparent"
-											itemId={plugin.service}
-										>
-											<PluginCatalogCard
-												connected={
-													connectionsQuery.data
-														? connectedServices.has(plugin.service)
-														: undefined
-												}
-												connectionStatusIsPending={connectionStatusIsPending}
-												organizationSlug={input.organizationSlug}
-												plugin={plugin}
-												reconnectRequired={reconnectServices.has(
-													plugin.service
-												)}
-												scope={scope}
-											/>
-										</FluidCardItem>
-									</li>
-								))}
+								{plugins.map((plugin) => {
+									const resultScope = catalogResultScope(plugin.service, scope);
+									const status = servicesByScope[resultScope];
+									return (
+										<li className="min-w-0" key={plugin.service}>
+											<FluidCardItem
+												className="bg-transparent"
+												itemId={plugin.service}
+											>
+												<PluginCatalogCard
+													connected={
+														connectionsQuery.data
+															? status.connectedServices.has(plugin.service)
+															: undefined
+													}
+													connectionStatusIsPending={connectionStatusIsPending}
+													organizationSlug={input.organizationSlug}
+													personalResult={resultScope !== scope}
+													plugin={plugin}
+													reconnectRequired={status.reconnectServices.has(
+														plugin.service
+													)}
+													scope={resultScope}
+												/>
+											</FluidCardItem>
+										</li>
+									);
+								})}
 							</ul>
 						</section>
 					))}
@@ -289,28 +302,52 @@ export function PluginsCatalogPanel(input: {
 			!resultsPending &&
 			providersQuery.isSuccess &&
 			(!connectedOnly || connectionsQuery.isSuccess) ? (
-				<div className="px-5 py-12 text-center">
-					<p className="font-medium text-foreground text-sm">
-						No Plugins found
-					</p>
-					<p className="mt-1 text-muted-foreground text-xs">
-						Try another search or clear your filters.
-					</p>
-					<Button
-						onClick={() => {
-							setSearchQuery("");
-							setActiveCategory("All");
-							setConnectedOnly(false);
-						}}
-						size="sm"
-						variant="ghost"
-					>
-						Clear filters
-					</Button>
-				</div>
+				<PluginCatalogEmptyState
+					connectedOnly={connectedOnly}
+					onClear={() => {
+						setSearchQuery("");
+						setActiveCategory("All");
+						setConnectedOnly(false);
+					}}
+					scopeName={scopeName}
+				/>
 			) : null}
 		</section>
 	);
+}
+
+function PluginCatalogEmptyState(input: {
+	connectedOnly: boolean;
+	scopeName: string;
+	onClear: () => void;
+}) {
+	return (
+		<div className="px-5 py-12 text-center">
+			<p className="font-medium text-foreground text-sm">
+				{input.connectedOnly
+					? `No connected Plugins in ${input.scopeName}`
+					: "No Plugins found"}
+			</p>
+			<p className="mt-1 text-muted-foreground text-xs">
+				Try another search or clear your filters.
+			</p>
+			<Button onClick={input.onClear} size="sm" variant="ghost">
+				Clear filters
+			</Button>
+		</div>
+	);
+}
+
+function catalogResultScope(
+	service: string,
+	scope: "personal" | "organization"
+) {
+	return connectorConnectionScopeAllowed(
+		service,
+		scope === "personal" ? "member" : "shared"
+	)
+		? scope
+		: "personal";
 }
 
 function PluginCatalogSkeleton() {
@@ -366,6 +403,7 @@ function PluginCatalogCard(input: {
 	connectionStatusIsPending: boolean;
 	organizationSlug: string;
 	scope: "personal" | "organization";
+	personalResult: boolean;
 }) {
 	const href = `${buildOrganizationPluginPath({ orgSlug: input.organizationSlug, service: input.plugin.service })}?scope=${input.scope}`;
 	const card = (
@@ -380,9 +418,16 @@ function PluginCatalogCard(input: {
 			>
 				<AppLogo app={input.plugin} surfaceLevel={3} />
 				<div className="min-w-0 flex-1">
-					<h3 className="truncate font-medium text-foreground text-sm">
-						{input.plugin.name}
-					</h3>
+					<div className="flex items-center gap-2">
+						<h3 className="truncate font-medium text-foreground text-sm">
+							{input.plugin.name}
+						</h3>
+						{input.personalResult ? (
+							<Badge className="shrink-0" variant="outline">
+								Personal
+							</Badge>
+						) : null}
+					</div>
 					<p className="mt-1 truncate text-muted-foreground text-xs">
 						{input.plugin.description}
 					</p>
