@@ -1,3 +1,4 @@
+import { supportsExecutionContextAccess as supportsContextAccess } from "@openmeld/agent-runtime";
 import {
   executionContextAssignmentSchema,
   executionContextCompletionSchema,
@@ -782,21 +783,6 @@ function createContext(
     nativeConversationId: null,
     runtimeWorkspaceFingerprint: null,
   };
-}
-
-function supportsContextAccess(
-  agentControllerRef: string,
-  access: ExecutionContextAssignment["access"],
-  permissionSource?: ExecutionContextAssignment["permissionSource"]
-): boolean {
-  return (
-    agentControllerRef === "builtin:codex" ||
-    (agentControllerRef === "builtin:antigravity" &&
-      access === "workspace" &&
-      permissionSource === "agent_settings") ||
-    (agentControllerRef === "builtin:claude-code" &&
-      (access === "space_context" || access === "workspace"))
-  );
 }
 
 function matchesSelectedProjectWork(

@@ -1,3 +1,5 @@
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { OPENMELD_HEADER_REQUESTED_ORGANIZATION_ID } from "@openmeld/gateway-contract";
 import {
   createSpaceMemberAgentSnapshot,
@@ -511,6 +513,58 @@ describe("space send OpenMeld profile identity", () => {
       expect(
         parsePostSignalBody(fetchMock).meta?.clientMessageId?.trim()
       ).toBeTruthy();
+    });
+  });
+
+  it.each([
+    "hosted:center-agent",
+    "hosted:remote-agent",
+  ])("rejects session selection for %s before any upload or message write", async (agentControllerRef) => {
+    await withTempHome(async (home) => {
+      const filePath = join(home, "review.txt");
+      await writeFile(filePath, "Review evidence");
+      const profileId = "agt_11111111-2222-4333-8444-555555555555";
+      const fetchMock = vi.fn((request: string | URL, init?: RequestInit) => {
+        expect(String(init?.method ?? "GET").toUpperCase()).toBe("GET");
+        expect(new URL(String(request)).pathname.endsWith("/members")).toBe(
+          true
+        );
+        return Promise.resolve(
+          createMembersResponse({
+            humans: [],
+            agents: [
+              {
+                ...createAgentMember({
+                  profileId,
+                  profileName: "Review Agent",
+                  wakeabilityStatus: "ready",
+                }),
+                agentControllerRef,
+              },
+            ],
+          })
+        );
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      await withCapturedStdio(async () => {
+        await expect(
+          runSend({
+            openMeldProfile: createOpenMeldProfileInput({
+              openMeldProfileId: "hum_operator",
+              profileName: "Felix",
+              profileKind: "human",
+            }),
+            baseUrl: "https://gateway.openmeld.invalid",
+            space: "demo",
+            text: "Read the review evidence",
+            wakeTargets: [profileId],
+            contextSelection: { mode: "new" },
+            filePaths: [filePath],
+            view: "agent",
+          })
+        ).rejects.toThrow("does not support session selection");
+      });
+      expect(fetchMock).toHaveBeenCalledOnce();
     });
   });
 

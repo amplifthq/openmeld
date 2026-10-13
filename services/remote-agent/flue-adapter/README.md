@@ -77,7 +77,11 @@ is not a future release strategy.
    every inference through Pi's public `transformContext` seam. Flue alone
    commits the normal summary checkpoint and updates both its own projection
    and the loop snapshot. Supplier usage does not trigger a redundant summary
-   afterward. `maxSummaryTokens` bounds each completion independently; incomplete
+   afterward. `summaryTargetTokens` gives the model a visible checkpoint target
+   with room to finish below `maxSummaryTokens`, the total generation ceiling
+   including reasoning. That target guides the existing summary request; it
+   does not clip the response or change canonical history. `maxSummaryTokens`
+   bounds each completion independently; incomplete
    or empty summaries fail without replacing history. `recall_conversation`
    reads bounded pages of original user/assistant text from the same canonical
    lineage, excludes hidden reasoning, and cannot cross conversation generations.
@@ -85,7 +89,9 @@ is not a future release strategy.
    checkpoint prompt retains active facts and source pointers without growing
    an exhaustive archive. Mid-tool-loop cuts retain the issuing assistant and
    its paired results, including when the latest entry is a tool result. The
-   public Node-runtime boundary tests are in `working-context.test.ts`; paid supplier
+   public Node-runtime boundary tests are in `working-context.test.ts` and
+   `context-recovery.test.ts`, including recovery after a failed summary and
+   SQLite restart without disabling the budget or replaying completed tools. Paid supplier
    comparisons are opt-in in `live-context-cost.test.ts`. No transcript or
    search index is copied into an application-owned store.
    Working-context and recent-tail estimates share the native 1,200-token

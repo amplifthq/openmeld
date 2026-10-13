@@ -7,9 +7,23 @@ import {
   parseAgentControllerRef,
   resolveAgentControllerRefFromAgentTarget,
   runtimeAgentControllerRefMatchesAdapterSnapshot,
+  supportsExecutionContextSelection,
 } from "../src";
 
 describe("agent-runtime Agent Controller refs", () => {
+  it.each([
+    ["builtin:codex", true],
+    ["builtin:claude-code", true],
+    ["builtin:antigravity", true],
+    ["builtin:grok-build", false],
+    ["hosted:center-agent", false],
+    ["hosted:remote-agent", false],
+    [null, false],
+  ])("projects session selection support for %s", (ref, supported) => {
+    expect(supportsExecutionContextSelection(ref as string | null)).toBe(
+      supported
+    );
+  });
   it("builds first-version refs for builtin and custom targets", () => {
     expect(buildAgentControllerRef({ kind: "builtin", id: " codex " })).toBe(
       "builtin:codex"

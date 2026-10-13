@@ -1832,10 +1832,15 @@ one with a structured error. The current CLI requests the optional occupancy
 wait reason with `includeWaitReason=true`; older CLI versions omit that query
 and must continue receiving the previous strict response shape. This command
 does not replace `space result`,
-which reads archived results, or `service trace`, which diagnoses the execution
-chain. Missing archived results are not failed Wakes. All output views explain
-that hosted replies can exist without a workstation archive and provide the
-exact dispatch trace command. Read its visible Signal ID through Space history.
+which reads archived or published results, or `service trace`, which diagnoses
+the execution chain. `space result --dispatch` retains an existing archive's
+output. Only an explicit missing archive triggers the existing cross-runtime
+trace read and an exact canonical message read. Hosted replies therefore need
+no workstation archive. The additive `source: published_message` output contains
+the original signal and its proven visible outcome, including failure and stop
+notices. It never substitutes diagnostic text or declares completion before
+publication. Authorization and storage errors remain errors. `--result-ref`
+continues to select an archive only.
 Wake progress, Stop, and result accept trusted Space URLs through the shared
 target resolver before authentication. Explicit Profile and Gateway options
 retain precedence.
