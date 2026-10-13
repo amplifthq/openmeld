@@ -51,6 +51,7 @@ const COMPLETION_PROBE_TIMEOUT_MS = 30_000;
 const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const LINE_SPLIT_REGEX = /\r?\n/u;
 const GITHUB_RUN_URL = /\/actions\/runs\/(\d+)\b/u;
+const GITHUB_RUN_ID = /^[1-9][0-9]*$/u;
 const TEST_FILE_REGEX =
   /(?:^|\/)[^/]+\.(?:integration\.)?(?:spec|test)\.[cm]?[jt]sx?$/u;
 const VITEST_CONFIG_REGEX = /(?:^|\/)vitest\.[^/]+config\.[cm]?[jt]s$/u;
@@ -3843,7 +3844,22 @@ export async function resumeProductionRelease(input) {
   }
 }
 
+function resolveHostedWindowsArtifactRunId(scope, env) {
+  if (scope !== "cli") {
+    return "";
+  }
+  const windowsArtifactRunId = env.WINDOWS_ARTIFACT_RUN_ID?.trim() ?? "";
+  if (windowsArtifactRunId && !GITHUB_RUN_ID.test(windowsArtifactRunId)) {
+    throw new Error("WINDOWS_ARTIFACT_RUN_ID must be a numeric run ID.");
+  }
+  return windowsArtifactRunId;
+}
+
 export function runHostedRelease(scope, sourceSha, trainScopes, input = {}) {
+  const windowsArtifactRunId = resolveHostedWindowsArtifactRunId(
+    scope,
+    input.env ?? process.env
+  );
   const capture =
     input.capture ??
     ((args) => execFileSync("gh", args, { encoding: "utf8" }).trim());
@@ -3898,6 +3914,9 @@ export function runHostedRelease(scope, sourceSha, trainScopes, input = {}) {
       `release_sha=${sourceSha}`,
       "--raw-field",
       `production_train_scopes=${trainScopes.join(",")}`,
+      ...(windowsArtifactRunId
+        ? ["--raw-field", `windows_artifact_run_id=${windowsArtifactRunId}`]
+        : []),
       ...(scope === "cli"
         ? []
         : ["--raw-field", `scope=${scope === "db" ? "database" : scope}`]),
