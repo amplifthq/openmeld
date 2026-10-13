@@ -36,18 +36,6 @@ jobs:
         run: node scripts/test/control-plane-image-smoke.mjs opentag-control-plane:verified
       - name: Audit image runtime dependencies
         run: docker run --rm --interactive --entrypoint node opentag-control-plane:verified --input-type=module < scripts/release/audit-control-plane-image.mjs
-      - name: Save the exact tested image
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: docker save opentag-control-plane:verified --output control-plane-image.tar
-      - name: Upload the exact tested image
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: control-plane-image-${{ github.sha }}
-          path: control-plane-image.tar
-          compression-level: 0
-          retention-days: 3
-          if-no-files-found: error
 
   check:
     name: Build, lint, typecheck, test, and release checks

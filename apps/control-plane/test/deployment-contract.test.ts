@@ -14,11 +14,10 @@ describe("Control Plane deployment contract", () => {
     }
   });
 
-  it("keeps CI image smoke, audit, and artifact checks", async () => {
+  it("keeps CI image smoke and audit checks", async () => {
     const ci = await read(".github/workflows/ci.yml");
     expect(ci).toContain("control-plane-image-smoke.mjs opentag-control-plane:verified");
     expect(ci).toContain("audit-control-plane-image.mjs");
-    expect(ci).toContain("docker save opentag-control-plane:verified");
   });
 
   it("keeps container custody separate from the existing Compose secret mounts", async () => {

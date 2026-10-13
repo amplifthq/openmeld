@@ -8,7 +8,10 @@ The Control Plane image contains HTTP, durable jobs, migrations, and bootstrap
 commands. Deployment wrappers consume this image; they must not copy application
 code or SQL. The first published platform is `linux/amd64`.
 
-## Publication contract
+## Historical publication contract (retired)
+
+This section records the former workflow. It is not a current release procedure.
+CI no longer saves or uploads an image tar for publication.
 
 1. A pull request runs the existing build, lint, typecheck, test, PostgreSQL,
    release-package, relay-profile, and browser gates. The image job additionally
