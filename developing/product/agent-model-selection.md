@@ -513,14 +513,25 @@ is a hosted-runtime policy catalog, not a local Agent Profile controller:
   list; there is no second model catalog. Public catalog callers opt in with
   `personalRemoteAgentDefault=1`; the legacy response omits the new field so
   published strict-schema CLI clients continue to read the catalog.
-- The curated list covers six model vendors: OpenAI (GPT-6 Astra, GPT-6 Sol, GPT-5.6 Sol,
+- The curated list covers seven model vendors: OpenAI (GPT-6 Astra, GPT-6 Sol, GPT-5.6 Sol,
   GPT-6 Astra (Pro mode), GPT-6.1 Sol, GPT-6.1 Sol (Pro mode), GPT-6 Luna,
   GPT-5.6 Terra, and GPT-5.6 Luna), Anthropic (Claude Fable 5.1, Claude Fable 5,
   Claude Opus 5.5, Claude Opus 5, Claude Sonnet 5.5, and Claude Sonnet 5), Google (Gemini 3.8 Flash,
   Gemini 3.5 Flash Lite, and Gemini 3.1 Pro Preview), DeepSeek (V4.1 Flash and
-  V4 Flash), xAI (Grok 4.7, Grok 4.6, and Grok 4.5), and Z.ai (GLM 5.3 Flash). Exact
+  V4 Flash), xAI (Grok 4.7, Grok 4.6, and Grok 4.5), Z.ai (GLM 5.3 Flash), and Meta (Muse Wonder). Exact
   OpenRouter IDs remain in `release/vendor-models.json`; a preview model remains
   labeled Preview.
+- Meta Muse Wonder uses the exact OpenRouter ID `meta/muse-wonder` for both
+  Center Agent and personal Remote Agent. The 2026-10-13 provider capture confirms
+  a 1,048,576-token context, text/image input, and six reasoning efforts from
+  `minimal` through `max`. OpenMeld keeps its 16,384-token output budget and
+  `medium` default. A live gateway probe completed a tool call and its result
+  continuation. Meta currently accepts only automatic tool choice; the hosted
+  adapter retains that behavior. Native OpenCode 1.18.34 also lists
+  `openrouter/meta/muse-wonder` after refreshing its inventory. This confirms
+  the native model ID and variants, not local account credentials or inference.
+  The direct Meta provider remains discovery evidence until the installed
+  native controller exposes it.
 - A hosted model may declare one optional `badgeLabel` as catalog-owned
   selector presentation metadata. Core projects the same label onto the
   explicit model choice and the OpenMeld-default choice when that model is the

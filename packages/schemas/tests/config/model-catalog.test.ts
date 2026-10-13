@@ -18,6 +18,7 @@ import openCodeOctoberCapture from "../fixtures/opencode-model-catalog-1.18.34.j
 import openCodeReviewCapture from "../fixtures/opencode-model-catalog-2026.10.06.json";
 import openCodeLatestReviewCapture from "../fixtures/opencode-model-catalog-2026.10.07.json";
 import openCodeAlignmentCapture from "../fixtures/opencode-model-catalog-2026.10.09.json";
+import museWonderCapture from "../fixtures/opencode-muse-wonder-2026.10.13.json";
 
 describe("model catalog schema", () => {
   it.each([
@@ -145,6 +146,7 @@ describe("model catalog schema", () => {
       ...openCodeReviewCapture.models,
       ...haikuCapture.opencode.models,
       ...openCodeAlignmentCapture.models,
+      ...museWonderCapture.models,
     ]) {
       expect(agentControllers.opencode?.models).toContainEqual(
         expect.objectContaining({
@@ -214,6 +216,8 @@ describe("model catalog schema", () => {
     ).toEqual(
       [
         "anthropic/claude-haiku-5.5",
+        "meta/muse-wonder",
+        "openrouter/meta/muse-wonder",
         haikuCapture.claudeCode.modelId,
         ...haikuCapture.cursor.availableModels.map((model) => model.modelId),
         ...haikuCapture.opencode.models.map(
