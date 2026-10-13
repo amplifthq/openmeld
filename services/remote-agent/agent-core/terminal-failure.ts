@@ -90,7 +90,7 @@ export function parseRemoteAgentTerminalFailureFact(
     code !== REMOTE_AGENT_COMPUTER_CLEANUP_FAILED_CODE
   ) {
     throw new Error(
-      "Remote Agent failure explanation requires reviewed Computer recovery facts."
+      "Remote Agent failure explanation requires a Computer recovery outcome."
     );
   }
   const detail =
