@@ -1,4 +1,8 @@
 import * as z from "zod/v4";
+import {
+  aiFundingSourceSchema,
+  remoteAiProviderAuthorizationSchema,
+} from "./ai-billing";
 import { openMeldRequestContextSchema } from "./daemon/profile-identity";
 import { centerAgentToolSpeakerSchema } from "./http/center-agent-speaker";
 
@@ -39,6 +43,7 @@ export const aiUsageObservationSchema = z.strictObject({
 });
 
 export const aiUsageRecordSchema = aiUsageObservationSchema.extend({
+  fundingSource: aiFundingSourceSchema.optional(),
   status: z.enum(["pending", "reported", "unavailable", "collection_failed"]),
   collectionFailure: z
     .enum(["request_failed", "stream_interrupted", "invalid_response"])
@@ -65,12 +70,14 @@ export const aiUsageRecordSchema = aiUsageObservationSchema.extend({
 });
 
 export const remoteAiUsageWriteSchema = z.strictObject({
+  providerAuthorizationVersion: z.literal(1).optional(),
   phase: z.enum(["begin", "settle"]),
   record: aiUsageRecordSchema,
 });
 
 export const remoteAiUsageWriteResponseSchema = z.strictObject({
   status: z.enum(["accepted", "limit_reached"]),
+  providerAuthorization: remoteAiProviderAuthorizationSchema.optional(),
 });
 
 export const aiUsageQuerySchema = z

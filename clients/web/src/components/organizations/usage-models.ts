@@ -1,3 +1,4 @@
+import { AI_CREDITS_PER_USD } from "@openmeld/schemas";
 import type {
 	AiUsageQueryResponse,
 	ModelCatalog,
@@ -15,8 +16,14 @@ const money = new Intl.NumberFormat("en-US", {
 	minimumFractionDigits: 2,
 	maximumFractionDigits: 4,
 });
-export function usageMoney(nanoUsd: number) {
+export type UsageUnit = "usd" | "credits";
+const credits = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
+export function usageValue(nanoUsd: number, unit: UsageUnit) {
 	const usd = nanoUsd / 1_000_000_000;
+	if (unit === "credits") {
+		const amount = usd * AI_CREDITS_PER_USD;
+		return amount > 0 && amount < 0.01 ? "<0.01" : credits.format(amount);
+	}
 	return usd > 0 && usd < 0.0001 ? "<$0.0001" : money.format(usd);
 }
 export function usageModel(model: string | null, catalog?: ModelCatalog) {

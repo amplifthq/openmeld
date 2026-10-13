@@ -29,9 +29,13 @@ import {
   isRpcReceiverMethodNotImplementedErrorForMethod,
 } from "../../rpc/errors";
 import {
+  BYOK_UNAVAILABLE_MESSAGE,
+  MONTHLY_AI_LIMIT_MESSAGE,
+  readAiBilling,
+} from "../../usage/ai-billing-service";
+import {
   REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_MESSAGE,
   REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_REASON_CODE,
-  readAiUsageAllowance,
 } from "../../usage/ai-usage-policy";
 import {
   advanceRemoteAgentConversationGeneration,
@@ -214,6 +218,15 @@ export function resolveRemoteAgentAdmissionPublicCopy(input: {
   if (input.reasonCode === REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_REASON_CODE) {
     return REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_MESSAGE;
   }
+  if (input.reasonCode === "ai_usage.monthly_limit_reached") {
+    return MONTHLY_AI_LIMIT_MESSAGE;
+  }
+  if (input.reasonCode === "ai_billing.key_unavailable") {
+    return BYOK_UNAVAILABLE_MESSAGE;
+  }
+  if (input.reasonCode === "ai_billing.unavailable") {
+    return "AI billing is temporarily unavailable. Try again later or add your own OpenRouter key in AI usage settings.";
+  }
   if (
     input.conversationKind !== "space" &&
     input.reasonCode ===
@@ -351,19 +364,12 @@ async function performRemoteAgentWorkerAdmission(
       input.admissionDelivery?.executionRecoverySubmitRequest ?? null,
     ],
   });
-  const allowance = await readAiUsageAllowance({
-    db: input.db,
-    nowMs: input.nowMs,
-    organizationId: input.organizationId,
-  });
-  if (allowance.exhausted) {
-    return {
-      response: {
-        message: REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_MESSAGE,
-        reasonCode: REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_REASON_CODE,
-      },
-      status: "rejected",
-    };
+  const billingRejection = await validateAiBillingAdmission(
+    input.env,
+    input.organizationId
+  );
+  if (billingRejection) {
+    return billingRejection;
   }
   let generation: RemoteAgentConversationGeneration | null = null;
   let request = input.request;
@@ -775,4 +781,36 @@ async function submitRemoteAgentWorkerTurn(
     });
   }
   return parsed;
+}
+
+async function validateAiBillingAdmission(
+  env: CoreBindings,
+  organizationId: string
+): Promise<Extract<RemoteAgentWorkerAdmission, { status: "rejected" }> | null> {
+  const billing = await readAiBilling(env, organizationId, false);
+  if (billing.source === "byok" && billing.status !== "available") {
+    return {
+      response: {
+        message: BYOK_UNAVAILABLE_MESSAGE,
+        reasonCode: "ai_billing.key_unavailable",
+      },
+      status: "rejected",
+    };
+  }
+  if (billing.status !== "available") {
+    return {
+      response: {
+        message:
+          billing.status === "exhausted"
+            ? MONTHLY_AI_LIMIT_MESSAGE
+            : "AI billing is unavailable. Check AI usage settings and try again.",
+        reasonCode:
+          billing.status === "exhausted"
+            ? "ai_usage.monthly_limit_reached"
+            : "ai_billing.unavailable",
+      },
+      status: "rejected",
+    };
+  }
+  return null;
 }

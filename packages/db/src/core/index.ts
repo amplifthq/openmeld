@@ -19,7 +19,9 @@ export {
   agentProfileCreationRequests,
 } from "./agent-profile-creation-request.schema.ts";
 export {
+  aiFreeGrants,
   aiUsageRecords,
+  organizationAiCredentials,
   organizationAiUsagePolicies,
 } from "./ai-usage.schema.ts";
 export {

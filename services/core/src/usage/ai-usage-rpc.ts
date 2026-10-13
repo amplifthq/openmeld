@@ -17,8 +17,9 @@ import { prepareCenterAgentOrganizationMemberRequest } from "../center-agent/app
 import type { CoreBindings } from "../lib/bindings";
 import { resolveActiveOrganizationMembership } from "../organizations/organization-context";
 import { createCoreRpcHttpError } from "../rpc/errors";
+import { authorizeAiProvider } from "./ai-billing-service";
 import { enrichAiUsageExecutions } from "./ai-usage-execution-context";
-import { aiUsageDay, readAiUsageAllowance } from "./ai-usage-policy";
+import { aiUsageDay } from "./ai-usage-policy";
 import { queryAiUsage, recordAiUsage } from "./ai-usage-repository";
 // Only exposed on the trusted Remote Agent service-binding entrypoint.
 export async function rpcRecordRemoteAiUsage(
@@ -43,15 +44,23 @@ export async function rpcRecordRemoteAiUsage(
     ) {
       throw invalidUsageQuery();
     }
-    const allowance = await readAiUsageAllowance({
-      db,
-      organizationId: record.organizationId,
-      nowMs: Date.now(),
-    });
-    if (allowance.exhausted) {
-      return { status: "limit_reached" };
+    if (parsed.data.providerAuthorizationVersion !== 1) {
+      throw createCoreRpcHttpError({
+        code: "ai_billing.provider_authorization_required",
+        status: 503,
+        reason:
+          "The Remote Agent must be updated before it can use AI billing.",
+      });
     }
-  } else if (record.status === "pending") {
+    const providerAuthorization = await authorizeAiProvider(
+      env,
+      record.organizationId
+    );
+    record.fundingSource = providerAuthorization.source;
+    await recordAiUsage(db, record);
+    return { status: "accepted", providerAuthorization };
+  }
+  if (record.status === "pending") {
     throw invalidUsageQuery();
   }
   await recordAiUsage(db, record);
