@@ -73,6 +73,10 @@ async function saveReusableFixture({
 
 test("artifact evidence rejects a moved HEAD or newly dirty checkout", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "artifact-checkout-"));
+  const previousHeap = process.env.OPENMELD_RENDERER_NODE_HEAP_MB;
+  // This fixture checks artifact admission without building a renderer. Do not
+  // inherit the test runner's Node heap as a renderer memory requirement.
+  process.env.OPENMELD_RENDERER_NODE_HEAP_MB = "512";
   const git = (...args) =>
     execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
   try {
@@ -107,6 +111,11 @@ test("artifact evidence rejects a moved HEAD or newly dirty checkout", async () 
       CHECKOUT_ERROR
     );
   } finally {
+    if (previousHeap === undefined) {
+      Reflect.deleteProperty(process.env, "OPENMELD_RENDERER_NODE_HEAP_MB");
+    } else {
+      process.env.OPENMELD_RENDERER_NODE_HEAP_MB = previousHeap;
+    }
     await rm(root, { recursive: true, force: true });
   }
 });

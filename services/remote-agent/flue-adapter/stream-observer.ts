@@ -30,6 +30,7 @@ import {
 import {
   createRemoteAgentTerminalFailureFact,
   type RemoteAgentTerminalFailureFact,
+  retainRemoteAgentCleanupFacts,
 } from "../agent-core/terminal-failure";
 import { recordRemoteAgentTurnObservabilityBestEffort } from "../agent-core/turn-observability";
 import { normalizeFluePromptUsage } from "../agent-core/usage";
@@ -44,7 +45,10 @@ import {
   type RemoteAgentConversationCompactionObserver,
   remoteAgentConversationCompactionObserver,
 } from "./conversation-compaction";
-import { finishRemoteAgentComputerCommands } from "./execution-cleanup";
+import {
+  finishRemoteAgentComputerCommands,
+  retainTerminalComputerStop,
+} from "./execution-cleanup";
 import { getRemoteAgentExecutionSubmissionId } from "./execution-context";
 import {
   extractAssistantText,
@@ -78,6 +82,7 @@ const ORGANIZATION_SKILL_ACTIVATION_PREFIX =
 export async function handleCenterAgentObservation(input: {
   conversationCompactionObserver?: RemoteAgentConversationCompactionObserver;
   event: FlueObservation;
+  responseInputId?: string | null;
   resolveDependencies?: () => RemoteAgentObservationDependencies;
   scheduleBackground?: (task: Promise<void>) => void;
   streamPublisher: RemoteAgentStreamPublisher;
@@ -128,6 +133,7 @@ export async function handleCenterAgentObservation(input: {
     await handleCenterAgentStreamDelta({
       dependencies: resolveDependencies(input.resolveDependencies),
       eventIndex: event.eventIndex,
+      responseInputId: input.responseInputId,
       streamPublisher: input.streamPublisher,
       streamDelta,
     });
@@ -356,6 +362,7 @@ async function handleCenterAgentStreamDelta(input: {
   dependencies: RemoteAgentObservationDependencies;
   eventIndex: number;
   streamDelta: FlueStreamDelta;
+  responseInputId?: string | null;
   streamPublisher: RemoteAgentStreamPublisher;
 }): Promise<void> {
   const { coreWorker, env, storage } = input.dependencies;
@@ -427,6 +434,7 @@ async function handleCenterAgentStreamDelta(input: {
       kind: input.streamDelta.kind,
       observedAtMs: input.streamDelta.observedAtMs,
       replaceTextPrefix: input.streamDelta.replaceTextPrefix,
+      responseInputId: input.responseInputId,
       storage,
     });
     if (result.status === "published") {
@@ -524,12 +532,17 @@ async function handleCenterAgentPromptCompletion(input: {
     event: input.event,
     hasAssistantText: hasAssistantText || !!callbackContext?.workLoopCheckpoint,
   });
-  await finishRemoteAgentComputerCommands({
+  const cleanupFailure = await finishRemoteAgentComputerCommands({
     context: callbackContext,
     env,
     storage,
+    assistantText: observedFailure ? undefined : assistantText,
+    requestStop: !!observedFailure,
   });
-  const terminalFailure = observedFailure;
+  const terminalFailure = retainRemoteAgentCleanupFacts(
+    observedFailure,
+    cleanupFailure
+  );
   const settledExecution =
     callbackContext?.workLoopCheckpoint && !terminalFailure && executionIdentity
       ? await completeRemoteAgentExecutionState({
@@ -569,6 +582,7 @@ async function handleCenterAgentPromptCompletion(input: {
     });
     throw new RemoteAgentTerminalExecutionOwnerMissingError(submissionId);
   }
+  await retainTerminalComputerStop({ context: callbackContext, env, storage });
   const result = buildRemoteAgentTerminalCallbackResult({
     modelId: extractModelId(input.event),
     outcome,

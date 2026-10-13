@@ -76,13 +76,42 @@ these same operations and observations rather than add another status writer.
 
 Persistent capacity is a read projection sampled from that Computer's own
 `ctx.storage.sql.databaseSize`. It includes SDK files and internal records.
-The optional shared `capabilities.storage` contract reports the provider limit,
+The optional shared `capabilities.storage` contract reports the enforced application limit,
 conservative growth headroom and observation time; it is not a second quota
 ledger or a Linux filesystem measurement. Near-limit guidance is advisory and
 does not block reads, selected deletes, or command inspection. The Agent explains
 the warning when it checks capacity; there is no background notification promise.
 Do not read or mutate SDK-private blob tables to reclaim storage. Deleting a
 visible file is not evidence that the SDK has reclaimed retained content.
+The SDK owns admission and bounded content reclamation. Canonical and native
+storage use a 4 GiB budget with 64 MiB maintenance headroom; the projection reports
+the content admission ceiling. Native SQLite also enforces a hard page limit.
+The projection does not authorize collection: live references, active reads and
+durable transfer generations determine content retention. Namespace creation
+reserves deletion metadata before accepting new paths. Legacy preparation keeps
+reads available and refuses new mutations until its resumable pass completes.
+
+Synchronization reset detection uses the current peer identity, accepted cursors
+and active operation targets. A failed or lost operation is diagnostic history;
+its old target must not repeatedly invalidate a replacement peer or block new
+command admission. Reconciliation preserves that terminal diagnostic until the
+owning sync direction starts a new generation. Genuine peer replacement or
+accepted-cursor regression still invalidates the current admission attempt.
+This does not authorize replay of an earlier command or change its result fence.
+
+The SDK may confirm an imported window without reverse file enumeration only
+when its bounded, atomic comparison proves all pending receiver effects equal
+the supplied source entries. A durable receipt binds both peer epochs, the
+existing transfer generation and a fixed complete revision window. The source
+commits its original cursors and pending acknowledgement together; the receiver
+advances its own cursor only after that actual acknowledgement. Flush failure,
+uncertain equivalence or missing proof preserves normal bounded synchronization.
+An acknowledgement belongs to the peer epoch in which its cursor was observed;
+peer replacement during admission rejects the step before applying that cursor.
+The same sync owner resumes a pending acknowledgement after restart before
+closing its generation. This adds no command owner or independent file store.
+Bounded acknowledgement records use the existing maintenance reserve, so content
+admission refusal cannot prevent an already accepted transfer from completing.
 
 Worker-shell returns only after execution and provides no retained lookup. Its
 terminal output is kept with the Computer's existing command receipt. Atomic
@@ -101,6 +130,10 @@ This survives a Worker termination before catch/finally. Bounded backoff pauses
 later automatic checks after eight unconfirmed attempts; a normal caught error
 does not count its already reserved attempt again;
 this is a scheduling budget, never process failure, loss or replay authority.
+The model finish observer reads this owner without acquiring Stop authority.
+A slow or rejected read is unknown observation state, not a stopped or failed
+command. Only explicit cancellation, a confirmed execution failure or an existing
+cleanup obligation can request Stop during final publication or reconciliation.
 Fresh accepted native evidence resets that count. Successful manual inspection
 or Stop resumes the same receipt. Paused receipts remain available under the
 existing retention policy, and an older failed read cannot overwrite a newer
@@ -2198,6 +2231,26 @@ than direct table access.
 
 ## Agent Task Coordination
 
+### Originating-message delegation reads
+
+Message Details can opt in to the declared delegation projection. The source
+message passes the ordinary Space read boundary before any coordination read.
+Native delivery owns the mapping from an exact Space/source signal to its
+delivery identities, including later continuation turns. Agent Task Coordination
+reads only delegations with those exact parent Task Handles and matching
+Organizations, using its existing records and keyset pagination. This adds no
+execution writer, relational table, or inferred relationship.
+
+Each child uses the owning Space's current Wake progress and Message Details
+read contracts. The reader reauthorizes source and result messages separately,
+preserves owner-redacted context/input, and does not forward another Space's
+password or continuation grant. Unavailable children expose no content or
+locators; transient read errors remain errors. Planned, unactivated targets
+use the authorized Space identity directory for their name only. Terminal
+coordination observations retain their original outcome even if another child
+succeeds. Execution/publication state is never derived from Agent presence or
+the delegation's active flag.
+
 Core owns the coordination records that connect one exact Agent task to a later
 continuation. The shared `AgentTaskHandle` identifies an execution in its owning
 domain:
@@ -2689,17 +2742,22 @@ unsettled and preserve retry or outcome-unknown evidence instead of claiming a
 terminal visible result.
 
 Inside the Remote Agent Durable Object, one private durable execution record
-atomically owns successful terminal state and its bounded final answer. The
-shared execution query remains a status projection and does not expose reply
-text. Callback context receives the same answer as a recoverable delivery
+atomically owns terminal state and its bounded final answer or reviewed failure
+explanation. The shared execution query includes a typed terminal result with
+its actual completed/failed/aborted status, optional explanation, cleanup facts
+and existing artifact references. It preserves exact execution and callback
+authority; a failed explanation is never a completed answer. Callback context
+receives the same result as a recoverable delivery
 projection; an instance restart may repopulate it from the execution record and
-retry the ordinary Core callback. Partial stream text, failed execution,
-cancellation, and observability records cannot become this answer authority.
+retry the ordinary Core callback. Partial stream text, failed drafts,
+cancellation, and observability records cannot become a successful answer.
 That same execution record retains a requested failure while runtime settlement
-or Computer cleanup is pending. This fences new work without claiming terminal
-execution; progress updates preserve it and Stop remains available. Both the
-observer and recovery reconciler require settled runtime and confirmed command
-cleanup before terminal publication. Cancellation takes precedence over the
+is pending. This fences new work without claiming terminal execution; progress
+updates preserve it and Stop remains available. Computer cleanup errors do not
+write that irreversible safety failure. Both the observer and recovery
+reconciler require settled runtime and a durable Stop delivery obligation before
+terminal publication. The original Computer remains the process/collection
+owner after the model result is delivered. Cancellation takes precedence over the
 requested failure, and successful-looking assistant text cannot erase it.
 Every observer and reconciliation path derives its callback from the terminal
 compare-and-set winner. A stale or conflicting callback-context answer is
@@ -3512,13 +3570,11 @@ are optional for readers. Core/Gateway receivers must accept the new model
 grouping before Web or Center Agent callers request it. This read projection
 introduces no migration, writer, or execution authority.
 
-Operators can inspect or preview changes with
-`node scripts/ops/ai-usage-policy.mjs --org <id> --env local --daily-usd 1`.
-Add `--apply` to save; use `unlimited` to remove the cap. Local mode targets
-only the current running worktree lane; staging and production require an
-explicit environment and authorized Wrangler access. No deploy is needed to
-adjust this policy. Enforcement uses confirmed UTC-day costs and may overshoot
-for in-flight requests; it is not a concurrent reservation system.
+Hosted admission now uses [workspace AI credits and keys](../engineering/ai-billing.md).
+OpenRouter's native monthly key limit owns the balance; receipts retain the
+funding source for attribution. The former daily-policy operator script is
+retired. Historical daily-policy rows do not authorize requests. Native limits
+can overshoot for in-flight requests and have propagation delay.
 
 Successful Flue conversation compaction is operational evidence, not a second
 conversation or memory store. During compaction, the worker may retain one
@@ -3627,6 +3683,40 @@ expires independently of the Signal. Space deletion removes both with the
 owning Durable Object state.
 
 ## Center Agent Memory Data Boundary
+
+Completed Space callbacks admit automatic memory capture only when they win the
+PostgreSQL delivery transition from accepted/retry-observed to completed. A
+completed-row read or a deduplicated Space publication is not capture authority.
+Concurrent callbacks and later replays must not each create a provider episode.
+This is at-most-once callback capture, not a durable retry queue: a provider
+failure is diagnosed and must not be hidden as successful storage.
+
+Zep ingestion acceptance and semantic processing are separate facts. The adapter
+keeps the episode receipt and processing flag; an explicit save reports
+`processing` until the provider confirms `processed`. It disables automatic SDK
+retries for non-idempotent episode creation. An ambiguous write timeout must not
+invite a blind repeat. A processed episode still requires a successful recall
+before an agent may claim cross-conversation retrieval was verified.
+
+The organization policy read can opt into an availability probe over its
+existing active organization subject. It must not provision or revive memory.
+No active subject means not checked, not healthy; missing configuration or a
+failed probe means unavailable. This bounded read is a point-in-time check, not
+an ongoing health monitor. Automatic recall also distinguishes failed/partial
+reads from a successful empty result in the turn envelope.
+
+Memory status rollout changes the hosted Core-to-Remote-Agent turn envelope.
+Deploy the Remote Agent receiver before Core emits `memory.status`; the old
+strict receiver rejects that new property. Roll back Core before Remote Agent.
+This is an explicit exception to the default coordinated deployment order.
+The reverse direction is compatible: new Remote Agent save callers request
+`includeStatus`, which old Core ignores, and treat a missing status as processing.
+Public policy callers request `includeAvailability=true`; Core omits the added
+response fields for legacy callers. New readers accept absent fields. No CLI,
+local Service, daemon, or Organization Skill behavior changes or contract-floor
+bumps are required. The shared-schema rebuild changes the packaged Service
+bundle hash; stamp that artifact available during final release integration.
+This change needs no data migration.
 
 Core owns the OpenMeld memory model. PostgreSQL stores the Organization enabled policy,
 member/organization subject identity, provider references, deletion lifecycle,

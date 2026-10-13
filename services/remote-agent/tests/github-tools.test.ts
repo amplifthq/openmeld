@@ -1,3 +1,5 @@
+import type { Executor } from "@cloudflare/codemode";
+import { createCodeTool } from "@cloudflare/codemode/ai";
 import {
   centerAgentConnectorConnectionSelectionSchema,
   centerAgentReadConnectorActionOperationResponseSchema,
@@ -27,6 +29,7 @@ import {
   executeRemoteAgentToolDefinition,
   toBoundedRemoteAgentToolResult,
 } from "../flue-adapter/tool-execution";
+import { executionAccessFixture } from "./execution-access-fixture";
 import {
   createRoutineTurnEnvelope,
   createSubmitTurnRequest,
@@ -34,6 +37,8 @@ import {
 } from "./fixtures";
 import capturedPostedComment from "./fixtures/github-posted-comment.json";
 import capturedPrivateFile from "./fixtures/github-private-file-redacted.json";
+import capturedRepositoryCatalog from "./fixtures/github-repository-list-catalog.json";
+import capturedWriteCatalog from "./fixtures/github-write-action-catalog.json";
 import { InMemoryDurableObjectStorage } from "./storage";
 
 const ACK = {
@@ -213,7 +218,7 @@ function getRemoteAgentGitHubToolDefinitions(
   const coreWorker = withTestConnectorOperationLedger(input.coreWorker);
   return buildRemoteAgentGitHubToolDefinitions({
     ...input,
-    connectorExecution: input.connectorExecution,
+    connectorExecution: withCapturedWriteCatalog(input.connectorExecution),
     coreWorker: {
       centerAgentRecordConnectorActionAudit: vi.fn(async () => ({
         attribution: null,
@@ -235,7 +240,109 @@ function getRemoteAgentGitHubToolDefinitions(
   });
 }
 
+// Captured from the real b0721fc8 GitHub definition, executors, catalog store,
+// and public runtime serializer. Provider execution still uses each test's port.
+function withCapturedWriteCatalog(
+  config: Parameters<
+    typeof buildRemoteAgentGitHubToolDefinitions
+  >[0]["connectorExecution"]
+) {
+  if (!config) {
+    return config;
+  }
+  return {
+    ...config,
+    fetch: async (...args: Parameters<typeof fetch>) => {
+      const [url, init] = args;
+      const actionId = new URL(String(url)).searchParams.get("actionId");
+      const action = capturedWriteCatalog.data.find(
+        (item) => item.id === actionId
+      );
+      if (init?.method === "GET" && action) {
+        return Response.json({ ...capturedWriteCatalog, data: [action] });
+      }
+      return await (config.fetch ?? fetch)(...args);
+    },
+  };
+}
+
 describe("Remote Agent GitHub tools", () => {
+  it.each([
+    "requester",
+    "organization",
+  ] as const)("exposes repository-list inputs for the verified %s connection", async (githubActor) => {
+    const installation = githubActor === "organization";
+    const connection = connectionSelection({
+      ownerDisplayName: "Mira",
+      userId: "user_mira",
+      scope: installation ? "shared" : "member",
+    });
+    // Produced by the candidate Connector's real catalog + runtime serializer.
+    const catalog =
+      capturedRepositoryCatalog[installation ? "custom_credential" : "oauth2"];
+    const catalogAction = catalog.data[0];
+    if (!catalogAction) {
+      throw new Error("Captured repository action unavailable");
+    }
+    const fetchMock = vi.fn<typeof fetch>(async (_url, init) =>
+      init?.method === "GET"
+        ? Response.json(catalog)
+        : testOpenConnectorSuccessResponse({
+            actionId: "github.list_my_repositories",
+            data: { repositories: [] },
+            outputSchema: catalogAction.outputSchema,
+          })
+    );
+    const tools = getRemoteAgentGitHubToolDefinitions({
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        runtimeToken: "test-runtime-token",
+        fetch: fetchMock,
+      },
+      coreWorker: {
+        centerAgentResolveConnectorConnection: vi.fn(async () => connection),
+      },
+      storage: await createStorage(createSubmitTurnRequest()),
+    });
+    const tool = tools.find(
+      (candidate) => candidate.name === "github_list_my_repositories"
+    );
+    if (!tool) {
+      throw new Error("Repository list tool unavailable");
+    }
+    for (const filters of [
+      { sort: "full_name" },
+      { visibility: "private" },
+      { direction: "asc" },
+    ]) {
+      expect(safeParse(tool.input, { githubActor, ...filters }).success).toBe(
+        !installation
+      );
+      if (installation) {
+        await expect(
+          tool.execute({ githubActor, ...filters })
+        ).rejects.toThrow();
+      }
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+    const discovered = await executeTool(tools, "github_list_actions", {
+      githubActor,
+    });
+    expect(discovered).toMatchObject({
+      actions: [{ inputSchema: catalogAction.inputSchema }],
+    });
+    expect(
+      new URL(String(fetchMock.mock.calls[0]?.[0])).searchParams.get(
+        "connectionName"
+      )
+    ).toBe(connection.connection?.connectionName);
+    await expect(
+      tool.execute({ githubActor, page: 1, perPage: 25 })
+    ).resolves.toMatchObject({
+      status: "completed",
+      data: { repositories: [] },
+    });
+  });
   it("keeps one operation pending until Inbox approval and creates the issue only once", async () => {
     const storage = await createStorage(createSubmitTurnRequest());
     const ledger = withTestConnectorOperationLedger({
@@ -315,6 +422,73 @@ describe("Remote Agent GitHub tools", () => {
       [issue.operationId, "write"],
       [issue.operationId, "write"],
     ]);
+  });
+
+  it.each([
+    "github_create_issue",
+    "github_execute_action",
+  ] as const)("admits an explicitly requested repository through %s without Project metadata", async (toolName) => {
+    const resolveProjectIssueAction = vi.fn(() =>
+      Promise.reject(new Error("Project metadata is unavailable"))
+    );
+    const ledger = withTestConnectorOperationLedger({
+      centerAgentResolveConnectorConnection: vi.fn(async () =>
+        connectionSelection({
+          ownerDisplayName: "Mira",
+          userId: "user_mira",
+          scope: "shared",
+        })
+      ),
+    });
+    const record = vi.fn(ledger.centerAgentRecordConnectorActionOperation);
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      testOpenConnectorSuccessResponse({
+        actionId: "github.create_issue",
+        data: { number: 7, title: "Track connector bug" },
+        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+      })
+    );
+    const tools = getRemoteAgentGitHubToolDefinitions({
+      coreWorker: {
+        ...ledger,
+        resolveProjectIssueAction,
+        centerAgentRecordConnectorActionOperation: record,
+      },
+      storage: await createStorage(createSubmitTurnRequest()),
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        runtimeToken: "test-runtime-token",
+        fetch: fetchMock,
+      },
+    });
+    const issue = {
+      owner: "amplifthq",
+      repo: "openmeld",
+      title: "Track connector bug",
+    };
+    await expect(
+      executeTool(tools, toolName, {
+        githubActor: "organization",
+        operationId: "explicit-issue",
+        issueDestinationAuthority: "explicit_request",
+        ...(toolName === "github_execute_action"
+          ? { actionId: "github.create_issue", input: issue }
+          : issue),
+      })
+    ).resolves.toMatchObject({ status: "completed" });
+    expect(resolveProjectIssueAction).not.toHaveBeenCalled();
+    expect(record.mock.calls[0]?.[0]).toMatchObject({
+      issueDestination: {
+        provider: "github",
+        owner: "amplifthq",
+        repo: "openmeld",
+      },
+      issueDestinationAuthority: "explicit_request",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).input
+    ).toEqual(issue);
   });
 
   it("checks the Project destination before accepting a new issue write", async () => {
@@ -1212,7 +1386,7 @@ describe("Remote Agent GitHub tools", () => {
       (tool) => tool.name === "github_create_issue"
     )?.description;
     expect(createIssueDescription).toContain(
-      "This is an ordinary external write"
+      "The trusted runtime catalog determines whether confirmation is required"
     );
     expect(createIssueDescription).not.toContain("short reply");
     expect(createIssueDescription).not.toContain("Bare Yes or OK");
@@ -1441,17 +1615,16 @@ describe("Remote Agent GitHub tools", () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
       "https://connectors.example.test/v1/actions/github.get_file_contents"
     );
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      connectionName: "org_aaaaaaaaaaaaaaaaaa__user_bbbbbbbbbbbbbbbbbb__github",
+      input: {
+        owner: "openmeld",
+        path: "README.md",
+        ref: "main",
+        repo: "app",
+      },
+    });
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
-      body: JSON.stringify({
-        connectionName:
-          "org_aaaaaaaaaaaaaaaaaa__user_bbbbbbbbbbbbbbbbbb__github",
-        input: {
-          owner: "openmeld",
-          path: "README.md",
-          ref: "main",
-          repo: "app",
-        },
-      }),
       headers: {
         authorization: "Bearer test-runtime-token",
         "content-type": "application/json",
@@ -1631,17 +1804,15 @@ describe("Remote Agent GitHub tools", () => {
     expect(secondResult).not.toHaveProperty("data.provider_content_copy");
 
     for (const [, init] of fetchMock.mock.calls) {
-      expect(init).toMatchObject({
-        body: JSON.stringify({
-          connectionName:
-            "org_aaaaaaaaaaaaaaaaaa__user_bbbbbbbbbbbbbbbbbb__github",
-          input: {
-            owner: "openmeld",
-            path: "src/large-file.ts",
-            ref: "main",
-            repo: "app",
-          },
-        }),
+      expect(JSON.parse(String(init?.body))).toEqual({
+        connectionName:
+          "org_aaaaaaaaaaaaaaaaaa__user_bbbbbbbbbbbbbbbbbb__github",
+        input: {
+          owner: "openmeld",
+          path: "src/large-file.ts",
+          ref: "main",
+          repo: "app",
+        },
       });
     }
   });
@@ -2267,12 +2438,9 @@ describe("Remote Agent GitHub tools", () => {
       actionId === "github.search_issues_and_pull_requests"
         ? { ...input, perPage: 10 }
         : input;
-    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
-      body: JSON.stringify({
-        connectionName:
-          "org_aaaaaaaaaaaaaaaaaa__user_bbbbbbbbbbbbbbbbbb__github",
-        input: expectedInput,
-      }),
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      connectionName: "org_aaaaaaaaaaaaaaaaaa__user_bbbbbbbbbbbbbbbbbb__github",
+      input: expectedInput,
     });
   });
 
@@ -3204,7 +3372,10 @@ describe("Remote Agent GitHub tools", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("resumes an incomplete authorized GitHub batch during a Routine", async () => {
+  it.each([
+    undefined,
+    "explicit_request",
+  ] as const)("resumes an incomplete authorized GitHub batch with unchanged authority %s during a Routine", async (issueDestinationAuthority) => {
     const interactiveRequest = createSubmitTurnRequest();
     const storage = await createStorage(interactiveRequest);
     const fetchMock = vi.fn<typeof fetch>((url) => {
@@ -3255,6 +3426,7 @@ describe("Remote Agent GitHub tools", () => {
     const coreWorkerWithLedger = withTestConnectorOperationLedger(coreWorker);
     const batchInput = {
       githubActor: "organization",
+      issueDestinationAuthority,
       issues: [{ externalKey: "finding-1", title: "Review finding 1" }],
       operationId: "confirmed-incomplete-routine-retry",
       owner: "openmeld",
@@ -3275,6 +3447,16 @@ describe("Remote Agent GitHub tools", () => {
     });
     const providerCallCount = fetchMock.mock.calls.length;
     expect(providerCallCount).toBeGreaterThan(0);
+
+    await expect(
+      executeTool(firstTurnTools, "github_create_issue_batch", {
+        ...batchInput,
+        issueDestinationAuthority: issueDestinationAuthority
+          ? undefined
+          : "explicit_request",
+      })
+    ).rejects.toThrow("immutable manifest");
+    expect(fetchMock).toHaveBeenCalledTimes(providerCallCount);
 
     const routineSubmissionId = "flue_submission_routine_retry";
     const routineRequest = createSubmitTurnRequest({
@@ -3364,12 +3546,9 @@ describe("Remote Agent GitHub tools", () => {
       outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
-      body: JSON.stringify({
-        connectionName:
-          "org_aaaaaaaaaaaaaaaaaa__user_bbbbbbbbbbbbbbbbbb__github",
-        input: comment,
-      }),
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      connectionName: "org_aaaaaaaaaaaaaaaaaa__user_bbbbbbbbbbbbbbbbbb__github",
+      input: comment,
     });
   });
 
@@ -3566,7 +3745,10 @@ describe("Remote Agent GitHub tools", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("creates an explicitly requested issue without asking again", async () => {
+  it.each([
+    "github_create_issue",
+    "github_execute_action",
+  ] as const)("claims a trusted write effect for an explicitly requested issue through %s", async (toolName) => {
     const storage = await createStorage(createSubmitTurnRequest());
     const centerAgentResolveConnectorConnection = vi.fn(async () =>
       connectionSelection({ ownerDisplayName: "Mira", userId: "user_mira" })
@@ -3583,12 +3765,20 @@ describe("Remote Agent GitHub tools", () => {
       baseUrl: "https://connectors.example.test",
       fetch: fetchMock,
     };
-    const coreWorker = {
+    const baseCoreWorker = {
       centerAgentRecordConnectorActionAudit: vi.fn(async () => ({
         attribution: null,
         recorded: true as const,
       })) as never,
       centerAgentResolveConnectorConnection,
+    };
+    const ledger = withTestConnectorOperationLedger(baseCoreWorker);
+    const recordOperation = vi.fn(
+      ledger.centerAgentRecordConnectorActionOperation
+    );
+    const coreWorker = {
+      ...ledger,
+      centerAgentRecordConnectorActionOperation: recordOperation,
     };
     const tools = getRemoteAgentGitHubToolDefinitions({
       connectorExecution,
@@ -3602,13 +3792,26 @@ describe("Remote Agent GitHub tools", () => {
     };
 
     await expect(
-      executeTool(tools, "github_create_issue", issue)
+      executeTool(
+        tools,
+        toolName,
+        toolName === "github_execute_action"
+          ? { actionId: "github.create_issue", input: issue }
+          : issue
+      )
     ).resolves.toMatchObject({
       attribution: {
         connectionOwner: { displayName: "Mira", userId: "user_mira" },
       },
       status: "completed",
     });
+    expect(recordOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionId: "github.create_issue",
+        effect: "write",
+        outcome: "attempted",
+      })
+    );
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
       body: JSON.stringify({
@@ -3749,13 +3952,19 @@ describe("Remote Agent GitHub tools", () => {
         title: "Track connector bug",
       })
     ).resolves.toMatchObject({
-      spaceTask: { created: true, task: { taskId: createdTask.taskId } },
+      spaceTask: {
+        created: true,
+        task: { taskId: createdTask.taskId },
+        githubLink: {
+          status: "not_updated",
+          result: { status: "destructive_action_preview" },
+        },
+      },
       status: "completed",
     });
     expect(createSpaceTask).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual([
       "https://connectors.example.test/v1/actions/github.create_issue",
-      "https://connectors.example.test/v1/actions/github.update_issue",
     ]);
     expect(
       (await storage.list({ prefix: "github-space-task-observation:" })).size
@@ -4112,9 +4321,21 @@ describe("Remote Agent GitHub tools", () => {
       storage,
     });
 
-    const firstResult = await executeTool(tools, name, input);
+    const run = (definitions: typeof tools, payload: Record<string, unknown>) =>
+      executeCodeModeGitHubTool(
+        definitions,
+        name,
+        {
+          githubActor: "requester",
+          operationId: `policy:${name}`,
+          ...payload,
+        },
+        storage
+      );
+    const firstResult = await run(tools, input);
     const destructive =
-      name === "github_delete_file" || name === "github_merge_pull_request";
+      capturedWriteCatalog.data.find((action) => action.id === actionId)
+        ?.effect === "destructive";
     if (!destructive) {
       expect(firstResult).toMatchObject({ status: "completed" });
       expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -4127,7 +4348,10 @@ describe("Remote Agent GitHub tools", () => {
     expect(firstResult).toMatchObject({
       confirmation: {
         connectionOwnerUserId: "user_mira",
-        requiredMessage,
+        ...(name === "github_delete_file" ||
+        name === "github_merge_pull_request"
+          ? { requiredMessage }
+          : {}),
         writeConfirmationToken: expect.any(String),
       },
       status: "destructive_action_preview",
@@ -4142,7 +4366,7 @@ describe("Remote Agent GitHub tools", () => {
       storage,
     });
     await expect(
-      executeTool(sameTurnTools, name, {
+      run(sameTurnTools, {
         ...input,
         writeConfirmationToken: requireWriteConfirmationToken(firstResult),
       })
@@ -4933,7 +5157,10 @@ describe("Remote Agent GitHub tools", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("executes an authorized issue batch immediately and checkpoints every issue", async () => {
+  it.each([
+    undefined,
+    "explicit_request",
+  ] as const)("executes an authorized issue batch with authority %s and checkpoints every issue", async (issueDestinationAuthority) => {
     const request = createSubmitTurnRequest();
     const sender = requireMemberSender(request.turnEnvelope.sender);
     const storage = await createStorage(request);
@@ -4988,6 +5215,7 @@ describe("Remote Agent GitHub tools", () => {
       storage,
     });
     const batchInput = {
+      issueDestinationAuthority,
       issues: [
         { externalKey: "pr-14", title: "Review PR 14" },
         { externalKey: "pr-13", title: "Review PR 13" },
@@ -5064,7 +5292,7 @@ async function createNextTurnGitHubTools(input: {
     })
   );
   return buildRemoteAgentGitHubToolDefinitions({
-    connectorExecution: input.connectorExecution,
+    connectorExecution: withCapturedWriteCatalog(input.connectorExecution),
     coreWorker: withTestConnectorOperationLedger(input.coreWorker),
     storage: input.storage,
     submissionId,
@@ -5099,6 +5327,53 @@ function connectionSelection(input: {
   };
 }
 
+async function executeCodeModeGitHubTool(
+  definitions: ReturnType<typeof getRemoteAgentGitHubToolDefinitions>,
+  name: RemoteAgentGitHubToolName,
+  input: Record<string, unknown>,
+  storage: InMemoryDurableObjectStorage
+) {
+  const context = await readRemoteAgentCallbackContext(
+    storage,
+    ACK.submissionId
+  );
+  if (!context) {
+    throw new Error("Missing admitted GitHub execution");
+  }
+  const executor: Executor = {
+    async execute(_code, providers) {
+      if (!(Array.isArray(providers) && providers[0]?.fns[name])) {
+        throw new Error(`Missing Code Mode provider ${name}`);
+      }
+      return { result: await providers[0].fns[name](input) };
+    },
+  };
+  const tool = await createRemoteAgentCodeModeFlueTool({
+    coreWorker: {
+      authorizeRemoteAgentExecutionAccess: executionAccessFixture(context),
+    },
+    definitions: definitions.filter((definition) => definition.name === name),
+    env: {},
+    loader: {} as WorkerLoader,
+    storage,
+    submissionId: ACK.submissionId,
+    runtime: {
+      createExecutor: () => executor,
+      createCodeTool: (options) => createCodeTool({ ...options, executor }),
+    },
+  });
+  const output = await tool.run({
+    data: { code: "async () => {}" },
+    log: console,
+    toolCallId: `policy:${name}`,
+  });
+  const result = (output as { output: { result: unknown } }).output.result;
+  if (result === undefined) {
+    throw new Error(`Code Mode returned no result: ${JSON.stringify(output)}`);
+  }
+  return result;
+}
+
 async function executeTool(
   tools: ReturnType<typeof getRemoteAgentGitHubToolDefinitions>,
   name: RemoteAgentGitHubToolName,
@@ -5113,7 +5388,7 @@ async function executeTool(
   const isRead = REMOTE_AGENT_GITHUB_READ_TOOL_NAMES.some(
     (readToolName) => readToolName === name
   );
-  return await tool.execute({
+  const parsed = safeParse(tool.input, {
     githubActor: "requester",
     ...(!isRead && name !== "github_create_issue_batch"
       ? {
@@ -5124,6 +5399,10 @@ async function executeTool(
       : {}),
     ...input,
   });
+  if (!parsed.success) {
+    throw new Error(`Invalid ${name} input: ${JSON.stringify(parsed.issues)}`);
+  }
+  return await tool.execute(parsed.output as Record<string, unknown>);
 }
 
 type TestConnectorOperation = {

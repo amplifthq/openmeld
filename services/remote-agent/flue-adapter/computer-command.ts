@@ -4,14 +4,20 @@ import type {
   WorkspaceRuntimeExecHandle,
   WorkspaceRuntimeValue,
 } from "@cloudflare/computer";
+import { WorkspaceSyncPendingError } from "@cloudflare/computer";
 import {
   type CloudComputerCommandCollection,
+  type CloudComputerCommandObservation,
   type CloudComputerCommandPhase,
+  type CloudComputerCommandPreparation,
   type CloudComputerCommandReference,
+  type CloudComputerInvocationState,
   type CloudComputerOperation,
   cloudComputerCleanupResultSchema,
   cloudComputerCommandErrorSchema,
+  cloudComputerCommandPreparationSchema,
   cloudComputerCommandSchema,
+  cloudComputerInvocationStateSchema,
 } from "@openmeld/schemas";
 import {
   boolean,
@@ -48,6 +54,12 @@ import { resolveRemoteAgentComputerName } from "./computer-identity";
 import { AGENT_COMPUTER_CONTAINER_BACKEND_ID } from "./computer-workspace-config";
 
 const COMPUTER_TARGET_PREFIX = "openmeld:computer-target:";
+export async function readBoundComputerName(
+  storage: RemoteAgentStorage,
+  submissionId: string
+) {
+  return await storage.get<string>(COMPUTER_TARGET_PREFIX + submissionId);
+}
 
 export async function bindComputerCommandTarget(input: {
   storage: RemoteAgentStorage;
@@ -61,7 +73,7 @@ export async function bindComputerCommandTarget(input: {
   }
 }
 
-async function readComputerTarget(input: {
+export async function readComputerTarget(input: {
   context: Pick<RemoteAgentCallbackContext, "submissionId">;
   storage: RemoteAgentStorage;
   env?: { AGENT_COMPUTER?: unknown };
@@ -87,7 +99,9 @@ const READER_CANCEL_BUDGET_MS = 100;
 const COLLECTION_CONCURRENCY = 4;
 const COLLECTION_BATCH_SIZE = 16;
 const COLLECTION_INTERVAL_MS = 15_000;
+const SYNC_CONTINUATION_INTERVAL_MS = 250;
 const COLLECTION_ATTEMPT_BUDGET = 8;
+const COLLECTION_POLL_WAIT_SECONDS = 1;
 const COMMAND_RECORD_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const COMMAND_ACTIONS = ["start", "poll", "stop", "list"] as const;
 const COMMAND_DIAGNOSTIC_PHASES = [
@@ -131,6 +145,12 @@ type Command = {
   key: string;
   fingerprint: string;
   createdAt: number;
+  preparation?: {
+    request: StartCommand;
+    workingDirectory: string;
+    requiresDirectory?: boolean;
+    progress?: CloudComputerCommandPreparation;
+  };
   recordExpiresAtMs?: number;
   launchRequestedAt?: number;
   launchAcknowledgedAt?: number;
@@ -145,7 +165,7 @@ type Command = {
   terminalResult?: CommandResult;
   observation?: CommandResult;
   output?: { after: number; stdout: string; stderr: string }[];
-  syncCursor?: number;
+  syncProgress?: { generation: string; checkpoint?: string };
   loss?: "ENOENT" | "EEXEC_LOST";
   lossConfirmed?: boolean;
   collectable?: boolean;
@@ -164,37 +184,94 @@ type CommandResult = {
   outputPending?: true;
   outputTruncated?: true;
   syncPending?: true;
-  syncError?: "ENOENT" | "EEXEC_LOST";
+  syncError?: "ENOENT" | "EEXEC_LOST" | "ESYNC_READ_ONLY";
+  syncSkipped?: { paths: string[]; truncated: boolean };
   nextAction?: "inspect" | "done" | "poll";
   result?: WorkspaceRuntimeValue;
 };
 
+type CommandSync = Awaited<
+  ReturnType<WorkspaceRuntimeExecHandle<"utf8">["result"]>
+>["sync"];
+
+function publicCommandResult(result: unknown) {
+  // Keep the durable refusal terminal. Installed clients understand pending
+  // sync with an inspect action; newer readers also receive refused paths.
+  if (
+    result &&
+    typeof result === "object" &&
+    "syncError" in result &&
+    result.syncError === "ESYNC_READ_ONLY"
+  ) {
+    const { syncError: _, ...retained } = result;
+    return { ...retained, syncPending: true, nextAction: "inspect" };
+  }
+  return result;
+}
+
+function synchronizedObservation(
+  receipt: CommandResult,
+  sync: Extract<CommandSync, { status: "complete" }>
+): CommandResult {
+  const {
+    syncPending: _pending,
+    syncError: _error,
+    nextAction: _action,
+    ...completed
+  } = receipt;
+  if (sync.skipped.length === 0) {
+    return { ...completed, status: "completed" };
+  }
+  return {
+    ...completed,
+    status: "running",
+    syncError: "ESYNC_READ_ONLY",
+    nextAction: "inspect",
+    syncSkipped: {
+      paths: sync.skipped.slice(0, 16).map((entry) => entry.path),
+      truncated: sync.skippedTruncated === true || sync.skipped.length > 16,
+    },
+  };
+}
+
 /** Bound external observation, including Workspace acquisition and disposal.
  * A timeout never establishes process loss or authorizes another launch. */
+class ComputerObservationTimeoutError extends Error {
+  readonly code = "computer.observation_timeout";
+  readonly phase: CloudComputerCommandObservation["phase"];
+  constructor(phase: ComputerObservationTimeoutError["phase"]) {
+    super(
+      "Computer command observation timed out. The command may still be running. Poll the same key; do not start it again."
+    );
+    this.phase = phase;
+  }
+}
+
 async function withCommandWorkspace<T>(input: {
   access: AgentComputerWorkspaceAccess;
   budgetMs: number;
+  observationDeadlineMs?: number;
   phase: "launch" | "poll" | "stop" | "cleanup";
   signal?: AbortSignal;
   operation: (workspace: WorkspaceClient, signal: AbortSignal) => Promise<T>;
 }): Promise<T> {
-  let phase = "workspace-acquisition";
+  let phase: ComputerObservationTimeoutError["phase"] = "workspace-acquisition";
   const timeout = new AbortController();
   const signal = input.signal
     ? AbortSignal.any([input.signal, timeout.signal])
     : timeout.signal;
-  const timer = setTimeout(
-    () =>
-      timeout.abort(
-        Object.assign(
-          new Error(
-            "Computer command observation timed out. The command may still be running. Poll the same key; do not start it again."
-          ),
-          { code: "computer.observation_timeout", phase }
-        )
-      ),
-    input.budgetMs
+  const abortObservation = () =>
+    timeout.abort(new ComputerObservationTimeoutError(phase));
+  const budgetMs = Math.min(
+    input.budgetMs,
+    input.observationDeadlineMs === undefined
+      ? input.budgetMs
+      : Math.max(0, input.observationDeadlineMs - Date.now())
   );
+  const timer = setTimeout(abortObservation, budgetMs);
+  if (budgetMs === 0) {
+    abortObservation();
+  }
   let abort: (() => void) | undefined;
   const cancelled = new Promise<never>((_, reject) => {
     abort = () => reject(signal.reason);
@@ -205,6 +282,9 @@ async function withCommandWorkspace<T>(input: {
     }
   });
   try {
+    if (signal.aborted) {
+      return await cancelled;
+    }
     return await Promise.race([
       input.access.withWorkspace(async (workspace) => {
         signal.throwIfAborted();
@@ -233,6 +313,8 @@ class MissingComputerExecRecordError extends Error {
     this.name = "MissingComputerExecRecordError";
   }
 }
+
+class ComputerAdmissionDeclinedError extends Error {}
 
 function isCommandLoss(
   error: unknown
@@ -306,10 +388,15 @@ function commandReceiptAddress(command: Command, invocationId: string) {
       backend: commandBackend(command),
     } satisfies CloudComputerCommandReference,
     phase,
+    ...(command.preparation?.progress
+      ? { preparation: command.preparation.progress }
+      : {}),
     ...(command.collection
       ? {
           collection: {
-            ...command.collection,
+            // Installed CLI readers strictly validate these two fields.
+            // Active observation belongs to the internal invocation view.
+            unconfirmedAttempts: command.collection.unconfirmedAttempts,
             nextAttemptAtMs: isCollectableCommand(command)
               ? command.collection.nextAttemptAtMs
               : null,
@@ -365,6 +452,15 @@ function hasCommandExited(command: Command) {
   return Boolean(receipt && receipt.exitCode !== null);
 }
 
+function canResumeRetainedSync(command: Command) {
+  return (
+    hasCommandExited(command) &&
+    command.observation?.syncPending === true &&
+    command.observation.syncError === "ENOENT" &&
+    command.loss !== "EEXEC_LOST"
+  );
+}
+
 function commandDiagnostics(command?: Command) {
   return {
     commandId: command?.id,
@@ -385,7 +481,7 @@ function commandDiagnostics(command?: Command) {
 function isReportedCommandLoss(command: Command) {
   return (
     command.lossReported &&
-    (command.loss === "EEXEC_LOST" || command.lossConfirmed || !command.loss)
+    (command.loss === "EEXEC_LOST" || command.lossConfirmed)
   );
 }
 
@@ -400,7 +496,14 @@ function acceptsObservation(
   }
   return (
     previous.status !== "completed" &&
-    !(previous.syncError && result.status !== "completed") &&
+    !(
+      previous.syncError &&
+      result.status !== "completed" &&
+      !(
+        previous.syncError === "ENOENT" &&
+        result.syncError === "ESYNC_READ_ONLY"
+      )
+    ) &&
     after >= previous.after &&
     !(previous.syncPending && result.exitCode === null)
   );
@@ -485,7 +588,6 @@ function mergeCommandObservation(
       : {}),
     observation,
     output: retained.output,
-    ...(exitSequence !== undefined ? { syncCursor: result.after } : {}),
   };
 }
 
@@ -503,11 +605,120 @@ function isCollectableCommand(command: Command) {
     command.collectable !== undefined &&
     !(
       isCommandComplete(command) ||
-      command.loss ||
+      command.lossConfirmed ||
+      command.loss === "EEXEC_LOST" ||
       command.observation?.syncError ||
       command.lostDuringCleanup ||
       command.backend === "worker-shell"
     )
+  );
+}
+
+function stopPreparedCommand(command: Command): Command {
+  if (
+    !(command.stopRequested && command.preparation) ||
+    command.launchRequestedAt !== undefined
+  ) {
+    return command;
+  }
+  return {
+    ...command,
+    preparation: undefined,
+    completed: true,
+    terminalResult: {
+      id: command.id,
+      key: command.key,
+      status: "completed",
+      exitCode: null,
+      stdout: "",
+      stderr: "Stopped before execution.",
+      after: 0,
+      nextAction: "done",
+    },
+    collection: { unconfirmedAttempts: 0, nextAttemptAtMs: null },
+  };
+}
+
+function resumeCommandPreparation(
+  command: Command,
+  claimed: boolean,
+  stopped: boolean,
+  progress: WorkspaceSyncPendingError["progress"],
+  expectedProgress: CloudComputerCommandPreparation | undefined
+): Command {
+  // A concurrent preparation page cannot release another call's dispatch
+  // claim. The owning call needs explicit SDK proof that it did not dispatch.
+  if (
+    isCommandComplete(command) ||
+    !command.preparation ||
+    (!claimed && command.launchRequestedAt !== undefined)
+  ) {
+    return command;
+  }
+  const previous = command.preparation.progress;
+  // An older SDK result must not overwrite a newer persisted page after its
+  // compare-and-set retries. Opaque checkpoints cannot order those results.
+  const candidateProgress =
+    JSON.stringify(previous) === JSON.stringify(expectedProgress)
+      ? projectCommandPreparation(progress)
+      : previous;
+  // A synthetic pre-dispatch refusal has no sync checkpoint. Keep the last
+  // confirmed observation so it cannot turn the next generation into a false
+  // "first checkpoint" that repeatedly resets the observation budget.
+  const nextProgress =
+    previous?.checkpoint !== undefined &&
+    candidateProgress?.generation === "" &&
+    candidateProgress.checkpoint === undefined
+      ? previous
+      : candidateProgress;
+  const confirmedProgress =
+    nextProgress?.checkpoint !== undefined &&
+    (previous?.checkpoint === undefined ||
+      (previous.generation === nextProgress.generation &&
+        previous.checkpoint !== nextProgress.checkpoint));
+  return stopPreparedCommand({
+    ...command,
+    preparation: {
+      ...command.preparation,
+      progress: nextProgress,
+    },
+    launchRequestedAt: undefined,
+    ...(stopped ? { stopRequested: true } : {}),
+    collection: confirmedProgress
+      ? {
+          unconfirmedAttempts: 0,
+          nextAttemptAtMs: Date.now() + SYNC_CONTINUATION_INTERVAL_MS,
+        }
+      : (command.collection ?? {
+          unconfirmedAttempts: 0,
+          nextAttemptAtMs: Date.now() + COLLECTION_INTERVAL_MS,
+        }),
+  });
+}
+
+function projectCommandPreparation(
+  progress: WorkspaceSyncPendingError["progress"]
+): CloudComputerCommandPreparation {
+  return cloudComputerCommandPreparationSchema.parse({
+    ...(progress.phase === undefined ? {} : { phase: progress.phase }),
+    generation: progress.generation,
+    ...("checkpoint" in progress && typeof progress.checkpoint === "string"
+      ? { checkpoint: progress.checkpoint }
+      : {}),
+    cursorRevision: progress.cursor.rev,
+    targetRevision: progress.targetCursor.rev,
+    entries: progress.entries,
+    bytes: progress.bytes,
+    skipped: progress.skipped,
+  });
+}
+
+function isPreDispatchPending(
+  error: unknown
+): error is WorkspaceSyncPendingError {
+  return (
+    error instanceof WorkspaceSyncPendingError &&
+    error.progress.direction === "push"
   );
 }
 
@@ -575,12 +786,48 @@ async function commandFingerprint(request: StartCommand, cwd: string) {
     .join("");
 }
 
-function hasPendingStop(command: Command) {
+function hasLaunchEvidence(command: Command) {
   return (
-    command.stopRequested &&
-    command.stopSentAt === undefined &&
-    !hasCommandExited(command)
+    command.collectable === true ||
+    command.launchAcknowledgedAt !== undefined ||
+    command.observation !== undefined
   );
+}
+
+function hasUnconfirmedAdmission(command: Command) {
+  return Boolean(command.preparation && !hasLaunchEvidence(command));
+}
+
+function commandPollBudgetMs(command: Command, waitSeconds: number): number {
+  return (
+    OBSERVATION_SETUP_BUDGET_MS +
+    (command.preparation && command.launchRequestedAt === undefined
+      ? 0
+      : waitSeconds * 1000)
+  );
+}
+
+function collectionAfterObservation(current: Command): Command {
+  if (hasUnconfirmedAdmission(current) || current.observation?.syncPending) {
+    // Acceptance and a repeated preparation checkpoint are not native
+    // liveness. The preparation owner alone confirms SDK progress.
+    return current;
+  }
+  if (!(isCollectableCommand(current) || current.collection)) {
+    return current;
+  }
+  const collection = {
+    unconfirmedAttempts: 0,
+    nextAttemptAtMs: isCollectableCommand(current)
+      ? Date.now() +
+        (current.preparation || current.observation?.syncPending
+          ? SYNC_CONTINUATION_INTERVAL_MS
+          : COLLECTION_INTERVAL_MS)
+      : null,
+  };
+  return JSON.stringify(collection) === JSON.stringify(current.collection)
+    ? current
+    : { ...current, collection };
 }
 
 /** A native acknowledgement confirms signal delivery, never process exit.
@@ -616,6 +863,8 @@ async function sendPendingComputerStop(input: {
 }
 
 export function createComputerCommandTool(input: {
+  /** Internal collector deadline; never a user cancellation signal. */
+  observationDeadlineMs?: number;
   context: Pick<RemoteAgentCallbackContext, "submissionId">;
   storage: RemoteAgentStorage;
   workspaceAccess: AgentComputerWorkspaceAccess;
@@ -661,6 +910,19 @@ export function createComputerCommandTool(input: {
   const project = (command: Command, after = 0): CommandResult => {
     const result = command.observation ?? command.terminalResult;
     if (!result) {
+      if (command.preparation || hasLaunchEvidence(command)) {
+        return {
+          id: command.id,
+          key: command.key,
+          status: "running",
+          exitCode: null,
+          stdout: "",
+          stderr: "",
+          after,
+          outputPending: true,
+          nextAction: "poll",
+        };
+      }
       throw new Error("Computer command has no observation.");
     }
     if (!command.output) {
@@ -685,43 +947,89 @@ export function createComputerCommandTool(input: {
           ),
       after
     );
+  const readSyncProof = async (
+    workspace: WorkspaceClient,
+    command: Command
+  ) => {
+    const proof = await workspace.executionSync(
+      command.id,
+      commandBackend(command)
+    );
+    if (proof?.error) {
+      throw Object.assign(
+        new Error(
+          `${proof.error}: execution file source is no longer available`
+        ),
+        { code: proof.error }
+      );
+    }
+    return proof;
+  };
   const confirmSync = async (
     workspace: WorkspaceClient,
     command: Command,
-    waitMs: number,
     signal?: AbortSignal
   ) => {
     const receipt = command.observation;
     if (!receipt?.syncPending) {
       return command;
     }
-    // result() is the SDK's public synchronization receipt. Stream closure alone
-    // also occurs after a failed pull and therefore cannot establish completion.
-    let handle: WorkspaceRuntimeExecHandle<"utf8"> | undefined;
-    const timer = new AbortController();
     try {
-      handle = await workspace.runtime.getExec(command.id, {
-        backend: commandBackend(command),
-        encoding: "utf8",
-        resume: command.syncCursor ?? 0,
-      });
-      const result = await Promise.race([
-        handle.result(),
-        delay(waitMs, null, {
-          signal: signal
-            ? AbortSignal.any([signal, timer.signal])
-            : timer.signal,
-        }),
-      ]);
+      // The retained exit and the SDK's durable sync window are sufficient.
+      // Native execution logs may expire while a large file tree is syncing.
+      const retained = await readSyncProof(workspace, command);
+      const result = retained
+        ? { status: "complete" as const, outcome: retained }
+        : await workspace.resumeExecutionSync(
+            command.id,
+            commandBackend(command),
+            { executionExited: true }
+          );
       signal?.throwIfAborted();
-      if (result?.sync.status === "complete") {
-        const { syncPending: _, ...completed } = receipt;
-        return await saveObservation(command.key, {
-          ...completed,
-          status: "completed",
-        });
+      if (result.status === "pending") {
+        const { generation, checkpoint } = result.progress;
+        return await updateCommand(
+          input.storage,
+          `${prefix}${encodeURIComponent(command.key)}`,
+          (current) => {
+            if (
+              isCommandComplete(current) ||
+              JSON.stringify(current.syncProgress) !==
+                JSON.stringify(command.syncProgress)
+            ) {
+              return current;
+            }
+            const previous = current.syncProgress;
+            const progressed =
+              checkpoint !== undefined &&
+              (previous?.checkpoint === undefined ||
+                (generation === previous.generation &&
+                  checkpoint !== previous.checkpoint));
+            return {
+              ...current,
+              syncProgress: { generation, checkpoint },
+              ...(progressed && !current.observation?.syncError
+                ? {
+                    collection: {
+                      unconfirmedAttempts: 0,
+                      nextAttemptAtMs:
+                        Date.now() + SYNC_CONTINUATION_INTERVAL_MS,
+                    },
+                  }
+                : {}),
+            };
+          }
+        );
       }
-      return command;
+      return await saveObservation(
+        command.key,
+        synchronizedObservation(receipt, {
+          status: "complete",
+          applied: 0,
+          skipped: result.outcome.skipped,
+          skippedTruncated: result.outcome.skippedTruncated,
+        })
+      );
     } catch (error) {
       signal?.throwIfAborted();
       if (
@@ -750,9 +1058,6 @@ export function createComputerCommandTool(input: {
                 },
               }
       );
-    } finally {
-      timer.abort();
-      handle?.[Symbol.dispose]();
     }
   };
   const observe = async (
@@ -762,8 +1067,7 @@ export function createComputerCommandTool(input: {
     signal?: AbortSignal,
     started?: WorkspaceRuntimeExecHandle<"utf8">
   ) => {
-    const deadline = Date.now() + waitMs;
-    if (command.observation?.syncError) {
+    if (command.observation?.syncError && !canResumeRetainedSync(command)) {
       return input.reportErrors === false
         ? command
         : await updateCommand(
@@ -781,7 +1085,7 @@ export function createComputerCommandTool(input: {
       );
     }
     if (command.observation?.syncPending) {
-      return await confirmSync(workspace, command, waitMs, signal);
+      return await confirmSync(workspace, command, signal);
     }
     const after = command.observation?.after ?? 0;
     const onExit = async (result: CommandResult, seq: number) => {
@@ -817,14 +1121,31 @@ export function createComputerCommandTool(input: {
           status: "completed",
         });
       }
-      return await confirmSync(
-        workspace,
-        current,
-        Math.max(0, deadline - Date.now()),
-        signal
-      );
+      return await confirmSync(workspace, current, signal);
     }
     return await saveObservation(command.key, result);
+  };
+  const observeAdmission = async (
+    workspace: WorkspaceClient,
+    command: Command,
+    waitMs: number,
+    signal: AbortSignal
+  ) => {
+    try {
+      return await observe(workspace, command, waitMs, signal);
+    } catch (error) {
+      signal.throwIfAborted();
+      if (error instanceof MissingComputerExecRecordError) {
+        const current = await read(command.key);
+        if (hasUnconfirmedAdmission(current)) {
+          // Native admission may still be doing bounded pre-dispatch sync.
+          // Absence is not lost output or permission to clear the launch claim.
+          // Keep inspecting this identity, including after an uncertain launch.
+          return current;
+        }
+      }
+      throw error;
+    }
   };
   const launchWasStopped = async (key: string, signal?: AbortSignal) =>
     Boolean((await read(key)).stopRequested || signal?.aborted);
@@ -836,8 +1157,8 @@ export function createComputerCommandTool(input: {
   ) => {
     const deadline = Date.now() + waitMs;
     const current = await read(command.key);
-    if (!hasPendingStop(current)) {
-      return await observe(workspace, current, waitMs, signal);
+    if (!current.stopRequested || hasCommandExited(current)) {
+      return await observeAdmission(workspace, current, waitMs, signal);
     }
     // Inspect queued exit evidence before signalling. A pending Stop should
     // not wait for a live process to produce output before its signal is sent.
@@ -867,11 +1188,13 @@ export function createComputerCommandTool(input: {
         key: `${prefix}${encodeURIComponent(command.key)}`,
         workspace,
         signal,
+        force: inspectionError instanceof MissingComputerExecRecordError,
       });
     } catch (error) {
       if (
         inspectionError instanceof MissingComputerExecRecordError &&
-        hasErrorCode(error, "ENOENT")
+        hasErrorCode(error, "ENOENT") &&
+        hasLaunchEvidence(current)
       ) {
         throw new ConfirmedLostComputerCommandsError([error]);
       }
@@ -887,6 +1210,103 @@ export function createComputerCommandTool(input: {
       signal
     );
   };
+  const stopLateLaunch = async (key: string, userSignal?: AbortSignal) => {
+    const current = await read(key);
+    if (
+      (current.stopRequested || userSignal?.aborted) &&
+      !hasCommandExited(current)
+    ) {
+      if (!current.stopRequested) {
+        await updateCommand(
+          input.storage,
+          `${prefix}${encodeURIComponent(key)}`,
+          (receipt) => ({ ...receipt, stopRequested: true })
+        );
+      }
+      // The launch acknowledgement can arrive after the original Workspace
+      // was disposed. Acquire a fresh client to stop that exact identity.
+      await withCommandWorkspace({
+        access: input.workspaceAccess,
+        budgetMs: OBSERVATION_SETUP_BUDGET_MS,
+        phase: "stop",
+        operation: (currentWorkspace, stopObservationSignal) =>
+          sendPendingComputerStop({
+            storage: input.storage,
+            key: `${prefix}${encodeURIComponent(key)}`,
+            workspace: currentWorkspace,
+            signal: stopObservationSignal,
+            force: true,
+          }),
+      });
+    }
+  };
+  const prepareCommandLaunch = async (
+    workspace: WorkspaceClient,
+    request: StartCommand,
+    command: Command,
+    observationSignal: AbortSignal,
+    userSignal?: AbortSignal
+  ): Promise<CommandResult | undefined> => {
+    observationSignal.throwIfAborted();
+    if (input.prepareLaunch) {
+      await input.prepareLaunch(workspace);
+    } else if (command.preparation?.requiresDirectory) {
+      await workspace.fs.mkdir(command.preparation.workingDirectory, {
+        recursive: true,
+      });
+    }
+    observationSignal.throwIfAborted();
+    try {
+      await input.assertCanStart?.();
+    } catch (error) {
+      const current = await read(command.key);
+      if (current.stopRequested) {
+        return project(
+          await updateCommand(
+            input.storage,
+            `${prefix}${encodeURIComponent(command.key)}`,
+            stopPreparedCommand
+          )
+        );
+      }
+      throw error;
+    }
+    if (await launchWasStopped(request.key, userSignal)) {
+      return project(
+        await updateCommand(
+          input.storage,
+          `${prefix}${encodeURIComponent(command.key)}`,
+          (current) => stopPreparedCommand({ ...current, stopRequested: true })
+        )
+      );
+    }
+    observationSignal.throwIfAborted();
+    return undefined;
+  };
+  const claimPreparedCommand = async (key: string, signal: AbortSignal) => {
+    signal.throwIfAborted();
+    await input.assertCanStart?.();
+    signal.throwIfAborted();
+    let claimed = false;
+    await updateCommand(
+      input.storage,
+      `${prefix}${encodeURIComponent(key)}`,
+      (current) => {
+        signal.throwIfAborted();
+        claimed = false;
+        if (
+          current.launchRequestedAt !== undefined ||
+          current.stopRequested ||
+          isCommandComplete(current)
+        ) {
+          return current;
+        }
+        claimed = true;
+        return { ...current, launchRequestedAt: Date.now() };
+      }
+    );
+    return claimed;
+  };
   const launchCommand = async (
     workspace: WorkspaceClient,
     request: StartCommand,
@@ -894,46 +1314,73 @@ export function createComputerCommandTool(input: {
     observationSignal: AbortSignal,
     userSignal?: AbortSignal
   ): Promise<CommandResult> => {
-    // Persist identity before dispatch. An uncertain spawn must be inspected,
-    // never replayed: even a missing retained handle cannot prove no effect.
-    observationSignal.throwIfAborted();
-    await input.prepareLaunch?.(workspace);
-    observationSignal.throwIfAborted();
-    await input.assertCanStart?.();
-    if (await launchWasStopped(request.key, userSignal)) {
-      throw new Error("Computer command was stopped during launch.");
+    // Identity is already durable. Preparation remains replay-safe until the
+    // SDK reaches its local native-dispatch boundary and calls admission.
+    const stopped = await prepareCommandLaunch(
+      workspace,
+      request,
+      command,
+      observationSignal,
+      userSignal
+    );
+    if (stopped) {
+      return stopped;
     }
-    observationSignal.throwIfAborted();
-    await updateCommand(
-      input.storage,
-      `${prefix}${encodeURIComponent(command.key)}`,
-      (current) => ({
-        ...current,
-        launchRequestedAt: Date.now(),
-      })
-    );
-    observationSignal.throwIfAborted();
-    const handle = await workspace.runtime.exec(
-      command.backend === AGENT_COMPUTER_CONTAINER_BACKEND_ID
-        ? buildComputerCommandProcess(request.command)
-        : request.command,
-      {
-        id: command.id,
-        backend: command.backend,
-        cwd: input.workingDirectory,
-        encoding: "utf8",
-        timeoutMs: (request.timeoutSeconds ?? 300) * 1000,
-        env: request.env,
-        stdin: request.stdin,
-        input: request.input,
+    let claimed = false;
+    let handle: WorkspaceRuntimeExecHandle<"utf8">;
+    try {
+      handle = await workspace.runtime.execWithAdmission(
+        command.backend === AGENT_COMPUTER_CONTAINER_BACKEND_ID
+          ? buildComputerCommandProcess(request.command)
+          : request.command,
+        {
+          id: command.id,
+          backend: command.backend,
+          cwd: command.preparation?.workingDirectory ?? input.workingDirectory,
+          encoding: "utf8",
+          timeoutMs: (request.timeoutSeconds ?? 300) * 1000,
+          env: request.env,
+          stdin: request.stdin,
+          input: request.input,
+        },
+        async () => {
+          claimed = await claimPreparedCommand(command.key, observationSignal);
+          if (!claimed) {
+            throw new ComputerAdmissionDeclinedError();
+          }
+        }
+      );
+    } catch (error) {
+      if (error instanceof ComputerAdmissionDeclinedError) {
+        return project(await read(command.key));
       }
-    );
+      // Only the SDK's local pre-dispatch owner can prove execution never
+      // started. A timeout, remote error, or missing handle cannot clear this.
+      if (!isPreDispatchPending(error)) {
+        throw error;
+      }
+      const preparing = await updateCommand(
+        input.storage,
+        `${prefix}${encodeURIComponent(command.key)}`,
+        (current) =>
+          resumeCommandPreparation(
+            current,
+            claimed,
+            userSignal?.aborted === true,
+            error.progress,
+            command.preparation?.progress
+          )
+      );
+      await input.scheduleCollection?.();
+      return project(preparing);
+    }
     await updateCommand(
       input.storage,
       `${prefix}${encodeURIComponent(command.key)}`,
       (current) => ({
         ...current,
         collectable: true,
+        preparation: undefined,
         launchAcknowledgedAt: Date.now(),
       })
     );
@@ -946,34 +1393,7 @@ export function createComputerCommandTool(input: {
       );
     } finally {
       handle[Symbol.dispose]();
-      const current = await read(request.key);
-      if (
-        (current.stopRequested || userSignal?.aborted) &&
-        !hasCommandExited(current)
-      ) {
-        if (!current.stopRequested) {
-          await updateCommand(
-            input.storage,
-            `${prefix}${encodeURIComponent(command.key)}`,
-            (receipt) => ({ ...receipt, stopRequested: true })
-          );
-        }
-        // The launch acknowledgement can arrive after the original Workspace
-        // was disposed. Acquire a fresh client to stop that exact identity.
-        await withCommandWorkspace({
-          access: input.workspaceAccess,
-          budgetMs: OBSERVATION_SETUP_BUDGET_MS,
-          phase: "stop",
-          operation: (currentWorkspace, stopObservationSignal) =>
-            sendPendingComputerStop({
-              storage: input.storage,
-              key: `${prefix}${encodeURIComponent(command.key)}`,
-              workspace: currentWorkspace,
-              signal: stopObservationSignal,
-              force: true,
-            }),
-        });
-      }
+      await stopLateLaunch(request.key, userSignal);
     }
     if (await launchWasStopped(request.key, userSignal)) {
       throw new Error("Computer command was stopped during launch.");
@@ -996,6 +1416,11 @@ export function createComputerCommandTool(input: {
       key: request.key,
       fingerprint,
       createdAt: Date.now(),
+      preparation: {
+        request,
+        workingDirectory: input.workingDirectory,
+        requiresDirectory: input.prepareLaunch !== undefined,
+      },
       backend: request.backend ?? AGENT_COMPUTER_CONTAINER_BACKEND_ID,
       collectable: false,
     };
@@ -1026,7 +1451,7 @@ export function createComputerCommandTool(input: {
       phase: created ? "launch" : "poll",
       signal,
       operation: (workspace, observationSignal) =>
-        created
+        command.preparation && command.launchRequestedAt === undefined
           ? launchCommand(
               workspace,
               request,
@@ -1034,7 +1459,7 @@ export function createComputerCommandTool(input: {
               observationSignal,
               signal
             )
-          : observe(workspace, command, 1000, observationSignal).then(
+          : observeAdmission(workspace, command, 1000, observationSignal).then(
               (current) => project(current)
             ),
     });
@@ -1072,6 +1497,16 @@ export function createComputerCommandTool(input: {
     if (isCommandComplete(current)) {
       return project(current);
     }
+    if (current.preparation && current.launchRequestedAt === undefined) {
+      const stopped = await updateCommand(
+        input.storage,
+        `${prefix}${encodeURIComponent(command.key)}`,
+        stopPreparedCommand
+      );
+      if (isCommandComplete(stopped)) {
+        return project(stopped);
+      }
+    }
     if (!hasCommandExited(current)) {
       await withCommandWorkspace({
         access: input.workspaceAccess,
@@ -1097,7 +1532,7 @@ export function createComputerCommandTool(input: {
   const definition: RemoteAgentToolDefinition = {
     name: "computer_command",
     description:
-      "Run commands on your personal Computer. start accepts key, command, backend (container by default, worker-shell or worker-javascript), env, stdin, structured input, and timeoutSeconds. JavaScript source exports a default function; its returned JSON is in result. worker-shell completes before returning and cannot be interrupted or reattached. Use container or worker-javascript for long or cancellable execution. Replies keep bounded recent output and flag outputTruncated. Redirect large output to a persistent file. Start once with a stable key, then poll using the returned after cursor until completed. syncPending means the process exited but file synchronization is not confirmed. Continue polling unless syncError or nextAction inspect is present. syncError preserves the known exit and output, but synchronization cannot be confirmed. Stop polling and inspect persistent files. Process exit does not prove file synchronization succeeded. The Computer saves results independently of model polling. list recovers this invocation's keys. stop sends signal (SIGTERM by default); stop_requested is not confirmed exit. A repeated start never launches twice. After a transport error or missing execution record, inspect existing results before deciding what can safely be repeated. Report any unresolved work in your final answer. Cancellation cleans up only this task's commands. Do not add shell backgrounding to evade command lifecycle. Use computer for files, capability details or a different cwd.",
+      "Run commands on your personal Computer. start accepts key, command, backend (container by default, worker-shell or worker-javascript), env, stdin, structured input, and timeoutSeconds. JavaScript source exports a default function; its returned JSON is in result. worker-shell completes before returning and cannot be interrupted or reattached. Use container or worker-javascript for long or cancellable execution. Replies keep bounded recent output and flag outputTruncated. Redirect large output to a persistent file. Start once with a stable key, then poll using the returned after cursor until completed. syncPending means the process exited but file synchronization is not confirmed. Continue polling unless syncError or nextAction inspect is present. syncError preserves the known exit and output. syncSkipped lists paths refused by read-only storage; other files may be saved. syncPending with nextAction inspect is a terminal synchronization refusal, not a reason to keep polling. Sync errors mean file synchronization could not be confirmed. Stop polling and inspect persistent files. Process exit does not prove file synchronization succeeded. The Computer saves results independently of model polling. list recovers this invocation's keys. stop sends signal (SIGTERM by default); stop_requested is not confirmed exit. A repeated start never launches twice. After a transport error or missing execution record, inspect existing results before deciding what can safely be repeated. Report any unresolved work in your final answer. Cancellation cleans up only this task's commands. Do not add shell backgrounding to evade command lifecycle. Use computer for files, capability details or a different cwd.",
     input: commandToolSchema,
     async execute(rawInput, options) {
       options?.signal?.throwIfAborted();
@@ -1105,47 +1540,66 @@ export function createComputerCommandTool(input: {
       if (request.action === "list") {
         return [
           ...(await input.storage.list<Command>({ prefix })).values(),
-        ].map((command) => ({
-          key: command.key,
-          id: command.id,
-          createdAt: command.createdAt,
-          ...(request.includeReceiptDetails
-            ? commandReceiptAddress(command, input.context.submissionId)
-            : {}),
-        }));
+        ].map((command) => {
+          // Older list readers use a strict object, unlike poll/start results.
+          const { preparation: _preparation, ...receipt } =
+            commandReceiptAddress(command, input.context.submissionId);
+          return {
+            key: command.key,
+            id: command.id,
+            createdAt: command.createdAt,
+            ...(request.includeReceiptDetails ? receipt : {}),
+          };
+        });
       }
       if (request.action === "start") {
         return await startCommand(request, options?.signal);
       }
       const command = await read(request.key);
+      const after = request.action === "poll" ? request.after : undefined;
       assertCommandReference(
         request.reference,
         command,
         input.context.submissionId
       );
-      if (command.observation?.syncError) {
-        return await reportUnconfirmedSync(
-          command,
-          request.action === "poll" ? request.after : undefined
-        );
+      const resumesSync =
+        request.action === "poll" && canResumeRetainedSync(command);
+      if (command.observation?.syncError && !resumesSync) {
+        return await reportUnconfirmedSync(command, after);
       }
       if (
         isCommandComplete(command) &&
         (command.observation || command.terminalResult)
       ) {
-        return project(
-          command,
-          request.action === "poll" ? request.after : undefined
-        );
+        return project(command, after);
       }
       await input.scheduleCollection?.();
       if (request.action === "stop") {
         return await stopCommand(request, command, options?.signal);
       }
+      const waitSeconds = request.waitSeconds ?? 20;
+      const preparation = command.preparation;
+      if (preparation && command.launchRequestedAt === undefined) {
+        return await withCommandWorkspace({
+          access: input.workspaceAccess,
+          budgetMs: commandPollBudgetMs(command, waitSeconds),
+          observationDeadlineMs: input.observationDeadlineMs,
+          phase: "launch",
+          signal: options?.signal,
+          operation: (workspace, observationSignal) =>
+            launchCommand(
+              workspace,
+              preparation.request,
+              command,
+              observationSignal,
+              options?.signal
+            ),
+        });
+      }
       return await withCommandWorkspace({
         access: input.workspaceAccess,
-        budgetMs:
-          OBSERVATION_SETUP_BUDGET_MS + (request.waitSeconds ?? 20) * 1000,
+        budgetMs: commandPollBudgetMs(command, waitSeconds),
+        observationDeadlineMs: input.observationDeadlineMs,
         phase: "poll",
         signal: options?.signal,
         operation: async (workspace, observationSignal) => {
@@ -1153,7 +1607,7 @@ export function createComputerCommandTool(input: {
             await observeWithPendingStop(
               workspace,
               command,
-              (request.waitSeconds ?? 20) * 1000,
+              waitSeconds * 1000,
               observationSignal
             ),
             request.after ?? 0
@@ -1195,17 +1649,21 @@ export function createComputerCommandTool(input: {
       await updateCommand(
         input.storage,
         `${prefix}${encodeURIComponent(command.key)}`,
-        (current) =>
-          current.collectable === false || isCommandComplete(current)
-            ? current
-            : {
-                ...current,
-                loss: error.code,
-                ...(error instanceof ConfirmedLostComputerCommandsError
-                  ? { lossConfirmed: true }
-                  : {}),
-                ...(input.reportErrors === false ? {} : { lossReported: true }),
-              }
+        (current) => {
+          if (isCommandComplete(current)) {
+            return current;
+          }
+          const lossConfirmed =
+            (error instanceof ConfirmedLostComputerCommandsError &&
+              hasLaunchEvidence(current)) ||
+            error.code === "EEXEC_LOST";
+          return {
+            ...current,
+            ...(current.collectable === false ? {} : { loss: error.code }),
+            ...(lossConfirmed ? { lossConfirmed: true } : {}),
+            ...(input.reportErrors === false ? {} : { lossReported: true }),
+          };
+        }
       );
     }
     if (source === "tool" || (isCommandLoss(error) && !command?.loss)) {
@@ -1227,6 +1685,48 @@ export function createComputerCommandTool(input: {
       });
     }
   };
+  const timedOutObservation = async (
+    rawInput: Record<string, unknown>,
+    error: unknown
+  ) => {
+    if (
+      source !== "tool" ||
+      !(error instanceof ComputerObservationTimeoutError) ||
+      (rawInput.action !== "start" && rawInput.action !== "poll")
+    ) {
+      return undefined;
+    }
+    const command = await readDiagnosticCommand(rawInput.key);
+    if (!command) {
+      return undefined;
+    }
+    // The saved receipt is evidence, not a new successful observation.
+    const retained = publicCommandResult(
+      project(command, typeof rawInput.after === "number" ? rawInput.after : 0)
+    ) as CommandResult;
+    return {
+      ...retained,
+      ...commandReceiptAddress(command, input.context.submissionId),
+      observation: {
+        status: "timed_out",
+        phase: error.phase,
+        message:
+          "The latest observation timed out. The receipt and preparation checkpoint are the last confirmed state, not proof of current progress. Keep completed output and poll this exact reference; do not restart the command.",
+      } satisfies CloudComputerCommandObservation,
+    };
+  };
+  const attachReceipt = (command: Command | undefined, result: unknown) => {
+    const publicResult = publicCommandResult(result);
+    return command &&
+      publicResult &&
+      typeof publicResult === "object" &&
+      !Array.isArray(publicResult)
+      ? {
+          ...publicResult,
+          ...commandReceiptAddress(command, input.context.submissionId),
+        }
+      : publicResult;
+  };
   return {
     ...definition,
     description: `${definition.description} Replies include reference and phase. Keep the exact reference for later owner inspection; poll and stop validate it against this invocation's saved receipt. list with includeReceiptDetails:true returns references, phases and collection. collection.unconfirmedAttempts counts checks without confirmed native evidence, including interrupted checks. Automatic checks pause when that count reaches ${COLLECTION_ATTEMPT_BUDGET}; nextAttemptAtMs is then null. The process may still be running. Poll the same reference manually; a successful check resumes automatic collection. An accepted receipt is not proof of launch; launch_unknown does not permit replay. Missing receipt means acceptance is unknown, not an unreachable service. recordExpiresAtMs is a retention marker; command reads currently do not enforce it. It does not extend native result retention.`,
@@ -1238,21 +1738,7 @@ export function createComputerCommandTool(input: {
           await updateCommand(
             input.storage,
             `${prefix}${encodeURIComponent(observed.key)}`,
-            (current) => {
-              if (!(isCollectableCommand(current) || current.collection)) {
-                return current;
-              }
-              const collection = {
-                unconfirmedAttempts: 0,
-                nextAttemptAtMs: isCollectableCommand(current)
-                  ? Date.now() + COLLECTION_INTERVAL_MS
-                  : null,
-              };
-              return JSON.stringify(collection) ===
-                JSON.stringify(current.collection)
-                ? current
-                : { ...current, collection };
-            }
+            collectionAfterObservation
           );
           if (source === "tool" && isCollectableCommand(observed)) {
             await input.scheduleCollection?.();
@@ -1260,17 +1746,15 @@ export function createComputerCommandTool(input: {
         }
         await logResult(rawInput, result);
         const command = await readDiagnosticCommand(rawInput.key);
-        return command &&
-          result &&
-          typeof result === "object" &&
-          !Array.isArray(result)
-          ? {
-              ...result,
-              ...commandReceiptAddress(command, input.context.submissionId),
-            }
-          : result;
+        return attachReceipt(command, result);
       } catch (error) {
         await recordFailure(rawInput, error);
+        // A bounded read expiring is not an execution failure. Return only the
+        // saved owner receipt; do not advance progress, clear admission, or replay.
+        const observation = await timedOutObservation(rawInput, error);
+        if (observation) {
+          return observation;
+        }
         if (source === "tool" && isCommandLoss(error)) {
           const command = await readDiagnosticCommand(rawInput.key);
           if (command) {
@@ -1293,21 +1777,38 @@ function completedResult(result: CommandResult, after?: number): CommandResult {
     : result;
 }
 
-/** Collect retained results even when the model is busy with other work. This
- * observes existing IDs only; it never dispatches or repeats a command. */
+async function clearCollectionObservation(
+  storage: RemoteAgentStorage,
+  key: string,
+  attempt: Command
+): Promise<void> {
+  await updateCommand(storage, key, (current) => {
+    // A newer successful observation owns its own schedule. An older finally
+    // can only release the exact reservation that it made before I/O.
+    if (
+      !current.collection ||
+      JSON.stringify(current.collection) !== JSON.stringify(attempt.collection)
+    ) {
+      return current;
+    }
+    const { observationExpiresAtMs: _expires, ...collection } =
+      current.collection;
+    return { ...current, collection };
+  });
+}
+
+/** Resume preparation or collect retained results under the original command ID.
+ * An uncertain execution is inspected, never dispatched again. */
 export async function collectComputerCommands(input: {
   storage: ComputerCommandSqlStorage;
   workspaceAccess: AgentComputerWorkspaceAccess;
+  assertCanStart?: (submissionId: string) => Promise<void>;
 }): Promise<boolean> {
   const remaining = [
     ...(await input.storage.listDueCommands(Date.now(), COLLECTION_BATCH_SIZE)),
   ];
   const collect = async () => {
-    for (;;) {
-      const next = remaining.shift();
-      if (!next) {
-        return;
-      }
+    for (let next = remaining.shift(); next; next = remaining.shift()) {
       const [key, command] = next;
       if (!isCollectableCommand(command)) {
         continue;
@@ -1323,6 +1824,8 @@ export async function collectComputerCommands(input: {
         reserved = false;
         if (
           !isCollectableCommand(current) ||
+          (current.collection?.unconfirmedAttempts ?? 0) >=
+            COLLECTION_ATTEMPT_BUDGET ||
           current.collection?.nextAttemptAtMs === null ||
           (current.collection?.nextAttemptAtMs ?? 0) > Date.now() ||
           current.observedAt !== command.observedAt ||
@@ -1339,6 +1842,9 @@ export async function collectComputerCommands(input: {
           ...current,
           collection: {
             unconfirmedAttempts,
+            observationExpiresAtMs:
+              Date.now() +
+              commandPollBudgetMs(current, COLLECTION_POLL_WAIT_SECONDS),
             nextAttemptAtMs:
               unconfirmedAttempts >= COLLECTION_ATTEMPT_BUDGET
                 ? null
@@ -1354,12 +1860,15 @@ export async function collectComputerCommands(input: {
         await createComputerCommandTool({
           ...input,
           context: { submissionId },
+          assertCanStart: () =>
+            input.assertCanStart?.(submissionId) ?? Promise.resolve(),
           workingDirectory: "/computer",
           reportErrors: false,
+          observationDeadlineMs: attempt.collection?.observationExpiresAtMs,
         }).execute({
           action: "poll",
           key: command.key,
-          waitSeconds: 1,
+          waitSeconds: COLLECTION_POLL_WAIT_SECONDS,
         });
       } catch {
         // The attempt was already counted. A late failure makes no scheduling
@@ -1379,6 +1888,8 @@ export async function collectComputerCommands(input: {
             unconfirmedAttempts: current.collection.unconfirmedAttempts,
           });
         }
+      } finally {
+        await clearCollectionObservation(input.storage, key, attempt);
       }
     }
   };
@@ -1586,10 +2097,145 @@ export async function listPendingRemoteAgentComputerCommands(input: {
     .map((command) => command.key);
 }
 
+export async function readStoredComputerInvocation(input: {
+  context: Pick<RemoteAgentCallbackContext, "submissionId">;
+  storage: RemoteAgentStorage;
+}): Promise<CloudComputerInvocationState> {
+  const receipts = [
+    ...(
+      await input.storage.list<Command>({
+        prefix: commandPrefix(input.context.submissionId),
+      })
+    ).values(),
+  ];
+  const commands = receipts.map((command) => {
+    const observation = command.observation ?? command.terminalResult;
+    const receipt = commandReceiptAddress(command, input.context.submissionId);
+    const observationExpiresAtMs = command.collection?.observationExpiresAtMs;
+    return {
+      ...receipt,
+      after: observation?.after ?? 0,
+      exitCode: observation?.exitCode ?? null,
+      outputRetained:
+        !!command.output?.length ||
+        !!observation?.stdout ||
+        !!observation?.stderr,
+      filesSynced: isCommandComplete(command),
+      stopRequested: command.stopRequested === true,
+      terminationConfirmed:
+        isCommandComplete(command) ||
+        hasCommandExited(command) ||
+        command.lossConfirmed === true ||
+        command.loss === "EEXEC_LOST",
+      resultUnavailable:
+        !!command.loss ||
+        !!command.lossReported ||
+        !!command.lostDuringCleanup ||
+        !!observation?.syncError,
+      collection: receipt.collection
+        ? {
+            ...receipt.collection,
+            ...(isCollectableCommand(command) &&
+            observationExpiresAtMs !== undefined &&
+            observationExpiresAtMs > Date.now()
+              ? { observationExpiresAtMs }
+              : {}),
+          }
+        : null,
+    };
+  });
+  return cloudComputerInvocationStateSchema.parse({
+    invocationId: input.context.submissionId,
+    total: commands.length,
+    unfinished: commands.filter((command) => !command.terminationConfirmed)
+      .length,
+    pendingResults: commands.filter(
+      (command) => !(command.filesSynced || command.resultUnavailable)
+    ).length,
+    unavailable: commands.filter((command) => command.resultUnavailable).length,
+    // Unresolved receipts precede completed ones. Counts cover omitted receipts.
+    commands: commands
+      .sort(
+        (a, b) =>
+          Number(a.terminationConfirmed) - Number(b.terminationConfirmed)
+      )
+      .slice(0, 32)
+      .map(({ recordExpiresAtMs: _expiry, ...command }) => command),
+  });
+}
+
+/** Durable Stop handoff only. The existing collector owns all native I/O. */
+export async function requestStoredComputerCleanup(input: {
+  context: Pick<RemoteAgentCallbackContext, "submissionId">;
+  storage: RemoteAgentStorage;
+  resume?: boolean;
+}): Promise<CloudComputerInvocationState> {
+  const commands = await input.storage.list<Command>({
+    prefix: commandPrefix(input.context.submissionId),
+  });
+  for (const key of commands.keys()) {
+    await updateCommand(input.storage, key, (command) => {
+      if (
+        isCommandComplete(command) ||
+        (command.stopRequested && !input.resume)
+      ) {
+        return stopPreparedCommand(command);
+      }
+      return stopPreparedCommand({
+        ...command,
+        stopRequested: true,
+        collection: {
+          unconfirmedAttempts: 0,
+          nextAttemptAtMs: isCollectableCommand(command) ? Date.now() : null,
+        },
+      });
+    });
+  }
+  return await readStoredComputerInvocation(input);
+}
+
+export async function inspectRemoteAgentComputerInvocation(input: {
+  context: RemoteAgentCallbackContext;
+  env?: { AGENT_COMPUTER?: unknown };
+  storage: RemoteAgentStorage;
+  requestStop?: boolean;
+  resume?: boolean;
+}): Promise<CloudComputerInvocationState> {
+  const target = await readComputerTarget(input);
+  if (target) {
+    // Upgrade existing v3 receipts while their original admitted context is
+    // available. Recovery after Flue rollover reads this immutable scope.
+    await target.registerComputerInvocation({
+      invocationId: input.context.submissionId,
+      organizationId: input.context.organizationId,
+      spaceId: input.context.spaceId,
+      agentProfileId: input.context.agentProfileId,
+    });
+    return cloudComputerInvocationStateSchema.parse(
+      input.requestStop
+        ? await target.requestComputerCleanup(
+            input.context.submissionId,
+            input.resume
+          )
+        : await target.readComputerInvocation(input.context.submissionId)
+    );
+  }
+  if (input.requestStop && input.context.computerIsolationVersion !== 3) {
+    // Historical invocations retain their original storage and address.
+    await stopRemoteAgentComputerCommands({
+      ...input,
+      env: input.env ?? {},
+      reportConfirmedLoss: true,
+    });
+  }
+  return await readStoredComputerInvocation(input);
+}
+
 export async function stopRemoteAgentComputerCommands(input: {
   context: RemoteAgentCallbackContext;
   env: { AGENT_COMPUTER?: unknown };
   storage: RemoteAgentStorage;
+  reportConfirmedLoss?: boolean;
 }): Promise<{ unfinished: number; lostDuringCleanup: boolean }> {
   const target = await readComputerTarget(input);
   if (target) {
@@ -1697,7 +2343,7 @@ async function stopAndRecordComputerCommand(input: {
   const current = await updateCommand(input.storage, key, (command) =>
     isCommandComplete(command) || isReportedCommandLoss(command)
       ? command
-      : { ...command, stopRequested: true }
+      : stopPreparedCommand({ ...command, stopRequested: true })
   );
   if (isCommandComplete(current) || isReportedCommandLoss(current)) {
     return 0;
@@ -1780,7 +2426,9 @@ async function inspectAndStopComputerCommand(input: {
         } catch (error) {
           if (
             hasErrorCode(error, "EEXEC_LOST") ||
-            (recordMissing && hasErrorCode(error, "ENOENT"))
+            (recordMissing &&
+              hasErrorCode(error, "ENOENT") &&
+              hasLaunchEvidence(command))
           ) {
             throw new ConfirmedLostComputerCommandsError([error]);
           }
@@ -1818,13 +2466,13 @@ async function inspectComputerCommandForCleanup(input: {
       { action: "poll", key: input.command.key, waitSeconds: 1 },
       { signal: input.signal }
     )) as CommandResult;
-    if (result.syncError && result.exitCode !== null) {
+    if ((result.syncError || result.syncSkipped) && result.exitCode !== null) {
       throw new ConfirmedLostComputerCommandsError([
         Object.assign(
           new Error(
             "The command exited, but its file synchronization could not be confirmed."
           ),
-          { code: result.syncError }
+          { code: result.syncError ?? "ESYNC_READ_ONLY" }
         ),
       ]);
     }

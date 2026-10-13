@@ -25,6 +25,51 @@ used to invent a second merge or evidence contract.
 
 Release only what changed.
 
+### Everyday commands
+
+Use a clean checkout of the merged commit. Keep the pre-merge commit as `BASE`;
+do not move it forward when continuing the same release.
+
+```sh
+# Release the remaining affected components using the local environment.
+# CLI publication runs in its existing GitHub workflow and then continues.
+pnpm run deploy -- --base <BASE>
+
+# Use GitHub for supported components; no local production secrets needed.
+pnpm run deploy -- --base <BASE> --lane github
+
+# Release only the named component. The GitHub lane skips a current component.
+pnpm run deploy -- --base <BASE> --scope web --lane github
+
+# Read state without releasing anything.
+pnpm release:status -- --ref HEAD --change-base <BASE>
+```
+
+The GitHub lane supports Web, Website, Docs, Gateway, Remote Agent and CLI.
+Database, Auth and standalone Core still need the local PostgreSQL release
+environment; the command reports this before dispatching an unsupported stage.
+An interrupted command can be repeated at the same source and base: current
+components are skipped and active exact-source GitHub runs are followed.
+Failed runs stop the command. An uncertain dispatch is reported, never retried
+automatically. Use a current `gh` version that returns the created workflow URL.
+
+The command entry and reusable release controller have separate module
+boundaries. Status readers can import planning contracts without starting a
+release or waiting for a running command to finish. The complete compatibility
+graph also decides whether Core must precede CLI publication, including through
+another receiver such as Gateway. In that case both automatic and explicit
+Core stages deploy the approved source with the immutable currently published
+CLI projection. Preflight, verification, and deployment use that same decision;
+the CLI publisher owns activation of the new CLI projection afterward.
+
+The automatic command already checks completion from the component receipts.
+An explicit scope completes only those components, not the whole change.
+Do not follow a successful automatic whole-change continuation with another full status scan, repeat
+its health checks, or rerun development tests as release ceremony. Run one
+product smoke for the changed behavior. Desktop and OpenConnector keep their
+separate publication commands below; component deployment completion does not
+claim their installation or product acceptance.
+
 Production uses PostgreSQL. Use the guarded local lane for Database, Auth and
 Core, and the GitHub CLI workflow for npm Trusted Publishing. Other hosted
 scopes remain available. The parent workflow rejects unsupported PostgreSQL
@@ -281,7 +326,7 @@ live identity; admission does not promote the failed receipt. Cron restoration
 requires verified receipts and cannot use this health-resume path.
 
 For local recovery after a control-only fix, keep the approved product checkout
-clean and invoke the current-main `scripts/release/production-release.mjs` by
+clean and invoke the current-main `scripts/release/production-release-cli.mjs` by
 absolute path with the product checkout as the working directory. The executor
 honors each step's declared control interpreter, Node flags and arguments, and
 sets its verification root to the product source. Worker target resolution loads
@@ -339,6 +384,86 @@ superseded receipt explicitly; it never claims the old runner wrote a receipt.
 Alignment failure retains applied/failed evidence; retry reuses that same
 reconciliation attempt. This command cannot upload or deploy a Cloudflare Worker.
 After completion, rerun release status and CLI stage admission before publication.
+
+### Preserve Containers while repairing their Worker
+
+When original files still exist only in a running Computer, the protected local
+Remote Agent stage can deploy a compatible Worker without replacing Containers:
+
+```sh
+pnpm run deploy -- --base <BASE> --scope remote-agent --containers-rollout=none
+```
+
+This option is limited to an explicit local Remote Agent plan, preflight or
+deploy. The standard source checks, preflight, scope lease and receipt owner
+still apply. Wrangler's native option preserves the deployed Container metadata
+and does not build or update Containers. Do not edit generated configuration or
+call Wrangler directly to obtain this mode.
+
+The executor verifies the previous Worker receipt, reads the live Container
+application and records its ID, version, image digest, configuration hash and
+active instance IDs. The previous release receipt remains linked as evidence;
+its source alone is not proof of a Container image's build provenance. Before
+and after the Worker deployment, the application must have no active rollout.
+The recorded configuration and original active instance IDs must remain present
+at the same version. Incomplete instance pagination or drift fails closed.
+Stable instance IDs do not prove that a native process never restarted. Product
+acceptance must verify the original runtime ID/epoch and original sync window.
+
+This stage stops with an `applied` Remote Agent receipt. It never reports the
+whole component as `verified`, and automatic continuation cannot start native
+rollout. Complete the original synchronization and read the retained files from
+canonical storage before explicitly running the full stage at the same source:
+
+```sh
+pnpm run deploy -- --base <BASE> --scope remote-agent
+```
+
+The full stage rechecks the retained Worker and Container identities under the
+same lease. It continues the same receipt attempt, deploys the native image and
+requires the registry digest, healthy settled rollout and command-correlated
+Worker identity before recording `verified`. Interruption or uncertain drift
+remains unresolved evidence; it cannot silently replay a native rollout. A
+repeated Worker-only command only verifies its retained evidence and does not
+deploy again. Worker-only code must remain compatible with the retained native
+RPC contract. This mode does not make an unsynchronized Container disk durable.
+
+If the full stage has an `applied` receipt in phase `rollout`, a repeated guarded
+stage only verifies the recorded Worker and its native image. It checks the
+Worker again after the native rollout settles and appends `verified` to the
+same attempt. It does not deploy, replay commands, or require the replaced
+Container version to remain active. Failed verification leaves the applied
+receipt unresolved.
+
+When the receipt needs recovery code newer than its pinned source, run the
+existing `scripts/release/remote-agent-partial-recovery.mjs` from a clean current
+main control checkout with `--verify-only true`. Supply its existing eight
+selectors: `--source-dir`, `--source-sha`, `--attempt`, `--expected-deployment`,
+`--expected-worker-version`, `--container-id`, `--container-version`, and
+`--container-image`. Worker selectors refer to the applied deployment; Container
+selectors refer to the original baseline in that receipt. The control checks
+the source, exact selectors and operation under the Remote Agent lease, then
+uses the same verification and receipt writer as guarded deploy. Keep the old
+source checkout intact. Never publish a locally created receipt commit by hand.
+Verification-only recovery does not run deployment preflight: it proves an
+already applied deployment under the existing identity and lease guards and
+introduces no new artifact or receiver; recovery that deploys still requires
+deployment preflight. Its source, artifact, and compatibility checks use the
+current-main owner against the pinned source. After exact receipt and live cloud
+assessment under the lease, train admission treats only that attempt as pending
+recovery and computes dependencies from its last verified deployment. Ordinary
+stage admission, other unresolved scopes, source proof, and receiver ordering
+remain enforced; an operator's `--base` cannot shorten the compatibility history.
+
+Recovery that deploys requires `--base <exact-original-release-base>` in
+addition to the eight selectors. It repeats the full guarded deployment at the
+same source, not user commands. A successful deployment can retain a Container
+version when Wrangler reuses an existing immutable image. This outcome requires
+the prior verified native receipt and its registry digest, unchanged application
+configuration before and after deployment, and complete healthy instance
+evidence with no active rollout. Missing image tags or registry failures never
+prove reuse. The existing recovery proof keeps the native provenance reference
+for subsequent recovery; the canonical receipt remains compatible with v3 readers.
 
 For the specific Remote Agent Worker-first/container-image failure, current-main
 tooling provides `release:recover:remote-agent-partial`. It requires the clean
@@ -758,6 +883,18 @@ remain extensible. This permits a Core receiver stage while the old Gateway
 still rejects new opt-in inputs. Recheck the actual caller chain on the final
 source: these source and parser facts are not mixed-version Worker smoke.
 
+Internal Computer storage and result changes do not reintroduce this request
+edge when the existing request prefix, its imported schema owners and locked
+parser resolution, and the complete Core/Gateway/API/CLI callers are unchanged.
+The bounded comparison rejects unknown history, imports, executable result
+suffixes and unrecognized schema construction. It proves only unchanged public
+requests; response readers and all other release obligations remain independent.
+Execution reconciliation produces terminal responses. It is not a request
+admission owner; request entrypoints retain their receiver-first classification.
+When the mixed native-delivery ambiguity check still applies, use separately
+admitted component stages and their verified receipts rather than a combined
+plan or a manufactured base ref.
+
 Each obligation is registered from its bounded changed owners and the explicit
 product source, including caller-only changes. Known historical sources without
 the feature stay independent; an unreadable source retains the obligation. The
@@ -966,8 +1103,18 @@ Core RPC and Space receiver, and a Task caller together. Core deploys with the
 immutable current published CLI projection first, followed by Gateway, Web,
 Remote Agent, and CLI when selected. CLI and Web call Gateway's Task HTTP
 routes; Remote Agent calls Core directly and does not require Gateway.
-Every selected consumer requires Core in the plan, and CLI/Web also require
-Gateway. Core-only and Core/Gateway receiver stages remain supported without
+The compatibility graph records the changed callers' receiver obligations:
+Core before Remote, and Core before Gateway before changed Web/CLI callers.
+A shared Task API-client change covers both Web and CLI. A changed shared Task
+schema also covers its transitive consumers, including unchanged API-client and
+Remote binding files that import its wire-version constant. Unavailable schema
+history retains those prerequisites. Unrelated client edits do not add Task
+dependencies. Receipt-based stage admission accepts an already
+verified receiver; it does not require selecting or deploying that receiver
+again. Remote remains blocked while its required Core receiver is pending or
+unknown, even when Core is selected in the same command. Center Agent evidence
+tools use the same receipt-based Core-before-Remote admission.
+Core-only and Core/Gateway receiver stages remain supported without
 requiring the future Service fingerprint to match the published channel;
 the existing receiver executor verifies the real channel and immutable tag.
 Opposing receiver constraints fail closed rather than overriding their order.
@@ -975,9 +1122,10 @@ Opposing receiver constraints fail closed rather than overriding their order.
 Keep the same pre-feature base (for example the previously published CLI tag)
 through every stage, including after a version-only PR. A narrow version-PR
 diff cannot establish the Task dependency. Use the guarded ordered local
-Core/Gateway/Web/CLI plan for the first publication; CLI-only with that base is
-rejected. The static hosted fleet admission also rejects a selected order it
-cannot execute. No direct receiver script invocation or hash-check bypass is
+Core/Gateway/Web/CLI plan for the first publication, or complete its receiver
+stages first and publish the caller after receipt-based admission succeeds.
+Missing prerequisites remain blocked. The static hosted fleet admission also
+rejects a selected order it cannot execute. No direct receiver script invocation or hash-check bypass is
 part of this rollout. The final normal CLI stage publishes artifacts and
 updates Core to the new CLI projection after the receivers are healthy.
 
@@ -1547,8 +1695,9 @@ OPENMELD_PRODUCTION_TRAIN_SCOPES=db,core pnpm run release:deploy:local -- --scop
 OPENMELD_PRODUCTION_TRAIN_SCOPES=cloud pnpm run deploy:cloud
 ```
 
-`pnpm deploy` is a short alias for the automatic local scoped release. Prefer
-the longer command in deployment reports because it makes the lane explicit.
+`pnpm run deploy` runs the automatic local scoped release. Include `run` because
+`pnpm deploy` is pnpm's package deployment command. Use
+`pnpm run release:deploy:local` in deployment reports to make the lane explicit.
 `pnpm run deploy:cloud` is the guarded alias for `--scope cloud`; it must not
 expand into raw per-component deploy scripts. The former `deploy:cloud:*` raw
 aliases are retired because they bypassed source validation, preflight, ordered
@@ -2038,6 +2187,44 @@ continue to require the checked-in manifest and stable channel to match.
 
 ## Resumable Execution
 
+For a multi-component release from a clean, approved checkout, use the existing
+local entrypoint with the exact pre-merge base:
+
+```sh
+pnpm release:deploy:local -- --base <pre-merge-sha> --scope auto
+```
+
+It fixes the checkout SHA and base, reads the affected component receipts, skips
+components that are current, and selects the next component through the existing
+production stage admission rules. Each component still runs its own guarded
+preflight, lease, deployment, health, and receipt path. After each component,
+the command reads the receipts again before continuing. It stops on a failure,
+unknown evidence without an admitted recovery, or a missing completion record;
+it never treats a subprocess exit as deployment evidence. Rerun the same command
+from the same source to continue after an interruption. Dependencies outside the
+selected change require an explicit scope decision; the command does not add
+historical backlog to the release. Database cutover and domain transitions keep
+their existing dedicated commands. An intentional redeploy requires an explicit
+component scope and `--redeploy`.
+
+CLI publication stays with the official GitHub Trusted Publishing workflow.
+When a pending CLI stage becomes eligible, continuation calls that workflow
+with the original source and train, follows the exact run through `gh run watch`,
+and continues from the existing receipts. It does not introduce a second npm
+publisher, polling service, or dispatch ledger. `--lane github` uses this same
+continuation for the other supported hosted components.
+
+Use `release:status -- --ref <product-sha> --change-base <pre-merge-sha>
+--check-complete` for the deployment closeout check. It requires real receipts,
+rejects `--deployed` planning overrides, and exits nonzero for missing or pending
+components. Scope impact and deployed completion are independent of whether the
+changes admit one combined deployment order. Ambiguous ordering remains visible
+and blocks automatic continuation; explicitly reviewed single-component stages
+still use receipt-based admission. Once all affected components have current
+receipts, the completion check can succeed without inventing a combined order.
+Human output labels deployable work as incomplete. This check does
+not certify product smoke, Desktop installation, or Desktop update acceptance.
+
 The guarded local executor is safe to rerun after interruption. Completion
 probes are read-only. A completed stage prints `SKIP (already done)` with its
 criterion; an incomplete stage prints `RUN` and executes the existing command
@@ -2067,8 +2254,9 @@ Workers. After every selected Worker deploy and health check, the production
 executor reruns the same resumable CLI command as the terminal three-way
 alignment check; when the release is complete, that rerun is read-only and all
 stages skip. Before each Worker deploy, the executor prints the current
-production version ID for comparison. Repeated Worker deploys remain allowed
-because they are safe, even though they create another Worker version.
+production version ID for comparison. Current components are skipped from their
+receipts; deliberately creating another Worker version requires the explicit
+redeploy path.
 
 | Stage | `SKIP` criterion | Criterion level |
 | --- | --- | --- |

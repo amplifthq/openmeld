@@ -120,6 +120,30 @@ const productionAppliedIdentitySchema = z.union([
   z.strictObject({ kind: z.literal("release-source") }),
 ]);
 
+export const retainedRemoteContainerSchema = z.strictObject({
+  id: z.string().min(1),
+  name: z.literal("openmeld-agent-computer"),
+  version: z.number().int().nonnegative(),
+  image: z.string().regex(/@sha256:[0-9a-f]{64}$/u),
+  configurationHash: z.string().regex(/^[0-9a-f]{64}$/u),
+  instances: z
+    .array(
+      z.strictObject({
+        id: z.string().min(1),
+        version: z.number().int().nonnegative(),
+      })
+    )
+    .min(1),
+});
+
+const remoteAgentReleaseStageSchema = z.strictObject({
+  phase: z.enum(["worker-only", "retained", "rollout", "complete"]),
+  container: retainedRemoteContainerSchema,
+  baselineEvidenceSha: z.string().regex(/^[0-9a-f]{40}$/u),
+  baselineSourceSha: z.string().regex(/^[0-9a-f]{40}$/u),
+  workerIdentity: productionWorkerDeploymentIdentitySchema.optional(),
+});
+
 export const correlatedComponentReceiptSchema = z
   .strictObject({
     attemptId: z.uuid(),
@@ -129,8 +153,23 @@ export const correlatedComponentReceiptSchema = z
     status: z.enum(["started", "applied", "verified", "failed"]),
     application: z.enum(["unknown", "applied"]),
     identity: productionAppliedIdentitySchema.optional(),
+    remoteAgent: remoteAgentReleaseStageSchema.optional(),
   })
   .superRefine((receipt, context) => {
+    if (
+      receipt.remoteAgent &&
+      ((receipt.status === "verified" &&
+        receipt.remoteAgent.phase !== "complete") ||
+        (["retained", "rollout", "complete"].includes(
+          receipt.remoteAgent.phase
+        ) &&
+          !receipt.remoteAgent.workerIdentity))
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Remote Agent release stage does not prove completion.",
+      });
+    }
     if (
       ((receipt.status === "applied" || receipt.status === "verified") &&
         (receipt.application !== "applied" || !receipt.identity)) ||
@@ -148,6 +187,14 @@ const remoteAgentRecoverySchema = z.strictObject({
   id: z.uuid(),
   originalEvidenceSha: z.string().regex(/^[0-9a-f]{40}$/u),
   startedAt: z.iso.datetime(),
+  nativeProvenance: z
+    .strictObject({
+      evidenceSha: z.string().regex(/^[0-9a-f]{40}$/u),
+      sourceSha: z.string().regex(/^[0-9a-f]{40}$/u),
+      workerVersionId: z.string().min(1).max(200),
+      container: retainedRemoteContainerSchema.omit({ instances: true }),
+    })
+    .optional(),
   baseline: z.strictObject({
     workerDeploymentId: z.string().min(1).max(200),
     workerVersionId: z.string().min(1).max(200),

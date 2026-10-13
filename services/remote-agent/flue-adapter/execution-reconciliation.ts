@@ -28,7 +28,10 @@ import {
 } from "../agent-core/terminal-callback-projection";
 import { createRemoteAgentTerminalFailureFact } from "../agent-core/terminal-failure";
 import { normalizeFluePromptUsage } from "../agent-core/usage";
-import { finishRemoteAgentComputerCommands } from "./execution-cleanup";
+import {
+  finishRemoteAgentComputerCommands,
+  retainTerminalComputerStop,
+} from "./execution-cleanup";
 
 export type FlueSubmissionLifecycle = Pick<
   AgentSubmissionProjection,
@@ -167,13 +170,14 @@ export async function reconcileRemoteAgentExecution(input: {
 
   const nowMs = input.nowMs?.() ?? Date.now();
 
-  await finishRemoteAgentComputerCommands({
+  const cleanupFailure = await finishRemoteAgentComputerCommands({
     context: await readRemoteAgentCallbackContext(
       input.storage,
       input.identity.submissionId
     ),
     env: input.env,
     storage: input.storage,
+    requestStop: true,
   });
 
   const settledExecution = await completeRemoteAgentExecutionState({
@@ -188,15 +192,19 @@ export async function reconcileRemoteAgentExecution(input: {
     nowMs,
     status: cancelled ? "aborted" : "failed",
     storage: input.storage,
-    terminalFailure:
-      requestedFailure ??
-      createRemoteAgentTerminalFailureFact({
-        error: cancelled
-          ? (current.execution.cancellationReason ??
-            "Remote Agent execution was cancelled.")
-          : submission.error,
-        status: cancelled ? "aborted" : "failed",
-      }),
+    terminalFailure: {
+      ...(requestedFailure ??
+        createRemoteAgentTerminalFailureFact({
+          error: cancelled
+            ? (current.execution.cancellationReason ??
+              "Remote Agent execution was cancelled.")
+            : submission.error,
+          status: cancelled ? "aborted" : "failed",
+        })),
+      ...(cleanupFailure?.computerCleanup
+        ? { computerCleanup: cleanupFailure.computerCleanup }
+        : {}),
+    },
   });
   await projectRemoteAgentTerminalExecution({
     env: input.env,
@@ -242,7 +250,11 @@ async function reconcileCompletedRemoteAgentExecution(input: {
       "Remote Agent canonical result has mismatched callback authority."
     );
   }
-  await finishRemoteAgentComputerCommands({ ...input, context });
+  const cleanupFailure = await finishRemoteAgentComputerCommands({
+    ...input,
+    context,
+    assistantText: input.output.text,
+  });
   const nowMs = input.nowMs?.() ?? Date.now();
   const completionMetadata = normalizeTerminalMetadata(input.output);
   const common = {
@@ -252,7 +264,13 @@ async function reconcileCompletedRemoteAgentExecution(input: {
     completionMetadata,
   };
   let execution: Awaited<ReturnType<typeof completeRemoteAgentExecutionState>>;
-  if (context.workLoopCheckpoint) {
+  if (cleanupFailure) {
+    execution = await completeRemoteAgentExecutionState({
+      ...common,
+      status: "failed",
+      terminalFailure: cleanupFailure,
+    });
+  } else if (context.workLoopCheckpoint) {
     execution = await completeRemoteAgentExecutionState({
       ...common,
       status: "checkpoint",
@@ -292,7 +310,7 @@ function normalizeTerminalMetadata(
 }
 
 async function projectRemoteAgentTerminalExecution(input: {
-  env?: RemoteAgentDiagnosticsEnv;
+  env?: RemoteAgentDiagnosticsEnv & { AGENT_COMPUTER?: unknown };
   coreWorker?: RemoteAgentCoreWorkerBinding;
   execution: Awaited<ReturnType<typeof completeRemoteAgentExecutionState>>;
   identity: RemoteAgentWorkerExecutionQuery;
@@ -310,6 +328,13 @@ async function projectRemoteAgentTerminalExecution(input: {
       input.identity.submissionId
     );
   }
+  await retainTerminalComputerStop({
+    ...input,
+    context: await readRemoteAgentCallbackContext(
+      input.storage,
+      input.identity.submissionId
+    ),
+  });
   const result = buildRemoteAgentTerminalCallbackResult({
     outcome,
     requestId: input.identity.submissionId,

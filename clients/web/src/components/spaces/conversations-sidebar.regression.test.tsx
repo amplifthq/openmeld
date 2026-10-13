@@ -31,6 +31,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
 import { OPENMELD_WELCOMING_SPACE_PURPOSE } from "#/lib/spaces/welcoming-space";
+import { spaceInboxSummaryQueryOptions } from "#/query/organizations/inbox";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import {
 	setSpaceWakeProgressPresentationItems,
@@ -455,7 +456,9 @@ describe("ConversationsSidebar", () => {
 		).toHaveLength(0);
 	});
 
-	it("[S03] moves unpinned Spaces with unread updates first and shows a static accessible indicator", async () => {
+	it.each([
+		0, 1,
+	])("[S03] prioritizes %i pending actions over unread updates in the Space indicator", async (unresolvedActionCount) => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [
@@ -471,6 +474,13 @@ describe("ConversationsSidebar", () => {
 		});
 		getCurrentSpaceInboxSummaryMock.mockResolvedValue({
 			organizationId: "org-acme",
+			attention: [
+				{
+					spaceId: "space-beta",
+					unresolvedActionCount,
+					unreadUrgentUpdateCount: 0,
+				},
+			],
 			spaces: [
 				{
 					latestUnreadOccurredAtMs: 2000,
@@ -480,12 +490,16 @@ describe("ConversationsSidebar", () => {
 			],
 		});
 
+		const queryClient = createSidebarQueryClient();
 		renderSidebar(
-			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
+			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />,
+			queryClient
 		);
 
 		const beta = await screen.findByRole("link", {
-			name: "Beta, unread updates",
+			name: unresolvedActionCount
+				? "Beta, Priority attention, unread updates"
+				: "Beta, unread updates",
 		});
 		const alpha = screen.getByRole("link", { name: "Alpha" });
 
@@ -498,6 +512,38 @@ describe("ConversationsSidebar", () => {
 			)
 		).toBeTruthy();
 		expect(beta.className).not.toContain("animate-");
+		const indicator = getConversationRow(beta).querySelector(
+			"[data-conversation-unread-indicator]"
+		);
+		expect(indicator?.className).toContain(
+			unresolvedActionCount ? "bg-amber-" : "bg-unread"
+		);
+		expect(indicator?.className.includes("bg-unread")).toBe(
+			!unresolvedActionCount
+		);
+		if (unresolvedActionCount) {
+			const key = spaceInboxSummaryQueryOptions({
+				organizationId: "org-acme",
+			}).queryKey;
+			const summary = queryClient.getQueryData(key);
+			if (!summary) {
+				throw new Error("Missing confirmed Space attention summary");
+			}
+			act(() => queryClient.setQueryData(key, { ...summary, spaces: [] }));
+			await screen.findByRole("link", { name: "Beta, Priority attention" });
+			expect(
+				getConversationRow(beta).querySelector(
+					"[data-conversation-unread-indicator]"
+				)?.className
+			).toContain("bg-amber-");
+			act(() => queryClient.setQueryData(key, { ...summary, attention: [] }));
+			await screen.findByRole("link", { name: "Beta, unread updates" });
+			expect(
+				getConversationRow(beta).querySelector(
+					"[data-conversation-unread-indicator]"
+				)?.className
+			).toContain("bg-unread");
+		}
 	});
 
 	it("[S04] keeps the shared pinned order stable when an older pin is unread", async () => {

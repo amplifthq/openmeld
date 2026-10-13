@@ -62,7 +62,7 @@ test("native Computer uses official files and both isolate engines through the b
             modules: {
               "caller.mjs": {
                 type: "esm",
-                contents: `export default { async fetch(request, env) { try { const operation = await request.json(); if (operation.cleanup) return Response.json(await env.COMPUTER.get(env.COMPUTER.idFromName('personal-computer:native-test')).stopComputerCommands(operation.invocationId)); return Response.json(await env.REMOTE.cloudComputerOperation({ computer: { id: 'native-test', ownerUserId: 'test-owner', provider: 'cloudflare', createdAtMs: 0 }, operation })); } catch(error) { return Response.json({error: error.message}, {status: 500}); } } };`,
+                contents: `export default { async fetch(request, env) { try { const operation = await request.json(); if (operation.recovery) { const computer = env.COMPUTER.get(env.COMPUTER.idFromName('personal-computer:native-test')); if (operation.recovery === 'register') { await computer.registerComputerInvocation(operation.value); return Response.json({ registered: true }); } if (operation.recovery === 'stop') return Response.json(await computer.requestComputerCleanup(operation.invocationId)); return Response.json(await computer.readComputerRecovery(operation.value)); } if (operation.cleanup) return Response.json(await env.COMPUTER.get(env.COMPUTER.idFromName('personal-computer:native-test')).stopComputerCommands(operation.invocationId)); return Response.json(await env.REMOTE.cloudComputerOperation({ computer: { id: 'native-test', ownerUserId: 'test-owner', provider: 'cloudflare', createdAtMs: 0 }, operation })); } catch(error) { return Response.json({error: error.message}, {status: 500}); } } };`,
               },
             },
           },
@@ -114,7 +114,11 @@ test("native Computer uses official files and both isolate engines through the b
     const described = await call({ action: "describe" });
     assert.equal(described.capabilities.storage.scope, "persistent");
     assert.ok(described.capabilities.storage.databaseBytes > 0);
-    assert.equal(described.capabilities.storage.limitBytes, 10_000_000_000);
+    // The storage contract reserves 64 MiB of its 4 GiB budget for maintenance.
+    assert.equal(
+      described.capabilities.storage.limitBytes,
+      4 * 1024 ** 3 - 64 * 1024 ** 2
+    );
     assert.equal(described.capabilities.storage.status, "available");
     assert.deepEqual(Object.keys(described.capabilities.backends).sort(), [
       "container",
@@ -141,6 +145,15 @@ test("native Computer uses official files and both isolate engines through the b
         "import { readFile, writeFile } from 'node:fs/promises'; export default async function(input) { const text = await readFile('/computer/home/source.txt', 'utf8'); await writeFile('/computer/home/result.txt', text + input.suffix); return { text, suffix: input.suffix }; }",
       ],
     ]) {
+      await call({
+        recovery: "register",
+        value: {
+          invocationId: backend,
+          organizationId: "org",
+          spaceId: "space",
+          agentProfileId: "agent",
+        },
+      });
       const start = {
         action: "command",
         invocationId: backend,
@@ -179,6 +192,21 @@ test("native Computer uses official files and both isolate engines through the b
       const replay = await call(start);
       assert.equal(replay.id, receipt.id);
       assert.equal(replay.status, "completed");
+      const recovered = await call({
+        recovery: "read",
+        value: {
+          invocationId: backend,
+          organizationId: "org",
+          spaceId: "space",
+          agentProfileId: "agent",
+        },
+      });
+      assert.equal(
+        recovered.invocations[0].commands[0].reference.id,
+        receipt.id
+      );
+      assert.equal(recovered.invocations[0].pendingResults, 0);
+      assert.equal(recovered.invocations[0].unfinished, 0);
       if (backend === "worker-shell") {
         const consumed = await call({
           action: "command",
@@ -188,6 +216,10 @@ test("native Computer uses official files and both isolate engines through the b
         assert.equal(consumed.stdout, "");
         assert.equal((await call(start)).stdout, "persistent hello");
       }
+      assert.equal(
+        (await call({ recovery: "stop", invocationId: backend })).unfinished,
+        0
+      );
     }
     assert.equal(
       (await call({ action: "read", path: "/computer/home/result.txt" }))

@@ -2,6 +2,7 @@ import type { PostgresDatabase } from "@openmeld/db/postgresql";
 import {
   buildOpenMeldNavigationAction,
   type NavigationAction,
+  REMOTE_AGENT_COMPUTER_CLEANUP_FAILED_CODE,
   resolveCenterAgentCallbackFailureMessage,
   resolveCenterAgentCompletedCallbackMessage,
 } from "@openmeld/schemas";
@@ -1035,10 +1036,8 @@ function buildFinalPublicationPayload(input: {
   resumeStatus: "accepted" | "retry_observed";
 }): RemoteAgentFinalPublicationPayload {
   const content = projectMessageChannelTerminalContent({
-    attachments:
-      input.body.status === "failed"
-        ? []
-        : normalizeAttachments(input.body.attachments),
+    fileCount: input.body.files?.length,
+    attachments: normalizeAttachments(input.body.attachments),
     text:
       input.body.status === "failed"
         ? resolveCenterAgentCallbackFailureMessage(input.body)
@@ -1056,7 +1055,14 @@ function buildFinalPublicationPayload(input: {
         ? (input.body.failureDetail ?? null)
         : null,
     resumeStatus: input.resumeStatus,
-    storageVersion: 1,
+    storageVersion: 3,
+    files: input.body.files ?? [],
+    attachments: [...normalizeAttachments(input.body.attachments)],
+    ...(input.body.status === "failed" &&
+    input.body.failureCode === REMOTE_AGENT_COMPUTER_CLEANUP_FAILED_CODE &&
+    input.body.explanationText?.trim()
+      ? { reviewedFailureExplanation: true as const }
+      : {}),
     text: content.text,
   };
 }

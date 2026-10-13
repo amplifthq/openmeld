@@ -12,7 +12,9 @@ export async function readCurrentOrganizationCenterAgentMemoryPolicy(input: {
 		createOrganizationScopedWebOpenMeldApiFoundation({
 			organizationId: input.organizationId,
 		})
-	).readCurrentOrganizationCenterAgentMemoryPolicy();
+	).readCurrentOrganizationCenterAgentMemoryPolicy({
+		includeAvailability: true,
+	});
 }
 
 export async function setCurrentOrganizationCenterAgentMemoryPolicy(input: {

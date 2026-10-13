@@ -7894,6 +7894,22 @@ function canonicalizeRemoteAgentCallbackBody(
     text: resolveCenterAgentCompletedCallbackMessage(body),
   };
 }
+function canRecoverRemoteAgentSpaceFailurePublication(
+  body: RemoteAgentCoreCallbackBody,
+  delivery: RemoteAgentNativeDeliveryRecord,
+  nowMs: number
+): body is RemoteAgentFailedCallbackBody {
+  return (
+    body.status === "failed" &&
+    delivery.conversationKind === "space" &&
+    delivery.status === "failed" &&
+    Boolean(delivery.finalPublicationPayload?.failureCode) &&
+    (delivery.finalPublicationState === "outcome_unknown" ||
+      (delivery.finalPublicationState === "claimed" &&
+        delivery.finalPublicationClaimExpiresAtMs !== null &&
+        delivery.finalPublicationClaimExpiresAtMs <= nowMs))
+  );
+}
 export async function completeRemoteAgentNativeDelivery(
   env: CoreBindings,
   input: RemoteAgentCoreCallbackEvent,
@@ -8000,6 +8016,16 @@ export async function completeRemoteAgentNativeDelivery(
       env,
       nowMs,
       options,
+    });
+  }
+  if (canRecoverRemoteAgentSpaceFailurePublication(body, delivery, nowMs)) {
+    return await completeRemoteAgentFailedCallback({
+      body,
+      db,
+      delivery: { ...delivery, status: "failed" },
+      env,
+      nowMs,
+      recoverSpaceFailure: true,
     });
   }
   if (
@@ -8653,7 +8679,7 @@ async function completeRemoteAgentMemberResearchCallback(input: {
   nowMs: number;
   options: CenterAgentMemoryRuntimeOptions;
 }): Promise<RemoteAgentCoreCallbackResponse> {
-  const terminalDelivery = isRemoteAgentFailedCallback(input.body)
+  let terminalDelivery = isRemoteAgentFailedCallback(input.body)
     ? await claimRemoteAgentNativeDeliveryTerminalFailure({
         db: input.db,
         failureCode: input.body.failureCode,
@@ -8667,6 +8693,12 @@ async function completeRemoteAgentMemberResearchCallback(input: {
         publishedSignalId: null,
         submissionId: input.body.submissionId,
       });
+  if (!(terminalDelivery || isRemoteAgentFailedCallback(input.body))) {
+    terminalDelivery = await readRemoteAgentNativeDeliveryBySubmissionId({
+      db: input.db,
+      submissionId: input.body.submissionId,
+    });
+  }
   const expectedStatus = isRemoteAgentFailedCallback(input.body)
     ? "failed"
     : "completed";
@@ -8983,13 +9015,15 @@ async function completeRemoteAgentCompletedCallback(input: {
       submissionId: body.submissionId,
       publishedSignalId: existingPublishedSignalId,
     });
-    scheduleCenterAgentMemoryRemember({
-      body,
-      delivery,
-      env,
-      memoryService: options.memoryService,
-      waitUntil: options.waitUntil,
-    });
+    if (completed) {
+      scheduleCenterAgentMemoryRemember({
+        body,
+        delivery,
+        env,
+        memoryService: options.memoryService,
+        waitUntil: options.waitUntil,
+      });
+    }
     const finalSignalId =
       completed?.publishedSignalId ?? existingPublishedSignalId;
     await projectRemoteAgentNativeDeliveryTerminalEffects({
@@ -9065,13 +9099,15 @@ async function completeRemoteAgentCompletedCallback(input: {
     submissionId: body.submissionId,
     publishedSignalId,
   });
-  scheduleCenterAgentMemoryRemember({
-    body,
-    delivery,
-    env,
-    memoryService: options.memoryService,
-    waitUntil: options.waitUntil,
-  });
+  if (completed) {
+    scheduleCenterAgentMemoryRemember({
+      body,
+      delivery,
+      env,
+      memoryService: options.memoryService,
+      waitUntil: options.waitUntil,
+    });
+  }
   const finalSignalId = completed?.publishedSignalId ?? publishedSignalId;
   await projectRemoteAgentNativeDeliveryTerminalEffects({
     db,
@@ -9326,16 +9362,20 @@ function buildRemoteAgentFinalPublicationPayload(input: {
   failureText?: string;
 }): RemoteAgentFinalPublicationPayload {
   return {
-    attachments:
-      input.body.status === "failed"
-        ? []
-        : spaceMessageAttachmentsSchema.parse(input.body.attachments ?? []),
+    attachments: spaceMessageAttachmentsSchema.parse(
+      input.body.attachments ?? []
+    ),
     failureCode: input.body.status === "failed" ? input.body.failureCode : null,
     failureDetail:
       input.body.status === "failed"
         ? (input.body.failureDetail ?? null)
         : null,
-    files: input.body.status === "failed" ? [] : (input.body.files ?? []),
+    files: input.body.files ?? [],
+    ...(input.body.status === "failed" &&
+    input.body.failureCode === REMOTE_AGENT_COMPUTER_CLEANUP_FAILED_CODE &&
+    input.body.explanationText?.trim()
+      ? { reviewedFailureExplanation: true as const }
+      : {}),
     resumeStatus: input.resumeStatus,
     storageVersion: 3,
     text:
@@ -11795,17 +11835,20 @@ async function completeRemoteAgentFailedCallback(input: {
   body: RemoteAgentFailedCallbackBody;
   db: PostgresDatabase;
   delivery: NativeDeliveryPublishRecord & {
-    status: "accepted" | "retry_observed";
+    status: "accepted" | "retry_observed" | "failed";
   };
   env: CoreBindings;
   nowMs: number;
+  recoverSpaceFailure?: boolean;
 }): Promise<RemoteAgentCoreCallbackResponse> {
-  const failureText = await resolveInterruptedCallbackFailureText(input);
-  const payload =
+  let body = input.body;
+  const failureText = await resolveRemoteAgentCallbackFailureText(input);
+  let payload =
     input.delivery.finalPublicationPayload ??
     buildRemoteAgentFinalPublicationPayload({
-      body: input.body,
-      resumeStatus: input.delivery.status,
+      body,
+      resumeStatus:
+        input.delivery.status === "failed" ? "accepted" : input.delivery.status,
       failureText,
     });
   const claimId = crypto.randomUUID();
@@ -11814,16 +11857,17 @@ async function completeRemoteAgentFailedCallback(input: {
     claimExpiresAtMs:
       input.nowMs + REMOTE_AGENT_SLACK_FINAL_PUBLICATION_CLAIM_LEASE_MS,
     claimId,
-    idempotencyKey: input.body.idempotencyKey,
+    idempotencyKey: body.idempotencyKey,
     nowMs: input.nowMs,
     payload,
-    submissionId: input.body.submissionId,
-    terminalFailureCode: input.body.failureCode,
-    terminalFailureDetail: input.body.failureDetail,
+    submissionId: body.submissionId,
+    terminalFailureCode: payload.failureCode,
+    terminalFailureDetail: payload.failureDetail,
+    recoverSpaceFailure: input.recoverSpaceFailure,
   });
   if (!claim) {
     return await resolveRemoteAgentFinalPublicationClaimConflict({
-      body: input.body,
+      body,
       db: input.db,
       env: input.env,
       nowMs: input.nowMs,
@@ -11831,11 +11875,23 @@ async function completeRemoteAgentFailedCallback(input: {
   }
   let publishedSignalId: string;
   try {
+    const claimedPayload = claim.finalPublicationPayload;
+    if (!claimedPayload?.failureCode) {
+      throw new Error("Failed publication claim has no frozen failure result.");
+    }
+    payload = claimedPayload;
+    body = {
+      ...body,
+      failureCode: claimedPayload.failureCode,
+      failureDetail: payload.failureDetail ?? undefined,
+      attachments: payload.storageVersion === 1 ? [] : payload.attachments,
+      files: payload.storageVersion === 3 ? payload.files : [],
+    };
     const publishedSignal = await publishRemoteAgentCallbackFailureText({
-      body: input.body,
-      delivery: input.delivery,
+      body,
+      delivery: claim,
       env: input.env,
-      failureText,
+      failureText: payload.text,
     });
     const normalizedPublishedSignalId = normalizeOptionalText(
       publishedSignal?.id
@@ -11854,14 +11910,14 @@ async function completeRemoteAgentFailedCallback(input: {
       error.publicationOutcome === "unknown"
     ) {
       await markAndProjectRemoteAgentFailedCallbackOutcomeUnknown({
-        body: input.body,
+        body,
         claimId,
         db: input.db,
         env: input.env,
         nowMs: input.nowMs,
       });
       await closeRemoteAgentFailedCallbackStream({
-        body: input.body,
+        body,
         delivery: claim,
         env: input.env,
       });
@@ -11871,11 +11927,11 @@ async function completeRemoteAgentFailedCallback(input: {
           dispatchId: input.delivery.dispatchId,
           error: toErrorMessage(error),
           event: CORE_LOG_EVENTS.coreInternalError,
-          submissionId: input.body.submissionId,
+          submissionId: body.submissionId,
           targetProfileId: input.delivery.profileId,
         }
       );
-      return buildRemoteAgentPublicationOutcomeUnknownResponse();
+      return buildFailedCallbackPublicationRecoveryResponse(input.delivery);
     }
     const failureCode =
       REMOTE_AGENT_CALLBACK_FAILURE_PUBLISH_FAILED_FAILURE_CODE;
@@ -11883,13 +11939,13 @@ async function completeRemoteAgentFailedCallback(input: {
       claimId,
       db: input.db,
       failureCode,
-      idempotencyKey: input.body.idempotencyKey,
+      idempotencyKey: body.idempotencyKey,
       nowMs: input.nowMs,
-      restoreStatus: input.delivery.status,
-      submissionId: input.body.submissionId,
+      restoreStatus: payload.resumeStatus,
+      submissionId: body.submissionId,
     });
     if (!released) {
-      return buildRemoteAgentPublicationOutcomeUnknownResponse();
+      return buildFailedCallbackPublicationRecoveryResponse(input.delivery);
     }
     console.warn(
       "[core.remote_agent.native_delivery.callback_failure_publish_failed]",
@@ -11897,7 +11953,7 @@ async function completeRemoteAgentFailedCallback(input: {
         event: CORE_LOG_EVENTS.coreInternalError,
         dispatchId: input.delivery.dispatchId,
         error: toErrorMessage(error),
-        submissionId: input.body.submissionId,
+        submissionId: body.submissionId,
         targetProfileId: input.delivery.profileId,
       }
     );
@@ -11911,11 +11967,11 @@ async function completeRemoteAgentFailedCallback(input: {
     completed = await markRemoteAgentFailedCallbackPublicationPublished({
       claimId,
       db: input.db,
-      failureCode: input.body.failureCode,
-      idempotencyKey: input.body.idempotencyKey,
+      failureCode: body.failureCode,
+      idempotencyKey: body.idempotencyKey,
       nowMs: input.nowMs,
       publishedSignalId,
-      submissionId: input.body.submissionId,
+      submissionId: body.submissionId,
     });
   } catch (error) {
     console.warn(
@@ -11924,7 +11980,7 @@ async function completeRemoteAgentFailedCallback(input: {
         dispatchId: input.delivery.dispatchId,
         error: toErrorMessage(error),
         event: CORE_LOG_EVENTS.coreInternalError,
-        submissionId: input.body.submissionId,
+        submissionId: body.submissionId,
         targetProfileId: input.delivery.profileId,
       }
     );
@@ -11933,12 +11989,12 @@ async function completeRemoteAgentFailedCallback(input: {
   if (
     !isConfirmedRemoteAgentFailedCallbackPublication(
       completed,
-      input.body.failureCode,
+      body.failureCode,
       publishedSignalId
     )
   ) {
     await tryMarkAndProjectRemoteAgentFailedCallbackOutcomeUnknown({
-      body: input.body,
+      body,
       claimId,
       db: input.db,
       delivery: input.delivery,
@@ -11946,14 +12002,14 @@ async function completeRemoteAgentFailedCallback(input: {
       nowMs: input.nowMs,
     });
     await closeRemoteAgentFailedCallbackStream({
-      body: input.body,
+      body,
       delivery: claim,
       env: input.env,
     });
-    return buildRemoteAgentPublicationOutcomeUnknownResponse();
+    return buildFailedCallbackPublicationRecoveryResponse(input.delivery);
   }
   await closeRemoteAgentFailedCallbackStream({
-    body: input.body,
+    body,
     delivery: completed ?? claim,
     env: input.env,
   });
@@ -11967,6 +12023,19 @@ async function completeRemoteAgentFailedCallback(input: {
     status: "accepted",
     publishedSignalId,
   });
+}
+function buildFailedCallbackPublicationRecoveryResponse(
+  delivery: NativeDeliveryPublishRecord
+): RemoteAgentCoreCallbackResponse {
+  // Space owns durable idempotent publication. A lost reply to its RPC can
+  // safely recover that same result; external channels keep their own policy.
+  return delivery.conversationKind === "space"
+    ? remoteAgentCoreCallbackResponseSchema.parse({
+        status: "retryable",
+        reasonCode: REMOTE_AGENT_CALLBACK_PUBLICATION_IN_PROGRESS_REASON_CODE,
+        retryAfterMs: 1000,
+      })
+    : buildRemoteAgentPublicationOutcomeUnknownResponse();
 }
 async function markAndProjectRemoteAgentFailedCallbackOutcomeUnknown(input: {
   body: RemoteAgentFailedCallbackBody;
@@ -12445,26 +12514,72 @@ function resolveSlackReplyPlacement(
   }
   return "thread";
 }
-async function resolveInterruptedCallbackFailureText(input: {
+async function resolveRemoteAgentCallbackFailureText(input: {
   body: RemoteAgentFailedCallbackBody;
   delivery: NativeDeliveryPublishRecord;
   env: CoreBindings;
-}): Promise<string | undefined> {
+}): Promise<string> {
+  if (input.delivery.finalPublicationPayload) {
+    return input.delivery.finalPublicationPayload.text;
+  }
+  if (input.body.explanationText) {
+    return input.body.explanationText;
+  }
+  const { personalAgent, profileName } =
+    await resolveRemoteAgentCallbackFailureProfile(input);
+  if (input.delivery.routineRunId) {
+    return formatPublicRoutineFailureFacts(
+      buildRoutineExecutionFailureFacts({
+        delivery: input.delivery,
+        failureCode: input.body.failureCode,
+        failureDetail: input.body.failureDetail,
+        languageTag: await resolveNativeFailureLanguage({
+          coordinationDb: getPostgresDatabase(input.env),
+          db: getPostgresDatabase(input.env),
+          delivery: input.delivery,
+        }),
+      }),
+      {
+        agentLabel: profileName,
+        routineName:
+          normalizeOptionalText(input.delivery.routineNameSnapshot) ??
+          "Scheduled Routine",
+        runId: input.delivery.routineRunId,
+        runUrl: await resolveCallbackRoutineRunUrl(input),
+      }
+    );
+  }
   if (
     input.delivery.conversationKind !== "space" ||
-    input.delivery.routineRunId ||
     ![
       "remote_agent.turn_not_completed",
       REMOTE_AGENT_COMPUTER_CLEANUP_FAILED_CODE,
     ].includes(input.body.failureCode)
   ) {
-    return undefined;
+    return input.body.failureCode ===
+      REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_CODE &&
+      input.delivery.admissionAttemptCount >=
+        REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS &&
+      isRetryableTaskContinuationAdmission(input.delivery)
+      ? input.body.failureMessage
+      : resolveCenterAgentCallbackFailureMessage({
+          ...input.body,
+          agentLabel: profileName,
+        });
   }
-  if (input.delivery.finalPublicationPayload) {
-    return input.delivery.finalPublicationPayload.text;
+  return await resolveInterruptedSpaceCallbackFailureText({
+    ...input,
+    personalAgent,
+    profileName,
+  });
+}
+async function resolveInterruptedSpaceCallbackFailureText(
+  input: Parameters<typeof resolveRemoteAgentCallbackFailureText>[0] & {
+    personalAgent: boolean;
+    profileName: string;
   }
-  const { personalAgent, profileName } =
-    await resolveRemoteAgentCallbackFailureProfile(input);
+): Promise<string> {
+  const { personalAgent, profileName } = input;
   const facts = buildRoutineExecutionFailureFacts({
     ...input.body,
     delivery: input.delivery,
@@ -12574,20 +12689,16 @@ async function publishRemoteAgentCallbackFailureText(input: {
       "Message Channel failure publication requires the provider publication coordinator"
     );
   }
+  const failureText =
+    input.failureText ?? (await resolveRemoteAgentCallbackFailureText(input));
   if (input.delivery.conversationKind === "slack") {
-    const { profileName } =
-      await resolveRemoteAgentCallbackFailureProfile(input);
     return await publishRemoteAgentSlackCallbackText({
       delivery: input.delivery,
       env: input.env,
-      text: resolveCenterAgentCallbackFailureMessage({
-        ...input.body,
-        agentLabel: profileName,
-      }),
+      text: failureText,
     });
   }
   if (input.delivery.routineRunId) {
-    const runUrl = await resolveCallbackRoutineRunUrl(input);
     const { personalAgent, profileName, targetProfile } =
       await resolveRemoteAgentCallbackFailureProfile(input);
     return await publishRemoteAgentRoutineText({
@@ -12604,26 +12715,9 @@ async function publishRemoteAgentCallbackFailureText(input: {
       env: input.env,
       errorCode: input.body.failureCode,
       purpose: REMOTE_AGENT_FAILURE_PURPOSE,
-      text: formatPublicRoutineFailureFacts(
-        buildRoutineExecutionFailureFacts({
-          delivery: input.delivery,
-          failureCode: input.body.failureCode,
-          failureDetail: input.body.failureDetail,
-          languageTag: await resolveNativeFailureLanguage({
-            coordinationDb: getPostgresDatabase(input.env),
-            db: getPostgresDatabase(input.env),
-            delivery: input.delivery,
-          }),
-        }),
-        {
-          agentLabel: profileName,
-          routineName:
-            normalizeOptionalText(input.delivery.routineNameSnapshot) ??
-            "Scheduled Routine",
-          runId: input.delivery.routineRunId,
-          runUrl,
-        }
-      ),
+      files: input.body.files,
+      attachments: input.body.attachments,
+      text: failureText,
     });
   }
   const stopped = isRemoteAgentStopFailureCode(input.body.failureCode);
@@ -12639,27 +12733,17 @@ async function publishRemoteAgentCallbackFailureText(input: {
       : HOSTED_CENTER_AGENT_CONTROLLER_REF,
     agentControllerConversationId: input.body.submissionId,
   });
-  // Name the Agent that failed, not the Center Agent, in user-facing copy.
-  const failureText =
-    input.failureText ??
-    (input.body.failureCode === REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_CODE &&
-    input.delivery.admissionAttemptCount >=
-      REMOTE_AGENT_TASK_CONTINUATION_ADMISSION_MAX_ATTEMPTS &&
-    isRetryableTaskContinuationAdmission(input.delivery)
-      ? input.body.failureMessage
-      : resolveCenterAgentCallbackFailureMessage({
-          ...input.body,
-          agentLabel: profileName,
-        }));
   const context = buildRemoteAgentCallbackContext({
     delivery: input.delivery,
     profile,
     submissionId: input.body.submissionId,
   });
   if (
-    input.body.failureCode === "remote_agent.empty_assistant_response" ||
-    input.body.failureCode === "remote_agent.turn.output_limit_exceeded" ||
-    stopped
+    (input.body.failureCode === "remote_agent.empty_assistant_response" ||
+      input.body.failureCode === "remote_agent.turn.output_limit_exceeded" ||
+      stopped) &&
+    !input.body.files?.length &&
+    !input.body.attachments?.length
   ) {
     return await emitSpaceSystemNoticeSignal({
       env: input.env,
@@ -12686,11 +12770,16 @@ async function publishRemoteAgentCallbackFailureText(input: {
       context,
     });
   }
-  return await emitSpaceTextSignal({
+  return await emitSpaceTextSignalOnceByClientMessageId({
+    clientMessageId: input.body.submissionId,
     env: input.env,
     spaceId: input.delivery.spaceId,
     profile,
     text: failureText,
+    ...(input.body.files?.length ? { files: input.body.files } : {}),
+    ...(input.body.attachments?.length
+      ? { attachments: input.body.attachments }
+      : {}),
     authoringPolicy: "system_emitted",
     finalOutcomeAuthority: "remote_agent_native_delivery",
     messageEnvelope: {
@@ -12743,7 +12832,7 @@ function buildRemoteAgentCallbackNoticeData(
       ? REMOTE_AGENT_EXECUTION_CANCELLED_FAILURE_CODE
       : input.body.failureCode,
     failureStage: "execution",
-    text: stopped ? "This request was stopped." : input.failureText,
+    text: input.failureText,
     ...(author?.profileId && author.displayName && input.delivery.triggerText
       ? {
           replyTo: {

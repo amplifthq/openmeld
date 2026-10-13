@@ -286,6 +286,7 @@ import type {
   OpenCenterAgentDirectMessageSpaceResponse,
   OpenDirectMessageSpaceResponse,
   OrganizationAgentRuntimeOverviewResponse,
+  OrganizationAiBillingRpcInput,
   OrganizationAiUsageRpcInput,
   OrganizationComputersResponse,
   OrganizationDirectoryResponse,
@@ -397,6 +398,7 @@ import type {
   UpdateFeedbackIssueStatusForOrganizationRequest,
   UpdateInboxMessageNotificationPreferencesRpcInput,
   UpdateInboxNotificationPreferencesRpcInput,
+  UpdateOrganizationAiBillingRpcInput,
   UpdateOrganizationDocumentFolderResponse,
   UpdateOrganizationDocumentFolderRpcInput,
   UpdateOrganizationDocumentResponse,
@@ -921,6 +923,7 @@ import {
   rpcCommitSpaceFileWrite,
   rpcCompleteConnectorDisconnect,
   rpcCompleteGitHubAppInstallation,
+  rpcComputerPowerSettings,
   rpcConnectCandidate,
   rpcConnectCenterAgentSlackWorkspace,
   rpcConnectDeclaredPath,
@@ -1215,6 +1218,7 @@ import {
   rpcProjectSpaceIndexMembershipOverlay,
 } from "./space-index/space-index-overlay-rpc";
 import { listMembershipSpaceIdsForProfilesFromSpaceIndex } from "./space-index/space-index-repository";
+import { rpcReadAiBilling, rpcUpdateAiBilling } from "./usage/ai-billing-rpc";
 import {
   rpcCenterAgentReadAiUsage,
   rpcReadOrganizationAiUsage,
@@ -1614,6 +1618,11 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
   ) {
     return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
       rpcComputerSessionHistory(this.env, input)
+    );
+  }
+  computerPowerSettings(input: Parameters<typeof rpcComputerPowerSettings>[1]) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcComputerPowerSettings(this.env, input)
     );
   }
   readPeopleComputerFileAccessPolicy(
@@ -4519,6 +4528,16 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
 // Gateway-specific RPC entrypoint. Kept as a dedicated subclass to preserve an
 // extension point for future gateway-aware overrides.
 export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
+  readOrganizationAiBilling(input: OrganizationAiBillingRpcInput) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadAiBilling(this.env, input)
+    );
+  }
+  updateOrganizationAiBilling(input: UpdateOrganizationAiBillingRpcInput) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdateAiBilling(this.env, input)
+    );
+  }
   firstWork(input: Parameters<typeof rpcFirstWork>[1]) {
     return super.firstWork(input);
   }
@@ -4688,6 +4707,9 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: Parameters<typeof rpcComputerSessionHistory>[1]
   ) {
     return super.computerSessionHistory(input);
+  }
+  computerPowerSettings(input: Parameters<typeof rpcComputerPowerSettings>[1]) {
+    return super.computerPowerSettings(input);
   }
   readPeopleComputerFileAccessPolicy(
     input: Parameters<typeof rpcReadPeopleComputerFileAccessPolicy>[1]

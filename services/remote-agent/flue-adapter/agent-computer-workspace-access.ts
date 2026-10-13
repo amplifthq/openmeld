@@ -1,6 +1,8 @@
+import { setTimeout as delay } from "node:timers/promises";
 import { getWorkspace, type WorkspaceClient } from "@cloudflare/computer";
 import {
   type CloudComputerOperation,
+  cloudComputerOperationResultSchema,
   type PluginConnectionGrant,
   type RemoteAgentGitPackStart,
   type RemoteAgentGitPackStatus,
@@ -57,13 +59,53 @@ export function createAgentComputerWorkspaceAccess(input: {
       await input.authorize?.();
     },
     async computerOperation(request) {
-      await input.authorize?.();
-      const stub = input.namespace.get(input.computerId) as DurableObjectStub<
-        import("./computer-workspace").AgentComputer
-      >;
-      const result = await stub.computerOperation(request);
-      await input.authorize?.();
-      return result;
+      const waitMs =
+        request.action === "command" && request.command.action === "poll"
+          ? (request.command.waitSeconds ?? 0) * 1000
+          : 0;
+      const deadline = Date.now() + waitMs;
+      let operation = request;
+      for (;;) {
+        await input.authorize?.();
+        const stub = input.namespace.get(input.computerId) as DurableObjectStub<
+          import("./computer-workspace").AgentComputer
+        >;
+        // Each RPC advances one bounded preparation step. Waiting belongs to
+        // this caller, so a large tree cannot drain inside one Computer event.
+        const result = await stub.computerOperation(operation);
+        await input.authorize?.();
+        const parsed = cloudComputerOperationResultSchema.safeParse(result);
+        if (
+          operation.action !== "command" ||
+          operation.command.action !== "poll" ||
+          !parsed.success ||
+          Array.isArray(parsed.data) ||
+          !("phase" in parsed.data) ||
+          parsed.data.phase !== "accepted" ||
+          ("observation" in parsed.data &&
+            parsed.data.observation?.status === "timed_out") ||
+          !("reference" in parsed.data) ||
+          !parsed.data.reference ||
+          Date.now() >= deadline
+        ) {
+          return result;
+        }
+        await delay(Math.min(250, deadline - Date.now()));
+        if (Date.now() >= deadline) {
+          return result;
+        }
+        operation = {
+          ...operation,
+          command: {
+            ...operation.command,
+            reference: parsed.data.reference,
+            waitSeconds: Math.min(
+              20,
+              Math.ceil((deadline - Date.now()) / 1000)
+            ),
+          },
+        };
+      }
     },
     async writeComputerFile(path, content) {
       await input.authorize?.();

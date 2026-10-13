@@ -368,6 +368,7 @@ export const centerAgentRecordConnectorActionOperationBodySchema = z
       .optional(),
     requestSignature: z.string().regex(/^[0-9a-f]{64}$/),
     issueDestination: projectIssueDestinationSchema.optional(),
+    issueDestinationAuthority: z.literal("explicit_request").optional(),
     service: connectorServiceSchema,
     speakerMember: centerAgentToolSpeakerSchema,
   })

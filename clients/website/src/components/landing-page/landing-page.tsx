@@ -17,7 +17,6 @@ import {
 import { Surface } from "@openmeld/ui/fluid/surface";
 import {
 	AppleLogoIcon,
-	ArrowRightIcon,
 	ArrowUpRightIcon,
 	CaretDownIcon,
 	DownloadSimpleIcon,
@@ -29,6 +28,7 @@ import { OpenAppButton } from "#/components/open-app-button";
 import { PlatformMetalBadge } from "#/components/platform-metal-badge";
 import { PublicPageHeader } from "#/components/public-page-header";
 import { CliShowcase } from "./cli-showcase";
+import { ComparisonSection } from "./comparison-section";
 import { ConnectorShowcase } from "./connector-showcase";
 import { HeroDescription } from "./hero-copy";
 import { HeroEntrance } from "./hero-entrance";
@@ -211,16 +211,10 @@ export function LandingPage() {
 									<br />
 									<span>Now part of the team.</span>
 								</h2>
-								<div>
-									<p>
-										Keep your subscriptions, files, and local tools. Bring the
-										agents you use into your team’s conversation.
-									</p>
-									<a className="meld-link" href={LOCAL_AGENTS_GUIDE_PATH}>
-										Connect your first agent{" "}
-										<ArrowRightIcon aria-hidden size={16} />
-									</a>
-								</div>
+								<p>
+									Keep your subscriptions, files, and local tools. Bring the
+									agents you use into your team’s conversation.
+								</p>
 							</div>
 							<AgentShowcase />
 							<p className="meld-footnote">
@@ -339,6 +333,7 @@ export function LandingPage() {
 						<UsageShowcase />
 					</section>
 					<TrustSection repositoryUrl={REPOSITORY_URL} />
+					<ComparisonSection />
 					<section
 						aria-labelledby="faq-title"
 						className="meld-section meld-faq meld-wrap"

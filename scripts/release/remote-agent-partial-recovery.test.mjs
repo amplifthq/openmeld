@@ -1,9 +1,16 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   executeProductionDeploySteps,
   executeWithProductionScopeLeases,
@@ -14,8 +21,11 @@ import {
 } from "./production-release-evidence.mjs";
 
 import {
+  assertRemoteVerificationSelectors,
   assessRemoteAgentPartialRecovery,
   executeRemoteAgentRecovery,
+  proveNativeBaseline,
+  readNativeHistoryBaseline,
   verifyRecoveredRemoteAgentTarget,
 } from "./remote-agent-partial-recovery.mjs";
 
@@ -32,6 +42,158 @@ const NEW_DIGEST = `sha256:${"a".repeat(64)}`;
 const LEASE_HELD = /lease held/u;
 const ROLLOUT_UNVERIFIED = /healthy container rollout/u;
 const RECEIPT_PUBLICATION_FAILED = /receipt publication failed/u;
+const SELECTOR_MISMATCH = /selectors do not match/u;
+const TARGET_BOUNDARY = /fixture target boundary reached/u;
+const PREFLIGHT_BLOCKED = /failed with exit code 19/u;
+
+test("recovery CLI reserves deployment preflight for recovery that deploys", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "openmeld-recovery-entry-"));
+  const git = (...args) =>
+    execFileSync("git", args, {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+  try {
+    git("init", "--quiet", "--initial-branch=main");
+    git("config", "user.name", "Release Test");
+    git("config", "user.email", "release-test@openmeld.ai");
+    writeFileSync(path.join(root, ".gitignore"), "node_modules/\n");
+    git("add", ".gitignore");
+    git("commit", "--quiet", "-m", "fixture");
+    git("remote", "add", "origin", root);
+    const sourceSha = git("rev-parse", "HEAD");
+    const capture = path.join(root, ".git", "preflight-call.json");
+    const preload = path.join(root, ".git", "command-boundary.mjs");
+    writeFileSync(
+      preload,
+      `
+import childProcess from "node:child_process";
+import { writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
+const original = childProcess.spawnSync;
+childProcess.spawnSync = (command, args, options) => {
+  if (command === "git") return original(command, args, options);
+  if (command === "node" && args[0].endsWith("/production-train-artifact-admission.mjs")) {
+    writeFileSync(${JSON.stringify(capture)}, JSON.stringify(args));
+    return { status: 19, stdout: null, stderr: null };
+  }
+  throw new Error("Unexpected external command: " + command);
+};
+syncBuiltinESMExports();
+`
+    );
+    // Stop at the next external boundary, before any lease or Cloudflare read.
+    // No Wrangler API response is fabricated; importing the target reader fails.
+    const target = path.join(root, "node_modules", "wrangler");
+    mkdirSync(target, { recursive: true });
+    writeFileSync(
+      path.join(target, "package.json"),
+      JSON.stringify({ main: "index.cjs" })
+    );
+    writeFileSync(
+      path.join(target, "index.cjs"),
+      'throw new Error("fixture target boundary reached");\n'
+    );
+    const selectors = [
+      "--source-dir",
+      root,
+      "--source-sha",
+      sourceSha,
+      "--attempt",
+      ATTEMPT,
+      "--expected-deployment",
+      DEPLOYMENT,
+      "--expected-worker-version",
+      VERSION,
+      "--container-id",
+      CONTAINER,
+      "--container-version",
+      "125",
+      "--container-image",
+      OLD_IMAGE,
+    ];
+    for (const verifyOnly of [true, false]) {
+      writeFileSync(capture, "null");
+      const result = spawnSync(
+        process.execPath,
+        [
+          "--import",
+          preload,
+          fileURLToPath(
+            new URL("./remote-agent-partial-recovery.mjs", import.meta.url)
+          ),
+          ...selectors,
+          ...(verifyOnly ? ["--verify-only", "true"] : ["--base", sourceSha]),
+        ],
+        { cwd: root, encoding: "utf8", timeout: 10_000 }
+      );
+      assert.equal(result.error, undefined);
+      assert.equal(result.status, 1);
+      const preflight = JSON.parse(readFileSync(capture, "utf8"));
+      if (verifyOnly) {
+        assert.equal(
+          preflight,
+          null,
+          "verification must not run deployment preflight"
+        );
+        assert.match(result.stderr, TARGET_BOUNDARY);
+      } else {
+        assert.equal(
+          preflight[0],
+          fileURLToPath(
+            new URL(
+              "./production-train-artifact-admission.mjs",
+              import.meta.url
+            )
+          )
+        );
+        assert.equal(preflight.at(-1), sourceSha);
+        assert.match(result.stderr, PREFLIGHT_BLOCKED);
+        assert.doesNotMatch(
+          result.stderr,
+          TARGET_BOUNDARY,
+          "failed preflight must stop deployment recovery"
+        );
+      }
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("verification-only recovery requires exact original source, attempt, Worker and native baseline selectors", () => {
+  const latest = {
+    sha: SOURCE,
+    receipt: {
+      attemptId: ATTEMPT,
+      identity: { deploymentId: DEPLOYMENT, versionId: VERSION },
+      remoteAgent: {
+        container: { id: CONTAINER, version: 125, image: OLD_IMAGE },
+      },
+    },
+  };
+  const options = {
+    "--source-sha": SOURCE,
+    "--attempt": ATTEMPT,
+    "--expected-deployment": DEPLOYMENT,
+    "--expected-worker-version": VERSION,
+    "--container-id": CONTAINER,
+    "--container-version": "125",
+    "--container-image": OLD_IMAGE,
+  };
+  assertRemoteVerificationSelectors(latest, options);
+  for (const key of Object.keys(options)) {
+    assert.throws(
+      () =>
+        assertRemoteVerificationSelectors(latest, {
+          ...options,
+          [key]: "changed",
+        }),
+      SELECTOR_MISMATCH
+    );
+  }
+});
 
 function fixture() {
   const receipt = {
@@ -79,7 +241,10 @@ function fixture() {
       instances: 7,
       updated_at: "2026-09-20T03:53:34.692Z",
       configuration: { image: OLD_IMAGE },
-      health: { errors: [], instances: { healthy: 7, failed: 0, starting: 0 } },
+      health: {
+        errors: [],
+        instances: { healthy: 7, active: 0, failed: 0, starting: 0 },
+      },
     },
     images: [{ name: "openmeld-agent-computer", tags: ["c002a335"] }],
     expectedDeploymentId: DEPLOYMENT,
@@ -175,7 +340,9 @@ test("requires registry tag digest, settled rollout and complete instance observ
         instances: {
           active: 1,
           assigned: 0,
-          healthy: 7,
+          // Captured Cloudflare shape: one active instance plus six healthy
+          // idle instances account for the seven configured instances.
+          healthy: 6,
           failed: 0,
           starting: 0,
           stopped: 0,
@@ -253,7 +420,12 @@ test("requires registry tag digest, settled rollout and complete instance observ
 });
 
 test("recovery execution records verified only after a matching image and settled rollout", async () => {
-  for (const mode of ["wrong-digest", "success", "receipt-failure"]) {
+  for (const mode of [
+    "wrong-digest",
+    "success",
+    "receipt-failure",
+    "unchanged",
+  ]) {
     const wrongDigest = mode === "wrong-digest";
     const root = mkdtempSync(path.join(tmpdir(), "openmeld-remote-recovery-"));
     const repository = path.join(root, "repository");
@@ -299,6 +471,27 @@ test("recovery execution records verified only after a matching image and settle
         readGuardedLocalReleaseSources({ cwd: repository, remote }).get(
           "remote-agent"
         );
+      if (mode === "unchanged") {
+        publish(
+          {
+            ...receipt,
+            attemptId: "00000000-0000-4000-8000-000000000009",
+            status: "verified",
+            application: "applied",
+            identity: {
+              kind: "worker-deployment",
+              workerName: "openmeld-remote-agent-prod",
+              environment: "prod",
+              sourceSha,
+              deploymentId: DEPLOYMENT,
+              versionId: VERSION,
+              proof: "command-output",
+            },
+          },
+          undefined,
+          "2026-09-20T15:00:00.000Z"
+        );
+      }
       publish(receipt, undefined, "2026-09-20T15:20:33.062Z");
       publish(
         { ...receipt, status: "failed" },
@@ -358,6 +551,45 @@ test("recovery execution records verified only after a matching image and settle
         },
       };
       let deployed = false;
+      if (mode === "unchanged") {
+        target.container.version = baseline.containerVersion;
+        target.container.configuration.image = OLD_IMAGE;
+        target.imageDigest = OLD_IMAGE.split("@")[1];
+        target.images[0].tags = [VERSION.slice(0, 8)];
+        target.nativeProvenance = proveNativeBaseline({
+          ...target,
+          verifiedHistoryBaseline: original.verifiedHistoryBaseline,
+          startedAt: receipt.startedAt,
+        });
+        recovery.nativeProvenance = target.nativeProvenance;
+        assert.throws(() =>
+          verifyRecoveredRemoteAgentTarget({
+            ...target,
+            nativeProvenance: undefined,
+          })
+        );
+        assert.throws(() =>
+          proveNativeBaseline({ ...target, startedAt: receipt.startedAt })
+        );
+        assert.throws(() =>
+          verifyRecoveredRemoteAgentTarget({
+            ...target,
+            imageDigest: NEW_DIGEST,
+          })
+        );
+        assert.throws(() =>
+          verifyRecoveredRemoteAgentTarget({
+            ...target,
+            container: {
+              ...target.container,
+              configuration: {
+                ...target.container.configuration,
+                env: [{ name: "changed", value: "true" }],
+              },
+            },
+          })
+        );
+      }
       let attemptedVerified = false;
       const execute = () =>
         executeRemoteAgentRecovery({
@@ -424,6 +656,12 @@ test("recovery execution records verified only after a matching image and settle
         assert.equal(read().receipt.status, "verified");
         assert.equal(read().receipt.attemptId, ATTEMPT);
         assert.equal(read().receipt.identity.versionId, identity.versionId);
+        if (mode === "unchanged") {
+          assert.deepEqual(
+            readNativeHistoryBaseline(repository, read()),
+            original.verifiedHistoryBaseline
+          );
+        }
       }
       const parents = git(
         repository,

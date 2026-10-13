@@ -2,7 +2,8 @@ import type { FlueObservation } from "@flue/runtime";
 import { describe, expect, it, vi } from "vitest";
 import {
   getRemoteAgentExecutionSubmissionId,
-  runWithRemoteAgentSubmissionExecution,
+  REMOTE_AGENT_EXECUTION_INSTRUMENTATION,
+  registerRemoteAgentExecutionPreparation,
 } from "../flue-adapter/execution-context";
 import { createCenterAgentObservationDispatcher } from "../flue-adapter/observation-dispatcher";
 
@@ -16,15 +17,18 @@ describe("Center Agent observation dispatcher", () => {
     });
     const handledEventIndexes: number[] = [];
     const observedSubmissionIds: Array<string | null> = [];
+    const observedResponseInputIds: Array<string | null> = [];
+    let responseInputId = "original-input";
     const scheduledTasks: Promise<void>[] = [];
     const scheduleBackground = vi.fn((task: Promise<void>) => {
       scheduledTasks.push(task);
     });
     const dispatch = createCenterAgentObservationDispatcher({
-      handle: async (event) => {
+      handle: async (event, inputId) => {
         activeHandlers += 1;
         maxActiveHandlers = Math.max(maxActiveHandlers, activeHandlers);
         observedSubmissionIds.push(getRemoteAgentExecutionSubmissionId());
+        observedResponseInputIds.push(inputId);
         if (event.eventIndex === 0) {
           await firstHandlerGate;
         }
@@ -37,11 +41,25 @@ describe("Center Agent observation dispatcher", () => {
       createObservation({ eventIndex, instanceId: "space_1" })
     );
 
-    const tasks = events.map((event) =>
-      runWithRemoteAgentSubmissionExecution("submission_1", () =>
-        dispatch(event)
-      )
-    );
+    const restore = registerRemoteAgentExecutionPreparation(async () => ({
+      interactiveResponseId: () => responseInputId,
+    }));
+    let tasks: Promise<void>[];
+    try {
+      tasks = await REMOTE_AGENT_EXECUTION_INSTRUMENTATION.interceptor(
+        {
+          operationId: "dispatch-observations",
+          operationKind: "prompt",
+          type: "agent",
+        },
+        { submissionId: "submission_1" },
+        () => Promise.resolve(events.map((event) => dispatch(event)))
+      );
+    } finally {
+      restore();
+    }
+    // A new input becomes current while the old response is still queued.
+    responseInputId = "new-check-in";
     await vi.waitFor(() => expect(activeHandlers).toBe(1));
 
     expect(scheduleBackground).toHaveBeenCalledTimes(events.length);
@@ -56,6 +74,9 @@ describe("Center Agent observation dispatcher", () => {
     );
     expect(observedSubmissionIds).toEqual(
       Array.from({ length: events.length }, () => "submission_1")
+    );
+    expect(observedResponseInputIds).toEqual(
+      Array.from({ length: events.length }, () => "original-input")
     );
   });
 

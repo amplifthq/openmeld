@@ -1511,20 +1511,29 @@ async function flushWakeProgressRefreshes(
 		input.spaceId,
 		input.openMeldProfileId
 	);
+	const detailsQueryKey = ["spaces", "message-details", input.spaceId] as const;
 	while (
 		input.wakeProgressRefreshScopeRef.current === input.scope &&
 		input.scope.pending
 	) {
 		input.scope.pending = false;
-		const wasAlreadyFetching = input.queryClient.isFetching({ queryKey }) > 0;
+		const wasAlreadyFetching =
+			input.queryClient.isFetching({ queryKey }) > 0 ||
+			input.queryClient.isFetching({ queryKey: detailsQueryKey }) > 0;
 		try {
-			await input.queryClient.invalidateQueries(
-				{
-					queryKey,
-					refetchType: "active",
-				},
-				{ cancelRefetch: false }
-			);
+			await Promise.all([
+				input.queryClient.invalidateQueries(
+					{
+						queryKey,
+						refetchType: "active",
+					},
+					{ cancelRefetch: false }
+				),
+				input.queryClient.invalidateQueries(
+					{ queryKey: detailsQueryKey, refetchType: "active" },
+					{ cancelRefetch: false }
+				),
+			]);
 		} catch (error) {
 			console.warn(
 				"[openmeld.web.space.wake_progress_invalidation_refresh_failed]",

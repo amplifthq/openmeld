@@ -2,7 +2,7 @@
   "$schema": "https://www.schemastore.org/package.json",
   "name": "@openmeld/desktop",
   "productName": "OpenMeld Dev",
-  "version": "0.1.29",
+  "version": "0.1.31",
   "private": true,
   "type": "module",
   "main": "out/main/index.js",
@@ -40,6 +40,7 @@
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "semver": "7.7.4",
+    "undici": "7.30.0",
     "ws": "^8.18.3",
     "yaml": "2.8.2",
     "zod": "catalog:"

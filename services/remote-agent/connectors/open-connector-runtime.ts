@@ -19,6 +19,7 @@ const TRAILING_SLASH_PATTERN = /\/+$/u;
 const OPENCONNECTOR_ACTION_SEARCH_LIMIT = 50;
 export async function listOpenConnectorActions(input: {
   actionId?: string;
+  connectionName?: string;
   connectorExecution?: ConnectorExecutionConfig;
   service: ConnectorService;
 }): Promise<OpenConnectorRuntimeAction[]> {
@@ -26,6 +27,9 @@ export async function listOpenConnectorActions(input: {
   const query = new URLSearchParams({ service: input.service });
   if (input.actionId) {
     query.set("actionId", input.actionId);
+  }
+  if (input.connectionName) {
+    query.set("connectionName", input.connectionName);
   }
   const response = await runtime.fetch(
     `${runtime.baseUrl}/v1/actions?${query}`,

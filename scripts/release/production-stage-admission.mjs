@@ -3,7 +3,10 @@
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
-import { expandRequestedReleaseScopes } from "./production-release.mjs";
+import {
+  expandRequestedReleaseScopes,
+  resolveProductionLeaseScopes,
+} from "./production-release.mjs";
 import { collectProductionReleaseStatus } from "./production-release-status.mjs";
 
 const EXACT_SHA_PATTERN = /^[0-9a-f]{40}$/u;
@@ -13,7 +16,40 @@ const HOSTED_SCOPE_ALIASES = new Map([
   ["database-core", "db,core"],
 ]);
 
+export function isProductionRecoveryCandidate(component, sourceSha) {
+  return (
+    component.recovery?.admission === "candidate" &&
+    component.recovery.sourceSha === sourceSha &&
+    (component.recovery.kind === "guarded-health-resume" ||
+      (component.scope === "remote-agent" &&
+        [
+          "guarded-remote-container-continuation",
+          "guarded-remote-native-verification",
+        ].includes(component.recovery.kind)) ||
+      (component.scope === "db" &&
+        component.recovery.kind === "guarded-postgresql-forward-retry") ||
+      (component.scope === "core" &&
+        component.recovery.kind === "guarded-core-upload-retry"))
+  );
+}
+
 export function assertProductionStageAdmission(input) {
+  const admission = assertSelectedProductionStage(input);
+  if (
+    input.selectedScopes.includes("cli") &&
+    !input.selectedScopes.includes("core")
+  ) {
+    // CLI also publishes its Core projection. Check its full write set after
+    // checking CLI's own prerequisites, so expansion cannot satisfy Core->CLI.
+    assertSelectedProductionStage({
+      ...input,
+      selectedScopes: resolveProductionLeaseScopes(input.selectedScopes),
+    });
+  }
+  return admission;
+}
+
+function assertSelectedProductionStage(input) {
   const selected = new Set(input.selectedScopes);
   const pendingComponents = input.components.filter(
     (component) => component.state === "pending"
@@ -51,13 +87,7 @@ export function assertProductionStageAdmission(input) {
       required.has(component.scope) &&
       !(
         selected.has(component.scope) &&
-        (component.recovery?.kind === "guarded-health-resume" ||
-          (component.scope === "db" &&
-            component.recovery?.kind === "guarded-postgresql-forward-retry") ||
-          (component.scope === "core" &&
-            component.recovery?.kind === "guarded-core-upload-retry")) &&
-        component.recovery.admission === "candidate" &&
-        component.recovery.sourceSha === input.sourceSha
+        isProductionRecoveryCandidate(component, input.sourceSha)
       )
   );
   if (unresolved.length > 0) {
@@ -155,6 +185,7 @@ export async function runProductionStageAdmission(input = {}) {
   const status = await (input.collectStatus ?? collectProductionReleaseStatus)({
     argv: ["--ref", sourceSha, ...(input.repo ? ["--repo", input.repo] : [])],
     adapters: input.adapters,
+    remoteAgentRecovery: input.remoteAgentRecovery,
   });
   const sourceBlockers = status.sourceValidationBlockers ?? status.blockers;
   if (sourceBlockers.length > 0) {

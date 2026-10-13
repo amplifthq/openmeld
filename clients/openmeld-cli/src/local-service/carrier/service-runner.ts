@@ -8,6 +8,7 @@ import {
 import { resolveRouteRegistrationReconcileDecision } from "@openmeld/local-service/service-reconcile-decision";
 import {
   COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY,
+  COMPUTER_POWER_CAPABILITY_HEADER,
   daemonServiceLaneSchema,
   LOCAL_EXECUTION_INPUT_CAPABILITY_HEADER,
   LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY,
@@ -175,6 +176,7 @@ function buildLocalServiceCapabilityHeaders(input: {
   localFolderPickerAvailable: boolean;
 }): Record<string, string> {
   return {
+    [COMPUTER_POWER_CAPABILITY_HEADER]: "1",
     [LOCAL_EXECUTION_INPUT_CAPABILITY_HEADER]: "1",
     ...(process.platform === "darwin"
       ? { [SPACE_WORK_HANDOFF_CAPABILITY_HEADER]: "1" }

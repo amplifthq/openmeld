@@ -1,10 +1,15 @@
+import { DatabaseSync } from "node:sqlite";
+import type { CloudComputerInvocationState } from "@openmeld/schemas";
+import type { AiUsageRecord } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
+import { cloudflare } from "../.flue/agents/center-agent";
 import {
   createRemoteAgentCallbackContext,
   putRemoteAgentCallbackContext,
   readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
 import {
+  buildRemoteAgentExecutionIdentity,
   buildRemoteAgentExecutionStateKey,
   completeRemoteAgentExecutionState,
   initializeRemoteAgentExecutionState,
@@ -28,6 +33,12 @@ import {
   runDurableAuxiliaryInference,
   submitConversationTurnToCenterAgent,
 } from "../flue-adapter/cloudflare-entrypoint";
+import { bindComputerCommandTarget } from "../flue-adapter/computer-command";
+import {
+  listComputerCleanupHandoffs,
+  requestComputerCleanup,
+} from "../flue-adapter/execution-cleanup";
+import { createRemoteAgentSqlStorage } from "../flue-adapter/storage";
 import {
   createRoutineTurnEnvelope,
   createSubmitTurnRequest,
@@ -36,6 +47,52 @@ import {
 import { InMemoryDurableObjectStorage } from "./storage";
 
 const RECEIPT_PREFIX = "openmeld:remote-agent:submission-receipt:";
+
+function createCloudflareSqlHarness(database: DatabaseSync) {
+  return {
+    exec(query: string, ...bindings: unknown[]) {
+      const statement = database.prepare(query);
+      if (statement.columns().length > 0) {
+        const rows = statement.all(...(bindings as never[])) as Record<
+          string,
+          unknown
+        >[];
+        return { rowsWritten: 0, toArray: () => rows };
+      }
+      const result = statement.run(...(bindings as never[]));
+      return { rowsWritten: Number(result.changes), toArray: () => [] };
+    },
+  };
+}
+
+async function seedPendingUsage(
+  storage: ReturnType<typeof createRemoteAgentSqlStorage>,
+  count: number
+) {
+  for (let index = 0; index < count; index++) {
+    const record: AiUsageRecord = {
+      eventId: `usage-${index}`,
+      organizationId: "org-1",
+      purpose: "agent",
+      agentProfileId: "agent-1",
+      spaceId: "space-1",
+      taskId: "task-1",
+      attemptId: "attempt-1",
+      provider: "openrouter",
+      model: "openai/gpt-5",
+      source: "openrouter_response",
+      status: "pending",
+      providerRequestId: null,
+      occurredAtMs: TEST_NOW_MS,
+      runtime: "remote",
+      controller: null,
+      computerId: null,
+      tokens: null,
+      cost: null,
+    };
+    await storage.put(`openmeld:ai-usage:pending:${record.eventId}`, record);
+  }
+}
 
 describe("Flue Cloudflare entrypoints", () => {
   it("reads Stop proof from the original Task owner without cancelling or admitting work", async () => {
@@ -591,9 +648,12 @@ describe("Flue Cloudflare entrypoints", () => {
       expect(consoleError).toHaveBeenCalledWith(
         "[remote_agent.execution.reconciliation_failed]",
         expect.objectContaining({
-          error: readError.message,
+          errorName: "Error",
           submissionId: unreadableSubmissionId,
         })
+      );
+      expect(JSON.stringify(consoleError.mock.calls)).not.toContain(
+        readError.message
       );
       expect(completeRemoteAgentSubmission).toHaveBeenCalledOnce();
       expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
@@ -614,6 +674,138 @@ describe("Flue Cloudflare entrypoints", () => {
       );
     } finally {
       consoleError.mockRestore();
+    }
+  });
+
+  it.each([
+    { failure: "usage_flush", pendingUsageCount: 1 },
+    { failure: "usage_rearm", pendingUsageCount: 100 },
+    { failure: "missing_reader", pendingUsageCount: 0 },
+  ] as const)("continues the original Stop cleanup when the callback alarm fails at $failure", async ({
+    failure,
+    pendingUsageCount,
+  }) => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(TEST_NOW_MS);
+    const database = new DatabaseSync(":memory:");
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    try {
+      const sql = createCloudflareSqlHarness(database);
+      const storage = createRemoteAgentSqlStorage(sql);
+      const request = createSubmitTurnRequest();
+      const submissionId = "submission_alarm_cleanup";
+      const context = {
+        ...createRemoteAgentCallbackContext({
+          request,
+          nowMs: TEST_NOW_MS,
+          ack: {
+            accepted: true,
+            createdAt: TEST_NOW_MS,
+            idempotencyKey: request.idempotencyKey,
+            status: "pending",
+            submissionId,
+          },
+        }),
+        computerIsolationVersion: 3 as const,
+      };
+      await putRemoteAgentCallbackContext(storage, context);
+      await initializeRemoteAgentExecutionState({
+        acceptedAtMs: TEST_NOW_MS,
+        identity: buildRemoteAgentExecutionIdentity(context),
+        storage,
+      });
+      await bindComputerCommandTarget({
+        storage,
+        submissionId,
+        computerName: "personal-computer:original-owner",
+      });
+      const state: CloudComputerInvocationState = {
+        invocationId: submissionId,
+        total: 0,
+        unfinished: 0,
+        pendingResults: 0,
+        unavailable: 0,
+        commands: [],
+      };
+      const deliverCleanup = vi
+        .fn(async () => state)
+        .mockRejectedValueOnce(new Error("cleanup acknowledgement lost"));
+      const usageError = new Error("usage settlement unavailable");
+      const recordRemoteAiUsage = vi.fn(() => {
+        if (failure === "usage_flush") {
+          return Promise.reject(usageError);
+        }
+        return Promise.resolve({ status: "accepted" as const });
+      });
+      const env = {
+        OPENMELD_CORE_WORKER: { recordRemoteAiUsage },
+        AGENT_COMPUTER: {
+          idFromName: (name: string) => name,
+          get: () => ({
+            requestComputerCleanup: deliverCleanup,
+            readComputerInvocation: async () => state,
+            registerComputerInvocation: async () => undefined,
+          }),
+        },
+      };
+      await requestComputerCleanup({ storage, context, env });
+      await seedPendingUsage(storage, pendingUsageCount);
+      const scheduleError = new Error("alarm storage unavailable");
+      const schedule = vi.fn(() =>
+        failure === "missing_reader"
+          ? Promise.resolve(undefined)
+          : Promise.reject(scheduleError)
+      );
+      if (!cloudflare.base) {
+        throw new Error("The Cloudflare extension requires a base.");
+      }
+      const Alarm = cloudflare.base(class {} as never);
+      const alarm = Object.assign(Object.create(Alarm.prototype), {
+        ctx: { storage: { sql } },
+        env,
+        schedule,
+        ...(failure === "missing_reader"
+          ? {}
+          : {
+              __unsafe_readSubmission: async () => ({ status: "running" }),
+            }),
+      }) as { retryRemoteAgentCallbacks(): Promise<void> };
+      vi.setSystemTime(TEST_NOW_MS + 5000);
+      if (failure === "missing_reader") {
+        await expect(
+          alarm.retryRemoteAgentCallbacks()
+        ).resolves.toBeUndefined();
+        expect(consoleError).toHaveBeenCalledWith(
+          "[remote_agent.execution.reconciliation_failed]",
+          expect.objectContaining({ errorName: "Error", submissionId })
+        );
+      } else {
+        await expect(alarm.retryRemoteAgentCallbacks()).rejects.toBe(
+          scheduleError
+        );
+        expect(schedule).toHaveBeenCalled();
+      }
+      expect(recordRemoteAiUsage).toHaveBeenCalledTimes(pendingUsageCount);
+      expect(
+        (await storage.list({ prefix: "openmeld:ai-usage:pending:" })).size
+      ).toBe(failure === "usage_flush" ? 1 : 0);
+      expect(deliverCleanup).toHaveBeenCalledTimes(2);
+      expect(deliverCleanup).toHaveBeenLastCalledWith(submissionId, undefined);
+      expect(await listComputerCleanupHandoffs(storage)).toMatchObject([
+        { submissionId, attempts: 2, accepted: true, nextAttemptAtMs: null },
+      ]);
+      expect(JSON.stringify(consoleError.mock.calls)).not.toContain(
+        usageError.message
+      );
+      expect(JSON.stringify(consoleError.mock.calls)).not.toContain(
+        scheduleError.message
+      );
+    } finally {
+      database.close();
+      consoleError.mockRestore();
+      vi.useRealTimers();
     }
   });
 

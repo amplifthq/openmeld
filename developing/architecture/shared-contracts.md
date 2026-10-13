@@ -25,6 +25,21 @@
 - Source of truth: This file owns the durable boundary for shared OpenMeld contracts
   and reusable policy.
 
+## Message Details delegation opt-in
+
+Message Details accepts optional `delegationVersion: 1` and an opaque
+`delegationCursor`. Only an opted-in response includes `delegations`; its
+children reuse Wake progress, frozen task-context, terminal-outcome, and
+completion-policy schemas. A page has at most ten declared groups. Unreadable
+children cannot carry content, input, or source/result locators.
+
+Older callers receive the unchanged response shape. Older Gateway/Core code
+ignores the new reader opt-in and the new Web accepts an absent projection.
+Update Web and Gateway readers before Core emits the opted-in field. CLI,
+Service, managed Skills, setup, Wake admission, Space mutations, Stop,
+result recovery, and trace contracts are unchanged. No local-component epoch
+or required update is introduced by this read projection.
+
 ## Bounded message reads
 
 `messageReadQuerySchema` and `messageReadPageSchema` own the new
@@ -2707,7 +2722,29 @@ remain separate associations. Neither a repository association nor Common
 Agent membership authorizes file, provider, Space, or Agent execution access.
 
 For an OpenMeld-controlled new issue action, the action owner sends its exact
-proposed provider target to Core. Core verifies the active delivery and current
+proposed provider target to Core. GitHub issue and batch claims may also carry
+`issueDestinationAuthority: explicit_request`. The Agent declares this only for
+the verified interactive member's explicit authorization of that exact
+repository and issue-creation effect, interpreted from the complete conversation.
+Core rechecks the admitted active delivery, Organization, Agent, submission,
+verified Human sender and represented member. Explicit requests also call the
+existing execution-access owner before admission, retaining its live Binding
+and source Space membership checks independently of Project routing. Retained
+delivery/sender evidence alone never replaces those current checks.
+Core admits that request without consulting optional Project metadata; current
+connection policy and provider repository permission remain enforced by their
+owners. An absent declaration,
+Routine, Agent sender, or missing/mismatched requester evidence cannot use this
+path. Inferred, incomplete, or conflicting destinations retain confirmation.
+The declaration is included in both the operation input digest and the immutable
+batch manifest digest, and is never forwarded to GitHub. A changed declaration
+cannot resume a batch's remaining writes. Existing Plugin requests keep their
+decision authority on retry, including after a Project default changes. Fresh
+direct/default claims reuse the Plugin request owner's SQL execution guard to
+recheck request absence in the operation/audit transaction; an approval request
+that appears after preparation prevents unconfirmed admission.
+
+Otherwise, Core verifies the active delivery and current
 Task associations, returning either `project_default` or `confirmation_required`.
 Message text and object references are never parsed into write authority.
 The operation claim carries a complete structured `issueDestination`; Core
@@ -2719,7 +2756,7 @@ locks and checks the active Project row before inserting the operation and its
 attempted audit receipt. A stale claim writes neither an operation nor false
 attempted evidence. GitHub batches claim one frozen batch
 operation before writing their durable manifest. Other new issue claims reuse
-`plugin_action_requests` and the private Inbox approval flow. The existing
+`plugin_action_requests` and the private conversation/Inbox approval flow. The existing
 request digest binds the actor, operation, connection, complete target and action
 input identity. Only its Human recipient can approve; the claim's SQL guard
 rechecks approval state, expiry, membership, connection generation and access
@@ -2733,6 +2770,21 @@ from a later Project edit. The Project rule never substitutes for current
 connection and actor authorization. Local Plugin calls use their verified
 dispatch source Task or the same exact-action Inbox confirmation; direct third-party tools outside
 OpenMeld are not covered by this boundary.
+
+The optional authority field changes the hosted Remote Agent-to-Core request
+only. Deploy Core before Remote Agent for the direct-admission behavior. Old
+callers omit it and retain Project/default confirmation behavior; old Core
+ignores the new field in its explicit input projection and still requires its
+existing confirmation. No response enum, stored intent, database migration,
+CLI/Service/Skills contract floor, setup, Wake, Space action, or diagnostic
+payload changes. Local Plugin calls retain their existing dispatch/confirmation
+path. Shared-schema packaging impact must be checked by release readiness;
+this change does not publish a local component. Rollback preserves the existing
+operation and approval owners and exact-input replay identity. Legacy batches
+without a declaration keep their original digest. An older Remote Agent cannot
+resume a batch created with explicit destination authority: its immutable
+manifest comparison fails closed before remaining writes. Restore the compatible
+caller to resume that operation; never replace its ID to bypass the mismatch.
 
 Apply PostgreSQL migration `0027_project_workflow` before the Core readers and
 writers. Historical D1 migrations remain unchanged. The

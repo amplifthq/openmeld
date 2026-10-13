@@ -163,6 +163,8 @@ import {
   centerAgentWatchAgentTaskBodySchema,
   centerAgentWatchAgentTaskResponseSchema,
   centerAgentWipeMemberMemoryResponseSchema,
+  computerPowerResultSchema,
+  computerPowerRpcInputSchema,
   connectorAppRequestListResponseSchema,
   connectorAppRequestResponseSchema,
   connectorConnectionNameSchema,
@@ -521,6 +523,7 @@ import type {
   ComputerFileAccessPolicyResponse,
   ComputerFileAccessReadRpcInput,
   ComputerFileAccessUpdateRpcInput,
+  ComputerPowerRpcInput,
   ConnectorAppRequestListResponse,
   ConnectorAppRequestResponse,
   ConnectorConnection,
@@ -963,7 +966,10 @@ import {
 import type { CenterAgentWakePublicationCommand } from "../center-agent/infrastructure/postgresql/center-agent-wake-publication-repo";
 import { startCenterAgentMemberResearch } from "../center-agent-member-research/member-research-service";
 import type { CenterAgentMemoryEpisodeOrigin } from "../center-agent-memory/contract";
-import { createCoreCenterAgentMemoryService } from "../center-agent-memory/core-memory-service";
+import {
+  createCoreCenterAgentMemoryService,
+  readCoreOrganizationMemoryAvailability,
+} from "../center-agent-memory/core-memory-service";
 import {
   resolveExplicitMemoryEpisodeOrigin,
   resolveExplicitMemorySourceDeliveryDb,
@@ -1021,6 +1027,7 @@ import {
   type DispatchHistoryEntry,
   listRecentDispatchLedgerEntriesForSpace,
 } from "../dispatch/infrastructure/postgresql/dispatch-ledger-postgresql";
+import { callRuntimeTransportApi as callPowerTransport } from "../dispatch/infrastructure/runtime-transport/runtime-transport-api-client";
 import {
   acquireRuntimeTransportAgentProfileExecutionTargetMutation,
   acquireRuntimeTransportAgentProfileFutureWorkSettingsMutation,
@@ -2855,6 +2862,8 @@ export type GetSpaceWakeTraceWaterfallInput = {
   spaceAccess?: SpaceAccessContext;
 };
 export type GetSpaceMessageDetailsInput = {
+  delegationVersion?: 1;
+  delegationCursor?: string;
   spaceId: string;
   signalId: string;
   executionContextVersion?: 1;
@@ -3476,6 +3485,7 @@ export type ListCenterAgentAuditJournalInput =
   };
 export type ReadCenterAgentOrganizationMemoryPolicyInput = {
   context?: CoreRpcContextInput;
+  includeAvailability?: boolean;
 };
 export type SetCenterAgentOrganizationMemoryPolicyInput =
   UpdateCenterAgentOrganizationMemoryPolicyBody & {
@@ -3501,6 +3511,7 @@ export type WipeCurrentMemberCenterAgentMemoryInput = {
 export type CenterAgentRememberForOrganizationInput =
   CenterAgentRememberForOrganizationBody & {
     context?: CoreRpcContextInput;
+    includeStatus?: boolean;
     speakerMember?: {
       memberId: string;
       userId: string;
@@ -11344,6 +11355,14 @@ export async function rpcReadCenterAgentOrganizationMemoryPolicy(
   );
   const policy = await repository.readPolicy(activeOrganization.organizationId);
   return centerAgentOrganizationMemoryPolicyResponseSchema.parse({
+    ...(input.includeAvailability
+      ? {
+          availability: await readCoreOrganizationMemoryAvailability(
+            env,
+            activeOrganization.organizationId
+          ),
+        }
+      : {}),
     organizationId: activeOrganization.organizationId,
     organizationMemoryOptIn: policy.organizationMemoryOptIn,
     provider: "zep_cloud",
@@ -11540,18 +11559,32 @@ export async function rpcCenterAgentRememberForOrganization(
     });
   }
   const memoryService = requireCenterAgentMemoryService(env);
+  let saveStatus: "processing" | "processed";
   try {
     const origin = await requireExplicitMemoryEpisodeOrigin({
       authorization,
       env,
     });
-    await memoryService.rememberFactForOrganization({
+    const receipt = await memoryService.rememberFactForOrganization({
       fact: parsed.data.fact,
       organizationId: authorization.activeOrganization.organizationId,
       origin,
       speakerMember,
     });
+    saveStatus = receipt.status;
   } catch (error) {
+    if (
+      toErrorMessage(error) ===
+        "center_agent_memory.organization_write_timeout" ||
+      toErrorMessage(error) === "center_agent_memory.write_receipt_missing"
+    ) {
+      throw createCoreRpcHttpError({
+        status: 504,
+        reason:
+          "The memory provider did not confirm the save. It may still be processing. Search for the fact before trying to save it again.",
+        code: "center_agent_memory.write_outcome_unknown",
+      });
+    }
     if (
       toErrorMessage(error).includes(
         "center_agent_memory.organization_memory_opt_in_required"
@@ -11560,7 +11593,7 @@ export async function rpcCenterAgentRememberForOrganization(
       throw createCoreRpcHttpError({
         status: 403,
         reason:
-          "Organization memory is off. Ask an Organization owner or admin to turn on organization memory from the Center Agent page (Manage → Memory).",
+          "Organization memory is off. Ask an owner or admin to enable it in Center Agent settings.",
         code: "center_agent_memory.organization_memory_opt_in_required",
       });
     }
@@ -11570,6 +11603,7 @@ export async function rpcCenterAgentRememberForOrganization(
     fact: parsed.data.fact,
     organizationId: authorization.activeOrganization.organizationId,
     saved: true,
+    ...(input.includeStatus ? { status: saveStatus } : {}),
     source: "explicit_tool",
   });
 }
@@ -16520,6 +16554,7 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     providerExecutionId: input.providerExecutionId,
     requestSignature: input.requestSignature,
     issueDestination: input.issueDestination,
+    issueDestinationAuthority: input.issueDestinationAuthority,
     linearIssueReceipt: input.linearIssueReceipt,
     githubIssueCompletion: input.githubIssueCompletion,
     includeGitHubTaskSync: input.includeGitHubTaskSync,
@@ -22697,6 +22732,8 @@ export async function rpcGetSpaceMessageDetails(
   input: GetSpaceMessageDetailsInput
 ): Promise<GetSpaceMessageDetailsResponse> {
   const parsed = getSpaceMessageDetailsInputSchema.safeParse({
+    delegationVersion: input.delegationVersion,
+    delegationCursor: input.delegationCursor,
     spaceId: input.spaceId,
     signalId: input.signalId,
     ...(input.executionContextVersion
@@ -22717,7 +22754,7 @@ export async function rpcGetSpaceMessageDetails(
     env,
     parsed.data.spaceId
   );
-  return await stub.rpcGetMessageDetails({
+  const details = await stub.rpcGetMessageDetails({
     spaceId,
     signalId: parsed.data.signalId,
     ...(parsed.data.executionContextVersion
@@ -22725,6 +22762,50 @@ export async function rpcGetSpaceMessageDetails(
       : {}),
     ...access,
   });
+  if (parsed.data.delegationVersion !== 1) {
+    return details;
+  }
+  const { readSpaceMessageDelegations } = await import(
+    "../space/application/space-message-delegations"
+  );
+  const delegations = await readSpaceMessageDelegations({
+    db: requireAgentTaskCoordinationDb(env),
+    details,
+    after: parsed.data.delegationCursor,
+    readTarget: async (childSpaceId, profileId) => {
+      const directory = await rpcGetSpaceIdentityDirectory(env, {
+        spaceId: childSpaceId,
+        ...(childSpaceId === spaceId ? access : { context: access.context }),
+      });
+      return (
+        directory.entries.find(
+          (entry) =>
+            entry.profileId === profileId && entry.profileKind === "agent"
+        )?.profileName ?? null
+      );
+    },
+    readMessage: async (childSpaceId, signalId) => {
+      const child = resolveRpcSpaceStubOrThrow(env, childSpaceId);
+      return await child.stub.rpcGetMessageDetails({
+        spaceId: child.spaceId,
+        signalId,
+        executionContextVersion: 1,
+        // Source-Space passwords and continuation grants never authorize another Space.
+        ...(child.spaceId === spaceId ? access : { context: access.context }),
+      });
+    },
+    readProgress: async (childSpaceId, clientMessageId, targetProfileId) => {
+      return await rpcGetSpaceWakeProgress(env, {
+        spaceId: childSpaceId,
+        clientMessageId,
+        targetProfileId,
+        includeSourceContext: true,
+        includeWakeStopEligibility: true,
+        ...(childSpaceId === spaceId ? access : { context: access.context }),
+      });
+    },
+  });
+  return { ...details, delegations };
 }
 export async function rpcCreateSpaceDiagnosticReport(
   env: CoreBindings,
@@ -26954,4 +27035,56 @@ async function resolveSessionHistoryAgentTarget(
   }
 
   return target;
+}
+
+export async function rpcComputerPowerSettings(
+  env: CoreBindings,
+  raw: ComputerPowerRpcInput
+) {
+  const input = computerPowerRpcInputSchema.parse(raw);
+  const ownerUserId = requireAuthenticatedOwnerUserId(input.context);
+  if (
+    input.context.actorContext.profileKind !== "human" ||
+    input.context.actorContext.callerPrincipalId !== ownerUserId
+  ) {
+    throw createCoreRpcHttpError({
+      status: 403,
+      code: "computer.power.denied",
+      reason: "Only the computer owner can manage sleep prevention.",
+    });
+  }
+  const target = { deviceId: input.deviceId, runtimeLane: input.runtimeLane };
+  const { localRuntimes, ownerService } =
+    await resolveCurrentLocalServiceContext({
+      env,
+      userId: ownerUserId,
+      target,
+    });
+  requirePeopleComputerControlSession({
+    target,
+    inventory: localRuntimes,
+    ownerService,
+  });
+  const result = computerPowerResultSchema.parse(
+    await callPowerTransport({
+      env,
+      ownerUserId,
+      path: "/computer-power",
+      body: {
+        ownerUserId,
+        deviceId: target.deviceId,
+        lane: target.runtimeLane,
+        requestId: crypto.randomUUID(),
+        request: input.request,
+      },
+    })
+  );
+  if ("status" in result) {
+    throw createCoreRpcHttpError({
+      status: 409,
+      code: result.code,
+      reason: result.message,
+    });
+  }
+  return result;
 }

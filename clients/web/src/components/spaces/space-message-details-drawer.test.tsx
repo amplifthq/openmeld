@@ -116,6 +116,130 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 describe("SpaceMessageDetailsDrawer", () => {
+	it("shows partial delegated outcomes and links an unloaded child through its durable message URL", () => {
+		const details = createHumanMessageDetails();
+		details.delegations = {
+			nextCursor: null,
+			groups: [
+				{
+					delegationId: "delegation-1",
+					coordinatorProfileId: "center",
+					completionPolicy: { mode: "resume_parent", when: "all_terminal" },
+					children: [
+						{
+							key: "child-1",
+							availability: "readable",
+							coordinationState: "terminal",
+							role: "primary",
+							spaceId: "space-123",
+							sourceSignalId: "unloaded-source",
+							resultSignalId: "sig-agent-reply",
+							targetProfileId: "reviewer",
+							targetLabel: "Reviewer",
+							taskPreview: "Review the pinned revision.",
+							progress: null,
+							outcome: {
+								status: "failed",
+								eventId: "failed",
+								errorCode: "failed",
+								occurredAtMs: 100,
+								publishedSignalId: "sig-agent-reply",
+							},
+						},
+						{
+							key: "child-2",
+							availability: "readable",
+							coordinationState: "active",
+							role: "primary",
+							spaceId: "space-123",
+							sourceSignalId: "sig-source",
+							resultSignalId: null,
+							targetProfileId: "waiting-reviewer",
+							targetLabel: "Waiting reviewer",
+							taskContext: {
+								assignment: {
+									readStatus: "not_recorded",
+									reasonCode: "execution_context.assignment_not_recorded",
+								},
+								conversationResume: null,
+							},
+							taskPreview: "Ask the owner to choose a label.",
+							outcome: null,
+							progress: {
+								clientMessageId: "waiting-request",
+								sourceSignalId: "sig-source",
+								dispatchId: "waiting-dispatch",
+								targetProfileId: "waiting-reviewer",
+								targetLabel: "Waiting reviewer",
+								phase: "running",
+								terminal: false,
+								updatedAtMs: 100,
+								message: "The reviewer is working on the computer.",
+								pendingInteraction: {
+									interactionId: "question",
+									kind: "question",
+									requestedAtMs: 100,
+									expiresAtMs: 200,
+									canRespond: false,
+									request: null,
+								},
+							},
+						},
+					],
+				},
+			],
+		};
+		const failedChild = details.delegations.groups[0]?.children[0];
+		const waitingProgress =
+			details.delegations.groups[0]?.children[1]?.progress;
+		if (!(failedChild && waitingProgress?.pendingInteraction)) {
+			throw new Error("Expected failed and waiting delegation fixtures");
+		}
+		// A terminal coordination outcome can arrive before the stream clears its question.
+		failedChild.progress = {
+			...waitingProgress,
+			clientMessageId: "failed-request",
+			dispatchId: "failed-dispatch",
+			sourceSignalId: "unloaded-source",
+			targetProfileId: "reviewer",
+			targetLabel: "Reviewer",
+			pendingInteraction: {
+				...waitingProgress.pendingInteraction,
+				interactionId: "stale-question",
+				canRespond: true,
+			},
+		};
+		useQueryMock.mockReturnValue(createQueryResult({ data: details }));
+		const onJumpToMessage = vi.fn();
+		renderMessageDetailsPanel({
+			item: createTimelineItem({ id: "sig-source" }),
+			onJumpToMessage,
+		});
+		const delegated = within(
+			screen.getByRole("region", { name: "Delegated work" })
+		);
+		expect(
+			delegated.getByText("1 failed · 1 waiting for owner input")
+		).toBeTruthy();
+		expect(
+			delegated.queryByText("The reviewer is working on the computer.")
+		).toBeNull();
+		expect(delegated.getByText("Open waiting task")).toBeTruthy();
+		expect(delegated.getByText("Task context unavailable")).toBeTruthy();
+		expect(delegated.queryByText("Respond to pending input")).toBeNull();
+		expect(
+			delegated.getByText(
+				"The coordinating Agent owns the follow-up after all delegated tasks finish, including failures."
+			)
+		).toBeTruthy();
+		expect(
+			delegated.getByText("Open failed task").closest("a")?.getAttribute("href")
+		).toContain("unloaded-source");
+		fireEvent.click(delegated.getByText("View result"));
+		expect(onJumpToMessage).toHaveBeenCalledWith("sig-agent-reply");
+		expect(delegated.queryByText("Stop")).toBeNull();
+	});
+
 	it("keeps unavailable task settings visible without offering recovery", () => {
 		const details = createWakeSuccessReplyDetails();
 		const target = details.wakeContext.targets[0];

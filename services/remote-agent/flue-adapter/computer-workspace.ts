@@ -1,7 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { posix } from "node:path";
 import {
-  type DurableObjectStorageLike,
   getWorkspace,
   Workspace,
   type WorkspaceStub,
@@ -12,6 +11,8 @@ import {
 } from "@cloudflare/computer/backends/container-legacy";
 import { WorkerJavaScriptBackend } from "@cloudflare/computer/backends/worker-javascript";
 import { WorkerShellBackend } from "@cloudflare/computer/backends/worker-shell";
+import { createArtifactsModule } from "@cloudflare/computer/modules/artifacts";
+import { createGitModule } from "@cloudflare/computer/modules/git";
 import curlModules from "@cloudflare/computer/shell/curl";
 import fileModules from "@cloudflare/computer/shell/file";
 import htmlToMarkdownModules from "@cloudflare/computer/shell/html-to-markdown";
@@ -48,10 +49,16 @@ import {
   collectComputerCommands,
   createComputerCommandTool,
   listPendingRemoteAgentComputerCommands,
+  readStoredComputerInvocation,
+  requestStoredComputerCleanup,
   stopStoredComputerCommands,
 } from "./computer-command";
 import { ComputerCommandSqlStorage } from "./computer-command-storage";
 import { ComputerFiles } from "./computer-files";
+import {
+  readComputerRecovery,
+  registerComputerInvocation,
+} from "./computer-invocations";
 import { createComputerFileTools, describeComputer } from "./computer-native";
 import {
   inspectComputerPreview,
@@ -67,6 +74,7 @@ import {
   AGENT_COMPUTER_CONTAINER_BACKEND_ID,
   AGENT_COMPUTER_CONTAINER_ENV,
   AGENT_COMPUTER_SHELL_BACKEND_ID,
+  AGENT_COMPUTER_STORAGE_CAPACITY_BYTES,
   buildAgentComputerSpaceDirectory,
 } from "./computer-workspace-config";
 import {
@@ -210,6 +218,21 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
     });
   }
   readonly #commands = new ComputerCommandSqlStorage(this.ctx.storage.sql);
+  #maintenanceRevision = 0;
+  #maintenanceAlarm: Promise<void> | undefined;
+
+  private requestWorkspaceMaintenance() {
+    this.#maintenanceRevision++;
+    if (this.#maintenanceAlarm) {
+      return;
+    }
+    this.#maintenanceAlarm = this.scheduleAlarm(Date.now() + 250).finally(
+      () => {
+        this.#maintenanceAlarm = undefined;
+      }
+    );
+    this.ctx.waitUntil(this.#maintenanceAlarm);
+  }
 
   private async scheduleAlarm(at: number) {
     const current = await this.ctx.storage.getAlarm();
@@ -294,19 +317,10 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
         }
       },
       scheduleCollection: () => this.scheduleAlarm(Date.now() + 15_000),
-      assertCanStart: async () => {
-        await requireRetainedAccountStorage(this.ctx.storage);
-        if (
-          await this.#commands.get(
-            `computer-invocation-stopped:${request.invocationId}`
-          )
-        ) {
-          throw new Error("computer.invocation_stopped");
-        }
-      },
+      assertCanStart: () => this.assertComputerCanStart(request.invocationId),
       workspaceAccess: {
         withWorkspace: async (operation) => {
-          using workspace = await getWorkspace(this);
+          using workspace = await getWorkspace(this.workspace);
           return await operation(workspace);
         },
       },
@@ -321,6 +335,19 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
     });
   }
 
+  private async assertComputerCanStart(invocationId: string): Promise<void> {
+    await requireRetainedAccountStorage(this.ctx.storage);
+    if (
+      await this.#commands.get(`computer-invocation-stopped:${invocationId}`)
+    ) {
+      await requestStoredComputerCleanup({
+        context: { submissionId: invocationId },
+        storage: this.#commands,
+      });
+      throw new Error("computer.invocation_stopped");
+    }
+  }
+
   async pendingComputerCommands(invocationId: string) {
     await requireRetainedAccountStorage(this.ctx.storage);
     return await listPendingRemoteAgentComputerCommands({
@@ -333,22 +360,58 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
     await requireRetainedAccountStorage(this.ctx.storage);
     // Fence delayed/in-flight starts before enumerating receipts. Each launched
     // command also checks its Stop receipt after native dispatch completes.
-    await this.#commands.putExpiring(
+    await this.#commands.put(
       `computer-invocation-stopped:${invocationId}`,
-      true,
-      Date.now() + 7 * 24 * 60 * 60 * 1000
+      true
     );
+    await this.scheduleAlarm(Date.now());
     return await stopStoredComputerCommands({
       reportConfirmedLoss: true,
       context: { submissionId: invocationId },
       storage: this.#commands,
       access: () => ({
         withWorkspace: async (operation) => {
-          using workspace = await getWorkspace(this);
+          using workspace = await getWorkspace(this.workspace);
           return await operation(workspace);
         },
       }),
     });
+  }
+
+  async readComputerInvocation(invocationId: string) {
+    await requireRetainedAccountStorage(this.ctx.storage);
+    return await readStoredComputerInvocation({
+      context: { submissionId: invocationId },
+      storage: this.#commands,
+    });
+  }
+
+  async registerComputerInvocation(value: unknown) {
+    await requireRetainedAccountStorage(this.ctx.storage);
+    await registerComputerInvocation(this.#commands, value);
+  }
+
+  async readComputerRecovery(value: unknown) {
+    await requireRetainedAccountStorage(this.ctx.storage);
+    return await readComputerRecovery(this.#commands, value);
+  }
+
+  async requestComputerCleanup(invocationId: string, resume = false) {
+    await requireRetainedAccountStorage(this.ctx.storage);
+    // Keep this fence with the receipts. A late launch acknowledgement must
+    // still observe Stop after a Worker replacement or a lost RPC response.
+    await this.#commands.put(
+      `computer-invocation-stopped:${invocationId}`,
+      true
+    );
+    await this.scheduleAlarm(Date.now());
+    const state = await requestStoredComputerCleanup({
+      context: { submissionId: invocationId },
+      storage: this.#commands,
+      resume,
+    });
+    await this.scheduleAlarm(Date.now());
+    return state;
   }
 
   async registerGitTransferGrant(value: unknown): Promise<void> {
@@ -515,9 +578,11 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
     await this.scheduleAlarm(Date.now() + 15_000);
     await collectComputerCommands({
       storage: this.#commands,
+      assertCanStart: (invocationId) =>
+        this.assertComputerCanStart(invocationId),
       workspaceAccess: {
         withWorkspace: async (operation) => {
-          using workspace = await getWorkspace(this);
+          using workspace = await getWorkspace(this.workspace);
           return await operation(workspace);
         },
       },
@@ -525,6 +590,9 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
     // Pack downloads can take minutes. Keep them out of the alarm handler so
     // they cannot block command receipts past the native retention window.
     this.ctx.waitUntil(this.collectGitPack());
+    using workspace = await getWorkspace(this.workspace);
+    const maintenanceRevision = this.#maintenanceRevision;
+    const hasSyncMaintenance = await workspace.maintainSync();
     await this.ctx.blockConcurrencyWhile(async () => {
       const jobs = await this.ctx.storage.list<GitPackJob>({
         prefix: GIT_PACK_JOB_PREFIX,
@@ -533,13 +601,20 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
       const hasGitWork = [...jobs.values()].some(
         (job) => job.status === "pending" || job.status === "running"
       );
-      if (nextCommandAt === null && !hasGitWork) {
+      const hasMaintenance =
+        hasSyncMaintenance || maintenanceRevision !== this.#maintenanceRevision;
+      if (nextCommandAt === null && !hasGitWork && !hasMaintenance) {
         await this.ctx.storage.deleteAlarm();
       } else {
         await this.ctx.storage.setAlarm(
-          hasGitWork
-            ? Date.now() + 15_000
-            : Math.max(Date.now() + 15_000, nextCommandAt ?? 0)
+          Math.max(
+            Date.now() + 100,
+            Math.min(
+              nextCommandAt ?? Number.POSITIVE_INFINITY,
+              hasMaintenance ? Date.now() + 250 : Number.POSITIVE_INFINITY,
+              hasGitWork ? Date.now() + 15_000 : Number.POSITIVE_INFINITY
+            )
+          )
         );
       }
     });
@@ -815,15 +890,19 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
         loader: this.env.LOADER as never,
         root: "/computer",
         egress: { mode: "direct" },
-        allowGitNetwork: true,
+        modules: {
+          "ws:git": createGitModule({ allowNetwork: true }),
+          "ws:artifacts": createArtifactsModule(),
+        },
         defaultTimeoutMs: 300_000,
         maxTimeoutMs: 3_600_000,
-        maxConcurrentExecutions: 4,
       }),
       this.#containerBackend,
     ],
     sessionId: this.ctx.id.toString(),
-    storage: this.ctx.storage as unknown as DurableObjectStorageLike,
+    onMaintenanceNeeded: () => this.requestWorkspaceMaintenance(),
+    storageCapacityBytes: AGENT_COMPUTER_STORAGE_CAPACITY_BYTES,
+    storage: this.ctx.storage,
   });
   readonly #files = new ComputerFiles(this.workspace.fs);
   readonly #nativeFiles = createComputerFileTools(this.workspace);

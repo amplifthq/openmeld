@@ -583,10 +583,31 @@ when opening a Plugin and returning to the catalog. Personal status includes
 only the signed-in member's connection; organization status includes only the
 shared connection. All members can inspect shared status and permissions;
 only owners and admins can change them. Reuse Fluid Select for permission
-controls and keep account connection controls beside their scoped permissions.
+controls. Detail pages place Connect or Connected beside Website in the header.
+Connected opens account information and an explicit disconnect confirmation;
+reconnection, unavailable status, and mutation failures retain their real meaning.
+Provider components own the snapshot and mutations and supply the header action
+through a layout slot, without a second status query or page-owned connection state.
+Credential forms and GitHub installation guidance remain below the scope tabs.
+Save access sits opposite the Agent access heading and requires an unsaved change.
 Loading connection status must not block opening the catalog or a Plugin's
 settings. Route loaders do not await connection snapshots; the mounted page
 owns loading, cached status, and retry feedback after organization authorization.
+The catalog and detail routes start provider and connection prefetches concurrently after
+scope authorization, without awaiting them for navigation. It reuses the same
+query cache as the mounted page. Known connections can render while providers
+are pending; skeleton rows cover unavailable results. The connected filter
+uses the current scope's active connections, including accounts needing
+reconnection, and combines with category and search filters. Pending or failed
+connection reads must not appear as an empty connected list.
+Search discovers available Plugins across ownership scopes. In an Organization
+search, personal-only results carry a Personal label and open their detail route
+with `scope=personal`. Their status comes only from the signed-in member's
+connection. Clearing search restores scoped browsing; the connected filter
+continues to show only connections in the selected scope.
+Cold detail pages can show curated identity and scope navigation immediately,
+but setup controls wait for live provider metadata. Skeletons occupy pending
+settings; a static Plugin definition does not establish sign-in readiness.
 
 ### Organization Skills
 
@@ -1119,6 +1140,11 @@ The visible destinations resolve in this order: **Inbox**, **Spaces**, and
    Each Inbox row or notification activation carries a new in-memory focus request,
    so selecting the same target again reopens its Thread and refocuses the message
    without remounting the conversation or discarding its draft and read cache.
+   Only a full Thread history read initializes the reply-history cache. Live
+   replies may extend an existing snapshot and update the separate preview, but
+   cannot turn an unread history into a successful query. A missing linked reply
+   is reported only after the current history read finishes; refreshing or paused
+   reads are not evidence that a reply was removed or access was lost.
 5. **Agents** — the first-level home for ordinary Agent Profiles that members
    manage. User-facing management copy calls them **Agents**; `Agent Profile`
    remains the internal identity-model term. Its Main Sidebar contextual list groups
@@ -5583,6 +5609,19 @@ separate Replies section, a detached `Why this failed` summary, or an extra
 `replied` event for the same final reply. Transient live progress can enrich
 that presentation model but cannot become a second status source or final
 outcome.
+
+Visible originating Center Agent requests read the
+optional Message Details delegation projection for a compact progress summary.
+Message details expands the same projection into declared child rows and
+completion ownership. Pagination retrieves additional declared groups independently
+of the timeline window. Source/result links use in-view navigation only for
+loaded messages; otherwise they use the canonical Space message URL.
+
+Wake progress invalidations refresh Message Details, and visible active delegated
+work refreshes through the same query. Reconnect and focus reread canonical
+state. There is no additional client execution store. Graph reads the same query
+and adds declared edges only when both authorized same-Space message nodes are
+loaded; it neither invents missing nodes nor infers delegation from prose.
 
 Spaces retain **Messages** and **Graph** as two views of the same
 loaded timeline projection. The Space header's Graph entry is commented out

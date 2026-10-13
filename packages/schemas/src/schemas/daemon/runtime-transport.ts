@@ -504,6 +504,7 @@ export const runtimeTransportCapabilitiesSchema =
     localExecutionInput: z.literal(true).optional(),
     spaceWorkHandoff: z.literal(true).optional(),
     sessionHistory: z.literal(true).optional(),
+    computerPower: z.literal(true).optional(),
     computerFileAccess: z
       .strictObject({
         readPolicy: z.literal(true).optional(),
@@ -2371,6 +2372,8 @@ export const runtimeTransportDispatchPreviewEndRequestSchema = z.strictObject({
 });
 
 export const daemonStreamCodeSchema = z.enum([
+  "daemon.computer_power.request",
+  "daemon.computer_power.request_result",
   "daemon.computer_file_access.read_policy",
   "daemon.session_history.request",
   "daemon.session_history.request_result",

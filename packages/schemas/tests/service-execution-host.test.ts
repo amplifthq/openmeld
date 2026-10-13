@@ -11,6 +11,41 @@ import {
 } from "../src/service-execution-host";
 
 describe("execution host process boundary", () => {
+  it("carries computer power requests and results through the execution owner boundary", () => {
+    const payload = {
+      requestId: "power-request",
+      deviceId: "computer-a",
+      request: { operation: "read" },
+    };
+    expect(
+      serviceExecutionHostMethods.handleFrame.input.safeParse({
+        connectionGeneration: 1,
+        frame: { v: 1, code: "daemon.computer_power.request", payload },
+      }).success
+    ).toBe(true);
+    expect(
+      serviceExecutionHostMessageSchema.safeParse({
+        protocol: SERVICE_EXECUTION_HOST_PROTOCOL,
+        hostInstanceId: "ab20e7bb-7387-4181-864b-775560aa4b42",
+        type: "frame",
+        connectionGeneration: 1,
+        frame: {
+          v: 1,
+          code: "daemon.computer_power.request_result",
+          payload: {
+            requestId: "power-request",
+            result: {
+              enabled: false,
+              revision: 0,
+              active: false,
+              supported: true,
+              problem: null,
+            },
+          },
+        },
+      }).success
+    ).toBe(true);
+  });
   it("retains v1 receipts while requiring exact process-tree evidence in v2", () => {
     const base = {
       hostInstanceId: "ab20e7bb-7387-4181-864b-775560aa4b42",

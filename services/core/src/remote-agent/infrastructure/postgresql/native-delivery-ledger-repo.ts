@@ -30,6 +30,31 @@ export type RemoteAgentNativeDeliveryConversationKind =
   | "message_channel"
   | "slack"
   | "space";
+
+/** Exact Space source identity survives Center Agent continuation turns. */
+export async function listSpaceNativeDeliveryTaskIdentities(input: {
+  db: PostgresDatabase;
+  spaceId: string;
+  sourceSignalId: string;
+}): Promise<
+  Array<{ deliveryId: string; organizationId: string; profileId: string }>
+> {
+  const result = await input.db.query<{
+    deliveryId: string;
+    organizationId: string;
+    profileId: string;
+  }>({
+    text: `
+      SELECT delivery_id AS "deliveryId", organization_id AS "organizationId",
+             profile_id AS "profileId"
+      FROM "openmeld"."openMeldRemoteAgent_native_delivery_ledger"
+      WHERE conversation_kind = 'space' AND space_id = $1 AND trigger_message_id = $2
+      ORDER BY created_at_ms, delivery_id
+    `,
+    values: [input.spaceId, input.sourceSignalId],
+  });
+  return result.rows;
+}
 export async function readRemoteAgentTaskActivity(input: {
   db: PostgresDatabase;
   organizationId: string;
@@ -91,6 +116,10 @@ export type RemoteAgentFinalPublicationPayload =
       failureCode: string | null;
       failureDetail: string | null;
       files: SpaceMessageFileReference[];
+      // Historical storage name: protects the terminal owner's failure text
+      // from summary replacement. This includes an explicitly unverified
+      // canonical answer; it does not attest that the model reviewed new facts.
+      reviewedFailureExplanation?: true;
       resumeStatus: "accepted" | "retry_observed";
       storageVersion: 3;
       text: string;
@@ -4324,6 +4353,7 @@ export async function claimRemoteAgentFinalPublication(input: {
   idempotencyKey: string;
   terminalFailureCode?: string | null;
   terminalFailureDetail?: string | null;
+  recoverSpaceFailure?: boolean;
 }): Promise<RemoteAgentNativeDeliveryRecord | null> {
   if (input.terminalFailureDetail && !input.terminalFailureCode) {
     throw new Error(
@@ -4353,8 +4383,15 @@ export async function claimRemoteAgentFinalPublication(input: {
           updated_at_ms = $11
         WHERE submission_id = $12
           AND idempotency_key = $13
-          AND status IN ('accepted', 'retry_observed')
-          AND final_publication_state IS NULL
+          AND (
+            (status IN ('accepted', 'retry_observed') AND final_publication_state IS NULL)
+            OR ($15::boolean AND conversation_kind = 'space' AND status = 'failed'
+              AND published_signal_id IS NULL
+              AND final_publication_payload_json IS NOT NULL
+              AND ((final_publication_payload_json)::jsonb #>> '{failureCode}') IS NOT NULL
+              AND (final_publication_state = 'outcome_unknown'
+                OR (final_publication_state = 'claimed' AND final_publication_claim_expires_at_ms <= $16)))
+          )
           AND (
             final_publication_payload_json IS NULL
             OR final_publication_payload_json = $14
@@ -4375,6 +4412,8 @@ export async function claimRemoteAgentFinalPublication(input: {
       input.submissionId,
       input.idempotencyKey,
       payloadJson,
+      input.recoverSpaceFailure === true,
+      input.nowMs,
     ],
   });
   if (!didPostgresWrite(result)) {
@@ -5106,7 +5145,6 @@ export async function markRemoteAgentMessageChannelFinalPublicationPublished(inp
           final_publication_claim_id = NULL,
           final_publication_claimed_at_ms = NULL,
           final_publication_claim_expires_at_ms = NULL,
-          final_publication_payload_json = NULL,
           final_publication_next_attempt_at_ms = NULL,
           provider_progress_card_history_json = ((provider_progress_card_history_json)::jsonb #- '{pendingSnapshot}')::text,
           failure_code = CASE
@@ -5199,7 +5237,6 @@ export async function markRemoteAgentMessageChannelFinalPublicationOutcomeUnknow
           final_publication_claim_id = NULL,
           final_publication_claimed_at_ms = NULL,
           final_publication_claim_expires_at_ms = NULL,
-          final_publication_payload_json = NULL,
           final_publication_next_attempt_at_ms = NULL,
           failure_code = CASE
             WHEN status = 'failed' THEN failure_code
@@ -5485,7 +5522,6 @@ export async function expireRemoteAgentMessageChannelFinalPublicationAmbiguity(i
           final_publication_claim_id = NULL,
           final_publication_claimed_at_ms = NULL,
           final_publication_claim_expires_at_ms = NULL,
-          final_publication_payload_json = NULL,
           final_publication_next_attempt_at_ms = NULL,
           failure_code = CASE
             WHEN status = 'failed' THEN failure_code
@@ -5798,7 +5834,7 @@ export async function markRemoteAgentNativeDeliveryCompleted(input: {
   submissionId: string;
   publishedSignalId: string | null;
 }): Promise<RemoteAgentNativeDeliveryRecord | null> {
-  await input.db.query({
+  const result = await input.db.query({
     text: `
         UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger"
         SET
@@ -5819,6 +5855,11 @@ export async function markRemoteAgentNativeDeliveryCompleted(input: {
       input.submissionId,
     ],
   });
+  // Only the caller that transitions the durable delivery may start capture.
+  // Reading the completed row alone cannot distinguish concurrent callbacks.
+  if (Number(result.rowCount ?? 0) !== 1) {
+    return null;
+  }
   return await readRemoteAgentNativeDeliveryBySubmissionId({
     db: input.db,
     submissionId: input.submissionId,
@@ -6330,11 +6371,17 @@ function parseFinalPublicationPayload(
   );
   if (record.storageVersion === 3) {
     const files = spaceMessageFileReferencesSchema.safeParse(record.files);
+    const reviewedFailureExplanation = record.reviewedFailureExplanation;
+    const reviewedFailureExplanationValid =
+      reviewedFailureExplanation === undefined ||
+      reviewedFailureExplanation === true;
     if (
       !(
         attachments.success &&
         files.success &&
-        Object.keys(record).length === 7
+        reviewedFailureExplanationValid &&
+        Object.keys(record).length ===
+          7 + Number(reviewedFailureExplanation === true)
       )
     ) {
       throw new Error(
@@ -6346,6 +6393,9 @@ function parseFinalPublicationPayload(
       failureCode,
       failureDetail,
       files: files.data,
+      ...(reviewedFailureExplanation === true
+        ? { reviewedFailureExplanation }
+        : {}),
       resumeStatus,
       storageVersion: 3,
       text,

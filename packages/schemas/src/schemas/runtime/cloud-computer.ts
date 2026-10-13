@@ -56,9 +56,41 @@ export type CloudComputerCommandPhase = zod.infer<
 export const cloudComputerCommandCollectionSchema = z.strictObject({
   unconfirmedAttempts: z.number().int().nonnegative(),
   nextAttemptAtMs: z.number().int().nonnegative().nullable(),
+  // Internal invocation projection only. A bounded check is still in flight;
+  // this does not confirm progress or replenish the observation budget.
+  observationExpiresAtMs: z.number().int().nonnegative().optional(),
 });
 export type CloudComputerCommandCollection = zod.infer<
   typeof cloudComputerCommandCollectionSchema
+>;
+const preparationCount = z
+  .number()
+  .int()
+  .nonnegative()
+  .max(Number.MAX_SAFE_INTEGER);
+/** Last retained SDK preparation evidence, never launch authority.
+ * Counts describe one step, never cumulative totals.
+ * Cursors expose revisions only; file paths remain private to the SDK. */
+export const cloudComputerCommandPreparationSchema = z.strictObject({
+  phase: z.enum(["preparing", "transferring", "cleaning"]).optional(),
+  generation: z.string().max(256),
+  checkpoint: z.string().min(1).max(1024).optional(),
+  cursorRevision: preparationCount,
+  targetRevision: preparationCount,
+  entries: preparationCount,
+  bytes: preparationCount,
+  skipped: preparationCount,
+});
+export type CloudComputerCommandPreparation = zod.infer<
+  typeof cloudComputerCommandPreparationSchema
+>;
+export const cloudComputerCommandObservationSchema = z.strictObject({
+  status: z.literal("timed_out"),
+  phase: z.enum(["workspace-acquisition", "launch", "poll", "stop", "cleanup"]),
+  message: z.string().min(1),
+});
+export type CloudComputerCommandObservation = zod.infer<
+  typeof cloudComputerCommandObservationSchema
 >;
 export const cloudComputerCommandErrorSchema = z.strictObject({
   status: z.number().int().min(400).max(599),
@@ -174,6 +206,7 @@ export const cloudComputerOperationResultSchema = z.union([
       phase: cloudComputerCommandPhaseSchema.optional(),
       recordExpiresAtMs: z.number().int().nonnegative().optional(),
       collection: cloudComputerCommandCollectionSchema.optional(),
+      preparation: cloudComputerCommandPreparationSchema.optional(),
     })
   ),
   z.object({
@@ -183,7 +216,9 @@ export const cloudComputerOperationResultSchema = z.union([
     phase: cloudComputerCommandPhaseSchema.optional(),
     recordExpiresAtMs: z.number().int().nonnegative().optional(),
     collection: cloudComputerCommandCollectionSchema.optional(),
+    preparation: cloudComputerCommandPreparationSchema.optional(),
     status: z.enum(["running", "completed", "stop_requested"]),
+    observation: cloudComputerCommandObservationSchema.optional(),
     exitCode: z.number().nullable().optional(),
     stdout: z.string().optional(),
     stderr: z.string().optional(),
@@ -191,6 +226,9 @@ export const cloudComputerOperationResultSchema = z.union([
     outputPending: z.literal(true).optional(),
     syncPending: z.literal(true).optional(),
     syncError: z.enum(["ENOENT", "EEXEC_LOST"]).optional(),
+    syncSkipped: z
+      .object({ paths: z.array(z.string()).max(16), truncated: z.boolean() })
+      .optional(),
     outputTruncated: z.literal(true).optional(),
     result: z.json().optional(),
     nextAction: z.string().optional(),
@@ -205,4 +243,68 @@ export const cloudComputerResponseSchema = z.strictObject({
 export const cloudComputerCleanupResultSchema = z.strictObject({
   unfinished: z.number().int().nonnegative(),
   lostDuringCleanup: z.boolean(),
+});
+
+// Read projection of the original command receipts. Model completion and
+// process cleanup are separate facts; this projection cannot start work.
+export const cloudComputerInvocationStateSchema = z.strictObject({
+  invocationId: key,
+  total: z.number().int().nonnegative(),
+  unfinished: z.number().int().nonnegative(),
+  pendingResults: z.number().int().nonnegative(),
+  unavailable: z.number().int().nonnegative(),
+  commands: z
+    .array(
+      z.strictObject({
+        reference: cloudComputerCommandReferenceSchema,
+        phase: cloudComputerCommandPhaseSchema,
+        after: z.number().nonnegative(),
+        exitCode: z.number().nullable(),
+        outputRetained: z.boolean(),
+        filesSynced: z.boolean(),
+        stopRequested: z.boolean(),
+        terminationConfirmed: z.boolean(),
+        resultUnavailable: z.boolean(),
+        collection: cloudComputerCommandCollectionSchema.nullable(),
+        preparation: cloudComputerCommandPreparationSchema.optional(),
+      })
+    )
+    .max(32),
+});
+export type CloudComputerInvocationState = zod.infer<
+  typeof cloudComputerInvocationStateSchema
+>;
+export const cloudComputerCleanupReportSchema = z.strictObject({
+  stopAccepted: z.boolean(),
+  automaticRetryPaused: z.boolean(),
+  state: cloudComputerInvocationStateSchema.nullable(),
+});
+export type CloudComputerCleanupReport = zod.infer<
+  typeof cloudComputerCleanupReportSchema
+>;
+
+/** Immutable disclosure scope for receipts, independent of Flue generation. */
+export const cloudComputerRecoveryScopeSchema = z.strictObject({
+  organizationId: key,
+  spaceId: key,
+  agentProfileId: key,
+});
+export const cloudComputerInvocationOwnerSchema =
+  cloudComputerRecoveryScopeSchema.extend({
+    invocationId: key,
+  });
+export type CloudComputerInvocationOwner = zod.infer<
+  typeof cloudComputerInvocationOwnerSchema
+>;
+export const cloudComputerRecoveryQuerySchema =
+  cloudComputerRecoveryScopeSchema.extend({
+    invocationId: key.optional(),
+    cursor: key.optional(),
+  });
+export type CloudComputerRecoveryQuery = zod.infer<
+  typeof cloudComputerRecoveryQuerySchema
+>;
+export const cloudComputerRecoveryResultSchema = z.strictObject({
+  invocations: z.array(cloudComputerInvocationStateSchema).max(32),
+  nextCursor: key.nullable(),
 });

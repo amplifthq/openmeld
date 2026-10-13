@@ -83,6 +83,11 @@ export type {
 export type OpenMeldSchemaVersion =
   typeof import("../schemas/index")["OPENMELD_SCHEMA_VERSION"];
 
+export type {
+  ComputerPowerRequest,
+  ComputerPowerRpcInput,
+  ComputerPowerState,
+} from "../computer-power";
 export type { RemoteAgentExecutionReconciliationObservation } from "../remote-agent-execution-reconciliation";
 export type {
   SpaceFileUpdateSettings,
@@ -101,6 +106,14 @@ export type {
 export type * from "./agent-controller-collaboration-mode";
 export type * from "./agent-controller-permission-mode";
 export type * from "./agent-view/index";
+export type {
+  AiFundingSource,
+  OrganizationAiBilling,
+  OrganizationAiBillingRpcInput,
+  RemoteAiProviderAuthorization,
+  UpdateOrganizationAiBilling,
+  UpdateOrganizationAiBillingRpcInput,
+} from "./ai-billing";
 export type * from "./common/index";
 export type * from "./config/index";
 export type * from "./daemon/index";

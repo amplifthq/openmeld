@@ -19,6 +19,8 @@ import {
 } from "../agent-core/callback-context";
 
 const STREAM_STATE_PREFIX = "openmeld:remote-agent:stream:";
+const HIGH_SURROGATE = /[\uD800-\uDBFF]/u;
+const LOW_SURROGATE = /[\uDC00-\uDFFF]/u;
 const STREAM_FLUSH_INTERVAL_MS = 100;
 // CardKit is an external publication path, unlike the Web live projection.
 // Coalesce full snapshots below its per-card limit and avoid per-token D1 writes.
@@ -27,9 +29,11 @@ const STREAM_CALLBACK_MAX_ATTEMPTS = 2;
 const STREAM_CALLBACK_RETRY_DELAY_MS = 40;
 
 type RemoteAgentStreamState = {
+  acceptedResponseInputId?: string;
   disabled: boolean;
   lastFlushedAtMs: number | null;
   pendingText: string;
+  pendingResponseInputId?: string | null;
   sequence: number;
   startedAtMs: number;
   streamId: string;
@@ -61,6 +65,7 @@ type RemoteAgentStreamPushInput = RemoteAgentStreamPublishInput & {
   delta: string;
   kind: RemoteAgentStreamDeltaKind;
   replaceTextPrefix?: string;
+  responseInputId?: string | null;
 };
 
 type RemoteAgentStreamPartPushInput = RemoteAgentStreamPublishInput & {
@@ -83,6 +88,9 @@ type RemoteAgentStreamPublisherOptions = {
 };
 
 export type RemoteAgentStreamPublisher = {
+  prepareResponseProjection(
+    input: RemoteAgentStreamPublishInput
+  ): Promise<() => string | null>;
   close(input: {
     storage: RemoteAgentStorage;
     submissionId: string;
@@ -269,11 +277,22 @@ export function createRemoteAgentStreamPublisher(
     transientState: RemoteAgentTransientStreamState,
     kind: RemoteAgentStreamDeltaKind
   ): Promise<RemoteAgentStreamPublishResult> => {
-    const pendingDelta = readPendingRemoteAgentStreamDelta({
+    const pending = readPendingRemoteAgentStreamDelta({
       kind,
       state,
       transientState,
     });
+    // The wire limit applies to a frame, not a model delta or a coalesced batch.
+    // Keep the tail until its turn and never split a UTF-16 surrogate pair.
+    let end = Math.min(pending.length, REMOTE_AGENT_STREAM_DELTA_MAX_CHARS);
+    if (
+      end < pending.length &&
+      HIGH_SURROGATE.test(pending[end - 1] ?? "") &&
+      LOW_SURROGATE.test(pending[end] ?? "")
+    ) {
+      end -= 1;
+    }
+    const pendingDelta = pending.slice(0, end);
     const earlyResult = resolveRemoteAgentStreamEarlyResult({
       kind,
       pendingDelta,
@@ -295,10 +314,7 @@ export function createRemoteAgentStreamPublisher(
             -AGENT_STREAM_SNAPSHOT_MAX_CHARS
           )
         : currentSnapshot + pendingDelta;
-    if (
-      pendingDelta.length > REMOTE_AGENT_STREAM_DELTA_MAX_CHARS ||
-      snapshot.length > AGENT_STREAM_SNAPSHOT_MAX_CHARS
-    ) {
+    if (snapshot.length > AGENT_STREAM_SNAPSHOT_MAX_CHARS) {
       return handleRemoteAgentStreamLimitExceeded({
         kind,
         state,
@@ -308,15 +324,17 @@ export function createRemoteAgentStreamPublisher(
     }
 
     if (kind !== "text") {
-      transientState.content[kind].pending = "";
+      transientState.content[kind].pending = pending.slice(end);
       transientState.content[kind].snapshot = snapshot;
     } else {
-      state.pendingText = "";
+      state.pendingText = pending.slice(end);
       state.textSnapshot = snapshot;
     }
-    transientState.pendingKindOrder = transientState.pendingKindOrder.filter(
-      (pendingKind) => pendingKind !== kind
-    );
+    if (end === pending.length) {
+      transientState.pendingKindOrder = transientState.pendingKindOrder.filter(
+        (pendingKind) => pendingKind !== kind
+      );
+    }
     const previousSequence = state.sequence;
     state.sequence += 1;
     state.lastFlushedAtMs = input.observedAtMs;
@@ -369,12 +387,23 @@ export function createRemoteAgentStreamPublisher(
     state.sequence = Math.max(state.sequence, response.lastSequence);
     if (response.status === "rejected") {
       state.disabled = true;
+      console.warn("[remote_agent.stream.rejected]", {
+        submissionId: state.submissionId,
+        kind,
+        sequence: state.sequence,
+        reasonCode: response.reasonCode,
+      });
     }
-    await persistRemoteAgentStreamState(input.storage, state);
+    const accepted = await persistResponseAcknowledgement({
+      kind,
+      response,
+      state,
+      storage: input.storage,
+    });
     return {
       contentKind: kind,
       deltaLength: pendingDelta.length,
-      status: "published",
+      status: accepted ? "published" : "dropped",
       sequence: state.sequence,
       streamId: state.streamId,
       response,
@@ -404,7 +433,36 @@ export function createRemoteAgentStreamPublisher(
     return result;
   };
 
+  const flushPreviousResponse = async (
+    input: RemoteAgentStreamPushInput,
+    state: RemoteAgentStreamState,
+    transientState: RemoteAgentTransientStreamState
+  ): Promise<void> => {
+    if (state.disabled || input.delta.length === 0) {
+      return;
+    }
+    const responseInputId = input.responseInputId ?? null;
+    if (state.pendingResponseInputId === responseInputId) {
+      return;
+    }
+    // Keep buffered content attached to its original input while Core
+    // accepts it. Never attribute a delayed old answer to a new check-in.
+    await publishPending(input, state, transientState);
+    if (!state.disabled) {
+      state.pendingResponseInputId = responseInputId;
+    }
+  };
+
   return {
+    prepareResponseProjection: (input) =>
+      enqueue(input.context.submissionId, async () => {
+        await loadState(input.storage, input.context, input.observedAtMs);
+        // Read the owner's live cache on every render. A recovered execution
+        // hydrates the same proof from SQL; it has no separate hook checkpoint.
+        return () =>
+          states.get(input.context.submissionId)?.acceptedResponseInputId ??
+          null;
+      }),
     close: ({ storage, submissionId }) =>
       enqueue(submissionId, async () => {
         states.delete(submissionId);
@@ -443,6 +501,7 @@ export function createRemoteAgentStreamPublisher(
             streamId: state.streamId,
           };
         }
+        await flushPreviousResponse(input, state, transientState);
         if (state.disabled || input.delta.length === 0) {
           return {
             status: state.disabled ? "disabled" : "buffered",
@@ -534,7 +593,11 @@ export function createRemoteAgentStreamPublisher(
         await persistRemoteAgentStreamState(input.storage, state);
         return {
           contentKind: input.part.type,
-          status: "published",
+          status:
+            response.status === "accepted" ||
+            response.status === "duplicate_accepted"
+              ? "published"
+              : "dropped",
           sequence: state.sequence,
           streamId: state.streamId,
           response,
@@ -804,6 +867,29 @@ async function persistRemoteAgentStreamState(
   await storage.put(buildRemoteAgentStreamStateKey(state.submissionId), state);
 }
 
+async function persistResponseAcknowledgement(input: {
+  kind: RemoteAgentStreamDeltaKind;
+  response: RemoteAgentStreamDeltaCallbackResponse;
+  state: RemoteAgentStreamState;
+  storage: RemoteAgentStorage;
+}): Promise<boolean> {
+  const accepted =
+    input.response.status === "accepted" ||
+    input.response.status === "duplicate_accepted";
+  const acceptedResponseInputId =
+    accepted && input.kind !== "thinking" && input.state.pendingResponseInputId
+      ? input.state.pendingResponseInputId
+      : input.state.acceptedResponseInputId;
+  // Expose the acknowledgement to renders only after it is durable. A
+  // snapshot/sequence written before Core responds is not publication proof.
+  await persistRemoteAgentStreamState(input.storage, {
+    ...input.state,
+    acceptedResponseInputId,
+  });
+  input.state.acceptedResponseInputId = acceptedResponseInputId;
+  return accepted;
+}
+
 function isRemoteAgentStreamState(
   value: unknown
 ): value is RemoteAgentStreamState {
@@ -813,6 +899,11 @@ function isRemoteAgentStreamState(
   const state = value as Partial<RemoteAgentStreamState>;
   return (
     state.v === 1 &&
+    (state.acceptedResponseInputId === undefined ||
+      typeof state.acceptedResponseInputId === "string") &&
+    (state.pendingResponseInputId === undefined ||
+      state.pendingResponseInputId === null ||
+      typeof state.pendingResponseInputId === "string") &&
     typeof state.submissionId === "string" &&
     typeof state.streamId === "string" &&
     typeof state.sequence === "number" &&

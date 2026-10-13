@@ -108,8 +108,24 @@ afterEach(() => {
 });
 
 it.each([
-  200, 403, 500,
-])("persists vendor renewal on %i past original expiry and SDK recreation, then applies 401 deletion", async (responseStatus) => {
+  { path: "/v1/renewal", status: 200, method: "GET" },
+  { path: "/v1/renewal", status: 403, method: "GET" },
+  { path: "/v1/renewal", status: 500, method: "GET" },
+  {
+    path: "/v1/local-runtimes/current/folder-picker",
+    status: 200,
+    method: "POST",
+  },
+  {
+    path: "/v1/people-computers/device-a/lanes/local/folders/select",
+    status: 403,
+    method: "POST",
+  },
+])("persists vendor renewal on $path ($status) past original expiry and SDK recreation, then applies 401 deletion", async ({
+  path,
+  status: responseStatus,
+  method,
+}) => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.stubGlobal("process", { ...process, type: "browser", platform: "darwin" });
   const origin = "http://localhost:39992";
@@ -146,7 +162,7 @@ it.each([
         );
       }
       const headers = new Headers(init?.headers);
-      if (pathname === "/v1/renewal") {
+      if (pathname === path) {
         observed.push(headers.get("cookie") ?? "");
         const result =
           status === 401
@@ -189,11 +205,12 @@ it.each([
     `sh.openmeld.desktop.dev://auth/callback#token=${token}`
   );
   const originalCookie = auth.cookie();
+  const authenticatedGeneration = auth.sessionGeneration();
   expect(originalCookie).toContain("session_token=");
   {
     vi.setSystemTime(Date.now() + 3000);
-    const response = await auth.cloudRequest("/v1/renewal", {
-      method: "GET",
+    const response = await auth.cloudRequest(path, {
+      method,
       headers: new Headers(),
     });
     expect(response.status).toBe(responseStatus);
@@ -201,6 +218,7 @@ it.each([
       code: responseStatus === 200 ? "ok" : "business.failed",
     });
     expect(response.headers.getSetCookie().length).toBeGreaterThan(1);
+    expect(auth.sessionGeneration()).toBe(authenticatedGeneration);
     auth = createPilotAuth(origin, () => null, vi.fn());
     expect(auth.cookie()).toBe(`${originalCookie}; unrelated=unchanged`); // Expiry-only renewal preserves the token value.
   }
@@ -213,8 +231,8 @@ it.each([
   expect((await auth.session()).user?.email).toBe("native@example.com");
   expect(changed).not.toHaveBeenCalled();
   status = 401;
-  const deleted = await auth.cloudRequest("/v1/renewal", {
-    method: "GET",
+  const deleted = await auth.cloudRequest(path, {
+    method,
     headers: new Headers(),
   });
   expect(deleted.status).toBe(401);

@@ -27,6 +27,189 @@ const ACK = {
 } as const;
 
 describe("Remote Agent streaming", () => {
+  it.each([
+    { kind: "text" as const, status: "accepted" as const, accepted: true },
+    {
+      kind: "progress" as const,
+      status: "duplicate_accepted" as const,
+      accepted: true,
+    },
+    { kind: "text" as const, status: "rejected" as const, accepted: false },
+    { kind: "text" as const, status: "retryable" as const, accepted: false },
+    { kind: "thinking" as const, status: "accepted" as const, accepted: false },
+  ])("restores response proof only for accepted visible content ($kind/$status)", async ({
+    kind,
+    status,
+    accepted,
+  }) => {
+    const context = createRemoteAgentCallbackContext({
+      ack: ACK,
+      nowMs: TEST_NOW_MS,
+      request: createSubmitTurnRequest(),
+    });
+    const storage = new InMemoryDurableObjectStorage();
+    const input = { context, storage, observedAtMs: TEST_NOW_MS };
+    const publisher = createRemoteAgentStreamPublisher({
+      sleep: async () => undefined,
+    });
+    const projection = await publisher.prepareResponseProjection(input);
+    const coreWorker = {
+      submitRemoteAgentStreamDelta: async (body: { sequence: number }) =>
+        status === "rejected" || status === "retryable"
+          ? {
+              status,
+              lastSequence: body.sequence,
+              reasonCode: "agent_stream.unavailable",
+            }
+          : { status, lastSequence: body.sequence },
+    };
+    expect(projection()).toBeNull();
+    const result = await publisher.push({
+      ...input,
+      coreWorker,
+      kind,
+      delta: "I will continue the original work.",
+      responseInputId: "current-input",
+    });
+    expect(projection()).toBe(accepted ? "current-input" : null);
+    if (status === "rejected" || status === "retryable") {
+      expect(result.status).toBe("dropped");
+    }
+    const recovered =
+      await createRemoteAgentStreamPublisher().prepareResponseProjection(input);
+    expect(recovered()).toBe(accepted ? "current-input" : null);
+  });
+
+  it("flushes buffered text for its original input and serializes late acknowledgements", async () => {
+    const context = createRemoteAgentCallbackContext({
+      ack: ACK,
+      nowMs: TEST_NOW_MS,
+      request: createSubmitTurnRequest(),
+    });
+    const storage = new InMemoryDurableObjectStorage();
+    const publisher = createRemoteAgentStreamPublisher();
+    const firstAck = Promise.withResolvers<void>();
+    const secondAck = Promise.withResolvers<void>();
+    const frames: string[] = [];
+    const coreWorker = {
+      submitRemoteAgentStreamDelta: async (body: {
+        delta?: string;
+        sequence: number;
+      }) => {
+        frames.push(body.delta ?? "");
+        if (body.sequence === 2) {
+          await firstAck.promise;
+        }
+        if (body.sequence === 3) {
+          await secondAck.promise;
+        }
+        return { status: "accepted" as const, lastSequence: body.sequence };
+      },
+    };
+    const input = { context, storage, coreWorker, observedAtMs: TEST_NOW_MS };
+    const projection = await publisher.prepareResponseProjection(input);
+    await publisher.push({
+      ...input,
+      kind: "text",
+      responseInputId: "first",
+      delta: "First answer.",
+    });
+    await expect(
+      publisher.push({
+        ...input,
+        observedAtMs: TEST_NOW_MS + 1,
+        kind: "text",
+        responseInputId: "first",
+        delta: " Its buffered tail.",
+      })
+    ).resolves.toMatchObject({ status: "buffered" });
+    const next = publisher.push({
+      ...input,
+      observedAtMs: TEST_NOW_MS + 2,
+      kind: "text",
+      responseInputId: "check-in",
+      delta: "New answer.",
+    });
+    await vi.waitFor(() => expect(frames).toHaveLength(2));
+    expect(projection()).toBe("first");
+    firstAck.resolve();
+    await next;
+    const flush = publisher.flush(input);
+    await vi.waitFor(() => expect(frames).toHaveLength(3));
+    expect(projection()).toBe("first");
+    secondAck.resolve();
+    await flush;
+    expect(projection()).toBe("check-in");
+    expect(frames).toEqual([
+      "First answer.",
+      " Its buffered tail.",
+      "New answer.",
+    ]);
+  });
+
+  it.each([
+    false,
+    true,
+  ])("delivers long text in ordered Unicode-safe chunks (coalesced=%s)", async (coalesced) => {
+    const context = createRemoteAgentCallbackContext({
+      ack: ACK,
+      nowMs: TEST_NOW_MS,
+      request: createSubmitTurnRequest(),
+    });
+    const storage = new InMemoryDurableObjectStorage();
+    const received: { delta: string; snapshot: string; sequence: number }[] =
+      [];
+    const submitRemoteAgentStreamDelta = vi.fn((body) => {
+      received.push(body);
+      return Promise.resolve({
+        status: "accepted" as const,
+        lastSequence: body.sequence,
+      });
+    });
+    const publisher = createRemoteAgentStreamPublisher();
+    const input = {
+      context,
+      storage,
+      coreWorker: { submitRemoteAgentStreamDelta },
+      kind: "text" as const,
+    };
+    const text = `${"a".repeat(1023)}🚀${"结果".repeat(1500)}`;
+    if (coalesced) {
+      await publisher.push({
+        ...input,
+        observedAtMs: TEST_NOW_MS,
+        delta: "Saved: ",
+      });
+      for (let offset = 0; offset < text.length; offset += 100) {
+        await publisher.push({
+          ...input,
+          observedAtMs: TEST_NOW_MS + 1,
+          delta: text.slice(offset, offset + 100),
+        });
+      }
+    } else {
+      await publisher.push({
+        ...input,
+        observedAtMs: TEST_NOW_MS,
+        delta: text,
+      });
+    }
+    await publisher.flush({ ...input, observedAtMs: TEST_NOW_MS + 100 });
+    const expected = `${coalesced ? "Saved: " : ""}${text}`;
+    expect(received.map((body) => body.delta).join("")).toBe(expected);
+    expect(received.at(-1)?.snapshot).toBe(expected);
+    let prefix = "";
+    for (const [index, body] of received.entries()) {
+      prefix += body.delta;
+      expect(body.sequence).toBe(index + 1);
+      expect(body.delta.length).toBeLessThanOrEqual(
+        REMOTE_AGENT_STREAM_DELTA_MAX_CHARS
+      );
+      expect(body.delta.isWellFormed()).toBe(true);
+      expect(body.snapshot).toBe(prefix);
+    }
+  });
+
   it("builds stable stream identity and sequence from the native delivery context", () => {
     const context = createRemoteAgentCallbackContext({
       ack: ACK,

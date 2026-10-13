@@ -1402,7 +1402,7 @@ describe("remote agent OpenMeld tool catalog", () => {
         revision: 1,
         spaceId: SPACE_ID,
       })
-    ).rejects.toThrow("auxiliary unavailable");
+    ).rejects.toThrow("Image understanding request failed for x-ai/grok-4.6.");
     streamSpaceFileContent.mockResolvedValueOnce({
       bytes: new ReadableStream<Uint8Array>(),
       file,
