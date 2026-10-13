@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-13T17:08:35.812Z",
+  "updatedAt": "2026-10-13T18:58:18.963Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-project-work-v1",
-      "packageVersion": "0.3.259",
+      "packageVersion": "0.3.258",
       "updatePolicy": "available",
-      "reason": "Adds official Antigravity ACP login and independent task commands without breaking existing callers."
+      "reason": "CLI result reading and explicit session validation remain compatible with both cloud versions; existing setup and Wake work remains safe."
     },
     "service": {
-      "bundleHash": "7e0f132b552e759cdb9609ae18c126115effc6b76ff9885ba0b77d94e5b0efc6",
-      "portableBundleHash": "0957ef2888d0be61d87ba6897e7087038540ccef92fc8b9cffff959c7e103ab5",
-      "bundleVersion": "0.3.259",
+      "bundleHash": "0a6fe84f62765d19799e05d0074c3b92f13b789f1ac1cc8b064e37cd1c46fb21",
+      "portableBundleHash": "33e820efc7e37f5ebe858b70c5a2247334b225410ca37835f0f819e446235cd3",
+      "bundleVersion": "0.3.258",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
       "serviceContractVersion": "openmeld-service-contract-2026-09-project-work-v1",
       "updatePolicy": "available",
-      "reason": "Declares Antigravity context permission inheritance; older Services reject new context work with update guidance."
+      "reason": "Shared file and controller helpers are backward-compatible; current Services retain unchanged transport authority and can safely continue Wake work."
     },
     "skills": {
       "bundleHash": "0507d367ef298936053223f81441697545949fbf4d39b1b306872f7c254a4871",
