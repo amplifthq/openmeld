@@ -8,9 +8,17 @@ import type {
 	PeopleComputerTarget,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
+import {
+	Popover,
+	PopoverContent,
+	PopoverDescription,
+	PopoverTitle,
+	PopoverTrigger,
+} from "@openmeld/ui/components/popover";
 import { SettingsRow } from "@openmeld/ui/components/settings-row";
 import { SettingsSection } from "@openmeld/ui/components/settings-section";
 import { Switch } from "@openmeld/ui/components/switch";
+import { InfoIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
@@ -62,13 +70,44 @@ export function ComputerPowerSettings({
 	const failure = mutation.error ?? query.error;
 	const message = failure ? failure.message : value?.problem;
 	const available = !!target && !query.isError && value?.supported === true;
+	const statusText = powerStatusText(target, available, value);
 	return (
-		<SettingsSection id="computer-power" title="Power">
+		<SettingsSection
+			id="computer-power"
+			title="Power"
+			titleAdornment={
+				<Popover>
+					<PopoverTrigger
+						render={
+							<Button
+								aria-label="About sleep prevention"
+								size="icon-xs"
+								variant="ghost"
+							/>
+						}
+					>
+						<InfoIcon aria-hidden="true" />
+					</PopoverTrigger>
+					<PopoverContent align="start">
+						<PopoverTitle>Sleep and app behavior</PopoverTitle>
+						<PopoverDescription>
+							Sleep prevention stays enabled after you quit the desktop app, but
+							only keeps this computer awake during local tasks.
+						</PopoverDescription>
+						<p>
+							Closing the window keeps the app running. Quitting stops desktop
+							notifications. Local tasks continue in either case.
+						</p>
+						<p>Closing the lid or choosing Sleep can still pause tasks.</p>
+					</PopoverContent>
+				</Popover>
+			}
+		>
 			<SettingsRow
 				control={
 					available ? (
 						<Switch
-							aria-label="Prevent sleep while running tasks"
+							aria-label="Prevent sleep during tasks"
 							checked={value.enabled}
 							disabled={mutation.isPending || query.isFetching}
 							onCheckedChange={(enabled) =>
@@ -85,12 +124,14 @@ export function ComputerPowerSettings({
 						</span>
 					)
 				}
-				description="Keep this computer awake while OpenMeld runs local Agent tasks. The screen can turn off. This works even after you quit the desktop app."
-				label="Prevent sleep while running tasks"
+				description="Keep this computer awake during local tasks. The screen can turn off."
+				label="Prevent sleep during tasks"
 			/>
-			<output className="mt-2 block text-muted-foreground text-sm">
-				{powerStatusText(target, available, value)}
-			</output>
+			{statusText ? (
+				<output className="mt-2 block text-muted-foreground text-sm">
+					{statusText}
+				</output>
+			) : null}
 			{message ? (
 				<div className="mt-2 flex items-center gap-3">
 					<p className="text-destructive text-sm" role="alert">
@@ -109,10 +150,6 @@ export function ComputerPowerSettings({
 					</Button>
 				</div>
 			) : null}
-			<p className="mt-2 text-muted-foreground text-xs">
-				Closing the lid or putting the computer to sleep yourself can still
-				pause tasks.
-			</p>
 		</SettingsSection>
 	);
 }
@@ -131,14 +168,5 @@ function powerStatusText(
 	if (!(available && value)) {
 		return null;
 	}
-	if (value.problem) {
-		return "Sleep prevention needs attention.";
-	}
-	if (value.active) {
-		return "Preventing automatic sleep while local tasks run.";
-	}
-	if (value.enabled) {
-		return "On. Waiting for local tasks.";
-	}
-	return "Off. Your computer follows its normal sleep settings.";
+	return value.active ? "Keeping computer awake" : null;
 }

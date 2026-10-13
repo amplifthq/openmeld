@@ -122,11 +122,6 @@ export function DesktopSection() {
 				storageScope={account ?? "signed-out"}
 				target={target}
 			/>
-			<p className="text-muted-foreground text-sm">
-				Closing the window keeps OpenMeld running. Quitting the app stops
-				desktop notifications. OpenMeld Service and accepted local Agent tasks
-				continue running in either case.
-			</p>
 		</>
 	);
 }
