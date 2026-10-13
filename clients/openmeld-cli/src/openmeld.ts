@@ -77,6 +77,7 @@ import {
   runAgentsRepair,
   runAgentsShow,
 } from "./commands/agents";
+import { runAgentsLogin } from "./commands/agents-login";
 import {
   runAuthLogin,
   runAuthLogout,
@@ -2071,6 +2072,25 @@ skillsCmd
 const agentsCmd = program
   .command("agents")
   .description("Find, enable, and review OpenMeld agents on this device.");
+
+agentsCmd
+  .command("login <agent-id>")
+  .description(
+    "Sign in to the selected Antigravity ACP installation and verify a new session."
+  )
+  .option(
+    "--method <id>",
+    "Authentication method offered by Antigravity ACP.",
+    "oauth-personal"
+  )
+  .action(async (agentId: string, opts: { method: string }) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["agents", "login"],
+      view,
+      run: () => runAgentsLogin({ agentId, method: opts.method, view }),
+    });
+  });
 
 agentsCmd.action(async () => {
   const view = getGlobalViewOption();

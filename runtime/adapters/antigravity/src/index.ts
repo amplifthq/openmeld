@@ -29,6 +29,7 @@ import {
 import { withAntigravityDispatchSpaceAction } from "./transport/antigravity-space-action.js";
 
 export {
+  checkAntigravityAcpAccount,
   invokeAntigravityAcpTransport,
   isAntigravityAcpLaunchContract,
   probeAntigravityAcp,

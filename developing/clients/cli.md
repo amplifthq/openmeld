@@ -625,6 +625,19 @@ Agent View and `--json` expose that local evidence under
 `agentControllerInterface` so Desktop and other local clients can reuse the same
 local-controller facts.
 
+`openmeld agents login antigravity` explicitly signs in to the selected official
+Antigravity ACP installation. `--method` selects a method offered by that server
+(default `oauth-personal`); non-personal methods require their native settings
+or environment credentials. The command prints the Google authorization link,
+supports Ctrl+C, and verifies a new process after authentication. It never
+prints or copies tokens. Run `agents show antigravity` or select **Check again**
+on the computer after login to refresh account evidence. Background checks use
+the normal inventory TTL. Legacy `agy` users first install the official ACP
+server and select it with `agents manage`.
+All ACP paths use the same native file credential store and suppress automatic
+browser launches. Signing in through a standalone client's Keychain store does
+not establish this file-store sign-in. Subscription usage remains unsupported.
+
 ACI evidence is local controller evidence only. The CLI must not treat a healthy
 ACI snapshot as final Agent Profile Wakeability, and it must not hide unknown
 controller facts behind success copy. `Available` remains the Core-owned

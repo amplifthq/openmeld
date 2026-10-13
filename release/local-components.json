@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-13T13:07:46.659Z",
+  "updatedAt": "2026-10-13T16:15:56.648Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-project-work-v1",
-      "packageVersion": "0.3.257",
+      "packageVersion": "0.3.258",
       "updatePolicy": "available",
-      "reason": "Working-folder commands retain their existing wire contract and preserve prior choices on failed preparation."
+      "reason": "Adds explicit Antigravity ACP login while retaining existing commands and cloud schemas."
     },
     "service": {
-      "bundleHash": "74b2b8411281aca444f560260a87a50aa8820bbf3231d99cb102061064b6dadc",
-      "portableBundleHash": "d3bb42ec9f1c134656bfdfa528e1cd27cc93494c337bcc92261219d057d2d5f5",
-      "bundleVersion": "0.3.257",
+      "bundleHash": "13c1729449df30e8ff241e328acbd25ea540edf777733d816c7a9842791f42a8",
+      "portableBundleHash": "c8a2e26042e18324dc558c6e9a55d85646ae7c301914460fb9323f2b845ad549",
+      "bundleVersion": "0.3.258",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
       "serviceContractVersion": "openmeld-service-contract-2026-09-project-work-v1",
       "updatePolicy": "available",
-      "reason": "Folder validation and persistence changes preserve existing setup and Wake contracts."
+      "reason": "Verifies ACP native sessions and preserves the native profile without changing Wake or reporting payloads."
     },
     "skills": {
       "bundleHash": "0507d367ef298936053223f81441697545949fbf4d39b1b306872f7c254a4871",

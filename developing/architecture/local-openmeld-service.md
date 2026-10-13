@@ -618,14 +618,34 @@ Only an explicit sign-in action may enter an interactive authorization flow.
 Antigravity's `agy --print /usage` can enter authentication and open browser
 login pages or request Keychain access. Until a provider-owned no-interaction
 contract is verified, both fresh and background ACI checks for the legacy CLI
-run only `--version`. The separately selected official ACP installation uses
-only the credential-free `initialize` handshake during inventory.
-They report authentication as unknown, an explicit warning explaining the
-unavailable checks, and Usage as `unsupported`. They must not claim signed-in
-readiness from installation alone or retain an old numeric quota without current
-account evidence. Status refresh cannot restore Antigravity authentication or
-quota verification in this version; users can inspect them directly in the
-Antigravity client. The legacy CLI execution transport remains available.
+run only `--version`. The legacy CLI reports installed with unknown account
+status, without an actionable warning for an unsupported check.
+
+The separately selected official ACP installation uses `initialize` followed by
+`session/new` to verify native account admission and obtain model config options.
+It never sends a prompt or calls `authenticate` during inventory or Wake. Google
+ACP 1.3.0 can itself attempt login from `session/new` when saved credentials are
+missing or invalid. All ACP entry points therefore use native file credential
+storage, a preflighted successful browser sink, and interception of the native
+login output. A passive login attempt fails as unauthenticated and closes the
+process; it cannot open a browser or request Keychain access. Network, timeout,
+and protocol failures remain incomplete checks, not signed-out evidence.
+
+Only `openmeld agents login antigravity` calls native `authenticate`. It displays
+a validated Google loopback authorization URL for the user to open. Cancel and
+the five-minute deadline close the process. Success requires session admission
+and a second process using the saved native sign-in. No tokens or account cache
+are copied into OpenMeld. Login, inventory and dispatch share the selected
+installation and native `GEMINI_HOME` configuration; they do not create provider
+instances. This file store may need its own explicit sign-in if the standalone
+client uses the system credential store. On Windows the browser sink requires
+Node on PATH and fails before server launch if its preflight cannot run.
+
+Fresh checks bypass the usual keeper TTL; process restarts rebuild account
+evidence from native session admission. A successful native session is local
+ACI evidence, not final Wakeability or proof of available quota. Usage remains
+`unsupported`; neither internal Google quota endpoints nor token-file parsing
+are part of this integration. The legacy CLI execution transport remains available.
 The shared Usage support matrix declares Antigravity unsupported so historical
 quota cannot become new capacity authority or authorize automatic recovery.
 

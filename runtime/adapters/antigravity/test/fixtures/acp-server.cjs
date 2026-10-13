@@ -62,6 +62,13 @@ const finish = () => {
           : { id, result: {} }
       );
     } else if (method === "session/new" || method === "session/resume") {
+      if (scenario === "auth") {
+        send({
+          id,
+          error: { code: -32_000, message: "Authentication required" },
+        });
+        continue;
+      }
       update("Old history must not be published");
       send({
         id,
