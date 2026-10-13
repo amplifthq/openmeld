@@ -140,7 +140,21 @@ export async function validateCustomProfileWorkspacePath(
         status: "invalid",
       };
     }
+    // Background macOS Services must not call access here: TCC can block it
+    // indefinitely. The controller reports operation-time access failures.
   } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "ENOTDIR"
+    ) {
+      return {
+        path: normalizedPath,
+        reason: "not_directory",
+        status: "invalid",
+      };
+    }
     if (isFileNotFoundError(error)) {
       return {
         path: normalizedPath,

@@ -1,0 +1,22 @@
+name: Suggest a feature
+description: Describe a task OpenMeld could help you complete.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: Describe the task and what prevents you from completing it today.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: What would help?
+      description: Describe the result you need. An implementation proposal is optional.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or examples
+      description: Optional. Include your current workaround or a relevant example.

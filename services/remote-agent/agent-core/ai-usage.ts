@@ -7,10 +7,11 @@ import type {
   RemoteAgentStorage,
 } from "./callback-context";
 import { callCoreRpc } from "./core-rpc";
+import { remoteAgentDiagnosticErrorFields } from "./diagnostics-content-policy";
 import {
-  type RemoteAgentDiagnosticsEnv,
-  remoteAgentDiagnosticErrorFields,
-} from "./diagnostics-content-policy";
+  type RemoteAgentModelEnv,
+  resolveRemoteAgentAiGatewayOpenRouterBaseUrl,
+} from "./model";
 
 const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 // OpenRouter usage is part of the existing JSON response or final SSE chunk.
@@ -62,7 +63,13 @@ async function writeUsage(
     await callCoreRpc(
       coreWorker as RemoteAgentCoreWorkerBinding | undefined,
       "recordRemoteAiUsage",
-      { phase, record },
+      {
+        phase,
+        record,
+        ...(phase === "begin"
+          ? { providerAuthorizationVersion: 1 as const }
+          : {}),
+      },
       (binding, request) => binding.recordRemoteAiUsage?.(request)
     )
   );
@@ -84,7 +91,7 @@ export async function flushRemoteAiUsage(input: {
 }
 
 export function createMeteredRemoteFetch(input: {
-  env?: RemoteAgentDiagnosticsEnv;
+  env?: RemoteAgentModelEnv;
   coreWorker: unknown;
   scope: RemoteAiUsageScope;
   model: string;
@@ -93,6 +100,7 @@ export function createMeteredRemoteFetch(input: {
   scheduleRetry?: () => Promise<void>;
 }): typeof globalThis.fetch {
   return async (url, init) => {
+    assertProviderDestination(url, input.env ?? {});
     const record: AiUsageRecord = {
       ...input.scope,
       eventId: `openrouter:${crypto.randomUUID()}`,
@@ -113,9 +121,16 @@ export function createMeteredRemoteFetch(input: {
     const admission = await writeUsage(input.coreWorker, "begin", record);
     if (admission.status === "limit_reached") {
       throw new Error(
-        "ai_usage.daily_limit_reached: This Organization has used its daily AI allowance. It resets at 00:00 UTC."
+        "ai_usage.monthly_limit_reached: This workspace has used its included AI credits. Add an OpenRouter API key in AI usage settings, or wait for the monthly reset."
       );
     }
+    const authorization = admission.providerAuthorization;
+    if (!authorization) {
+      throw new Error(
+        "AI provider authorization is unavailable. Try again later."
+      );
+    }
+    record.fundingSource = authorization.source;
     let settlement: Promise<void> | undefined;
     const settle = (
       value: unknown,
@@ -157,7 +172,27 @@ export function createMeteredRemoteFetch(input: {
     };
     let response: Response;
     try {
-      response = await (input.fetch ?? globalThis.fetch)(url, init);
+      const headers = new Headers(
+        url instanceof Request ? url.headers : undefined
+      );
+      new Headers(init?.headers).forEach((value, name) => {
+        headers.set(name, value);
+      });
+      headers.set("Authorization", `Bearer ${authorization.apiKey}`);
+      headers.delete("cf-aig-byok-alias");
+      // Attribute every hosted model request, including customer-funded calls.
+      // https://openrouter.ai/docs/app-attribution
+      headers.set("HTTP-Referer", "https://openmeld.ai");
+      headers.set("X-OpenRouter-Title", "OpenMeld");
+      headers.delete("X-Title");
+      const body = await withOrganizationAttribution(url, init, record);
+      headers.delete("Content-Length");
+      response = await (input.fetch ?? globalThis.fetch)(url, {
+        ...init,
+        body,
+        headers,
+        redirect: "manual",
+      });
     } catch (error) {
       await settle(null, "request_failed");
       throw error;
@@ -176,6 +211,27 @@ export function createMeteredRemoteFetch(input: {
     }
     return observeUsageStream(response, settle);
   };
+}
+
+async function withOrganizationAttribution(
+  url: Parameters<typeof globalThis.fetch>[0],
+  init: RequestInit | undefined,
+  record: AiUsageRecord
+) {
+  const body = init?.body ?? (url instanceof Request ? url.clone().body : null);
+  if (!body) {
+    return body;
+  }
+  return JSON.stringify({
+    ...z.record(z.string(), z.unknown()).parse(await new Response(body).json()),
+    // This boundary owns attribution. Do not trust caller metadata or put
+    // tenant identities in the public application title/referer.
+    metadata: {
+      openmeld_organization_id: record.organizationId,
+      openmeld_funding_source: record.fundingSource,
+      openmeld_purpose: record.purpose,
+    },
+  });
 }
 
 function observeUsageStream(
@@ -337,4 +393,15 @@ function projectProviderUsage(
             kind: "provider_reported",
           },
   };
+}
+
+function assertProviderDestination(
+  url: RequestInfo | URL,
+  env: RemoteAgentModelEnv
+) {
+  const destination = new URL(url instanceof Request ? url.url : String(url));
+  const allowed = `${resolveRemoteAgentAiGatewayOpenRouterBaseUrl(env)}/chat/completions`;
+  if (destination.href !== allowed) {
+    throw new Error("AI provider request destination is not configured.");
+  }
 }

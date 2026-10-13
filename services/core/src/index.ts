@@ -286,6 +286,7 @@ import type {
   OpenCenterAgentDirectMessageSpaceResponse,
   OpenDirectMessageSpaceResponse,
   OrganizationAgentRuntimeOverviewResponse,
+  OrganizationAiBillingRpcInput,
   OrganizationAiUsageRpcInput,
   OrganizationComputersResponse,
   OrganizationDirectoryResponse,
@@ -397,6 +398,7 @@ import type {
   UpdateFeedbackIssueStatusForOrganizationRequest,
   UpdateInboxMessageNotificationPreferencesRpcInput,
   UpdateInboxNotificationPreferencesRpcInput,
+  UpdateOrganizationAiBillingRpcInput,
   UpdateOrganizationDocumentFolderResponse,
   UpdateOrganizationDocumentFolderRpcInput,
   UpdateOrganizationDocumentResponse,
@@ -1216,6 +1218,7 @@ import {
   rpcProjectSpaceIndexMembershipOverlay,
 } from "./space-index/space-index-overlay-rpc";
 import { listMembershipSpaceIdsForProfilesFromSpaceIndex } from "./space-index/space-index-repository";
+import { rpcReadAiBilling, rpcUpdateAiBilling } from "./usage/ai-billing-rpc";
 import {
   rpcCenterAgentReadAiUsage,
   rpcReadOrganizationAiUsage,
@@ -4525,6 +4528,16 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
 // Gateway-specific RPC entrypoint. Kept as a dedicated subclass to preserve an
 // extension point for future gateway-aware overrides.
 export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
+  readOrganizationAiBilling(input: OrganizationAiBillingRpcInput) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcReadAiBilling(this.env, input)
+    );
+  }
+  updateOrganizationAiBilling(input: UpdateOrganizationAiBillingRpcInput) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcUpdateAiBilling(this.env, input)
+    );
+  }
   firstWork(input: Parameters<typeof rpcFirstWork>[1]) {
     return super.firstWork(input);
   }

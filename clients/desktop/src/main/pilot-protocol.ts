@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
 import {
@@ -18,6 +18,7 @@ import {
   DESKTOP_UPDATE_OBSERVATION_PATH,
   DESKTOP_WEB_BUILD_HEADER,
   type DesktopLocalComputer,
+  gatewayErrorEnvelopeSchema,
   SPACE_ACCESS_VERSION_HEADER,
 } from "@openmeld/schemas";
 import {
@@ -61,6 +62,7 @@ type PilotProtocolOptions = {
   webOrigin: string;
   webBuild: string;
   cookie: () => string;
+  sessionGeneration?: () => number;
   fetch: typeof fetch;
   installed?: boolean;
   cloudRequest?: (
@@ -180,8 +182,8 @@ async function forwardCloud(
       status: 403,
     });
   }
-  const folderCookie = desktopWorkingFolderTarget(url, request.method)
-    ? input.cookie()
+  const folderGeneration = desktopWorkingFolderTarget(url, request.method)
+    ? input.sessionGeneration?.()
     : undefined;
   const folderRefusal = await admitWorkingFolder(request, url, input);
   if (folderRefusal) {
@@ -210,14 +212,13 @@ async function forwardCloud(
     headers,
     body: await readCloudBody(request),
   };
-  if (folderCookie !== undefined && input.cookie() !== folderCookie) {
-    return Response.json(
-      {
-        code: "desktop.folder.account_changed",
-        message:
-          "Your Desktop sign-in changed. Reopen the working folder settings and try again.",
-      },
-      { status: 409 }
+  if (
+    folderGeneration !== undefined &&
+    input.sessionGeneration?.() !== folderGeneration
+  ) {
+    return folderError(
+      "desktop.folder.account_changed",
+      "Your Desktop sign-in changed. Reopen the working folder settings and try again."
     );
   }
   return await fetchCloudResponse(
@@ -297,34 +298,45 @@ async function admitWorkingFolder(
 ): Promise<Response | null> {
   const folderTarget = desktopWorkingFolderTarget(url, request.method);
   if (folderTarget) {
-    const local = await input.readLocalComputer?.();
+    let local: DesktopLocalComputer | undefined;
+    try {
+      local = await input.readLocalComputer?.();
+    } catch {
+      return folderError(
+        "desktop.folder.computer_unavailable",
+        "Couldn’t check this computer. Check its OpenMeld Service, then try again."
+      );
+    }
     if (!local || local.status !== "available") {
-      return Response.json(
-        {
-          code: "desktop.folder.computer_unavailable",
-          message:
-            local?.status === "unavailable"
-              ? local.message
-              : "Couldn’t check this computer for folder selection. Reopen Desktop and try again.",
-        },
-        { status: 409 }
+      return folderError(
+        "desktop.folder.computer_unavailable",
+        local?.status === "unavailable"
+          ? local.message
+          : "Couldn’t check this computer for folder selection. Reopen Desktop and try again."
       );
     }
     if (
       folderTarget.deviceId !== local.target.deviceId ||
       folderTarget.runtimeLane !== local.target.runtimeLane
     ) {
-      return Response.json(
-        {
-          code: "desktop.folder.computer_mismatch",
-          message:
-            "Choose a folder on the computer running this Desktop app. The selected computer or environment is different.",
-        },
-        { status: 409 }
+      return folderError(
+        "desktop.folder.computer_mismatch",
+        "Choose a folder on the computer running this Desktop app. The selected computer or environment is different."
       );
     }
   }
   return null;
+}
+
+function folderError(upstreamCode: string, message: string): Response {
+  const requestId = randomUUID();
+  return Response.json(
+    gatewayErrorEnvelopeSchema.parse({
+      ok: false,
+      error: { code: "bad_request", upstreamCode, message, requestId },
+    }),
+    { status: 409, headers: { "x-openmeld-request-id": requestId } }
+  );
 }
 
 async function sanitizeCloudResponse(

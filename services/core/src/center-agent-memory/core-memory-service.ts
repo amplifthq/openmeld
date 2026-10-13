@@ -5,9 +5,11 @@ import {
   clearRemoteAgentNativeDeliveryTriggerTextForMember,
   clearRemoteAgentNativeDeliveryTriggerTextForOrganization,
 } from "../remote-agent/infrastructure/postgresql/native-delivery-ledger-repo";
+import { CENTER_AGENT_MEMORY_RECALL_TIMEOUT_MS } from "./contract";
 import {
   type CenterAgentMemoryService,
   createCenterAgentMemoryService,
+  withCenterAgentMemoryTimeout,
 } from "./memory-service";
 import { createPostgresCenterAgentMemoryRepository } from "./postgresql-memory-repository";
 import {
@@ -15,6 +17,57 @@ import {
   searchRetainedCenterAgentMemory,
 } from "./retained-memory-search";
 import { createZepCenterAgentMemoryAdapter } from "./zep-memory-adapter";
+
+export async function readCoreOrganizationMemoryAvailability(
+  env: CoreBindings,
+  organizationId: string
+): Promise<"available" | "unavailable" | "not_checked" | "disabled"> {
+  const db = getPostgresDatabase(env);
+  if (!db) {
+    return "unavailable";
+  }
+  const repository = createPostgresCenterAgentMemoryRepository(db);
+  const policy = await repository.readPolicy(organizationId);
+  if (!policy.organizationMemoryOptIn) {
+    return "disabled";
+  }
+  const apiKey = normalizeOptionalText(env.ZEP_OPENMELD_API_KEY);
+  if (!apiKey) {
+    return "unavailable";
+  }
+  const refs = await repository.readActiveSubjects({ organizationId });
+  const ref = refs.find(
+    (candidate) => candidate.subject.kind === "organization"
+  );
+  // Do not create an organization graph just to check its setting.
+  if (!ref) {
+    return "not_checked";
+  }
+  try {
+    await withCenterAgentMemoryTimeout(
+      createZepCenterAgentMemoryAdapter({ apiKey })
+        .searchDetailed({
+          ref,
+          query: "organization memory",
+          limit: 1,
+        })
+        .then((result) => {
+          if (result.status !== "complete") {
+            throw new Error("provenance_unavailable");
+          }
+        }),
+      CENTER_AGENT_MEMORY_RECALL_TIMEOUT_MS,
+      "center_agent_memory.availability_timeout"
+    );
+    return "available";
+  } catch (error) {
+    console.warn("[core.center_agent_memory.availability_unavailable]", {
+      organizationId,
+      errorName: error instanceof Error ? error.name : "unknown",
+    });
+    return "unavailable";
+  }
+}
 
 export function createCoreCenterAgentMemoryService(
   env: CoreBindings

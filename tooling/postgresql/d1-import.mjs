@@ -35,6 +35,8 @@ const postgresqlOnlyTables = [
   { name: "space_task_project_projection_states" },
   { name: "user_time_contexts" },
   { name: "conversation_history_deletions" },
+  { name: "ai_free_grants" },
+  { name: "organization_ai_credentials" },
 ];
 
 function csv(value) {

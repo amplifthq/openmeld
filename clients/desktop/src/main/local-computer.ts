@@ -65,9 +65,11 @@ export function createLocalComputerReader(
         errorName: error instanceof Error ? error.name : "UnknownError",
         code: (error as { code?: string | number })?.code ?? null,
       });
-      throw new Error(
-        "Couldn’t check this Mac’s connection. Check its OpenMeld Service and try again."
-      );
+      return {
+        status: "unavailable",
+        message:
+          "Couldn’t check this Mac’s connection. Check its OpenMeld Service and try again.",
+      };
     }
   };
 }

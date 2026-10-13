@@ -1,5 +1,6 @@
 "use client";
 
+import type { CenterAgentOrganizationMemoryPolicyResponse } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { SkeletonRegion } from "@openmeld/ui/components/skeleton-content";
@@ -43,6 +44,10 @@ export function OrganizationMemoryPolicySection(input: {
 	const checked = readUnavailable
 		? undefined
 		: memoryPolicyQuery.data?.organizationMemoryOptIn;
+	const availability = memoryPolicyQuery.data?.availability;
+	const availabilityMessage = checked
+		? memoryAvailabilityMessage(availability)
+		: null;
 	const isDisabled =
 		!input.roleState.canManage ||
 		input.roleState.isPending ||
@@ -77,6 +82,8 @@ export function OrganizationMemoryPolicySection(input: {
 	if (input.presentation === "card") {
 		return (
 			<OrganizationMemoryPolicyCard
+				availability={availability}
+				availabilityMessage={availabilityMessage}
 				checked={checked}
 				control={control}
 				error={
@@ -86,7 +93,7 @@ export function OrganizationMemoryPolicySection(input: {
 				}
 				isLoading={memoryPolicyQuery.isPending && !readUnavailable}
 				onRetry={
-					readUnavailable
+					readUnavailable || (checked && availability !== "available")
 						? () => memoryPolicyQuery.refetch().catch(console.error)
 						: undefined
 				}
@@ -106,8 +113,15 @@ export function OrganizationMemoryPolicySection(input: {
 			<div className="flex items-start justify-between gap-4 px-5 py-4">
 				<div className="min-w-0">
 					<p className="font-medium text-foreground text-sm">
-						Remember shared conversations
+						{input.isPersonalWorkspace
+							? "Use Workspace memory"
+							: "Use organization memory"}
 					</p>
+					{availabilityMessage ? (
+						<output className="mt-2 block text-muted-foreground text-xs">
+							{availabilityMessage}
+						</output>
+					) : null}
 					<p className="mt-1 text-muted-foreground text-xs leading-5">
 						{input.isPersonalWorkspace
 							? "Use saved Workspace memory in future replies. Shared chats are saved only when you ask. Private chats use your personal memory instead."
@@ -139,11 +153,13 @@ export function OrganizationMemoryPolicySection(input: {
 							Only owners and admins can change organization memory.
 						</p>
 					)}
-					{readUnavailable ? (
+					{readUnavailable || (checked && availability !== "available") ? (
 						<div className="mt-2 flex items-center gap-2" role="alert">
 							<p className="text-destructive text-xs">
-								{memoryPolicyQuery.error?.message ??
-									"Reconnect to load this memory setting."}
+								{readUnavailable
+									? (memoryPolicyQuery.error?.message ??
+										"Reconnect to load this memory setting.")
+									: "Check memory availability again."}
 							</p>
 							<Button
 								disabled={memoryPolicyQuery.isFetching}
@@ -169,6 +185,8 @@ export function OrganizationMemoryPolicySection(input: {
 
 function OrganizationMemoryPolicyCard(input: {
 	checked: boolean | undefined;
+	availability: CenterAgentOrganizationMemoryPolicyResponse["availability"];
+	availabilityMessage: string | null;
 	control: ReactNode;
 	error: string | null | undefined;
 	isLoading: boolean;
@@ -176,7 +194,10 @@ function OrganizationMemoryPolicyCard(input: {
 }) {
 	let summary = input.isLoading ? "Loading…" : "Unavailable";
 	if (input.checked === true) {
-		summary = "On";
+		summary =
+			input.availability === "unavailable"
+				? "Enabled · unavailable"
+				: "Enabled";
 	}
 	if (input.checked === false) {
 		summary = "Off";
@@ -189,10 +210,15 @@ function OrganizationMemoryPolicyCard(input: {
 				<>
 					<div className="flex items-center justify-between gap-3">
 						<span className="text-muted-foreground text-xs">
-							Remember shared conversations
+							Use organization memory
 						</span>
 						{input.control}
 					</div>
+					{input.availabilityMessage ? (
+						<output className="mt-2 block text-muted-foreground text-xs">
+							{input.availabilityMessage}
+						</output>
+					) : null}
 					{input.error ? (
 						<p className="mt-2 text-destructive text-xs" role="alert">
 							{input.error}
@@ -217,4 +243,16 @@ function OrganizationMemoryPolicyCard(input: {
 			summary={summary}
 		/>
 	);
+}
+
+function memoryAvailabilityMessage(
+	availability: CenterAgentOrganizationMemoryPolicyResponse["availability"]
+): string {
+	if (availability === "available") {
+		return "The latest recall check succeeded. New saves may still be processing.";
+	}
+	if (availability === "unavailable") {
+		return "Memory could not be read. Your setting is still enabled. Try again to check availability.";
+	}
+	return "Service availability has not been verified. Save a team fact, then check it in a new conversation.";
 }

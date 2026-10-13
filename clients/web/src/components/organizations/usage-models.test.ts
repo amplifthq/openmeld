@@ -1,7 +1,16 @@
 import type { AiUsageQueryResponse } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import { localAgentTokenSeries } from "../computers/local-agent-token-series";
-import { usageModelSeries } from "./usage-models";
+import { usageModelSeries, usageValue } from "./usage-models";
+
+it("shows the same recorded usage in provider dollars or platform credits without hiding small amounts", () => {
+	expect(usageValue(8_447_900, "usd")).toBe("$0.0084");
+	expect(usageValue(8_447_900, "credits")).toBe("8.45");
+	expect(usageValue(5_000_000_000, "credits")).toBe("5,000");
+	expect(usageValue(1, "credits")).toBe("<0.01");
+	expect(usageValue(1, "usd")).toBe("<$0.0001");
+	expect(usageValue(0, "credits")).toBe("0");
+});
 
 function modelRow(
 	model: string | null

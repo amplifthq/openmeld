@@ -34,7 +34,10 @@ function context() {
 describe("Computer audience and current access", () => {
   beforeEach(() => getWorkspace.mockReset());
 
-  it("waits across bounded preparation RPCs using the original receipt", async () => {
+  it.each([
+    false,
+    true,
+  ])("waits across preparation RPCs but returns an unavailable observation (timedOut=%s)", async (timedOut) => {
     const reference = {
       invocationId: "original",
       key: "prepare",
@@ -58,6 +61,16 @@ describe("Computer audience and current access", () => {
                 status: observed.length === 1 ? "running" : "completed",
                 exitCode: observed.length === 1 ? null : 17,
                 stdout: observed.length === 1 ? "" : "retained output",
+                ...(timedOut
+                  ? {
+                      observation: {
+                        status: "timed_out",
+                        phase: "workspace-acquisition",
+                        message:
+                          "Last confirmed receipt; current progress is unknown.",
+                      },
+                    }
+                  : {}),
               });
             },
           }) as unknown as DurableObjectStub,
@@ -69,16 +82,26 @@ describe("Computer audience and current access", () => {
         invocationId: reference.invocationId,
         command: { action: "poll", key: reference.key, waitSeconds: 1 },
       })
-    ).resolves.toMatchObject({
-      status: "completed",
-      exitCode: 17,
-      stdout: "retained output",
-    });
-    expect(observed).toHaveLength(2);
-    expect(observed[1]).toMatchObject({
-      invocationId: reference.invocationId,
-      command: { action: "poll", key: reference.key, reference },
-    });
+    ).resolves.toMatchObject(
+      timedOut
+        ? {
+            phase: "accepted",
+            reference,
+            observation: { status: "timed_out" },
+          }
+        : {
+            status: "completed",
+            exitCode: 17,
+            stdout: "retained output",
+          }
+    );
+    expect(observed).toHaveLength(timedOut ? 1 : 2);
+    if (!timedOut) {
+      expect(observed[1]).toMatchObject({
+        invocationId: reference.invocationId,
+        command: { action: "poll", key: reference.key, reference },
+      });
+    }
   });
 
   it("preserves historical audience addresses for cleanup", () => {
