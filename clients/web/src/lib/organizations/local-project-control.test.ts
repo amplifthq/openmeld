@@ -3,6 +3,18 @@ import { resolveLocalProjectControlErrorMessage } from "./local-project-control"
 
 describe("resolveLocalProjectControlErrorMessage", () => {
 	it.each([
+		"account_changed",
+		"computer_mismatch",
+		"computer_unavailable",
+	])("preserves the native recovery action for %s", (reason) => {
+		const message = "Reopen the working folder settings and try again.";
+		expect(
+			resolveLocalProjectControlErrorMessage(
+				failure(`desktop.folder.${reason}`, message)
+			)
+		).toBe(message);
+	});
+	it.each([
 		[
 			"path_not_found",
 			"OpenMeld couldn’t find that folder on this computer. Check the path and try again.",

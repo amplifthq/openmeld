@@ -16,19 +16,13 @@ export async function readAiUsageAllowance(input: {
   nowMs: number;
 }) {
   const period = aiUsageDay(input.nowMs);
-  const policy = await input.db
-    .query<{
-      daily_limit_nano_usd: number | null;
-    }>({
-      text: 'SELECT daily_limit_nano_usd FROM "openmeld"."organization_ai_usage_policies" WHERE organization_id = $1',
-      values: [input.organizationId],
-    })
-    .then((result) => result.rows[0] ?? null);
   const usage = await queryAiUsage({
     ...input,
     query: { ...period, runtime: "remote" },
   });
-  const dailyLimitNanoUsd = policy?.daily_limit_nano_usd ?? null;
+  // Retain the legacy overview shape for older clients. Native monthly key
+  // budgets now own admission; historical daily policies no longer apply.
+  const dailyLimitNanoUsd: number | null = null;
   const usedNanoUsd = usage.models.reduce(
     (total, model) => total + model.reportedCostNanoUsd,
     0
@@ -42,6 +36,6 @@ export async function readAiUsageAllowance(input: {
     usedNanoUsd,
     missingCostRequests,
     resetsAt: new Date(period.toMs).toISOString(),
-    exhausted: dailyLimitNanoUsd !== null && usedNanoUsd >= dailyLimitNanoUsd,
+    exhausted: false,
   };
 }

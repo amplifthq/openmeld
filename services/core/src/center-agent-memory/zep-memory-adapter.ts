@@ -17,7 +17,10 @@ import type {
 
 type ZepClientLike = {
   graph: {
-    add(input: Zep.AddDataRequest): Promise<unknown>;
+    add(
+      input: Zep.AddDataRequest,
+      options?: { maxRetries: number }
+    ): Promise<Zep.Episode>;
     create(input: Record<string, unknown>): Promise<unknown>;
     delete(input: string): Promise<unknown>;
     episode: {
@@ -143,14 +146,21 @@ export function createZepCenterAgentMemoryAdapter(input: {
   return {
     async addEpisode(addInput) {
       const client = await getClient();
-      await client.graph.add({
-        ...toZepGraphSelector(addInput.ref),
-        createdAt: formatTimestampMs(addInput.episode.occurredAtMs),
-        data: formatEpisode(addInput.episode),
-        metadata: buildEpisodeMetadata(addInput.episode),
-        sourceDescription: formatEpisodeSourceDescription(addInput.episode),
-        type: "message",
-      });
+      const receipt = await client.graph.add(
+        {
+          ...toZepGraphSelector(addInput.ref),
+          createdAt: formatTimestampMs(addInput.episode.occurredAtMs),
+          data: formatEpisode(addInput.episode),
+          metadata: buildEpisodeMetadata(addInput.episode),
+          sourceDescription: formatEpisodeSourceDescription(addInput.episode),
+          type: "message",
+        },
+        { maxRetries: 0 }
+      );
+      if (!receipt.uuid) {
+        throw new Error("center_agent_memory.write_receipt_missing");
+      }
+      return { episodeId: receipt.uuid, processed: receipt.processed === true };
     },
 
     async deleteMemberUser(ref) {
@@ -224,11 +234,7 @@ export function createZepCenterAgentMemoryAdapter(input: {
               ]
             : []
         ),
-        status: records.some(
-          (record) =>
-            record.status === "omitted" &&
-            record.failure.reasonCode === "episode_read_failed"
-        )
+        status: records.some((record) => record.status === "omitted")
           ? "partial"
           : "complete",
       };

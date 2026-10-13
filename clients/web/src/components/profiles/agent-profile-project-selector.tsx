@@ -15,6 +15,7 @@ import { Label } from "@openmeld/ui/components/label";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+import { useStartFlowState } from "#/components/app/start-flow-state";
 import { LocalFolderPickerButton } from "#/components/local-runtimes/local-folder-picker-button";
 import { SelectedLocalFolder } from "#/components/local-runtimes/selected-local-folder";
 import { FolderMoveConfirmationDialog } from "#/components/projects/folder-move-confirmation-dialog";
@@ -72,12 +73,18 @@ type ProjectSelectorInput = {
 
 export function AgentProfileProjectSelector(input: ProjectSelectorInput) {
 	const desktop = getDesktopPlatform();
+	const { storageScope } = useStartFlowState();
 	const native = useQuery({
-		queryKey: ["desktop", "working-folder-computer", input.organizationId],
+		queryKey: [
+			"desktop",
+			"working-folder-computer",
+			storageScope,
+			input.organizationId,
+		],
 		queryFn: async () =>
 			desktopLocalComputerSchema.parse(await desktop?.localComputer()),
 		enabled: Boolean(desktop),
-		staleTime: 0,
+		staleTime: 30_000,
 	});
 	if (!desktop) {
 		return <AgentProfileProjectSelectorContent {...input} />;
@@ -103,7 +110,7 @@ export function AgentProfileProjectSelector(input: ProjectSelectorInput) {
 		}
 		if (mismatch) {
 			message =
-				"The selected Agent runs on a different computer or environment. Select this computer to choose a local folder.";
+				"This Agent runs on another computer or environment. Open Desktop there to change its working folder.";
 		}
 		return (
 			<div className="grid gap-2">
@@ -131,7 +138,9 @@ function AgentProfileProjectSelectorContent(input: ProjectSelectorInput) {
 		target: input.target,
 		includeCandidates: false,
 		organizationId: input.organizationId,
-		projects: input.projects,
+		projects: input.projects.filter(
+			(project) => project.id === input.projectId
+		),
 	});
 	const savedView = input.projectId
 		? controller.projectView(input.projectId)
@@ -445,7 +454,11 @@ function AgentProfileProjectSelectorContent(input: ProjectSelectorInput) {
 			{input.projectId && input.onUseManagedWorkspace ? (
 				<Button
 					className="justify-self-start"
-					disabled={input.disabled || input.localFolderChangesBlocked}
+					disabled={
+						input.disabled ||
+						input.localFolderChangesBlocked ||
+						pendingOperation !== null
+					}
 					onClick={() => {
 						input.onProjectChange("");
 						input.onUseManagedWorkspace?.();

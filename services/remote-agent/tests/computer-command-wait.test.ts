@@ -63,8 +63,22 @@ it.each([
   { ...running, phase: "result_unavailable", nextAction: "inspect" },
   { ...running, phase: "sync_pending", syncPending: true, syncError: "ENOENT" },
   { ...running, collection: { nextAttemptAtMs: null, unconfirmedAttempts: 8 } },
+  {
+    ...running,
+    stdout: "Saved partial result",
+    observation: {
+      status: "timed_out",
+      phase: "poll",
+      message: "The receipt is the last confirmed state, not current progress.",
+    },
+  },
 ])("returns unresolved or stopped evidence without retrying or relaunching: %j", async (result) => {
-  const execute = vi.fn().mockResolvedValue(result);
+  const execute = vi
+    .fn()
+    .mockResolvedValueOnce(result)
+    .mockRejectedValue(
+      new Error("The unresolved observation must return to the Agent")
+    );
   await expect(
     executeAgentComputerCommand({ operation, execute })
   ).resolves.toEqual(result);

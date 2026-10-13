@@ -891,7 +891,6 @@ export function getRemoteAgentGitHubToolDefinitions(input: {
       ),
       input: object({
         branch: optional(string()),
-        ...writeConfirmationField,
         message: nonEmptyStringSchema,
         owner: nonEmptyStringSchema,
         path: nonEmptyStringSchema,
@@ -1095,7 +1094,6 @@ export function getRemoteAgentGitHubToolDefinitions(input: {
         "Merge a pull request with GitHub's merge, squash, or rebase strategy."
       ),
       input: object({
-        ...writeConfirmationField,
         commitMessage: optional(string()),
         commitTitle: optional(string()),
         mergeMethod: optional(picklist(["merge", "squash", "rebase"])),
@@ -1182,6 +1180,9 @@ function withGitHubActor(
   };
   if (options.includeOperationId) {
     entries.operationId = githubWriteOperationIdSchema;
+    // The trusted runtime catalog can require confirmation for any write.
+    // Keep the round trip available independently of the static safety floor.
+    Object.assign(entries, writeConfirmationField);
   }
   const merged = object(entries);
   const validationActions = objectInput.pipe?.slice(1) ?? [];
@@ -2796,7 +2797,7 @@ function describeGitHubWriteTool(input: {
   if (input.destructive) {
     return `${input.summary} This is a destructive external write. The first call without writeConfirmationToken previews the exact action and returns a one-time token. If the verified user already authorized that action and target, call again with the token and unchanged input in this turn; otherwise ask first. A token is not user authorization. Routines do not currently support delete or merge actions; the tool returns routine_destructive_action_unsupported with zero side effects.`;
   }
-  return `${input.summary} This is an ordinary external write.`;
+  return `${input.summary} This is an external write. The trusted runtime catalog determines whether confirmation is required. If the call returns destructive_action_preview, keep the same operationId and unchanged input and pass back writeConfirmationToken only when the verified user has authorized that exact action and target. A token is not user authorization.`;
 }
 
 type GitHubFileSegmentRequest = {

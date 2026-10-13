@@ -1,4 +1,3 @@
-import { PLUGINS } from "@openmeld/product-catalog/plugins";
 import { AppLogo } from "@openmeld/ui/components/app-logo";
 import { Button } from "@openmeld/ui/components/button";
 import {
@@ -13,9 +12,12 @@ import { useMediaQuery } from "@openmeld/ui/hooks/use-media-query";
 import { PauseIcon, PlayIcon, PlusIcon } from "@phosphor-icons/react";
 import { useInView } from "motion/react";
 import { useEffect, useRef, useState } from "react";
+import {
+	websitePlugins as plugins,
+	websitePluginCountLabel,
+} from "./plugin-catalog";
 import "./connector-showcase.css";
 
-const plugins = PLUGINS.filter((plugin) => plugin.availability === "available");
 const sharedBrandNames: Record<string, string> = {
 	"/app-logos/cloudflare.svg": "Cloudflare",
 	"/app-logos/alibaba-cloud.svg": "Alibaba Cloud",
@@ -104,7 +106,7 @@ export function ConnectorShowcase() {
 				</div>
 			</div>
 			<div className="meld-connectors-footer">
-				<p>{Math.floor(plugins.length / 10) * 10}+ plugins supported.</p>
+				<p>{websitePluginCountLabel} plugins supported.</p>
 				<Sheet>
 					<SheetTrigger className="meld-connectors-details">
 						See all plugins <PlusIcon aria-hidden size={14} />

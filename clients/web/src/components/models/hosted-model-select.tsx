@@ -215,6 +215,7 @@ function providerLabel(id: string): string {
 		anthropic: "Anthropic",
 		deepseek: "DeepSeek",
 		google: "Google",
+		meta: "Meta",
 		openai: "OpenAI",
 		"x-ai": "xAI",
 		"z-ai": "Z.ai",

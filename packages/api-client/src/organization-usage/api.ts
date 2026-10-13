@@ -1,5 +1,6 @@
 import {
   aiUsageQueryResponseSchema,
+  organizationAiBillingSchema,
   organizationUsageOverviewResponseSchema,
 } from "@openmeld/schemas";
 import {
@@ -14,6 +15,25 @@ import type {
 export const createOrganizationUsageApi: CreateOrganizationUsageApi = (
   client
 ) => ({
+  readBilling: async (input = {}) =>
+    await client.requestJson({
+      ...requestOptions(input),
+      method: "GET",
+      operation: "organization_usage.billing.read",
+      invalidMessage: "Invalid AI billing response",
+      schema: organizationAiBillingSchema,
+      url: "/v1/organizations/current/usage/billing",
+    }),
+  updateBilling: async (input) =>
+    await client.requestJson({
+      ...requestOptions(input),
+      method: "PUT",
+      operation: "organization_usage.billing.update",
+      body: JSON.stringify(input.settings),
+      invalidMessage: "Invalid AI billing response",
+      schema: organizationAiBillingSchema,
+      url: "/v1/organizations/current/usage/billing",
+    }),
   query: async (input) =>
     await client.requestJson({
       ...requestOptions(input),

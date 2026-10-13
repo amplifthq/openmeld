@@ -68,6 +68,16 @@ export const remoteAgentGitCheckoutInputSchema = z.strictObject({
   ref: z.string().trim().min(1).max(200),
   githubActor: z.enum(["requester", "organization"]),
 });
+/** The repository identity is persistent; the transport applies to one command. */
+export const remoteAgentGitConnectionResultSchema = z.strictObject({
+  url: z.string().url(),
+  repositoryUrl: z.string().url(),
+  gitArguments: z.array(z.string()).min(2),
+  expiresAtMs: z.number().int().positive(),
+  backend: z.literal("container"),
+  connectionScope: z.enum(["member", "shared"]),
+  nextAction: z.string().min(1),
+});
 export const remoteAgentGitPublishInputSchema = z.strictObject({
   key: remoteAgentGitKeySchema,
   localCommit: remoteAgentGitShaSchema,

@@ -33,10 +33,10 @@
     "discoverySince": "2026-09-01",
     "releaseRepository": "anomalyco/opencode",
     "documents": [
-      "https://raw.githubusercontent.com/anomalyco/opencode/dev/packages/web/src/content/docs/zen.mdx",
-      "https://raw.githubusercontent.com/anomalyco/opencode/dev/packages/web/src/content/docs/go.mdx"
+      "https://raw.githubusercontent.com/anomalyco/opencode/dev/services/www/src/docs/content/console/models.mdx",
+      "https://raw.githubusercontent.com/anomalyco/opencode/dev/services/www/src/docs/content/console/go.mdx"
     ],
-    "providers": ["opencode", "opencode-go", "openai"],
+    "providers": ["opencode", "opencode-go", "openai", "meta", "openrouter"],
     "verification": "Capture opencode models <provider> --verbose for the curated providers. Copy exact variant keys, not API reasoning values. Confirm account access and the exact executable version."
   }
 }

@@ -158,6 +158,9 @@ export function resolveLocalProjectControlFailureCode(
 
 export function resolveLocalProjectControlErrorMessage(error: unknown): string {
 	const failure = toStructuredApiClientFailure(error);
+	if (failure.upstreamCode?.startsWith("desktop.folder.")) {
+		return failure.message;
+	}
 	const code = resolveLocalProjectControlFailureCode(failure);
 	switch (code) {
 		case "path_not_found":
