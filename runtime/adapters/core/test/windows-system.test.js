@@ -6,6 +6,7 @@ import {
   powerShellEncodedArguments,
   readWindowsProcessStartFileTime,
   resolveWindowsPowerShellPath,
+  startWindowsIdleSleepBlocker,
 } from "../dist/windows-system.js";
 
 const SYSTEM_DIRECTORY_ERROR = /system directory is unavailable/;
@@ -68,3 +69,24 @@ test("encodes PowerShell source as UTF-16LE without enabling profiles or global 
   ]);
   assert.equal(Buffer.from(args.at(-1), "base64").toString("utf16le"), source);
 });
+
+test(
+  "native idle sleep request releases when its Service pipe closes",
+  { skip: process.platform !== "win32", timeout: 10_000 },
+  async () => {
+    const child = startWindowsIdleSleepBlocker();
+    const exit = once(child, "close");
+    try {
+      const [receipt] = await once(child.stdout, "data");
+      assert.equal(String(receipt).trim(), "openmeld-idle-sleep-held-v1");
+      assert.equal(child.exitCode, null);
+      child.stdin.end();
+      const [code] = await exit;
+      assert.equal(code, 0);
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill();
+      }
+    }
+  }
+);

@@ -163,6 +163,8 @@ import {
   centerAgentWatchAgentTaskBodySchema,
   centerAgentWatchAgentTaskResponseSchema,
   centerAgentWipeMemberMemoryResponseSchema,
+  computerPowerResultSchema,
+  computerPowerRpcInputSchema,
   connectorAppRequestListResponseSchema,
   connectorAppRequestResponseSchema,
   connectorConnectionNameSchema,
@@ -521,6 +523,7 @@ import type {
   ComputerFileAccessPolicyResponse,
   ComputerFileAccessReadRpcInput,
   ComputerFileAccessUpdateRpcInput,
+  ComputerPowerRpcInput,
   ConnectorAppRequestListResponse,
   ConnectorAppRequestResponse,
   ConnectorConnection,
@@ -1021,6 +1024,7 @@ import {
   type DispatchHistoryEntry,
   listRecentDispatchLedgerEntriesForSpace,
 } from "../dispatch/infrastructure/postgresql/dispatch-ledger-postgresql";
+import { callRuntimeTransportApi as callPowerTransport } from "../dispatch/infrastructure/runtime-transport/runtime-transport-api-client";
 import {
   acquireRuntimeTransportAgentProfileExecutionTargetMutation,
   acquireRuntimeTransportAgentProfileFutureWorkSettingsMutation,
@@ -26955,4 +26959,56 @@ async function resolveSessionHistoryAgentTarget(
   }
 
   return target;
+}
+
+export async function rpcComputerPowerSettings(
+  env: CoreBindings,
+  raw: ComputerPowerRpcInput
+) {
+  const input = computerPowerRpcInputSchema.parse(raw);
+  const ownerUserId = requireAuthenticatedOwnerUserId(input.context);
+  if (
+    input.context.actorContext.profileKind !== "human" ||
+    input.context.actorContext.callerPrincipalId !== ownerUserId
+  ) {
+    throw createCoreRpcHttpError({
+      status: 403,
+      code: "computer.power.denied",
+      reason: "Only the computer owner can manage sleep prevention.",
+    });
+  }
+  const target = { deviceId: input.deviceId, runtimeLane: input.runtimeLane };
+  const { localRuntimes, ownerService } =
+    await resolveCurrentLocalServiceContext({
+      env,
+      userId: ownerUserId,
+      target,
+    });
+  requirePeopleComputerControlSession({
+    target,
+    inventory: localRuntimes,
+    ownerService,
+  });
+  const result = computerPowerResultSchema.parse(
+    await callPowerTransport({
+      env,
+      ownerUserId,
+      path: "/computer-power",
+      body: {
+        ownerUserId,
+        deviceId: target.deviceId,
+        lane: target.runtimeLane,
+        requestId: crypto.randomUUID(),
+        request: input.request,
+      },
+    })
+  );
+  if ("status" in result) {
+    throw createCoreRpcHttpError({
+      status: 409,
+      code: result.code,
+      reason: result.message,
+    });
+  }
+  return result;
 }

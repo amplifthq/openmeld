@@ -5342,6 +5342,83 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
   });
 
+  it("round-trips Computer power through the exact capable Service", async () => {
+    const { hub, sentFrames, socket, state } = await createHarness();
+    configureCompatibleRoute({ socket, state });
+    const session = state.sessionsById.get("daemon-session-1");
+    if (!session) {
+      throw new Error("Expected session");
+    }
+    session.capabilities = { ...session.capabilities, computerPower: true };
+    state.sessionIdBySocket.set(socket, "daemon-session-1");
+    Object.defineProperty(hub, "currentDeviceOperationWaiters", {
+      value: new Map(),
+    });
+    const request = { operation: "update", enabled: true, expectedRevision: 0 };
+    const result = {
+      enabled: true,
+      revision: 1,
+      active: false,
+      supported: true,
+      problem: null,
+    };
+    const responsePromise = fetchRuntimeTransportJson(hub, "/computer-power", {
+      deviceId: "device-1",
+      lane: "dev-local",
+      ownerUserId: "owner-1",
+      requestId: "power-1",
+      request,
+    });
+    await vi.waitFor(() =>
+      expect(sentFrames).toContainEqual(
+        expect.objectContaining({
+          code: "daemon.computer_power.request",
+          payload: { deviceId: "device-1", requestId: "power-1", request },
+        })
+      )
+    );
+    RuntimeTransportHub.prototype.webSocketMessage.call(
+      hub,
+      socket,
+      JSON.stringify({
+        v: 1,
+        code: "daemon.computer_power.request_result",
+        payload: { requestId: "power-1", result },
+      })
+    );
+    await expect((await responsePromise).json()).resolves.toEqual(result);
+  });
+
+  it.each([
+    "unsupported",
+    "other-owner",
+    "other-device",
+    "other-lane",
+  ])("does not send Computer power to %s", async (scenario) => {
+    const { hub, sentFrames, socket, state } = await createHarness();
+    configureCompatibleRoute({ socket, state });
+    const session = state.sessionsById.get("daemon-session-1");
+    if (!session) {
+      throw new Error("Expected session");
+    }
+    if (scenario !== "unsupported") {
+      session.capabilities = { ...session.capabilities, computerPower: true };
+    }
+    const response = await fetchRuntimeTransportJson(hub, "/computer-power", {
+      deviceId: scenario === "other-device" ? "device-2" : "device-1",
+      lane: scenario === "other-lane" ? "canary" : "dev-local",
+      ownerUserId: scenario === "other-owner" ? "owner-2" : "owner-1",
+      requestId: "power-denied",
+      request: { operation: "read" },
+    });
+    await expect(response.json()).resolves.toMatchObject({
+      status: "rejected",
+    });
+    expect(
+      sentFrames.some((frame) => frame.code === "daemon.computer_power.request")
+    ).toBe(false);
+  });
+
   it("round-trips Computer file access only through a capable exact session", async () => {
     const { hub, sentFrames, socket, state } = await createHarness();
     configureCompatibleRoute({ socket, state });

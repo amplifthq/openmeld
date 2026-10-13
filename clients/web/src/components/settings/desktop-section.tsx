@@ -5,11 +5,20 @@ import { SettingsSection } from "@openmeld/ui/components/settings-section";
 import { Switch } from "@openmeld/ui/components/switch";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppPageHeader } from "#/components/app/app-page-header";
+import { ComputerPowerSettings } from "#/components/computers/computer-power-settings";
+import { useDesktopComputerConnection } from "#/desktop/use-computer-connection";
+import { useAuthSession } from "#/hooks/auth.hooks";
 import { getBridge } from "../../../../desktop/src/renderer/ipc";
 
 const queryKey = ["desktop-startup-settings"] as const;
 
 export function DesktopSection() {
+	const account = useAuthSession().data?.user.id;
+	const computer = useDesktopComputerConnection();
+	const target =
+		computer.data?.status === "available" && computer.data.accountId === account
+			? computer.data.target
+			: null;
 	const client = useQueryClient();
 	const settings = useQuery({
 		queryKey,
@@ -37,7 +46,7 @@ export function DesktopSection() {
 	return (
 		<>
 			<AppPageHeader
-				description="Choose how OpenMeld starts on this computer. These settings apply to this device."
+				description="Manage startup and power settings on this computer."
 				eyebrow="Personal"
 				title="Desktop"
 			/>
@@ -108,11 +117,11 @@ export function DesktopSection() {
 					</div>
 				) : null}
 			</SettingsSection>
-			<p className="text-muted-foreground text-sm">
-				Closing the window keeps OpenMeld running. Quitting the app stops
-				desktop notifications. OpenMeld Service and accepted local Agent tasks
-				continue running in either case.
-			</p>
+			<ComputerPowerSettings
+				key={`${account}/${target?.deviceId}/${target?.runtimeLane}`}
+				storageScope={account ?? "signed-out"}
+				target={target}
+			/>
 		</>
 	);
 }
