@@ -116,6 +116,9 @@ export type RemoteAgentFinalPublicationPayload =
       failureCode: string | null;
       failureDetail: string | null;
       files: SpaceMessageFileReference[];
+      // Historical storage name: protects the terminal owner's failure text
+      // from summary replacement. This includes an explicitly unverified
+      // canonical answer; it does not attest that the model reviewed new facts.
       reviewedFailureExplanation?: true;
       resumeStatus: "accepted" | "retry_observed";
       storageVersion: 3;
