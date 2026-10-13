@@ -423,7 +423,10 @@ function PluginCatalogCard(input: {
 							{input.plugin.name}
 						</h3>
 						{input.personalResult ? (
-							<Badge className="shrink-0" variant="outline">
+							<Badge
+								className="shrink-0 rounded-full bg-muted/40"
+								variant="outline"
+							>
 								Personal
 							</Badge>
 						) : null}
