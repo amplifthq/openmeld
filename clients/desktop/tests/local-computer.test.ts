@@ -47,7 +47,11 @@ it.each([
     );
     await expect(
       createLocalComputerReader({ session }, deps)()
-    ).rejects.toThrow("Couldn’t check this Mac’s connection");
+    ).resolves.toEqual({
+      status: "unavailable",
+      message:
+        "Couldn’t check this Mac’s connection. Check its OpenMeld Service and try again.",
+    });
     return;
   }
   if (scenario === "account changed") {
@@ -56,7 +60,11 @@ it.each([
       .mockResolvedValue({ user: { ...user, id: "owner-b" } });
     await expect(
       createLocalComputerReader({ session }, deps)()
-    ).rejects.toThrow("Couldn’t check this Mac’s connection");
+    ).resolves.toEqual({
+      status: "unavailable",
+      message:
+        "Couldn’t check this Mac’s connection. Check its OpenMeld Service and try again.",
+    });
     return;
   }
   const result = await createLocalComputerReader({ session }, deps)();

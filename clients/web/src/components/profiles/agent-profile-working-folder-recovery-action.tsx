@@ -29,6 +29,7 @@ export function AgentProfileWorkingFolderRecoveryAction(input: {
 	profile: AuthProfileView;
 }) {
 	const [open, setOpen] = useState(false);
+	const [savedStatus, setSavedStatus] = useState<string | null>(null);
 	// This is the folder draft's frozen target, not a replacement for Core's
 	// current readiness. Refreshes must neither reset it nor retarget the draft.
 	const [draftTarget, setDraftTarget] = useState<{
@@ -107,6 +108,24 @@ export function AgentProfileWorkingFolderRecoveryAction(input: {
 		checking: loading,
 		failed: readiness.isError || eligibility.isError,
 	});
+	const checkSavedFolder = async () => {
+		setSavedStatus("Working folder saved. Checking Agent availability…");
+		try {
+			const result = await readiness.refetch({ throwOnError: true });
+			const item = result.data?.items.find(
+				(entry) => entry.agentProfileId === input.profile.openMeldProfileId
+			);
+			setSavedStatus(
+				item?.agentWakeAvailability.status === "available_for_wake"
+					? "Working folder saved. This Agent is available for new work. Retry the failed task when you are ready."
+					: "Working folder saved. This Agent still needs attention. Review its current status before retrying the task."
+			);
+		} catch {
+			setSavedStatus(
+				"Working folder saved, but Agent availability could not be checked. Check again before retrying the task."
+			);
+		}
+	};
 	return (
 		<>
 			<Button
@@ -117,6 +136,14 @@ export function AgentProfileWorkingFolderRecoveryAction(input: {
 			>
 				Review working folder
 			</Button>
+			{savedStatus ? (
+				<div className="grid gap-2">
+					<output className="text-sm">{savedStatus}</output>
+					<Button onClick={checkSavedFolder} size="sm" variant="ghost">
+						Check again
+					</Button>
+				</div>
+			) : null}
 			{draftTarget ? (
 				<AgentProfileProjectSettingsDialog
 					actorProfileId={input.actorProfileId}
@@ -127,9 +154,11 @@ export function AgentProfileWorkingFolderRecoveryAction(input: {
 					expectedBindingTarget={draftTarget.bindingTarget}
 					onOpenChange={setOpen}
 					onProfileUpdated={input.onProfileUpdated}
+					onSaved={checkSavedFolder}
 					open={open}
 					organizationId={input.organizationId}
 					profile={input.profile}
+					recoveryMessage={`This Agent could not use its working folder on ${current?.runtimeDeviceDisplayName ?? "its computer"}. Restore the original folder or choose one for new work. This does not move files or restart the failed task.`}
 					saveBlockedReason={saveBlockedReason}
 					storageScope={input.storageScope}
 					target={draftTarget.target}
