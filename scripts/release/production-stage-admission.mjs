@@ -185,6 +185,7 @@ export async function runProductionStageAdmission(input = {}) {
   const status = await (input.collectStatus ?? collectProductionReleaseStatus)({
     argv: ["--ref", sourceSha, ...(input.repo ? ["--repo", input.repo] : [])],
     adapters: input.adapters,
+    remoteAgentRecovery: input.remoteAgentRecovery,
   });
   const sourceBlockers = status.sourceValidationBlockers ?? status.blockers;
   if (sourceBlockers.length > 0) {

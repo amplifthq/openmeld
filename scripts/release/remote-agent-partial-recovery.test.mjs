@@ -44,7 +44,7 @@ const ROLLOUT_UNVERIFIED = /healthy container rollout/u;
 const RECEIPT_PUBLICATION_FAILED = /receipt publication failed/u;
 const SELECTOR_MISMATCH = /selectors do not match/u;
 const TARGET_BOUNDARY = /fixture target boundary reached/u;
-const PREFLIGHT_BLOCKED = /pnpm run failed: 19/u;
+const PREFLIGHT_BLOCKED = /failed with exit code 19/u;
 
 test("recovery CLI reserves deployment preflight for recovery that deploys", () => {
   const root = mkdtempSync(path.join(tmpdir(), "openmeld-recovery-entry-"));
@@ -74,7 +74,7 @@ import { syncBuiltinESMExports } from "node:module";
 const original = childProcess.spawnSync;
 childProcess.spawnSync = (command, args, options) => {
   if (command === "git") return original(command, args, options);
-  if (command === "pnpm" && args[0] === "run" && args[1] === "release:preflight:local") {
+  if (command === "node" && args[0].endsWith("/production-train-artifact-admission.mjs")) {
     writeFileSync(${JSON.stringify(capture)}, JSON.stringify(args));
     return { status: 19, stdout: null, stderr: null };
   }
@@ -139,7 +139,15 @@ syncBuiltinESMExports();
         );
         assert.match(result.stderr, TARGET_BOUNDARY);
       } else {
-        assert.equal(preflight[1], "release:preflight:local");
+        assert.equal(
+          preflight[0],
+          fileURLToPath(
+            new URL(
+              "./production-train-artifact-admission.mjs",
+              import.meta.url
+            )
+          )
+        );
         assert.equal(preflight.at(-1), sourceSha);
         assert.match(result.stderr, PREFLIGHT_BLOCKED);
         assert.doesNotMatch(
