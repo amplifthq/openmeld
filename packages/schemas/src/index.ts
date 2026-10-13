@@ -158,6 +158,17 @@ export {
   computerConnectionProgressPhaseSchema,
 } from "./computer-connection-progress";
 export {
+  COMPUTER_POWER_CAPABILITY_HEADER,
+  computerPowerRequestFrameSchema,
+  computerPowerRequestSchema,
+  computerPowerResultFrameSchema,
+  computerPowerResultSchema,
+  computerPowerRpcInputSchema,
+  computerPowerStateSchema,
+  computerPowerTargetSchema,
+  computerPowerTransportSchema,
+} from "./computer-power";
+export {
   type DeleteConversationForMeInput,
   type DeleteConversationForMeResponse,
   deleteConversationForMeInputSchema,
@@ -182,6 +193,7 @@ export {
   type DesktopLocalComputer,
   type DesktopPlatform,
   type DesktopSession,
+  type DesktopSettingsView,
   type DesktopSpaceStreamBridge,
   type DesktopSpaceStreamEvent,
   type DesktopSpaceStreamInput,
@@ -192,9 +204,11 @@ export {
   desktopPlatformSchema,
   desktopProductionSourceSchema,
   desktopSessionSchema,
+  desktopSettingsViewSchema,
   desktopSpaceStreamEventSchema,
   desktopSpaceStreamIdSchema,
   desktopSpaceStreamInputSchema,
+  desktopStartupToggleSchema,
   desktopWebBuildSchema,
 } from "./desktop-client";
 export * from "./desktop-development";
@@ -430,6 +444,7 @@ export {
   type CloudComputer,
   type CloudComputerCleanupReport,
   type CloudComputerCommandCollection,
+  type CloudComputerCommandObservation,
   type CloudComputerCommandPhase,
   type CloudComputerCommandPreparation,
   type CloudComputerCommandReference,
@@ -442,6 +457,7 @@ export {
   cloudComputerCleanupResultSchema,
   cloudComputerCommandCollectionSchema,
   cloudComputerCommandErrorSchema,
+  cloudComputerCommandObservationSchema,
   cloudComputerCommandPhaseSchema,
   cloudComputerCommandPreparationSchema,
   cloudComputerCommandReferenceSchema,
@@ -499,6 +515,7 @@ export {
   remoteAgentGitBlobSchema,
   remoteAgentGitCheckoutInputSchema,
   remoteAgentGitCommitSchema,
+  remoteAgentGitConnectionResultSchema,
   remoteAgentGitKeySchema,
   remoteAgentGitNativeRequestSchema,
   remoteAgentGitNativeResultSchema,

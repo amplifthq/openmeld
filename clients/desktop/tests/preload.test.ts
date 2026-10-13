@@ -213,6 +213,7 @@ describe("preload bridge", () => {
       "setAgentEnabled",
       "setOpenAtLogin",
       "setServiceAutoStart",
+      "setStartInBackground",
       "setupComputer",
       "signIn",
       "signOutOnThisMac",

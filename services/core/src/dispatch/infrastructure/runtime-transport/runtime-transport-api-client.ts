@@ -10,6 +10,7 @@ import {
 import { resolveRuntimeTransportOwnerShard } from "./runtime-transport-shard";
 
 export type RuntimeTransportApiPath =
+  | "/computer-power"
   | "/session-history"
   | "/lookup-route"
   | "/lookup-routes-batch"

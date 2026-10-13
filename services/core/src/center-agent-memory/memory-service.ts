@@ -43,7 +43,7 @@ export type CenterAgentMemoryService = {
     organizationId: string;
     origin: CenterAgentMemoryEpisodeOrigin;
     speakerMember: RememberCenterAgentTurnInput["speakerMember"];
-  }): Promise<void>;
+  }): Promise<{ status: "processing" | "processed" }>;
   rememberTurn(input: RememberCenterAgentTurnInput): Promise<void>;
   setOrganizationMemoryPolicy(input: {
     organizationId: string;
@@ -93,7 +93,16 @@ export function createCenterAgentMemoryService(input: {
           current.updatedAtMs === refs[index]?.updatedAtMs
       )
     );
-    return projectMemoryEnvelope(interleaveMemoryScopes(currentResults));
+    const successfulResults = currentResults.filter(
+      (result) => result !== null
+    );
+    const memory = projectMemoryEnvelope(
+      interleaveMemoryScopes(successfulResults)
+    );
+    if (successfulResults.length < currentResults.length) {
+      memory.status = successfulResults.length > 0 ? "partial" : "unavailable";
+    }
+    return memory;
   }
 
   return {
@@ -179,7 +188,8 @@ export function createCenterAgentMemoryService(input: {
         );
       }
       const episode = {
-        assistantMessage: `Saved to organization memory: ${factInput.fact}`,
+        assistantMessage:
+          "The member asked to remember this fact for the organization.",
         captureMethod: "explicit_save" as const,
         ...factInput.origin,
         userMessage: factInput.fact,
@@ -193,11 +203,12 @@ export function createCenterAgentMemoryService(input: {
         writeTimeoutMs,
         "center_agent_memory.organization_ensure_timeout"
       );
-      await withTimeout(
+      const receipt = await withTimeout(
         input.adapter.addEpisode({ episode, ref: organizationRef }),
         writeTimeoutMs,
         "center_agent_memory.organization_write_timeout"
       );
+      return { status: receipt.processed ? "processed" : "processing" };
     },
     async rememberTurn(rememberInput) {
       // Shared conversations require an explicit organization save. Never
@@ -252,7 +263,7 @@ async function recallMemory(input: {
   query: string;
   ref: Parameters<CenterAgentMemoryAdapter["search"]>[0]["ref"];
   timeoutMs: number;
-}): Promise<CenterAgentMemorySearchResult[]> {
+}): Promise<CenterAgentMemorySearchResult[] | null> {
   try {
     return await withTimeout(
       input.adapter.search({
@@ -269,7 +280,7 @@ async function recallMemory(input: {
       organizationId: input.ref.subject.organizationId,
       subject: input.ref.subject.kind,
     });
-    return [];
+    return null;
   }
 }
 function truncateMemorySearchQuery(query: string): string {

@@ -110,7 +110,7 @@ export type CenterAgentMemoryAdapter = {
   addEpisode(input: {
     episode: CenterAgentMemoryEpisode;
     ref: CenterAgentMemoryRef;
-  }): Promise<void>;
+  }): Promise<{ episodeId: string; processed: boolean }>;
   deleteMemberUser(ref: CenterAgentMemoryRef): Promise<"deleted" | "not_found">;
   deleteOrganizationGraph(
     ref: CenterAgentMemoryRef

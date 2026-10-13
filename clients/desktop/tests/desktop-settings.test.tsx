@@ -107,6 +107,7 @@ function suspendedOpenClawAgentsView(enabled: boolean): AgentsView {
 function desktopSettingsView(): DesktopSettingsView {
   return {
     openAtLogin: true,
+    startInBackground: false,
     problem: null,
   };
 }

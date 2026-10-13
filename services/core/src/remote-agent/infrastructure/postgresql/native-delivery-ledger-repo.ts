@@ -30,6 +30,31 @@ export type RemoteAgentNativeDeliveryConversationKind =
   | "message_channel"
   | "slack"
   | "space";
+
+/** Exact Space source identity survives Center Agent continuation turns. */
+export async function listSpaceNativeDeliveryTaskIdentities(input: {
+  db: PostgresDatabase;
+  spaceId: string;
+  sourceSignalId: string;
+}): Promise<
+  Array<{ deliveryId: string; organizationId: string; profileId: string }>
+> {
+  const result = await input.db.query<{
+    deliveryId: string;
+    organizationId: string;
+    profileId: string;
+  }>({
+    text: `
+      SELECT delivery_id AS "deliveryId", organization_id AS "organizationId",
+             profile_id AS "profileId"
+      FROM "openmeld"."openMeldRemoteAgent_native_delivery_ledger"
+      WHERE conversation_kind = 'space' AND space_id = $1 AND trigger_message_id = $2
+      ORDER BY created_at_ms, delivery_id
+    `,
+    values: [input.spaceId, input.sourceSignalId],
+  });
+  return result.rows;
+}
 export async function readRemoteAgentTaskActivity(input: {
   db: PostgresDatabase;
   organizationId: string;
@@ -91,6 +116,9 @@ export type RemoteAgentFinalPublicationPayload =
       failureCode: string | null;
       failureDetail: string | null;
       files: SpaceMessageFileReference[];
+      // Historical storage name: protects the terminal owner's failure text
+      // from summary replacement. This includes an explicitly unverified
+      // canonical answer; it does not attest that the model reviewed new facts.
       reviewedFailureExplanation?: true;
       resumeStatus: "accepted" | "retry_observed";
       storageVersion: 3;
@@ -5806,7 +5834,7 @@ export async function markRemoteAgentNativeDeliveryCompleted(input: {
   submissionId: string;
   publishedSignalId: string | null;
 }): Promise<RemoteAgentNativeDeliveryRecord | null> {
-  await input.db.query({
+  const result = await input.db.query({
     text: `
         UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger"
         SET
@@ -5827,6 +5855,11 @@ export async function markRemoteAgentNativeDeliveryCompleted(input: {
       input.submissionId,
     ],
   });
+  // Only the caller that transitions the durable delivery may start capture.
+  // Reading the completed row alone cannot distinguish concurrent callbacks.
+  if (Number(result.rowCount ?? 0) !== 1) {
+    return null;
+  }
   return await readRemoteAgentNativeDeliveryBySubmissionId({
     db: input.db,
     submissionId: input.submissionId,

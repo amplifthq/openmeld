@@ -1,7 +1,11 @@
 import { listLocalAgentInstallGuides } from "@openmeld/product-catalog/local-agent-install-guides";
 import { BotAvatar } from "@openmeld/ui/components/bot-avatar";
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
-import { TabItem, Tabs, TabsList } from "@openmeld/ui/fluid/tabs";
+import { FluidNavMenu, FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
+import {
+	SidebarMenuAction,
+	SidebarMenuButton,
+} from "@openmeld/ui/fluid/sidebar-menu";
 import { useMediaQuery } from "@openmeld/ui/hooks/use-media-query";
 import {
 	ArrowUpRightIcon,
@@ -149,47 +153,52 @@ export function ChannelShowcase() {
 					Ask your Center Agent for help in the conversation your team already
 					uses.
 				</p>
-				<Tabs
-					onValueChange={(value) => {
-						setChannel(value);
-						setThread(false);
-					}}
-					orientation="vertical"
-					value={channel}
+				<FluidNavMenu
+					activeIndicatorClassName="rounded-[10px] bg-[#292929]"
+					activeValue={channel}
+					aria-label="Messaging app"
+					className="meld-channel-options"
+					hoverIndicatorClassName="rounded-[10px]"
 				>
-					<TabsList
-						aria-label="Messaging app"
-						background={false}
-						className="meld-channel-options"
-					>
-						{channels.map((item) => (
-							<TabItem
+					{channels.map((item, index) => (
+						<FluidNavMenuItem index={index} key={item.id} value={item.id}>
+							<SidebarMenuButton
+								actionLayout="heading"
+								aria-current={false}
+								aria-pressed={channel === item.id}
 								className="meld-channel-option"
-								key={item.id}
-								label={item.name}
-								value={item.id}
+								isActive={channel === item.id}
+								onClick={() => {
+									setChannel(item.id);
+									setThread(false);
+								}}
 							>
 								<ChannelMark channel={item.id} />
 								<span>
-									<strong>{item.name}</strong>
+									<strong data-sidebar="menu-heading">{item.name}</strong>
 									<small>{item.description}</small>
 								</span>
-							</TabItem>
-						))}
-					</TabsList>
-				</Tabs>
-				<a
-					className="meld-link"
-					href={
-						channel === "slack"
-							? appUrl("/add-to-slack")
-							: "https://docs.openmeld.ai"
-					}
-				>
-					{" "}
-					{channel === "slack" ? "Add to Slack" : `Connect ${selected.name}`}{" "}
-					<ArrowUpRightIcon aria-hidden size={16} />
-				</a>
+							</SidebarMenuButton>
+							{channel === item.id && (
+								<SidebarMenuAction
+									asChild
+									className="meld-link meld-channel-action"
+								>
+									<a
+										href={
+											item.id === "slack"
+												? appUrl("/add-to-slack")
+												: "https://docs.openmeld.ai"
+										}
+									>
+										Add to {item.name}{" "}
+										<ArrowUpRightIcon aria-hidden size={16} />
+									</a>
+								</SidebarMenuAction>
+							)}
+						</FluidNavMenuItem>
+					))}
+				</FluidNavMenu>
 			</div>
 			<section
 				aria-label={`${selected.name} conversation preview`}

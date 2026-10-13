@@ -187,6 +187,14 @@ const remoteAgentRecoverySchema = z.strictObject({
   id: z.uuid(),
   originalEvidenceSha: z.string().regex(/^[0-9a-f]{40}$/u),
   startedAt: z.iso.datetime(),
+  nativeProvenance: z
+    .strictObject({
+      evidenceSha: z.string().regex(/^[0-9a-f]{40}$/u),
+      sourceSha: z.string().regex(/^[0-9a-f]{40}$/u),
+      workerVersionId: z.string().min(1).max(200),
+      container: retainedRemoteContainerSchema.omit({ instances: true }),
+    })
+    .optional(),
   baseline: z.strictObject({
     workerDeploymentId: z.string().min(1).max(200),
     workerVersionId: z.string().min(1).max(200),

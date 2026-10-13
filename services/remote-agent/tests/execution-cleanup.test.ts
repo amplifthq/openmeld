@@ -245,9 +245,17 @@ it("pauses bounded automatic Stop delivery and permits only an explicit resume o
   expect(f.requestComputerCleanup).toHaveBeenLastCalledWith("original", true);
 });
 
-it("does not equate exit with saved files or upgrade an explained blocked task after cleanup completes", async () => {
+it.each([
+  false,
+  true,
+])("retains an explicitly unverified answer without upgrading the task after cleanup completes (read unavailable=%s)", async (readUnavailable) => {
   const f = await fixture();
   f.state.pendingResults = 1;
+  if (readUnavailable) {
+    f.readComputerInvocation.mockRejectedValueOnce(
+      new Error("Computer unavailable")
+    );
+  }
   const unreviewed = await finishRemoteAgentComputerCommands({
     ...f.input,
     assistantText: "All done",
@@ -255,7 +263,15 @@ it("does not equate exit with saved files or upgrade an explained blocked task a
   expect(unreviewed).toMatchObject({
     code: "remote_agent.computer.command_cleanup_failed",
   });
-  expect(unreviewed?.explanationText).toBeUndefined();
+  expect(unreviewed?.explanationText).toContain(
+    "Computer work is not confirmed complete."
+  );
+  expect(unreviewed?.explanationText).toContain(
+    "Agent response before the final Computer check"
+  );
+  expect(unreviewed?.explanationText).toContain("All done");
+  expect(unreviewed?.explanationText).not.toBe("All done");
+  expect(f.requestComputerCleanup).not.toHaveBeenCalled();
   await reportComputerFinishFacts({ ...f.input, state: f.state });
   f.state.pendingResults = 0;
   const result = await finishRemoteAgentComputerCommands({

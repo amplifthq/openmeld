@@ -93,7 +93,7 @@ or default model. Channels precede Team Knowledge and Routines.
 The Plugins section uses available entries from the public Plugins catalog
 and shared app logos. The logo wall groups connections by brand and divides
 distinct logos evenly between its two rows; its details Sheet lists every
-supported connection. Its headline rounds the available Plugin count down to
+supported connection. Its footer rounds the available Plugin count down to
 the nearest ten and adds `+`: 63 becomes `60+`, and 74 becomes `70+`. The details
 list remains the precise current catalog. Wrapped brand names stay centered within
 their tiles. Channel support does not admit a Plugin.
@@ -163,6 +163,15 @@ does not claim end-to-end encryption or that infrastructure operators cannot
 read stored data. Its source, issue, and pull-request links reuse the homepage's
 repository destination. The open-source copy is prepared for public launch;
 the repository must be public before publishing that claim.
+
+The capability comparison follows Privacy and Open Source, before the FAQ.
+It presents a static, source-reviewed matrix for six alternatives with concise
+scope labels and explicit unknowns. Its row definitions and first-party evidence
+live beside the component in `comparison-sources.md`, not in public disclosures.
+Its catalog row and the Plugins showcase share the same public catalog count;
+that count does not establish account-specific connection readiness. The table
+composes the shared Table/Fluid ScrollArea and keeps feature names fixed during
+horizontal scrolling on narrow screens.
 
 Navigation uses ordinary anchors. App links enter the existing App resolver,
 which alone chooses the viewer's Organization and checks access. Website download

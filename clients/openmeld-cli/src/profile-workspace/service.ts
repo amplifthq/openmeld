@@ -250,6 +250,21 @@ export async function setOpenMeldManagedProfileWorkspace(input: {
     updatedAt,
     value,
     onlyIfUnconfigured: input.onlyIfUnconfigured,
+    prepare: async () => {
+      const path = accountProfileWorkspacePath(account, openMeldProfileId);
+      try {
+        await mkdir(path, { recursive: true });
+      } catch (cause) {
+        throw new Error(
+          `Couldn’t prepare working folder '${path}'. Check that the path is a folder and that you can write to it.`,
+          { cause }
+        );
+      }
+      const validation = await validateCustomProfileWorkspacePath(path);
+      if (validation.status === "invalid") {
+        throw buildWorkspacePathValidationError(validation);
+      }
+    },
   });
   return {
     path: accountProfileLocalMetaPath(account, openMeldProfileId),
@@ -314,25 +329,8 @@ export async function setCustomProfileWorkspace(input: {
   };
 }
 
-export async function ensureOpenMeldManagedProfileWorkspace(input: {
-  account?: OpenMeldAccountKey;
-  openMeldProfileId: string;
-  updatedAt?: string;
-  onlyIfUnconfigured?: boolean;
-}): Promise<ProfileWorkspaceWriteResult> {
-  const account = await resolveAccountKey(input.account);
-  const openMeldProfileId = normalizeOpenMeldProfileId(input.openMeldProfileId);
-  const result = await setOpenMeldManagedProfileWorkspace({
-    account,
-    openMeldProfileId,
-    updatedAt: input.updatedAt,
-    onlyIfUnconfigured: input.onlyIfUnconfigured,
-  });
-  if (result.value.mode === "openmeld_managed") {
-    await mkdir(result.workspacePath, { recursive: true });
-  }
-  return result;
-}
+export const ensureOpenMeldManagedProfileWorkspace =
+  setOpenMeldManagedProfileWorkspace;
 
 export async function migrateLegacyProfileWorkspaceConfigIfNeeded(input: {
   account?: OpenMeldAccountKey;
@@ -402,6 +400,7 @@ async function writeProfileWorkspaceConfigForAccount(input: {
   value: ProfileWorkspaceConfig;
   onlyIfUnconfigured?: boolean;
   origin?: ProfileWorkspaceOrigin;
+  prepare?: () => Promise<void>;
 }): Promise<
   Pick<ProfileWorkspaceWriteResult, "changed" | "updatedAt" | "value">
 > {
@@ -428,6 +427,12 @@ async function writeProfileWorkspaceConfigForAccount(input: {
           );
         }
         if (current.status === "valid") {
+          if (
+            current.value.mode === "openmeld_managed" &&
+            input.value.mode === "openmeld_managed"
+          ) {
+            await input.prepare?.();
+          }
           return {
             changed: false,
             updatedAt: current.updatedAt,
@@ -439,6 +444,9 @@ async function writeProfileWorkspaceConfigForAccount(input: {
         openMeldProfileId,
         path,
       });
+      // Preparation and persistence share the writer lock. A failed folder
+      // operation must leave the previously saved choice intact.
+      await input.prepare?.();
       const payload: Record<string, unknown> = {
         ...(existingDraft ?? {}),
         openMeldProfileId,

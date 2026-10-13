@@ -1,5 +1,7 @@
 import {
   computerFileAccessPolicyResponseSchema,
+  computerPowerRpcInputSchema,
+  computerPowerStateSchema,
   currentLocalAgentInstallationsResponseSchema,
   currentLocalAgentInstallationsRouteParamsSchema,
   getCurrentAgentProfileWorkspaceQuerySchema,
@@ -38,6 +40,39 @@ export function registerPeopleComputerControlRoutes(
   app: Hono<HonoBindings>
 ): void {
   registerServiceConnectionEvidenceRoutes(app);
+  const powerRoute =
+    "/v1/people-computers/:deviceId/lanes/:runtimeLane/power-settings";
+  app.use(powerRoute, async (c, next) => {
+    await next();
+    c.header("Cache-Control", "no-store");
+  });
+  app.post(powerRoute, async (c) => {
+    const body = await readJsonRequestBody(c.req.raw);
+    const parsed = body.ok
+      ? computerPowerRpcInputSchema.safeParse({
+          deviceId: c.req.param("deviceId"),
+          runtimeLane: c.req.param("runtimeLane"),
+          context: buildCoreRpcContext(c),
+          request: body.value,
+        })
+      : null;
+    if (!parsed?.success) {
+      return respondBadRequest({
+        c,
+        route: powerRoute,
+        method: "POST",
+        code: "invalid_payload",
+        message: "Invalid sleep prevention request.",
+      });
+    }
+    return executeRpcRoute({
+      c,
+      route: powerRoute,
+      method: "POST",
+      responseSchema: computerPowerStateSchema,
+      execute: () => c.var.coreRpc.computerPowerSettings(parsed.data),
+    });
+  });
   const historyRoute =
     "/v1/people-computers/:deviceId/lanes/:runtimeLane/session-history";
   app.post(historyRoute, async (c) => {

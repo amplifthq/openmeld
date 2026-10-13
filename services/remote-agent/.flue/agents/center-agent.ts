@@ -129,6 +129,7 @@ import { createRetainedToolResultReducer } from "../../flue-adapter/retained-con
 import { readRemoteAgentRuntimeDiagnostics } from "../../flue-adapter/runtime-diagnostics";
 import { disabledNoNetworkSandbox } from "../../flue-adapter/sandbox";
 import { createRemoteAgentSqlStorage } from "../../flue-adapter/storage";
+import { remoteAgentStreamPublisher } from "../../flue-adapter/stream-publisher-instance";
 import {
   projectRemoteAgentResourceSignal,
   REMOTE_AGENT_TOOL_CALLING_CONTRACT,
@@ -385,6 +386,13 @@ async function prepareCenterAgentRender() {
     ? createRemoteAgentSteeringSource({ context: executionContext, storage })
     : null;
   return {
+    getAcceptedResponseInputId: executionContext
+      ? await remoteAgentStreamPublisher.prepareResponseProjection({
+          context: executionContext,
+          storage,
+          observedAtMs: Date.now(),
+        })
+      : () => null,
     interactiveResponseId: () =>
       executionContext &&
       !executionContext.replyRecovery &&
@@ -464,6 +472,7 @@ export function CenterAgentV2() {
   }
   const response = useInteractiveResponse({
     getInputId: resources.interactiveResponseId,
+    getAcceptedResponseInputId: resources.getAcceptedResponseInputId,
     tools: resources.tools,
   });
   useModel(resources.model, {

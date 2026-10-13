@@ -88,6 +88,7 @@ export type DesktopHandlers = {
   openNodeDownloadPage(): Promise<void>;
   getDesktopSettings(): Promise<DesktopSettingsView>;
   setOpenAtLogin(enabled: boolean): Promise<DesktopSettingsView>;
+  setStartInBackground(enabled: boolean): Promise<DesktopSettingsView>;
   getDesktopUpdateStatus(): Promise<DesktopUpdateView>;
   openDesktopDownloadPage(): Promise<void>;
 };
@@ -107,7 +108,9 @@ export type DesktopHandlerDeps = {
   /** Injectable Electron app preferences for tests and main-process wiring. */
   desktopSettings?: {
     getOpenAtLogin(): boolean;
+    getStartInBackground(): boolean;
     setOpenAtLogin(enabled: boolean): void | Promise<void>;
+    setStartInBackground(enabled: boolean): void | Promise<void>;
   };
   /** Injectable Desktop app update reader/opener for tests and main-process wiring. */
   desktopUpdate?: {
@@ -311,6 +314,7 @@ export function createDesktopHandlers(
     try {
       return {
         openAtLogin: desktopSettings.getOpenAtLogin(),
+        startInBackground: desktopSettings.getStartInBackground(),
         problem: null,
       };
     } catch (error) {
@@ -393,24 +397,31 @@ export function createDesktopHandlers(
     },
     getDesktopSettings: async () => readDesktopSettings(),
     setOpenAtLogin(enabled) {
-      return enqueueDesktopSettingsMutation(async () => {
-        if (!desktopSettings) {
-          return unavailableDesktopSettings();
-        }
-        try {
-          await desktopSettings.setOpenAtLogin(enabled);
-          return readDesktopSettings();
-        } catch (error) {
-          return desktopSettingsProblem(
-            error,
-            "desktop_settings.update_failed"
-          );
-        }
-      });
+      return updateDesktopPreference("setOpenAtLogin", enabled);
+    },
+    setStartInBackground(enabled) {
+      return updateDesktopPreference("setStartInBackground", enabled);
     },
     getDesktopUpdateStatus: () => desktopUpdate.getStatus(),
     openDesktopDownloadPage: () => desktopUpdate.openDownloadPage(),
   };
+
+  function updateDesktopPreference(
+    method: "setOpenAtLogin" | "setStartInBackground",
+    enabled: boolean
+  ): Promise<DesktopSettingsView> {
+    return enqueueDesktopSettingsMutation(async () => {
+      if (!desktopSettings) {
+        return unavailableDesktopSettings();
+      }
+      try {
+        await desktopSettings[method](enabled);
+        return readDesktopSettings();
+      } catch (error) {
+        return desktopSettingsProblem(error, "desktop_settings.update_failed");
+      }
+    });
+  }
 }
 
 function problemFromResult(result: CliCommandResult): CliProblem | null {
@@ -428,6 +439,7 @@ function problemFromResult(result: CliCommandResult): CliProblem | null {
 function unavailableDesktopSettings(): DesktopSettingsView {
   return {
     openAtLogin: null,
+    startInBackground: null,
     problem: {
       code: "desktop_settings.unavailable",
       message: "Desktop preferences are unavailable in this runtime.",
@@ -463,6 +475,7 @@ function desktopSettingsProblem(
   };
   return {
     openAtLogin: null,
+    startInBackground: null,
     problem,
   };
 }

@@ -125,7 +125,7 @@ describe("Organization AI consumption", () => {
         },
       });
       await expect(
-        request("https://provider.example/chat/completions")
+        request("https://openrouter.ai/api/v1/chat/completions")
       ).rejects.toThrow();
       expect(fetch).not.toHaveBeenCalled();
     } finally {
@@ -678,7 +678,7 @@ describe("Organization AI consumption", () => {
       await harness.close();
     }
   });
-  it("defaults to unlimited and applies a configured daily allowance only to platform spend", async () => {
+  it("retains daily spend while ignoring retired daily allowance policies", async () => {
     const harness = await createHarness();
     try {
       await recordAiUsage(harness.db, record);
@@ -699,7 +699,8 @@ describe("Organization AI consumption", () => {
         values: ["org-1", 500_000_000, nowMs],
       });
       expect(await readAiUsageAllowance(input)).toMatchObject({
-        exhausted: true,
+        dailyLimitNanoUsd: null,
+        exhausted: false,
       });
       expect(
         await readAiUsageAllowance({ ...input, nowMs: nowMs + 86_400_000 })

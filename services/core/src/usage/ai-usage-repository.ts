@@ -42,6 +42,7 @@ export async function recordAiUsage(
       AND ai_usage_records.controller IS NOT DISTINCT FROM excluded.controller
       AND ai_usage_records.occurred_at_ms = excluded.occurred_at_ms
       AND ((ai_usage_records.record_json)::jsonb #>> '{dispatchId}') IS NOT DISTINCT FROM ((excluded.record_json)::jsonb #>> '{dispatchId}')
+      AND ((ai_usage_records.record_json)::jsonb #>> '{fundingSource}') IS NOT DISTINCT FROM ((excluded.record_json)::jsonb #>> '{fundingSource}')
   `,
     values: [
       record.organizationId,

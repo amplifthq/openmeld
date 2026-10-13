@@ -2,7 +2,9 @@ import type {
   AiUsageQuery,
   AiUsageQueryResponse,
   OpenMeldRequestContext,
+  OrganizationAiBilling,
   OrganizationUsageOverviewResponse,
+  UpdateOrganizationAiBilling,
 } from "@openmeld/schemas/types";
 import type { OpenMeldApiClientFoundation } from "../client";
 
@@ -13,6 +15,14 @@ export type OrganizationUsageRequestInput = {
 };
 
 export type OrganizationUsageApi = {
+  readBilling: (
+    input?: OrganizationUsageRequestInput
+  ) => Promise<OrganizationAiBilling>;
+  updateBilling: (
+    input: OrganizationUsageRequestInput & {
+      settings: UpdateOrganizationAiBilling;
+    }
+  ) => Promise<OrganizationAiBilling>;
   query: (
     input: OrganizationUsageRequestInput & { query: AiUsageQuery }
   ) => Promise<AiUsageQueryResponse>;

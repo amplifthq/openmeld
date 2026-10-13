@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import app from "../src/index";
 
 type CoreRpcMock = {
+  computerPowerSettings: ReturnType<typeof vi.fn>;
   getCurrentAgentProfileWorkspace: ReturnType<typeof vi.fn>;
   getPeopleComputerAgentProfileWorkspace: ReturnType<typeof vi.fn>;
   connectPeopleComputerProjectCandidate: ReturnType<typeof vi.fn>;
@@ -54,6 +55,7 @@ function makeEnv(input?: {
   authOverrides?: Partial<AuthRpcMock>;
 }) {
   const coreRpc: CoreRpcMock = {
+    computerPowerSettings: vi.fn(),
     getCurrentAgentProfileWorkspace: vi.fn(),
     getPeopleComputerAgentProfileWorkspace: vi.fn(),
     connectPeopleComputerProjectCandidate: vi.fn(),
@@ -1084,5 +1086,64 @@ describe("current device target routes", () => {
         code: "upstream_unreachable",
       },
     });
+  });
+});
+
+describe("Computer power settings target", () => {
+  it.each([
+    { operation: "read" },
+    { operation: "update", enabled: true, expectedRevision: 0 },
+  ])("keeps the selected Computer and lane for $operation", async (request) => {
+    const { coreRpc, env } = makeEnv();
+    coreRpc.computerPowerSettings.mockResolvedValueOnce({
+      enabled: true,
+      revision: 1,
+      active: false,
+      supported: true,
+      problem: null,
+    });
+    const response = await app.fetch(
+      new Request(
+        "http://local/v1/people-computers/selected-device/lanes/canary/power-settings",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(request),
+        }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    expect(coreRpc.computerPowerSettings).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        deviceId: "selected-device",
+        runtimeLane: "canary",
+        request,
+      })
+    );
+    expect(coreRpc.getCurrentDeviceTarget).not.toHaveBeenCalled();
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+  });
+  it("does not send malformed changes to the Service", async () => {
+    const { coreRpc, env } = makeEnv();
+    const response = await app.fetch(
+      new Request(
+        "http://local/v1/people-computers/selected-device/lanes/canary/power-settings",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            operation: "update",
+            enabled: "true",
+            expectedRevision: 0,
+          }),
+        }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(400);
+    expect(coreRpc.computerPowerSettings).not.toHaveBeenCalled();
   });
 });
