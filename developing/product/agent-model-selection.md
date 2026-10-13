@@ -249,6 +249,27 @@ bundle hashes. Existing saved profile selections remain unchanged.
 
 ### 5.3 Maintenance Workflow
 
+The October 14, 2026 Gemini 4 review adds only captured channel identities:
+Antigravity ACP `gemini-4-argon-medium`, Cursor ACP
+`gemini-4-argon[reasoning_effort=medium]`, OpenCode
+`openrouter/google/gemini-4-argon`, and hosted OpenRouter
+`google/gemini-4-argon`. The first two encode reasoning in the model ID;
+the OpenRouter routes support low, medium, and high. Native inventory and
+OpenRouter capability captures live beside the catalog contract tests.
+Account access remains provider-owned. Google API availability does not prove
+OpenCode Zen/Go or other controller availability. Defaults and the fixed CLI
+offline snapshot are unchanged.
+
+The review account could select Argon through Antigravity ACP 1.3.0, but a
+direct native prompt returned `Requested entity was not found.` as an assistant
+message with `stopReason: end_turn`. The same account failed before publishing
+a Space reply. This is not successful inference evidence or a global model
+withdrawal. Cursor's review account rejected named-model inference because its
+Free plan allows only Auto. OpenRouter routes have captured inventory and
+request/tool-continuation contract coverage; this review does not claim paid
+inference on those routes. Do not turn catalog availability into a promise of
+account entitlement or silently switch a saved model after a provider failure.
+
 1. Edit `release/vendor-models.json` to add or retire a model, change availability,
    defaults, or reasoning options within the supported catalog schema.
 2. Review the PR and validate it against `packages/schemas`. In particular,

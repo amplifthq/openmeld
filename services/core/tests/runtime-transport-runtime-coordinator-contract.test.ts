@@ -3975,6 +3975,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ["builtin:codex", true],
     ["builtin:claude-code", false],
     ["builtin:claude-code", true],
+    ["builtin:antigravity", false],
+    ["builtin:antigravity", true],
   ] as const)("inherits native settings for %s regardless of requester ownership (%s)", async (agentControllerRef, ownerRequested) => {
     const { hub, storageRecords } = await createContextHarness({
       bindingControllerRef: agentControllerRef,
@@ -4076,26 +4078,34 @@ describe("runtime transport runtime coordinator transport contract", () => {
       | "space_context"
       | undefined
     )[]) {
-      const next = await storage.transaction((transaction) =>
-        prepareExecutionContextAssignment({
-          contextModeActive: true,
-          storage: transaction,
-          record: {
-            ...plan.record,
-            acceptedDispatchSnapshot: {
-              ...firstSnapshot,
-              contextRequest: {
-                ...contextRequest,
-                selection: {
-                  mode: "new",
-                  ...(access ? { access } : { workspace: "isolated" }),
+      const prepareNext = () =>
+        storage.transaction((transaction) =>
+          prepareExecutionContextAssignment({
+            contextModeActive: true,
+            storage: transaction,
+            record: {
+              ...plan.record,
+              acceptedDispatchSnapshot: {
+                ...firstSnapshot,
+                contextRequest: {
+                  ...contextRequest,
+                  selection: {
+                    mode: "new",
+                    ...(access ? { access } : { workspace: "isolated" }),
+                  },
                 },
+                payloadFingerprint: `sha256:${"c".repeat(64)}`,
               },
-              payloadFingerprint: `sha256:${"c".repeat(64)}`,
             },
-          },
-        })
-      );
+          })
+        );
+      if (agentControllerRef === "builtin:antigravity" && access) {
+        await expect(prepareNext()).rejects.toThrow(
+          "controller_access_unsupported"
+        );
+        continue;
+      }
+      const next = await prepareNext();
       expect(
         next.record.acceptedDispatchSnapshot?.executionContext?.permissionSource
       ).toBe(access ? undefined : "agent_settings");
@@ -5415,7 +5425,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
       status: "rejected",
     });
     expect(
-      sentFrames.some((frame) => frame.code === "daemon.computer_power.request")
+      sentFrames.some(
+        (frame) =>
+          typeof frame === "object" &&
+          frame !== null &&
+          "code" in frame &&
+          frame.code === "daemon.computer_power.request"
+      )
     ).toBe(false);
   });
 

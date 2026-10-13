@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-13T13:07:46.659Z",
+  "updatedAt": "2026-10-13T17:08:35.812Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-project-work-v1",
-      "packageVersion": "0.3.257",
+      "packageVersion": "0.3.259",
       "updatePolicy": "available",
-      "reason": "Working-folder commands retain their existing wire contract and preserve prior choices on failed preparation."
+      "reason": "Adds official Antigravity ACP login and independent task commands without breaking existing callers."
     },
     "service": {
-      "bundleHash": "74b2b8411281aca444f560260a87a50aa8820bbf3231d99cb102061064b6dadc",
-      "portableBundleHash": "d3bb42ec9f1c134656bfdfa528e1cd27cc93494c337bcc92261219d057d2d5f5",
-      "bundleVersion": "0.3.257",
+      "bundleHash": "7e0f132b552e759cdb9609ae18c126115effc6b76ff9885ba0b77d94e5b0efc6",
+      "portableBundleHash": "0957ef2888d0be61d87ba6897e7087038540ccef92fc8b9cffff959c7e103ab5",
+      "bundleVersion": "0.3.259",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
       "serviceContractVersion": "openmeld-service-contract-2026-09-project-work-v1",
       "updatePolicy": "available",
-      "reason": "Folder validation and persistence changes preserve existing setup and Wake contracts."
+      "reason": "Declares Antigravity context permission inheritance; older Services reject new context work with update guidance."
     },
     "skills": {
       "bundleHash": "0507d367ef298936053223f81441697545949fbf4d39b1b306872f7c254a4871",

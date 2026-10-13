@@ -11,6 +11,8 @@ import {
 for (const scenario of [
   "success",
   "resume",
+  "independent",
+  "context-missing",
   "permission",
   "question",
   "no-channel",
@@ -49,8 +51,19 @@ for (const scenario of [
         timeoutMs: 5000,
         streamingMode: "stream",
         runtimeContext: { providerRuntimeWorkingDirectory: cwd },
-        ...(scenario === "resume"
+        ...(["resume", "context-missing"].includes(scenario)
           ? { agentControllerConversationId: "agy_session" }
+          : {}),
+        ...(["independent", "resume", "context-missing"].includes(scenario)
+          ? {
+              executionContext: {
+                version: 1,
+                id: "context-acp",
+                access: "workspace",
+                workspace: "current",
+                permissionSource: "agent_settings",
+              },
+            }
           : {}),
         env: { FIXTURE_SCENARIO: scenario, FIXTURE_LOG: log },
         agentControllerPermissionMode:
@@ -84,7 +97,11 @@ for (const scenario of [
         .trim()
         .split("\n")
         .map((line) => JSON.parse(line));
-      if (["success", "resume", "permission", "question"].includes(scenario)) {
+      if (
+        ["success", "independent", "resume", "permission", "question"].includes(
+          scenario
+        )
+      ) {
         assert.equal(result.status, "success", JSON.stringify(result));
         assert.equal(result.output, "Native Antigravity reply");
         assert.deepEqual(previews, ["Native Antigravity reply"]);
@@ -105,10 +122,26 @@ for (const scenario of [
           result.errorCode,
           {
             auth: "auth.required",
+            "context-missing": "context_not_found",
             cancel: "runtime.interrupted",
             "no-channel": "interaction.required",
             "unsupported-mode": "permission.mode_unsupported",
           }[scenario]
+        );
+      }
+      if (scenario === "context-missing") {
+        assert.equal(
+          messages.filter((message) => message.method === "session/resume")
+            .length,
+          1
+        );
+        assert.equal(
+          messages.some(
+            (message) =>
+              message.method === "session/new" ||
+              message.method === "session/prompt"
+          ),
+          false
         );
       }
       if (scenario === "permission") {
@@ -174,3 +207,65 @@ test("Antigravity ACP inventory only initializes and never starts authentication
     await rm(cwd, { recursive: true, force: true });
   }
 });
+
+for (const [name, context, expected] of [
+  [
+    "legacy",
+    { permissionSource: "agent_settings", access: "workspace" },
+    "execution_context.antigravity_acp_required",
+  ],
+  [
+    "restricted",
+    { access: "space_context" },
+    "execution_context.controller_access_unsupported",
+  ],
+  [
+    "fork",
+    { permissionSource: "agent_settings", access: "workspace", forkSource: {} },
+    "execution_context.controller_access_unsupported",
+  ],
+]) {
+  test(`independent task rejects ${name} before starting a provider`, async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "openmeld-acp-admission-"));
+    const binary = join(
+      cwd,
+      name === "legacy" ? "agy.cjs" : "agy_acp_server.par"
+    );
+    await copyFile(
+      new URL("./fixtures/acp-server.cjs", import.meta.url),
+      binary
+    );
+    let spawned = false;
+    const adapter = createAntigravityAdapter({
+      launchContract: {
+        kind: "node_script",
+        nodePath: process.execPath,
+        scriptPath: binary,
+      },
+      registerRuntimeProcess() {
+        spawned = true;
+      },
+    });
+    try {
+      const result = await adapter.dispatch({
+        taskId: "blocked",
+        agentId: "agent",
+        spaceId: "space",
+        sourceEventId: "event",
+        prompt: "Must not execute",
+        runtimeContext: { providerRuntimeWorkingDirectory: cwd },
+        executionContext: {
+          version: 1,
+          id: "context",
+          workspace: "current",
+          ...context,
+        },
+      });
+      assert.equal(result.status, "failed");
+      assert.equal(result.errorCode, expected);
+      assert.equal(spawned, false);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+}
