@@ -1,5 +1,5 @@
-import { constants, type Stats } from "node:fs";
-import { access, stat } from "node:fs/promises";
+import type { Stats } from "node:fs";
+import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
 import { normalizeOptionalWorkingDirectory } from "@openmeld/schemas";
@@ -140,10 +140,8 @@ export async function validateCustomProfileWorkspacePath(
         status: "invalid",
       };
     }
-    await access(
-      normalizedPath,
-      constants.R_OK + constants.W_OK + constants.X_OK
-    );
+    // Background macOS Services must not call access here: TCC can block it
+    // indefinitely. The controller reports operation-time access failures.
   } catch (error) {
     if (
       typeof error === "object" &&
