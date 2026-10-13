@@ -1,5 +1,4 @@
-import { existsSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { basename } from "node:path";
 import type {
   InitializeResponse,
   NewSessionResponse,
@@ -17,6 +16,10 @@ import {
   isDispatchSpaceActionDeliveryOnly,
   type RuntimeAgentControllerLaunchContract,
 } from "@openmeld/adapter-core";
+import {
+  antigravityAcpEnvironment,
+  consumeAntigravityAuthLine,
+} from "./antigravity-acp-auth.js";
 import { answerAntigravityAcpInteraction } from "./antigravity-acp-interactions.js";
 
 export function isAntigravityAcpLaunchContract(
@@ -30,41 +33,10 @@ export function isAntigravityAcpLaunchContract(
 }
 
 function acpError(input: AcpProcessErrorInput): Error {
-  if (
-    input.code === "protocol.invalid" &&
-    input.message.includes("Open the following link to authenticate")
-  ) {
-    return Object.assign(
-      new Error("Sign in to Antigravity ACP, then try again."),
-      { code: "auth.required", errorType: "auth" }
-    );
-  }
   return Object.assign(new Error(input.message, { cause: input.cause }), {
     code: input.code,
     errorType: input.errorType,
   });
-}
-
-function acpEnvironment(
-  launch: RuntimeAgentControllerLaunchContract,
-  env?: Record<string, string | undefined>
-) {
-  const path =
-    launch.kind === "node_script" ? launch.scriptPath : launch.commandPath;
-  const harness = join(
-    dirname(path),
-    process.platform === "win32"
-      ? "localharness_external.exe"
-      : "localharness_external"
-  );
-  return {
-    ...env,
-    ...(existsSync(harness) ? { ANTIGRAVITY_HARNESS_PATH: harness } : {}),
-    // Cached credentials may be used during an explicit run. Browser login is
-    // a separate user action, never a side effect of Wake or inventory.
-    BROWSER: process.platform === "win32" ? "cmd /c exit 1" : "/usr/bin/false",
-    PYTHONUNBUFFERED: "1",
-  };
 }
 
 const initializeParams = {
@@ -93,16 +65,13 @@ async function admissionRequest(
   method: string,
   params: unknown
 ) {
-  const authentication = method === "authenticate";
   const timer = setTimeout(
     () =>
       process.fail(
         acpError({
-          code: authentication ? "auth.required" : "protocol.timeout",
-          errorType: authentication ? "auth" : "timeout",
-          message: authentication
-            ? "Sign in to Antigravity ACP, then try again."
-            : "Antigravity did not finish starting its ACP session.",
+          code: "protocol.timeout",
+          errorType: "timeout",
+          message: "Antigravity did not finish starting its ACP session.",
         })
       ),
     15_000
@@ -122,7 +91,8 @@ export async function probeAntigravityAcp(input: {
   const process = new AcpProcessSession({
     args: [],
     cwd: input.cwd,
-    env: acpEnvironment(input.launchContract),
+    env: antigravityAcpEnvironment(input.launchContract),
+    consumeNonProtocolLine: consumeAntigravityAuthLine(),
     launchContract: input.launchContract,
     createError: acpError,
     processLabel: "Antigravity",
@@ -135,6 +105,119 @@ export async function probeAntigravityAcp(input: {
       await process.request("initialize", initializeParams)
     );
   } finally {
+    await process.close();
+  }
+}
+
+function mapAcpError(error: { code?: number; message?: string }): Error {
+  const message = error.message ?? "Antigravity rejected the request.";
+  return acpError({
+    code: error.code === -32_000 ? "auth.required" : "protocol.request_failed",
+    errorType: error.code === -32_000 ? "auth" : "adapter",
+    message,
+  });
+}
+
+// session/new is the official server's account admission boundary. It does not
+// run a prompt or spend model quota. Never call authenticate from a status read.
+export async function checkAntigravityAcpAccount(input: {
+  launchContract: RuntimeAgentControllerLaunchContract;
+  cwd: string;
+  env?: Record<string, string | undefined>;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+  login?: { methodId: string; onAuthorizationUrl: (url: string) => void };
+}) {
+  const process = new AcpProcessSession({
+    args: [],
+    cwd: input.cwd,
+    env: antigravityAcpEnvironment(input.launchContract, input.env),
+    launchContract: input.launchContract,
+    createError: acpError,
+    consumeNonProtocolLine: consumeAntigravityAuthLine(
+      input.login?.onAuthorizationUrl
+    ),
+    mapJsonRpcError: mapAcpError,
+    processLabel: "Antigravity",
+    timeoutMs: input.timeoutMs ?? (input.login ? 300_000 : 15_000),
+  });
+  const abort = () => {
+    process.fail(
+      acpError({
+        code: "auth.cancelled",
+        errorType: "auth",
+        message: "Antigravity sign-in was cancelled.",
+      })
+    );
+  };
+  input.signal?.throwIfAborted();
+  input.signal?.addEventListener("abort", abort, { once: true });
+  try {
+    process.start();
+    const initialized = readInitialize(
+      await process.request("initialize", initializeParams)
+    );
+    if (input.login) {
+      if (
+        !initialized.authMethods?.some(
+          (method) => method.id === input.login?.methodId
+        )
+      ) {
+        throw acpError({
+          code: "auth.method_unavailable",
+          errorType: "auth",
+          message:
+            "This Antigravity installation does not offer the selected sign-in method.",
+        });
+      }
+      await process.request("authenticate", { methodId: input.login.methodId });
+    }
+    try {
+      const session = (await process.request("session/new", {
+        cwd: input.cwd,
+        mcpServers: [],
+      })) as NewSessionResponse;
+      if (!session?.sessionId) {
+        throw acpError({
+          code: "protocol.invalid",
+          errorType: "adapter",
+          message: "Antigravity did not return a conversation identifier.",
+        });
+      }
+      const config = session.configOptions?.find(
+        (option) => option.id === "model" && option.type === "select"
+      );
+      const choices =
+        config?.type === "select"
+          ? config.options.flatMap((option) =>
+              "value" in option ? [option] : option.options
+            )
+          : [];
+      return {
+        initialized,
+        authStatus: "authenticated" as const,
+        models: choices.map((option) => ({
+          id: option.value,
+          displayName: option.name,
+        })),
+      };
+    } catch (error) {
+      if (
+        !input.login &&
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "auth.required"
+      ) {
+        return {
+          initialized,
+          authStatus: "unauthenticated" as const,
+          models: [],
+        };
+      }
+      throw error;
+    }
+  } finally {
+    input.signal?.removeEventListener("abort", abort);
     await process.close();
   }
 }
@@ -171,7 +254,8 @@ export async function invokeAntigravityAcpTransport(input: {
   const process = new AcpProcessSession({
     args: [],
     cwd: request.runtimeContext.providerRuntimeWorkingDirectory,
-    env: acpEnvironment(input.launchContract, request.env),
+    env: antigravityAcpEnvironment(input.launchContract, request.env),
+    consumeNonProtocolLine: consumeAntigravityAuthLine(),
     launchContract: input.launchContract,
     createError: acpError,
     processLabel: "Antigravity",
@@ -334,17 +418,8 @@ async function configureSession(
   const initialized = readInitialize(
     await admissionRequest(process, "initialize", initializeParams)
   );
-  const methodId =
-    request.env?.OPENMELD_ANTIGRAVITY_ACP_AUTH_METHOD ?? "oauth-personal";
-  if (!initialized.authMethods?.some((method) => method.id === methodId)) {
-    throw acpError({
-      code: "auth.method_unavailable",
-      errorType: "auth",
-      message: `Antigravity does not offer authentication method '${methodId}'.`,
-    });
-  }
-  // Bound login, not the running agent. A missing sign-in must not hang Wake.
-  await admissionRequest(process, "authenticate", { methodId });
+  // The native profile selects the account. Only an explicit login command
+  // may call authenticate; Wake must never start an OAuth flow.
   if (
     input.sessionId &&
     !initialized.agentCapabilities?.sessionCapabilities?.resume

@@ -4338,6 +4338,33 @@ index ccc421a..18b3178 100644
    );
  }
  
+diff --git a/packages/dofs/src/fs/resolve.ts b/packages/dofs/src/fs/resolve.ts
+--- a/packages/dofs/src/fs/resolve.ts
++++ b/packages/dofs/src/fs/resolve.ts
+@@ -147,6 +147,10 @@
+ // touches is returned so the caller can detect any symlink and fall
+ // back.
+ function resolveViaCte(db: Database, parts: string[]): CteResolution {
++  // Resolve each segment before looking up its dirent. Otherwise SQLite can
++  // scan every sibling by parent_inode before filtering the JSON segment,
++  // making repeated path lookups quadratic in directory width. CROSS JOIN
++  // keeps both columns of the existing dirent primary key available.
+   const rows = db.all<CteRow>(
+     `WITH RECURSIVE
+        segs(level, name) AS (
+@@ -163,9 +167,9 @@
+          UNION ALL
+          SELECT w.level + 1, n.inode, n.type, n.mode, n.mtime, n.size, n.link_target
+            FROM walk w
+-           JOIN segs s ON s.level = w.level
+-           JOIN vfs_dirents d ON d.parent_inode = w.inode AND d.name = s.name
+-           JOIN vfs_nodes n ON n.inode = d.child_inode
++           CROSS JOIN segs s ON s.level = w.level
++           CROSS JOIN vfs_dirents d ON d.parent_inode = w.inode AND d.name = s.name
++           CROSS JOIN vfs_nodes n ON n.inode = d.child_inode
+           WHERE w.type = 'dir'
+        )
+      SELECT level, inode, type, mode, mtime, size, link_target
 diff --git a/packages/dofs/src/sync/blobs.ts b/packages/dofs/src/sync/blobs.ts
 index d51fabe..71defca 100644
 --- a/packages/dofs/src/sync/blobs.ts

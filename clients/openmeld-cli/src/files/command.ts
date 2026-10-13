@@ -3,7 +3,8 @@ import { openAsBlob } from "node:fs";
 import { basename } from "node:path";
 import { createFileRootApi } from "@openmeld/api-client";
 import {
-  isSpaceFileTextEditable,
+  isSpaceFileTextReadable,
+  readSpaceFileTextStream,
   resolveSpaceFileMimeType,
   SPACE_FILE_MAX_SIZE_BYTES,
 } from "@openmeld/schemas";
@@ -241,18 +242,20 @@ export function registerFilesCommands(
           run: async ({ api, location: target, output, presenter }) => {
             const [file, content] = await Promise.all([
               api.getFile({ location: target, fileId }),
-              api.download({
+              api.streamContent({
                 location: target,
                 fileId,
                 revision: revision(opts.revision),
               }),
             ]);
             if (
-              !isSpaceFileTextEditable({
+              !isSpaceFileTextReadable({
+                fileName: file.name,
                 mimeType: content.mimeType,
-                sizeBytes: content.bytes.byteLength,
+                sizeBytes: content.sizeBytes,
               })
             ) {
+              await content.bytes.cancel();
               throw new Error(
                 "This file is binary or too large to print. Open it in Files."
               );
@@ -260,9 +263,7 @@ export function registerFilesCommands(
             const result = {
               file,
               revision: content.revision,
-              content: new TextDecoder("utf-8", { fatal: true }).decode(
-                content.bytes
-              ),
+              content: await readSpaceFileTextStream(content.bytes),
             };
             output("files.read", result, () =>
               presenter.line({ code: "files.read", text: result.content })

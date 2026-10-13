@@ -375,6 +375,11 @@ export const COMMAND_CHECK_REQUIREMENTS: Readonly<
     OPTIONAL_CLI_UPDATE,
     AUTO_FIX_LOCAL_RUNTIME
   ),
+  "agents.login": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    AUTO_FIX_LOCAL_RUNTIME
+  ),
   "agents.custom.list": buildCommandChecks(
     REQUIRED_DISCLAIMER,
     OPTIONAL_CLI_UPDATE,

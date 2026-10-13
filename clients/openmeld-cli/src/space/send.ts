@@ -1,3 +1,4 @@
+import { supportsExecutionContextSelection } from "@openmeld/agent-runtime";
 import {
   clientMessageIdSchema,
   spaceSendRequestReceiptSchema,
@@ -22,6 +23,27 @@ import {
   prepareRequestedSpaceSendFiles,
   uploadPreparedSpaceFiles,
 } from "./send-files";
+
+function assertSessionSelectionSupported(
+  selection:
+    | import("@openmeld/schemas/types").ExecutionContextSelection
+    | undefined,
+  targets: readonly CliSpaceAddressingTarget[]
+): void {
+  if (!selection) {
+    return;
+  }
+  const unsupported = targets.find(
+    (target) =>
+      target.relation === "wake" &&
+      !supportsExecutionContextSelection(target.agentControllerRef)
+  );
+  if (unsupported) {
+    throw new Error(
+      `${unsupported.primaryMentionLabel} does not support session selection. Remove --new-task, --fork-from, --continue-from and task access/workspace options, or choose an Agent that supports them. No message was sent.`
+    );
+  }
+}
 
 export async function runSend(input: {
   clientMessageId?: string;
@@ -135,6 +157,10 @@ export async function runSend(input: {
       spaceApi,
       text: text.value,
     });
+  assertSessionSelectionSupported(
+    input.contextSelection,
+    resolvedAddressingTargets
+  );
   emitSendAddressingSummary({
     outboundMessageEnvelope,
     presenter,

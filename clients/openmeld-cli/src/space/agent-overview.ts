@@ -185,7 +185,7 @@ const SUMMARY_BY_COMMAND: Record<SpaceAgentOverviewCommand, string> = {
   updates:
     "Use `openmeld space updates --view agent` with an explicit anchor signal to read formal post-anchor updates deterministically as signal envelopes plus `messageReadProjection`.",
   result:
-    "Use `openmeld space result --view agent` with exactly one selector to read an archived dispatch result plus `messageReadProjection`. Use `openmeld service trace --view agent` to diagnose Wake execution and the final visible Space outcome.",
+    "Use `openmeld space result --dispatch <id> --view agent` to read an archived result or the exact published reply across local and hosted Agents. `--result-ref` selects an archive only. Use `openmeld service trace --view agent` for execution diagnostics.",
   password:
     "Use `openmeld space password --view agent` with an explicit space ID and one explicit password action.",
   guide:
