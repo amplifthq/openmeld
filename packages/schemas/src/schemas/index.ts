@@ -139,6 +139,17 @@ export {
   structuredGuidePayloadSchema,
 } from "./agent-view/structured-guide";
 export {
+  AI_CREDIT_POLICY_VERSION,
+  AI_CREDITS_PER_USD,
+  AI_FREE_MONTHLY_CREDITS,
+  aiFundingSourceSchema,
+  organizationAiBillingRpcInputSchema,
+  organizationAiBillingSchema,
+  remoteAiProviderAuthorizationSchema,
+  updateOrganizationAiBillingRpcInputSchema,
+  updateOrganizationAiBillingSchema,
+} from "./ai-billing";
+export {
   type CliVersionVerdict,
   type CliVersionVerdictKind,
   cliVersionVerdictKindSchema,

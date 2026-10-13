@@ -11,6 +11,7 @@ const MODEL_PROVIDER_BRANDS: Record<string, string> = {
 	"x-ai": "xAI",
 	xiaomi: "Xiaomi",
 	"meta-llama": "Meta",
+	meta: "Meta",
 	mistralai: "Mistral",
 };
 

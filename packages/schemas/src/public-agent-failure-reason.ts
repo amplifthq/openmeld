@@ -1043,6 +1043,24 @@ const buildMissingAgentReplyIdentityCopy = (targetName: string): string =>
 const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMapping[] =
   [
     {
+      body: "OpenRouter could not use this workspace's API key. Check its balance and status, or replace or remove it in AI usage settings. Included credits were not used.",
+      kind: "request_ended",
+      patterns: ["=ai_billing.key_unavailable"],
+      recoveryTarget: null,
+    },
+    {
+      body: "This workspace has used its included AI credits. Add an OpenRouter API key in AI usage settings, or wait for the monthly reset.",
+      kind: "request_ended",
+      patterns: ["=ai_usage.monthly_limit_reached"],
+      recoveryTarget: null,
+    },
+    {
+      body: "AI billing is temporarily unavailable. Try again later or add your own OpenRouter key in AI usage settings.",
+      kind: "request_ended",
+      patterns: ["=ai_billing.unavailable"],
+      recoveryTarget: null,
+    },
+    {
       body: (targetName) =>
         `${targetName} couldn't connect to its model provider. Ask your OpenMeld admin to check the provider connection, then wake the agent again.`,
       cause: [

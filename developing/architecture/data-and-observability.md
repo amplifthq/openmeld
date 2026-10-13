@@ -3570,13 +3570,11 @@ are optional for readers. Core/Gateway receivers must accept the new model
 grouping before Web or Center Agent callers request it. This read projection
 introduces no migration, writer, or execution authority.
 
-Operators can inspect or preview changes with
-`node scripts/ops/ai-usage-policy.mjs --org <id> --env local --daily-usd 1`.
-Add `--apply` to save; use `unlimited` to remove the cap. Local mode targets
-only the current running worktree lane; staging and production require an
-explicit environment and authorized Wrangler access. No deploy is needed to
-adjust this policy. Enforcement uses confirmed UTC-day costs and may overshoot
-for in-flight requests; it is not a concurrent reservation system.
+Hosted admission now uses [workspace AI credits and keys](../engineering/ai-billing.md).
+OpenRouter's native monthly key limit owns the balance; receipts retain the
+funding source for attribution. The former daily-policy operator script is
+retired. Historical daily-policy rows do not authorize requests. Native limits
+can overshoot for in-flight requests and have propagation delay.
 
 Successful Flue conversation compaction is operational evidence, not a second
 conversation or memory store. During compaction, the worker may retain one
@@ -3685,6 +3683,40 @@ expires independently of the Signal. Space deletion removes both with the
 owning Durable Object state.
 
 ## Center Agent Memory Data Boundary
+
+Completed Space callbacks admit automatic memory capture only when they win the
+PostgreSQL delivery transition from accepted/retry-observed to completed. A
+completed-row read or a deduplicated Space publication is not capture authority.
+Concurrent callbacks and later replays must not each create a provider episode.
+This is at-most-once callback capture, not a durable retry queue: a provider
+failure is diagnosed and must not be hidden as successful storage.
+
+Zep ingestion acceptance and semantic processing are separate facts. The adapter
+keeps the episode receipt and processing flag; an explicit save reports
+`processing` until the provider confirms `processed`. It disables automatic SDK
+retries for non-idempotent episode creation. An ambiguous write timeout must not
+invite a blind repeat. A processed episode still requires a successful recall
+before an agent may claim cross-conversation retrieval was verified.
+
+The organization policy read can opt into an availability probe over its
+existing active organization subject. It must not provision or revive memory.
+No active subject means not checked, not healthy; missing configuration or a
+failed probe means unavailable. This bounded read is a point-in-time check, not
+an ongoing health monitor. Automatic recall also distinguishes failed/partial
+reads from a successful empty result in the turn envelope.
+
+Memory status rollout changes the hosted Core-to-Remote-Agent turn envelope.
+Deploy the Remote Agent receiver before Core emits `memory.status`; the old
+strict receiver rejects that new property. Roll back Core before Remote Agent.
+This is an explicit exception to the default coordinated deployment order.
+The reverse direction is compatible: new Remote Agent save callers request
+`includeStatus`, which old Core ignores, and treat a missing status as processing.
+Public policy callers request `includeAvailability=true`; Core omits the added
+response fields for legacy callers. New readers accept absent fields. No CLI,
+local Service, daemon, or Organization Skill behavior changes or contract-floor
+bumps are required. The shared-schema rebuild changes the packaged Service
+bundle hash; stamp that artifact available during final release integration.
+This change needs no data migration.
 
 Core owns the OpenMeld memory model. PostgreSQL stores the Organization enabled policy,
 member/organization subject identity, provider references, deletion lifecycle,

@@ -257,6 +257,11 @@ const workerPackages = [
       "ZEP_OPENMELD_API_KEY",
     ],
     requiredSecretNamesByEnvironment: { stg: [] },
+    optionalDevelopmentSecretNames: [
+      "OPENROUTER_MANAGEMENT_API_KEY",
+      "OPENMELD_AI_CREDENTIAL_CRYPTO_KEY",
+      "OPENMELD_INTERNAL_BILLING_ORGANIZATION_ID",
+    ],
     requiredConfigEnvironments: ["stg", "prod"],
     requiredSecretScriptSnippet: "sync-worker-secrets.mjs",
     requiredVarNames: [
@@ -690,7 +695,7 @@ for (const workerPackage of workerPackages) {
         ...expectedKeys,
         ...(fileName === ".dev.vars.prod.example"
           ? (workerPackage.optionalProductionSecretNames ?? [])
-          : []),
+          : (workerPackage.optionalDevelopmentSecretNames ?? [])),
       ];
 
       for (const secretName of expectedKeys) {

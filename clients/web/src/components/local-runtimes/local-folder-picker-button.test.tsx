@@ -166,6 +166,29 @@ describe("LocalFolderPickerButton", () => {
 
 		expect(onSelect).not.toHaveBeenCalled();
 	});
+
+	it.each([
+		"network.request_failed",
+		"network.timeout",
+	])("keeps the draft and offers recovery without exposing transport details: %s", async (code) => {
+		vi.mocked(selectLocalFolders).mockRejectedValueOnce(
+			Object.assign(
+				new Error(
+					"select-folders request could not reach openmeld-desktop://app (Failed to fetch)"
+				),
+				{ code }
+			)
+		);
+		const onSelect = vi.fn();
+		renderButton(onSelect);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Choose folders on this computer" })
+		);
+		expect((await screen.findByRole("alert")).textContent).toBe(
+			"OpenMeld lost the connection to the folder picker. Close any open picker, then try again or enter the path manually."
+		);
+		expect(onSelect).not.toHaveBeenCalled();
+	});
 });
 
 function renderButton(onSelect: (paths: readonly string[]) => void) {

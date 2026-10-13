@@ -1,194 +1,163 @@
-# OpenMeld
+<p align="center">
+  <a href="https://openmeld.ai">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="packages/ui/public/brand/openmeld-wordmark-dark-2400.png">
+      <source media="(prefers-color-scheme: light)" srcset="packages/ui/public/brand/openmeld-wordmark-light-2400.png">
+      <img src="packages/ui/public/brand/openmeld-wordmark-light-2400.png" alt="OpenMeld" width="540">
+    </picture>
+  </a>
+</p>
 
-**People and agents, working as one.**
+<h1 align="center">OpenMeld</h1>
 
-The open-source operating system for agent-native teams of people and machines.
+<!-- Keep the tagline and description aligned with homePageCopy in packages/product-catalog/src/site.ts and the live website. -->
+<p align="center"><strong>The open human-agents collaboration system</strong></p>
 
-OpenMeld connects your Center Agent, Slack, shared cloud Spaces, and every
-teammate's local Claude Code, Codex, Cursor, and OpenCode agents into one
-organization-wide system.
+<p align="center">
+  Share context, work in parallel, and pick up where anyone left off with your team, cloud agents, and everyone's agents<br>
+  (Codex, Claude Code, Grok Build, OpenCode, Antigravity, and Cursor CLI).
+</p>
 
-<!-- badges: build | npm (openmeld) | license | discord — add once CI, npm publish, and community links are live -->
+<p align="center">
+  <a href="https://app.openmeld.ai"><img src="https://img.shields.io/badge/Web_app-Open-2563eb?style=flat-square" alt="Open the Web app"></a>
+  <a href="https://openmeld.ai/downloads"><img src="https://img.shields.io/badge/Desktop-macOS-111827?style=flat-square&amp;logo=apple&amp;logoColor=white" alt="Download Desktop for macOS"></a>
+  <a href="https://openmeld.ai/downloads"><img src="https://img.shields.io/badge/Desktop-Windows_preview-0078d4?style=flat-square" alt="Download Desktop for Windows (preview)"></a>
+  <a href="https://www.npmjs.com/package/openmeld"><img src="https://img.shields.io/npm/v/openmeld?style=flat-square&amp;label=CLI&amp;logo=npm&amp;logoColor=white&amp;color=cb3837" alt="OpenMeld CLI version on npm"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-3b82f6?style=flat-square" alt="License: MIT"></a>
+  <a href="https://docs.openmeld.ai"><img src="https://img.shields.io/badge/docs-openmeld.ai-475569?style=flat-square" alt="OpenMeld documentation"></a>
+  <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/contributions-welcome-15803d?style=flat-square" alt="Contributions welcome"></a>
+</p>
 
-Start with your Center Agent. Talk to it from OpenMeld or Slack; it sets up the workspace, brings in teammates, and connects the right local coding agents. The work still runs on each teammate's machine, and the result comes back to the Space where everyone can see it.
+<p align="center">
+  <a href="CREDITS.md"><img src="https://img.shields.io/badge/TypeScript-3178c6?style=flat-square&amp;logo=typescript&amp;logoColor=white" alt="Built with TypeScript"></a>
+  <a href="CREDITS.md"><img src="https://img.shields.io/badge/React-20232a?style=flat-square&amp;logo=react&amp;logoColor=61dafb" alt="Built with React"></a>
+  <a href="CREDITS.md"><img src="https://img.shields.io/badge/Electron-2b2e3a?style=flat-square&amp;logo=electron&amp;logoColor=9feaf9" alt="Built with Electron"></a>
+  <a href="CREDITS.md"><img src="https://img.shields.io/badge/Cloudflare-f38020?style=flat-square&amp;logo=cloudflare&amp;logoColor=white" alt="Runs on Cloudflare"></a>
+  <a href="CREDITS.md"><img src="https://img.shields.io/badge/PostgreSQL-4169e1?style=flat-square&amp;logo=postgresql&amp;logoColor=white" alt="Stores data in PostgreSQL"></a>
+</p>
 
----
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#features">Features</a> ·
+  <a href="https://app.openmeld.ai">Open app</a> ·
+  <a href="https://openmeld.ai/downloads">Downloads</a> ·
+  <a href="docs/README.md">Docs</a> ·
+  <a href="CONTRIBUTING.md">Contribute</a> ·
+  <a href="https://openmeld.ai/changelog">Changelog</a>
+</p>
 
-## What is OpenMeld
+<p align="center">
+  <a href="https://openmeld.ai">
+    <img src="docs/assets/openmeld-demo-light.jpg" alt="People, Center Agent, Codex, and Claude Code coordinate a checkout fix, with a review thread and Space members." width="100%">
+  </a>
+  <br>
+  <sub>A shared Space with people and agents. Website demo with sample content.</sub>
+</p>
 
-OpenMeld is built around one loop: a need is raised in a Space, dispatched to a human or an agent, executed where the work actually lives, and the result comes back to the same Space. Everything below is that loop, disclosed one layer at a time — the same way the product itself reveals it.
+## Quick start
 
-### 1. The solo loop
+1. [Open OpenMeld](https://app.openmeld.ai) and create a workspace or join your team.
+2. Open **Center Agent**, your hosted AI teammate.
+3. Give it a small task. No local installation is needed.
 
-This is the whole product in one person's hands.
+> Turn these notes into a three-item agenda: choose a launch date, test signup, and assign the announcement.
 
-You create a **Space** — a shared room for a piece of work. You connect a computer (your laptop, a workstation, a cloud box) so the agents on it become reachable. Then you write a message and **@-mention** an agent:
+Want to use your local agents too? On the computer that holds your work, install
+the CLI with a [supported Node.js version](clients/openmeld-cli/package.json):
 
-> @build-agent(wake) rerun the migration and paste the failing rows
-
-That mention is a **Wake**. OpenMeld routes it to the agent's real runtime — Claude Code, Codex, or whatever local agent tool it's bound to — which executes on your machine and posts one reply, or one explicit failure, back into the Space. Because the Space lives in the cloud, you can fire that Wake from your phone on the train and read the answer when it lands. The heavy work stays local; only the conversation and the result travel.
-
-One person commanding a fleet of agents is already a complete OpenMeld. You never have to meet another concept to get value.
-
-### 2. The Center Agent
-
-As your fleet grows, you get a coordinator.
-
-Your **Center Agent** is your chief of staff — a resident agent that holds the context across your whole fleet and helps you turn a vague need into a running, correctly set-up Space. You tell it what you're trying to do; it shapes the work, spins up the right Space, brings in the right agents, and gets things moving. It works through the exact same Wake pipeline every other agent uses — no special channel, no privileged backdoor — and every action it takes on your behalf is attributed and audited.
-
-The Center Agent is a first-class surface, not a buried setting. It's the difference between owning a pile of agents and running an organization of them.
-
-### 3. Organizations
-
-When you're ready to bring in other people, you create an **Organization**.
-
-An Organization is a shared boundary where teammates work the loop together: share agents, see everyone's fleet in one directory, invite humans and agents into Spaces, and let an Organization-level Center Agent coordinate the group. Roles (`owner`, `admin`, `member`) decide who can manage what. Your agents stay yours — you authorize specific ones into the Organization, revocably — while the Organization gives the loop a place to run at organization scale.
-
-Until you invite someone, none of this is in your way. OpenMeld is **organization-level infrastructure for the AI work-loop** — not a chat app that happens to let bots in. The core object is always the loop, whether one person or twenty are running it.
-
----
-
-## Quick Start
-
-Sign up, start in a conversation with your organization's Center Agent, then connect your computer when you want local agents to pick up real work from the cloud.
-
-**1. Start with your Center Agent.**
-
-Sign up at [openmeld.ai](https://openmeld.ai). You'll land in a conversation with your organization's Center Agent. Ask it anything, or tell it what you're working on and it can set up a Space for that work.
-
-**2. Optionally add a computer.**
-
-Use **Connect this computer** when you want your local agents — Claude Code, Codex, Cursor, OpenCode, or another supported tool — to pick up work from OpenMeld. OpenMeld gives you a one-time command to paste into a terminal on the machine whose agents you want to reach:
-
-```bash
-curl -fsSL https://openmeld.ai/setup | sh
-```
-
-The exact command is generated for you (it carries a one-time token that signs this machine in and connects its local agents). It installs the OpenMeld background service, detects the AI coding tools already on the machine, and connects them. The web page flips to **Connected** when it's done.
-
-Prefer to drive it from the CLI yourself? Install the CLI globally and run setup directly:
-
-```bash
+```sh
 npm install -g openmeld@latest
 openmeld setup
 ```
 
-**3. Wake an agent in a Space.**
+Follow the setup prompts. Then create a Local Agent and choose its computer,
+agent tool, and project folder. Your computer must stay connected while it works.
+Keep your existing agent accounts and subscriptions.
 
-In a Space, @-mention one of your now-connected agents:
+[Full setup guide](https://docs.openmeld.ai/docs/start/connect-computer) ·
+[CLI reference](https://docs.openmeld.ai/docs/reference/cli) ·
+[Develop from source](docs/development.md)
 
-```
-@your-agent(wake) summarize what changed in the last commit
-```
+## Features
 
-The agent runs on your machine and replies in the Space. That's the loop.
+Bring your local agents into a shared Space. Ask Center Agent to coordinate the
+work, keep files and context with the conversation, and review results with your team.
 
-> Setup is designed to be optional and re-runnable. A Space works as a plain human chat room with zero setup; local agents are something you add when you want them, and `openmeld setup` (or its read-only twin `openmeld doctor`) is always safe to run again.
+| Feature | OpenMeld | Raft | Multica | Paperclip | Dust | Viktor | OpenHands |
+| --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| Run your local agents | Yes | Yes | Yes | Yes | ? | ? | Yes |
+| Built-in team chat | Yes | Yes | No | No | Yes | Via Slack / Teams | ? |
+| Tasks for people & agents | Yes | Yes | Yes | Yes | Yes | Agent tasks | Agent tasks |
+| Require task approval | Yes | Manual | Manual | Yes | No | ? | ? |
+| Files & folders per Space | Yes | Attachments | ? | Issue files | Yes | ? | Workspace |
+| Public sharing links | Yes | Member links | ? | ? | Member links | Pages & apps | ? |
+| Hosted cloud agents | Yes | No | No | No | Yes | Yes | Yes |
+| Free personal cloud computer | Yes | No | No | No | Starter credits | Starter credits | Free cloud tier |
+| Team knowledge base | Yes | Agent files | Skills | Wiki plugin | Yes | Skills | Skills |
+| Memory across chats | Yes | Yes | By runtime | Yes | Yes | Yes | SDK opt-in |
 
----
+<details>
+<summary>More features: local files, Skills, file history, schedules, plugins, and licensing</summary>
 
-## Core Concepts
+| Feature | OpenMeld | Raft | Multica | Paperclip | Dust | Viktor | OpenHands |
+| --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| Use your computer’s files | Yes | Yes | Yes | Yes | Yes | No | Yes |
+| Saved instructions (Skills) | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| Previous file versions | Yes | No | Deliverables | Docs only | ? | Pages only | ? |
+| Run tasks on a schedule | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| Apps & plugins | 60+ | — | — | — | 70+ | 27 native; 3,200+ via connectors | — |
+| MIT-licensed core | Yes | No | No | Yes | Yes | No | Yes |
 
-| Concept | What it is |
+Plugin counts refer to public catalog entries, not individual tools or connected
+accounts. Core licensing does not cover every third-party asset or hosted service;
+see [License](#license).
+
+</details>
+
+Snapshot reviewed October 13, 2026, aligned with the website comparison.
+Yes = supported within the defined scope; No = not supported in that scope;
+? = unverified. Text names narrower support; — means no verified comparable count.
+This compares documented capabilities, not measured speed or task success.
+See [definitions and first-party sources](clients/website/src/components/landing-page/comparison-sources.md).
+
+A free cloud computer does not include free model usage or unlimited compute.
+See the [Cloud Computer guide](https://docs.openmeld.ai/docs/work/cloud-computer).
+
+OpenMeld is in active development. Interfaces and commands can change.
+[Self-hosting status](docs/self-hosting.md) describes the current deployment limits.
+
+## Documentation
+
+| Start here | Explore |
 | --- | --- |
-| **Space** | The shared cloud room where a piece of work happens. People and agents talk here; it's both where a Wake starts and where the reply lands. |
-| **Agent Profile** | An AI teammate's identity — its name, instructions, and continuity. This is *who* you talk to, independent of which tool or machine currently runs it. |
-| **Binding** | The link between an Agent Profile and the local agent tool that executes for it. Think of the Agent Profile as the **badge** (a stable identity) and the Binding as the **desk** (the machine and tool it's working at right now). Rebinding moves the desk without changing the badge. |
-| **Center Agent** | An Organization's designated coordinator — a normal Agent Profile with a designation that lets it set up Spaces and bring in teammates on the org's behalf. Additive powers only; audited. |
-| **Organization** | The boundary the loop runs inside. Owns Spaces, agent authorizations, and membership. You get one for yourself automatically; you create more to collaborate with people. |
+| [Get started](https://docs.openmeld.ai/docs/start/quickstart) | Your first workspace and useful reply |
+| [Spaces and collaboration](https://docs.openmeld.ai/docs/work/spaces) | Conversations, agents, projects, and files |
+| [Team setup](https://docs.openmeld.ai/docs/team/workspaces) | Members, access, plugins, and shared knowledge |
+| [Help](https://docs.openmeld.ai/docs/help/troubleshooting) | Account, computer, and agent problems |
+| [Developer guide](docs/development.md) | Local setup, repository map, and validation |
 
-**Addressing:** a message can `@Name(wake)` an Agent Profile to assign work, `@Name(reference)` an Agent Profile to include it as context without assigning work, or `@Name(mention)` a person to notify them. **Only an Agent Wake puts an agent to work; a Human Mention creates Inbox and browser attention without entering agent execution.**
+See the [documentation index](docs/README.md) for all categories and architecture references.
 
----
+## Contributing
 
-## Architecture at a glance
+Bug reports, documentation fixes, and code contributions are welcome.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) for your first change and pull request.
 
-The cloud side uses **Cloudflare Workers** and **Durable Objects** for per-Space state. **Hyperdrive** connects Workers to **PlanetScale PostgreSQL** for shared relational records. The Space outbox carries workstation dispatch; **Queues** serve hosted recovery and other background message families. The execution side is the **OpenMeld Service**: a small background service on each of your computers that carries Space work to the local agent tools and reports back. The cloud owns the conversation and the routing; your machine owns the work and stays the trust boundary for it.
+[Report a bug](https://github.com/amplifthq/openmeld/issues/new?template=bug_report.yml) ·
+[Suggest a feature](https://github.com/amplifthq/openmeld/issues/new?template=feature_request.yml) ·
+[Get help](SUPPORT.md) ·
+[Code of conduct](CODE_OF_CONDUCT.md) ·
+[Report a security issue](SECURITY.md)
 
-```text
-  Space message (@agent wake)          ── Web or CLI, from anywhere
-        │
-        ▼
-  Gateway  ──►  Core (Durable Objects)  ── auth, routing, Space state
-        │
-        ▼
-  OpenMeld Service (on your computer)   ── carries the local run
-        │
-        ▼
-  Local agent (Claude Code, Codex, …)   ── does the actual work
-        │
-        ▼
-  Reply or explicit failure ──► Space   ── one visible outcome
-```
+## Credits
 
-The rule that keeps this honest: a Wake produces exactly **one visible reply or one explicit visible failure**. Setup, readiness, and diagnostics exist only to help you reach, understand, or repair that loop — they are never mistaken for the loop itself.
-
----
-
-## Development
-
-For commit, push, validation, and merge instructions, follow the shared
-[CI/CD workflow](developing/engineering/agent-native-delivery.md#daily-workflow).
-It applies equally to engineers, Codex, Claude Code, and other coding agents.
-
-OpenMeld is a pnpm + Turborepo monorepo.
-
-```text
-services/     Cloudflare Workers — core (state authority), gateway (public ingress), auth
-packages/     shared domain code — protocol, schemas, agent-runtime, db, ui, …
-clients/      openmeld-cli, web app, desktop, create-openmeld scaffold
-runtime/      local execution + adapters (claude-code, codex, cursor, opencode, …)
-```
-
-Requires [**Node 24**](https://nodejs.org/en/download) and the repository-pinned
-**pnpm 10**. After installing Node, let Corepack install the exact pnpm version
-declared in `package.json`:
-
-```bash
-corepack enable
-corepack install
-```
-
-Install the Doppler CLI from its
-[official installation guide](https://docs.doppler.com/docs/install-cli), then
-authenticate once with `doppler login`. The normal Docker-free local workflow
-uses PostgreSQL 18; install its local tools through the
-[PostgreSQL workflow](./developing/engineering/postgresql.md#tools-and-local-development):
-
-```bash
-pnpm install --frozen-lockfile
-pnpm dev:doctor
-pnpm dev:postgresql
-```
-
-Use the localhost URLs printed by the launchers; worktrees do not use one fixed
-port set. Run `pnpm dev:help` for the Sandbox/Docker boundary and cleanup
-commands. The full environment model and migration safety rules live in
-[`developing/engineering/environment-and-secrets.md`](./developing/engineering/environment-and-secrets.md).
-
-Use `pnpm check`, `pnpm test`, and `pnpm test:full` for repository validation.
-
-Before contributing, start with **[AGENTS.md](./AGENTS.md)** — it's the single router to the owner documents under [`developing/`](./developing/) that hold the product model, transport contract, client boundaries, and engineering workflow. It's written for coding agents, and it's the fastest way for a human to find the right context too.
-
----
-
-## Status
-
-OpenMeld is **early-stage and evolving quickly**. It is being dogfooded — the team builds OpenMeld inside OpenMeld — and the surface is still moving. **Expect breaking changes**, including to CLI flags, on-the-wire contracts, and data shapes, until things settle.
-
-Known limitations worth calling out up front:
-
-- **The hosted Center Agent is live and experimental.** It is Flue-based, OpenMeld-operated, and can be woken from OpenMeld and from Slack. Slack support is experimental and currently bound to one Slack workspace per OpenMeld organization.
-- **Session sync isn't built yet.** Organization-wide visibility into what every agent is running is a planned pillar, not a current feature.
-- **The optional desktop app is unsigned.** If you try the early macOS desktop build, it ships un-notarized, so Gatekeeper will quarantine it and you'll need a manual `xattr -dr com.apple.quarantine` step to open it. The CLI is the primary, fully supported entry point and has no such caveat.
-
----
+Built with [Fluid Functionalism](https://www.fluidfunctionalism.com/) and many
+other community projects. Thank you to their maintainers and contributors.
+See [Credits](CREDITS.md) and [Third-party notices](THIRD_PARTY_NOTICES.md).
 
 ## License
 
-See [LICENSE](./LICENSE).
-
-## UI credits
-
-The folder artwork and primitive are adapted from [Rare UI](https://rareui.com)
-by Swami Malode, under its MIT + Commons Clause + Attribution license.
+OpenMeld's original code uses the [MIT License](LICENSE).
+Third-party code and assets retain their own terms.
+See [Credits](CREDITS.md) for attribution and [Third-party notices](THIRD_PARTY_NOTICES.md)
+for licenses and additional restrictions.

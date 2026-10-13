@@ -62,6 +62,12 @@ advances. Replays require the original page budget and current access.
 Concurrent checkpoint updates use conditional storage writes.
 
 Named GitHub writes carry their declared effect into operation admission.
+Every named write accepts the shared confirmation token, including operations
+whose trusted catalog effect is stricter than their static description. The
+catalog and the explicit destructive safety floor decide execution policy;
+descriptions do not promise that confirmation can be skipped. Confirmation
+keeps the same operation ID, account, target and input through Code Mode input
+validation. A token binds an action; it is not human authorization.
 An issue destination that requires Inbox confirmation returns
 `awaiting_confirmation` with the existing operation ID. It has not reached
 GitHub. Only a pending request has this status; rejected, expired or unavailable
@@ -372,7 +378,16 @@ does.
 For ordinary native Git work, use `computer_git_connection` with the explicitly
 selected requester or Organization Plugin account, then run `git clone` or
 `git fetch` through the Computer's container command engine. The tool returns a
-temporary repository URL scoped to this Computer and execution. It does not
+stable `repositoryUrl` and per-command `gitArguments` that map that exact URL to
+a temporary transport scoped to this Computer and execution. Clone the stable
+URL with those arguments so Git retains the stable repository identity in origin.
+Never persist the transport rewrite in repository or global Git configuration.
+Git may record the internal transfer address in `FETCH_HEAD` or command history.
+This is not a provider credential or a durable authorization. Keep it private;
+each transfer still requires the registered Computer grant, an active originating
+execution, current access, and an unexpired grant. The grant is not consumed by
+one command. Its historical address cannot extend its lifetime or authority.
+The legacy `url` field remains readable for existing callers. It does not
 download files or install credentials. The Workspace proxy routes Git's HTTP
 exchanges through the existing Plugin transport, which rechecks current access
 and keeps provider credentials inside OpenConnector. Public Git and accounts
@@ -381,7 +396,10 @@ configured independently inside the Computer need no Plugin transport.
 Native Git preserves upstream history and uses Git's normal transfer protocol.
 The Plugin transport supports reads; existing GitHub write actions remain the
 publication interface. A later execution requests a fresh connection before a
-fetch. The persistent repository remains on the user's Computer.
+fetch. For an older checkout whose origin is a temporary internal URL for the
+same verified repository, change only that origin to the stable URL. Do not
+reset files or move branches. The persistent repository remains on the user's
+Computer; neither refreshing a read grant nor an HTTP 403 authorizes Git push.
 
 Prefer reuse of a verified existing repository before cloning. The suggested
 layout is `/computer/projects/<organization-id>/<project-id>/repo` plus adjacent
@@ -685,6 +703,14 @@ retain their existing alarm cadence. The index adds a write cost to eligible
 receipt updates and an initial build on existing storage; it is not a separate
 queue or execution state.
 Normal model completion only observes these receipts. A paused collection,
+bounded tool observation timeout, or an unavailable observation is not proof
+of command failure. A start/poll observation timeout returns the saved command
+reference, phase, output and preparation checkpoint with an explicit
+`observation.status=timed_out`. These are last-confirmed facts, not fresh
+liveness. It does not reset collection budgets, clear admission, authorize
+replay, or trigger another poll inside the same call. Stop failures still
+require explicit failure reporting rather than a claimed acknowledgement.
+A paused collection,
 expired observation, or unavailable result can produce a reviewed explanation
 of the incomplete task, but cannot create a Stop request. Once that explanation
 has been reviewed, a new observation must not block its publication. The final
@@ -3938,8 +3964,17 @@ but not trigger.
    Routines and task coordination. The explanation describes the recovery
    snapshot supplied to the original model. Later background cleanup progress
    updates the diagnostic projection, but must not discard that explanation or
-   upgrade the task to success. Without evidence that the model received the
-   recovery facts, its text is not a reviewed failure explanation.
+   upgrade the task to success. Canonical answer retention is independent of
+   that review marker: runtime recovery can settle a saved answer without
+   another finish-hook cycle. Without evidence that the model received the
+   recovery facts, the terminal owner preserves the exact canonical answer
+   under an explicit incomplete-outcome notice and labels any completion
+   claims as unverified. It never reconstructs an answer from streaming text,
+   grants Stop authority, or promotes the task to success. Cancellation,
+   safety failures and execution identity checks still take precedence.
+   The historical `reviewedFailureExplanation` publication field protects
+   this retained failure text from summary replacement; it is not evidence
+   that the model reviewed the latest Computer facts.
    Core maps other known failure codes to
    approved public copy; an unknown code always uses the generic request-failed
    copy, while the worker detail remains diagnostic-only. Failure copy names
@@ -4295,7 +4330,7 @@ Core-owned hosted readiness has exactly two product states in MVP:
 
 "It runs in the cloud, therefore it is always green" is a contract violation.
 
-### Free MVP with operator containment and usage visibility
+### Free credits, workspace keys, and usage visibility
 
 Remote inference usage records distinguish Flue's `agent`, `compaction`, and
 `compaction_prefix` purposes by joining the public turn-request observation to
@@ -4305,15 +4340,15 @@ so existing Usage clients can read totals unchanged; the ledger retains the
 detail for operator cost analysis. Core must accept the added record purposes
 before Remote Agent emits them. No local Service or CLI contract changes.
 
-- The Remote Agent is **free** in MVP. No billing build.
+- Hosted inference uses [workspace AI credits and keys](../engineering/ai-billing.md).
+  Free includes 5,000 credits per UTC month for the creator's first workspace.
+  Workspace BYOK and a privately configured internal exemption use separate keys.
 - The retired **$50/org/day circuit breaker**, `resting` state, and
   **60 Remote Agent triggers/member/hour** limit are not active product
-  gates. Historical database columns and migrations remain because old rows
-  are durable evidence, but Core no longer reads or writes them.
+  gates. Historical database columns and migrations remain as durable evidence.
 - Operator containment remains a global runtime kill switch and an optional
-  per-organization blocklist. Both are operational controls. An optional
-  Organization daily AI allowance defaults to unlimited and is managed by
-  operators through `scripts/ops/ai-usage-policy.mjs`; members cannot raise it.
+  per-organization blocklist. Both are operational controls. The former daily
+  allowance is retired; OpenRouter's native monthly key limit owns enforcement.
 - Per-turn usage is recorded by the Remote Agent worker from Flue prompt
   usage, emitted to Analytics Engine, and exposed through
   `readUsageDiagnostics`. Core does not add usage fields to the native
@@ -4324,9 +4359,9 @@ before Remote Agent emits them. No local Service or CLI contract changes.
   it never includes prompts, message text, provider response text, or tokens.
   This operational evidence does not decide admission, retry, timeout, native
   delivery, or final result-surface truth.
-- New-turn default route: Cloudflare AI Gateway → OpenRouter BYOK
-  `z-ai/glm-5.3-flash` with the environment-owned BYOK alias (`openrouter` in
-  production). The legacy version-1
+- New-turn requests use Cloudflare AI Gateway → OpenRouter with the current
+  workspace key, or direct OpenRouter when no gateway is configured. A stored
+  official BYOK alias is never a funding fallback. The legacy version-1
   environment fallback remains `x-ai/grok-4.5` for durable recovery
   compatibility (settled; see Implementation Base).
 - Organization-scoped OpenRouter routes retain native prompt-cache capabilities

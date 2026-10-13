@@ -84,6 +84,14 @@ export const cloudComputerCommandPreparationSchema = z.strictObject({
 export type CloudComputerCommandPreparation = zod.infer<
   typeof cloudComputerCommandPreparationSchema
 >;
+export const cloudComputerCommandObservationSchema = z.strictObject({
+  status: z.literal("timed_out"),
+  phase: z.enum(["workspace-acquisition", "launch", "poll", "stop", "cleanup"]),
+  message: z.string().min(1),
+});
+export type CloudComputerCommandObservation = zod.infer<
+  typeof cloudComputerCommandObservationSchema
+>;
 export const cloudComputerCommandErrorSchema = z.strictObject({
   status: z.number().int().min(400).max(599),
   code: z.enum([
@@ -210,6 +218,7 @@ export const cloudComputerOperationResultSchema = z.union([
     collection: cloudComputerCommandCollectionSchema.optional(),
     preparation: cloudComputerCommandPreparationSchema.optional(),
     status: z.enum(["running", "completed", "stop_requested"]),
+    observation: cloudComputerCommandObservationSchema.optional(),
     exitCode: z.number().nullable().optional(),
     stdout: z.string().optional(),
     stderr: z.string().optional(),

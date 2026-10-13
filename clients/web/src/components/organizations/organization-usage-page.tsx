@@ -2,12 +2,10 @@ import type {
 	AiUsageQueryResponse,
 	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
-import { Badge } from "@openmeld/ui/components/badge";
 import { BrandChartDot } from "@openmeld/ui/components/brand-chart-dot";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	Card,
-	CardAction,
 	CardContent,
 	CardDescription,
 	CardHeader,
@@ -38,18 +36,36 @@ import { ModelBrandIcon } from "#/components/models/model-brand-icon";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { usageScopeParser } from "#/lib/page-tab-search";
 import { modelCatalogQueryOptions } from "#/query/config/model-catalog";
-import { organizationUsageCalendarPeriod } from "#/query/organizations/organization-usage";
+import {
+	organizationAiBillingQueryOptions,
+	organizationUsageCalendarPeriod,
+} from "#/query/organizations/organization-usage";
 import { OrganizationUsageStatus } from "./organization-usage-status";
 import {
 	type UsageModelSeries,
+	type UsageUnit,
 	usageModelSeries,
-	usageMoney,
 	usageNumber,
+	usageValue,
 } from "./usage-models";
 import { useAgentUsage } from "./use-agent-usage";
 
 const CostChart = lazy(() => import("./usage-cost-chart"));
 const EMPTY_MODELS: AiUsageQueryResponse["models"] = [];
+const unitPresentation = {
+	usd: {
+		label: "USD",
+		suffix: "",
+		history:
+			"Amounts show recorded model costs, not your OpenRouter account balance.",
+	},
+	credits: {
+		label: "Credits",
+		suffix: " credits",
+		history:
+			"BYOK usage is shown as equivalent credits and does not reduce your included balance.",
+	},
+};
 
 export function OrganizationUsagePage() {
 	const { currentOrganization, currentUserId } = useAppOrganization();
@@ -85,14 +101,14 @@ function UsagePage(input: {
 				{/* Scope changes update the mounted charts instead of disposing and
 				    rebuilding their SVG renderers on every tab switch. */}
 				<TabPanel className="space-y-5" value={view}>
+					{view === "organization" ? (
+						<OrganizationUsageStatus organizationId={input.organizationId} />
+					) : null}
 					<RemoteUsageCard {...input} personal={view === "my"} />
 					<LocalAgentTokenUsageCard
 						organizationId={input.organizationId}
 						userId={view === "my" ? input.userId : undefined}
 					/>
-					{view === "organization" ? (
-						<OrganizationUsageStatus organizationId={input.organizationId} />
-					) : null}
 				</TabPanel>
 			</Tabs>
 		</section>
@@ -106,8 +122,23 @@ export function RemoteUsageCard(input: {
 	showRefresh?: boolean;
 }) {
 	const [days, setDays] = useState(7);
-	const { owned, catalog, query, pending, failed, refreshing, refresh } =
-		useRemoteUsage(input, days);
+	const billing = useQuery(organizationAiBillingQueryOptions(input));
+	const unit: UsageUnit = billing.data?.source === "byok" ? "usd" : "credits";
+	const presentation = unitPresentation[unit];
+	const {
+		owned,
+		catalog,
+		query,
+		pending: usagePending,
+		failed: usageFailed,
+		refreshing,
+		refresh: refreshUsage,
+	} = useRemoteUsage(input, days);
+	const pending = usagePending || billing.isPending;
+	const failed = usageFailed || billing.isError;
+	const refresh = async () => {
+		await Promise.all([refreshUsage(), billing.refetch()]);
+	};
 	const models = query.data?.models ?? EMPTY_MODELS;
 	const series = useMemo(
 		() => usageModelSeries(models, catalog.data),
@@ -132,26 +163,19 @@ export function RemoteUsageCard(input: {
 				<CardTitle>
 					{input.personal ? "Remote Agent usage" : "AI usage"}
 				</CardTitle>
-				<CardDescription>Model costs · Last {days} days</CardDescription>
-				<CardAction>
-					<Badge
-						className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-						variant="secondary"
-					>
-						Free
-					</Badge>
-				</CardAction>
+				<CardDescription>
+					Last {days} days · {presentation.label}
+				</CardDescription>
 			</CardHeader>
 			<CardContent className="space-y-3">
-				{pending && !failed ? (
-					<Skeleton className="h-8 w-24" />
-				) : (
-					<p className="font-medium text-2xl tabular-nums">
-						{failed || (requests > 0 && missing === requests)
-							? "—"
-							: usageMoney(total)}
-					</p>
-				)}
+				<UsageTotal
+					failed={failed}
+					missing={missing}
+					pending={pending}
+					requests={requests}
+					total={total}
+					unit={unit}
+				/>
 				{failed ? (
 					<p
 						className="py-8 text-center text-muted-foreground text-xs"
@@ -161,7 +185,7 @@ export function RemoteUsageCard(input: {
 					</p>
 				) : (
 					<div
-						aria-label="Daily model costs. Model totals are in Details."
+						aria-label={`Daily usage in ${presentation.label}. Model totals are in Details.`}
 						role="img"
 					>
 						<Suspense fallback={<Skeleton className="h-44 w-full" />}>
@@ -169,6 +193,7 @@ export function RemoteUsageCard(input: {
 								buckets={query.data?.timeSeries}
 								loading={pending}
 								series={series}
+								unit={unit}
 							/>
 						</Suspense>
 					</div>
@@ -253,24 +278,34 @@ export function RemoteUsageCard(input: {
 										: "Shared by Center Agent and Remote Agents."}{" "}
 									Dates use your local time.
 								</p>
+								<p className="text-muted-foreground text-xs">
+									All recorded usage, including previous funding sources.{" "}
+									{presentation.history}
+								</p>
 								{missing > 0 ? (
 									<p className="text-muted-foreground text-xs">
-										Some model costs are not yet available.
+										Some usage amounts are not yet available.
 									</p>
 								) : null}
 								{estimated > 0 ? (
 									<p className="text-muted-foreground text-xs">
-										{usageMoney(estimated)} in estimated costs is excluded from
+										{usageValue(estimated, unit)}
+										{presentation.suffix} in estimated usage is excluded from
 										the total.
 									</p>
 								) : null}
 								{models.length > 0 ? (
-									<UsageModelTable models={models} series={series} />
+									<UsageModelTable
+										models={models}
+										series={series}
+										unit={unit}
+									/>
 								) : null}
 								{input.personal && query.data?.breakdown?.groups.length ? (
 									<UsageAgentTable
 										breakdown={query.data.breakdown}
 										owned={owned ?? []}
+										unit={unit}
 									/>
 								) : null}
 							</div>
@@ -282,12 +317,36 @@ export function RemoteUsageCard(input: {
 	);
 }
 
+function UsageTotal(input: {
+	pending: boolean;
+	failed: boolean;
+	requests: number;
+	missing: number;
+	total: number;
+	unit: UsageUnit;
+}) {
+	if (input.pending && !input.failed) {
+		return <Skeleton className="h-8 w-24" />;
+	}
+	const unavailable =
+		input.failed || (input.requests > 0 && input.missing === input.requests);
+	return (
+		<p className="font-medium text-2xl tabular-nums">
+			{unavailable
+				? "—"
+				: `${usageValue(input.total, input.unit)}${unitPresentation[input.unit].suffix}`}
+		</p>
+	);
+}
+
 function UsageModelTable({
 	models,
 	series,
+	unit,
 }: {
 	models: AiUsageQueryResponse["models"];
 	series: UsageModelSeries[];
+	unit: UsageUnit;
 }) {
 	return (
 		<ScrollArea
@@ -303,7 +362,9 @@ function UsageModelTable({
 					<tr>
 						<th className="py-2 text-left font-normal">Model</th>
 						<th className="text-right font-normal">Tokens</th>
-						<th className="text-right font-normal">Model cost</th>
+						<th className="text-right font-normal">
+							{unit === "usd" ? "Cost (USD)" : "Credits"}
+						</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -326,10 +387,10 @@ function UsageModelTable({
 							<td className="text-right">
 								{model.requests === model.missingCostRequests
 									? "—"
-									: usageMoney(model.reportedCostNanoUsd)}
+									: usageValue(model.reportedCostNanoUsd, unit)}
 								{model.estimatedCostNanoUsd > 0 ? (
 									<span className="block text-muted-foreground">
-										{usageMoney(model.estimatedCostNanoUsd)} estimated
+										{usageValue(model.estimatedCostNanoUsd, unit)} estimated
 									</span>
 								) : null}
 							</td>
@@ -344,9 +405,11 @@ function UsageModelTable({
 function UsageAgentTable({
 	breakdown,
 	owned,
+	unit,
 }: {
 	breakdown: NonNullable<AiUsageQueryResponse["breakdown"]>;
 	owned: OrganizationProfileDirectoryResponse["agentProfiles"];
+	unit: UsageUnit;
 }) {
 	return (
 		<ScrollArea
@@ -362,7 +425,9 @@ function UsageAgentTable({
 					<tr>
 						<th className="py-2 text-left font-normal">Agent</th>
 						<th className="text-right font-normal">Tokens</th>
-						<th className="text-right font-normal">Model cost</th>
+						<th className="text-right font-normal">
+							{unit === "usd" ? "Cost (USD)" : "Credits"}
+						</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -384,7 +449,7 @@ function UsageAgentTable({
 							<td className="text-right">
 								{agent.requests === agent.missingCostRequests
 									? "—"
-									: usageMoney(agent.reportedCostNanoUsd)}
+									: usageValue(agent.reportedCostNanoUsd, unit)}
 							</td>
 						</tr>
 					))}
@@ -392,7 +457,7 @@ function UsageAgentTable({
 			</table>
 			{breakdown.hasMore ? (
 				<p className="text-muted-foreground text-xs">
-					Showing the 50 Agents with the highest recorded costs.
+					Showing the 50 Agents with the highest recorded usage.
 				</p>
 			) : null}
 		</ScrollArea>

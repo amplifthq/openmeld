@@ -56,6 +56,13 @@ export function renderRemoteAgentTurnEnvelope(
     "",
     renderCenterAgentContextHandling(contextScopePlan),
   ];
+  if (envelope.memory?.status) {
+    lines.push(
+      "",
+      `[Memory recall: ${envelope.memory.status}]`,
+      "Some or all retained memory could not be read for this turn. This is not evidence that no memory exists. If the request depends on earlier memory, explain the limitation and use the explicit memory search tool when available. Do not invent a provider failure cause."
+    );
+  }
   if (envelope.memory?.items.length) {
     lines.push(
       "",

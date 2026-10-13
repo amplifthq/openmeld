@@ -1,4 +1,4 @@
-import type { OrganizationUsageOverviewResponse } from "@openmeld/schemas/types";
+import type { OrganizationAiBilling } from "@openmeld/schemas/types";
 import {
 	cleanup,
 	fireEvent,
@@ -10,76 +10,33 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { TestQueryClientProvider } from "#/test-support/query-client";
 import { OrganizationUsageStatus } from "./organization-usage-status";
 
-const { readOverviewMock } = vi.hoisted(() => ({
-	readOverviewMock: vi.fn(),
+const { readBilling, updateBilling } = vi.hoisted(() => ({
+	readBilling: vi.fn(),
+	updateBilling: vi.fn(),
 }));
-
 vi.mock("#/lib/organizations/organization-usage", () => ({
-	readCurrentOrganizationUsageOverview: readOverviewMock,
+	readOrganizationAiBilling: readBilling,
+	updateOrganizationAiBilling: updateBilling,
 }));
-
 afterEach(() => {
 	cleanup();
-	readOverviewMock.mockReset();
+	vi.resetAllMocks();
 });
 
-describe("OrganizationUsageStatus", () => {
-	it("shows a visible loading state", () => {
-		readOverviewMock.mockReturnValue(new Promise(() => undefined));
-
-		renderUsagePage();
-
-		expect(screen.getByText("Loading usage.")).toBeTruthy();
-	});
-
-	it("shows the AI allowance with local and UTC reset time, without Routine counts", async () => {
-		readOverviewMock.mockResolvedValue(usageOverview());
-
-		renderUsagePage();
-
-		expect(await screen.findByText("$0.12 / $1.00")).toBeTruthy();
-		expect(screen.queryByText("Routines")).toBeNull();
-		expect(screen.queryByText("7 / 50")).toBeNull();
-		const expectedLocalResetTime = new Date(
-			"2026-07-17T00:00:00.000Z"
-		).toLocaleTimeString("en-US", {
-			hour: "2-digit",
-			hourCycle: "h23",
-			minute: "2-digit",
-		});
-		expect(
-			screen.getByText(`Resets at ${expectedLocalResetTime} (00:00 UTC)`)
-		).toBeTruthy();
-		expect(screen.getAllByRole("progressbar")).toHaveLength(1);
-	});
-
-	it("leaves no empty section when no AI allowance is configured", async () => {
-		readOverviewMock.mockResolvedValue(
-			usageOverview({
-				aiSpend: { usedNanoUsd: 0, dailyLimitNanoUsd: null },
-				routines: { count: 0 },
-			})
-		);
-
-		const view = renderUsagePage();
-		await waitFor(() => expect(view.container.childElementCount).toBe(0));
-	});
-
-	it("shows a retryable error state", async () => {
-		readOverviewMock.mockRejectedValue(new Error("Network unavailable"));
-
-		renderUsagePage();
-
-		expect((await screen.findByRole("alert")).textContent).toBe(
-			"OpenMeld could not load usage. Try again."
-		);
-		readOverviewMock.mockResolvedValue(usageOverview());
-		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-		expect(await screen.findByText("$0.12 / $1.00")).toBeTruthy();
-	});
-});
-
-function renderUsagePage() {
+const free: OrganizationAiBilling = {
+	plan: "free",
+	source: "free",
+	policyVersion: "2026-10-v1",
+	monthlyCredits: 5000,
+	usedCredits: 2,
+	remainingCredits: 4998,
+	resetsAt: "2026-11-01T00:00:00.000Z",
+	keySuffix: null,
+	canManage: true,
+	status: "available",
+};
+function renderBilling(billing = free) {
+	readBilling.mockResolvedValue(billing);
 	return render(
 		<TestQueryClientProvider>
 			<OrganizationUsageStatus organizationId="org-1" />
@@ -87,26 +44,62 @@ function renderUsagePage() {
 	);
 }
 
-function usageOverview(
-	overrides: {
-		aiSpend?: { usedNanoUsd: number; dailyLimitNanoUsd?: number | null };
-		routines?: { count: number };
-	} = {}
-): OrganizationUsageOverviewResponse {
-	return {
-		aiSpend: {
-			dailyLimitNanoUsd:
-				overrides.aiSpend?.dailyLimitNanoUsd === undefined
-					? 1_000_000_000
-					: overrides.aiSpend.dailyLimitNanoUsd,
-			resetsAt: "2026-07-17T00:00:00.000Z",
-			usedNanoUsd: overrides.aiSpend?.usedNanoUsd ?? 120_000_000,
-			missingCostRequests: 0,
-			exhausted: false,
-		},
-		routines: {
-			count: overrides.routines?.count ?? 7,
-			limit: 50,
-		},
-	};
-}
+describe("workspace funding settings", () => {
+	it("changes the active source only after saving, clears the draft, and restores the retained allowance on removal", async () => {
+		renderBilling();
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Use your own key" })
+		);
+		fireEvent.change(screen.getByLabelText("API key"), {
+			target: { value: "sk-or-disposable-test-1234" },
+		});
+		updateBilling.mockResolvedValueOnce({
+			...free,
+			source: "byok",
+			keySuffix: "1234",
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Save key" }));
+		expect(await screen.findByText("BYOK")).toBeTruthy();
+		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+		expect(screen.getByText("OpenRouter · ••••1234")).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Manage key" }));
+		expect(
+			(screen.getByLabelText("Replace API key") as HTMLInputElement).value
+		).toBe("");
+		updateBilling.mockResolvedValueOnce(free);
+		fireEvent.click(screen.getByRole("button", { name: "Remove key" }));
+		expect(await screen.findByText("4,998 / 5,000 credits left")).toBeTruthy();
+		expect(screen.queryByText("BYOK")).toBeNull();
+		expect(updateBilling).toHaveBeenLastCalledWith({
+			organizationId: "org-1",
+			settings: { source: "free" },
+		});
+	});
+	it("keeps the active funding source and dialog when saving fails", async () => {
+		renderBilling();
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Use your own key" })
+		);
+		fireEvent.change(screen.getByLabelText("API key"), {
+			target: { value: "sk-or-invalid-test" },
+		});
+		updateBilling.mockRejectedValueOnce(new Error("Network unavailable"));
+		fireEvent.click(screen.getByRole("button", { name: "Save key" }));
+		expect(await screen.findByRole("alert")).toBeTruthy();
+		expect(screen.getByRole("dialog")).toBeTruthy();
+		expect(screen.queryByText("BYOK")).toBeNull();
+	});
+	it("does not offer key mutation to a member without billing permission", async () => {
+		renderBilling({
+			...free,
+			canManage: false,
+			source: "byok",
+			keySuffix: "1234",
+			status: "unavailable",
+		});
+		expect(await screen.findByText("BYOK")).toBeTruthy();
+		expect(screen.getByRole("alert")).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Manage key" })).toBeNull();
+		expect(updateBilling).not.toHaveBeenCalled();
+	});
+});

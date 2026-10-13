@@ -1,6 +1,7 @@
 "use client";
 
 import { peopleComputerContainsDevice } from "@openmeld/agent-runtime";
+import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import type {
 	LocalProjectControlConnection,
 	LocalProjectControlProjectDiscovery,
@@ -387,6 +388,10 @@ function resolveProjectDiscoveryFailure(error: unknown): {
 	errorMessage: string;
 	status: "discovery_failed" | "service_unavailable" | "update_required";
 } {
+	const failure = toStructuredApiClientFailure(error);
+	if (failure.upstreamCode?.startsWith("desktop.folder.")) {
+		return { errorMessage: failure.message, status: "service_unavailable" };
+	}
 	const code = resolveLocalProjectControlFailureCode(error);
 	if (code === "service_offline") {
 		return {

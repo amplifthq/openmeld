@@ -5,7 +5,11 @@ import {
 } from "@openmeld/ui/components/evilcharts/charts/echarts-area-chart";
 import { memo } from "react";
 import { ModelBrandIcon } from "#/components/models/model-brand-icon";
-import { type UsageModelSeries, usageMoney } from "./usage-models";
+import {
+	type UsageModelSeries,
+	type UsageUnit,
+	usageValue,
+} from "./usage-models";
 
 const day = new Intl.DateTimeFormat("en-US", {
 	month: "short",
@@ -17,6 +21,7 @@ function UsageCostChart(input: {
 	series: UsageModelSeries[];
 	buckets: AiUsageQueryResponse["timeSeries"];
 	loading: boolean;
+	unit: UsageUnit;
 }) {
 	const config: ChartConfig = Object.fromEntries(
 		input.series.map((series) => [
@@ -61,11 +66,13 @@ function UsageCostChart(input: {
 			<EChartsAreaChart.XAxis dataKey="date" hideDots />
 			<EChartsAreaChart.YAxis
 				hideDots
-				tickFormatter={(value) => usageMoney(Number(value))}
+				tickFormatter={(value) => usageValue(Number(value), input.unit)}
 			/>
 			<EChartsAreaChart.Tooltip
 				roundness="md"
-				valueFormatter={(value) => usageMoney(Number(value))}
+				valueFormatter={(value) =>
+					`${usageValue(Number(value), input.unit)}${input.unit === "credits" ? " credits" : ""}`
+				}
 				variant="default"
 			/>
 			{input.series.map((series) => (

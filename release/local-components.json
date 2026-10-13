@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-13T07:25:37.337Z",
+  "updatedAt": "2026-10-13T13:07:46.659Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-project-work-v1",
-      "packageVersion": "0.3.256",
+      "packageVersion": "0.3.257",
       "updatePolicy": "available",
-      "reason": "Existing CLI commands, setup, Wake and diagnostics remain compatible with old and new cloud services."
+      "reason": "Working-folder commands retain their existing wire contract and preserve prior choices on failed preparation."
     },
     "service": {
-      "bundleHash": "d311e80ed267c4fb23b1ff853f5192a0052d2013a07544ee648b37caf02ab398",
-      "portableBundleHash": "d9925cc8d8433727f21527e5e1ce15c783c1985c179f4fa60613657c4971e369",
-      "bundleVersion": "0.3.256",
+      "bundleHash": "74b2b8411281aca444f560260a87a50aa8820bbf3231d99cb102061064b6dadc",
+      "portableBundleHash": "d3bb42ec9f1c134656bfdfa528e1cd27cc93494c337bcc92261219d057d2d5f5",
+      "bundleVersion": "0.3.257",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
       "serviceContractVersion": "openmeld-service-contract-2026-09-project-work-v1",
       "updatePolicy": "available",
-      "reason": "Computer power support is opt-in through capability headers; old services remain supported and receive no unsupported control frames."
+      "reason": "Folder validation and persistence changes preserve existing setup and Wake contracts."
     },
     "skills": {
       "bundleHash": "0507d367ef298936053223f81441697545949fbf4d39b1b306872f7c254a4871",
