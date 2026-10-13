@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-12T06:38:04.801Z",
+  "updatedAt": "2026-10-13T07:25:37.337Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-project-work-v1",
-      "packageVersion": "0.3.255",
+      "packageVersion": "0.3.256",
       "updatePolicy": "available",
-      "reason": "Computer recovery preserves existing command response shapes; current CLI versions remain compatible with both cloud versions."
+      "reason": "Existing CLI commands, setup, Wake and diagnostics remain compatible with old and new cloud services."
     },
     "service": {
-      "bundleHash": "e861442c01226c9164571ba84f21d92c5809e42c3d4d8ba0c1adedfb101b64dc",
-      "portableBundleHash": "dec87db74603cbe27856e2683d392592d74d3dc3e51c1b31176fd022f5d42415",
-      "bundleVersion": "0.3.255",
+      "bundleHash": "d311e80ed267c4fb23b1ff853f5192a0052d2013a07544ee648b37caf02ab398",
+      "portableBundleHash": "d9925cc8d8433727f21527e5e1ce15c783c1985c179f4fa60613657c4971e369",
+      "bundleVersion": "0.3.256",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
       "serviceContractVersion": "openmeld-service-contract-2026-09-project-work-v1",
       "updatePolicy": "available",
-      "reason": "No Service transport or execution contract changes; existing Services can continue setup, Wake, Space actions and diagnostics safely."
+      "reason": "Computer power support is opt-in through capability headers; old services remain supported and receive no unsupported control frames."
     },
     "skills": {
       "bundleHash": "0507d367ef298936053223f81441697545949fbf4d39b1b306872f7c254a4871",
