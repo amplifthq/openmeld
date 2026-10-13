@@ -36,11 +36,10 @@ not deployment or hands-on acceptance. An undocumented feature stays unknown.
 
 ### Cloud Computer comparison (reviewed 2026-10-13)
 
-The two leading rows distinguish a free vendor-hosted Computer from using that
-Computer through local and remote agents. They do not promise free model tokens,
-unlimited compute, an always-running VM, or a human remote desktop. A boolean
-negative in the second row means no vendor-provided Computer to share, not that
-agents cannot share a customer's own machine.
+The leading row compares a free vendor-hosted personal Computer. It does not
+promise free model tokens, unlimited compute, an always-running VM, or a human
+remote desktop. Local/remote access findings below are retained as research;
+they are not a separate displayed row.
 
 - OpenMeld: `developing/product/remote-agent-runtime.md`, Personal cloud Computer,
   defines one default Computer per human account across Organizations, Agents,
@@ -61,7 +60,7 @@ agents cannot share a customer's own machine.
   files remain with that conversation. [Pricing](https://dust.tt/home/pricing)
   offers 500 lifetime starter credits rather than a replenishing compute grant.
   External callers can work through Dust agents; direct local-agent access to
-  the same VM was not established. Hence the narrower `Via Dust agents` label.
+  the same VM was not established.
 - Viktor: [Plans and credits](https://viktor.com/docs/plans-and-credits) gives
   one-time starter credits; work pauses when exhausted.
   [Public API script runs](https://viktor.com/docs/public-api) execute in the
@@ -73,7 +72,7 @@ agents cannot share a customer's own machine.
   [CloudWorkspace source](https://github.com/OpenHands/software-agent-sdk/blob/main/openhands-workspace/openhands/workspace/cloud/workspace.py)
   supports starting or resuming a sandbox through the Cloud API from an SDK
   client. This is not proof of one persistent free personal Computer shared
-  automatically across arbitrary agents; retain `Free cloud tier` / `Via SDK`.
+  automatically across arbitrary agents; retain `Free cloud tier` in the table.
 
 These are documented product offers and access paths, not hands-on acceptance
 in paid competitor accounts. OpenMeld's personal Computer contract is stronger

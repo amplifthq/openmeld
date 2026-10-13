@@ -13,9 +13,9 @@ import {
 	ChatCircleTextIcon,
 	CheckIcon,
 	ClipboardTextIcon,
-	CloudCheckIcon,
 	CloudIcon,
 	CodeIcon,
+	DesktopIcon,
 	FileCodeIcon,
 	FolderIcon,
 	GitBranchIcon,
@@ -59,7 +59,7 @@ type ComparisonRow = {
 const rows: readonly ComparisonRow[] = [
 	{
 		feature: "Free personal cloud computer",
-		icon: CloudIcon,
+		icon: DesktopIcon,
 		values: [
 			true,
 			false,
@@ -68,19 +68,6 @@ const rows: readonly ComparisonRow[] = [
 			"Starter credits",
 			"Starter credits",
 			"Free cloud tier",
-		],
-	},
-	{
-		feature: "Cloud computer for local & remote agents",
-		icon: CloudCheckIcon,
-		values: [
-			true,
-			false,
-			false,
-			false,
-			"Via Dust agents",
-			"Via API",
-			"Via SDK",
 		],
 	},
 	{

@@ -2,6 +2,8 @@ import { OpenMeldLogoStrong } from "@openmeld/ui/components/openmeld-logo-strong
 import { LandingPageFooterLogo } from "./landing-page-footer-logo";
 import "./landing-footer.css";
 
+const FELIX_TWITTER_URL = "https://x.com/felixlu1018";
+
 export function LandingFooter({ repositoryUrl }: { repositoryUrl: string }) {
 	return (
 		<footer className="meld-page-footer">
@@ -18,7 +20,18 @@ export function LandingFooter({ repositoryUrl }: { repositoryUrl: string }) {
 							size={4}
 						/>
 					</a>
-					<p>Built in the open.</p>
+					<p>
+						Built in the open by{" "}
+						<a
+							className="meld-footer-author"
+							href={FELIX_TWITTER_URL}
+							rel="noopener noreferrer"
+							target="_blank"
+						>
+							Felix Lu
+						</a>{" "}
+						from Amplift Inc.
+					</p>
 				</div>
 				<nav aria-label="Footer">
 					<a href="/downloads">Downloads</a>
@@ -27,6 +40,9 @@ export function LandingFooter({ repositoryUrl }: { repositoryUrl: string }) {
 					<a href={repositoryUrl}>GitHub</a>
 					<a href="/privacy">Privacy</a>
 					<a href="/terms">Terms</a>
+					<a href={FELIX_TWITTER_URL} rel="noopener noreferrer" target="_blank">
+						Contact
+					</a>
 				</nav>
 			</div>
 			<LandingPageFooterLogo />
