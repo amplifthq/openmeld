@@ -17,3 +17,7 @@ unavailable.
 Start and continue independent Antigravity ACP tasks from the Web Session menu
 or CLI. Tasks keep Agent permissions and can use a separate working copy.
 Unsupported history forks and additional file access limits are not offered.
+
+Select Gemini 4 Argon for Antigravity, Cursor, OpenCode through OpenRouter,
+and hosted Agents. Availability depends on the selected provider and account.
+Existing model selections and defaults stay the same.
