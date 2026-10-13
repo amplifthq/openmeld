@@ -283,6 +283,11 @@ sources and verification hints. OpenClaw and hosted Center Agent policy remain
 out of this collector's scope. Official Markdown documents and release notes
 are captured with their URLs and observation time. Models.dev is discovery-only;
 its provider IDs and reasoning metadata are not harness compatibility proof.
+OpenCode discovery includes the curated OpenCode, OpenCode Go, OpenAI, Meta,
+and OpenRouter providers. Meta and OpenRouter entries are review candidates,
+not automatic catalog additions or proof of account access. Preserve each
+provider's exact model ID, including nested names such as
+`openrouter/meta/muse-wonder`, until authenticated OpenCode verification.
 The configured `discoverySince` excludes historical, never-curated marketplace
 models while retaining metadata for currently cataloged models. Keep this date
 stable so a moving cutoff cannot hide an unreviewed candidate.
