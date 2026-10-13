@@ -8,6 +8,34 @@ not deployment or hands-on acceptance. An undocumented feature stays unknown.
 
 ## Row scope
 
+Rows follow the primary workflow: run local agents, collaborate, assign/review
+tasks, organize Space files, and share work; execution, knowledge, automation,
+integrations, and licensing follow. Local-agent execution retains the verified
+Codex/Claude Code runtime scope; it does not promise every possible agent.
+
+`Files & folders per Space` means a separate managed file area for a collaboration
+room (or a competitor's comparable object). Raft attachments and Paperclip issue
+files remain explicit narrower alternatives, not full managed folder libraries.
+OpenMeld's Space-owned Files contract is documented in
+`developing/product/space-collaboration.md`; Dust's corresponding surface is
+[Pod Files](https://docs.dust.tt/docs/pods-files).
+
+`Public sharing links` means recipients can view intentionally shared work
+without joining the team. OpenMeld's Space access contract supports public
+reading of messages, Threads, files, guide, pins, and Tasks, with optional
+password-protected access. It is not a separate public link for an individual
+private Team/My file. [Raft message links](https://docs.raft.build/features/messaging/messages/)
+and [channel access](https://docs.raft.build/features/messaging/channels/) establish
+member-facing links; exported PNG images are not live public Space links.
+[Dust conversation sharing](https://docs.dust.tt/changelog/private-by-default-conversation-urls)
+establishes workspace-member access, not anonymous public reading.
+[Viktor Pages](https://viktor.com/docs/hosted-pages) and
+[Spaces](https://viktor.com/docs/spaces) support public deliverable links, so their
+narrower scope is named instead of marked absent. Public unauthenticated sharing
+was not established for Multica, Paperclip, or OpenHands; those cells remain
+unknown, not negative. These labels report verified scope, not exhaustive absence
+of other sharing paths.
+
 - Native team chat means multiple people can exchange messages with agents
   inside the product; an issue comment or external Slack route is narrower.
 - Team knowledge means maintained shared reference material. Agent files,

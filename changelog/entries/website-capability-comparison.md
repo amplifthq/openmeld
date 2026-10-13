@@ -14,3 +14,6 @@ visible, with horizontal scrolling on smaller screens.
 The leading Cloud Computer row distinguishes the free personal Computer from
 competitor starter credits and free cloud tiers. The footer adds creator credit
 and a Contact link.
+
+Local-agent control and Space collaboration lead the comparison, including
+dedicated Space files and public sharing links.

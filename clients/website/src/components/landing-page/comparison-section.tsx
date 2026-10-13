@@ -23,6 +23,7 @@ import {
 	LaptopIcon,
 	ListChecksIcon,
 	PlugsIcon,
+	ShareNetworkIcon,
 	ShieldCheckIcon,
 	XIcon,
 } from "@phosphor-icons/react";
@@ -58,6 +59,49 @@ type ComparisonRow = {
 // Null is unverified, never an inferred absence. Text retains narrower support.
 const rows: readonly ComparisonRow[] = [
 	{
+		feature: "Run your local agents",
+		icon: CodeIcon,
+		values: [true, true, true, true, null, null, true],
+	},
+	{
+		feature: "Built-in team chat",
+		icon: ChatCircleTextIcon,
+		values: [true, true, false, false, true, "Via Slack / Teams", null],
+	},
+	{
+		feature: "Tasks for people & agents",
+		icon: ListChecksIcon,
+		values: [true, true, true, true, true, "Agent tasks", "Agent tasks"],
+	},
+	{
+		feature: "Require task approval",
+		icon: ShieldCheckIcon,
+		values: [true, "Manual", "Manual", true, false, null, null],
+	},
+	{
+		feature: "Files & folders per Space",
+		icon: FolderIcon,
+		values: [true, "Attachments", null, "Issue files", true, null, "Workspace"],
+	},
+	{
+		feature: "Public sharing links",
+		icon: ShareNetworkIcon,
+		values: [
+			true,
+			"Member links",
+			null,
+			null,
+			"Member links",
+			"Pages & apps",
+			null,
+		],
+	},
+	{
+		feature: "Hosted cloud agents",
+		icon: CloudIcon,
+		values: [true, false, false, false, true, true, true],
+	},
+	{
 		feature: "Free personal cloud computer",
 		icon: DesktopIcon,
 		values: [
@@ -71,9 +115,9 @@ const rows: readonly ComparisonRow[] = [
 		],
 	},
 	{
-		feature: "Built-in team chat",
-		icon: ChatCircleTextIcon,
-		values: [true, true, false, false, true, "Via Slack / Teams", null],
+		feature: "Use your computer’s files",
+		icon: LaptopIcon,
+		values: [true, true, true, true, true, false, true],
 	},
 	{
 		feature: "Team knowledge base",
@@ -99,11 +143,6 @@ const rows: readonly ComparisonRow[] = [
 		values: [true, true, true, true, true, true, true],
 	},
 	{
-		feature: "Shared files & folders",
-		icon: FolderIcon,
-		values: [true, false, null, false, true, null, "Workspace"],
-	},
-	{
 		feature: "Previous file versions",
 		icon: GitBranchIcon,
 		values: [
@@ -115,31 +154,6 @@ const rows: readonly ComparisonRow[] = [
 			"Pages only",
 			null,
 		],
-	},
-	{
-		feature: "Tasks for people & agents",
-		icon: ListChecksIcon,
-		values: [true, true, true, true, true, "Agent tasks", "Agent tasks"],
-	},
-	{
-		feature: "Require task approval",
-		icon: ShieldCheckIcon,
-		values: [true, "Manual", "Manual", true, false, null, null],
-	},
-	{
-		feature: "Run Codex / Claude Code",
-		icon: CodeIcon,
-		values: [true, true, true, true, null, null, true],
-	},
-	{
-		feature: "Use your computer’s files",
-		icon: LaptopIcon,
-		values: [true, true, true, true, true, false, true],
-	},
-	{
-		feature: "Hosted cloud agents",
-		icon: CloudIcon,
-		values: [true, false, false, false, true, true, true],
 	},
 	{
 		feature: "Run tasks on a schedule",
