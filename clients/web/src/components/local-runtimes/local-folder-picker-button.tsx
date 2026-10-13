@@ -162,6 +162,12 @@ function formatRequestFailure(error: StructuredApiClientFailure): string {
 	if (error.upstreamCode === "local.folder_picker.service_offline") {
 		return "This computer is offline.";
 	}
+	if (
+		error.code === "network.request_failed" ||
+		error.code === "network.timeout"
+	) {
+		return "OpenMeld lost the connection to the folder picker. Close any open picker, then try again or enter the path manually.";
+	}
 	return (
 		error.message || "OpenMeld couldn’t open the folder picker. Try again."
 	);
