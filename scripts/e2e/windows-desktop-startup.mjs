@@ -100,5 +100,11 @@ app.whenReady().then(() => {
   );
 } finally {
   await rm(fixture, { recursive: true, force: true });
-  await rm(root, { recursive: true, force: true });
+  // Windows can retain executable handles briefly after Electron exits.
+  await rm(root, {
+    recursive: true,
+    force: true,
+    maxRetries: 10,
+    retryDelay: 250,
+  });
 }
