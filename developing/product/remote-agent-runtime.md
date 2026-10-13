@@ -380,8 +380,13 @@ selected requester or Organization Plugin account, then run `git clone` or
 `git fetch` through the Computer's container command engine. The tool returns a
 stable `repositoryUrl` and per-command `gitArguments` that map that exact URL to
 a temporary transport scoped to this Computer and execution. Clone the stable
-URL with those arguments so Git retains only stable repository identity.
+URL with those arguments so Git retains the stable repository identity in origin.
 Never persist the transport rewrite in repository or global Git configuration.
+Git may record the internal transfer address in `FETCH_HEAD` or command history.
+This is not a provider credential or a durable authorization. Keep it private;
+each transfer still requires the registered Computer grant, an active originating
+execution, current access, and an unexpired grant. The grant is not consumed by
+one command. Its historical address cannot extend its lifetime or authority.
 The legacy `url` field remains readable for existing callers. It does not
 download files or install credentials. The Workspace proxy routes Git's HTTP
 exchanges through the existing Plugin transport, which rechecks current access
