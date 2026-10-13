@@ -59,9 +59,14 @@ app.whenReady().then(() => {
     // Upgrade a pre-existing entry that has no login argument.
     app.setLoginItemSettings({ openAtLogin: true, args: [], enabled: true });
     assert.equal(settings.getOpenAtLogin(), true);
+    assert.equal(app.getLoginItemSettings({
+      path: '"' + process.execPath + '"', args: ['--openmeld-login'],
+    }).openAtLogin, false);
     settings.setStartInBackground(true);
-    const item = app.getLoginItemSettings({ path: '"' + process.execPath + '"' }).launchItems.find(item => item.enabled);
-    assert.ok(item.args.includes('--openmeld-login'));
+    // launchItems.args excludes Chromium switches. openAtLogin compares the full command.
+    assert.equal(app.getLoginItemSettings({
+      path: '"' + process.execPath + '"', args: ['--openmeld-login'],
+    }).openAtLogin, true);
     assert.equal(createStartupSettings(app, 'win32', [process.execPath]).shouldStartInBackground(), false);
     assert.equal(createStartupSettings(app, 'win32', [process.execPath, '--openmeld-login']).shouldStartInBackground(), true);
     settings.setOpenAtLogin(false);
