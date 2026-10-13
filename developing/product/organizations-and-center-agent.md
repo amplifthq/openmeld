@@ -2433,6 +2433,13 @@ policy or ongoing management surface.
 
 ### Explicit retained-memory search and bounded audit reads
 
+Organization memory's enabled setting is distinct from service availability.
+Settings show the latest bounded recall check, including unavailable or not yet
+checked states. The setting remains editable when the provider cannot be read.
+Explicit saves distinguish provider acceptance (`processing`) from completed
+processing. Neither state alone proves that a later conversation can recall the
+fact. On an uncertain save, the Center Agent searches before repeating a write.
+
 `openmeld_search_center_agent_memory` is a query-driven read over existing
 active member memory and enabled Organization memory, not universal conversation
 search. Core accepts a verified interactive member in an OpenMeld DM or Space;

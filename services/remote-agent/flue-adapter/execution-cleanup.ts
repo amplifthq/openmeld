@@ -8,6 +8,7 @@ import {
   type RemoteAgentStorage,
   readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
+import { normalizeRemoteAgentCompletedAnswer } from "../agent-core/completed-answer";
 import {
   buildRemoteAgentExecutionIdentity,
   hasRemoteAgentExecutionStopIntent,
@@ -281,25 +282,42 @@ export async function finishRemoteAgentComputerCommands(
       ? "Computer results or process termination could not be confirmed. Original command receipts and saved results are retained."
       : "Computer cleanup has not acknowledged Stop. Original command receipts and saved results are retained; process termination is unknown.";
   }
+  const explanationText = computerFailureExplanation(
+    input.assistantText,
+    reviewed
+  );
   return {
     ...createRemoteAgentTerminalFailureFact({
       status: "failed",
       error,
     }),
     code: REMOTE_AGENT_COMPUTER_CLEANUP_FAILED_CODE,
-    // The explanation describes the snapshot delivered to the original model.
-    // Background collection can advance before callback publication; it must
-    // not erase that business result or promote the task to success. Publish
-    // the latest cleanup projection separately from the reviewed explanation.
-    ...(typeof reviewed === "string" && input.assistantText?.trim()
-      ? { explanationText: input.assistantText.trim() }
-      : {}),
+    // Retain canonical answer content independently of execution success.
+    // Recovery can settle that answer without another finish-hook cycle.
+    // Only reviewed facts permit an unqualified explanation; otherwise the
+    // terminal owner labels the saved answer as unverified. Never use a stream.
+    ...(explanationText ? { explanationText } : {}),
     computerCleanup: {
       stopAccepted: cleanup?.accepted ?? false,
       automaticRetryPaused: isComputerRecoveryPaused(cleanup, state),
       state,
     },
   };
+}
+
+function computerFailureExplanation(
+  canonicalAnswer: string | undefined,
+  reviewed: unknown
+): string | undefined {
+  const answer = canonicalAnswer?.trim();
+  if (!answer) {
+    return undefined;
+  }
+  return normalizeRemoteAgentCompletedAnswer(
+    typeof reviewed === "string"
+      ? answer
+      : `Computer work is not confirmed complete. The response below was saved before the final check; any completion claims are unverified. Check the original command before repeating an action.\n\n**Agent response before the final Computer check**\n\n${answer}`
+  );
 }
 
 function isComputerRecoveryPaused(

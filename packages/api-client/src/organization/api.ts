@@ -511,7 +511,7 @@ export const createOrganizationApi: CreateOrganizationApi = (
     }),
   readCurrentOrganizationCenterAgentMemoryPolicy: async (input = {}) =>
     await client.requestJson({
-      url: buildCurrentOrganizationCenterAgentMemoryPolicyPath(),
+      url: `${buildCurrentOrganizationCenterAgentMemoryPolicyPath()}${input.includeAvailability ? "?includeAvailability=true" : ""}`,
       operation: "organization.center_agent_memory.organization_policy.read",
       method: "GET",
       requestContext: input.requestContext,

@@ -8679,7 +8679,7 @@ async function completeRemoteAgentMemberResearchCallback(input: {
   nowMs: number;
   options: CenterAgentMemoryRuntimeOptions;
 }): Promise<RemoteAgentCoreCallbackResponse> {
-  const terminalDelivery = isRemoteAgentFailedCallback(input.body)
+  let terminalDelivery = isRemoteAgentFailedCallback(input.body)
     ? await claimRemoteAgentNativeDeliveryTerminalFailure({
         db: input.db,
         failureCode: input.body.failureCode,
@@ -8693,6 +8693,12 @@ async function completeRemoteAgentMemberResearchCallback(input: {
         publishedSignalId: null,
         submissionId: input.body.submissionId,
       });
+  if (!(terminalDelivery || isRemoteAgentFailedCallback(input.body))) {
+    terminalDelivery = await readRemoteAgentNativeDeliveryBySubmissionId({
+      db: input.db,
+      submissionId: input.body.submissionId,
+    });
+  }
   const expectedStatus = isRemoteAgentFailedCallback(input.body)
     ? "failed"
     : "completed";
@@ -9009,13 +9015,15 @@ async function completeRemoteAgentCompletedCallback(input: {
       submissionId: body.submissionId,
       publishedSignalId: existingPublishedSignalId,
     });
-    scheduleCenterAgentMemoryRemember({
-      body,
-      delivery,
-      env,
-      memoryService: options.memoryService,
-      waitUntil: options.waitUntil,
-    });
+    if (completed) {
+      scheduleCenterAgentMemoryRemember({
+        body,
+        delivery,
+        env,
+        memoryService: options.memoryService,
+        waitUntil: options.waitUntil,
+      });
+    }
     const finalSignalId =
       completed?.publishedSignalId ?? existingPublishedSignalId;
     await projectRemoteAgentNativeDeliveryTerminalEffects({
@@ -9091,13 +9099,15 @@ async function completeRemoteAgentCompletedCallback(input: {
     submissionId: body.submissionId,
     publishedSignalId,
   });
-  scheduleCenterAgentMemoryRemember({
-    body,
-    delivery,
-    env,
-    memoryService: options.memoryService,
-    waitUntil: options.waitUntil,
-  });
+  if (completed) {
+    scheduleCenterAgentMemoryRemember({
+      body,
+      delivery,
+      env,
+      memoryService: options.memoryService,
+      waitUntil: options.waitUntil,
+    });
+  }
   const finalSignalId = completed?.publishedSignalId ?? publishedSignalId;
   await projectRemoteAgentNativeDeliveryTerminalEffects({
     db,

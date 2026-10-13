@@ -5582,7 +5582,9 @@ function createMemoryService(): CenterAgentMemoryService {
       organizationMemoryOptIn: false,
       updatedByUserId: null,
     })),
-    rememberFactForOrganization: vi.fn(async () => undefined),
+    rememberFactForOrganization: vi.fn(async () => ({
+      status: "processing" as const,
+    })),
     rememberTurn: vi.fn(async () => undefined),
     setOrganizationMemoryPolicy: vi.fn(async (input) => ({
       organizationMemoryOptIn: input.organizationMemoryOptIn,

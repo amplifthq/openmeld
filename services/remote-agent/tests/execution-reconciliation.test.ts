@@ -137,6 +137,7 @@ describe("remote agent execution reconciliation", () => {
     "cas_stop",
     "cas_failure",
     "unknown_read",
+    "unconfirmed",
     "safety_failure",
     "wrong_submission",
     "wrong_authority",
@@ -144,6 +145,8 @@ describe("remote agent execution reconciliation", () => {
     const storage = new InMemoryDurableObjectStorage();
     const request = createSubmitTurnRequest();
     const submissionId = "canonical-result-guard";
+    const retainedAnswer =
+      "All done. Saved artifact: /computer/tasks/result.txt";
     const identity = {
       idempotencyKey: request.idempotencyKey,
       organizationId: request.organizationId,
@@ -222,7 +225,7 @@ describe("remote agent execution reconciliation", () => {
       "cas_failure",
       "safety_failure",
     ].includes(guard);
-    const send = vi.fn(async () => {
+    const send = vi.fn(async (_body: unknown) => {
       const handoffs = await listComputerCleanupHandoffs(storage);
       if (requiresStop) {
         expect(handoffs).toMatchObject([{ submissionId, accepted: true }]);
@@ -233,6 +236,9 @@ describe("remote agent execution reconciliation", () => {
       }
       return { status: "accepted" as const, publishedSignalId: "guard-result" };
     });
+    if (guard === "unknown_read") {
+      send.mockRejectedValueOnce(new Error("Publication acknowledgement lost"));
+    }
     let terminalSnapshot: Map<string, unknown> | undefined;
     if (guard === "cas_stop" || guard === "cas_failure") {
       const writePair = storage.compareAndSetPair.bind(storage);
@@ -294,7 +300,7 @@ describe("remote agent execution reconciliation", () => {
         completedOutput: {
           submissionId:
             guard === "wrong_submission" ? "another-submission" : submissionId,
-          text: "This answer must not be published.",
+          text: retainedAnswer,
         },
       };
     };
@@ -328,6 +334,44 @@ describe("remote agent execution reconciliation", () => {
       expect(send).not.toHaveBeenCalledWith(
         expect.objectContaining({ text: expect.any(String) })
       );
+      if (guard === "unknown_read" || guard === "unconfirmed") {
+        const published = send.mock.calls[0]?.[0] as unknown as {
+          explanationText: string;
+          computerCleanup: unknown;
+        };
+        expect(published.explanationText).toContain(
+          "Computer work is not confirmed complete."
+        );
+        expect(published.explanationText).toContain(retainedAnswer);
+        expect(published.explanationText).not.toBe(retainedAnswer);
+        expect(published.computerCleanup).toBeDefined();
+        state.unfinished = 0;
+        state.pendingResults = 0;
+        const restarted = new InMemoryDurableObjectStorage();
+        for (const [key, value] of await storage.list()) {
+          await restarted.put(key, JSON.parse(JSON.stringify(value)));
+        }
+        await expect(
+          reconcileRemoteAgentExecution({
+            env,
+            identity,
+            storage: restarted,
+            readSubmission: () =>
+              Promise.reject(new Error("Settled results must not be reread")),
+            nowMs: () => TEST_NOW_MS + 120_000,
+            coreWorker: { completeRemoteAgentSubmission: send },
+          })
+        ).resolves.toMatchObject({ execution: { status: "failed" } });
+        expect(send).toHaveBeenCalledTimes(guard === "unknown_read" ? 2 : 1);
+        if (guard === "unknown_read") {
+          expect(send.mock.calls[1]?.[0]).toEqual({
+            ...published,
+            callbackAttempt: 2,
+          });
+        }
+      } else {
+        expect(send.mock.calls[0]?.[0]).not.toHaveProperty("explanationText");
+      }
     }
     expect(await listRemoteAgentUsageRecords(storage)).toHaveLength(0);
     if (guard === "cas_stop" || guard === "cas_failure") {
