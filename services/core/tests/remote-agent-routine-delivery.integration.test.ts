@@ -17,6 +17,14 @@ import type {
   RemoteAgentWorkerSubmitTurnRequest,
 } from "@openmeld/schemas/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+// Routine delivery uses the funding owner's result; its real database and
+// provider behavior is verified separately in tests-node/ai-billing.test.ts.
+vi.mock("../src/usage/ai-billing-service", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/usage/ai-billing-service")>()),
+  readAiBilling: vi.fn(async () => ({ status: "available", source: "free" })),
+}));
+
 import {
   buildRemoteAgentName,
   resolveRemoteAgentTurnEnvelopeForName,
@@ -75,6 +83,7 @@ import {
   type RoutineActor,
 } from "../src/routines/routine-service";
 import { ROUTINE_WORKFLOW_CALLBACK_EVENTS } from "../src/routines/routine-workflow-contract";
+import { readAiBilling } from "../src/usage/ai-billing-service";
 import { postgresFixtureOperator } from "./postgresql.test-support";
 
 const ownedRoutineOrganizationIds = new Set<string>();
@@ -1608,17 +1617,19 @@ describe("Remote Agent Routine native delivery", () => {
       status: "failed",
     });
   });
-  it("fails a Routine visibly when the Organization AI allowance is exhausted", async () => {
+  it("fails a Routine visibly when monthly Free credits are exhausted", async () => {
     const fixture = await seedRoutineDeliveryFixture();
-    await getPostgresDatabase(env).query({
-      ...{
-        text: `
-        INSERT INTO "openmeld"."organization_ai_usage_policies"
-          (organization_id, daily_limit_nano_usd, updated_at_ms) VALUES ($1, 0, $2)
-      `,
-        values: [],
-      },
-      values: [fixture.organizationId, fixture.nowMs],
+    vi.mocked(readAiBilling).mockResolvedValueOnce({
+      plan: "free",
+      source: "free",
+      policyVersion: "2026-10-v1",
+      monthlyCredits: 5000,
+      usedCredits: 5000,
+      remainingCredits: 0,
+      resetsAt: "2026-11-01T00:00:00.000Z",
+      keySuffix: null,
+      canManage: false,
+      status: "exhausted",
     });
     const workerSubmit = vi.fn();
     const testEnv = buildEnv({
@@ -1640,11 +1651,9 @@ describe("Remote Agent Routine native delivery", () => {
     ).toHaveBeenCalledWith(
       expect.objectContaining({
         meta: expect.objectContaining({
-          errorCode: "remote_agent.daily_quota_exceeded",
+          errorCode: "ai_usage.monthly_limit_reached",
         }),
-        text: expect.stringContaining(
-          "Routine “Daily feedback review” could not run because the Organization has used its daily AI allowance. It resets at 00:00 UTC."
-        ),
+        text: expect.stringContaining("monthly"),
       })
     );
     const failedRun = await readRoutineRunRecord({
@@ -1652,13 +1661,13 @@ describe("Remote Agent Routine native delivery", () => {
       runId: fixture.runId,
     });
     expect(failedRun).toMatchObject({
-      failureCode: "remote_agent.daily_quota_exceeded",
+      failureCode: "ai_usage.monthly_limit_reached",
       status: "failed",
     });
     expect(failedRun?.failureDetail).toContain(
-      "remote_agent.daily_quota_exceeded"
+      "ai_usage.monthly_limit_reached"
     );
-    expect(failedRun?.failureDetail).toContain("00:00 UTC");
+    expect(failedRun?.failureDetail).toContain("monthly");
   });
   it("keeps the claimed target immutable while a Routine update changes only the next occurrence", async () => {
     const fixture = await seedRoutineDeliveryFixture();

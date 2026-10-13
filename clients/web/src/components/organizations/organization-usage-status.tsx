@@ -1,218 +1,271 @@
 "use client";
 
+import { toStructuredApiClientFailure } from "@openmeld/api-client";
+import type {
+	OrganizationAiBilling,
+	UpdateOrganizationAiBilling,
+} from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
+import { Input } from "@openmeld/ui/components/input";
 import { Progress } from "@openmeld/ui/components/progress";
-import { Skeleton } from "@openmeld/ui/components/skeleton";
-import { useQuery } from "@tanstack/react-query";
-import { useSyncExternalStore } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useId, useState } from "react";
 import {
 	AgentConfigurationGrid,
 	AgentConfigurationReadoutCard,
 } from "#/components/profiles/agent-configuration-card";
-import { organizationUsageOverviewQueryOptions } from "#/query/organizations/organization-usage";
-
-const USAGE_RESET_TIME_OPTIONS = {
-	hour: "2-digit",
-	hourCycle: "h23",
-	minute: "2-digit",
-} as const;
-
-const UTC_USAGE_RESET_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
-	...USAGE_RESET_TIME_OPTIONS,
-	timeZone: "UTC",
-});
-
-const BROWSER_USAGE_RESET_TIME_ZONE =
-	typeof window === "undefined"
-		? "UTC"
-		: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-const BROWSER_USAGE_RESET_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
-	...USAGE_RESET_TIME_OPTIONS,
-	timeZone: BROWSER_USAGE_RESET_TIME_ZONE,
-});
-
-function subscribeToBrowserEnvironment() {
-	return () => undefined;
-}
-
-function getBrowserEnvironmentSnapshot(): true {
-	return true;
-}
-
-function getServerEnvironmentSnapshot(): false {
-	return false;
-}
+import { updateOrganizationAiBilling } from "#/lib/organizations/organization-usage";
+import { organizationAiBillingQueryOptions } from "#/query/organizations/organization-usage";
 
 export function OrganizationUsageStatus(input: { organizationId: string }) {
-	const usageQuery = useQuery(
-		organizationUsageOverviewQueryOptions({
-			organizationId: input.organizationId,
-		})
-	);
-	if (
-		usageQuery.isSuccess &&
-		usageQuery.data.aiSpend.dailyLimitNanoUsd === null
-	) {
-		return null;
+	const query = useQuery(organizationAiBillingQueryOptions(input));
+	if (query.isPending) {
+		return (
+			<p aria-live="polite" className="text-muted-foreground text-sm">
+				Loading AI plan…
+			</p>
+		);
 	}
-
-	return (
-		<section className="space-y-3">
-			<div>
-				{usageQuery.isPending ? <UsageLoadingState /> : null}
-				{usageQuery.isError ? (
-					<UsageErrorState
-						isRetrying={usageQuery.isRefetching}
-						onRetry={() => {
-							usageQuery.refetch().catch((error) => {
-								console.error("Failed to refresh organization usage.", error);
-							});
-						}}
-					/>
-				) : null}
-				{usageQuery.data ? (
-					<AgentConfigurationGrid>
-						{usageQuery.data.aiSpend.dailyLimitNanoUsd !== null ? (
-							<AiSpendCard data={usageQuery.data.aiSpend} />
-						) : null}
-					</AgentConfigurationGrid>
-				) : null}
+	if (!query.data) {
+		return (
+			<div className="space-y-2">
+				<p className="text-sm" role="alert">
+					Could not load your AI plan.
+				</p>
+				<Button
+					disabled={query.isFetching}
+					onClick={async () => {
+						await query.refetch();
+					}}
+					size="sm"
+					type="button"
+					variant="outline"
+				>
+					Retry
+				</Button>
 			</div>
-		</section>
+		);
+	}
+	return (
+		<BillingSettings
+			billing={query.data}
+			key={input.organizationId}
+			organizationId={input.organizationId}
+		/>
 	);
 }
 
-function AiSpendCard(input: {
-	data: {
-		dailyLimitNanoUsd: number | null;
-		resetsAt: string;
-		usedNanoUsd: number;
-		missingCostRequests: number;
-		exhausted: boolean;
-	};
+function BillingSettings({
+	organizationId,
+	billing,
+}: {
+	organizationId: string;
+	billing: OrganizationAiBilling;
 }) {
-	const resetTime = useUsageResetTime(input.data.resetsAt);
+	const queryClient = useQueryClient();
+	const keyInputId = useId();
+	const [apiKey, setApiKey] = useState("");
+	const [saving, setSaving] = useState(false);
+	const [feedback, setFeedback] = useState<{
+		message: string;
+		failed: boolean;
+	} | null>(null);
+	async function save(settings: UpdateOrganizationAiBilling) {
+		setSaving(true);
+		setFeedback(null);
+		try {
+			const updated = await updateOrganizationAiBilling({
+				organizationId,
+				settings,
+			});
+			setApiKey("");
+			queryClient.setQueryData(
+				organizationAiBillingQueryOptions({ organizationId }).queryKey,
+				updated
+			);
+			setFeedback({
+				failed: false,
+				message:
+					settings.source === "byok"
+						? "OpenRouter key saved. New AI requests will use this key."
+						: "Key removed. New AI requests will use your included plan.",
+			});
+		} catch (error) {
+			const failure = toStructuredApiClientFailure(error);
+			setFeedback({
+				failed: true,
+				message:
+					failure.status === 400
+						? "OpenRouter could not accept this key. Use an inference API key, then try again."
+						: "Could not update the provider key. Try again. If this continues, ask your workspace admin to check the connection.",
+			});
+		} finally {
+			setSaving(false);
+		}
+	}
+	return (
+		<AgentConfigurationGrid>
+			<IncludedCredits billing={billing} />
+			<AgentConfigurationReadoutCard
+				headerAccessory={
+					billing.source === "byok" ? (
+						<Badge variant="secondary">
+							{billing.status === "available" ? "In use" : "Needs attention"}
+						</Badge>
+					) : undefined
+				}
+				itemId="ai-provider-key"
+				label="Your OpenRouter key"
+			>
+				<div className="space-y-3 text-sm">
+					<p className="text-muted-foreground text-xs">
+						Use your OpenRouter balance for all AI requests in this workspace.
+						Your included credits will stay available.
+					</p>
+					{billing.keySuffix ? (
+						<p className="tabular-nums">Saved key: ••••{billing.keySuffix}</p>
+					) : null}
+					{billing.source === "byok" ? (
+						<p className="text-muted-foreground text-xs">
+							If this key stops working, requests stop until you replace or
+							remove it.
+						</p>
+					) : null}
+					{billing.source === "byok" && billing.status !== "available" ? (
+						<p className="text-sm" role="alert">
+							OpenRouter could not use this key. Check its balance and status,
+							or replace or remove it. Included credits will not be used.
+						</p>
+					) : null}
+					{billing.canManage ? (
+						<form
+							className="space-y-2"
+							onSubmit={async (event) => {
+								event.preventDefault();
+								await save({ source: "byok", apiKey: apiKey.trim() });
+							}}
+						>
+							<label className="text-xs" htmlFor={keyInputId}>
+								{billing.keySuffix ? "Replace API key" : "OpenRouter API key"}
+							</label>
+							<Input
+								autoComplete="off"
+								disabled={saving}
+								id={keyInputId}
+								maxLength={512}
+								onChange={(event) => setApiKey(event.target.value)}
+								placeholder="sk-or-…"
+								spellCheck={false}
+								type="password"
+								value={apiKey}
+							/>
+							<div className="flex flex-wrap gap-2">
+								<Button
+									disabled={saving || !apiKey.trim()}
+									size="sm"
+									type="submit"
+									variant="outline"
+								>
+									{saving ? "Saving…" : "Save key"}
+								</Button>
+								{billing.keySuffix ? (
+									<Button
+										disabled={saving}
+										onClick={async () => {
+											await save({ source: "free" });
+										}}
+										size="sm"
+										type="button"
+										variant="ghost"
+									>
+										Remove key
+									</Button>
+								) : null}
+							</div>
+						</form>
+					) : (
+						<p className="text-muted-foreground text-xs">
+							A workspace owner or admin can manage this key.
+						</p>
+					)}
+					{feedback ? (
+						<p
+							className={
+								feedback.failed
+									? "text-destructive text-xs"
+									: "text-muted-foreground text-xs"
+							}
+							role={feedback.failed ? "alert" : "status"}
+						>
+							{feedback.message}
+						</p>
+					) : null}
+				</div>
+			</AgentConfigurationReadoutCard>
+		</AgentConfigurationGrid>
+	);
+}
 
+function IncludedCredits({ billing }: { billing: OrganizationAiBilling }) {
 	return (
 		<AgentConfigurationReadoutCard
 			headerAccessory={
-				<Badge
-					className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-					variant="secondary"
-				>
-					Free
+				<Badge variant="secondary">
+					{billing.plan === "internal" ? "Internal" : "Free"}
 				</Badge>
 			}
-			itemId="ai-spend"
-			label="Daily AI allowance"
+			itemId="ai-plan"
+			label="Included AI credits"
 		>
-			<div className="flex flex-col gap-3">
-				<div>
-					<p className="font-medium text-2xl text-foreground tabular-nums">
-						{formatAiSpend(input.data.usedNanoUsd)}
-						{input.data.dailyLimitNanoUsd === null
-							? null
-							: ` / ${formatAiSpend(input.data.dailyLimitNanoUsd)}`}
+			<div className="space-y-3 text-sm">
+				{billing.plan === "internal" ? (
+					<p>Internal workspace. No Free plan limit.</p>
+				) : (
+					<>
+						<p className="font-medium tabular-nums">
+							{billing.remainingCredits === null
+								? "Balance unavailable"
+								: `${Math.floor(billing.remainingCredits).toLocaleString("en-US")} / ${billing.monthlyCredits?.toLocaleString("en-US")} credits left`}
+						</p>
+						{billing.monthlyCredits && billing.remainingCredits !== null ? (
+							<Progress
+								aria-label="Included AI credits remaining"
+								max={billing.monthlyCredits}
+								value={Math.min(
+									billing.monthlyCredits,
+									billing.remainingCredits
+								)}
+							/>
+						) : null}
+						<p className="text-muted-foreground text-xs">
+							{billing.monthlyCredits === 0
+								? "Included credits are available in the first workspace created by your account. Add your own key to use AI here."
+								: `Renews ${billing.resetsAt?.slice(0, 10)} at 00:00 UTC. Unused credits do not roll over.`}
+						</p>
+						<p className="text-muted-foreground text-xs">
+							1 credit covers $0.001 of model usage. Token counts vary by model.
+						</p>
+					</>
+				)}
+				<p className="text-muted-foreground text-xs">
+					Shared by Center Agent and Remote Agents in this workspace.
+				</p>
+				{billing.source !== "byok" &&
+				billing.status === "exhausted" &&
+				billing.monthlyCredits !== 0 ? (
+					<p aria-live="polite">
+						You have used your included credits. Add your own key or wait for
+						the monthly reset.
 					</p>
-					<p className="mt-1 text-muted-foreground text-xs">
-						Covered by OpenMeld today
-					</p>
-				</div>
-				{input.data.dailyLimitNanoUsd !== null &&
-				input.data.dailyLimitNanoUsd > 0 ? (
-					<Progress
-						aria-label="Shared AI allowance used today"
-						max={input.data.dailyLimitNanoUsd}
-						value={Math.min(
-							input.data.usedNanoUsd,
-							input.data.dailyLimitNanoUsd
-						)}
-					/>
 				) : null}
-				<div className="space-y-1 text-muted-foreground text-xs">
-					<p>Shared by Center Agent and Remote Agents.</p>
-					<p>{resetTime}</p>
-					{input.data.missingCostRequests > 0 ? (
-						<p>Some model costs are not yet available.</p>
-					) : null}
-					{input.data.exhausted ? (
-						<p>Daily AI allowance used. New requests resume after the reset.</p>
-					) : null}
-				</div>
+				{billing.source !== "byok" && billing.status === "unavailable" ? (
+					<p aria-live="polite">
+						Included AI is temporarily unavailable. Try again later or add your
+						own key.
+					</p>
+				) : null}
 			</div>
 		</AgentConfigurationReadoutCard>
 	);
-}
-
-function formatAiSpend(nanoUsd: number): string {
-	const usd = nanoUsd / 1_000_000_000;
-	return usd > 0 && usd < 0.0001
-		? "<$0.0001"
-		: new Intl.NumberFormat("en-US", {
-				style: "currency",
-				currency: "USD",
-				minimumFractionDigits: 2,
-				maximumFractionDigits: 4,
-			}).format(usd);
-}
-
-function UsageLoadingState() {
-	return (
-		<section aria-busy="true" aria-live="polite" className="space-y-3">
-			<p className="text-muted-foreground text-sm">Loading usage.</p>
-			<AgentConfigurationGrid>
-				<AgentConfigurationReadoutCard itemId="ai-spend" label="Loading usage">
-					<div>
-						<Skeleton className="h-4 w-36" />
-						<Skeleton className="h-3 w-64 max-w-full" />
-					</div>
-					<div className="space-y-4">
-						<Skeleton className="h-8 w-24" />
-						<Skeleton className="h-1.5 w-full" />
-					</div>
-				</AgentConfigurationReadoutCard>
-			</AgentConfigurationGrid>
-		</section>
-	);
-}
-
-function UsageErrorState(input: { isRetrying: boolean; onRetry: () => void }) {
-	return (
-		<section className="rounded-md border border-destructive/50 bg-destructive/5 p-5">
-			<h2 className="font-medium text-foreground text-sm">
-				Could not load usage
-			</h2>
-			<p className="mt-2 text-destructive text-sm" role="alert">
-				OpenMeld could not load usage. Try again.
-			</p>
-			<Button
-				className="mt-4"
-				disabled={input.isRetrying}
-				onClick={input.onRetry}
-				size="sm"
-				type="button"
-				variant="outline"
-			>
-				Retry
-			</Button>
-		</section>
-	);
-}
-
-function useUsageResetTime(resetsAt: string): string {
-	const canShowBrowserTimeZone = useSyncExternalStore(
-		subscribeToBrowserEnvironment,
-		getBrowserEnvironmentSnapshot,
-		getServerEnvironmentSnapshot
-	);
-
-	const date = new Date(resetsAt);
-	const utcTime = UTC_USAGE_RESET_TIME_FORMATTER.format(date);
-	if (!canShowBrowserTimeZone) {
-		return `Resets at ${utcTime} UTC`;
-	}
-
-	const localTime = BROWSER_USAGE_RESET_TIME_FORMATTER.format(date);
-	return `Resets at ${localTime} (${utcTime} UTC)`;
 }

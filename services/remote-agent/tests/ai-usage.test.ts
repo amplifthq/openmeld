@@ -34,6 +34,75 @@ const providerResponse = {
 
 describe("Remote AI consumption at the provider boundary", () => {
   it.each([
+    "byok",
+    "free",
+    "internal",
+  ] as const)("uses only the authorized %s key and never persists it or retries on provider rejection", async (source) => {
+    const writes: RemoteAiUsageWrite[] = [];
+    const coreWorker = {
+      recordRemoteAiUsage: (write: RemoteAiUsageWrite) => {
+        writes.push(structuredClone(write));
+        return Promise.resolve({
+          status: "accepted",
+          providerAuthorization: {
+            source,
+            apiKey: "sk-or-authorized-test-key",
+          },
+        });
+      },
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>((_url, init) => {
+      expect(new Headers(init?.headers).get("Authorization")).toBe(
+        "Bearer sk-or-authorized-test-key"
+      );
+      expect(new Headers(init?.headers).has("cf-aig-byok-alias")).toBe(false);
+      expect(init?.redirect).toBe("manual");
+      return Promise.resolve(
+        Response.json(
+          { error: { code: 403, message: "Key limit exceeded" } },
+          { status: 403 }
+        )
+      );
+    });
+    const request = createMeteredRemoteFetch({
+      coreWorker,
+      fetch,
+      scope,
+      model: "requested",
+    });
+    const response = await request(
+      "https://openrouter.ai/api/v1/chat/completions",
+      {
+        headers: {
+          Authorization: "Bearer old-official-key",
+          "cf-aig-byok-alias": "official",
+        },
+      }
+    );
+    expect(response.status).toBe(403);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(writes[0]?.providerAuthorizationVersion).toBe(1);
+    expect(writes[1]?.record.fundingSource).toBe(source);
+    expect(JSON.stringify(writes)).not.toContain("sk-or-authorized-test-key");
+    await expect(
+      request("https://untrusted.example/chat/completions")
+    ).rejects.toThrow("destination");
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+  it("rejects a legacy allowance-only response before sending any provider request", async () => {
+    const fetch = vi.fn();
+    const request = createMeteredRemoteFetch({
+      coreWorker: { recordRemoteAiUsage: async () => ({ status: "accepted" }) },
+      fetch,
+      scope,
+      model: "requested",
+    });
+    await expect(
+      request("https://openrouter.ai/api/v1/chat/completions")
+    ).rejects.toThrow("authorization is unavailable");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it.each([
     "fresh_owner",
     "previously_metered",
   ])("fails closed after a missing receiver for %s", async (owner) => {
@@ -46,7 +115,13 @@ describe("Remote AI consumption at the provider boundary", () => {
             'The RPC receiver does not implement the method "recordRemoteAiUsage".'
           );
         }
-        return Promise.resolve({ status });
+        return Promise.resolve({
+          status,
+          providerAuthorization: {
+            source: "byok" as const,
+            apiKey: "sk-or-test-provider-key",
+          },
+        });
       },
     };
     const fetch = vi.fn(async () => Response.json(providerResponse));
@@ -58,16 +133,18 @@ describe("Remote AI consumption at the provider boundary", () => {
       fetch,
     });
     if (owner === "previously_metered") {
-      await (await request("https://provider.example/chat/completions")).text();
+      await (
+        await request("https://openrouter.ai/api/v1/chat/completions")
+      ).text();
       status = "limit_reached";
       await expect(
-        request("https://provider.example/chat/completions")
-      ).rejects.toThrow("daily AI allowance");
+        request("https://openrouter.ai/api/v1/chat/completions")
+      ).rejects.toThrow("included AI credits");
     }
     const calls = fetch.mock.calls.length;
     status = "missing";
     await expect(
-      request("https://provider.example/chat/completions")
+      request("https://openrouter.ai/api/v1/chat/completions")
     ).rejects.toThrow("recordRemoteAiUsage is unavailable");
     expect(fetch).toHaveBeenCalledTimes(calls);
     expect(
@@ -91,7 +168,13 @@ describe("Remote AI consumption at the provider boundary", () => {
         if (phase === "settle") {
           records.push(record);
         }
-        return Promise.resolve({ status: "accepted" as const });
+        return Promise.resolve({
+          status: "accepted" as const,
+          providerAuthorization: {
+            source: "byok" as const,
+            apiKey: "sk-or-test-provider-key",
+          },
+        });
       },
     };
     const started = Promise.withResolvers<void>();
@@ -108,7 +191,7 @@ describe("Remote AI consumption at the provider boundary", () => {
       fetch,
       storage,
     });
-    const result = request("https://provider.example/chat/completions");
+    const result = request("https://openrouter.ai/api/v1/chat/completions");
     // Catch the initial regression without waiting forever for provider entry.
     await Promise.race([started.promise, result.then(() => undefined)]);
     unavailable = true;
@@ -176,7 +259,7 @@ describe("Remote AI consumption at the provider boundary", () => {
       fetch,
     });
     await expect(
-      request("https://provider.example/chat/completions")
+      request("https://openrouter.ai/api/v1/chat/completions")
     ).rejects.toThrow();
     expect(fetch).not.toHaveBeenCalled();
   });
@@ -190,7 +273,13 @@ describe("Remote AI consumption at the provider boundary", () => {
     const coreWorker = {
       recordRemoteAiUsage: ({ record }: RemoteAiUsageWrite) => {
         records.push(record);
-        return Promise.resolve({ status: "accepted" });
+        return Promise.resolve({
+          status: "accepted",
+          providerAuthorization: {
+            source: "byok" as const,
+            apiKey: "sk-or-test-provider-key",
+          },
+        });
       },
     };
     const fetch = vi.fn(() => {
@@ -219,7 +308,7 @@ describe("Remote AI consumption at the provider boundary", () => {
           scope,
           model: "requested",
           fetch,
-        })("https://provider.example/chat/completions")
+        })("https://openrouter.ai/api/v1/chat/completions")
       ).text();
     if (scenario === "provider_missing") {
       await run();
@@ -246,7 +335,13 @@ describe("Remote AI consumption at the provider boundary", () => {
       coreWorker: {
         recordRemoteAiUsage: ({ record }: RemoteAiUsageWrite) => {
           records.push(record);
-          return Promise.resolve({ status: "accepted" });
+          return Promise.resolve({
+            status: "accepted",
+            providerAuthorization: {
+              source: "byok" as const,
+              apiKey: "sk-or-test-provider-key",
+            },
+          });
         },
       },
       scope,
@@ -263,7 +358,7 @@ describe("Remote AI consumption at the provider boundary", () => {
           }),
           { headers: { "content-type": "text/event-stream" } }
         ),
-    })("https://provider.example/chat/completions");
+    })("https://openrouter.ai/api/v1/chat/completions");
     const reader = response.body?.getReader();
     if (!reader) {
       throw new Error("Missing response stream");
@@ -287,7 +382,13 @@ describe("Remote AI consumption at the provider boundary", () => {
     const coreWorker = {
       recordRemoteAiUsage: (input: RemoteAiUsageWrite) => {
         records.push(input.record);
-        return Promise.resolve({ status: "accepted" as const });
+        return Promise.resolve({
+          status: "accepted" as const,
+          providerAuthorization: {
+            source: "byok" as const,
+            apiKey: "sk-or-test-provider-key",
+          },
+        });
       },
     };
     const body =
@@ -308,7 +409,7 @@ describe("Remote AI consumption at the provider boundary", () => {
       scope,
       model: "requested",
       fetch,
-    })("https://provider.example/chat/completions");
+    })("https://openrouter.ai/api/v1/chat/completions");
     expect(await response.text()).toBe(body);
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(records).toHaveLength(2);
@@ -344,8 +445,8 @@ describe("Remote AI consumption at the provider boundary", () => {
       fetch,
     });
     await expect(
-      request("https://provider.example/chat/completions")
-    ).rejects.toThrow("daily AI allowance");
+      request("https://openrouter.ai/api/v1/chat/completions")
+    ).rejects.toThrow("included AI credits");
     expect(fetch).not.toHaveBeenCalled();
   });
 
@@ -361,7 +462,13 @@ describe("Remote AI consumption at the provider boundary", () => {
           }
           settled.push(input.record);
         }
-        return Promise.resolve({ status: "accepted" as const });
+        return Promise.resolve({
+          status: "accepted" as const,
+          providerAuthorization: {
+            source: "byok" as const,
+            apiKey: "sk-or-test-provider-key",
+          },
+        });
       },
     };
     const fetch = vi.fn(async () => Response.json(providerResponse));
@@ -373,7 +480,7 @@ describe("Remote AI consumption at the provider boundary", () => {
       fetch,
       storage,
       scheduleRetry,
-    })("https://provider.example/chat/completions");
+    })("https://openrouter.ai/api/v1/chat/completions");
     expect(settled).toHaveLength(0);
     expect(scheduleRetry).toHaveBeenCalledOnce();
     unavailable = false;

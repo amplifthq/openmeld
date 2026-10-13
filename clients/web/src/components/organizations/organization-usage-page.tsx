@@ -2,12 +2,10 @@ import type {
 	AiUsageQueryResponse,
 	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
-import { Badge } from "@openmeld/ui/components/badge";
 import { BrandChartDot } from "@openmeld/ui/components/brand-chart-dot";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	Card,
-	CardAction,
 	CardContent,
 	CardDescription,
 	CardHeader,
@@ -85,14 +83,14 @@ function UsagePage(input: {
 				{/* Scope changes update the mounted charts instead of disposing and
 				    rebuilding their SVG renderers on every tab switch. */}
 				<TabPanel className="space-y-5" value={view}>
+					{view === "organization" ? (
+						<OrganizationUsageStatus organizationId={input.organizationId} />
+					) : null}
 					<RemoteUsageCard {...input} personal={view === "my"} />
 					<LocalAgentTokenUsageCard
 						organizationId={input.organizationId}
 						userId={view === "my" ? input.userId : undefined}
 					/>
-					{view === "organization" ? (
-						<OrganizationUsageStatus organizationId={input.organizationId} />
-					) : null}
 				</TabPanel>
 			</Tabs>
 		</section>
@@ -132,15 +130,9 @@ export function RemoteUsageCard(input: {
 				<CardTitle>
 					{input.personal ? "Remote Agent usage" : "AI usage"}
 				</CardTitle>
-				<CardDescription>Model costs · Last {days} days</CardDescription>
-				<CardAction>
-					<Badge
-						className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-						variant="secondary"
-					>
-						Free
-					</Badge>
-				</CardAction>
+				<CardDescription>
+					All model costs · Last {days} days · Includes your own key
+				</CardDescription>
 			</CardHeader>
 			<CardContent className="space-y-3">
 				{pending && !failed ? (

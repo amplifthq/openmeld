@@ -52,18 +52,6 @@ export function resolveRemoteAgentAiGatewayToken(
   );
 }
 
-export function resolveRemoteAgentOpenRouterByokAlias(
-  env: Pick<RemoteAgentModelEnv, "OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS">
-): string {
-  const configured = env.OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS?.trim();
-  if (configured) {
-    return configured;
-  }
-  throw new Error(
-    "OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS must be configured for the current Remote Agent environment."
-  );
-}
-
 export function resolveRemoteAgentOpenRouterModelId(
   env: Pick<RemoteAgentModelEnv, "OPENMELD_REMOTE_AGENT_OPENROUTER_MODEL_ID">,
   modelRoute?: CenterAgentModelRoute | null
@@ -91,6 +79,14 @@ export function resolveRemoteAgentAiGatewayOpenRouterBaseUrl(
     | "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID"
   >
 ): string {
+  if (
+    !(
+      env.OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID?.trim() ||
+      env.OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID?.trim()
+    )
+  ) {
+    return "https://openrouter.ai/api/v1";
+  }
   return `https://gateway.ai.cloudflare.com/v1/${encodeURIComponent(
     resolveRemoteAgentAiGatewayAccountId(env)
   )}/${encodeURIComponent(resolveRemoteAgentAiGatewayId(env))}/openrouter`;
@@ -149,13 +145,20 @@ export function buildRemoteAgentAiGatewayHeaders(input: {
   env: Pick<
     RemoteAgentModelEnv,
     | "CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN"
-    | "OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS"
+    | "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID"
+    | "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID"
     | "OPENMELD_WORKER_ENVIRONMENT"
     | "CLOUDFLARE_OPENMELD_INTERNAL_DIAGNOSTICS_ORGANIZATION_ID"
   >;
   organizationId?: string | null;
   metadata?: Record<string, string>;
 }): Record<string, string | null> {
+  if (
+    resolveRemoteAgentAiGatewayOpenRouterBaseUrl(input.env) ===
+    "https://openrouter.ai/api/v1"
+  ) {
+    return {};
+  }
   const metadata = input.metadata ?? buildRemoteAgentGatewayMetadata();
   // Keep attribution useful without copying arbitrary headers or client blobs.
   const safeMetadata = Object.fromEntries(
@@ -166,13 +169,10 @@ export function buildRemoteAgentAiGatewayHeaders(input: {
     )
   );
   return {
-    // The OpenAI SDK injects provider Authorization from its apiKey. Cloudflare
-    // BYOK requires that provider Authorization be absent so the stored key is used.
-    Authorization: null,
+    // The metered fetch sets the current workspace credential for each request.
     "cf-aig-authorization": `Bearer ${resolveRemoteAgentAiGatewayToken(
       input.env
     )}`,
-    "cf-aig-byok-alias": resolveRemoteAgentOpenRouterByokAlias(input.env),
     "cf-aig-collect-log": "true",
     // Cloudflare preserves usage, costs and status when payload storage is off.
     // https://developers.cloudflare.com/ai-gateway/observability/logging/

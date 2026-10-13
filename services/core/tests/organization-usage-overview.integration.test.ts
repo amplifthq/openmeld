@@ -117,7 +117,7 @@ describe("Organization Usage overview", () => {
       },
     });
   });
-  it("returns model spend and an optional shared allowance while ignoring historical wake counts", async () => {
+  it("returns model spend while ignoring retired daily allowances and wake counts", async () => {
     vi.spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS);
     const fixture = await seedMemberFixture();
     await seedUsage(fixture, {
@@ -164,7 +164,7 @@ describe("Organization Usage overview", () => {
       })
     ).resolves.toMatchObject({
       aiSpend: {
-        dailyLimitNanoUsd: 1_000_000_000,
+        dailyLimitNanoUsd: null,
         usedNanoUsd: 200_000_000,
         missingCostRequests: 0,
         exhausted: false,
