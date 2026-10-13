@@ -97,10 +97,17 @@ function assertReceiptGatedStage(
 
 test("hosted publication waits for the exact run and reuses an active run after interruption", () => {
   const sourceSha = "a".repeat(40);
-  for (const active of [false, true]) {
+  for (const { active, artifactRunId } of [
+    { active: false, artifactRunId: undefined },
+    { active: true, artifactRunId: undefined },
+    { active: false, artifactRunId: "  " },
+    { active: false, artifactRunId: " 38155840353 " },
+    { active: true, artifactRunId: "38155840353" },
+  ]) {
     const dispatched = [];
     let watched;
     runHostedRelease("cli", sourceSha, ["cli", "core", "web"], {
+      env: { WINDOWS_ARTIFACT_RUN_ID: artifactRunId },
       capture(args) {
         if (args[0] === "run") {
           return JSON.stringify(
@@ -127,6 +134,21 @@ test("hosted publication waits for the exact run and reuses an active run after 
       assert.ok(dispatched[0].includes(`release_sha=${sourceSha}`));
       assert.ok(dispatched[0].includes("production_train_scopes=cli,core,web"));
       assert.ok(dispatched[0].includes("cli-release.yml"));
+      const pinArgument = dispatched[0].find((arg) =>
+        arg.startsWith("windows_artifact_run_id=")
+      );
+      assert.equal(
+        pinArgument,
+        artifactRunId?.trim()
+          ? `windows_artifact_run_id=${artifactRunId.trim()}`
+          : undefined
+      );
+      if (pinArgument) {
+        assert.equal(
+          dispatched[0][dispatched[0].indexOf(pinArgument) - 1],
+          "--raw-field"
+        );
+      }
     }
     assert.ok(watched.includes("38141004288"));
     assert.ok(watched.includes("--exit-status"));
@@ -152,6 +174,44 @@ test("hosted publication waits for the exact run and reuses an active run after 
         },
       }),
     { message: "release failed" }
+  );
+});
+
+test("hosted CLI artifact pins reject invalid run IDs without dispatching and do not affect other scopes", () => {
+  for (const pin of [
+    "https://github.com/example/repo/actions/runs/123",
+    "12x",
+    "1 2",
+    "0",
+  ]) {
+    assert.throws(
+      () =>
+        runHostedRelease("cli", "a".repeat(40), ["cli"], {
+          env: { WINDOWS_ARTIFACT_RUN_ID: pin },
+          capture: () =>
+            assert.fail("invalid artifact pin must not reach GitHub"),
+          watch: () =>
+            assert.fail("invalid artifact pin must not start waiting"),
+        }),
+      { message: "WINDOWS_ARTIFACT_RUN_ID must be a numeric run ID." }
+    );
+  }
+  const calls = [];
+  runHostedRelease("web", "a".repeat(40), ["web"], {
+    env: { WINDOWS_ARTIFACT_RUN_ID: "unrelated-to-web" },
+    capture(args) {
+      calls.push(args);
+      return args[0] === "run"
+        ? "[]"
+        : "https://github.com/amplifthq/openmeld/actions/runs/38155840353";
+    },
+    watch: () => undefined,
+  });
+  const dispatch = calls.find((args) => args[0] === "workflow");
+  assert.ok(dispatch.includes("scope=web"));
+  assert.equal(
+    dispatch.some((arg) => arg.startsWith("windows_artifact_run_id=")),
+    false
   );
 });
 
