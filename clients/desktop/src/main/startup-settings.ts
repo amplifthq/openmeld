@@ -28,7 +28,12 @@ export function createStartupSettings(
   }
 
   function getOpenAtLogin(): boolean {
-    const settings = app.getLoginItemSettings();
+    // Electron 44 parses this lookup as a command line; quote paths with spaces.
+    // Remove after upgrading to a stable release with electron/electron#54364.
+    const settings =
+      platform === "win32"
+        ? app.getLoginItemSettings({ path: `"${process.execPath}"` })
+        : app.getLoginItemSettings();
     // Windows can disable the Run entry in Task Manager without removing it.
     return platform === "win32"
       ? settings.executableWillLaunchAtLogin
