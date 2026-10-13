@@ -129,6 +129,12 @@ it.each([
 
 it.each([
 	{
+		projectName: "OpenMeld",
+		supportsCurrentFolder: true,
+		supportsAccessRestrictions: false,
+		labels: ["Use agent settings"],
+	},
+	{
 		projectName: undefined,
 		supportsCurrentFolder: true,
 		labels: ["Use agent settings", "No project files"],

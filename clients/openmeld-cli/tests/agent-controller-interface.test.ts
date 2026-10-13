@@ -147,7 +147,7 @@ describe("agent controller interface inventory", () => {
             auth: { status: "unknown" },
             check: { status: "succeeded" },
             controllerId: "antigravity",
-            status: "warning",
+            status: "unknown",
             usageLimits: [
               { status: "unsupported", usedPercent: null, resetsAt: null },
             ],
@@ -161,41 +161,62 @@ describe("agent controller interface inventory", () => {
     }
   });
 
-  it("reports Antigravity ACP without authenticating or creating a session", async () => {
+  it("updates Antigravity ACP account state from native sessions without authenticating", async () => {
     const home = await mkdtemp(join(tmpdir(), "openmeld-aci-antigravity-acp-"));
     const binPath = join(home, "agy_acp_server.par");
     const logPath = join(home, "requests.jsonl");
     try {
-      await writeFile(
-        binPath,
-        [
-          "#!/usr/bin/env node",
-          "const {createInterface}=require('node:readline');",
-          "const {appendFileSync}=require('node:fs');",
-          `createInterface({input:process.stdin}).on('line',line=>{const q=JSON.parse(line);appendFileSync(${JSON.stringify(logPath)},q.method+'\\n');if(q.method!=='initialize')process.exit(2);console.log(JSON.stringify({jsonrpc:'2.0',id:q.id,result:{protocolVersion:1,agentCapabilities:{},agentInfo:{name:'antigravity-acp',version:'1.3.0'}}}));});`,
-        ].join("\n")
+      const fixture = await readFile(
+        new URL(
+          "../../../runtime/adapters/antigravity/test/fixtures/acp-auth-server.cjs",
+          import.meta.url
+        ),
+        "utf8"
       );
+      await writeFile(binPath, `#!/usr/bin/env node\n${fixture}`);
       await chmod(binPath, 0o755);
-      const snapshot = await resolveAgentControllerInterfaceSnapshot({
+      vi.stubEnv("GEMINI_HOME", home);
+      const input = {
         agentControllerRef: "builtin:antigravity",
-        probePolicy: "fresh",
+        probePolicy: "fresh" as const,
         state: createBuiltinAgentTargetState(
           "antigravity",
           "Antigravity ACP",
           binPath
         ),
-      });
+      };
+      const snapshot = await resolveAgentControllerInterfaceSnapshot(input);
       expect(snapshot).toMatchObject({
         nativeInterface: "acp",
-        auth: { status: "unknown" },
+        auth: { status: "unauthenticated" },
         status: "warning",
         version: "1.3.0",
         capabilities: { approvals: true, structuredUserInput: true },
         usageLimits: [{ status: "unsupported" }],
       });
-      expect((await readFile(logPath, "utf8")).trim().split("\n")).toEqual([
-        "initialize",
-      ]);
+      await writeFile(join(home, "signed-in"), "fixture");
+      expect(
+        await resolveAgentControllerInterfaceSnapshot(input)
+      ).toMatchObject({
+        auth: { status: "authenticated" },
+        status: "ready",
+        models: [{ id: "model", displayName: "Test model" }],
+      });
+      resetAgentControllerInterfaceKeeperForTests();
+      expect(
+        await resolveAgentControllerInterfaceSnapshot(input)
+      ).toMatchObject({ auth: { status: "authenticated" }, status: "ready" });
+      await rm(join(home, "signed-in"));
+      expect(
+        await resolveAgentControllerInterfaceSnapshot(input)
+      ).toMatchObject({
+        auth: { status: "unauthenticated" },
+        status: "warning",
+        models: [],
+      });
+      expect((await readFile(logPath, "utf8")).trim().split("\n")).toEqual(
+        Array.from({ length: 4 }, () => ["initialize", "session/new"]).flat()
+      );
     } finally {
       await rm(home, { recursive: true, force: true });
     }

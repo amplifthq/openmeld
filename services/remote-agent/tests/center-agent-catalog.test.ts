@@ -27,6 +27,7 @@ import {
   resolveRemoteAgentModelRuntimeConfigForRegistration,
 } from "../flue-adapter/model";
 import capturedModels from "./fixtures/openrouter-center-agent-models-2026-09-14.json";
+import gemini4 from "./fixtures/openrouter-gemini-4-2026-10-14.json";
 import gpt6Models from "./fixtures/openrouter-gpt-6-sol-luna-2026-09-23.json";
 import haiku55 from "./fixtures/openrouter-haiku-5.5-2026-10-08.json";
 import additionalModels from "./fixtures/openrouter-hosted-models-2026-09-22.json";
@@ -60,6 +61,7 @@ describe("curated Center Agent provider models", () => {
     ...octoberModels.data,
     ...haiku55.data,
     ...museWonder.data,
+    ...gemini4.data,
   ])("routes $id with captured capabilities and a tool continuation", async (evidence) => {
     const resolved = resolveCenterAgentModelRoute({
       catalog,

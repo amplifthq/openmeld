@@ -96,7 +96,8 @@
             },
             "transportModes": ["local-cli"],
             "capabilityDeclaration": {
-              "executionContextVersion": 2,
+              "executionContextVersion": 5,
+              "executionContextPermissionInheritance": true,
               "streamingCapability": "preview_capable",
               "imageInputCapability": "unsupported",
               "runtimeWorkingDirectoryMode": "spawn_cwd",
