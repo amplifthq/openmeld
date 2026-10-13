@@ -36,6 +36,8 @@ type BoundedState = {
   writes?: number;
   restarts?: number;
   nativeUnacknowledgedSurvived?: boolean;
+  importReceipts?: number;
+  restoredEchoEntries?: number;
 };
 const LEAVES = 20_200;
 const NATIVE_SOURCE_INSPECTION =
@@ -96,6 +98,8 @@ export class ComputerContainerProbe extends withLegacyWorkspaceContainer(
   loseEntriesAcknowledgement = false;
   entriesAcknowledgement: unknown;
   receiverPackWrites: unknown;
+  importReceipts = 0;
+  restoredEchoEntries = 0;
   sourceTime: number | undefined;
   checkingObjectBatches = false;
   readonly objectBatches: Array<{
@@ -182,6 +186,13 @@ export class ComputerContainerProbe extends withLegacyWorkspaceContainer(
             disposeExec: (input) => handle.rpc.shell.disposeExec(input),
           },
           sync: {
+            acknowledgeImport: (receipt) => {
+              const acknowledge = sync.acknowledgeImport;
+              check(acknowledge, "Native import receipts are required");
+              return this.traceSync("acknowledgeImport", () =>
+                acknowledge(receipt)
+              );
+            },
             retentionHead: (slot) => {
               check(
                 sync.retentionHead,
@@ -221,6 +232,9 @@ export class ComputerContainerProbe extends withLegacyWorkspaceContainer(
                 const ack = await this.traceSync("push", () =>
                   sync.push(input)
                 );
+                if (ack.importReceipt) {
+                  this.importReceipts++;
+                }
                 const injection =
                   await this.ctx.storage.get<string>("bounded-inject");
                 if (injection && input.senderCursor?.path) {
@@ -274,7 +288,26 @@ export class ComputerContainerProbe extends withLegacyWorkspaceContainer(
               return ack;
             },
             fetchChanges: (input) =>
-              this.traceSync("fetchChanges", () => sync.fetchChanges(input)),
+              this.traceSync("fetchChanges", async () => {
+                const result = await sync.fetchChanges(input);
+                const disposable = result as { [Symbol.dispose]?: () => void };
+                return {
+                  ...result,
+                  [Symbol.dispose]() {
+                    disposable[Symbol.dispose]?.();
+                  },
+                  stream: result.stream.pipeThrough(
+                    new TransformStream({
+                      transform: (entry, controller) => {
+                        if (entry.path.startsWith(`${ROOT}/dependencies/`)) {
+                          this.restoredEchoEntries++;
+                        }
+                        controller.enqueue(entry);
+                      },
+                    })
+                  ),
+                };
+              }),
             readEntry: (path) => sync.readEntry(path),
             hasObjects: (hashes, scope) =>
               this.traceSync("hasObjects", () =>
@@ -563,6 +596,9 @@ export class ComputerContainerProbe extends withLegacyWorkspaceContainer(
   }
 
   private async transferBoundedStep(owner: Workspace, state: BoundedState) {
+    const receiptsBefore = this.importReceipts;
+    const echoesBefore = this.restoredEchoEntries;
+    const { importReceipts = 0, restoredEchoEntries = 0 } = state;
     try {
       // Exactly one sync step per HTTP request. Closing this Workspace
       // discards all iterators, caches and handles before the next call.
@@ -571,6 +607,10 @@ export class ComputerContainerProbe extends withLegacyWorkspaceContainer(
         : owner.push("container"))
         [Symbol.asyncIterator]()
         .next();
+      state.importReceipts =
+        importReceipts + this.importReceipts - receiptsBefore;
+      state.restoredEchoEntries =
+        restoredEchoEntries + this.restoredEchoEntries - echoesBefore;
       if (!step.done) {
         const phase = `${state.phase}:${step.value.phase ?? "transfer"}`;
         state.phases[phase] = (state.phases[phase] ?? 0) + 1;
@@ -691,6 +731,10 @@ export class ComputerContainerProbe extends withLegacyWorkspaceContainer(
       await this.ctx.storage.put("bounded-inject", "delete");
       state.phase = "delete-push";
     } else if (state.phase === "verify") {
+      check(
+        state.restoredEchoEntries === 0,
+        "Restored dependency files must not be sent back as new native output"
+      );
       if (this.env.STRESS === "true") {
         const count = state.writes ?? 0;
         check(count === 1024, "All 1024 writes must execute");
@@ -721,6 +765,8 @@ export class ComputerContainerProbe extends withLegacyWorkspaceContainer(
         files,
         mount,
         leaves: LEAVES,
+        importReceipts: state.importReceipts,
+        restoredEchoEntries: state.restoredEchoEntries,
         lostInitial: await this.ctx.storage.get("bounded-lost:initial"),
         lostDelete: await this.ctx.storage.get("bounded-lost:delete"),
       });

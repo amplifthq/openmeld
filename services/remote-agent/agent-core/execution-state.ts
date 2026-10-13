@@ -380,6 +380,25 @@ export async function readRemoteAgentRequestedExecutionFailure(input: {
     : null;
 }
 
+/** Read original Stop authority, independently of a model completion event. */
+export async function hasRemoteAgentExecutionStopIntent(input: {
+  identity: RemoteAgentWorkerExecutionQuery;
+  storage: Pick<RemoteAgentStorage, "get">;
+}): Promise<boolean> {
+  const result = await readRemoteAgentStoredExecutionState(input);
+  if (result.status === "identity_mismatch") {
+    throw new Error(
+      "Remote Agent execution identity does not match its durable state."
+    );
+  }
+  return (
+    result.status === "found" &&
+    (result.execution.status === "cancellation_requested" ||
+      result.execution.status === "aborted" ||
+      !!result.stored.requestedFailure)
+  );
+}
+
 export async function markRemoteAgentExecutionProgress(input: {
   identity: RemoteAgentWorkerExecutionQuery;
   nowMs: number;
@@ -946,8 +965,9 @@ async function compareAndSetRemoteAgentExecutionState(input: {
 }): Promise<boolean> {
   const nextValue = {
     ...input.next.execution,
-    ...(!isTerminalStatus(input.next.execution.status) &&
-    input.expected.requestedFailure
+    // Preserve the original safety intent through terminal CAS. Cleanup can
+    // recover after a crash without deriving Stop authority from an error code.
+    ...(input.expected.requestedFailure
       ? { requestedFailure: input.expected.requestedFailure }
       : {}),
     ...(input.next.workLoopCheckpoint

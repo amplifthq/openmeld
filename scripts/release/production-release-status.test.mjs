@@ -14,12 +14,14 @@ import test from "node:test";
 
 import {
   assertGuardedLocalEvidenceRepository,
+  collectProductionReleaseStatus,
   parseProductionReleaseStatusArgs,
   readGuardedReleaseSourcesForStatus,
   readMergedFinalCandidateEvidence,
   resolveLatestSuccessfulReleaseSources,
   runProductionReleaseStatus,
 } from "./production-release-status.mjs";
+import { runProductionStageAdmission } from "./production-stage-admission.mjs";
 
 const SOURCE_SHA = "79178c150dc976b13f05d84a7711465c44447e3c";
 const CHANGE_BASE_SHA = "06fd4b88b75ef576db88289305a550c9e85efad5";
@@ -61,6 +63,140 @@ const REPOSITORY_MISMATCH_PATTERN =
 const MISSING_EXACT_FINAL_CANDIDATE_PATTERN =
   /no exact successful OpenMeld Final Candidate status/u;
 const HOSTED_RECEIPT_AUTH_FAILURE = /requires a token|workflow repository/u;
+const RECOVERY_UNRESOLVED = /evidence is unresolved/u;
+const RECOVERY_CORE_PENDING = /pending prerequisite core/u;
+const RECOVERY_DRIFT = /no longer matches/u;
+const RECOVERY_BASELINE_MISSING = /verified baseline/u;
+const RECOVERY_SOURCE_BLOCKED = /preflight is blocked/u;
+
+test("lease-proven Remote recovery keeps actual baseline, receiver and source admission", async () => {
+  const current = {
+    sha: SOURCE_SHA,
+    source: "guarded-local",
+    recordedAt: "2026-07-15T21:00:00Z",
+    evidenceSha: "4".repeat(40),
+    receipt: {
+      attemptId: "00000000-0000-4000-8000-000000000001",
+      operationKey: "a".repeat(64),
+      status: "failed",
+      application: "unknown",
+    },
+    verifiedHistoryBaseline: {
+      sha: GATEWAY_REMOTE_SHA,
+      receipt: { status: "verified" },
+    },
+  };
+  const proof = {
+    sourceSha: SOURCE_SHA,
+    evidenceSha: current.evidenceSha,
+    attemptId: current.receipt.attemptId,
+    operationKey: current.receipt.operationKey,
+  };
+  const adapters = releaseStatusAdapters({ pushChecks: [] });
+  const bases = [];
+  let corePending = false;
+  adapters.buildPlan = ({ base }) => {
+    bases.push(base);
+    const scopes = base === CORE_SHA ? [] : ["remote-agent"];
+    if (base === CORE_SHA && corePending) {
+      scopes.push("core");
+    }
+    return {
+      scopes,
+      compatibilityDependencies: [["core", "remote-agent"]],
+    };
+  };
+  const local = new Map([["remote-agent", current]]);
+  adapters.readLocalReleaseSources = async () => local;
+  const input = {
+    adapters,
+    scope: "remote-agent",
+    sourceSha: SOURCE_SHA,
+    write: () => undefined,
+  };
+  await assert.rejects(runProductionStageAdmission(input), RECOVERY_UNRESOLVED);
+  await runProductionStageAdmission({ ...input, remoteAgentRecovery: proof });
+  assert.ok(bases.includes(GATEWAY_REMOTE_SHA));
+  assert.ok(
+    !bases.includes(SOURCE_SHA),
+    "operator source cannot shorten verified history"
+  );
+  const status = await collectProductionReleaseStatus({
+    adapters,
+    argv: ["--ref", SOURCE_SHA],
+    remoteAgentRecovery: proof,
+  });
+  const remote = status.components.find(
+    (entry) => entry.scope === "remote-agent"
+  );
+  assert.equal(remote.state, "pending");
+  assert.equal(remote.receipt.status, "failed");
+  corePending = true;
+  await assert.rejects(
+    runProductionStageAdmission({ ...input, remoteAgentRecovery: proof }),
+    RECOVERY_CORE_PENDING
+  );
+  corePending = false;
+  local.set("core", { ...current });
+  await assert.rejects(
+    runProductionStageAdmission({ ...input, remoteAgentRecovery: proof }),
+    RECOVERY_UNRESOLVED
+  );
+  local.delete("core");
+  current.conflict = true;
+  await assert.rejects(
+    runProductionStageAdmission({ ...input, remoteAgentRecovery: proof }),
+    RECOVERY_UNRESOLVED
+  );
+  current.conflict = undefined;
+  const releaseRuns = adapters.readReleaseRuns;
+  adapters.readReleaseRuns = async () => ({
+    runs: [],
+    history: {
+      complete: false,
+      runCount: 0,
+      pagesRead: 0,
+      issues: [
+        {
+          scopes: ["remote-agent"],
+          detail: "Unresolved newer deployment",
+          recordedAt: "2026-07-15T22:00:00Z",
+        },
+      ],
+    },
+  });
+  await assert.rejects(
+    runProductionStageAdmission({ ...input, remoteAgentRecovery: proof }),
+    RECOVERY_UNRESOLVED
+  );
+  adapters.readReleaseRuns = releaseRuns;
+  for (const field of [
+    "sourceSha",
+    "evidenceSha",
+    "attemptId",
+    "operationKey",
+  ]) {
+    await assert.rejects(
+      runProductionStageAdmission({
+        ...input,
+        remoteAgentRecovery: { ...proof, [field]: "different" },
+      }),
+      RECOVERY_DRIFT
+    );
+  }
+  const prior = current.verifiedHistoryBaseline;
+  current.verifiedHistoryBaseline = undefined;
+  await assert.rejects(
+    runProductionStageAdmission({ ...input, remoteAgentRecovery: proof }),
+    RECOVERY_BASELINE_MISSING
+  );
+  current.verifiedHistoryBaseline = prior;
+  adapters.readAssociatedPullRequests = async () => [];
+  await assert.rejects(
+    runProductionStageAdmission({ ...input, remoteAgentRecovery: proof }),
+    RECOVERY_SOURCE_BLOCKED
+  );
+});
 
 test(
   "hosted status authenticates private Git receipt reads without persisting credentials",
@@ -709,84 +845,91 @@ test("reports a remote full release as ready when push checks are green", async 
   assert.match(output, FULL_RELEASE_RECOMMENDATION_REGEX);
 });
 
-test("Worker-only receipts remain incomplete and expose only explicit native continuation", async () => {
-  let output = "";
-  const adapters = releaseStatusAdapters({
-    pushChecks: [
-      {
-        conclusion: "success",
-        event: "push",
-        status: "completed",
-        workflowName: "Push Guard",
-      },
-    ],
-  });
-  const identity = {
-    kind: "worker-deployment",
-    workerName: "openmeld-remote-agent-prod",
-    environment: "prod",
-    deploymentId: "deployment",
-    versionId: "version",
-    sourceSha: SOURCE_SHA,
-    proof: "command-output",
-  };
-  adapters.readLocalReleaseSources = async () =>
-    new Map([
-      [
-        "remote-agent",
+for (const phase of ["retained", "rollout"]) {
+  test(`Remote receipt remains incomplete and exposes guarded ${phase} recovery`, async () => {
+    let output = "";
+    const adapters = releaseStatusAdapters({
+      pushChecks: [
         {
-          sha: SOURCE_SHA,
-          source: "guarded-local",
-          recordedAt: "2026-07-15T21:00:00Z",
-          evidenceSha: "4".repeat(40),
-          receipt: {
-            attemptId: "00000000-0000-4000-8000-000000000001",
-            componentIndex: 0,
-            operationKey: "a".repeat(64),
-            startedAt: "2026-07-15T20:00:00Z",
-            status: "applied",
-            application: "applied",
-            identity,
-            remoteAgent: {
-              phase: "retained",
-              workerIdentity: identity,
-              baselineEvidenceSha: "5".repeat(40),
-              baselineSourceSha: GATEWAY_REMOTE_SHA,
-              container: {
-                id: "app",
-                name: "openmeld-agent-computer",
-                version: 124,
-                image: `registry.cloudflare.com/account/openmeld-agent-computer@sha256:${"d".repeat(64)}`,
-                configurationHash: "c".repeat(64),
-                instances: [{ id: "original-instance", version: 124 }],
+          conclusion: "success",
+          event: "push",
+          status: "completed",
+          workflowName: "Push Guard",
+        },
+      ],
+    });
+    const identity = {
+      kind: "worker-deployment",
+      workerName: "openmeld-remote-agent-prod",
+      environment: "prod",
+      deploymentId: "deployment",
+      versionId: "version",
+      sourceSha: SOURCE_SHA,
+      proof: "command-output",
+    };
+    adapters.readLocalReleaseSources = async () =>
+      new Map([
+        [
+          "remote-agent",
+          {
+            sha: SOURCE_SHA,
+            source: "guarded-local",
+            recordedAt: "2026-07-15T21:00:00Z",
+            evidenceSha: "4".repeat(40),
+            receipt: {
+              attemptId: "00000000-0000-4000-8000-000000000001",
+              componentIndex: 0,
+              operationKey: "a".repeat(64),
+              startedAt: "2026-07-15T20:00:00Z",
+              status: "applied",
+              application: "applied",
+              identity,
+              remoteAgent: {
+                phase,
+                workerIdentity: identity,
+                baselineEvidenceSha: "5".repeat(40),
+                baselineSourceSha: GATEWAY_REMOTE_SHA,
+                container: {
+                  id: "app",
+                  name: "openmeld-agent-computer",
+                  version: 124,
+                  image: `registry.cloudflare.com/account/openmeld-agent-computer@sha256:${"d".repeat(64)}`,
+                  configurationHash: "c".repeat(64),
+                  instances: [{ id: "original-instance", version: 124 }],
+                },
               },
             },
           },
-        },
+        ],
+      ]);
+    const code = await runProductionReleaseStatus({
+      adapters,
+      argv: [
+        "--ref",
+        "origin/main",
+        "--change-base",
+        CHANGE_BASE_SHA,
+        "--json",
+        "--check-complete",
       ],
-    ]);
-  const code = await runProductionReleaseStatus({
-    adapters,
-    argv: [
-      "--ref",
-      "origin/main",
-      "--change-base",
-      CHANGE_BASE_SHA,
-      "--json",
-      "--check-complete",
-    ],
-    write: (value) => {
-      output += value;
-    },
+      write: (value) => {
+        output += value;
+      },
+    });
+    const remote = JSON.parse(output).components.find(
+      (component) => component.scope === "remote-agent"
+    );
+    assert.equal(code, 1);
+    assert.equal(remote.state, "unknown");
+    assert.equal(remote.evidence.result, "applied");
+    assert.equal(
+      remote.recovery.kind,
+      phase === "retained"
+        ? "guarded-remote-container-continuation"
+        : "guarded-remote-native-verification"
+    );
   });
-  const remote = JSON.parse(output).components.find(
-    (component) => component.scope === "remote-agent"
-  );
-  assert.equal(code, 1);
-  assert.equal(remote.state, "unknown");
-  assert.equal(remote.evidence.result, "applied");
-  assert.equal(remote.recovery.kind, "guarded-remote-container-continuation");
-});
+}
 
 test("reports component source, version, artifact and result from a verified receipt", async () => {
   let output = "";

@@ -36,6 +36,7 @@ import {
 import { readLatestSuccessfulReleaseSources } from "./production-release-status.mjs";
 
 const PARTIAL_RECOVERY_ERROR = /failed partial|original|attempt/iu;
+const PUSH_REJECTION = /atomically:.*fixture receipt push rejected/su;
 const INVALID_RECOVERY_RECEIPT = /receipt|verified|identity/iu;
 const TERMINAL_RECOVERY_ERROR = /backward|terminal|completed/iu;
 const FAILED_UNKNOWN_EVENT = /"status":"failed","application":"unknown"/u;
@@ -123,11 +124,25 @@ test("retained native release appends both stages to one correlated receipt hist
       },
     };
     publish(applied);
-    publish({
+    const completed = {
       ...applied,
       status: "verified",
       remoteAgent: { ...applied.remoteAgent, phase: "complete" },
-    });
+    };
+    const rejectPush = path.join(fixture.remote, "hooks", "pre-receive");
+    writeFileSync(
+      rejectPush,
+      "#!/bin/sh\necho 'fixture receipt push rejected' >&2\nexit 1\n",
+      { mode: 0o755 }
+    );
+    assert.throws(() => publish(completed), PUSH_REJECTION);
+    assert.equal(
+      readGuardedLocalReleaseSources(context).get("remote-agent").receipt
+        .status,
+      "applied"
+    );
+    rmSync(rejectPush);
+    publish(completed);
     const result = readGuardedLocalReleaseSources(context).get("remote-agent");
     assert.equal(result.receipt.status, "verified");
     assert.equal(result.receipt.identity.versionId, "full-version");

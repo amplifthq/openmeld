@@ -54,6 +54,7 @@ import {
   bindComputerCommandTarget,
   createComputerCommandTool,
 } from "./computer-command";
+import { executeAgentComputerCommand } from "./computer-command-wait";
 import type { createAgentComputerFileHandoff } from "./computer-file-handoff";
 import {
   type ComputerHelperExecutionOptions,
@@ -71,6 +72,7 @@ import { getComputerSpaceFileTools } from "./computer-space-files";
 import { getComputerVideoInspectionTool } from "./computer-video-inspection";
 import type { AgentComputer } from "./computer-workspace";
 import { resolveAgentComputerWorkingDirectory } from "./computer-workspace-config";
+import { hasPendingRemoteAgentExecutionInput } from "./execution-input";
 import { getGitHubWorkingCopyTools } from "./github-working-copy-tools";
 import type { createMemberProfileReportComputerFileStore } from "./member-profile-report-computer-files";
 import { prepareOrganizationDocumentsComputerSnapshot } from "./organization-document-computer-snapshot";
@@ -454,14 +456,25 @@ export async function createRemoteAgentComputerCapability(input: {
                 options?: { signal?: AbortSignal }
               ) => {
                 options?.signal?.throwIfAborted();
-                if (!workspaceAccess.computerOperation) {
+                const execute =
+                  workspaceAccess.computerOperation?.bind(workspaceAccess);
+                if (!execute) {
                   throw new Error("computer.operations_unavailable");
                 }
-                return await workspaceAccess.computerOperation({
-                  action: "command",
-                  invocationId: input.context.submissionId,
-                  cwd: workingDirectory,
-                  command: cloudComputerCommandSchema.parse(command),
+                return await executeAgentComputerCommand({
+                  signal: options?.signal,
+                  execute,
+                  hasPendingInput: () =>
+                    hasPendingRemoteAgentExecutionInput({
+                      context: input.context,
+                      storage: input.storage as RemoteAgentStorage,
+                    }),
+                  operation: {
+                    action: "command",
+                    invocationId: input.context.submissionId,
+                    cwd: workingDirectory,
+                    command: cloudComputerCommandSchema.parse(command),
+                  },
                 });
               },
             },
@@ -469,7 +482,7 @@ export async function createRemoteAgentComputerCapability(input: {
         : []),
     ].map((definition) => ({
       ...definition,
-      description: `${definition.description}\nComputer ${computer.id} belongs to human account ${computer.ownerUserId}. Other Agents and tasks for this account share its files. Current task directory: ${workingDirectory}. Use separate files or Git worktrees for concurrent changes. Decide what to use and share from the original requester, delegation, task and destination audience; filesystem access is not an instruction to disclose personal files.`,
+      description: `${definition.description}${definition.name === "computer_command" ? "\nFor this Agent, a poll with positive or omitted waitSeconds waits within the same tool call while the Computer observes the command, including file synchronization. Each native read is bounded. The model resumes when results are ready, Stop arrives, or inspection is needed. Use waitSeconds: 0 only for an immediate status check before independent work. Do not repeatedly request immediate polls just to wait." : ""}\nComputer ${computer.id} belongs to human account ${computer.ownerUserId}. Other Agents and tasks for this account share its files. Current task directory: ${workingDirectory}. Use separate files or Git worktrees for concurrent changes. Decide what to use and share from the original requester, delegation, task and destination audience; filesystem access is not an instruction to disclose personal files.`,
       execute: async (value, options) => {
         if (
           input.storage &&

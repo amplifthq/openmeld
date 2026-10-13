@@ -1208,6 +1208,8 @@ export type {
 export type {
   GetSpaceMessageDetailsInput,
   GetSpaceMessageDetailsResponse,
+  SpaceMessageDelegatedTask,
+  SpaceMessageDelegations,
   SpaceMessageDetailsActor,
   SpaceMessageDetailsAgentContext,
   SpaceMessageDetailsDiagnostics,

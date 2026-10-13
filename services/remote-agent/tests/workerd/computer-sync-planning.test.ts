@@ -15,6 +15,10 @@ it("returns bounded preparation without materializing or acknowledging the large
     const pathQueries: { rowsRead: number; returned: number }[] = [];
     const pathQueryPlans: string[] = [];
     const received: string[] = [];
+    let peerCursor: { rev: number; path: string | null } = {
+      rev: 0,
+      path: null,
+    };
     const unexpected = (): Promise<never> =>
       Promise.reject(
         new Error("The planning probe must not run a shell or pull files")
@@ -35,10 +39,11 @@ it("returns bounded preparation without materializing or acknowledging the large
           generation: null,
         }),
         beginRetention: () => Promise.resolve(),
+        discardChanges: async () => true,
         watermarks: async () => ({
           currentRev: 0,
-          pushRev: 0,
-          fetchCursor: { rev: 0, path: null },
+          pushRev: peerCursor.rev,
+          fetchCursor: peerCursor,
         }),
         push: async ({ senderRev, senderCursor, changes }) => {
           const reader = changes.getReader();
@@ -55,10 +60,11 @@ it("returns bounded preparation without materializing or acknowledging the large
           } finally {
             reader.releaseLock();
           }
+          peerCursor = senderCursor ?? { rev: senderRev, path: null };
           return {
             rev: senderRev,
             applied,
-            appliedPushCursor: senderCursor ?? { rev: senderRev, path: null },
+            appliedPushCursor: peerCursor,
           };
         },
         fetchChanges: unexpected,
@@ -70,50 +76,52 @@ it("returns bounded preparation without materializing or acknowledging the large
         pushObjects: unexpected,
       },
     };
-    const workspace = new Workspace({
-      storage: {
-        sql: {
-          exec<Row extends object>(query: string, ...bindings: unknown[]) {
-            if (
-              query.includes("SELECT inode,rev FROM vfs_nodes") &&
-              pathQueryPlans.length === 0
-            ) {
-              pathQueryPlans.push(
-                ...state.storage.sql
-                  .exec<{ detail: string }>(
-                    `EXPLAIN QUERY PLAN ${query}`,
-                    ...bindings
-                  )
-                  .toArray()
-                  .map((row) => row.detail)
-              );
-            }
-            const cursor = state.storage.sql.exec(query, ...bindings);
-            const rows = cursor.toArray() as Row[];
-            if (query.startsWith("SELECT") && !query.includes("EXPLAIN")) {
-              pathQueries.push({
-                rowsRead: cursor.rowsRead,
-                returned: rows.length,
-              });
-            }
-            return { toArray: () => rows };
+    const createWorkspace = () =>
+      new Workspace({
+        storage: {
+          sql: {
+            exec<Row extends object>(query: string, ...bindings: unknown[]) {
+              if (
+                query.includes("SELECT inode,rev FROM vfs_nodes") &&
+                pathQueryPlans.length === 0
+              ) {
+                pathQueryPlans.push(
+                  ...state.storage.sql
+                    .exec<{ detail: string }>(
+                      `EXPLAIN QUERY PLAN ${query}`,
+                      ...bindings
+                    )
+                    .toArray()
+                    .map((row) => row.detail)
+                );
+              }
+              const cursor = state.storage.sql.exec(query, ...bindings);
+              const rows = cursor.toArray() as Row[];
+              if (query.startsWith("SELECT") && !query.includes("EXPLAIN")) {
+                pathQueries.push({
+                  rowsRead: cursor.rowsRead,
+                  returned: rows.length,
+                });
+              }
+              return { toArray: () => rows };
+            },
           },
+          transactionSync: (operation) =>
+            state.storage.transactionSync(operation),
         },
-        transactionSync: (operation) =>
-          state.storage.transactionSync(operation),
-      },
-      backends: [
-        {
-          id: "planning-peer",
-          type: "typed-sync-probe",
-          connect: async () => ({
-            rpc,
-            sync: "remote" as const,
-            close: async () => undefined,
-          }),
-        },
-      ],
-    });
+        backends: [
+          {
+            id: "planning-peer",
+            type: "typed-sync-probe",
+            connect: async () => ({
+              rpc,
+              sync: "remote" as const,
+              close: async () => undefined,
+            }),
+          },
+        ],
+      });
+    let workspace = createWorkspace();
     try {
       await workspace.ready();
       const directory = `/${Array.from({ length: 20 }, (_, n) => `level-${n}`).join("/")}`;
@@ -158,14 +166,46 @@ it("returns bounded preparation without materializing or acknowledging the large
       if (first.done) {
         throw new Error("The large tree must produce a sync block");
       }
-      return {
+      const firstResult = {
         leafCount,
         first: first.value as SyncProgress,
         received: received.length,
-        pathQueries,
+        pathQueries: [...pathQueries],
         pathQueryPlans,
         elapsedMs: Date.now() - started,
       };
+      // Recreate the SDK owner over the same real DO SQLite storage. A new
+      // owner must resume the durable candidate plan, not need an in-memory
+      // iterator or acknowledge the unfinished preparation.
+      await workspace.close();
+      workspace = createWorkspace();
+      await workspace.ready();
+      let resumedPreparation = false;
+      let complete = false;
+      let acknowledged = { rev: 0, path: null } as SyncProgress["cursor"];
+      let receivedCount = 0;
+      for await (const progress of workspace.push("planning-peer")) {
+        if (progress.phase === "preparing") {
+          resumedPreparation = true;
+          expect(received).toHaveLength(receivedCount);
+          expect(progress.cursor).toEqual(acknowledged);
+        }
+        receivedCount = received.length;
+        acknowledged = progress.cursor;
+        complete = progress.complete;
+      }
+      const expected = Array.from(
+        { length: 20 },
+        (_, n) =>
+          `/${Array.from({ length: n + 1 }, (_, level) => `level-${level}`).join("/")}`
+      );
+      for (let n = 1; n <= leafCount; n += 1) {
+        expected.push(`${directory}/leaf-${String(n).padStart(6, "0")}`);
+      }
+      expect(received.sort()).toEqual(expected.sort());
+      expect(resumedPreparation).toBe(true);
+      expect(complete).toBe(true);
+      return firstResult;
     } finally {
       await workspace.close();
     }
@@ -182,7 +222,7 @@ it("returns bounded preparation without materializing or acknowledging the large
   ).toBeLessThanOrEqual(1);
   expect(
     result.pathQueries.reduce((sum, query) => sum + query.rowsRead, 0)
-  ).toBeLessThan(1100);
+  ).toBeLessThan(result.leafCount / 2);
   console.info(
     "sdk-sync-planning-probe",
     JSON.stringify({

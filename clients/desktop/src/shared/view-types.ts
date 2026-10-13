@@ -4,7 +4,10 @@
 // lifecycle + the agent catalog/enabled set + controller snapshots, not the
 // CLI's full status payload.
 
-import type { serviceControlCapabilitiesSchema } from "@openmeld/schemas";
+import type {
+  DesktopSettingsView,
+  serviceControlCapabilitiesSchema,
+} from "@openmeld/schemas";
 import type { AgentControllerInterfaceSnapshot } from "@openmeld/schemas/types";
 import type { z } from "zod/v4";
 import type { CliFailureKind } from "./types";
@@ -128,17 +131,11 @@ export type AuthSignOutView = {
   logout: AuthLogoutView;
 };
 
-export type DesktopSettingsProblem = {
-  code: string;
-  message: string;
-};
+export type DesktopSettingsProblem = NonNullable<
+  DesktopSettingsView["problem"]
+>;
 
-export type DesktopSettingsView = {
-  /** Whether the Desktop tray app opens at user login. */
-  openAtLogin: boolean | null;
-  /** Set when Electron cannot read or update Desktop app preferences. */
-  problem: DesktopSettingsProblem | null;
-};
+export type { DesktopSettingsView } from "@openmeld/schemas";
 
 export type DesktopUpdateProblem = {
   code: string;

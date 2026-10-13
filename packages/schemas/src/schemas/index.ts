@@ -103,6 +103,17 @@ export { messageChannelCardHistorySchema } from "./runtime/message-channel-card-
 export const OPENMELD_SCHEMA_VERSION = 1 as const;
 
 export {
+  COMPUTER_POWER_CAPABILITY_HEADER,
+  computerPowerRequestFrameSchema,
+  computerPowerRequestSchema,
+  computerPowerResultFrameSchema,
+  computerPowerResultSchema,
+  computerPowerRpcInputSchema,
+  computerPowerStateSchema,
+  computerPowerTargetSchema,
+  computerPowerTransportSchema,
+} from "../computer-power";
+export {
   spaceEvidenceReferenceSchema,
   spaceEvidenceReferencesSchema,
   spaceThreadEvidenceRequestSchema,
@@ -2530,6 +2541,8 @@ export {
 export {
   getSpaceMessageDetailsInputSchema,
   getSpaceMessageDetailsResponseSchema,
+  spaceMessageDelegatedTaskSchema,
+  spaceMessageDelegationsSchema,
   spaceMessageDetailsActorSchema,
   spaceMessageDetailsAgentContextSchema,
   spaceMessageDetailsDiagnosticsSchema,
