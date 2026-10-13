@@ -4592,6 +4592,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
         );
         return centerAgentRememberForOrganizationResponseSchema.parse(
           await rpc({
+            includeStatus: true,
             context: toolContext.context,
             fact: payload.fact,
             speakerMember: resolveVerifiedTurnEnvelopeSpeaker(

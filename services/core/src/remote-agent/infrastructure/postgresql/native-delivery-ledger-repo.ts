@@ -5831,7 +5831,7 @@ export async function markRemoteAgentNativeDeliveryCompleted(input: {
   submissionId: string;
   publishedSignalId: string | null;
 }): Promise<RemoteAgentNativeDeliveryRecord | null> {
-  await input.db.query({
+  const result = await input.db.query({
     text: `
         UPDATE "openmeld"."openMeldRemoteAgent_native_delivery_ledger"
         SET
@@ -5852,6 +5852,11 @@ export async function markRemoteAgentNativeDeliveryCompleted(input: {
       input.submissionId,
     ],
   });
+  // Only the caller that transitions the durable delivery may start capture.
+  // Reading the completed row alone cannot distinguish concurrent callbacks.
+  if (Number(result.rowCount ?? 0) !== 1) {
+    return null;
+  }
   return await readRemoteAgentNativeDeliveryBySubmissionId({
     db: input.db,
     submissionId: input.submissionId,

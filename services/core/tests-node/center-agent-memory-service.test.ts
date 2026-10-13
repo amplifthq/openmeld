@@ -283,15 +283,20 @@ describe("Center Agent memory service", () => {
     expect(adapter.addEpisode).not.toHaveBeenCalled();
   });
 
-  it("writes explicit organization memory requests only to organization memory", async () => {
-    const adapter = createAdapter();
+  it.each([
+    false,
+    true,
+  ])("reports the provider processing state on an explicit organization save: %s", async (processed) => {
+    const adapter = createAdapter({
+      addEpisode: vi.fn(async () => ({ episodeId: "episode_1", processed })),
+    });
     const service = createCenterAgentMemoryService({
       adapter,
       nowMs: () => 1000,
       repository: createRepository({ organizationMemoryOptIn: true }),
     });
 
-    await service.rememberFactForOrganization({
+    const receipt = await service.rememberFactForOrganization({
       fact: "The launch owner is Maya.",
       organizationId: "org_1",
       origin: {
@@ -303,14 +308,14 @@ describe("Center Agent memory service", () => {
       },
       speakerMember: { memberId: "member_1", userId: "user_1" },
     });
-
+    expect(receipt.status).toBe(processed ? "processed" : "processing");
     expect(adapter.ensureMemberUser).not.toHaveBeenCalled();
     expect(adapter.ensureOrganizationGraph).toHaveBeenCalled();
     expect(adapter.addEpisode).toHaveBeenCalledWith(
       expect.objectContaining({
         episode: expect.objectContaining({
           assistantMessage:
-            "Saved to organization memory: The launch owner is Maya.",
+            "The member asked to remember this fact for the organization.",
           captureMethod: "explicit_save",
           messageChannelProvider: "lark",
           source: "message_channel_conversation",
@@ -460,7 +465,7 @@ describe("Center Agent memory service", () => {
     });
   });
 
-  it("returns an empty memory envelope when Zep recall times out", async () => {
+  it("reports unavailable memory when Zep recall times out", async () => {
     const adapter = createAdapter({
       search: vi.fn(
         () =>
@@ -480,6 +485,7 @@ describe("Center Agent memory service", () => {
     await expect(service.recallForTurn(createRecallInput())).resolves.toEqual({
       items: [],
       truncated: false,
+      status: "unavailable",
     });
   });
 
@@ -661,7 +667,10 @@ function createAdapter(
   overrides: Partial<CenterAgentMemoryAdapter> = {}
 ): CenterAgentMemoryAdapter {
   return {
-    addEpisode: vi.fn(async () => undefined),
+    addEpisode: vi.fn(async () => ({
+      episodeId: "episode_1",
+      processed: false,
+    })),
     deleteMemberUser: vi.fn(async () => "deleted" as const),
     deleteOrganizationGraph: vi.fn(async () => "deleted" as const),
     ensureMemberUser: vi.fn(async () => undefined),
