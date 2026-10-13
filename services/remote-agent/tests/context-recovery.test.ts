@@ -12,7 +12,7 @@ import { sqlite, start } from "@flue/runtime/node";
 import { object } from "valibot";
 import { expect, it } from "vitest";
 
-it("reopens a failed conversation with its budget enabled and does not repeat completed work", async () => {
+it("reopens after a failed checkpoint rewrite without replacing history or repeating work", async () => {
   const directory = await mkdtemp(join(tmpdir(), "flue-context-restart-"));
   const provider = fauxProvider({
     provider: "context-restart",
@@ -64,6 +64,28 @@ it("reopens a failed conversation with its budget enabled and does not repeat co
   });
   let runtime = await open();
   try {
+    const agent = init(Restart, { id: "restart" });
+    provider.setResponses([
+      fauxAssistantMessage("Historical review evidence. ".repeat(250)),
+    ]);
+    await agent.read(
+      await agent.dispatch(
+        `Earlier archive MAPLE-104 is read-only. ${"Historical question. ".repeat(
+          1000
+        )}`
+      )
+    );
+    const previousCheckpoint =
+      `Archive MAPLE-104 is read-only. ${"Earlier measurements are preserved in the original conversation. ".repeat(
+        60
+      )}`.trimEnd();
+    provider.setResponses([
+      fauxAssistantMessage(previousCheckpoint),
+      fauxAssistantMessage("Historical review checkpoint saved."),
+    ]);
+    await agent.read(await agent.dispatch("Prepare to continue the review."));
+    expect(compactions).toEqual([false]);
+
     const original =
       "Record once for archive CEDAR-519. No publication is authorized.";
     provider.setResponses([
@@ -72,12 +94,11 @@ it("reopens a failed conversation with its budget enabled and does not repeat co
       }),
       fauxAssistantMessage("Incomplete checkpoint", { stopReason: "length" }),
     ]);
-    const agent = init(Restart, { id: "restart" });
     await expect(agent.read(await agent.dispatch(original))).rejects.toThrow(
       "Agent run failed"
     );
     expect(executions).toBe(1);
-    expect(compactions).toEqual([true]);
+    expect(compactions).toEqual([false, true]);
     await runtime.stop();
     runtime = await open();
     const correction =
@@ -86,12 +107,16 @@ it("reopens a failed conversation with its budget enabled and does not repeat co
       context.messages
         .filter((message) => message.role === "user")
         .map((message) => JSON.stringify(message.content));
+    let rewriteSystemPrompt = "";
+    let rewriteSource = "";
     provider.setResponses([
       (context) => {
         const prompt = userTexts(context).join("\n");
-        expect(prompt).toContain("at most 256 tokens");
-        expect(prompt).toContain("COMPLETE-781");
-        expect(prompt).not.toContain("Incomplete checkpoint");
+        rewriteSystemPrompt = context.messages
+          .filter((message) => message.role === "system")
+          .map((message) => JSON.stringify(message.content))
+          .join("\n");
+        rewriteSource = prompt;
         return fauxAssistantMessage(
           "The operation completed with receipt COMPLETE-781. No publication is authorized. The archive identifier remains in the original request."
         );
@@ -122,8 +147,18 @@ it("reopens a failed conversation with its budget enabled and does not repeat co
       '{"receipt":"COMPLETE-781"}'
     );
     expect(executions).toBe(1);
-    expect(compactions).toEqual([true, false]);
-    expect(summaryOutputLimits).toEqual([512, 512]);
+    expect(compactions).toEqual([false, true, false]);
+    expect(summaryOutputLimits).toEqual([512, 512, 512]);
+    expect(rewriteSource).toContain("at most 256 tokens");
+    expect(rewriteSource).toContain(previousCheckpoint);
+    expect(rewriteSource).toContain("COMPLETE-781");
+    expect(rewriteSource).not.toContain("Incomplete checkpoint");
+    // The supplier sees the rewrite contract above historical user text; it
+    // must not receive the old checkpoint as a draft to preserve and expand.
+    expect(rewriteSystemPrompt).toContain("Write a new checkpoint");
+    expect(rewriteSystemPrompt).toContain(
+      "A previous checkpoint is not a draft"
+    );
     expect(provider.getPendingResponseCount()).toBe(0);
   } finally {
     unsubscribe();
@@ -234,6 +269,12 @@ it("retains the exact active request across repeated lossy summaries", async () 
     providers: [provider.provider],
     db: sqlite(join(directory, "history.sqlite")),
   });
+  let summarizing = false;
+  const unsubscribe = observe((event) => {
+    if (event.type === "turn_request") {
+      summarizing = event.purpose === "compaction";
+    }
+  });
   try {
     const agent = init(ProtectedRequest, { id: "protected" });
     provider.setResponses(
@@ -250,15 +291,7 @@ it("retains the exact active request across repeated lossy summaries", async () 
     let summaries = 0;
     provider.setResponses(
       Array.from({ length: 10 }, () => (context) => {
-        if (
-          context.messages.some(
-            (message) =>
-              message.role === "system" &&
-              JSON.stringify(message.content).includes(
-                "context summarization assistant"
-              )
-          )
-        ) {
+        if (summarizing) {
           summaries++;
           return fauxAssistantMessage("Documents are being read.");
         }
@@ -286,6 +319,7 @@ it("retains the exact active request across repeated lossy summaries", async () 
     expect(summaries).toBeGreaterThanOrEqual(2);
     expect(correctionApplied).toBe(true);
   } finally {
+    unsubscribe();
     await runtime.stop();
     await rm(directory, { recursive: true, force: true });
   }
