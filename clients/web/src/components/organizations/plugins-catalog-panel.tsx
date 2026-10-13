@@ -325,7 +325,7 @@ function PluginCatalogEmptyState(input: {
 		<div className="px-5 py-12 text-center">
 			<p className="font-medium text-foreground text-sm">
 				{input.connectedOnly
-					? `No connected Plugins in ${input.scopeName}`
+					? `No matching connected Plugins in ${input.scopeName}`
 					: "No Plugins found"}
 			</p>
 			<p className="mt-1 text-muted-foreground text-xs">

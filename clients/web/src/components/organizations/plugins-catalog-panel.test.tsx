@@ -101,6 +101,7 @@ describe("PluginsCatalogPanel", () => {
 			connections: [
 				{ ...activeConnection("gmail"), scope: "shared", canDisconnect: true },
 				activeConnection("zoom"),
+				{ ...activeConnection("notion"), scope: "shared" },
 				{ ...activeConnection("gmail"), userId: "another-member" },
 			],
 			currentUserId: "user-1",
@@ -139,7 +140,9 @@ describe("PluginsCatalogPanel", () => {
 			screen.getByRole("button", { name: "Show connected Plugins" })
 		);
 		expect(screen.queryByTestId("app-logo-zoom")).toBeNull();
-		expect(screen.getByText("No connected Plugins in Acme")).toBeTruthy();
+		expect(
+			screen.getByText("No matching connected Plugins in Acme")
+		).toBeTruthy();
 		fireEvent.click(
 			screen.getByRole("button", { name: "Show connected Plugins" })
 		);
