@@ -730,6 +730,21 @@
       "defaultModelId": "opencode/mimo-v2.6-flash-free",
       "models": [
         {
+          "id": "openrouter/meta/muse-wonder",
+          "displayName": "Muse Wonder (OpenRouter)",
+          "unavailable": false,
+          "supportedReasoningLevels": [
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "minCliVersion": "1.18.34",
+          "badgeLabel": "New"
+        },
+        {
           "id": "opencode/gpt-6.1-sol",
           "displayName": "GPT-6.1 Sol (Zen)",
           "unavailable": false,
@@ -1524,6 +1539,28 @@
         "personalRemoteAgentDefaultModelId": "openai/gpt-6-sol"
       },
       "models": [
+        {
+          "id": "meta/muse-wonder",
+          "displayName": "Muse Wonder",
+          "badgeLabel": "New",
+          "hostedRuntime": {
+            "provider": "openrouter",
+            "inputModalities": ["text", "image"],
+            "contextWindow": 1048576,
+            "maxOutputTokens": 16384,
+            "reasoningLevel": "medium"
+          },
+          "unavailable": false,
+          "supportedReasoningLevels": [
+            "max",
+            "xhigh",
+            "high",
+            "medium",
+            "low",
+            "minimal"
+          ],
+          "minCliVersion": null
+        },
         {
           "id": "anthropic/claude-haiku-5.5",
           "displayName": "Claude Haiku 5.5",

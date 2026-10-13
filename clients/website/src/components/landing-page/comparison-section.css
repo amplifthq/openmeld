@@ -1,0 +1,101 @@
+.meld-site .meld-comparison h2 {
+	margin-bottom: 40px;
+}
+.meld-comparison-table {
+	--comparison-feature-width: 220px;
+	width: 100%;
+	min-width: 960px;
+	table-layout: fixed;
+	border-collapse: separate;
+	border-spacing: 0;
+}
+.meld-comparison-feature-column {
+	width: var(--comparison-feature-width);
+}
+.meld-comparison-table tr {
+	border: 0;
+}
+.meld-comparison-table tr:hover {
+	background: transparent;
+}
+.meld-comparison-table th,
+.meld-comparison-table td {
+	height: 58px;
+	padding: 14px 12px;
+	border-bottom: 1px solid var(--meld-line);
+	text-align: center;
+	vertical-align: middle;
+	white-space: normal;
+	font-size: 14px;
+	line-height: 1.45;
+}
+.meld-comparison-table thead th {
+	height: 64px;
+	border-top: 1px solid var(--meld-line);
+}
+.meld-comparison-table th:first-child {
+	position: sticky;
+	left: 0;
+	z-index: 1;
+	padding-left: 0;
+	padding-right: 20px;
+	background: var(--background);
+	text-align: left;
+}
+.meld-comparison-table th[scope="row"] {
+	font-variation-settings: "wght" 450;
+}
+.meld-comparison-table tr > :nth-child(2) {
+	background: #16231c;
+}
+.meld-comparison-table svg {
+	margin-inline: auto;
+}
+.meld-comparison-feature {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+.meld-comparison-feature svg {
+	flex-shrink: 0;
+	margin: 0;
+	color: var(--muted-foreground);
+}
+.meld-comparison-table .meld-comparison-product-link {
+	color: inherit;
+	text-underline-offset: 4px;
+	text-decoration-thickness: 1px;
+}
+.meld-comparison-table .meld-comparison-product-link:hover,
+.meld-comparison-table .meld-comparison-product-link:focus-visible {
+	text-decoration-line: underline;
+}
+.meld-comparison-yes {
+	color: #8bd9a6;
+}
+.meld-comparison-no {
+	color: #c7867f;
+}
+.meld-comparison-unknown {
+	font-size: 22px;
+	color: var(--muted-foreground);
+}
+.meld-comparison-value {
+	white-space: pre-line;
+	color: var(--muted-foreground);
+	font-size: 13px;
+}
+@media (max-width: 600px) {
+	.meld-comparison-table {
+		--comparison-feature-width: 156px;
+		min-width: 890px;
+	}
+	.meld-comparison-table th,
+	.meld-comparison-table td {
+		padding-inline: 10px;
+		font-size: 13px;
+	}
+	.meld-comparison-table th:first-child {
+		padding-right: 16px;
+	}
+}

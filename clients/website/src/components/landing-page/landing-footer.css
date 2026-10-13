@@ -32,6 +32,15 @@
 	color: var(--muted-foreground);
 	margin-top: 12px;
 }
+.meld-footer-top .meld-footer-author {
+	color: inherit;
+	font: inherit;
+	text-underline-offset: 4px;
+}
+.meld-footer-top .meld-footer-author:hover,
+.meld-footer-top .meld-footer-author:focus-visible {
+	text-decoration: underline;
+}
 .meld-footer-top nav {
 	display: flex;
 	flex-wrap: wrap;
