@@ -1,0 +1,31 @@
+diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
+index 0bf48c301..fbada2c21 100644
+--- a/pnpm-lock.yaml
++++ b/pnpm-lock.yaml
+@@ -38,7 +38,7 @@ patchedDependencies:
+     hash: a17b71a0ae3c0c484d6a40458c00fd006034b8082ff7a03e604e3745ed376fda
+     path: patches/@better-auth__electron@1.6.30.patch
+   '@cloudflare/computer@0.5.0':
+-    hash: 71b619f2bca2cfc4e5ed999da0aece9631a876d1595e63fe2490719d58c43d3c
++    hash: f00181abad6ce153b8c91aa6fca42036aa5153d1df0146afcb5e005cac20013c
+     path: patches/@cloudflare__computer@0.5.0.patch
+   '@flue/runtime@2.2.2':
+     hash: 944853883085a7415024105137559fbb5cb32b22288c8d57ed6975aab4c2ded9
+@@ -1894,7 +1894,7 @@ importers:
+         version: 0.5.1(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(ai@6.0.219(zod@4.6.5))(zod@4.6.5)
+       '@cloudflare/computer':
+         specifier: 0.5.0
+-        version: 0.5.0(patch_hash=71b619f2bca2cfc4e5ed999da0aece9631a876d1595e63fe2490719d58c43d3c)(@cloudflare/workers-types@5.20261001.1)(ai@6.0.219(zod@4.6.5))(zod@4.6.5)
++        version: 0.5.0(patch_hash=f00181abad6ce153b8c91aa6fca42036aa5153d1df0146afcb5e005cac20013c)(@cloudflare/workers-types@5.20261001.1)(ai@6.0.219(zod@4.6.5))(zod@4.6.5)
+       '@earendil-works/pi-ai':
+         specifier: 0.87.1
+         version: 0.87.1(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(ws@8.21.3)(zod@4.6.5)
+@@ -16299,7 +16299,7 @@ snapshots:
+       ai: 6.0.219(zod@4.6.5)
+       zod: 4.6.5
+ 
+-  '@cloudflare/computer@0.5.0(patch_hash=71b619f2bca2cfc4e5ed999da0aece9631a876d1595e63fe2490719d58c43d3c)(@cloudflare/workers-types@5.20261001.1)(ai@6.0.219(zod@4.6.5))(zod@4.6.5)':
++  '@cloudflare/computer@0.5.0(patch_hash=f00181abad6ce153b8c91aa6fca42036aa5153d1df0146afcb5e005cac20013c)(@cloudflare/workers-types@5.20261001.1)(ai@6.0.219(zod@4.6.5))(zod@4.6.5)':
+     dependencies:
+       acorn: 8.18.0
+       capnweb: 0.12.0(patch_hash=7f8f0dca8db0a032e037f83deff97aac1b9429e88c880b4cc9aa13d3d661a73a)

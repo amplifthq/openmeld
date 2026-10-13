@@ -611,6 +611,14 @@ The result keeps two facts separate:
 - `Global pending scopes` are older or unrelated deployment backlog visible in
   GitHub history.
 
+For a dependency patch whose lockfile changes only its patch hashes, the planner
+uses the existing affected-workspace proof and reads consumers from the target
+commit's lockfile and package names. That same proof limits both workspace
+impact and the lockfile's broad CLI/Service release signal. The complete changed
+path list stays in the plan. Root-toolchain consumers, mixed dependency changes,
+unknown lockfile shapes and missing history keep the conservative full runtime
+scope; a scope override cannot certify whole-change completion.
+
 The workflow mapping uses the current-change scopes when `--change-base` is
 present. Without it, the mapping is explicitly global-backlog information.
 Neither form authorizes a release or expands the responsible agent's business

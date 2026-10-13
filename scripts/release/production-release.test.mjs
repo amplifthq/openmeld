@@ -44,6 +44,136 @@ import {
 } from "./production-release.mjs";
 import { assertProductionStageAdmission } from "./production-stage-admission.mjs";
 
+test("patch-only release impact keeps unrelated components out of completion", () => {
+  // Captured from the production 16f875c -> e2435188 Computer patch release.
+  const lockfileDiff = readFileSync(
+    new URL("./fixtures/computer-patch-lock.diff", import.meta.url),
+    "utf8"
+  );
+  const changedPaths = [
+    "changelog/entries/computer-sync-receiver-cost.md",
+    "developing/architecture/data-and-observability.md",
+    "patches/@cloudflare__computer@0.5.0.patch",
+    "pnpm-lock.yaml",
+    "services/remote-agent/computerd/README.md",
+    "services/remote-agent/computerd/upstream.patch",
+  ];
+  const lockfile = {
+    lockfileVersion: "9.0",
+    importers: {
+      ".": {},
+      "services/remote-agent": {
+        dependencies: {
+          "@cloudflare/computer": { specifier: "0.5.0", version: "0.5.0" },
+        },
+      },
+      "clients/openmeld-cli": {},
+    },
+  };
+  const manifests = {
+    "package.json": { name: "@openmeld/root" },
+    "services/remote-agent/package.json": { name: "@openmeld/remote-agent" },
+    "clients/openmeld-cli/package.json": { name: "openmeld" },
+  };
+  const sourceSha = "a".repeat(40);
+  const base = "b".repeat(40);
+  const readGitFile = (ref, file) => {
+    assert.equal(
+      ref,
+      sourceSha,
+      "dependency evidence must come from the target commit"
+    );
+    return JSON.stringify(
+      file === "pnpm-lock.yaml" ? lockfile : manifests[file]
+    );
+  };
+  const input = {
+    base,
+    sourceSha,
+    changedPaths,
+    scope: "auto",
+    readGitFile,
+    readGitDiff: (from, to, file) => {
+      assert.deepEqual([from, to, file], [base, sourceSha, "pnpm-lock.yaml"]);
+      return lockfileDiff;
+    },
+  };
+  for (const build of [
+    buildProductionReleaseImpact,
+    buildProductionReleasePlan,
+  ]) {
+    const result = build(input);
+    assert.deepEqual(result.scopes, ["remote-agent"]);
+    assert.deepEqual(result.changedPaths, changedPaths);
+  }
+  assert.deepEqual(
+    buildProductionReleaseImpact({ ...input, componentScope: "website" })
+      .scopes,
+    []
+  );
+  assert.deepEqual(
+    buildProductionReleaseImpact({ ...input, componentScope: "docs" }).scopes,
+    []
+  );
+
+  // A real local-component consumer must still be selected by the same proof.
+  for (const dependency of ["@cloudflare/computer", "@openmeld/remote-agent"]) {
+    lockfile.importers["clients/openmeld-cli"].devDependencies = {
+      [dependency]: { specifier: "*", version: "fixture" },
+    };
+    assert.deepEqual(buildProductionReleaseImpact(input).scopes, [
+      "cli",
+      "remote-agent",
+    ]);
+  }
+  lockfile.importers["clients/openmeld-cli"].devDependencies = undefined;
+
+  const allRuntimeScopes = [
+    "cli",
+    "auth",
+    "web",
+    "gateway",
+    "core",
+    "remote-agent",
+    "website",
+    "docs",
+  ];
+  for (const override of [
+    {
+      readGitDiff: () => `${lockfileDiff}\n-  unrelated: 1\n+  unrelated: 2\n`,
+    },
+    {
+      readGitDiff: () =>
+        lockfileDiff.replaceAll("@cloudflare/computer", "@other/computer"),
+    },
+    { changedPaths: [...changedPaths, "services/core/src/index.ts"] },
+    { changedPaths: [...changedPaths, "pnpm-workspace.yaml"] },
+    {
+      readGitFile: () => {
+        throw new Error("missing target history");
+      },
+    },
+    {
+      readGitFile: (ref, file) =>
+        file === "pnpm-lock.yaml"
+          ? JSON.stringify({ ...lockfile, lockfileVersion: "unknown" })
+          : readGitFile(ref, file),
+    },
+  ]) {
+    assert.deepEqual(
+      buildProductionReleaseImpact({ ...input, ...override }).scopes,
+      allRuntimeScopes
+    );
+  }
+  lockfile.importers["."].devDependencies = {
+    "@cloudflare/computer": { specifier: "0.5.0", version: "0.5.0" },
+  };
+  assert.deepEqual(
+    buildProductionReleaseImpact(input).scopes,
+    allRuntimeScopes
+  );
+});
+
 function assertReceiptGatedStage(
   scopes,
   changedPaths,
