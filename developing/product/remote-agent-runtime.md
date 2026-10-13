@@ -3959,8 +3959,17 @@ but not trigger.
    Routines and task coordination. The explanation describes the recovery
    snapshot supplied to the original model. Later background cleanup progress
    updates the diagnostic projection, but must not discard that explanation or
-   upgrade the task to success. Without evidence that the model received the
-   recovery facts, its text is not a reviewed failure explanation.
+   upgrade the task to success. Canonical answer retention is independent of
+   that review marker: runtime recovery can settle a saved answer without
+   another finish-hook cycle. Without evidence that the model received the
+   recovery facts, the terminal owner preserves the exact canonical answer
+   under an explicit incomplete-outcome notice and labels any completion
+   claims as unverified. It never reconstructs an answer from streaming text,
+   grants Stop authority, or promotes the task to success. Cancellation,
+   safety failures and execution identity checks still take precedence.
+   The historical `reviewedFailureExplanation` publication field protects
+   this retained failure text from summary replacement; it is not evidence
+   that the model reviewed the latest Computer facts.
    Core maps other known failure codes to
    approved public copy; an unknown code always uses the generic request-failed
    copy, while the worker detail remains diagnostic-only. Failure copy names

@@ -12,3 +12,7 @@ address and use temporary access only for the current command. When a command
 status check times out, the Agent keeps its saved results and original command
 reference, explains what remains unknown, and can check that command again
 without starting it twice.
+
+If a final Computer check cannot confirm completion, the saved Agent response
+remains available with a clear warning about unverified results instead of
+being replaced by a generic failure message.
