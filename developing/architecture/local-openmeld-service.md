@@ -1276,15 +1276,23 @@ event; its HTTP inbox receipt alone is insufficient.
 Antigravity ACP uses the official `agy_acp_server.par` or `agy_acp_server.exe`
 installation and its adjacent `localharness_external` executable. It remains
 a separate selectable installation from the legacy `agy` CLI. Explicit execution
-authenticates with the native cached account (default `oauth-personal`, optionally
-`OPENMELD_ANTIGRAVITY_ACP_AUTH_METHOD`), with browser launch disabled and bounded
-authentication admission. Missing credentials produce a sign-in error.
+uses the account selected by explicit `agents login`, with browser launch
+disabled and bounded session admission. Wake never calls `authenticate`. Missing credentials produce a sign-in error.
 The adapter uses native `session/new`, `session/resume`, model configuration,
 advertised modes, dispatch MCP servers, and `session/cancel`. Native choice
 questions and permission requests reuse the current interaction UI; security
 warnings remain visible, and native "always" approval means this session.
 Unsupported modes, reasoning settings, and choices fail explicitly. Installation
 does not imply authenticated model access; background inventory never authenticates.
+
+Antigravity advertises Execution Context v5 and native permission inheritance.
+Core admits new/continued tasks only with `permissionSource: agent_settings`;
+explicit access restrictions and history forks fail before dispatch. The adapter
+also requires official ACP and verifies this scope at execution. Managed
+workspaces, writer admission, context-scoped ledgers, and completion identity
+reuse the Service context owners. Missing native history cannot be rebuilt for
+an assigned context. Old Services lack the permission-inheritance declaration
+and receive the existing update-required outcome.
 
 Provider abort or process exit must release any adapter-local waiter promptly.
 For a Binding with `codex:plan`, the local route resolves a Plan conversation

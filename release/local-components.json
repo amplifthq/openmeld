@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-13T16:15:56.648Z",
+  "updatedAt": "2026-10-13T17:08:35.812Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-project-work-v1",
-      "packageVersion": "0.3.258",
+      "packageVersion": "0.3.259",
       "updatePolicy": "available",
-      "reason": "Adds explicit Antigravity ACP login while retaining existing commands and cloud schemas."
+      "reason": "Adds official Antigravity ACP login and independent task commands without breaking existing callers."
     },
     "service": {
-      "bundleHash": "13c1729449df30e8ff241e328acbd25ea540edf777733d816c7a9842791f42a8",
-      "portableBundleHash": "c8a2e26042e18324dc558c6e9a55d85646ae7c301914460fb9323f2b845ad549",
-      "bundleVersion": "0.3.258",
+      "bundleHash": "7e0f132b552e759cdb9609ae18c126115effc6b76ff9885ba0b77d94e5b0efc6",
+      "portableBundleHash": "0957ef2888d0be61d87ba6897e7087038540ccef92fc8b9cffff959c7e103ab5",
+      "bundleVersion": "0.3.259",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
       "serviceContractVersion": "openmeld-service-contract-2026-09-project-work-v1",
       "updatePolicy": "available",
-      "reason": "Verifies ACP native sessions and preserves the native profile without changing Wake or reporting payloads."
+      "reason": "Declares Antigravity context permission inheritance; older Services reject new context work with update guidance."
     },
     "skills": {
       "bundleHash": "0507d367ef298936053223f81441697545949fbf4d39b1b306872f7c254a4871",

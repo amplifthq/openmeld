@@ -4008,11 +4008,11 @@ withSpaceProfileOption(
     .description("Send one message to a Space.")
     .option(
       "--new-task",
-      `Start an independent task (up to ${AGENT_PROFILE_WORK_CONCURRENCY_LIMIT} per Agent)`
+      `Start an independent task with Codex, Claude Code, or official Antigravity ACP (up to ${AGENT_PROFILE_WORK_CONCURRENCY_LIMIT} per Agent)`
     )
     .option(
       "--fork-from <signal-id>",
-      "Fork the selected Agent's completed task at this message"
+      "Fork a Codex or Claude Code completed task at this message"
     )
     .option(
       "--continue-from <signal-id>",
@@ -4810,11 +4810,11 @@ program
   .description("Alias for `openmeld space send`.")
   .option(
     "--new-task",
-    `Start an independent task (up to ${AGENT_PROFILE_WORK_CONCURRENCY_LIMIT} per Agent)`
+    `Start an independent task with Codex, Claude Code, or official Antigravity ACP (up to ${AGENT_PROFILE_WORK_CONCURRENCY_LIMIT} per Agent)`
   )
   .option(
     "--fork-from <signal-id>",
-    "Fork the selected Agent's completed task at this message"
+    "Fork a Codex or Claude Code completed task at this message"
   )
   .option(
     "--continue-from <signal-id>",

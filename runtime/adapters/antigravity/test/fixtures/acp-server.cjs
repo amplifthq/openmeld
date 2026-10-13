@@ -62,6 +62,13 @@ const finish = () => {
           : { id, result: {} }
       );
     } else if (method === "session/new" || method === "session/resume") {
+      if (scenario === "context-missing" && method === "session/resume") {
+        send({
+          id,
+          error: { code: -32_602, message: "Session was not found" },
+        });
+        continue;
+      }
       if (scenario === "auth") {
         send({
           id,

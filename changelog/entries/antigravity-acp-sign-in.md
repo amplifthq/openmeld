@@ -1,6 +1,6 @@
 ---
 id: antigravity-acp-sign-in
-title: Sign in to Antigravity ACP and verify its status
+title: Sign in to Antigravity ACP and run independent tasks
 kind: improved
 areas: ["agents", "cli"]
 audiences: ["users"]
@@ -13,3 +13,7 @@ use the saved sign-in. Account checks and agent runs do not open login windows.
 Computer details show a sign-in command when it is needed. The legacy CLI shows
 Installed when its account cannot be checked. Subscription usage remains
 unavailable.
+
+Start and continue independent Antigravity ACP tasks from the Web Session menu
+or CLI. Tasks keep Agent permissions and can use a separate working copy.
+Unsupported history forks and additional file access limits are not offered.

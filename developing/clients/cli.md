@@ -638,6 +638,13 @@ All ACP paths use the same native file credential store and suppress automatic
 browser launches. Signing in through a standalone client's Keychain store does
 not establish this file-store sign-in. Subscription usage remains unsupported.
 
+Space `--new-task` and `--continue-from` support official Antigravity ACP.
+Omit `--task-access` to retain Agent settings; extra access limits and
+`--fork-from` are not supported for Antigravity. `--task-workspace isolated`
+selects a managed working copy, not a filesystem sandbox. A legacy installation
+must be replaced by the selected official ACP installation before independent
+work can run. Agent delegation uses the same checks as human requests.
+
 ACI evidence is local controller evidence only. The CLI must not treat a healthy
 ACI snapshot as final Agent Profile Wakeability, and it must not hide unknown
 controller facts behind success copy. `Available` remains the Core-owned

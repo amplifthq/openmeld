@@ -402,7 +402,8 @@ export async function prepareExecutionContextAssignment(
     implicitRequest &&
     !supportsContextAccess(
       snapshot.controllerSnapshot.agentControllerRef,
-      "space_context"
+      "workspace",
+      "agent_settings"
     )
   ) {
     // An unsupported harness keeps its existing Binding conversation. Do not
@@ -412,6 +413,14 @@ export async function prepareExecutionContextAssignment(
       "execution_context.harness_unsupported_after_activation"
     );
     return { record: input.record, writes: {} };
+  }
+  if (
+    snapshot.controllerSnapshot.agentControllerRef === "builtin:antigravity" &&
+    request.selection.mode === "fork"
+  ) {
+    throw new ExecutionContextSelectionError(
+      "execution_context.fork_unsupported"
+    );
   }
   const source = await resolveContextSource(input, request);
   if (source) {
@@ -712,7 +721,9 @@ function createContext(
   const inheritsAgentSettings =
     (snapshot.controllerSnapshot.agentControllerRef === "builtin:codex" ||
       snapshot.controllerSnapshot.agentControllerRef ===
-        "builtin:claude-code") &&
+        "builtin:claude-code" ||
+      snapshot.controllerSnapshot.agentControllerRef ===
+        "builtin:antigravity") &&
     selection.mode !== "resume" &&
     !selection.access &&
     (selection.mode === "new" ||
@@ -775,10 +786,14 @@ function createContext(
 
 function supportsContextAccess(
   agentControllerRef: string,
-  access: ExecutionContextAssignment["access"]
+  access: ExecutionContextAssignment["access"],
+  permissionSource?: ExecutionContextAssignment["permissionSource"]
 ): boolean {
   return (
     agentControllerRef === "builtin:codex" ||
+    (agentControllerRef === "builtin:antigravity" &&
+      access === "workspace" &&
+      permissionSource === "agent_settings") ||
     (agentControllerRef === "builtin:claude-code" &&
       (access === "space_context" || access === "workspace"))
   );
@@ -801,7 +816,13 @@ function assertContextPreferences(
   createsContext: boolean
 ): void {
   const assignment = context.assignment;
-  if (!supportsContextAccess(context.agentControllerRef, assignment.access)) {
+  if (
+    !supportsContextAccess(
+      context.agentControllerRef,
+      assignment.access,
+      assignment.permissionSource
+    )
+  ) {
     throw new ExecutionContextSelectionError(
       "execution_context.controller_access_unsupported"
     );
