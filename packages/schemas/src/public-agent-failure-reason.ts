@@ -1954,6 +1954,30 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: "computer",
     },
     {
+      body: "Select the official Antigravity ACP installation and sign in on this computer, then start a new task. The legacy Antigravity CLI cannot run independent tasks.",
+      kind: "local_agent_prepare",
+      patterns: ["=execution_context.antigravity_acp_required"],
+      primaryActionId: "manage_local_agent",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "computer",
+    },
+    {
+      body: "This Agent cannot apply the selected task access limits. Start a new task using Agent settings, or choose an Agent that supports these limits.",
+      kind: "local_agent_prepare",
+      patterns: ["=execution_context.controller_access_unsupported"],
+      primaryActionId: "review_agent_settings",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "computer",
+    },
+    {
+      body: "This Agent cannot fork task history. Continue the original task, or start a new task with no previous history.",
+      kind: "local_agent_prepare",
+      patterns: ["=execution_context.fork_unsupported"],
+      primaryActionId: "review_agent_settings",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "computer",
+    },
+    {
       body: "This independent project task needs a connected Git repository with at least one commit. Choose that repository's root as the Agent's working folder, then start a new task.",
       kind: "local_agent_prepare",
       patterns: [

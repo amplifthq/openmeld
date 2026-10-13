@@ -12,6 +12,7 @@ import {
 } from "@openmeld/space";
 
 export type CliSpaceAddressingTarget = {
+  agentControllerRef?: string | null;
   primaryMentionLabel: string;
   profileId: string;
   relation: MessageMentionType;
@@ -148,6 +149,7 @@ function resolveRequestedRecipients(
     });
     prefix += `${text} `;
     resolvedAddressingTargets.push({
+      agentControllerRef: target.agentControllerRef,
       primaryMentionLabel: label,
       profileId,
       relation: request.relation,

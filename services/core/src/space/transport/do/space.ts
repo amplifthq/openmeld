@@ -625,6 +625,7 @@ import { authorizeSpacePublicationModeChange } from "../../application/space-pub
 import { measureSpaceSchemaInitialization } from "../../application/space-schema-observability";
 import { assertSameSpaceSignalReplay } from "../../application/space-signal-idempotency";
 import {
+  assertSpaceContextSelectionSupported,
   assertSpaceSignalNavigationActionPolicy,
   assertWakeDeviceWaitAuthoring,
   buildSignalTextOptions,
@@ -26266,6 +26267,12 @@ export class Space extends DurableObject<CoreBindings> {
         resolveFiles: (files) => this.resolveSpaceMessageFileReferences(files),
       });
     }
+    assertSpaceContextSelectionSupported({
+      signal,
+      readControllerRef: (profileId) =>
+        readSpaceMemberRecord(this.ctx.storage.sql, profileId)
+          ?.controllerRefSnapshot,
+    });
     if (
       signal.type === "signal.text" &&
       signal.data.meta?.centerAgentExecutionInput

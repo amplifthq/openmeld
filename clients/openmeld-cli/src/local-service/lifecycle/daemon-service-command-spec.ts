@@ -48,6 +48,9 @@ const DISPATCH_SPACE_ACTION_PATH_PATTERN =
   /[\\/]runtime[\\/]daemon[\\/]dispatch-space-actions[\\/][^\\/]+[\\/]bin$/u;
 const DAEMON_SERVICE_ENV_KEY_WHITELIST = new Set([
   "HOME",
+  // Antigravity's native profile must match explicit CLI sign-in after the
+  // Service moves from the setup shell to launchd/systemd/Task Scheduler.
+  "GEMINI_HOME",
   "PATH",
   "SHELL",
   "TERM",

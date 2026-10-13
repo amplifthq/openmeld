@@ -1,7 +1,9 @@
 import {
   buildSpaceFileEntryIdForMutation,
   buildSpaceFileRevisionIdForMutation,
+  decodeSpaceFileText,
   isSpaceFileTextEditable,
+  isSpaceFileTextReadable,
   listFileRootResponseSchema,
   remoteAgentListTeamFilesRpcInputSchema,
   remoteAgentReadTeamFileResponseSchema,
@@ -155,7 +157,8 @@ export async function rpcRemoteAgentReadTeamFile(
     ...(request.revision === undefined ? {} : { revision: request.revision }),
   });
   if (
-    !isSpaceFileTextEditable({
+    !isSpaceFileTextReadable({
+      fileName: resolved.file.name,
       mimeType: resolved.revision.mimeType,
       sizeBytes: resolved.revision.sizeBytes,
     })
@@ -199,10 +202,7 @@ export async function rpcRemoteAgentReadTeamFile(
   }
   let content: string;
   try {
-    content = new TextDecoder("utf-8", {
-      fatal: true,
-      ignoreBOM: false,
-    }).decode(bytes);
+    content = decodeSpaceFileText(bytes);
   } catch {
     await target.stub.recordContentAudit({
       context: target.context,

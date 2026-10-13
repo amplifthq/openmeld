@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { productionReleaseEvidenceSchema } from "../../packages/schemas/src/schemas/release/production-release-evidence.ts";
 import { productionReleaseScopeSchema } from "../../packages/schemas/src/schemas/release/production-scope-lease.ts";
 import {
@@ -129,7 +130,12 @@ function prepareEvidenceProof(context, current, metadata, input) {
   ) {
     proofSha = current?.reconciliationProofSha;
   }
-  if (metadata.receipt?.identity?.proof === "reconciled-hosted" && !proofSha) {
+  if (
+    ["reconciled-hosted", "reconciled-secret-addition"].includes(
+      metadata.receipt?.identity?.proof
+    ) &&
+    !proofSha
+  ) {
     throw new Error(
       "Reconciled identity requires its retained hosted provenance."
     );
@@ -293,6 +299,34 @@ function createReconciliationProofMetadata(
   metadata,
   reconciliation
 ) {
+  if (reconciliation.kind === "reconciled-core-secret-addition") {
+    if (
+      metadata.schemaVersion !== 3 ||
+      metadata.scope !== "core" ||
+      metadata.receipt.status !== "applied" ||
+      current?.metadata.receipt?.status !== "verified" ||
+      current.evidenceSha !== reconciliation.supersededReceipt.evidenceSha ||
+      current.metadata.sourceSha !== metadata.sourceSha ||
+      !isDeepStrictEqual(
+        current.metadata.receipt.identity,
+        reconciliation.baselineIdentity
+      ) ||
+      metadata.receipt.attemptId === current.metadata.receipt.attemptId ||
+      Date.parse(current.metadata.recordedAt) >=
+        Date.parse(reconciliation.deployedAt) ||
+      Date.parse(metadata.receipt.startedAt) <
+        Date.parse(reconciliation.deployedAt)
+    ) {
+      throw new Error(
+        "Secret reconciliation must retain the exact verified predecessor and start a new evidence-only attempt."
+      );
+    }
+    return productionReleaseEvidenceSchema.parse({
+      ...metadata,
+      schemaVersion: 7,
+      reconciliation,
+    });
+  }
   if (reconciliation.kind === "reconciled-postgresql-rollback") {
     const proof = productionReleaseEvidenceSchema.parse({
       ...metadata,
@@ -423,7 +457,11 @@ function readReconciliationProof(context, evidenceSha, metadata) {
     .stdout.trim()
     .split(WHITESPACE_PATTERN);
   if (parents.length < 3) {
-    if (metadata.receipt?.identity?.proof === "reconciled-hosted") {
+    if (
+      ["reconciled-hosted", "reconciled-secret-addition"].includes(
+        metadata.receipt?.identity?.proof
+      )
+    ) {
       throw new Error("Reconciled identity is missing its hosted provenance.");
     }
     return {};
@@ -436,8 +474,12 @@ function readReconciliationProof(context, evidenceSha, metadata) {
     proofSha,
   ]).stdout.trim();
   const raw = JSON.parse(message);
-  if (![5, 6].includes(raw.schemaVersion)) {
-    if (metadata.receipt?.identity?.proof === "reconciled-hosted") {
+  if (![5, 6, 7].includes(raw.schemaVersion)) {
+    if (
+      ["reconciled-hosted", "reconciled-secret-addition"].includes(
+        metadata.receipt?.identity?.proof
+      )
+    ) {
       throw new Error("Reconciled identity has the wrong provenance schema.");
     }
     return {};
@@ -457,7 +499,7 @@ function readReconciliationProof(context, evidenceSha, metadata) {
         "rev-parse",
         `${metadata.sourceSha}^{tree}`,
       ]).stdout.trim() ||
-    (proof.schemaVersion === 5 &&
+    ([5, 7].includes(proof.schemaVersion) &&
       JSON.stringify(proof.receipt.identity) !==
         JSON.stringify(metadata.receipt?.identity))
   ) {

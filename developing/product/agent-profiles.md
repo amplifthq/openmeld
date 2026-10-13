@@ -1250,6 +1250,15 @@ or `--fork-from <signal-id>` with one explicit `--wake` target. Source selection
 never copies permissions, active work, or publication authority. Multiple retained
 branches in the same discussion require an explicit source choice.
 
+Official Antigravity ACP supports new and continued Execution Contexts using
+Agent settings, including managed working copies. It does not support history
+forks or extra `space_context`, `read_only`, or bounded `workspace` restrictions.
+The Web Session menu exposes only supported operations and Access offers only
+Use agent settings. A new session separates conversation history, not filesystem
+permissions. Current-folder writers retain the shared writer lock. The legacy
+`agy` installation fails independent work with official ACP setup guidance.
+A lost native session fails continuation; it must not silently start fresh.
+
 Connected harnesses without Execution Context support retain their ordinary
 thread Wake behavior: work for one Profile remains serial through its existing
 Binding. Explicit task/context selections fail visibly until the harness supports
