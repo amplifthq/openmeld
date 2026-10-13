@@ -39,6 +39,7 @@ export type OpenMeldBridge = {
   openExternal(url: string): Promise<void>;
   getDesktopSettings(): Promise<DesktopSettingsView>;
   setOpenAtLogin(enabled: boolean): Promise<DesktopSettingsView>;
+  setStartInBackground(enabled: boolean): Promise<DesktopSettingsView>;
   /** Checks whether this Desktop build should prompt the user to update. */
   getDesktopUpdateStatus(): Promise<DesktopUpdateView>;
   /** Opens the public Desktop download page in the default browser. */
@@ -92,6 +93,7 @@ export const OPENMELD_IPC = {
   openExternal: "openmeld:open-external",
   getDesktopSettings: "openmeld:get-desktop-settings",
   setOpenAtLogin: "openmeld:set-open-at-login",
+  setStartInBackground: "openmeld:set-start-in-background",
   getDesktopUpdateStatus: "openmeld:get-desktop-update-status",
   openDesktopDownloadPage: "openmeld:open-desktop-download-page",
   openNodeDownloadPage: "openmeld:open-node-download-page",

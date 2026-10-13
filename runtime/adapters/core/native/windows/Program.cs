@@ -44,6 +44,10 @@ static class Program {
         Console.Write(OpenMeldProcessJobV1.ReadIdentity(pid));
         return 0;
       }
+      if (operation == "prevent-idle-sleep") {
+        phase = "prevent_idle_sleep";
+        return IdleSleep.Run();
+      }
       string name = Text(request, "jobName");
       const string prefix = "Local\\OpenMeld-Process-";
       if (!name.StartsWith(prefix, StringComparison.Ordinal) ||

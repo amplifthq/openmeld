@@ -90,6 +90,7 @@ export type {
   ReadComputerFileAccessPolicyInput,
   UpdateComputerFileAccessPolicyInput,
 } from "./computer-file-access/types";
+export { createComputerPowerApi } from "./computer-power";
 export { createConfigApi, getModelCatalog } from "./config/api";
 export { buildModelCatalogPath } from "./config/routes";
 export type { ConfigApi, CreateConfigApi } from "./config/types";

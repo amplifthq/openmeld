@@ -3,6 +3,74 @@ import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import { buildSpaceGraphPresentation } from "./space-graph-presentation";
 
 describe("buildSpaceGraphPresentation", () => {
+	it("adds only declared readable delegation edges between recorded messages", () => {
+		const source = buildTimelineItem({
+			id: "origin",
+			text: "Analyze this change.",
+		});
+		const childSource = buildTimelineItem({
+			id: "child-source",
+			text: "Review the pinned revision.",
+		});
+		const declaredChild = {
+			key: "child",
+			availability: "readable" as const,
+			coordinationState: "active" as const,
+			role: "primary" as const,
+			spaceId: "space",
+			sourceSignalId: "child-source",
+			resultSignalId: null,
+			targetProfileId: "reviewer",
+			targetLabel: "Reviewer",
+			taskPreview: null,
+			progress: null,
+			outcome: null,
+		};
+		const graph = buildSpaceGraphPresentation({
+			spaceId: "space",
+			profileNamesById: new Map(),
+			timelineItems: [source, childSource],
+			delegationsBySourceSignalId: new Map([
+				[
+					"origin",
+					{
+						nextCursor: null,
+						groups: [
+							{
+								delegationId: "delegation",
+								coordinatorProfileId: "center",
+								completionPolicy: { mode: "child_reports_directly" },
+								children: [
+									declaredChild,
+									{ ...declaredChild, key: "duplicate" },
+									{
+										...declaredChild,
+										key: "hidden",
+										availability: "unavailable",
+									},
+									{
+										...declaredChild,
+										key: "unloaded",
+										sourceSignalId: "not-loaded",
+									},
+								],
+							},
+						],
+					},
+				],
+			]),
+		});
+		expect(graph.edges).toEqual([
+			{
+				id: "delegation:origin:child-source",
+				kind: "delegation",
+				source: "message:origin",
+				target: "message:child-source",
+			},
+		]);
+		expect(graph.nodes).toHaveLength(2);
+	});
+
 	it("projects ordinary messages and reply relationships without inventing work", () => {
 		const source = buildTimelineItem({
 			actorName: "Felix",
@@ -274,16 +342,31 @@ describe("buildSpaceGraphPresentation", () => {
 		);
 	});
 
-	it("updates an active Wake card from live progress", () => {
+	it.each([
+		false,
+		true,
+	])("updates an active Wake card from current progress over an older stream (pending input: %s)", (needsInput) => {
 		const source = buildTimelineItem({
 			actorProfileKind: "human",
 			id: "message-source",
 			wakeTargetProfileIds: ["profile-codex"],
 		});
 
+		const stream = buildTimelineItem({
+			id: "stream-codex",
+			actorProfileId: "profile-codex",
+			replyToSignalId: source.id,
+			wakeSourceSignalId: source.id,
+			agentStreamState: {
+				reasonCode: null,
+				sequence: 1,
+				status: "streaming",
+				streamId: "stream-codex",
+			},
+		});
 		const graph = buildSpaceGraphPresentation({
 			profileNamesById: new Map([["profile-codex", "Codex"]]),
-			timelineItems: [source],
+			timelineItems: [source, stream],
 			wakeProgressItems: [
 				{
 					clientMessageId: null,
@@ -295,6 +378,16 @@ describe("buildSpaceGraphPresentation", () => {
 					targetProfileId: "profile-codex",
 					terminal: false,
 					updatedAtMs: 2,
+					pendingInteraction: needsInput
+						? {
+								interactionId: "question",
+								kind: "question",
+								requestedAtMs: 1,
+								expiresAtMs: 100,
+								canRespond: false,
+								request: null,
+							}
+						: null,
 				},
 			],
 		});
@@ -302,7 +395,7 @@ describe("buildSpaceGraphPresentation", () => {
 		expect(graph.nodes).toContainEqual(
 			expect.objectContaining({
 				id: "wake:message-source:profile-codex",
-				status: "working",
+				status: needsInput ? "needs_input" : "working",
 			})
 		);
 	});

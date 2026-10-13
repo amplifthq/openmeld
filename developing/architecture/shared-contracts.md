@@ -25,6 +25,21 @@
 - Source of truth: This file owns the durable boundary for shared OpenMeld contracts
   and reusable policy.
 
+## Message Details delegation opt-in
+
+Message Details accepts optional `delegationVersion: 1` and an opaque
+`delegationCursor`. Only an opted-in response includes `delegations`; its
+children reuse Wake progress, frozen task-context, terminal-outcome, and
+completion-policy schemas. A page has at most ten declared groups. Unreadable
+children cannot carry content, input, or source/result locators.
+
+Older callers receive the unchanged response shape. Older Gateway/Core code
+ignores the new reader opt-in and the new Web accepts an absent projection.
+Update Web and Gateway readers before Core emits the opted-in field. CLI,
+Service, managed Skills, setup, Wake admission, Space mutations, Stop,
+result recovery, and trace contracts are unchanged. No local-component epoch
+or required update is introduced by this read projection.
+
 ## Bounded message reads
 
 `messageReadQuerySchema` and `messageReadPageSchema` own the new

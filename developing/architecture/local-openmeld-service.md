@@ -3867,3 +3867,32 @@ Do not resume, inject, index, or
 copy source transcripts. Core owns caller authentication and verified human
 provenance; local Service enforces owner, reader, Project, and policy scope.
 This capability does not change Wake execution ownership or readiness.
+
+## Computer sleep prevention
+
+Computer power settings belong to the local Service execution host. The
+`computer-power.json` file in the Service data root is the only saved preference.
+It defaults off. The Desktop Personal > Desktop page and the selected Local
+Computer page use the same owner-authorized, explicit device/lane API and UI.
+They never save another preference in Desktop, the browser, or an Agent Profile.
+Writes carry the last observed revision; stale writes fail rather than overwrite.
+Disconnected and unsupported Services are unavailable, not unchecked.
+
+The execution host reconciles the preference with the canonical active execution
+slot count after ownership changes, including release. Queued tasks, observed
+external sessions, remote tasks, and an idle Service do not acquire a request.
+The last active local task ending, disabling the setting, or Service shutdown
+releases it. Cloud socket replacement and Desktop exit do not own the request.
+macOS uses `/usr/bin/caffeinate -i -w <host-pid>`; Windows uses the bundled native
+helper with `ES_CONTINUOUS | ES_SYSTEM_REQUIRED` on one thread until the
+Service-owned input pipe closes. Neither requests display wakefulness or changes
+system power settings. Forced sleep, closing the lid, low battery, and shutdown
+remain operating-system decisions. Linux reports unsupported in this version.
+
+The `x-openmeld-computer-power: 1` handshake negotiates the capability without
+adding unknown fields to older strict registration payloads. Core validates the
+human owner and selected Computer, and the transport resolves the latest exact
+owner/device/lane session. The execution host checks the device again. Read
+responses include saved preference, actual held-request state, and a problem
+when acquisition fails. Both UI entries refresh every five seconds and on focus;
+mutations update the shared account/device/lane query immediately after confirmation.

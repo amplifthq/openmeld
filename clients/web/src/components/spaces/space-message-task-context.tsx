@@ -177,7 +177,7 @@ export function SpaceMessageTaskContext(input: {
 	);
 }
 
-function taskAccessLabel(task: WakeTarget["taskContext"]): string {
+export function taskAccessLabel(task: WakeTarget["taskContext"]): string {
 	const assignment = task?.assignment;
 	if (assignment?.readStatus !== "found") {
 		return "Task context unavailable";

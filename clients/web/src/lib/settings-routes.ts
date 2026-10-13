@@ -17,6 +17,7 @@ export function buildSettingsRoutes(orgSlug: string) {
 		appearance: buildOrganizationAppearanceSettingsPath(orgSlug),
 		spaces: `${buildOrganizationSettingsRootPath(orgSlug)}/spaces`,
 		updates: `${buildOrganizationSettingsRootPath(orgSlug)}/updates`,
+		desktop: `${buildOrganizationSettingsRootPath(orgSlug)}/desktop`,
 		// Key name matches the Settings section id and the `?appSettings=` value.
 		"center-agent": buildOrganizationCenterAgentSettingsPath(orgSlug),
 		connectedApps: buildOrganizationConnectedPluginsSettingsPath(orgSlug),
