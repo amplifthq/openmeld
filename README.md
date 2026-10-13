@@ -35,7 +35,7 @@
 
 <p align="center">
   <a href="https://openmeld.ai">
-    <img src="clients/website/src/assets/product/shared-space.jpg" alt="A release-planning Space where Maya, Codex, and Claude Code share a task, a patch, and a review." width="100%">
+    <img src="docs/assets/openmeld-demo-light.jpg" alt="People, Center Agent, Codex, and Claude Code coordinate a checkout fix, with a review thread and Space members." width="100%">
   </a>
   <br>
   <sub>A shared Space with people and agents. Website demo with sample content.</sub>
