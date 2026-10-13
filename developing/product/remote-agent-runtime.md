@@ -62,6 +62,12 @@ advances. Replays require the original page budget and current access.
 Concurrent checkpoint updates use conditional storage writes.
 
 Named GitHub writes carry their declared effect into operation admission.
+Every named write accepts the shared confirmation token, including operations
+whose trusted catalog effect is stricter than their static description. The
+catalog and the explicit destructive safety floor decide execution policy;
+descriptions do not promise that confirmation can be skipped. Confirmation
+keeps the same operation ID, account, target and input through Code Mode input
+validation. A token binds an action; it is not human authorization.
 An issue destination that requires Inbox confirmation returns
 `awaiting_confirmation` with the existing operation ID. It has not reached
 GitHub. Only a pending request has this status; rejected, expired or unavailable
@@ -372,7 +378,11 @@ does.
 For ordinary native Git work, use `computer_git_connection` with the explicitly
 selected requester or Organization Plugin account, then run `git clone` or
 `git fetch` through the Computer's container command engine. The tool returns a
-temporary repository URL scoped to this Computer and execution. It does not
+stable `repositoryUrl` and per-command `gitArguments` that map that exact URL to
+a temporary transport scoped to this Computer and execution. Clone the stable
+URL with those arguments so Git retains only stable repository identity.
+Never persist the transport rewrite in repository or global Git configuration.
+The legacy `url` field remains readable for existing callers. It does not
 download files or install credentials. The Workspace proxy routes Git's HTTP
 exchanges through the existing Plugin transport, which rechecks current access
 and keeps provider credentials inside OpenConnector. Public Git and accounts
@@ -381,7 +391,10 @@ configured independently inside the Computer need no Plugin transport.
 Native Git preserves upstream history and uses Git's normal transfer protocol.
 The Plugin transport supports reads; existing GitHub write actions remain the
 publication interface. A later execution requests a fresh connection before a
-fetch. The persistent repository remains on the user's Computer.
+fetch. For an older checkout whose origin is a temporary internal URL for the
+same verified repository, change only that origin to the stable URL. Do not
+reset files or move branches. The persistent repository remains on the user's
+Computer; neither refreshing a read grant nor an HTTP 403 authorizes Git push.
 
 Prefer reuse of a verified existing repository before cloning. The suggested
 layout is `/computer/projects/<organization-id>/<project-id>/repo` plus adjacent
@@ -685,6 +698,14 @@ retain their existing alarm cadence. The index adds a write cost to eligible
 receipt updates and an initial build on existing storage; it is not a separate
 queue or execution state.
 Normal model completion only observes these receipts. A paused collection,
+bounded tool observation timeout, or an unavailable observation is not proof
+of command failure. A start/poll observation timeout returns the saved command
+reference, phase, output and preparation checkpoint with an explicit
+`observation.status=timed_out`. These are last-confirmed facts, not fresh
+liveness. It does not reset collection budgets, clear admission, authorize
+replay, or trigger another poll inside the same call. Stop failures still
+require explicit failure reporting rather than a claimed acknowledgement.
+A paused collection,
 expired observation, or unavailable result can produce a reviewed explanation
 of the incomplete task, but cannot create a Stop request. Once that explanation
 has been reviewed, a new observation must not block its publication. The final

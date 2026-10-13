@@ -1,6 +1,7 @@
 import {
   remoteAgentExecutionScopeKey,
   remoteAgentGitCheckoutInputSchema,
+  remoteAgentGitConnectionResultSchema,
   remoteAgentGitTransferGrantSchema,
 } from "@openmeld/schemas";
 import { digestCanonicalJson } from "@openmeld/utils";
@@ -33,7 +34,7 @@ export function createComputerGitConnectionTool(input: {
   return {
     name: "computer_git_connection",
     description:
-      "Use an existing GitHub Plugin connection with native Git in your Linux Computer. Select owner, repo and githubActor (organization or requester), and reuse a stable key. Returns a temporary repository URL for ordinary git clone or git fetch; credentials stay at the provider. Run and poll the Git command with computer. No files are downloaded by this tool. Renew with the same inputs if the URL expires. Public repositories and Git authenticated independently inside the Computer need no Plugin connection. This transport supports reading Git history; use existing GitHub write tools for publication. Do not use the legacy snapshot checkout for a new native checkout.",
+      "Use an existing GitHub Plugin connection with native Git in your Linux Computer. Select owner, repo and githubActor (organization or requester), and reuse a stable key. Returns repositoryUrl (the stable GitHub identity) and gitArguments (temporary transport configuration for one Git command). Obtain a current connection before clone/fetch, including when reusing a repository in a later turn. Insert gitArguments immediately after git, then clone or fetch repositoryUrl. Never clone the temporary url or save gitArguments in Git configuration. Credentials stay at the provider. Run and poll the command with computer. No files are downloaded by this tool. Public repositories and independently authenticated Git need no Plugin connection. This transport reads Git history; use GitHub write tools for publication.",
     input: strictObject({
       key: string(),
       owner: string(),
@@ -104,14 +105,18 @@ export function createComputerGitConnectionTool(input: {
           },
         })
       );
-      return {
-        url: `http://computer.internal/${operationId}/${request.owner}/${request.repo}.git`,
+      const repositoryUrl = `https://github.com/${request.owner}/${request.repo}.git`;
+      const url = `http://computer.internal/${operationId}/${request.owner}/${request.repo}.git`;
+      return remoteAgentGitConnectionResultSchema.parse({
+        url,
+        repositoryUrl,
+        gitArguments: ["-c", `url.${url}.insteadOf=${repositoryUrl}`],
         expiresAtMs,
         backend: "container",
         connectionScope: connection.scope,
         nextAction:
-          "Run git clone <url> <directory>, or git -C <directory> fetch <url>, with computer action=command and backend=container. Preserve the command key for poll, stop and recovery. This URL works only inside this Computer and while this execution and connection remain authorized.",
-      };
+          "Run git <gitArguments> clone <repositoryUrl> <directory>, or git <gitArguments> -C <directory> fetch <repositoryUrl>, with computer action=command and backend=container. Pass each argument separately or shell-quote it. The clone stores repositoryUrl; temporary transport exists only for this command. For an older checkout, inspect its origin; if it is a computer.internal URL for this exact owner/repository, replace only that origin URL with repositoryUrl before fetching. Do not change branches, reset files, or change another repository's origin. Preserve the command key for poll and recovery. An unavailable transfer grant requires a current computer_git_connection call, not another GitHub login or a repeated write. This transport never authorizes push.",
+      });
     },
   };
 }
