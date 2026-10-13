@@ -59,6 +59,7 @@ describe("registerOpenMeldIpcHandlers", () => {
         openWeb: vi.fn(),
         openExternal: vi.fn(),
         getDesktopSettings: vi.fn(),
+        setStartInBackground: vi.fn(),
         setOpenAtLogin: vi.fn(),
         getDesktopUpdateStatus: vi.fn(),
         openDesktopDownloadPage: vi.fn(),
@@ -102,6 +103,7 @@ describe("registerOpenMeldIpcHandlers", () => {
         setAgentEnabled: vi.fn(),
         openWeb: vi.fn(),
         getDesktopSettings: vi.fn(),
+        setStartInBackground: vi.fn(),
         setOpenAtLogin: vi.fn(),
         getDesktopUpdateStatus: vi.fn(),
         openDesktopDownloadPage: vi.fn(),
@@ -153,6 +155,7 @@ describe("registerOpenMeldIpcHandlers", () => {
         setAgentEnabled: vi.fn(),
         openWeb: vi.fn(),
         getDesktopSettings: vi.fn(),
+        setStartInBackground: vi.fn(),
         setOpenAtLogin: vi.fn(),
         getDesktopUpdateStatus: vi.fn(),
         openDesktopDownloadPage: vi.fn(),
@@ -194,6 +197,7 @@ describe("registerOpenMeldIpcHandlers", () => {
         setAgentEnabled: vi.fn(),
         openWeb,
         getDesktopSettings: vi.fn(),
+        setStartInBackground: vi.fn(),
         setOpenAtLogin: vi.fn(),
         getDesktopUpdateStatus: vi.fn(),
         openDesktopDownloadPage: vi.fn(),
@@ -246,6 +250,7 @@ describe("registerOpenMeldIpcHandlers", () => {
         openWeb: vi.fn(),
         openExternal,
         getDesktopSettings: vi.fn(),
+        setStartInBackground: vi.fn(),
         setOpenAtLogin: vi.fn(),
         getDesktopUpdateStatus: vi.fn(),
         openDesktopDownloadPage: vi.fn(),
@@ -306,6 +311,7 @@ describe("registerOpenMeldIpcHandlers", () => {
         setAgentEnabled: vi.fn(),
         openWeb: vi.fn(),
         getDesktopSettings: vi.fn(),
+        setStartInBackground: vi.fn(),
         setOpenAtLogin: vi.fn(),
         getDesktopUpdateStatus,
         openDesktopDownloadPage,
@@ -352,6 +358,7 @@ describe("registerOpenMeldIpcHandlers", () => {
         setAgentEnabled,
         openWeb: vi.fn(),
         getDesktopSettings: vi.fn(),
+        setStartInBackground: vi.fn(),
         setOpenAtLogin: vi.fn(),
         getDesktopUpdateStatus: vi.fn(),
         openDesktopDownloadPage: vi.fn(),
@@ -407,6 +414,7 @@ describe("registerOpenMeldIpcHandlers", () => {
         setAgentEnabled,
         openWeb: vi.fn(),
         getDesktopSettings: vi.fn(),
+        setStartInBackground: vi.fn(),
         setOpenAtLogin: vi.fn(),
         getDesktopUpdateStatus: vi.fn(),
         openDesktopDownloadPage: vi.fn(),
@@ -430,7 +438,10 @@ describe("registerOpenMeldIpcHandlers", () => {
     expect(setAgentEnabled).toHaveBeenCalledWith("codex", true);
   });
 
-  it("fails closed on malformed open-at-login payloads", async () => {
+  it.each([
+    OPENMELD_IPC.setOpenAtLogin,
+    OPENMELD_IPC.setStartInBackground,
+  ])("fails closed on malformed startup payloads for %s", async (startupChannel) => {
     const { registerOpenMeldIpcHandlers } = await import(
       "../src/main/register-ipc"
     );
@@ -454,6 +465,7 @@ describe("registerOpenMeldIpcHandlers", () => {
         setAgentEnabled: vi.fn(),
         openWeb: vi.fn(),
         getDesktopSettings: vi.fn(),
+        setStartInBackground: vi.fn(),
         setOpenAtLogin,
         getDesktopUpdateStatus: vi.fn(),
         openDesktopDownloadPage: vi.fn(),
@@ -463,15 +475,13 @@ describe("registerOpenMeldIpcHandlers", () => {
     );
 
     const settingsHandler = handle.mock.calls.find(
-      ([channel]) => channel === OPENMELD_IPC.setOpenAtLogin
+      ([channel]) => channel === startupChannel
     )?.[1] as
       | ((_event: unknown, enabled: unknown) => Promise<unknown>)
       | undefined;
 
     expect(settingsHandler).toBeDefined();
-    expect(() => settingsHandler?.({}, "true")).toThrow(
-      "enabled must be a boolean"
-    );
+    expect(() => settingsHandler?.({}, "true")).toThrow();
     expect(setOpenAtLogin).not.toHaveBeenCalled();
   });
 
@@ -499,6 +509,7 @@ describe("registerOpenMeldIpcHandlers", () => {
         setAgentEnabled: vi.fn(),
         openWeb: vi.fn(),
         getDesktopSettings: vi.fn(),
+        setStartInBackground: vi.fn(),
         setOpenAtLogin: vi.fn(),
         getDesktopUpdateStatus: vi.fn(),
         openDesktopDownloadPage: vi.fn(),
@@ -555,6 +566,7 @@ describe("registerOpenMeldIpcHandlers", () => {
         setAgentEnabled: vi.fn(),
         openWeb: vi.fn(),
         getDesktopSettings: vi.fn(),
+        setStartInBackground: vi.fn(),
         setOpenAtLogin: vi.fn(),
         getDesktopUpdateStatus: vi.fn(),
         openDesktopDownloadPage: vi.fn(),

@@ -6,6 +6,14 @@ import {
 import { desktopWindowsBuildSchema } from "./desktop-release";
 import { peopleComputerTargetSchema } from "./schemas/http/people-computers";
 
+export const desktopSettingsViewSchema = z.strictObject({
+  openAtLogin: z.boolean().nullable(),
+  startInBackground: z.boolean().nullable(),
+  problem: z.strictObject({ code: z.string(), message: z.string() }).nullable(),
+});
+export type DesktopSettingsView = z.infer<typeof desktopSettingsViewSchema>;
+export const desktopStartupToggleSchema = z.boolean();
+
 export const desktopLocalComputerSchema = z.discriminatedUnion("status", [
   z.strictObject({
     status: z.literal("available"),
