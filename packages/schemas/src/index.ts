@@ -158,6 +158,17 @@ export {
   computerConnectionProgressPhaseSchema,
 } from "./computer-connection-progress";
 export {
+  COMPUTER_POWER_CAPABILITY_HEADER,
+  computerPowerRequestFrameSchema,
+  computerPowerRequestSchema,
+  computerPowerResultFrameSchema,
+  computerPowerResultSchema,
+  computerPowerRpcInputSchema,
+  computerPowerStateSchema,
+  computerPowerTargetSchema,
+  computerPowerTransportSchema,
+} from "./computer-power";
+export {
   type DeleteConversationForMeInput,
   type DeleteConversationForMeResponse,
   deleteConversationForMeInputSchema,
@@ -182,6 +193,7 @@ export {
   type DesktopLocalComputer,
   type DesktopPlatform,
   type DesktopSession,
+  type DesktopSettingsView,
   type DesktopSpaceStreamBridge,
   type DesktopSpaceStreamEvent,
   type DesktopSpaceStreamInput,
@@ -192,9 +204,11 @@ export {
   desktopPlatformSchema,
   desktopProductionSourceSchema,
   desktopSessionSchema,
+  desktopSettingsViewSchema,
   desktopSpaceStreamEventSchema,
   desktopSpaceStreamIdSchema,
   desktopSpaceStreamInputSchema,
+  desktopStartupToggleSchema,
   desktopWebBuildSchema,
 } from "./desktop-client";
 export * from "./desktop-development";

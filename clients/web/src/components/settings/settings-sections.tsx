@@ -18,6 +18,11 @@ const AccountSection = lazy(() =>
 		default: module.AccountSection,
 	}))
 );
+const DesktopSection = lazy(() =>
+	import("./desktop-section").then((module) => ({
+		default: module.DesktopSection,
+	}))
+);
 const AppearanceSection = lazy(() =>
 	import("./appearance-section").then((module) => ({
 		default: module.AppearanceSection,
@@ -80,6 +85,20 @@ export function buildSettingsSections(
 ): readonly SettingsSectionDef[] {
 	const settingsRoutes = buildSettingsRoutes(orgSlug);
 	return [
+		...(getDesktopPlatform()
+			? [
+					{
+						id: "desktop",
+						title: "Desktop",
+						to: settingsRoutes.desktop,
+						render: () => (
+							<SettingsLeafLayout>
+								<DesktopSection />
+							</SettingsLeafLayout>
+						),
+					},
+				]
+			: []),
 		{
 			id: "account",
 			title: "Account",

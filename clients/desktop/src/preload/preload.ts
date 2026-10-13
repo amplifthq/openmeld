@@ -98,6 +98,8 @@ const openMeldBridge: OpenMeldBridge = {
   getDesktopSettings: () => ipcRenderer.invoke(OPENMELD_IPC.getDesktopSettings),
   setOpenAtLogin: (enabled) =>
     ipcRenderer.invoke(OPENMELD_IPC.setOpenAtLogin, enabled),
+  setStartInBackground: (enabled) =>
+    ipcRenderer.invoke(OPENMELD_IPC.setStartInBackground, enabled),
   getDesktopUpdateStatus: () =>
     ipcRenderer.invoke(OPENMELD_IPC.getDesktopUpdateStatus),
   openDesktopDownloadPage: () =>
