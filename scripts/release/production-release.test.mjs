@@ -45,7 +45,7 @@ import {
 import { assertProductionStageAdmission } from "./production-stage-admission.mjs";
 
 test("patch-only release impact keeps unrelated components out of completion", () => {
-  // Captured from the production 16f875c -> e2435188 Computer patch release.
+  // Captured from 16f875c -> e2435188; blank context whitespace is normalized.
   const lockfileDiff = readFileSync(
     new URL("./fixtures/computer-patch-lock.diff", import.meta.url),
     "utf8"

@@ -23,7 +23,7 @@ index 0bf48c301..fbada2c21 100644
 @@ -16299,7 +16299,7 @@ snapshots:
        ai: 6.0.219(zod@4.6.5)
        zod: 4.6.5
- 
+
 -  '@cloudflare/computer@0.5.0(patch_hash=71b619f2bca2cfc4e5ed999da0aece9631a876d1595e63fe2490719d58c43d3c)(@cloudflare/workers-types@5.20261001.1)(ai@6.0.219(zod@4.6.5))(zod@4.6.5)':
 +  '@cloudflare/computer@0.5.0(patch_hash=f00181abad6ce153b8c91aa6fca42036aa5153d1df0146afcb5e005cac20013c)(@cloudflare/workers-types@5.20261001.1)(ai@6.0.219(zod@4.6.5))(zod@4.6.5)':
      dependencies:
