@@ -1,3 +1,4 @@
+import { supportsExecutionContextSelection } from "@openmeld/agent-runtime";
 import {
 	isHostedAgentControllerRef,
 	resolvePublicAgentAvailabilityCopy,
@@ -211,10 +212,7 @@ function useComposerTaskChoice(input: SpaceComposerProps) {
 			);
 			if (
 				!(
-					target &&
-					["builtin:codex", "builtin:claude-code"].includes(
-						target.agentControllerRef ?? ""
-					)
+					target && supportsExecutionContextSelection(target.agentControllerRef)
 				)
 			) {
 				return null;
@@ -227,7 +225,13 @@ function useComposerTaskChoice(input: SpaceComposerProps) {
 					}
 					organizationId={input.organizationId}
 					sources={input.taskSources ?? []}
-					supportsCurrentFolder={target.agentControllerRef === "builtin:codex"}
+					supportsAccessRestrictions={
+						target.agentControllerRef !== "builtin:antigravity"
+					}
+					supportsCurrentFolder={
+						target.agentControllerRef !== "builtin:claude-code"
+					}
+					supportsFork={target.agentControllerRef !== "builtin:antigravity"}
 					targetProfileId={profileId}
 				/>
 			);

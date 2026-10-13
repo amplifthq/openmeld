@@ -3473,6 +3473,35 @@ define a public attachment URL.
 
 ### Space File Contracts
 
+**Published execution-result reads.** `spacePublishedDispatchResultSchema` owns
+the additive CLI result variant for a canonical published message. Existing
+archived-result HTTP/RPC payloads remain unchanged. After a precise missing
+archive response, the CLI reads existing cross-runtime final-publication facts
+and then the exact authorized Space signal. The trace is a read projection,
+not an execution writer or a substitute message body. The result retains the
+canonical signal and visible reply/failure/stopped outcome. No duplicate archive,
+state ledger, or publication path is introduced. A missing or mismatched message
+fails visibly. CLI publication requires normal artifact rebuilding and stamping;
+old Core/Gateway/Service contracts remain interoperable, without an epoch or
+database migration. Old CLIs keep their archive-only behavior.
+
+**Bounded text reads.** The shared Files MIME resolver recognizes `.diff` and
+`.patch` as text. Generic `application/octet-stream` may use the known filename
+mapping, including on existing immutable revisions. Explicit non-text MIME types
+remain authoritative. Read eligibility is separate from browser edit eligibility;
+CLI and hosted readers share strict UTF-8 decoding and reject binary NUL bytes,
+while retaining ANSI logs and form-feed text. Reads retain the 1 MiB bound and original authorization and revision
+checks. There is no stored metadata rewrite or new extension-classification owner.
+
+**Contract Impact Audit — text attachments.** This changes the existing Core and
+CLI read implementations and shared MIME policy, without changing request,
+response, Service, Skills, or execution wire shapes. Old clients and services
+remain interoperable; old readers may still reject historical generic MIME files.
+Deploy Core and publish the updated CLI to enable their respective readers. No
+compatibility epoch or database migration is needed. The packaged CLI must be
+rebuilt and stamped by the normal release process. Rollback restores prior read
+limitations without changing files or command state.
+
 **Revision image geometry.** Revision descriptors and message file references
 may include `imageDimensions: { width, height }`. Both positive integer axes must
 be present, at most 32,768 each, with at most 128 Mi pixels of area. Absence is

@@ -469,6 +469,6 @@ function renderWakeProgressHumanOutput(input: {
   }
   input.presenter.line({
     code: "space.wake_progress.boundary",
-    text: "This is live progress. Use `space result` for archived results and `service trace` for execution diagnostics.",
+    text: "This is live progress. Use `space result` for archived or published results and `service trace` for execution diagnostics.",
   });
 }

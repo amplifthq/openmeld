@@ -1971,6 +1971,47 @@ function LocalAgentUpdateBanner(input: { command: string; detail: string }) {
 	);
 }
 
+function AntigravitySignIn(
+	input: Pick<
+		BuildLocalAgentCatalogRowInput,
+		"canRefreshCatalog" | "isCheckingAgents" | "onCheckAgents"
+	>
+) {
+	return (
+		<div className="flex flex-col items-start gap-2">
+			<div className="w-full text-muted-foreground text-sm">
+				<AgentControllerIssueDetail
+					canCheckAgain
+					canRefreshCatalog={input.canRefreshCatalog}
+					isCheckingAgents={input.isCheckingAgents}
+					message="Run this command in a terminal on this computer. Open the sign-in link it shows, then select Check again."
+					onCheckAgents={input.onCheckAgents}
+				/>
+			</div>
+			<code className="text-xs">openmeld agents login antigravity</code>
+			<Button
+				onClick={() => {
+					copyCliEntryCommand("openmeld agents login antigravity")
+						.then((copied) => {
+							if (copied) {
+								toast.success("Sign-in command copied.");
+							}
+						})
+						.catch(() =>
+							toast.error(
+								"Could not copy the command. Select and copy it above."
+							)
+						);
+				}}
+				size="sm"
+				variant="outline"
+			>
+				Copy sign-in command
+			</Button>
+		</div>
+	);
+}
+
 function renderLocalAgentConsumption(
 	input: BuildLocalAgentCatalogRowInput,
 	view: "preview" | "detail"
@@ -2005,6 +2046,26 @@ function renderLocalAgentCatalogRowDetail(input: {
 	);
 	return (
 		<div className="space-y-3">
+			{input.snapshot.controllerId === "antigravity" &&
+			input.snapshot.nativeInterface === "acp" &&
+			input.snapshot.auth.status === "unauthenticated" ? (
+				<AntigravitySignIn
+					canRefreshCatalog={input.rowInput.canRefreshCatalog}
+					isCheckingAgents={input.rowInput.isCheckingAgents}
+					onCheckAgents={input.rowInput.onCheckAgents}
+				/>
+			) : null}
+			{input.snapshot.controllerId === "antigravity" &&
+			input.snapshot.nativeInterface === "local-cli" ? (
+				<a
+					className="text-sm underline underline-offset-4"
+					href="https://www.antigravity.google/docs/ide/extensions/xcode"
+					rel="noreferrer"
+					target="_blank"
+				>
+					Install official Antigravity ACP
+				</a>
+			) : null}
 			{versionAdvisory?.updateCommand ? (
 				<LocalAgentUpdateBanner
 					command={versionAdvisory.updateCommand}
@@ -2419,6 +2480,13 @@ function resolveAgentControllerInterfaceSummaryStatus(
 		// Signing in is a routine account state, not a computer failure: keep it
 		// quiet (muted row, no red) the same way a switched-off agent reads.
 		return { label: "Not signed in", tone: "muted" };
+	}
+	if (
+		snapshot.controllerId === "antigravity" &&
+		snapshot.auth.status === "unknown" &&
+		snapshot.check?.status === "succeeded"
+	) {
+		return { label: "Installed", tone: "muted" };
 	}
 	if (snapshot.status === "error") {
 		return snapshot.launch.status === "needs_repair"

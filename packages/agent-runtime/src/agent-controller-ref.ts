@@ -3,6 +3,7 @@ import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF_ID,
   HOSTED_REMOTE_AGENT_CONTROLLER_REF,
 } from "@openmeld/schemas";
+import type { ExecutionContextAssignment } from "@openmeld/schemas/types";
 
 // biome-ignore lint/performance/noBarrelFile: agent-runtime re-exports the shared hosted ref constants as part of its public ref helpers.
 export {
@@ -24,6 +25,28 @@ export type AgentControllerRef = {
 };
 
 export type RuntimeAgentTargetKind = AgentControllerRefKind;
+
+/** Session selection support; execution still checks live identity and access. */
+export function supportsExecutionContextSelection(
+  ref: string | null | undefined
+): boolean {
+  return supportsExecutionContextAccess(ref, "workspace", "agent_settings");
+}
+
+export function supportsExecutionContextAccess(
+  ref: string | null | undefined,
+  access: ExecutionContextAssignment["access"],
+  permissionSource?: ExecutionContextAssignment["permissionSource"]
+): boolean {
+  return (
+    ref === "builtin:codex" ||
+    (ref === "builtin:antigravity" &&
+      access === "workspace" &&
+      permissionSource === "agent_settings") ||
+    (ref === "builtin:claude-code" &&
+      (access === "space_context" || access === "workspace"))
+  );
+}
 
 // Product eligibility only. The active execution and native adapter still
 // validate identity, lifecycle, and installed-version support at application.
