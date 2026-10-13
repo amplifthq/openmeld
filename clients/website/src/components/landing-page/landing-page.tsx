@@ -17,7 +17,6 @@ import {
 import { Surface } from "@openmeld/ui/fluid/surface";
 import {
 	AppleLogoIcon,
-	ArrowRightIcon,
 	ArrowUpRightIcon,
 	CaretDownIcon,
 	DownloadSimpleIcon,
@@ -211,16 +210,10 @@ export function LandingPage() {
 									<br />
 									<span>Now part of the team.</span>
 								</h2>
-								<div>
-									<p>
-										Keep your subscriptions, files, and local tools. Bring the
-										agents you use into your team’s conversation.
-									</p>
-									<a className="meld-link" href={LOCAL_AGENTS_GUIDE_PATH}>
-										Connect your first agent{" "}
-										<ArrowRightIcon aria-hidden size={16} />
-									</a>
-								</div>
+								<p>
+									Keep your subscriptions, files, and local tools. Bring the
+									agents you use into your team’s conversation.
+								</p>
 							</div>
 							<AgentShowcase />
 							<p className="meld-footnote">
