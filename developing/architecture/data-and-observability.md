@@ -91,6 +91,28 @@ durable transfer generations determine content retention. Namespace creation
 reserves deletion metadata before accepting new paths. Legacy preparation keeps
 reads available and refuses new mutations until its resumable pass completes.
 
+Synchronization reset detection uses the current peer identity, accepted cursors
+and active operation targets. A failed or lost operation is diagnostic history;
+its old target must not repeatedly invalidate a replacement peer or block new
+command admission. Reconciliation preserves that terminal diagnostic until the
+owning sync direction starts a new generation. Genuine peer replacement or
+accepted-cursor regression still invalidates the current admission attempt.
+This does not authorize replay of an earlier command or change its result fence.
+
+The SDK may confirm an imported window without reverse file enumeration only
+when its bounded, atomic comparison proves all pending receiver effects equal
+the supplied source entries. A durable receipt binds both peer epochs, the
+existing transfer generation and a fixed complete revision window. The source
+commits its original cursors and pending acknowledgement together; the receiver
+advances its own cursor only after that actual acknowledgement. Flush failure,
+uncertain equivalence or missing proof preserves normal bounded synchronization.
+An acknowledgement belongs to the peer epoch in which its cursor was observed;
+peer replacement during admission rejects the step before applying that cursor.
+The same sync owner resumes a pending acknowledgement after restart before
+closing its generation. This adds no command owner or independent file store.
+Bounded acknowledgement records use the existing maintenance reserve, so content
+admission refusal cannot prevent an already accepted transfer from completing.
+
 Worker-shell returns only after execution and provides no retained lookup. Its
 terminal output is kept with the Computer's existing command receipt. Atomic
 compare-and-set updates prevent cleanup from replacing a concurrent exit receipt.
@@ -108,6 +130,10 @@ This survives a Worker termination before catch/finally. Bounded backoff pauses
 later automatic checks after eight unconfirmed attempts; a normal caught error
 does not count its already reserved attempt again;
 this is a scheduling budget, never process failure, loss or replay authority.
+The model finish observer reads this owner without acquiring Stop authority.
+A slow or rejected read is unknown observation state, not a stopped or failed
+command. Only explicit cancellation, a confirmed execution failure or an existing
+cleanup obligation can request Stop during final publication or reconciliation.
 Fresh accepted native evidence resets that count. Successful manual inspection
 or Stop resumes the same receipt. Paused receipts remain available under the
 existing retention policy, and an older failed read cannot overwrite a newer
@@ -2204,6 +2230,26 @@ writers. Any later ingestion path requires an explicit Core contract rather
 than direct table access.
 
 ## Agent Task Coordination
+
+### Originating-message delegation reads
+
+Message Details can opt in to the declared delegation projection. The source
+message passes the ordinary Space read boundary before any coordination read.
+Native delivery owns the mapping from an exact Space/source signal to its
+delivery identities, including later continuation turns. Agent Task Coordination
+reads only delegations with those exact parent Task Handles and matching
+Organizations, using its existing records and keyset pagination. This adds no
+execution writer, relational table, or inferred relationship.
+
+Each child uses the owning Space's current Wake progress and Message Details
+read contracts. The reader reauthorizes source and result messages separately,
+preserves owner-redacted context/input, and does not forward another Space's
+password or continuation grant. Unavailable children expose no content or
+locators; transient read errors remain errors. Planned, unactivated targets
+use the authorized Space identity directory for their name only. Terminal
+coordination observations retain their original outcome even if another child
+succeeds. Execution/publication state is never derived from Agent presence or
+the delegation's active flag.
 
 Core owns the coordination records that connect one exact Agent task to a later
 continuation. The shared `AgentTaskHandle` identifies an execution in its owning

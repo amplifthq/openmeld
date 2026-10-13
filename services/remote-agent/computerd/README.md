@@ -9,7 +9,7 @@ The image records source, dependency lock, patch and binary hashes in
 ## Work and correctness boundaries
 
 Both producers prepare a durable generation through indexed pages of at most
-512 reads. Candidate paths, ancestor traversal, aliases and tombstones resume
+4096 reads. Candidate paths, ancestor traversal, aliases and tombstones resume
 from SQLite, including within one revision. UTF-16 path ordering matches the
 wire cursor. One invocation transfers at most 256 metadata entries, 1 MiB of
 metadata and a streamed object batch of at most 256 objects and 8 MiB. Small
@@ -39,6 +39,9 @@ Every database has a durable epoch. A new peer epoch resets transfer cursors,
 not user files. Before dispatch, native shell execution synchronously checks
 the expected epoch and accepted input cursor. An explicit pre-dispatch rejection
 permits another preparation step; an uncertain dispatch never permits replay.
+Failed and lost sync targets remain diagnostic history. Only active targets
+participate in regression detection, so repeated checks of a replacement peer
+converge without clearing a historical failure or replaying its command.
 
 Each execution pins its accepted start cursor and its own settled output target.
 A shared transfer finishing another command's earlier target is insufficient.
@@ -51,6 +54,38 @@ that maintenance finishes. Pending executions retain their necessary journal.
 
 `MOUNT_IGNORE` is not enabled. Dependencies and user files retain their existing
 storage semantics. Excluding a directory from FUSE is not an equivalent fix.
+
+## Imported-file confirmation
+
+An import receipt avoids reverse enumeration only after proving that the
+receiver's entire unacknowledged window equals the source entries. The proof
+runs in the metadata transaction with a shared 4096-unit budget for nodes,
+ancestor/alias lookups and manifest chunks. Partial cursors, extra local files,
+aliases, tombstones, pending removal work and exhausted budgets keep the normal
+bounded transfer. Files retain source mode and modification time as well as
+content; identical bytes alone do not make an incoming metadata update a no-op.
+
+Each receiver slot retains one receipt, bound to both database epochs and the
+existing transfer generation. It returns that receipt only after native flush
+succeeds, including retries with an empty entry stream. The source atomically
+commits its original transfer cursors and one outgoing acknowledgement before
+sending the ACK. The receiver advances its original push cursor only on that
+ACK. An operation cannot close while its ACK is pending. Late local writes lie
+beyond the receipt's fixed end and remain ordinary unsynchronized work.
+Receipt records use the existing maintenance reserve, like transfer cursors;
+reaching the content limit must not block acknowledgement of accepted files.
+
+The next push also carries the source's durable fetch cursor as a real ACK, so
+a window that required normal transfer does not permanently disable receipts.
+That cursor is sent only for its observed peer epoch. A replacement between
+watermark inspection and retention admission rejects the step; the existing
+reconciliation path resets cursors on the next attempt without changing files.
+Older peers without this optional exchange use the existing bounded transfer;
+the mandatory retention and execution fences remain unchanged. Once a receipt
+is pending, its receiver must retain acknowledgement support: rolling back only
+that receiver fails explicitly and preserves the pending receipt. Existing data
+without proof is not retroactively declared synchronized. No new command
+state, replay authority, expiry-based cleanup or directory exclusion is added.
 
 ## Deployment boundary
 

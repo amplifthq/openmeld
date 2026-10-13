@@ -151,6 +151,7 @@ import { Route as OOrgSlugSettingsAppearanceRouteImport } from './routes/o/$orgS
 import { Route as OOrgSlugSettingsCenterAgentRouteImport } from './routes/o/$orgSlug/settings/center-agent'
 import { Route as OOrgSlugSettingsComputersRouteImport } from './routes/o/$orgSlug/settings/computers'
 import { Route as OOrgSlugSettingsConnectedAppsRouteImport } from './routes/o/$orgSlug/settings/connected-apps'
+import { Route as OOrgSlugSettingsDesktopRouteImport } from './routes/o/$orgSlug/settings/desktop'
 import { Route as OOrgSlugSettingsGeneralRouteImport } from './routes/o/$orgSlug/settings/general'
 import { Route as OOrgSlugSettingsInvitationsRouteImport } from './routes/o/$orgSlug/settings/invitations'
 import { Route as OOrgSlugSettingsMembersRouteImport } from './routes/o/$orgSlug/settings/members'
@@ -938,6 +939,11 @@ const OOrgSlugSettingsConnectedAppsRoute =
     path: '/connected-apps',
     getParentRoute: () => OOrgSlugSettingsRoute,
   } as any)
+const OOrgSlugSettingsDesktopRoute = OOrgSlugSettingsDesktopRouteImport.update({
+  id: '/desktop',
+  path: '/desktop',
+  getParentRoute: () => OOrgSlugSettingsRoute,
+} as any)
 const OOrgSlugSettingsGeneralRoute = OOrgSlugSettingsGeneralRouteImport.update({
   id: '/general',
   path: '/general',
@@ -1263,6 +1269,7 @@ export interface FileRoutesByFullPath {
   '/o/$orgSlug/settings/center-agent': typeof OOrgSlugSettingsCenterAgentRoute
   '/o/$orgSlug/settings/computers': typeof OOrgSlugSettingsComputersRouteWithChildren
   '/o/$orgSlug/settings/connected-apps': typeof OOrgSlugSettingsConnectedAppsRoute
+  '/o/$orgSlug/settings/desktop': typeof OOrgSlugSettingsDesktopRoute
   '/o/$orgSlug/settings/general': typeof OOrgSlugSettingsGeneralRoute
   '/o/$orgSlug/settings/invitations': typeof OOrgSlugSettingsInvitationsRoute
   '/o/$orgSlug/settings/members': typeof OOrgSlugSettingsMembersRoute
@@ -1430,6 +1437,7 @@ export interface FileRoutesByTo {
   '/o/$orgSlug/settings/center-agent': typeof OOrgSlugSettingsCenterAgentRoute
   '/o/$orgSlug/settings/computers': typeof OOrgSlugSettingsComputersRouteWithChildren
   '/o/$orgSlug/settings/connected-apps': typeof OOrgSlugSettingsConnectedAppsRoute
+  '/o/$orgSlug/settings/desktop': typeof OOrgSlugSettingsDesktopRoute
   '/o/$orgSlug/settings/general': typeof OOrgSlugSettingsGeneralRoute
   '/o/$orgSlug/settings/invitations': typeof OOrgSlugSettingsInvitationsRoute
   '/o/$orgSlug/settings/members': typeof OOrgSlugSettingsMembersRoute
@@ -1608,6 +1616,7 @@ export interface FileRoutesById {
   '/o/$orgSlug/settings/center-agent': typeof OOrgSlugSettingsCenterAgentRoute
   '/o/$orgSlug/settings/computers': typeof OOrgSlugSettingsComputersRouteWithChildren
   '/o/$orgSlug/settings/connected-apps': typeof OOrgSlugSettingsConnectedAppsRoute
+  '/o/$orgSlug/settings/desktop': typeof OOrgSlugSettingsDesktopRoute
   '/o/$orgSlug/settings/general': typeof OOrgSlugSettingsGeneralRoute
   '/o/$orgSlug/settings/invitations': typeof OOrgSlugSettingsInvitationsRoute
   '/o/$orgSlug/settings/members': typeof OOrgSlugSettingsMembersRoute
@@ -1787,6 +1796,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/settings/center-agent'
     | '/o/$orgSlug/settings/computers'
     | '/o/$orgSlug/settings/connected-apps'
+    | '/o/$orgSlug/settings/desktop'
     | '/o/$orgSlug/settings/general'
     | '/o/$orgSlug/settings/invitations'
     | '/o/$orgSlug/settings/members'
@@ -1954,6 +1964,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/settings/center-agent'
     | '/o/$orgSlug/settings/computers'
     | '/o/$orgSlug/settings/connected-apps'
+    | '/o/$orgSlug/settings/desktop'
     | '/o/$orgSlug/settings/general'
     | '/o/$orgSlug/settings/invitations'
     | '/o/$orgSlug/settings/members'
@@ -2131,6 +2142,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/settings/center-agent'
     | '/o/$orgSlug/settings/computers'
     | '/o/$orgSlug/settings/connected-apps'
+    | '/o/$orgSlug/settings/desktop'
     | '/o/$orgSlug/settings/general'
     | '/o/$orgSlug/settings/invitations'
     | '/o/$orgSlug/settings/members'
@@ -3237,6 +3249,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OOrgSlugSettingsConnectedAppsRouteImport
       parentRoute: typeof OOrgSlugSettingsRoute
     }
+    '/o/$orgSlug/settings/desktop': {
+      id: '/o/$orgSlug/settings/desktop'
+      path: '/desktop'
+      fullPath: '/o/$orgSlug/settings/desktop'
+      preLoaderRoute: typeof OOrgSlugSettingsDesktopRouteImport
+      parentRoute: typeof OOrgSlugSettingsRoute
+    }
     '/o/$orgSlug/settings/general': {
       id: '/o/$orgSlug/settings/general'
       path: '/general'
@@ -3749,6 +3768,7 @@ interface OOrgSlugSettingsRouteChildren {
   OOrgSlugSettingsCenterAgentRoute: typeof OOrgSlugSettingsCenterAgentRoute
   OOrgSlugSettingsComputersRoute: typeof OOrgSlugSettingsComputersRouteWithChildren
   OOrgSlugSettingsConnectedAppsRoute: typeof OOrgSlugSettingsConnectedAppsRoute
+  OOrgSlugSettingsDesktopRoute: typeof OOrgSlugSettingsDesktopRoute
   OOrgSlugSettingsGeneralRoute: typeof OOrgSlugSettingsGeneralRoute
   OOrgSlugSettingsInvitationsRoute: typeof OOrgSlugSettingsInvitationsRoute
   OOrgSlugSettingsMembersRoute: typeof OOrgSlugSettingsMembersRoute
@@ -3768,6 +3788,7 @@ const OOrgSlugSettingsRouteChildren: OOrgSlugSettingsRouteChildren = {
   OOrgSlugSettingsCenterAgentRoute: OOrgSlugSettingsCenterAgentRoute,
   OOrgSlugSettingsComputersRoute: OOrgSlugSettingsComputersRouteWithChildren,
   OOrgSlugSettingsConnectedAppsRoute: OOrgSlugSettingsConnectedAppsRoute,
+  OOrgSlugSettingsDesktopRoute: OOrgSlugSettingsDesktopRoute,
   OOrgSlugSettingsGeneralRoute: OOrgSlugSettingsGeneralRoute,
   OOrgSlugSettingsInvitationsRoute: OOrgSlugSettingsInvitationsRoute,
   OOrgSlugSettingsMembersRoute: OOrgSlugSettingsMembersRoute,

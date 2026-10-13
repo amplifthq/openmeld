@@ -1331,7 +1331,7 @@ export function buildProductionVerifyStepSpecs(input) {
 }
 
 export function buildProductionPreflightStepSpecs(input) {
-  const steps = buildCommonReleaseStepSpecs(input.changedPaths);
+  const steps = buildProductionSourcePreflightStepSpecs(input);
   if (!EXACT_SHA_PATTERN.test(String(input.releaseSha ?? ""))) {
     throw new Error(
       "Production preflight requires the exact release SHA for receipt-based train admission."
@@ -1362,7 +1362,15 @@ export function buildProductionPreflightStepSpecs(input) {
     controlPath: "scripts/release/production-stage-admission.mjs",
     label: "Admit receipt-based Production train stage",
   });
-  steps.splice(1, 0, {
+  return steps;
+}
+
+export function buildProductionSourcePreflightStepSpecs(input) {
+  const steps = buildCommonReleaseStepSpecs(input.changedPaths);
+  if (input.databaseCutoverRestoreCrons) {
+    return steps;
+  }
+  steps.unshift({
     args: [
       "scripts/release/production-train-artifact-admission.mjs",
       "--scope",
@@ -1383,7 +1391,7 @@ export function buildProductionPreflightStepSpecs(input) {
     label: "Verify declared Production train artifacts",
   });
   if (input.scopes.includes("web")) {
-    steps.splice(2, 0, {
+    steps.splice(1, 0, {
       args: ["run", "verify:cli-skill"],
       command: "pnpm",
       controlArgs: [],
@@ -3212,6 +3220,15 @@ export function buildProductionReleasePlan(input) {
       scopes,
       taskInboxRetired,
     }),
+    sourcePreflightSteps: buildProductionSourcePreflightStepSpecs({
+      compatibilityContext,
+      coreCurrentCliProjection,
+      databaseCutoverRestoreCrons: input.databaseCutoverRestoreCrons,
+      changedPaths,
+      releaseSha: sourceSha,
+      scopes,
+      taskInboxRetired,
+    }),
     verifySteps: buildProductionVerifyStepSpecs({
       compatibilityContext,
       coreCurrentCliProjection,
@@ -3476,6 +3493,12 @@ export function assertProductionReleaseSource(input) {
     mainRef: input.mainRef ?? "refs/remotes/origin/main",
     releaseSha: input.sourceSha,
   });
+}
+
+export function runProductionPreflightSteps(steps) {
+  for (const step of steps) {
+    runStep(step);
+  }
 }
 
 function runStep(step) {
@@ -4046,9 +4069,7 @@ export async function runProductionRelease(argv) {
   if (options.domainPhase) {
     preparationSteps = buildCommonReleaseStepSpecs([]);
   }
-  for (const step of preparationSteps) {
-    runStep(step);
-  }
+  runProductionPreflightSteps(preparationSteps);
   assertSourceStillMatches(plan.sourceSha);
   if (options.command === "preflight" && options.databaseCutoverSnapshot) {
     await admitPostgresqlProductRelease({

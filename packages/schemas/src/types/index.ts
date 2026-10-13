@@ -83,6 +83,11 @@ export type {
 export type OpenMeldSchemaVersion =
   typeof import("../schemas/index")["OPENMELD_SCHEMA_VERSION"];
 
+export type {
+  ComputerPowerRequest,
+  ComputerPowerRpcInput,
+  ComputerPowerState,
+} from "../computer-power";
 export type { RemoteAgentExecutionReconciliationObservation } from "../remote-agent-execution-reconciliation";
 export type {
   SpaceFileUpdateSettings,

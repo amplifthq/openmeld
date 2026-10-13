@@ -1,6 +1,7 @@
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY,
+  COMPUTER_POWER_CAPABILITY_HEADER,
   daemonRouteObservationResponseSchema,
   LOCAL_EXECUTION_INPUT_CAPABILITY_HEADER,
   LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY,
@@ -133,6 +134,7 @@ export function registerDaemonRoutes(app: Hono<HonoBindings>): void {
         Upgrade: "websocket",
         ...Object.fromEntries(
           [
+            COMPUTER_POWER_CAPABILITY_HEADER,
             OPENMELD_REASONING_STREAM_HEADER,
             OPENMELD_COMPUTER_CARE_HEADER,
             OPENMELD_EXECUTION_ADMISSION_HEADER,

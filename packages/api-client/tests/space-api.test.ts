@@ -2942,7 +2942,7 @@ describe("api-client space api", () => {
   it.each([
     undefined,
     1,
-  ] as const)("reads Message Details with context opt-in %s", async (executionContextVersion) => {
+  ] as const)("reads Message Details with context and delegation opt-in %s", async (executionContextVersion) => {
     const transport = vi.fn(() =>
       Promise.resolve(
         new Response(JSON.stringify(createMessageDetailsResponse()), {
@@ -2963,6 +2963,8 @@ describe("api-client space api", () => {
       requestContext: REQUEST_CONTEXT,
       signalId: "sig-reply-1",
       executionContextVersion,
+      delegationVersion: executionContextVersion,
+      delegationCursor: executionContextVersion ? "delegation-1" : undefined,
     });
 
     expect(result.message.signalId).toBe("sig-reply-1");
@@ -2971,7 +2973,7 @@ describe("api-client space api", () => {
     );
     expect(transport).toHaveBeenCalledWith(
       expect.objectContaining({
-        url: `https://gateway.openmeld.invalid/v1/spaces/space-123/message-details?signalId=sig-reply-1${executionContextVersion ? "&executionContextVersion=1" : ""}`,
+        url: `https://gateway.openmeld.invalid/v1/spaces/space-123/message-details?signalId=sig-reply-1${executionContextVersion ? "&delegationVersion=1&delegationCursor=delegation-1&executionContextVersion=1" : ""}`,
         operation: "space.message_details",
         init: expect.objectContaining({
           method: "GET",

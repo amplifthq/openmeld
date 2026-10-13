@@ -2,6 +2,7 @@ import type { PluginDefinition } from "@openmeld/product-catalog/plugins";
 import { connectorConnectionScopeAllowed } from "@openmeld/schemas";
 import { AppLogo } from "@openmeld/ui/components/app-logo";
 import { buttonVariants } from "@openmeld/ui/components/button";
+import { SkeletonForm } from "@openmeld/ui/components/skeleton-content";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowLeftIcon, ArrowSquareOutIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
@@ -9,7 +10,6 @@ import type { ReactNode } from "react";
 import { buildOrganizationPluginsPath } from "#/lib/organizations/organization-routes";
 import { PluginConnectionSurface } from "./plugin-connection-surface";
 import { PluginScopeTabs, usePluginScope } from "./plugin-scope-tabs";
-import { PluginStatusBadge } from "./plugins-catalog-panel";
 
 export function OrganizationPluginDetailPage(input: {
 	plugin: PluginDefinition;
@@ -19,6 +19,7 @@ export function OrganizationPluginDetailPage(input: {
 	organizationSlug: string;
 	organizationName: string;
 	permissionNotice?: ReactNode;
+	catalogPending?: boolean;
 }) {
 	const selectedScope = usePluginScope();
 	const scope =
@@ -29,15 +30,7 @@ export function OrganizationPluginDetailPage(input: {
 		input.plugin.service,
 		scope
 	);
-	let accountHeading = input.organizationName;
-	let accountDescription =
-		"Connect an organization account, then choose Agent access below.";
-	if (scope === "member") {
-		accountHeading = "Your account";
-		accountDescription =
-			"Connect your account, then choose which Agents may use it.";
-	}
-	return (
+	const renderDetail = (action: ReactNode, content: ReactNode) => (
 		<>
 			<Link
 				className="inline-flex min-h-5 w-fit items-center gap-2 font-medium text-foreground text-sm leading-5 outline-none transition-colors hover:text-foreground/80 focus-visible:ring-1 focus-visible:ring-ring"
@@ -61,23 +54,28 @@ export function OrganizationPluginDetailPage(input: {
 								<h1 className="font-medium text-2xl text-foreground">
 									{input.plugin.name}
 								</h1>
-								<PluginStatusBadge plugin={input.plugin} />
 							</div>
 							<p className="mt-1 text-muted-foreground text-xs">
 								{input.plugin.category}
 							</p>
 						</div>
 					</div>
-					<a
-						className={cn(buttonVariants({ size: "sm", variant: "outline" }))}
-						href={input.plugin.homepage}
-						rel="noreferrer"
-						target="_blank"
-					>
-						Website
-						<ArrowSquareOutIcon aria-hidden="true" data-icon="inline-end" />
-					</a>
+					<div className="flex shrink-0 items-center gap-2">
+						<a
+							className={cn(buttonVariants({ size: "sm", variant: "outline" }))}
+							href={input.plugin.homepage}
+							rel="noreferrer"
+							target="_blank"
+						>
+							Website
+							<ArrowSquareOutIcon aria-hidden="true" data-icon="inline-end" />
+						</a>
+						{action}
+					</div>
 				</div>
+				<p className="mt-4 max-w-2xl text-muted-foreground text-sm leading-6">
+					{input.plugin.description}
+				</p>
 			</section>
 			<PluginScopeTabs
 				isPersonalWorkspace={input.isPersonalWorkspace}
@@ -91,42 +89,34 @@ export function OrganizationPluginDetailPage(input: {
 				</p>
 			)}
 
-			{input.plugin.availability === "available" ? (
-				<section className="overflow-hidden" data-testid="plugin-detail-access">
-					{scopeAllowed ? (
-						<div className="border-border/70 border-b pb-4">
-							<h2 className="font-medium text-foreground text-sm">
-								{accountHeading}
-							</h2>
-							<p className="mt-1 max-w-2xl text-muted-foreground text-xs leading-5">
-								{accountDescription}
-							</p>
-							{scope === "shared" && !input.canManageSharedPlugins ? (
-								<p className="mt-1 text-muted-foreground text-xs">
-									Only owners and admins can change these settings.
-								</p>
-							) : null}
-						</div>
-					) : null}
-					<PluginConnectionSurface
-						canManage={input.canManageSharedPlugins}
-						isPersonalWorkspace={input.isPersonalWorkspace}
-						key={`${input.organizationId}:${input.plugin.service}`}
-						mode={scope}
-						organizationId={input.organizationId}
-						organizationName={input.organizationName}
-						plugin={input.plugin}
-					/>
-				</section>
-			) : (
-				<section className="rounded-md border border-border/70 bg-card px-4 py-5 sm:px-5">
-					<h2 className="font-medium text-foreground text-sm">Availability</h2>
-					<p className="mt-1 max-w-2xl text-muted-foreground text-sm leading-6">
-						{input.plugin.name} does not have a configured sign-in method yet.
-					</p>
-				</section>
-			)}
+			<section data-testid="plugin-detail-access">{content}</section>
 		</>
+	);
+	if (input.catalogPending) {
+		return renderDetail(
+			null,
+			<SkeletonForm className="max-w-xl py-4" label="Loading Plugin settings" />
+		);
+	}
+	if (input.plugin.availability !== "available") {
+		return renderDetail(
+			null,
+			<p className="text-muted-foreground text-sm">
+				{input.plugin.name} does not have a configured sign-in method yet.
+			</p>
+		);
+	}
+	return (
+		<PluginConnectionSurface
+			canManage={input.canManageSharedPlugins}
+			isPersonalWorkspace={input.isPersonalWorkspace}
+			key={`${input.organizationId}:${input.plugin.service}:${scope}`}
+			mode={scope}
+			organizationId={input.organizationId}
+			organizationName={input.organizationName}
+			plugin={input.plugin}
+			renderDetail={renderDetail}
+		/>
 	);
 }
 

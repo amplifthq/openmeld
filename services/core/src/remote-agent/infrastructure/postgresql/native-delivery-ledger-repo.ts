@@ -30,6 +30,31 @@ export type RemoteAgentNativeDeliveryConversationKind =
   | "message_channel"
   | "slack"
   | "space";
+
+/** Exact Space source identity survives Center Agent continuation turns. */
+export async function listSpaceNativeDeliveryTaskIdentities(input: {
+  db: PostgresDatabase;
+  spaceId: string;
+  sourceSignalId: string;
+}): Promise<
+  Array<{ deliveryId: string; organizationId: string; profileId: string }>
+> {
+  const result = await input.db.query<{
+    deliveryId: string;
+    organizationId: string;
+    profileId: string;
+  }>({
+    text: `
+      SELECT delivery_id AS "deliveryId", organization_id AS "organizationId",
+             profile_id AS "profileId"
+      FROM "openmeld"."openMeldRemoteAgent_native_delivery_ledger"
+      WHERE conversation_kind = 'space' AND space_id = $1 AND trigger_message_id = $2
+      ORDER BY created_at_ms, delivery_id
+    `,
+    values: [input.spaceId, input.sourceSignalId],
+  });
+  return result.rows;
+}
 export async function readRemoteAgentTaskActivity(input: {
   db: PostgresDatabase;
   organizationId: string;

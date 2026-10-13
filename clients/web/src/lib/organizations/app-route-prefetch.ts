@@ -19,6 +19,10 @@ import {
 	organizationProfileDirectoryQueryOptions,
 	organizationSpacesQueryOptions,
 } from "#/query/organizations/organization-directory";
+import {
+	organizationPluginConnectionCatalogQueryOptions,
+	organizationPluginProviderCatalogQueryOptions,
+} from "#/query/organizations/plugin-connections";
 import type { BrowserQueryPersistenceController } from "#/query/persistence/browser-query-persistence";
 import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
 import { spaceBootstrapQueryOptions } from "#/query/spaces/bootstrap";
@@ -39,6 +43,27 @@ type OrganizationRoutePrefetchInput = {
 	queryPersistence: BrowserQueryPersistenceController;
 	routeFamily: string;
 };
+
+export async function prefetchPluginsRouteData(
+	input: OrganizationRoutePrefetchInput
+): Promise<void> {
+	const scope = await resolveAuthorizedPrefetchScope(input);
+	if (!scope) {
+		return;
+	}
+	const organizationId = scope.currentOrganization.id;
+	await Promise.all([
+		input.queryClient.prefetchQuery(
+			organizationPluginProviderCatalogQueryOptions({ organizationId })
+		),
+		input.queryClient.prefetchQuery(
+			organizationPluginConnectionCatalogQueryOptions({
+				organizationId,
+				queryClient: input.queryClient,
+			})
+		),
+	]);
+}
 
 export async function prefetchInboxRouteData(
 	input: OrganizationRoutePrefetchInput & { filters: InboxFeedFilters }

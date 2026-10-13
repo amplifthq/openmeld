@@ -14,12 +14,15 @@ import { Button } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
 import { PageToolbar } from "@openmeld/ui/components/page-toolbar";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
+import { SkeletonRegion } from "@openmeld/ui/components/skeleton-content";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import { FluidContextMenu } from "@openmeld/ui/fluid/context-menu";
 import { resolveStatusToneProminentBadgeClassName } from "@openmeld/ui/lib/status-tone";
 import {
 	CaretLeftIcon,
 	CaretRightIcon,
+	FunnelIcon,
 	MagnifyingGlassIcon,
 } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -43,9 +46,14 @@ export function PluginsCatalogPanel(input: {
 	const scope = input.isPersonalWorkspace ? "personal" : selectedScope;
 	const [activeCategory, setActiveCategory] = useState<PluginCategory>("All");
 	const [searchQuery, setSearchQuery] = useState("");
+	const [connectedOnly, setConnectedOnly] = useState(false);
 	const catalogId = useId();
 	const queryClient = useQueryClient();
 	const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase();
+	const scopeName = {
+		personal: "Personal",
+		organization: input.organizationName,
+	}[scope];
 	const providersQuery = useQuery(
 		organizationPluginProviderCatalogQueryOptions({
 			organizationId: input.organizationId,
@@ -57,10 +65,11 @@ export function PluginsCatalogPanel(input: {
 			queryClient,
 		})
 	);
-	const { connectedServices, reconnectServices } = connectionServices(
-		connectionsQuery.data,
-		scope
-	);
+	const servicesByScope = {
+		personal: connectionServices(connectionsQuery.data, "personal"),
+		organization: connectionServices(connectionsQuery.data, "organization"),
+	};
+	const { connectedServices } = servicesByScope[scope];
 	const connectionStatusIsPending = connectionsQuery.isPending;
 	const olderPersonalServices =
 		scope === "organization"
@@ -83,12 +92,14 @@ export function PluginsCatalogPanel(input: {
 			: [];
 	const visiblePlugins = pluginsForCatalog(
 		providersQuery.data?.providers ?? [],
-		connectedServices
+		normalizedSearchQuery
+			? new Set([
+					...connectedServices,
+					...servicesByScope.personal.connectedServices,
+				])
+			: connectedServices
 	).filter((plugin) => {
-		const matchesScope = connectorConnectionScopeAllowed(
-			plugin.service,
-			scope === "personal" ? "member" : "shared"
-		);
+		const matchesScope = catalogResultScope(plugin.service, scope) === scope;
 		const matchesCategory =
 			activeCategory === "All" || plugin.category === activeCategory;
 		const matchesSearch =
@@ -96,8 +107,16 @@ export function PluginsCatalogPanel(input: {
 			`${plugin.name} ${plugin.description} ${plugin.category}`
 				.toLocaleLowerCase()
 				.includes(normalizedSearchQuery);
-		return matchesScope && matchesCategory && matchesSearch;
+		return (
+			(matchesScope || normalizedSearchQuery.length > 0) &&
+			matchesCategory &&
+			matchesSearch &&
+			(!connectedOnly ||
+				(matchesScope && connectedServices.has(plugin.service)))
+		);
 	});
+	const resultsPending =
+		providersQuery.isPending || (connectedOnly && connectionStatusIsPending);
 	const sections = PLUGIN_CATEGORIES.filter((category) => category !== "All")
 		.map((category) => ({
 			category,
@@ -108,7 +127,7 @@ export function PluginsCatalogPanel(input: {
 
 	return (
 		<section
-			aria-busy={connectionStatusIsPending}
+			aria-busy={providersQuery.isPending || connectionStatusIsPending}
 			aria-label="Plugin catalog"
 			className="@container space-y-4"
 		>
@@ -121,22 +140,38 @@ export function PluginsCatalogPanel(input: {
 					isPersonalWorkspace={input.isPersonalWorkspace === true}
 					organizationName={input.organizationName}
 				/>
-				<div className="relative ml-auto @lg:w-64 w-full">
-					<label className="sr-only" htmlFor="plugin-catalog-search">
-						Search Plugins
-					</label>
-					<MagnifyingGlassIcon
-						aria-hidden="true"
-						className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
-					/>
-					<Input
-						className="pl-8"
-						id="plugin-catalog-search"
-						onChange={(event) => setSearchQuery(event.target.value)}
-						placeholder="Search Plugins"
-						type="search"
-						value={searchQuery}
-					/>
+				<div className="ml-auto flex @lg:w-auto w-full items-center gap-2">
+					<TooltipHint content={`Show connected Plugins in ${scopeName}`}>
+						<Button
+							aria-label="Show connected Plugins"
+							aria-pressed={connectedOnly}
+							onClick={() => setConnectedOnly(!connectedOnly)}
+							size="icon"
+							variant={connectedOnly ? "secondary" : "ghost"}
+						>
+							<FunnelIcon
+								aria-hidden="true"
+								weight={connectedOnly ? "fill" : "regular"}
+							/>
+						</Button>
+					</TooltipHint>
+					<div className="relative @lg:w-64 min-w-0 flex-1">
+						<label className="sr-only" htmlFor="plugin-catalog-search">
+							Search Plugins
+						</label>
+						<MagnifyingGlassIcon
+							aria-hidden="true"
+							className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+						/>
+						<Input
+							className="pl-8"
+							id="plugin-catalog-search"
+							onChange={(event) => setSearchQuery(event.target.value)}
+							placeholder="Search Plugins"
+							type="search"
+							value={searchQuery}
+						/>
+					</div>
 				</div>
 			</PageToolbar>
 
@@ -229,50 +264,108 @@ export function PluginsCatalogPanel(input: {
 								aria-label={`${category} Plugins`}
 								className="grid @3xl:grid-cols-2 gap-x-6 gap-y-1"
 							>
-								{plugins.map((plugin) => (
-									<li className="min-w-0" key={plugin.service}>
-										<FluidCardItem
-											className="bg-transparent"
-											itemId={plugin.service}
-										>
-											<PluginCatalogCard
-												connected={
-													connectionsQuery.data
-														? connectedServices.has(plugin.service)
-														: undefined
-												}
-												connectionStatusIsPending={connectionStatusIsPending}
-												organizationSlug={input.organizationSlug}
-												plugin={plugin}
-												reconnectRequired={reconnectServices.has(
-													plugin.service
-												)}
-												scope={scope}
-											/>
-										</FluidCardItem>
-									</li>
-								))}
+								{plugins.map((plugin) => {
+									const resultScope = catalogResultScope(plugin.service, scope);
+									const status = servicesByScope[resultScope];
+									return (
+										<li className="min-w-0" key={plugin.service}>
+											<FluidCardItem
+												className="bg-transparent"
+												itemId={plugin.service}
+											>
+												<PluginCatalogCard
+													connected={
+														connectionsQuery.data
+															? status.connectedServices.has(plugin.service)
+															: undefined
+													}
+													connectionStatusIsPending={connectionStatusIsPending}
+													organizationSlug={input.organizationSlug}
+													personalResult={resultScope !== scope}
+													plugin={plugin}
+													reconnectRequired={status.reconnectServices.has(
+														plugin.service
+													)}
+													scope={resultScope}
+												/>
+											</FluidCardItem>
+										</li>
+									);
+								})}
 							</ul>
 						</section>
 					))}
 				</FluidCardGroup>
 			) : null}
-			{visiblePlugins.length === 0 && providersQuery.isPending ? (
-				<output className="block py-12 text-center text-muted-foreground text-sm">
-					Loading Plugins…
-				</output>
-			) : null}
-			{visiblePlugins.length === 0 && providersQuery.isSuccess ? (
-				<div className="px-5 py-12 text-center">
-					<p className="font-medium text-foreground text-sm">
-						No Plugins found
-					</p>
-					<p className="mt-1 text-muted-foreground text-xs">
-						Try another search or category.
-					</p>
-				</div>
+			{resultsPending ? <PluginCatalogSkeleton /> : null}
+			{visiblePlugins.length === 0 &&
+			!resultsPending &&
+			providersQuery.isSuccess &&
+			(!connectedOnly || connectionsQuery.isSuccess) ? (
+				<PluginCatalogEmptyState
+					connectedOnly={connectedOnly}
+					onClear={() => {
+						setSearchQuery("");
+						setActiveCategory("All");
+						setConnectedOnly(false);
+					}}
+					scopeName={scopeName}
+				/>
 			) : null}
 		</section>
+	);
+}
+
+function PluginCatalogEmptyState(input: {
+	connectedOnly: boolean;
+	scopeName: string;
+	onClear: () => void;
+}) {
+	return (
+		<div className="px-5 py-12 text-center">
+			<p className="font-medium text-foreground text-sm">
+				{input.connectedOnly
+					? `No matching connected Plugins in ${input.scopeName}`
+					: "No Plugins found"}
+			</p>
+			<p className="mt-1 text-muted-foreground text-xs">
+				Try another search or clear your filters.
+			</p>
+			<Button onClick={input.onClear} size="sm" variant="ghost">
+				Clear filters
+			</Button>
+		</div>
+	);
+}
+
+function catalogResultScope(
+	service: string,
+	scope: "personal" | "organization"
+) {
+	return connectorConnectionScopeAllowed(
+		service,
+		scope === "personal" ? "member" : "shared"
+	)
+		? scope
+		: "personal";
+}
+
+function PluginCatalogSkeleton() {
+	return (
+		<SkeletonRegion label="Loading Plugins">
+			<Skeleton className="my-3 h-4 w-28" />
+			<div className="grid @3xl:grid-cols-2 gap-x-6 gap-y-1">
+				{["first", "second", "third", "fourth", "fifth", "sixth"].map((id) => (
+					<div className="flex min-h-20 items-center gap-3 px-2 py-3" key={id}>
+						<Skeleton className="size-10 shrink-0" />
+						<div className="min-w-0 flex-1 space-y-2">
+							<Skeleton className="h-4 w-32 max-w-full" />
+							<Skeleton className="h-3 w-3/4" />
+						</div>
+					</div>
+				))}
+			</div>
+		</SkeletonRegion>
 	);
 }
 
@@ -310,6 +403,7 @@ function PluginCatalogCard(input: {
 	connectionStatusIsPending: boolean;
 	organizationSlug: string;
 	scope: "personal" | "organization";
+	personalResult: boolean;
 }) {
 	const href = `${buildOrganizationPluginPath({ orgSlug: input.organizationSlug, service: input.plugin.service })}?scope=${input.scope}`;
 	const card = (
@@ -324,9 +418,19 @@ function PluginCatalogCard(input: {
 			>
 				<AppLogo app={input.plugin} surfaceLevel={3} />
 				<div className="min-w-0 flex-1">
-					<h3 className="truncate font-medium text-foreground text-sm">
-						{input.plugin.name}
-					</h3>
+					<div className="flex items-center gap-2">
+						<h3 className="truncate font-medium text-foreground text-sm">
+							{input.plugin.name}
+						</h3>
+						{input.personalResult ? (
+							<Badge
+								className="shrink-0 rounded-full bg-muted/40"
+								variant="outline"
+							>
+								Personal
+							</Badge>
+						) : null}
+					</div>
 					<p className="mt-1 truncate text-muted-foreground text-xs">
 						{input.plugin.description}
 					</p>
@@ -400,7 +504,7 @@ export function PluginStatusBadge(input: {
 	}
 	return (
 		<Badge className={resolveStatusToneProminentBadgeClassName("ready")}>
-			Account connected
+			Connected
 		</Badge>
 	);
 }
