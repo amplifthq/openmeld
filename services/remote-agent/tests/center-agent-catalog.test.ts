@@ -31,6 +31,7 @@ import gpt6Models from "./fixtures/openrouter-gpt-6-sol-luna-2026-09-23.json";
 import haiku55 from "./fixtures/openrouter-haiku-5.5-2026-10-08.json";
 import additionalModels from "./fixtures/openrouter-hosted-models-2026-09-22.json";
 import octoberModels from "./fixtures/openrouter-models-2026-10-01.json";
+import museWonder from "./fixtures/openrouter-muse-wonder-2026-10-13.json";
 import opus55 from "./fixtures/openrouter-opus-5.5-2026-09-23.json";
 
 const catalog = modelCatalogSchema.parse(catalogJson);
@@ -58,6 +59,7 @@ describe("curated Center Agent provider models", () => {
     ...gpt6Models.data,
     ...octoberModels.data,
     ...haiku55.data,
+    ...museWonder.data,
   ])("routes $id with captured capabilities and a tool continuation", async (evidence) => {
     const resolved = resolveCenterAgentModelRoute({
       catalog,
@@ -192,9 +194,21 @@ describe("curated Center Agent provider models", () => {
         : toolResult?.content.map((part) => part.text).join("")
     ).toBe("Space inspected.");
     expect(payload).not.toHaveProperty("models");
+    if (evidence.id === "meta/muse-wonder") {
+      expect((payload as { tool_choice?: string }).tool_choice ?? "auto").toBe(
+        "auto"
+      );
+      expect(
+        resolveCenterAgentModelRoute({
+          catalog,
+          agentControllerRef: "hosted:remote-agent",
+          preference: { kind: "selected_model", modelId: evidence.id },
+        })
+      ).toEqual(resolved);
+    }
   });
 
-  it("keeps the existing default and image helper while exposing six model vendors", () => {
+  it("keeps the existing default and image helper while exposing seven model vendors", () => {
     const choices = listCenterAgentModelChoices(catalog);
     const ids = choices.flatMap((choice) =>
       choice.preference.kind === "selected_model"
@@ -205,6 +219,7 @@ describe("curated Center Agent provider models", () => {
       "anthropic",
       "deepseek",
       "google",
+      "meta",
       "openai",
       "x-ai",
       "z-ai",
@@ -218,9 +233,12 @@ describe("curated Center Agent provider models", () => {
     );
     expect(ids).toEqual(
       expect.arrayContaining(
-        [...additionalModels.data, ...octoberModels.data, ...haiku55.data].map(
-          (model) => model.id
-        )
+        [
+          ...additionalModels.data,
+          ...octoberModels.data,
+          ...haiku55.data,
+          ...museWonder.data,
+        ].map((model) => model.id)
       )
     );
     expect(catalog.agentControllers["center-agent"]?.defaultModelId).toBe(
