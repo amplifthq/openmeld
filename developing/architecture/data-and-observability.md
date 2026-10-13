@@ -99,6 +99,14 @@ owning sync direction starts a new generation. Genuine peer replacement or
 accepted-cursor regression still invalidates the current admission attempt.
 This does not authorize replay of an earlier command or change its result fence.
 
+The SDK may return an existing retention slot's generation and closed flag with
+the peer watermarks from one bounded read snapshot. This transient projection
+can remove duplicate admission reads for the same open generation; it is not a
+persisted lease or another readiness owner. Actual writes still fence the epoch
+and generation. Bounded object groups commit bytes, pins and maintenance state
+together after stream reads finish. Neither optimization moves metadata cursors
+or changes import-receipt acknowledgement and native execution admission.
+
 Computer preparation timings are ephemeral observations from the existing SDK
 sync owner, emitted through its `sync.block` logger. Authorized Worker-log
 readers can correlate a generation's bounded blocks, phase intervals and counts;
