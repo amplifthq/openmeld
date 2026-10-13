@@ -7,6 +7,7 @@ import { buildCommandAuthenticationPromptMessage } from "../auth/command-auth";
 import { buildOpenMeldRequestContextFromProfile } from "../config/openmeld-request-context";
 import { resolveUserFacingCliEntryCommand } from "../runtime/cli-entry-command";
 import { outJsonLine } from "../ui/io";
+import { formatTextEvent } from "../ui/output";
 import { createCliSpaceApi, type SpaceApi } from "./cli-space-api";
 import {
   assertValidSpaceIdTarget,
@@ -15,14 +16,18 @@ import {
 } from "./command-context";
 import { toStructuredGatewayFailure } from "./gateway-response";
 import { runSpaceReadWithPasswordRetry } from "./password-flow";
-import { buildFormalDispatchResultReadPayload } from "./read-projection/formal-message-read-output";
+import {
+  buildFormalDispatchResultReadPayload,
+  buildFormalSignalReadPayload,
+} from "./read-projection/formal-message-read-output";
 import {
   buildIdentityOnlyMembersSnapshotForReadProjection,
   loadSpaceIdentityDirectoryOrNull,
   loadSpaceSignalIndexOrNull,
 } from "./read-projection/space-read-projection-context";
-import { fetchSpaceDispatchResult } from "./result-api";
+import type { fetchSpaceDispatchResult } from "./result-api";
 import { emitSpaceDispatchResultHumanOutput } from "./result-output";
+import { readSpaceResult } from "./result-read";
 
 type SpaceReadRequestContext = ReturnType<
   typeof buildOpenMeldRequestContextFromProfile
@@ -43,7 +48,6 @@ type SpaceResultReadError = Error & {
 async function loadSpaceResultProjectionContext(input: {
   requestContext: SpaceReadRequestContext;
   resolvedPassword: string | undefined;
-  result: Awaited<ReturnType<typeof fetchSpaceDispatchResult>>;
   spaceApi: SpaceApi;
   spaceId: string;
 }): Promise<SpaceResultProjectionContext> {
@@ -135,7 +139,7 @@ export async function runSpaceResult(input: {
     | Awaited<
         ReturnType<
           typeof runSpaceReadWithPasswordRetry<
-            Awaited<ReturnType<typeof fetchSpaceDispatchResult>>
+            Awaited<ReturnType<typeof readSpaceResult>>
           >
         >
       >
@@ -147,7 +151,8 @@ export async function runSpaceResult(input: {
         interactive && runtime.resolvedView === "human" && !input.json,
       presenter,
       execute: async (password) =>
-        await fetchSpaceDispatchResult({
+        await readSpaceResult({
+          spaceApi,
           requestContext,
           baseUrl,
           space: input.space,
@@ -168,16 +173,44 @@ export async function runSpaceResult(input: {
   if (resultRead.status === "cancelled") {
     return;
   }
-  const result = resultRead.result;
+  const read = resultRead.result;
   const resolvedPassword = resultRead.password;
   const projectionContext = await loadSpaceResultProjectionContext({
-    result,
     requestContext,
     resolvedPassword,
     spaceApi,
     spaceId: input.space,
   });
   const { identityDirectory, membersSnapshot, signalIndex } = projectionContext;
+
+  if (read.source === "published_message") {
+    const message = buildFormalSignalReadPayload({
+      signal: read.result.signal,
+      identityDirectory,
+      membersSnapshot,
+      signalIndex,
+    });
+    const payload = {
+      ...read.result,
+      messageReadProjection: message.messageReadProjection,
+    };
+    if (input.json) {
+      outJsonLine(payload);
+    } else if (runtime.resolvedView === "agent") {
+      presenter.data({ code: "space.result.published_message", payload });
+    } else {
+      presenter.line({
+        code: "space.result.published_message",
+        text:
+          formatTextEvent(read.result.signal, {
+            view: "human",
+            spaceMembersSnapshot: membersSnapshot,
+          }) ?? `${read.result.outcome.status}: ${read.result.signal.id}`,
+      });
+    }
+    return;
+  }
+  const result = read.result;
 
   if (input.json) {
     emitSpaceResultJsonOutput({

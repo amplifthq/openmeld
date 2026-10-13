@@ -145,6 +145,13 @@ selection; one Agent's selection never applies to another Agent. No selection
 is required to send a normal message. A Task is a work record, not an execution
 session. Marking it In progress changes its phase; it does not launch an Agent.
 
+Session selection support comes from the shared Agent Controller policy. Core
+rejects explicit choices for unsupported controllers before publishing the
+message, creating its Task, or enqueueing its Wake. CLI checks the same policy
+before uploading message files. Omitted choices retain normal routing. Validated
+material handoffs keep their separate contract: a hosted recipient uses its
+existing Computer; accepting the handoff does not create a new cloud session.
+
 Composer authoring adds optional `taskDraft` and `contextSelections` fields.
 Task creation and the original message's dispatch commit together. Dispatch
 context names the existing Task, assignee, and reviewer so Agents can update it

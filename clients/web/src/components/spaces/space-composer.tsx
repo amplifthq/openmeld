@@ -1,3 +1,4 @@
+import { supportsExecutionContextSelection } from "@openmeld/agent-runtime";
 import {
 	isHostedAgentControllerRef,
 	resolvePublicAgentAvailabilityCopy,
@@ -211,12 +212,7 @@ function useComposerTaskChoice(input: SpaceComposerProps) {
 			);
 			if (
 				!(
-					target &&
-					[
-						"builtin:codex",
-						"builtin:claude-code",
-						"builtin:antigravity",
-					].includes(target.agentControllerRef ?? "")
+					target && supportsExecutionContextSelection(target.agentControllerRef)
 				)
 			) {
 				return null;

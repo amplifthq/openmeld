@@ -78,6 +78,15 @@ Team and Space use the same Finder-style file browser and shared viewer componen
 
 Space Files includes both chat attachments and manually uploaded files by default. File origin is provenance, not a visibility filter. The file browser does not present the structured work-handoff workflow as a generic send-file action.
 
+Text reads use the shared Files MIME policy and a 1 MiB decoded-input bound.
+Patch and diff attachments are plain text. Existing generic binary MIME metadata
+may use a recognized text filename for read eligibility, but bytes must still
+pass strict UTF-8 and binary NUL-byte validation. ANSI logs and form-feed text
+remain readable. This does not rewrite
+immutable revision metadata, grant browser editing, or change authorization.
+Unknown binary files and explicit non-text MIME types remain unsupported by text
+read tools; authenticated downloads remain available.
+
 Center, Hosted Remote, and Local Agents use the same logical file operations and exact revision references as people. The root service enforces the represented human's authorization at the time of each read or write. A private file may enter a Hosted Agent turn only when the audience and execution path keep it private. A one-to-one conversation alone does not prove that a shared Computer, cache, history, or published output is isolated.
 
 Skill instructions load on activation and individual resources load on demand from an immutable release. Neither a model-side lazy API nor a UI preview proves backend lazy retrieval; storage fetches and decoding must also be deferred. Storage, upload, package validation, enabled catalog, and task working-set budgets remain separate.

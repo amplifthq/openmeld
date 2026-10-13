@@ -8,13 +8,16 @@ import {
   centerAgentListSpaceFilesRpcInputSchema,
   centerAgentManageSpaceFilesRpcInputSchema,
   createSpaceFolderBodySchema,
+  decodeSpaceFileText,
   getSpaceFileResponseSchema,
   isSpaceFileTextEditable,
+  isSpaceFileTextReadable,
   listSpaceFileRevisionsResponseSchema,
   listSpaceFilesQuerySchema,
   listSpaceFilesResponseSchema,
   postNormalMessageBodySchema,
   postSpaceThreadSignalBodySchema,
+  readSpaceFileTextStream,
   resolveSpaceFileMimeType,
   restoreSpaceFileEntryBodySchema,
   restoreSpaceFileEntryResponseSchema,
@@ -702,6 +705,69 @@ describe("Space Files contracts", () => {
     expect(resolveSpaceFileMimeType({ fileName: "archive.unknown" })).toBe(
       "application/octet-stream"
     );
+    for (const fileName of ["changes.diff", "CHANGE.PATCH"]) {
+      expect(resolveSpaceFileMimeType({ fileName })).toBe("text/plain");
+      expect(
+        resolveSpaceFileMimeType({
+          fileName,
+          declaredMimeType: "application/octet-stream",
+        })
+      ).toBe("application/octet-stream");
+    }
+  });
+
+  it.each([
+    ["review.diff", "application/octet-stream", 1024, true],
+    ["review.patch", "application/octet-stream", 1024, true],
+    ["old-notes.md", "application/octet-stream", 1024, true],
+    ["unknown.bin", "application/octet-stream", 1024, false],
+    ["review.diff", "image/png", 1024, false],
+    ["review.diff", "application/octet-stream", 1024 * 1024 + 1, false],
+  ])("bounds text reads of %s (%s, %s bytes)", (fileName, mimeType, sizeBytes, readable) => {
+    expect(isSpaceFileTextReadable({ fileName, mimeType, sizeBytes })).toBe(
+      readable
+    );
+    if (mimeType === "application/octet-stream") {
+      expect(isSpaceFileTextEditable({ mimeType, sizeBytes })).toBe(false);
+    }
+  });
+
+  it("decodes patch bytes without losing Unicode and rejects binary or oversized bytes", () => {
+    const patch =
+      "--- a/name\r\n+++ b/name\r\n-旧\n+new\t✓\n\u001b[31mANSI log\u001b[0m\f";
+    expect(decodeSpaceFileText(new TextEncoder().encode(patch).buffer)).toBe(
+      patch
+    );
+    for (const bytes of [
+      new Uint8Array([0x66, 0x00, 0x6f]),
+      new Uint8Array([0xc3, 0x28]),
+      new Uint8Array(1024 * 1024 + 1),
+    ]) {
+      expect(() => decodeSpaceFileText(bytes.buffer)).toThrow();
+    }
+  });
+
+  it("reads split UTF-8 streams and cancels oversized content without trusting size metadata", async () => {
+    const bytes = new TextEncoder().encode("Review ✓\n");
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(bytes.slice(0, 8));
+        controller.enqueue(bytes.slice(8));
+        controller.close();
+      },
+    });
+    await expect(readSpaceFileTextStream(stream)).resolves.toBe("Review ✓\n");
+    let cancelled = false;
+    const oversized = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(new Uint8Array(1024 * 1024 + 1));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    await expect(readSpaceFileTextStream(oversized)).rejects.toThrow("1 MiB");
+    expect(cancelled).toBe(true);
   });
 
   it("identifies one immutable Space File revision in a message", () => {

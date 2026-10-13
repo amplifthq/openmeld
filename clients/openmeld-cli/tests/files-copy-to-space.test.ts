@@ -4,10 +4,11 @@ import { registerFilesCommands } from "../src/files/command";
 
 const copyToSpace = vi.fn();
 const getFile = vi.fn();
+const streamContent = vi.fn();
 const line = vi.fn();
 
 vi.mock("@openmeld/api-client", () => ({
-  createFileRootApi: () => ({ copyToSpace, getFile }),
+  createFileRootApi: () => ({ copyToSpace, getFile, streamContent }),
 }));
 vi.mock("../src/config/auth-session", () => ({
   getAuthSessionState: async () => ({
@@ -28,7 +29,7 @@ vi.mock("../src/space/api-client-foundation", () => ({
   createCliApiClientFoundation: () => ({}),
 }));
 
-describe("Files copy to Space command", () => {
+describe("Files commands", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getFile.mockResolvedValue({ name: "brief.md" });
@@ -72,5 +73,53 @@ describe("Files copy to Space command", () => {
     expect(line).toHaveBeenCalledWith(
       expect.objectContaining({ code: "files.copied_to_space" })
     );
+  });
+
+  it("reads an existing generic-type patch through the command and rejects binary or oversized content", async () => {
+    const patch = "--- a/file\n+++ b/file\n-old\n+new ✓\n";
+    getFile.mockResolvedValue({ name: "review.patch" });
+    const read = (bytes: Uint8Array, sizeBytes = bytes.byteLength) => {
+      const cancel = vi.fn();
+      const response = {
+        bytes: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(bytes);
+            controller.close();
+          },
+          cancel,
+        }),
+        mimeType: "application/octet-stream",
+        revision: 3,
+        sizeBytes,
+      } satisfies Awaited<
+        ReturnType<
+          ReturnType<
+            typeof import("@openmeld/api-client").createFileRootApi
+          >["streamContent"]
+        >
+      >;
+      streamContent.mockResolvedValue(response);
+      const program = new Command().name("openmeld");
+      registerFilesCommands(program, async (_route, run) => run());
+      const result = program.parseAsync(
+        [
+          "files",
+          "read",
+          "source-file",
+          "--location",
+          "team",
+          "--revision",
+          "3",
+        ],
+        { from: "user" }
+      );
+      return { result, cancel };
+    };
+    await read(new TextEncoder().encode(patch)).result;
+    expect(line).toHaveBeenCalledWith({ code: "files.read", text: patch });
+    await expect(read(new Uint8Array([0x66, 0x00])).result).rejects.toThrow();
+    const oversized = read(new Uint8Array([0x61]), 1024 * 1024 + 1);
+    await expect(oversized.result).rejects.toThrow("too large");
+    expect(oversized.cancel).toHaveBeenCalledOnce();
   });
 });
