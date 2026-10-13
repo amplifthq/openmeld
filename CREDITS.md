@@ -23,10 +23,18 @@ We retain its [MIT license](packages/ui/licenses/fluid-functionalism.MIT.txt).
 | [Extend UI](https://www.extend.ai/ui) | Adapted components in [the Web client](clients/web/src/components/extend) |
 
 Other copied code and assets include AICSS Approval Card, Motion Primitives Dock,
-Rare UI by Swami Malode, Animata, Tailark, and Hairline. Their source links and
+Animata, Tailark, and Hairline. Their source links and
 notices are in [Third-party notices](THIRD_PARTY_NOTICES.md).
 That index also credits demo portraits, emoji data, protocol code, community
 documents, and development skills.
+
+### Rare UI
+
+The folder artwork and primitive are adapted from [Rare UI](https://rareui.com)
+by **Swami Malode**.
+The component retains its [MIT + Commons Clause + Attribution license](packages/ui/src/components/folder-component.LICENSE.md),
+including additional restrictions beyond OpenMeld's root MIT license.
+See [Rare UI terms](THIRD_PARTY_NOTICES.md#rare-ui-terms) for the notice and distribution requirements.
 
 ## Application foundations
 

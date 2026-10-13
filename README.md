@@ -146,7 +146,6 @@ See [Credits](CREDITS.md) and [Third-party notices](THIRD_PARTY_NOTICES.md).
 ## License
 
 OpenMeld's original code uses the [MIT License](LICENSE).
-Third-party code and assets retain their own terms. See [Third-party notices](THIRD_PARTY_NOTICES.md),
-including the additional restrictions on the [Rare UI](https://rareui.com) folder component.
-
-The folder artwork and primitive are adapted from Rare UI by Swami Malode.
+Third-party code and assets retain their own terms.
+See [Credits](CREDITS.md) for attribution and [Third-party notices](THIRD_PARTY_NOTICES.md)
+for licenses and additional restrictions.
