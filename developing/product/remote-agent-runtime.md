@@ -2829,6 +2829,12 @@ enabled. A valid checkpoint can then commit through the normal Flue path;
 recovering context never replays a completed operation.
 The working checkpoint preserves active constraints, corrections, unresolved
 work and source pointers instead of repeatedly copying every historical fact.
+The summarizer's system instruction treats an earlier checkpoint as source
+material to rewrite, not a draft to expand. Each fact belongs in one section;
+historical inventories become conclusions with source references or recall
+phrases. This keeps the visible-text target meaningful when an older checkpoint
+is already long. It does not raise the generation ceiling or accept a truncated
+checkpoint.
 The summary must not describe omitted evidence as nonexistent. During a tool
 loop, the cut retains the issuing assistant message with its tool results.
 If compaction cannot fit the current request, inference fails explicitly rather
