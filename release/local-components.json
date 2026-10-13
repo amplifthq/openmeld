@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-13T10:20:18.561Z",
+  "updatedAt": "2026-10-13T12:08:36.375Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-project-work-v1",
       "packageVersion": "0.3.257",
       "updatePolicy": "available",
-      "reason": "Working-folder commands retain their inputs and responses; failed preparation preserves saved choices and background validation respects macOS privacy boundaries."
+      "reason": "Working-folder inputs and responses remain compatible; shared schema additions from main do not change local directory commands."
     },
     "service": {
-      "bundleHash": "0425997a00b0c8b2ff51961f8b1ab78197a5398127bc1fbced0e116296a3e3db",
-      "portableBundleHash": "63bbba5fc4a68b55300d5db24c2b634745b368ea266e6714668d42285f046461",
+      "bundleHash": "3a086b5d72ee948e6b521026c42b53cac66e972c99c5bcd4097d49494622f286",
+      "portableBundleHash": "df404850df44b8f3e45308e9b844e192c1090a950bdecdaa32da03ee046a6cfd",
       "bundleVersion": "0.3.257",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
       "serviceContractVersion": "openmeld-service-contract-2026-09-project-work-v1",
       "updatePolicy": "available",
-      "reason": "Folder validation and persistence are corrected without changing setup, Wake or Service contracts."
+      "reason": "Directory validation and persistence fixes retain setup, Wake, dispatch and runtime contracts after current-main integration."
     },
     "skills": {
       "bundleHash": "0507d367ef298936053223f81441697545949fbf4d39b1b306872f7c254a4871",
