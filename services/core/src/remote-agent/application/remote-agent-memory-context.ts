@@ -26,9 +26,6 @@ export async function attachCenterAgentMemoryToTurnEnvelope(input: {
     input.memoryService === undefined
       ? createCoreCenterAgentMemoryService(input.env)
       : input.memoryService;
-  if (!memoryService) {
-    return turnEnvelope;
-  }
   const contextScopePlan = resolveCenterAgentContextScopePlan(turnEnvelope);
   if (
     !(
@@ -37,6 +34,14 @@ export async function attachCenterAgentMemoryToTurnEnvelope(input: {
     )
   ) {
     return turnEnvelope;
+  }
+  const unavailableMemory = {
+    items: [],
+    truncated: false,
+    status: "unavailable" as const,
+  };
+  if (!memoryService) {
+    return { ...turnEnvelope, memory: unavailableMemory };
   }
 
   try {
@@ -56,7 +61,9 @@ export async function attachCenterAgentMemoryToTurnEnvelope(input: {
             organizationId: input.organizationId,
             query,
           });
-    return memory.items.length > 0 ? { ...turnEnvelope, memory } : turnEnvelope;
+    return memory.items.length > 0 || memory.status
+      ? { ...turnEnvelope, memory }
+      : turnEnvelope;
   } catch (error) {
     console.warn("[core.center_agent_memory.recall_unavailable]", {
       event: CORE_LOG_EVENTS.coreInternalError,
@@ -64,7 +71,7 @@ export async function attachCenterAgentMemoryToTurnEnvelope(input: {
       organizationId: input.organizationId,
       spaceId: turnEnvelope.space.id,
     });
-    return turnEnvelope;
+    return { ...turnEnvelope, memory: unavailableMemory };
   }
 }
 
