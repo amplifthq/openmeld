@@ -137,6 +137,12 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) for your first change and pull request.
 [Code of conduct](CODE_OF_CONDUCT.md) ·
 [Report a security issue](SECURITY.md)
 
+## Credits
+
+Built with [Fluid Functionalism](https://www.fluidfunctionalism.com/) and many
+other community projects. Thank you to their maintainers and contributors.
+See [Credits](CREDITS.md) and [Third-party notices](THIRD_PARTY_NOTICES.md).
+
 ## License
 
 OpenMeld's original code uses the [MIT License](LICENSE).

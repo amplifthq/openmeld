@@ -6,11 +6,13 @@ That license does not replace licenses or notices attached to third-party materi
 This index points to notices kept with copied code and assets.
 It is not a complete dependency inventory or a claim that every dependency uses MIT.
 Package dependencies retain their own licenses in their distributions.
+For acknowledgments of major upstream projects, see [Credits](CREDITS.md).
 
 ## Copied code and assets
 
 | Material | Location and notice |
 | --- | --- |
+| Fluid Functionalism components and shared interaction utilities, by Micka Touillaud | [UI source notice](packages/ui/THIRD_PARTY_NOTICES.md#fluid-functionalism), [MIT license](packages/ui/licenses/fluid-functionalism.MIT.txt) |
 | AICSS Approval Card and Motion Primitives Dock adaptations | [UI notices](packages/ui/THIRD_PARTY_NOTICES.md) |
 | Rare UI folder artwork and primitive, by Swami Malode | [Component license](packages/ui/src/components/folder-component.LICENSE.md) |
 | Evil Charts components | [License](packages/ui/src/components/evilcharts/LICENSE) |

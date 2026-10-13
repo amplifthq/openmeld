@@ -105,6 +105,8 @@ Changes to third-party material must preserve its applicable license and notices
 
 When adding copied code, fonts, images, or other assets, include the source,
 required license text, and attribution. Update [Third-party notices](THIRD_PARTY_NOTICES.md).
+Add major upstream projects to [Credits](CREDITS.md). A credit link does not
+replace the license and copyright notices required for distribution.
 Do not assume that public source code permits unrestricted reuse.
 
 Need help choosing a starting point? See [Support](SUPPORT.md).
