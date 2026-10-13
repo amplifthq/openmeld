@@ -1,5 +1,9 @@
 # Landing page sources
 
+The capability comparison's row definitions, reviewed date, and first-party
+evidence live in [comparison-sources.md](comparison-sources.md). Research notes
+are not rendered in the public comparison section.
+
 Hero logo placement and pointer parallax were informed by https://t3.codes/.
 Layered product scenes, peripheral fades, and detail disclosure were
 informed by https://linear.app/homepage and the owner's Linear recordings.
