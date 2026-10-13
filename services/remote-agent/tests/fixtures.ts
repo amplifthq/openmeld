@@ -9,7 +9,13 @@ import type {
 export const TEST_NOW_MS = Date.UTC(2026, 6, 6, 12, 0, 0);
 export const TEST_REMOTE_AGENT_AI_GATEWAY_ENV = {
   OPENMELD_CORE_WORKER: {
-    recordRemoteAiUsage: async () => ({ status: "accepted" as const }),
+    recordRemoteAiUsage: async () => ({
+      status: "accepted" as const,
+      providerAuthorization: {
+        source: "free" as const,
+        apiKey: "sk-or-test-provider-key",
+      },
+    }),
   },
   CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-ai-gateway-token",
   OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID: "account_123",

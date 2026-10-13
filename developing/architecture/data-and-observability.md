@@ -3570,13 +3570,11 @@ are optional for readers. Core/Gateway receivers must accept the new model
 grouping before Web or Center Agent callers request it. This read projection
 introduces no migration, writer, or execution authority.
 
-Operators can inspect or preview changes with
-`node scripts/ops/ai-usage-policy.mjs --org <id> --env local --daily-usd 1`.
-Add `--apply` to save; use `unlimited` to remove the cap. Local mode targets
-only the current running worktree lane; staging and production require an
-explicit environment and authorized Wrangler access. No deploy is needed to
-adjust this policy. Enforcement uses confirmed UTC-day costs and may overshoot
-for in-flight requests; it is not a concurrent reservation system.
+Hosted admission now uses [workspace AI credits and keys](../engineering/ai-billing.md).
+OpenRouter's native monthly key limit owns the balance; receipts retain the
+funding source for attribution. The former daily-policy operator script is
+retired. Historical daily-policy rows do not authorize requests. Native limits
+can overshoot for in-flight requests and have propagation delay.
 
 Successful Flue conversation compaction is operational evidence, not a second
 conversation or memory store. During compaction, the worker may retain one

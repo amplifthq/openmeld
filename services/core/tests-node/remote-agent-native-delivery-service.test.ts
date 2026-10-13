@@ -32,6 +32,15 @@ import type {
   ResolveNativeReplyPlacementInput,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
+import { readAiBilling } from "../src/usage/ai-billing-service";
+
+// This suite owns delivery orchestration. Native funding isolation, encryption,
+// balances, and concurrent grants are covered in ai-billing.test.ts.
+vi.mock("../src/usage/ai-billing-service", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/usage/ai-billing-service")>()),
+  readAiBilling: vi.fn(async () => ({ status: "available", source: "free" })),
+}));
+
 import { rpcCenterAgentListAgentActivitySessions } from "../src/agent-activity/activity-center-agent-rpc";
 import {
   claimReadyAgentTaskCompletionSubscription,
@@ -6290,16 +6299,21 @@ describe("Remote Agent native delivery callback service", () => {
       await harness.close();
     }
   });
-  it("rejects a Space admission when its AI allowance is exhausted with a visible UTC reset message", async () => {
+  it("rejects a Space admission when monthly credits are exhausted with a visible recovery message", async () => {
     const harness = await createPostgresHarness();
     await seedRemoteAgentSubmitAuthority(harness);
     const nowMs = Date.parse("2026-07-12T12:00:00.000Z");
-    await harness.query({
-      values: ["org_1", 0, nowMs],
-      text: `
-        INSERT INTO "openmeld"."organization_ai_usage_policies"
-          (organization_id, daily_limit_nano_usd, updated_at_ms) VALUES ($1, $2, $3)
-      `,
+    vi.mocked(readAiBilling).mockResolvedValueOnce({
+      plan: "free",
+      source: "free",
+      policyVersion: "2026-10-v1",
+      monthlyCredits: 5000,
+      usedCredits: 5000,
+      remainingCredits: 0,
+      resetsAt: "2026-08-01T00:00:00.000Z",
+      keySuffix: null,
+      canManage: false,
+      status: "exhausted",
     });
     const workerSubmit = vi.fn();
     const env = buildEnv(harness.db, {
@@ -6327,8 +6341,8 @@ describe("Remote Agent native delivery callback service", () => {
         expect.objectContaining({
           data: expect.objectContaining({
             noticeType: "terminal_failure",
-            reasonCode: "remote_agent.daily_quota_exceeded",
-            text: expect.stringContaining("00:00 UTC"),
+            reasonCode: "ai_usage.monthly_limit_reached",
+            text: expect.stringContaining("monthly reset"),
           }),
           finalOutcomeAuthority: "remote_agent_native_delivery",
         })
@@ -6339,7 +6353,7 @@ describe("Remote Agent native delivery callback service", () => {
           idempotencyKey: "idem_201",
         })
       ).resolves.toMatchObject({
-        failureCode: "remote_agent.daily_quota_exceeded",
+        failureCode: "ai_usage.monthly_limit_reached",
         status: "failed",
       });
       await expect(

@@ -4330,7 +4330,7 @@ Core-owned hosted readiness has exactly two product states in MVP:
 
 "It runs in the cloud, therefore it is always green" is a contract violation.
 
-### Free MVP with operator containment and usage visibility
+### Free credits, workspace keys, and usage visibility
 
 Remote inference usage records distinguish Flue's `agent`, `compaction`, and
 `compaction_prefix` purposes by joining the public turn-request observation to
@@ -4340,15 +4340,15 @@ so existing Usage clients can read totals unchanged; the ledger retains the
 detail for operator cost analysis. Core must accept the added record purposes
 before Remote Agent emits them. No local Service or CLI contract changes.
 
-- The Remote Agent is **free** in MVP. No billing build.
+- Hosted inference uses [workspace AI credits and keys](../engineering/ai-billing.md).
+  Free includes 5,000 credits per UTC month for the creator's first workspace.
+  Workspace BYOK and a privately configured internal exemption use separate keys.
 - The retired **$50/org/day circuit breaker**, `resting` state, and
   **60 Remote Agent triggers/member/hour** limit are not active product
-  gates. Historical database columns and migrations remain because old rows
-  are durable evidence, but Core no longer reads or writes them.
+  gates. Historical database columns and migrations remain as durable evidence.
 - Operator containment remains a global runtime kill switch and an optional
-  per-organization blocklist. Both are operational controls. An optional
-  Organization daily AI allowance defaults to unlimited and is managed by
-  operators through `scripts/ops/ai-usage-policy.mjs`; members cannot raise it.
+  per-organization blocklist. Both are operational controls. The former daily
+  allowance is retired; OpenRouter's native monthly key limit owns enforcement.
 - Per-turn usage is recorded by the Remote Agent worker from Flue prompt
   usage, emitted to Analytics Engine, and exposed through
   `readUsageDiagnostics`. Core does not add usage fields to the native
@@ -4359,9 +4359,9 @@ before Remote Agent emits them. No local Service or CLI contract changes.
   it never includes prompts, message text, provider response text, or tokens.
   This operational evidence does not decide admission, retry, timeout, native
   delivery, or final result-surface truth.
-- New-turn default route: Cloudflare AI Gateway → OpenRouter BYOK
-  `z-ai/glm-5.3-flash` with the environment-owned BYOK alias (`openrouter` in
-  production). The legacy version-1
+- New-turn requests use Cloudflare AI Gateway → OpenRouter with the current
+  workspace key, or direct OpenRouter when no gateway is configured. A stored
+  official BYOK alias is never a funding fallback. The legacy version-1
   environment fallback remains `x-ai/grok-4.5` for durable recovery
   compatibility (settled; see Implementation Base).
 - Organization-scoped OpenRouter routes retain native prompt-cache capabilities
