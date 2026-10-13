@@ -28,7 +28,7 @@ export function LandingFooter({ repositoryUrl }: { repositoryUrl: string }) {
 							rel="noopener noreferrer"
 							target="_blank"
 						>
-							Felix Lu
+							Felix
 						</a>{" "}
 						from Amplift Inc.
 					</p>
