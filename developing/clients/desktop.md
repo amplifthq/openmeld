@@ -84,6 +84,24 @@ launch-at-login preferences. If unsaved renderer work blocks an ordinary Quit,
 main clears only that ordinary quit intent so the next close hides the window
 again. An accepted updater installation remains a distinct terminal quit intent.
 
+App settings places **Desktop** under Personal, immediately after Notifications,
+only on the native host. **Open at login** reads the operating system's login-item
+state; it does not persist a second enabled flag. **Start in background** is an
+installation-local preference in the native userData directory. It hides only
+login-triggered launches, never ordinary opens, tray actions, or notification
+activation. macOS uses Electron's login launch signal; Windows registers an
+explicit login argument. Existing system login preferences are not changed on
+startup. Reading a missing background preference defaults to off; unreadable
+preferences show a problem, and startup keeps the window visible.
+
+The hidden window still loads the shared application for native notifications.
+This page explains that closing keeps notifications available and quitting stops
+desktop notifications, while Service and accepted local work remain independent.
+Global shortcuts and Service lifecycle controls remain separate. The Desktop
+Power section reuses the Local Computer setting and API. The independent
+Service owns its saved preference and task-scoped sleep prevention; Desktop
+does not hold an Electron power-save blocker.
+
 Window chrome, traffic-light insets, drag regions, tray, and native capabilities
 belong outside the shared content shell. Reuse `packages/ui` for primitives;
 do not move business rules into that package.

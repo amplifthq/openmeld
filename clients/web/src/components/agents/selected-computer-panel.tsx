@@ -14,6 +14,7 @@ import {
 import { type QueryClient, useQuery } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
+import { ComputerPowerSettings } from "#/components/computers/computer-power-settings";
 import { ComputerTokenUsage } from "#/components/computers/computer-token-usage";
 import { DesktopServiceControls } from "#/desktop/desktop-service-controls";
 import { canConfigureLocalComputer } from "#/desktop/platform";
@@ -180,6 +181,11 @@ export function SelectedComputerPanel(input: {
 				recovery={selectedRecovery}
 				replyReadiness={effectiveReplyReadiness}
 				setupCompleteRefreshPending={input.setupCompleteRefreshPending}
+			/>
+			<ComputerPowerSettings
+				key={`power/${target?.deviceId}/${target?.runtimeLane}`}
+				storageScope={input.recovery.storageScope}
+				target={target}
 			/>
 			<ComputerTokenUsage
 				computerId={input.computer.connectedComputerId}

@@ -600,6 +600,11 @@ are pending; skeleton rows cover unavailable results. The connected filter
 uses the current scope's active connections, including accounts needing
 reconnection, and combines with category and search filters. Pending or failed
 connection reads must not appear as an empty connected list.
+Search discovers available Plugins across ownership scopes. In an Organization
+search, personal-only results carry a Personal label and open their detail route
+with `scope=personal`. Their status comes only from the signed-in member's
+connection. Clearing search restores scoped browsing; the connected filter
+continues to show only connections in the selected scope.
 Cold detail pages can show curated identity and scope navigation immediately,
 but setup controls wait for live provider metadata. Skeletons occupy pending
 settings; a static Plugin definition does not establish sign-in readiness.
@@ -5604,6 +5609,19 @@ separate Replies section, a detached `Why this failed` summary, or an extra
 `replied` event for the same final reply. Transient live progress can enrich
 that presentation model but cannot become a second status source or final
 outcome.
+
+Visible originating Center Agent requests read the
+optional Message Details delegation projection for a compact progress summary.
+Message details expands the same projection into declared child rows and
+completion ownership. Pagination retrieves additional declared groups independently
+of the timeline window. Source/result links use in-view navigation only for
+loaded messages; otherwise they use the canonical Space message URL.
+
+Wake progress invalidations refresh Message Details, and visible active delegated
+work refreshes through the same query. Reconnect and focus reread canonical
+state. There is no additional client execution store. Graph reads the same query
+and adds declared edges only when both authorized same-Space message nodes are
+loaded; it neither invents missing nodes nor infers delegation from prose.
 
 Spaces retain **Messages** and **Graph** as two views of the same
 loaded timeline projection. The Space header's Graph entry is commented out

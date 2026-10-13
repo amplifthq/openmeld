@@ -178,6 +178,7 @@ function agentsWithControllerDetails(): AgentsView {
 function desktopSettings(openAtLogin = false): DesktopSettingsView {
   return {
     openAtLogin,
+    startInBackground: false,
     problem: null,
   };
 }
@@ -270,6 +271,7 @@ function makeBridge(overrides: Partial<OpenMeldBridge> = {}): OpenMeldBridge {
     openWeb: () => Promise.resolve(),
     openExternal: () => Promise.resolve(),
     getDesktopSettings: () => Promise.resolve(desktopSettings(false)),
+    setStartInBackground: () => Promise.resolve(desktopSettings(true)),
     setOpenAtLogin: () => Promise.resolve(desktopSettings(true)),
     getDesktopUpdateStatus: () => Promise.resolve(desktopUpdate()),
     openDesktopDownloadPage: () => Promise.resolve(),

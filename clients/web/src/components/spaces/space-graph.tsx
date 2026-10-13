@@ -747,6 +747,8 @@ function resolveEdgeLabel(kind: SpaceGraphEdge["kind"]): string {
 			return "Wake result";
 		case "wake":
 			return "Wake request";
+		case "delegation":
+			return "Declared delegation";
 		default:
 			return "Graph relationship";
 	}

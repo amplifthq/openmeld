@@ -84,7 +84,7 @@ vi.mock("@tanstack/react-query", async () => {
 				enabled: isReaction && options.enabled !== false,
 			});
 			const result = useQueryMock(options);
-			if (isReaction) {
+			if (isReaction || options.queryFn === actual.skipToken) {
 				return reactionQuery;
 			}
 			return options.enabled === false ? { data: undefined } : result;

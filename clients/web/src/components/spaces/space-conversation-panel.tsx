@@ -15,6 +15,7 @@ import { Button } from "@openmeld/ui/components/button";
 import { useMediaQuery } from "@openmeld/ui/hooks/use-media-query";
 import { cn } from "@openmeld/ui/lib/utils";
 import { InfoIcon } from "@phosphor-icons/react";
+import { useQueries } from "@tanstack/react-query";
 import {
 	Activity,
 	Fragment,
@@ -64,6 +65,7 @@ import {
 	type SpaceWakeStopRequestStatus,
 } from "#/lib/spaces/wake-stop-target";
 import { SPACE_INITIAL_HISTORY_MAX_MESSAGES } from "#/query/spaces/history";
+import { spaceMessageDetailsQueryOptions } from "#/query/spaces/message-details";
 import {
 	type CenterAgentComputerSetupContext,
 	resolveLatestComputerSetupActionSignalId,
@@ -1152,10 +1154,36 @@ function useSpaceConversationPresentationController(
 		() => buildWakeStopTargetLabelsByProfileId(profileEntriesById),
 		[profileEntriesById]
 	);
+	const delegationSources = mainTimelineItems.filter(
+		(item) =>
+			!item.recalledAt &&
+			input.centerAgentProfileId &&
+			item.wakeTargetProfileIds.includes(input.centerAgentProfileId)
+	);
+	const delegationQueries = useQueries({
+		queries: delegationSources.map((item) =>
+			spaceMessageDetailsQueryOptions({
+				spaceId: input.spaceId ?? "",
+				signalId: item.id,
+				openMeldProfileId: input.selfProfileId,
+				enabled: Boolean(input.spaceId) && input.activeSpaceView === "graph",
+			})
+		),
+	});
+	const delegationsBySourceSignalId = new Map(
+		delegationQueries.flatMap((query, index) => {
+			const source = delegationSources[index];
+			return source && query.data?.delegations
+				? [[source.id, query.data.delegations] as const]
+				: [];
+		})
+	);
 	const spaceGraph = useMemo(
 		() =>
 			input.activeSpaceView === "graph"
 				? buildSpaceGraphPresentation({
+						spaceId: input.spaceId,
+						delegationsBySourceSignalId,
 						profileNamesById: wakeStopTargetLabelsByProfileId,
 						profilePresentationsById,
 						timelineItems: mainTimelineItems,
@@ -1163,6 +1191,8 @@ function useSpaceConversationPresentationController(
 					})
 				: null,
 		[
+			delegationsBySourceSignalId,
+			input.spaceId,
 			input.activeSpaceView,
 			mainActivityItems,
 			mainTimelineItems,

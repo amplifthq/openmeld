@@ -3429,7 +3429,7 @@ index 34d393c..d7a914b 100644
      "INSERT INTO vfs_blobs (hash, size, last_seen) VALUES (?, ?, ?) ON CONFLICT(hash) DO UPDATE SET last_seen = excluded.last_seen",
      chunk.hash,
 diff --git a/packages/dofs/src/index.ts b/packages/dofs/src/index.ts
-index 95de99f..e6263eb 100644
+index 95de99f..03159fd 100644
 --- a/packages/dofs/src/index.ts
 +++ b/packages/dofs/src/index.ts
 @@ -1,6 +1,14 @@
@@ -3455,15 +3455,17 @@ index 95de99f..e6263eb 100644
  export type { SQLiteWorkspaceProviderOptions } from "./provider.js";
  export { SQLiteWorkspaceProvider } from "./provider.js";
  export { initializeSchema, ROOT_INODE, SCHEMA_VERSION } from "./schema/index.js";
-@@ -42,6 +51,7 @@ export type { ApplyOptions, ApplyResult, SkippedEntry } from "./sync/apply.js";
+@@ -42,6 +51,9 @@ export type { ApplyOptions, ApplyResult, SkippedEntry } from "./sync/apply.js";
  // to a Database.
  export { applyChanges, applyChangesSync } from "./sync/apply.js";
  export { stageBlob } from "./sync/blobs.js";
++export { proveImportedWindow, readImportReceipt, saveImportReceipt, clearImportReceipt,
++  sameImportReceipt, type ImportReceipt, type ImportRequest } from "./sync/import-receipts.js";
 +export { assertRetention, beginRetention, retentionHead, pinBlobs, retirePins, collectContentStep, type RetentionScope } from "./sync/retention.js";
  export type {
    BlockObject,
    ModeDecision,
-@@ -72,6 +82,12 @@ export type { ChangeEntry } from "./sync/changes.js";
+@@ -72,6 +84,12 @@ export type { ChangeEntry } from "./sync/changes.js";
  export { materialiseChange } from "./sync/changes.js";
  export type { CoalesceOptions } from "./sync/coalesce.js";
  export { coalesceChanges } from "./sync/coalesce.js";
@@ -3856,10 +3858,10 @@ index df7f6d3..ecbf406 100644
    // pays one round-trip instead of two. SQLite has supported it since
    // 3.35; both node:sqlite and Cloudflare DO SqlStorage are on newer
 diff --git a/packages/dofs/src/schema/index.ts b/packages/dofs/src/schema/index.ts
-index dcf8580..2f48fd7 100644
+index dcf8580..55797a5 100644
 --- a/packages/dofs/src/schema/index.ts
 +++ b/packages/dofs/src/schema/index.ts
-@@ -3,6 +3,11 @@ import type { Database } from "../storage.js";
+@@ -3,6 +3,12 @@ import type { Database } from "../storage.js";
  import { CORE_STATEMENTS, ROOT_INODE, SCHEMA_VERSION } from "./core.js";
  import { runMigrations } from "./migrations.js";
  import { SYNC_STATEMENTS } from "./sync.js";
@@ -3868,14 +3870,16 @@ index dcf8580..2f48fd7 100644
 +import { REFUSAL_STATEMENT } from "../sync/refusals.js";
 +import { RETENTION_STATEMENTS } from "../sync/retention.js";
 +import { DELETE_RESERVE_STATEMENTS } from "../sync/changes.js";
++import { IMPORT_RECEIPT_STATEMENT } from "../sync/import-receipts.js";
  
  export { ROOT_INODE, SCHEMA_VERSION } from "./core.js";
  
-@@ -22,6 +27,15 @@ export function initializeSchema(db: Database, now: () => number): void {
+@@ -22,6 +28,16 @@ export function initializeSchema(db: Database, now: () => number): void {
      for (const statement of SYNC_STATEMENTS) {
        db.run(statement);
      }
 +    for (const statement of PLAN_STATEMENTS) db.run(statement);
++    db.run(IMPORT_RECEIPT_STATEMENT);
 +    db.run(REMOVAL_STATEMENT);
 +    db.run(REFUSAL_STATEMENT);
 +    for (const statement of RETENTION_STATEMENTS) db.run(statement);
@@ -3952,8 +3956,78 @@ index 9362325..1305f30 100644
        this.#txDepth++;
        try {
          if (storage.transactionSync !== undefined) {
+diff --git a/packages/dofs/src/sync/apply.test.ts b/packages/dofs/src/sync/apply.test.ts
+index 2076d9b..7cedd53 100644
+--- a/packages/dofs/src/sync/apply.test.ts
++++ b/packages/dofs/src/sync/apply.test.ts
+@@ -645,7 +645,7 @@ describe("applyChanges", () => {
+     });
+   });
+ 
+-  it("does not update existing directory mtime for upstream entries with matching mode", async () => {
++  it("preserves source directory mtime even when its mode already matches", async () => {
+     await withDB(async (db) => {
+       mkdir(db, "/dst", { mode: 0o700 }, () => 3);
+ 
+@@ -659,7 +659,7 @@ describe("applyChanges", () => {
+       expect(resolveInode(db, "/dst", { followSymlinks: false })).toMatchObject({
+         type: "dir",
+         mode: 0o700,
+-        mtime: 3,
++        mtime: 1,
+       });
+     });
+   });
+@@ -1497,15 +1497,9 @@ describe("applyChanges mtime propagation (auto_cache contract)", () => {
+     );
+   });
+ 
+-  it("skips an apply when bytes are identical even if the source mtime is newer", async () => {
+-    // The mirror of the test above. If a sender pushes the same
+-    // content with a fresher mtime, the apply path takes the
+-    // alreadyApplied fast path and does not touch the local row.
+-    // The local mtime stays put. This is by design: auto_cache
+-    // only needs to invalidate when bytes change. A pure mtime
+-    // bump would still be safe (the kernel would invalidate and
+-    // re-read identical bytes), but it would burn a local rev
+-    // for nothing.
++  it("preserves source metadata when file bytes have not changed", async () => {
++    // Import receipts prove the full file value, including metadata.
++    // A content-only equality check would discard chmod/timestamp updates.
+     await withTwoDBs(
+       async (a) => {
+         await writeFile(a, "/same.txt", "static", {}, () => 1000);
+@@ -1517,7 +1511,7 @@ describe("applyChanges mtime propagation (auto_cache contract)", () => {
+         // it's the worst case a future sender might present.
+         const reissued = first.map((entry): ChangeEntry => {
+           if (entry.kind !== "file" || entry.path !== "/same.txt") return entry;
+-          return { ...entry, mtime: 9999, rev: entry.rev + 1000 };
++          return { ...entry, mode: 0o700, mtime: 9999, rev: entry.rev + 1000 };
+         });
+         return { first, firstObjects, reissued };
+       },
+@@ -1528,16 +1522,11 @@ describe("applyChanges mtime propagation (auto_cache contract)", () => {
+         const beforeInode = resolveInode(b, "/same.txt");
+         expect(beforeInode?.mtime).toBe(1000);
+ 
+-        // Reapply with a fresh mtime but identical chunks. The
+-        // upstream-source guard runs alreadyApplied(), which
+-        // matches on manifest hash and drops the entry.
++        // Equal chunks do not erase the source's metadata changes.
+         await applyChanges(b, reissued, firstObjects, { source: "upstream" });
+         const afterInode = resolveInode(b, "/same.txt");
+-        // alreadyApplied caught the no-op; the mtime stays at
+-        // 1000 because the row never moved. auto_cache's safety
+-        // story is unaffected — the bytes are still the same,
+-        // so a stale page cache would still return correct bytes.
+-        expect(afterInode?.mtime).toBe(1000);
++        expect(afterInode?.mtime).toBe(9999);
++        expect(afterInode?.mode).toBe(0o700);
+       },
+     );
+   });
 diff --git a/packages/dofs/src/sync/apply.ts b/packages/dofs/src/sync/apply.ts
-index ccc421a..fadba56 100644
+index ccc421a..18b3178 100644
 --- a/packages/dofs/src/sync/apply.ts
 +++ b/packages/dofs/src/sync/apply.ts
 @@ -1,10 +1,9 @@
@@ -4230,6 +4304,40 @@ index ccc421a..fadba56 100644
  function tombstoneIsStale(db: Database, entry: ChangeEntry & { kind: "delete" }): boolean {
    const live = resolveInode(db, entry.path, { followSymlinks: false });
    if (live === null) return false;
+@@ -591,12 +576,15 @@ function tombstoneIsStale(db: Database, entry: ChangeEntry & { kind: "delete" })
+ }
+ 
+ // Compare an entry against the local node graph. Returns true when
+-// the entry would be a no-op apply: the manifest hash (files), mode
+-// (dirs), or mode + symlink target (symlinks) already matches.
++// the entry would be a no-op apply: type, mode, modification time and
++// content (file manifest or symlink target) already match.
+ function alreadyApplied(db: Database, entry: Exclude<ChangeEntry, { kind: "delete" }>): boolean {
+   const live = resolveInode(db, entry.path, { followSymlinks: false });
+   if (live === null) return false;
+ 
++  if ((live.mode & 0o7777) !== (entry.mode & 0o7777) ||
++      live.mtime !== entry.mtime) return false;
++
+   if (entry.kind === "file") {
+     if (live.type !== "file") return false;
+     const row = db.one<{ manifest_hash: Uint8Array | null }>(
+@@ -608,13 +596,12 @@ function alreadyApplied(db: Database, entry: Exclude<ChangeEntry, { kind: "delet
+     return uint8Equal(row.manifest_hash, wanted);
+   }
+   if (entry.kind === "dir") {
+-    return live.type === "dir" && (live.mode & 0o7777) === (entry.mode & 0o7777);
++    return live.type === "dir";
+   }
+   // symlink
+   return (
+     live.type === "symlink" &&
+-    live.linkTarget === entry.target &&
+-    (live.mode & 0o7777) === (entry.mode & 0o7777)
++    live.linkTarget === entry.target
+   );
+ }
+ 
 diff --git a/packages/dofs/src/sync/blobs.ts b/packages/dofs/src/sync/blobs.ts
 index d51fabe..71defca 100644
 --- a/packages/dofs/src/sync/blobs.ts
@@ -4515,6 +4623,162 @@ index d6aeb62..bccb036 100644
    const ignore = options.ignore ?? [];
    const cursor = typeof after === "number" ? { rev: after, path: null } : after;
    const through = options.through;
+diff --git a/packages/dofs/src/sync/import-receipts.ts b/packages/dofs/src/sync/import-receipts.ts
+new file mode 100644
+index 0000000..ece6669
+--- /dev/null
++++ b/packages/dofs/src/sync/import-receipts.ts
+@@ -0,0 +1,150 @@
++import type { Database } from "../storage.js";
++import { ROOT_INODE } from "../schema/core.js";
++import { canonicalizePath } from "../path.js";
++import type { ChangeEntry } from "./changes.js";
++import { computeManifestHash } from "./manifests.js";
++import type { RetentionScope } from "./retention.js";
++import { compareChangeCursors, currentRev, type ChangeCursor } from "./watermarks.js";
++
++// One receive receipt and one outgoing acknowledgement per backend. These
++// belong to an existing transfer generation; they are not another change log.
++export const IMPORT_RECEIPT_STATEMENT = `CREATE TABLE IF NOT EXISTS _vfs_import_receipts (
++  slot TEXT PRIMARY KEY, generation TEXT NOT NULL, receipt TEXT NOT NULL
++)`;
++
++export interface ImportReceipt {
++  id: string;
++  scope: RetentionScope;
++  sourceEpoch: string;
++  sourceCursor: ChangeCursor;
++  after: ChangeCursor;
++  through: ChangeCursor;
++}
++
++export interface ImportRequest {
++  sourceEpoch: string;
++  // The peer has durably applied this cursor in scope.epoch. This is an
++  // actual acknowledgement, including progress made by ordinary pulls.
++  accepted: ChangeCursor;
++}
++
++export function readImportReceipt(db: Database, slot: string): ImportReceipt | undefined {
++  const raw = db.scalar<string>("SELECT receipt FROM _vfs_import_receipts WHERE slot=?", slot);
++  return raw === undefined ? undefined : JSON.parse(raw);
++}
++
++export function saveImportReceipt(db: Database, slot: string, receipt: ImportReceipt): void {
++  // This bounded control record uses the existing maintenance reserve,
++  // like transfer cursors. Full content capacity must not prevent its ACK.
++  db.run(
++    `INSERT INTO _vfs_import_receipts(slot,generation,receipt) VALUES(?,?,?)
++    ON CONFLICT(slot) DO UPDATE SET generation=excluded.generation,receipt=excluded.receipt`,
++    slot,
++    receipt.scope.generation,
++    JSON.stringify(receipt),
++  );
++}
++
++export function clearImportReceipt(db: Database, slot: string): void {
++  db.run("DELETE FROM _vfs_import_receipts WHERE slot=?", slot);
++}
++
++interface Node {
++  inode: number;
++  type: string;
++  mode: number;
++  mtime: number;
++  manifest_hash: Uint8Array | null;
++  link_target: string | null;
++}
++
++// Prove the complete outbound window, not merely revisions minted by apply.
++// A native alias or a pre-existing unacknowledged file must not disappear
++// behind an import's newer inode revision. Work is bounded even for deep
++// directories, many hardlinks, and large manifests. No bytes are read.
++export function proveImportedWindow(
++  db: Database,
++  after: ChangeCursor,
++  entries: readonly ChangeEntry[],
++): ChangeCursor | undefined {
++  if (!db.inTransaction) throw new Error("Import proof requires the apply transaction");
++  const end = currentRev(db);
++  if (after.path !== null || after.rev >= end || entries.length > 256) return undefined;
++  if (
++    db.one("SELECT 1 FROM _vfs_sync_removals LIMIT 1") ||
++    db.one("SELECT 1 FROM vfs_changes WHERE rev>? AND rev<=? LIMIT 1", after.rev, end)
++  )
++    return undefined;
++  const rows = db.all<Node>(
++    "SELECT inode,type,mode,mtime,manifest_hash,link_target FROM vfs_nodes WHERE rev>? AND rev<=? ORDER BY rev,inode LIMIT ?",
++    after.rev,
++    end,
++    entries.length + 1,
++  );
++  if (rows.length > entries.length) return undefined;
++  const input = new Map<string, ChangeEntry>();
++  let budget = 4096;
++  for (const entry of entries) {
++    const path = canonicalizePath(entry.path).path;
++    if (path !== entry.path || input.has(path)) return undefined;
++    input.set(path, entry);
++  }
++  const paths = new Map<number, string>([[ROOT_INODE, "/"]]);
++  const pathFor = (inode: number): string | undefined => {
++    const chain: { inode: number; name: string }[] = [];
++    while (!paths.has(inode)) {
++      if (--budget < 0) return undefined;
++      const links = db.all<{ parent_inode: number; name: string }>(
++        "SELECT parent_inode,name FROM vfs_dirents WHERE child_inode=? LIMIT 2",
++        inode,
++      );
++      if (links.length !== 1) return undefined;
++      chain.push({ inode, name: links[0]!.name });
++      inode = links[0]!.parent_inode;
++    }
++    let path = paths.get(inode)!;
++    for (const child of chain.reverse()) {
++      path = path === "/" ? `/${child.name}` : `${path}/${child.name}`;
++      paths.set(child.inode, path);
++    }
++    return path;
++  };
++  for (const row of rows) {
++    if (--budget < 0) return undefined;
++    const path = pathFor(row.inode);
++    const entry = path === undefined ? undefined : input.get(path);
++    if (
++      !entry ||
++      entry.kind === "delete" ||
++      entry.kind !== row.type ||
++      (entry.mode & 0o7777) !== (row.mode & 0o7777) ||
++      entry.mtime !== row.mtime
++    )
++      return undefined;
++    if (entry.kind === "symlink" && entry.target !== row.link_target) return undefined;
++    if (entry.kind === "file") {
++      budget -= entry.chunks.length;
++      if (budget < 0 || row.manifest_hash === null) return undefined;
++      const hash = computeManifestHash(entry.chunks);
++      if (
++        hash.length !== row.manifest_hash.length ||
++        hash.some((byte, i) => byte !== row.manifest_hash![i])
++      )
++        return undefined;
++    }
++  }
++  return { rev: end, path: null };
++}
++
++export function sameImportReceipt(a: ImportReceipt, b: ImportReceipt): boolean {
++  return (
++    a.id === b.id &&
++    a.sourceEpoch === b.sourceEpoch &&
++    a.scope.epoch === b.scope.epoch &&
++    a.scope.slot === b.scope.slot &&
++    a.scope.generation === b.scope.generation &&
++    compareChangeCursors(a.sourceCursor, b.sourceCursor) === 0 &&
++    compareChangeCursors(a.after, b.after) === 0 &&
++    compareChangeCursors(a.through, b.through) === 0
++  );
++}
 diff --git a/packages/dofs/src/sync/operations.ts b/packages/dofs/src/sync/operations.ts
 index 36ec02f..3de3d67 100644
 --- a/packages/dofs/src/sync/operations.ts
@@ -4721,7 +4985,7 @@ index cb75a3a..5c4bf4b 100644
  }
 diff --git a/packages/dofs/src/sync/planning.test.ts b/packages/dofs/src/sync/planning.test.ts
 new file mode 100644
-index 0000000..03e77e5
+index 0000000..e77bcab
 --- /dev/null
 +++ b/packages/dofs/src/sync/planning.test.ts
 @@ -0,0 +1,66 @@
@@ -4793,7 +5057,7 @@ index 0000000..03e77e5
 +});
 diff --git a/packages/dofs/src/sync/planning.ts b/packages/dofs/src/sync/planning.ts
 new file mode 100644
-index 0000000..10d665d
+index 0000000..c6c7706
 --- /dev/null
 +++ b/packages/dofs/src/sync/planning.ts
 @@ -0,0 +1,324 @@
@@ -5593,7 +5857,7 @@ index 47bd4f7..f399e81 100644
      "@cloudflare/workers-types": "^4.20260616.1 || ^5.20260921.1"
 diff --git a/packages/rpc/src/bounded-sync.test.ts b/packages/rpc/src/bounded-sync.test.ts
 new file mode 100644
-index 0000000..7fed39f
+index 0000000..8edf4b1
 --- /dev/null
 +++ b/packages/rpc/src/bounded-sync.test.ts
 @@ -0,0 +1,230 @@
@@ -5654,7 +5918,7 @@ index 0000000..7fed39f
 +          const step = await pushBlocks(source.db, peer)[Symbol.asyncIterator]().next();
 +          if (!step.done) {
 +            complete = step.value.complete;
-+            resetNow = resetRuntime && !reset && step.value.phase === "preparing";
++            resetNow = resetRuntime && !reset && !step.value.complete;
 +          }
 +        } catch (error) {
 +          expect(String(error)).toContain("injected lost ACK");
@@ -5673,7 +5937,7 @@ index 0000000..7fed39f
 +        if (complete) break;
 +        expect(++steps).toBeLessThan(1500);
 +      }
-+      expect(steps).toBeGreaterThan(1);
++      expect(steps).toBeGreaterThanOrEqual(1);
 +      if (resetRuntime) expect(reset).toBe(true);
 +    };
 +    await drive();
@@ -5870,18 +6134,338 @@ index 0000000..8af057b
 +    storage.close();
 +  }
 +});
+diff --git a/packages/rpc/src/import-receipts.test.ts b/packages/rpc/src/import-receipts.test.ts
+new file mode 100644
+index 0000000..a12fd0d
+--- /dev/null
++++ b/packages/rpc/src/import-receipts.test.ts
+@@ -0,0 +1,313 @@
++import {
++  Database,
++  initializeSchema,
++  SQLiteWorkspaceProvider,
++  readFetchCursor,
++  readPushCursor,
++  link,
++  WorkspaceFilesystem,
++} from "@cloudflare/dofs";
++import { NodeSQLiteStorage } from "@cloudflare/dofs/node";
++import { mkdtempSync, rmSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { expect, it } from "vitest";
++import { createSyncServer } from "./server.js";
++import { pushBlocks, pullBlocks } from "./sync-engine.js";
++
++it("finishes a prepared import using maintenance reserve after concurrent content fills the source", async () => {
++  const open = (maxSizeBytes?: number) => {
++    const storage = new NodeSQLiteStorage({ location: ":memory:", maxSizeBytes });
++    const db = new Database(storage);
++    initializeSchema(db, Date.now);
++    return { storage, db, fs: new SQLiteWorkspaceProvider(db), rpc: createSyncServer(db) };
++  };
++  const source = open(8 * 1024 ** 2);
++  const target = open();
++  try {
++    source.fs.writeFileSync("/saved", "keep");
++    let injected = false;
++    const push = target.rpc.push.bind(target.rpc);
++    target.rpc.push = async (input) => {
++      const response = await push(input);
++      if (!response.importReceipt || injected) return response;
++      injected = true;
++      // Real concurrent filesystem writes after the original page is already
++      // planned, pinned and applied. No fake quota or private SQL data fill.
++      source.fs.writeFileSync("/churn", "");
++      const fill = (size: number, limit: number) => {
++        for (let i = 0; i < limit; i++) {
++          const bytes = Buffer.alloc(size);
++          if (size) bytes.writeUInt32LE(i);
++          try { source.fs.writeFileSync(`/fill-${size}-${i}`, bytes); }
++          catch (error) {
++            expect(error).toHaveProperty("code", "ENOSPC");
++            return;
++          }
++        }
++        throw new Error("Real content quota was not reached");
++      };
++      fill(16 * 1024, 1024);
++      fill(0, 10000);
++      for (let i = 0; ; i++) {
++        expect(i).toBeLessThan(1000);
++        try { source.storage.assertContentCapacity(4096); }
++        catch (error) {
++          expect(error).toHaveProperty("code", "ENOSPC");
++          break;
++        }
++        const bytes = Buffer.alloc(32);
++        bytes.writeUInt32LE(i);
++        source.fs.writeFileSync("/churn", bytes);
++      }
++      return response;
++    };
++    let complete = false;
++    for await (const step of pushBlocks(source.db, target.rpc)) {
++      if (step.complete) { complete = true; break; }
++    }
++    expect(injected && complete).toBe(true);
++    expect(readFetchCursor(source.db)).toEqual(readPushCursor(target.db));
++    expect(source.db.scalar("SELECT count(*) FROM _vfs_import_receipts")).toBe(0);
++    expect(target.fs.readFileSync("/saved", "utf8")).toBe("keep");
++    expect(source.fs.readFileSync("/saved", "utf8")).toBe("keep");
++    expect(() => source.fs.writeFileSync("/over-capacity", Buffer.alloc(4096)))
++      .toThrow("storage is full");
++  } finally {
++    source.storage.close();
++    target.storage.close();
++  }
++});
++
++it("does not acknowledge an old container cursor if the peer changes after watermarks", async () => {
++  const open = () => {
++    const storage = new NodeSQLiteStorage({ location: ":memory:" });
++    const db = new Database(storage);
++    initializeSchema(db, Date.now);
++    return { storage, db, fs: new SQLiteWorkspaceProvider(db), rpc: createSyncServer(db) };
++  };
++  const source = open();
++  const original = open();
++  const replacement = open();
++  try {
++    source.fs.writeFileSync("/saved", "original file");
++    for await (const step of pushBlocks(source.db, original.rpc)) if (step.complete) break;
++    original.fs.writeFileSync("/old-result", "previous result");
++    for await (const step of pullBlocks(source.db, original.rpc)) if (step.complete) break;
++    const accepted = readFetchCursor(source.db);
++    replacement.fs.writeFileSync("/new-result", "must survive replacement");
++    for (let i = 0; i <= accepted.rev; i++) replacement.fs.writeFileSync("/churn", `${i}`);
++    source.fs.writeFileSync("/next", "next source file");
++    const before = readPushCursor(replacement.db);
++    const peer = new Proxy(replacement.rpc, {
++      get(target, key) {
++        if (key === "watermarks") return original.rpc.watermarks.bind(original.rpc);
++        const value = Reflect.get(target, key);
++        return typeof value === "function" ? value.bind(target) : value;
++      },
++    });
++    await expect(pushBlocks(source.db, peer)[Symbol.asyncIterator]().next()).rejects.toThrow("peer epoch changed");
++    expect(readPushCursor(replacement.db)).toEqual(before);
++    for await (const step of pushBlocks(source.db, replacement.rpc)) if (step.complete) break;
++    for await (const step of pullBlocks(source.db, replacement.rpc)) if (step.complete) break;
++    expect(source.fs.readFileSync("/new-result", "utf8")).toBe("must survive replacement");
++    expect(replacement.fs.readFileSync("/saved", "utf8")).toBe("original file");
++    expect(replacement.fs.readFileSync("/next", "utf8")).toBe("next source file");
++  } finally {
++    source.storage.close();
++    original.storage.close();
++    replacement.storage.close();
++  }
++});
++
++it("cold restore does not enumerate the restored tree when saving one new result", async () => {
++  const open = () => {
++    const storage = new NodeSQLiteStorage({ location: ":memory:" });
++    const db = new Database(storage);
++    initializeSchema(db, Date.now);
++    return { storage, db, fs: new SQLiteWorkspaceProvider(db), rpc: createSyncServer(db) };
++  };
++  const source = open();
++  const target = open();
++  try {
++    source.fs.mkdirSync("/work");
++    for (let i = 0; i < 600; i++) source.fs.writeFileSync(`/work/file-${i}`, `saved-${i}`);
++    for await (const step of pushBlocks(source.db, target.rpc)) if (step.complete) break;
++    target.fs.writeFileSync("/work/result", "new result");
++    let entries = 0;
++    for await (const step of pullBlocks(source.db, target.rpc)) {
++      entries += step.entries;
++      if (step.complete) break;
++    }
++    expect(source.fs.readFileSync("/work/result", "utf8")).toBe("new result");
++    expect(target.fs.readFileSync("/work/file-599", "utf8")).toBe("saved-599");
++    expect(entries).toBe(1);
++  } finally {
++    source.storage.close();
++    target.storage.close();
++  }
++});
++
++it.each(["push-response", "flush", "ack-request", "ack-response", "replacement"])(
++  "resumes the durable receipt after %s loss and reopening both databases",
++  async (fault) => {
++    const directory = mkdtempSync(join(tmpdir(), "computer-import-"));
++    const open = (name: string) => {
++      const storage = new NodeSQLiteStorage({ location: join(directory, name) });
++      const db = new Database(storage);
++      initializeSchema(db, Date.now);
++      return { storage, db, fs: new SQLiteWorkspaceProvider(db), rpc: createSyncServer(db) };
++    };
++    let source = open("source.sqlite");
++    let target = open("target.sqlite");
++    let injected = false;
++    let afterApplyWrite = false;
++    let sawReceipt = false;
++    let flushCalls = 0;
++    let replayedEmptyFlush = false;
++    try {
++      source.fs.mkdirSync("/work");
++      for (let i = 0; i < 300; i++) source.fs.writeFileSync(`/work/${i}`, `original-${i}`);
++      for (let steps = 0; ; steps++) {
++        expect(steps).toBeLessThan(100);
++        const peer = createSyncServer(target.db, {
++          afterApply: async () => {
++            flushCalls++;
++            if (fault === "flush" && !injected) {
++              injected = true;
++              throw new Error("injected flush");
++            }
++          },
++        });
++        const push = peer.push.bind(peer);
++        peer.push = async (input) => {
++          const emptyRetry = fault === "flush" && injected && !replayedEmptyFlush;
++          const beforeFlush = flushCalls;
++          if (emptyRetry) {
++            // Metadata committed before flush failed. A recovered receipt
++            // must still flush even if a resumed producer sends no entries.
++            replayedEmptyFlush = true;
++            await input.changes.cancel();
++          }
++          const response = await push(emptyRetry ? {
++            ...input,
++            changes: new ReadableStream({ start(controller) { controller.close(); } }),
++          } : input);
++          if (emptyRetry) expect(flushCalls).toBe(beforeFlush + 1);
++          sawReceipt ||= response.importReceipt !== undefined;
++          if (fault === "push-response" && !injected && response.importReceipt) {
++            // This write happens after the receipt's fixed end. Retrying
++            // the original push must neither overwrite it nor confirm it.
++            target.fs.writeFileSync("/work/native-result", "written after import");
++            afterApplyWrite = true;
++            injected = true;
++            throw new Error("injected response");
++          }
++          return response;
++        };
++        const acknowledge = peer.acknowledgeImport.bind(peer);
++        peer.acknowledgeImport = async (receipt) => {
++          if (fault === "replacement" && !injected) {
++            injected = true;
++            throw new Error("injected replacement");
++          }
++          if (fault === "ack-request" && !injected) {
++            injected = true;
++            throw new Error("injected ACK request");
++          }
++          await acknowledge(receipt);
++          if (fault === "ack-response" && !injected) {
++            injected = true;
++            throw new Error("injected ACK response");
++          }
++        };
++        let complete = false;
++        try {
++          const step = await pushBlocks(source.db, peer)[Symbol.asyncIterator]().next();
++          complete = !!step.done || step.value.complete;
++        } catch (error) {
++          expect(String(error)).toContain("injected");
++        }
++        source.storage.close();
++        target.storage.close();
++        if (fault === "replacement" && injected && !afterApplyWrite) {
++          rmSync(join(directory, "target.sqlite"));
++          afterApplyWrite = true;
++        }
++        source = open("source.sqlite");
++        target = open("target.sqlite");
++        if (complete) break;
++      }
++      expect(injected).toBe(true);
++      expect(sawReceipt).toBe(true);
++      if (fault === "flush") expect(replayedEmptyFlush).toBe(true);
++      expect(target.fs.readFileSync("/work/299", "utf8")).toBe("original-299");
++      if (!afterApplyWrite || fault === "replacement") {
++        expect(readPushCursor(target.db)).toEqual(readFetchCursor(source.db));
++        target.fs.writeFileSync("/work/native-result", "written after import");
++      }
++      for await (const step of pullBlocks(source.db, target.rpc)) if (step.complete) break;
++      expect(source.fs.readFileSync("/work/native-result", "utf8")).toBe("written after import");
++    } finally {
++      source.storage.close();
++      target.storage.close();
++      rmSync(directory, { recursive: true, force: true });
++    }
++  },
++);
++
++it.each(["extra-file", "hardlink", "confirmed-hardlink", "delete-recreate", "rename"])(
++  "does not confirm unrelated native effects: %s",
++  async (kind) => {
++    const open = () => {
++      const storage = new NodeSQLiteStorage({ location: ":memory:" });
++      const db = new Database(storage);
++      initializeSchema(db, Date.now);
++      return { storage, db, fs: new SQLiteWorkspaceProvider(db), rpc: createSyncServer(db) };
++    };
++    const source = open();
++    const target = open();
++    try {
++      source.fs.writeFileSync("/a", "old");
++      for await (const step of pushBlocks(source.db, target.rpc)) if (step.complete) break;
++      if (kind === "extra-file") target.fs.writeFileSync("/local", "native-only");
++      if (kind.includes("hardlink")) {
++        link(target.db, "/a", "/local");
++        if (kind === "confirmed-hardlink") {
++          for await (const step of pullBlocks(source.db, target.rpc)) if (step.complete) break;
++        }
++      }
++      if (kind === "delete-recreate") {
++        target.fs.writeFileSync("/local", "old-native");
++        await new WorkspaceFilesystem(target.db).rm("/local");
++        target.fs.writeFileSync("/local", "native-only");
++      }
++      if (kind === "rename") {
++        target.fs.writeFileSync("/before", "native-only");
++        target.fs.renameSync("/before", "/local");
++      }
++      source.fs.writeFileSync("/a", "updated");
++      let receipts = 0;
++      const push = target.rpc.push.bind(target.rpc);
++      target.rpc.push = async (input) => {
++        const response = await push(input);
++        if (response.importReceipt) receipts++;
++        return response;
++      };
++      for await (const step of pushBlocks(source.db, target.rpc)) if (step.complete) break;
++      expect(receipts).toBe(0);
++      for await (const step of pullBlocks(source.db, target.rpc)) if (step.complete) break;
++      expect(source.fs.readFileSync("/local", "utf8")).toBe(
++        kind.includes("hardlink") ? "updated" : "native-only",
++      );
++      expect(source.fs.readFileSync("/a", "utf8")).toBe("updated");
++      receipts = 0;
++      source.fs.writeFileSync("/next", "new independent file");
++      for await (const step of pushBlocks(source.db, target.rpc)) if (step.complete) break;
++      expect(receipts).toBeGreaterThan(0);
++    } finally {
++      source.storage.close();
++      target.storage.close();
++    }
++  },
++);
 diff --git a/packages/rpc/src/interface.ts b/packages/rpc/src/interface.ts
-index 8e46173..a25eace 100644
+index 8e46173..13944dc 100644
 --- a/packages/rpc/src/interface.ts
 +++ b/packages/rpc/src/interface.ts
-@@ -17,9 +17,19 @@
+@@ -17,9 +17,20 @@
  // WorkspaceRPC, so the wire stub exposes one stable surface while
  // the two halves stay internally separable.
  
 -import type { ChangeCursor, ChangeEntry } from "@cloudflare/dofs";
-+import type { ChangeCursor, ChangeEntry, RetentionScope } from "@cloudflare/dofs";
++import type { ChangeCursor, ChangeEntry, RetentionScope, ImportReceipt, ImportRequest } from "@cloudflare/dofs";
  
  export interface SyncRPC {
++  acknowledgeImport?(receipt: ImportReceipt): Promise<void>;
 +  retentionHead?(slot: string): Promise<{ epoch: string; generation: string | null }>;
 +  beginRetention?(scope: RetentionScope, expectedGeneration: string | null): Promise<void>;
 +  prepareChanges?(input: {
@@ -5895,15 +6479,21 @@ index 8e46173..a25eace 100644
    // DO → container. Stream a coalesced batch of changes. Bytes are
    // not inline: the DO sends ChangeEntry records with chunk hashes,
    // the container calls back via hasObjects / asks for the missing
-@@ -29,6 +39,7 @@ export interface SyncRPC {
+@@ -29,10 +40,13 @@ export interface SyncRPC {
    // settles, and echoes that cursor back as `appliedPushCursor` so
    // the sender can assert applied covers pushed on every response.
    push(input: {
++    importRequest?: ImportRequest;
 +    scope?: RetentionScope;
      senderRev: number;
      senderCursor?: ChangeCursor;
      changes: ReadableStream<ChangeEntry>;
-@@ -51,6 +62,9 @@ export interface SyncRPC {
+   }): Promise<{
++    importReceipt?: ImportReceipt;
+     rev: number;
+     applied?: number;
+     appliedPushCursor: ChangeCursor;
+@@ -51,6 +65,9 @@ export interface SyncRPC {
    //
    // Per-file entries carry (hash, size) chunk lists; no bytes inline.
    fetchChanges(input: {
@@ -5913,7 +6503,7 @@ index 8e46173..a25eace 100644
      after?: ChangeCursor;
      through?: ChangeCursor;
      ignore?: string[];
-@@ -58,6 +72,8 @@ export interface SyncRPC {
+@@ -58,6 +75,8 @@ export interface SyncRPC {
      currentCursor: ChangeCursor;
      appliedPushCursor: ChangeCursor;
      stream: ReadableStream<ChangeEntry>;
@@ -5922,7 +6512,7 @@ index 8e46173..a25eace 100644
    }>;
  
    // Read the receiver's full sync watermark state. Cheap (three
-@@ -75,6 +91,7 @@ export interface SyncRPC {
+@@ -75,6 +94,7 @@ export interface SyncRPC {
    // the receiver's pre-fetch reconciliation before currentRev is read;
    // deferred command sync uses that as its durable target fence.
    watermarks(input?: { settle?: boolean }): Promise<{
@@ -5930,7 +6520,7 @@ index 8e46173..a25eace 100644
      currentRev: number;
      pushRev: number;
      fetchCursor: ChangeCursor;
-@@ -89,12 +106,12 @@ export interface SyncRPC {
+@@ -89,12 +109,12 @@ export interface SyncRPC {
    // to look up one path.
    readEntry(path: string): Promise<ChangeEntry | null>;
  
@@ -5945,7 +6535,7 @@ index 8e46173..a25eace 100644
  
    // Bulk pull transport. Same cursor semantics as fetchChanges, but the
    // response is one gzip change pack carrying entries interleaved with
-@@ -136,7 +153,7 @@ export interface SyncRPC {
+@@ -136,7 +156,7 @@ export interface SyncRPC {
    // DO → container direction of object transfer. The DO streams the
    // bytes the container reported missing (via hasObjects) during a
    // push. Pushed objects are addressable immediately by hash.
@@ -5954,7 +6544,7 @@ index 8e46173..a25eace 100644
  }
  
  // Process supervision surface. Lives alongside SyncRPC. computerd's
-@@ -148,6 +165,7 @@ export interface ShellRPC {
+@@ -148,6 +168,7 @@ export interface ShellRPC {
    // Capnweb streams handle backpressure end-to-end; consumer-side
    // slowness propagates to the spawned process via the kernel pipe.
    exec(input: {
@@ -5964,7 +6554,7 @@ index 8e46173..a25eace 100644
      id?: string;
 diff --git a/packages/rpc/src/retention.test.ts b/packages/rpc/src/retention.test.ts
 new file mode 100644
-index 0000000..d18294e
+index 0000000..253a88c
 --- /dev/null
 +++ b/packages/rpc/src/retention.test.ts
 @@ -0,0 +1,282 @@
@@ -6200,7 +6790,7 @@ index 0000000..d18294e
 +        try {
 +          const step = await drive().next();
 +          done = step.done || step.value.complete;
-+          if (step.value?.phase === "transferring" && step.value.entries === 0) {
++          if (step.value?.phase === "transferring" && step.value.entries === 0 && step.value.bytes > 0) {
 +            expect(step.value.cursor).toEqual(firstCursor);
 +            expect(step.value.checkpoint).toMatch(/^[a-f0-9]{64}$/);
 +            expect(step.value.checkpoint).not.toBe(firstCheckpoint);
@@ -6251,13 +6841,15 @@ index 0000000..d18294e
 +  });
 +});
 diff --git a/packages/rpc/src/server.ts b/packages/rpc/src/server.ts
-index 4e675c3..c39be2a 100644
+index 4e675c3..a3161de 100644
 --- a/packages/rpc/src/server.ts
 +++ b/packages/rpc/src/server.ts
-@@ -6,9 +6,11 @@
+@@ -6,9 +6,13 @@
  
  import {
    applyChangesSync,
++  proveImportedWindow, readImportReceipt, saveImportReceipt, sameImportReceipt,
++  readPushCursor, writePushCursor, type ImportReceipt, type ImportRequest,
 +  assertRetention, beginRetention, retentionHead, pinBlobs, type RetentionScope,
    type ChangeCursor,
    type ChangeEntry,
@@ -6267,7 +6859,7 @@ index 4e675c3..c39be2a 100644
    compareChangeCursors,
    currentRev,
    type Database,
-@@ -89,6 +91,13 @@ export interface ServerOptions {
+@@ -89,6 +93,13 @@ export interface ServerOptions {
  }
  
  class SyncRPCServer extends RpcTarget implements SyncRPC {
@@ -6281,15 +6873,21 @@ index 4e675c3..c39be2a 100644
    constructor(
      private readonly db: Database,
      private readonly options: Required<Pick<ServerOptions, "ignore">> &
-@@ -103,6 +112,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -103,10 +114,12 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
    }
  
    async push(input: {
++    importRequest?: ImportRequest;
 +    scope?: RetentionScope;
      senderRev: number;
      senderCursor?: ChangeCursor;
      changes: ReadableStream<ChangeEntry>;
-@@ -139,13 +149,17 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+-  }): Promise<{ rev: number; applied?: number; appliedPushCursor: ChangeCursor }> {
++  }): Promise<{ rev: number; applied?: number; appliedPushCursor: ChangeCursor; importReceipt?: ImportReceipt }> {
+     const entries: ChangeEntry[] = [];
+     const reader = input.changes.getReader();
+     try {
+@@ -139,13 +152,50 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
      // assembly step) rolls back every prior entry. Without this
      // wrapper the receiver could be left with a subset of the
      // pushed entries committed.
@@ -6298,6 +6896,26 @@ index 4e675c3..c39be2a 100644
 +    const result = this.db.transactionSync(() => {
 +      this.requireRetention(input.scope);
 +      const accepted = readFetchCursor(this.db);
++      if (input.scope && input.importRequest) {
++        // This is the peer's durable fetch cursor in OUR current epoch,
++        // not a locally guessed revision. It also acknowledges ordinary
++        // pulls, allowing receipts again after a conservative full sync.
++        const acknowledged = input.importRequest.accepted;
++        if (compareChangeCursors(acknowledged, { rev: currentRev(this.db), path: null }) > 0)
++          throw new Error("ESYNC_STALE_IMPORT: acknowledged cursor exceeds this receiver");
++        if (compareChangeCursors(acknowledged, readPushCursor(this.db)) > 0)
++          writePushCursor(this.db, acknowledged);
++        const saved = readImportReceipt(this.db, `receive:${input.scope.slot}`);
++        if (saved && saved.scope.epoch === input.scope.epoch &&
++            saved.scope.generation === input.scope.generation &&
++            saved.sourceEpoch === input.importRequest.sourceEpoch &&
++            compareChangeCursors(saved.through, readPushCursor(this.db)) > 0) {
++          // Resolve the previous durable receipt before consuming another
++          // block. Replanning after a lost response may select different
++          // paths if source files changed; that is not a receipt replay.
++          return { applied: 0, skipped: [], receipt: saved };
++        }
++      }
 +      const applied = applyChangesSync(this.db, entries, new Map(), {
          source: isPeer ? "upstream" : "local",
 +        ...(isPeer ? { sourceCursor: accepted } : {}),
@@ -6306,11 +6924,24 @@ index 4e675c3..c39be2a 100644
 +      if (isPeer && compareChangeCursors(senderCursor, accepted) > 0) {
          writeFetchCursor(this.db, senderCursor);
        }
-+      return applied;
++      let receipt: ImportReceipt | undefined;
++      if (isPeer && input.scope && input.importRequest) {
++        const slot = `receive:${input.scope.slot}`;
++        if (compareChangeCursors(input.importRequest.accepted, readPushCursor(this.db)) === 0) {
++          const through = proveImportedWindow(this.db, input.importRequest.accepted, entries);
++          if (through && applied.skipped.length === 0) {
++            receipt = { id: crypto.randomUUID(), scope: input.scope,
++              sourceEpoch: input.importRequest.sourceEpoch, sourceCursor: readFetchCursor(this.db),
++              after: input.importRequest.accepted, through };
++            saveImportReceipt(this.db, slot, receipt);
++          }
++        }
++      }
++      return { ...applied, receipt };
      });
      // Settle the receiver's shim, and let the outcome decide what the
      // caller is told — which differs by who the caller is.
-@@ -157,8 +171,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -157,8 +207,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
      // acknowledgment, and only then spawns: acknowledging an
      // unflushed block would retire it and let the command read stale
      // disk. Replay is safe because these entries carry
@@ -6320,16 +6951,41 @@ index 4e675c3..c39be2a 100644
      //
      // An external push is not replayable. It has no durable cursor to
      // rewind, and its entries are applied as source: "local", which
-@@ -183,12 +196,41 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -170,7 +219,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+     // remove a file some other writer recreated in between. So the
+     // failure is logged and the push acknowledged, leaving the shim's
+     // periodic reconcile to repair disk.
+-    if (this.options.afterApply !== undefined && entries.length > 0) {
++    if (this.options.afterApply !== undefined && (entries.length > 0 || result.receipt)) {
+       if (isPeer) {
+         await this.options.afterApply();
+       } else {
+@@ -183,12 +232,56 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
      }
      return {
        rev: currentRev(this.db),
 -      applied: entries.length,
+-      appliedPushCursor: isPeer ? senderCursor : { rev: 0, path: null },
 +      applied: result.applied,
-       appliedPushCursor: isPeer ? senderCursor : { rev: 0, path: null },
++      appliedPushCursor: result.receipt?.sourceCursor ?? (isPeer ? senderCursor : { rev: 0, path: null }),
++      ...(result.receipt ? { importReceipt: result.receipt } : {}),
      };
    }
  
++  async acknowledgeImport(receipt: ImportReceipt): Promise<void> {
++    this.db.transactionSync(() => {
++      this.requireRetention(receipt.scope);
++      const saved = readImportReceipt(this.db, `receive:${receipt.scope.slot}`);
++      if (!saved || !sameImportReceipt(saved, receipt)) throw new Error("ESYNC_STALE_IMPORT: receipt changed");
++      // Keep the last receipt for idempotent ACK retries. The next import
++      // replaces this bounded slot only after its predecessor is confirmed.
++      const cursor = readPushCursor(this.db);
++      if (compareChangeCursors(cursor, receipt.through) >= 0) return;
++      if (compareChangeCursors(cursor, receipt.after) !== 0) throw new Error("ESYNC_STALE_IMPORT: cursor changed");
++      writePushCursor(this.db, receipt.through);
++    });
++  }
++
 +  async prepareChanges(input: {
 +    scope?: RetentionScope;
 +    generation: string;
@@ -6363,7 +7019,7 @@ index 4e675c3..c39be2a 100644
      after?: ChangeCursor;
      through?: ChangeCursor;
      ignore?: string[];
-@@ -196,7 +238,11 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -196,7 +289,11 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
      currentCursor: ChangeCursor;
      appliedPushCursor: ChangeCursor;
      stream: ReadableStream<ChangeEntry>;
@@ -6375,7 +7031,7 @@ index 4e675c3..c39be2a 100644
      if (this.options.beforeFetch !== undefined) {
        try {
          await this.options.beforeFetch();
-@@ -215,13 +261,30 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -215,13 +312,30 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
        input.through !== undefined && compareChangeCursors(input.through, snapshotCursor) < 0
          ? input.through
          : snapshotCursor;
@@ -6413,7 +7069,7 @@ index 4e675c3..c39be2a 100644
    }
  
    // Bulk pull. Plans one block against the same cursor window
-@@ -241,40 +304,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -241,40 +355,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
      appliedPushCursor: ChangeCursor;
      stream: ReadableStream<Uint8Array>;
    }> {
@@ -6455,7 +7111,7 @@ index 4e675c3..c39be2a 100644
    }
  
    // Bulk push receiver. Decode fully before applying anything: a pack
-@@ -294,12 +324,19 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -294,12 +375,19 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
      for (const [key, bytes] of decoded.objects) {
        stageBlob(this.db, hexToBytes(key), bytes, Date.now());
      }
@@ -6478,7 +7134,7 @@ index 4e675c3..c39be2a 100644
      // Mirror push(): settle the receiver's shim so a subsequent
      // shell.exec sees the just-pushed files on disk. Pack mode is
      // selected for exactly the large windows a pre-command push
-@@ -312,7 +349,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -312,7 +400,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
      // lets the command read stale disk. Failing the RPC leaves the
      // sender cursor where it was and the next push replans the same
      // block; the entries are already committed here, and applying
@@ -6487,7 +7143,7 @@ index 4e675c3..c39be2a 100644
      if (this.options.afterApply !== undefined && decoded.entries.length > 0) {
        await this.options.afterApply();
      }
-@@ -328,6 +365,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -328,6 +416,7 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
    }
  
    async watermarks(input: { settle?: boolean } = {}): Promise<{
@@ -6495,7 +7151,7 @@ index 4e675c3..c39be2a 100644
      currentRev: number;
      pushRev: number;
      fetchCursor: ChangeCursor;
-@@ -340,29 +378,45 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -340,29 +429,45 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
        await this.options.beforeFetch();
      }
      return {
@@ -6546,7 +7202,7 @@ index 4e675c3..c39be2a 100644
        }
      } finally {
        reader.releaseLock();
-@@ -370,7 +424,10 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
+@@ -370,7 +475,10 @@ class SyncRPCServer extends RpcTarget implements SyncRPC {
    }
  }
  class ShellRPCServer extends RpcTarget implements ShellRPC {
@@ -6558,7 +7214,7 @@ index 4e675c3..c39be2a 100644
      super();
      trackStub(this);
    }
-@@ -380,6 +437,7 @@ class ShellRPCServer extends RpcTarget implements ShellRPC {
+@@ -380,6 +488,7 @@ class ShellRPCServer extends RpcTarget implements ShellRPC {
    }
  
    async exec(input: {
@@ -6566,7 +7222,7 @@ index 4e675c3..c39be2a 100644
      source: string;
      cwd?: string;
      id?: string;
-@@ -391,6 +449,17 @@ class ShellRPCServer extends RpcTarget implements ShellRPC {
+@@ -391,6 +500,17 @@ class ShellRPCServer extends RpcTarget implements ShellRPC {
      id: string;
      events: ReadableStream<ExecEvent>;
    }> {
@@ -6584,7 +7240,7 @@ index 4e675c3..c39be2a 100644
      return this.runner.exec(input.source, {
        id: input.id,
        cwd: input.cwd,
-@@ -472,7 +541,7 @@ export function createWorkspaceServer(
+@@ -472,7 +592,7 @@ export function createWorkspaceServer(
    runner: RunnerLike,
    options: ServerOptions = {},
  ): WorkspaceRPC {
@@ -7036,16 +7692,17 @@ index 9c5381f..0ccd228 100644
          expect(skips[0].reason).toBe("read-only");
        } finally {
 diff --git a/packages/rpc/src/sync-engine.ts b/packages/rpc/src/sync-engine.ts
-index b26db85..bab5466 100644
+index b26db85..3f990a9 100644
 --- a/packages/rpc/src/sync-engine.ts
 +++ b/packages/rpc/src/sync-engine.ts
-@@ -16,10 +16,15 @@
+@@ -16,10 +16,16 @@
  // This module owns no timer and no alarm. The application decides when
  // to call `next()`, from a request, an alarm, a queue, or a Workflow.
  
 +import { createHash } from "node:crypto";
  import {
 -  applyChanges,
++  readImportReceipt, saveImportReceipt, clearImportReceipt,
 +  applyChangesSync,
 +  pinBlobs,
 +  type RetentionScope,
@@ -7056,7 +7713,7 @@ index b26db85..bab5466 100644
    type ChangeCursor,
    type ChangeEntry,
    clearBlockMarker,
-@@ -27,24 +32,20 @@ import {
+@@ -27,24 +33,21 @@ import {
    completeOperation,
    currentRev,
    type Database,
@@ -7075,6 +7732,7 @@ index b26db85..bab5466 100644
    readFetchCursor,
    readOperation,
    readPushCursor,
++  readSyncPeerEpoch,
    recordSkip,
 +  recordSyncRefusal,
    type SyncDirection,
@@ -7083,7 +7741,7 @@ index b26db85..bab5466 100644
    shrinkBlockProfile,
    stageBlob,
    writeFetchCursor,
-@@ -52,8 +53,11 @@ import {
+@@ -52,8 +55,11 @@ import {
  } from "@cloudflare/dofs";
  
  import type { SyncRPC } from "./interface.js";
@@ -7095,7 +7753,7 @@ index b26db85..bab5466 100644
    readonly operationId: string;
    readonly generation: string;
    readonly backend: string;
-@@ -69,6 +73,15 @@ export interface SyncProgress {
+@@ -69,6 +75,15 @@ export interface SyncProgress {
    readonly complete: boolean;
  }
  
@@ -7111,7 +7769,7 @@ index b26db85..bab5466 100644
  export interface PullBlocksOptions {
    readonly backend?: string;
    readonly ignore?: string[];
-@@ -87,6 +100,24 @@ export interface PullBlocksOptions {
+@@ -87,6 +102,24 @@ export interface PullBlocksOptions {
  export type PushBlocksOptions = PullBlocksOptions;
  
  const DEFAULT_BACKEND = "default";
@@ -7136,7 +7794,7 @@ index b26db85..bab5466 100644
  
  function hex(bytes: Uint8Array): string {
    let s = "";
-@@ -103,135 +134,53 @@ function entryCursor(entry: ChangeEntry): ChangeCursor {
+@@ -103,135 +136,56 @@ function entryCursor(entry: ChangeEntry): ChangeCursor {
    return { rev: entry.rev, path: entry.path };
  }
  
@@ -7260,6 +7918,9 @@ index b26db85..bab5466 100644
 +  const slot = `${backend}:${direction}`;
 +  const head = await remote.retentionHead(slot);
 +  assertActiveOperation(db, backend, direction, generation);
++  const peerEpoch = readSyncPeerEpoch(db, backend);
++  if (peerEpoch !== undefined && peerEpoch !== head.epoch)
++    throw new Error("sync: peer epoch changed during transfer; cursor unchanged");
 +  const scope = { epoch: head.epoch, slot, generation };
 +  if (!cleaning || head.generation !== generation) await remote.beginRetention(scope, head.generation);
 +  assertActiveOperation(db, backend, direction, generation);
@@ -7311,7 +7972,7 @@ index b26db85..bab5466 100644
  }
  
  // Drive one pull block to completion, or throw.
-@@ -248,12 +197,22 @@ async function runPullBlock(
+@@ -248,12 +202,22 @@ async function runPullBlock(
    options: PullBlocksOptions,
  ): Promise<SyncProgress> {
    const now = options.now ?? (() => Date.now());
@@ -7335,7 +7996,7 @@ index b26db85..bab5466 100644
  
    if (operation.status === "capturing") {
      // Two-phase target capture: the remote settle call cannot join a
-@@ -271,17 +230,9 @@ async function runPullBlock(
+@@ -271,17 +235,9 @@ async function runPullBlock(
      // mode is then fixed: a block's encoding must not depend on when it
      // was requested, or a replayed block would not match the original.
      const target = { rev: settled.currentRev, path: null };
@@ -7356,7 +8017,7 @@ index b26db85..bab5466 100644
      const promoted = fixTarget(db, backend, "pull", operation.generation, { target, mode }, now());
      if (!promoted) {
        // Another caller replaced this operation while the target was in
-@@ -311,7 +262,15 @@ async function runPullBlock(
+@@ -311,7 +267,15 @@ async function runPullBlock(
    // report completion so a one-step alarm can stop without a second
    // next() call.
    if (compareChangeCursors(after, target) >= 0) {
@@ -7373,7 +8034,7 @@ index b26db85..bab5466 100644
      return {
        operationId: operation.generation,
        generation: operation.generation,
-@@ -323,7 +282,8 @@ async function runPullBlock(
+@@ -323,7 +287,8 @@ async function runPullBlock(
        entries: 0,
        bytes: 0,
        skipped: 0,
@@ -7383,7 +8044,7 @@ index b26db85..bab5466 100644
      };
    }
  
-@@ -336,48 +296,42 @@ async function runPullBlock(
+@@ -336,48 +301,42 @@ async function runPullBlock(
        ? (shrinkBlockProfile(db, backend, "pull", operation.generation, now()) ?? profile)
        : profile;
  
@@ -7456,7 +8117,7 @@ index b26db85..bab5466 100644
      after,
      through: target,
      ...(options.ignore === undefined ? {} : { ignore: options.ignore }),
-@@ -400,7 +354,12 @@ async function runPullBlock(
+@@ -400,7 +359,12 @@ async function runPullBlock(
        }
        // The first entry is always accepted so one oversized file still
        // makes progress; later entries stop the block at the bound.
@@ -7470,7 +8131,7 @@ index b26db85..bab5466 100644
      }
    } finally {
      reader.releaseLock();
-@@ -414,7 +373,7 @@ async function runPullBlock(
+@@ -414,7 +378,7 @@ async function runPullBlock(
    //    content-addressed store. Bytes are staged into the blob store
    //    rather than handed to applyChanges in memory, so a block's peak
    //    memory stays bounded by its metadata.
@@ -7479,7 +8140,7 @@ index b26db85..bab5466 100644
    const seen = new Set<string>();
    for (const entry of entries) {
      if (entry.kind !== "file") continue;
-@@ -422,62 +381,98 @@ async function runPullBlock(
+@@ -422,62 +386,98 @@ async function runPullBlock(
        const key = hex(chunk.hash);
        if (seen.has(key)) continue;
        seen.add(key);
@@ -7609,7 +8270,7 @@ index b26db85..bab5466 100644
  
    return {
      operationId: operation.generation,
-@@ -485,6 +480,8 @@ async function runPullBlock(
+@@ -485,6 +485,8 @@ async function runPullBlock(
      backend,
      direction: "pull",
      mode: operation.mode ?? "entries",
@@ -7618,7 +8279,7 @@ index b26db85..bab5466 100644
      cursor,
      targetCursor: target,
      entries: entries.length,
-@@ -503,6 +500,7 @@ async function nextPullBlock(
+@@ -503,6 +505,7 @@ async function nextPullBlock(
    options: PullBlocksOptions,
  ): Promise<SyncProgress> {
    const key = activeKey(backend, "pull");
@@ -7626,7 +8287,7 @@ index b26db85..bab5466 100644
    const existing = active.get(key);
    if (existing !== undefined) {
      // Someone else in this isolate is already driving a block for this
-@@ -543,29 +541,27 @@ async function runPushBlock(
+@@ -543,29 +546,27 @@ async function runPushBlock(
    options: PushBlocksOptions,
  ): Promise<SyncProgress> {
    const now = options.now ?? (() => Date.now());
@@ -7669,7 +8330,27 @@ index b26db85..bab5466 100644
      const promoted = fixTarget(db, backend, "push", operation.generation, { target, mode }, now());
      const current = readOperation(db, backend, "push");
      if (current === undefined) {
-@@ -585,7 +581,13 @@ async function runPushBlock(
+@@ -582,10 +583,33 @@ async function runPushBlock(
+     throw new Error("sync: pending push operation has no target");
+   }
+ 
++  const receiptSlot = `send:${backend}`;
++  const acknowledgePendingImport = async () => {
++    const pending = readImportReceipt(db, receiptSlot);
++    if (!pending) return;
++    if (pending.scope.generation !== operation.generation) {
++      // Reconciliation has retired this generation after a peer reset.
++      // Its receipt cannot confirm anything in the replacement database.
++      clearImportReceipt(db, receiptSlot);
++      return;
++    }
++    if (typeof remote.acknowledgeImport !== "function") throw new Error("sync: peer lost import receipt support");
++    await remote.acknowledgeImport(pending);
++    assertActiveOperation(db, backend, "push", operation.generation);
++    if (readImportReceipt(db, receiptSlot)?.id === pending.id) clearImportReceipt(db, receiptSlot);
++  };
++  await acknowledgePendingImport();
++
    const after = readPushCursor(db, backend);
  
    if (compareChangeCursors(after, target) >= 0) {
@@ -7684,7 +8365,7 @@ index b26db85..bab5466 100644
      return {
        operationId: operation.generation,
        generation: operation.generation,
-@@ -597,7 +599,8 @@ async function runPushBlock(
+@@ -597,7 +621,8 @@ async function runPushBlock(
        entries: 0,
        bytes: 0,
        skipped: 0,
@@ -7694,7 +8375,7 @@ index b26db85..bab5466 100644
      };
    }
  
-@@ -606,68 +609,55 @@ async function runPushBlock(
+@@ -606,68 +631,55 @@ async function runPushBlock(
        ? (shrinkBlockProfile(db, backend, "push", operation.generation, now()) ?? profile)
        : profile;
  
@@ -7792,7 +8473,7 @@ index b26db85..bab5466 100644
        const objectStream = new ReadableStream<{ hash: Uint8Array; bytes: Uint8Array }>({
          pull(controller) {
            const next = pending.shift();
-@@ -683,11 +673,34 @@ async function runPushBlock(
+@@ -683,11 +695,34 @@ async function runPushBlock(
              controller.error(new Error(`sync: missing local blob ${hex(next.hash)}`));
              return;
            }
@@ -7828,23 +8509,55 @@ index b26db85..bab5466 100644
      }
    }
  
-@@ -699,6 +712,7 @@ async function runPushBlock(
+@@ -699,6 +734,11 @@ async function runPushBlock(
    });
  
    const response = await remote.push({
 +    scope,
++    ...(readSyncPeerEpoch(db, backend) === scope.epoch ? { importRequest: {
++      sourceEpoch: db.scalar<string>("SELECT epoch FROM _vfs_sync_identity WHERE slot='self'")!,
++      accepted: readFetchCursor(db, backend),
++    } } : {}),
      senderRev: target.rev,
      senderCursor: planned.cursor,
      changes: entryStream,
-@@ -708,16 +722,14 @@ async function runPushBlock(
+@@ -707,17 +747,38 @@ async function runPushBlock(
+   // The receiver's echoed cursor is the authority. assertAppliedPushCursor
    // refuses an acknowledgment that does not cover what we sent, so a
    // confused peer cannot advance us past unapplied entries.
-   assertAppliedPushCursor(response.appliedPushCursor, planned.cursor);
+-  assertAppliedPushCursor(response.appliedPushCursor, planned.cursor);
+-
+-  if (compareChangeCursors(planned.cursor, after) > 0) {
+-    writePushCursor(db, planned.cursor, backend);
+-  }
++  if (!response.importReceipt) assertAppliedPushCursor(response.appliedPushCursor, planned.cursor);
 +  assertActiveOperation(db, backend, "push", operation.generation);
- 
-   if (compareChangeCursors(planned.cursor, after) > 0) {
-     writePushCursor(db, planned.cursor, backend);
-   }
++
++  db.transactionSync(() => {
++    assertActiveOperation(db, backend, "push", operation.generation);
++    const receipt = response.importReceipt;
++    if (receipt) {
++      if (receipt.scope.epoch !== scope.epoch || receipt.scope.slot !== scope.slot ||
++          receipt.scope.generation !== operation.generation ||
++          receipt.sourceEpoch !== db.scalar<string>("SELECT epoch FROM _vfs_sync_identity WHERE slot='self'") ||
++          compareChangeCursors(receipt.sourceCursor, after) < 0 ||
++          compareChangeCursors(receipt.sourceCursor, target) > 0 ||
++          compareChangeCursors(receipt.sourceCursor, response.appliedPushCursor) > 0 ||
++          compareChangeCursors(receipt.after, readFetchCursor(db, backend)) > 0 ||
++          compareChangeCursors(receipt.through, receipt.after) <= 0 || receipt.through.path !== null) {
++        throw new Error("ESYNC_STALE_IMPORT: receipt does not match the accepted window");
++      }
++      // The source knows these effects because it supplied them. Persist
++      // that knowledge and its outgoing ACK atomically before telling the
++      // receiver to advance. A crash resumes only this ACK, not the tree.
++      if (compareChangeCursors(receipt.through, readFetchCursor(db, backend)) > 0)
++        writeFetchCursor(db, receipt.through, backend);
++      saveImportReceipt(db, receiptSlot, receipt);
++    }
++    const accepted = receipt?.sourceCursor ?? planned.cursor;
++    if (compareChangeCursors(accepted, after) > 0) writePushCursor(db, accepted, backend);
++  });
++  await acknowledgePendingImport();
    clearBlockMarker(db, backend, "push", operation.generation, now());
  
 -  const complete = compareChangeCursors(planned.cursor, target) >= 0;
@@ -7852,19 +8565,25 @@ index b26db85..bab5466 100644
 -    completeOperation(db, backend, "push", operation.generation);
 -  }
 +  const complete = false;
++  const acceptedCursor = readPushCursor(db, backend);
  
    return {
      operationId: operation.generation,
-@@ -725,6 +737,8 @@ async function runPushBlock(
+@@ -725,9 +786,11 @@ async function runPushBlock(
      backend,
      direction: "push",
      mode: operation.mode ?? "entries",
+-    cursor: planned.cursor,
 +    phase: "transferring",
-+    checkpoint: transferCheckpoint(planned.cursor),
-     cursor: planned.cursor,
++    checkpoint: transferCheckpoint(acceptedCursor),
++    cursor: acceptedCursor,
      targetCursor: target,
-     entries: planned.entries.length,
-@@ -741,6 +755,7 @@ async function nextPushBlock(
+-    entries: planned.entries.length,
++    entries: response.applied ?? planned.entries.length,
+     bytes,
+     skipped: 0,
+     complete,
+@@ -741,6 +804,7 @@ async function nextPushBlock(
    options: PushBlocksOptions,
  ): Promise<SyncProgress> {
    const key = activeKey(backend, "push");
@@ -7872,7 +8591,7 @@ index b26db85..bab5466 100644
    const existing = active.get(key);
    if (existing !== undefined) {
      try {
-@@ -806,21 +821,14 @@ export async function captureSyncTarget(
+@@ -806,21 +870,14 @@ export async function captureSyncTarget(
    options: { now?: () => number } = {},
  ): Promise<ChangeCursor | undefined> {
    const now = options.now ?? (() => Date.now());

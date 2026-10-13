@@ -11,9 +11,11 @@ import { productionReleaseEvidenceSchema } from "../../packages/schemas/src/sche
 import {
   assertProductionReleaseSource,
   buildProductionDeployStepSpecs,
+  buildProductionReleasePlan,
   executeProductionDeploySteps,
   executeWithProductionScopeLeases,
   resolveLocalReleaseOwner,
+  runProductionPreflightSteps,
 } from "./production-release.mjs";
 import {
   publishGuardedLocalReleaseEvidence,
@@ -24,6 +26,7 @@ import {
   releaseComponentOperationKey,
   resumeRemoteAgentVerification,
 } from "./production-release-receipts.mjs";
+import { runProductionStageAdmission } from "./production-stage-admission.mjs";
 import { describeRemoteContainerConfiguration } from "./remote-agent-container-evidence.mjs";
 import {
   createWorkerDeploymentCapture,
@@ -657,21 +660,17 @@ async function main(argv) {
     sourceDir
   );
   assertProductionReleaseSource({ cwd: sourceDir, sourceSha });
+  process.chdir(sourceDir);
   if (options["--verify-only"] !== "true") {
-    run(
-      "pnpm",
-      [
-        "run",
-        "release:preflight:local",
-        "--",
-        "--scope",
-        REMOTE_AGENT,
-        "--base",
-        options["--base"],
-      ],
-      sourceDir,
-      { inherit: true, timeout: 20 * 60_000 }
-    );
+    // Current-main owns the plan and checks against the pinned source. Ordinary
+    // train admission cannot prove an unknown attempt before its recovery lease.
+    const plan = buildProductionReleasePlan({
+      scope: REMOTE_AGENT,
+      base: options["--base"],
+      sourceSha,
+    });
+    runProductionPreflightSteps(plan.sourcePreflightSteps);
+    assertCleanSource(sourceDir, sourceSha);
   }
   const steps = buildProductionDeployStepSpecs([REMOTE_AGENT]);
   const [group] = groupReleaseSteps(steps);
@@ -681,7 +680,6 @@ async function main(argv) {
     group,
     target,
   });
-  process.chdir(sourceDir);
   await executeWithProductionScopeLeases({
     owner: resolveLocalReleaseOwner(),
     scopes: [REMOTE_AGENT],
@@ -720,6 +718,16 @@ async function main(argv) {
         expectedContainerId: options["--container-id"],
         expectedContainerVersion: Number(options["--container-version"]),
         expectedContainerImage: options["--container-image"],
+      });
+      await runProductionStageAdmission({
+        scope: REMOTE_AGENT,
+        sourceSha,
+        remoteAgentRecovery: {
+          sourceSha,
+          evidenceSha: latest.evidenceSha,
+          attemptId: latest.receipt.attemptId,
+          operationKey,
+        },
       });
       const recovery = {
         id: randomUUID(),

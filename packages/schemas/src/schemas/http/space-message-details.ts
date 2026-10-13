@@ -3,7 +3,12 @@ import { openMeldDaemonOriginalErrorSchema } from "../daemon/task-result";
 import { agentStreamToolPartSchema } from "../protocol/agent-stream";
 import { clientMessageIdSchema } from "../protocol/client-message-id";
 import { nonEmptyTrimmedStringFromUnknown } from "../protocol/shared";
+import {
+  agentDelegationCompletionPolicySchema,
+  agentTaskTerminalOutcomeSchema,
+} from "../runtime/agent-task-coordination";
 import { postNormalMessageBodySchema } from "./space-signals";
+import { wakeProgressItemSchema } from "./space-wake-progress";
 import {
   wakeTargetExecutionContextSchema,
   wakeTraceWaterfallStepNameSchema,
@@ -181,12 +186,77 @@ export const spaceMessageDetailsDiagnosticsSchema = z.strictObject({
 });
 
 export const getSpaceMessageDetailsInputSchema = z.strictObject({
+  delegationVersion: z.literal(1).optional(),
+  delegationCursor: z.string().trim().min(1).max(512).optional(),
   executionContextVersion: z.literal(1).optional(),
   spaceId: nonEmptyTrimmedStringFromUnknown,
   signalId: nonEmptyTrimmedStringFromUnknown,
 });
 
+export const spaceMessageDelegatedTaskSchema = z
+  .strictObject({
+    key: z.string().min(1),
+    availability: z.enum(["readable", "unavailable"]),
+    coordinationState: z.enum([
+      "planned",
+      "active",
+      "terminal",
+      "skipped",
+      "cancelled",
+    ]),
+    role: z.enum(["primary", "fallback"]),
+    spaceId: nullableTrimmedStringSchema,
+    sourceSignalId: nullableTrimmedStringSchema,
+    resultSignalId: nullableTrimmedStringSchema,
+    targetProfileId: nullableTrimmedStringSchema,
+    targetLabel: nullableTrimmedStringSchema,
+    taskPreview: nullableTrimmedStringSchema,
+    progress: wakeProgressItemSchema.nullable(),
+    outcome: agentTaskTerminalOutcomeSchema.nullable(),
+    taskContext: wakeTargetExecutionContextSchema.shape.taskContext,
+  })
+  .superRefine((value, context) => {
+    if (value.availability !== "unavailable") {
+      return;
+    }
+    for (const field of [
+      "spaceId",
+      "sourceSignalId",
+      "resultSignalId",
+      "targetProfileId",
+      "targetLabel",
+      "taskPreview",
+      "progress",
+      "outcome",
+      "taskContext",
+    ] as const) {
+      if (value[field] != null) {
+        context.addIssue({
+          code: "custom",
+          path: [field],
+          message:
+            "Unavailable delegated tasks must not disclose their content or locators",
+        });
+      }
+    }
+  });
+
+export const spaceMessageDelegationsSchema = z.strictObject({
+  groups: z
+    .array(
+      z.strictObject({
+        delegationId: z.string().min(1),
+        coordinatorProfileId: z.string().min(1),
+        completionPolicy: agentDelegationCompletionPolicySchema,
+        children: z.array(spaceMessageDelegatedTaskSchema).max(26),
+      })
+    )
+    .max(10),
+  nextCursor: nullableTrimmedStringSchema,
+});
+
 export const getSpaceMessageDetailsResponseSchema = z.strictObject({
+  delegations: spaceMessageDelegationsSchema.optional(),
   // Opt-in copy of the readable request, never a native task/permission grant.
   newTaskSource: z
     .strictObject({

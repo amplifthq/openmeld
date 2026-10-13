@@ -89,6 +89,7 @@ import {
 	copySpaceTimelineItemWithFeedback,
 	isSpaceMessageCopyPending,
 } from "./space-message-copy";
+import { SpaceMessageDelegationSummary } from "./space-message-delegation-summary";
 import {
 	resolveSpaceMessageFooterAddressingTargets,
 	resolveSpaceMessageFooterFailureSummary,
@@ -650,6 +651,17 @@ function ConversationBubbleContent(input: {
 			{input.item.actorProfileKind !== "agent"
 				? input.answerProgressStatus
 				: null}
+			{parent.spaceId &&
+			parent.centerAgentProfileId &&
+			!input.item.recalledAt &&
+			input.item.wakeTargetProfileIds.includes(parent.centerAgentProfileId) ? (
+				<SpaceMessageDelegationSummary
+					onOpenDetails={() => parent.onOpenMessageDetails(input.item)}
+					openMeldProfileId={parent.selfProfileId}
+					signalId={input.item.id}
+					spaceId={parent.spaceId}
+				/>
+			) : null}
 			<SpaceMessageInteractionSource
 				source={input.item.centerAgentInteractionSource}
 			/>

@@ -58,6 +58,7 @@ import {
 	type SpaceExecutionRecoveryHandler,
 	type SpaceExecutionRecoveryRequest,
 } from "./space-execution-recovery-actions";
+import { SpaceMessageDelegations } from "./space-message-delegations";
 import {
 	buildSpaceMessageDetailsPresentation,
 	type MessageDetailsActivityItem,
@@ -421,6 +422,19 @@ function MessageDetailsBody(input: {
 	return (
 		<div className="flex flex-col gap-5">
 			<OriginalErrorsSection wakeContext={data.wakeContext} />
+			{data.delegations ? (
+				<SpaceMessageDelegations
+					canJumpToMessage={input.canJumpToMessage}
+					data={data.delegations}
+					onJumpToMessage={input.onJumpToMessage}
+					onWakeStopRequest={input.onWakeStopRequest}
+					openMeldProfileId={input.profileId}
+					profileNames={input.targetProfileDisplayNamesByProfileId}
+					signalId={input.item.id}
+					spaceId={input.spaceId}
+					spacePassword={input.spacePassword}
+				/>
+			) : null}
 			{data.wakeContext.targets.some((target) => target.taskContext) ? (
 				<SpaceMessageTaskContext
 					canStartNewTask={input.canStartNewTask}
