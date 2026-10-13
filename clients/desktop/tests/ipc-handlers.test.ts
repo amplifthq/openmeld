@@ -708,7 +708,12 @@ describe("createDesktopHandlers", () => {
 
   it("reads and updates the Desktop open-at-login setting through the injected adapter", async () => {
     let openAtLogin = false;
+    let startInBackground = false;
     const desktopSettings = {
+      getStartInBackground: vi.fn(() => startInBackground),
+      setStartInBackground: vi.fn((enabled: boolean) => {
+        startInBackground = enabled;
+      }),
       getOpenAtLogin: vi.fn(() => openAtLogin),
       setOpenAtLogin: vi.fn((enabled: boolean) => {
         openAtLogin = enabled;
@@ -721,20 +726,29 @@ describe("createDesktopHandlers", () => {
 
     await expect(handlers.getDesktopSettings()).resolves.toEqual({
       openAtLogin: false,
+      startInBackground: false,
       problem: null,
     });
     await expect(handlers.setOpenAtLogin(true)).resolves.toEqual({
       openAtLogin: true,
+      startInBackground: false,
       problem: null,
     });
 
     expect(desktopSettings.setOpenAtLogin).toHaveBeenCalledWith(true);
+    await expect(handlers.setStartInBackground(true)).resolves.toEqual({
+      openAtLogin: true,
+      startInBackground: true,
+      problem: null,
+    });
   });
 
   it("returns a read-failed Desktop settings problem when login item settings cannot be read", async () => {
     const handlers = createDesktopHandlers({
       commands: makeCommands(),
       desktopSettings: {
+        getStartInBackground: vi.fn(() => false),
+        setStartInBackground: vi.fn(),
         getOpenAtLogin: vi.fn(() => {
           throw new Error("Electron could not read login item settings.");
         }),
@@ -744,6 +758,7 @@ describe("createDesktopHandlers", () => {
 
     await expect(handlers.getDesktopSettings()).resolves.toEqual({
       openAtLogin: null,
+      startInBackground: null,
       problem: {
         code: "desktop_settings.read_failed",
         message: "Electron could not read login item settings.",
@@ -755,6 +770,8 @@ describe("createDesktopHandlers", () => {
     const handlers = createDesktopHandlers({
       commands: makeCommands(),
       desktopSettings: {
+        getStartInBackground: vi.fn(() => false),
+        setStartInBackground: vi.fn(),
         getOpenAtLogin: vi.fn(() => false),
         setOpenAtLogin: vi.fn(() => {
           throw new Error("Electron could not update login item settings.");
@@ -764,6 +781,7 @@ describe("createDesktopHandlers", () => {
 
     await expect(handlers.setOpenAtLogin(true)).resolves.toEqual({
       openAtLogin: null,
+      startInBackground: null,
       problem: {
         code: "desktop_settings.update_failed",
         message: "Electron could not update login item settings.",
@@ -776,6 +794,7 @@ describe("createDesktopHandlers", () => {
 
     await expect(handlers.getDesktopSettings()).resolves.toMatchObject({
       openAtLogin: null,
+      startInBackground: null,
       problem: { code: "desktop_settings.unavailable" },
     });
   });

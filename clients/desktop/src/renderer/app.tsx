@@ -58,6 +58,7 @@ const LIVE_STATE_POLL_MS = 30_000;
 const DESKTOP_UPDATE_POLL_MS = 15 * 60_000;
 const UNKNOWN_AUTH: AuthView = { signedIn: null, email: null, problem: null };
 const UNKNOWN_DESKTOP_SETTINGS: DesktopSettingsView = {
+  startInBackground: null,
   openAtLogin: null,
   problem: {
     code: "desktop_settings.unavailable",

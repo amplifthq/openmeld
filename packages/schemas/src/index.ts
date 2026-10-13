@@ -182,6 +182,7 @@ export {
   type DesktopLocalComputer,
   type DesktopPlatform,
   type DesktopSession,
+  type DesktopSettingsView,
   type DesktopSpaceStreamBridge,
   type DesktopSpaceStreamEvent,
   type DesktopSpaceStreamInput,
@@ -192,9 +193,11 @@ export {
   desktopPlatformSchema,
   desktopProductionSourceSchema,
   desktopSessionSchema,
+  desktopSettingsViewSchema,
   desktopSpaceStreamEventSchema,
   desktopSpaceStreamIdSchema,
   desktopSpaceStreamInputSchema,
+  desktopStartupToggleSchema,
   desktopWebBuildSchema,
 } from "./desktop-client";
 export * from "./desktop-development";
