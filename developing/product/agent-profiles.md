@@ -934,7 +934,11 @@ Agents using that Project on that computer.
 When the Working folder selector opens, it acquires the saved Default Project
 through the existing account-scoped Auth Profile query and the saved local
 working-folder configuration from the exact owner Service before enabling
-edits or Save. The Service read distinguishes configured, missing, and invalid
+Save. The owner card and editor share an in-memory query scoped to account,
+Organization, Profile, Computer/lane and Binding; private paths are never
+included in browser-persisted or shared Profile snapshots. Cached values can
+display immediately and initialize an editable draft. Fresh reads update an
+untouched draft only; they must not overwrite user input. The Service read distinguishes configured, missing, and invalid
 configuration. It does not migrate configuration, create a managed folder,
 validate its current availability, or substitute an effective Project or
 controller-session directory. Its configuration version identifies the stored
@@ -942,9 +946,8 @@ v1/v2 envelope, not a revision or compare-and-swap precondition. An older Servic
 without the read capability returns an explicit update-required result.
 A pending Auth read started before opening cannot initialize the draft:
 cancel that read, keep the existing display snapshot stale, then acquire the
-authorized snapshot for this opening. Cached display data is not the draft's
-starting preference. A failed read keeps Save disabled and provides retry with
-its diagnostic context.
+authorized snapshot for this opening. A failed read keeps Save disabled and
+provides retry with its diagnostic context, preserving the draft.
 Once acquired, the selector retains its draft, pending save, and error while
 Profile, readiness, or mutation eligibility queries refresh. It keeps the
 original Profile and Binding target; changed or unavailable target evidence
@@ -958,6 +961,13 @@ subsequent Default Project clear verifies that same target inside its existing
 future-work settings admission. These are two ordered writes, not one atomic
 transaction. If the target changes between them, the local save receipt remains
 visible, the Project is not cleared, and setup reports partial failure.
+Retrying an unchanged draft finishes the remaining Project write without
+repeating an acknowledged local save. Recovery distinguishes saved settings
+from Core-confirmed availability; it never restarts a failed task implicitly.
+Managed folder preparation and access checks precede configuration replacement
+under the existing local writer lock. Inspection checks existing managed folders
+and, for lazy creation, the existing parent; dispatch prepares and checks the
+directory without rewriting the saved preference.
 
 Profile settings and Space recovery send their frozen `expectedBindingTarget`
 on the private read and both HTTP writes. Core verifies the same canonical

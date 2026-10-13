@@ -7,6 +7,7 @@ import type {
 import { WorkspaceSyncPendingError } from "@cloudflare/computer";
 import {
   type CloudComputerCommandCollection,
+  type CloudComputerCommandObservation,
   type CloudComputerCommandPhase,
   type CloudComputerCommandPreparation,
   type CloudComputerCommandReference,
@@ -235,6 +236,17 @@ function synchronizedObservation(
 
 /** Bound external observation, including Workspace acquisition and disposal.
  * A timeout never establishes process loss or authorizes another launch. */
+class ComputerObservationTimeoutError extends Error {
+  readonly code = "computer.observation_timeout";
+  readonly phase: CloudComputerCommandObservation["phase"];
+  constructor(phase: ComputerObservationTimeoutError["phase"]) {
+    super(
+      "Computer command observation timed out. The command may still be running. Poll the same key; do not start it again."
+    );
+    this.phase = phase;
+  }
+}
+
 async function withCommandWorkspace<T>(input: {
   access: AgentComputerWorkspaceAccess;
   budgetMs: number;
@@ -243,20 +255,13 @@ async function withCommandWorkspace<T>(input: {
   signal?: AbortSignal;
   operation: (workspace: WorkspaceClient, signal: AbortSignal) => Promise<T>;
 }): Promise<T> {
-  let phase = "workspace-acquisition";
+  let phase: ComputerObservationTimeoutError["phase"] = "workspace-acquisition";
   const timeout = new AbortController();
   const signal = input.signal
     ? AbortSignal.any([input.signal, timeout.signal])
     : timeout.signal;
   const abortObservation = () =>
-    timeout.abort(
-      Object.assign(
-        new Error(
-          "Computer command observation timed out. The command may still be running. Poll the same key; do not start it again."
-        ),
-        { code: "computer.observation_timeout", phase }
-      )
-    );
+    timeout.abort(new ComputerObservationTimeoutError(phase));
   const budgetMs = Math.min(
     input.budgetMs,
     input.observationDeadlineMs === undefined
@@ -1680,6 +1685,48 @@ export function createComputerCommandTool(input: {
       });
     }
   };
+  const timedOutObservation = async (
+    rawInput: Record<string, unknown>,
+    error: unknown
+  ) => {
+    if (
+      source !== "tool" ||
+      !(error instanceof ComputerObservationTimeoutError) ||
+      (rawInput.action !== "start" && rawInput.action !== "poll")
+    ) {
+      return undefined;
+    }
+    const command = await readDiagnosticCommand(rawInput.key);
+    if (!command) {
+      return undefined;
+    }
+    // The saved receipt is evidence, not a new successful observation.
+    const retained = publicCommandResult(
+      project(command, typeof rawInput.after === "number" ? rawInput.after : 0)
+    ) as CommandResult;
+    return {
+      ...retained,
+      ...commandReceiptAddress(command, input.context.submissionId),
+      observation: {
+        status: "timed_out",
+        phase: error.phase,
+        message:
+          "The latest observation timed out. The receipt and preparation checkpoint are the last confirmed state, not proof of current progress. Keep completed output and poll this exact reference; do not restart the command.",
+      } satisfies CloudComputerCommandObservation,
+    };
+  };
+  const attachReceipt = (command: Command | undefined, result: unknown) => {
+    const publicResult = publicCommandResult(result);
+    return command &&
+      publicResult &&
+      typeof publicResult === "object" &&
+      !Array.isArray(publicResult)
+      ? {
+          ...publicResult,
+          ...commandReceiptAddress(command, input.context.submissionId),
+        }
+      : publicResult;
+  };
   return {
     ...definition,
     description: `${definition.description} Replies include reference and phase. Keep the exact reference for later owner inspection; poll and stop validate it against this invocation's saved receipt. list with includeReceiptDetails:true returns references, phases and collection. collection.unconfirmedAttempts counts checks without confirmed native evidence, including interrupted checks. Automatic checks pause when that count reaches ${COLLECTION_ATTEMPT_BUDGET}; nextAttemptAtMs is then null. The process may still be running. Poll the same reference manually; a successful check resumes automatic collection. An accepted receipt is not proof of launch; launch_unknown does not permit replay. Missing receipt means acceptance is unknown, not an unreachable service. recordExpiresAtMs is a retention marker; command reads currently do not enforce it. It does not extend native result retention.`,
@@ -1699,18 +1746,15 @@ export function createComputerCommandTool(input: {
         }
         await logResult(rawInput, result);
         const command = await readDiagnosticCommand(rawInput.key);
-        const publicResult = publicCommandResult(result);
-        return command &&
-          publicResult &&
-          typeof publicResult === "object" &&
-          !Array.isArray(publicResult)
-          ? {
-              ...publicResult,
-              ...commandReceiptAddress(command, input.context.submissionId),
-            }
-          : publicResult;
+        return attachReceipt(command, result);
       } catch (error) {
         await recordFailure(rawInput, error);
+        // A bounded read expiring is not an execution failure. Return only the
+        // saved owner receipt; do not advance progress, clear admission, or replay.
+        const observation = await timedOutObservation(rawInput, error);
+        if (observation) {
+          return observation;
+        }
         if (source === "tool" && isCommandLoss(error)) {
           const command = await readDiagnosticCommand(rawInput.key);
           if (command) {

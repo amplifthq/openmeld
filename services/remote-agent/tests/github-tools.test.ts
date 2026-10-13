@@ -1,3 +1,5 @@
+import type { Executor } from "@cloudflare/codemode";
+import { createCodeTool } from "@cloudflare/codemode/ai";
 import {
   centerAgentConnectorConnectionSelectionSchema,
   centerAgentReadConnectorActionOperationResponseSchema,
@@ -27,6 +29,7 @@ import {
   executeRemoteAgentToolDefinition,
   toBoundedRemoteAgentToolResult,
 } from "../flue-adapter/tool-execution";
+import { executionAccessFixture } from "./execution-access-fixture";
 import {
   createRoutineTurnEnvelope,
   createSubmitTurnRequest,
@@ -1383,7 +1386,7 @@ describe("Remote Agent GitHub tools", () => {
       (tool) => tool.name === "github_create_issue"
     )?.description;
     expect(createIssueDescription).toContain(
-      "This is an ordinary external write"
+      "The trusted runtime catalog determines whether confirmation is required"
     );
     expect(createIssueDescription).not.toContain("short reply");
     expect(createIssueDescription).not.toContain("Bare Yes or OK");
@@ -1612,17 +1615,16 @@ describe("Remote Agent GitHub tools", () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
       "https://connectors.example.test/v1/actions/github.get_file_contents"
     );
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      connectionName: "org_aaaaaaaaaaaaaaaaaa__user_bbbbbbbbbbbbbbbbbb__github",
+      input: {
+        owner: "openmeld",
+        path: "README.md",
+        ref: "main",
+        repo: "app",
+      },
+    });
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
-      body: JSON.stringify({
-        connectionName:
-          "org_aaaaaaaaaaaaaaaaaa__user_bbbbbbbbbbbbbbbbbb__github",
-        input: {
-          owner: "openmeld",
-          path: "README.md",
-          ref: "main",
-          repo: "app",
-        },
-      }),
       headers: {
         authorization: "Bearer test-runtime-token",
         "content-type": "application/json",
@@ -1802,17 +1804,15 @@ describe("Remote Agent GitHub tools", () => {
     expect(secondResult).not.toHaveProperty("data.provider_content_copy");
 
     for (const [, init] of fetchMock.mock.calls) {
-      expect(init).toMatchObject({
-        body: JSON.stringify({
-          connectionName:
-            "org_aaaaaaaaaaaaaaaaaa__user_bbbbbbbbbbbbbbbbbb__github",
-          input: {
-            owner: "openmeld",
-            path: "src/large-file.ts",
-            ref: "main",
-            repo: "app",
-          },
-        }),
+      expect(JSON.parse(String(init?.body))).toEqual({
+        connectionName:
+          "org_aaaaaaaaaaaaaaaaaa__user_bbbbbbbbbbbbbbbbbb__github",
+        input: {
+          owner: "openmeld",
+          path: "src/large-file.ts",
+          ref: "main",
+          repo: "app",
+        },
       });
     }
   });
@@ -2438,12 +2438,9 @@ describe("Remote Agent GitHub tools", () => {
       actionId === "github.search_issues_and_pull_requests"
         ? { ...input, perPage: 10 }
         : input;
-    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
-      body: JSON.stringify({
-        connectionName:
-          "org_aaaaaaaaaaaaaaaaaa__user_bbbbbbbbbbbbbbbbbb__github",
-        input: expectedInput,
-      }),
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      connectionName: "org_aaaaaaaaaaaaaaaaaa__user_bbbbbbbbbbbbbbbbbb__github",
+      input: expectedInput,
     });
   });
 
@@ -3549,12 +3546,9 @@ describe("Remote Agent GitHub tools", () => {
       outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
-      body: JSON.stringify({
-        connectionName:
-          "org_aaaaaaaaaaaaaaaaaa__user_bbbbbbbbbbbbbbbbbb__github",
-        input: comment,
-      }),
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      connectionName: "org_aaaaaaaaaaaaaaaaaa__user_bbbbbbbbbbbbbbbbbb__github",
+      input: comment,
     });
   });
 
@@ -4327,7 +4321,18 @@ describe("Remote Agent GitHub tools", () => {
       storage,
     });
 
-    const firstResult = await executeTool(tools, name, input);
+    const run = (definitions: typeof tools, payload: Record<string, unknown>) =>
+      executeCodeModeGitHubTool(
+        definitions,
+        name,
+        {
+          githubActor: "requester",
+          operationId: `policy:${name}`,
+          ...payload,
+        },
+        storage
+      );
+    const firstResult = await run(tools, input);
     const destructive =
       capturedWriteCatalog.data.find((action) => action.id === actionId)
         ?.effect === "destructive";
@@ -4361,7 +4366,7 @@ describe("Remote Agent GitHub tools", () => {
       storage,
     });
     await expect(
-      executeTool(sameTurnTools, name, {
+      run(sameTurnTools, {
         ...input,
         writeConfirmationToken: requireWriteConfirmationToken(firstResult),
       })
@@ -5322,6 +5327,53 @@ function connectionSelection(input: {
   };
 }
 
+async function executeCodeModeGitHubTool(
+  definitions: ReturnType<typeof getRemoteAgentGitHubToolDefinitions>,
+  name: RemoteAgentGitHubToolName,
+  input: Record<string, unknown>,
+  storage: InMemoryDurableObjectStorage
+) {
+  const context = await readRemoteAgentCallbackContext(
+    storage,
+    ACK.submissionId
+  );
+  if (!context) {
+    throw new Error("Missing admitted GitHub execution");
+  }
+  const executor: Executor = {
+    async execute(_code, providers) {
+      if (!(Array.isArray(providers) && providers[0]?.fns[name])) {
+        throw new Error(`Missing Code Mode provider ${name}`);
+      }
+      return { result: await providers[0].fns[name](input) };
+    },
+  };
+  const tool = await createRemoteAgentCodeModeFlueTool({
+    coreWorker: {
+      authorizeRemoteAgentExecutionAccess: executionAccessFixture(context),
+    },
+    definitions: definitions.filter((definition) => definition.name === name),
+    env: {},
+    loader: {} as WorkerLoader,
+    storage,
+    submissionId: ACK.submissionId,
+    runtime: {
+      createExecutor: () => executor,
+      createCodeTool: (options) => createCodeTool({ ...options, executor }),
+    },
+  });
+  const output = await tool.run({
+    data: { code: "async () => {}" },
+    log: console,
+    toolCallId: `policy:${name}`,
+  });
+  const result = (output as { output: { result: unknown } }).output.result;
+  if (result === undefined) {
+    throw new Error(`Code Mode returned no result: ${JSON.stringify(output)}`);
+  }
+  return result;
+}
+
 async function executeTool(
   tools: ReturnType<typeof getRemoteAgentGitHubToolDefinitions>,
   name: RemoteAgentGitHubToolName,
@@ -5336,7 +5388,7 @@ async function executeTool(
   const isRead = REMOTE_AGENT_GITHUB_READ_TOOL_NAMES.some(
     (readToolName) => readToolName === name
   );
-  return await tool.execute({
+  const parsed = safeParse(tool.input, {
     githubActor: "requester",
     ...(!isRead && name !== "github_create_issue_batch"
       ? {
@@ -5347,6 +5399,10 @@ async function executeTool(
       : {}),
     ...input,
   });
+  if (!parsed.success) {
+    throw new Error(`Invalid ${name} input: ${JSON.stringify(parsed.issues)}`);
+  }
+  return await tool.execute(parsed.output as Record<string, unknown>);
 }
 
 type TestConnectorOperation = {

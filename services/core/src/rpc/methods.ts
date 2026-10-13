@@ -966,7 +966,10 @@ import {
 import type { CenterAgentWakePublicationCommand } from "../center-agent/infrastructure/postgresql/center-agent-wake-publication-repo";
 import { startCenterAgentMemberResearch } from "../center-agent-member-research/member-research-service";
 import type { CenterAgentMemoryEpisodeOrigin } from "../center-agent-memory/contract";
-import { createCoreCenterAgentMemoryService } from "../center-agent-memory/core-memory-service";
+import {
+  createCoreCenterAgentMemoryService,
+  readCoreOrganizationMemoryAvailability,
+} from "../center-agent-memory/core-memory-service";
 import {
   resolveExplicitMemoryEpisodeOrigin,
   resolveExplicitMemorySourceDeliveryDb,
@@ -3482,6 +3485,7 @@ export type ListCenterAgentAuditJournalInput =
   };
 export type ReadCenterAgentOrganizationMemoryPolicyInput = {
   context?: CoreRpcContextInput;
+  includeAvailability?: boolean;
 };
 export type SetCenterAgentOrganizationMemoryPolicyInput =
   UpdateCenterAgentOrganizationMemoryPolicyBody & {
@@ -3507,6 +3511,7 @@ export type WipeCurrentMemberCenterAgentMemoryInput = {
 export type CenterAgentRememberForOrganizationInput =
   CenterAgentRememberForOrganizationBody & {
     context?: CoreRpcContextInput;
+    includeStatus?: boolean;
     speakerMember?: {
       memberId: string;
       userId: string;
@@ -11350,6 +11355,14 @@ export async function rpcReadCenterAgentOrganizationMemoryPolicy(
   );
   const policy = await repository.readPolicy(activeOrganization.organizationId);
   return centerAgentOrganizationMemoryPolicyResponseSchema.parse({
+    ...(input.includeAvailability
+      ? {
+          availability: await readCoreOrganizationMemoryAvailability(
+            env,
+            activeOrganization.organizationId
+          ),
+        }
+      : {}),
     organizationId: activeOrganization.organizationId,
     organizationMemoryOptIn: policy.organizationMemoryOptIn,
     provider: "zep_cloud",
@@ -11546,18 +11559,32 @@ export async function rpcCenterAgentRememberForOrganization(
     });
   }
   const memoryService = requireCenterAgentMemoryService(env);
+  let saveStatus: "processing" | "processed";
   try {
     const origin = await requireExplicitMemoryEpisodeOrigin({
       authorization,
       env,
     });
-    await memoryService.rememberFactForOrganization({
+    const receipt = await memoryService.rememberFactForOrganization({
       fact: parsed.data.fact,
       organizationId: authorization.activeOrganization.organizationId,
       origin,
       speakerMember,
     });
+    saveStatus = receipt.status;
   } catch (error) {
+    if (
+      toErrorMessage(error) ===
+        "center_agent_memory.organization_write_timeout" ||
+      toErrorMessage(error) === "center_agent_memory.write_receipt_missing"
+    ) {
+      throw createCoreRpcHttpError({
+        status: 504,
+        reason:
+          "The memory provider did not confirm the save. It may still be processing. Search for the fact before trying to save it again.",
+        code: "center_agent_memory.write_outcome_unknown",
+      });
+    }
     if (
       toErrorMessage(error).includes(
         "center_agent_memory.organization_memory_opt_in_required"
@@ -11566,7 +11593,7 @@ export async function rpcCenterAgentRememberForOrganization(
       throw createCoreRpcHttpError({
         status: 403,
         reason:
-          "Organization memory is off. Ask an Organization owner or admin to turn on organization memory from the Center Agent page (Manage → Memory).",
+          "Organization memory is off. Ask an owner or admin to enable it in Center Agent settings.",
         code: "center_agent_memory.organization_memory_opt_in_required",
       });
     }
@@ -11576,6 +11603,7 @@ export async function rpcCenterAgentRememberForOrganization(
     fact: parsed.data.fact,
     organizationId: authorization.activeOrganization.organizationId,
     saved: true,
+    ...(input.includeStatus ? { status: saveStatus } : {}),
     source: "explicit_tool",
   });
 }

@@ -37,7 +37,12 @@ const ORGANIZATION_MEMORY_REF = buildCenterAgentOrganizationMemoryRef({
 describe("Zep Center Agent memory adapter", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    zepMocks.addEpisode.mockResolvedValue(undefined);
+    zepMocks.addEpisode.mockResolvedValue({
+      uuid: "episode_1",
+      content: "",
+      createdAt: "2026-10-13T08:32:17Z",
+      processed: false,
+    } satisfies Zep.Episode);
     zepMocks.getEpisode.mockResolvedValue(undefined);
     zepMocks.searchGraph.mockResolvedValue({});
   });
@@ -45,7 +50,7 @@ describe("Zep Center Agent memory adapter", () => {
   it("stores structured provenance with every memory episode", async () => {
     const adapter = createZepCenterAgentMemoryAdapter({ apiKey: "zep_test" });
 
-    await adapter.addEpisode({
+    const receipt = await adapter.addEpisode({
       episode: {
         assistantMessage: "I will remember that.",
         captureMethod: "automatic_turn",
@@ -59,23 +64,30 @@ describe("Zep Center Agent memory adapter", () => {
       ref: ORGANIZATION_MEMORY_REF,
     });
 
-    expect(zepMocks.addEpisode).toHaveBeenCalledWith({
-      createdAt: "2025-07-27T00:00:00.000Z",
-      data: expect.stringContaining("User: Launch reviews happen on Fridays."),
-      graphId: "org:org_1:center-agent",
-      metadata: {
-        openmeld_memory_capture_method: "automatic_turn",
-        openmeld_memory_occurred_at_ms: 1_753_574_400_000,
-        openmeld_memory_source: "message_channel_conversation",
-        openmeld_memory_source_conversation_id:
-          "lark:connection_1:chat_1:message_1",
-        openmeld_memory_source_message_id: "message_1",
-        openmeld_memory_version: 1,
-        openmeld_message_channel_provider: "lark",
+    expect(receipt).toEqual({ episodeId: "episode_1", processed: false });
+    expect(zepMocks.addEpisode).toHaveBeenCalledWith(
+      {
+        createdAt: "2025-07-27T00:00:00.000Z",
+        data: expect.stringContaining(
+          "User: Launch reviews happen on Fridays."
+        ),
+        graphId: "org:org_1:center-agent",
+        metadata: {
+          openmeld_memory_capture_method: "automatic_turn",
+          openmeld_memory_occurred_at_ms: 1_753_574_400_000,
+          openmeld_memory_source: "message_channel_conversation",
+          openmeld_memory_source_conversation_id:
+            "lark:connection_1:chat_1:message_1",
+          openmeld_memory_source_message_id: "message_1",
+          openmeld_memory_version: 1,
+          openmeld_message_channel_provider: "lark",
+        },
+        sourceDescription:
+          "OpenMeld Center Agent memory from Lark conversation",
+        type: "message",
       },
-      sourceDescription: "OpenMeld Center Agent memory from Lark conversation",
-      type: "message",
-    });
+      { maxRetries: 0 }
+    );
     const request = zepMocks.addEpisode.mock.calls[0]?.[0];
     expect(request?.data).not.toContain("lark:connection_1:chat_1:message_1");
     expect(request?.data).not.toContain("message_1");
@@ -356,5 +368,12 @@ describe("Zep Center Agent memory adapter", () => {
         ],
       })
     );
+    await expect(
+      adapter.searchDetailed({
+        limit: 6,
+        query: "When is the release review?",
+        ref: ORGANIZATION_MEMORY_REF,
+      })
+    ).resolves.toEqual({ items: [], status: "partial" });
   });
 });

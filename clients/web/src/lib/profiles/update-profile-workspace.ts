@@ -8,6 +8,7 @@ import type {
 	AgentProfileBindingTarget,
 	GetCurrentAgentProfileWorkspaceResponse,
 	PeopleComputerTarget,
+	ProfileWorkspaceReadResult,
 } from "@openmeld/schemas/types";
 import { getDesktopPlatform } from "#/desktop/platform";
 import { readLocalRuntimes } from "#/lib/connect/local-runtimes";
@@ -42,6 +43,7 @@ export async function readAgentProfileWorkspace(input: {
 }
 
 export async function updateAgentProfileWorkspace(input: {
+	previousWorkspace?: ProfileWorkspaceReadResult;
 	actorProfileId?: string | null;
 	organizationId: string;
 	profileId: string;
@@ -70,7 +72,36 @@ export async function updateAgentProfileWorkspace(input: {
 			...(input.workspacePath ? { workspacePath: input.workspacePath } : {}),
 		});
 	} catch (error) {
+		if (input.previousWorkspace && (await confirmWorkspaceSave(input, error))) {
+			return;
+		}
 		throw toStructuredApiClientFailure(error);
+	}
+}
+
+async function confirmWorkspaceSave(
+	input: Parameters<typeof updateAgentProfileWorkspace>[0],
+	error: unknown
+): Promise<boolean> {
+	const failure = toStructuredApiClientFailure(error);
+	if (failure.status !== null && failure.status < 500) {
+		return false;
+	}
+	try {
+		const current = (await readAgentProfileWorkspace(input)).workspace;
+		const previous = input.previousWorkspace;
+		return (
+			current.status === "configured" &&
+			current.workspaceMode === input.workspaceMode &&
+			(input.workspaceMode === "openmeld_managed" ||
+				current.workspacePath === input.workspacePath) &&
+			(previous?.status !== "configured" ||
+				current.updatedAt !== previous.updatedAt)
+		);
+	} catch {
+		// The original failure remains actionable. A lost response is not a failed
+		// write, and an unconfirmed read is not permission to claim success.
+		return false;
 	}
 }
 
@@ -78,6 +109,12 @@ async function resolveWorkspaceTarget(input: {
 	target?: PeopleComputerTarget;
 	expectedComputerId?: string | null;
 }) {
+	// Explicit targets are already bound by the owning API. Desktop Main checks
+	// its live account/device/lane before every mutation. Do not repeat the
+	// native process check in the renderer or block private saved-state reads.
+	if (input.target) {
+		return input.target;
+	}
 	const desktop = getDesktopPlatform();
 	if (!desktop) {
 		return input.target;
@@ -85,17 +122,6 @@ async function resolveWorkspaceTarget(input: {
 	const local = desktopLocalComputerSchema.parse(await desktop.localComputer());
 	if (local.status !== "available") {
 		throw new Error(local.message);
-	}
-	if (input.target) {
-		if (
-			input.target.deviceId !== local.target.deviceId ||
-			input.target.runtimeLane !== local.target.runtimeLane
-		) {
-			throw new Error(
-				"This working folder belongs to a different computer or environment. Choose it on the Agent’s computer."
-			);
-		}
-		return input.target;
 	}
 	// Creation recovery retains the user's selected Computer identity. Resolve
 	// that identity against the native Service, never the account's current target.

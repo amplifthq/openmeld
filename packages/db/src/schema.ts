@@ -51,6 +51,8 @@ export const {
   firstWorkExperiences,
   userTimeContexts,
   aiUsageRecords,
+  aiFreeGrants,
+  organizationAiCredentials,
   organizationAiUsagePolicies,
   inboxCenterAgentReadWatermarks,
   spaceInvitations,

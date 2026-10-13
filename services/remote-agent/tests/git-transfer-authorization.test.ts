@@ -1,6 +1,12 @@
+import { execFile } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
 import {
   pluginConnectionGrantSchema,
   remoteAgentExecutionScopeKey,
+  remoteAgentGitConnectionResultSchema,
   remoteAgentGitTransferGrantSchema,
   resolveRemoteAgentExecutionScope,
 } from "@openmeld/schemas";
@@ -15,6 +21,7 @@ import { authorizeGitTransfer } from "../flue-adapter/git-transfer-authorization
 import { authorizePluginConnection } from "../flue-adapter/plugin-connection-authorization";
 import { executionAccessFixture } from "./execution-access-fixture";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
+import { createGitHttpProxy } from "./fixtures/git-http-proxy";
 import { InMemoryDurableObjectStorage } from "./storage";
 
 const NATIVE_GIT_URL =
@@ -103,6 +110,107 @@ function fixture() {
 }
 
 describe("Git transfer authorization", () => {
+  it("keeps clone identity and edited files across expired transport and a later execution", async () => {
+    const root = await mkdtemp(join(tmpdir(), "openmeld-git-connection-"));
+    let allowedPrefix = "";
+    const proxy = await createGitHttpProxy(
+      root,
+      (path) => Boolean(allowedPrefix) && path.startsWith(allowedPrefix)
+    );
+    const git = async (...args: string[]) =>
+      (
+        await promisify(execFile)("git", args, {
+          env: {
+            ...process.env,
+            GIT_CONFIG_NOSYSTEM: "1",
+            GIT_CONFIG_GLOBAL: "/dev/null",
+            GIT_TERMINAL_PROMPT: "0",
+            http_proxy: proxy.url,
+            HTTP_PROXY: proxy.url,
+            ALL_PROXY: "",
+            all_proxy: "",
+            NO_PROXY: "",
+            no_proxy: "",
+          },
+        })
+      ).stdout.trim();
+    try {
+      const seed = join(root, "seed");
+      const checkout = join(root, "checkout");
+      await git("init", "-b", "main", seed);
+      await writeFile(join(seed, "report.txt"), "saved original\n");
+      await git("-C", seed, "add", "report.txt");
+      await git(
+        "-C",
+        seed,
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.invalid",
+        "commit",
+        "-m",
+        "test: seed report"
+      );
+      await git("clone", "--bare", seed, join(root, "private.git"));
+      const connect = async (submissionId: string) => {
+        const f = fixture();
+        const context = { ...f.context, submissionId };
+        const storage = new InMemoryDurableObjectStorage();
+        await putRemoteAgentCallbackContext(storage, context);
+        const tool = createComputerGitConnectionTool({
+          context,
+          storage,
+          coreWorker: {
+            authorizeRemoteAgentExecutionAccess: vi.fn(
+              executionAccessFixture(context)
+            ),
+            centerAgentResolveConnectorConnection:
+              f.centerAgentResolveConnectorConnection,
+          },
+          workspaceAccess: {
+            registerGitTransferGrant: (grant) => {
+              allowedPrefix = `/${grant.operationId}/acme/private.git/`;
+              return Promise.resolve();
+            },
+            withWorkspace: () => {
+              throw new Error("Must not access repository files");
+            },
+          },
+        });
+        return remoteAgentGitConnectionResultSchema.parse(
+          await tool.execute({
+            key: "repository",
+            owner: "acme",
+            repo: "private",
+            githubActor: "requester",
+          })
+        );
+      };
+      const first = await connect("first-execution");
+      await git(...first.gitArguments, "clone", first.repositoryUrl, checkout);
+      expect(
+        await git("-C", checkout, "config", "--get", "remote.origin.url")
+      ).toBe(first.repositoryUrl);
+      await writeFile(join(checkout, "report.txt"), "retained local edit\n");
+      allowedPrefix = "";
+      await expect(
+        git(...first.gitArguments, "-C", checkout, "fetch", "origin")
+      ).rejects.toThrow("403");
+      const later = await connect("later-execution");
+      expect(later.url).not.toBe(first.url);
+      await git(...later.gitArguments, "-C", checkout, "fetch", "origin");
+      expect(await readFile(join(checkout, "report.txt"), "utf8")).toBe(
+        "retained local edit\n"
+      );
+      const config = await readFile(join(checkout, ".git/config"), "utf8");
+      expect(config).toContain(first.repositoryUrl);
+      expect(config).not.toContain("computer.internal");
+      expect(config).not.toContain("insteadOf");
+    } finally {
+      await proxy.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
   it("reauthorizes generic native reads and stops expired, replaced, revoked, or action-delegated access", async () => {
     const f = fixture();
     const grant = pluginConnectionGrantSchema.parse({

@@ -192,7 +192,7 @@ export type OrganizationApi = {
     input?: OrganizationRequestInput
   ) => Promise<CenterAgentWipeMemberMemoryResponse>;
   readCurrentOrganizationCenterAgentMemoryPolicy: (
-    input?: OrganizationRequestInput
+    input?: OrganizationRequestInput & { includeAvailability?: boolean }
   ) => Promise<CenterAgentOrganizationMemoryPolicyResponse>;
   setCurrentOrganizationCenterAgentMemoryPolicy: (
     input: SetCenterAgentOrganizationMemoryPolicyInput

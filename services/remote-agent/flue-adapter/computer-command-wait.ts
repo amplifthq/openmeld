@@ -38,6 +38,7 @@ export async function executeAgentComputerCommand(input: {
     const command = parsed.data;
     if (
       !command.reference ||
+      command.observation?.status === "timed_out" ||
       command.status === "stop_requested" ||
       command.phase === "completed" ||
       command.phase === "result_unavailable" ||

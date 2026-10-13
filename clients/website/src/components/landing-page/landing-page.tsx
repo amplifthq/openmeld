@@ -28,6 +28,7 @@ import { OpenAppButton } from "#/components/open-app-button";
 import { PlatformMetalBadge } from "#/components/platform-metal-badge";
 import { PublicPageHeader } from "#/components/public-page-header";
 import { CliShowcase } from "./cli-showcase";
+import { ComparisonSection } from "./comparison-section";
 import { ConnectorShowcase } from "./connector-showcase";
 import { HeroDescription } from "./hero-copy";
 import { HeroEntrance } from "./hero-entrance";
@@ -332,6 +333,7 @@ export function LandingPage() {
 						<UsageShowcase />
 					</section>
 					<TrustSection repositoryUrl={REPOSITORY_URL} />
+					<ComparisonSection />
 					<section
 						aria-labelledby="faq-title"
 						className="meld-section meld-faq meld-wrap"
