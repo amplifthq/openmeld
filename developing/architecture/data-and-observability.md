@@ -99,6 +99,20 @@ owning sync direction starts a new generation. Genuine peer replacement or
 accepted-cursor regression still invalidates the current admission attempt.
 This does not authorize replay of an earlier command or change its result fence.
 
+The SDK may confirm an imported window without reverse file enumeration only
+when its bounded, atomic comparison proves all pending receiver effects equal
+the supplied source entries. A durable receipt binds both peer epochs, the
+existing transfer generation and a fixed complete revision window. The source
+commits its original cursors and pending acknowledgement together; the receiver
+advances its own cursor only after that actual acknowledgement. Flush failure,
+uncertain equivalence or missing proof preserves normal bounded synchronization.
+An acknowledgement belongs to the peer epoch in which its cursor was observed;
+peer replacement during admission rejects the step before applying that cursor.
+The same sync owner resumes a pending acknowledgement after restart before
+closing its generation. This adds no command owner or independent file store.
+Bounded acknowledgement records use the existing maintenance reserve, so content
+admission refusal cannot prevent an already accepted transfer from completing.
+
 Worker-shell returns only after execution and provides no retained lookup. Its
 terminal output is kept with the Computer's existing command receipt. Atomic
 compare-and-set updates prevent cleanup from replacing a concurrent exit receipt.
