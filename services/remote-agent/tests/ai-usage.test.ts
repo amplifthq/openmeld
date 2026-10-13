@@ -56,6 +56,13 @@ describe("Remote AI consumption at the provider boundary", () => {
         "Bearer sk-or-authorized-test-key"
       );
       expect(new Headers(init?.headers).has("cf-aig-byok-alias")).toBe(false);
+      expect(new Headers(init?.headers).get("HTTP-Referer")).toBe(
+        "https://openmeld.ai"
+      );
+      expect(new Headers(init?.headers).get("X-OpenRouter-Title")).toBe(
+        "OpenMeld"
+      );
+      expect(new Headers(init?.headers).has("X-Title")).toBe(false);
       expect(init?.redirect).toBe("manual");
       return Promise.resolve(
         Response.json(
@@ -76,6 +83,8 @@ describe("Remote AI consumption at the provider boundary", () => {
         headers: {
           Authorization: "Bearer old-official-key",
           "cf-aig-byok-alias": "official",
+          "HTTP-Referer": "https://old.example",
+          "X-Title": "Old app",
         },
       }
     );

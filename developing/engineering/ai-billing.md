@@ -25,6 +25,13 @@ they do not debit a second wallet. No payment processor or paid plan is active.
 - BYOK takes precedence. An invalid, exhausted, or revoked BYOK stops requests;
   it never falls back to sponsored usage. Removing it restores the existing
   sponsored key and its remaining monthly balance, without resetting credits.
+- AI usage shows one compact funding card. Its key action opens a separate
+  settings dialog. BYOK changes the card title, badge, and masked suffix.
+  Current BYOK funding displays recorded usage in USD; platform funding displays
+  credits. Totals, axes, tooltips, and model/agent details use the same unit.
+  Switching the source changes presentation, not historical attribution or
+  balances. Details explain that historical BYOK credit equivalents do not
+  debit the included balance. Local controller statistics remain token counts.
 - The internal organization is an exact configured UUID. Its separate managed
   key has no per-key monthly cap. It still depends on the provider account balance
   and normal authorization. A name, domain, slug, or client flag cannot exempt it.
@@ -69,6 +76,10 @@ use manual redirects so credentials cannot follow a redirect. When Cloudflare
 AI Gateway is configured, requests use explicit workspace authorization and no
 stored official BYOK alias. Without a configured gateway, they use OpenRouter
 directly. Partial gateway configuration is an error.
+The common metered fetch sets `HTTP-Referer: https://openmeld.ai` and
+`X-OpenRouter-Title: OpenMeld` for both platform-funded and BYOK requests, including
+Center Agent and Remote Agent helpers. These headers follow OpenRouter's
+[app attribution contract](https://openrouter.ai/docs/app-attribution).
 
 ## Operator rollout
 

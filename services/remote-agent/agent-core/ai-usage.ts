@@ -180,6 +180,11 @@ export function createMeteredRemoteFetch(input: {
       });
       headers.set("Authorization", `Bearer ${authorization.apiKey}`);
       headers.delete("cf-aig-byok-alias");
+      // Attribute every hosted model request, including customer-funded calls.
+      // https://openrouter.ai/docs/app-attribution
+      headers.set("HTTP-Referer", "https://openmeld.ai");
+      headers.set("X-OpenRouter-Title", "OpenMeld");
+      headers.delete("X-Title");
       response = await (input.fetch ?? globalThis.fetch)(url, {
         ...init,
         headers,
