@@ -80,6 +80,18 @@ The common metered fetch sets `HTTP-Referer: https://openmeld.ai` and
 `X-OpenRouter-Title: OpenMeld` for both platform-funded and BYOK requests, including
 Center Agent and Remote Agent helpers. These headers follow OpenRouter's
 [app attribution contract](https://openrouter.ai/docs/app-attribution).
+The same boundary owns request `metadata`: `openmeld_organization_id`,
+`openmeld_funding_source`, and `openmeld_purpose`. These stable identifiers apply
+to all three funding sources. Organization names and user details are not sent.
+Do not use the end-user `user` field or the routing `session_id` field as a
+tenant label. Keep the public app title and referer identical across tenants.
+OpenMeld receipts remain the cross-organization reporting source: a customer's
+BYOK activity belongs to their OpenRouter account, not the platform account.
+The fields use OpenRouter's
+[chat completion metadata contract](https://openrouter.ai/docs/api/api-reference/chat/create-a-chat-completion).
+Custom metadata support does not guarantee a dashboard filter or grouping.
+Compare platform cost and customer-funded usage separately. Organization-scoped
+managed keys provide upstream reconciliation for Free and internal usage.
 
 ## Operator rollout
 

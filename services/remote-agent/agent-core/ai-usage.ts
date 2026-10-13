@@ -185,8 +185,11 @@ export function createMeteredRemoteFetch(input: {
       headers.set("HTTP-Referer", "https://openmeld.ai");
       headers.set("X-OpenRouter-Title", "OpenMeld");
       headers.delete("X-Title");
+      const body = await withOrganizationAttribution(url, init, record);
+      headers.delete("Content-Length");
       response = await (input.fetch ?? globalThis.fetch)(url, {
         ...init,
+        body,
         headers,
         redirect: "manual",
       });
@@ -208,6 +211,27 @@ export function createMeteredRemoteFetch(input: {
     }
     return observeUsageStream(response, settle);
   };
+}
+
+async function withOrganizationAttribution(
+  url: Parameters<typeof globalThis.fetch>[0],
+  init: RequestInit | undefined,
+  record: AiUsageRecord
+) {
+  const body = init?.body ?? (url instanceof Request ? url.clone().body : null);
+  if (!body) {
+    return body;
+  }
+  return JSON.stringify({
+    ...z.record(z.string(), z.unknown()).parse(await new Response(body).json()),
+    // This boundary owns attribution. Do not trust caller metadata or put
+    // tenant identities in the public application title/referer.
+    metadata: {
+      openmeld_organization_id: record.organizationId,
+      openmeld_funding_source: record.fundingSource,
+      openmeld_purpose: record.purpose,
+    },
+  });
 }
 
 function observeUsageStream(

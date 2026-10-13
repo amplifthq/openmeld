@@ -63,6 +63,16 @@ describe("Remote AI consumption at the provider boundary", () => {
         "OpenMeld"
       );
       expect(new Headers(init?.headers).has("X-Title")).toBe(false);
+      expect(JSON.parse(String(init?.body))).toEqual({
+        model: "requested",
+        messages: [{ role: "user", content: "Hello" }],
+        metadata: {
+          openmeld_organization_id: "org-1",
+          openmeld_funding_source: source,
+          openmeld_purpose: "agent",
+        },
+      });
+      expect(new Headers(init?.headers).has("Content-Length")).toBe(false);
       expect(init?.redirect).toBe("manual");
       return Promise.resolve(
         Response.json(
@@ -77,17 +87,27 @@ describe("Remote AI consumption at the provider boundary", () => {
       scope,
       model: "requested",
     });
-    const response = await request(
-      "https://openrouter.ai/api/v1/chat/completions",
-      {
-        headers: {
-          Authorization: "Bearer old-official-key",
-          "cf-aig-byok-alias": "official",
-          "HTTP-Referer": "https://old.example",
-          "X-Title": "Old app",
-        },
-      }
-    );
+    const url = "https://openrouter.ai/api/v1/chat/completions";
+    const options = {
+      method: "POST",
+      body: JSON.stringify({
+        model: "requested",
+        messages: [{ role: "user", content: "Hello" }],
+        metadata: { openmeld_organization_id: "untrusted-org" },
+      }),
+      headers: {
+        Authorization: "Bearer old-official-key",
+        "cf-aig-byok-alias": "official",
+        "HTTP-Referer": "https://old.example",
+        "X-Title": "Old app",
+        "Content-Length": "1",
+      },
+    };
+    // Both Fetch signatures must carry the same trusted tenant attribution.
+    const response =
+      source === "byok"
+        ? await request(new Request(url, options))
+        : await request(url, options);
     expect(response.status).toBe(403);
     expect(fetch).toHaveBeenCalledOnce();
     expect(writes[0]?.providerAuthorizationVersion).toBe(1);
