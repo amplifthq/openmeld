@@ -900,6 +900,7 @@ export class AgentComputer extends withLegacyWorkspaceContainer(
       this.#containerBackend,
     ],
     sessionId: this.ctx.id.toString(),
+    syncTelemetryEnabled: true,
     onMaintenanceNeeded: () => this.requestWorkspaceMaintenance(),
     storageCapacityBytes: AGENT_COMPUTER_STORAGE_CAPACITY_BYTES,
     storage: this.ctx.storage,
