@@ -7,14 +7,20 @@ This index points to notices kept with copied code and assets.
 It is not a complete dependency inventory or a claim that every dependency uses MIT.
 Package dependencies retain their own licenses in their distributions.
 For acknowledgments of major upstream projects, see [Credits](CREDITS.md).
+For all external packages declared in tracked manifests, see the
+[direct dependency index](docs/dependencies.md). This includes Libraries.dev
+packages such as `border-beam`, and Better Auth with its plugins.
+Their installed package distributions carry their own notices.
 
 ## Copied code and assets
 
 | Material | Location and notice |
 | --- | --- |
 | Fluid Functionalism components and shared interaction utilities, by Micka Touillaud | [UI source notice](packages/ui/THIRD_PARTY_NOTICES.md#fluid-functionalism), [MIT license](packages/ui/licenses/fluid-functionalism.MIT.txt) |
-| AICSS Approval Card and Motion Primitives Dock adaptations | [UI notices](packages/ui/THIRD_PARTY_NOTICES.md) |
+| AICSS Approval Card and Motion Primitives Dock, Text Morph, and Morphing Dialog adaptations | [UI notices](packages/ui/THIRD_PARTY_NOTICES.md) |
 | Rare UI folder artwork and primitive, by Swami Malode | [Component license](packages/ui/src/components/folder-component.LICENSE.md) |
+| Rare UI Fluid Orb shader, by Swami Malode | [UI source notice](packages/ui/THIRD_PARTY_NOTICES.md#rare-ui-fluid-orb) |
+| Skiper UI progressive blur adaptation | [Source attribution](packages/ui/src/components/progressive-blur.tsx) to [Skiper UI](https://skiper-ui.com/) |
 | Evil Charts components | [License](packages/ui/src/components/evilcharts/LICENSE) |
 | Extend components, including shadcn portions | [License](clients/web/src/components/extend/LICENSE.md) |
 | Geist, Geist Mono, and Geist Pixel fonts | [Font notices](packages/ui/public/fonts/README.md) |

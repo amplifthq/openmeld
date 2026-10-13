@@ -107,6 +107,9 @@ When adding copied code, fonts, images, or other assets, include the source,
 required license text, and attribution. Update [Third-party notices](THIRD_PARTY_NOTICES.md).
 Add major upstream projects to [Credits](CREDITS.md). A credit link does not
 replace the license and copyright notices required for distribution.
+After adding or changing package dependencies, run
+`node scripts/docs/update-dependency-credits.mjs` and include the updated
+[dependency index](docs/dependencies.md). Stage new package manifests first.
 Do not assume that public source code permits unrestricted reuse.
 
 Need help choosing a starting point? See [Support](SUPPORT.md).

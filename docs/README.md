@@ -39,5 +39,8 @@ Edit that source to update the website. Do not maintain a second copy here.
 [Security](../SECURITY.md) · [License](../LICENSE) ·
 [Third-party notices](../THIRD_PARTY_NOTICES.md) · [Changelog](../CHANGELOG.md)
 
+[Credits](../CREDITS.md) names the upstream projects used by OpenMeld.
+The [direct dependency index](dependencies.md) lists packages and their declaring workspaces.
+
 Existing operational runbooks in this directory serve maintainers.
 They are not standalone installation guides.
