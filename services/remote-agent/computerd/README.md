@@ -19,6 +19,13 @@ with more than 8,192 chunks is rejected explicitly
 without advancing its ACK. Pack transport is disabled on this bounded path.
 The legacy whole-window utility is not used by production synchronization.
 
+Recursive path resolution fixes the SQLite join order so each path segment is
+known before looking up its directory entry. This uses the complete existing
+`(parent_inode, name)` primary key instead of scanning all siblings for every
+imported file. The Worker SDK and native patch carry the same query. This changes
+no file, cursor, acknowledgement or recovery semantics; a fresh native mirror
+still requires its accepted input to be synchronized before execution.
+
 Receivers detach a deleted or replaced directory atomically. A durable queue
 reclaims at most 128 child/chunk units per step. Later path recreation and
 external hardlinks survive cleanup. Delayed tombstones cannot overwrite newer
