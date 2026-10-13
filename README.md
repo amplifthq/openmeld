@@ -10,11 +10,12 @@
 
 <h1 align="center">OpenMeld</h1>
 
-<p align="center"><strong>People and agents, working as one.</strong></p>
+<!-- Keep the tagline and description aligned with homePageCopy in packages/product-catalog/src/site.ts and the live website. -->
+<p align="center"><strong>The open human-agents collaboration system</strong></p>
 
 <p align="center">
-  An open collaboration system for people, cloud agents, and the coding agents already on your computers.<br>
-  Share context, work in parallel, and keep the results in one place.
+  Share context, work in parallel, and pick up where anyone left off with your team, cloud agents, and everyone's agents<br>
+  (Codex, Claude Code, Grok Build, OpenCode, Antigravity, and Cursor CLI).
 </p>
 
 <p align="center">
