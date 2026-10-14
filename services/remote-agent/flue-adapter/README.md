@@ -145,6 +145,19 @@ is not a future release strategy.
    request metering owner; successful checkpoint usage sums its observed calls.
    `context-recovery.test.ts` exercises these rules through the real runtime.
 
+   Model changes apply at the next admitted submission, not inside a running
+   tool. Summary requests are capacity-bounded even when the new model is
+   smaller than the old history or checkpoint. Sequential intermediate
+   summaries remain ephemeral; only a complete successful reduction may
+   replace the canonical projection. Recent completed messages can be moved
+   into that reduction at valid boundaries. Active input is never truncated.
+   `model-switch-continuity.test.ts` exercises real SQLite restart and file
+   writes, model isolation, summary failure, and single-execution continuity.
+   Its synthetic 8,000-token provider exercises the runtime capacity boundary,
+   not live supplier behavior. The pinned Pi adapter reserves additional space;
+   the current hosted catalog has no such small-window model. Product admission,
+   real inference, and Computer integration require separate smoke evidence.
+
 10. `AgentStatics.modelRetry` configures the existing transient model-error loop.
    Center Agent allows five retries after the initial request, with exponential
    delays capped at 3, 6, 12, 24, and 30 seconds and upstream 75–100% jitter.
