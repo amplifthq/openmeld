@@ -14,6 +14,17 @@ const repoRoot = path.resolve(
 const hasCoreAccountDeletion = existsSync(
   path.join(repoRoot, "services/core/src/organizations/account-deletion.ts")
 );
+const coreBillingOwner = path.join(
+  repoRoot,
+  "services/core/src/usage/ai-billing-service.ts"
+);
+const coreHistoricalBillingSecretNames =
+  existsSync(coreBillingOwner) &&
+  readFileSync(coreBillingOwner, "utf8").includes(
+    "env.OPENMELD_INTERNAL_BILLING_ORGANIZATION_ID"
+  )
+    ? ["OPENMELD_INTERNAL_BILLING_ORGANIZATION_ID"]
+    : [];
 const gatewayConnectorReader = readFileSync(
   path.join(
     repoRoot,
@@ -260,7 +271,7 @@ const workerPackages = [
     optionalDevelopmentSecretNames: [
       "OPENROUTER_MANAGEMENT_API_KEY",
       "OPENMELD_AI_CREDENTIAL_CRYPTO_KEY",
-      "OPENMELD_INTERNAL_BILLING_ORGANIZATION_ID",
+      ...coreHistoricalBillingSecretNames,
     ],
     requiredConfigEnvironments: ["stg", "prod"],
     requiredSecretScriptSnippet: "sync-worker-secrets.mjs",

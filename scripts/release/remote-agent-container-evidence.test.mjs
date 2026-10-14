@@ -18,6 +18,14 @@ import {
 const NONE = /--containers-rollout=none/u;
 const DRIFT = /changed|evidence|changing/u;
 const AUTOMATIC = /Automatic continuation cannot/u;
+// Captured with Wrangler 4.147.0 containers instances --per-page 100 --json
+// on 2026-10-14. Computer IDs and names are anonymized.
+const inactiveInstances = JSON.parse(
+  readFileSync(
+    new URL("./fixtures/inactive-container-instances.json", import.meta.url),
+    "utf8"
+  )
+);
 
 // Shape captured through Wrangler 4.147.0 containers info/instances on
 // 2026-10-12. IDs and registry account are anonymized; no live API is called.
@@ -75,9 +83,10 @@ const instances = {
   result_info: { per_page: 100, page_token: null, next_page_token: null },
 };
 
-test("retained Container checks reject configuration, rollout, original instance and pagination drift", async () => {
+test("retained Container checks accept complete empty baselines and reject evidence drift", async () => {
   const expected = describeRetainedContainer(application, instances);
-  const probe = (container, page) =>
+  const empty = describeRetainedContainer(application, inactiveInstances);
+  const probe = (container, page, baseline = expected) =>
     readRetainedRemoteContainer(
       {
         runCommand: ({ args }) => ({
@@ -85,18 +94,31 @@ test("retained Container checks reject configuration, rollout, original instance
           stdout: JSON.stringify(args.includes("info") ? container : page),
         }),
       },
-      expected
+      baseline
     );
   assert.deepEqual(await probe(application, instances), expected);
+  for (const page of [
+    inactiveInstances,
+    { ...inactiveInstances, instances: [] },
+  ]) {
+    assert.deepEqual(describeRetainedContainer(application, page), empty);
+    assert.deepEqual(empty.instances, []);
+    assert.deepEqual(await probe(application, page, empty), empty);
+    // A concurrent start does not replace any instance in the empty baseline.
+    assert.deepEqual(await probe(application, instances, empty), expected);
+    await assert.rejects(probe(application, page), DRIFT);
+  }
   for (const changed of [
     { ...application, version: 125 },
     { ...application, active_rollout_id: "new-rollout" },
+    { ...application, health: { errors: ["platform unavailable"] } },
     {
       ...application,
       configuration: { ...application.configuration, memory_mib: 4096 },
     },
   ]) {
     await assert.rejects(probe(changed, instances), DRIFT);
+    await assert.rejects(probe(changed, inactiveInstances, empty), DRIFT);
   }
   await assert.rejects(
     probe(application, {
@@ -112,6 +134,27 @@ test("retained Container checks reject configuration, rollout, original instance
     }),
     DRIFT
   );
+  for (const page of [
+    { ...inactiveInstances, instances: undefined },
+    { ...inactiveInstances, result_info: undefined },
+    {
+      ...inactiveInstances,
+      result_info: {
+        ...inactiveInstances.result_info,
+        next_page_token: "next",
+      },
+    },
+    {
+      ...instances,
+      instances: [{ id: "new-instance", state: "running", version: 125 }],
+    },
+    {
+      ...instances,
+      instances: [{ id: "new-instance", state: "starting", version: 124 }],
+    },
+  ]) {
+    await assert.rejects(probe(application, page, empty), DRIFT);
+  }
 });
 
 test("only the explicit local Remote stage can retain Containers, and its subprocess passes Wrangler none", () => {

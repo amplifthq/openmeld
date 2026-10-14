@@ -646,6 +646,17 @@ async function resumeComponent(input) {
   });
 }
 
+// Call only after Worker and native verification have completed.
+export function completeRemoteAgentReceipt(receipt) {
+  return {
+    ...receipt,
+    status: "verified",
+    ...(receipt.remoteAgent
+      ? { remoteAgent: { ...receipt.remoteAgent, phase: "complete" } }
+      : {}),
+  };
+}
+
 // Both guarded deploy and current-main recovery use this one receipt writer.
 // The caller holds the Remote Agent lease and has selected the exact attempt.
 export async function resumeRemoteAgentVerification(input) {
@@ -673,11 +684,7 @@ export async function resumeRemoteAgentVerification(input) {
       sourceSha: input.sourceSha,
       scopes: ["remote-agent"],
       receipts: {
-        "remote-agent": {
-          ...receipt,
-          status: "verified",
-          remoteAgent: { ...receipt.remoteAgent, phase: "complete" },
-        },
+        "remote-agent": completeRemoteAgentReceipt(receipt),
       },
       ...(input.now ? { now: input.now() } : {}),
     });
@@ -756,7 +763,7 @@ function recordComponentCompletion(input, record) {
     return record("verified");
   }
   (input.write ?? ((line) => process.stdout.write(`${line}\n`)))(
-    "Remote Agent Worker applied. Original Containers retained; native rollout remains pending. Verify original file synchronization before explicitly continuing the full Remote Agent release."
+    "Remote Agent Worker applied. Container configuration unchanged; native rollout remains pending. Verify original file synchronization before explicitly continuing the full Remote Agent release."
   );
 }
 

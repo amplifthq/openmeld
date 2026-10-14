@@ -797,7 +797,10 @@ describe("Agent Profile Binding command service", () => {
     expect(bindingStore.records).toHaveLength(1);
   });
 
-  it("preserves an existing Agent Controller Conversation ID when ensure omits it", async () => {
+  it.each([
+    "builtin:codex",
+    "builtin:grok-bot",
+  ])("preserves an existing %s conversation when reconnect omits it", async (agentControllerRef) => {
     const runtimeLookupInput = ownerAccountRuntimeLookupInput();
     const openMeldServiceRuntimeId = authorityRuntimeId({
       runtimeLookupInput,
@@ -807,7 +810,7 @@ describe("Agent Profile Binding command service", () => {
     bindingStore.records.push({
       agentProfileId: "agent-profile-1",
       agentControllerConversationId: "codex-thread-existing",
-      agentControllerRef: "builtin:codex",
+      agentControllerRef,
       openMeldServiceRuntimeId: "runtime_opaque_1",
       bindingId: "binding_existing",
       bindingState: "enabled_primary",
@@ -822,15 +825,17 @@ describe("Agent Profile Binding command service", () => {
     await expect(
       ensurePrimaryAgentProfileBinding({
         ...createValidCommandInput({
+          agentControllerRef,
           openMeldServiceRuntimeId,
           runtimeLookupInput,
         }),
         bindingStore,
+        writeMode: "reconnect",
       })
     ).resolves.toMatchObject({
       binding: {
         agentControllerConversationId: "codex-thread-existing",
-        agentControllerRef: "builtin:codex",
+        agentControllerRef,
         openMeldServiceRuntimeId: "runtime_opaque_1",
         bindingId: "binding_existing",
       },
@@ -840,6 +845,18 @@ describe("Agent Profile Binding command service", () => {
     });
 
     expect(bindingStore.records).toHaveLength(1);
+  });
+
+  it("rejects reconnecting a shared Bot without an existing or explicit conversation", async () => {
+    const input = createValidCommandInput({
+      agentControllerRef: "builtin:grok-bot",
+    });
+    await expect(
+      ensurePrimaryAgentProfileBinding({ ...input, writeMode: "reconnect" })
+    ).resolves.toMatchObject({
+      status: "rejected",
+      reasonCodes: ["agent_profile_binding.session_resume_unavailable"],
+    });
   });
 
   it("does not carry a conversation ID across different Agent Controllers", async () => {

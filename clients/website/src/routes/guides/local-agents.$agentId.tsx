@@ -1,19 +1,15 @@
 import { getLocalAgentInstallGuide } from "@openmeld/product-catalog/local-agent-install-guides";
-import { createFileRoute, notFound } from "@tanstack/react-router";
-import { LocalAgentInstallGuideDetailPage } from "#/components/local-agent-install-guides/local-agent-install-guide-pages";
+import { createFileRoute, notFound, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/guides/local-agents/$agentId")({
-	component: LocalAgentGuideDetailRoute,
-	loader: ({ params }) => {
+	beforeLoad: ({ params }) => {
 		const guide = getLocalAgentInstallGuide(params.agentId);
 		if (!guide) {
 			throw notFound();
 		}
-		return { guide };
+		throw redirect({
+			href: `${import.meta.env.VITE_DOCS_URL}/docs/start/local-agents/${guide.agentId}`,
+			statusCode: 301,
+		});
 	},
 });
-
-function LocalAgentGuideDetailRoute() {
-	const { guide } = Route.useLoaderData();
-	return <LocalAgentInstallGuideDetailPage guide={guide} />;
-}

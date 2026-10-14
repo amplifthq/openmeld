@@ -9,6 +9,7 @@ packages:
   - runtime/adapters/codex
   - runtime/adapters/cursor
   - runtime/adapters/grok-build
+  - runtime/adapters/grok-bot
   - runtime/adapters/openclaw
   - runtime/adapters/opencode
   - packages/*

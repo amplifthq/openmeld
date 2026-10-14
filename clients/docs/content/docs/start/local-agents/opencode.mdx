@@ -1,0 +1,30 @@
+---
+title: OpenCode
+description: Install OpenCode and connect a model provider before using it with OpenMeld.
+icon: local-agent:opencode
+---
+
+OpenCode can use different model providers. Configure the provider you intend to use on the same computer as OpenMeld.
+
+## Install and sign in
+
+1. Open the [official OpenCode setup guide](https://opencode.ai/docs/).
+2. Follow the official installation guide for your operating system. Run `opencode` and connect your chosen provider in its terminal interface.
+3. Resolve any installation or account error in the tool before continuing.
+
+Use the official guide for current operating-system requirements and installation commands.
+
+## Connect to OpenMeld
+
+1. [Connect this computer](/docs/start/connect-computer) if you have not already done so.
+2. Open the computer’s details in OpenMeld and check **Local agents**.
+3. Confirm that OpenCode is available, then [create a Local Agent](/docs/work/agents) using that computer and tool.
+4. Select the intended [Project and working folder](/docs/work/projects).
+
+OpenMeld checks the `opencode` command and its version. Finding the executable does not prove that the selected provider is configured or that your account can use a model.
+
+## Try a first task
+
+Use the [local code review example](/docs/tasks/local-code). Confirm that the Agent reports the intended repository and returns its findings in the conversation.
+
+If it cannot start, read the reason shown in OpenMeld. For connection problems, use [Computer help](/docs/help/computer). For a missing checkout, use [Working folder unavailable](/docs/help/working-folder).

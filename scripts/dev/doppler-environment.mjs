@@ -43,6 +43,7 @@ export const DEVELOPMENT_SECRET_SOURCES = [
     optionalSecrets: [
       "GITHUB_OPENMELD_API_TOKEN",
       "GITHUB_OPENMELD_WEBHOOK_SECRET",
+      "OPENMELD_AI_CREDENTIAL_CRYPTO_KEY",
     ],
     project: "openmeld-core",
     requiredSecrets: [

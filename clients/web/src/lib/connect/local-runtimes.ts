@@ -152,6 +152,21 @@ export async function selectPeopleComputerLocalAgentInstallation(
 	}
 }
 
+export async function managePeopleComputerLocalAgentUpdate(
+	input: PeopleComputerTarget & {
+		agentId: string;
+		request?: import("@openmeld/schemas/types").LocalAgentUpdateRequest;
+	}
+) {
+	try {
+		return await createCurrentDeviceApi(
+			createUnscopedWebOpenMeldApiFoundation()
+		).managePeopleComputerLocalAgentUpdate(input);
+	} catch (error) {
+		throw toStructuredApiClientFailure(error);
+	}
+}
+
 export async function requestPeopleComputerOpenMeldToolsUpdate(
 	target: PeopleComputerTarget
 ): Promise<RequestCurrentOpenMeldToolsUpdateResponse> {

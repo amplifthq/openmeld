@@ -54,6 +54,7 @@
     "@openmeld/adapter-codex": "workspace:*",
     "@openmeld/adapter-core": "workspace:*",
     "@openmeld/adapter-cursor": "workspace:*",
+    "@openmeld/adapter-grok-bot": "workspace:*",
     "@openmeld/adapter-grok-build": "workspace:*",
     "@openmeld/adapter-openclaw": "workspace:*",
     "@openmeld/adapter-opencode": "workspace:*",

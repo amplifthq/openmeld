@@ -1353,6 +1353,10 @@ function buildLocalAgentControlByDeviceLane(
     controls.set(key, {
       ...(manageInstallations ? { manageInstallations: true } : {}),
       ...(manageInstallationsSafely ? { manageInstallationsSafely: true } : {}),
+      ...(manageInstallationsSafely &&
+      session.capabilities.localAgentControl?.updateInstallations === true
+        ? { updateInstallations: true }
+        : {}),
       refreshCatalog,
       setEnabled,
       setProfileWorkspace,

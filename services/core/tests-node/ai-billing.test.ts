@@ -256,55 +256,43 @@ describe("AI funding at the native database and provider boundary", () => {
     ).toBe(false);
   });
 
-  it("limits the internal exemption to the configured ID and keeps its key separate from Free", async () => {
+  it("ignores retired internal credentials and configuration for both eligible and ineligible workspaces", async () => {
+    Object.assign(env, { OPENMELD_INTERNAL_BILLING_ORGANIZATION_ID: org });
+    await harness.query({
+      text: `INSERT INTO "openmeld"."organization_ai_credentials"
+        (organization_id, source, encrypted_key, provider_key_hash, key_suffix, updated_at_ms)
+        VALUES ($1, 'internal', 'retired-key-must-not-be-decrypted', 'old-hash', 'old1', 0),
+               ($2, 'internal', 'retired-key-must-not-be-decrypted', 'other-old-hash', 'old2', 0)`,
+      values: [org, other],
+    });
     await authorizeAiProvider(env, org);
-    env.OPENMELD_INTERNAL_BILLING_ORGANIZATION_ID = org;
-    fetchSpy.mockImplementation(async (url, init) =>
-      Response.json(
-        String(url).endsWith("/keys")
-          ? {
-              key: "sk-or-test-internal-key",
-              data: {
-                ...budget,
-                hash: "internal-hash",
-                disabled: false,
-                ...JSON.parse(String(init?.body)),
-                limit: null,
-                limit_reset: null,
-              },
-            }
-          : {
-              data: {
-                ...budget,
-                limit: null,
-                limit_reset: null,
-                limit_remaining: null,
-              },
-            }
-      )
-    );
-    expect(await authorizeAiProvider(env, org)).toMatchObject({
-      source: "internal",
-    });
-    expect(await readAiBilling(env, org, true)).toMatchObject({
-      plan: "internal",
-      monthlyCredits: null,
-    });
-    await expect(authorizeAiProvider(env, other)).rejects.toMatchObject({
-      code: "ai_usage.monthly_limit_reached",
-    });
-    expect(
-      (
-        await harness.db.query(
-          'SELECT source FROM "openmeld"."organization_ai_credentials" ORDER BY source'
-        )
-      ).rows
-    ).toEqual([{ source: "free" }, { source: "internal" }]);
-    env.OPENMELD_INTERNAL_BILLING_ORGANIZATION_ID = "Amplift";
-    fetchSpy.mockResolvedValue(Response.json({ data: budget }));
     expect(await authorizeAiProvider(env, org)).toMatchObject({
       source: "free",
       apiKey: "sk-or-test-managed-key",
+    });
+    expect(await readAiBilling(env, org, true)).toMatchObject({
+      plan: "free",
+      monthlyCredits: 5000,
+      remainingCredits: 3750,
+    });
+    Object.assign(env, { OPENMELD_INTERNAL_BILLING_ORGANIZATION_ID: other });
+    await expect(authorizeAiProvider(env, other)).rejects.toMatchObject({
+      code: "ai_usage.monthly_limit_reached",
+    });
+    expect(await readAiBilling(env, other, true)).toMatchObject({
+      plan: "free",
+      source: "free",
+      monthlyCredits: 0,
+      status: "exhausted",
+    });
+    const creates = fetchSpy.mock.calls.filter(([url]) =>
+      String(url).endsWith("/keys")
+    );
+    expect(creates).toHaveLength(1);
+    expect(JSON.parse(String(creates[0]?.[1]?.body))).toMatchObject({
+      name: `openmeld:${org}:free`,
+      limit: 5,
+      limit_reset: "monthly",
     });
   });
 });

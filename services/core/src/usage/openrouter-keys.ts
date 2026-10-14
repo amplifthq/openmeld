@@ -1,3 +1,4 @@
+import { AI_CREDITS_PER_USD, AI_FREE_MONTHLY_CREDITS } from "@openmeld/schemas";
 // biome-ignore lint/performance/noNamespaceImport: Worker-safe Zod import avoids bundling unused locales.
 import * as z from "zod/v4";
 import { createCoreRpcHttpError } from "../rpc/errors";
@@ -35,8 +36,8 @@ async function openRouterRequest(input: {
   path: "/key" | "/keys";
   body?: {
     name: string;
-    limit: number | null;
-    limit_reset: "monthly" | null;
+    limit: number;
+    limit_reset: "monthly";
     include_byok_in_limit: false;
   };
 }) {
@@ -98,17 +99,16 @@ export async function readOpenRouterKey(apiKey: string) {
 export async function createOpenRouterKey(input: {
   managementKey: string;
   organizationId: string;
-  source: "free" | "internal";
-  limitUsd: number | null;
 }) {
+  const limitUsd = AI_FREE_MONTHLY_CREDITS / AI_CREDITS_PER_USD;
   const parsed = createdKeySchema.safeParse(
     await openRouterRequest({
       apiKey: input.managementKey,
       path: "/keys",
       body: {
-        name: `openmeld:${input.organizationId}:${input.source}`,
-        limit: input.limitUsd,
-        limit_reset: input.source === "free" ? "monthly" : null,
+        name: `openmeld:${input.organizationId}:free`,
+        limit: limitUsd,
+        limit_reset: "monthly",
         include_byok_in_limit: false,
       },
     })
@@ -116,9 +116,8 @@ export async function createOpenRouterKey(input: {
   if (
     !parsed.success ||
     parsed.data.data.disabled ||
-    parsed.data.data.limit !== input.limitUsd ||
-    parsed.data.data.limit_reset !==
-      (input.source === "free" ? "monthly" : null)
+    parsed.data.data.limit !== limitUsd ||
+    parsed.data.data.limit_reset !== "monthly"
   ) {
     throw aiBillingUnavailable();
   }

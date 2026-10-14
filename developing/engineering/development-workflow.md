@@ -921,6 +921,11 @@ product or diagnostics gap.
 
 ## Real-User Smoke Vs Internal Diagnostics
 
+For real Center/Remote Agent model calls in a local lane, use the
+[shared development BYOK smoke key](ai-billing.md#shared-development-byok-smoke-key).
+That procedure owns the Doppler location, safe retrieval, product setup, usage
+verification, and cleanup. Do not request a fresh key for each authorized smoke.
+
 Real-user smoke must use user-accessible entry points and show user-visible
 evidence.
 
@@ -1311,6 +1316,17 @@ authority; Service reads the canonical route before attempting a native update.
   authorize silently adopting a different installation.
 
 ### Safe Local Agent Installation Selection Contract Impact Audit
+
+Local Agent update extension: publish Core/Gateway/schema readers before a Service
+advertises optional `updateInstallations`. New owner-only GET/POST
+`installation-update` routes reuse the existing installation transport with
+`read_update`/`update` requests and a distinct `update_state` result. Old Services retain
+selection and manual updates; new controls require the new capability. Existing
+list/select responses, Prepare, Wake, Skills, and Space Actions are unchanged.
+Web and Desktop share the Computer UI and API client. No native Desktop bridge,
+database schema, contract floor, or forced update is required. Service/CLI release
+impact is advisory `available`; this feature branch does not stamp release
+artifacts. Rollback must retain readers while new Services advertise the field.
 
 Safe installation selection changes Web behavior, Local Runtimes HTTP/RPC,
 Runtime Transport capabilities and result frames, the OpenMeld Service carrier,

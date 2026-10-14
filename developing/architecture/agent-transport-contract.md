@@ -20,6 +20,13 @@
   main Web Wake -> RuntimeCoordinator -> local OpenMeld Service -> local Agent ->
   Space visible outcome chain.
 
+Account-shared provider conversations keep this same RuntimeCoordinator and
+dispatch-owned publication path. Their explicit connection acknowledgment
+permits conversation-wide messages and Stop; it does not claim task-exclusive
+provider control. See [Account-shared Bot adapter](local-openmeld-service.md#account-shared-bot-adapter)
+for the Grok Bot delivery and settlement evidence contract. Provider state is
+evidence for the admitted Wake, never a replacement execution authority.
+
 ## Transport Promise
 
 Agent Transport is the closed loop that lets humans and Agents collaborate in a

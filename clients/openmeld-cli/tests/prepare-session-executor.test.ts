@@ -34,6 +34,7 @@ import {
 } from "../src/commands/prepare-session-executor";
 import {
   type AuthSessionStateResult,
+  getAuthSessionState,
   readComputerSetupSessionWithOwnership,
 } from "../src/config/auth-session";
 import { readDaemonServiceContract } from "../src/config/daemon-service-contract";
@@ -73,6 +74,7 @@ vi.mock("../src/config/daemon-service-contract", () => ({
 
 vi.mock("../src/config/auth-session", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/config/auth-session")>()),
+  getAuthSessionState: vi.fn(),
   readComputerSetupSessionWithOwnership: vi.fn(),
 }));
 
@@ -227,6 +229,96 @@ describe("prepare session executor", () => {
         buildSnapshot({ refresh_service: "complete" }, [])
       )
     ).toBeNull();
+  });
+
+  it.each([
+    { name: "Desktop none", localAgentSelection: { mode: "none" as const } },
+    { name: "ordinary Web", localAgentSelection: undefined },
+  ])("completes $name setup when unrelated agent discovery fails", async ({
+    localAgentSelection,
+  }) => {
+    const { session } = await readComputerSetupSessionWithOwnership({
+      gatewayUrl: "http://localhost:8080",
+    });
+    vi.mocked(getAuthSessionState).mockResolvedValue({
+      state: "valid",
+      session,
+    });
+    vi.mocked(collectStartLocalReadiness).mockRejectedValue(
+      new Error("Unrelated agent discovery failed")
+    );
+    const initial = buildSnapshot(
+      { refresh_service: "complete", choose_local_agents: "active" },
+      []
+    );
+    const completed: PrepareSessionSnapshot = {
+      ...buildSelectedNoAgentSnapshot(initial),
+      lifecycleStatus: "completed",
+      phase: "ready",
+      completedAt: initial.updatedAt,
+    };
+    const stream: PrepareSessionStream = {
+      close: vi.fn(),
+      getLatestSnapshot: () => initial,
+      waitForSnapshot: vi
+        .fn()
+        .mockResolvedValueOnce(initial)
+        .mockResolvedValueOnce(completed),
+      writeTerminalAgentSelection: vi.fn(),
+      writeTerminalLocalAgentCatalog: vi.fn(),
+      writeTerminalStep: vi.fn(),
+    };
+
+    await expect(
+      runPrepareSessionExecutor({
+        ...buildExecutorInput(),
+        initialSnapshot: initial,
+        connectedStream: stream,
+        localAgentSelection,
+      })
+    ).resolves.toMatchObject({
+      status: "completed",
+      snapshot: { lifecycleStatus: "completed", selectedLocalAgentIds: [] },
+    });
+    expect(stream.writeTerminalAgentSelection).toHaveBeenCalledWith({
+      connectionEpoch: 1,
+      expectedRevision: initial.sessionRevision,
+      localAgentIds: [],
+    });
+    expect(collectStartLocalReadiness).not.toHaveBeenCalled();
+    expect(runAgentsRepair).not.toHaveBeenCalled();
+  });
+
+  it("does not complete computer-only setup when Service alignment is cancelled", async () => {
+    const { session } = await readComputerSetupSessionWithOwnership({
+      gatewayUrl: "http://localhost:8080",
+    });
+    vi.mocked(getAuthSessionState).mockResolvedValue({
+      state: "valid",
+      session,
+    });
+    vi.mocked(runDaemonServiceParticipationGate).mockResolvedValue({
+      status: "cancelled",
+    });
+    const initial = buildSnapshot({ choose_local_agents: "active" }, []);
+    const stream: PrepareSessionStream = {
+      close: vi.fn(),
+      getLatestSnapshot: () => initial,
+      waitForSnapshot: vi.fn().mockResolvedValue(initial),
+      writeTerminalAgentSelection: vi.fn(),
+      writeTerminalLocalAgentCatalog: vi.fn(),
+      writeTerminalStep: vi.fn(),
+    };
+
+    await expect(
+      runPrepareSessionExecutor({
+        ...buildExecutorInput(),
+        initialSnapshot: initial,
+        connectedStream: stream,
+        localAgentSelection: { mode: "none" },
+      })
+    ).resolves.toEqual({ status: "not_completed", reason: "user_cancelled" });
+    expect(stream.writeTerminalAgentSelection).not.toHaveBeenCalled();
   });
 
   it("stops once all Terminal-owned steps are complete", () => {

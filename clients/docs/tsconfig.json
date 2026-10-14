@@ -15,7 +15,8 @@
     "allowJs": true,
     "forceConsistentCasingInFileNames": true,
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@openmeld/schemas": ["../../packages/schemas/src/index.ts"]
     },
     "noEmit": true
   }
