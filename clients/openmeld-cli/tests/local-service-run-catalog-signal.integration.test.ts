@@ -122,6 +122,7 @@ import { requestLocalDaemonShutdown } from "../src/local-service/control-plane/c
 import { startLocalDaemonControlPlaneServer } from "../src/local-service/control-plane/server";
 import {
   DAEMON_STREAM_KEEPALIVE_INTERVAL_MS,
+  DAEMON_STREAM_KEEPALIVE_PONG_TIMEOUT_MS,
   HEARTBEAT_RESPONSE_TIMEOUT_MS,
 } from "../src/local-service/core/constants";
 import type {
@@ -139,6 +140,7 @@ type RunTestDaemonSocketSessionInput = Omit<
 > &
   Omit<ExecutionHostResources, "initialCatalog"> & {
     decorateExecutionHost?: (host: ExecutionHostPort) => ExecutionHostPort;
+    onSessionExit?: () => void;
     profileOwnerName: string | null;
     loadRouteCatalog?: () => Promise<ExecutionHostResources["initialCatalog"]>;
   };
@@ -155,6 +157,7 @@ async function runDaemonSocketSession(
     localAdapterContainer,
     ledgerPaths,
     decorateExecutionHost,
+    onSessionExit,
     profileOwnerName,
     ...sessionInput
   } = input;
@@ -203,6 +206,7 @@ async function runDaemonSocketSession(
       executionHost: decorateExecutionHost?.(host.port) ?? host.port,
     });
   } finally {
+    onSessionExit?.();
     localComponentsObservation.dispose();
     await host.close();
   }
@@ -362,6 +366,51 @@ describe("local service run catalog signal", () => {
         await observedShutdown;
         await server.close();
       }
+    });
+  });
+
+  it.each([
+    "cache",
+    "catalog_signal",
+  ] as const)("releases a disconnected session while bootstrap %s is pending", async (stage) => {
+    await withTempHome(async () => {
+      vi.useFakeTimers();
+      const started = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const heldOperation = async () => {
+        started.resolve();
+        await release.promise;
+        return null;
+      };
+      readDaemonCatalogSyncSignalMock.mockImplementation(
+        stage === "catalog_signal" ? heldOperation : async () => null
+      );
+      const socket = createMockSocket();
+      let exited = false;
+      const sessionPromise = runDaemonSocketSession({
+        ...buildKeepaliveSessionInput(socket, []),
+        // Observe the connector boundary before the fixture shuts down its Host.
+        onSessionExit: () => {
+          exited = true;
+        },
+        persistRouteCatalogCache: async () => {
+          if (stage === "cache") {
+            await heldOperation();
+          }
+        },
+      });
+      const outcome = sessionPromise.then(
+        () => null,
+        (error: unknown) => error
+      );
+      await started.promise;
+      socket.emitClose(1006, "bootstrap connection lost");
+      await vi.advanceTimersByTimeAsync(0);
+      const exitedBeforeBootstrap = exited;
+      release.resolve();
+      const result = await outcome;
+      expect(exitedBeforeBootstrap).toBe(true);
+      expect(result).toBeInstanceOf(Error);
     });
   });
 
@@ -2595,6 +2644,71 @@ describe("daemon stream keepalive", () => {
     });
   });
 
+  it.each([
+    "heartbeat",
+    "keepalive",
+    "socket_error",
+  ] as const)("releases a failed %s session even when termination sends no close event", async (failure) => {
+    await withTempHome(async () => {
+      vi.useFakeTimers();
+      const lines: Array<{ code: string; text: string }> = [];
+      const socket = createMockSocket({
+        terminateEmitsClose: false,
+        respondToHeartbeat: failure !== "heartbeat",
+        respondToKeepalive: failure !== "keepalive",
+      });
+      const attachRouteCatalogSyncInvoker = vi.fn();
+      const ledgerPaths = createLedgerPaths();
+      enqueuePendingResult({
+        currentSocketRef: { connectionGeneration: null, socket: null },
+        ledgerPaths,
+      });
+      let exited = false;
+      const sessionPromise = runDaemonSocketSession({
+        ...buildKeepaliveSessionInput(socket, lines, 60_000),
+        attachRouteCatalogSyncInvoker,
+        ledgerPaths,
+      });
+      const outcome = sessionPromise.then(
+        () => {
+          exited = true;
+          return null;
+        },
+        (error: unknown) => {
+          exited = true;
+          return error;
+        }
+      );
+      await vi.advanceTimersByTimeAsync(1);
+      if (failure === "socket_error") {
+        socket.emitError(new Error("transport failed without a close event"));
+      }
+      const deadline =
+        failure === "heartbeat"
+          ? 3 * HEARTBEAT_RESPONSE_TIMEOUT_MS + 2 * 5000
+          : DAEMON_STREAM_KEEPALIVE_INTERVAL_MS +
+            DAEMON_STREAM_KEEPALIVE_PONG_TIMEOUT_MS;
+      await vi.advanceTimersByTimeAsync(deadline + 1);
+      await flushMicrotasks();
+      const exitedAtDeadline = exited;
+      // Cleanup cannot turn a hung production session into a passing assertion.
+      if (!exited) {
+        socket.emitClose(1006, "test cleanup");
+      }
+      const result = await outcome;
+      expect(socket.terminateCount).toBe(1);
+      expect(exitedAtDeadline).toBe(true);
+      expect(result).toBeInstanceOf(Error);
+      expect(
+        listDispatchResultOutboxPendingAcknowledgementKeys({ ledgerPaths })
+      ).toEqual(["dispatch-drain-1::attempt-drain-1"]);
+      // A late native close must not clear the next session's shared invoker.
+      attachRouteCatalogSyncInvoker.mockClear();
+      socket.emitClose(1006, "delayed native close");
+      expect(attachRouteCatalogSyncInvoker).not.toHaveBeenCalled();
+    });
+  });
+
   it("sends a keepalive PING on its own 20s cadence, faster than and independent of the heartbeat", async () => {
     vi.useFakeTimers();
     const lines: Array<{ code: string; text: string }> = [];
@@ -2948,6 +3062,7 @@ function createMockSocket(input?: {
   executionAdmissionConfirmation?: boolean;
   admissionEvidence?: boolean;
   hangOnClose?: boolean;
+  terminateEmitsClose?: boolean;
   respondToKeepalive?: boolean;
   respondToHeartbeat?:
     | boolean
@@ -2959,6 +3074,7 @@ function createMockSocket(input?: {
 }) {
   let onMessage: ((data: string) => void) | null = null;
   let onClose: ((code: number, reason: string) => void) | null = null;
+  let onError: ((error: unknown) => void) | null = null;
   let terminateCount = 0;
   let closeCount = 0;
   let keepalivePingCount = 0;
@@ -2971,6 +3087,9 @@ function createMockSocket(input?: {
   const respondToRegister = input?.respondToRegister ?? true;
 
   return {
+    emitError: (error: unknown) => {
+      onError?.(error);
+    },
     emitClose: (code: number, reason: string) => {
       onClose?.(code, reason);
     },
@@ -3084,7 +3203,9 @@ function createMockSocket(input?: {
     },
     terminate: () => {
       terminateCount += 1;
-      onClose?.(1011, "terminated");
+      if (input?.terminateEmitsClose !== false) {
+        onClose?.(1011, "terminated");
+      }
     },
     get terminateCount() {
       return terminateCount;
@@ -3095,8 +3216,8 @@ function createMockSocket(input?: {
     onClose: (handler: (code: number, reason: string) => void) => {
       onClose = handler;
     },
-    onError: (_handler: (error: unknown) => void) => {
-      return;
+    onError: (handler: (error: unknown) => void) => {
+      onError = handler;
     },
     waitUntilClosed: async () => undefined,
   };
