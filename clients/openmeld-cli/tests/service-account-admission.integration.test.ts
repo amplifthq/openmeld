@@ -379,11 +379,7 @@ describe("Service account admission across processes", () => {
       if (outcome === "drain_failure") {
         coordinator.attachSession(() => {
           committed = true;
-          queueMicrotask(() =>
-            coordinator.handleSessionFailure(
-              new Error("drain failed after commit")
-            )
-          );
+          queueMicrotask(() => coordinator.failOutstanding());
         });
       }
       const server = await startLocalDaemonControlPlaneServer({

@@ -945,19 +945,22 @@ describe("local service runner dual-write", () => {
     expect(observedStopCause).toBe("user_stop");
   });
 
-  it("rejects a controlled shutdown when the active socket session fails to drain and reconnects", async () => {
+  it("keeps an admitted stop pending across reconnect and completes it after the replacement session drains", async () => {
     const firstSessionStarted = Promise.withResolvers<void>();
     const secondSessionStarted = Promise.withResolvers<void>();
+    const finishDrain = Promise.withResolvers<void>();
+    const stopCauses: unknown[] = [];
     let sessionCount = 0;
     runDaemonSocketSessionMock.mockReset().mockImplementation(async (input) => {
       sessionCount += 1;
       if (sessionCount === 1) {
         firstSessionStarted.resolve();
-        await input.shutdownRequested;
+        stopCauses.push(await input.shutdownRequested);
         throw new Error("drain heartbeat failed");
       }
+      stopCauses.push(await input.shutdownRequested);
       secondSessionStarted.resolve();
-      await input.shutdownRequested;
+      await finishDrain.promise;
     });
 
     const loop = runDaemonServiceLoop({
@@ -976,15 +979,24 @@ describe("local service runner dual-write", () => {
     const serverInput =
       startLocalDaemonControlPlaneServerMock.mock.calls[0]?.[0];
     const context = await serverInput.getContext();
-    await expect(
-      context.shutdownHandler({
+    let completed = false;
+    const shutdown = context
+      .shutdownHandler({
         gracePeriodMs: 5000,
         mode: "graceful",
       })
-    ).rejects.toThrow("drain heartbeat failed");
+      .then((result: unknown) => {
+        completed = true;
+        return result;
+      });
     await secondSessionStarted.promise;
-
-    requestServiceSigterm();
+    expect(completed).toBe(false);
+    expect(stopCauses).toEqual([
+      "controlled_service_update",
+      "controlled_service_update",
+    ]);
+    finishDrain.resolve();
+    await expect(shutdown).resolves.toMatchObject({ accepted: true });
     await loop;
 
     expect(runDaemonSocketSessionMock).toHaveBeenCalledTimes(2);

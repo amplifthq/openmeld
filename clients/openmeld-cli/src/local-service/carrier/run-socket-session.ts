@@ -2137,8 +2137,9 @@ export async function runDaemonSocketSession(input: {
     );
     scheduleCatalogSyncSignalPoll();
     await sendHeartbeat();
-    keepalive.start();
   }
+  // A resumed stop still needs transport failure detection while work drains.
+  keepalive.start();
 
   async function finishControlledShutdown(
     stopCause: RuntimeTransportStopCause
@@ -2185,7 +2186,16 @@ export async function runDaemonSocketSession(input: {
       code: "daemon.run.controlled_shutdown_draining",
       text: "Waiting for accepted local work to finish in the execution host.",
     });
-    await input.executionHost.call("drain", {}, { timeoutMs: null });
+    // The Host owns accepted work across connections. Do not let its wait for
+    // a cloud reply decision prevent this connector from reconnecting. Racing
+    // here also prevents an abandoned session from later settling/closing a
+    // replacement connection when that same Host finishes its work.
+    await Promise.race([
+      input.executionHost.call("drain", {}, { timeoutMs: null }),
+      transportEnded.promise.then((error) => {
+        throw error;
+      }),
+    ]);
     const result = await input.executionHost.call("settleResults", {});
     if (finalHeartbeatError) {
       throw finalHeartbeatError;

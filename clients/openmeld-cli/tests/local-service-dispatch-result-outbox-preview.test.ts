@@ -7,6 +7,7 @@ import {
 } from "@openmeld/local-execution";
 import {
   createInflightTaskControlRegistry,
+  createLocalExecutionSlots,
   createPendingAgentInteractionRegistry,
 } from "@openmeld/local-service";
 import type { SignalEnvelope } from "@openmeld/protocol";
@@ -27,8 +28,14 @@ import type {
   LedgerPaths,
 } from "../src/local-service/core/types";
 import { readRecentDaemonDispatchJournalEvents } from "../src/local-service/dispatch/daemon-dispatch-journal";
-import { acknowledgeDispatchResultOutboxRecord } from "../src/local-service/dispatch/dispatch-result-outbox";
-import { handleDispatchDeliverFrame } from "../src/local-service/dispatch/execute-dispatch-task";
+import {
+  acknowledgeDispatchResultOutboxRecord,
+  flushDispatchResultOutbox,
+} from "../src/local-service/dispatch/dispatch-result-outbox";
+import {
+  enqueueDispatchDeliverFrame,
+  handleDispatchDeliverFrame,
+} from "../src/local-service/dispatch/execute-dispatch-task";
 import { OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV } from "../src/runtime/dispatch-space-action-context";
 import type { Presenter } from "../src/runtime/presenter/types";
 import { runSpaceActionReply } from "../src/space/action-command";
@@ -539,6 +546,212 @@ function createSiblingReplySignal(input: {
 }
 
 describe("dispatch result outbox around preview teardown", () => {
+  it.each([
+    false,
+    true,
+  ])("retains an active reply through stop and reconnect without repeating work (review: %s)", async (reviewRequired) => {
+    await withTempHome(async () => {
+      const ledgerPaths = createLedgerPaths();
+      const reviewedReplySaved = Promise.withResolvers<void>();
+      let queuedReplies = 0;
+      const presenter = createPresenter((line) => {
+        if (line.code === "daemon.run.result_outbox_queued") {
+          queuedReplies += 1;
+          if (queuedReplies === 2) {
+            reviewedReplySaved.resolve();
+          }
+        }
+      });
+      const firstProposal = Promise.withResolvers<void>();
+      const revisedProposal = Promise.withResolvers<void>();
+      const releaseReview = Promise.withResolvers<void>();
+      const reviewStarted = Promise.withResolvers<void>();
+      const initialResult = createRuntimeSuccessResult();
+      const runtimeContext = {
+        providerRuntimeWorkingDirectory: ledgerPaths.rootDirPath,
+      };
+      resolveProfileWorkspaceRuntimeMock.mockResolvedValue({
+        runtimeContext,
+        status: "ready",
+      });
+      prepareProviderRuntimeMock.mockResolvedValue({
+        runtimeContext,
+        preparationDetails: { kind: "none" },
+      });
+      runRuntimeTaskMock
+        .mockResolvedValueOnce(initialResult)
+        .mockImplementationOnce(async () => {
+          reviewStarted.resolve();
+          await releaseReview.promise;
+          return createRuntimeResult({
+            output: "Reviewed reply",
+            spaceAction: {
+              type: "post_message",
+              messageEnvelope: {
+                text: "Reviewed reply",
+                activationTargets: [],
+                referenceTargets: [],
+              },
+            },
+            spaceActionProvenance: "direct",
+          });
+        });
+      const frames: Array<{ code: string; payload: Record<string, unknown> }> =
+        [];
+      const socket = {
+        send: (raw: string) => {
+          const frame = JSON.parse(raw);
+          frames.push(frame);
+          if (frame.code === "daemon.dispatch.result") {
+            firstProposal.resolve();
+            if (frame.payload.taskResult.payload.output === "Reviewed reply") {
+              revisedProposal.resolve();
+            }
+          }
+        },
+      };
+      const currentSocketRef: CurrentDaemonSocketRef = {
+        connectionGeneration: 1,
+        socket,
+      };
+      const slots = createLocalExecutionSlots({
+        limits: { globalConcurrency: 1, queueMax: 4 },
+      });
+      const deliver = createDeliverRequest();
+      const request = {
+        computerFileAccessStorePath: join(
+          ledgerPaths.rootDirPath,
+          "computer-policy.json"
+        ),
+        contextStore: new Map<string, string>(),
+        currentSocketRef,
+        daemonSessionId: "daemon-session-1",
+        payload: deliver,
+        localExecutionSlots: slots,
+        inflightDispatchMetaByTaskId: new Map(),
+        inflightTaskControlRegistry: createInflightTaskControlRegistry(),
+        pendingAgentInteractionRegistry:
+          createPendingAgentInteractionRegistry(),
+        ledgerPaths,
+        leasesByProfileId: new Map([["agent-profile-1", 1]]),
+        localAdapterContainer: { getAdapter: () => ({ adapter: {} }) } as never,
+        profileOwnerName: "Owner",
+        profileOwnerUserId: "user-1",
+        presenter,
+        routeByProfileId: createCurrentRouteByProfileId(
+          ledgerPaths.rootDirPath
+        ),
+        socket,
+      };
+      const acknowledge = (
+        status: "retry_later" | "review_required" | "accepted"
+      ) =>
+        acknowledgeDispatchResultOutboxRecord({
+          attemptId: "attempt-1",
+          dispatchId: "dispatch-1",
+          ledgerPaths,
+          presenter,
+          ok: status === "accepted",
+          status,
+          ...(status === "review_required"
+            ? { reasonCode: "space.agent_reply.context_changed" }
+            : {}),
+          ...(status === "retry_later"
+            ? { reasonCode: "daemon.result.finalization_unavailable" }
+            : {}),
+        });
+      enqueueDispatchDeliverFrame(request);
+      await firstProposal.promise;
+      const original = readOutboxFile(ledgerPaths).records[0];
+      expect(original).toMatchObject({
+        dispatchId: "dispatch-1",
+        taskResult: { payload: { output: "durable reply" } },
+      });
+      slots.beginDrain();
+      let drained = false;
+      const drain = slots.drain().then(() => {
+        drained = true;
+      });
+      acknowledge("retry_later");
+      currentSocketRef.socket = null;
+      currentSocketRef.connectionGeneration = null;
+      flushDispatchResultOutbox({ currentSocketRef, ledgerPaths, presenter });
+      expect(drained).toBe(false);
+      expect(slots.getDrainState().activeGlobal).toBe(1);
+      expect(readOutboxFile(ledgerPaths).records[0]?.taskResult).toEqual(
+        original?.taskResult
+      );
+      expect(runRuntimeTaskMock).toHaveBeenCalledTimes(1);
+
+      // Reconnecting replays the same durable proposal immediately, including
+      // its execution identity. Re-delivery must not run the original task again.
+      currentSocketRef.socket = socket;
+      currentSocketRef.connectionGeneration = 2;
+      flushDispatchResultOutbox({ currentSocketRef, ledgerPaths, presenter });
+      const results = frames.filter(
+        (frame) => frame.code === "daemon.dispatch.result"
+      );
+      expect(results).toHaveLength(2);
+      expect(results[1]?.payload).toMatchObject({
+        dispatchId: results[0]?.payload.dispatchId,
+        attemptId: results[0]?.payload.attemptId,
+        taskResult: results[0]?.payload.taskResult,
+        executionTokenEcho: results[0]?.payload.executionTokenEcho,
+      });
+      enqueueDispatchDeliverFrame({
+        ...request,
+        payload: { ...deliver, connectionGeneration: 2 },
+      });
+      expect(runRuntimeTaskMock).toHaveBeenCalledTimes(1);
+      if (reviewRequired) {
+        const correction: SignalEnvelope = {
+          v: 1,
+          id: "signal-correction",
+          type: "signal.text",
+          spaceId: "space-1",
+          ts: Date.now(),
+          profile: {
+            kind: "human",
+            profileId: "user-profile-1",
+            profileName: "Owner",
+          },
+          data: { text: "Use the revised requirement." },
+        };
+        fetchSpaceUpdatesMock.mockImplementation(async (input) => ({
+          signals: input.afterSignalId === "signal-1" ? [correction] : [],
+        }));
+        acknowledge("review_required");
+        await reviewStarted.promise;
+        expect(drained).toBe(false);
+        expect(slots.getDrainState().activeGlobal).toBe(1);
+        // A second loss during review must retain the same continuation.
+        currentSocketRef.socket = null;
+        currentSocketRef.connectionGeneration = null;
+        releaseReview.resolve();
+        await reviewedReplySaved.promise;
+        expect(
+          readOutboxFile(ledgerPaths).records[0]?.taskResult.payload
+        ).toMatchObject({
+          output: "Reviewed reply",
+          spaceAction: { observedThroughSignalId: "signal-correction" },
+        });
+        expect(
+          frames.filter((frame) => frame.code === "daemon.dispatch.result")
+        ).toHaveLength(2);
+        expect(slots.getDrainState().activeGlobal).toBe(1);
+        currentSocketRef.socket = socket;
+        currentSocketRef.connectionGeneration = 3;
+        flushDispatchResultOutbox({ currentSocketRef, ledgerPaths, presenter });
+        await revisedProposal.promise;
+      }
+      acknowledge("accepted");
+      await drain;
+      expect(readOutboxFile(ledgerPaths).records).toEqual([]);
+      expect(slots.getDrainState().activeGlobal).toBe(0);
+      expect(runRuntimeTaskMock).toHaveBeenCalledTimes(reviewRequired ? 2 : 1);
+    });
+  });
+
   it.each([
     true,
     false,

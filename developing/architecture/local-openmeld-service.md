@@ -3506,9 +3506,20 @@ preserving dedupe for already-owned work. It keeps the current Runtime
 Transport socket connected, continues heartbeats and execution progress,
 waits for active local execution slots, flushes the existing durable dispatch
 result outbox, and waits for Core's durable-acceptance receipts before closing
-the socket. If the socket disappears during that wait, unacknowledged results
-remain in the same durable outbox for the next Service session; lifecycle code
-must not create a second result store.
+the socket. If the socket disappears during that wait, the connector exits
+without waiting for Host drain. The existing Service reconnect loop restores
+transport, and the existing controlled-stop coordinator carries the admitted
+stop cause into the replacement session. The stop caller stays pending until
+that session completes the drain, or the Service loop exits with failure.
+The same Host retains accepted work and closed admission; unacknowledged results
+remain in the same durable outbox. Lifecycle code must not create a second
+result store or start a replacement execution for that work.
+
+A reply awaiting `accepted` or `review_required` still owns its execution slot:
+a review can require another provider turn in the same task. `retry_later` is
+not completion. Keep transport recovery and heartbeats available during this
+wait, including when a resumed stop skips ordinary session bootstrap. A retired
+connector's drain continuation must not settle or close a replacement connection.
 
 On a new registered connection generation, the same result outbox immediately
 replays each unacknowledged, non-terminal result once rather than waiting for
@@ -3535,9 +3546,9 @@ remain mandatory before any automatic force kill.
 
 The final stopping heartbeat must receive a successful Core acknowledgement.
 A rejected or timed-out heartbeat cannot be reported as a completed controlled
-shutdown. Already accepted work still drains before that failure is returned;
-network failure does not authorize interrupting it or assert that Core observed
-the stop. Core's existing freshness window remains the bound when no stop
+shutdown. A failed connector can retire while the Host still drains; an admitted
+control request remains pending across that reconnect. Network failure does not
+authorize interrupting accepted work or assert that Core observed the stop. Core's existing freshness window remains the bound when no stop
 heartbeat reaches it.
 
 Repeated process-discovery failures are aggregated within a bounded local log
