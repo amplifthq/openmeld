@@ -25,6 +25,7 @@ import {
   assessRemoteAgentPartialRecovery,
   executeRemoteAgentRecovery,
   proveNativeBaseline,
+  publishRemoteAgentRecoveryEvidence,
   readNativeHistoryBaseline,
   verifyRecoveredRemoteAgentTarget,
 } from "./remote-agent-partial-recovery.mjs";
@@ -419,14 +420,19 @@ test("requires registry tag digest, settled rollout and complete instance observ
   );
 });
 
-test("recovery execution records verified only after a matching image and settled rollout", async () => {
-  for (const mode of [
-    "wrong-digest",
-    "success",
-    "receipt-failure",
-    "unchanged",
-  ]) {
-    const wrongDigest = mode === "wrong-digest";
+for (const mode of [
+  "wrong-digest",
+  "success",
+  "receipt-failure",
+  "unchanged",
+  "retained-wrong-digest",
+  "retained-receipt-failure",
+  "retained-success",
+]) {
+  test(`recovery execution records verified only after a matching image and settled rollout (${mode})`, async () => {
+    const wrongDigest = mode.endsWith("wrong-digest");
+    const receiptFailure = mode.endsWith("receipt-failure");
+    const retained = mode.startsWith("retained-");
     const root = mkdtempSync(path.join(tmpdir(), "openmeld-remote-recovery-"));
     const repository = path.join(root, "repository");
     const remote = path.join(root, "remote.git");
@@ -455,6 +461,32 @@ test("recovery execution records verified only after a matching image and settle
         status: "started",
         application: "unknown",
       };
+      if (retained) {
+        // Shape captured after a Worker-only release's native continuation
+        // failed on 2026-10-14. IDs and image/configuration hashes are replaced.
+        receipt.remoteAgent = {
+          phase: "rollout",
+          container: {
+            id: CONTAINER,
+            name: "openmeld-agent-computer",
+            version: 99,
+            image: OLD_IMAGE,
+            configurationHash: "f".repeat(64),
+            instances: [],
+          },
+          baselineEvidenceSha: "b".repeat(40),
+          baselineSourceSha: "c".repeat(40),
+          workerIdentity: {
+            kind: "worker-deployment",
+            workerName: "openmeld-remote-agent-prod",
+            environment: "prod",
+            sourceSha,
+            deploymentId: DEPLOYMENT,
+            versionId: VERSION,
+            proof: "command-output",
+          },
+        };
+      }
       const publish = (next, recovery, now) =>
         publishGuardedLocalReleaseEvidence({
           cwd: repository,
@@ -625,28 +657,28 @@ test("recovery execution records verified only after a matching image and settle
           record: (status, application, appliedIdentity) => {
             if (status === "verified") {
               attemptedVerified = true;
-              if (mode === "receipt-failure") {
+              if (receiptFailure) {
                 throw new Error("receipt publication failed");
               }
             }
-            return publish(
-              {
-                ...receipt,
-                status,
-                application,
-                ...(appliedIdentity ? { identity: appliedIdentity } : {}),
-              },
+            return publishRemoteAgentRecoveryEvidence({
+              cwd: repository,
+              sourceSha,
+              receipt: original.receipt,
+              status,
+              application,
+              identity: appliedIdentity,
               recovery,
-              "2026-09-20T16:02:00.000Z"
-            );
+              now: "2026-09-20T16:02:00.000Z",
+            });
           },
         });
-      if (mode === "wrong-digest") {
+      if (wrongDigest) {
         await assert.rejects(execute(), ROLLOUT_UNVERIFIED);
         assert.equal(read().receipt.status, "failed");
         assert.equal(read().receipt.application, "unknown");
         assert.equal(attemptedVerified, false);
-      } else if (mode === "receipt-failure") {
+      } else if (receiptFailure) {
         await assert.rejects(execute(), RECEIPT_PUBLICATION_FAILED);
         assert.equal(attemptedVerified, true);
         assert.equal(read().receipt.status, "failed");
@@ -663,6 +695,14 @@ test("recovery execution records verified only after a matching image and settle
           );
         }
       }
+      if (retained) {
+        assert.deepEqual(read().receipt.remoteAgent, {
+          ...original.receipt.remoteAgent,
+          phase: wrongDigest || receiptFailure ? "rollout" : "complete",
+        });
+      } else {
+        assert.equal(read().receipt.remoteAgent, undefined);
+      }
       const parents = git(
         repository,
         "rev-list",
@@ -676,5 +716,5 @@ test("recovery execution records verified only after a matching image and settle
     } finally {
       rmSync(root, { force: true, recursive: true });
     }
-  }
-});
+  });
+}
