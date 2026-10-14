@@ -235,7 +235,7 @@ function ConversationSidebarRowContent(
 				isActive={input.selected}
 			>
 				<div
-					className={`relative flex w-full min-w-0 items-center ${pinned ? "min-h-26 flex-col gap-1.5 px-1 py-2 text-xs" : "min-h-12 gap-2 px-2 py-1.5 text-sm"} ${input.selected ? "font-medium text-sidebar-accent-foreground" : "text-muted-foreground"}`}
+					className={`relative flex w-full min-w-0 items-center ${pinned ? "min-h-26 flex-col justify-center gap-1.5 px-1 py-2 text-xs" : "min-h-12 gap-2 px-2 py-1.5 text-sm"} ${input.selected ? "font-medium text-sidebar-accent-foreground" : "text-muted-foreground"}`}
 					ref={rowAnchor}
 				>
 					<Tooltip>
@@ -277,7 +277,7 @@ function ConversationSidebarRowContent(
 					</Tooltip>
 					<span className="pointer-events-none contents">
 						<span
-							className={`flex min-w-0 flex-1 flex-col gap-0.5 ${pinned ? "w-full text-center" : ""}`}
+							className={`flex min-w-0 flex-col gap-0.5 ${pinned ? "w-full flex-none text-center" : "flex-1"}`}
 						>
 							<span
 								className="flex min-w-0 items-center gap-2"
