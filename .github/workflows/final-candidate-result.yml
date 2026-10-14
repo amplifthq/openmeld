@@ -1,4 +1,5 @@
 name: OpenMeld Final Candidate Result
+run-name: Final Candidate Result ${{ github.event.workflow_run.id }}:${{ github.event.workflow_run.run_attempt }} ${{ github.event.action }}
 
 on:
   workflow_run:
