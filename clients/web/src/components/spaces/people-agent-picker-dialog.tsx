@@ -1,3 +1,4 @@
+import type { AgentProfileCreationRequest } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	Dialog,
@@ -9,13 +10,17 @@ import {
 import { Input } from "@openmeld/ui/components/input";
 import { SkeletonRows } from "@openmeld/ui/components/skeleton-content";
 import { MagnifyingGlassIcon, PlusIcon } from "@phosphor-icons/react";
+import { useQuery } from "@tanstack/react-query";
 import {
 	lazy,
 	type ReactNode,
 	type RefObject,
 	Suspense,
+	useEffect,
+	useRef,
 	useState,
 } from "react";
+import { agentProfileCreationRequestQueryOptions } from "#/query/profiles/agent-profile-creation-requests";
 import { SpaceAddMembersCandidates } from "./people-agent-picker-candidates";
 import type {
 	SpaceAddMembersCandidateGroups,
@@ -60,7 +65,14 @@ export function PeopleAgentPickerDialog(input: {
 }) {
 	const [creating, setCreating] = useState(false);
 	const [creationBusy, setCreationBusy] = useState(false);
-	const isSubmitting = input.isSubmitting || creationBusy;
+	const {
+		creationProgress,
+		creationError,
+		setCreationProgress,
+		setCreationError,
+		setAcceptedCreation,
+	} = usePickerAgentCreation(input.onAgentCreated);
+	const isSubmitting = input.isSubmitting;
 	const tutorialAction = pickerTutorialAction(
 		creating,
 		input.tutorialAction,
@@ -89,23 +101,40 @@ export function PeopleAgentPickerDialog(input: {
 				id={input.id}
 			>
 				{creating && input.onAgentCreated ? (
-					<Suspense
-						fallback={
-							<div className="flex flex-col gap-3">
-								<DialogHeader>
-									<DialogTitle>Create an Agent</DialogTitle>
-								</DialogHeader>
-								<SkeletonRows label="Loading Agent creation" />
-							</div>
-						}
-					>
-						<PeopleAgentPickerCreateAgent
-							onBack={() => setCreating(false)}
-							onBusyChange={setCreationBusy}
-							onCreated={input.onAgentCreated}
-						/>
-					</Suspense>
-				) : (
+					<div>
+						<Suspense
+							fallback={
+								<div className="flex flex-col gap-3">
+									<DialogHeader>
+										<DialogTitle>Create an Agent</DialogTitle>
+									</DialogHeader>
+									<SkeletonRows label="Loading Agent creation" />
+								</div>
+							}
+						>
+							<PeopleAgentPickerCreateAgent
+								onAccepted={setAcceptedCreation}
+								onBack={() => setCreating(false)}
+								onBusyChange={setCreationBusy}
+								onCreated={(agent) => {
+									input.onAgentCreated?.(agent);
+									setCreationProgress(null);
+									setCreating(false);
+								}}
+								onFailed={(message) => {
+									setCreationError(message);
+									setCreationProgress(null);
+								}}
+								onStarted={(name) => {
+									setCreationProgress(name);
+									setCreationError(null);
+									setCreating(false);
+								}}
+							/>
+						</Suspense>
+					</div>
+				) : null}
+				{!creating && (
 					<div className="flex min-h-0 flex-col gap-3">
 						<DialogHeader>
 							<DialogTitle>{input.title}</DialogTitle>
@@ -116,7 +145,12 @@ export function PeopleAgentPickerDialog(input: {
 								{input.onAgentCreated && (
 									<Button
 										data-tutorial-target="create"
-										disabled={isSubmitting || input.selectionDisabled}
+										disabled={
+											isSubmitting ||
+											creationBusy ||
+											Boolean(creationProgress) ||
+											input.selectionDisabled
+										}
 										onClick={() => setCreating(true)}
 										size="xs"
 										variant={newAgentVariant(input.tutorialAction)}
@@ -146,6 +180,14 @@ export function PeopleAgentPickerDialog(input: {
 							/>
 						</div>
 						<div aria-live="polite">
+							{creationProgress && (
+								<p className="text-muted-foreground text-sm">
+									Creating {creationProgress}… You can keep choosing members.
+								</p>
+							)}
+							{creationError && (
+								<p className="text-destructive text-sm">{creationError}</p>
+							)}
 							{input.errorMessage && (
 								<div className="flex items-center justify-between gap-3">
 									<p className="text-destructive text-sm">
@@ -215,6 +257,59 @@ export function PeopleAgentPickerDialog(input: {
 			</DialogContent>
 		</Dialog>
 	);
+}
+
+function usePickerAgentCreation(
+	onCreated?: (agent: SpaceAddMembersCandidateSummary) => void
+) {
+	const [creationProgress, setCreationProgress] = useState<string | null>(null);
+	const [creationError, setCreationError] = useState<string | null>(null);
+	const [acceptedCreation, setAcceptedCreation] =
+		useState<AgentProfileCreationRequest | null>(null);
+	const delivered = useRef<string | null>(null);
+	const creationQuery = useQuery(
+		agentProfileCreationRequestQueryOptions({
+			enabled: Boolean(acceptedCreation),
+			organizationId: acceptedCreation?.organizationId ?? "",
+			requestId: acceptedCreation?.id ?? "",
+		})
+	);
+	const request = creationQuery.data ?? acceptedCreation;
+	useEffect(() => {
+		if (!request || delivered.current === request.id) {
+			return;
+		}
+		if (request.createdAgentProfileId) {
+			delivered.current = request.id;
+			onCreated?.({
+				profileId: request.createdAgentProfileId,
+				profileName: request.profileName,
+				profileKind: "agent",
+				agentControllerRef: request.configuration.agentControllerRef,
+				ownerUserId: request.targetOwnerUserId,
+				searchText: request.profileName.toLocaleLowerCase(),
+			});
+			setCreationProgress(null);
+		} else if (
+			request.status === "failed" ||
+			request.status === "declined" ||
+			request.status === "cancelled"
+		) {
+			delivered.current = request.id;
+			setCreationError(
+				request.failureMessage ??
+					"Agent creation did not complete. Check creation history."
+			);
+			setCreationProgress(null);
+		}
+	}, [request, onCreated]);
+	return {
+		creationProgress,
+		creationError,
+		setCreationProgress,
+		setCreationError,
+		setAcceptedCreation,
+	};
 }
 
 function newAgentVariant(action: string | undefined) {

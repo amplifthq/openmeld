@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-14T05:44:16.095Z",
+  "updatedAt": "2026-10-14T11:10:07.106Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-project-work-v1",
-      "packageVersion": "0.3.259",
+      "packageVersion": "0.3.260",
       "updatePolicy": "available",
-      "reason": "Retained-result trace guidance uses existing cloud evidence; old and new clients can safely continue setup, Wake, and result reads."
+      "reason": "Existing commands remain compatible; Grok Bot connection options are additive."
     },
     "service": {
-      "bundleHash": "bb424df25841a04fdecb3b9645eb161a3b0e0d48f1a7ea2c5c33addb25c487cd",
-      "portableBundleHash": "115e532be90b101bc9bf23431e8753b3434c0074055ff12387a5ec0009e63dc2",
-      "bundleVersion": "0.3.259",
+      "bundleHash": "aab017f378cb9c23a308232e2c7fa057b99401edbe83225e45acb08d73e45319",
+      "portableBundleHash": "0357a9337bdff7ee1ddb07aa7b898be174e9a253cc0d994329b4eedb36cccb59",
+      "bundleVersion": "0.3.260",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
       "serviceContractVersion": "openmeld-service-contract-2026-09-project-work-v1",
       "updatePolicy": "available",
-      "reason": "The cumulative shared helper changes preserve transport and execution contracts; current Services can continue accepted and new Wake work."
+      "reason": "Existing controllers remain compatible; Grok Bot requires a newly advertised controller and uses the existing execution contract."
     },
     "skills": {
       "bundleHash": "0507d367ef298936053223f81441697545949fbf4d39b1b306872f7c254a4871",

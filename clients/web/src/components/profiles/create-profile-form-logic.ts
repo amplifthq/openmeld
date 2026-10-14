@@ -5,6 +5,10 @@ import {
 	resolveAgentControllerUsageProviderId,
 	resolveModelAvailability,
 } from "@openmeld/agent-runtime";
+import {
+	grokBotConversationIdSchema,
+	resolveBuiltinAgentControllerConversationCapability,
+} from "@openmeld/schemas";
 import type {
 	AgentControllerPermissionMode,
 	ModelCatalog,
@@ -67,6 +71,19 @@ export function formatReasoningLevelLabel(level: string): string {
 export function resolveAgentProfileConfigurationSummaries(
 	form: CreateProfileFormProps
 ): AgentProfileConfigurationSummaries {
+	if (
+		resolveBuiltinAgentControllerConversationCapability(form.boundAgentId)
+			?.conversationScope === "account_shared"
+	) {
+		return {
+			collaboration: null,
+			model: "",
+			owner: form.agentOwnershipSummary ?? "You",
+			permission: "",
+			session: "Shared conversation",
+			workingFolder: "",
+		};
+	}
 	const controller = form.modelCatalog?.agentControllers[form.boundAgentId];
 	const effectiveModelId =
 		form.boundModelId || controller?.defaultModelId || "";
@@ -122,6 +139,7 @@ export type CreateProfileSubmitBlock = {
 };
 
 type CreateProfileSubmitInput = {
+	sharedConversationId?: string;
 	additionalHumanProfileCreationEnabled: boolean;
 	additionalSubmitBlockReason?: string | null;
 	additionalSubmitBlockSection?: AgentProfileConfigurationSection;
@@ -178,6 +196,18 @@ export function resolveCreateProfileSubmitBlock(
 			message:
 				"Choose a local agent to continue. Connect a computer if none are available.",
 		};
+	}
+	if (
+		resolveBuiltinAgentControllerConversationCapability(input.boundAgentId)
+			?.conversationScope === "account_shared"
+	) {
+		return grokBotConversationIdSchema.safeParse(input.sharedConversationId)
+			.success
+			? null
+			: {
+					message: "Enter the Bot conversation ID.",
+					action: { label: "Connect conversation", section: "session" },
+				};
 	}
 	if (input.projectSelectionBlockReason) {
 		return {

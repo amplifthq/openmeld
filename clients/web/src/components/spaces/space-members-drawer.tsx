@@ -1083,8 +1083,13 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 		allCandidates,
 	]);
 	const visibleCandidateGroups = useMemo(
-		() => filterAddMemberGroups(candidateGroups, normalizedAddQuery),
-		[candidateGroups, normalizedAddQuery]
+		() =>
+			filterAddMemberGroups(
+				candidateGroups,
+				normalizedAddQuery,
+				selectedProfileIds
+			),
+		[candidateGroups, normalizedAddQuery, selectedProfileIds]
 	);
 	const selectableProfileIds = useMemo(() => {
 		return buildSelectableAddMemberProfileIds(allCandidates);
