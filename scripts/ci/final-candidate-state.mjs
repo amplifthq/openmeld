@@ -22,7 +22,8 @@ export function resolveCandidateState(input) {
     input.repository,
     input.pullRequestNumber
   );
-  const actualHeadSha = resolveCommit("HEAD", cwd);
+  // A result verifier reads immutable Git objects, without checking out or executing the candidate.
+  const actualHeadSha = resolveCommit(input.sourceRef ?? "HEAD", cwd);
   const expectedHeadSha = input.expectedHeadSha ?? actualHeadSha;
   const expectedBaseSha = input.expectedBaseSha ?? pullRequest.base.sha;
   if (!EXACT_SHA_PATTERN.test(expectedHeadSha)) {
@@ -53,7 +54,7 @@ export function resolveCandidateState(input) {
       actualHeadSha,
       baseIsAncestorOfHead: ancestry.status === 0,
       currentMainSha: resolveCommit("refs/remotes/origin/main", cwd),
-      dirtyPaths: resolveDirtyPaths(cwd),
+      dirtyPaths: input.sourceRef ? [] : resolveDirtyPaths(cwd),
       expectedBaseSha,
       expectedHeadSha,
       pullRequestBaseRef: pullRequest.base.ref,

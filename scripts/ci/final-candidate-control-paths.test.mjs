@@ -34,3 +34,12 @@ test("does not broaden trusted control to arbitrary production release scripts",
     false
   );
 });
+
+test("protects both candidate execution and result publication workflows", () => {
+  for (const name of ["final-candidate", "final-candidate-result"]) {
+    assert.equal(
+      isFinalCandidateControlPath(`.github/workflows/${name}.yml`),
+      true
+    );
+  }
+});

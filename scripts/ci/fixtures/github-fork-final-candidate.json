@@ -1,0 +1,61 @@
+{
+  "source": "GitHub REST API amplifthq/opentag fork PR 181 and actual pull_request run 38597621642; captured 2026-10-14. Candidate runner skipped because control changes are not yet on main. Event envelope uses documented workflow_run fields; end-to-end delivery is verified after merge.",
+  "run": {
+    "id": 38597621642,
+    "run_attempt": 1,
+    "display_title": "Final Candidate PR #181 @ 417899a3cbc6af219253c89aeedd7ba40dcb29fd [standard]",
+    "event": "pull_request",
+    "workflow_id": 384399279,
+    "path": ".github/workflows/final-candidate.yml",
+    "status": "completed",
+    "head_sha": "417899a3cbc6af219253c89aeedd7ba40dcb29fd",
+    "head_repository": {
+      "id": 1419305231,
+      "full_name": "lumpinif/opentag"
+    },
+    "repository": {
+      "id": 1278926400,
+      "full_name": "amplifthq/opentag"
+    }
+  },
+  "pr": {
+    "number": 181,
+    "state": "open",
+    "draft": false,
+    "head": {
+      "ref": "docs/fork-contribution-check",
+      "sha": "417899a3cbc6af219253c89aeedd7ba40dcb29fd",
+      "repo": {
+        "id": 1419305231,
+        "full_name": "lumpinif/opentag"
+      }
+    },
+    "base": {
+      "ref": "main",
+      "sha": "b1deea8fb446f5f2f0aed9ca4c97cdfc9f3232c1",
+      "repo": {
+        "id": 1278926400,
+        "full_name": "amplifthq/opentag"
+      }
+    }
+  },
+  "workflow": {
+    "id": 384399279
+  },
+  "main": {
+    "sha": "b1deea8fb446f5f2f0aed9ca4c97cdfc9f3232c1"
+  },
+  "tree": {
+    "sha": "951273b00493e2aec57cc891859f662e23ef282d"
+  },
+  "jobs": [
+    {
+      "name": "Check Exact Candidate Identity",
+      "conclusion": "success"
+    },
+    {
+      "name": "Final Candidate Runner",
+      "conclusion": "skipped"
+    }
+  ]
+}
