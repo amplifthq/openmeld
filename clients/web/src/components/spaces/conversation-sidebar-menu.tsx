@@ -39,6 +39,7 @@ export function ConversationSidebarMenu({
 		return () => observer.disconnect();
 	}, [pinned]);
 	const items = Children.toArray(children);
+	const visibleColumns = Math.max(1, Math.min(columns, items.length));
 	const limit = columns * 2;
 	// Expose every drop target while dragging, including pins beyond the fold.
 	const open = expanded || !!active;
@@ -47,9 +48,10 @@ export function ConversationSidebarMenu({
 		<div ref={ref}>
 			<FluidNavMenu
 				{...props}
+				hoverAxis={pinned ? "xy" : "y"}
 				listClassName={
 					pinned
-						? `grid gap-1 ${{ 2: "grid-cols-2", 3: "grid-cols-3", 4: "grid-cols-4" }[columns]}`
+						? `grid gap-1 ${{ 1: "grid-cols-1", 2: "grid-cols-2", 3: "grid-cols-3", 4: "grid-cols-4" }[visibleColumns]}`
 						: undefined
 				}
 			>
