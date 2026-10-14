@@ -921,6 +921,11 @@ product or diagnostics gap.
 
 ## Real-User Smoke Vs Internal Diagnostics
 
+For real Center/Remote Agent model calls in a local lane, use the
+[shared development BYOK smoke key](ai-billing.md#shared-development-byok-smoke-key).
+That procedure owns the Doppler location, safe retrieval, product setup, usage
+verification, and cleanup. Do not request a fresh key for each authorized smoke.
+
 Real-user smoke must use user-accessible entry points and show user-visible
 evidence.
 
