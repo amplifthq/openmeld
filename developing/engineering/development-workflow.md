@@ -854,14 +854,23 @@ Canonical command families:
 - repository gates: `verify:pre-push:checks`, `verify:release-ready`,
   `verify:pr`, and `verify:pr:full`.
 
-Remote Agent's Flue 2 build uses Vite 8.1.2 and Cloudflare Vite plugin 1.54.6;
-`@flue/vite@2.2.2` requires Vite 8. Web and Desktop retain their independently
-validated Vite 7 builds. Root Sherif configuration allows only those exact
-Remote Agent build dependency versions to differ; it does not disable the
-dependency rule or exempt a package. Reassess these version-specific entries
-when upgrading either build, and remove them when the build versions converge.
-Do not widen a runtime upgrade into a Web/Desktop build migration merely to
-make independently deployed build tools use one version.
+Web, Website, and Docs use TanStack Start 1.169.2 and Vite 8.3.4.
+Remote Agent's Flue 2 build retains Vite 8.1.2, and the native Desktop build
+retains Vite 7.3.2. Desktop's shared Web renderer uses the Web build.
+Root Sherif configuration allows only those exact retained Vite versions to
+differ; it does not disable the dependency rule or exempt a package. The
+Rolldown override is limited to versions below 1.2 so it does not downgrade
+Vite 8.3's required bundler. Reassess these version-specific entries when
+upgrading either build, and remove them when the build versions converge.
+
+The upstream history fix replaces the former local traversal patch. Keep the
+Start compiler's build-end cleanup patch until upstream releases compiler
+instances at that boundary; a build-start reset does not release the previous
+environment's compiler between client and server builds.
+
+Use Vite's native `resolve.tsconfigPaths` in these three builds instead of the
+former paths plugin. Web and Website use Vitest 4.1.11 for Vite 8 compatibility;
+other test owners retain Vitest 3.2.4. Sherif permits that exact Vitest exception.
 
 The CI/CD procedure and its rationale have one owner:
 [Agent-Native Delivery](agent-native-delivery.md#daily-workflow). It applies to

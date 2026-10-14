@@ -171,14 +171,14 @@ const CENTER_AGENT_PROFILE_ID = "agt_99999999-9999-4999-8999-999999999999";
 const PUBLIC_AGENT_PROFILE_ID = "agt_88888888-8888-4888-8888-888888888888";
 
 type PublicSpaceApiTestDouble = {
-	getHistoryNavigation: ReturnType<typeof vi.fn>;
-	addMembers: ReturnType<typeof vi.fn>;
-	getStatus: ReturnType<typeof vi.fn>;
-	getViewerMembership: ReturnType<typeof vi.fn>;
-	listSignalEnvelopes: ReturnType<typeof vi.fn>;
-	listThreadSignals: ReturnType<typeof vi.fn>;
-	listThreads: ReturnType<typeof vi.fn>;
-	resolveEntry: ReturnType<typeof vi.fn>;
+	getHistoryNavigation: import("vitest").Mock;
+	addMembers: import("vitest").Mock;
+	getStatus: import("vitest").Mock;
+	getViewerMembership: import("vitest").Mock;
+	listSignalEnvelopes: import("vitest").Mock;
+	listThreadSignals: import("vitest").Mock;
+	listThreads: import("vitest").Mock;
+	resolveEntry: import("vitest").Mock;
 };
 
 describe("PublicSpacePage", () => {
