@@ -283,6 +283,13 @@ Changes to either workflow require the protected local
 bootstrap. Workflow approval for first-time contributors remains a GitHub
 repository policy, separate from PR review approval.
 
+CodeQL uses `.github/workflows/codeql.yml` so fork PRs receive the same
+required `Analyze (javascript-typescript)` check as repository branches.
+Keep GitHub's default setup disabled when this advanced workflow is enabled;
+default setup excludes fork PRs and blocks uploads from advanced workflows.
+The workflow scans Actions and JavaScript/TypeScript with the default query
+suite, without installing dependencies or running repository build scripts.
+
 Use the current-main entrypoint, never candidate-owned package scripts.
 GitHub Actions is the normal compute lane; the guarded local lane below is for
 Actions outages or explicit control bootstrap. A failed check, missing evidence,

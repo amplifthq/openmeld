@@ -1,4 +1,5 @@
 const CONTROL_PATH_PATTERNS = [
+  /^\.github\/workflows\/codeql\.yml$/u,
   /^\.github\/actions\/trusted-git-network\/action\.yml$/u,
   /^\.github\/workflows\/final-candidate(?:-result)?\.yml$/u,
   /^\.github\/workflows\/merge-group-final-candidate\.yml$/u,

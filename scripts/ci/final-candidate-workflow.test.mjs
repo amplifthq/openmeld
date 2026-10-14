@@ -14,6 +14,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { runInNewContext } from "node:vm";
+import { parse } from "yaml";
 
 import { githubPullRequestCandidateFactsSchema } from "../../packages/schemas/src/schemas/ci/final-candidate.ts";
 import {
@@ -41,6 +42,29 @@ const RETIRED_MANDATORY_REVIEW_LANGUAGE = [
   /different coding agent/iu,
   /review remains required/iu,
 ];
+
+test("required CodeQL scans include forks without executing repository build scripts", () => {
+  const workflow = parse(readRepoFile(".github/workflows/codeql.yml"));
+  assert.deepEqual(workflow.on.pull_request, { branches: ["main"] });
+  assert.equal(workflow.on.pull_request_target, undefined);
+  const job = workflow.jobs.analyze;
+  assert.equal(
+    job.name,
+    `Analyze (${GITHUB_EXPRESSION_PREFIX} matrix.language }})`
+  );
+  assert.deepEqual(job.strategy.matrix.language, [
+    "actions",
+    "javascript-typescript",
+  ]);
+  assert.deepEqual(job.permissions, {
+    contents: "read",
+    "security-events": "write",
+  });
+  assert.equal(job.environment, undefined);
+  assert.ok(job.steps.every((step) => !step.run));
+  assert.equal(job.steps[0].with["persist-credentials"], false);
+  assert.equal(job.steps[1].with["build-mode"], "none");
+});
 
 test("control validates evidence with only the schema package's production dependencies", () => {
   const root = mkdtempSync(path.join(tmpdir(), "openmeld-control-runtime-"));
