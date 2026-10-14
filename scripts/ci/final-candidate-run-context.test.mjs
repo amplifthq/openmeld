@@ -25,11 +25,8 @@ const captured = JSON.parse(
 
 function candidateRun() {
   const input = structuredClone(captured);
-  // The captured run used the old event. Model the new trigger, title and successful job.
-  input.run.event = "pull_request";
-  input.run.display_title = `Final Candidate PR #${input.pr.number} @ ${input.pr.head.sha} [standard]`;
-  input.jobs.find((job) => job.name === "Final Candidate Runner").conclusion =
-    "success";
+  // Keep the actual pull_request API identity intact. Only construct the
+  // documented workflow_run envelope consumed by this boundary.
   input.event = {
     action: "completed",
     repository: input.run.repository,
@@ -46,7 +43,7 @@ test("binds a fork result to the exact GitHub run, attempt, PR and current base"
     branch: input.pr.head.ref,
     confidence: "standard",
     head: input.pr.head.sha,
-    job_result: "success",
+    job_result: "skipped",
     pr: String(input.pr.number),
     tree: input.tree.sha,
   });
