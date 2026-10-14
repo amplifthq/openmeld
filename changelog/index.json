@@ -20,6 +20,24 @@
       "body": "Website release checks now accept the permanent redirects from legacy local-agent\nguide URLs to their exact Docs pages. They still verify the Website deployment's\nsource and build identity on its rendered pages."
     },
     {
+      "id": "model-switch-context-continuity",
+      "title": "Continue long conversations after changing models",
+      "kind": "fixed",
+      "areas": [
+        "center-agent",
+        "remote-agent"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-14",
+      "evidence": [
+        "pr:1726",
+        "commit:f1de97e2a4bc43b2ace742e3fa950b60c26abe40"
+      ],
+      "body": "Long conversations can prepare their history in smaller steps when the next\nrequest uses a model with less context capacity. Existing command results and\nfiles remain available without repeating completed work. A model change does\nnot interrupt a command already running. Capacity failures now explain the\nlimit without promising that a retry will resolve it."
+    },
+    {
       "id": "local-agent-guides-in-docs",
       "title": "Find Local Agent setup guides in Docs",
       "kind": "improved",
@@ -75,6 +93,45 @@
       "body": "Recovery after a Worker-only release can record completion once the Worker\nand Container pass verification. It preserves the original release attempt\nand retained Container evidence. Failed recovery remains unresolved instead\nof losing its failure record."
     },
     {
+      "id": "agent-long-command-context",
+      "title": "Keep Agent context usable during long Computer work",
+      "kind": "fixed",
+      "areas": [
+        "center-agent",
+        "remote-agent",
+        "computer"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-14",
+      "evidence": [
+        "pr:1711",
+        "commit:f1de97e2a4bc43b2ace742e3fa950b60c26abe40"
+      ],
+      "body": "Agents can compact completed tool exchanges during long tasks while keeping the\ncurrent request, command references, and recent results. Computer command waits\nnow stay within one tool call until results are ready, new user input arrives,\nor inspection is needed, instead of repeatedly adding unchanged polls to the\nconversation."
+    },
+    {
+      "id": "preserve-computer-command-tail-output",
+      "title": "Keep command output when a process exits",
+      "kind": "fixed",
+      "areas": [
+        "computer",
+        "remote-agent"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-14",
+      "evidence": [
+        "pr:1718",
+        "commit:f1de97e2a4bc43b2ace742e3fa950b60c26abe40",
+        "commit:a7eed0324b807e918f50e2b2d3c00d080dfa512c",
+        "commit:876764f6184c5b73eb84f0aa34b83cf81115d363"
+      ],
+      "body": "Computer retains the last stdout and stderr from a command before reporting its\nexit. Output that arrives after the process exits no longer crashes the Computer\nor interrupts other commands.\n\nStop and command timeouts also reach ordinary child processes after the main\nprocess exits, while the Computer continues to collect their final output."
+    },
+    {
       "id": "docs-missing-markdown-status",
       "title": "Missing Markdown documentation returns 404",
       "kind": "fixed",
@@ -108,6 +165,45 @@
         "commit:a33ea1a1e18c50b10113bdb713b0172a6469b92e"
       ],
       "body": "The OpenCode model catalog now includes Liquid LFM2.5-24B-A2B and Pareto 26.9\nthrough OpenRouter. Access depends on your provider account. Existing model\nselections and defaults stay the same."
+    },
+    {
+      "id": "computer-retained-partial-output",
+      "title": "Read saved output after a Computer command is lost",
+      "kind": "fixed",
+      "areas": [
+        "computer",
+        "agents"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-14",
+      "evidence": [
+        "pr:1718",
+        "commit:f1de97e2a4bc43b2ace742e3fa950b60c26abe40",
+        "commit:a7eed0324b807e918f50e2b2d3c00d080dfa512c",
+        "commit:876764f6184c5b73eb84f0aa34b83cf81115d363"
+      ],
+      "body": "If a Computer command is lost when its runtime is replaced, polling its original\nreference returns any output already saved with the command. Agents can use that\nevidence to explain what was done and what remains unknown without repeating the\ncommand. The result still identifies the loss; saved output does not prove a\nsuccessful exit or that files finished synchronizing."
+    },
+    {
+      "id": "computer-sync-receiver-cost",
+      "title": "Reduce Computer file preparation overhead",
+      "kind": "improved",
+      "areas": [
+        "computer"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-14",
+      "evidence": [
+        "pr:1708",
+        "commit:f1de97e2a4bc43b2ace742e3fa950b60c26abe40",
+        "commit:a7eed0324b807e918f50e2b2d3c00d080dfa512c",
+        "commit:876764f6184c5b73eb84f0aa34b83cf81115d363"
+      ],
+      "body": "Computer file preparation uses fewer repeated checks and groups small object\nwrites into bounded transactions. Interrupted preparation still preserves saved\nfiles and command results, and commands wait for confirmed file synchronization."
     },
     {
       "id": "remote-agent-recovery-continuation",
@@ -184,6 +280,24 @@
         "commit:daea27fc4ef944482ff89c2f19b6e571b5fea9f2"
       ],
       "body": "Release planning and completion checks keep proven dependency patch changes\nwithin their affected components. Unrelated services no longer appear to need\ndeployment solely because a patch hash changed. Uncertain dependency changes\nstill require the full release assessment.\n\nThe release status command can also print a selected stage's plan and exit\nnormally, using the status snapshot it already collected."
+    },
+    {
+      "id": "center-agent-checkpoint-rewrite",
+      "title": "More reliable summaries in long Center Agent conversations",
+      "kind": "fixed",
+      "areas": [
+        "center-agent"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-13",
+      "evidence": [
+        "pr:1706",
+        "commit:9213ea6b5544d5309c9d6872dd2bc85f9b56b35a",
+        "commit:f1de97e2a4bc43b2ace742e3fa950b60c26abe40"
+      ],
+      "body": "The Center Agent condenses older summaries around current requirements, confirmed\nresults, and remaining work. This reduces interruptions caused by repeatedly\ncopying long histories into a summary, while preserving the original conversation\nand references to completed work."
     },
     {
       "id": "computer-preparation-stage-timing",

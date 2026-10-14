@@ -14,6 +14,18 @@ source and build identity on its rendered pages.
 
 Evidence: pr:1732, workflow:38591154751
 
+### Continue long conversations after changing models
+
+Fixed · center-agent · remote-agent
+
+Long conversations can prepare their history in smaller steps when the next
+request uses a model with less context capacity. Existing command results and
+files remain available without repeating completed work. A model change does
+not interrupt a command already running. Capacity failures now explain the
+limit without promising that a retry will resolve it.
+
+Evidence: pr:1726, commit:f1de97e2a4bc43b2ace742e3fa950b60c26abe40
+
 ### Find Local Agent setup guides in Docs
 
 Improved · docs · website
@@ -69,6 +81,31 @@ of losing its failure record.
 
 Evidence: pr:1720, commit:a7eed0324b807e918f50e2b2d3c00d080dfa512c, commit:876764f6184c5b73eb84f0aa34b83cf81115d363
 
+### Keep Agent context usable during long Computer work
+
+Fixed · center-agent · remote-agent · computer
+
+Agents can compact completed tool exchanges during long tasks while keeping the
+current request, command references, and recent results. Computer command waits
+now stay within one tool call until results are ready, new user input arrives,
+or inspection is needed, instead of repeatedly adding unchanged polls to the
+conversation.
+
+Evidence: pr:1711, commit:f1de97e2a4bc43b2ace742e3fa950b60c26abe40
+
+### Keep command output when a process exits
+
+Fixed · computer · remote-agent
+
+Computer retains the last stdout and stderr from a command before reporting its
+exit. Output that arrives after the process exits no longer crashes the Computer
+or interrupts other commands.
+
+Stop and command timeouts also reach ordinary child processes after the main
+process exits, while the Computer continues to collect their final output.
+
+Evidence: pr:1718, commit:f1de97e2a4bc43b2ace742e3fa950b60c26abe40, commit:a7eed0324b807e918f50e2b2d3c00d080dfa512c, commit:876764f6184c5b73eb84f0aa34b83cf81115d363
+
 ### Missing Markdown documentation returns 404
 
 Fixed · docs
@@ -88,6 +125,28 @@ through OpenRouter. Access depends on your provider account. Existing model
 selections and defaults stay the same.
 
 Evidence: pr:1710, commit:a33ea1a1e18c50b10113bdb713b0172a6469b92e
+
+### Read saved output after a Computer command is lost
+
+Fixed · computer · agents
+
+If a Computer command is lost when its runtime is replaced, polling its original
+reference returns any output already saved with the command. Agents can use that
+evidence to explain what was done and what remains unknown without repeating the
+command. The result still identifies the loss; saved output does not prove a
+successful exit or that files finished synchronizing.
+
+Evidence: pr:1718, commit:f1de97e2a4bc43b2ace742e3fa950b60c26abe40, commit:a7eed0324b807e918f50e2b2d3c00d080dfa512c, commit:876764f6184c5b73eb84f0aa34b83cf81115d363
+
+### Reduce Computer file preparation overhead
+
+Improved · computer
+
+Computer file preparation uses fewer repeated checks and groups small object
+writes into bounded transactions. Interrupted preparation still preserves saved
+files and command results, and commands wait for confirmed file synchronization.
+
+Evidence: pr:1708, commit:f1de97e2a4bc43b2ace742e3fa950b60c26abe40, commit:a7eed0324b807e918f50e2b2d3c00d080dfa512c, commit:876764f6184c5b73eb84f0aa34b83cf81115d363
 
 ### Resume an interrupted Remote Agent release recovery
 
@@ -137,6 +196,17 @@ The release status command can also print a selected stage's plan and exit
 normally, using the status snapshot it already collected.
 
 Evidence: pr:1709, commit:daea27fc4ef944482ff89c2f19b6e571b5fea9f2
+
+### More reliable summaries in long Center Agent conversations
+
+Fixed · center-agent
+
+The Center Agent condenses older summaries around current requirements, confirmed
+results, and remaining work. This reduces interruptions caused by repeatedly
+copying long histories into a summary, while preserving the original conversation
+and references to completed work.
+
+Evidence: pr:1706, commit:9213ea6b5544d5309c9d6872dd2bc85f9b56b35a, commit:f1de97e2a4bc43b2ace742e3fa950b60c26abe40
 
 ### See where Computer preparation spends time
 
