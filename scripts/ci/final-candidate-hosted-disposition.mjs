@@ -94,6 +94,7 @@ function parseOptions(args) {
     }
     const key = {
       "--candidate-root": "candidateRoot",
+      "--candidate-ref": "candidateRef",
       "--trusted-root": "trustedRoot",
     }[option];
     if (!key) {

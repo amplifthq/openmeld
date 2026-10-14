@@ -1,0 +1,174 @@
+name: OpenMeld Final Candidate Result
+
+on:
+  workflow_run:
+    workflows: [OpenMeld Final Candidate]
+    types: [in_progress, completed]
+
+permissions: {}
+
+concurrency:
+  group: final-candidate-result-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  verify:
+    if: github.event.workflow_run.event == 'pull_request' && startsWith(github.event.workflow_run.display_title, 'Final Candidate PR ')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    outputs:
+      valid: ${{ steps.identity.outputs.valid }}
+      head: ${{ steps.identity.outputs.head }}
+      base: ${{ steps.identity.outputs.base }}
+      pr: ${{ steps.identity.outputs.pr }}
+      state: ${{ steps.publish_final.outputs.state }}
+      description: ${{ steps.publish_final.outputs.description }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CANDIDATE_REPOSITORY: ${{ github.repository }}
+      CANDIDATE_RUN_ID: ${{ github.event.workflow_run.id }}
+      CANDIDATE_SERVER_URL: ${{ github.server_url }}
+    steps:
+      - name: Checkout trusted publisher only
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          path: trusted-control
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      - name: Verify GitHub run and live PR identity
+        id: identity
+        run: node trusted-control/scripts/ci/final-candidate-run-context.mjs
+
+      # Fetch immutable objects only. The trusted working tree remains on main.
+      - name: Read candidate Git objects without checkout
+        if: steps.identity.outputs.valid == 'true' && github.event.action == 'completed'
+        env:
+          CANDIDATE_HEAD_SHA: ${{ steps.identity.outputs.head }}
+        run: git -C trusted-control -c core.hooksPath=/dev/null fetch --no-tags --no-recurse-submodules origin "$CANDIDATE_HEAD_SHA"
+
+      - name: Recompute hosted disposition from trusted control
+        if: steps.identity.outputs.valid == 'true' && github.event.action == 'completed'
+        id: disposition
+        env:
+          CANDIDATE_HEAD_SHA: ${{ steps.identity.outputs.head }}
+        run: |
+          node trusted-control/scripts/ci/final-candidate-hosted-disposition.mjs \
+            --trusted-root "$GITHUB_WORKSPACE/trusted-control" \
+            --candidate-root "$GITHUB_WORKSPACE/trusted-control" \
+            --candidate-ref "$CANDIDATE_HEAD_SHA"
+
+      - name: Setup pnpm
+        if: steps.identity.outputs.valid == 'true' && github.event.action == 'completed'
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.30.0
+          run_install: false
+
+      - name: Install trusted evidence parser only
+        if: steps.identity.outputs.valid == 'true' && github.event.action == 'completed'
+        run: pnpm --dir trusted-control install --frozen-lockfile --filter @openmeld/schemas --prod --ignore-scripts
+
+      - name: Download evidence from this exact run
+        if: steps.identity.outputs.valid == 'true' && github.event.action == 'completed'
+        continue-on-error: true
+        uses: actions/download-artifact@v5
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+          name: final-candidate-evidence
+          path: ${{ runner.temp }}/final-candidate
+
+      - name: Validate evidence without write permissions
+        id: publish_final
+        if: success() && steps.identity.outputs.valid == 'true' && github.event.action == 'completed'
+        env:
+          CANDIDATE_BASE_SHA: ${{ steps.identity.outputs.base }}
+          CANDIDATE_BRANCH: ${{ steps.identity.outputs.branch }}
+          CANDIDATE_CONFIDENCE: ${{ steps.identity.outputs.confidence }}
+          CANDIDATE_HEAD_SHA: ${{ steps.identity.outputs.head }}
+          CANDIDATE_PR_NUMBER: ${{ steps.identity.outputs.pr }}
+          CANDIDATE_TREE_SHA: ${{ steps.identity.outputs.tree }}
+          CANDIDATE_JOB_RESULT: ${{ steps.identity.outputs.job_result }}
+          CANDIDATE_HOSTED_DISPOSITION: ${{ steps.disposition.outputs.disposition }}
+        run: |
+          node trusted-control/scripts/ci/final-candidate-publisher.mjs \
+            --output-only true \
+            --repository "$CANDIDATE_REPOSITORY" --pr "$CANDIDATE_PR_NUMBER" \
+            --branch "$CANDIDATE_BRANCH" --head "$CANDIDATE_HEAD_SHA" \
+            --base "$CANDIDATE_BASE_SHA" --tree "$CANDIDATE_TREE_SHA" \
+            --candidate-root "$GITHUB_WORKSPACE/trusted-control" \
+            --confidence "$CANDIDATE_CONFIDENCE" \
+            --hosted-disposition "$CANDIDATE_HOSTED_DISPOSITION" \
+            --job-result "$CANDIDATE_JOB_RESULT" \
+            --evidence "$RUNNER_TEMP/final-candidate/final-candidate-evidence.json" \
+            --target-url "$CANDIDATE_SERVER_URL/$CANDIDATE_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID"
+
+
+  publish:
+    needs: verify
+    if: always() && needs.verify.outputs.valid == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+      statuses: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CANDIDATE_REPOSITORY: ${{ github.repository }}
+      CANDIDATE_RUN_ID: ${{ github.event.workflow_run.id }}
+      CANDIDATE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+      CANDIDATE_SERVER_URL: ${{ github.server_url }}
+      CANDIDATE_HEAD_SHA: ${{ needs.verify.outputs.head }}
+      CANDIDATE_BASE_SHA: ${{ needs.verify.outputs.base }}
+      CANDIDATE_PR_NUMBER: ${{ needs.verify.outputs.pr }}
+      VERIFIED_STATE: ${{ needs.verify.outputs.state }}
+      VERIFIED_DESCRIPTION: ${{ needs.verify.outputs.description }}
+      VERIFIER_RESULT: ${{ needs.verify.result }}
+      RUN_ACTION: ${{ github.event.action }}
+    steps:
+      # No source checkout, dependency install, or artifact download in this job.
+      - name: Recheck live identity and publish status
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr_json="$(gh api "repos/$CANDIDATE_REPOSITORY/pulls/$CANDIDATE_PR_NUMBER")"
+          live_main="$(gh api "repos/$CANDIDATE_REPOSITORY/commits/main" --jq .sha)"
+          test "$(jq -r .head.sha <<<"$pr_json")" = "$CANDIDATE_HEAD_SHA"
+          test "$(jq -r .base.sha <<<"$pr_json")" = "$CANDIDATE_BASE_SHA"
+          test "$live_main" = "$CANDIDATE_BASE_SHA"
+          runs="$(gh api "repos/$CANDIDATE_REPOSITORY/actions/workflows/final-candidate.yml/runs?event=pull_request&head_sha=$CANDIDATE_HEAD_SHA&per_page=100")"
+          latest_id="$(jq -r --arg pr "$CANDIDATE_PR_NUMBER" '.workflow_runs | map(select(.display_title | startswith("Final Candidate PR #" + $pr + " @ "))) | .[0].id' <<<"$runs")"
+          if [ "$latest_id" != "$CANDIDATE_RUN_ID" ]; then exit 0; fi
+          source_run="$(gh api "repos/$CANDIDATE_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID")"
+          if [ "$(jq -r .run_attempt <<<"$source_run")" != "$CANDIDATE_RUN_ATTEMPT" ]; then exit 0; fi
+          state=failure
+          description='Final Candidate result validation failed'
+          if [ "$RUN_ACTION" = in_progress ]; then
+            # Do not overwrite completion when a start event arrives late.
+            run_status="$(jq -r .status <<<"$source_run")"
+            if [ "$run_status" = completed ]; then exit 0; fi
+            state=pending
+            description='Running Final Candidate without write credentials'
+          elif [ "$VERIFIER_RESULT" = success ] && [ "$VERIFIED_STATE" = success ]; then
+            state=success
+            description="$VERIFIED_DESCRIPTION"
+          elif [ "$VERIFIER_RESULT" = success ] && [ "$VERIFIED_STATE" = failure ]; then
+            description="$VERIFIED_DESCRIPTION"
+          fi
+          gh api --method POST "repos/$CANDIDATE_REPOSITORY/statuses/$CANDIDATE_HEAD_SHA" \
+            -f state="$state" -f context='OpenMeld Final Candidate' \
+            -f description="$description" \
+            -f target_url="$CANDIDATE_SERVER_URL/$CANDIDATE_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID"
