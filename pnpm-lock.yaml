@@ -328,9 +328,6 @@ importers:
       '@opencode/client':
         specifier: 2.0.24
         version: 2.0.24(effect@4.0.0-rc.112)(solid-js@1.9.11)
-      '@openmeld/adapter-grok-bot':
-        specifier: workspace:*
-        version: link:../../runtime/adapters/grok-bot
       better-sqlite3:
         specifier: ^12.6.2
         version: 12.6.2
@@ -368,6 +365,9 @@ importers:
       '@openmeld/adapter-cursor':
         specifier: workspace:*
         version: link:../../runtime/adapters/cursor
+      '@openmeld/adapter-grok-bot':
+        specifier: workspace:*
+        version: link:../../runtime/adapters/grok-bot
       '@openmeld/adapter-grok-build':
         specifier: workspace:*
         version: link:../../runtime/adapters/grok-build

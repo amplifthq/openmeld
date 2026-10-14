@@ -8,7 +8,7 @@ const SCRIPT = /<script[\s>]/iu;
 const SOURCE_SHA = /^[a-f0-9]{40}$/u;
 const SSR_ROUTES = ["/login", "/forgot-password", "/check-email"];
 const DOCS_SSR_ROUTES = ["/", "/docs"];
-const WEBSITE_SSR_ROUTES = ["/", "/privacy", "/terms", "/guides/local-agents"];
+const WEBSITE_SSR_ROUTES = ["/", "/privacy", "/terms"];
 const BUILD_META =
   /<meta\s+[^>]*name="(openmeld-[a-z-]+)"[^>]*content="([^"]*)"[^>]*>/gu;
 
@@ -114,6 +114,26 @@ export async function checkProductionWeb({
     });
     if (!rootPage) {
       rootPage = page;
+    }
+  }
+  if (scope === "website") {
+    for (const suffix of ["", "/codex"]) {
+      const route = `/guides/local-agents${suffix}`;
+      const response = await fetchImpl(new URL(route, url), {
+        redirect: "manual",
+        signal: AbortSignal.timeout(30_000),
+        headers: { accept: "text/html", "cache-control": "no-cache" },
+      });
+      const location = response.headers.get("location");
+      await response.body?.cancel();
+      if (
+        response.status !== 301 ||
+        location !== `https://docs.openmeld.ai/docs/start/local-agents${suffix}`
+      ) {
+        throw new Error(
+          `Website guide ${route} must permanently redirect to its Docs page.`
+        );
+      }
     }
   }
   return rootPage;
