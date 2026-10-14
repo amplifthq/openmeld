@@ -342,6 +342,12 @@ continue as non-blocking background work. An explicit terminal-side Agent
 selection still prepares and reports the selected controllers before that
 explicit request completes.
 
+An explicit `--local-agents none` request, including ordinary Desktop Connect,
+must skip setup-owned Agent catalog discovery and repair. It still completes
+the same authenticated Service alignment and persists an empty selection.
+Service-owned background controller discovery and reporting remain independent
+of the Prepare catalog used for an explicit Agent selection.
+
 Background controller discovery submits each completed controller check without
 waiting for unrelated controllers to finish. Submission uses the existing
 per-controller report contract; it does not imply that unchecked controllers are
