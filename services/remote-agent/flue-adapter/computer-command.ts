@@ -369,7 +369,11 @@ function commandReceiptAddress(command: Command, invocationId: string) {
   let phase: CloudComputerCommandPhase = "accepted";
   if (isCommandComplete(command)) {
     phase = "completed";
-  } else if (command.loss || result?.syncError) {
+  } else if (
+    command.loss ||
+    isConfirmedCommandLoss(command) ||
+    result?.syncError
+  ) {
     phase = "result_unavailable";
   } else if (result?.syncPending) {
     phase = "sync_pending";
@@ -478,11 +482,12 @@ function commandDiagnostics(command?: Command) {
   };
 }
 
+function isConfirmedCommandLoss(command: Command) {
+  return command.loss === "EEXEC_LOST" || command.lossConfirmed === true;
+}
+
 function isReportedCommandLoss(command: Command) {
-  return (
-    command.lossReported &&
-    (command.loss === "EEXEC_LOST" || command.lossConfirmed)
-  );
+  return command.lossReported && isConfirmedCommandLoss(command);
 }
 
 function acceptsObservation(
@@ -936,7 +941,7 @@ export function createComputerCommandTool(input: {
       stderr: chunks.map((chunk) => chunk.stderr).join(""),
     };
   };
-  const reportUnconfirmedSync = async (command: Command, after = 0) =>
+  const reportUnavailableResult = async (command: Command, after = 0) =>
     project(
       input.reportErrors === false
         ? command
@@ -947,6 +952,33 @@ export function createComputerCommandTool(input: {
           ),
       after
     );
+  const readLostExecution = async (command: Command, after = 0) => {
+    const { outputPending: _pending, ...retained } =
+      await reportUnavailableResult(command, after);
+    // These bytes are saved observations, not a successful final result or
+    // evidence that the replacement runtime can resume the original process.
+    return { ...retained, nextAction: "inspect" as const };
+  };
+  const readSavedResult = async (
+    command: Command,
+    action: "poll" | "stop",
+    after?: number
+  ) => {
+    const resumesSync = action === "poll" && canResumeRetainedSync(command);
+    if (command.observation?.syncError && !resumesSync) {
+      return await reportUnavailableResult(command, after);
+    }
+    if (
+      isCommandComplete(command) &&
+      (command.observation || command.terminalResult)
+    ) {
+      return project(command, after);
+    }
+    if (action === "poll" && !resumesSync && isConfirmedCommandLoss(command)) {
+      return await readLostExecution(command, after);
+    }
+    return undefined;
+  };
   const readSyncProof = async (
     workspace: WorkspaceClient,
     command: Command
@@ -1443,7 +1475,7 @@ export function createComputerCommandTool(input: {
       return project(command);
     }
     if (command.observation?.syncError) {
-      return await reportUnconfirmedSync(command);
+      return await reportUnavailableResult(command);
     }
     return await withCommandWorkspace({
       access: input.workspaceAccess,
@@ -1562,16 +1594,9 @@ export function createComputerCommandTool(input: {
         command,
         input.context.submissionId
       );
-      const resumesSync =
-        request.action === "poll" && canResumeRetainedSync(command);
-      if (command.observation?.syncError && !resumesSync) {
-        return await reportUnconfirmedSync(command, after);
-      }
-      if (
-        isCommandComplete(command) &&
-        (command.observation || command.terminalResult)
-      ) {
-        return project(command, after);
+      const saved = await readSavedResult(command, request.action, after);
+      if (saved) {
+        return saved;
       }
       await input.scheduleCollection?.();
       if (request.action === "stop") {
@@ -1727,6 +1752,32 @@ export function createComputerCommandTool(input: {
         }
       : publicResult;
   };
+  const readLostResultAfterFailure = async (
+    rawInput: Record<string, unknown>,
+    error: unknown
+  ) => {
+    if (!(source === "tool" && isCommandLoss(error))) {
+      return undefined;
+    }
+    const command = await readDiagnosticCommand(rawInput.key);
+    if (!command) {
+      return undefined;
+    }
+    if (rawInput.action === "poll" && isConfirmedCommandLoss(command)) {
+      return attachReceipt(
+        command,
+        await readLostExecution(
+          command,
+          typeof rawInput.after === "number" ? rawInput.after : 0
+        )
+      );
+    }
+    throw commandRequestError({
+      status: 404,
+      code: "computer.execution_result_unavailable",
+      message: `No retained execution result is available for command ${command.id}. Keep its original reference and inspect existing output and files. Do not restart automatically.`,
+    });
+  };
   return {
     ...definition,
     description: `${definition.description} Replies include reference and phase. Keep the exact reference for later owner inspection; poll and stop validate it against this invocation's saved receipt. list with includeReceiptDetails:true returns references, phases and collection. collection.unconfirmedAttempts counts checks without confirmed native evidence, including interrupted checks. Automatic checks pause when that count reaches ${COLLECTION_ATTEMPT_BUDGET}; nextAttemptAtMs is then null. The process may still be running. Poll the same reference manually; a successful check resumes automatic collection. An accepted receipt is not proof of launch; launch_unknown does not permit replay. Missing receipt means acceptance is unknown, not an unreachable service. recordExpiresAtMs is a retention marker; command reads currently do not enforce it. It does not extend native result retention.`,
@@ -1755,15 +1806,9 @@ export function createComputerCommandTool(input: {
         if (observation) {
           return observation;
         }
-        if (source === "tool" && isCommandLoss(error)) {
-          const command = await readDiagnosticCommand(rawInput.key);
-          if (command) {
-            throw commandRequestError({
-              status: 404,
-              code: "computer.execution_result_unavailable",
-              message: `No retained execution result is available for command ${command.id}. Keep its original reference and inspect existing output and files. Do not restart automatically.`,
-            });
-          }
+        const retained = await readLostResultAfterFailure(rawInput, error);
+        if (retained) {
+          return retained;
         }
         throw error;
       }
