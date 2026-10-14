@@ -9,3 +9,6 @@ audiences: ["users"]
 Computer retains the last stdout and stderr from a command before reporting its
 exit. Output that arrives after the process exits no longer crashes the Computer
 or interrupts other commands.
+
+Stop and command timeouts also reach ordinary child processes after the main
+process exits, while the Computer continues to collect their final output.
