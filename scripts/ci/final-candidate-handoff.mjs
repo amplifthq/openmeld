@@ -21,11 +21,16 @@ export async function settleHostedCandidateRuns(input, dependencies = {}) {
       cancellationDeadline = null;
       // Older inline publishers finish with their source workflow. Split
       // publishers only accept the newest eligible source run for this PR.
-      const source = runs.find((run) =>
-        run.display_title?.startsWith(
-          `Final Candidate PR #${input.pullRequestNumber} @ ${input.headSha} [`
+      const source = runs
+        .filter((run) =>
+          run.display_title?.startsWith(
+            `Final Candidate PR #${input.pullRequestNumber} @ ${input.headSha} [`
+          )
         )
-      );
+        .sort(
+          (a, b) =>
+            Date.parse(b.created_at) - Date.parse(a.created_at) || b.id - a.id
+        )[0];
       if (!source || resultPublicationFinished(input, source, read)) {
         return;
       }

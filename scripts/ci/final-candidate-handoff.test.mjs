@@ -145,6 +145,33 @@ test("missing or incomplete result API evidence fails closed", async () => {
   }
 });
 
+test("an older source listed first cannot release the newest publisher", async () => {
+  const newer = {
+    ...splitSource,
+    id: splitSource.id + 1,
+    created_at: "2026-10-15T00:01:00Z",
+  };
+  let waits = 0;
+  await settleHostedCandidateRuns(input, {
+    read: (args) => {
+      if (!args.at(-1).includes("final-candidate-result.yml")) {
+        return page([splitSource, newer]);
+      }
+      return page(
+        waits === 0
+          ? [resultRun(splitSource, "completed")]
+          : [resultRun(splitSource, "completed"), resultRun(newer, "completed")]
+      );
+    },
+    cancel: ignore,
+    wait: () => {
+      waits++;
+    },
+    report: ignore,
+  });
+  assert.equal(waits, 1);
+});
+
 test("a new source after a long result wait gets its own cancellation window", async () => {
   const newer = { ...splitSource, id: splitSource.id + 1 };
   let time = 0;

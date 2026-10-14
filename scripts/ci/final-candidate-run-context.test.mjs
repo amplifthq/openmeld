@@ -139,16 +139,26 @@ test(
       try {
         const input = candidateRun();
         const latest = structuredClone(input.run);
+        latest.created_at = "2026-10-15T00:01:00Z";
         if (scenario === "old-run") {
           latest.id += 1;
         }
         const run = structuredClone(input.run);
+        run.created_at = "2026-10-15T00:00:00Z";
         if (scenario === "old-attempt") {
           run.run_attempt += 1;
         }
         writeFileSync(
           path.join(root, "facts.json"),
-          JSON.stringify({ ...input, latest, run })
+          JSON.stringify({
+            ...input,
+            latest,
+            run,
+            runs:
+              scenario === "old-run"
+                ? [run, latest]
+                : [latest, { ...run, id: run.id - 1 }],
+          })
         );
         const bin = path.join(root, "bin");
         mkdirSync(bin);
@@ -163,7 +173,7 @@ if (a.includes('--method')) { fs.appendFileSync(process.env.POSTS, JSON.stringif
 const endpoint = a[1];
 if (endpoint.includes('/pulls/')) console.log(JSON.stringify(facts.pr));
 else if (endpoint.endsWith('/commits/main')) console.log(facts.main.sha);
-else if (endpoint.includes('/actions/workflows/')) console.log(JSON.stringify({workflow_runs: [facts.latest]}));
+else if (endpoint.includes('/actions/workflows/')) console.log(JSON.stringify({workflow_runs: facts.runs}));
 else if (endpoint.includes('/actions/runs/')) console.log(JSON.stringify(facts.run));
 else process.exit(1);
 `

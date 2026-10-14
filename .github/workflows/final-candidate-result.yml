@@ -151,7 +151,7 @@ jobs:
           test "$(jq -r .base.sha <<<"$pr_json")" = "$CANDIDATE_BASE_SHA"
           test "$live_main" = "$CANDIDATE_BASE_SHA"
           runs="$(gh api "repos/$CANDIDATE_REPOSITORY/actions/workflows/final-candidate.yml/runs?event=pull_request&head_sha=$CANDIDATE_HEAD_SHA&per_page=100")"
-          latest_id="$(jq -r --arg pr "$CANDIDATE_PR_NUMBER" '.workflow_runs | map(select(.display_title | startswith("Final Candidate PR #" + $pr + " @ "))) | .[0].id' <<<"$runs")"
+          latest_id="$(jq -r --arg pr "$CANDIDATE_PR_NUMBER" '.workflow_runs | map(select(.display_title | startswith("Final Candidate PR #" + $pr + " @ "))) | sort_by(.created_at, .id) | last | .id' <<<"$runs")"
           if [ "$latest_id" != "$CANDIDATE_RUN_ID" ]; then exit 0; fi
           source_run="$(gh api "repos/$CANDIDATE_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID")"
           if [ "$(jq -r .run_attempt <<<"$source_run")" != "$CANDIDATE_RUN_ATTEMPT" ]; then exit 0; fi
