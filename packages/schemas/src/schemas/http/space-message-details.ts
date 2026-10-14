@@ -7,6 +7,7 @@ import {
   agentDelegationCompletionPolicySchema,
   agentTaskTerminalOutcomeSchema,
 } from "../runtime/agent-task-coordination";
+import { spaceThreadContextSchema } from "../space-mesh/space-thread";
 import { postNormalMessageBodySchema } from "./space-signals";
 import { wakeProgressItemSchema } from "./space-wake-progress";
 import {
@@ -186,6 +187,7 @@ export const spaceMessageDetailsDiagnosticsSchema = z.strictObject({
 });
 
 export const getSpaceMessageDetailsInputSchema = z.strictObject({
+  includeThreadContext: z.literal(true).optional(),
   delegationVersion: z.literal(1).optional(),
   delegationCursor: z.string().trim().min(1).max(512).optional(),
   executionContextVersion: z.literal(1).optional(),
@@ -256,6 +258,8 @@ export const spaceMessageDelegationsSchema = z.strictObject({
 });
 
 export const getSpaceMessageDetailsResponseSchema = z.strictObject({
+  // Omitted for older callers; null proves the readable message is unthreaded.
+  threadContext: spaceThreadContextSchema.nullable().optional(),
   delegations: spaceMessageDelegationsSchema.optional(),
   // Opt-in copy of the readable request, never a native task/permission grant.
   newTaskSource: z

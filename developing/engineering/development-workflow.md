@@ -174,6 +174,13 @@ directory; separate clones do not. Reading and editing code needs no slot.
 Root `build`, `check`, `test`, `test:integration`, `test:runtime`, and affected
 validation commands share one broad-work slot by default. Nested commands
 inherit their live ancestor's reservation instead of waiting on themselves.
+When a nested build needs a larger heavy-work budget, the resource owner
+rechecks current memory, OS pressure and competing reservations under the
+registry lock, then expands the same reservation. The ancestor retains ownership
+and the larger budget until it exits. Expansion fails immediately when capacity
+is unavailable; it never waits while holding the ancestor's slot or silently
+starts under an undersized reservation. Stack and Web startup budgets retain
+their existing fixed reservation rules.
 For another expensive local command, use `pnpm dev:run -- <command> [args]`.
 Direct package commands, `dev:raw`, and the legacy fixed-port server bypass
 this admission policy. Keep those focused and inspect machine facts first.
