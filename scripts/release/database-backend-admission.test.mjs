@@ -39,6 +39,38 @@ const root = path.resolve(
   "../.."
 );
 
+test("independent renderer releases need no product database credentials or reads", async () => {
+  for (const scopes of [["website"], ["docs"], ["website", "docs"]]) {
+    assert.deepEqual(
+      await admitPostgresqlProductRelease({
+        scopes,
+        root: "/nonexistent-renderer-only-checkout",
+        readTarget: () => {
+          throw new Error("Database access is outside this release");
+        },
+      }),
+      { mode: "not_required" }
+    );
+  }
+  for (const input of [
+    { scopes: ["website", "core"] },
+    { scopes: ["website", "auth"] },
+    { scopes: ["website", "db"] },
+    { scopes: ["website"], snapshot: "cutover" },
+    { scopes: ["website"], restoreCrons: true },
+  ]) {
+    await assert.rejects(
+      admitPostgresqlProductRelease({
+        ...input,
+        readTarget: () => {
+          throw new Error("Database admission remains required");
+        },
+      }),
+      { message: "Database admission remains required" }
+    );
+  }
+});
+
 test("hosted CLI reuses only the deployed PostgreSQL contract and current live services", async () => {
   const cwd = mkdtempSync(path.join(tmpdir(), "hosted-pg-cli-"));
   const git = (...args) =>

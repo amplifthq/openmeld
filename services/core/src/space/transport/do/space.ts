@@ -12185,6 +12185,9 @@ export class Space extends DurableObject<CoreBindings> {
         this.applySpaceRef(input.spaceId);
         const url = new URL("https://openmeld.local/message-details");
         url.searchParams.set("signalId", input.signalId);
+        if (input.includeThreadContext) {
+          url.searchParams.set("includeThreadContext", "true");
+        }
         if (input.executionContextVersion === 1) {
           url.searchParams.set("executionContextVersion", "1");
         }
@@ -16940,6 +16943,14 @@ export class Space extends DurableObject<CoreBindings> {
         const parsed = getSpaceMessageDetailsInputSchema.safeParse({
           spaceId: this.spaceId,
           signalId: url.searchParams.get("signalId"),
+          ...(url.searchParams.has("includeThreadContext")
+            ? {
+                includeThreadContext:
+                  url.searchParams.get("includeThreadContext") === "true"
+                    ? true
+                    : url.searchParams.get("includeThreadContext"),
+              }
+            : {}),
           ...(url.searchParams.has("executionContextVersion")
             ? {
                 executionContextVersion: Number(
@@ -16957,6 +16968,7 @@ export class Space extends DurableObject<CoreBindings> {
         }
         const details = await this.readSpaceMessageDetails({
           signalId: parsed.data.signalId,
+          includeThreadContext: parsed.data.includeThreadContext,
           executionContextVersion: parsed.data.executionContextVersion,
           viewer: await this.resolveReadViewerIdentity(spaceAccess),
         });
@@ -25308,6 +25320,7 @@ export class Space extends DurableObject<CoreBindings> {
     };
   }
   private async readSpaceMessageDetails(input: {
+    includeThreadContext?: true;
     signalId: string;
     executionContextVersion?: 1;
     viewer?: SpaceReadViewerIdentity;
@@ -25390,7 +25403,7 @@ export class Space extends DurableObject<CoreBindings> {
       input.executionContextVersion === 1 && wakeSourceSignal
         ? redactSignalForViewer({ signal: wakeSourceSignal, ...input.viewer })
         : null;
-    return projectSpaceMessageDetails({
+    const details = projectSpaceMessageDetails({
       ...(visibleWakeSource?.type === "signal.text"
         ? {
             newTaskSource: {
@@ -25418,6 +25431,29 @@ export class Space extends DurableObject<CoreBindings> {
       viewerOwnerUserId: input.viewer?.viewerOwnerUserId,
       viewerProfileId: input.viewer?.viewerProfileId,
     });
+    if (!input.includeThreadContext) {
+      return details;
+    }
+    return {
+      ...details,
+      threadContext: this.readMessageThreadContext(signal.id),
+    };
+  }
+
+  private readMessageThreadContext(signalId: string) {
+    // Reply authoring includes roots. Wake execution scope deliberately does
+    // not: opening a thread cannot move an already-running timeline Wake.
+    const placement = readSpaceThreadSignalPlacementBySignalId(
+      this.ctx.storage.sql,
+      signalId
+    );
+    const thread = placement
+      ? readSpaceThread(this.ctx.storage.sql, placement.threadId)
+      : null;
+    if (placement && !thread) {
+      throw new Error("space.thread.signal_placement_inconsistent");
+    }
+    return thread ? toSpaceThreadContext(thread) : null;
   }
   private async readOwnerVisibleOriginalErrors(input: {
     targetOwnerUserIdByProfileId: ReadonlyMap<string, string | null>;

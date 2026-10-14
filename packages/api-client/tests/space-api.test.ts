@@ -2965,6 +2965,7 @@ describe("api-client space api", () => {
       executionContextVersion,
       delegationVersion: executionContextVersion,
       delegationCursor: executionContextVersion ? "delegation-1" : undefined,
+      includeThreadContext: executionContextVersion ? true : undefined,
     });
 
     expect(result.message.signalId).toBe("sig-reply-1");
@@ -2973,7 +2974,7 @@ describe("api-client space api", () => {
     );
     expect(transport).toHaveBeenCalledWith(
       expect.objectContaining({
-        url: `https://gateway.openmeld.invalid/v1/spaces/space-123/message-details?signalId=sig-reply-1${executionContextVersion ? "&delegationVersion=1&delegationCursor=delegation-1&executionContextVersion=1" : ""}`,
+        url: `https://gateway.openmeld.invalid/v1/spaces/space-123/message-details?signalId=sig-reply-1${executionContextVersion ? "&includeThreadContext=true&delegationVersion=1&delegationCursor=delegation-1&executionContextVersion=1" : ""}`,
         operation: "space.message_details",
         init: expect.objectContaining({
           method: "GET",

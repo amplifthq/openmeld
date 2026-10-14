@@ -4768,6 +4768,52 @@ describe("OpenMeld Core", () => {
     expect(payload.agentContext?.state).toBe("not_applicable");
     expect(payload.wakeContext?.state).toBe("not_applicable");
     expect(payload.diagnostics?.signalId).toBe(signal.id);
+    expect(payload).not.toHaveProperty("threadContext");
+    const detailsUrl = (signalId: string) =>
+      `${BASE_URL}/v1/spaces/${spaceId}/message-details?signalId=${encodeURIComponent(signalId)}&includeThreadContext=true`;
+    const unthreaded = await fetchWithOpenMeldAuth(detailsUrl(signal.id));
+    expect(unthreaded.status).toBe(200);
+    expect(await unthreaded.json()).toMatchObject({ threadContext: null });
+    const created = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/threads`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          rootSignalId: signal.id,
+          clientMutationId: crypto.randomUUID(),
+        }),
+      }
+    );
+    expect(created.status).toBe(200);
+    const { thread } = (await created.json()) as {
+      thread: { threadId: string };
+    };
+    const reply = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/threads/${thread.threadId}/signals`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          text: "A reply inside the thread",
+          clientMessageId: crypto.randomUUID(),
+        }),
+      }
+    );
+    expect(reply.status).toBe(200);
+    const replyBody = (await reply.json()) as { signal: { id: string } };
+    for (const targetId of [signal.id, replyBody.signal.id]) {
+      const details = await fetchWithOpenMeldAuth(detailsUrl(targetId));
+      expect(details.status).toBe(200);
+      expect(await details.json()).toMatchObject({
+        threadContext: { threadId: thread.threadId, rootSignalId: signal.id },
+      });
+    }
+    const missing = await fetchWithOpenMeldAuth(
+      detailsUrl(crypto.randomUUID())
+    );
+    expect(missing.status).toBe(404);
+    await missing.body?.cancel();
   });
   it("routes protected leave without method dispatch drift", async () => {
     const password = "route-pass-123";
