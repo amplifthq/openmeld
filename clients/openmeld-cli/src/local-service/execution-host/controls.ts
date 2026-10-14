@@ -129,11 +129,20 @@ export function createExecutionHostControls(input: {
     control: OpenMeldDaemonManageLocalAgentInstallationRequestPayload
   ): Promise<OpenMeldDaemonManageLocalAgentInstallationPayload> {
     try {
-      let update: Awaited<ReturnType<typeof updater.state>> | undefined;
-      if (control.operation === "update") {
-        update = await updater.start(control.agentId, control);
-      } else if (control.operation === "read_update") {
-        update = await updater.state(control.agentId);
+      if (
+        control.operation === "update" ||
+        control.operation === "read_update"
+      ) {
+        const update =
+          control.operation === "update"
+            ? await updater.start(control.agentId, control)
+            : await updater.state(control.agentId);
+        return {
+          accepted: true,
+          agentId: control.agentId,
+          status: "update_state",
+          update,
+        };
       }
       let result: Awaited<
         ReturnType<typeof manageAgentRegistrationInstallation>
@@ -172,7 +181,6 @@ export function createExecutionHostControls(input: {
         agentId: result.agentId,
         changed: result.changed,
         installations: result.installations,
-        ...(update ? { update } : {}),
         reportSyncStatus,
         selectionStatus,
         selectedInstallationId: result.selectedInstallationId,

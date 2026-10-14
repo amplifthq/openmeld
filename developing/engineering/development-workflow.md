@@ -1320,7 +1320,7 @@ authority; Service reads the canonical route before attempting a native update.
 Local Agent update extension: publish Core/Gateway/schema readers before a Service
 advertises optional `updateInstallations`. New owner-only GET/POST
 `installation-update` routes reuse the existing installation transport with
-`read_update`/`update` requests and an optional update receipt. Old Services retain
+`read_update`/`update` requests and a distinct `update_state` result. Old Services retain
 selection and manual updates; new controls require the new capability. Existing
 list/select responses, Prepare, Wake, Skills, and Space Actions are unchanged.
 Web and Desktop share the Computer UI and API client. No native Desktop bridge,

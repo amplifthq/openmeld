@@ -109,6 +109,7 @@ import {
 	type LocalAgentConsumptionScope,
 } from "./local-agent-consumption";
 import { LocalAgentInstallEmptyState } from "./local-agent-install-empty-state";
+import { LocalAgentUpdateControl } from "./local-agent-update-control";
 
 type AgentsPageController = ReturnType<typeof useLocalAgentRecoveryController>;
 type DeviceAgentCatalogEntry =
@@ -1249,6 +1250,7 @@ function LocalAgentInstallationSummary(input: {
 
 function LocalAgentInstallationControl(input: {
 	target: LocalAgentInstallationTarget;
+	canUpdate: boolean;
 	agentId: string;
 	displayName: string;
 	onChanged: () => Promise<unknown>;
@@ -1484,6 +1486,19 @@ function LocalAgentInstallationControl(input: {
 				<output className="break-words text-muted-foreground text-sm">
 					{statusMessage}
 				</output>
+			) : null}
+			{currentInstallation && input.canUpdate ? (
+				<LocalAgentUpdateControl
+					agentId={input.agentId}
+					blocked={selectionBlocked || pendingInstallationId !== null}
+					installationId={currentInstallation.installationId}
+					onChanged={async () => {
+						await installationsQuery.refetch();
+						await input.onChanged();
+					}}
+					storageScope={input.target.storageScope}
+					target={input.target}
+				/>
 			) : null}
 		</section>
 	);
@@ -2075,6 +2090,10 @@ function renderLocalAgentCatalogRowDetail(input: {
 			{input.canChangeInstallation && input.rowInput.target ? (
 				<LocalAgentInstallationControl
 					agentId={input.rowInput.entry.agentId}
+					canUpdate={
+						input.rowInput.target.localAgentControl?.updateInstallations ===
+						true
+					}
 					displayName={input.rowInput.entry.displayName}
 					onChanged={input.rowInput.onRefresh}
 					target={{

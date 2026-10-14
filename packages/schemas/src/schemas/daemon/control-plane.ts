@@ -338,7 +338,13 @@ export const openMeldDaemonSetLocalAgentEnabledPayloadSchema = z.strictObject({
 });
 
 export const openMeldDaemonManageLocalAgentInstallationPayloadSchema =
-  z.discriminatedUnion("accepted", [
+  z.discriminatedUnion("status", [
+    z.strictObject({
+      accepted: z.literal(true),
+      agentId: z.string().trim().min(1).max(256),
+      status: z.literal("update_state"),
+      update: localAgentUpdateStateSchema,
+    }),
     z.strictObject({
       accepted: z.literal(true),
       agentControllerRef: z.string().min(1),
@@ -351,7 +357,6 @@ export const openMeldDaemonManageLocalAgentInstallationPayloadSchema =
         .optional(),
       selectedInstallationId: z.string().trim().min(1).max(256).nullable(),
       status: z.enum(["listed", "updated", "unchanged"]),
-      update: localAgentUpdateStateSchema.optional(),
     }),
     z.strictObject({
       accepted: z.literal(false),

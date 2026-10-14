@@ -69,7 +69,10 @@ int main(int argc, char **argv) {
 }
 
 describe("local agent updates", () => {
-  it("deduplicates requests, holds admission until the real process exits, and verifies the selected launcher", async () => {
+  it.each([
+    true,
+    false,
+  ])("deduplicates requests and confirms success only with a readable installed version (%s)", async (readable) => {
     await withTempHome(async (home) => {
       const setup = await fixture(home);
       const slots = createLocalExecutionSlots({
@@ -105,14 +108,20 @@ describe("local agent updates", () => {
           })
         ).rejects.toThrow("earlier update");
       } finally {
+        if (!readable) {
+          await writeFile(
+            join(home, ".local/share/claude/versions/1.0.1"),
+            "broken executable"
+          );
+        }
         await writeFile(setup.gate, "continue\n");
         await completed;
       }
       const result = await updater.state("claude-code");
       expect(result.operation).toMatchObject({
-        status: "succeeded",
+        status: readable ? "succeeded" : "outcome_unknown",
         beforeVersion: "1.0.0",
-        afterVersion: "1.0.1",
+        afterVersion: readable ? "1.0.1" : null,
       });
       expect(await readFile(join(home, "invocations"), "utf8")).toBe(
         "update\n"

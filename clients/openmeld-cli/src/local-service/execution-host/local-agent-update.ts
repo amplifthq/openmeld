@@ -98,10 +98,20 @@ export function createLocalAgentUpdater(input: {
     return contract ? await resolveClaudeNativeUpdateCommand(contract) : null;
   }
   async function state(agentId: string): Promise<LocalAgentUpdateState> {
-    const supported = Boolean(await command(agentId));
     // This first provider owns the only supported installer. Do not attach its
     // receipts to other providers or infer support from an advisory command.
     const records = agentId === "claude-code" ? await serialize(read) : [];
+    let supported = false;
+    try {
+      supported = Boolean(await command(agentId));
+    } catch (error) {
+      if (!records.length) {
+        throw error;
+      }
+      input.log(
+        `Could not inspect the installation for update status: ${String(error)}`
+      );
+    }
     return { supported, operation: project(records.at(-1)) };
   }
   async function start(

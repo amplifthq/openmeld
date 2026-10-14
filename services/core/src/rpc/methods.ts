@@ -1395,6 +1395,7 @@ import { createCoreRpcHttpError, readCoreRpcHttpStatus } from "./errors";
 import {
   requireAcceptedLocalAgentControlPayload,
   requireAcceptedLocalAgentInstallationPayload,
+  requireAcceptedLocalAgentUpdatePayload,
 } from "./local-agent-control-policy";
 import { callRequiredAuthWorkerRpc } from "./required-auth-worker-rpc";
 import {
@@ -3112,7 +3113,7 @@ export async function rpcManagePeopleComputerLocalAgentUpdate(
       : { agentId, operation: "read_update" },
   });
   return localAgentUpdateStateSchema.parse(
-    requireAcceptedLocalAgentInstallationPayload(result).update
+    requireAcceptedLocalAgentUpdatePayload(result)
   );
 }
 export function rpcSelectPeopleComputerLocalAgentInstallation(
