@@ -136,7 +136,10 @@ import { createInProcessExecutionHost } from "./helpers/execution-host";
 
 type RunTestDaemonSocketSessionInput = Omit<
   Parameters<typeof runDaemonSocketSessionInternal>[0],
-  "executionHost" | "localComponentsObservation" | "loadRouteCatalog"
+  | "executionHost"
+  | "drainExecutionHost"
+  | "localComponentsObservation"
+  | "loadRouteCatalog"
 > &
   Omit<ExecutionHostResources, "initialCatalog"> & {
     decorateExecutionHost?: (host: ExecutionHostPort) => ExecutionHostPort;
@@ -186,6 +189,7 @@ async function runDaemonSocketSession(
   const localComponentsObservation = createServiceLocalComponentsObservation({
     onError: () => undefined,
   });
+  const executionHost = decorateExecutionHost?.(host.port) ?? host.port;
   try {
     await runDaemonSocketSessionInternal({
       ...sessionInput,
@@ -203,7 +207,10 @@ async function runDaemonSocketSession(
             false
           )),
       localComponentsObservation,
-      executionHost: decorateExecutionHost?.(host.port) ?? host.port,
+      executionHost,
+      drainExecutionHost: async () => {
+        await executionHost.call("drain", {}, { timeoutMs: null });
+      },
     });
   } finally {
     onSessionExit?.();
@@ -268,6 +275,7 @@ describe("local service run catalog signal", () => {
       const socket = createMockSocket();
       let stopping = false;
       const coordinator = createControlledShutdownCoordinator({
+        drainHost: async () => undefined,
         hasUndrainedWork: () => false,
         isStopRequested: () => stopping,
         markStopping: () => {

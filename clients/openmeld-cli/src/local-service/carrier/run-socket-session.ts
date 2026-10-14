@@ -409,6 +409,7 @@ function handleLocalFolderPickerSocketFrame(input: {
 
 export async function runDaemonSocketSession(input: {
   executionHost: ExecutionHostPort;
+  drainExecutionHost: () => Promise<void>;
   computerFileAccessStorePath: string;
   daemonSessionId: string;
   deviceId: string;
@@ -2191,7 +2192,7 @@ export async function runDaemonSocketSession(input: {
     // here also prevents an abandoned session from later settling/closing a
     // replacement connection when that same Host finishes its work.
     await Promise.race([
-      input.executionHost.call("drain", {}, { timeoutMs: null }),
+      input.drainExecutionHost(),
       transportEnded.promise.then((error) => {
         throw error;
       }),

@@ -426,6 +426,7 @@ async function buildDaemonStreamRequestHeaders(input: {
 }
 
 export function createControlledShutdownCoordinator(input: {
+  drainHost: () => Promise<void>;
   hasUndrainedWork: () => boolean;
   isStopRequested: () => boolean;
   markStopping: () => void;
@@ -433,6 +434,9 @@ export function createControlledShutdownCoordinator(input: {
   let activeSessionShutdownResolver:
     | ((stopCause: RuntimeTransportStopCause) => void)
     | null = null;
+  // Drain closes admission for this Host's lifetime. Reconnects observe the
+  // same operation instead of accumulating unbounded pending Host RPCs.
+  let hostDrain: Promise<void> | null = null;
   let shutdownAttempt:
     | (PromiseWithResolvers<void> & { stopCause: RuntimeTransportStopCause })
     | null = null;
@@ -451,6 +455,10 @@ export function createControlledShutdownCoordinator(input: {
   };
 
   return {
+    waitForDrain(): Promise<void> {
+      hostDrain ??= input.drainHost();
+      return hostDrain;
+    },
     attachSession(
       shutdownResolver: (stopCause: RuntimeTransportStopCause) => void
     ): void {
@@ -590,13 +598,17 @@ async function withControlledStopRefusalProof<T>(input: {
 
 async function runSocketSessionWithControlledShutdown(input: {
   controlledShutdown: ReturnType<typeof createControlledShutdownCoordinator>;
-  sessionInput: Parameters<typeof runDaemonSocketSession>[0];
+  sessionInput: Omit<
+    Parameters<typeof runDaemonSocketSession>[0],
+    "drainExecutionHost"
+  >;
 }): Promise<void> {
   const sessionShutdown = Promise.withResolvers<RuntimeTransportStopCause>();
   input.controlledShutdown.attachSession(sessionShutdown.resolve);
   try {
     await runDaemonSocketSession({
       ...input.sessionInput,
+      drainExecutionHost: input.controlledShutdown.waitForDrain,
       shutdownRequested: sessionShutdown.promise,
     });
   } finally {
@@ -837,6 +849,9 @@ const runAccountBoundDaemonServiceLoop = async (
     | ((reason: string) => Promise<RouteCatalogSyncResult>)
     | null = null;
   const controlledShutdown = createControlledShutdownCoordinator({
+    drainHost: async () => {
+      await executionHost.call("drain", {}, { timeoutMs: null });
+    },
     hasUndrainedWork: () => {
       const observed = executionHost.snapshot();
       return (

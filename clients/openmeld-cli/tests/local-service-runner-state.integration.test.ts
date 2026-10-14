@@ -867,11 +867,33 @@ describe("local service runner dual-write", () => {
     expect(clearDaemonServiceRuntimeStateMock).toHaveBeenCalledTimes(1);
   });
 
+  it("shares one Host drain across repeated connector replacements", async () => {
+    const hostWork = Promise.withResolvers<void>();
+    const drainHost = vi.fn(() => hostWork.promise);
+    const coordinator = createControlledShutdownCoordinator({
+      drainHost,
+      hasUndrainedWork: () => true,
+      isStopRequested: () => false,
+      markStopping: () => undefined,
+    });
+    const wait = coordinator.waitForDrain();
+    for (let connection = 0; connection < 100; connection += 1) {
+      const stop = () => undefined;
+      coordinator.attachSession(stop);
+      expect(coordinator.waitForDrain()).toBe(wait);
+      coordinator.detachSession(stop);
+    }
+    expect(drainHost).toHaveBeenCalledTimes(1);
+    hostWork.resolve();
+    await wait;
+  });
+
   it("joins repeated controlled shutdown requests to the admitted drain", async () => {
     let stopping = false;
     let shutdownRequestCount = 0;
     const shutdownAdmitted = Promise.withResolvers<void>();
     const coordinator = createControlledShutdownCoordinator({
+      drainHost: async () => undefined,
       hasUndrainedWork: () => false,
       isStopRequested: () => stopping,
       markStopping: () => {
