@@ -888,6 +888,49 @@ describe("local service runner dual-write", () => {
     await wait;
   });
 
+  it("reports a failed Host drain and lets a later stop observe the Host again", async () => {
+    const failure = new Error(
+      "Host request capacity exhausted; drain was not admitted"
+    );
+    const drainHost = vi
+      .fn()
+      .mockRejectedValueOnce(failure)
+      .mockResolvedValueOnce(undefined);
+    let stopping = false;
+    const coordinator = createControlledShutdownCoordinator({
+      drainHost,
+      hasUndrainedWork: () => true,
+      isStopRequested: () => stopping,
+      markStopping: () => {
+        stopping = true;
+      },
+    });
+    const admitted = Promise.withResolvers<void>();
+    coordinator.attachSession(() => admitted.resolve());
+    const firstStop = coordinator.request({
+      gracePeriodMs: 5000,
+      mode: "graceful",
+    });
+    const rejectedStop = expect(firstStop).rejects.toBe(failure);
+    await admitted.promise;
+    await expect(coordinator.waitForDrain()).rejects.toBe(failure);
+    await rejectedStop;
+    expect(stopping).toBe(false);
+
+    const readmitted = Promise.withResolvers<void>();
+    coordinator.attachSession(() => readmitted.resolve());
+    const nextStop = coordinator.request({
+      gracePeriodMs: 5000,
+      mode: "graceful",
+    });
+    await readmitted.promise;
+    await coordinator.waitForDrain();
+    coordinator.handleSessionCompleted();
+    await expect(nextStop).resolves.toMatchObject({ accepted: true });
+    expect(drainHost).toHaveBeenCalledTimes(2);
+    expect(stopping).toBe(true);
+  });
+
   it("joins repeated controlled shutdown requests to the admitted drain", async () => {
     let stopping = false;
     let shutdownRequestCount = 0;

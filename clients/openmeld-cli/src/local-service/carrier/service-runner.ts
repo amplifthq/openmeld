@@ -456,7 +456,13 @@ export function createControlledShutdownCoordinator(input: {
 
   return {
     waitForDrain(): Promise<void> {
-      hostDrain ??= input.drainHost();
+      hostDrain ??= input.drainHost().catch((error: unknown) => {
+        // A Host refusal/failure is not a transport interruption. Report it to
+        // the admitted caller, and do not cache it as a completed drain.
+        hostDrain = null;
+        shutdownAttempt?.reject(error);
+        throw error;
+      });
       return hostDrain;
     },
     attachSession(
