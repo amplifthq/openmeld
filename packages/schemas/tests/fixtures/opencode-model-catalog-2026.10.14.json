@@ -1,0 +1,242 @@
+{
+  "capture": {
+    "harnessVersion": "1.19.0",
+    "observedAt": "2026-10-14",
+    "commands": [
+      "OPENCODE_API_KEY=catalog-metadata-placeholder opencode models opencode --verbose --refresh --pure",
+      "opencode models opencode-go --verbose --pure",
+      "opencode models openrouter --verbose --pure"
+    ],
+    "providerRoutes": [
+      "Zen paid metadata enabled with a noncredential placeholder; inventory does not prove entitlement.",
+      "Native inventory metadata is separate from authenticated execution."
+    ]
+  },
+  "models": [
+    {
+      "id": "gemini-4-argon",
+      "providerID": "opencode",
+      "name": "Gemini 4 Argon",
+      "api": {
+        "id": "gemini-4-argon",
+        "url": "https://opencode.ai/inference/v1",
+        "npm": "@ai-sdk/google"
+      },
+      "status": "active",
+      "capabilities": {
+        "temperature": false,
+        "reasoning": true,
+        "attachment": true,
+        "toolcall": true,
+        "input": {
+          "text": true,
+          "audio": true,
+          "image": true,
+          "video": true,
+          "pdf": true
+        },
+        "output": {
+          "text": true,
+          "audio": false,
+          "image": false,
+          "video": false,
+          "pdf": false
+        },
+        "interleaved": false
+      },
+      "release_date": "2026-10-13",
+      "variants": {
+        "low": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "low"
+          }
+        },
+        "medium": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "medium"
+          }
+        },
+        "high": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "high"
+          }
+        }
+      }
+    },
+    {
+      "id": "liquid/lfm-2.5-24b-a2b",
+      "providerID": "openrouter",
+      "name": "LFM2.5-24B-A2B",
+      "api": {
+        "id": "liquid/lfm-2.5-24b-a2b",
+        "url": "https://openrouter.ai/api/v1",
+        "npm": "@openrouter/ai-sdk-provider"
+      },
+      "status": "active",
+      "capabilities": {
+        "temperature": true,
+        "reasoning": true,
+        "attachment": false,
+        "toolcall": true,
+        "input": {
+          "text": true,
+          "audio": false,
+          "image": false,
+          "video": false,
+          "pdf": false
+        },
+        "output": {
+          "text": true,
+          "audio": false,
+          "image": false,
+          "video": false,
+          "pdf": false
+        },
+        "interleaved": false
+      },
+      "release_date": "2026-10-13",
+      "variants": {}
+    },
+    {
+      "id": "unbiased/pareto-26.9",
+      "providerID": "openrouter",
+      "name": "Pareto 26.9",
+      "api": {
+        "id": "unbiased/pareto-26.9",
+        "url": "https://openrouter.ai/api/v1",
+        "npm": "@openrouter/ai-sdk-provider"
+      },
+      "status": "active",
+      "capabilities": {
+        "temperature": true,
+        "reasoning": false,
+        "attachment": true,
+        "toolcall": true,
+        "input": {
+          "text": true,
+          "audio": false,
+          "image": true,
+          "video": false,
+          "pdf": false
+        },
+        "output": {
+          "text": true,
+          "audio": false,
+          "image": false,
+          "video": false,
+          "pdf": false
+        },
+        "interleaved": false
+      },
+      "release_date": "2026-10-13",
+      "variants": {}
+    },
+    {
+      "id": "cat-jam-free",
+      "providerID": "opencode",
+      "name": "Cat Jam Free",
+      "api": {
+        "id": "cat-jam-free",
+        "url": "https://opencode.ai/inference/v1",
+        "npm": "@ai-sdk/openai-compatible"
+      },
+      "status": "active",
+      "capabilities": {
+        "temperature": true,
+        "reasoning": true,
+        "attachment": false,
+        "toolcall": true,
+        "input": {
+          "text": true,
+          "audio": false,
+          "image": false,
+          "video": false,
+          "pdf": false
+        },
+        "output": {
+          "text": true,
+          "audio": false,
+          "image": false,
+          "video": false,
+          "pdf": false
+        },
+        "interleaved": {
+          "field": "reasoning_content"
+        }
+      },
+      "release_date": "2026-10-12",
+      "variants": {
+        "low": {
+          "reasoningEffort": "low"
+        },
+        "medium": {
+          "reasoningEffort": "medium"
+        },
+        "high": {
+          "reasoningEffort": "high"
+        },
+        "xhigh": {
+          "reasoningEffort": "xhigh"
+        },
+        "max": {
+          "reasoningEffort": "max"
+        }
+      }
+    },
+    {
+      "id": "cat-jam-free",
+      "providerID": "opencode-go",
+      "name": "Cat Jam Free",
+      "api": {
+        "id": "cat-jam-free",
+        "url": "https://opencode.ai/inference/go/v1",
+        "npm": "@ai-sdk/openai-compatible"
+      },
+      "status": "active",
+      "capabilities": {
+        "temperature": true,
+        "reasoning": true,
+        "attachment": false,
+        "toolcall": true,
+        "input": {
+          "text": true,
+          "audio": false,
+          "image": false,
+          "video": false,
+          "pdf": false
+        },
+        "output": {
+          "text": true,
+          "audio": false,
+          "image": false,
+          "video": false,
+          "pdf": false
+        },
+        "interleaved": {
+          "field": "reasoning_content"
+        }
+      },
+      "release_date": "2026-10-12",
+      "variants": {
+        "low": {
+          "reasoningEffort": "low"
+        },
+        "medium": {
+          "reasoningEffort": "medium"
+        },
+        "high": {
+          "reasoningEffort": "high"
+        },
+        "xhigh": {
+          "reasoningEffort": "xhigh"
+        },
+        "max": {
+          "reasoningEffort": "max"
+        }
+      }
+    }
+  ]
+}
