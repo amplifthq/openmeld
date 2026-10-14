@@ -454,14 +454,19 @@ export function createControlledShutdownCoordinator(input: {
     );
   };
 
+  const failHostShutdown = (error: unknown): never => {
+    shutdownAttempt?.reject(error);
+    throw error;
+  };
+
   return {
+    failHostShutdown,
     waitForDrain(): Promise<void> {
       hostDrain ??= input.drainHost().catch((error: unknown) => {
         // A Host refusal/failure is not a transport interruption. Report it to
         // the admitted caller, and do not cache it as a completed drain.
         hostDrain = null;
-        shutdownAttempt?.reject(error);
-        throw error;
+        return failHostShutdown(error);
       });
       return hostDrain;
     },
@@ -606,7 +611,7 @@ async function runSocketSessionWithControlledShutdown(input: {
   controlledShutdown: ReturnType<typeof createControlledShutdownCoordinator>;
   sessionInput: Omit<
     Parameters<typeof runDaemonSocketSession>[0],
-    "drainExecutionHost"
+    "drainExecutionHost" | "failHostShutdown"
   >;
 }): Promise<void> {
   const sessionShutdown = Promise.withResolvers<RuntimeTransportStopCause>();
@@ -615,6 +620,7 @@ async function runSocketSessionWithControlledShutdown(input: {
     await runDaemonSocketSession({
       ...input.sessionInput,
       drainExecutionHost: input.controlledShutdown.waitForDrain,
+      failHostShutdown: input.controlledShutdown.failHostShutdown,
       shutdownRequested: sessionShutdown.promise,
     });
   } finally {

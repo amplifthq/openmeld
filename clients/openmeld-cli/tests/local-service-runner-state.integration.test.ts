@@ -888,7 +888,11 @@ describe("local service runner dual-write", () => {
     await wait;
   });
 
-  it("reports a failed Host drain and lets a later stop observe the Host again", async () => {
+  it.each([
+    "drain",
+    "beginDrain",
+    "settleResults",
+  ] as const)("reports a failed Host %s and allows a later stop", async (failedMethod) => {
     const failure = new Error(
       "Host request capacity exhausted; drain was not admitted"
     );
@@ -913,7 +917,12 @@ describe("local service runner dual-write", () => {
     });
     const rejectedStop = expect(firstStop).rejects.toBe(failure);
     await admitted.promise;
-    await expect(coordinator.waitForDrain()).rejects.toBe(failure);
+    if (failedMethod === "drain") {
+      await expect(coordinator.waitForDrain()).rejects.toBe(failure);
+    } else {
+      expect(() => coordinator.failHostShutdown(failure)).toThrow(failure);
+      drainHost.mockReset().mockResolvedValue(undefined);
+    }
     await rejectedStop;
     expect(stopping).toBe(false);
 
@@ -927,7 +936,7 @@ describe("local service runner dual-write", () => {
     await coordinator.waitForDrain();
     coordinator.handleSessionCompleted();
     await expect(nextStop).resolves.toMatchObject({ accepted: true });
-    expect(drainHost).toHaveBeenCalledTimes(2);
+    expect(drainHost).toHaveBeenCalledTimes(failedMethod === "drain" ? 2 : 1);
     expect(stopping).toBe(true);
   });
 

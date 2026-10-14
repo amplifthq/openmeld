@@ -3546,7 +3546,9 @@ that session completes the drain, or the Service loop exits with failure.
 The coordinator observes one Host drain operation across connection replacements;
 repeated disconnects must not accumulate pending Host drain RPCs. A Host drain
 refusal or failure rejects the admitted stop with its original error and clears
-that failed observation so a later stop can check the Host again.
+that failed observation so a later stop can check the Host again. Host errors
+from beginning drain or settling results also reject the admitted stop; only
+transport failures retain it for reconnect.
 The same Host retains accepted work and closed admission; unacknowledged results
 remain in the same durable outbox. Lifecycle code must not create a second
 result store or start a replacement execution for that work.

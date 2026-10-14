@@ -410,6 +410,7 @@ function handleLocalFolderPickerSocketFrame(input: {
 export async function runDaemonSocketSession(input: {
   executionHost: ExecutionHostPort;
   drainExecutionHost: () => Promise<void>;
+  failHostShutdown: (error: unknown) => never;
   computerFileAccessStorePath: string;
   daemonSessionId: string;
   deviceId: string;
@@ -2156,7 +2157,9 @@ export async function runDaemonSocketSession(input: {
       reasonCode: "controlled_stop",
       detailCode: stopCause,
     };
-    await input.executionHost.call("beginDrain", {});
+    await input.executionHost
+      .call("beginDrain", {})
+      .catch(input.failHostShutdown);
     clearHeartbeatTimer();
     emitRunLine({
       presenter: input.presenter,
@@ -2197,7 +2200,9 @@ export async function runDaemonSocketSession(input: {
         throw error;
       }),
     ]);
-    const result = await input.executionHost.call("settleResults", {});
+    const result = await input.executionHost
+      .call("settleResults", {})
+      .catch(input.failHostShutdown);
     if (finalHeartbeatError) {
       throw finalHeartbeatError;
     }

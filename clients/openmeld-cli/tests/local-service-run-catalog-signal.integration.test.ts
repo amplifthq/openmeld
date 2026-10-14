@@ -138,12 +138,14 @@ type RunTestDaemonSocketSessionInput = Omit<
   Parameters<typeof runDaemonSocketSessionInternal>[0],
   | "executionHost"
   | "drainExecutionHost"
+  | "failHostShutdown"
   | "localComponentsObservation"
   | "loadRouteCatalog"
 > &
   Omit<ExecutionHostResources, "initialCatalog"> & {
     decorateExecutionHost?: (host: ExecutionHostPort) => ExecutionHostPort;
     onSessionExit?: () => void;
+    failHostShutdown?: (error: unknown) => never;
     profileOwnerName: string | null;
     loadRouteCatalog?: () => Promise<ExecutionHostResources["initialCatalog"]>;
   };
@@ -208,6 +210,11 @@ async function runDaemonSocketSession(
           )),
       localComponentsObservation,
       executionHost,
+      failHostShutdown:
+        input.failHostShutdown ??
+        ((error: unknown): never => {
+          throw error;
+        }),
       drainExecutionHost: async () => {
         await executionHost.call("drain", {}, { timeoutMs: null });
       },
@@ -722,6 +729,36 @@ describe("local service run catalog signal", () => {
     await flushMicrotasks();
     // The old drain continuation cannot settle a replacement connection.
     expect(settleResults).not.toHaveBeenCalled();
+    expect(socket.closeCount).toBe(0);
+  });
+
+  it.each([
+    "beginDrain",
+    "settleResults",
+  ] as const)("reports a Host %s failure instead of treating it as a lost connection", async (failedMethod) => {
+    readDaemonCatalogSyncSignalMock.mockResolvedValue(null);
+    const socket = createMockSocket({});
+    const error = new Error("Execution Host IPC disconnected");
+    const failHostShutdown = vi.fn((failure: unknown): never => {
+      throw failure;
+    });
+    await expect(
+      runDaemonSocketSession({
+        ...buildKeepaliveSessionInput(socket, []),
+        shutdownRequested: Promise.resolve("user_stop"),
+        failHostShutdown,
+        decorateExecutionHost: (host) => ({
+          ...host,
+          call: async (method, payload, options) => {
+            if (method === failedMethod) {
+              throw error;
+            }
+            return await host.call(method, payload, options);
+          },
+        }),
+      })
+    ).rejects.toBe(error);
+    expect(failHostShutdown).toHaveBeenCalledExactlyOnceWith(error);
     expect(socket.closeCount).toBe(0);
   });
 
