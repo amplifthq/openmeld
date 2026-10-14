@@ -29,6 +29,7 @@ const heroAgentOrder = [
 	"opencode",
 	"codex",
 	"cursor",
+	"grok-bot",
 ];
 const agents = [...listLocalAgentInstallGuides()].sort(
 	(a, b) =>
@@ -95,7 +96,7 @@ function FloatingAgent({
 			style={{
 				x: springX,
 				y: springY,
-				rotate: [-12, 10, -7, 14, 8, -12][index],
+				rotate: [-12, 10, -7, 14, 8, -12, 7][index],
 			}}
 		>
 			<LocalAgentLogo

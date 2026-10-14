@@ -5313,6 +5313,15 @@ profileCmd
   )
   .option("--project <projectId>", "Default Project for the new Agent")
   .option(
+    "--shared-conversation <id>",
+    "Connect an existing shared Bot conversation"
+  )
+  .option(
+    "--acknowledge-shared-conversation",
+    "Acknowledge shared messages and stopping the Bot's current work",
+    false
+  )
+  .option(
     "--no-default-project",
     "Let OpenMeld choose the working folder instead of reusing your saved Default Project"
   )
@@ -5387,6 +5396,8 @@ profileCmd
             modelId: opts.model,
             openCodePermissionInput: opts.openCodePermission,
             nativeSessionId: opts.nativeSession,
+            sharedConversationId: opts.sharedConversation,
+            acknowledgeSharedConversation: opts.acknowledgeSharedConversation,
             organization: opts.organization,
             profileName: targetName,
             reasoningLevel: opts.reasoningEffort,
@@ -5435,6 +5446,7 @@ function shouldUseProfileCreationRequest(input: {
   computer?: unknown;
   defaultProject?: unknown;
   nativeSession?: unknown;
+  sharedConversation?: unknown;
   openCodePermission?: unknown;
   organization?: unknown;
   owner?: unknown;
@@ -5453,6 +5465,7 @@ function shouldUseProfileCreationRequest(input: {
     typeof input.agentControllerCollaborationMode === "string" ||
     typeof input.openCodePermission === "string" ||
     typeof input.nativeSession === "string" ||
+    typeof input.sharedConversation === "string" ||
     input.session !== "new"
   );
 }

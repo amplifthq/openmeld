@@ -4,6 +4,7 @@ export const BUILTIN_AGENT_CONTROLLER_DISPLAY_ORDER = [
   "codex",
   "claude-code",
   "grok-build",
+  "grok-bot",
   "opencode",
   "antigravity",
   "openclaw",
@@ -52,6 +53,12 @@ export const BUILTIN_AGENT_CONTROLLER_BRANDS = {
     accentHex: "#1d9bf0",
     accentRgb: [29, 155, 240],
     controllerId: "grok-build",
+    selectionMixPercent: 30,
+  },
+  "grok-bot": {
+    accentHex: "#1d9bf0",
+    accentRgb: [29, 155, 240],
+    controllerId: "grok-bot",
     selectionMixPercent: 30,
   },
   opencode: {

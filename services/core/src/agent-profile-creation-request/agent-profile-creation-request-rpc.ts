@@ -956,8 +956,12 @@ async function connectRequestedAgentProfile(input: {
           request: input.request,
           sourceNativeSessionId: sessionInventorySelection.nativeSessionId,
         })
-      : sessionInventorySelection?.nativeSessionId;
+      : (configuration.sharedConversation?.conversationId ??
+        sessionInventorySelection?.nativeSessionId);
   const binding = await rpcEnsureAgentProfilePrimaryBinding(input.env, {
+    ...(configuration.sharedConversation
+      ? { sharedConversationAcknowledged: true as const }
+      : {}),
     agentControllerRef: candidate.agentControllerRef,
     ...(agentControllerConversationId
       ? {

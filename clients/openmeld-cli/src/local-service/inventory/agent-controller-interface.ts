@@ -26,7 +26,10 @@ import {
   compareAgentControllerVersions,
   isAgentControllerUsageRefreshUnavailable,
 } from "@openmeld/agent-runtime";
-import { resolvePublicAgentAvailabilityCopy } from "@openmeld/schemas";
+import {
+  grokBotAccountSchema,
+  resolvePublicAgentAvailabilityCopy,
+} from "@openmeld/schemas";
 import type {
   AgentControllerInterfaceAuthSnapshot,
   AgentControllerInterfaceLaunchSnapshot,
@@ -104,6 +107,7 @@ const CONTROLLER_INTERFACE_SNAPSHOT_RESOLVERS: Record<
   codex: resolveCodexInterfaceSnapshot,
   cursor: resolveCursorInterfaceSnapshot,
   "grok-build": resolveGrokBuildInterfaceSnapshot,
+  "grok-bot": resolveGrokBotInterfaceSnapshot,
   openclaw: resolveOpenClawInterfaceSnapshot,
   opencode: resolveOpenCodeInterfaceSnapshot,
 };
@@ -926,6 +930,42 @@ async function resolveGrokBuildInterfaceSnapshot(
         currentVersion: version,
         launchContract: input.launchContract,
       }),
+    },
+  };
+}
+
+async function resolveGrokBotInterfaceSnapshot(
+  input: InventoryProbeInput
+): Promise<AgentControllerInterfaceProbeOutcome> {
+  const result = await runLaunchContractCommand({
+    workingDirectory: input.workingDirectory,
+    args: ["whoami", "--json"],
+    launchContract: input.launchContract,
+  });
+  const account = grokBotAccountSchema.safeParse(
+    parseJsonRecord(result.stdout)
+  );
+  const authenticated = result.ok && account.success;
+  return {
+    probeCompleted: authenticated,
+    snapshot: {
+      ...input.baseSnapshot,
+      auth: authenticated
+        ? {
+            status: "authenticated",
+            ...(account.data.email ? { email: account.data.email } : {}),
+            accountKey: account.data.authId,
+          }
+        : { status: "unknown" },
+      models: [],
+      skills: [],
+      status: authenticated ? "ready" : "warning",
+      message: authenticated
+        ? "Shared conversation. Bot settings and tools are managed in Grok Bot."
+        : "Run bdk login on this computer, then check the connection again.",
+      usageLimits: createUnsupportedProviderUsageLimits(
+        input.baseSnapshot.checkedAt
+      ),
     },
   };
 }

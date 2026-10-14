@@ -512,6 +512,11 @@
 	top: 402px;
 	right: 10%;
 }
+.meld-floating-agent-6 {
+	--agent-size: 48px;
+	top: 110px;
+	left: 27%;
+}
 .meld-open-source {
 	display: grid;
 	justify-items: center;
