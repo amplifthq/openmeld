@@ -310,6 +310,14 @@ does not rerun completed work. Linux and JavaScript use native retained handles;
 missing handles are explicit failures and never permission to replay a launch.
 Command replies retain the last 50,000 characters per stream and report
 `outputTruncated` when clipped. Agents can redirect large output to a file.
+After confirmed execution loss, polling the original reference reads any saved
+output from that same receipt without reconnecting to the native runtime. The
+reply has `phase: result_unavailable` and `nextAction: inspect`; its status and
+exit code are the last observed facts, not proof of a live process, successful
+exit, or synchronized files. No observed exit remains `exitCode: null`. Output
+that was never collected or was already truncated cannot be recovered this way.
+An unconfirmed launch with a missing native record remains unknown and must not
+be replayed. Existing authorization, output cursors and cleanup ownership apply.
 The API client allows cold startup and 20-second polls. Foreground shell calls
 use their execution timeout plus a transport margin.
 `browser` runs the existing one-shot browser; `preview` inspects a local Linux
@@ -843,10 +851,21 @@ not converted to running state. Start returns a bounded initial output slice.
 When the model ends with unfinished commands, terminal handling requests their
 stop and reports failure rather than claiming the work completed. This is a
 command lifecycle contract, not proof that Computer image updates are safe.
-The retained PID runs Tini with process-group signal forwarding, so cancellation
-reaches shell children and pipelines belonging to that command. Each command
-gets its own process group on the shared Computer. No parallel PID registry is
-introduced. Terminal cleanup still attempts every owned command when output
+With negotiated execution supervision v1, native Runner owns one process group
+per command and sends Stop, timeout and disposal signals to that group, including
+when the main process exited but descendants still hold stdout or stderr.
+Container PID 1 uses Tini to reap orphaned children. An intentional new session
+or process group can escape this boundary; Stop does not promise to terminate
+all such descendants. Normal exit is retained only after both output pipes
+close. Observer cancellation preserves output; explicit disposal discards it.
+The SDK reads execution capability on connect and selects v1 only on the same
+prepared handle and native database epoch used by the execution fence. Valid
+older native information selects the existing Tini wrapper; unreadable,
+malformed or unknown capability evidence fails closed. Deploy Worker first,
+then native. Old Worker / new native retains legacy execution and its existing
+SIGKILL forwarding limitation. Same-database hot binary replacement is not a
+supported capability handoff. No parallel PID registry is introduced.
+Terminal cleanup still attempts every owned command when output
 inspection fails; an output transport error must not strand an active process.
 If an acknowledged or previously observed command is absent from both inspection
 and Stop, its owner records confirmed loss. Before launch acknowledgement,

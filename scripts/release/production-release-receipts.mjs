@@ -756,7 +756,7 @@ function recordComponentCompletion(input, record) {
     return record("verified");
   }
   (input.write ?? ((line) => process.stdout.write(`${line}\n`)))(
-    "Remote Agent Worker applied. Original Containers retained; native rollout remains pending. Verify original file synchronization before explicitly continuing the full Remote Agent release."
+    "Remote Agent Worker applied. Container configuration unchanged; native rollout remains pending. Verify original file synchronization before explicitly continuing the full Remote Agent release."
   );
 }
 

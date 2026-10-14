@@ -83,7 +83,15 @@ describe.each(["wait owner", "native tool"])("%s", (entrypoint) => {
 
   it.each([
     { ...running, status: "stop_requested" },
-    { ...running, phase: "result_unavailable", nextAction: "inspect" },
+    {
+      ...running,
+      phase: "result_unavailable",
+      nextAction: "inspect",
+      stdout: "Saved partial result",
+      stderr: "Saved warning",
+      exitCode: null,
+      after: 2,
+    },
     {
       ...running,
       phase: "sync_pending",

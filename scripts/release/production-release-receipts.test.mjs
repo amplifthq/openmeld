@@ -163,15 +163,22 @@ function fixture(options = {}) {
   return { run, receipts, effects, latest, released, sources };
 }
 
-for (const failure of ["none", "worker-drift", "receipt-write"]) {
-  test(`Worker-only release retains native provenance through explicit rollout (${failure})`, async () => {
+for (const [failure, baseline] of [
+  ["none", "active"],
+  ["none", "empty"],
+  ["container-drift", "empty"],
+  ["worker-drift", "active"],
+  ["receipt-write", "active"],
+]) {
+  test(`Worker-only release retains native provenance through explicit rollout (${failure}, ${baseline})`, async () => {
     const native = {
       id: "app",
       name: "openmeld-agent-computer",
       version: 124,
       image: `registry.cloudflare.com/account/openmeld-agent-computer@sha256:${"d".repeat(64)}`,
       configurationHash: "c".repeat(64),
-      instances: [{ id: "original-instance", version: 124 }],
+      instances:
+        baseline === "empty" ? [] : [{ id: "original-instance", version: 124 }],
     };
     let nativeChecks = 0;
     const options = {
@@ -184,6 +191,9 @@ for (const failure of ["none", "worker-drift", "receipt-write"]) {
       readRetainedContainer: (_input, expected) => {
         if (expected) {
           assert.deepEqual(expected, native);
+          if (failure === "container-drift") {
+            throw new Error("native drift");
+          }
         }
         return native;
       },
@@ -213,6 +223,18 @@ for (const failure of ["none", "worker-drift", "receipt-write"]) {
       },
     });
     result.sources.set("remote-agent", "b".repeat(40));
+    if (failure === "container-drift") {
+      await assert.rejects(result.run, NATIVE_DRIFT);
+      const failed = result.latest.get("remote-agent");
+      assert.equal(failed.status, "failed");
+      assert.equal(failed.application, "applied");
+      assert.equal(failed.identity.versionId, WORKER_VERSION);
+      assert.equal(failed.remoteAgent.phase, "worker-only");
+      assert.equal(nativeChecks, 0);
+      assert.deepEqual(result.effects, ["Deploy Remote Agent Worker"]);
+      assert.deepEqual(result.released, ["remote-agent"]);
+      return;
+    }
     await result.run();
     const partial = result.latest.get("remote-agent");
     assert.equal(partial.status, "applied");
