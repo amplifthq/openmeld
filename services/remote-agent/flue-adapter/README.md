@@ -98,9 +98,12 @@ is not a future release strategy.
    SQLite restart without disabling the budget or replaying completed tools. Paid supplier
    comparisons are opt-in in `live-context-cost.test.ts`. No transcript or
    search index is copied into an application-owned store.
-   Working-context and recent-tail estimates share the native 1,200-token
-   image heuristic; Base64 bytes are not text tokens. Original image bytes
-   remain intact and the provider's physical-capacity guard still runs.
+   Working-context admission and cut planning share the same serialized UTF-8
+   content estimate, including opaque provider signatures, and the native
+   1,200-token image heuristic. Base64 bytes are not text tokens. Kept signatures
+   and image bytes remain intact; the provider's physical-capacity guard still
+   runs. Legacy compaction keeps its original estimator when no working-context
+   budget is configured.
    `workingContextHeadroomTokens` reserves space for new work after deducting
    fixed instructions, tools and checkpoint allowance. The recent tail still
    preserves indivisible tool pairs. One working-context checkpoint summarizes
