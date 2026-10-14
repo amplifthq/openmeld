@@ -19,6 +19,7 @@ import {
   publishGuardedLocalReleaseEvidence,
   readGuardedLocalReleaseSources,
 } from "./production-release-evidence.mjs";
+import { describeRemoteContainerConfiguration } from "./remote-agent-container-evidence.mjs";
 
 import {
   assertRemoteVerificationSelectors,
@@ -27,6 +28,7 @@ import {
   proveNativeBaseline,
   publishRemoteAgentRecoveryEvidence,
   readNativeHistoryBaseline,
+  readRemoteAgentRecoveryHistory,
   verifyRecoveredRemoteAgentTarget,
 } from "./remote-agent-partial-recovery.mjs";
 
@@ -46,6 +48,7 @@ const RECEIPT_PUBLICATION_FAILED = /receipt publication failed/u;
 const SELECTOR_MISMATCH = /selectors do not match/u;
 const TARGET_BOUNDARY = /fixture target boundary reached/u;
 const PREFLIGHT_BLOCKED = /failed with exit code 19/u;
+const REGISTRY_UNAVAILABLE = /Registry unavailable/u;
 
 test("recovery CLI reserves deployment preflight for recovery that deploys", () => {
   const root = mkdtempSync(path.join(tmpdir(), "openmeld-recovery-entry-"));
@@ -301,6 +304,292 @@ test("admits only one active Worker upload in the retained failed attempt window
   }
 });
 
+test("resumes only the exact linked recovery failure and rejects altered Git evidence or live selectors", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "openmeld-recovery-history-"));
+  const git = (...args) =>
+    execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+  try {
+    git("init", "--quiet", "--initial-branch=main");
+    git("config", "user.name", "Recovery Test");
+    git("config", "user.email", "release-test@openmeld.ai");
+    git("commit", "--allow-empty", "--quiet", "-m", "source");
+    const sourceSha = git("rev-parse", "HEAD");
+    const input = fixture();
+    input.sourceSha = sourceSha;
+    input.current.sha = sourceSha;
+    input.started.sourceSha = sourceSha;
+    const metadata = (receipt, recordedAt, schemaVersion = 3) => ({
+      kind: "openmeld-guarded-local-release-evidence",
+      evidenceId: "00000000-0000-4000-8000-000000000001",
+      scope: "remote-agent",
+      sourceSha,
+      recordedAt,
+      schemaVersion,
+      receipt,
+    });
+    const commit = (value, parents, tree = `${sourceSha}^{tree}`) =>
+      execFileSync(
+        "git",
+        ["commit-tree", tree, ...parents.flatMap((parent) => ["-p", parent])],
+        { cwd: root, encoding: "utf8", input: JSON.stringify(value) }
+      ).trim();
+    const started = metadata(input.started.receipt, "2026-09-20T15:20:33.062Z");
+    const startedSha = commit(started, [sourceSha]);
+    const failed = metadata(input.current.receipt, input.current.recordedAt);
+    const failedSha = commit(failed, [startedSha]);
+    const baseline = assessRemoteAgentPartialRecovery(input);
+    const native = {
+      evidenceSha: "b".repeat(40),
+      sourceSha: "c".repeat(40),
+      workerVersionId: VERSION,
+      container: {
+        id: CONTAINER,
+        name: "openmeld-agent-computer",
+        version: baseline.containerVersion,
+        image: OLD_IMAGE,
+        configurationHash: describeRemoteContainerConfiguration(input.container)
+          .configurationHash,
+      },
+    };
+    const recovery = {
+      id: "00000000-0000-4000-8000-000000000002",
+      originalEvidenceSha: failedSha,
+      startedAt: "2026-09-20T16:00:00.000Z",
+      baseline,
+      nativeProvenance: native,
+      observedAfterFailure: {
+        workerDeploymentId: "recovery-deployment",
+        workerVersionId: "e19357b2-0000-4000-8000-123456789abc",
+        containerVersion: baseline.containerVersion,
+        containerImage: OLD_IMAGE,
+        observedAt: "2026-09-20T16:01:00.000Z",
+      },
+    };
+    const proof = metadata(
+      { ...failed.receipt, recovery },
+      "2026-09-20T16:02:00.000Z",
+      4
+    );
+    const recovered = metadata(failed.receipt, proof.recordedAt);
+    const makeLatest = (
+      proofValue = proof,
+      previous = failedSha,
+      proofParents = [previous],
+      tree = undefined
+    ) => {
+      const proofSha = commit(proofValue, proofParents, tree);
+      return {
+        sha: sourceSha,
+        evidenceSha: commit(recovered, [previous, proofSha]),
+        recordedAt: recovered.recordedAt,
+        receipt: recovered.receipt,
+      };
+    };
+    const latest = makeLatest();
+    const history = readRemoteAgentRecoveryHistory(root, latest);
+    assert.deepEqual(history, { started, recovery });
+    assert.deepEqual(
+      readRemoteAgentRecoveryHistory(root, {
+        ...input.current,
+        evidenceSha: failedSha,
+      }),
+      { started, recovery: undefined }
+    );
+    const resumed = {
+      ...input,
+      ...history,
+      current: latest,
+      expectedDeploymentId: recovery.observedAfterFailure.workerDeploymentId,
+      expectedWorkerVersionId: recovery.observedAfterFailure.workerVersionId,
+      deployments: [
+        ...input.deployments,
+        {
+          id: recovery.observedAfterFailure.workerDeploymentId,
+          created_on: "2026-09-20T16:00:30.000Z",
+          versions: [
+            {
+              version_id: recovery.observedAfterFailure.workerVersionId,
+              percentage: 100,
+            },
+          ],
+        },
+      ],
+      instancesPage: {
+        instances: [],
+        result_info: { page_token: null, next_page_token: null },
+      },
+    };
+    assert.deepEqual(assessRemoteAgentPartialRecovery(resumed), {
+      ...baseline,
+      workerDeploymentId: resumed.expectedDeploymentId,
+      workerVersionId: resumed.expectedWorkerVersionId,
+    });
+    for (const change of [
+      { expectedDeploymentId: DEPLOYMENT },
+      { expectedWorkerVersionId: VERSION },
+      { expectedContainerVersion: 100 },
+      { container: { ...input.container, active_rollout_id: "in-progress" } },
+      {
+        container: {
+          ...input.container,
+          configuration: { image: OLD_IMAGE, changed: true },
+        },
+      },
+      {
+        instancesPage: {
+          ...resumed.instancesPage,
+          result_info: { page_token: null, next_page_token: "next" },
+        },
+      },
+      {
+        deployments: [
+          ...resumed.deployments,
+          {
+            ...resumed.deployments.at(-1),
+            id: "later-deployment",
+            created_on: "2026-09-20T16:03:00.000Z",
+          },
+        ],
+      },
+      {
+        deployments: [
+          ...resumed.deployments,
+          {
+            ...resumed.deployments.at(-1),
+            id: "changed-baseline",
+            created_on: "2026-09-20T15:59:00.000Z",
+            versions: [{ version_id: "changed-version", percentage: 100 }],
+          },
+        ],
+      },
+    ]) {
+      assert.throws(() =>
+        assessRemoteAgentPartialRecovery({ ...resumed, ...change })
+      );
+    }
+    for (const change of [
+      { originalEvidenceSha: startedSha },
+      { startedAt: "2026-09-20T15:21:00.000Z" },
+      { observedAfterFailure: undefined },
+      {
+        observedAfterFailure: {
+          ...recovery.observedAfterFailure,
+          observedAt: "2026-09-20T16:03:00.000Z",
+        },
+      },
+      {
+        observedAfterFailure: {
+          ...recovery.observedAfterFailure,
+          containerVersion: 100,
+        },
+      },
+    ]) {
+      assert.throws(() =>
+        readRemoteAgentRecoveryHistory(
+          root,
+          makeLatest({
+            ...proof,
+            receipt: { ...proof.receipt, recovery: { ...recovery, ...change } },
+          })
+        )
+      );
+    }
+    for (const changed of [
+      { ...proof, sourceSha: "a".repeat(40) },
+      { ...proof, receipt: { ...proof.receipt, operationKey: "a".repeat(64) } },
+      {
+        ...proof,
+        receipt: {
+          ...proof.receipt,
+          attemptId: "00000000-0000-4000-8000-000000000009",
+        },
+      },
+      { ...proof, recordedAt: "2026-09-20T16:01:59.000Z" },
+    ]) {
+      assert.throws(() =>
+        readRemoteAgentRecoveryHistory(root, makeLatest(changed))
+      );
+    }
+    assert.throws(() =>
+      readRemoteAgentRecoveryHistory(
+        root,
+        makeLatest(proof, failedSha, [startedSha])
+      )
+    );
+    const unlinked = commit(failed, [failedSha]);
+    assert.throws(() =>
+      readRemoteAgentRecoveryHistory(root, {
+        ...latest,
+        evidenceSha: unlinked,
+        recordedAt: failed.recordedAt,
+      })
+    );
+    writeFileSync(path.join(root, "different.txt"), "different source tree\n");
+    git("add", "different.txt");
+    const wrongTree = git("write-tree");
+    assert.throws(() =>
+      readRemoteAgentRecoveryHistory(
+        root,
+        makeLatest(proof, failedSha, [failedSha], wrongTree)
+      )
+    );
+    const validProofSha = commit(proof, [failedSha]);
+    assert.throws(() =>
+      readRemoteAgentRecoveryHistory(root, {
+        ...latest,
+        evidenceSha: commit(recovered, [failedSha, validProofSha], wrongTree),
+      })
+    );
+    for (const changed of [
+      { ...recovered, scope: "core" },
+      { ...recovered, sourceSha: "a".repeat(40) },
+      { ...recovered, recordedAt: "2026-09-20T16:02:01.000Z" },
+      { ...recovered, receipt: { ...recovered.receipt, componentIndex: 99 } },
+    ]) {
+      assert.throws(() =>
+        readRemoteAgentRecoveryHistory(root, {
+          ...latest,
+          evidenceSha: commit(changed, [failedSha, validProofSha]),
+        })
+      );
+    }
+
+    // A second failure links to the previous canonical event, not back to the
+    // first failure. Its window and baseline advance; the attempt never does.
+    const nextRecovery = {
+      ...recovery,
+      id: "00000000-0000-4000-8000-000000000003",
+      originalEvidenceSha: latest.evidenceSha,
+      startedAt: "2026-09-20T17:00:00.000Z",
+      baseline: assessRemoteAgentPartialRecovery(resumed),
+      observedAfterFailure: {
+        ...recovery.observedAfterFailure,
+        workerDeploymentId: "second-recovery",
+        workerVersionId: "second-version",
+        observedAt: "2026-09-20T17:01:00.000Z",
+      },
+    };
+    const nextProof = metadata(
+      { ...failed.receipt, recovery: nextRecovery },
+      "2026-09-20T17:02:00.000Z",
+      4
+    );
+    const nextProofSha = commit(nextProof, [latest.evidenceSha]);
+    const next = metadata(failed.receipt, nextProof.recordedAt);
+    const nextLatest = {
+      ...latest,
+      recordedAt: next.recordedAt,
+      evidenceSha: commit(next, [latest.evidenceSha, nextProofSha]),
+    };
+    assert.deepEqual(readRemoteAgentRecoveryHistory(root, nextLatest), {
+      started,
+      recovery: nextRecovery,
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("a competing production lease prevents any recovery work", async () => {
   let executed = false;
   await assert.rejects(
@@ -425,6 +714,7 @@ for (const mode of [
   "success",
   "receipt-failure",
   "unchanged",
+  "unchanged-resume",
   "retained-wrong-digest",
   "retained-receipt-failure",
   "retained-success",
@@ -433,6 +723,7 @@ for (const mode of [
     const wrongDigest = mode.endsWith("wrong-digest");
     const receiptFailure = mode.endsWith("receipt-failure");
     const retained = mode.startsWith("retained-");
+    const unchanged = mode.startsWith("unchanged");
     const root = mkdtempSync(path.join(tmpdir(), "openmeld-remote-recovery-"));
     const repository = path.join(root, "repository");
     const remote = path.join(root, "remote.git");
@@ -503,7 +794,7 @@ for (const mode of [
         readGuardedLocalReleaseSources({ cwd: repository, remote }).get(
           "remote-agent"
         );
-      if (mode === "unchanged") {
+      if (unchanged) {
         publish(
           {
             ...receipt,
@@ -530,7 +821,7 @@ for (const mode of [
         undefined,
         "2026-09-20T15:22:12.913Z"
       );
-      const original = read();
+      let original = read();
       const baseline = assessRemoteAgentPartialRecovery(fixture());
       const recovery = {
         id: "00000000-0000-4000-8000-000000000002",
@@ -583,7 +874,7 @@ for (const mode of [
         },
       };
       let deployed = false;
-      if (mode === "unchanged") {
+      if (unchanged) {
         target.container.version = baseline.containerVersion;
         target.container.configuration.image = OLD_IMAGE;
         target.imageDigest = OLD_IMAGE.split("@")[1];
@@ -623,6 +914,8 @@ for (const mode of [
         );
       }
       let attemptedVerified = false;
+      let registryUnavailable = mode === "unchanged-resume";
+      let recordedAt = "2026-09-20T16:02:00.000Z";
       const execute = () =>
         executeRemoteAgentRecovery({
           recovery,
@@ -646,11 +939,16 @@ for (const mode of [
             assert.equal(deployed, true);
             return identity;
           },
-          verifyContainer: async () => verifyRecoveredRemoteAgentTarget(target),
+          verifyContainer: () => {
+            if (registryUnavailable) {
+              throw new Error("Registry unavailable");
+            }
+            return verifyRecoveredRemoteAgentTarget(target);
+          },
           observeFailure: () => ({
             workerDeploymentId: "new-deployment",
             workerVersionId: identity.versionId,
-            containerVersion: 100,
+            containerVersion: target.container.version,
             containerImage: target.container.configuration.image,
             observedAt: "2026-09-20T16:01:00.000Z",
           }),
@@ -669,10 +967,43 @@ for (const mode of [
               application,
               identity: appliedIdentity,
               recovery,
-              now: "2026-09-20T16:02:00.000Z",
+              now: recordedAt,
             });
           },
         });
+      if (registryUnavailable) {
+        await assert.rejects(execute(), REGISTRY_UNAVAILABLE);
+        const failedRecovery = read();
+        assert.equal(failedRecovery.receipt.status, "failed");
+        assert.deepEqual(
+          failedRecovery.verifiedHistoryBaseline,
+          original.verifiedHistoryBaseline
+        );
+        assert.deepEqual(
+          readNativeHistoryBaseline(
+            repository,
+            failedRecovery.verifiedHistoryBaseline
+          ),
+          original.verifiedHistoryBaseline
+        );
+        const history = readRemoteAgentRecoveryHistory(
+          repository,
+          failedRecovery
+        );
+        assert.deepEqual(history.recovery, recovery);
+        assert.deepEqual(history.started.receipt, receipt);
+        original = failedRecovery;
+        recovery.originalEvidenceSha = failedRecovery.evidenceSha;
+        recovery.startedAt = "2026-09-20T16:03:00.000Z";
+        recovery.baseline = {
+          ...baseline,
+          workerDeploymentId: identity.deploymentId,
+          workerVersionId: identity.versionId,
+        };
+        recovery.observedAfterFailure = undefined;
+        recordedAt = "2026-09-20T16:04:00.000Z";
+        registryUnavailable = false;
+      }
       if (wrongDigest) {
         await assert.rejects(execute(), ROLLOUT_UNVERIFIED);
         assert.equal(read().receipt.status, "failed");
@@ -688,7 +1019,7 @@ for (const mode of [
         assert.equal(read().receipt.status, "verified");
         assert.equal(read().receipt.attemptId, ATTEMPT);
         assert.equal(read().receipt.identity.versionId, identity.versionId);
-        if (mode === "unchanged") {
+        if (unchanged) {
           assert.deepEqual(
             readNativeHistoryBaseline(repository, read()),
             original.verifiedHistoryBaseline
