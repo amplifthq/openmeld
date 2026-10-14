@@ -91,6 +91,10 @@ describe("local agent updates", () => {
       const request = {
         installationId: setup.installationId,
         operationId: randomUUID(),
+        // The transport envelope carries these fields at runtime. They must not
+        // leak into the strict durable receipt, even through structural typing.
+        agentId: "claude-code",
+        operation: "update" as const,
       };
       const started = await updater.start("claude-code", request);
       try {
@@ -118,6 +122,7 @@ describe("local agent updates", () => {
         await completed;
       }
       const result = await updater.state("claude-code");
+      expect(slots.getAdapterOperationStatus("claude-code")).toBe("available");
       expect(result.operation).toMatchObject({
         status: readable ? "succeeded" : "outcome_unknown",
         beforeVersion: "1.0.0",

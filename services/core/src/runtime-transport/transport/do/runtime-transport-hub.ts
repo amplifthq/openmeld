@@ -55,6 +55,7 @@ import {
   OPENMELD_LOCAL_FOLDER_PICKER_CAPABILITY_HEADER,
   OPENMELD_REASONING_STREAM_HEADER,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
+  openMeldDaemonManageLocalAgentInstallationPayloadSchema,
   openMeldDaemonReadProfileWorkspacePayloadSchema,
   openMeldToolsControlResultSchema,
   type PluginConnectionExecutionSourceRequest,
@@ -21598,7 +21599,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     return await this.sendCurrentDeviceOperationAndWait({
       code: "daemon.local_agent_control.manage_installation",
       expectedResponseCode: "daemon.local_agent_control.result",
-      isExpectedPayload: isOpenMeldDaemonManageLocalAgentInstallationPayload,
+      isExpectedPayload: (value) =>
+        openMeldDaemonManageLocalAgentInstallationPayloadSchema.safeParse(value)
+          .success,
       payload: input.payload as unknown as Record<string, unknown>,
       requestId: input.requestId,
       session: input.session,
@@ -22411,14 +22414,6 @@ const isOpenMeldDaemonSetLocalAgentEnabledPayload = (
   payload !== null &&
   "agentId" in payload &&
   "enabled" in payload;
-const isOpenMeldDaemonManageLocalAgentInstallationPayload = (
-  payload: unknown
-): payload is OpenMeldDaemonManageLocalAgentInstallationPayload =>
-  typeof payload === "object" &&
-  payload !== null &&
-  "agentId" in payload &&
-  "installations" in payload &&
-  "selectedInstallationId" in payload;
 const isOpenMeldDaemonSetProfileWorkspacePayload = (
   payload: unknown
 ): payload is OpenMeldDaemonSetProfileWorkspacePayload =>

@@ -159,35 +159,41 @@ export function createLocalAgentUpdater(input: {
       }
       // Claim the existing idle guard synchronously. Persist before invoking the
       // vendor; return the receipt while the Host retains the guard until exit.
-      const work = input.slots.runAdapterOperationIfIdle(agentId, async () => {
-        const beforeVersion = await readClaudeNativeVersion(executable);
-        const operation: LocalAgentUpdateOperation = {
-          ...request,
-          beforeVersion,
-          afterVersion: null,
-          status: "running",
-          message: "Updating Claude Code. You can close this window.",
-        };
-        active.add(request.operationId);
-        await save(operation);
-        started({ supported: true, operation });
-        // The transaction that admitted this operation must finish before its
-        // completion uses the same store writer.
-        try {
-          if ((await command(agentId, request.installationId)) !== executable) {
-            throw new Error(
-              "The selected installation changed before the update started."
-            );
-          }
-          await updateClaudeNativeInstallation(executable);
-          if ((await command(agentId, request.installationId)) !== executable) {
-            throw new Error(
-              "The selected installation could not be confirmed after the update."
-            );
-          }
-          const afterVersion = await readClaudeNativeVersion(executable);
-          await serialize(() =>
-            save({
+      const work = input.slots.runAdapterOperationIfIdle(
+        agentId,
+        async (): Promise<LocalAgentUpdateOperation> => {
+          const beforeVersion = await readClaudeNativeVersion(executable);
+          const operation: LocalAgentUpdateOperation = {
+            installationId: request.installationId,
+            operationId: request.operationId,
+            beforeVersion,
+            afterVersion: null,
+            status: "running",
+            message: "Updating Claude Code. You can close this window.",
+          };
+          active.add(request.operationId);
+          await save(operation);
+          started({ supported: true, operation });
+          // The transaction that admitted this operation must finish before its
+          // completion uses the same store writer.
+          try {
+            if (
+              (await command(agentId, request.installationId)) !== executable
+            ) {
+              throw new Error(
+                "The selected installation changed before the update started."
+              );
+            }
+            await updateClaudeNativeInstallation(executable);
+            if (
+              (await command(agentId, request.installationId)) !== executable
+            ) {
+              throw new Error(
+                "The selected installation could not be confirmed after the update."
+              );
+            }
+            const afterVersion = await readClaudeNativeVersion(executable);
+            return {
               ...operation,
               afterVersion,
               status: "succeeded",
@@ -195,45 +201,53 @@ export function createLocalAgentUpdater(input: {
                 beforeVersion === afterVersion
                   ? `No newer version was installed. Claude Code is still ${afterVersion}.`
                   : `Claude Code was updated from ${beforeVersion} to ${afterVersion}.`,
-            })
-          );
-        } catch (error) {
-          input.log(
-            `Local agent update ${request.operationId} failed: ${error instanceof Error ? error.message : String(error)}`
-          );
-          await serialize(() =>
-            save({
+            };
+          } catch (error) {
+            input.log(
+              `Local agent update ${request.operationId} failed: ${String(error)}`
+            );
+            return {
               ...operation,
               status: "outcome_unknown",
               message:
                 "The update could not be verified. Check Claude Code in your terminal and OpenMeld Service diagnostics before trying again.",
-            })
-          );
-        } finally {
-          active.delete(request.operationId);
-          await input.refresh();
-        }
-      });
-      work.then(
-        (result) => {
-          if (!result.accepted) {
-            rejected(
-              new Error(
-                result.status === "blocked_by_work"
-                  ? "agents.update_blocked_by_work: Claude Code has work in progress. Wait until it finishes before updating."
-                  : "agents.update_in_progress: This installation is already being changed. Check again shortly."
-              )
-            );
+            };
           }
-        },
-        (error) => {
-          active.delete(request.operationId);
-          input.log(
-            `Local agent update ${request.operationId} could not complete: ${String(error)}`
-          );
-          rejected(error);
         }
       );
+      work
+        .then(
+          async (result) => {
+            if (!result.accepted) {
+              rejected(
+                new Error(
+                  result.status === "blocked_by_work"
+                    ? "agents.update_blocked_by_work: Claude Code has work in progress. Wait until it finishes before updating."
+                    : "agents.update_in_progress: This installation is already being changed. Check again shortly."
+                )
+              );
+              return;
+            }
+            // Publish completion only after the idle guard has been released, so
+            // clients can refresh installation controls without caching a stale lock.
+            await serialize(() => save(result.value));
+            active.delete(request.operationId);
+            await input.refresh();
+          },
+          (error) => {
+            active.delete(request.operationId);
+            input.log(
+              `Local agent update ${request.operationId} could not complete: ${String(error)}`
+            );
+            rejected(error);
+          }
+        )
+        .catch((error) => {
+          active.delete(request.operationId);
+          input.log(
+            `Could not publish local agent update completion: ${String(error)}`
+          );
+        });
       await ready;
     });
     return ready;
