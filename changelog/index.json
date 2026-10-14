@@ -2,6 +2,25 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "responsive-pinned-conversations",
+      "title": "A more compact home for pinned conversations",
+      "kind": "improved",
+      "areas": [
+        "web",
+        "spaces",
+        "chats"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-14",
+      "evidence": [
+        "pr:1724",
+        "commit:b461313d90eca6d6283b28e784ecb61625692886"
+      ],
+      "body": "Pinned conversations use larger avatars in a grid that adjusts to the sidebar\nwidth. Two rows stay visible by default, with a control to show more and an\nupdate indicator for hidden conversations. The shared Fluid hover highlight,\nconversation menus, unread links, and drag ordering remain available."
+    },
+    {
       "id": "website-guide-redirect-release-health",
       "title": "Accept permanent guide redirects in Website release checks",
       "kind": "fixed",
@@ -18,6 +37,51 @@
         "workflow:38591154751"
       ],
       "body": "Website release checks now accept the permanent redirects from legacy local-agent\nguide URLs to their exact Docs pages. They still verify the Website deployment's\nsource and build identity on its rendered pages."
+    },
+    {
+      "id": "grok-bot-shared-conversations",
+      "title": "Connect an existing Grok Bot",
+      "kind": "new",
+      "areas": [
+        "agents",
+        "local-service"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-10-14",
+      "release": "v0.3.261",
+      "evidence": [
+        "pr:1719",
+        "workflow:38595947657",
+        "commit:4a84cdbcdfeddeaf2a12b8f6bd5dc990afb78b9d",
+        "commit:57246148ea8b2e1fd0b92f2df66f20c52e231c78",
+        "commit:b461313d90eca6d6283b28e784ecb61625692886",
+        "workflow:38596949076",
+        "workflow:38591154751"
+      ],
+      "body": "Connect an existing Grok Bot through an ordinary Agent Profile. Send work and\nreceive replies through the same OpenMeld conversations used by other Agents.\nThe connection shares the Bot's original conversation, including its stop\ncontrol. A short confirmation explains this when you connect.\n\nNewly created and selected Agents stay at the top of the people-and-agents\npicker. Agent creation runs in the background so you can keep choosing members."
+    },
+    {
+      "id": "computer-only-setup-skips-unrelated-agents",
+      "title": "Connect your computer without preparing unrelated agents",
+      "kind": "fixed",
+      "areas": [
+        "desktop",
+        "cli",
+        "computers"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-14",
+      "release": "v0.3.261",
+      "evidence": [
+        "pr:1723",
+        "workflow:38595947657",
+        "workflow:38590148705"
+      ],
+      "body": "Desktop Connect and CLI setup with `--local-agents none` no longer wait for\nunrelated local agents to be checked or repaired. Account and Service checks\nstill run. Background agent discovery continues after connection."
     },
     {
       "id": "model-switch-context-continuity",
@@ -55,6 +119,26 @@
         "workflow:38591154751"
       ],
       "body": "Local Agent setup guides now sit alongside computer connection and task guides\nin Docs. Each supported tool has its own navigation entry and logo. Existing\nwebsite guide links redirect to the corresponding documentation page.\n\nA new Connect with an agent guide provides a copyable setup prompt and a link\nto generate private setup access in the App. It explains how to confirm the\ncomputer connection and handle expired authorization."
+    },
+    {
+      "id": "trace-retained-result-guidance",
+      "title": "Find retained results after a Wake failure",
+      "kind": "fixed",
+      "areas": [
+        "cli",
+        "spaces"
+      ],
+      "audiences": [
+        "users",
+        "agents"
+      ],
+      "publishedAt": "2026-10-14",
+      "release": "v0.3.261",
+      "evidence": [
+        "pr:1718",
+        "workflow:38595947657"
+      ],
+      "body": "The CLI trace summary now points to retained-result evidence when a result\narrives after a visible Wake failure. It keeps the original failure visible and\ndoes not suggest starting the work again."
     },
     {
       "id": "docs-settings-and-team-guides",
@@ -132,6 +216,26 @@
       "body": "Computer retains the last stdout and stderr from a command before reporting its\nexit. Output that arrives after the process exits no longer crashes the Computer\nor interrupts other commands.\n\nStop and command timeouts also reach ordinary child processes after the main\nprocess exits, while the Computer continues to collect their final output."
     },
     {
+      "id": "cli-bundled-internal-adapters",
+      "title": "Keep internal adapters inside CLI releases",
+      "kind": "fixed",
+      "areas": [
+        "cli",
+        "releases"
+      ],
+      "audiences": [
+        "users",
+        "operators"
+      ],
+      "publishedAt": "2026-10-14",
+      "release": "v0.3.261",
+      "evidence": [
+        "pr:1732",
+        "workflow:38595947657"
+      ],
+      "body": "The CLI includes the Grok Bot adapter without requiring an unpublished internal\npackage during npm installation. Release checks now reject internal packages\nlisted as external runtime dependencies before attempting consumer installation."
+    },
+    {
       "id": "docs-missing-markdown-status",
       "title": "Missing Markdown documentation returns 404",
       "kind": "fixed",
@@ -167,6 +271,27 @@
       "body": "The OpenCode model catalog now includes Liquid LFM2.5-24B-A2B and Pareto 26.9\nthrough OpenRouter. Access depends on your provider account. Existing model\nselections and defaults stay the same."
     },
     {
+      "id": "hosted-release-windows-artifact-pin",
+      "title": "Preserve the selected Windows helper during hosted CLI releases",
+      "kind": "fixed",
+      "areas": [
+        "releases",
+        "cli"
+      ],
+      "audiences": [
+        "developers",
+        "operators"
+      ],
+      "publishedAt": "2026-10-14",
+      "release": "v0.3.261",
+      "evidence": [
+        "pr:1705",
+        "workflow:38595947657",
+        "workflow:38454720367"
+      ],
+      "body": "Guarded hosted CLI releases now pass the selected Windows helper run to the\nrelease workflow. This keeps publication tied to the helper bytes used to prepare\nthe release manifest, instead of building a replacement with different bytes."
+    },
+    {
       "id": "computer-retained-partial-output",
       "title": "Read saved output after a Computer command is lost",
       "kind": "fixed",
@@ -185,6 +310,45 @@
         "commit:876764f6184c5b73eb84f0aa34b83cf81115d363"
       ],
       "body": "If a Computer command is lost when its runtime is replaced, polling its original\nreference returns any output already saved with the command. Agents can use that\nevidence to explain what was done and what remains unknown without repeating the\ncommand. The result still identifies the loss; saved output does not prove a\nsuccessful exit or that files finished synchronizing."
+    },
+    {
+      "id": "service-result-recovery",
+      "title": "Recover retained results and failed computer connections",
+      "kind": "fixed",
+      "areas": [
+        "computer",
+        "local-agents"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-14",
+      "release": "v0.3.261",
+      "evidence": [
+        "pr:1723",
+        "workflow:38595947657",
+        "commit:4a84cdbcdfeddeaf2a12b8f6bd5dc990afb78b9d"
+      ],
+      "body": "OpenMeld can publish recovery notices for results that arrive after a task loses\nits computer connection. OpenMeld Service also resumes its reconnect flow when\na connection fails without a close notification, while keeping saved results\navailable for replay."
+    },
+    {
+      "id": "service-stop-reconnect",
+      "title": "Recover the connection while stopping OpenMeld Service",
+      "kind": "fixed",
+      "areas": [
+        "computer",
+        "local-service"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-14",
+      "release": "v0.3.261",
+      "evidence": [
+        "pr:1727",
+        "workflow:38595947657"
+      ],
+      "body": "If the connection drops while OpenMeld Service is finishing accepted work,\nit reconnects and continues the same stop request. Pending replies remain saved,\nand any required reply review continues in the original task. Reconnecting does\nnot restart that task."
     },
     {
       "id": "computer-sync-receiver-cost",
@@ -226,6 +390,31 @@
       "body": "Release operators can manually continue a failed Remote Agent recovery when\nthe recorded Worker and Container state still matches production. The guarded\ncommand preserves the original release attempt and source. It checks the full\nrecovery evidence chain before deployment and does not replay user commands."
     },
     {
+      "id": "local-agent-native-updates",
+      "title": "Update native Claude Code from Computer details",
+      "kind": "new",
+      "areas": [
+        "agents",
+        "web",
+        "desktop",
+        "cli"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-10-14",
+      "release": "v0.3.261",
+      "evidence": [
+        "pr:1728",
+        "workflow:38595947657",
+        "workflow:38590148705",
+        "commit:4a84cdbcdfeddeaf2a12b8f6bd5dc990afb78b9d",
+        "commit:57246148ea8b2e1fd0b92f2df66f20c52e231c78",
+        "commit:b461313d90eca6d6283b28e784ecb61625692886"
+      ],
+      "body": "Computer details in Web and Desktop can update the selected native Claude Code\ninstallation on macOS and Linux. Updates use Claude Code's configured release\nchannel. You can start an update when Claude Code has no OpenMeld work in progress.\n\nYou can close the details window and return to check the result. OpenMeld verifies\nthe installed version and does not automatically repeat an unconfirmed update.\nOther installation methods keep their existing manual update instructions."
+    },
+    {
       "id": "worker-only-release-inactive-computers",
       "title": "Update the Remote Agent Worker while Computers are inactive",
       "kind": "fixed",
@@ -244,6 +433,24 @@
         "commit:876764f6184c5b73eb84f0aa34b83cf81115d363"
       ],
       "body": "The guarded Worker-only release can proceed when a complete platform check\nfinds no active Computers. It keeps the existing Container configuration and\nchecks that any original active instances remain present. File synchronization\nstill requires separate verification before a full Container rollout."
+    },
+    {
+      "id": "remove-internal-ai-exemption",
+      "title": "Use the same AI funding rules for every workspace",
+      "kind": "removed",
+      "areas": [
+        "ai-usage"
+      ],
+      "audiences": [
+        "admins"
+      ],
+      "publishedAt": "2026-10-14",
+      "evidence": [
+        "pr:1722",
+        "commit:4a84cdbcdfeddeaf2a12b8f6bd5dc990afb78b9d",
+        "commit:b461313d90eca6d6283b28e784ecb61625692886"
+      ],
+      "body": "All workspaces now use Free credits or their own OpenRouter key. The internal\nexemption can no longer enable unlimited platform-funded AI usage. Historical\nusage records remain available."
     },
     {
       "id": "historical-release-billing-config-check",
