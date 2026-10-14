@@ -1,0 +1,27 @@
+---
+title: Routines and Runs
+description: Separate the saved schedule from each execution and its result.
+---
+
+A **Routine** saves instructions, an Agent, a schedule, and a destination. A **Run** records what happened for scheduled work. A skipped Run can summarize several missed occurrences.
+
+```text
+Routine: weekly release summary
+  ├─ Monday: Run → result in the selected conversation
+  ├─ Next Monday: Run → result or failure
+  └─ Later Monday: skipped Run → reason in history
+```
+
+## Schedule state is not result state
+
+A one-time Routine can show **Finished** because its scheduled occurrence has been claimed. The Run may still be preparing or awaiting a result. Open the Run to see its outcome.
+
+Pausing a Routine prevents future scheduling. It does not prove that already running work stopped. Use the running work's stop controls and check the outcome if you need it to stop.
+
+## Visibility is not the destination
+
+**Only me** controls who can see the Routine definition and history. **Send results to** controls where its answer goes. Check both before saving: a personal Routine can still send its result to a shared Space.
+
+An already claimed Run keeps its recorded destination when you edit the Routine. Look in that Run's destination for its answer, rather than assuming it used the latest settings.
+
+Next: [Schedule a Routine](/docs/work/routines) or [Run status](/docs/reference/run-status).

@@ -1,0 +1,22 @@
+---
+title: Run status
+description: Read a Routine's execution status without confusing it with the schedule.
+---
+
+Open the Routine's history and find the Run's row. The visible label describes that Run, not the whole Routine.
+
+| Label | API value | Meaning | What to do |
+| --- | --- | --- | --- |
+| Preparing | `claimed` | The occurrence has been claimed for preparation. | Wait for an outcome; do not treat it as a result. |
+| Awaiting result | `submitted` | Work has been submitted and the Run has no final outcome yet. | Check the linked conversation and progress. |
+| Completed | `completed` | The Run has a completed outcome. | Open **View result**, when available, and verify the requested work. |
+| Failed | `failed` | The Run ended with a failure. | Read the reason and check for partial work before repeating it. |
+| Skipped | `skipped` | Scheduled work was not executed for this record. | Read the reason in history; see [Routine skipped](/docs/help/routine-skipped). |
+
+## Routine state
+
+Routine state describes the schedule: enabled, paused, or completed. The app shows a completed schedule as **Finished**. It does not mean every Run succeeded.
+
+## Missing result links
+
+A status alone is not the deliverable. If the result link is absent or the destination has no answer, follow [Routine result missing](/docs/help/routine-result-missing). Preserve the Run details rather than immediately creating another Run.

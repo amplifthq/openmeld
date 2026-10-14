@@ -4460,13 +4460,13 @@ retry decisions. Retain only fixed recovery classifications and correlate throug
 the existing request/submission observations; raw provider text is not required
 in the authorized caller's failure explanation.
 
-Runtime Agent Controller reporting follows the same minimization rule. Local
-command paths, launch arguments, provider account email/labels,
-controller-provided model or skill inventories, and free-text local probe
-messages stay on the computer. The cloud read model may persist only the shared
-allowlisted ACI projection defined in `shared-contracts.md`; it must not treat a
-rich local snapshot as safe merely because that snapshot passed schema
-validation.
+Runtime Agent Controller reporting uses the explicit cloud projection in
+`clients/openmeld-cli/src/local-service/reporting/agent-controller-interface-cloud-projection.ts`.
+Executable paths, launch arguments, discovered Skills, and free-text probe
+messages are omitted. Provider account email/labels, model inventory, version,
+capabilities, and usage-limit fields can be included. Do not describe these
+included fields as local-only. The cloud read model must not treat an entire
+rich local snapshot as safe merely because it passed schema validation.
 
 The designated Center Agent Dispatch History tool may expose `errorMessage`
 only as a bounded, sanitized vendor-error summary: the vendor error code, type,
