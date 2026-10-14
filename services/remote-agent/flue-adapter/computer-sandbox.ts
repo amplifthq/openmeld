@@ -363,6 +363,11 @@ export async function createRemoteAgentComputerCapability(input: {
   const prepareImage = input.prepareImage;
   const videoModel = input.context.modelRoute?.imageUnderstandingModel;
   const transcriptionAi = input.env.AI;
+  const storage = input.storage;
+  const hasPendingInput = storage
+    ? () =>
+        hasPendingRemoteAgentExecutionInput({ context: input.context, storage })
+    : undefined;
   return {
     definitions: [
       ...(input.storage
@@ -379,6 +384,7 @@ export async function createRemoteAgentComputerCapability(input: {
         workspaceAccess,
         invocationId: input.context.submissionId,
         workingDirectory,
+        hasPendingInput,
       }),
       ...organizationDocumentDefinitions,
       ...browserDefinitions,
@@ -464,11 +470,7 @@ export async function createRemoteAgentComputerCapability(input: {
                 return await executeAgentComputerCommand({
                   signal: options?.signal,
                   execute,
-                  hasPendingInput: () =>
-                    hasPendingRemoteAgentExecutionInput({
-                      context: input.context,
-                      storage: input.storage as RemoteAgentStorage,
-                    }),
+                  hasPendingInput,
                   operation: {
                     action: "command",
                     invocationId: input.context.submissionId,
@@ -482,7 +484,7 @@ export async function createRemoteAgentComputerCapability(input: {
         : []),
     ].map((definition) => ({
       ...definition,
-      description: `${definition.description}${definition.name === "computer_command" ? "\nFor this Agent, a poll with positive or omitted waitSeconds waits within the same tool call while the Computer observes the command, including file synchronization. Each native read is bounded. The model resumes when results are ready, Stop arrives, or inspection is needed. Use waitSeconds: 0 only for an immediate status check before independent work. Do not repeatedly request immediate polls just to wait." : ""}\nComputer ${computer.id} belongs to human account ${computer.ownerUserId}. Other Agents and tasks for this account share its files. Current task directory: ${workingDirectory}. Use separate files or Git worktrees for concurrent changes. Decide what to use and share from the original requester, delegation, task and destination audience; filesystem access is not an instruction to disclose personal files.`,
+      description: `${definition.description}${definition.name === "computer_command" || definition.name === "computer" ? "\nFor this Agent, a poll with positive or omitted waitSeconds waits within the same tool call while the Computer observes the command, including file synchronization. Each native read is bounded. The model resumes when results are ready, Stop arrives, or inspection is needed. Use waitSeconds: 0 only for an immediate status check before independent work. Do not repeatedly request immediate polls just to wait." : ""}\nComputer ${computer.id} belongs to human account ${computer.ownerUserId}. Other Agents and tasks for this account share its files. Current task directory: ${workingDirectory}. Use separate files or Git worktrees for concurrent changes. Decide what to use and share from the original requester, delegation, task and destination audience; filesystem access is not an instruction to disclose personal files.`,
       execute: async (value, options) => {
         if (
           input.storage &&

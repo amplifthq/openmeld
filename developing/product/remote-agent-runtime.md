@@ -580,7 +580,8 @@ change authorization. Ordinary queued deliveries and exact-execution steering
 retain their existing ingress boundaries. Automated continuations, reply
 recovery and external message channels retain their own publication contracts.
 
-An Agent's blocking `computer_command` poll waits inside the original tool call
+An Agent's blocking `computer` command poll and `computer_command` poll use the
+same wait owner inside the original tool call
 while the Computer still observes work. Each native read remains bounded and
 rechecks access. No model turn is needed for each unchanged poll. The wait keeps
 the original reference and output cursor, includes file synchronization, and
@@ -1838,8 +1839,9 @@ publication does not confirm termination. This does not create another
 continuation, refund unknown writes, or allow later assistant prose or cleanup
 progress to upgrade the task to success.
 
-Long Computer operations retain their command keys and are followed through
-separate bounded `computer_command` polls. Code Mode's 60-second script timeout
+Long Computer operations retain their command keys. Agent command tools wait
+through bounded observations without spending a model turn on each unchanged
+poll. Code Mode's 60-second script timeout
 is not the assignment lifetime. The shared `useAgentFinish` check feeds bounded
 owned-command and recovery facts back to the model; it neither judges arbitrary
 deliverable quality nor waits for downstream publication. Explicit stopping
@@ -2820,6 +2822,11 @@ The working-context budget uses the shared four-bytes-per-token text estimate
 and Flue's 1,200-token image heuristic, not an exact vendor tokenizer. Base64
 image bytes are preserved for inference and excluded from text estimation;
 the separate final payload-capacity and media-admission guards remain intact.
+Recent-tail selection uses this same UTF-8 and serialized-content projection,
+including opaque provider signatures. Those signatures remain intact in kept
+messages; they cannot count toward admission while being omitted from cut
+planning. Legacy compaction without a working-context budget keeps its existing
+estimate and provider-usage behavior.
 Flue commits its normal compaction checkpoint and
 rebuilds its active projection before inference. The original canonical entries
 remain intact. An incomplete or empty summary cannot replace that projection.

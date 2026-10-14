@@ -295,7 +295,7 @@ index 0000000000000000000000000000000000000000..3abc3bc6a00d2fd717fb9093182fc444
 +  };
 +}
 diff --git a/dist/conversation-stream-store-2-jUriih.mjs b/dist/conversation-stream-store-2-jUriih.mjs
-index 210bfa06fdd35f698d537e41f6d2adf9299529bd..9ca3c6414a15453bc7173d4f8b98dca860f73dd9 100644
+index 210bfa06fdd35f698d537e41f6d2adf9299529bd..84ce9e796806c9e39bb0ce41657919962b47b219 100644
 --- a/dist/conversation-stream-store-2-jUriih.mjs
 +++ b/dist/conversation-stream-store-2-jUriih.mjs
 @@ -1,4 +1,6 @@
@@ -787,7 +787,8 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..9ca3c6414a15453bc7173d4f8b98dca8
  				summary: latestCompaction.summary,
  				firstKeptIndex: 1,
  				details: latestCompaction.details
- 			} : void 0);
+-			} : void 0);
++			} : void 0, workingBudget ? (message) => measureWorkingContext({ messages: [message] }) : undefined);
  			if (!preparation) {
 +				this.lastCompactionError = Object.assign(new Error("context.no_compaction_boundary: No complete earlier context can be removed."), { code: "context.no_compaction_boundary" });
  				this.internalLog("info", "[flue:compaction] Nothing to compact (no valid cut point found)");
@@ -1097,7 +1098,7 @@ index 210bfa06fdd35f698d537e41f6d2adf9299529bd..9ca3c6414a15453bc7173d4f8b98dca8
  			kind: submission.kind,
  			reason: "aborted",
 diff --git a/dist/dispatch-BlxCz6iq.mjs b/dist/dispatch-BlxCz6iq.mjs
-index 94d0dc4e069259c5f321b429e5a086ed724c5158..69bf920e31c5bb66595934a4c2a90bf7095ba796 100644
+index 94d0dc4e069259c5f321b429e5a086ed724c5158..ee9d696acea4c5bcad2ee4a02ea436d4a9c78944 100644
 --- a/dist/dispatch-BlxCz6iq.mjs
 +++ b/dist/dispatch-BlxCz6iq.mjs
 @@ -1,9 +1,12 @@
@@ -1365,8 +1366,21 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..69bf920e31c5bb66595934a4c2a90bf7
  /** Valid cut points: user or assistant messages. Never cut at toolResult. */
  function findValidCutPoints(messages, start, end) {
  	const cutPoints = [];
-@@ -1958,10 +2048,10 @@ function findCutPoint(messages, start, end, keepRecentTokens) {
- 		const messageTokens = estimateTokens(message);
+@@ -1943,7 +2033,7 @@ function findTurnStartIndex(messages, index, start) {
+ 	for (let i = index; i >= start; i--) if (messages[i]?.role === "user") return i;
+ 	return -1;
+ }
+-function findCutPoint(messages, start, end, keepRecentTokens) {
++function findCutPoint(messages, start, end, keepRecentTokens, measureMessage = estimateTokens) {
+ 	const cutPoints = findValidCutPoints(messages, start, end);
+ 	if (cutPoints.length === 0) return {
+ 		firstKeptIndex: start,
+@@ -1955,13 +2045,13 @@ function findCutPoint(messages, start, end, keepRecentTokens) {
+ 	for (let i = end - 1; i >= start; i--) {
+ 		const message = messages[i];
+ 		if (!message) continue;
+-		const messageTokens = estimateTokens(message);
++		const messageTokens = measureMessage(message);
  		accumulatedTokens += messageTokens;
  		if (accumulatedTokens >= keepRecentTokens) {
 -			for (const cutPoint of cutPoints) if (cutPoint >= i) {
@@ -1380,7 +1394,25 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..69bf920e31c5bb66595934a4c2a90bf7
  			break;
  		}
  	}
-@@ -2007,7 +2097,13 @@ function prepareCompaction(messages, settings, previousCompaction) {
+@@ -1974,12 +2064,15 @@ function findCutPoint(messages, start, end, keepRecentTokens) {
+ 	};
+ }
+ /** Pure function — no I/O. Finds cut point, extracts messages to summarize, tracks file ops. */
+-function prepareCompaction(messages, settings, previousCompaction) {
++function prepareCompaction(messages, settings, previousCompaction, measureMessage) {
+ 	if (messages.length === 0) return void 0;
+ 	const boundaryStart = previousCompaction ? previousCompaction.firstKeptIndex : 0;
+ 	const boundaryEnd = messages.length;
+ 	const tokensBefore = estimateContextTokens(messages);
+-	const cutPoint = findCutPoint(messages, boundaryStart, boundaryEnd, settings.keepRecentTokens);
++	// Working-context admission and its recent tail use the same projection,
++	// including opaque provider state and UTF-8. Legacy compaction keeps its
++	// existing estimate when no working-context budget is configured.
++	const cutPoint = findCutPoint(messages, boundaryStart, boundaryEnd, settings.keepRecentTokens, measureMessage);
+ 	if (cutPoint.firstKeptIndex <= boundaryStart) return void 0;
+ 	const historyEnd = cutPoint.isSplitTurn ? cutPoint.turnStartIndex : cutPoint.firstKeptIndex;
+ 	const messagesToSummarize = messages.slice(boundaryStart, historyEnd);
+@@ -2007,7 +2100,13 @@ function prepareCompaction(messages, settings, previousCompaction) {
  * generateSummary and generateTurnPrefixSummary; those two only differ in the
  * prompt they build, the purpose label, and the error-message prefix.
  */
@@ -1395,7 +1427,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..69bf920e31c5bb66595934a4c2a90bf7
  	const summarizationMessages = [{
  		role: "user",
  		content: [{
-@@ -2020,60 +2116,90 @@ async function runSummarizationCall(purpose, promptText, maxTokens, model, signa
+@@ -2020,60 +2119,90 @@ async function runSummarizationCall(purpose, promptText, maxTokens, model, signa
  		maxTokens,
  		signal
  	};
@@ -1514,7 +1546,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..69bf920e31c5bb66595934a4c2a90bf7
  	const { readFiles, modifiedFiles } = computeFileLists(fileOps);
  	summary += formatFileOperations(readFiles, modifiedFiles);
  	return {
-@@ -2101,18 +2227,14 @@ function isAssistantContextOverflow(assistant, contextWindow) {
+@@ -2101,18 +2230,14 @@ function isAssistantContextOverflow(assistant, contextWindow) {
  //#endregion
  //#region src/submission-state.ts
  /**
@@ -1540,7 +1572,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..69bf920e31c5bb66595934a4c2a90bf7
  }
  /**
  * Classify how far a persisted submission input progressed.
-@@ -2125,12 +2247,16 @@ function isJoinedDeliveryInput(entry, ownSubmissionId) {
+@@ -2125,12 +2250,16 @@ function isJoinedDeliveryInput(entry, ownSubmissionId) {
  *   explicit overflow error messages are detected then).
  * @param opts.ownSubmissionId - The submission that owns the classified
  *   input entry. User messages joined into that submission's response (see
@@ -1559,7 +1591,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..69bf920e31c5bb66595934a4c2a90bf7
  	const assistantIndex = following.findLastIndex((entry) => entry.type === "message" && entry.message.role === "assistant");
  	const assistantEntry = assistantIndex === -1 ? void 0 : following[assistantIndex];
  	const assistant = assistantEntry?.type === "message" ? assistantEntry.message : void 0;
-@@ -2166,6 +2292,13 @@ function classifySubmissionState(following, opts) {
+@@ -2166,6 +2295,13 @@ function classifySubmissionState(following, opts) {
  			assistant
  		};
  	}
@@ -1573,7 +1605,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..69bf920e31c5bb66595934a4c2a90bf7
  	if (isCompletedAssistantResponse(assistant)) return {
  		kind: "completed",
  		assistant,
-@@ -2320,7 +2453,12 @@ function isToolBatchAssistant(message) {
+@@ -2320,7 +2456,12 @@ function isToolBatchAssistant(message) {
  	return message.stopReason === "toolUse" || (message.stopReason === "length" || message.stopReason === "stop") && message.content.some((block) => block.type === "toolCall");
  }
  function isCompletedAssistantResponse(message) {
@@ -1587,7 +1619,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..69bf920e31c5bb66595934a4c2a90bf7
  }
  function countConsecutiveRetryableModelErrors(entries) {
  	let count = 0;
-@@ -2352,6 +2490,7 @@ function countConsecutiveRetryableModelErrors(entries) {
+@@ -2352,6 +2493,7 @@ function countConsecutiveRetryableModelErrors(entries) {
  function classifySignal(signalType) {
  	switch (signalType) {
  		case "stream_interrupted":
@@ -1595,7 +1627,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..69bf920e31c5bb66595934a4c2a90bf7
  		case "stream_continued": return {
  			purpose: "advisory",
  			display: "hidden"
-@@ -2409,22 +2548,33 @@ function classifyConversationSubmission(conversation, inputEntryId, options) {
+@@ -2409,22 +2551,33 @@ function classifyConversationSubmission(conversation, inputEntryId, options) {
  * replacement step. Once replaced, keep the first step's response shell (its
  * id is the stable live-stream target) but omit the superseded model content.
  */
@@ -1632,7 +1664,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..69bf920e31c5bb66595934a4c2a90bf7
  	const responseBySubmission = /* @__PURE__ */ new Map();
  	for (const entry of getActiveConversationPath(conversation)) {
  		if (entry.type !== "message") continue;
-@@ -2765,7 +2915,7 @@ function requiresSnapshotReset(record, state) {
+@@ -2765,7 +2918,7 @@ function requiresSnapshotReset(record, state) {
  	if (record.type !== "assistant_message_started" || !record.submissionId) return false;
  	const conversation = state.conversations.get(record.conversationId);
  	if (!conversation) return false;
@@ -1641,7 +1673,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..69bf920e31c5bb66595934a4c2a90bf7
  	return getActiveConversationPath(conversation).some((entry) => entry.type === "message" && entry.message.role === "assistant" && entry.submissionId === record.submissionId && superseded.has(entry.id));
  }
  function encodeRecord(record, conversationId, state, responseIds) {
-@@ -3129,6 +3279,44 @@ async function readSubmissionReply(options) {
+@@ -3129,6 +3282,44 @@ async function readSubmissionReply(options) {
  	};
  	return replyFromSnapshot(snapshot, options.submissionId);
  }
@@ -1686,7 +1718,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..69bf920e31c5bb66595934a4c2a90bf7
  /**
  * Extract a submission's reply from a materialized conversation snapshot.
  * Shared by {@link readSubmissionReply} and the Cloudflare client, which reads
-@@ -3182,9 +3370,19 @@ function assertThinkingLevel(value, label) {
+@@ -3182,9 +3373,19 @@ function assertThinkingLevel(value, label) {
  function assertCompaction(definition, label) {
  	if (definition === void 0 || definition === false) return;
  	if (typeof definition !== "object" || definition === null || Array.isArray(definition)) throw new Error(`[flue] ${label} compaction must be a configuration object or \`false\`.`);
@@ -1707,7 +1739,7 @@ index 94d0dc4e069259c5f321b429e5a086ed724c5158..69bf920e31c5bb66595934a4c2a90bf7
  	if (definition.model !== void 0 && typeof definition.model !== "string") throw new Error(`[flue] ${label} compaction.model must be a string.`);
  }
  function assertDurability(definition, label) {
-@@ -3192,7 +3390,7 @@ function assertDurability(definition, label) {
+@@ -3192,7 +3393,7 @@ function assertDurability(definition, label) {
  	if (typeof definition !== "object" || definition === null || Array.isArray(definition)) throw new Error(`[flue] ${label} durability must be a configuration object.`);
  	for (const key of Object.keys(definition)) if (key !== "maxAttempts" && key !== "timeoutMs") throw new Error(`[flue] ${label} durability received unknown field "${key}".`);
  	assertPositiveInteger(definition.maxAttempts, `${label} durability.maxAttempts`);

@@ -203,7 +203,10 @@ it("does not defer an irreducible request beyond the configured ceiling", async 
   }
 });
 
-it("retains the exact active request across repeated lossy summaries", async () => {
+it.each([
+  "text",
+  "opaque-signature",
+] as const)("retains the exact active request across repeated lossy summaries (%s)", async (contentKind) => {
   const directory = await mkdtemp(join(tmpdir(), "flue-protected-request-"));
   const provider = fauxProvider({
     provider: "protected-request",
@@ -212,12 +215,16 @@ it("retains the exact active request across repeated lossy summaries", async () 
   const model = provider.getModel();
   let bounded = false;
   let reads = 0;
+  const documentCount = contentKind === "text" ? 3 : 6;
+  // Provider-owned opaque state counts toward the next request even when it
+  // has no visible reasoning text. Never use real provider reasoning here.
+  const thoughtSignature = "opaque-test-signature".repeat(700);
   const read = defineTool({
     name: "read",
     description: "Read the next document.",
     input: object({}),
     run: () => ({
-      output: `Document ${++reads}. ${"Read-only evidence. ".repeat(800)}`,
+      output: `Document ${++reads}. ${contentKind === "text" ? "Read-only evidence. ".repeat(800) : "Read complete."}`,
     }),
   });
   function ProtectedRequest() {
@@ -286,19 +293,52 @@ it("retains the exact active request across repeated lossy summaries", async () 
       );
     }
     bounded = true;
-    const request =
-      'Read three documents. Return JSON with "budget": 100 as a number. Do not publish.';
+    const request = `Read ${documentCount} documents. Return JSON with "budget": 100 as a number. Do not publish.`;
     let summaries = 0;
     provider.setResponses(
-      Array.from({ length: 10 }, () => (context) => {
+      Array.from({ length: 20 }, () => (context) => {
         if (summarizing) {
           summaries++;
           return fauxAssistantMessage("Documents are being read.");
         }
-        if (reads < 3) {
-          return fauxAssistantMessage(fauxToolCall("read", {}), {
-            stopReason: "toolUse",
-          });
+        const retainedCalls = new Set(
+          context.messages.flatMap((message) =>
+            message.role === "assistant"
+              ? message.content.flatMap((block) =>
+                  block.type === "toolCall" ? [block.id] : []
+                )
+              : []
+          )
+        );
+        for (const message of context.messages) {
+          if (message.role === "toolResult") {
+            expect(retainedCalls.has(message.toolCallId)).toBe(true);
+          }
+          if (
+            contentKind === "opaque-signature" &&
+            message.role === "assistant"
+          ) {
+            for (const block of message.content) {
+              if (block.type === "toolCall") {
+                expect(block.thoughtSignature).toBe(thoughtSignature);
+              }
+            }
+          }
+        }
+        if (reads < documentCount) {
+          return fauxAssistantMessage(
+            [
+              {
+                ...fauxToolCall("read", {}),
+                ...(contentKind === "opaque-signature"
+                  ? { thoughtSignature }
+                  : {}),
+              },
+            ],
+            {
+              stopReason: "toolUse",
+            }
+          );
         }
         const texts = context.messages.flatMap((message) =>
           message.role === "user" && Array.isArray(message.content)
@@ -315,7 +355,7 @@ it("retains the exact active request across repeated lossy summaries", async () 
     expect((await agent.read(await agent.dispatch(request))).text).toBe(
       '{"budget":100}'
     );
-    expect(reads).toBe(3);
+    expect(reads).toBe(documentCount);
     expect(summaries).toBeGreaterThanOrEqual(2);
     expect(correctionApplied).toBe(true);
   } finally {
