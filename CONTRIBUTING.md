@@ -97,6 +97,11 @@ Do not bypass failed checks. The [delivery workflow](developing/engineering/agen
 defines the checks and maintainer steps before merge and release.
 External contributors do not need production credentials.
 
+`OpenMeld Final Candidate` checks the exact pull request commit against the current
+`main` branch. Passing CI does not replace required reviews and does not deploy
+OpenMeld. Production releases use separate, explicitly triggered workflows.
+Maintainers can keep those workflows disabled while enabling pull request checks.
+
 ## Contribution licensing
 
 Submit only material you have the right to contribute.
