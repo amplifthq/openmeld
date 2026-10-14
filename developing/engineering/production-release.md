@@ -2205,8 +2205,12 @@ the same resumable release command at the exact original `release_sha`:
 
 ### npm submission and availability
 
-The CLI release owner packs with pnpm so catalog/workspace references become
-portable dependency versions. A packing-only hook preserves the exact source
+The CLI release owner packs with pnpm so catalog references become portable
+dependency versions. Internal `@openmeld/*` packages belong in the CLI's
+`devDependencies` and are bundled into its executable output. The tarball must
+not declare them in runtime dependency fields, even after pnpm resolves a
+workspace reference to a version. Artifact inspection rejects that leak before
+consumer installation. A packing-only hook preserves the exact source
 `gitHead` without editing the checkout. Before any binary upload or npm attempted
 receipt, the owner checks the actual tarball and installs it with ordinary npm
 outside the workspace, using disposable HOME, OpenMeld state, npm configuration

@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -39,7 +40,23 @@ function fixture(dependencies = {}) {
     join(root, "pnpm-workspace.yaml"),
     "packages:\n  - clients/*\ncatalog:\n  zod: 4.6.5\n"
   );
-  writeFileSync(join(root, ".gitignore"), "dev-tmp/\n");
+  writeFileSync(join(root, ".gitignore"), "dev-tmp/\nnode_modules/\n");
+  const adapter = join(root, "clients/internal-adapter");
+  mkdirSync(adapter);
+  writeFileSync(
+    join(adapter, "package.json"),
+    JSON.stringify({
+      name: "@openmeld/adapter-fixture",
+      version: "0.0.1",
+      private: true,
+    })
+  );
+  mkdirSync(join(cli, "node_modules/@openmeld"), { recursive: true });
+  symlinkSync(
+    adapter,
+    join(cli, "node_modules/@openmeld/adapter-fixture"),
+    "junction"
+  );
   const manifest = {
     name: "openmeld",
     version: "0.0.1",
@@ -47,11 +64,9 @@ function fixture(dependencies = {}) {
     bin: { openmeld: "dist/openmeld.js" },
     files: ["README.md", "dist"],
     dependencies,
-    devDependencies: { "not-a-runtime-package": "workspace:*" },
+    devDependencies: { "@openmeld/adapter-fixture": "workspace:*" },
     openmeld: { minRequiredCliVersion: "0.0.1" },
   };
-  // Do not resolve synthetic dev workspace dependencies during fixture packing.
-  manifest.devDependencies = undefined;
   writeFileSync(join(cli, "package.json"), JSON.stringify(manifest));
   writeFileSync(join(cli, "README.md"), "Fixture CLI\n");
   mkdirSync(join(cli, "dist/windows"));
@@ -117,11 +132,18 @@ test("rejects development-only references in every installed dependency field, n
         INVALID_DEPENDENCY
       );
     }
+    assert.throws(
+      () =>
+        assertNpmRuntimeDependencies({
+          [field]: { "@openmeld/adapter-fixture": "0.0.1" },
+        }),
+      INVALID_DEPENDENCY
+    );
   }
   assert.doesNotThrow(() =>
     assertNpmRuntimeDependencies({
       dependencies: { zod: "4.6.5" },
-      devDependencies: { internal: "workspace:*" },
+      devDependencies: { "@openmeld/adapter-fixture": "workspace:*" },
     })
   );
 });
@@ -146,6 +168,19 @@ test("packs expanded catalogs and exact source identity without editing source m
       inspectNpmCliArtifact(artifact.path, { gitHead: "a".repeat(40) }),
       INVALID_CONTENT
     );
+  } finally {
+    artifact?.cleanup();
+    source.cleanup();
+  }
+});
+
+test("rejects internal runtime packages after packing resolves workspace versions", async () => {
+  const source = fixture({ "@openmeld/adapter-fixture": "workspace:*" });
+  let artifact;
+  try {
+    await assert.rejects(async () => {
+      artifact = await packNpmCliArtifact({ cwd: source.root });
+    }, INVALID_DEPENDENCY);
   } finally {
     artifact?.cleanup();
     source.cleanup();
