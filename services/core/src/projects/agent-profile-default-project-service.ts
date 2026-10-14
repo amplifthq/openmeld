@@ -1,6 +1,7 @@
 import { getPostgresDatabase } from "@openmeld/db/postgresql";
 import {
   isHostedAgentRuntimeKind,
+  resolveBuiltinAgentControllerConversationCapability,
   updateAgentProfileDefaultProjectResponseSchema,
 } from "@openmeld/schemas";
 import type { UpdateAgentProfileDefaultProjectResponse } from "@openmeld/schemas/types";
@@ -18,6 +19,8 @@ import { createCoreRpcHttpError } from "../rpc/errors";
 import { callRequiredAuthWorkerRpc } from "../rpc/required-auth-worker-rpc";
 import type { ProjectAuthority } from "./project-authority";
 import type { ProjectService } from "./project-service";
+
+const BUILTIN_PREFIX = /^builtin:/u;
 
 export async function updateAgentProfileDefaultProjectForAuthority(input: {
   agentProfileId: string;
@@ -83,6 +86,17 @@ export async function updateAgentProfileDefaultProjectForAuthority(input: {
       throw createCoreRpcHttpError({
         code: "profile.default_project_not_supported",
         reason: "Default Project is only available for local Agent Profiles.",
+        status: 409,
+      });
+    }
+    if (
+      resolveBuiltinAgentControllerConversationCapability(
+        binding?.agentControllerRef.replace(BUILTIN_PREFIX, "") ?? ""
+      )?.conversationScope === "account_shared"
+    ) {
+      throw createCoreRpcHttpError({
+        code: "profile.default_project_not_supported",
+        reason: "Manage this Bot's working folder in Grok Bot.",
         status: 409,
       });
     }

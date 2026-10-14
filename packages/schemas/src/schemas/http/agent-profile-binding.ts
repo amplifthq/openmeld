@@ -2,6 +2,7 @@ import type * as zod from "zod/v4";
 import * as z from "../../lazy-zod";
 import { agentControllerCollaborationModeSchema } from "../agent-controller-collaboration-mode";
 import { agentControllerPermissionModeSchema } from "../agent-controller-permission-mode";
+import { resolveBuiltinAgentControllerConversationCapability } from "../daemon/agent-controller-conversation-capability";
 import { openCodePermissionConfigSchema } from "../open-code-permission";
 import {
   agentActivityNativeSessionIdSchema,
@@ -10,6 +11,7 @@ import {
 
 const boundedIdentifierSchema = z.string().trim().min(1).max(256);
 const reasonCodeSchema = z.string().trim().min(1).max(256);
+const builtinPrefixPattern = /^builtin:/;
 
 // A precondition for writes about the current Binding, never execution authority.
 export const agentProfileBindingTargetSchema = z.strictObject({
@@ -109,6 +111,7 @@ export const agentProfileBindingSessionInventorySelectionSchema =
 
 export const ensureAgentProfilePrimaryBindingBodySchema = z
   .strictObject({
+    sharedConversationAcknowledged: z.literal(true).optional(),
     agentControllerRef: boundedIdentifierSchema,
     agentControllerConversationId:
       agentActivityNativeSessionIdSchema.optional(),
@@ -125,6 +128,49 @@ export const ensureAgentProfilePrimaryBindingBodySchema = z
     sessionInventorySelection:
       agentProfileBindingSessionInventorySelectionSchema.optional(),
     writeMode: agentProfileBindingWriteModeSchema.optional(),
+  })
+  .superRefine((value, context) => {
+    const shared =
+      resolveBuiltinAgentControllerConversationCapability(
+        value.agentControllerRef.replace(builtinPrefixPattern, "")
+      )?.conversationScope === "account_shared";
+    if (!shared) {
+      return;
+    }
+    const reconnectExisting =
+      value.writeMode === "reconnect" &&
+      value.agentControllerConversationId === undefined &&
+      value.sharedConversationAcknowledged === undefined;
+    if (
+      !(
+        reconnectExisting ||
+        (value.agentControllerConversationId &&
+          value.sharedConversationAcknowledged)
+      )
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["agentControllerConversationId"],
+        message:
+          "Connect an existing Bot conversation and acknowledge shared messages and stopping its current work.",
+      });
+    }
+    for (const key of [
+      "modelId",
+      "reasoningLevel",
+      "agentControllerCollaborationMode",
+      "agentControllerPermissionMode",
+      "openCodePermission",
+      "sessionInventorySelection",
+    ] as const) {
+      if (value[key] != null) {
+        context.addIssue({
+          code: "custom",
+          path: [key],
+          message: "This setting is managed in the Bot's original app.",
+        });
+      }
+    }
   })
   .superRefine((value, context) => {
     if (value.reasoningLevel && !value.modelId) {

@@ -12,6 +12,8 @@ import { cn } from "#lib/utils";
 
 type FluidNavMenuProps = ComponentProps<"nav"> & {
   activeValue: string | null;
+  listClassName?: string;
+  hoverAxis?: ComponentProps<typeof SidebarMenu>["hoverAxis"];
   activeIndicatorClassName?: string;
   hoverIndicatorClassName?: string;
   focusIndicatorClassName?: string;
@@ -36,6 +38,8 @@ const FluidNavMenu = forwardRef<HTMLElement, FluidNavMenuProps>(
       focusIndicatorClassName,
       children,
       className,
+      listClassName,
+      hoverAxis,
       ...props
     },
     ref
@@ -51,8 +55,9 @@ const FluidNavMenu = forwardRef<HTMLElement, FluidNavMenuProps>(
           <SidebarMenu
             activeIndicatorClassName={activeIndicatorClassName}
             activeLayoutId={activeLayoutId ?? id}
-            className="gap-1"
+            className={cn("gap-1", listClassName)}
             focusIndicatorClassName={focusIndicatorClassName}
+            hoverAxis={hoverAxis}
             hoverIndicatorClassName={hoverIndicatorClassName}
           >
             {children}

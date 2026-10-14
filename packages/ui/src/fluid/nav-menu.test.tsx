@@ -29,6 +29,82 @@ function Navigation({ active }: { active: string | null }) {
   );
 }
 describe("FluidNavMenu", () => {
+  it.each([
+    2, 3, 4,
+  ])("tracks each tile in a %i-column grid", async (columns) => {
+    const frames = new Map<number, FrameRequestCallback>();
+    let frameId = 0;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.set(++frameId, callback);
+      return frameId;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => {
+      frames.delete(id);
+    });
+    const flushFrame = () =>
+      act(() => {
+        const pending = [...frames.values()];
+        frames.clear();
+        for (const callback of pending) {
+          callback(performance.now());
+        }
+      });
+    const indexOf = (el: HTMLElement) =>
+      Number(el.closest("li")?.getAttribute("data-fluid-nav-index") ?? 0);
+    for (const [property, value] of Object.entries({
+      offsetWidth: (el: HTMLElement) =>
+        el.tagName === "UL" ? columns * 100 : 96,
+      offsetHeight: (el: HTMLElement) => (el.tagName === "UL" ? 208 : 100),
+      offsetLeft: (el: HTMLElement) => (indexOf(el) % columns) * 100,
+      offsetTop: (el: HTMLElement) => Math.floor(indexOf(el) / columns) * 104,
+    })) {
+      vi.spyOn(
+        HTMLElement.prototype,
+        property as "offsetWidth",
+        "get"
+      ).mockImplementation(function (this: HTMLElement) {
+        return value(this);
+      });
+    }
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      top: 0,
+      width: columns * 100,
+      height: 208,
+      right: columns * 100,
+      bottom: 208,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+    render(
+      <FluidNavMenu activeValue={null} aria-label="Grid" hoverAxis="xy">
+        {Array.from({ length: columns * 2 }, (_, index) => String(index)).map(
+          (id, index) => (
+            <FluidNavMenuItem index={index} key={id} value={id}>
+              <a href={`#${id}`}>Tile {id}</a>
+            </FluidNavMenuItem>
+          )
+        )}
+      </FluidNavMenu>
+    );
+    await act(() => Promise.resolve());
+    flushFrame();
+    const list = screen.getByRole("list");
+    fireEvent.mouseEnter(list);
+    for (let index = 0; index < columns * 2; index++) {
+      fireEvent.mouseMove(list, {
+        clientX: (index % columns) * 100 + 48,
+        clientY: Math.floor(index / columns) * 104 + 50,
+      });
+      flushFrame();
+      expect(list.querySelector("[data-fluid-hover-active]")?.textContent).toBe(
+        `Tile ${index}`
+      );
+    }
+    fireEvent.mouseLeave(list);
+    expect(list.querySelector("[data-fluid-hover-active]")).toBeNull();
+  });
   it("bounds ordering work when a long menu mounts and keeps new rows reachable", async () => {
     const compare = vi.spyOn(Node.prototype, "compareDocumentPosition");
     const ids = Array.from({ length: 100 }, (_, index) => String(index));

@@ -26,7 +26,6 @@ import {
 	FluidDropdownMenuRadioItem,
 	FluidDropdownMenuSubContent,
 } from "@openmeld/ui/fluid/dropdown-menu";
-import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
 import {
 	ArchiveIcon,
 	ChatCircleTextIcon,
@@ -65,6 +64,7 @@ import { useSidebarFilter } from "../app/sidebar-filter";
 import { SidebarListSkeleton } from "../app/sidebar-list-skeleton";
 import { SidebarSearchInput } from "../app/sidebar-search-input";
 import { SidebarSectionActions } from "../app/sidebar-section-actions";
+import { ConversationSidebarMenu } from "./conversation-sidebar-menu";
 import {
 	type Conversation,
 	type ConversationSection,
@@ -818,6 +818,7 @@ export function ConversationsSidebar(
 									content: (
 										<SidebarDropSection
 											ids={rows(section).map((item) => item.spaceId)}
+											layout={section.id === "pinned" ? "grid" : "list"}
 											section={section.id}
 										>
 											<SpaceSidebarEmptyState
@@ -826,10 +827,23 @@ export function ConversationsSidebar(
 												sectionId={section.id}
 												visible={showSpaceEmptyState}
 											/>
-											<FluidNavMenu
+											<ConversationSidebarMenu
 												activeLayoutId="conversation-selection"
 												activeValue={model.selected}
 												aria-label={section.name}
+												pinned={section.id === "pinned"}
+												updateIndices={rows(section).flatMap((item, index) =>
+													(dm.indicators.unreadBySpaceId.get(item.spaceId)
+														?.unreadCount ?? 0) > 0 ||
+													dm.indicators.activeWakeSummaryBySpaceId.has(
+														item.spaceId
+													) ||
+													resolveInboxAttentionTone(
+														dm.attentionById.get(item.spaceId) ?? {}
+													)
+														? [index]
+														: []
+												)}
 											>
 												{rows(section).map((item, index) => (
 													<ConversationSidebarRow
@@ -897,7 +911,7 @@ export function ConversationsSidebar(
 														url={item.url}
 													/>
 												))}
-											</FluidNavMenu>
+											</ConversationSidebarMenu>
 										</SidebarDropSection>
 									),
 								}))}

@@ -8,6 +8,7 @@ export type LocalAgentInstallGuideId =
   | "codex"
   | "cursor"
   | "grok-build"
+  | "grok-bot"
   | "opencode";
 
 export type LocalAgentInstallGuide = {
@@ -19,6 +20,13 @@ export type LocalAgentInstallGuide = {
 };
 
 export const LOCAL_AGENT_INSTALL_GUIDES = {
+  "grok-bot": {
+    agentId: "grok-bot",
+    displayName: "Grok Bot",
+    officialDocsUrl: "https://cursor.com/docs/bdk/guides/grokbot-agents",
+    officialInstallUrl: "https://cursor.com/docs/bdk/reference/cli",
+    summary: "Connect an existing Grok Bot through its shared conversation.",
+  },
   antigravity: {
     agentId: "antigravity",
     displayName: "Antigravity",

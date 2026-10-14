@@ -19287,6 +19287,7 @@ export async function rpcEnsureAgentProfilePrimaryBinding(
 ): Promise<EnsureAgentProfilePrimaryBindingResponse> {
   const { db, request } = await requireAgentProfileWorkspaceScope(env, input);
   const body = ensureAgentProfilePrimaryBindingBodySchema.safeParse({
+    sharedConversationAcknowledged: input.sharedConversationAcknowledged,
     agentControllerRef: input.agentControllerRef,
     agentControllerCollaborationMode: input.agentControllerCollaborationMode,
     agentControllerConversationId: input.agentControllerConversationId,

@@ -55,6 +55,8 @@ const useIsoLayoutEffect =
 // and the current page inside it can both be lit, exactly as before.
 
 type MenuAppearance = {
+  /** Use both coordinates for compact grids of navigation targets. */
+  hoverAxis?: "x" | "y" | "xy";
   activeIndicatorClassName?: string;
   hoverIndicatorClassName?: string;
   focusIndicatorClassName?: string;
@@ -167,6 +169,7 @@ function useMenuScope(
     hoverIndicatorClassName,
     focusIndicatorClassName,
     indicatorTargetSelector,
+    hoverAxis = "y",
   }: MenuAppearance = {}
 ): MenuScope {
   const reduceMotion = useReducedMotion();
@@ -179,7 +182,7 @@ function useMenuScope(
     registerItem,
     isMeasured,
   } = useFluidHover(containerRef, {
-    axis: "y",
+    axis: hoverAxis,
     gapClick: false,
     isItemDisabled: rowHidden,
   });
@@ -698,6 +701,7 @@ const SidebarMenu = forwardRef<HTMLUListElement, SidebarMenuProps>(
       hoverIndicatorClassName,
       focusIndicatorClassName,
       indicatorTargetSelector,
+      hoverAxis,
       ...props
     },
     ref
@@ -711,6 +715,7 @@ const SidebarMenu = forwardRef<HTMLUListElement, SidebarMenuProps>(
         hoverIndicatorClassName,
         focusIndicatorClassName,
         indicatorTargetSelector,
+        hoverAxis,
       }
     );
 

@@ -2360,7 +2360,18 @@ describe("SpaceMembersSidePanel", () => {
 		});
 		codexCheckbox.focus();
 		fireEvent.keyDown(codexCheckbox, { key: " " });
-		expect(codexCheckbox.getAttribute("aria-checked")).toBe("true");
+		const selectedCheckbox = scope.getByRole("checkbox", {
+			name: "Codex Agent",
+		});
+		expect(selectedCheckbox.getAttribute("aria-checked")).toBe("true");
+		expect(document.activeElement).toBe(selectedCheckbox);
+		expect(
+			scope.queryByRole("heading", { name: "Selected Agents" })
+		).toBeNull();
+		const ownerAgents = document.getElementById(
+			collapseButton.getAttribute("aria-controls") ?? ""
+		);
+		expect(ownerAgents?.contains(selectedCheckbox)).toBe(true);
 		expect(screen.getByText("1 selected")).toBeTruthy();
 	});
 
