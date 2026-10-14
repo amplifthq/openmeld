@@ -579,10 +579,11 @@ or fix when available.
 
 ### One report per unresolved problem
 
-Use Felix's authorized Human Profile directly after the checks above. No
-Service startup, Wake, or Agent membership is required. Recording requests a
-handoff; it does not authorize another Agent to implement a fix. Preserve
-existing reports as history; this rule does not authorize deleting them.
+Outside a dispatch-owned runtime, use Felix's authorized Human Profile directly
+after the checks above. No Service startup, Wake, or Agent membership is
+required. Recording requests a handoff; it does not authorize another Agent to
+implement a fix. Preserve existing reports as history; this rule does not
+authorize deleting them.
 
 Start with `[bug]`, `[friction]`, or `[gap]`. Identify the actual Agent, model
 when known, session or thread ID, UTC time, product environment/version, task,
@@ -592,7 +593,22 @@ report brief and continue the main task unless the problem is a real blocker.
 Never include credentials, secrets, private
 transcripts, or unrelated user content.
 
-Use this direct command template:
+Inside a dispatch-owned runtime, `openmeld space send` is intentionally blocked,
+including with a Human Profile. For an eligible problem, hand off brief,
+non-sensitive evidence through the current task's supplied Space Action
+`report_progress` tool when available, or include it in the normal final
+`reply`. State that feedback has not been submitted. These actions remain bound
+to the current task's Space and Agent identity; do not clear the runtime guard
+or switch identities to run the direct command.
+
+An authorized reporter outside that runtime can recheck eligibility and submit
+the report with Felix's Human Profile. Until that happens, keep the evidence in
+the current task and do not claim a feedback post. A structured-action receipt
+does not prove publication in the feedback Space. The separate
+`openmeld feedback` command submits a Feedback Issue to a Feedback Inbox; it
+does not replace this Space handoff.
+
+Outside a dispatch-owned runtime, use this direct command template:
 
 ```bash
 openmeld space send 5020df25e3a4a1ae0e292b664ca0f3726eaa0ec1cc1ceacc5cd18d7eaa6cb378 \

@@ -15,6 +15,7 @@ import { emitDaemonDispatchJournalEvent } from "../src/local-service/dispatch/da
 import { formatOpenMeldCliCommand } from "../src/runtime/cli-entry-command";
 import type { CurrentReplyReadinessSnapshot } from "../src/system/current-reply-readiness-snapshot";
 import type { AgentReplyReadinessStatus } from "../src/system/reply-readiness";
+import lateResultAfterVisibleFailure from "./fixtures/late-result-after-visible-failure.json";
 import { withCapturedStdio, withTempHome } from "./helpers/fs";
 import { createTestOpenMeldProfile } from "./helpers/openmeld-profile-fixture";
 
@@ -3975,6 +3976,57 @@ describe("service trace command", () => {
       expect(summary?.data?.diagnosticSummary).toContain(
         "finalVisibleOutcome=visible_failure"
       );
+    });
+  });
+
+  it("keeps retained-result guidance after a delivered runtime-loss notice", async () => {
+    await withTempHome(async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date("2026-10-14T05:11:00.000Z"));
+      resolveRuntimeContextMock.mockResolvedValue({
+        viewMode: "agent",
+        resolvedView: "agent",
+        interactive: false,
+      });
+      resolveCurrentReplyReadinessSnapshotMock.mockResolvedValue(
+        createReplyReadinessSnapshot()
+      );
+      // Captured public trace, 2026-10-14: identities and notice text are
+      // anonymized; unrelated lifecycle events and execution context are omitted.
+      const traceResponse = spaceDispatchTraceResponseSchema.parse(
+        lateResultAfterVisibleFailure
+      );
+      const { stdout } = await withCapturedStdio(async () => {
+        await runServiceTrace(
+          {
+            ...traceResponse.query,
+            space: traceResponse.query.spaceId,
+            details: true,
+            view: "agent",
+          },
+          createReadOnlyTraceDependencies(traceResponse)
+        );
+      });
+      const lines = stdout
+        .trim()
+        .split("\n")
+        .filter((line) => line.trim().startsWith("{"))
+        .map((line) => JSON.parse(line));
+      const summary = lines.find(
+        (line) => line.code === "service.trace.summary"
+      );
+      expect(summary?.data?.agentSummary).toMatchObject({
+        currentState: "delivered",
+        delivered: true,
+        nextAction:
+          "open the Space outcome details and inspect the retained-result evidence; do not retry the Wake",
+        reasonCode: "runtime.local_runtime_lost",
+        visibleOutcome: "visible_failure",
+      });
+      expect(
+        lines.find((line) => line.code === "service.trace.result")?.payload
+          ?.trace
+      ).toEqual(traceResponse.trace);
     });
   });
 

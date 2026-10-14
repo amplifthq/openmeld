@@ -22,6 +22,7 @@ import {
   readGuardedLocalReleaseSources,
 } from "./production-release-evidence.mjs";
 import {
+  completeRemoteAgentReceipt,
   groupReleaseSteps,
   releaseComponentOperationKey,
   resumeRemoteAgentVerification,
@@ -581,6 +582,27 @@ export async function executeRemoteAgentRecovery(input) {
   }
 }
 
+export function publishRemoteAgentRecoveryEvidence(input) {
+  const updated = {
+    ...input.receipt,
+    status: input.status,
+    application: input.application,
+    ...(input.identity ? { identity: input.identity } : {}),
+  };
+  const receipt =
+    input.status === "verified" ? completeRemoteAgentReceipt(updated) : updated;
+  return publishGuardedLocalReleaseEvidence({
+    cwd: input.cwd,
+    sourceSha: input.sourceSha,
+    scopes: [REMOTE_AGENT],
+    receipts: { [REMOTE_AGENT]: receipt },
+    recoveryProof: {
+      [REMOTE_AGENT]: { ...receipt, recovery: input.recovery },
+    },
+    ...(input.now ? { now: input.now } : {}),
+  });
+}
+
 function parseArgs(argv) {
   const options = {};
   for (let index = 0; index < argv.length; index += 2) {
@@ -764,23 +786,16 @@ async function main(argv) {
       if (nativeProvenance) {
         recovery.nativeProvenance = nativeProvenance;
       }
-      const record = (status, application, identity) => {
-        const receipt = {
-          ...latest.receipt,
-          status,
-          application,
-          ...(identity ? { identity } : {}),
-        };
-        return publishGuardedLocalReleaseEvidence({
+      const record = (status, application, identity) =>
+        publishRemoteAgentRecoveryEvidence({
           cwd: sourceDir,
           sourceSha,
-          scopes: [REMOTE_AGENT],
-          receipts: { [REMOTE_AGENT]: receipt },
-          recoveryProof: {
-            [REMOTE_AGENT]: { ...receipt, recovery },
-          },
+          receipt: latest.receipt,
+          recovery,
+          status,
+          application,
+          identity,
         });
-      };
       const capture = createWorkerDeploymentCapture({
         sourceSha,
         operationKey,

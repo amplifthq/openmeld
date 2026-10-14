@@ -32,12 +32,13 @@ they do not debit a second wallet. No payment processor or paid plan is active.
   Switching the source changes presentation, not historical attribution or
   balances. Details explain that historical BYOK credit equivalents do not
   debit the included balance. Local controller statistics remain token counts.
-- The internal organization is an exact configured UUID. Its separate managed
-  key has no per-key monthly cap. It still depends on the provider account balance
-  and normal authorization. A name, domain, slug, or client flag cannot exempt it.
+- Every workspace uses Free or BYOK, including the operator's own workspace.
+  There is no internal exemption or uncapped sponsored key provisioning.
 
 `organization_ai_credentials` stores encrypted keys separately for `byok`,
-`free`, and `internal`. Free keys have native `limit: 5, limit_reset: monthly`.
+`free`. Free keys have native `limit: 5, limit_reset: monthly`.
+Retired `internal` credential rows are ignored. Historical usage attribution and
+database migrations retain that value so existing records remain readable.
 The retained grant and a transaction advisory lock prevent concurrent first use
 from creating multiple active sponsored keys. A provider/DB failure can leave an
 orphan upstream key; operators reconcile by its `openmeld:<organization>:<source>`
@@ -60,10 +61,9 @@ data stay outside Git:
 | --- | --- |
 | `OPENROUTER_MANAGEMENT_API_KEY` | Creates sponsored inference keys; never sent to a client or Remote Agent. |
 | `OPENMELD_AI_CREDENTIAL_CRYPTO_KEY` | Base64-encoded 32-byte AES-GCM key. Back up and retain it with the encrypted database. |
-| `OPENMELD_INTERNAL_BILLING_ORGANIZATION_ID` | Optional private UUID for the internal exemption; empty means no exemption. |
 
 Public examples contain empty values. Do not commit credentials, provider key
-hashes, internal UUIDs, real receipts, database exports, environment dumps, or
+hashes, real receipts, database exports, environment dumps, or
 smoke logs. Sanitizing future public Git history is a separate release task.
 Encryption-key replacement needs explicit re-encryption of existing rows; simply
 changing the environment value makes their keys unavailable and fails closed.
@@ -82,7 +82,7 @@ Center Agent and Remote Agent helpers. These headers follow OpenRouter's
 [app attribution contract](https://openrouter.ai/docs/app-attribution).
 The same boundary owns request `metadata`: `openmeld_organization_id`,
 `openmeld_funding_source`, and `openmeld_purpose`. These stable identifiers apply
-to all three funding sources. Organization names and user details are not sent.
+to both funding sources. Organization names and user details are not sent.
 Do not use the end-user `user` field or the routing `session_id` field as a
 tenant label. Keep the public app title and referer identical across tenants.
 OpenMeld receipts remain the cross-organization reporting source: a customer's
@@ -91,13 +91,13 @@ The fields use OpenRouter's
 [chat completion metadata contract](https://openrouter.ai/docs/api/api-reference/chat/create-a-chat-completion).
 Custom metadata support does not guarantee a dashboard filter or grouping.
 Compare platform cost and customer-funded usage separately. Organization-scoped
-managed keys provide upstream reconciliation for Free and internal usage.
+managed keys provide upstream reconciliation for Free usage.
 
 ## Operator rollout
 
 This change does not enable or alter a production deployment by itself. Before
 an authorized rollout, provision the management and encryption secrets in Core's
-deployment secret store and configure the private internal UUID. Keep their
+deployment secret store. Keep their
 values out of Wrangler files. Apply the PostgreSQL migration first, deploy Core
 and Gateway, then Remote Agent and Web in the same maintenance window. Old Remote
 workers fail closed until they send `providerAuthorizationVersion: 1`; missing
@@ -115,7 +115,7 @@ visible in the all-model-cost chart but never reduce included credits.
 Use disposable provider keys and a local PostgreSQL/Worker lane. Verify native
 monthly configuration, a zero-cap rejection, restoration with propagation delay,
 concurrent first use, BYOK save/replace/remove, member permissions, cross-workspace
-isolation, exact internal UUID, unavailable secrets, and no fallback. Exercise
+isolation, ignored retired credentials, unavailable secrets, and no fallback. Exercise
 both Agent entry points with real model calls. Check receipts and upstream key
 usage separately. A configured reset timestamp is not proof of an observed
 calendar rollover. Delete all disposable keys after the smoke.
