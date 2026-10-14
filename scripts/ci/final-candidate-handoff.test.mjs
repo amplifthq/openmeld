@@ -145,6 +145,38 @@ test("missing or incomplete result API evidence fails closed", async () => {
   }
 });
 
+test("a new source after a long result wait gets its own cancellation window", async () => {
+  const newer = { ...splitSource, id: splitSource.id + 1 };
+  let time = 0;
+  let iteration = 0;
+  const cancelled = [];
+  await settleHostedCandidateRuns(input, {
+    read: (args) => {
+      if (args.at(-1).includes("final-candidate-result.yml")) {
+        return page(iteration === 1 ? [] : [resultRun(newer, "completed")]);
+      }
+      iteration++;
+      if (iteration === 1) {
+        return page([splitSource]);
+      }
+      if (iteration === 2) {
+        return page([{ ...newer, status: "queued" }, splitSource]);
+      }
+      return page([newer, splitSource]);
+    },
+    cancel: (args) => cancelled.push(args.at(-1)),
+    now: () => time,
+    wait: () => {
+      time += iteration === 1 ? 240_000 : 5000;
+    },
+    report: ignore,
+  });
+  assert.equal(iteration, 3);
+  assert.deepEqual(cancelled, [
+    `repos/${input.repository}/actions/runs/${newer.id}/cancel`,
+  ]);
+});
+
 test("cancel acceptance is not completion; wait through publishers and newly queued attempts", async () => {
   const reads = [
     page([active]),

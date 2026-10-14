@@ -10,7 +10,7 @@ export async function settleHostedCandidateRuns(input, dependencies = {}) {
   const now = dependencies.now ?? Date.now;
   const report =
     dependencies.report ?? ((line) => process.stdout.write(`${line}\n`));
-  const deadline = now() + 180_000;
+  let cancellationDeadline = null;
   const resultDeadline = now() + 1_200_000;
   const cancelled = new Set();
   const reportedResults = new Set();
@@ -18,6 +18,7 @@ export async function settleHostedCandidateRuns(input, dependencies = {}) {
     const runs = readOwnedRuns(input, read);
     const active = runs.filter((run) => run.status !== "completed");
     if (active.length === 0) {
+      cancellationDeadline = null;
       // Older inline publishers finish with their source workflow. Split
       // publishers only accept the newest eligible source run for this PR.
       const source = runs.find((run) =>
@@ -43,7 +44,8 @@ export async function settleHostedCandidateRuns(input, dependencies = {}) {
       await wait();
       continue;
     }
-    if (now() >= deadline) {
+    cancellationDeadline ??= now() + 180_000;
+    if (now() >= cancellationDeadline) {
       throw new Error(
         "Hosted Final Candidate has not finished cancellation; no local status will be published. Inspect the listed runs before retrying."
       );
