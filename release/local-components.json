@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-14T05:44:16.095Z",
+  "updatedAt": "2026-10-14T13:27:37.450Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-project-work-v1",
-      "packageVersion": "0.3.259",
+      "packageVersion": "0.3.260",
       "updatePolicy": "available",
-      "reason": "Retained-result trace guidance uses existing cloud evidence; old and new clients can safely continue setup, Wake, and result reads."
+      "reason": "Existing commands and recovery remain compatible; new controller options and update controls are additive."
     },
     "service": {
-      "bundleHash": "bb424df25841a04fdecb3b9645eb161a3b0e0d48f1a7ea2c5c33addb25c487cd",
-      "portableBundleHash": "115e532be90b101bc9bf23431e8753b3434c0074055ff12387a5ec0009e63dc2",
-      "bundleVersion": "0.3.259",
+      "bundleHash": "9929802659e8084245a3d59ce7df888a5afa32515db69ec1243b451137ae9b1b",
+      "portableBundleHash": "ab665ae4e2511e5c65f51254cb6afa765575f99e3ad09e63bb02be467ba2cdf9",
+      "bundleVersion": "0.3.260",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
       "serviceContractVersion": "openmeld-service-contract-2026-09-project-work-v1",
       "updatePolicy": "available",
-      "reason": "The cumulative shared helper changes preserve transport and execution contracts; current Services can continue accepted and new Wake work."
+      "reason": "Existing Services remain interoperable; this update fixes stop/reconnect and retained-result handling and adds guarded idle-only native updates without changing Wake contracts."
     },
     "skills": {
       "bundleHash": "0507d367ef298936053223f81441697545949fbf4d39b1b306872f7c254a4871",

@@ -41,8 +41,11 @@ export const CENTER_AGENT_TEMPORARILY_UNAVAILABLE_PUBLIC_COPY =
   "Center Agent isn't available right now. Try again in a moment.";
 export const CENTER_AGENT_ORGANIZATION_UNAVAILABLE_PUBLIC_COPY =
   "Center Agent is currently turned off for this Organization. Contact OpenMeld support. You can open diagnostics in OpenMeld to share more details.";
+function formatContextCapacityFailure(agentLabel: string): string {
+  return `${agentLabel} couldn't fit the task context into the selected model. Completed actions were not undone. Choose a model with more context capacity or send a shorter follow-up asking it to inspect existing results before continuing.`;
+}
 export const CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY =
-  "This conversation has grown too long for Center Agent to continue in one request. Try again; OpenMeld will shorten older messages before continuing.";
+  formatContextCapacityFailure("Center Agent");
 export const CENTER_AGENT_REQUEST_STOPPED_PUBLIC_COPY =
   "This request was stopped.";
 export const CENTER_AGENT_EXECUTION_IDENTITY_MISMATCH_PUBLIC_COPY =
@@ -587,7 +590,7 @@ export function resolveCenterAgentCallbackFailureMessage(input: {
     case "remote_agent.admission_timeout":
       return `OpenMeld could not confirm whether ${agentLabel} started this request. Open Diagnostics to check its status before starting more work.`;
     case "remote_agent.turn.context_window_exceeded":
-      return `This conversation has grown too long for ${agentLabel} to continue in one request. Try again; OpenMeld will shorten older messages before continuing.`;
+      return formatContextCapacityFailure(agentLabel);
     case "remote_agent.execution_identity_mismatch":
       return `OpenMeld stopped this request because it could not confirm that the reply came from ${agentLabel}. Open Diagnostics in OpenMeld for details.`;
     case "remote_agent.callback_publish_failed":

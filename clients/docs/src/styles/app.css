@@ -6,6 +6,7 @@
 @source "../../../../packages/ui/src/components/open-app-button.tsx";
 @source "../../../../packages/ui/src/components/platform-badge.tsx";
 @source "../../../../packages/ui/src/components/button.tsx";
+@source "../../../../packages/ui/src/components/local-agent-logo.tsx";
 
 @theme inline {
   --font-sans: var(--font-ui-sans);
@@ -34,6 +35,48 @@
 
 html {
   scrollbar-gutter: stable;
+}
+
+a.docs-open-app {
+  color: var(--color-fd-primary-foreground);
+  background: var(--color-fd-primary);
+  border-color: var(--color-fd-primary);
+}
+
+a.docs-open-app:hover {
+  background: color-mix(in srgb, var(--color-fd-primary) 90%, var(--color-fd-background));
+}
+
+.docs-local-agent-stack {
+  display: none;
+  color: var(--color-fd-foreground);
+  align-items: center;
+  flex-shrink: 0;
+  isolation: isolate;
+}
+
+:is(#nd-sidebar, #nd-sidebar-mobile) .docs-local-agent-stack {
+  display: inline-flex;
+}
+
+.docs-local-agent-stack > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--color-fd-background);
+  border-radius: 50%;
+  background: var(--color-fd-background);
+}
+
+.docs-local-agent-stack > span + span {
+  margin-inline-start: -4px;
+}
+
+.docs-local-agent-stack > span > span {
+  width: 12px;
+  height: 12px;
 }
 
 .docs-home a:focus-visible { outline: 2px solid currentColor; outline-offset: 5px; }

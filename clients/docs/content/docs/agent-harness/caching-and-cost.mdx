@@ -1,0 +1,35 @@
+---
+title: Caching and token costs
+description: Where OpenMeld reduces repeated context processing, and what those savings do not guarantee.
+---
+
+Agent work can involve several model calls, tool results, summaries, and delegated assignments. OpenMeld uses context limits and supported provider caching to reduce avoidable repetition. The total cost still depends on the selected models, the amount of work, and provider billing.
+
+## Reuse an eligible prompt prefix
+
+A **prompt cache** lets a model provider reuse processing for an unchanged beginning of a request. Repeated instructions and conversation context can qualify, depending on the provider's rules.
+
+Supported hosted model routes preserve provider-native caching. Some use explicit cache markers; others use the provider's automatic caching. Support is specific to the model and route. OpenMeld does not switch your selected model merely to obtain a cache hit.
+
+A cache hit is not a saved final answer. The Agent still processes the new request, and tool permissions still apply. A repeated task is not guaranteed to hit a cache: changed input, routing, expiry, or provider behavior can prevent reuse.
+
+## Keep the working context bounded
+
+The runtime limits large tool results and summarizes older context. For reviewed model configurations, its context policy also accounts for known higher-priced prompt bands rather than treating the model's maximum window as a target to fill.
+
+These measures have tradeoffs. Summaries require model work. Rebuilding context can change the cached prefix. Several short requests can still cost more than one well-scoped request. See [Context management](/docs/agent-harness/context-management).
+
+## Read usage with the right expectations
+
+Use [AI usage](/docs/team/usage) to inspect the available scope, period, model, and billing-source totals. Actual cache savings depend on provider-reported cache reads. Estimated costs or missing price data are not proof of the final amount charged by a provider.
+
+A tool-call limit or context limit is not a dollar spending cap. These controls do not impose one universal budget across all Agents and all providers. Local tools may use their own accounts, subscriptions, caching, and usage reporting.
+
+## Give work a useful boundary
+
+- Specify a deliverable and a stopping condition, such as “Compare these three options and return one recommendation.”
+- Delegate when another Agent adds needed access, expertise, or independent evidence. More Agents also mean more work and model calls.
+- Share relevant files and references instead of repeatedly pasting long transcripts.
+- Check usage during expensive or recurring work. Pause a Routine that no longer serves a purpose.
+
+For the controls that stop redundant or excessive execution, see [Limits and loop prevention](/docs/agent-harness/limits-and-loops).

@@ -5,9 +5,13 @@ export const AI_FREE_MONTHLY_CREDITS = 5000;
 export const AI_CREDITS_PER_USD = 1000;
 export const AI_CREDIT_POLICY_VERSION = "2026-10-v1";
 
-export const aiFundingSourceSchema = z.enum(["free", "byok", "internal"]);
+export const aiFundingSourceSchema = z.enum(["free", "byok"]);
+// Retain retired attribution only for historical usage, never authorization.
+export const aiUsageFundingSourceSchema = aiFundingSourceSchema.or(
+  z.literal("internal")
+);
 export const organizationAiBillingSchema = z.strictObject({
-  plan: z.enum(["free", "internal"]),
+  plan: z.literal("free"),
   source: aiFundingSourceSchema,
   policyVersion: z.literal(AI_CREDIT_POLICY_VERSION),
   monthlyCredits: z.number().int().nonnegative().nullable(),

@@ -1,13 +1,14 @@
 {
-  "title": "Team and tools",
+  "title": "Team",
   "defaultOpen": false,
   "pages": [
-    "workspaces",
-    "channels",
+    "overview",
+    "people",
+    "../work/agents",
     "plugins",
     "skills",
+    "../work/files",
     "knowledge",
-    "access",
-    "usage"
+    "../work/routines"
   ]
 }

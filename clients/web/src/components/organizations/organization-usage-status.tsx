@@ -76,7 +76,6 @@ function BillingSettings({
 	const [open, setOpen] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const byok = billing.source === "byok";
-	const planLabel = billing.plan === "internal" ? "Internal" : "Free";
 	return (
 		<Dialog
 			onOpenChange={(value) => {
@@ -89,7 +88,7 @@ function BillingSettings({
 			<AgentConfigurationGrid className="sm:grid-cols-1">
 				<AgentConfigurationReadoutCard
 					headerAccessory={
-						<Badge variant="secondary">{byok ? "BYOK" : planLabel}</Badge>
+						<Badge variant="secondary">{byok ? "BYOK" : "Free"}</Badge>
 					}
 					itemId="ai-plan"
 					label={byok ? "Your OpenRouter key" : "Included AI credits"}
@@ -160,9 +159,6 @@ function ByokSummary({ billing }: { billing: OrganizationAiBilling }) {
 }
 
 function IncludedCredits({ billing }: { billing: OrganizationAiBilling }) {
-	if (billing.plan === "internal") {
-		return <p className="font-medium">No monthly credit limit</p>;
-	}
 	return (
 		<>
 			<p className="font-medium tabular-nums">
@@ -189,9 +185,6 @@ function billingSummary(billing: OrganizationAiBilling) {
 	}
 	if (billing.status === "unavailable") {
 		return "Included AI is unavailable. Try again or use your own key.";
-	}
-	if (billing.plan === "internal") {
-		return "Shared by all agents in this workspace.";
 	}
 	if (billing.monthlyCredits === 0) {
 		return "Free credits apply to your first workspace. Use your own key here.";

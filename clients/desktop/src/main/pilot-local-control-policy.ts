@@ -37,7 +37,7 @@ const LOCAL_CONTROL_ROUTES = [
   ["PUT", "/v1/prepare/sessions/:sessionId/terminal-step"],
 ] as const;
 
-export function desktopWorkingFolderTarget(url: URL, method: string) {
+export function desktopComputerOperationTarget(url: URL, method: string) {
   const segments = url.pathname.split("/").map(decodeURIComponent);
   if (
     segments.length < 7 ||
@@ -63,7 +63,13 @@ export function desktopWorkingFolderTarget(url: URL, method: string) {
     segments[6] === "agent-profiles" &&
     Boolean(segments[7]) &&
     segments[8] === "workspace";
-  return permitted || workspace
+  const installationUpdate =
+    segments.length === 9 &&
+    segments[6] === "local-agents" &&
+    Boolean(segments[7]) &&
+    ["GET", "POST"].includes(method) &&
+    segments[8] === "installation-update";
+  return permitted || workspace || installationUpdate
     ? { deviceId: segments[3], runtimeLane: segments[5] }
     : null;
 }

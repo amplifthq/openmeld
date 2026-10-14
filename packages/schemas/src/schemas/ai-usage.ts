@@ -1,6 +1,6 @@
 import * as z from "zod/v4";
 import {
-  aiFundingSourceSchema,
+  aiUsageFundingSourceSchema,
   remoteAiProviderAuthorizationSchema,
 } from "./ai-billing";
 import { openMeldRequestContextSchema } from "./daemon/profile-identity";
@@ -43,7 +43,7 @@ export const aiUsageObservationSchema = z.strictObject({
 });
 
 export const aiUsageRecordSchema = aiUsageObservationSchema.extend({
-  fundingSource: aiFundingSourceSchema.optional(),
+  fundingSource: aiUsageFundingSourceSchema.optional(),
   status: z.enum(["pending", "reported", "unavailable", "collection_failed"]),
   collectionFailure: z
     .enum(["request_failed", "stream_interrupted", "invalid_response"])

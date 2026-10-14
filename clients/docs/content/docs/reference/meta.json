@@ -1,5 +1,15 @@
 {
-  "title": "Reference",
+  "title": "Concepts & Reference",
   "defaultOpen": false,
-  "pages": ["cli", "feature-guide", "docs-for-agents"]
+  "pages": [
+    "../start/concepts",
+    "../concepts/where-work-runs",
+    "../concepts/how-work-starts",
+    "../concepts/projects-and-folders",
+    "../concepts/routines-and-runs",
+    "run-status",
+    "cli",
+    "feature-guide",
+    "docs-for-agents"
+  ]
 }

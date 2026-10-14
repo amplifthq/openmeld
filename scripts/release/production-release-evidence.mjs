@@ -565,6 +565,7 @@ function createRecoveryProofMetadata(context, current, next, receipt) {
     receipt.application !== next.receipt.application ||
     JSON.stringify(receipt.identity) !==
       JSON.stringify(next.receipt.identity) ||
+    !isDeepStrictEqual(receipt.remoteAgent, next.receipt.remoteAgent) ||
     (next.receipt.status === "failed" &&
       (next.receipt.application !== "unknown" || next.receipt.identity)) ||
     (next.receipt.status === "verified" &&

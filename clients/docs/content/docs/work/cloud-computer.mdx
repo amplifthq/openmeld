@@ -9,7 +9,13 @@ A cloud Computer is a personal execution environment that an authorized hosted A
 
 In a Center Agent conversation, state the input, task, and output. For example:
 
-> Create a CSV with the project names and dates from these notes. Save it and give me the resulting file. Do not send it to another service.
+```text
+Create a CSV with the project names and dates from these notes.
+Leave missing dates blank. Save the CSV and return the file.
+Do not send it to another service.
+
+Notes: [paste the notes here]
+```
 
 The Agent must have access to the source material and a supported execution path. A cloud Computer does not automatically contain your laptop's files, browser sessions, or external accounts.
 
@@ -21,9 +27,11 @@ For code work, ask the Agent to identify the checkout, commands it ran, and resu
 
 If the Agent cannot complete a step, it should identify that step and the remaining work.
 
+Command acceptance means the request was received. Preparation or transfer can still be in progress. Ask for the command's final result and inspect the artifact before treating the work as complete. If the outcome is unknown, check the existing command before repeating an operation that could change files or publish content.
+
 ## Persistence
 
-Saved Computer files can persist across runtime recreation. Running processes, installed operating-system packages, and browser login state are not promised to survive it.
+Files saved in the cloud Computer’s persistent `/computer` tree can survive runtime recreation. Do not assume files in temporary locations have the same persistence. Running processes, installed operating-system packages, and browser login state are not promised to survive it.
 
 Keep important deliverables in the appropriate [Files location](/docs/work/files). Review the audience when publishing an artifact from a personal execution environment into a team Space.
 
@@ -38,3 +46,5 @@ The Computer belongs to a human account. Access to its files does not authorize 
 Connected Plugins retain their own permissions. Removing a provider connection stops new provider calls; it does not automatically delete every file previously downloaded from that provider.
 
 Cloud Computer capabilities do not imply a human remote-desktop app or a persistent signed-in browser.
+
+See [Where work runs](/docs/concepts/where-work-runs) before choosing between hosted file work and a Local Agent that needs your existing checkout.

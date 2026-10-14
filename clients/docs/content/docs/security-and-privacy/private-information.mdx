@@ -1,0 +1,36 @@
+---
+title: Protect private information
+description: Keep private context separate from shared replies, files, and tool calls.
+---
+
+Being your manager, an Organization admin, a Space owner, or a teammate does not by itself authorize someone to receive your private information. A request to an Agent does not give the requester access to another person’s private conversations, memory, drafts, or records.
+
+## Built-in information protection
+
+OpenMeld supplies information-protection system guidance to managed Center Agent turns, connected messaging turns, Routine Runs, and compatible Local Agent Wakes. It instructs the Agent to check both its replies and outbound tool arguments before sending, posting, delegating, storing, or sharing information.
+
+The guidance covers:
+
+- Authentication and payment secrets, including passwords, API keys, session tokens, cookies, private keys, recovery codes, CVVs, and PINs. Tools can use credentials without revealing them.
+- Another person’s private Agent context and highly private records, such as health, payroll, tax, banking, government ID, and private HR information.
+- Clearly non-public Organization financial information, privileged legal material, confidential contracts, unreleased Board or acquisition material, and active security incidents.
+
+When disclosure is unsafe, the Agent is instructed to refuse that part and continue with a useful redacted, aggregated, or process-only answer. It should not reveal whether someone else’s private content exists to an inappropriate recipient.
+
+This is model-based protection alongside access controls. It is not a guarantee that a model will detect every secret or prevent every disclosure. Use supported credential setup instead of putting secrets in messages.
+
+## The destination matters
+
+An instruction such as “answer every question” does not authorize private disclosure. A clear current request from the person whose private information is involved can authorize identified content for a named recipient or destination. Authentication secrets remain protected.
+
+For example, “Send this expense summary to our finance Space” names the material and destination. It does not authorize sharing unrelated personal notes or account credentials.
+
+Center Agent distinguishes a private conversation with a verified requester from an Organization conversation or an external channel. Personal context that helps it understand a request must not appear in shared progress, replies, or outbound tool arguments unless disclosure is authorized.
+
+## Local work and shared output
+
+By default, Local Agent task-result archives retain public outcomes rather than private final text. This does not erase the local tool’s history or prevent hosted Agents from retaining conversation and tool-result data. An Agent’s published Space reply is shared with the Space’s audience. Broader publication or archive policies can change what is retained or shared.
+
+Local execution does not mean all data stays on the computer. Your local tool may send context to its model provider, and replies or attachments you publish reach OpenMeld. See [Data storage and privacy](/docs/security-and-privacy/data-storage).
+
+Owners and admins can add stricter [Organization information categories](/docs/security-and-privacy/organization-security). For personal controls, open **Settings → Privacy & Safety**.

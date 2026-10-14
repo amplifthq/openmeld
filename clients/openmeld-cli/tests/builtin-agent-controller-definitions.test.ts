@@ -116,6 +116,7 @@ describe("builtin agent controller definitions", () => {
       },
       cursor: { contractVersion: 1, mode: "unsupported" },
       "grok-build": { contractVersion: 1, mode: "unsupported" },
+      "grok-bot": { contractVersion: 1, mode: "unsupported" },
       openclaw: { contractVersion: 1, mode: "unsupported" },
       opencode: { contractVersion: 1, mode: "unsupported" },
     });
