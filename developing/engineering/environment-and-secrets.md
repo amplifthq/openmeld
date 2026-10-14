@@ -119,6 +119,11 @@ which secret names each local component may receive. The runner uses explicit
 project and config flags, requests only those names, disables local fallback
 files, and never downloads or prints values.
 
+For real local BYOK acceptance, `openmeld-core/dev` also stores the reusable
+`OPENROUTER_SMOKE_API_KEY`. This is a smoke input, not an automatically injected
+runtime secret. Follow [the BYOK smoke procedure](ai-billing.md#shared-development-byok-smoke-key)
+to retrieve it without printing the value and save it through the local product.
+
 The top-level development supervisor receives no managed secrets. Each runtime
 requests its own allowlisted values only when that runtime starts:
 
