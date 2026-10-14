@@ -311,7 +311,7 @@ function SpaceAddMembersCandidateGroup(input: {
 		return null;
 	}
 	const headingId = input.label
-		? `space-add-members-group-${input.label.toLowerCase()}`
+		? `space-add-members-group-${input.label.toLowerCase().replaceAll(" ", "-")}`
 		: undefined;
 	let nextSelectableIndex = 0;
 	const rows = input.candidates.map((candidate) => ({

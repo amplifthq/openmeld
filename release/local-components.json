@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-14T08:15:16.199Z",
+  "updatedAt": "2026-10-14T10:32:35.025Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-project-work-v1",
       "packageVersion": "0.3.260",
       "updatePolicy": "available",
-      "reason": "Add existing Grok Bot shared-conversation connections through BDK."
+      "reason": "Existing commands remain compatible; Grok Bot connection options are additive."
     },
     "service": {
-      "bundleHash": "f37c6bf78f02ba21749ce90286ae970611b1de39329ca1a9f8e3bb61b9bb8e1b",
-      "portableBundleHash": "970072c20a30e9f6e5be2e23e8b5c040a3e0f302450ded9bd5412b8e19002f2f",
+      "bundleHash": "142352cd2193819992ab5fd7d4d8678e5a95ffee1d05025321011b52227fbf65",
+      "portableBundleHash": "f47f718b2073e51598fc37f04f9e18fead9ae5299bb5acb8bc2fe0ee1819af6b",
       "bundleVersion": "0.3.260",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
       "serviceContractVersion": "openmeld-service-contract-2026-09-project-work-v1",
       "updatePolicy": "available",
-      "reason": "Run and stop existing Grok Bot conversations through the standard Agent Profile execution path."
+      "reason": "Existing controllers remain compatible; Grok Bot requires a newly advertised controller and uses the existing execution contract."
     },
     "skills": {
       "bundleHash": "0507d367ef298936053223f81441697545949fbf4d39b1b306872f7c254a4871",
