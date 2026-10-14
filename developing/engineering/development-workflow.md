@@ -1317,6 +1317,17 @@ authority; Service reads the canonical route before attempting a native update.
 
 ### Safe Local Agent Installation Selection Contract Impact Audit
 
+Local Agent update extension: publish Core/Gateway/schema readers before a Service
+advertises optional `updateInstallations`. New owner-only GET/POST
+`installation-update` routes reuse the existing installation transport with
+`read_update`/`update` requests and a distinct `update_state` result. Old Services retain
+selection and manual updates; new controls require the new capability. Existing
+list/select responses, Prepare, Wake, Skills, and Space Actions are unchanged.
+Web and Desktop share the Computer UI and API client. No native Desktop bridge,
+database schema, contract floor, or forced update is required. Service/CLI release
+impact is advisory `available`; this feature branch does not stamp release
+artifacts. Rollback must retain readers while new Services advertise the field.
+
 Safe installation selection changes Web behavior, Local Runtimes HTTP/RPC,
 Runtime Transport capabilities and result frames, the OpenMeld Service carrier,
 and the process-internal local execution-slot contract. It does not change

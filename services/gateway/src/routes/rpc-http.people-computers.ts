@@ -6,6 +6,8 @@ import {
   currentLocalAgentInstallationsRouteParamsSchema,
   getCurrentAgentProfileWorkspaceQuerySchema,
   getCurrentAgentProfileWorkspaceResponseSchema,
+  localAgentUpdateRequestSchema,
+  localAgentUpdateStateSchema,
   localFolderPickerResultSchema,
   localProjectControlDiscoverProjectsRequestSchema,
   localProjectControlDiscoverProjectsResponseSchema,
@@ -40,6 +42,59 @@ export function registerPeopleComputerControlRoutes(
   app: Hono<HonoBindings>
 ): void {
   registerServiceConnectionEvidenceRoutes(app);
+  const agentUpdateRoute =
+    "/v1/people-computers/:deviceId/lanes/:runtimeLane/local-agents/:agentId/installation-update";
+  app.on(["GET", "POST"], agentUpdateRoute, async (c) => {
+    const target = peopleComputerTargetSchema.safeParse({
+      deviceId: c.req.param("deviceId"),
+      runtimeLane: c.req.param("runtimeLane"),
+    });
+    const agent = currentLocalAgentInstallationsRouteParamsSchema.safeParse({
+      agentId: c.req.param("agentId"),
+    });
+    const method = c.req.method === "POST" ? "POST" : "GET";
+    if (!(target.success && agent.success)) {
+      return respondBadRequest({
+        c,
+        route: agentUpdateRoute,
+        method,
+        code: "invalid_payload",
+        message: "Invalid computer or local agent.",
+      });
+    }
+    let updateRequest:
+      | import("@openmeld/schemas/types").LocalAgentUpdateRequest
+      | undefined;
+    if (method === "POST") {
+      const body = await readJsonRequestBody(c.req.raw);
+      const parsed = localAgentUpdateRequestSchema.safeParse(
+        body.ok ? body.value : null
+      );
+      if (!parsed.success) {
+        return respondBadRequest({
+          c,
+          route: agentUpdateRoute,
+          method,
+          code: "invalid_payload",
+          message: "Invalid local agent update request.",
+        });
+      }
+      updateRequest = parsed.data;
+    }
+    return executeRpcRoute({
+      c,
+      route: agentUpdateRoute,
+      method,
+      responseSchema: localAgentUpdateStateSchema,
+      execute: () =>
+        c.var.coreRpc.managePeopleComputerLocalAgentUpdate({
+          ...target.data,
+          ...agent.data,
+          ...(updateRequest ? { request: updateRequest } : {}),
+          context: buildCoreRpcContext(c),
+        }),
+    });
+  });
   const powerRoute =
     "/v1/people-computers/:deviceId/lanes/:runtimeLane/power-settings";
   app.use(powerRoute, async (c, next) => {

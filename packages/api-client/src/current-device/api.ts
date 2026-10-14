@@ -6,6 +6,8 @@ import {
   forgetCurrentComputerResponseSchema,
   getCurrentAgentProfileWorkspaceQuerySchema,
   getCurrentAgentProfileWorkspaceResponseSchema,
+  localAgentUpdateRequestSchema,
+  localAgentUpdateStateSchema,
   localRuntimeEnrollmentBodySchema,
   localRuntimeEnrollmentResponseSchema,
   localRuntimesQuerySchema,
@@ -226,6 +228,28 @@ export const createCurrentDeviceApi: CreateCurrentDeviceApi = (
         method: "GET",
         schema: currentLocalAgentInstallationsResponseSchema,
         invalidMessage: "Invalid computer action response.",
+      });
+    },
+    managePeopleComputerLocalAgentUpdate: async (input) => {
+      const target = peopleComputerTargetSchema.parse({
+        deviceId: input.deviceId,
+        runtimeLane: input.runtimeLane,
+      });
+      const request = input.request
+        ? localAgentUpdateRequestSchema.parse(input.request)
+        : null;
+      return await client.requestJson({
+        url: `/v1/people-computers/${encodeURIComponent(target.deviceId)}/lanes/${encodeURIComponent(target.runtimeLane)}/local-agents/${encodeURIComponent(input.agentId)}/installation-update`,
+        operation: "people_computer.managePeopleComputerLocalAgentUpdate",
+        method: request ? "POST" : "GET",
+        ...(request
+          ? {
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(request),
+            }
+          : {}),
+        schema: localAgentUpdateStateSchema,
+        invalidMessage: "Invalid local agent update response.",
       });
     },
     selectPeopleComputerLocalAgentInstallation: async (input) => {

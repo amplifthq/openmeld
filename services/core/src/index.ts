@@ -1041,6 +1041,7 @@ import {
   rpcListSpaceThreadEvents,
   rpcListSpaceThreadSignals,
   rpcListSpaceThreads,
+  rpcManagePeopleComputerLocalAgentUpdate,
   rpcMutateSpaceMessage,
   rpcMutateSpaceTask,
   rpcNotifyAgentProfileRouteCatalogChanged,
@@ -4414,6 +4415,13 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       rpcSelectPeopleComputerLocalAgentInstallation(this.env, input)
     );
   }
+  managePeopleComputerLocalAgentUpdate(
+    input: Parameters<typeof rpcManagePeopleComputerLocalAgentUpdate>[1]
+  ) {
+    return withPostgresRequest(this.env.OPENMELD_POSTGRESQL, () =>
+      rpcManagePeopleComputerLocalAgentUpdate(this.env, input)
+    );
+  }
   refreshPeopleComputerLocalAgentCatalog(
     input: Parameters<typeof rpcRefreshPeopleComputerLocalAgentCatalog>[1]
   ) {
@@ -5558,6 +5566,11 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: Parameters<typeof rpcSelectPeopleComputerLocalAgentInstallation>[1]
   ) {
     return super.selectPeopleComputerLocalAgentInstallation(input);
+  }
+  managePeopleComputerLocalAgentUpdate(
+    input: Parameters<typeof rpcManagePeopleComputerLocalAgentUpdate>[1]
+  ) {
+    return super.managePeopleComputerLocalAgentUpdate(input);
   }
   refreshPeopleComputerLocalAgentCatalog(
     input: Parameters<typeof rpcRefreshPeopleComputerLocalAgentCatalog>[1]
