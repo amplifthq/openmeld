@@ -83,6 +83,8 @@ function controlProjection(root, relativePath, ref) {
         ? execFileSync("git", ["show", `${ref}:${file}`], {
             cwd: root,
             encoding: "utf8",
+            // Dependency patches can exceed Node's default 1 MiB stdout limit.
+            maxBuffer: 16 * 1024 * 1024,
           })
         : null;
     };
