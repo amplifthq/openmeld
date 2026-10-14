@@ -866,8 +866,9 @@ Remote Agent's Flue 2 build retains Vite 8.1.2, and the native Desktop build
 retains Vite 7.3.2. Desktop's shared Web renderer uses the Web build.
 Root Sherif configuration allows only those exact retained Vite versions to
 differ; it does not disable the dependency rule or exempt a package. The
-Rolldown override is limited to versions below 1.2 so it does not downgrade
-Vite 8.3's required bundler. Reassess these version-specific entries when
+Rolldown override covers stable versions below 1.2 and explicitly covers the
+1.0.0-rc.3 dependency used by tsdown, preserving the existing shared-package
+bundler without downgrading Vite 8.3's required bundler. Reassess these entries when
 upgrading either build, and remove them when the build versions converge.
 
 The upstream history fix replaces the former local traversal patch. Keep the

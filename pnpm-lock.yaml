@@ -29,6 +29,7 @@ overrides:
   '@aws-sdk/token-providers': 3.1080.0
   '@modelcontextprotocol/sdk>zod': 4.6.5
   rolldown@<1.2.0: 1.1.4
+  rolldown@1.0.0-rc.3: 1.1.4
   wrangler: 4.147.0
 
 packageExtensionsChecksum: sha256-KgO1AEvxWG2BkZwreCUQEKVuZnpDPXJ+xMuK4j1L8pE=
@@ -427,7 +428,7 @@ importers:
         version: 11.17.1
       tsdown:
         specifier: ^0.20.3
-        version: 0.20.3(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(oxc-resolver@11.17.1)(typescript@5.9.3)(unplugin-lightningcss@0.4.5)
+        version: 0.20.3(oxc-resolver@11.17.1)(typescript@5.9.3)(unplugin-lightningcss@0.4.5)
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -973,7 +974,7 @@ importers:
         version: 11.17.1
       tsdown:
         specifier: ^0.20.3
-        version: 0.20.3(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(oxc-resolver@11.17.1)(typescript@5.9.3)(unplugin-lightningcss@0.4.5)
+        version: 0.20.3(oxc-resolver@11.17.1)(typescript@5.9.3)(unplugin-lightningcss@0.4.5)
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -1001,7 +1002,7 @@ importers:
         version: 11.17.1
       tsdown:
         specifier: ^0.20.3
-        version: 0.20.3(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(oxc-resolver@11.17.1)(typescript@5.9.3)(unplugin-lightningcss@0.4.5)
+        version: 0.20.3(oxc-resolver@11.17.1)(typescript@5.9.3)(unplugin-lightningcss@0.4.5)
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -1029,7 +1030,7 @@ importers:
         version: 11.17.1
       tsdown:
         specifier: ^0.20.3
-        version: 0.20.3(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(oxc-resolver@11.17.1)(typescript@5.9.3)(unplugin-lightningcss@0.4.5)
+        version: 0.20.3(oxc-resolver@11.17.1)(typescript@5.9.3)(unplugin-lightningcss@0.4.5)
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -1126,7 +1127,7 @@ importers:
         version: 5.2.9
       tsdown:
         specifier: ^0.20.3
-        version: 0.20.3(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(oxc-resolver@11.17.1)(typescript@5.9.3)(unplugin-lightningcss@0.4.5)
+        version: 0.20.3(oxc-resolver@11.17.1)(typescript@5.9.3)(unplugin-lightningcss@0.4.5)
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -1166,7 +1167,7 @@ importers:
         version: 11.17.1
       tsdown:
         specifier: ^0.20.3
-        version: 0.20.3(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(oxc-resolver@11.17.1)(typescript@5.9.3)(unplugin-lightningcss@0.4.5)
+        version: 0.20.3(oxc-resolver@11.17.1)(typescript@5.9.3)(unplugin-lightningcss@0.4.5)
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -1194,7 +1195,7 @@ importers:
         version: 11.17.1
       tsdown:
         specifier: ^0.20.3
-        version: 0.20.3(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(oxc-resolver@11.17.1)(typescript@5.9.3)(unplugin-lightningcss@0.4.5)
+        version: 0.20.3(oxc-resolver@11.17.1)(typescript@5.9.3)(unplugin-lightningcss@0.4.5)
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -1219,7 +1220,7 @@ importers:
         version: 11.17.1
       tsdown:
         specifier: ^0.20.3
-        version: 0.20.3(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(oxc-resolver@11.17.1)(typescript@5.9.3)(unplugin-lightningcss@0.4.5)
+        version: 0.20.3(oxc-resolver@11.17.1)(typescript@5.9.3)(unplugin-lightningcss@0.4.5)
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -1250,7 +1251,7 @@ importers:
         version: 11.17.1
       tsdown:
         specifier: ^0.20.3
-        version: 0.20.3(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(oxc-resolver@11.17.1)(typescript@5.9.3)(unplugin-lightningcss@0.4.5)
+        version: 0.20.3(oxc-resolver@11.17.1)(typescript@5.9.3)(unplugin-lightningcss@0.4.5)
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -1275,7 +1276,7 @@ importers:
         version: 11.17.1
       tsdown:
         specifier: ^0.20.3
-        version: 0.20.3(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(oxc-resolver@11.17.1)(typescript@5.9.3)(unplugin-lightningcss@0.4.5)
+        version: 0.20.3(oxc-resolver@11.17.1)(typescript@5.9.3)(unplugin-lightningcss@0.4.5)
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -1297,7 +1298,7 @@ importers:
         version: 11.17.1
       tsdown:
         specifier: ^0.20.3
-        version: 0.20.3(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(oxc-resolver@11.17.1)(typescript@5.9.3)(unplugin-lightningcss@0.4.5)
+        version: 0.20.3(oxc-resolver@11.17.1)(typescript@5.9.3)(unplugin-lightningcss@0.4.5)
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -1322,7 +1323,7 @@ importers:
         version: 11.17.1
       tsdown:
         specifier: ^0.20.3
-        version: 0.20.3(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(oxc-resolver@11.17.1)(typescript@5.9.3)(unplugin-lightningcss@0.4.5)
+        version: 0.20.3(oxc-resolver@11.17.1)(typescript@5.9.3)(unplugin-lightningcss@0.4.5)
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -1344,7 +1345,7 @@ importers:
         version: 11.17.1
       tsdown:
         specifier: ^0.20.3
-        version: 0.20.3(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(oxc-resolver@11.17.1)(typescript@5.9.3)(unplugin-lightningcss@0.4.5)
+        version: 0.20.3(oxc-resolver@11.17.1)(typescript@5.9.3)(unplugin-lightningcss@0.4.5)
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -1366,7 +1367,7 @@ importers:
         version: 11.17.1
       tsdown:
         specifier: ^0.20.3
-        version: 0.20.3(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(oxc-resolver@11.17.1)(typescript@5.9.3)(unplugin-lightningcss@0.4.5)
+        version: 0.20.3(oxc-resolver@11.17.1)(typescript@5.9.3)(unplugin-lightningcss@0.4.5)
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -1464,7 +1465,7 @@ importers:
         version: 11.17.1
       tsdown:
         specifier: ^0.20.3
-        version: 0.20.3(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(oxc-resolver@11.17.1)(typescript@5.9.3)(unplugin-lightningcss@0.4.5)
+        version: 0.20.3(oxc-resolver@11.17.1)(typescript@5.9.3)(unplugin-lightningcss@0.4.5)
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -5785,9 +5786,6 @@ packages:
     peerDependencies:
       react: '>=18'
 
-  '@oxc-project/types@0.112.0':
-    resolution: {integrity: sha512-m6RebKHIRsax2iCwVpYW2ErQwa4ywHJrE4sCK3/8JK8ZZAWOKXaRJFl/uP51gaVyyXlaS4+chU1nSCdzYf6QqQ==}
-
   '@oxc-project/types@0.138.0':
     resolution: {integrity: sha512-1a7ZKmrRTCoN1XMZ4L0PyyqrMnrNlLyPuOkdSX2MZg7IiIGRUyurNhAm73ptDOraoBcIordsIGKNPKUzy3ZmfA==}
 
@@ -7195,12 +7193,6 @@ packages:
     cpu: [arm]
     os: [android]
 
-  '@rolldown/binding-android-arm64@1.0.0-rc.3':
-    resolution: {integrity: sha512-0T1k9FinuBZ/t7rZ8jN6OpUKPnUjNdYHoj/cESWrQ3ZraAJ4OMm6z7QjSfCxqj8mOp9kTKc1zHK3kGz5vMu+nQ==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [arm64]
-    os: [android]
-
   '@rolldown/binding-android-arm64@1.1.4':
     resolution: {integrity: sha512-EZLpf/8y7GXkkra90ML47kzik/GMP3EMcE9bPyHmRfxLC6z9+aW5A8poCsoxjrT5GfEcNAAvWwUHjvP1pUQkfw==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -7213,12 +7205,6 @@ packages:
     cpu: [arm64]
     os: [android]
 
-  '@rolldown/binding-darwin-arm64@1.0.0-rc.3':
-    resolution: {integrity: sha512-JWWLzvcmc/3pe7qdJqPpuPk91SoE/N+f3PcWx/6ZwuyDVyungAEJPvKm/eEldiDdwTmaEzWfIR+HORxYWrCi1A==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [arm64]
-    os: [darwin]
-
   '@rolldown/binding-darwin-arm64@1.1.4':
     resolution: {integrity: sha512-aUi+HBvmYb7j8krl1+qJgkG8C17fO79gk3c+jPw4S8glRFc1DTija9S3EyaTSQUm5GJXYKDAsugBEhFHH2vYiQ==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -7229,12 +7215,6 @@ packages:
     resolution: {integrity: sha512-lTQOzHuBIooh3jIr5XINQkjPGEuGy+Dsy0meXDr6Sjty0b99kYgGh4uBC/8mJX1T0kC8d6S0aPP1Y+bHkh6aBw==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [arm64]
-    os: [darwin]
-
-  '@rolldown/binding-darwin-x64@1.0.0-rc.3':
-    resolution: {integrity: sha512-MTakBxfx3tde5WSmbHxuqlDsIW0EzQym+PJYGF4P6lG2NmKzi128OGynoFUqoD5ryCySEY85dug4v+LWGBElIw==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [x64]
     os: [darwin]
 
   '@rolldown/binding-darwin-x64@1.1.4':
@@ -7249,12 +7229,6 @@ packages:
     cpu: [x64]
     os: [darwin]
 
-  '@rolldown/binding-freebsd-x64@1.0.0-rc.3':
-    resolution: {integrity: sha512-jje3oopyOLs7IwfvXoS6Lxnmie5JJO7vW29fdGFu5YGY1EDbVDhD+P9vDihqS5X6fFiqL3ZQZCMBg6jyHkSVww==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [x64]
-    os: [freebsd]
-
   '@rolldown/binding-freebsd-x64@1.1.4':
     resolution: {integrity: sha512-sI5yw+7s92SK6odiEhD5lKCBlWcpjHS5qyqpVQbZAJ0fIzEUXrmbl3DH2ybR3PZogulNJF+COLtmA8hUfvkCCQ==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -7267,12 +7241,6 @@ packages:
     cpu: [x64]
     os: [freebsd]
 
-  '@rolldown/binding-linux-arm-gnueabihf@1.0.0-rc.3':
-    resolution: {integrity: sha512-A0n8P3hdLAaqzSFrQoA42p23ZKBYQOw+8EH5r15Sa9X1kD9/JXe0YT2gph2QTWvdr0CVK2BOXiK6ENfy6DXOag==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [arm]
-    os: [linux]
-
   '@rolldown/binding-linux-arm-gnueabihf@1.1.4':
     resolution: {integrity: sha512-mCi0OKgEieFircrtVYmQAFGszRtMnZ6fpZAXrxanXAu7lqZcsK1E1RAaZNG0uKAnxox3B1f4EyQNnoyMfN1vAA==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -7284,13 +7252,6 @@ packages:
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [arm]
     os: [linux]
-
-  '@rolldown/binding-linux-arm64-gnu@1.0.0-rc.3':
-    resolution: {integrity: sha512-kWXkoxxarYISBJ4bLNf5vFkEbb4JvccOwxWDxuK9yee8lg5XA7OpvlTptfRuwEvYcOZf+7VS69Uenpmpyo5Bjw==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [arm64]
-    os: [linux]
-    libc: [glibc]
 
   '@rolldown/binding-linux-arm64-gnu@1.1.4':
     resolution: {integrity: sha512-B9Ial3Kv5sh0SHnB1g/QWcUQCEvCF6QKGAl4zXypYj65mVI+B4AhFBwPtSN7pDrJeIx8Z7zdy4ntx+wQABom7w==}
@@ -7305,13 +7266,6 @@ packages:
     cpu: [arm64]
     os: [linux]
     libc: [glibc]
-
-  '@rolldown/binding-linux-arm64-musl@1.0.0-rc.3':
-    resolution: {integrity: sha512-Z03/wrqau9Bicfgb3Dbs6SYTHliELk2PM2LpG2nFd+cGupTMF5kanLEcj2vuuJLLhptNyS61rtk7SOZ+lPsTUA==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [arm64]
-    os: [linux]
-    libc: [musl]
 
   '@rolldown/binding-linux-arm64-musl@1.1.4':
     resolution: {integrity: sha512-lZVym0PuHE1KZ22gmFTC15lAkrg9iTszR617oYRB/iPY1A56ywoJzVKOJBKaot5RiikCObmur6pogpse3gRcng==}
@@ -7355,13 +7309,6 @@ packages:
     os: [linux]
     libc: [glibc]
 
-  '@rolldown/binding-linux-x64-gnu@1.0.0-rc.3':
-    resolution: {integrity: sha512-iSXXZsQp08CSilff/DCTFZHSVEpEwdicV3W8idHyrByrcsRDVh9sGC3sev6d8BygSGj3vt8GvUKBPCoyMA4tgQ==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [x64]
-    os: [linux]
-    libc: [glibc]
-
   '@rolldown/binding-linux-x64-gnu@1.1.4':
     resolution: {integrity: sha512-JWtGshGfX+oENAKonoNkqEJX+7hC8yfhi9GUyPX1VX4mdh1y5r+ZiJLR5XzAB0aoP6s/PcILsGjKq8O0mm24bw==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -7375,13 +7322,6 @@ packages:
     cpu: [x64]
     os: [linux]
     libc: [glibc]
-
-  '@rolldown/binding-linux-x64-musl@1.0.0-rc.3':
-    resolution: {integrity: sha512-qaj+MFudtdCv9xZo9znFvkgoajLdc+vwf0Kz5N44g+LU5XMe+IsACgn3UG7uTRlCCvhMAGXm1XlpEA5bZBrOcw==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [x64]
-    os: [linux]
-    libc: [musl]
 
   '@rolldown/binding-linux-x64-musl@1.1.4':
     resolution: {integrity: sha512-rT6yQcxUuXs4CnbofqwHRRV0iem349rLMYpTjkgQGLjrY4ado/eDzwPZPTCgTOlF6Nkp8NEv70yLMTn6qkWxsQ==}
@@ -7397,12 +7337,6 @@ packages:
     os: [linux]
     libc: [musl]
 
-  '@rolldown/binding-openharmony-arm64@1.0.0-rc.3':
-    resolution: {integrity: sha512-U662UnMETyjT65gFmG9ma+XziENrs7BBnENi/27swZPYagubfHRirXHG2oMl+pEax2WvO7Kb9gHZmMakpYqBHQ==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [arm64]
-    os: [openharmony]
-
   '@rolldown/binding-openharmony-arm64@1.1.4':
     resolution: {integrity: sha512-KXMGoboq5cyaCQjDA4GLuRiOwBQ0EyFnJoVViLeZ45/3rFItRODEr+NdsBcVpll40hhNArlm/speWGRvj08LzA==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -7415,21 +7349,10 @@ packages:
     cpu: [arm64]
     os: [openharmony]
 
-  '@rolldown/binding-wasm32-wasi@1.0.0-rc.3':
-    resolution: {integrity: sha512-gekrQ3Q2HiC1T5njGyuUJoGpK/l6B/TNXKed3fZXNf9YRTJn3L5MOZsFBn4bN2+UX+8+7hgdlTcEsexX988G4g==}
-    engines: {node: '>=14.0.0'}
-    cpu: [wasm32]
-
   '@rolldown/binding-wasm32-wasi@1.1.4':
     resolution: {integrity: sha512-5K83rb36oJiY7BCyE9zLZtGcPV4g5wvq+xwdO0XPIwDVZI8cyB/AUjkNXGb92/rnmezEkjMOpgY61rtwjQtFwg==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [wasm32]
-
-  '@rolldown/binding-win32-arm64-msvc@1.0.0-rc.3':
-    resolution: {integrity: sha512-85y5JifyMgs8m5K2XzR/VDsapKbiFiohl7s5lEj7nmNGO0pkTXE7q6TQScei96BNAsoK7JC3pA7ukA8WRHVJpg==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [arm64]
-    os: [win32]
 
   '@rolldown/binding-win32-arm64-msvc@1.1.4':
     resolution: {integrity: sha512-PnWBtw3TV5KOg69HQQDR0mnQuyCmSGR2pAB4DC1rPF808fgKeTUMj2EOEyKATpgiuxuR5APQmiDO7PDgEjTFSA==}
@@ -7441,12 +7364,6 @@ packages:
     resolution: {integrity: sha512-oA4o5o0S2yB199YyYXDzKUv1Z56Rc+mgOjwm7Z/vJ9Z8igiDPYvoOuDyo6g7AK/ZaF09nPhDKVnGBcYHO11GXA==}
     engines: {node: ^20.19.0 || >=22.12.0}
     cpu: [arm64]
-    os: [win32]
-
-  '@rolldown/binding-win32-x64-msvc@1.0.0-rc.3':
-    resolution: {integrity: sha512-a4VUQZH7LxGbUJ3qJ/TzQG8HxdHvf+jOnqf7B7oFx1TEBm+j2KNL2zr5SQ7wHkNAcaPevF6gf9tQnVBnC4mD+A==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    cpu: [x64]
     os: [win32]
 
   '@rolldown/binding-win32-x64-msvc@1.1.4':
@@ -13836,11 +13753,6 @@ packages:
       vue-tsc:
         optional: true
 
-  rolldown@1.0.0-rc.3:
-    resolution: {integrity: sha512-Po/YZECDOqVXjIXrtC5h++a5NLvKAQNrd9ggrIG3sbDfGO5BqTUsrI6l8zdniKRp3r5Tp/2JTrXqx4GIguFCMw==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    hasBin: true
-
   rolldown@1.1.4:
     resolution: {integrity: sha512-IjZYiLxZwpnhwhdBH2ugdTGVSdhCQUmLxLoqyjiL0JxYjyRst+5a0P3xfrTxJ5F638j4Mvvw5FAX5XE6eHpXbA==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -19158,13 +19070,6 @@ snapshots:
       '@tybys/wasm-util': 0.10.3
     optional: true
 
-  '@napi-rs/wasm-runtime@1.1.6(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)':
-    dependencies:
-      '@emnapi/core': 1.11.1
-      '@emnapi/runtime': 1.11.3
-      '@tybys/wasm-util': 0.10.3
-    optional: true
-
   '@next/env@16.1.6': {}
 
   '@next/eslint-plugin-next@15.5.12':
@@ -19278,8 +19183,6 @@ snapshots:
   '@outpacelabs/avatars@0.3.0(react@19.2.4)':
     dependencies:
       react: 19.2.4
-
-  '@oxc-project/types@0.112.0': {}
 
   '@oxc-project/types@0.138.0': {}
 
@@ -20758,16 +20661,10 @@ snapshots:
   '@rolldown/binding-android-arm-eabi@1.2.14':
     optional: true
 
-  '@rolldown/binding-android-arm64@1.0.0-rc.3':
-    optional: true
-
   '@rolldown/binding-android-arm64@1.1.4':
     optional: true
 
   '@rolldown/binding-android-arm64@1.2.14':
-    optional: true
-
-  '@rolldown/binding-darwin-arm64@1.0.0-rc.3':
     optional: true
 
   '@rolldown/binding-darwin-arm64@1.1.4':
@@ -20776,16 +20673,10 @@ snapshots:
   '@rolldown/binding-darwin-arm64@1.2.14':
     optional: true
 
-  '@rolldown/binding-darwin-x64@1.0.0-rc.3':
-    optional: true
-
   '@rolldown/binding-darwin-x64@1.1.4':
     optional: true
 
   '@rolldown/binding-darwin-x64@1.2.14':
-    optional: true
-
-  '@rolldown/binding-freebsd-x64@1.0.0-rc.3':
     optional: true
 
   '@rolldown/binding-freebsd-x64@1.1.4':
@@ -20794,25 +20685,16 @@ snapshots:
   '@rolldown/binding-freebsd-x64@1.2.14':
     optional: true
 
-  '@rolldown/binding-linux-arm-gnueabihf@1.0.0-rc.3':
-    optional: true
-
   '@rolldown/binding-linux-arm-gnueabihf@1.1.4':
     optional: true
 
   '@rolldown/binding-linux-arm-gnueabihf@1.2.14':
     optional: true
 
-  '@rolldown/binding-linux-arm64-gnu@1.0.0-rc.3':
-    optional: true
-
   '@rolldown/binding-linux-arm64-gnu@1.1.4':
     optional: true
 
   '@rolldown/binding-linux-arm64-gnu@1.2.14':
-    optional: true
-
-  '@rolldown/binding-linux-arm64-musl@1.0.0-rc.3':
     optional: true
 
   '@rolldown/binding-linux-arm64-musl@1.1.4':
@@ -20833,16 +20715,10 @@ snapshots:
   '@rolldown/binding-linux-s390x-gnu@1.2.14':
     optional: true
 
-  '@rolldown/binding-linux-x64-gnu@1.0.0-rc.3':
-    optional: true
-
   '@rolldown/binding-linux-x64-gnu@1.1.4':
     optional: true
 
   '@rolldown/binding-linux-x64-gnu@1.2.14':
-    optional: true
-
-  '@rolldown/binding-linux-x64-musl@1.0.0-rc.3':
     optional: true
 
   '@rolldown/binding-linux-x64-musl@1.1.4':
@@ -20851,21 +20727,10 @@ snapshots:
   '@rolldown/binding-linux-x64-musl@1.2.14':
     optional: true
 
-  '@rolldown/binding-openharmony-arm64@1.0.0-rc.3':
-    optional: true
-
   '@rolldown/binding-openharmony-arm64@1.1.4':
     optional: true
 
   '@rolldown/binding-openharmony-arm64@1.2.14':
-    optional: true
-
-  '@rolldown/binding-wasm32-wasi@1.0.0-rc.3(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)':
-    dependencies:
-      '@napi-rs/wasm-runtime': 1.1.6(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)
-    transitivePeerDependencies:
-      - '@emnapi/core'
-      - '@emnapi/runtime'
     optional: true
 
   '@rolldown/binding-wasm32-wasi@1.1.4':
@@ -20875,16 +20740,10 @@ snapshots:
       '@napi-rs/wasm-runtime': 1.1.6(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)
     optional: true
 
-  '@rolldown/binding-win32-arm64-msvc@1.0.0-rc.3':
-    optional: true
-
   '@rolldown/binding-win32-arm64-msvc@1.1.4':
     optional: true
 
   '@rolldown/binding-win32-arm64-msvc@1.2.14':
-    optional: true
-
-  '@rolldown/binding-win32-x64-msvc@1.0.0-rc.3':
     optional: true
 
   '@rolldown/binding-win32-x64-msvc@1.1.4':
@@ -28772,7 +28631,7 @@ snapshots:
 
   robust-predicates@3.0.3: {}
 
-  rolldown-plugin-dts@0.22.1(oxc-resolver@11.17.1)(rolldown@1.0.0-rc.3(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3))(typescript@5.9.3):
+  rolldown-plugin-dts@0.22.1(oxc-resolver@11.17.1)(rolldown@1.1.4)(typescript@5.9.3):
     dependencies:
       '@babel/generator': 8.0.0-rc.1
       '@babel/helper-validator-identifier': 8.0.0-rc.1
@@ -28783,33 +28642,11 @@ snapshots:
       dts-resolver: 2.1.3(oxc-resolver@11.17.1)
       get-tsconfig: 4.13.6
       obug: 2.1.1
-      rolldown: 1.0.0-rc.3(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)
+      rolldown: 1.1.4
     optionalDependencies:
       typescript: 5.9.3
     transitivePeerDependencies:
       - oxc-resolver
-
-  rolldown@1.0.0-rc.3(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3):
-    dependencies:
-      '@oxc-project/types': 0.112.0
-      '@rolldown/pluginutils': 1.0.0-rc.3
-    optionalDependencies:
-      '@rolldown/binding-android-arm64': 1.0.0-rc.3
-      '@rolldown/binding-darwin-arm64': 1.0.0-rc.3
-      '@rolldown/binding-darwin-x64': 1.0.0-rc.3
-      '@rolldown/binding-freebsd-x64': 1.0.0-rc.3
-      '@rolldown/binding-linux-arm-gnueabihf': 1.0.0-rc.3
-      '@rolldown/binding-linux-arm64-gnu': 1.0.0-rc.3
-      '@rolldown/binding-linux-arm64-musl': 1.0.0-rc.3
-      '@rolldown/binding-linux-x64-gnu': 1.0.0-rc.3
-      '@rolldown/binding-linux-x64-musl': 1.0.0-rc.3
-      '@rolldown/binding-openharmony-arm64': 1.0.0-rc.3
-      '@rolldown/binding-wasm32-wasi': 1.0.0-rc.3(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)
-      '@rolldown/binding-win32-arm64-msvc': 1.0.0-rc.3
-      '@rolldown/binding-win32-x64-msvc': 1.0.0-rc.3
-    transitivePeerDependencies:
-      - '@emnapi/core'
-      - '@emnapi/runtime'
 
   rolldown@1.1.4:
     dependencies:
@@ -29838,7 +29675,7 @@ snapshots:
       minimist: 1.2.8
       strip-bom: 3.0.0
 
-  tsdown@0.20.3(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(oxc-resolver@11.17.1)(typescript@5.9.3)(unplugin-lightningcss@0.4.5):
+  tsdown@0.20.3(oxc-resolver@11.17.1)(typescript@5.9.3)(unplugin-lightningcss@0.4.5):
     dependencies:
       ansis: 4.2.0
       cac: 6.7.14
@@ -29848,20 +29685,18 @@ snapshots:
       import-without-cache: 0.2.5
       obug: 2.1.1
       picomatch: 4.0.3
-      rolldown: 1.0.0-rc.3(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)
-      rolldown-plugin-dts: 0.22.1(oxc-resolver@11.17.1)(rolldown@1.0.0-rc.3(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3))(typescript@5.9.3)
+      rolldown: 1.1.4
+      rolldown-plugin-dts: 0.22.1(oxc-resolver@11.17.1)(rolldown@1.1.4)(typescript@5.9.3)
       semver: 7.7.4
       tinyexec: 1.0.2
       tinyglobby: 0.2.15
       tree-kill: 1.2.2
       unconfig-core: 7.4.2
-      unrun: 0.2.27(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)
+      unrun: 0.2.27
     optionalDependencies:
       typescript: 5.9.3
       unplugin-lightningcss: 0.4.5
     transitivePeerDependencies:
-      - '@emnapi/core'
-      - '@emnapi/runtime'
       - '@ts-macro/tsc'
       - '@typescript/native-preview'
       - oxc-resolver
@@ -30128,12 +29963,9 @@ snapshots:
       vite: 7.3.2(@types/node@24.10.13)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.21.0)(yaml@2.8.2)
     optional: true
 
-  unrun@0.2.27(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3):
+  unrun@0.2.27:
     dependencies:
-      rolldown: 1.0.0-rc.3(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)
-    transitivePeerDependencies:
-      - '@emnapi/core'
-      - '@emnapi/runtime'
+      rolldown: 1.1.4
 
   until-async@3.0.2: {}
 

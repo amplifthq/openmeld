@@ -56,6 +56,7 @@ overrides:
   '@aws-sdk/token-providers': 3.1080.0
   '@modelcontextprotocol/sdk>zod': 'catalog:'
   'rolldown@<1.2.0': 1.1.4
+  'rolldown@1.0.0-rc.3': 1.1.4
   wrangler: 'catalog:'
 
 packageExtensions:
