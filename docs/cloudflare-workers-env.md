@@ -27,9 +27,8 @@ Official references:
 ## Rules
 
 Core's hosted AI funding contract adds `OPENROUTER_MANAGEMENT_API_KEY` and
-`OPENMELD_AI_CREDENTIAL_CRYPTO_KEY` as deployment secrets, plus the optional
-private `OPENMELD_INTERNAL_BILLING_ORGANIZATION_ID`. Public examples are empty;
-the internal organization identity must not be hardcoded into a Worker config.
+`OPENMELD_AI_CREDENTIAL_CRYPTO_KEY` as deployment secrets. Public examples are
+empty. All workspaces use Free or BYOK; there is no internal exemption.
 This feature change does not synchronize production values. The authorized
 rollout must provision these settings explicitly before enabling the new
 admission path. See [AI billing](../developing/engineering/ai-billing.md) for

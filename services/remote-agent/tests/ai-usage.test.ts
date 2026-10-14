@@ -36,7 +36,6 @@ describe("Remote AI consumption at the provider boundary", () => {
   it.each([
     "byok",
     "free",
-    "internal",
   ] as const)("uses only the authorized %s key and never persists it or retries on provider rejection", async (source) => {
     const writes: RemoteAiUsageWrite[] = [];
     const coreWorker = {
