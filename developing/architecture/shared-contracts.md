@@ -25,6 +25,22 @@
 - Source of truth: This file owns the durable boundary for shared OpenMeld contracts
   and reusable policy.
 
+## Message Details thread opt-in
+
+Message Details also accepts `includeThreadContext: true`. Only this opt-in
+returns `threadContext`: the canonical thread and root IDs for either a root
+or a reply, or `null` for an unthreaded readable message. An omitted field means
+the receiver does not support this projection; callers must not treat omission
+as permission to create a thread. Existing access checks and personal deletion
+visibility apply before resolving placement. This authoring projection does not
+change a running Wake's conversation scope when a thread is opened beneath it.
+
+Deploy Core, then Gateway, before distributing the CLI that consumes this
+opt-in. Old clients keep their unchanged response. New CLI against an old
+receiver fails without posting; old CLI remains usable after the receiver
+upgrade. This is an available CLI fix, not a required Service or Skills update.
+Setup, Wake, Stop, daemon transport and managed Skills contracts are unchanged.
+
 ## Message Details delegation opt-in
 
 Message Details accepts optional `delegationVersion: 1` and an opaque

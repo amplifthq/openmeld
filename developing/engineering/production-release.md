@@ -1551,6 +1551,12 @@ checks.
 
 ## Local Scoped Release
 
+A release containing only Website and/or Docs does not read product database
+receipts, inspect Hyperdrive, or require database inspection credentials. These
+renderers have no product database binding. Mixed trains and explicit database
+maintenance retain PostgreSQL admission. Component credentials, leases, artifact
+identity, deployment checks and completion receipts still apply normally.
+
 The `people-computers-receivers-first` profile recognizes the shared computer
 schema, Core projection, and Gateway endpoint together, or the shared Service
 connection evidence schema with its Core and Gateway receivers. It deploys selected
