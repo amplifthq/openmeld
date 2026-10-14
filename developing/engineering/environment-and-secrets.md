@@ -139,6 +139,11 @@ projects. Web, Gateway, and Remote Agent do not receive each other's managed
 secrets. `pnpm dev:doctor` also checks one project at a time instead of building
 one process with all values.
 
+Local organization BYOK requires `OPENMELD_AI_CREDENTIAL_CRYPTO_KEY` in
+`openmeld-core/dev`. Use a development-only 32-byte base64 key. The Core
+component runner reads it directly; the Turbo supervisor must not forward it
+to other components. Without it, credential storage remains unavailable.
+
 Remote Agent local and development traffic uses the checked-in
 `openmeld-remote-agent-prod` AI Gateway id because Cloudflare Provider Keys are
 gateway-scoped. The shared `openmeld-remote-agent` Doppler project supplies the
