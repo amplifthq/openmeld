@@ -22,6 +22,7 @@ import type {
   ExecutionRecoveryProjection,
   GetSpaceMessageDetailsResponse,
   GetSpaceWakeTraceWaterfallResponse,
+  SpaceTaskResponse,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import { createOpenMeldApiClient, createSpaceApi } from "../src";
@@ -369,6 +370,7 @@ describe("api-client space api", () => {
       "createSpace",
       "createTask",
       "createThread",
+      "deleteConversationForMe",
       "deleteSpace",
       "discardComposerUpload",
       "downloadFileContent",
@@ -546,7 +548,7 @@ describe("api-client space api", () => {
         .map(([request]) =>
           new URL(request.url).searchParams.get("taskContractVersion")
         )
-    ).toEqual(["2", "2", "2", "2", "2"]);
+    ).toEqual(["3", "3", "3", "3", "3"]);
 
     expect(transport).toHaveBeenNthCalledWith(
       5,
@@ -555,6 +557,36 @@ describe("api-client space api", () => {
         init: expect.objectContaining({ method: "PATCH" }),
       })
     );
+
+    // Version 3 represents provider observations without inventing a member
+    // identity. Exercise the payload that requires that receiver contract.
+    const observedTask = {
+      ...task,
+      phase: "done" as const,
+      revision: 2,
+      result: {
+        resultRevision: 1,
+        summary: "The linked GitHub issue was closed.",
+        submittedAt: task.updatedAt,
+        submittedBy: { provider: "github" as const },
+      },
+    };
+    const observedEvent = {
+      ...event,
+      type: "external_work_item_observed" as const,
+      actor: { provider: "github" as const },
+      fromPhase: "to_do" as const,
+      toPhase: "done" as const,
+      taskRevision: 2,
+    };
+    const observed: SpaceTaskResponse = {
+      task: observedTask,
+      events: [observedEvent],
+    };
+    transport.mockResolvedValueOnce(Response.json(observed));
+    await expect(
+      api.getTask({ spaceId: task.spaceId, taskId: task.taskId })
+    ).resolves.toEqual({ task: observedTask, events: [observedEvent] });
   });
 
   it("uses one shared Space Files contract for list and binary upload", async () => {
@@ -1802,19 +1834,20 @@ describe("api-client space api", () => {
     );
   });
 
-  it("deletes a space through the shared space api", async () => {
+  it.each([
+    "deleteSpace",
+    "deleteConversationForMe",
+  ] as const)("keeps the %s deletion scope and response distinct", async (method) => {
+    const receipt =
+      method === "deleteSpace"
+        ? { deleted: true, spaceId: "space-123" }
+        : { deletedAt: 1_792_020_000_000, spaceId: "space-123" };
     const transport = vi.fn(() =>
       Promise.resolve(
-        new Response(
-          JSON.stringify({
-            deleted: true,
-            spaceId: "space-123",
-          }),
-          {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          }
-        )
+        new Response(JSON.stringify(receipt), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })
       )
     );
     const api = createSpaceApi(
@@ -1824,20 +1857,20 @@ describe("api-client space api", () => {
       })
     );
 
-    const result = await api.deleteSpace({
+    const result = await api[method]({
       requestContext: REQUEST_CONTEXT,
       spaceId: "space-123",
       spacePassword: "pw-123",
     });
 
-    expect(result).toEqual({
-      deleted: true,
-      spaceId: "space-123",
-    });
+    expect(result).toEqual(receipt);
     expect(transport).toHaveBeenCalledWith(
       expect.objectContaining({
-        url: "https://gateway.openmeld.invalid/v1/spaces/space-123",
-        operation: "space.delete",
+        url: `https://gateway.openmeld.invalid/v1/spaces/space-123${method === "deleteConversationForMe" ? "/personal-history" : ""}`,
+        operation:
+          method === "deleteConversationForMe"
+            ? "conversation.delete_for_me"
+            : "space.delete",
         init: expect.objectContaining({
           method: "DELETE",
         }),

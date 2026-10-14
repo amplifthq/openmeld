@@ -7209,8 +7209,20 @@ describe("OpenMeld Core", () => {
         },
         spaceId,
         text: "Start a new task from this request",
-        contextSelection: { mode: "new" as const },
       };
+      const invalidSelectionError = await stub
+        .rpcPostSignalOnceByClientMessageId({
+          ...request,
+          contextSelection: { mode: "new" },
+        })
+        .then(
+          () => null,
+          (error: unknown) => error
+        );
+      expect(invalidSelectionError).toBeInstanceOf(Error);
+      expect((invalidSelectionError as Error).message).toContain(
+        "space.execution_context.unsupported"
+      );
       const accepted = await stub.rpcPostSignalOnceByClientMessageId(request);
       expect(await stub.rpcPostSignalOnceByClientMessageId(request)).toEqual(
         accepted
@@ -7270,17 +7282,23 @@ describe("OpenMeld Core", () => {
     }
     const clientMessageId = `new-task:v1:${"a".repeat(64)}`;
     const text = "Start a new task from this request";
+    // Public thread replies cannot select a session without a Wake target.
+    // Rejection must not consume the ID used by the valid receipt below.
+    const invalid = await fetchWithOpenMeldAuth(url, {
+      method: "POST",
+      body: JSON.stringify({
+        clientMessageId,
+        text,
+        contextSelection: { mode: "new" },
+      }),
+    });
+    expect(invalid.status, await invalid.clone().text()).toBe(400);
+    expect(await invalid.text()).toContain(
+      "space.execution_context.unsupported"
+    );
     const request = {
       method: "POST",
-      body: JSON.stringify(
-        location === "thread"
-          ? { clientMessageId, text, contextSelection: { mode: "new" } }
-          : {
-              text,
-              meta: { clientMessageId },
-              contextSelection: { mode: "new" },
-            }
-      ),
+      body: JSON.stringify({ clientMessageId, text }),
     };
     const first = await fetchWithOpenMeldAuth(url, request);
     expect(first.status, await first.clone().text()).toBe(200);
@@ -7296,6 +7314,16 @@ describe("OpenMeld Core", () => {
     const afterConflict = await fetchWithOpenMeldAuth(url, request);
     expect(afterConflict.status, await afterConflict.clone().text()).toBe(200);
     expect(await afterConflict.json()).toEqual(accepted);
+    const historyResponse = await fetchWithOpenMeldAuth(url);
+    expect(historyResponse.status).toBe(200);
+    const history = (await historyResponse.json()) as {
+      signals: SignalEnvelope[];
+    };
+    const matching = history.signals.filter(
+      (signal) => signal.type === "signal.text" && signal.data.text === text
+    );
+    expect(matching).toHaveLength(1);
+    expect(matching[0]?.profile.profileId).toBe(DEFAULT_HUMAN_PROFILE_ID);
   });
 
   it("freezes authenticated Thread reply time before idempotent replay", async () => {
@@ -13922,7 +13950,7 @@ describe("OpenMeld Core", () => {
         profileId: "openmeld-system",
         profileName: "OpenMeld System",
       },
-      text: "Legacy system text should not be a formal update.",
+      text: "The proactive review result is ready.",
       authoringPolicy: "system_emitted",
     });
     const actorProfileId = "agt_77777777-7777-4777-8777-777777777777";
@@ -14000,6 +14028,7 @@ describe("OpenMeld Core", () => {
     };
     expect(payload.signals?.map((signal) => signal.type)).toEqual([
       "signal.text",
+      "signal.text",
       "signal.status",
       "signal.system_notice",
     ]);
@@ -14022,9 +14051,9 @@ describe("OpenMeld Core", () => {
             signal.data as {
               text?: string;
             }
-          ).text === "Legacy system text should not be a formal update."
+          ).text === "The proactive review result is ready."
       )
-    ).toBe(false);
+    ).toBe(true);
   });
   it("persists system notices emitted with the internal OpenMeld system context", async () => {
     const spaceId = await createSpace({
@@ -14388,17 +14417,23 @@ describe("OpenMeld Core", () => {
     });
   });
   it("returns a canonical space status summary with the latest formal public update", async () => {
-    const centerAgentProfileId = "agt_99999999-9999-4999-8999-999999999999";
+    const organizationId = randomUUID();
+    const requestOptions = { activeOrganizationId: organizationId };
+    const centerAgentProfileId = `agt_${randomUUID()}`;
     await ensureTestCenterAgentDesignation({
       agentProfileId: centerAgentProfileId,
       agentProfileName: "Center Agent",
-      organizationId: DEFAULT_TEST_ORGANIZATION_ID,
+      organizationId,
       ownerUserId:
         DEFAULT_TEST_AUTH_PROFILE.ownerUserId ?? "owner-test-default",
     });
-    const spaceId = await createSpace({
-      name: "phase-5b-status",
-    });
+    const spaceId = await createSpace(
+      {
+        name: "phase-5b-status",
+      },
+      undefined,
+      requestOptions
+    );
     const postResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/signals`,
       {
@@ -14412,12 +14447,17 @@ describe("OpenMeld Core", () => {
             text: "Phase 5B status preview",
           },
         }),
-      }
+      },
+      undefined,
+      requestOptions
     );
     expect(postResponse.status).toBe(200);
     await postResponse.text();
     const response = await fetchWithOpenMeldAuth(
-      `${BASE_URL}/v1/spaces/${spaceId}/status`
+      `${BASE_URL}/v1/spaces/${spaceId}/status`,
+      undefined,
+      undefined,
+      requestOptions
     );
     expect(response.status).toBe(200);
     const summary = await response.json();
