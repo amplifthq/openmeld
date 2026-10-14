@@ -145,7 +145,7 @@ test("keeps status credentials out of candidate commands", () => {
   assert.ok(!candidateJob.includes("--publish-status"));
   assert.ok(!pendingJob.includes("statuses: write"));
   assert.ok(finalJob.includes("statuses: write"));
-  assert.ok(finalJob.includes("checks: write"));
+  assert.ok(!finalJob.includes("checks: write"));
   assert.ok(!workflow.includes("pnpm candidate run"));
   assert.ok(
     candidateJob.includes("Checkout trusted runner from the exact current base")
@@ -233,9 +233,12 @@ test("keeps status credentials out of candidate commands", () => {
   assert.ok(finalJob.includes('--branch "$CANDIDATE_BRANCH"'));
   assert.ok(finalJob.includes("id: publish_final"));
   assert.ok(finalJob.includes("if: always() &&"));
-  assert.ok(finalJob.includes("Publish fail-safe failure"));
-  assert.ok(finalJob.includes("steps.publish_final.outcome != 'success'"));
-  const finalizerStart = finalJob.indexOf("Publish fail-safe failure");
+  assert.ok(finalJob.includes("state=failure"));
+  assert.ok(finalJob.includes('"$VERIFIER_RESULT" = success'));
+  const verifier = readJob(finalJob, "verify", "publish");
+  assert.ok(!verifier.includes(": write"));
+  assert.ok(verifier.includes("--output-only true"));
+  const finalizerStart = finalJob.indexOf("\n  publish:");
   const finalizer = finalJob.slice(finalizerStart);
   assert.ok(finalizer.includes("gh api --method POST"));
   assert.ok(!finalizer.includes("actions/checkout"));
@@ -373,8 +376,8 @@ test("trusted result publication fails closed and never executes candidate scrip
     "final-candidate-run-context.mjs",
     "github.event.workflow_run.id",
     "steps.identity.outputs.valid == 'true'",
-    "Publish fail-safe failure",
-    "steps.publish_final.outcome != 'success'",
+    "state=failure",
+    '"$VERIFIER_RESULT" = success',
   ]) {
     assert.ok(result.includes(required), required);
   }

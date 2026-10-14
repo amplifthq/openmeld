@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync } from "node:fs";
+import { appendFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -147,6 +147,23 @@ function run() {
   process.stdout.write(`${summary}\n`);
   appendWorkflowSummary(summary);
 
+  if (options.outputOnly === "true") {
+    appendFileSync(
+      process.env.GITHUB_OUTPUT,
+      `state=${success ? "success" : "failure"}\n`
+    );
+    const description = resolveStatusDescription({
+      baseSha: expected.baseSha,
+      confidence,
+      controlRefuse,
+      evidence,
+      headSha: expected.headSha,
+      success,
+    });
+    appendFileSync(process.env.GITHUB_OUTPUT, `description=${description}\n`);
+    return finishVerification(validationError);
+  }
+
   if (controlRefuse) {
     updateSkippedCheckRunOutput({
       checkName: FINAL_CANDIDATE_RUNNER_CHECK_NAME,
@@ -175,6 +192,12 @@ function run() {
 
   if (validationError) {
     throw validationError;
+  }
+}
+
+function finishVerification(error) {
+  if (error) {
+    throw error;
   }
 }
 
@@ -298,6 +321,7 @@ function parseOptions(args) {
       repository: "repository",
       target_url: "targetUrl",
       tree: "tree",
+      "output-only": "outputOnly",
     }[name];
     if (!key) {
       throw new Error(`Unknown publisher option: ${option}`);

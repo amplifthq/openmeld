@@ -272,11 +272,13 @@ Use `wait` for the pending Final Candidate instead of repeatedly polling
 
 Fork and same-repository candidates run on `pull_request` with read-only job
 permissions and no production environment or secrets. A separate `workflow_run`
-publisher runs trusted default-branch code. It identifies the exact source run,
+result workflow runs trusted default-branch code. Its read-only verifier identifies the exact source run,
 attempt, PR, and current main through GitHub, then recomputes the control
 disposition and validation plan before accepting evidence from that run.
-Candidate source and artifacts are data only in the publisher; it never runs
-candidate scripts. Changes to either workflow require the protected local
+Candidate source and artifacts are data only in the verifier; it never runs
+candidate scripts. A separate status writer checks live identity again and
+never checks out code, installs dependencies, or downloads artifacts.
+Changes to either workflow require the protected local
 bootstrap. Workflow approval for first-time contributors remains a GitHub
 repository policy, separate from PR review approval.
 
