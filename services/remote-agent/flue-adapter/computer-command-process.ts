@@ -1,7 +1,6 @@
-/** Keep the native retained PID in charge of the command's entire process group.
- * computerd signals its spawned shell PID, which otherwise leaves shell children
- * running. exec replaces that shell with Tini; -g forwards signals to this
- * command's group and -s reaps orphaned children without becoming container init.
+/** Compatibility command for a peer that explicitly lacks supervision v1.
+ * New native peers own the command group and receive the raw source instead.
+ * Legacy Tini forwards catchable signals; SIGKILL cannot be forwarded.
  */
 export function buildComputerCommandProcess(command: string): string {
   const quoted = `'${command.replaceAll("'", "'\\''")}'`;

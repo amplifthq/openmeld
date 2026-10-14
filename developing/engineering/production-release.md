@@ -420,8 +420,9 @@ its Core deployment restores the normal tagged projection.
 
 ### Preserve Containers while repairing their Worker
 
-When original files still exist only in a running Computer, the protected local
-Remote Agent stage can deploy a compatible Worker without replacing Containers:
+The protected local Remote Agent stage can deploy a compatible Worker without
+replacing Containers, including when Computers are inactive or original files
+still exist only in a running Computer:
 
 ```sh
 pnpm run deploy -- --base <BASE> --scope remote-agent --containers-rollout=none
@@ -439,14 +440,36 @@ active instance IDs. The previous release receipt remains linked as evidence;
 its source alone is not proof of a Container image's build provenance. Before
 and after the Worker deployment, the application must have no active rollout.
 The recorded configuration and original active instance IDs must remain present
-at the same version. Incomplete instance pagination or drift fails closed.
-Stable instance IDs do not prove that a native process never restarted. Product
-acceptance must verify the original runtime ID/epoch and original sync window.
+at the same version. A complete snapshot may contain no active instances; an
+empty baseline does not require starting a Computer. New instances may appear
+between checks at the unchanged application version. Missing evidence,
+incomplete instance pagination or drift fails closed.
+
+These snapshots prove the observed configuration and baseline instance checks,
+not continuous process survival between reads. An empty baseline does not prove
+that a previously running Computer synchronized its files. Stable instance IDs
+also do not prove that a native process never restarted. Product acceptance must
+verify the original runtime ID/epoch and original sync window.
 
 This stage stops with an `applied` Remote Agent receipt. It never reports the
 whole component as `verified`, and automatic continuation cannot start native
 rollout. Complete the original synchronization and read the retained files from
-canonical storage before explicitly running the full stage at the same source:
+canonical storage before replacing a surviving Computer.
+
+If the original runtime and epoch are confirmed lost, its synchronization
+window may no longer have a source that can acknowledge it. Do not wait for an
+impossible ACK or mark that window synchronized. Before explicit native rollout,
+preserve the original command references, saved output, file reads and unknown
+file outcome, and obtain a fresh, complete inventory proving that no active
+instance remains to protect. An empty inventory alone does not prove runtime
+loss or file durability. Recheck immediately before native effects; concurrent
+work, an active instance with unconfirmed writes, or ambiguous evidence still
+requires preservation and investigation. This continuation does not clear
+markers, replay commands, or relax the existing release identity and lease
+checks.
+
+After establishing the applicable protection condition, explicitly run the full
+stage at the same source:
 
 ```sh
 pnpm run deploy -- --base <BASE> --scope remote-agent
@@ -460,6 +483,12 @@ remains unresolved evidence; it cannot silently replay a native rollout. A
 repeated Worker-only command only verifies its retained evidence and does not
 deploy again. Worker-only code must remain compatible with the retained native
 RPC contract. This mode does not make an unsynchronized Container disk durable.
+
+Release-control compatibility: the shared receipt schema accepts both empty and
+non-empty instance baselines; historical non-empty receipts remain valid.
+Older release-control readers reject empty baselines, so use updated trusted
+control to read or resume these receipts. This change does not alter the
+published CLI, Service, Worker RPC or Computer contracts.
 
 If the full stage has an `applied` receipt in phase `rollout`, a repeated guarded
 stage only verifies the recorded Worker and its native image. It checks the
@@ -610,6 +639,14 @@ The result keeps two facts separate:
 - `Current-change scopes` are the scopes selected by that exact diff.
 - `Global pending scopes` are older or unrelated deployment backlog visible in
   GitHub history.
+
+For a dependency patch whose lockfile changes only its patch hashes, the planner
+uses the existing affected-workspace proof and reads consumers from the target
+commit's lockfile and package names. That same proof limits both workspace
+impact and the lockfile's broad CLI/Service release signal. The complete changed
+path list stays in the plan. Root-toolchain consumers, mixed dependency changes,
+unknown lockfile shapes and missing history keep the conservative full runtime
+scope; a scope override cannot certify whole-change completion.
 
 The workflow mapping uses the current-change scopes when `--change-base` is
 present. Without it, the mapping is explicitly global-backlog information.

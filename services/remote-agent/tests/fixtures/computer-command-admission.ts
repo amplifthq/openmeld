@@ -186,6 +186,7 @@ export function createCommandAdmissionFixture(
           connect: async () => ({
             rpc,
             runtimeId: "native-one",
+            executionSupervision: { version: 0 as const },
             sync: "remote" as const,
             close: async () => undefined,
           }),

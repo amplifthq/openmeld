@@ -201,7 +201,8 @@ function readLockfilePackageKey(content) {
     return null;
   }
   const unquotedKey = content.slice(0, -1).replace(/^['"]|['"]$/gu, "");
-  const versionSeparatorIndex = unquotedKey.lastIndexOf("@");
+  // Snapshot keys can include peer versions after the package's own version.
+  const versionSeparatorIndex = unquotedKey.indexOf("@", 1);
   if (versionSeparatorIndex > 0) {
     return unquotedKey.slice(0, versionSeparatorIndex);
   }

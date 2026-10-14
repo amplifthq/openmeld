@@ -1,0 +1,209 @@
+{
+  "correlation": {
+    "modelVersion": "openmeld.observability.wake.v1",
+    "selector": {
+      "spaceId": "0000000000000000000000000000000000000000000000000000000000000001",
+      "kind": "dispatch",
+      "dispatchId": "00000000-0000-4000-8000-000000000001"
+    },
+    "spaceId": "0000000000000000000000000000000000000000000000000000000000000001",
+    "clientMessageId": "00000000-0000-4000-8000-000000000002",
+    "sourceSignalId": "00000000-0000-4000-8000-000000000003",
+    "targetProfileId": "agt_00000000-0000-4000-8000-000000000004",
+    "dispatchId": "00000000-0000-4000-8000-000000000001",
+    "runtimeCoordinatorExecutionId": "rce_v1|64:0000000000000000000000000000000000000000000000000000000000000001|36:00000000-0000-4000-8000-000000000001|40:agt_00000000-0000-4000-8000-000000000004",
+    "latestAttemptId": "00000000-0000-4000-8000-000000000005",
+    "claimLeaseId": null,
+    "bindingId": "binding_00000000-0000-4000-8000-000000000006",
+    "openMeldServiceRuntimeId": "runtime_00000000000000000000000000000001",
+    "agentControllerRef": "builtin:grok-build",
+    "resultRef": null,
+    "publishedSignalId": null,
+    "replySignalId": null,
+    "cloudflare": {
+      "cfRayId": null,
+      "requestId": null,
+      "traceId": null
+    }
+  },
+  "query": {
+    "spaceId": "0000000000000000000000000000000000000000000000000000000000000001",
+    "dispatchId": "00000000-0000-4000-8000-000000000001"
+  },
+  "trace": {
+    "dispatch": {
+      "factSource": "dispatch_ledger",
+      "dispatchId": "00000000-0000-4000-8000-000000000001",
+      "idempotencyKey": "36:00000000-0000-4000-8000-000000000003|40:agt_00000000-0000-4000-8000-000000000004",
+      "sourceEventId": "00000000-0000-4000-8000-000000000003",
+      "sourceClientMessageId": "00000000-0000-4000-8000-000000000002",
+      "owner": {
+        "id": "00000000-0000-4000-8000-000000000007",
+        "kind": "owner_account"
+      },
+      "targetProfileId": "agt_00000000-0000-4000-8000-000000000004",
+      "status": "dispatching",
+      "firstSeenAt": "2026-10-14T04:19:53.093Z",
+      "lastAttemptAt": "2026-10-14T04:19:54.955Z",
+      "attemptCount": 1,
+      "latestAttemptId": "00000000-0000-4000-8000-000000000005"
+    },
+    "nativeDelivery": null,
+    "runtimeCoordinatorExecution": {
+      "runtimeCoordinatorExecutionId": "rce_v1|64:0000000000000000000000000000000000000000000000000000000000000001|36:00000000-0000-4000-8000-000000000001|40:agt_00000000-0000-4000-8000-000000000004",
+      "modelVersion": "openmeld.runtime_coordinator.execution.v1",
+      "spaceId": "0000000000000000000000000000000000000000000000000000000000000001",
+      "dispatchId": "00000000-0000-4000-8000-000000000001",
+      "targetProfileId": "agt_00000000-0000-4000-8000-000000000004",
+      "sourceClientMessageId": "00000000-0000-4000-8000-000000000002",
+      "openMeldServiceRuntimeId": {
+        "source": "runtime_registry_authority",
+        "value": "runtime_00000000000000000000000000000001"
+      },
+      "bindingId": "binding_00000000-0000-4000-8000-000000000006",
+      "agentControllerRef": "builtin:grok-build",
+      "status": "failed_terminal",
+      "terminalOutcome": {
+        "kind": "failed_terminal",
+        "reasonCode": "runtime.local_runtime_lost",
+        "observedAtMs": 1791953566804
+      },
+      "createdAtMs": 1791951594709,
+      "updatedAtMs": 1791953566804,
+      "legacyPointers": {
+        "attemptId": "00000000-0000-4000-8000-000000000005",
+        "claimLeaseId": null,
+        "daemonSessionId": null,
+        "connectionGeneration": null,
+        "leaseEpoch": null
+      },
+      "factSource": "runtime_coordinator_projection"
+    },
+    "runtimeCoordinatorCreationDiagnostics": [],
+    "runtimeCoordinatorEvents": [
+      {
+        "eventId": "rce_event_v1|158:rce_v1|64:0000000000000000000000000000000000000000000000000000000000000001|36:00000000-0000-4000-8000-000000000001|40:agt_00000000-0000-4000-8000-000000000004|23:runtime_connection_lost|11:decision:33",
+        "runtimeCoordinatorExecutionId": "rce_v1|64:0000000000000000000000000000000000000000000000000000000000000001|36:00000000-0000-4000-8000-000000000001|40:agt_00000000-0000-4000-8000-000000000004",
+        "eventType": "runtime_connection_lost",
+        "statusAfter": "failed_terminal",
+        "reasonCode": "runtime.local_runtime_lost",
+        "observedAtMs": 1791953566804,
+        "idempotencyKey": "decision:33",
+        "payloadJson": "{\"localRuntimeLost\":{\"expiryCause\":\"local_runtime_lost\",\"failurePublicationReasonCode\":null,\"publishedSignalId\":\"00000000-0000-4000-8000-000000000008\",\"publicationStatus\":\"published\",\"redeliveryCount\":0,\"redeliveryLimit\":2,\"redeliveryWindowExpiresAtMs\":1791951624709,\"redeliveryWindowMs\":30000,\"redeliveryWindowStartedAtMs\":1791951594709},\"action\":\"reclaim_blocked\",\"attemptId\":\"00000000-0000-4000-8000-000000000005\",\"claimDecision\":null,\"decisionId\":\"rce_decision_v1|158:rce_v1|64:0000000000000000000000000000000000000000000000000000000000000001|36:00000000-0000-4000-8000-000000000001|40:agt_00000000-0000-4000-8000-000000000004|11:decision:33\",\"decisionOrdinal\":33,\"eventKind\":\"timeout\",\"reasonCode\":\"runtime.local_runtime_lost\",\"runId\":\"rctr_00000000-0000-4000-8000-000000000009\",\"tokenStatus\":\"revoked\",\"trigger\":\"alarm\",\"triggerIdempotencyKey\":\"runtime_coordinator_watchdog:rce_v1|64:0000000000000000000000000000000000000000000000000000000000000001|36:00000000-0000-4000-8000-000000000001|40:agt_00000000-0000-4000-8000-000000000004:rctr_00000000-0000-4000-8000-000000000009:1791953566804\",\"usesFinalClaimAuthority\":false,\"usesLegacyClaimLeaseAuthority\":false}",
+        "factSource": "runtime_coordinator_projection"
+      }
+    ],
+    "runtimeCoordinatorHeadLifecycle": {
+      "factSource": "runtime_coordinator_head_lifecycle",
+      "readStatus": "authority_unavailable",
+      "reasonCode": "runtime_coordinator.head_lifecycle_trace_unavailable",
+      "targetWakeLifecycleId": "twl_v1|64:0000000000000000000000000000000000000000000000000000000000000001|36:00000000-0000-4000-8000-000000000003|40:agt_00000000-0000-4000-8000-000000000004"
+    },
+    "latestAttempt": {
+      "factSource": "dispatch_attempt",
+      "attemptId": "00000000-0000-4000-8000-000000000005",
+      "dispatchId": "00000000-0000-4000-8000-000000000001",
+      "idempotencyKey": "36:00000000-0000-4000-8000-000000000003|40:agt_00000000-0000-4000-8000-000000000004",
+      "attemptNo": 1,
+      "status": "waiting_result",
+      "daemonSessionId": "00000000-0000-4000-8000-000000000010",
+      "connectionGeneration": 3,
+      "leaseEpoch": 2,
+      "createdAt": "2026-10-14T04:19:53.093Z",
+      "startedAt": "2026-10-14T04:19:54.955Z",
+      "finishedAt": null,
+      "errorCode": null,
+      "errorMessage": null
+    },
+    "executionIdentity": {
+      "factSource": "runtime_coordinator_projection",
+      "authority": "authoritative",
+      "core": {
+        "modelVersion": "openmeld.runtime.execution_identity.v1",
+        "spaceId": "0000000000000000000000000000000000000000000000000000000000000001",
+        "dispatchId": "00000000-0000-4000-8000-000000000001",
+        "targetProfileId": "agt_00000000-0000-4000-8000-000000000004",
+        "openMeldServiceRuntimeId": {
+          "source": "runtime_registry_authority",
+          "value": "runtime_00000000000000000000000000000001"
+        },
+        "bindingId": "binding_00000000-0000-4000-8000-000000000006",
+        "agentControllerRef": "builtin:grok-build"
+      }
+    },
+    "claimLease": null,
+    "result": null,
+    "resultInbox": {
+      "factSource": "dispatch_result_inbox",
+      "resultKey": "00000000-0000-4000-8000-000000000001::00000000-0000-4000-8000-000000000005",
+      "dispatchId": "00000000-0000-4000-8000-000000000001",
+      "attemptId": "00000000-0000-4000-8000-000000000005",
+      "taskId": "00000000-0000-4000-8000-000000000011",
+      "targetProfileId": "agt_00000000-0000-4000-8000-000000000004",
+      "daemonSessionId": "00000000-0000-4000-8000-000000000010",
+      "leaseEpoch": 2,
+      "submittedConnectionGeneration": 224,
+      "publishState": "late_result_available",
+      "publishedSignalId": null,
+      "publicationErrorCode": null,
+      "acceptedAt": "2026-10-14T05:10:03.787Z",
+      "updatedAt": "2026-10-14T05:10:03.787Z"
+    },
+    "recentOpsDecisions": [],
+    "replySignal": null,
+    "finalVisibleMessage": {
+      "factSource": "space_final_reply_claim",
+      "signalId": "00000000-0000-4000-8000-000000000008",
+      "signalType": "signal.system_notice",
+      "dispatchId": "00000000-0000-4000-8000-000000000001",
+      "targetProfileId": "agt_00000000-0000-4000-8000-000000000004",
+      "profileId": "openmeld-system",
+      "profileKind": "system",
+      "profileName": "OpenMeld System",
+      "text": "The local runtime was lost before the reply was published.",
+      "reasonCode": "runtime.local_runtime_lost",
+      "noticeType": "terminal_failure",
+      "statusType": null,
+      "createdAt": "2026-10-14T04:52:46.923Z"
+    },
+    "finalVisibleMessageLinkage": {
+      "status": "matched_final_reply_claim",
+      "reasonCode": "final_visible_message.matched_final_reply_claim",
+      "sourceFact": "space_final_reply_claim",
+      "candidateSignalIds": [],
+      "claimSignalId": "00000000-0000-4000-8000-000000000008",
+      "selectedSignalId": "00000000-0000-4000-8000-000000000008"
+    },
+    "finalVisibleOutcome": {
+      "delivered": true,
+      "publicationErrorCode": null,
+      "publicationKind": "failure_notice",
+      "reasonCode": "runtime.local_runtime_lost",
+      "signalId": "00000000-0000-4000-8000-000000000008",
+      "sourceFact": "final_visible_message",
+      "sourceReasonCode": "runtime.local_runtime_lost",
+      "sourceStatus": "signal.system_notice",
+      "status": "visible_failure"
+    },
+    "streaming": null,
+    "runtime": null,
+    "execution": {
+      "phase": "running",
+      "phaseEnteredAt": "2026-10-14T04:19:54.709Z",
+      "lastLifecycleAt": "2026-10-14T04:22:40.836Z",
+      "progressEvidenceState": "stalled",
+      "timeoutPolicy": {
+        "finalizationTimeoutMs": 30000,
+        "startTimeoutMs": 30000,
+        "taskProgressEvidenceStaleAfterMs": 90000,
+        "waitWindowMs": 30000
+      }
+    },
+    "origin": null,
+    "prompt": null,
+    "dispatchExecution": null,
+    "openClawGatewayVisibility": null,
+    "openClawBinding": null,
+    "structuredActionFailure": null
+  }
+}
