@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
-  chmodSync,
   cpSync,
   mkdirSync,
   mkdtempSync,
@@ -29,7 +28,6 @@ const readRepoFile = (relativePath) =>
 const GITHUB_EXPRESSION_PATTERN = /\$\{\{\s*github\./u;
 const RUN_LINE_PATTERN = /^(\s+)run:\s*(.*)$/u;
 const LEADING_WHITESPACE_PATTERN = /^\s*/u;
-const TEN_SPACE_PREFIX_PATTERN = /^ {10}/u;
 const EVENT_TYPES_PATTERN = /types: \[([^\]]+)\]/u;
 const INHERITED_NODE_OPTIONS_PATTERN = /NODE_OPTIONS="?\$\{/u;
 const GITHUB_EXPRESSION_PREFIX = ["$", "{{"].join("");
@@ -43,13 +41,6 @@ const RETIRED_MANDATORY_REVIEW_LANGUAGE = [
   /different coding agent/iu,
   /review remains required/iu,
 ];
-const FINAL_CANDIDATE_EVENT_GUARD = [
-  "github.event.pull_request.base.ref == 'main' &&",
-  "github.event.pull_request.draft == false &&",
-  "(github.event.action != 'labeled' ||",
-  " github.event.label.name == 'final-candidate' ||",
-  " github.event.label.name == 'final-candidate-full')",
-].join("\n      ");
 
 test("control validates evidence with only the schema package's production dependencies", () => {
   const root = mkdtempSync(path.join(tmpdir(), "openmeld-control-runtime-"));
@@ -133,18 +124,26 @@ test("keeps status credentials out of candidate commands", () => {
     "scripts/ci/run-isolated-candidate-command.sh"
   );
   const trustedGit = readRepoFile("scripts/ci/trusted-git-network.mjs");
-  const candidateJob = readJob(workflow, "candidate", "publish_final");
+  const candidateJob = readJob(workflow, "candidate", null);
   const pendingJob = readJob(workflow, "publish_pending", "candidate");
-  const finalJob = readJob(workflow, "publish_final", null);
+  const finalJob = readRepoFile(".github/workflows/final-candidate-result.yml");
 
-  assert.ok(workflow.includes("pull_request_target:"));
-  assert.ok(!workflow.includes("\n  pull_request:\n"));
+  assert.ok(workflow.includes("\n  pull_request:\n"));
+  for (const unsafe of [
+    "pull_request_target:",
+    "secrets.",
+    "environment:",
+    ": write",
+    "allow-unsafe-pr-checkout",
+  ]) {
+    assert.ok(!workflow.includes(unsafe), unsafe);
+  }
   assert.ok(candidateJob.includes("contents: read"));
   assert.ok(candidateJob.includes("actions: read"));
   assert.ok(candidateJob.includes("pull-requests: read"));
   assert.ok(!candidateJob.includes("statuses: write"));
   assert.ok(!candidateJob.includes("--publish-status"));
-  assert.ok(pendingJob.includes("statuses: write"));
+  assert.ok(!pendingJob.includes("statuses: write"));
   assert.ok(finalJob.includes("statuses: write"));
   assert.ok(finalJob.includes("checks: write"));
   assert.ok(!workflow.includes("pnpm candidate run"));
@@ -211,23 +210,17 @@ test("keeps status credentials out of candidate commands", () => {
   assert.ok(
     finalJob.includes('--hosted-disposition "$CANDIDATE_HOSTED_DISPOSITION"')
   );
-  assert.ok(
-    finalJob.includes("Checkout trusted publisher from the exact current base")
-  );
+  assert.ok(finalJob.includes("Checkout trusted publisher only"));
   assert.ok(finalJob.includes("path: trusted-control"));
   assert.ok(
-    finalJob.includes(
-      `ref: ${GITHUB_EXPRESSION_PREFIX} env.CANDIDATE_BASE_SHA }}`
-    )
+    finalJob.includes(`ref: ${GITHUB_EXPRESSION_PREFIX} github.sha }}`)
+  );
+  assert.ok(
+    finalJob.includes("Checkout candidate data for trusted comparison")
   );
   assert.ok(
     finalJob.includes(
-      "Checkout exact candidate source for trusted plan recomputation"
-    )
-  );
-  assert.ok(
-    finalJob.includes(
-      `ref: ${GITHUB_EXPRESSION_PREFIX} env.CANDIDATE_HEAD_SHA }}`
+      `ref: ${GITHUB_EXPRESSION_PREFIX} steps.identity.outputs.head }}`
     )
   );
   assert.ok(finalJob.includes("path: untrusted-candidate"));
@@ -238,13 +231,11 @@ test("keeps status credentials out of candidate commands", () => {
     )
   );
   assert.ok(finalJob.includes('--branch "$CANDIDATE_BRANCH"'));
-  assert.ok(finalJob.includes("id: publish_final_status"));
-  assert.ok(finalJob.includes("if: always()"));
-  assert.ok(finalJob.includes("Publish fail-safe final status"));
-  assert.ok(
-    finalJob.includes("steps.publish_final_status.outcome != 'success'")
-  );
-  const finalizerStart = finalJob.indexOf("Publish fail-safe final status");
+  assert.ok(finalJob.includes("id: publish_final"));
+  assert.ok(finalJob.includes("if: always() &&"));
+  assert.ok(finalJob.includes("Publish fail-safe failure"));
+  assert.ok(finalJob.includes("steps.publish_final.outcome != 'success'"));
+  const finalizerStart = finalJob.indexOf("Publish fail-safe failure");
   const finalizer = finalJob.slice(finalizerStart);
   assert.ok(finalizer.includes("gh api --method POST"));
   assert.ok(!finalizer.includes("actions/checkout"));
@@ -254,7 +245,7 @@ test("keeps status credentials out of candidate commands", () => {
 test("skips only the hosted Runner when trusted control requires local validation", () => {
   const workflow = readRepoFile(".github/workflows/final-candidate.yml");
   const pendingJob = readJob(workflow, "publish_pending", "candidate");
-  const candidateJob = readJob(workflow, "candidate", "publish_final");
+  const candidateJob = readJob(workflow, "candidate", null);
 
   assert.ok(
     pendingJob.includes(
@@ -293,7 +284,7 @@ test("skips only the hosted Runner when trusted control requires local validatio
 
 test("rejects premature release stamps before dependency setup", () => {
   const workflow = readRepoFile(".github/workflows/final-candidate.yml");
-  const candidateJob = readJob(workflow, "candidate", "publish_final");
+  const candidateJob = readJob(workflow, "candidate", null);
   const preflight = candidateJob.indexOf(
     "Check release branch policy before dependency setup"
   );
@@ -331,7 +322,7 @@ test("rejects premature release stamps before dependency setup", () => {
 
 test("disables candidate install hooks before selected commands", () => {
   const workflow = readRepoFile(".github/workflows/final-candidate.yml");
-  const candidateJob = readJob(workflow, "candidate", "publish_final");
+  const candidateJob = readJob(workflow, "candidate", null);
   const trustedInstall = candidateJob.indexOf(
     "Install trusted evidence parser"
   );
@@ -369,36 +360,35 @@ test("gives isolated candidate Node processes one explicit hosted-safe heap budg
 
 test("gives serial candidate validation enough time to finish", () => {
   const workflow = readRepoFile(".github/workflows/final-candidate.yml");
-  const candidateJob = readJob(workflow, "candidate", "publish_final");
+  const candidateJob = readJob(workflow, "candidate", null);
 
   assert.ok(candidateJob.includes("timeout-minutes: 60"));
 });
 
-test("always finalizes an exact head after pending publication starts", () => {
-  const workflow = readRepoFile(".github/workflows/final-candidate.yml");
-  const finalJob = readJob(workflow, "publish_final", null);
-
-  assert.ok(finalJob.includes("\n    if: >-\n      always() &&\n"));
-  assert.ok(finalJob.includes(FINAL_CANDIDATE_EVENT_GUARD));
-  assert.ok(!finalJob.includes("needs.publish_pending.result == 'success'"));
-  assert.ok(finalJob.includes("CANDIDATE_HEAD_SHA:"));
-  assert.ok(finalJob.includes("Publish fail-safe final status"));
-});
-
-test("an unrelated label schedules no Final Candidate status writer", () => {
-  const workflow = readRepoFile(".github/workflows/final-candidate.yml");
-  const pendingJob = readJob(workflow, "publish_pending", "candidate");
-  const finalJob = readJob(workflow, "publish_final", null);
-
-  assert.ok(
-    pendingJob.includes(`if: >-\n      ${FINAL_CANDIDATE_EVENT_GUARD}`)
-  );
-  assert.ok(
-    finalJob.includes(
-      `if: >-\n      always() &&\n      ${FINAL_CANDIDATE_EVENT_GUARD}`
-    )
-  );
-  assert.equal(Object.values(FINAL_CANDIDATE_LABELS).includes("bug"), false);
+test("trusted result publication fails closed and never executes candidate scripts", () => {
+  const result = readRepoFile(".github/workflows/final-candidate-result.yml");
+  for (const required of [
+    "workflow_run:",
+    "types: [in_progress, completed]",
+    "final-candidate-run-context.mjs",
+    "github.event.workflow_run.id",
+    "steps.identity.outputs.valid == 'true'",
+    "Publish fail-safe failure",
+    "steps.publish_final.outcome != 'success'",
+  ]) {
+    assert.ok(result.includes(required), required);
+  }
+  for (const unsafe of [
+    "run: pnpm --dir untrusted-candidate",
+    "secrets.",
+    "environment:",
+    "allow-unsafe-pr-checkout",
+  ]) {
+    assert.ok(!result.includes(unsafe), unsafe);
+  }
+  for (const block of extractRunBlocks(result)) {
+    assert.doesNotMatch(block, GITHUB_EXPRESSION_PATTERN);
+  }
 });
 
 test("ready PR events run automatically while drafts and unrelated labels stay idle", () => {
@@ -418,17 +408,14 @@ test("ready PR events run automatically while drafts and unrelated labels stay i
     "labeled",
   ]);
   const pendingJob = readJob(workflow, "publish_pending", "candidate");
-  const finalJob = readJob(workflow, "publish_final", null);
   const pendingGuard = pendingJob
     .split("if: >-\n")[1]
     ?.split("\n    runs-on:")[0];
-  const finalGuard = finalJob.split("if: >-\n")[1]?.split("\n    runs-on:")[0];
   const concurrencyBlock = workflow
     .split("\nconcurrency:\n")[1]
     ?.split("\njobs:\n")[0];
   const groupExpression = concurrencyBlock?.split("${{")[1]?.split("}}")[0];
   assert.ok(pendingGuard);
-  assert.ok(finalGuard);
   assert.ok(groupExpression);
   assert.ok(concurrencyBlock?.includes("cancel-in-progress: true"));
   assert.ok(!concurrencyBlock?.includes("queue: max"));
@@ -470,11 +457,6 @@ test("ready PR events run automatically while drafts and unrelated labels stay i
             scenario
           );
           assert.equal(
-            runInNewContext(finalGuard, context),
-            shouldRun,
-            scenario
-          );
-          assert.equal(
             runInNewContext(groupExpression, context),
             shouldRun || (base === "main" && action === "converted_to_draft")
               ? "final-candidate-325"
@@ -484,72 +466,6 @@ test("ready PR events run automatically while drafts and unrelated labels stay i
         }
       }
     }
-  }
-});
-
-test("turns a post-pending output failure into an exact failure status", () => {
-  const workflow = readRepoFile(".github/workflows/final-candidate.yml");
-  const root = mkdtempSync(path.join(tmpdir(), "openmeld-pending-finalizer-"));
-  const bin = path.join(root, "bin");
-  const log = path.join(root, "gh.log");
-  mkdirSync(bin);
-  try {
-    const headSha = "a".repeat(40);
-    const baseSha = "b".repeat(40);
-    const treeSha = "c".repeat(40);
-    const fakeGh = path.join(bin, "gh");
-    writeFileSync(
-      fakeGh,
-      [
-        "#!/usr/bin/env bash",
-        "set -euo pipefail",
-        'if [[ " $* " == *" --method POST "* ]]; then',
-        '  printf "%s\\n" "$*" >> "$FAKE_GH_LOG"',
-        "  exit 0",
-        "fi",
-        `case "\${2:-}" in`,
-        `  repos/example/openmeld/pulls/325) printf '%s\\n' '{"head":{"sha":"${headSha}"},"base":{"sha":"${baseSha}"}}' ;;`,
-        `  repos/example/openmeld/commits/main) printf '%s\\n' '${baseSha}' ;;`,
-        `  repos/example/openmeld/git/commits/${headSha}) printf '%s\\n' '${treeSha}' ;;`,
-        "  *) exit 1 ;;",
-        "esac",
-        "",
-      ].join("\n")
-    );
-    chmodSync(fakeGh, 0o755);
-    const environment = {
-      ...process.env,
-      CANDIDATE_BASE_SHA: baseSha,
-      CANDIDATE_CONFIDENCE: "standard",
-      CANDIDATE_HEAD_SHA: headSha,
-      CANDIDATE_PR_NUMBER: "325",
-      CANDIDATE_REPOSITORY: "example/openmeld",
-      CANDIDATE_RUN_ID: "123",
-      CANDIDATE_SERVER_URL: "https://github.com",
-      FAKE_GH_LOG: log,
-      GITHUB_OUTPUT: root,
-      PATH: `${bin}${path.delimiter}${process.env.PATH}`,
-    };
-    const pending = spawnSync(
-      "bash",
-      ["-c", readStepRun(workflow, "Verify live identity and publish pending")],
-      { encoding: "utf8", env: environment }
-    );
-
-    assert.notEqual(pending.status, 0);
-    assert.ok(readFileSync(log, "utf8").includes("state=pending"));
-
-    const finalizer = spawnSync(
-      "bash",
-      ["-c", readStepRun(workflow, "Publish fail-safe final status")],
-      { encoding: "utf8", env: environment }
-    );
-    assert.equal(finalizer.status, 0, finalizer.stderr);
-    const publications = readFileSync(log, "utf8").trim().split("\n");
-    assert.ok(publications.at(-1)?.includes("state=failure"));
-    assert.ok(!publications.at(-1)?.includes("state=success"));
-  } finally {
-    rmSync(root, { force: true, recursive: true });
   }
 });
 
@@ -577,7 +493,7 @@ test("carries hosted standard and full confidence through distinct labels", () =
 
 test("does not execute a candidate-owned runner or package candidate script", () => {
   const workflow = readRepoFile(".github/workflows/final-candidate.yml");
-  const candidateJob = readJob(workflow, "candidate", "publish_final");
+  const candidateJob = readJob(workflow, "candidate", null);
 
   assert.ok(
     candidateJob.includes(
@@ -623,24 +539,6 @@ function readJob(workflow, name, nextName) {
     throw new Error(`missing ${nextName} job boundary`);
   }
   return workflow.slice(start, end);
-}
-
-function readStepRun(workflow, stepName) {
-  const stepStart = workflow.indexOf(`      - name: ${stepName}`);
-  if (stepStart === -1) {
-    throw new Error(`missing workflow step: ${stepName}`);
-  }
-  const runStart = workflow.indexOf("        run: |\n", stepStart);
-  if (runStart === -1) {
-    throw new Error(`missing run block: ${stepName}`);
-  }
-  const contentStart = runStart + "        run: |\n".length;
-  const nextStep = workflow.indexOf("\n      - name:", contentStart);
-  return workflow
-    .slice(contentStart, nextStep === -1 ? undefined : nextStep)
-    .split("\n")
-    .map((line) => line.replace(TEN_SPACE_PREFIX_PATTERN, ""))
-    .join("\n");
 }
 
 function extractRunBlocks(workflow) {

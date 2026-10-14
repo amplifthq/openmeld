@@ -270,6 +270,16 @@ git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- wait --p
 Use `wait` for the pending Final Candidate instead of repeatedly polling
 `gh pr checks` for the same unchanged run.
 
+Fork and same-repository candidates run on `pull_request` with read-only job
+permissions and no production environment or secrets. A separate `workflow_run`
+publisher runs trusted default-branch code. It identifies the exact source run,
+attempt, PR, and current main through GitHub, then recomputes the control
+disposition and validation plan before accepting evidence from that run.
+Candidate source and artifacts are data only in the publisher; it never runs
+candidate scripts. Changes to either workflow require the protected local
+bootstrap. Workflow approval for first-time contributors remains a GitHub
+repository policy, separate from PR review approval.
+
 Use the current-main entrypoint, never candidate-owned package scripts.
 GitHub Actions is the normal compute lane; the guarded local lane below is for
 Actions outages or explicit control bootstrap. A failed check, missing evidence,

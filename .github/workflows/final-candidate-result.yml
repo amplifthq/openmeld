@@ -1,0 +1,128 @@
+name: OpenMeld Final Candidate Result
+
+on:
+  workflow_run:
+    workflows: [OpenMeld Final Candidate]
+    types: [in_progress, completed]
+
+permissions: {}
+
+concurrency:
+  group: final-candidate-result-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.event.workflow_run.event == 'pull_request' && startsWith(github.event.workflow_run.display_title, 'Final Candidate PR ')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+      statuses: write
+      checks: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CANDIDATE_REPOSITORY: ${{ github.repository }}
+      CANDIDATE_RUN_ID: ${{ github.event.workflow_run.id }}
+      CANDIDATE_SERVER_URL: ${{ github.server_url }}
+    steps:
+      - name: Checkout trusted publisher only
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          path: trusted-control
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      - name: Verify GitHub run and live PR identity
+        id: identity
+        run: node trusted-control/scripts/ci/final-candidate-run-context.mjs
+
+      - name: Publish pending for the exact candidate
+        if: steps.identity.outputs.valid == 'true' && github.event.action == 'in_progress'
+        env:
+          CANDIDATE_HEAD_SHA: ${{ steps.identity.outputs.head }}
+        run: |
+          gh api --method POST "repos/$CANDIDATE_REPOSITORY/statuses/$CANDIDATE_HEAD_SHA" \
+            -f state=pending -f context='OpenMeld Final Candidate' \
+            -f description='Running Final Candidate without write credentials' \
+            -f target_url="$CANDIDATE_SERVER_URL/$CANDIDATE_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID"
+
+      # This source is data for trusted plan/control comparison. Never execute it here.
+      - name: Checkout candidate data for trusted comparison
+        if: steps.identity.outputs.valid == 'true' && github.event.action == 'completed'
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.identity.outputs.head }}
+          fetch-depth: 0
+          path: untrusted-candidate
+          persist-credentials: false
+
+      - name: Recompute hosted disposition from trusted control
+        if: steps.identity.outputs.valid == 'true' && github.event.action == 'completed'
+        id: disposition
+        run: |
+          node trusted-control/scripts/ci/final-candidate-hosted-disposition.mjs \
+            --trusted-root "$GITHUB_WORKSPACE/trusted-control" \
+            --candidate-root "$GITHUB_WORKSPACE/untrusted-candidate"
+
+      - name: Setup pnpm
+        if: steps.identity.outputs.valid == 'true' && github.event.action == 'completed'
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.30.0
+          run_install: false
+
+      - name: Install trusted evidence parser only
+        if: steps.identity.outputs.valid == 'true' && github.event.action == 'completed'
+        run: pnpm --dir trusted-control install --frozen-lockfile --filter @openmeld/schemas --prod --ignore-scripts
+
+      - name: Download evidence from this exact run
+        if: steps.identity.outputs.valid == 'true' && github.event.action == 'completed'
+        continue-on-error: true
+        uses: actions/download-artifact@v5
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+          name: final-candidate-evidence
+          path: ${{ runner.temp }}/final-candidate
+
+      - name: Validate evidence and publish final status
+        id: publish_final
+        if: success() && steps.identity.outputs.valid == 'true' && github.event.action == 'completed'
+        env:
+          CANDIDATE_BASE_SHA: ${{ steps.identity.outputs.base }}
+          CANDIDATE_BRANCH: ${{ steps.identity.outputs.branch }}
+          CANDIDATE_CONFIDENCE: ${{ steps.identity.outputs.confidence }}
+          CANDIDATE_HEAD_SHA: ${{ steps.identity.outputs.head }}
+          CANDIDATE_PR_NUMBER: ${{ steps.identity.outputs.pr }}
+          CANDIDATE_TREE_SHA: ${{ steps.identity.outputs.tree }}
+          CANDIDATE_JOB_RESULT: ${{ steps.identity.outputs.job_result }}
+          CANDIDATE_HOSTED_DISPOSITION: ${{ steps.disposition.outputs.disposition }}
+        run: |
+          node trusted-control/scripts/ci/final-candidate-publisher.mjs \
+            --repository "$CANDIDATE_REPOSITORY" --pr "$CANDIDATE_PR_NUMBER" \
+            --branch "$CANDIDATE_BRANCH" --head "$CANDIDATE_HEAD_SHA" \
+            --base "$CANDIDATE_BASE_SHA" --tree "$CANDIDATE_TREE_SHA" \
+            --candidate-root "$GITHUB_WORKSPACE/untrusted-candidate" \
+            --confidence "$CANDIDATE_CONFIDENCE" \
+            --hosted-disposition "$CANDIDATE_HOSTED_DISPOSITION" \
+            --job-result "$CANDIDATE_JOB_RESULT" \
+            --evidence "$RUNNER_TEMP/final-candidate/final-candidate-evidence.json" \
+            --target-url "$CANDIDATE_SERVER_URL/$CANDIDATE_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID"
+
+      - name: Publish fail-safe failure
+        if: always() && steps.identity.outputs.valid == 'true' && github.event.action == 'completed' && steps.publish_final.outcome != 'success'
+        env:
+          CANDIDATE_HEAD_SHA: ${{ steps.identity.outputs.head }}
+        run: |
+          gh api --method POST "repos/$CANDIDATE_REPOSITORY/statuses/$CANDIDATE_HEAD_SHA" \
+            -f state=failure -f context='OpenMeld Final Candidate' \
+            -f description='Final Candidate result validation failed' \
+            -f target_url="$CANDIDATE_SERVER_URL/$CANDIDATE_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID"

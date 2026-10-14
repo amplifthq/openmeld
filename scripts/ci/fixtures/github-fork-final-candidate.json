@@ -1,0 +1,66 @@
+{
+  "source": "GitHub REST API amplifthq/opentag PR 181 and run 38591975849; captured 2026-10-14",
+  "run": {
+    "id": 38591975849,
+    "run_attempt": 1,
+    "display_title": "Final Candidate PR",
+    "event": "pull_request_target",
+    "workflow_id": 384399279,
+    "path": ".github/workflows/final-candidate.yml",
+    "status": "completed",
+    "head_sha": "dfcfd3978a1b7e085d99492c99d7fac6145bc8b4",
+    "head_repository": {
+      "id": 1419305231,
+      "full_name": "lumpinif/opentag"
+    },
+    "repository": {
+      "id": 1278926400,
+      "full_name": "amplifthq/opentag"
+    }
+  },
+  "pr": {
+    "number": 181,
+    "head": {
+      "ref": "docs/fork-contribution-check",
+      "sha": "dfcfd3978a1b7e085d99492c99d7fac6145bc8b4",
+      "repo": {
+        "id": 1419305231,
+        "full_name": "lumpinif/opentag"
+      }
+    },
+    "base": {
+      "ref": "main",
+      "sha": "b1deea8fb446f5f2f0aed9ca4c97cdfc9f3232c1",
+      "repo": {
+        "id": 1278926400,
+        "full_name": "amplifthq/opentag"
+      }
+    },
+    "state": "open",
+    "draft": false
+  },
+  "workflow": {
+    "id": 384399279
+  },
+  "main": {
+    "sha": "b1deea8fb446f5f2f0aed9ca4c97cdfc9f3232c1"
+  },
+  "tree": {
+    "sha": "55f33bc7e8fa55003a1356c06d452aeb5af81b18",
+    "url": "https://api.github.com/repos/amplifthq/opentag/git/trees/55f33bc7e8fa55003a1356c06d452aeb5af81b18"
+  },
+  "jobs": [
+    {
+      "name": "Publish Exact Pending Candidate",
+      "conclusion": "failure"
+    },
+    {
+      "name": "Publish Validated Final Candidate Result",
+      "conclusion": "failure"
+    },
+    {
+      "name": "Final Candidate Runner",
+      "conclusion": "skipped"
+    }
+  ]
+}
