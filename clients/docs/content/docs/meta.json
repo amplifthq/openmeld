@@ -1,4 +1,18 @@
 {
   "title": "Guides",
-  "pages": ["index", "start", "work", "concepts", "reference", "help"]
+  "description": "For agent-facing setup, CLI, and Space instructions, read the [OpenMeld Agent Interface guide](https://app.openmeld.ai/agent-interface/guide.md). Follow the user's request and account permissions before taking action.",
+  "pages": [
+    "index",
+    "start",
+    "spaces",
+    "center-agent",
+    "remote-agents",
+    "local-agents",
+    "agent-harness",
+    "team",
+    "settings",
+    "security-and-privacy",
+    "reference",
+    "help"
+  ]
 }

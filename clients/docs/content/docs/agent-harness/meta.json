@@ -1,0 +1,12 @@
+{
+  "title": "Agent Harness",
+  "defaultOpen": false,
+  "pages": [
+    "index",
+    "multi-agent-collaboration",
+    "context-management",
+    "caching-and-cost",
+    "limits-and-loops",
+    "progress-and-recovery"
+  ]
+}

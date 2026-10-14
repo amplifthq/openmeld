@@ -1,11 +1,11 @@
 {
-  "title": "Start",
-  "defaultOpen": true,
+  "title": "Get started",
+  "defaultOpen": false,
   "pages": [
     "quickstart",
     "downloads",
-    "connect-computer",
-    "terminal",
-    "join-team"
+    "join-team",
+    "choose-agent",
+    "../work/navigation"
   ]
 }

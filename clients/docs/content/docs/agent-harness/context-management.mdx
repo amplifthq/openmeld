@@ -1,0 +1,36 @@
+---
+title: Context management
+description: How hosted Agents keep relevant information available without sending all history on every request.
+---
+
+**Context** is the information sent to the model for its next response: instructions, messages, tool definitions, and evidence. More context is not always more useful. It can increase cost and make the important details harder to find.
+
+OpenMeld's hosted runtime manages this information before model calls. Local tools manage their own model context.
+
+## Read what the task needs
+
+Agents can discover relevant tools and read bounded portions of messages, files, and other results. Guidance favors searching for the needed evidence and reading the relevant parts instead of copying an entire source into the conversation.
+
+This does not guarantee that a model will always choose the smallest possible read. It gives the model ways to obtain specific evidence without loading everything first.
+
+## Keep large tool results manageable
+
+Hosted tool results have size limits before they enter the model conversation. When a result is too large, the response identifies it as partial evidence rather than presenting the visible portion as the complete result.
+
+When temporary retention is available, the Agent can read or search additional portions through a result reference. Retention has access, capacity, and expiry limits; a reference is not a permanent file. If retention fails, the response makes that limitation explicit.
+
+The outcome of an operation is separate from how much of its output fits in context. An Agent should recover the existing result instead of repeating a write just to obtain more visible output.
+
+## Summarize older conversation history
+
+For longer hosted conversations, the runtime uses a working-context budget. It summarizes older material into a checkpoint and keeps recent messages, including related tool calls and results, together. The summary is instructed to preserve active constraints, confirmed outcomes, unfinished work, and source references.
+
+This check happens during tool work as well as between user turns. It reserves space for further work instead of waiting until the physical model window is full. The budgets depend on the model and use estimates; they are not an exact provider token count.
+
+An empty or incomplete summary cannot replace the current context. If the current request still cannot fit, execution can fail with a context error rather than silently discard that request.
+
+## Recover details when needed
+
+Summarization changes the model's working view; it does not itself delete the original conversation records. Supported hosted recall can search retained conversation text in the current conversation lineage. It is not unrestricted access to every conversation, every old tool payload, or hidden model reasoning.
+
+A summary can omit detail. For precise work, keep important source material in [Files](/docs/work/files) and ask the Agent to verify it. [Memory](/docs/work/memory) is a separate feature for information used across conversations; it is not the same as the current working context.

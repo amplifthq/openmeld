@@ -15,7 +15,7 @@ Use a Local Agent when the code or tools are on a connected computer. This examp
 
 1. Open a Space with the Local Agent, or its direct conversation.
 2. In a shared Space, select the Agent with **Wake**.
-3. Review the task settings offered by that Agent. Choose access that permits reading the intended files. **Space context only** does not provide a project checkout.
+3. Review the task settings offered by that Agent. Under **Access**, choose **Read files only** when available. **No project files** uses a scratch folder without your checkout. Available choices depend on the Agent's tool.
 4. Check whether work will use the current folder or an isolated task folder. To review uncommitted edits, the Agent needs access to the folder containing those edits; an isolated copy does not import them automatically.
 5. Send a request like this:
 
@@ -36,6 +36,6 @@ For implementation work, send a separate clear request that names the permitted 
 
 ## If it cannot read the repository
 
-Open the request's task context. Continuing a Space-context-only task keeps that task's access; choose **New task** to review a new request and its file access. If the problem is a missing Project connection, follow [Working folder unavailable](/docs/help/working-folder).
+Open the request's task context. Continuing a Space-context-only task keeps that task's access. In the composer, choose **Start new**, then review **Access** and the working folder before sending. If the problem is a missing Project connection, follow [Working folder unavailable](/docs/help/working-folder).
 
 Do not point the Agent at a different checkout merely to get past the error. The result must come from the repository you intended.

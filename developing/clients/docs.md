@@ -15,9 +15,12 @@ Staging uses `docs.staging.openmeld.ai`. It reads no App session, Organization
 state, database, or authenticated API. Parent-domain cookies can reach this host.
 The renderer ignores them and must not forward them to another service.
 
-The site contains public product guides organized by user task: Start, Work,
-Understand, Reference, and Help. Team and tools remain a subgroup of Work;
-their existing `/docs/team/*` URLs stay unchanged. Production builds allow indexing and expose a sitemap
+The site organizes public guides by product area: Get started, Spaces, Center Agent,
+Remote Agents, Local Agents, Agent Harness, Team, Settings & Administration, Security & Privacy,
+Concepts & Reference, and Help. Metadata references keep existing article URLs
+stable while moving their navigation placement. Shared Skills, Files, and
+Routines guides each have one owner; Agent-specific guides link to them and
+explain execution differences. Production builds allow indexing and expose a sitemap
 generated from the same MDX source. Development and staging remain noindex.
 Do not copy `developing/` or internal operational runbooks into public content.
 
@@ -33,7 +36,23 @@ Windows instructions separate. Refer readers to the canonical download page for
 current versions, build availability, and release notices instead of copying
 temporary rollout details into the guides.
 
+## Local Agent setup guides
+
+`content/docs/start/local-agents` owns the setup overview and six Agent guides.
+Keep installation prose here, not in the shared product catalog or Website.
+Provider-specific installation commands and platform requirements link to official
+guides. OpenMeld connection, detection, and recovery guidance stays in Docs.
+Each guide declares `icon: local-agent:<id>`; the source loader renders the
+existing `@openmeld/ui` LocalAgentLogo. These pages participate in the same
+search, Markdown, and LLM projections as all other public guides.
+
 ## Content and rendering
+
+`start/connect-with-agent` owns the public, copyable setup handoff. It links to
+the App's Agent Interface for fresh private authorization. Keep tokens and
+authenticated prompt generation in the App; never embed them in Docs, Markdown,
+or LLM projections. The public prompt scopes recovery to connecting the computer
+and distinguishes service health from a successful Agent task.
 
 `content/docs` is the MDX source. `src/lib/content.ts` declares the official
 Fumadocs macro. `src/lib/source.ts` owns its server-side source loader and LLM
@@ -111,7 +130,8 @@ Before handing off a content change:
   claim that every product statement is verified.
 - Run the Docs build, lint, and typecheck. With a local Docs server, run
   `pnpm --filter openmeld-docs check:content -- --url http://127.0.0.1:3600`
-  to check rendered heading anchors and all public page Markdown responses.
+  to check rendered heading anchors, all public page Markdown responses, and
+  missing-page 404s for HTML, `.md`, and Markdown negotiation.
 - In the complete UI, check search, sidebar navigation, Copy Markdown,
   Open → Markdown, keyboard dismissal, and the 390px layout. Check the old URLs
   and common anchors against the change's base. Record what actually ran.
@@ -119,3 +139,25 @@ Before handing off a content change:
 Content-only IA work does not alter Agent execution, availability, routing,
 or service lifecycle contracts. A guide must describe those owners rather than
 introduce a second interpretation of their state.
+
+## Agent Harness content ownership
+
+`content/docs/agent-harness` explains execution mechanisms after the Agent product
+guides. Keep Spaces plural to match product navigation. Link to existing task,
+permission, and usage workflows instead of duplicating them.
+
+Verify collaboration against `packages/space-mesh/src/collaboration-context.ts`,
+`services/remote-agent/agent-core/prompt/task-coordination.ts`, and Core's
+`center-agent-delegation-service.ts` and `personal-remote-agent-space-tools.ts`.
+The Space Board is an Agent-readable projection, not another task writer.
+
+Verify hosted context and cost claims against `services/remote-agent/flue-adapter`
+(`model.ts`, `model-context-policy.ts`, `conversation-compaction.ts`, and
+`retained-tool-results.ts`) and `agent-core/tool-result-boundary.ts`. Verify loop
+claims against `agent-core/tool-progress.ts`, its tool classifications, Core
+handoff admission, and `developing/architecture/agent-transport-contract.md`.
+Do not generalize a hosted tool limit to Local tools, the member-owned Remote
+handoff limit to all transport, or prompt guidance to an enforced guarantee.
+Do not publish planned loop fuses, universal spending caps, guaranteed cache
+savings, or lossless summaries as shipped behavior. Keep numeric tuning values
+in their implementation owners unless users need them to make a decision.

@@ -16,8 +16,12 @@ has its own TanStack Start/Vite build and Worker. It imports no Web-private
 modules and reads no session, Organization selection, or App query cache.
 Its homepage remains public even when the visitor has an App session.
 
-The website owns `/`, `/privacy`, `/terms`, `/changelog`, `/downloads`, and
-`/guides/local-agents/*`. Changelog data still comes from the anonymous Gateway
+The website owns `/`, `/privacy`, `/terms`, `/changelog`, and `/downloads`.
+Legacy `/guides/local-agents` and its six supported Agent detail URLs return
+permanent redirects to `/docs/start/local-agents` on the Docs origin. Unknown
+Agent IDs remain 404s. Docs owns the guide content; Website has no guide renderer.
+`VITE_DOCS_URL` selects the local override; staging and production builds use
+their matching public Docs origins. Deploy Docs before activating these redirects. Changelog data still comes from the anonymous Gateway
 reader. Brand components, fonts, and assets belong to `@openmeld/ui`; static
 agent metadata and public metadata helpers belong to `@openmeld/product-catalog`.
 Public content is not duplicated in Web.

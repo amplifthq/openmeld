@@ -36,7 +36,19 @@ assert.deepEqual(
   tree.children
     .filter((node) => node.type === "folder")
     .map((node) => node.name),
-  ["Start", "Work", "Understand", "Reference", "Help"]
+  [
+    "Get started",
+    "Spaces",
+    "Center Agent",
+    "Remote Agents",
+    "Local Agents",
+    "Agent Harness",
+    "Team",
+    "Settings & Administration",
+    "Security & Privacy",
+    "Concepts & Reference",
+    "Help",
+  ]
 );
 const navigation = [];
 function visit(node) {
@@ -116,6 +128,17 @@ const origin = process.argv[process.argv.indexOf("--url") + 1];
 if (process.argv.includes("--url")) {
   assert.ok(origin?.startsWith("http"), "Supply a local Docs URL");
   const htmlByUrl = new Map();
+  const missingPage = "/docs/__content-check-missing-page__";
+  assert.ok(!urls.has(missingPage), "Negative-check path must not exist");
+  for (const [url, headers] of [
+    [missingPage, {}],
+    [`${missingPage}.md`, {}],
+    [missingPage, { Accept: "text/markdown" }],
+  ]) {
+    const response = await fetch(new URL(url, origin), { headers });
+    assert.equal(response.status, 404, `Missing page must return 404: ${url}`);
+    await response.text();
+  }
   for (const page of pages) {
     const html = await fetch(new URL(page.url, origin));
     assert.equal(html.status, 200, page.url);
@@ -163,9 +186,9 @@ if (process.argv.includes("--url")) {
     );
   }
   console.log(
-    `HTTP: ${pages.length} HTML pages, both Markdown routes, linked anchors, and LLM endpoints passed.`
+    `HTTP: ${pages.length} HTML pages, both Markdown routes, linked anchors, LLM endpoints, and missing-page 404s passed.`
   );
 }
 console.log(
-  `Content: ${pages.length} pages, ${links.length} local links, five navigation groups, and ${rows.length} Run statuses passed.`
+  `Content: ${pages.length} pages, ${links.length} local links, eleven product navigation groups, and ${rows.length} Run statuses passed.`
 );
