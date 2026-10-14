@@ -17,6 +17,35 @@ import {
 const REASONING_REQUIRES_MODEL_PATTERN = /reasoningLevel requires modelId/u;
 
 describe("agent profile binding http schemas", () => {
+  it("requires explicit shared control for direct Bot bindings", () => {
+    const body = {
+      agentControllerRef: "builtin:grok-bot",
+      agentControllerConversationId: "123",
+      deviceId: "device",
+      lane: "dev",
+      openMeldServiceRuntimeId: {
+        source: "runtime_registry_authority",
+        value: "runtime_opaque_1",
+      },
+      sharedConversationAcknowledged: true,
+    };
+    expect(
+      ensureAgentProfilePrimaryBindingBodySchema.safeParse(body).success
+    ).toBe(true);
+    for (const patch of [
+      { sharedConversationAcknowledged: undefined },
+      { agentControllerConversationId: undefined },
+      { modelId: "model" },
+      { agentControllerPermissionMode: "codex:fullAccess" },
+    ]) {
+      expect(
+        ensureAgentProfilePrimaryBindingBodySchema.safeParse({
+          ...body,
+          ...patch,
+        }).success
+      ).toBe(false);
+    }
+  });
   it("keeps current Session lookup compact and Organization-aware", () => {
     expect(
       currentAgentProfileSessionLookupQuerySchema.parse({

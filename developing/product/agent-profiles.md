@@ -1,5 +1,25 @@
 # Agent Profiles
 
+## Shared provider conversations
+
+A controller with `conversationScope: account_shared` connects an existing
+provider conversation to an ordinary Agent Profile. The owner supplies the exact
+conversation ID and acknowledges shared messages and conversation-wide Stop once
+when connecting. Grok Bot uses this contract through the official BDK account.
+The existing Profile, membership, DM, Space Wake, queue, Stop and diagnostics
+surfaces remain the product entrances. No separate Bot identity is created.
+
+Model, reasoning, permissions, tools and working directory remain managed by the
+provider. Creation hides these controls and rejects their configuration in the
+shared request contract. Fork, independent contexts and Activity-session import
+are unavailable. A direct Binding write must include the existing conversation
+ID and shared-control acknowledgment. Reconnecting is a new connection decision.
+
+Connection confirmation: “Shares your Grok Bot conversation. Stopping here stops
+the bot’s current work.” Actions: **Connect bot**, **Cancel**. Ordinary sends do
+not repeat this confirmation. Use the Bot's conversation ID from BDK; resolving
+a name through get-or-create is not a connection operation.
+
 ## Agent Context
 
 - Purpose: Define the Agent Profile product model and its relationship to

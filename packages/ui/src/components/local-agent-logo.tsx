@@ -21,6 +21,7 @@ const LOCAL_AGENT_LOGOS = {
   codex: { Icon: CodexColor, inset: "h-full w-full" },
   cursor: { Icon: CursorMono, inset: "h-3/5 w-3/5" },
   "grok-build": { Icon: GrokMono, inset: "h-3/4 w-3/4" },
+  "grok-bot": { Icon: GrokMono, inset: "h-3/4 w-3/4" },
   opencode: { Icon: OpenCodeMono, inset: "h-3/4 w-3/4" },
   openclaw: { Icon: OpenClawColor, inset: "h-3/4 w-3/4" },
 } as const satisfies Record<

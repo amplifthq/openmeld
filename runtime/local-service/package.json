@@ -49,6 +49,7 @@
     "check": "biome check --no-errors-on-unmatched ./ && pnpm run typecheck"
   },
   "dependencies": {
+    "@openmeld/adapter-grok-bot": "workspace:*",
     "@openmeld/adapter-antigravity": "workspace:*",
     "@openmeld/adapter-claude-code": "workspace:*",
     "@openmeld/adapter-codex": "workspace:*",

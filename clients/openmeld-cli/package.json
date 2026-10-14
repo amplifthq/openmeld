@@ -1,7 +1,7 @@
 {
   "$schema": "https://www.schemastore.org/package.json",
   "name": "openmeld",
-  "version": "0.3.259",
+  "version": "0.3.260",
   "openMeldReleaseDate": "2026-10-14",
   "description": "OpenMeld CLI - https://openmeld.ai",
   "license": "MIT",
@@ -37,6 +37,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@openmeld/adapter-grok-bot": "workspace:*",
     "@anthropic-ai/claude-agent-sdk": "^0.3.295",
     "@anthropic-ai/sdk": "^0.131.0",
     "@clack/prompts": "^1.0.1",

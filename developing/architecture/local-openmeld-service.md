@@ -1,5 +1,37 @@
 # Local OpenMeld Service
 
+## Account-shared Bot adapter
+
+`@openmeld/adapter-grok-bot` uses the official BDK credential and fixed public
+Grok Bot API host. It only reads, messages and interrupts the existing session
+pinned by the Binding. It never invokes the name-based get-or-create endpoint,
+reads native-app cookies or creates a provider Bot. BDK account identity is an
+Interface observation; Core still owns Wakeability and RuntimeCoordinator owns
+each Wake's lifecycle.
+
+This controller declares `conversationScope: account_shared`. It drains the
+pre-dispatch cursor without publication and refuses a conversation observed busy
+before submission. After submission, only provider-delivered `send-message`
+entries are proposed through the existing dispatch-owned `reply` action. This
+is an explicit shared-conversation delivery contract, not arbitrary stdout or
+reasoning extraction. Concurrent messages in the original app can contribute
+to these replies; there is no claim of task-exclusive attribution. The existing
+action writer and Core publication checks retain authorization and finalization.
+
+The adapter prevents overlapping dispatches to the same session within one
+Service adapter instance. This is not an account-wide provider lock. BDK offers
+no atomic task-specific admission or interrupt. A Stop targets the Bot's current
+conversation, as acknowledged at connection, and the adapter waits for idle
+evidence before returning `runtime.turn.cancelled`. An interrupt HTTP receipt
+alone is not a stopped outcome. A failed read is an explicit failure with a
+warning that provider work may continue, never manufactured settlement.
+
+Independent contexts, local file boundaries and automatic delivery-only repair
+are rejected. The provider keeps its existing tools and permissions. An
+ambiguous message submission is not automatically repeated; stable message IDs
+use the dispatch identity. Per-request network deadlines do not impose a total
+execution timeout.
+
 ## Agent Context
 
 - Purpose: Define OpenMeld Service / daemon as the local execution carrier and trust

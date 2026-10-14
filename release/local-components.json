@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-14T05:44:16.095Z",
+  "updatedAt": "2026-10-14T08:15:16.199Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-project-work-v1",
-      "packageVersion": "0.3.259",
+      "packageVersion": "0.3.260",
       "updatePolicy": "available",
-      "reason": "Retained-result trace guidance uses existing cloud evidence; old and new clients can safely continue setup, Wake, and result reads."
+      "reason": "Add existing Grok Bot shared-conversation connections through BDK."
     },
     "service": {
-      "bundleHash": "bb424df25841a04fdecb3b9645eb161a3b0e0d48f1a7ea2c5c33addb25c487cd",
-      "portableBundleHash": "115e532be90b101bc9bf23431e8753b3434c0074055ff12387a5ec0009e63dc2",
-      "bundleVersion": "0.3.259",
+      "bundleHash": "f37c6bf78f02ba21749ce90286ae970611b1de39329ca1a9f8e3bb61b9bb8e1b",
+      "portableBundleHash": "970072c20a30e9f6e5be2e23e8b5c040a3e0f302450ded9bd5412b8e19002f2f",
+      "bundleVersion": "0.3.260",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
       "serviceContractVersion": "openmeld-service-contract-2026-09-project-work-v1",
       "updatePolicy": "available",
-      "reason": "The cumulative shared helper changes preserve transport and execution contracts; current Services can continue accepted and new Wake work."
+      "reason": "Run and stop existing Grok Bot conversations through the standard Agent Profile execution path."
     },
     "skills": {
       "bundleHash": "0507d367ef298936053223f81441697545949fbf4d39b1b306872f7c254a4871",
