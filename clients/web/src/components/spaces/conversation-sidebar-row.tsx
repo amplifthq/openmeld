@@ -185,10 +185,20 @@ function renderConversationPreview(
 	);
 }
 
+function conversationRowClassName(pinned: boolean, hasPreviewLine: boolean) {
+	if (pinned) {
+		return "group/chat relative [&>[data-sidebar=menu-actions]]:top-1 [&>[data-sidebar=menu-actions]]:right-0 [&>[data-sidebar=menu-badge]]:top-10 [&>[data-sidebar=menu-badge]]:right-1";
+	}
+	return hasPreviewLine
+		? "group/chat relative"
+		: "group/chat relative [&>[data-sidebar=menu-actions]]:top-1/2 [&>[data-sidebar=menu-actions]]:-translate-y-1/2 [&>[data-sidebar=menu-badge]]:top-1/2 [&>[data-sidebar=menu-badge]]:-translate-y-1/2";
+}
+
 function ConversationSidebarRowContent(
 	input: ConversationSidebarRowProps & ConversationRowPreview
 ) {
 	const { timestamp, previewText } = input;
+	const pinned = input.section === "pinned";
 	const rowAnchor = useRef<HTMLDivElement>(null);
 	const presentation = input.activeWakeSummary
 		? resolveSpaceActiveWakePresentation(input.activeWakeSummary)
@@ -208,11 +218,7 @@ function ConversationSidebarRowContent(
 	});
 	const row = (
 		<FluidNavMenuItem
-			className={
-				hasPreviewLine
-					? "group/chat relative"
-					: "group/chat relative [&>[data-sidebar=menu-actions]]:top-1/2 [&>[data-sidebar=menu-actions]]:-translate-y-1/2 [&>[data-sidebar=menu-badge]]:top-1/2 [&>[data-sidebar=menu-badge]]:-translate-y-1/2"
-			}
+			className={conversationRowClassName(pinned, !!hasPreviewLine)}
 			index={input.index}
 			ref={drag.ref}
 			style={drag.style}
@@ -221,11 +227,15 @@ function ConversationSidebarRowContent(
 			<SidebarMenuButton
 				actionLayout="heading"
 				asChild
-				className="h-auto"
+				className={
+					pinned
+						? "h-auto px-1 [&_[data-sidebar=menu-heading]]:pr-0!"
+						: "h-auto"
+				}
 				isActive={input.selected}
 			>
 				<div
-					className={`relative flex min-h-12 w-full min-w-0 items-center gap-2 px-2 py-1.5 text-sm ${input.selected ? "font-medium text-sidebar-accent-foreground" : "text-muted-foreground"}`}
+					className={`relative flex w-full min-w-0 items-center ${pinned ? "min-h-26 flex-col gap-1.5 px-1 py-2 text-xs" : "min-h-12 gap-2 px-2 py-1.5 text-sm"} ${input.selected ? "font-medium text-sidebar-accent-foreground" : "text-muted-foreground"}`}
 					ref={rowAnchor}
 				>
 					<Tooltip>
@@ -251,6 +261,7 @@ function ConversationSidebarRowContent(
 							<ConversationIcon
 								conversation={input.conversation}
 								memberAppearances={input.memberAppearances}
+								pinned={pinned}
 								summary={input.activeWakeSummary}
 								title={input.title}
 							/>
@@ -265,14 +276,16 @@ function ConversationSidebarRowContent(
 						</TooltipContent>
 					</Tooltip>
 					<span className="pointer-events-none contents">
-						<span className="flex min-w-0 flex-1 flex-col gap-0.5">
+						<span
+							className={`flex min-w-0 flex-1 flex-col gap-0.5 ${pinned ? "w-full text-center" : ""}`}
+						>
 							<span
 								className="flex min-w-0 items-center gap-2"
 								data-sidebar="menu-heading"
 							>
 								<span className="flex min-w-0 flex-1 items-center gap-1.5">
 									<span
-										className={`min-w-0 flex-1 truncate text-foreground ${hasUnread ? "font-semibold" : ""}`}
+										className={`min-w-0 flex-1 text-foreground ${pinned ? "line-clamp-2 break-words leading-4" : "truncate"} ${hasUnread ? "font-semibold" : ""}`}
 										data-conversation-title="true"
 									>
 										{input.title}
@@ -280,7 +293,7 @@ function ConversationSidebarRowContent(
 									{input.conversation.kind === "space" &&
 										input.conversation.item.deletedAt && <SpaceDeletedLabel />}
 								</span>
-								{timestamp !== null && !presentation && (
+								{!pinned && timestamp !== null && !presentation && (
 									<ConversationSidebarRowTime timestamp={timestamp} />
 								)}
 								{presentation && input.attentionTone && (
@@ -291,7 +304,8 @@ function ConversationSidebarRowContent(
 									/>
 								)}
 							</span>
-							{hasPreviewLine &&
+							{!pinned &&
+								hasPreviewLine &&
 								renderConversationPreview(
 									input,
 									needsInput,
@@ -301,37 +315,7 @@ function ConversationSidebarRowContent(
 					</span>
 				</div>
 			</SidebarMenuButton>
-			{presentation ? (
-				<SidebarMenuBadge className="p-0">
-					<ConversationActivityIndicator
-						focusSignalId={input.activeWakeSummary?.focusSignalId}
-						presentation={presentation}
-						profileId={input.profileId}
-						spaceId={input.conversation.spaceId}
-						title={input.title}
-						url={input.url}
-					/>
-				</SidebarMenuBadge>
-			) : (
-				(hasUnread || input.attentionTone) && (
-					<SidebarMenuBadge>
-						{input.attentionTone ? (
-							<span
-								aria-hidden="true"
-								className={`status-dot ${resolveInboxIndicatorClassName(input.attentionTone)}`}
-								data-conversation-unread-indicator="true"
-							/>
-						) : (
-							<SpaceUnreadLink
-								count={input.unreadCount}
-								messageUnreadCount={input.messageUnreadCount}
-								spaceId={input.conversation.spaceId}
-								url={input.url}
-							/>
-						)}
-					</SidebarMenuBadge>
-				)
-			)}
+			<ConversationRowStatus input={input} presentation={presentation} />
 
 			<ConversationRowActions {...input} />
 		</FluidNavMenuItem>
@@ -340,6 +324,46 @@ function ConversationSidebarRowContent(
 		<FluidContextMenu className="w-56" target={row}>
 			<ConversationRowMenuItems {...input} />
 		</FluidContextMenu>
+	);
+}
+
+function ConversationRowStatus({
+	input,
+	presentation,
+}: {
+	input: ConversationSidebarRowProps;
+	presentation: SpaceActiveWakePresentation | null;
+}) {
+	return presentation ? (
+		<SidebarMenuBadge className="p-0">
+			<ConversationActivityIndicator
+				focusSignalId={input.activeWakeSummary?.focusSignalId}
+				presentation={presentation}
+				profileId={input.profileId}
+				spaceId={input.conversation.spaceId}
+				title={input.title}
+				url={input.url}
+			/>
+		</SidebarMenuBadge>
+	) : (
+		(input.unreadCount > 0 || input.attentionTone) && (
+			<SidebarMenuBadge>
+				{input.attentionTone ? (
+					<span
+						aria-hidden="true"
+						className={`status-dot ${resolveInboxIndicatorClassName(input.attentionTone)}`}
+						data-conversation-unread-indicator="true"
+					/>
+				) : (
+					<SpaceUnreadLink
+						count={input.unreadCount}
+						messageUnreadCount={input.messageUnreadCount}
+						spaceId={input.conversation.spaceId}
+						url={input.url}
+					/>
+				)}
+			</SidebarMenuBadge>
+		)
 	);
 }
 
@@ -544,6 +568,7 @@ function conversationNavigationTarget(href: string) {
 }
 
 function ConversationIcon(input: {
+	pinned?: boolean;
 	conversation: Conversation;
 	title: string;
 	summary?: SpaceSidebarActiveWakeSummary;
@@ -553,7 +578,7 @@ function ConversationIcon(input: {
 		return (
 			<ChatIcon
 				chat={input.conversation.chat}
-				size="sidebar"
+				size={input.pinned ? "md" : "sidebar"}
 				summary={input.summary}
 				title={input.title}
 			/>
@@ -564,12 +589,17 @@ function ConversationIcon(input: {
 		return (
 			<SpaceMemberAvatars
 				appearances={input.memberAppearances}
-				compactSize={24}
+				compactSize={input.pinned ? 48 : 24}
 				members={members}
 			/>
 		);
 	}
-	return <ChatCircleTextIcon aria-label="Space" className="size-6 shrink-0" />;
+	return (
+		<ChatCircleTextIcon
+			aria-label="Space"
+			className={input.pinned ? "size-12 shrink-0" : "size-6 shrink-0"}
+		/>
+	);
 }
 
 export function resolvePreviewText(
@@ -587,7 +617,7 @@ export function resolvePreviewText(
 export function ChatIcon(input: {
 	chat: Chat;
 	title: string;
-	size?: "sm" | "sidebar" | "card";
+	size?: "sm" | "sidebar" | "card" | "md";
 	summary?: SpaceSidebarActiveWakeSummary;
 }) {
 	if (input.chat.session) {
@@ -596,7 +626,11 @@ export function ChatIcon(input: {
 				avatarStyle={input.chat.centerAgentAvatarStyle}
 				profileId={input.chat.centerAgentProfileId}
 				profileName={input.chat.centerAgentProfileName}
-				size={({ card: 56, sidebar: 28, sm: 24 } as const)[input.size ?? "sm"]}
+				size={
+					({ card: 56, sidebar: 28, sm: 24, md: 48 } as const)[
+						input.size ?? "sm"
+					]
+				}
 				working={
 					input.summary?.statuses?.some(
 						(status) => status.kind === "working"
@@ -619,13 +653,17 @@ function ConversationRowActions(input: ConversationSidebarRowProps) {
 		input.section === "pinned" ? input.onUnpin() : input.onMove("pinned");
 	return (
 		<SidebarMenuActions showOnHover>
-			<SidebarRowAction
-				disabled={input.disabled}
-				label={`${input.section === "pinned" ? "Unpin" : "Pin"} ${input.title}`}
-				onClick={togglePin}
-			>
-				<PushPinIcon weight={input.section === "pinned" ? "fill" : "regular"} />
-			</SidebarRowAction>
+			{input.section !== "pinned" && (
+				<SidebarRowAction
+					disabled={input.disabled}
+					label={`${input.section === "pinned" ? "Unpin" : "Pin"} ${input.title}`}
+					onClick={togglePin}
+				>
+					<PushPinIcon
+						weight={input.section === "pinned" ? "fill" : "regular"}
+					/>
+				</SidebarRowAction>
+			)}
 			<DropdownMenu>
 				<DropdownMenuTrigger
 					render={

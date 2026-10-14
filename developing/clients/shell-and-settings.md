@@ -359,7 +359,13 @@ Settings and contains Search and theme selection. The workspace switcher contain
   active People/Agents picker; creating a sidebar group never creates a group DM.
   Older clients omitting `messages` cannot erase it on a revision-checked save.
   Pin/unpin actions reveal on their row's hover or keyboard focus, including
-  inside Pinned. Unread and work indicators remain visible without hover.
+  inside Pinned through its action menu. Pinned conversations use the shared
+  Fluid navigation hover in a responsive two-to-four-column grid with 48px
+  avatars and two-line labels. The grid shows two rows until expanded; hidden
+  unread, attention, and active-work states mark the disclosure control. Dragging
+  expands all targets and uses row-major insertion boundaries. Recent and named
+  groups retain list rows and optional message previews.
+  Unread and work indicators remain visible without hover.
   When both are present, the active Wake indicator takes the trailing slot ahead
   of the unread dot and timestamp; unread styling and accessible text remain.
   People reuses the Web-owned section actions, drag mechanics, manual ordering
