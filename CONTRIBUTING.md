@@ -98,9 +98,11 @@ defines the checks and maintainer steps before merge and release.
 External contributors do not need production credentials.
 
 `OpenMeld Final Candidate` checks the exact pull request commit against the current
-`main` branch. Passing CI does not replace required reviews and does not deploy
-OpenMeld. Production releases use separate, explicitly triggered workflows.
-Maintainers can keep those workflows disabled while enabling pull request checks.
+`main` branch. Reviews follow the repository rules and maintainer requirements.
+Passing CI does not deploy OpenMeld. Production releases use separately invoked,
+guarded local commands or GitHub workflows. Maintainers can disable the GitHub
+release workflows while enabling pull request checks; this does not disable the
+local release commands.
 
 ## Contribution licensing
 
