@@ -1,21 +1,21 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-14T11:10:07.106Z",
+  "updatedAt": "2026-10-14T13:27:37.450Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-project-work-v1",
       "packageVersion": "0.3.260",
       "updatePolicy": "available",
-      "reason": "Existing commands remain compatible; Grok Bot connection options are additive."
+      "reason": "Existing commands and recovery remain compatible; new controller options and update controls are additive."
     },
     "service": {
-      "bundleHash": "aab017f378cb9c23a308232e2c7fa057b99401edbe83225e45acb08d73e45319",
-      "portableBundleHash": "0357a9337bdff7ee1ddb07aa7b898be174e9a253cc0d994329b4eedb36cccb59",
+      "bundleHash": "9929802659e8084245a3d59ce7df888a5afa32515db69ec1243b451137ae9b1b",
+      "portableBundleHash": "ab665ae4e2511e5c65f51254cb6afa765575f99e3ad09e63bb02be467ba2cdf9",
       "bundleVersion": "0.3.260",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-project-work-v1",
       "serviceContractVersion": "openmeld-service-contract-2026-09-project-work-v1",
       "updatePolicy": "available",
-      "reason": "Existing controllers remain compatible; Grok Bot requires a newly advertised controller and uses the existing execution contract."
+      "reason": "Existing Services remain interoperable; this update fixes stop/reconnect and retained-result handling and adds guarded idle-only native updates without changing Wake contracts."
     },
     "skills": {
       "bundleHash": "0507d367ef298936053223f81441697545949fbf4d39b1b306872f7c254a4871",
